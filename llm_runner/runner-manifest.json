@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "llamacpp": {
+    "pinnedBuild": "b9644",
+    "binaries": [
+      {
+        "platform": "windows",
+        "gpu": "cuda12",
+        "source": "github",
+        "assetUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b9644/cudart-llama-bin-win-cuda-12.4-x64.zip",
+        "sha256": null,
+        "serverExe": "llama-server.exe"
+      },
+      {
+        "platform": "windows",
+        "gpu": "cuda13",
+        "source": "github",
+        "assetUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b9644/cudart-llama-bin-win-cuda-13.3-x64.zip",
+        "sha256": null,
+        "serverExe": "llama-server.exe"
+      },
+      {
+        "platform": "windows",
+        "gpu": "cpu",
+        "source": "github",
+        "assetUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b9644/llama-bin-win-cpu-x64.zip",
+        "sha256": null,
+        "serverExe": "llama-server.exe"
+      },
+      {
+        "platform": "macos",
+        "gpu": "metal",
+        "source": "github",
+        "assetUrl": "https://github.com/ggml-org/llama.cpp/releases/download/b9644/llama-bin-macos-arm64.zip",
+        "sha256": null,
+        "serverExe": "llama-server"
+      },
+      {
+        "platform": "linux",
+        "gpu": "cuda12",
+        "source": "docker",
+        "image": "ghcr.io/ggml-org/llama.cpp:server-cuda12-b9644",
+        "sha256": null,
+        "serverExe": "llama-server"
+      }
+    ]
+  },
+  "models": [
+    {
+      "id": "qwen3.6-35b-a3b-mtp",
+      "name": "Qwen3.6 35B-A3B (MTP)",
+      "tier": "low-vram-moe",
+      "candidateFor": ["attribution"],
+      "hfRepo": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+      "quant": "UD-Q4_K_XL",
+      "mmproj": null,
+      "totalParams": "35B",
+      "activeParams": "3.6B",
+      "mtp": true,
+      "minRamMb": 24000,
+      "recommendedFor": { "minVramMb": 6000 }
+    }
+  ],
+  "flagPresets": {
+    "base": ["-ngl", "999", "--flash-attn", "on", "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--mlock"],
+    "mtp": ["--spec-type", "draft-mtp", "--spec-draft-n-max", "3"],
+    "turboquant": {
+      "experimental": true,
+      "fork": "TheTom/llama-cpp-turboquant",
+      "flags": ["--cache-type-k", "turbo4", "--cache-type-v", "turbo3"]
+    }
+  },
+  "vramFit": {
+    "safetyMarginMb": 1024,
+    "tiers": { "cpu": 0, "low": 8192, "mid": 16384, "high": 24576 }
+  }
+}

@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[project]
+name = "llm-runner"
+version = "0.1.0"
+description = "Shared local-LLM runner core for JustVoice + JustWrite — detects hardware, manages/recommends GGUF models, downloads the right prebuilt llama.cpp (CUDA bundled), and spawns llama-server (OpenAI-compatible). Internal library; not published to PyPI."
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+# Deliberately light deps — NO ML (torch/transformers). This is why the
+# JustWrite sidecar bundle stays small (~tens of MB frozen).
+dependencies = [
+    "fastapi>=0.115",   # the mountable router (both apps mount it)
+    "pydantic>=2.9",    # camelCase schema (shared contract)
+    "requests>=2.32",   # streaming downloads (binaries + GGUF)
+]
+
+[project.optional-dependencies]
+# Only needed to run the core STANDALONE as its own server (JustWrite's
+# sidecar). When mounted into JustVoice's existing server, uvicorn is
+# already present there.
+serve = ["uvicorn>=0.32"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["llm_runner*"]
+
+[tool.setuptools.package-data]
+"llm_runner" = ["runner-manifest.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

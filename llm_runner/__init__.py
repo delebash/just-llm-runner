@@ -14,6 +14,7 @@ from .binary import acquire_binary, acquired_server_exe, binary_dir, select_bina
 from .download import DownloadCancelled, stream_download
 from .hardware import detect, platform_key
 from .manifest import load_manifest, manifest_path
+from .models import acquire_model, hf_cache_root, select_files
 from .schema import HardwareInfo, RunnerManifest
 
 __all__ = [
@@ -30,4 +31,7 @@ __all__ = [
     "binary_dir",
     "stream_download",
     "DownloadCancelled",
+    "select_files",
+    "acquire_model",
+    "hf_cache_root",
 ]

@@ -24,6 +24,9 @@ JustVoice repo for the full architecture + decision history.
 - `binary.py` — select + download + unpack the llama.cpp binary for the
   detected hardware (github-zip wired; Linux-CUDA docker is a later item).
 - `download.py` — streaming download (progress + cancel).
+- `models.py` — GGUF acquisition: resolve real filenames from the HF tree by
+  `quant` (+ `mmproj` sidecar), stream into the HF cache layout llama.cpp
+  loads from (blobs/snapshots/refs). Idempotent; no `huggingface_hub` dep.
 
 The shared Vue GUI (`llm-ui`, npm) will live here too once built.
 
@@ -38,7 +41,8 @@ pip install -e ../just-llm-runner
 ```
 
 ## Status
-P1.1 (manifest + schema + endpoint) and P1.2 (binary acquisition) done.
-Next: P1.3 model download, P1.4 spawn + VRAM-fit, P1.5 provider registration.
+P1.1 (manifest + schema + endpoint), P1.2 (binary acquisition), and P1.3
+(GGUF model download — `select_files` + `acquire_model`) done; 16 tests pass.
+Next: P1.4 spawn `llama-server` + VRAM-fit, P1.5 provider registration.
 
 SPDX-License-Identifier: GPL-3.0-or-later

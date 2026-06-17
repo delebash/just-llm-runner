@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.tsbuildinfo
+# Lockfile committed once the full toolchain (vue/vite) is installed for the
+# component work — a partial lock from the types-only scaffolding would mislead.
+package-lock.json

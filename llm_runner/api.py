@@ -12,9 +12,10 @@ download, spawn/status, provider config.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from .hardware import detect
+from .lifecycle import get_service
 from .manifest import load_manifest
 from .schema import HardwareInfo, RunnerManifest
 
@@ -39,3 +40,24 @@ async def get_manifest() -> RunnerManifest:
 )
 async def get_hardware() -> HardwareInfo:
     return detect()
+
+
+# ── Lifecycle: choose → load on demand → use ────────────────────────────
+
+
+@router.post("/v1/llm-runner/load", summary="Download (if needed) + spawn a model")
+async def load_model(body: dict) -> dict:
+    model_id = (body or {}).get("modelId") or ""
+    if not model_id:
+        raise HTTPException(status_code=400, detail="modelId required")
+    return get_service().load(model_id)
+
+
+@router.get("/v1/llm-runner/status", summary="Current load/run status")
+async def runner_status() -> dict:
+    return get_service().status()
+
+
+@router.post("/v1/llm-runner/stop", summary="Stop the running model")
+async def stop_model() -> dict:
+    return get_service().stop()

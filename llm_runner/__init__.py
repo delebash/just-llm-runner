@@ -14,6 +14,7 @@ from .binary import acquire_binary, acquired_server_exe, binary_dir, select_bina
 from .download import DownloadCancelled, stream_download
 from .gguf import GgufMeta, read_gguf_metadata
 from .hardware import detect, platform_key
+from .lifecycle import RunnerService, get_service
 from .manifest import load_manifest, manifest_path
 from .models import acquire_model, hf_cache_root, select_files
 from .runner import (
@@ -29,6 +30,8 @@ from .schema import HardwareInfo, RunnerManifest
 
 __all__ = [
     "router",
+    "RunnerService",
+    "get_service",
     "load_manifest",
     "manifest_path",
     "RunnerManifest",

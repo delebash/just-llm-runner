@@ -24,6 +24,9 @@ const loading = ref(true);
 const saving = ref(false);
 const error = ref("");
 const message = ref("");
+// Kept as a constant so the literal "{{…}}" never appears in the template (Vue's
+// parser would treat it as an interpolation).
+const varHint = "{{variable}} placeholders";
 
 const selected = computed(() => prompts.value.find((p) => p.key === selectedKey.value) || null);
 const dirty = computed(() => {
@@ -142,7 +145,7 @@ onMounted(load);
           <LuTextarea v-model="draft.system" auto-resize :rows="12" />
         </div>
         <div class="lu-field">
-          <label>User-prompt template <span class="lu-pl-hint">(supports {{ "{{variable}}" }} placeholders)</span></label>
+          <label>User-prompt template <span class="lu-pl-hint">(supports {{ varHint }})</span></label>
           <LuTextarea v-model="draft.userTemplate" auto-resize :rows="5" />
         </div>
         <div class="lu-pl-row2">

@@ -3,7 +3,7 @@
 
    The shared AI UI ships its OWN primitive classes (the `lu-` namespace)
    so it renders identically in every host WITHOUT importing the host's
-   Jw*/Jv* components. Every rule is driven by the design tokens both apps
+   Jw / Jv components. Every rule is driven by the design tokens both apps
    define in their tokens.css (--accent, --border, --surface, --ink,
    --muted, --r-sm/md, --btn-*, the state tokens). A host that defines
    those tokens gets a native-looking AI area for free.

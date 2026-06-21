@@ -14,10 +14,6 @@ import LuButton from "../components/LuButton.vue";
 import ProviderForm from "./ProviderForm.vue";
 import { request } from "../client.js";
 
-const props = defineProps({
-  appName: { type: String, default: "" },
-});
-
 const tab = ref("providers");
 const providers = ref([]);
 const hardware = ref(null);
@@ -104,11 +100,6 @@ onMounted(loadAll);
 
 <template>
   <div class="lu-area">
-    <header class="lu-topbar">
-      <span class="lu-brand">{{ appName || "App" }}</span>
-      <span class="lu-shared">shared · @delebash/llm-ui</span>
-    </header>
-    <h1 class="lu-h1">AI settings</h1>
     <p class="lu-muted lu-lede">Connect AI providers — free local or metered cloud — and manage which models power each feature.</p>
 
     <div v-if="hwLabel" class="lu-hwtop">
@@ -129,7 +120,7 @@ onMounted(loadAll);
 
     <!-- ── Providers & models ── -->
     <section v-show="tab === 'providers'" class="lu-tab">
-      <div class="lu-card lu-pcard">
+      <div class="lu-providers">
         <div class="lu-pcard-head">
           <span class="lu-pcard-title">Providers</span>
           <span class="lu-muted lu-pcard-count">{{ providers.length }} configured</span>
@@ -196,7 +187,7 @@ onMounted(loadAll);
 
     <!-- ── Features (placeholder — routing table is the next chunk) ── -->
     <section v-show="tab === 'features'" class="lu-tab">
-      <div class="lu-card lu-muted">
+      <div class="lu-muted">
         Feature routing (provider ▸ model per feature, roles, defaults) + the per-action Lab land next.
         The per-feature <b>prompt</b> editor is live at the Feature prompts view.
       </div>
@@ -204,7 +195,7 @@ onMounted(loadAll);
 
     <!-- ── Usage ── -->
     <section v-show="tab === 'usage'" class="lu-tab">
-      <div class="lu-card">
+      <div>
         <div v-if="usageStats" class="lu-usage">
           <div class="lu-u"><b>{{ usageStats.calls.toLocaleString() }}</b><small>calls recorded</small></div>
           <div class="lu-u"><b>{{ usageStats.tokens.toLocaleString() }}</b><small>tokens</small></div>
@@ -218,10 +209,7 @@ onMounted(loadAll);
 
 <style scoped>
 .lu-area { max-width: 1100px; }
-.lu-topbar { display: flex; align-items: center; gap: 12px; }
-.lu-brand { font-weight: 800; font-size: 15px; color: var(--ink); }
-.lu-shared { font-size: 11px; color: var(--accent-ink, var(--accent)); background: var(--accent-soft); border: 1px solid var(--accent-line, var(--accent)); border-radius: 999px; padding: 3px 10px; font-weight: 700; }
-.lu-h1 { font-size: 22px; font-weight: 600; margin: 10px 0 0; color: var(--ink); }
+.lu-h1 { font-size: 22px; font-weight: 600; margin: 0; color: var(--ink); }
 .lu-lede { font-size: 13px; margin: 4px 0 0; }
 .lu-hwtop { display: flex; gap: 24px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 11px 18px; margin-top: 12px; font-size: 12.5px; }
 .lu-hw-title { font-size: 11px; font-weight: 700; color: var(--muted); }
@@ -232,8 +220,7 @@ onMounted(loadAll);
 .lu-subnav a.on { color: var(--ink); border-bottom-color: var(--accent); }
 .lu-tab { padding-top: 14px; }
 
-/* provider card (mirrors JW Settings → AI engines) */
-.lu-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md, 10px); padding: 16px 18px; box-shadow: var(--shadow-1, 0 1px 3px rgba(20,22,24,.05)); }
+/* naked control — the host wraps it in its own page card (.pane-card in JW) */
 .lu-pcard-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .lu-pcard-title { font-weight: 700; font-size: 14px; color: var(--ink); }
 .lu-pcard-count { font-size: 12px; }

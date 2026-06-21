@@ -49,9 +49,9 @@ def _resolve_role(
     """Map a role name to (adapter, model) via config.llm_roles."""
     roles = config.llm_roles
     target = getattr(roles, role, None) if roles else None
-    if target is None or not target.provider_id:
+    if target is None or not target.providerId:
         return None
-    adapter = _reg(registry).get(target.provider_id)
+    adapter = _reg(registry).get(target.providerId)
     if adapter is None:
         return None
     return adapter, target.model or adapter.default_model
@@ -74,23 +74,23 @@ def resolve_pin(
 
     cfg = active_production_config(config, feature)
     if cfg is not None:
-        adapter = reg.get(cfg.provider_id)
+        adapter = reg.get(cfg.providerId)
         if adapter is not None:
             return adapter, cfg.model or adapter.default_model, cfg.tier
         log.warning(
             "production config %r for %s names unregistered provider %s — falling through",
-            cfg.name, feature, cfg.provider_id,
+            cfg.name, feature, cfg.providerId,
         )
 
     feature_pins = config.feature_pins or []
     pin = next((p for p in feature_pins if p.feature == feature), None)
 
-    if pin is not None and not pin.provider_id and pin.role:
+    if pin is not None and not pin.providerId and pin.role:
         resolved = _resolve_role(config, pin.role, reg)
         if resolved is not None:
             return resolved[0], resolved[1], pin.tier
 
-    if pin is None or not pin.provider_id:
+    if pin is None or not pin.providerId:
         # Role-default path: the feature's factory role, if configured.
         default_role = config.default_feature_roles.get(feature)
         if default_role:
@@ -113,10 +113,10 @@ def resolve_pin(
         adapter = adapters[0]
         return adapter, adapter.default_model, None
 
-    adapter = reg.get(pin.provider_id)
+    adapter = reg.get(pin.providerId)
     if adapter is None:
         raise LLMNotConfiguredError(
-            f"Feature {feature!r} is pinned to provider {pin.provider_id!r} "
+            f"Feature {feature!r} is pinned to provider {pin.providerId!r} "
             f"but that provider isn't registered."
         )
     return adapter, pin.model or adapter.default_model, pin.tier

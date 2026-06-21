@@ -47,39 +47,39 @@ class ProviderStore(Protocol):
 class LLMProviderResponse(BaseModel):
     id: str
     name: str
-    provider_type: str
-    base_url: str = ""
-    default_model: str = ""
-    embedding_model: str = ""
-    has_api_key: bool
+    providerType: str
+    baseUrl: str = ""
+    defaultModel: str = ""
+    embeddingModel: str = ""
+    hasApiKey: bool
     registered: bool  # True if the adapter is live in the registry
-    timeout_seconds: int = 60
+    timeoutSeconds: int = 60
 
 
 class LLMProviderList(BaseModel):
     providers: list[LLMProviderResponse]
-    provider_types: list[str] = PROVIDER_TYPES
+    providerTypes: list[str] = PROVIDER_TYPES
 
 
 class UpsertLLMProviderRequest(BaseModel):
     id: str = Field(..., min_length=1, max_length=80)
     name: str = Field(..., min_length=1, max_length=120)
-    provider_type: str
-    base_url: str = ""
-    # `api_key` is write-only — list responses never echo it. PATCH with an empty
+    providerType: str
+    baseUrl: str = ""
+    # `apiKey` is write-only — list responses never echo it. PATCH with an empty
     # string means "leave the existing key in place"; PATCH with null clears it.
-    api_key: str | None = None
-    default_model: str = ""
-    embedding_model: str = ""
-    timeout_seconds: int = 60
+    apiKey: str | None = None
+    defaultModel: str = ""
+    embeddingModel: str = ""
+    timeoutSeconds: int = 60
 
 
 class DetectedLocalProvider(BaseModel):
-    provider_type: str  # "ollama" | "openai_compat"
+    providerType: str  # "ollama" | "openai_compat"
     name: str
-    base_url: str
+    baseUrl: str
     models: list[str]
-    already_registered: bool
+    alreadyRegistered: bool
 
 
 class DetectLocalResponse(BaseModel):
@@ -90,13 +90,13 @@ def _to_response(cfg: LLMProviderConfig, registered: bool) -> LLMProviderRespons
     return LLMProviderResponse(
         id=cfg.id,
         name=cfg.name,
-        provider_type=cfg.provider_type,
-        base_url=cfg.base_url,
-        default_model=cfg.default_model,
-        embedding_model=cfg.embedding_model,
-        has_api_key=bool(cfg.api_key),
+        providerType=cfg.providerType,
+        baseUrl=cfg.baseUrl,
+        defaultModel=cfg.defaultModel,
+        embeddingModel=cfg.embeddingModel,
+        hasApiKey=bool(cfg.apiKey),
         registered=registered,
-        timeout_seconds=cfg.timeout_seconds,
+        timeoutSeconds=cfg.timeoutSeconds,
     )
 
 
@@ -104,7 +104,7 @@ def _check_type(provider_type: str) -> None:
     if provider_type not in PROVIDER_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"unknown provider_type {provider_type!r}. Allowed: {', '.join(PROVIDER_TYPES)}",
+            detail=f"unknown providerType {provider_type!r}. Allowed: {', '.join(PROVIDER_TYPES)}",
         )
 
 
@@ -121,19 +121,19 @@ def make_provider_router(get_store: Callable[[], ProviderStore]) -> APIRouter:
 
     @router.post("/v1/llm-providers", response_model=LLMProviderResponse, status_code=201)
     async def create_llm_provider(body: UpsertLLMProviderRequest) -> LLMProviderResponse:
-        _check_type(body.provider_type)
+        _check_type(body.providerType)
         store = get_store()
         if store.get(body.id) is not None:
             raise HTTPException(status_code=400, detail=f"LLM provider id {body.id!r} already exists")
         cfg = LLMProviderConfig(
             id=body.id,
             name=body.name,
-            provider_type=body.provider_type,
-            base_url=body.base_url,
-            api_key=body.api_key or None,
-            default_model=body.default_model,
-            embedding_model=body.embedding_model,
-            timeout_seconds=body.timeout_seconds,
+            providerType=body.providerType,
+            baseUrl=body.baseUrl,
+            apiKey=body.apiKey or None,
+            defaultModel=body.defaultModel,
+            embeddingModel=body.embeddingModel,
+            timeoutSeconds=body.timeoutSeconds,
         )
         store.add(cfg)
         registered = _sync_register(cfg)
@@ -141,22 +141,22 @@ def make_provider_router(get_store: Callable[[], ProviderStore]) -> APIRouter:
 
     @router.patch("/v1/llm-providers/{provider_id}", response_model=LLMProviderResponse)
     async def update_llm_provider(provider_id: str, body: UpsertLLMProviderRequest) -> LLMProviderResponse:
-        _check_type(body.provider_type)
+        _check_type(body.providerType)
         store = get_store()
         existing = store.get(provider_id)
         if existing is None:
             raise HTTPException(status_code=404, detail=f"LLM provider {provider_id}")
         # empty string preserves the prior key (write-only field); None clears it.
-        api_key = existing.api_key if body.api_key == "" else body.api_key
+        api_key = existing.apiKey if body.apiKey == "" else body.apiKey
         cfg = LLMProviderConfig(
             id=existing.id,  # id is immutable; reassigning would orphan feature pins
             name=body.name,
-            provider_type=body.provider_type,
-            base_url=body.base_url,
-            api_key=api_key,
-            default_model=body.default_model,
-            embedding_model=body.embedding_model,
-            timeout_seconds=body.timeout_seconds,
+            providerType=body.providerType,
+            baseUrl=body.baseUrl,
+            apiKey=api_key,
+            defaultModel=body.defaultModel,
+            embeddingModel=body.embeddingModel,
+            timeoutSeconds=body.timeoutSeconds,
         )
         store.replace(provider_id, cfg)
         get_llm_registry().deregister(cfg.id)
@@ -178,7 +178,7 @@ def make_provider_router(get_store: Callable[[], ProviderStore]) -> APIRouter:
         :1234) — powers the first-run "Ollama detected → Connect" row."""
         import httpx
 
-        registered_urls = {(p.base_url or "").rstrip("/") for p in get_store().list()}
+        registered_urls = {(p.baseUrl or "").rstrip("/") for p in get_store().list()}
         out: list[DetectedLocalProvider] = []
         probes = [
             ("ollama", "Ollama (local)", "http://127.0.0.1:11434", "/api/tags",
@@ -193,8 +193,8 @@ def make_provider_router(get_store: Callable[[], ProviderStore]) -> APIRouter:
                     continue
                 models = [m for m in extract(r.json()) if m]
                 out.append(DetectedLocalProvider(
-                    provider_type=ptype, name=name, base_url=base, models=models,
-                    already_registered=base in registered_urls,
+                    providerType=ptype, name=name, baseUrl=base, models=models,
+                    alreadyRegistered=base in registered_urls,
                 ))
             except Exception:  # noqa: BLE001 - a down probe is just "not detected"
                 continue

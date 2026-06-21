@@ -65,9 +65,9 @@ def test_production_config_wins():
     reg = make_reg(FakeAdapter("cloud"), FakeAdapter("local"))
     cfg = LLMConfig(
         production_configs=[ProductionConfig(
-            feature="critique", name="strict", provider_id="cloud",
+            feature="critique", name="strict", providerId="cloud",
             model="claude-sonnet-4-6", tier="direct")],
-        feature_pins=[FeaturePinConfig(feature="critique", provider_id="local", model="x")],
+        feature_pins=[FeaturePinConfig(feature="critique", providerId="local", model="x")],
     )
     adapter, model, tier = resolve_pin(cfg, "critique", reg)
     assert adapter.provider_id == "cloud"
@@ -78,8 +78,8 @@ def test_production_config_wins():
 def test_explicit_pin_beats_role():
     reg = make_reg(FakeAdapter("local"), FakeAdapter("cloud"))
     cfg = LLMConfig(
-        feature_pins=[FeaturePinConfig(feature="compose", provider_id="local", model="qwen3-4b")],
-        llm_roles=LLMRolesSettings(quick=LLMRoleTarget(provider_id="cloud", model="gpt")),
+        feature_pins=[FeaturePinConfig(feature="compose", providerId="local", model="qwen3-4b")],
+        llm_roles=LLMRolesSettings(quick=LLMRoleTarget(providerId="cloud", model="gpt")),
     )
     adapter, model, _ = resolve_pin(cfg, "compose", reg)
     assert adapter.provider_id == "local"
@@ -90,7 +90,7 @@ def test_pin_inherits_role():
     reg = make_reg(FakeAdapter("local", "qwen3-4b"))
     cfg = LLMConfig(
         feature_pins=[FeaturePinConfig(feature="compose", role="quick")],
-        llm_roles=LLMRolesSettings(quick=LLMRoleTarget(provider_id="local", model="qwen3-4b")),
+        llm_roles=LLMRolesSettings(quick=LLMRoleTarget(providerId="local", model="qwen3-4b")),
     )
     adapter, model, _ = resolve_pin(cfg, "compose", reg)
     assert adapter.provider_id == "local"
@@ -100,7 +100,7 @@ def test_pin_inherits_role():
 def test_default_feature_role():
     reg = make_reg(FakeAdapter("cloud", "big"), FakeAdapter("local"))
     cfg = LLMConfig(
-        llm_roles=LLMRolesSettings(accuracy=LLMRoleTarget(provider_id="cloud", model="big")),
+        llm_roles=LLMRolesSettings(accuracy=LLMRoleTarget(providerId="cloud", model="big")),
         default_feature_roles={"speaker_attribution": "accuracy"},
     )
     adapter, model, _ = resolve_pin(cfg, "speaker_attribution", reg)
@@ -132,7 +132,7 @@ def test_no_provider_raises():
 
 def test_resolve_tier_auto_reasoned():
     reg = make_reg(FakeAdapter("local", "def"))
-    cfg = LLMConfig(feature_pins=[FeaturePinConfig(feature="x", provider_id="local", model="qwen3:14b")])
+    cfg = LLMConfig(feature_pins=[FeaturePinConfig(feature="x", providerId="local", model="qwen3:14b")])
     spec = resolve_tier(cfg, "x", reg)
     assert spec.name == "reasoned"
     assert spec.think is True
@@ -141,7 +141,7 @@ def test_resolve_tier_auto_reasoned():
 def test_resolve_tier_override():
     reg = make_reg(FakeAdapter("local", "def"))
     cfg = LLMConfig(feature_pins=[FeaturePinConfig(
-        feature="x", provider_id="local", model="qwen3:14b", tier="guided")])
+        feature="x", providerId="local", model="qwen3:14b", tier="guided")])
     spec = resolve_tier(cfg, "x", reg)
     assert spec.name == "guided"
 
@@ -152,7 +152,7 @@ def test_chat_thinks_from_tier_and_records_usage():
     get_ledger().clear()
     fake = FakeAdapter("local", "def")
     reg = make_reg(fake)
-    cfg = LLMConfig(feature_pins=[FeaturePinConfig(feature="x", provider_id="local", model="qwen3:14b")])
+    cfg = LLMConfig(feature_pins=[FeaturePinConfig(feature="x", providerId="local", model="qwen3:14b")])
     resp = chat(config=cfg, feature="x", messages=[LLMMessage("user", "hi")], registry=reg)
     assert resp.text == "ok"
     assert fake.calls[0]["think"] is True  # reasoned tier → think

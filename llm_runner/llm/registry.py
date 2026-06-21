@@ -73,16 +73,16 @@ def construct(cfg: "LLMProviderConfig") -> "LLMAdapter":
     Unknown provider types raise ValueError — callers should catch and
     log so a misconfigured settings entry doesn't kill boot.
     """
-    pt = cfg.provider_type.lower()
+    pt = cfg.providerType.lower()
     if pt == "anthropic":
         from .anthropic import AnthropicAdapter
 
         return AnthropicAdapter(
             cfg.id,
-            api_key=cfg.api_key or "",
-            base_url=cfg.base_url,
-            default_model=cfg.default_model,
-            timeout_seconds=cfg.timeout_seconds,
+            api_key=cfg.apiKey or "",
+            base_url=cfg.baseUrl,
+            default_model=cfg.defaultModel,
+            timeout_seconds=cfg.timeoutSeconds,
         )
     if pt in ("openai", "openai-compat", "deepseek", "openrouter", "local-llamacpp"):
         from .openai_compat import OpenAICompatAdapter
@@ -90,32 +90,32 @@ def construct(cfg: "LLMProviderConfig") -> "LLMAdapter":
         return OpenAICompatAdapter(
             cfg.id,
             provider_type=pt,
-            api_key=cfg.api_key or "",
-            base_url=cfg.base_url,
-            default_model=cfg.default_model,
-            timeout_seconds=cfg.timeout_seconds,
+            api_key=cfg.apiKey or "",
+            base_url=cfg.baseUrl,
+            default_model=cfg.defaultModel,
+            timeout_seconds=cfg.timeoutSeconds,
         )
     if pt == "ollama":
         from .ollama import OllamaAdapter
 
         return OllamaAdapter(
             cfg.id,
-            api_key=cfg.api_key or "",
-            base_url=cfg.base_url,
-            default_model=cfg.default_model,
-            timeout_seconds=cfg.timeout_seconds,
+            api_key=cfg.apiKey or "",
+            base_url=cfg.baseUrl,
+            default_model=cfg.defaultModel,
+            timeout_seconds=cfg.timeoutSeconds,
         )
     if pt == "gemini":
         from .gemini import GeminiAdapter
 
         return GeminiAdapter(
             cfg.id,
-            api_key=cfg.api_key or "",
-            base_url=cfg.base_url,
-            default_model=cfg.default_model,
-            timeout_seconds=cfg.timeout_seconds,
+            api_key=cfg.apiKey or "",
+            base_url=cfg.baseUrl,
+            default_model=cfg.defaultModel,
+            timeout_seconds=cfg.timeoutSeconds,
         )
-    raise ValueError(f"unknown LLM provider_type: {pt!r}")
+    raise ValueError(f"unknown LLM providerType: {pt!r}")
 
 
 def load_from_configs(configs, registry: "LLMRegistry | None" = None) -> None:

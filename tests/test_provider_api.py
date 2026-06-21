@@ -46,35 +46,35 @@ def test_crud_lifecycle_and_registry_sync():
 
     # create — persisted + registered live
     r = c.post("/v1/llm-providers", json={
-        "id": "oa", "name": "OpenAI", "provider_type": "openai",
-        "api_key": "sk-x", "default_model": "gpt-4o-mini",
+        "id": "oa", "name": "OpenAI", "providerType": "openai",
+        "apiKey": "sk-x", "defaultModel": "gpt-4o-mini",
     })
     assert r.status_code == 201
     body = r.json()
-    assert body["has_api_key"] is True and "api_key" not in body and body["registered"] is True
+    assert body["hasApiKey"] is True and "apiKey" not in body and body["registered"] is True
     assert "oa" in get_llm_registry().ids()
 
     # list reflects the registered flag, never echoes the key
     lst = c.get("/v1/llm-providers").json()
     assert [p["id"] for p in lst["providers"]] == ["oa"]
-    assert "openai" in lst["provider_types"]
+    assert "openai" in lst["providerTypes"]
 
     # duplicate id rejected
-    assert c.post("/v1/llm-providers", json={"id": "oa", "name": "x", "provider_type": "openai"}).status_code == 400
+    assert c.post("/v1/llm-providers", json={"id": "oa", "name": "x", "providerType": "openai"}).status_code == 400
     # bad type rejected
-    assert c.post("/v1/llm-providers", json={"id": "z", "name": "x", "provider_type": "nope"}).status_code == 400
+    assert c.post("/v1/llm-providers", json={"id": "z", "name": "x", "providerType": "nope"}).status_code == 400
 
-    # patch — empty api_key preserves the prior key
+    # patch — empty apiKey preserves the prior key
     r = c.patch("/v1/llm-providers/oa", json={
-        "id": "oa", "name": "OpenAI 2", "provider_type": "openai",
-        "api_key": "", "default_model": "gpt-4o",
+        "id": "oa", "name": "OpenAI 2", "providerType": "openai",
+        "apiKey": "", "defaultModel": "gpt-4o",
     })
     assert r.status_code == 200 and r.json()["name"] == "OpenAI 2"
-    assert store.get("oa").api_key == "sk-x"  # preserved
-    assert store.get("oa").default_model == "gpt-4o"
+    assert store.get("oa").apiKey == "sk-x"  # preserved
+    assert store.get("oa").defaultModel == "gpt-4o"
 
     # patch missing → 404
-    assert c.patch("/v1/llm-providers/nope", json={"id": "nope", "name": "x", "provider_type": "openai"}).status_code == 404
+    assert c.patch("/v1/llm-providers/nope", json={"id": "nope", "name": "x", "providerType": "openai"}).status_code == 404
 
     # delete — removed + deregistered
     assert c.delete("/v1/llm-providers/oa").json() == {"deleted": True}
@@ -98,5 +98,5 @@ def test_detect_local(monkeypatch):
 
     monkeypatch.setattr(httpx, "get", fake_get)
     det = _client(MemStore()).get("/v1/llm-providers/detect-local").json()["detected"]
-    assert len(det) == 1 and det[0]["provider_type"] == "ollama"
-    assert "qwen3:14b" in det[0]["models"] and det[0]["already_registered"] is False
+    assert len(det) == 1 and det[0]["providerType"] == "ollama"
+    assert "qwen3:14b" in det[0]["models"] and det[0]["alreadyRegistered"] is False

@@ -8,33 +8,35 @@ shared dispatch can resolve a feature → provider without importing any
 app's settings object. Both JustVoice and JustWrite construct an
 `LLMConfig` from their own settings and hand it to `dispatch`.
 
-camelCase aliases (shared llm-ui contract): the models ACCEPT both
-snake_case and camelCase on input via `populate_by_name`.
+camelCase-native (2026-06-21): the Python field names ARE camelCase, so
+the attribute == the JSON key == the JS renderer key. There is exactly
+ONE name per field — no snake_case aliases, no `populate_by_name`. This
+is the deliberate cross-language-uniformity choice: the JS renderer and
+JustWrite already carry camelCase data, so the wire matches them with no
+aliasing shim. (`LLMConfig` below is internal plumbing — never serialized
+— so it keeps snake field names.)
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from pydantic import BaseModel, ConfigDict
-from pydantic.alias_generators import to_camel
+from pydantic import BaseModel
 
 
 class LLMProviderConfig(BaseModel):
-    """A registered LLM provider entry. `provider_type` discriminates
+    """A registered LLM provider entry. `providerType` discriminates
     which adapter (anthropic / openai / openai-compat / gemini / ollama /
     deepseek / openrouter / local-llamacpp) handles the dispatch."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-
     id: str
     name: str = ""
-    provider_type: str  # "anthropic" | "openai" | "openai-compat" | "gemini" | "ollama" | "deepseek" | "openrouter" | "local-llamacpp"
-    base_url: str = ""
-    api_key: str | None = None
-    default_model: str = ""
-    embedding_model: str = ""  # optional — provider doubles as the EMBED source
-    timeout_seconds: int = 60
+    providerType: str  # "anthropic" | "openai" | "openai-compat" | "gemini" | "ollama" | "deepseek" | "openrouter" | "local-llamacpp"
+    baseUrl: str = ""
+    apiKey: str | None = None
+    defaultModel: str = ""
+    embeddingModel: str = ""  # optional — provider doubles as the EMBED source
+    timeoutSeconds: int = 60
     extra: dict[str, str] = {}  # provider-specific extras (org id, region, etc.)
 
 
@@ -42,23 +44,19 @@ class FeaturePinConfig(BaseModel):
     """Which provider+model handles each LLM feature. Looked up at
     dispatch time by feature key."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-
     feature: str
-    provider_id: str = ""
+    providerId: str = ""
     model: str = ""
     tier: str | None = None  # "guided" | "direct" | "reasoned" — null = auto-classify
     # Inherit a model role instead of naming provider+model directly.
-    # "quick" | "accuracy" | None. Explicit provider_id/model win over role.
+    # "quick" | "accuracy" | None. Explicit providerId/model win over role.
     role: str | None = None
 
 
 class LLMRoleTarget(BaseModel):
     """One half of the Quick/Accuracy pair."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-
-    provider_id: str
+    providerId: str
     model: str = ""
 
 
@@ -75,17 +73,15 @@ class ProductionConfig(BaseModel):
     The active config beats pins and roles (precedence step 1). One per
     feature; deleting it reverts the feature to Default (tier-resolved)."""
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
-
     feature: str
     name: str
-    provider_id: str
+    providerId: str
     model: str = ""
     tier: str | None = None
     temperature: float | None = None
-    system_prompt: str | None = None
-    user_prompt: str | None = None
-    promoted_at: str | None = None  # ISO timestamp
+    systemPrompt: str | None = None
+    userPrompt: str | None = None
+    promotedAt: str | None = None  # ISO timestamp
     source: str = "lab"
 
 

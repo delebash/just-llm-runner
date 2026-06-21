@@ -3,28 +3,33 @@
 Shared **Vue LLM provider/runner UI** for **JustVoice** and **JustWrite** —
 the second half of `just-llm-runner` (the Python core is the first half).
 
-The components render against a host-supplied **`ProviderBackend`** adapter and
-**never call `fetch` directly**, so the same UI drives JustVoice (REST adapter
-over `/v1/llm-providers*`) and JustWrite (Pinia adapter over its
-`OpenAICompatClient`). One implementation, both apps, no forks.
+The components are **self-contained**: they call the **same server endpoints
+both apps mount** (`/v1/ai/*`, `/v1/llm-providers*`, `/v1/ai-usage`) through a
+host-configured origin-aware client, and ship their own **token-driven styles**
+(the `lu-` class namespace, driven by each app's `tokens.css`). No per-app data
+adapter, no host components — one implementation, both apps, no forks. (This
+supersedes the earlier `ProviderBackend` adapter design — both apps now expose
+identical endpoints, so the UI talks to them directly.)
 
-**Internal library — NOT published to npm.** Consumed as a git dependency
-(pinned tag), built to ESM/UMD with Vue externalized. See
-`docs/plans/2026-06-16-thread3-phase2-llm-ui.md` in the JustVoice repo for the
-full plan + the locked camelCase shapes.
+**Plain JS — no TypeScript, no build step.** Consumed via a Vite alias to
+`ui/src` in both apps (each app's own Vite bundles this source directly), so
+there's no `dist/`, no `tsc`, no lib build. Authoritative plan:
+`docs/plans/2026-06-20-shared-ai-stack-plan.md` (same file in both repos).
 
 ## What's here
-- `src/types.ts` — the shared **camelCase** contract (`Provider`, `FeaturePin`,
-  `UsageRow`, `ModelEntry`, `DetectedLocalProvider`, …). LLM + embedding only.
-- `src/adapters/ProviderBackend.ts` — the adapter interface each app implements.
-- Vue components — TO BUILD (Phase 2, item by item: `LlmProviderForm` first).
+- `src/client.js` — origin-aware HTTP client; the host calls
+  `configureLlmUi({ baseUrl })` once at boot. The camelCase wire shapes
+  (`Provider`, `FeaturePin`, `UsageRow`, …) match the server's pydantic models.
+- `src/styles.css` — token-driven primitive + layout styles (`lu-` namespace).
+- `src/components/Lu*.vue` — primitives (Button / Input / Textarea / Checkbox).
+- `src/views/*.vue` — shared views. `PromptLab` (the per-feature prompt editor)
+  is the first; provider form / model picker / features routing / usage follow.
 
-## Develop
-```bash
-cd ui
-npm install
-npm run typecheck   # tsc --noEmit
-npm run build       # vite lib build → dist/ (+ .d.ts)
+## The host wires it once (both apps)
+```js
+import { configureLlmUi } from "@delebash/llm-ui";
+import { SERVER_BASE } from "./services/serverApi.js";
+configureLlmUi({ baseUrl: SERVER_BASE });
 ```
 
 SPDX-License-Identifier: GPL-3.0-or-later

@@ -1,0 +1,125 @@
+/* ============================================================
+   @delebash/llm-ui — self-contained, token-driven styles.
+
+   The shared AI UI ships its OWN primitive classes (the `lu-` namespace)
+   so it renders identically in every host WITHOUT importing the host's
+   Jw*/Jv* components. Every rule is driven by the design tokens both apps
+   define in their tokens.css (--accent, --border, --surface, --ink,
+   --muted, --r-sm/md, --btn-*, the state tokens). A host that defines
+   those tokens gets a native-looking AI area for free.
+
+   Reproduced faithfully from JustWrite's .jw-btn/.jw-input/.jw-checkbox
+   rules (styles.css) — same look, host-neutral class names.
+   ============================================================ */
+
+/* ── Button ────────────────────────────────────────────────── */
+.lu-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 8px;
+  padding: var(--btn-pad-y, 8px) var(--btn-pad-x, 16px);
+  font: 500 var(--btn-font-size, 14px)/1.2 var(--font-ui, sans-serif);
+  text-transform: var(--btn-text-transform, none);
+  letter-spacing: var(--btn-letter-spacing, normal);
+  border: 1px solid transparent;
+  border-radius: var(--btn-radius, 6px);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  background: transparent;
+  transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s;
+}
+.lu-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.lu-btn.is-disabled, .lu-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.lu-btn--small { padding: var(--btn-pad-y-sm, 4px) var(--btn-pad-x-sm, 11px); font-size: var(--btn-font-size-sm, 12px); gap: 6px; }
+
+.lu-btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+.lu-btn--primary:not(:disabled):not(.is-disabled):hover {
+  background: color-mix(in oklab, var(--accent) 82%, black);
+  border-color: color-mix(in oklab, var(--accent) 82%, black);
+}
+.lu-btn--secondary { border-color: var(--border-strong); color: var(--ink-2); }
+.lu-btn--secondary:not(:disabled):not(.is-disabled):hover { background: var(--surface-3); }
+.lu-btn--ghost { color: var(--ink-2); }
+.lu-btn--ghost:not(:disabled):not(.is-disabled):hover { background: var(--surface-3); }
+.lu-btn--danger { background: var(--danger); border-color: var(--danger); color: var(--surface); }
+.lu-btn--danger:not(:disabled):not(.is-disabled):hover {
+  background: color-mix(in oklab, var(--danger) 82%, black);
+  border-color: color-mix(in oklab, var(--danger) 82%, black);
+}
+.lu-btn--success { background: var(--success, var(--status-done)); border-color: var(--success, var(--status-done)); color: var(--surface); }
+.lu-btn--success:not(:disabled):not(.is-disabled):hover {
+  background: color-mix(in oklab, var(--success, var(--status-done)) 82%, black);
+  border-color: color-mix(in oklab, var(--success, var(--status-done)) 82%, black);
+}
+
+/* ── Input / Textarea ──────────────────────────────────────── */
+.lu-input {
+  display: inline-block;
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm, 6px);
+  outline: none;
+  transition: border-color .12s, box-shadow .12s, background-color .12s;
+}
+.lu-input::placeholder { color: var(--muted); }
+.lu-input:hover:not(:disabled):not(:focus) { border-color: var(--border-strong); }
+.lu-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lu-input:disabled, .lu-input[readonly] { opacity: 0.7; background: var(--surface-2); }
+.lu-input.is-invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 18%, transparent);
+}
+.lu-input--small { padding: 5px 8px; font-size: 12.5px; }
+.lu-input--number { font-variant-numeric: tabular-nums; }
+
+.lu-textarea {
+  display: block;
+  line-height: 1.55;
+  resize: vertical;
+  min-height: 60px;
+}
+.lu-textarea.auto-resize { resize: none; overflow: hidden; }
+
+/* ── Checkbox ──────────────────────────────────────────────── */
+.lu-checkbox {
+  display: inline-flex; align-items: center; gap: 8px;
+  cursor: pointer; user-select: none; font-size: 13px; color: var(--ink);
+}
+.lu-checkbox-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.lu-checkbox-box {
+  flex: 0 0 auto; width: 16px; height: 16px;
+  display: inline-grid; place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: transparent;
+  transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s;
+}
+.lu-checkbox-tick { width: 12px; height: 12px; }
+.lu-checkbox.is-checked .lu-checkbox-box { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+.lu-checkbox-input:focus-visible + .lu-checkbox-box { box-shadow: 0 0 0 3px var(--accent-soft); }
+.lu-checkbox.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.lu-checkbox-label { line-height: 1.4; }
+
+/* ── Shared layout helpers ─────────────────────────────────── */
+.lu-muted { color: var(--muted); }
+.lu-field { display: flex; flex-direction: column; gap: 5px; }
+.lu-field > label { font-size: 12px; color: var(--muted); }
+.lu-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md, 10px);
+  padding: 14px;
+}
+.lu-error {
+  color: var(--danger-ink, var(--danger));
+  background: var(--danger-bg, transparent);
+  border: 1px solid var(--danger-line, var(--danger));
+  border-radius: var(--r-sm, 6px);
+  padding: 8px 10px; font-size: 13px;
+}

@@ -2,35 +2,14 @@
   "name": "@delebash/llm-ui",
   "version": "0.0.1",
   "private": true,
-  "description": "Shared Vue LLM provider/runner UI for JustVoice + JustWrite. Renders against a host-supplied ProviderBackend adapter; never calls fetch directly.",
+  "description": "Shared Vue LLM provider/prompt/usage UI for JustVoice + JustWrite. Plain JS + Vue SFCs, consumed via a Vite alias to src/; the views call the same server endpoints both apps mount and ship their own token-driven styles.",
   "license": "GPL-3.0-or-later",
   "type": "module",
+  "main": "./src/index.js",
   "files": [
-    "dist",
     "src"
   ],
-  "main": "./dist/llm-ui.umd.cjs",
-  "module": "./dist/llm-ui.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/llm-ui.js",
-      "require": "./dist/llm-ui.umd.cjs"
-    }
-  },
-  "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "vite build && vue-tsc --declaration --emitDeclarationOnly -p tsconfig.json"
-  },
   "peerDependencies": {
     "vue": "^3.4"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-vue": "^5.1",
-    "typescript": "^5.9.3",
-    "vite": "^5.4",
-    "vue": "^3.4",
-    "vue-tsc": "^2.1"
   }
 }

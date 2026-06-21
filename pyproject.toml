@@ -29,7 +29,7 @@ build-backend = "setuptools.build_meta"
 include = ["llm_runner*"]
 
 [tool.setuptools.package-data]
-"llm_runner" = ["runner-manifest.json"]
+"llm_runner.runner" = ["runner-manifest.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

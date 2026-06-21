@@ -7,7 +7,7 @@ import struct
 
 import pytest
 
-from llm_runner.gguf import read_gguf_metadata
+from llm_runner.runner.gguf import read_gguf_metadata
 
 
 def _gstr(s: str) -> bytes:

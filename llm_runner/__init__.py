@@ -9,15 +9,15 @@ Internal library — consumed as a git dependency, NOT published to PyPI.
 See docs/plans/2026-06-16-builtin-llm-runner.md in the JustVoice repo.
 """
 
-from .api import router
-from .binary import acquire_binary, acquired_server_exe, binary_dir, select_binary
-from .download import DownloadCancelled, stream_download
-from .gguf import GgufMeta, read_gguf_metadata
-from .hardware import detect, platform_key
-from .lifecycle import RunnerService, get_service
-from .manifest import load_manifest, manifest_path
-from .models import acquire_model, hf_cache_root, select_files
-from .runner import (
+from .runner.api import router
+from .runner.binary import acquire_binary, acquired_server_exe, binary_dir, select_binary
+from .runner.download import DownloadCancelled, stream_download
+from .runner.gguf import GgufMeta, read_gguf_metadata
+from .runner.hardware import detect, platform_key
+from .runner.lifecycle import RunnerService, get_service
+from .runner.manifest import load_manifest, manifest_path
+from .runner.models import acquire_model, hf_cache_root, select_files
+from .runner.process import (
     FitPlan,
     Overrides,
     Runner,
@@ -26,7 +26,7 @@ from .runner import (
     compute_fit,
     start_runner,
 )
-from .schema import HardwareInfo, RunnerManifest
+from .runner.schema import HardwareInfo, RunnerManifest
 
 __all__ = [
     "router",

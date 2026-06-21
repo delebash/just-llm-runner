@@ -21,7 +21,7 @@ from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect
 from .manifest import load_manifest as _load_manifest
 from .models import acquire_model as _acquire_model
-from .runner import Overrides, compute_fit, start_runner as _start_runner
+from .process import Overrides, compute_fit, start_runner as _start_runner
 
 log = logging.getLogger(__name__)
 

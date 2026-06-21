@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from llm_runner import load_manifest, router
-from llm_runner.manifest import manifest_path
+from llm_runner.runner.manifest import manifest_path
 
 
 def _client():

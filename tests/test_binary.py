@@ -9,8 +9,8 @@ import zipfile
 import pytest
 
 from llm_runner import load_manifest, select_binary
-from llm_runner import binary as binmod
-from llm_runner.schema import GpuInfo, HardwareInfo
+from llm_runner.runner import binary as binmod
+from llm_runner.runner.schema import GpuInfo, HardwareInfo
 
 
 def _hw(platform_name, runtimes, gpus=None):

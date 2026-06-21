@@ -8,8 +8,8 @@ from __future__ import annotations
 import pytest
 
 from llm_runner import load_manifest
-from llm_runner.gguf import GgufMeta
-from llm_runner.runner import (
+from llm_runner.runner.gguf import GgufMeta
+from llm_runner.runner.process import (
     FitPlan,
     Overrides,
     Runner,
@@ -18,7 +18,7 @@ from llm_runner.runner import (
     compute_fit,
     start_runner,
 )
-from llm_runner.schema import GpuInfo, HardwareInfo, ModelEntry
+from llm_runner.runner.schema import GpuInfo, HardwareInfo, ModelEntry
 
 # layer_bytes = 10 GB / 10 layers = 1 GB/layer → clean fit arithmetic.
 _TEN_GB = 10_000_000_000

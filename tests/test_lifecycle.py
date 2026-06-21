@@ -5,8 +5,8 @@ manifest + compute_fit run unmocked."""
 
 from types import SimpleNamespace
 
-from llm_runner.lifecycle import RunnerService
-from llm_runner.manifest import load_manifest
+from llm_runner.runner.lifecycle import RunnerService
+from llm_runner.runner.manifest import load_manifest
 
 
 def _fake_runner(url="http://127.0.0.1:8080"):

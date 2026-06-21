@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from llm_runner import models
+from llm_runner.runner import models
 
 # A synthetic HF tree: two shards of the wanted quant, a different quant, an
 # mmproj sidecar, plus non-GGUF repo files that must never be selected.

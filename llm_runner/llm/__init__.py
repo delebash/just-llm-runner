@@ -22,6 +22,13 @@ from .dispatch import (
     resolve_tier,
     stream_chat,
 )
+from .prompts import (
+    FeaturePromptRow,
+    PromptStore,
+    make_feature_router,
+    make_prompt_router,
+    render,
+)
 from .registry import (
     LLMRegistry,
     construct,
@@ -50,6 +57,9 @@ __all__ = [
     # dispatch
     "chat", "stream_chat", "resolve_pin", "resolve_tier", "active_production_config",
     "LLMNotConfiguredError",
+    # prompts (per-feature prompt store contract + render + router factories)
+    "FeaturePromptRow", "PromptStore", "render",
+    "make_prompt_router", "make_feature_router",
     # tiers
     "TIERS", "TierSpec", "classify", "spec_for",
     # usage

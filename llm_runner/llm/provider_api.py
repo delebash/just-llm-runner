@@ -31,6 +31,10 @@ PROVIDER_TYPES = [
     "ollama",
     "deepseek",
     "openrouter",
+    # The bundled llama.cpp runner. Not offered as a user-pickable type in the
+    # UI (the built-in provider is seeded), but allowed here so that seeded
+    # provider round-trips through PATCH instead of 400-ing on save.
+    "local-llamacpp",
 ]
 
 

@@ -16,7 +16,7 @@ from .runner.gguf import GgufMeta, read_gguf_metadata
 from .runner.hardware import detect, platform_key
 from .runner.lifecycle import RunnerService, get_service
 from .runner.manifest import load_manifest, manifest_path
-from .runner.models import acquire_model, hf_cache_root, select_files
+from .runner.models import acquire_model, hf_cache_root, is_cached, select_files
 from .runner.process import (
     FitPlan,
     Overrides,
@@ -26,7 +26,12 @@ from .runner.process import (
     compute_fit,
     start_runner,
 )
-from .runner.schema import HardwareInfo, RunnerManifest
+from .runner.schema import (
+    HardwareInfo,
+    RunnerManifest,
+    RunnerModelInfo,
+    RunnerModelsResponse,
+)
 
 __all__ = [
     "router",
@@ -35,8 +40,11 @@ __all__ = [
     "load_manifest",
     "manifest_path",
     "RunnerManifest",
+    "RunnerModelInfo",
+    "RunnerModelsResponse",
     "HardwareInfo",
     "detect",
+    "is_cached",
     "platform_key",
     "select_binary",
     "acquire_binary",

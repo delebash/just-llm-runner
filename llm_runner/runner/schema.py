@@ -124,3 +124,31 @@ class RunnerManifest(CamelModel):
     models: list[ModelEntry] = []
     flag_presets: FlagPresets = FlagPresets()
     vram_fit: VramFit = VramFit()
+
+
+# ─── Model catalog view (GET /v1/llm-runner/models) ─────────────────────
+
+
+class RunnerModelInfo(CamelModel):
+    """One catalog model, annotated for the GUI: a coarse hardware Fit
+    indicator + live load/disk status. `fit` is a pre-download estimate from
+    the manifest's `minVramMb` hint vs detected VRAM — NOT a precise score
+    (that needs the downloaded GGUF; see `compute_fit`)."""
+
+    id: str
+    name: str
+    tier: str
+    params: str | None = None       # totalParams, e.g. "35B"
+    active_params: str | None = None
+    min_vram_mb: int | None = None
+    min_ram_mb: int | None = None
+    fit: str                        # "ok" | "tight" | "no" | "cpu" | "unknown"
+    status: str                     # "loaded" | "loading" | "error" | "disk" | "available"
+    downloaded: bool = False
+
+
+class RunnerModelsResponse(CamelModel):
+    vram_mb: int = 0                # max detected GPU VRAM (0 = CPU only)
+    ram_mb: int = 0
+    safety_margin_mb: int = 1024
+    models: list[RunnerModelInfo] = []

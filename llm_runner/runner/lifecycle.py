@@ -59,6 +59,13 @@ class RunnerService:
         self._lock = threading.Lock()
         self._thread = None
 
+    @property
+    def cache_root(self) -> Path:
+        """The runner's cache root (binaries + the `hf/` model cache live under
+        it). Exposed so the catalog endpoint can check on-disk state without
+        reaching into a private attr."""
+        return self._cache_root
+
     def status(self) -> dict:
         # Reflect a llama-server that died after it came up.
         if self._runner is not None and self._state["status"] == "running" and not self._runner.is_alive():

@@ -12,6 +12,7 @@ import { computed, reactive, ref } from "vue";
 import LuButton from "../components/LuButton.vue";
 import LuCombobox from "../components/LuCombobox.vue";
 import LuInput from "../components/LuInput.vue";
+import LuModelCatalog from "../components/LuModelCatalog.vue";
 import LuSegmented from "../components/LuSegmented.vue";
 import { request } from "../client.js";
 
@@ -22,6 +23,9 @@ const emit = defineEmits(["saved", "deleted", "cancel"]);
 
 const isNew = computed(() => !props.provider);
 const isLocalUrl = (u) => /localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(u || "");
+// The bundled llama.cpp runner — its where-it-runs + type are fixed (it's THE
+// built-in engine), and it's the one provider with a managed model catalog.
+const isBuiltin = computed(() => props.provider?.providerType === "local-llamacpp");
 
 const draft = reactive({
   id: props.provider?.id || "",
@@ -153,7 +157,8 @@ async function remove() {
 
     <div class="lu-fgrid">
       <span class="lu-fl">Where it runs</span>
-      <div><LuSegmented v-model="local" :options="WHERE" />
+      <div v-if="isBuiltin"><span class="lu-locked">Local · free · built-in</span></div>
+      <div v-else><LuSegmented v-model="local" :options="WHERE" />
         <div class="lu-fh">Local = on this machine, no key. Online = your metered cloud account.</div></div>
 
       <span class="lu-fl">Id</span>
@@ -171,7 +176,8 @@ async function remove() {
       </template>
 
       <span class="lu-fl">Provider type</span>
-      <select class="lu-input" :value="draft.providerType" @change="draft.providerType = $event.target.value">
+      <div v-if="isBuiltin"><span class="lu-locked">llama.cpp · built-in engine</span></div>
+      <select v-else class="lu-input" :value="draft.providerType" @change="draft.providerType = $event.target.value">
         <option v-for="t in PROVIDER_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
       </select>
 
@@ -191,13 +197,15 @@ async function remove() {
       </div>
     </div>
 
+    <LuModelCatalog v-if="isBuiltin" />
+
     <div v-if="saveErr" class="lu-error lu-pf-err">{{ saveErr }}</div>
 
     <div class="lu-pf-foot">
       <LuButton intent="secondary" @click="testConnection">Test connection</LuButton>
       <span class="lu-muted lu-pf-test">{{ testMsg }}</span>
       <span class="lu-pf-spacer" />
-      <LuButton v-if="!isNew" intent="danger" @click="remove">Delete</LuButton>
+      <LuButton v-if="!isNew && !isBuiltin" intent="danger" @click="remove">Delete</LuButton>
       <LuButton intent="ghost" @click="emit('cancel')">Cancel</LuButton>
       <LuButton intent="primary" :loading="saving" @click="save">{{ saving ? "Saving…" : "Save provider" }}</LuButton>
     </div>
@@ -224,4 +232,9 @@ async function remove() {
 .lu-pf-test { font-size: 11.5px; }
 /* the native provider-type select reuses .lu-input; force select chrome */
 select.lu-input { cursor: pointer; appearance: auto; }
+/* fixed (non-editable) value for the built-in engine's locked fields */
+.lu-locked {
+  display: inline-flex; align-items: center; font-size: 12px; color: var(--ink-2);
+  background: var(--surface-3); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
+}
 </style>

@@ -115,6 +115,21 @@ def select_files(
     return commit_sha, selected
 
 
+def is_cached(repo: str, quant: str, *, cache_root: Path, mmproj: str | None = None) -> bool:
+    """Offline check: is a GGUF for `quant` already in the local cache?
+
+    Looks for a `*.gguf` whose name contains `quant` under any snapshot of the
+    repo's cache dir — no network call, so it's cheap enough to run per-model
+    when building the catalog. (Mirrors `_main_gguf`'s match; `mmproj` is
+    accepted for symmetry with `acquire_model` but a present main GGUF is what
+    decides "downloaded".)"""
+    snapshots = Path(cache_root) / ("models--" + repo.replace("/", "--")) / "snapshots"
+    if not snapshots.is_dir():
+        return False
+    q = quant.lower()
+    return any(q in p.name.lower() for p in snapshots.rglob("*.gguf"))
+
+
 def acquire_model(
     repo: str,
     quant: str,

@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""The shared provider-CRUD router factory (over an in-memory ProviderStore)."""
+
+from __future__ import annotations
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from llm_runner.llm import get_llm_registry
+from llm_runner.llm.provider_api import make_provider_router
+from llm_runner.llm.schema import LLMProviderConfig
+
+
+class MemStore:
+    """In-memory ProviderStore for tests."""
+
+    def __init__(self):
+        self._rows: list[LLMProviderConfig] = []
+
+    def list(self):
+        return list(self._rows)
+
+    def get(self, pid):
+        return next((p for p in self._rows if p.id == pid), None)
+
+    def add(self, cfg):
+        self._rows.append(cfg)
+
+    def replace(self, pid, cfg):
+        self._rows = [cfg if p.id == pid else p for p in self._rows]
+
+    def remove(self, pid):
+        self._rows = [p for p in self._rows if p.id != pid]
+
+
+def _client(store):
+    get_llm_registry()._adapters = {}
+    app = FastAPI()
+    app.include_router(make_provider_router(lambda: store))
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_crud_lifecycle_and_registry_sync():
+    store = MemStore()
+    c = _client(store)
+
+    # create — persisted + registered live
+    r = c.post("/v1/llm-providers", json={
+        "id": "oa", "name": "OpenAI", "provider_type": "openai",
+        "api_key": "sk-x", "default_model": "gpt-4o-mini",
+    })
+    assert r.status_code == 201
+    body = r.json()
+    assert body["has_api_key"] is True and "api_key" not in body and body["registered"] is True
+    assert "oa" in get_llm_registry().ids()
+
+    # list reflects the registered flag, never echoes the key
+    lst = c.get("/v1/llm-providers").json()
+    assert [p["id"] for p in lst["providers"]] == ["oa"]
+    assert "openai" in lst["provider_types"]
+
+    # duplicate id rejected
+    assert c.post("/v1/llm-providers", json={"id": "oa", "name": "x", "provider_type": "openai"}).status_code == 400
+    # bad type rejected
+    assert c.post("/v1/llm-providers", json={"id": "z", "name": "x", "provider_type": "nope"}).status_code == 400
+
+    # patch — empty api_key preserves the prior key
+    r = c.patch("/v1/llm-providers/oa", json={
+        "id": "oa", "name": "OpenAI 2", "provider_type": "openai",
+        "api_key": "", "default_model": "gpt-4o",
+    })
+    assert r.status_code == 200 and r.json()["name"] == "OpenAI 2"
+    assert store.get("oa").api_key == "sk-x"  # preserved
+    assert store.get("oa").default_model == "gpt-4o"
+
+    # patch missing → 404
+    assert c.patch("/v1/llm-providers/nope", json={"id": "nope", "name": "x", "provider_type": "openai"}).status_code == 404
+
+    # delete — removed + deregistered
+    assert c.delete("/v1/llm-providers/oa").json() == {"deleted": True}
+    assert store.get("oa") is None and "oa" not in get_llm_registry().ids()
+    assert c.delete("/v1/llm-providers/oa").status_code == 404
+
+
+def test_detect_local(monkeypatch):
+    import httpx
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"models": [{"name": "qwen3:14b"}]}
+
+    def fake_get(url, timeout=None):
+        if "11434" in url:
+            return FakeResp()
+        raise ConnectionError("down")
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    det = _client(MemStore()).get("/v1/llm-providers/detect-local").json()["detected"]
+    assert len(det) == 1 and det[0]["provider_type"] == "ollama"
+    assert "qwen3:14b" in det[0]["models"] and det[0]["already_registered"] is False

@@ -59,6 +59,18 @@
       "mtp": true,
       "minRamMb": 24000,
       "recommendedFor": { "minVramMb": 6000 }
+    },
+    {
+      "id": "qwen3-14b",
+      "name": "Qwen3 14B",
+      "tier": "mid",
+      "candidateFor": [],
+      "hfRepo": "unsloth/Qwen3-14B-GGUF",
+      "quant": "Q3_K_M",
+      "mmproj": null,
+      "totalParams": "14B",
+      "minRamMb": 12000,
+      "recommendedFor": { "minVramMb": 9000 }
     }
   ],
   "flagPresets": {

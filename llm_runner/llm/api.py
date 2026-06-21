@@ -17,7 +17,8 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .registry import get_llm_registry
+from .registry import construct, get_llm_registry
+from .schema import LLMProviderConfig
 from .tiers import TIERS, classify
 from .usage import get_ledger
 
@@ -72,6 +73,38 @@ async def list_provider_models(provider_id: str) -> dict:
         return {"models": adapter.models()}
     except Exception as e:  # noqa: BLE001
         log.warning("LLM provider %s models() failed: %s", provider_id, e)
+        return {"models": [], "error": str(e)}
+
+
+class ProbeModelsRequest(BaseModel):
+    providerType: str
+    baseUrl: str = ""
+    apiKey: str | None = None
+    defaultModel: str = ""
+    timeoutSeconds: int = 30
+
+
+@router.post("/v1/llm-providers/probe-models")
+async def probe_provider_models(body: ProbeModelsRequest) -> dict:
+    """List a provider's models from an UNSAVED draft — the Add/Edit form's
+    "Fetch models" before the provider is persisted/registered. Builds a
+    temporary adapter (never registered) and calls .models()."""
+    try:
+        adapter = construct(LLMProviderConfig(
+            id="__probe__",
+            name="probe",
+            providerType=body.providerType,
+            baseUrl=body.baseUrl,
+            apiKey=body.apiKey or None,
+            defaultModel=body.defaultModel,
+            timeoutSeconds=body.timeoutSeconds,
+        ))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        return {"models": adapter.models()}
+    except Exception as e:  # noqa: BLE001 — surface upstream errors as data
+        log.warning("probe-models for %s failed: %s", body.providerType, e)
         return {"models": [], "error": str(e)}
 
 

@@ -11,6 +11,7 @@
 import { computed, onMounted, ref } from "vue";
 
 import LuButton from "../components/LuButton.vue";
+import FeaturesRouting from "./FeaturesRouting.vue";
 import ProviderForm from "./ProviderForm.vue";
 import { request } from "../client.js";
 
@@ -185,12 +186,9 @@ onMounted(loadAll);
       </div>
     </section>
 
-    <!-- ── Features (placeholder — routing table is the next chunk) ── -->
+    <!-- ── Features — routing table (default + roles + per-feature pins) ── -->
     <section v-show="tab === 'features'" class="lu-tab">
-      <div class="lu-muted">
-        Feature routing (provider ▸ model per feature, roles, defaults) + the per-action Lab land next.
-        The per-feature <b>prompt</b> editor is live at the Feature prompts view.
-      </div>
+      <FeaturesRouting v-if="tab === 'features'" />
     </section>
 
     <!-- ── Usage ── -->

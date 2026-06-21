@@ -35,6 +35,12 @@ from .registry import (
     get_llm_registry,
     load_from_configs,
 )
+from .routing_api import (
+    FeatureCatalogEntry,
+    RoutingConfig,
+    RoutingStore,
+    make_routing_router,
+)
 from .schema import (
     FeaturePinConfig,
     LLMConfig,
@@ -60,6 +66,8 @@ __all__ = [
     # prompts (per-feature prompt store contract + render + router factories)
     "FeaturePromptRow", "PromptStore", "render",
     "make_prompt_router", "make_feature_router",
+    # routing (default + roles + per-feature pins, behind a host store)
+    "RoutingStore", "RoutingConfig", "FeatureCatalogEntry", "make_routing_router",
     # tiers
     "TIERS", "TierSpec", "classify", "spec_for",
     # usage

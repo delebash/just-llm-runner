@@ -187,7 +187,7 @@ def chat(
             UsageEntry(
                 feature=feature, model=model, prompt_tokens=0, completion_tokens=0,
                 duration_ms=int((time.monotonic() - started) * 1000),
-                ok=False, error=str(e)[:200],
+                ok=False, error=str(e)[:200], provider_id=adapter.provider_id,
             )
         )
         raise
@@ -196,7 +196,7 @@ def chat(
             feature=feature, model=resp.model or model,
             prompt_tokens=resp.prompt_tokens, completion_tokens=resp.completion_tokens,
             duration_ms=int((time.monotonic() - started) * 1000),
-            ok=True,
+            ok=True, provider_id=adapter.provider_id,
         )
     )
     return resp

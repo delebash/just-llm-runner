@@ -14,6 +14,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field
+from typing import Protocol
 
 _LOG_CAP = 200
 
@@ -27,7 +28,19 @@ class UsageEntry:
     duration_ms: int
     ok: bool
     error: str | None = None
+    provider_id: str | None = None
     at: float = field(default_factory=time.time)
+
+
+class UsageSink(Protocol):
+    """Pluggable usage store. The default is the in-memory `UsageLedger`; a host
+    can swap in a persistent backend (e.g. a DB table) via `set_ledger` so
+    server-side dispatch usage survives restarts. JustVoice keeps the in-memory
+    default; JustWrite plugs in a sink over its `LlmUsage` table."""
+
+    def record(self, entry: "UsageEntry") -> None: ...
+    def snapshot(self) -> dict: ...
+    def clear(self) -> None: ...
 
 
 class UsageLedger:
@@ -64,8 +77,15 @@ class UsageLedger:
             self._log.clear()
 
 
-_ledger = UsageLedger()
+_ledger: UsageSink = UsageLedger()
 
 
-def get_ledger() -> UsageLedger:
+def get_ledger() -> UsageSink:
     return _ledger
+
+
+def set_ledger(sink: UsageSink) -> None:
+    """Replace the process usage sink — host wiring at boot. JustWrite sets a
+    DB-backed sink so server-side dispatch usage joins its persistent ledger."""
+    global _ledger
+    _ledger = sink

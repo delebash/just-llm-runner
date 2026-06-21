@@ -13,6 +13,7 @@ import { computed, onMounted, ref } from "vue";
 import LuButton from "../components/LuButton.vue";
 import FeaturesRouting from "./FeaturesRouting.vue";
 import ProviderForm from "./ProviderForm.vue";
+import QuickSetup from "./QuickSetup.vue";
 import { request } from "../client.js";
 
 const tab = ref("providers");
@@ -121,6 +122,7 @@ onMounted(loadAll);
 
     <!-- ── Providers & models ── -->
     <section v-show="tab === 'providers'" class="lu-tab">
+      <QuickSetup class="lu-qs-wrap" @changed="loadProviders" />
       <div class="lu-providers">
         <div class="lu-pcard-head">
           <span class="lu-pcard-title">Providers</span>
@@ -217,6 +219,7 @@ onMounted(loadAll);
 .lu-subnav a { padding: 9px 16px; font-size: 12.5px; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; font-weight: 600; }
 .lu-subnav a.on { color: var(--ink); border-bottom-color: var(--accent); }
 .lu-tab { padding-top: 14px; }
+.lu-qs-wrap { display: block; margin-bottom: 14px; }
 
 /* naked control — the host wraps it in its own page card (.pane-card in JW) */
 .lu-pcard-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }

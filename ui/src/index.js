@@ -23,4 +23,5 @@ export { default as LuTextarea } from "./components/LuTextarea.vue";
 export { default as PromptLab } from "./views/PromptLab.vue";
 export { default as ProviderForm } from "./views/ProviderForm.vue";
 export { default as FeaturesRouting } from "./views/FeaturesRouting.vue";
+export { default as QuickSetup } from "./views/QuickSetup.vue";
 export { default as AiModelsArea } from "./views/AiModelsArea.vue";

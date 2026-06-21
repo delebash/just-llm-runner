@@ -16,7 +16,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse
+from .base import LLMMessage, LLMResponse, StreamDelta
 
 log = logging.getLogger(__name__)
 
@@ -156,12 +156,15 @@ class OpenAICompatAdapter:
         system: str | None = None,
         think: bool = False,
         extra: dict[str, Any] | None = None,
-    ) -> Iterator[str]:
+    ) -> Iterator[StreamDelta]:
         body: dict[str, Any] = {
             "model": model or self.default_model,
             "messages": self._build_messages(messages, system),
             "temperature": temperature,
             "stream": True,
+            # Ask for a final usage frame (servers that don't support it ignore
+            # the field; we just report 0 tokens then).
+            "stream_options": {"include_usage": True},
         }
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
@@ -169,6 +172,7 @@ class OpenAICompatAdapter:
             body.update(extra)
 
         url = f"{self._base_url}/chat/completions"
+        pt = ct = 0
         with self._client.stream("POST", url, json=body, headers=self._headers()) as r:
             if r.status_code >= 400:
                 detail = r.read().decode("utf-8", errors="replace")
@@ -185,11 +189,16 @@ class OpenAICompatAdapter:
                     evt = json.loads(data)
                 except json.JSONDecodeError:
                     continue
-                choice = (evt.get("choices") or [{}])[0]
-                delta = choice.get("delta") or {}
-                chunk = delta.get("content") or ""
-                if chunk:
-                    yield chunk
+                usage = evt.get("usage")
+                if usage:
+                    pt = int(usage.get("prompt_tokens") or 0)
+                    ct = int(usage.get("completion_tokens") or 0)
+                # The final usage frame carries an empty choices list.
+                for choice in evt.get("choices") or []:
+                    chunk = (choice.get("delta") or {}).get("content") or ""
+                    if chunk:
+                        yield StreamDelta(text=chunk)
+        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
 
     def models(self) -> list[str]:
         """GET /models — most OpenAI-compat servers expose this."""

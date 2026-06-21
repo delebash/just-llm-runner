@@ -19,7 +19,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse
+from .base import LLMMessage, LLMResponse, StreamDelta
 
 log = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class GeminiAdapter:
         system: str | None = None,
         think: bool = False,
         extra: dict[str, Any] | None = None,
-    ) -> Iterator[str]:
+    ) -> Iterator[StreamDelta]:
         model_id = model or self.default_model
         payload = self._build_payload(
             messages, system, temperature=temperature, max_tokens=max_tokens
@@ -157,6 +157,7 @@ class GeminiAdapter:
 
         url = f"{self._base_url}/v1beta/models/{model_id}:streamGenerateContent"
         params = {**self._params(), "alt": "sse"}
+        pt = ct = 0
         with self._client.stream("POST", url, json=payload, params=params) as r:
             if r.status_code >= 400:
                 detail = r.read().decode("utf-8", errors="replace")
@@ -171,11 +172,16 @@ class GeminiAdapter:
                     evt = json.loads(data_s)
                 except json.JSONDecodeError:
                     continue
+                um = evt.get("usageMetadata") or {}
+                if um:
+                    pt = int(um.get("promptTokenCount") or 0)
+                    ct = int(um.get("candidatesTokenCount") or 0)
                 cand = (evt.get("candidates") or [{}])[0]
                 parts = (cand.get("content") or {}).get("parts") or []
                 chunk = "".join(p.get("text", "") for p in parts)
                 if chunk:
-                    yield chunk
+                    yield StreamDelta(text=chunk)
+        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
 
     def models(self) -> list[str]:
         try:

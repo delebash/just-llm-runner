@@ -13,13 +13,14 @@ so both apps run the SAME code instead of per-app forks.
 from __future__ import annotations
 
 from . import dispatch, registry, tiers
-from .base import LLMAdapter, LLMMessage, LLMResponse
+from .base import LLMAdapter, LLMMessage, LLMResponse, StreamDelta
 from .dispatch import (
     LLMNotConfiguredError,
     active_production_config,
     chat,
     resolve_pin,
     resolve_tier,
+    stream_chat,
 )
 from .registry import (
     LLMRegistry,
@@ -36,23 +37,23 @@ from .schema import (
     ProductionConfig,
 )
 from .tiers import TIERS, TierSpec, classify, spec_for
-from .usage import UsageEntry, UsageLedger, get_ledger
+from .usage import UsageEntry, UsageLedger, UsageSink, get_ledger, set_ledger
 
 __all__ = [
     # contract
-    "LLMAdapter", "LLMMessage", "LLMResponse",
+    "LLMAdapter", "LLMMessage", "LLMResponse", "StreamDelta",
     # schema
     "LLMConfig", "LLMProviderConfig", "FeaturePinConfig", "LLMRoleTarget",
     "LLMRolesSettings", "ProductionConfig",
     # registry
     "LLMRegistry", "get_llm_registry", "construct", "load_from_configs",
     # dispatch
-    "chat", "resolve_pin", "resolve_tier", "active_production_config",
+    "chat", "stream_chat", "resolve_pin", "resolve_tier", "active_production_config",
     "LLMNotConfiguredError",
     # tiers
     "TIERS", "TierSpec", "classify", "spec_for",
     # usage
-    "UsageEntry", "UsageLedger", "get_ledger",
+    "UsageEntry", "UsageLedger", "UsageSink", "get_ledger", "set_ledger",
     # submodules
     "dispatch", "registry", "tiers",
 ]

@@ -19,7 +19,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse
+from .base import LLMMessage, LLMResponse, StreamDelta
 
 log = logging.getLogger(__name__)
 
@@ -138,7 +138,7 @@ class AnthropicAdapter:
         system: str | None = None,
         think: bool = False,
         extra: dict[str, Any] | None = None,
-    ) -> Iterator[str]:
+    ) -> Iterator[StreamDelta]:
         sys_prompt, msgs = self._split_system(messages, system)
         body: dict[str, Any] = {
             "model": model or self.default_model,
@@ -153,6 +153,7 @@ class AnthropicAdapter:
             body.update(extra)
 
         url = f"{self._base_url}/v1/messages"
+        pt = ct = 0
         with self._client.stream("POST", url, json=body, headers=self._headers()) as r:
             if r.status_code >= 400:
                 detail = r.read().decode("utf-8", errors="replace")
@@ -168,11 +169,18 @@ class AnthropicAdapter:
                 except json.JSONDecodeError:
                     continue
                 t = evt.get("type")
-                if t == "content_block_delta":
-                    delta = evt.get("delta") or {}
-                    chunk = delta.get("text") or ""
+                if t == "message_start":
+                    u = ((evt.get("message") or {}).get("usage")) or {}
+                    pt = int(u.get("input_tokens") or 0)
+                elif t == "content_block_delta":
+                    chunk = (evt.get("delta") or {}).get("text") or ""
                     if chunk:
-                        yield chunk
+                        yield StreamDelta(text=chunk)
+                elif t == "message_delta":
+                    u = evt.get("usage") or {}
+                    if u.get("output_tokens") is not None:
+                        ct = int(u.get("output_tokens") or 0)
+        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
 
     def models(self) -> list[str]:
         # Anthropic doesn't expose a public /v1/models endpoint that

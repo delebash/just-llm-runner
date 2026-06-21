@@ -20,10 +20,12 @@ from llm_runner.llm import (
     LLMRolesSettings,
     LLMRoleTarget,
     ProductionConfig,
+    StreamDelta,
     chat,
     get_ledger,
     resolve_pin,
     resolve_tier,
+    stream_chat,
 )
 
 
@@ -42,8 +44,12 @@ class FakeAdapter:
         return LLMResponse(text="ok", model=model or self.default_model,
                            prompt_tokens=3, completion_tokens=5)
 
-    def stream_chat(self, *a, **k):
-        yield "ok"
+    def stream_chat(self, messages, *, model=None, temperature=0.7, max_tokens=None,
+                    system=None, think=False, extra=None):
+        self.calls.append({"model": model, "think": think, "stream": True})
+        yield StreamDelta(text="ok-")
+        yield StreamDelta(text="stream")
+        yield StreamDelta(done=True, prompt_tokens=7, completion_tokens=11)
 
     def models(self):
         return [self.default_model]
@@ -159,3 +165,19 @@ def test_chat_thinks_from_tier_and_records_usage():
     snap = get_ledger().snapshot()
     assert snap["total_calls"] == 1
     assert snap["by_feature"]["x"]["calls"] == 1
+
+
+def test_stream_chat_yields_deltas_and_records_usage():
+    get_ledger().clear()
+    fake = FakeAdapter("local", "def")
+    reg = make_reg(fake)
+    cfg = LLMConfig(feature_pins=[FeaturePinConfig(feature="x", providerId="local", model="qwen3:14b")])
+    deltas = list(stream_chat(config=cfg, feature="x", messages=[LLMMessage("user", "hi")], registry=reg))
+    assert "".join(d.text for d in deltas if not d.done) == "ok-stream"
+    assert fake.calls[0]["think"] is True  # reasoned tier → think
+    done = [d for d in deltas if d.done]
+    assert done and done[0].prompt_tokens == 7 and done[0].completion_tokens == 11
+    snap = get_ledger().snapshot()
+    assert snap["by_feature"]["x"]["calls"] == 1
+    assert snap["by_feature"]["x"]["prompt_tokens"] == 7
+    assert snap["by_feature"]["x"]["completion_tokens"] == 11

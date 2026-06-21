@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Iterable
+from typing import Iterable, Iterator
 
-from .base import LLMAdapter, LLMMessage, LLMResponse
+from .base import LLMAdapter, LLMMessage, LLMResponse, StreamDelta
 from .registry import LLMRegistry, get_llm_registry
 from .schema import LLMConfig
 from .tiers import TierSpec, spec_for
@@ -200,3 +200,67 @@ def chat(
         )
     )
     return resp
+
+
+def stream_chat(
+    *,
+    config: LLMConfig,
+    feature: str,
+    messages: Iterable[LLMMessage],
+    system: str | None = None,
+    temperature: float = 0.7,
+    max_tokens: int | None = None,
+    think: bool | None = None,
+    model_override: str | None = None,
+    provider_override: str | None = None,
+    registry: LLMRegistry | None = None,
+) -> Iterator[StreamDelta]:
+    """Streaming counterpart to `chat`. Resolves the feature's provider (same
+    precedence + Lab overrides as `chat`), yields `StreamDelta` events (text
+    deltas, then one `done` event), and records usage to the ledger at the end
+    (from the `done` event's token counts)."""
+    reg = _reg(registry)
+    adapter, model, tier_override = resolve_pin(config, feature, reg)
+    if provider_override:
+        other = reg.get(provider_override)
+        if other is None:
+            raise LLMNotConfiguredError(f"Provider {provider_override!r} isn't registered.")
+        adapter = other
+        if not model_override:
+            model = other.default_model
+            tier_override = None
+    if model_override:
+        model = model_override
+        tier_override = None
+    tier = spec_for(model, tier_override)
+
+    started = time.monotonic()
+    pt = ct = 0
+    try:
+        for delta in adapter.stream_chat(
+            list(messages),
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            system=system,
+            think=tier.think if think is None else think,
+        ):
+            if delta.done:
+                pt, ct = delta.prompt_tokens, delta.completion_tokens
+            yield delta
+    except Exception as e:
+        get_ledger().record(
+            UsageEntry(
+                feature=feature, model=model, prompt_tokens=0, completion_tokens=0,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                ok=False, error=str(e)[:200], provider_id=adapter.provider_id,
+            )
+        )
+        raise
+    get_ledger().record(
+        UsageEntry(
+            feature=feature, model=model, prompt_tokens=pt, completion_tokens=ct,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            ok=True, provider_id=adapter.provider_id,
+        )
+    )

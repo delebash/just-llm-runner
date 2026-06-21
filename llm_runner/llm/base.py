@@ -36,6 +36,19 @@ class LLMResponse:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class StreamDelta:
+    """One streamed event. Text chunks carry `text`; the final event carries
+    `done=True` plus token usage (0 when the provider didn't report it). Adapters
+    yield text deltas as they arrive, then one `done` event so the dispatch layer
+    can record usage and the client can finalize."""
+
+    text: str = ""
+    done: bool = False
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
 @runtime_checkable
 class LLMAdapter(Protocol):
     """The contract every LLM provider adapter satisfies."""
@@ -75,8 +88,9 @@ class LLMAdapter(Protocol):
         system: str | None = None,
         think: bool = False,
         extra: dict[str, Any] | None = None,
-    ) -> Iterator[str]:
-        """Stream completion text chunks. Yields plain text strings."""
+    ) -> Iterator[StreamDelta]:
+        """Stream completion events: a `StreamDelta(text=…)` per chunk, then a
+        final `StreamDelta(done=True, prompt_tokens=…, completion_tokens=…)`."""
         ...
 
     def models(self) -> list[str]:

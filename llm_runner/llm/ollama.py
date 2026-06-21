@@ -18,7 +18,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse
+from .base import LLMMessage, LLMResponse, StreamDelta
 
 log = logging.getLogger(__name__)
 
@@ -123,7 +123,7 @@ class OllamaAdapter:
         system: str | None = None,
         think: bool = False,
         extra: dict[str, Any] | None = None,
-    ) -> Iterator[str]:
+    ) -> Iterator[StreamDelta]:
         body: dict[str, Any] = {
             "model": model or self.default_model,
             "messages": self._build_messages(messages, system),
@@ -138,6 +138,7 @@ class OllamaAdapter:
             body.update(extra)
 
         url = f"{self._base_url}/api/chat"
+        pt = ct = 0
         with self._client.stream("POST", url, json=body, headers=self._headers()) as r:
             if r.status_code >= 400:
                 detail = r.read().decode("utf-8", errors="replace")
@@ -153,9 +154,12 @@ class OllamaAdapter:
                 message = evt.get("message") or {}
                 chunk = message.get("content") or ""
                 if chunk:
-                    yield chunk
+                    yield StreamDelta(text=chunk)
                 if evt.get("done"):
-                    return
+                    pt = int(evt.get("prompt_eval_count") or 0)
+                    ct = int(evt.get("eval_count") or 0)
+                    break
+        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
 
     def models(self) -> list[str]:
         """GET /api/tags lists installed models."""

@@ -26,3 +26,4 @@ export { default as FeaturesRouting } from "./views/FeaturesRouting.vue";
 export { default as QuickSetup } from "./views/QuickSetup.vue";
 export { default as RoutingPresets } from "./views/RoutingPresets.vue";
 export { default as AiModelsArea } from "./views/AiModelsArea.vue";
+export { default as FeatureWorkbench } from "./views/FeatureWorkbench.vue";

@@ -38,7 +38,10 @@ from .registry import (
 from .routing_api import (
     FeatureCatalogEntry,
     RoutingConfig,
+    RoutingPreset,
+    RoutingPresetStore,
     RoutingStore,
+    make_routing_presets_router,
     make_routing_router,
 )
 from .schema import (
@@ -68,6 +71,7 @@ __all__ = [
     "make_prompt_router", "make_feature_router",
     # routing (default + roles + per-feature pins, behind a host store)
     "RoutingStore", "RoutingConfig", "FeatureCatalogEntry", "make_routing_router",
+    "RoutingPreset", "RoutingPresetStore", "make_routing_presets_router",
     # tiers
     "TIERS", "TierSpec", "classify", "spec_for",
     # usage

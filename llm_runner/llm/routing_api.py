@@ -17,10 +17,11 @@ feature with its current route; the PUT persists the whole routing config.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Callable, Protocol
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 
@@ -120,5 +121,97 @@ def make_routing_router(
     async def put_routing(body: RoutingConfig) -> RoutingResponse:
         get_store().set_routing(body)
         return _response()
+
+    return router
+
+
+# ── routing presets ("hardware presets" — named routing snapshots) ───────────
+# A preset is a saved, named copy of a whole RoutingConfig. Used to switch the
+# entire AI config in one click (e.g. desktop vs laptop, offline vs cloud). The
+# primary path is still Quick Setup / the Features tab; presets are the
+# save-and-switch layer on top (shared-AI-stack plan, Decision 18).
+
+
+class RoutingPreset(BaseModel):
+    id: str = ""
+    name: str = ""
+    routing: RoutingConfig = RoutingConfig()
+
+
+class RoutingPresetStore(Protocol):
+    """Persistence boundary for named routing presets (host settings)."""
+
+    def list_presets(self) -> list[RoutingPreset]: ...
+    def save_preset(self, preset: RoutingPreset) -> None: ...  # upsert by id
+    def delete_preset(self, preset_id: str) -> None: ...
+
+
+class _PresetCreate(BaseModel):
+    name: str = ""
+    routing: RoutingConfig = RoutingConfig()
+
+
+class _PresetUpdate(BaseModel):
+    name: str | None = None
+    routing: RoutingConfig | None = None
+
+
+class PresetsResponse(BaseModel):
+    presets: list[RoutingPreset]
+
+
+def make_routing_presets_router(
+    get_store: Callable[[], RoutingPresetStore],
+    get_routing_store: Callable[[], RoutingStore],
+) -> APIRouter:
+    """CRUD + apply for named routing presets. `apply` writes the preset's
+    routing into the active `RoutingStore` (atomic + headless-friendly);
+    `from-current` snapshots the active routing into a new named preset."""
+    router = APIRouter(tags=["ai"], prefix="/v1/ai")
+
+    def _list() -> PresetsResponse:
+        return PresetsResponse(presets=get_store().list_presets())
+
+    def _find(preset_id: str) -> RoutingPreset:
+        for p in get_store().list_presets():
+            if p.id == preset_id:
+                return p
+        raise HTTPException(status_code=404, detail=f"routing preset {preset_id!r} not found")
+
+    @router.get("/routing-presets", response_model=PresetsResponse)
+    async def list_presets() -> PresetsResponse:
+        return _list()
+
+    @router.post("/routing-presets", response_model=PresetsResponse)
+    async def create_preset(body: _PresetCreate) -> PresetsResponse:
+        get_store().save_preset(RoutingPreset(id=uuid.uuid4().hex[:12], name=body.name, routing=body.routing))
+        return _list()
+
+    @router.post("/routing-presets/from-current", response_model=PresetsResponse)
+    async def create_from_current(body: _PresetCreate) -> PresetsResponse:
+        cfg = get_routing_store().get_routing()
+        get_store().save_preset(RoutingPreset(id=uuid.uuid4().hex[:12], name=body.name, routing=cfg))
+        return _list()
+
+    @router.put("/routing-presets/{preset_id}", response_model=PresetsResponse)
+    async def update_preset(preset_id: str, body: _PresetUpdate) -> PresetsResponse:
+        preset = _find(preset_id)
+        if body.name is not None:
+            preset.name = body.name
+        if body.routing is not None:
+            preset.routing = body.routing
+        get_store().save_preset(preset)
+        return _list()
+
+    @router.delete("/routing-presets/{preset_id}", response_model=PresetsResponse)
+    async def delete_preset(preset_id: str) -> PresetsResponse:
+        get_store().delete_preset(preset_id)
+        return _list()
+
+    @router.post("/routing-presets/{preset_id}/apply", response_model=RoutingPreset)
+    async def apply_preset(preset_id: str) -> RoutingPreset:
+        preset = _find(preset_id)
+        get_routing_store().set_routing(preset.routing)
+        return preset
 
     return router

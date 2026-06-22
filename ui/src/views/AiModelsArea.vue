@@ -14,9 +14,11 @@ import LuButton from "../components/LuButton.vue";
 import FeaturesRouting from "./FeaturesRouting.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
+import RoutingPresets from "./RoutingPresets.vue";
 import { request } from "../client.js";
 
 const tab = ref("providers");
+const routingKey = ref(0); // bump to remount FeaturesRouting after a preset apply
 const providers = ref([]);
 const hardware = ref(null);
 const usage = ref(null);
@@ -190,7 +192,8 @@ onMounted(loadAll);
 
     <!-- ── Features — routing table (default + roles + per-feature pins) ── -->
     <section v-show="tab === 'features'" class="lu-tab">
-      <FeaturesRouting v-if="tab === 'features'" />
+      <FeaturesRouting v-if="tab === 'features'" :key="routingKey" />
+      <RoutingPresets v-if="tab === 'features'" @applied="routingKey++" />
     </section>
 
     <!-- ── Usage ── -->

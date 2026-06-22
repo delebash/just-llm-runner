@@ -17,7 +17,6 @@ probe) so it runs in JustWrite's sidecar with no app coupling.
 from __future__ import annotations
 
 import logging
-import math
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -26,6 +25,7 @@ from typing import Callable, Sequence
 
 import requests
 
+from . import fit
 from .gguf import GgufMeta
 from .schema import HardwareInfo, ModelEntry, RunnerManifest
 
@@ -109,18 +109,20 @@ def compute_fit(
     else:
         vram_mb = _max_vram_mb(hardware)
         budget_mb = max(0, vram_mb - manifest.vram_fit.safety_margin_mb)
-        # KV cache (K and V) across all layers at this context. q8_0 ~= 1
-        # byte/elem, f16 = 2 (the plan sketch's "4 if q8_0 else 2" is
-        # inverted — q8_0 is SMALLER; corrected here). Reserving KV for all
-        # layers is deliberately conservative.
-        kv_per_elem = 1 if _flag_value(manifest.flag_presets.base, "--cache-type-k") == "q8_0" else 2
-        kv_mb = ctx_len * n_layers * max(1, meta.embedding_length) * 2 * kv_per_elem / 1e6
-        layer_bytes = total_weight_bytes / n_layers if total_weight_bytes > 0 else 0
-        if vram_mb <= 0 or layer_bytes <= 0:
-            n_gpu = 0
-        else:
-            avail_bytes = (budget_mb - kv_mb) * 1e6
-            n_gpu = max(0, min(n_layers, int(math.floor(avail_bytes / layer_bytes))))
+        cache_type = fit.cache_type_bits(_flag_value(manifest.flag_presets.base, "--cache-type-k"))
+        # head_count_kv is absent in some GGUF headers — fall back to MHA
+        # (≈ hidden_dim / 128, a typical head_dim) so KV isn't under-counted.
+        n_kv_heads = meta.n_kv_heads or max(1, meta.embedding_length // 128)
+        # oobabooga's fitted GGUF VRAM formula → the most GPU layers that fit.
+        n_gpu = fit.max_gpu_layers(
+            size_mb=total_weight_bytes / 1e6,
+            n_layers=n_layers,
+            n_kv_heads=n_kv_heads,
+            embedding_dim=meta.embedding_length,
+            ctx_size=ctx_len,
+            cache_type=cache_type,
+            vram_budget_mb=budget_mb,
+        )
 
     if ov.n_cpu_moe is not None:
         n_cpu_moe = max(0, ov.n_cpu_moe)

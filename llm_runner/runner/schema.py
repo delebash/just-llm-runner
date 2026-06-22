@@ -131,9 +131,9 @@ class RunnerManifest(CamelModel):
 
 class RunnerModelInfo(CamelModel):
     """One catalog model, annotated for the GUI: a coarse hardware Fit
-    indicator + live load/disk status. `fit` is a pre-download estimate from
-    the manifest's `minVramMb` hint vs detected VRAM — NOT a precise score
-    (that needs the downloaded GGUF; see `compute_fit`)."""
+    indicator + live load/disk status. `fit` is a coarse pre-download estimate
+    (params × quant, or an explicit `minVramMb` override) vs detected VRAM — NOT
+    a precise score (that needs the downloaded GGUF; see `compute_fit`)."""
 
     id: str
     name: str

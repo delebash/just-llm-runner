@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from . import fit
 from .hardware import detect
 from .lifecycle import get_service
 from .manifest import load_manifest
@@ -30,29 +31,21 @@ router = APIRouter(tags=["llm-runner"])
 
 
 def _fit(model: ModelEntry, gpu_vram_mb: int, ram_mb: int, margin_mb: int) -> str:
-    """Coarse, honest pre-download Fit from the manifest's `minVramMb` hint.
-
-    Not a precise score (that needs the GGUF — `compute_fit`). Bands on the
-    ratio of the model's min VRAM to usable VRAM (VRAM minus the safety margin):
-      ok    r <= 1.0   fits within usable VRAM
-      tight 1.0 < r <= 1.5  fits with margin-eating / light CPU offload
-      no    r > 1.5   too large for this GPU
-    No GPU → "cpu" (runs on CPU; "no" only if RAM is below the model's floor).
-    """
-    need = model.recommended_for.min_vram_mb
-    if gpu_vram_mb <= 0:
-        if model.min_ram_mb and ram_mb and ram_mb < model.min_ram_mb:
-            return "no"
-        return "cpu"
-    if need is None:
-        return "unknown"
-    usable = max(gpu_vram_mb - margin_mb, 1)
-    ratio = need / usable
-    if ratio <= 1.0:
-        return "ok"
-    if ratio <= 1.5:
-        return "tight"
-    return "no"
+    """Coarse pre-download Fit (no GGUF yet): computed from the model's params ×
+    quant vs detected VRAM — or an explicit `recommendedFor.minVramMb` override
+    when the manifest sets one (it can encode MoE CPU-offload a raw weights
+    estimate misses). Bands: ok ≤1.0, tight ≤1.5, else no; no GPU → cpu (no only
+    if RAM can't hold it). The precise per-layer fit needs the downloaded GGUF
+    (`compute_fit`); the spawn OOM back-off is the final safety net."""
+    return fit.coarse_fit(
+        total_params=model.total_params,
+        quant=model.quant,
+        vram_mb=gpu_vram_mb,
+        ram_mb=ram_mb,
+        margin_mb=margin_mb,
+        min_vram_override=model.recommended_for.min_vram_mb,
+        min_ram_override=model.min_ram_mb,
+    )
 
 
 @router.get(

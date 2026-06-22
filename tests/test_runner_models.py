@@ -39,14 +39,14 @@ def _manifest(models):
     )
 
 
-def _model(mid, min_vram_mb, *, min_ram_mb=None):
+def _model(mid, min_vram_mb, *, min_ram_mb=None, total_params="14B"):
     return ModelEntry(
         id=mid,
         name=mid.upper(),
         tier="mid",
         hf_repo=f"org/{mid}-GGUF",
         quant="Q4_K_M",
-        total_params="14B",
+        total_params=total_params,
         min_ram_mb=min_ram_mb,
         recommended_for=RecommendedFor(min_vram_mb=min_vram_mb),
     )
@@ -76,10 +76,11 @@ def test_fit_bands_on_a_12gb_gpu(monkeypatch):
         gpus=[GpuInfo(vendor="nvidia", name="RTX 4070", vram_mb=12288)],
     )
     models = [
-        _model("small", 6000),    # ratio 0.53 -> ok
-        _model("mid", 14000),     # ratio 1.24 -> tight
-        _model("huge", 40000),    # ratio 3.55 -> no
-        _model("nohint", None),   # no minVram hint -> unknown
+        _model("small", 6000),                        # override 6000 -> ratio 0.53 -> ok
+        _model("mid", 14000),                         # override 14000 -> ratio 1.24 -> tight
+        _model("huge", 40000),                        # override 40000 -> ratio 3.55 -> no
+        _model("nohint", None),                       # no override -> 14B×0.6=8400 -> ok
+        _model("noparams", None, total_params=None),  # no override, no params -> unknown
     ]
     _patch(monkeypatch, hardware=hw, models=models,
            status={"status": "idle", "modelId": "", "url": "", "detail": "", "error": ""})
@@ -87,7 +88,7 @@ def test_fit_bands_on_a_12gb_gpu(monkeypatch):
     assert body["vramMb"] == 12288
     assert body["safetyMarginMb"] == 1024
     fit = {m["id"]: m["fit"] for m in body["models"]}
-    assert fit == {"small": "ok", "mid": "tight", "huge": "no", "nohint": "unknown"}
+    assert fit == {"small": "ok", "mid": "tight", "huge": "no", "nohint": "ok", "noparams": "unknown"}
     # All available (none cached, none loaded).
     assert all(m["status"] == "available" for m in body["models"])
 

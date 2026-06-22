@@ -43,10 +43,18 @@ class GgufMeta:
     block_count: int          # transformer layers (n_layers)
     embedding_length: int     # hidden dim
     expert_count: int         # > 0 => MoE
+    head_count: int = 0       # attention heads (n_head)
+    head_count_kv: int = 0    # KV heads (n_head_kv); < head_count => GQA
 
     @property
     def is_moe(self) -> bool:
         return self.expert_count > 0
+
+    @property
+    def n_kv_heads(self) -> int:
+        """KV heads for the cache-size estimate — `head_count_kv` when present
+        (GQA/MQA), else `head_count` (full multi-head), else 0 (unknown)."""
+        return self.head_count_kv or self.head_count
 
 
 def _read(f: BinaryIO, code: str):
@@ -100,4 +108,6 @@ def read_gguf_metadata(path: Path) -> GgufMeta:
         block_count=_int("block_count"),
         embedding_length=_int("embedding_length"),
         expert_count=_int("expert_count", 0),
+        head_count=_int("attention.head_count", 0),
+        head_count_kv=_int("attention.head_count_kv", 0),
     )

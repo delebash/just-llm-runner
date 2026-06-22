@@ -23,7 +23,7 @@ def _service_for(tmp_path, *, start=None, gguf_quant=None):
         tmp_path,
         acquire_binary=lambda *a, **k: tmp_path / "llama-server",
         acquire_model=lambda *a, **k: snap,
-        read_meta=lambda p: SimpleNamespace(block_count=24, embedding_length=2048, is_moe=False),
+        read_meta=lambda p: SimpleNamespace(block_count=24, embedding_length=2048, is_moe=False, n_kv_heads=8),
         start=start or (lambda *a, **k: _fake_runner()),
     )
 

@@ -41,12 +41,12 @@
 .lu-btn--secondary:not(:disabled):not(.is-disabled):hover { background: var(--surface-3); }
 .lu-btn--ghost { color: var(--ink-2); }
 .lu-btn--ghost:not(:disabled):not(.is-disabled):hover { background: var(--surface-3); }
-.lu-btn--danger { background: var(--danger); border-color: var(--danger); color: var(--surface); }
+.lu-btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .lu-btn--danger:not(:disabled):not(.is-disabled):hover {
   background: color-mix(in oklab, var(--danger) 82%, black);
   border-color: color-mix(in oklab, var(--danger) 82%, black);
 }
-.lu-btn--success { background: var(--success, var(--status-done)); border-color: var(--success, var(--status-done)); color: var(--surface); }
+.lu-btn--success { background: var(--success, var(--status-done)); border-color: var(--success, var(--status-done)); color: #fff; }
 .lu-btn--success:not(:disabled):not(.is-disabled):hover {
   background: color-mix(in oklab, var(--success, var(--status-done)) 82%, black);
   border-color: color-mix(in oklab, var(--success, var(--status-done)) 82%, black);

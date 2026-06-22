@@ -69,6 +69,17 @@ def render(template: str, variables: dict) -> str:
     return _VAR.sub(lambda m: str(variables.get(m.group(1), "")), template)
 
 
+def _history_messages(history: list[dict]) -> list[LLMMessage]:
+    """Prior conversation turns as LLMMessages — user/assistant with content only."""
+    out: list[LLMMessage] = []
+    for h in history or []:
+        role = str((h or {}).get("role") or "")
+        content = str((h or {}).get("content") or "")
+        if role in ("user", "assistant") and content:
+            out.append(LLMMessage(role=role, content=content))
+    return out
+
+
 # ── wire shapes (camelCase, like the provider router) ───────────────────────
 class PromptOut(BaseModel):
     key: str
@@ -176,6 +187,10 @@ class RunRequest(BaseModel):
     # Optional per-call temperature override (writerAI's 3-variation mode runs one
     # action at 0.55/0.7/0.95). None → the action's seeded temperature.
     temperature: float | None = None
+    # Optional prior conversation turns ({role, content}) for multi-turn features
+    # (RAG chat / character chat). Inserted between the system + the rendered user
+    # message, so follow-ups keep proper message roles.
+    history: list[dict] = []
 
 
 class RunResponse(BaseModel):
@@ -199,7 +214,7 @@ def make_feature_router(
         spec = get_store().get(body.action)
         if spec is None:
             raise HTTPException(status_code=404, detail=f"unknown AI action {body.action!r}")
-        messages = [LLMMessage(role="user", content=render(spec.user_template, body.variables))]
+        messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(spec.user_template, body.variables))]
         try:
             resp = chat(
                 config=get_config(),
@@ -229,7 +244,7 @@ def make_feature_router(
         spec = get_store().get(body.action)
         if spec is None:
             raise HTTPException(status_code=404, detail=f"unknown AI action {body.action!r}")
-        messages = [LLMMessage(role="user", content=render(spec.user_template, body.variables))]
+        messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(spec.user_template, body.variables))]
         system = render(spec.system, body.variables)
 
         def gen():

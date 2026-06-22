@@ -27,9 +27,10 @@ const error = ref("");
 const editingId = ref(null); // "new" | provider id | null
 const status = ref({}); // provider id -> "checking" | "ok" | "fail"
 
-const isLocalUrl = (u) => /localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(u || "");
-const localProviders = computed(() => providers.value.filter((p) => isLocalUrl(p.baseUrl)));
-const cloudProviders = computed(() => providers.value.filter((p) => !isLocalUrl(p.baseUrl)));
+// Group by the provider's stored Local/Online choice (set in the form), not a
+// URL guess — a local provider at a LAN IP still groups under Local.
+const localProviders = computed(() => providers.value.filter((p) => p.local));
+const cloudProviders = computed(() => providers.value.filter((p) => !p.local));
 
 const hwLabel = computed(() => {
   const h = hardware.value;

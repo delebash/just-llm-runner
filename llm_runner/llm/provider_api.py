@@ -13,6 +13,7 @@ and local-server detection live here ONCE; only persistence differs per app.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Callable, Protocol
 
 from fastapi import APIRouter, HTTPException
@@ -58,6 +59,7 @@ class LLMProviderResponse(BaseModel):
     hasApiKey: bool
     registered: bool  # True if the adapter is live in the registry
     timeoutSeconds: int = 60
+    local: bool = True  # the stored Local/Online choice — drives UI grouping
 
 
 class LLMProviderList(BaseModel):
@@ -66,7 +68,10 @@ class LLMProviderList(BaseModel):
 
 
 class UpsertLLMProviderRequest(BaseModel):
-    id: str = Field(..., min_length=1, max_length=80)
+    # Optional on create: when blank, the server derives a slug id from `name`
+    # (one name to type, not two). On PATCH the path param identifies the row,
+    # so the body id is ignored either way.
+    id: str = Field("", max_length=80)
     name: str = Field(..., min_length=1, max_length=120)
     providerType: str
     baseUrl: str = ""
@@ -76,6 +81,7 @@ class UpsertLLMProviderRequest(BaseModel):
     defaultModel: str = ""
     embeddingModel: str = ""
     timeoutSeconds: int = 60
+    local: bool = True  # Local (on this machine) vs Online (metered cloud)
 
 
 class DetectedLocalProvider(BaseModel):
@@ -101,7 +107,25 @@ def _to_response(cfg: LLMProviderConfig, registered: bool) -> LLMProviderRespons
         hasApiKey=bool(cfg.apiKey),
         registered=registered,
         timeoutSeconds=cfg.timeoutSeconds,
+        local=cfg.local,
     )
+
+
+def _slugify(name: str) -> str:
+    """A URL-safe provider id from a display name ("My Local LLM" → "my-local-llm")."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+    return slug or "provider"
+
+
+def _unique_id(store: ProviderStore, base: str) -> str:
+    """`base`, or `base-2`, `base-3`, … — the first id not already taken."""
+    existing = {p.id for p in store.list()}
+    if base not in existing:
+        return base
+    n = 2
+    while f"{base}-{n}" in existing:
+        n += 1
+    return f"{base}-{n}"
 
 
 def _check_type(provider_type: str) -> None:
@@ -127,10 +151,12 @@ def make_provider_router(get_store: Callable[[], ProviderStore]) -> APIRouter:
     async def create_llm_provider(body: UpsertLLMProviderRequest) -> LLMProviderResponse:
         _check_type(body.providerType)
         store = get_store()
-        if store.get(body.id) is not None:
-            raise HTTPException(status_code=400, detail=f"LLM provider id {body.id!r} already exists")
+        # Derive the id from the name when the client doesn't supply one.
+        provider_id = body.id.strip() or _unique_id(store, _slugify(body.name))
+        if store.get(provider_id) is not None:
+            raise HTTPException(status_code=400, detail=f"LLM provider id {provider_id!r} already exists")
         cfg = LLMProviderConfig(
-            id=body.id,
+            id=provider_id,
             name=body.name,
             providerType=body.providerType,
             baseUrl=body.baseUrl,
@@ -138,6 +164,7 @@ def make_provider_router(get_store: Callable[[], ProviderStore]) -> APIRouter:
             defaultModel=body.defaultModel,
             embeddingModel=body.embeddingModel,
             timeoutSeconds=body.timeoutSeconds,
+            local=body.local,
         )
         store.add(cfg)
         registered = _sync_register(cfg)
@@ -161,6 +188,7 @@ def make_provider_router(get_store: Callable[[], ProviderStore]) -> APIRouter:
             defaultModel=body.defaultModel,
             embeddingModel=body.embeddingModel,
             timeoutSeconds=body.timeoutSeconds,
+            local=body.local,
         )
         store.replace(provider_id, cfg)
         get_llm_registry().deregister(cfg.id)

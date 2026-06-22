@@ -52,6 +52,7 @@ def test_crud_lifecycle_and_registry_sync():
     assert r.status_code == 201
     body = r.json()
     assert body["hasApiKey"] is True and "apiKey" not in body and body["registered"] is True
+    assert body["local"] is True  # default Local/Online choice round-trips
     assert "oa" in get_llm_registry().ids()
 
     # list reflects the registered flag, never echoes the key
@@ -80,6 +81,25 @@ def test_crud_lifecycle_and_registry_sync():
     assert c.delete("/v1/llm-providers/oa").json() == {"deleted": True}
     assert store.get("oa") is None and "oa" not in get_llm_registry().ids()
     assert c.delete("/v1/llm-providers/oa").status_code == 404
+
+
+def test_id_derived_from_name_and_local_flag():
+    """No id supplied → slug derived from name (+ deduped); the Local/Online
+    choice is stored and echoed, not inferred from the URL."""
+    store = MemStore()
+    c = _client(store)
+
+    r = c.post("/v1/llm-providers", json={"name": "My Local LLM", "providerType": "openai-compat", "local": True})
+    assert r.status_code == 201
+    assert r.json()["id"] == "my-local-llm" and r.json()["local"] is True
+
+    # same name again → deduped, not a collision error
+    r2 = c.post("/v1/llm-providers", json={"name": "My Local LLM", "providerType": "openai-compat"})
+    assert r2.status_code == 201 and r2.json()["id"] == "my-local-llm-2"
+
+    # an online provider keeps local=False even at a non-URL-revealing endpoint
+    r3 = c.post("/v1/llm-providers", json={"name": "OpenAI", "providerType": "openai", "local": False})
+    assert r3.json()["id"] == "openai" and r3.json()["local"] is False
 
 
 def test_detect_local(monkeypatch):

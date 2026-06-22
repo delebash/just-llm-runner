@@ -22,13 +22,11 @@ const props = defineProps({
 const emit = defineEmits(["saved", "deleted", "cancel"]);
 
 const isNew = computed(() => !props.provider);
-const isLocalUrl = (u) => /localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(u || "");
 // The bundled llama.cpp runner — its where-it-runs + type are fixed (it's THE
 // built-in engine), and it's the one provider with a managed model catalog.
 const isBuiltin = computed(() => props.provider?.providerType === "local-llamacpp");
 
 const draft = reactive({
-  id: props.provider?.id || "",
   name: props.provider?.name || "",
   providerType: props.provider?.providerType || "openai-compat",
   baseUrl: props.provider?.baseUrl || "",
@@ -37,7 +35,9 @@ const draft = reactive({
   embeddingModel: props.provider?.embeddingModel || "",
   timeoutSeconds: props.provider?.timeoutSeconds || 60,
 });
-const local = ref(props.provider ? isLocalUrl(props.provider.baseUrl) : true);
+// The stored Local/Online choice (server derives the id from the name, so there
+// is no id field to type). New providers default to Local.
+const local = ref(props.provider ? !!props.provider.local : true);
 
 const PROVIDER_TYPES = [
   { value: "openai-compat", label: "OpenAI-compatible" },
@@ -116,18 +116,21 @@ async function testConnection() {
 const saving = ref(false);
 const saveErr = ref("");
 async function save() {
-  if (!draft.id.trim() || !draft.name.trim()) { saveErr.value = "Id and name are required."; return; }
+  if (!draft.name.trim()) { saveErr.value = "Name is required."; return; }
   saving.value = true; saveErr.value = "";
-  // On edit, an empty apiKey means "keep the stored key"; a local provider sends none.
+  // On edit, an empty apiKey means "keep the stored key"; a local provider sends
+  // none. The id is derived server-side from the name on create; on edit the
+  // path param identifies the row, so the body carries no id.
   const body = {
-    id: draft.id, name: draft.name, providerType: draft.providerType,
+    name: draft.name, providerType: draft.providerType,
     baseUrl: draft.baseUrl, defaultModel: draft.defaultModel,
     embeddingModel: draft.embeddingModel, timeoutSeconds: Number(draft.timeoutSeconds) || 60,
+    local: local.value,
     apiKey: local.value ? null : (draft.apiKey || (isNew.value ? null : "")),
   };
   try {
     if (isNew.value) await request("/v1/llm-providers", { method: "POST", body });
-    else await request(`/v1/llm-providers/${encodeURIComponent(draft.id)}`, { method: "PATCH", body });
+    else await request(`/v1/llm-providers/${encodeURIComponent(props.provider.id)}`, { method: "PATCH", body });
     emit("saved");
   } catch (e) {
     saveErr.value = e.message || "Save failed.";
@@ -138,7 +141,7 @@ async function save() {
 async function remove() {
   if (isNew.value) return;
   try {
-    await request(`/v1/llm-providers/${encodeURIComponent(draft.id)}`, { method: "DELETE" });
+    await request(`/v1/llm-providers/${encodeURIComponent(props.provider.id)}`, { method: "DELETE" });
     emit("deleted");
   } catch (e) {
     saveErr.value = e.message || "Delete failed.";
@@ -160,9 +163,6 @@ async function remove() {
       <div v-if="isBuiltin"><span class="lu-locked">Local · free · built-in</span></div>
       <div v-else><LuSegmented v-model="local" :options="WHERE" />
         <div class="lu-fh">Local = on this machine, no key. Online = your metered cloud account.</div></div>
-
-      <span class="lu-fl">Id</span>
-      <LuInput v-model="draft.id" :readonly="!isNew" placeholder="my-provider" />
 
       <span class="lu-fl">Name</span>
       <LuInput v-model="draft.name" placeholder="My provider" />

@@ -37,6 +37,10 @@ class LLMProviderConfig(BaseModel):
     defaultModel: str = ""
     embeddingModel: str = ""  # optional — provider doubles as the EMBED source
     timeoutSeconds: int = 60
+    # Runs on this machine (no key, no per-token cost) vs a metered cloud
+    # account. The explicit Local/Online choice from the form — drives the
+    # Local-vs-Cloud grouping in the UI; NOT inferred from the URL.
+    local: bool = True
     extra: dict[str, str] = {}  # provider-specific extras (org id, region, etc.)
 
 

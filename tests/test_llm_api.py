@@ -54,6 +54,31 @@ def test_ping_and_models_use_registry():
     reg._adapters = {}
 
 
+class FakeEmbedAdapter(FakeAdapter):
+    provider_id = "emb"
+
+    def embed(self, texts, *, model=None):
+        return [[0.1, 0.2, 0.3] for _ in texts]
+
+
+def test_embeddings_via_registry():
+    reg = get_llm_registry()
+    reg._adapters = {}
+    reg.register(FakeEmbedAdapter())
+    reg.register(FakeAdapter())  # has no embed()
+    c = _client()
+    r = c.post("/v1/ai/embeddings", json={"providerId": "emb", "model": "e", "input": ["a", "b"]})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["embeddings"]) == 2 and body["embeddings"][0] == [0.1, 0.2, 0.3]
+    assert body["model"] == "e"
+    # A registered provider with no embeddings support → clear 400.
+    assert c.post("/v1/ai/embeddings", json={"providerId": "fake", "input": ["x"]}).status_code == 400
+    # Unregistered → 404.
+    assert c.post("/v1/ai/embeddings", json={"providerId": "nope", "input": ["x"]}).status_code == 404
+    reg._adapters = {}
+
+
 def test_ai_usage_reflects_ledger():
     get_ledger().clear()
     reg = get_llm_registry()

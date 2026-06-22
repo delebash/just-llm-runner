@@ -213,6 +213,19 @@ class OpenAICompatAdapter:
         data = payload.get("data") or []
         return [str(m.get("id")) for m in data if m.get("id")]
 
+    def embed(self, texts: list[str], *, model: str | None = None) -> list[list[float]]:
+        """POST /embeddings (OpenAI shape: {data: [{embedding}, ...]})."""
+        body = {"model": model or self.default_model, "input": list(texts)}
+        url = f"{self._base_url}/embeddings"
+        try:
+            r = self._client.post(url, json=body, headers=self._headers())
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"{self.provider_type} embeddings request failed: {e}") from e
+        if r.status_code >= 400:
+            raise RuntimeError(f"{self.provider_type} embeddings {r.status_code}: {r.text[:400]}")
+        data = r.json().get("data") or []
+        return [list(d.get("embedding") or []) for d in data]
+
     def ping(self) -> bool:
         try:
             r = self._client.get(

@@ -98,6 +98,16 @@ class LLMAdapter(Protocol):
         the network (e.g. GET /models) — callers should cache."""
         ...
 
+    def embed(self, texts: list[str], *, model: str | None = None) -> list[list[float]]:
+        """Embed texts into vectors — one vector per input, same order.
+
+        Only providers that expose an embeddings endpoint implement this
+        (OpenAI-compatible `/embeddings`, Ollama `/api/embed`); adapters that
+        don't (Anthropic, Gemini) omit it, and the embeddings endpoint reports a
+        clear 400. Raises RuntimeError on an upstream/transport error.
+        """
+        ...
+
     def ping(self) -> bool:
         """Cheap connectivity check. Returns True if the provider's
         baseUrl is reachable + the credentials are accepted."""

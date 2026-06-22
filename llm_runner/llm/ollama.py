@@ -172,6 +172,31 @@ class OllamaAdapter:
             return []
         return [m.get("name") for m in payload.get("models") or [] if m.get("name")]
 
+    def embed(self, texts: list[str], *, model: str | None = None) -> list[list[float]]:
+        """Native /api/embed (batch); falls back to legacy /api/embeddings
+        (single) on older daemons. Mirrors the retired gateway's _ollama_embed."""
+        arr = list(texts)
+        m = model or self.default_model
+        try:
+            r = self._client.post(
+                f"{self._base_url}/api/embed", json={"model": m, "input": arr}, headers=self._headers()
+            )
+            if r.status_code < 400:
+                embs = r.json().get("embeddings")
+                if embs:
+                    return [list(e) for e in embs]
+        except httpx.HTTPError as e:
+            raise RuntimeError(f"ollama embeddings request failed: {e}") from e
+        out: list[list[float]] = []
+        for t in arr:
+            rr = self._client.post(
+                f"{self._base_url}/api/embeddings", json={"model": m, "prompt": t}, headers=self._headers()
+            )
+            if rr.status_code >= 400:
+                raise RuntimeError(f"ollama embeddings {rr.status_code}: {rr.text[:400]}")
+            out.append(list(rr.json().get("embedding") or []))
+        return out
+
     def ping(self) -> bool:
         try:
             r = self._client.get(self._base_url, timeout=3.0)

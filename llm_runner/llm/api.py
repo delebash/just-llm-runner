@@ -108,6 +108,33 @@ async def probe_provider_models(body: ProbeModelsRequest) -> dict:
         return {"models": [], "error": str(e)}
 
 
+class EmbeddingsRequest(BaseModel):
+    providerId: str
+    model: str = ""
+    input: list[str] = []
+
+
+@router.post("/v1/ai/embeddings")
+async def ai_embeddings(body: EmbeddingsRequest) -> dict:
+    """Embed texts through a registered provider (server-held key) — the shared
+    replacement for the old `/v1/llm/{id}/embeddings` proxy. The client passes
+    the embedding provider id (its routing default) + model; non-embedding
+    providers (Anthropic/Gemini) report a clear 400."""
+    adapter = get_llm_registry().get(body.providerId)
+    if adapter is None:
+        raise HTTPException(status_code=404, detail=f"LLM provider {body.providerId} (not registered)")
+    embed = getattr(adapter, "embed", None)
+    if embed is None:
+        raise HTTPException(status_code=400, detail=f"provider {body.providerId} does not support embeddings")
+    try:
+        vectors = embed(body.input, model=body.model or None)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=400, detail=f"provider {body.providerId} does not support embeddings") from e
+    except Exception as e:  # noqa: BLE001 — surface upstream/transport errors
+        raise HTTPException(status_code=502, detail=str(e)[:400]) from e
+    return {"embeddings": vectors, "model": body.model or adapter.default_model}
+
+
 @router.get("/v1/ai-usage")
 async def ai_usage() -> dict:
     """Token + duration ledger per feature (Settings → AI usage)."""

@@ -173,6 +173,9 @@ class RunRequest(BaseModel):
     # providers/models). Empty → the feature's resolved route.
     providerId: str = ""
     model: str = ""
+    # Optional per-call temperature override (writerAI's 3-variation mode runs one
+    # action at 0.55/0.7/0.95). None → the action's seeded temperature.
+    temperature: float | None = None
 
 
 class RunResponse(BaseModel):
@@ -206,7 +209,7 @@ def make_feature_router(
                 # placeholders so render() returns it unchanged; e.g. plotHoles
                 # injects the project's world-rules section.
                 system=render(spec.system, body.variables),
-                temperature=spec.temperature,
+                temperature=spec.temperature if body.temperature is None else body.temperature,
                 think=spec.think,
                 provider_override=body.providerId or None,
                 model_override=body.model or None,
@@ -236,7 +239,7 @@ def make_feature_router(
                     feature=spec.feature,
                     messages=messages,
                     system=system,
-                    temperature=spec.temperature,
+                    temperature=spec.temperature if body.temperature is None else body.temperature,
                     think=spec.think,
                     provider_override=body.providerId or None,
                     model_override=body.model or None,

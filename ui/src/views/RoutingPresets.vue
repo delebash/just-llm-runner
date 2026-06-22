@@ -145,7 +145,9 @@ function summary(p) {
 </template>
 
 <style scoped>
-.lu-presets { border: 1px solid var(--border); border-radius: var(--r-md, 10px); background: var(--surface); padding: 12px 16px; margin-top: 16px; }
+/* max-width matches FeaturesRouting's .lu-feat so this card lines up with the
+   routing table above it instead of stretching wider. */
+.lu-presets { max-width: 1000px; border: 1px solid var(--border); border-radius: var(--r-md, 10px); background: var(--surface); padding: 12px 16px; margin-top: 16px; }
 .lu-presets-head { margin-bottom: 10px; }
 .lu-presets-title { font-size: 14px; color: var(--ink); }
 .lu-presets-sub { font-size: 11.5px; margin-left: 8px; }

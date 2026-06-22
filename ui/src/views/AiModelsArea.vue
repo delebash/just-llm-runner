@@ -36,10 +36,10 @@ const hwLabel = computed(() => {
   const h = hardware.value;
   if (!h) return null;
   const gpu = h.gpus && h.gpus[0];
-  const vram = gpu?.vramMb ? `${(gpu.vramMb / 1024).toFixed(0)} GB VRAM` : "";
   const accel = Object.entries(h.runtimes || {}).filter(([, v]) => v).map(([k]) => k.toUpperCase()).join(" / ");
   return {
-    gpu: gpu ? `${gpu.name}${vram ? ` · ${vram}` : ""}` : "CPU only",
+    gpu: gpu ? gpu.name : "CPU only",
+    vram: gpu?.vramMb ? `${(gpu.vramMb / 1024).toFixed(0)} GB` : null,
     ram: h.ramMb ? `${(h.ramMb / 1024).toFixed(0)} GB` : "—",
     accel: accel || "—",
   };
@@ -107,12 +107,25 @@ onMounted(loadAll);
   <div class="lu-area">
     <p class="lu-muted lu-lede">Connect AI providers — free local or metered cloud — and manage which models power each feature.</p>
 
-    <div v-if="hwLabel" class="lu-hwtop">
-      <span class="lu-hw-title">YOUR HARDWARE</span>
-      <div><span class="lu-hw-k">GPU</span> <b>{{ hwLabel.gpu }}</b></div>
-      <div><span class="lu-hw-k">RAM</span> <b>{{ hwLabel.ram }}</b></div>
-      <div><span class="lu-hw-k">Accel</span> <b>{{ hwLabel.accel }}</b></div>
-      <span class="lu-muted lu-hw-note">drives the Fit scores</span>
+    <div v-if="hwLabel" class="lu-hwcard">
+      <span class="lu-hwcard-ic" aria-hidden="true">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+          <rect x="5.5" y="5.5" width="9" height="9" rx="1.4" />
+          <path d="M8 2.5v3M12 2.5v3M8 14.5v3M12 14.5v3M2.5 8h3M2.5 12h3M14.5 8h3M14.5 12h3" stroke-linecap="round" />
+        </svg>
+      </span>
+      <div class="lu-hwcard-body">
+        <div class="lu-hwcard-head">
+          <span class="lu-hwcard-title">Your hardware</span>
+          <span class="lu-muted lu-hwcard-note">drives the Fit scores</span>
+        </div>
+        <div class="lu-hwstats">
+          <div class="lu-hwstat"><span class="lu-hwstat-k">GPU</span><span class="lu-hwstat-v">{{ hwLabel.gpu }}</span></div>
+          <div v-if="hwLabel.vram" class="lu-hwstat"><span class="lu-hwstat-k">VRAM</span><span class="lu-hwstat-v">{{ hwLabel.vram }}</span></div>
+          <div class="lu-hwstat"><span class="lu-hwstat-k">RAM</span><span class="lu-hwstat-v">{{ hwLabel.ram }}</span></div>
+          <div class="lu-hwstat"><span class="lu-hwstat-k">Accel</span><span class="lu-hwstat-v">{{ hwLabel.accel }}</span></div>
+        </div>
+      </div>
     </div>
 
     <nav class="lu-subnav">
@@ -199,14 +212,21 @@ onMounted(loadAll);
 
     <!-- ── Usage ── -->
     <section v-show="tab === 'usage'" class="lu-tab">
-      <div>
-        <div v-if="usageStats" class="lu-usage">
-          <div class="lu-u"><b>{{ usageStats.calls.toLocaleString() }}</b><small>calls recorded</small></div>
-          <div class="lu-u"><b>{{ usageStats.tokens.toLocaleString() }}</b><small>tokens</small></div>
-          <div class="lu-u"><b>{{ usageStats.busy }}</b><small>busiest · {{ usageStats.busyCalls.toLocaleString() }} calls</small></div>
+      <div v-if="usageStats" class="lu-usage">
+        <div class="lu-card lu-ucard">
+          <div class="lu-uval">{{ usageStats.calls.toLocaleString() }}</div>
+          <div class="lu-ulabel">calls recorded</div>
         </div>
-        <div v-else class="lu-muted">No usage recorded yet.</div>
+        <div class="lu-card lu-ucard">
+          <div class="lu-uval">{{ usageStats.tokens.toLocaleString() }}</div>
+          <div class="lu-ulabel">tokens</div>
+        </div>
+        <div class="lu-card lu-ucard">
+          <div class="lu-uval">{{ usageStats.busy }}</div>
+          <div class="lu-ulabel">busiest · {{ usageStats.busyCalls.toLocaleString() }} calls</div>
+        </div>
       </div>
+      <div v-else class="lu-card lu-usage-empty lu-muted">No usage recorded yet.</div>
     </section>
   </div>
 </template>
@@ -215,12 +235,29 @@ onMounted(loadAll);
 .lu-area { max-width: 1100px; }
 .lu-h1 { font-size: 22px; font-weight: 600; margin: 0; color: var(--ink); }
 .lu-lede { font-size: 13px; margin: 4px 0 0; }
-.lu-hwtop { display: flex; gap: 24px; align-items: center; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 11px 18px; margin-top: 12px; font-size: 12.5px; }
-.lu-hw-title { font-size: 11px; font-weight: 700; color: var(--muted); }
-.lu-hw-k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-.lu-hw-note { margin-left: auto; font-size: 11.5px; }
-.lu-subnav { display: flex; gap: 4px; margin-top: 14px; border-bottom: 1px solid var(--border); }
-.lu-subnav a { padding: 9px 16px; font-size: 12.5px; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; font-weight: 600; }
+/* Hardware summary card — icon + labelled stat blocks (GPU / VRAM / RAM / Accel). */
+.lu-hwcard { display: flex; gap: 14px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; margin-top: 12px; }
+.lu-hwcard-ic { flex: none; width: 38px; height: 38px; border-radius: 9px; background: var(--accent-soft); color: var(--accent-ink, var(--accent)); display: grid; place-items: center; }
+.lu-hwcard-ic svg { width: 20px; height: 20px; }
+.lu-hwcard-body { flex: 1; min-width: 0; }
+.lu-hwcard-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 9px; }
+.lu-hwcard-title { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.lu-hwcard-note { margin-left: auto; font-size: 11.5px; }
+.lu-hwstats { display: flex; gap: 30px; flex-wrap: wrap; }
+.lu-hwstat { display: flex; flex-direction: column; gap: 2px; }
+.lu-hwstat-k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.lu-hwstat-v { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+
+/* Sticky tab strip — stays put while a long providers/features list scrolls
+   under it. var(--surface) backing matches the host card so rows pass cleanly
+   beneath; the pseudo-element bleeds the bg over the host's scroll padding so
+   nothing peeks above the bar. */
+.lu-subnav { display: flex; gap: 4px; margin-top: 22px; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; background: var(--surface); }
+/* Cover the host card's scroll padding above the stuck bar so rows don't peek
+   through. Height == the subnav's top margin so it fills that gap exactly when
+   unstuck (over the same surface bg → invisible) and the padding band when stuck. */
+.lu-subnav::before { content: ""; position: absolute; left: 0; right: 0; top: -22px; height: 22px; background: var(--surface); }
+.lu-subnav a { padding: 11px 16px; font-size: 12.5px; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; font-weight: 600; }
 .lu-subnav a.on { color: var(--ink); border-bottom-color: var(--accent); }
 .lu-tab { padding-top: 14px; }
 .lu-qs-wrap { display: block; margin-bottom: 14px; }
@@ -256,8 +293,10 @@ onMounted(loadAll);
 .lu-newform { margin-top: 8px; border: 1px solid var(--accent); border-radius: 10px; overflow: hidden; }
 .lu-mono { font-family: var(--font-mono, monospace); }
 
-.lu-usage { display: flex; gap: 30px; flex-wrap: wrap; }
-.lu-u { font-size: 13px; }
-.lu-u b { display: block; font-size: 18px; color: var(--ink); }
-.lu-u small { color: var(--muted); }
+/* Usage — metric cards (big number + label) in a responsive grid. */
+.lu-usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; max-width: 640px; }
+.lu-ucard { display: flex; flex-direction: column; gap: 4px; }
+.lu-uval { font-size: 25px; font-weight: 700; color: var(--ink); line-height: 1.1; }
+.lu-ulabel { font-size: 12px; color: var(--muted); }
+.lu-usage-empty { text-align: center; font-size: 12.5px; }
 </style>

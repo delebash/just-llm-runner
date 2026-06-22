@@ -105,18 +105,30 @@ def test_id_derived_from_name_and_local_flag():
 def test_detect_local(monkeypatch):
     import httpx
 
+    from llm_runner.llm.provider_api import PROVIDER_TYPES
+
     class FakeResp:
         status_code = 200
 
+        def __init__(self, payload):
+            self._payload = payload
+
         def json(self):
-            return {"models": [{"name": "qwen3:14b"}]}
+            return self._payload
 
     def fake_get(url, timeout=None):
-        if "11434" in url:
-            return FakeResp()
+        if "11434" in url:  # Ollama /api/tags
+            return FakeResp({"models": [{"name": "qwen3:14b"}]})
+        if "1234" in url:  # LM Studio /v1/models (OpenAI shape)
+            return FakeResp({"data": [{"id": "lmstudio-model"}]})
         raise ConnectionError("down")
 
     monkeypatch.setattr(httpx, "get", fake_get)
     det = _client(MemStore()).get("/v1/llm-providers/detect-local").json()["detected"]
-    assert len(det) == 1 and det[0]["providerType"] == "ollama"
-    assert "qwen3:14b" in det[0]["models"] and det[0]["alreadyRegistered"] is False
+    by_type = {d["providerType"]: d for d in det}
+    assert "qwen3:14b" in by_type["ollama"]["models"]
+    assert by_type["ollama"]["alreadyRegistered"] is False
+    # LM Studio must detect as the CANONICAL openai-compat — a creatable
+    # PROVIDER_TYPES value, not "openai_compat" which would 400 on create.
+    assert "lmstudio-model" in by_type["openai-compat"]["models"]
+    assert all(d["providerType"] in PROVIDER_TYPES for d in det)

@@ -85,7 +85,7 @@ class UpsertLLMProviderRequest(BaseModel):
 
 
 class DetectedLocalProvider(BaseModel):
-    providerType: str  # "ollama" | "openai_compat"
+    providerType: str  # "ollama" | "openai-compat" — a canonical PROVIDER_TYPES value
     name: str
     baseUrl: str
     models: list[str]
@@ -112,8 +112,9 @@ def _to_response(cfg: LLMProviderConfig, registered: bool) -> LLMProviderRespons
 
 
 def _slugify(name: str) -> str:
-    """A URL-safe provider id from a display name ("My Local LLM" → "my-local-llm")."""
-    slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")
+    """A URL-safe provider id from a display name ("My Local LLM" → "my-local-llm"),
+    capped at 80 chars to match the request id limit."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")[:80].rstrip("-")
     return slug or "provider"
 
 
@@ -215,7 +216,7 @@ def make_provider_router(get_store: Callable[[], ProviderStore]) -> APIRouter:
         probes = [
             ("ollama", "Ollama (local)", "http://127.0.0.1:11434", "/api/tags",
              lambda d: [m.get("name", "") for m in d.get("models", [])]),
-            ("openai_compat", "LM Studio (local)", "http://127.0.0.1:1234", "/v1/models",
+            ("openai-compat", "LM Studio (local)", "http://127.0.0.1:1234", "/v1/models",
              lambda d: [m.get("id", "") for m in d.get("data", [])]),
         ]
         for ptype, name, base, path, extract in probes:

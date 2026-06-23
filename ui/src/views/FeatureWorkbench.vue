@@ -76,6 +76,25 @@ function actionLabel(p) {
   s = s.replace(/[._-]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim();
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : p.key;
 }
+// Card blurb: the action's own description, else its feature's hint.
+function actionDesc(a) {
+  return a?.description || featMeta.value[a?.feature]?.hint || "";
+}
+function hasProd(key) {
+  return presets.value.some((p) => p.action === key && p.active);
+}
+// Split a feature's actions into Writer-Lab-style sub-sections by their `group`
+// (e.g. writerAI → "Prose actions" / "Line edits"); "" = no sub-label.
+function subGroups(actions) {
+  const order = [];
+  const map = {};
+  for (const a of actions) {
+    const g = a.group || "";
+    if (!(g in map)) { map[g] = []; order.push(g); }
+    map[g].push(a);
+  }
+  return order.map((g) => ({ label: g, items: map[g] }));
+}
 
 // ── model picker (routing pins keyed by feature OR action) ───────────────────
 // Like Feature Routing: a "route" select (inherit / role / a provider) + a model
@@ -318,14 +337,14 @@ onMounted(load);
         <!-- Nav: actions grouped by feature -->
         <aside class="lu-fw-list">
           <template v-for="g in groups" :key="g.key">
-            <!-- single-action feature: the group IS the action -->
-            <button v-if="!isMulti(g)" type="button" class="lu-fw-row"
+            <!-- single-action feature → one card (label + its feature blurb) -->
+            <button v-if="!isMulti(g)" type="button" class="lu-fw-card"
               :class="{ 'is-active': g.actions[0].key === selAction }" @click="selectAction(g.actions[0].key)">
-              <span class="lu-fw-name">{{ g.label }}</span>
-              <span v-if="g.hint" class="lu-fw-hint lu-muted">{{ g.hint }}</span>
+              <div class="lu-fw-card-label">{{ g.label }}<span v-if="hasProd(g.actions[0].key)" class="lu-fw-dot" title="has a production preset" /></div>
+              <div v-if="actionDesc(g.actions[0])" class="lu-fw-card-desc">{{ actionDesc(g.actions[0]) }}</div>
             </button>
-            <!-- multi-action feature: dark heading + description + feature-default
-                 model, then its indented actions (always shown — no expand). -->
+            <!-- multi-action feature → section heading + hint + feature-default
+                 model, then a card per action (sub-grouped, Writer-Lab style). -->
             <template v-else>
               <div class="lu-fw-ghead">
                 <span class="lu-fw-gname">{{ g.label }}</span>
@@ -345,11 +364,14 @@ onMounted(load);
                 </div>
               </div>
               <p v-if="g.hint" class="lu-fw-ghint">{{ g.hint }}</p>
-              <button v-for="a in g.actions" :key="a.key" type="button" class="lu-fw-row lu-fw-sub"
-                :class="{ 'is-active': a.key === selAction }" @click="selectAction(a.key)">
-                <span class="lu-fw-name">{{ actionLabel(a) }}</span>
-                <span v-if="presets.find((x) => x.action === a.key && x.active)" class="lu-fw-dot" title="has a production preset" />
-              </button>
+              <template v-for="sg in subGroups(g.actions)" :key="sg.label || g.key">
+                <div v-if="sg.label" class="lu-fw-sublabel">{{ sg.label }}</div>
+                <button v-for="a in sg.items" :key="a.key" type="button" class="lu-fw-card lu-fw-card--sub"
+                  :class="{ 'is-active': a.key === selAction }" @click="selectAction(a.key)">
+                  <div class="lu-fw-card-label">{{ actionLabel(a) }}<span v-if="hasProd(a.key)" class="lu-fw-dot" title="has a production preset" /></div>
+                  <div v-if="actionDesc(a)" class="lu-fw-card-desc">{{ actionDesc(a) }}</div>
+                </button>
+              </template>
             </template>
           </template>
         </aside>
@@ -447,23 +469,23 @@ select.lu-input { cursor: pointer; appearance: auto; }
 
 /* Body = nav + editor. The nav is a self-contained scroller (capped height,
    sticky) so a long action list never stretches the page. */
-.lu-fw-body { display: grid; grid-template-columns: 268px minmax(0, 1fr); gap: 16px; align-items: start; }
-.lu-fw-list { border: 1px solid var(--border); border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 1px; max-height: calc(100vh - 240px); overflow-y: auto; position: sticky; top: 4px; }
-.lu-fw-row { display: flex; flex-direction: column; gap: 1px; text-align: left; padding: 7px 9px; border: 0; background: transparent; border-radius: 7px; cursor: pointer; width: 100%; font: inherit; }
-.lu-fw-row:hover { background: var(--surface-3); }
-.lu-fw-row.is-active { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
-.lu-fw-name { font-weight: 600; font-size: 12.5px; color: var(--ink); }
-.lu-fw-hint { font-size: 10.5px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.lu-fw-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: auto; flex: none; }
-/* multi-action group: dark heading + description, then indented actions */
-.lu-fw-ghead { display: flex; align-items: center; gap: 8px; padding: 9px 8px 2px; margin-top: 6px; border-top: 1px solid var(--border); }
+.lu-fw-body { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 16px; align-items: start; }
+.lu-fw-list { border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 240px); overflow-y: auto; position: sticky; top: 4px; }
+/* Writer-Lab-style action card: label + blurb, accent on hover/active. */
+.lu-fw-card { text-align: left; width: 100%; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; }
+.lu-fw-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+.lu-fw-card.is-active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.lu-fw-card--sub { margin-left: 10px; }
+.lu-fw-card-label { font-size: 12.5px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+.lu-fw-card-desc { font-size: 11px; color: var(--muted); line-height: 1.4; margin-top: 3px; }
+.lu-fw-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+/* multi-action section: dark heading + feature-default model, hint, sub-labels */
+.lu-fw-ghead { display: flex; align-items: center; gap: 8px; padding: 8px 4px 2px; margin-top: 6px; border-top: 1px solid var(--border); }
 .lu-fw-ghead:first-child { border-top: 0; margin-top: 0; }
 .lu-fw-gname { font-size: 13px; font-weight: 700; color: var(--ink); }
 .lu-fw-gspacer { flex: 1; }
-.lu-fw-ghint { margin: 0 8px 5px; font-size: 10.5px; line-height: 1.4; color: var(--muted); }
-.lu-fw-sub { margin-left: 9px; padding-left: 16px; border-left: 1.5px solid var(--border); border-radius: 0 7px 7px 0; flex-direction: row; align-items: center; gap: 7px; }
-.lu-fw-sub .lu-fw-name { font-weight: 500; font-size: 12px; }
-.lu-fw-sub.is-active { border-left-color: var(--accent); }
+.lu-fw-ghint { margin: 0 4px 4px; font-size: 10.5px; line-height: 1.4; color: var(--muted); }
+.lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 7px 0 1px 10px; }
 .lu-fw-gdefault { display: flex; gap: 4px; }
 .lu-fw-mini { font-size: 11px; padding: 3px 6px; max-width: 104px; }
 

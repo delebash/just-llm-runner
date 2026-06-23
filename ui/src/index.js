@@ -14,12 +14,12 @@ export { configureLlmUi, llmUiBase, llmUiUrl, request, requestStream } from "./c
 // shared general primitives — the future @delebash/ui (housed in ./common for
 // now). Ui* supersede the per-app Jw*/Jv*/Lu*. Re-exporting also loads
 // common/styles.css (the .ui-* rules).
-export { UiButton, UiInput, UiTextarea, UiCheckbox, UiTag } from "./common/index.js";
+export { UiButton, UiInput, UiTextarea, UiCheckbox, UiTag, UiSegmented } from "./common/index.js";
+export { useRovingTabindex } from "./common/composables/useRovingTabindex.js";
 
-// llm-ui-specific primitives still local (Segmented/Select pending convergence)
+// llm-ui-specific primitives still local (Select pending convergence)
 export { default as LuCombobox } from "./components/LuCombobox.vue";
 export { default as LuModelPicker } from "./components/LuModelPicker.vue";
-export { default as LuSegmented } from "./components/LuSegmented.vue";
 
 // views
 export { default as PromptLab } from "./views/PromptLab.vue";

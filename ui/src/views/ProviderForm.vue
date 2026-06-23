@@ -13,7 +13,7 @@ import UiButton from "../common/components/UiButton.vue";
 import LuCombobox from "../components/LuCombobox.vue";
 import UiInput from "../common/components/UiInput.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
-import LuSegmented from "../components/LuSegmented.vue";
+import UiSegmented from "../common/components/UiSegmented.vue";
 import { request } from "../client.js";
 
 const props = defineProps({
@@ -161,7 +161,7 @@ async function remove() {
     <div class="lu-fgrid">
       <span class="lu-fl">Where it runs</span>
       <div v-if="isBuiltin"><span class="lu-locked">Local · free · built-in</span></div>
-      <div v-else><LuSegmented v-model="local" :options="WHERE" />
+      <div v-else><UiSegmented v-model="local" :options="WHERE" />
         <div class="lu-fh">Local = on this machine, no key. Online = your metered cloud account.</div></div>
 
       <span class="lu-fl">Name</span>

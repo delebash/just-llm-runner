@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Feature Workbench — the single AI config + test surface (AI ▸ Features). The
 // unit is the ACTION (37 of them); "feature" (writerAI, critique, …) is just the
-// visual GROUP its actions live under. Per action: pick its model (or inherit the
-// feature default / a role / the global default), edit its prompt + params, TEST
-// on real input, save NAMED presets, and mark one "use as production".
+// visual GROUP its actions live under. Per action: pick its model (or inherit a
+// role / the global Default LLM), edit its prompt + params, TEST on real input,
+// save NAMED presets, and mark one "use as production".
 //
 // It also absorbs the old Feature Routing: the GLOBALS (default LLM + embedding,
-// Quick/Accuracy roles) sit at the top; each feature GROUP header carries that
-// feature's DEFAULT model, which its actions inherit unless they override.
+// Quick/Accuracy roles) sit at the top; each multi-action group header has a
+// "Set all" applicator that writes the model for every action in the group at
+// once (there is no separate per-feature default — an action resolves: its own
+// pin → its feature's default role → the Default LLM).
 //
 // Model assignment is stored as routing pins keyed by feature OR action key
 // (/v1/ai/routing); prompts in /v1/ai/prompts; presets in /v1/ai/feature-presets.
@@ -61,7 +63,6 @@ const groups = computed(() => {
 });
 
 const action = computed(() => prompts.value.find((p) => p.key === selAction.value) || null);
-const selFeatureKey = computed(() => action.value?.feature || "");
 const actionPresets = computed(() => presets.value.filter((p) => p.action === selAction.value));
 const activePreset = computed(() => actionPresets.value.find((p) => p.active) || null);
 const isMulti = (g) => g.actions.length > 1;
@@ -111,18 +112,35 @@ function setRole(role, val) {
   routing.value[role] = { providerId: val?.providerId || "", model: val?.model || "" };
   saveRouting();
 }
-// What a key actually resolves to, for the muted "→ …" note.
-function resolvedText(key, isAction) {
+function featureOf(key) { return prompts.value.find((p) => p.key === key)?.feature || ""; }
+const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+// What an action currently resolves to, in plain terms (the nav "→ …" + the
+// editor note). Cascade (Option A — no feature-level default): the action's own
+// pin → its feature's default role (from the catalog) → the global Default LLM.
+function activeModel(key) {
   const p = pin(key);
-  if (p?.role) return `role · ${p.role}`;
   if (p?.providerId) return providerName(p.providerId) + (p.model ? ` · ${p.model}` : "");
-  if (isAction) {
-    const fk = selFeatureKey.value;
-    const fp = pin(fk);
-    if (fp?.role) return `feature default · role ${fp.role}`;
-    if (fp?.providerId) return `feature default · ${providerName(fp.providerId)}${fp.model ? ` · ${fp.model}` : ""}`;
+  if (p?.role) return `${cap(p.role)} role`;
+  const dr = featMeta.value[featureOf(key)]?.defaultRole;
+  if (dr) return `${cap(dr)} role`;
+  const d = routing.value?.default?.llmId;
+  return d ? `Default · ${providerName(d)}` : "Default LLM (unset)";
+}
+// Bulk-set every action in a group to one pin (Option A keeps no feature-level
+// pin — "set all" just writes each action's own pin).
+function setGroupAll(g, val) {
+  const pins = routing.value.pins || (routing.value.pins = {});
+  for (const a of g.actions) {
+    if (!val || (!val.providerId && !val.role)) delete pins[a.key];
+    else pins[a.key] = { providerId: val.providerId || "", model: val.model || "", role: val.role || "" };
   }
-  return `global default · ${providerName(routing.value?.default?.llmId)}`;
+  saveRouting();
+}
+// The shared pin when every action in a group has the same one, else null (mixed).
+function groupCommonPin(g) {
+  const sig = (k) => JSON.stringify(pin(k) || null);
+  const first = sig(g.actions[0].key);
+  return g.actions.every((a) => sig(a.key) === first) ? (pin(g.actions[0].key) || null) : null;
 }
 
 async function load() {
@@ -227,7 +245,7 @@ async function useAsProduction() {
       const name = presets.value.find((p) => p.id === id)?.name || selAction.value;
       presets.value = (await request(`/v1/ai/feature-presets/${id}`, { method: "PUT", body: snapshot(name) })).presets || [];
     } else {
-      const name = `${resolvedText(selAction.value, true)} · ${new Date().toLocaleDateString()}`;
+      const name = `${activeModel(selAction.value)} · ${new Date().toLocaleDateString()}`;
       presets.value = (await request("/v1/ai/feature-presets", { method: "POST", body: snapshot(name) })).presets || [];
       id = actionPresets.value.find((p) => p.name === name)?.id || ""; selPreset.value = id;
     }
@@ -322,16 +340,18 @@ onMounted(load);
               :class="{ 'is-active': g.actions[0].key === selAction }" @click="selectAction(g.actions[0].key)">
               <div class="lu-fw-card-label">{{ g.label }}<span v-if="hasProd(g.actions[0].key)" class="lu-fw-dot" title="has a production preset" /></div>
               <div v-if="actionDesc(g.actions[0])" class="lu-fw-card-desc">{{ actionDesc(g.actions[0]) }}</div>
+              <div class="lu-fw-card-model" title="currently active model">→ {{ activeModel(g.actions[0].key) }}</div>
             </button>
-            <!-- multi-action feature → section heading + hint + feature-default
-                 model, then a card per action (sub-grouped, Writer-Lab style). -->
+            <!-- multi-action feature → heading + a "Set all" applicator (writes
+                 every action's model at once), hint, then a card per action. -->
             <template v-else>
               <div class="lu-fw-ghead">
                 <span class="lu-fw-gname">{{ g.label }}</span>
                 <span class="lu-fw-gspacer" />
-                <LuModelPicker :model-value="pin(g.key)" :providers="providers" inherit-label="Default" :compact="true"
-                  :title="`Default model for all ${g.actions.length} ${g.label} actions`"
-                  @update:model-value="setPin(g.key, $event)" />
+                <span class="lu-fw-setall-lbl">Set all</span>
+                <LuModelPicker :model-value="groupCommonPin(g)" :providers="providers" inherit-label="Inherit default" :compact="true"
+                  :title="`Set the provider + model for all ${g.actions.length} ${g.label} actions at once`"
+                  @update:model-value="setGroupAll(g, $event)" />
               </div>
               <p v-if="g.hint" class="lu-fw-ghint">{{ g.hint }}</p>
               <template v-for="sg in subGroups(g.actions)" :key="sg.label || g.key">
@@ -340,6 +360,7 @@ onMounted(load);
                   :class="{ 'is-active': a.key === selAction }" @click="selectAction(a.key)">
                   <div class="lu-fw-card-label">{{ actionLabel(a) }}<span v-if="hasProd(a.key)" class="lu-fw-dot" title="has a production preset" /></div>
                   <div v-if="actionDesc(a)" class="lu-fw-card-desc">{{ actionDesc(a) }}</div>
+                  <div class="lu-fw-card-model" title="currently active model">→ {{ activeModel(a.key) }}</div>
                 </button>
               </template>
             </template>
@@ -370,11 +391,11 @@ onMounted(load);
 
           <!-- Provider + model for this action (shared LuModelPicker) -->
           <div class="lu-field">
-            <label>Provider &amp; model <span class="lu-muted">— inherits the feature default unless you pin one here</span></label>
+            <label>Provider &amp; model <span class="lu-muted">— inherits the default unless you pin a provider + model here</span></label>
             <div class="lu-fw-route">
               <LuModelPicker :model-value="pin(selAction)" :providers="providers" :labels="true"
-                inherit-label="Inherit feature default" @update:model-value="setPin(selAction, $event)" />
-              <span class="lu-muted lu-fw-resolved">→ {{ resolvedText(selAction, true) }}</span>
+                inherit-label="Inherit default" @update:model-value="setPin(selAction, $event)" />
+              <span class="lu-muted lu-fw-resolved">→ {{ activeModel(selAction) }}</span>
             </div>
           </div>
 
@@ -439,12 +460,14 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-card--sub { margin-left: 10px; }
 .lu-fw-card-label { font-size: 12.5px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 6px; }
 .lu-fw-card-desc { font-size: 11px; color: var(--muted); line-height: 1.4; margin-top: 3px; }
+.lu-fw-card-model { font-size: 10.5px; font-weight: 600; color: var(--accent-ink, var(--accent)); margin-top: 4px; }
 .lu-fw-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
 /* multi-action section: dark heading + feature-default model, hint, sub-labels */
 .lu-fw-ghead { display: flex; align-items: center; gap: 8px; padding: 8px 4px 2px; margin-top: 6px; border-top: 1px solid var(--border); }
 .lu-fw-ghead:first-child { border-top: 0; margin-top: 0; }
 .lu-fw-gname { font-size: 13px; font-weight: 700; color: var(--ink); }
 .lu-fw-gspacer { flex: 1; }
+.lu-fw-setall-lbl { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .lu-fw-ghint { margin: 0 4px 4px; font-size: 10.5px; line-height: 1.4; color: var(--muted); }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 7px 0 1px 10px; }
 

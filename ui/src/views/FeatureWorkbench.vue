@@ -36,7 +36,6 @@ const naming = ref(false);
 const newName = ref("");
 const nameRef = ref(null);
 const saving = ref(false);
-const collapsed = reactive({}); // feature key → collapsed in the nav
 
 const varHint = "{{variable}} placeholders";
 
@@ -325,14 +324,12 @@ onMounted(load);
               <span class="lu-fw-name">{{ g.label }}</span>
               <span v-if="g.hint" class="lu-fw-hint lu-muted">{{ g.hint }}</span>
             </button>
-            <!-- multi-action feature: header (collapse + feature default) then actions -->
+            <!-- multi-action feature: dark heading + description + feature-default
+                 model, then its indented actions (always shown — no expand). -->
             <template v-else>
               <div class="lu-fw-ghead">
-                <button type="button" class="lu-fw-gtog" @click="collapsed[g.key] = !collapsed[g.key]">
-                  <span class="lu-fw-caret">{{ collapsed[g.key] ? '▸' : '▾' }}</span>
-                  <span class="lu-fw-gname">{{ g.label }}</span>
-                  <span class="lu-fw-gcount">{{ g.actions.length }}</span>
-                </button>
+                <span class="lu-fw-gname">{{ g.label }}</span>
+                <span class="lu-fw-gspacer" />
                 <div class="lu-fw-gdefault" :title="`Default model for all ${g.actions.length} ${g.label} actions`">
                   <select class="lu-input lu-fw-mini" :value="pinRoute(g.key)" @change="setPinRoute(g.key, $event.target.value)">
                     <option value="">Default</option>
@@ -347,13 +344,12 @@ onMounted(load);
                   </select>
                 </div>
               </div>
-              <template v-if="!collapsed[g.key]">
-                <button v-for="a in g.actions" :key="a.key" type="button" class="lu-fw-row lu-fw-sub"
-                  :class="{ 'is-active': a.key === selAction }" @click="selectAction(a.key)">
-                  <span class="lu-fw-name">{{ actionLabel(a) }}</span>
-                  <span v-if="presets.find((x) => x.action === a.key && x.active)" class="lu-fw-dot" title="has a production preset" />
-                </button>
-              </template>
+              <p v-if="g.hint" class="lu-fw-ghint">{{ g.hint }}</p>
+              <button v-for="a in g.actions" :key="a.key" type="button" class="lu-fw-row lu-fw-sub"
+                :class="{ 'is-active': a.key === selAction }" @click="selectAction(a.key)">
+                <span class="lu-fw-name">{{ actionLabel(a) }}</span>
+                <span v-if="presets.find((x) => x.action === a.key && x.active)" class="lu-fw-dot" title="has a production preset" />
+              </button>
             </template>
           </template>
         </aside>
@@ -449,22 +445,25 @@ onMounted(load);
 .lu-rchip--accuracy { background: var(--gold-soft, #f5edda); color: var(--gold, #b08a3e); }
 select.lu-input { cursor: pointer; appearance: auto; }
 
-/* Body = nav + editor */
+/* Body = nav + editor. The nav is a self-contained scroller (capped height,
+   sticky) so a long action list never stretches the page. */
 .lu-fw-body { display: grid; grid-template-columns: 268px minmax(0, 1fr); gap: 16px; align-items: start; }
-.lu-fw-list { border: 1px solid var(--border); border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 1px; }
+.lu-fw-list { border: 1px solid var(--border); border-radius: 10px; padding: 6px; display: flex; flex-direction: column; gap: 1px; max-height: calc(100vh - 240px); overflow-y: auto; position: sticky; top: 4px; }
 .lu-fw-row { display: flex; flex-direction: column; gap: 1px; text-align: left; padding: 7px 9px; border: 0; background: transparent; border-radius: 7px; cursor: pointer; width: 100%; font: inherit; }
 .lu-fw-row:hover { background: var(--surface-3); }
 .lu-fw-row.is-active { background: var(--accent-soft); box-shadow: inset 0 0 0 1.5px var(--accent); }
-.lu-fw-sub { padding-left: 22px; flex-direction: row; align-items: center; gap: 7px; }
 .lu-fw-name { font-weight: 600; font-size: 12.5px; color: var(--ink); }
-.lu-fw-sub .lu-fw-name { font-weight: 500; font-size: 12px; }
-.lu-fw-hint { font-size: 10.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lu-fw-hint { font-size: 10.5px; line-height: 1.35; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .lu-fw-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-left: auto; flex: none; }
-.lu-fw-ghead { display: flex; align-items: center; gap: 6px; padding: 6px 6px 4px; margin-top: 4px; }
-.lu-fw-gtog { display: flex; align-items: center; gap: 6px; background: transparent; border: 0; cursor: pointer; font: inherit; padding: 0; color: var(--ink); flex: 1; min-width: 0; }
-.lu-fw-caret { font-size: 9px; color: var(--muted); width: 10px; }
-.lu-fw-gname { font-size: 11px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; color: var(--muted); }
-.lu-fw-gcount { font-size: 10px; color: var(--muted); background: var(--surface-3); border-radius: 999px; padding: 0 6px; }
+/* multi-action group: dark heading + description, then indented actions */
+.lu-fw-ghead { display: flex; align-items: center; gap: 8px; padding: 9px 8px 2px; margin-top: 6px; border-top: 1px solid var(--border); }
+.lu-fw-ghead:first-child { border-top: 0; margin-top: 0; }
+.lu-fw-gname { font-size: 13px; font-weight: 700; color: var(--ink); }
+.lu-fw-gspacer { flex: 1; }
+.lu-fw-ghint { margin: 0 8px 5px; font-size: 10.5px; line-height: 1.4; color: var(--muted); }
+.lu-fw-sub { margin-left: 9px; padding-left: 16px; border-left: 1.5px solid var(--border); border-radius: 0 7px 7px 0; flex-direction: row; align-items: center; gap: 7px; }
+.lu-fw-sub .lu-fw-name { font-weight: 500; font-size: 12px; }
+.lu-fw-sub.is-active { border-left-color: var(--accent); }
 .lu-fw-gdefault { display: flex; gap: 4px; }
 .lu-fw-mini { font-size: 11px; padding: 3px 6px; max-width: 104px; }
 

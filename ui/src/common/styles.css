@@ -102,6 +102,14 @@ button:not(.ui-btn) { color: inherit; }
 .ui-checkbox.is-disabled { opacity: .55; cursor: not-allowed; }
 .ui-checkbox-label { line-height: 1.4; }
 
+/* ── Field (labelled form row) ─────────────────────────────── */
+/* Global (not scoped) so raw .ui-field markup works alongside <UiField>. */
+.ui-field { display: grid; grid-template-columns: 160px 1fr; gap: 14px; align-items: center; margin: 10px 0; font-size: 13px; }
+.ui-field > label { color: var(--ink-2, var(--ink)); font-size: 13px; }
+.ui-field--block { display: block; }
+.ui-field__label, .ui-field--block > label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted, var(--ink-2)); font-weight: 600; margin-bottom: 6px; }
+.ui-field__hint { display: block; font-size: 11px; color: var(--muted, var(--ink-2)); margin-top: 4px; }
+
 /* ── Tag ───────────────────────────────────────────────────── */
 /* Borderless soft-tint by default (--tag-border-width: 0); a host that wants
    outlined pills (JustVoice) sets --tag-border-width: 1px → border tracks the

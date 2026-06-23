@@ -131,3 +131,43 @@ button:not(.ui-btn) { color: inherit; }
    Both used by JustVoice's status pills. */
 .ui-tag--solid { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
 .ui-tag--ghost { background: transparent; color: var(--ink-2, var(--ink)); }
+
+/* ── Select (Reka headless) ─────────────────────────────────── */
+.ui-select-trigger {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%;
+  padding: var(--input-pad-y, 7px) 8px var(--input-pad-y, 7px) var(--input-pad-x, 10px);
+  font: 500 var(--input-font-size, 13.5px)/1.2 var(--font-ui, inherit);
+  color: var(--ink); background: var(--surface);
+  border: 1px solid var(--border, var(--line)); border-radius: var(--r-sm, 6px);
+  cursor: pointer; outline: none; transition: border-color .12s, box-shadow .12s;
+}
+.ui-select-trigger:hover:not([data-disabled]) { border-color: var(--border-strong, var(--border)); }
+.ui-select-trigger[data-state="open"],
+.ui-select-trigger:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ui-select-trigger[data-disabled] { opacity: .55; cursor: not-allowed; background: var(--surface-2); }
+.ui-select-trigger.is-empty { color: var(--muted, var(--ink-3)); }
+.ui-select-trigger > [data-reka-select-value] { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-select-icons { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; color: var(--muted, var(--ink-3)); }
+.ui-select-chev { display: inline-flex; transition: transform .12s; }
+.ui-select-trigger[data-state="open"] .ui-select-chev { transform: rotate(180deg); }
+.ui-select-clear { display: inline-grid; place-items: center; width: 18px; height: 18px; border: 0; background: transparent; color: var(--muted, var(--ink-3)); border-radius: 4px; cursor: pointer; padding: 0; }
+.ui-select-clear:hover { background: var(--surface-3, var(--surface-2)); color: var(--ink-2, var(--ink)); }
+.ui-select-content {
+  z-index: 999; min-width: var(--reka-select-trigger-width);
+  max-height: var(--reka-select-content-available-height, 320px);
+  background: var(--surface); border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--r-sm, 6px); box-shadow: var(--shadow-2, 0 8px 24px rgba(0,0,0,.12));
+  overflow: hidden; animation: ui-select-in .1s ease-out;
+}
+@keyframes ui-select-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+.ui-select-viewport { padding: 4px; }
+.ui-select-item {
+  position: relative; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 7px 9px; font: 500 var(--input-font-size, 13.5px)/1.2 var(--font-ui, inherit);
+  color: var(--ink); border-radius: 4px; cursor: pointer; user-select: none; outline: none;
+}
+.ui-select-item[data-highlighted] { background: var(--surface-3, var(--surface-2)); }
+.ui-select-item[data-state="checked"] { color: var(--accent-ink, var(--accent)); }
+.ui-select-item[data-disabled] { opacity: .5; pointer-events: none; }
+.ui-select-indicator { display: inline-flex; align-items: center; justify-content: center; color: var(--accent); flex-shrink: 0; }

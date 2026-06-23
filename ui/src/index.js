@@ -14,7 +14,7 @@ export { configureLlmUi, llmUiBase, llmUiUrl, request, requestStream } from "./c
 // shared general primitives — the future @delebash/ui (housed in ./common for
 // now). Ui* supersede the per-app Jw*/Jv*/Lu*. Re-exporting also loads
 // common/styles.css (the .ui-* rules).
-export { UiButton, UiInput, UiTextarea, UiCheckbox, UiTag, UiChip, UiSegmented, UiToggle, UiField } from "./common/index.js";
+export { UiButton, UiInput, UiTextarea, UiCheckbox, UiTag, UiChip, UiSegmented, UiToggle, UiField, UiSelect } from "./common/index.js";
 export { useRovingTabindex } from "./common/composables/useRovingTabindex.js";
 
 // llm-ui-specific primitives still local (Select pending convergence)

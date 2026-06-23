@@ -12,45 +12,6 @@
    rules (styles.css) — same look, host-neutral class names.
    ============================================================ */
 
-/* ── Button ────────────────────────────────────────────────── */
-.lu-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  gap: 8px;
-  padding: var(--btn-pad-y, 8px) var(--btn-pad-x, 16px);
-  font: 500 var(--btn-font-size, 14px)/1.2 var(--font-ui, sans-serif);
-  text-transform: var(--btn-text-transform, none);
-  letter-spacing: var(--btn-letter-spacing, normal);
-  border: 1px solid transparent;
-  border-radius: var(--btn-radius, 6px);
-  cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
-  background: transparent;
-  transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s;
-}
-.lu-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
-.lu-btn.is-disabled, .lu-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.lu-btn--small { padding: var(--btn-pad-y-sm, 4px) var(--btn-pad-x-sm, 11px); font-size: var(--btn-font-size-sm, 12px); gap: 6px; }
-
-.lu-btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
-.lu-btn--primary:not(:disabled):not(.is-disabled):hover {
-  background: color-mix(in oklab, var(--accent) 82%, black);
-  border-color: color-mix(in oklab, var(--accent) 82%, black);
-}
-.lu-btn--secondary { border-color: var(--border-strong); color: var(--ink-2); }
-.lu-btn--secondary:not(:disabled):not(.is-disabled):hover { background: var(--surface-3); }
-.lu-btn--ghost { color: var(--ink-2); }
-.lu-btn--ghost:not(:disabled):not(.is-disabled):hover { background: var(--surface-3); }
-.lu-btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; }
-.lu-btn--danger:not(:disabled):not(.is-disabled):hover {
-  background: color-mix(in oklab, var(--danger) 82%, black);
-  border-color: color-mix(in oklab, var(--danger) 82%, black);
-}
-.lu-btn--success { background: var(--success, var(--status-done)); border-color: var(--success, var(--status-done)); color: #fff; }
-.lu-btn--success:not(:disabled):not(.is-disabled):hover {
-  background: color-mix(in oklab, var(--success, var(--status-done)) 82%, black);
-  border-color: color-mix(in oklab, var(--success, var(--status-done)) 82%, black);
-}
 
 /* ── Input / Textarea ──────────────────────────────────────── */
 .lu-input {

@@ -61,8 +61,8 @@ button:not(.ui-btn) { color: inherit; }
 /* ── Input / Textarea ──────────────────────────────────────── */
 .ui-input {
   display: inline-block; width: 100%;
-  padding: 8px 10px;
-  font: inherit; font-size: 13.5px;
+  padding: var(--input-pad-y, 8px) var(--input-pad-x, 10px);
+  font: inherit; font-size: var(--input-font-size, 13.5px);
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -113,3 +113,7 @@ button:not(.ui-btn) { color: inherit; }
 .ui-tag--info { background: var(--info-bg, var(--surface-3)); color: var(--info-ink, var(--info, #3b6ea5)); }
 .ui-tag--accent2 { background: var(--warn-bg, var(--gold-soft, #f5edda)); color: var(--warn-ink, var(--gold, #b08a3e)); }
 .ui-tag--danger { background: color-mix(in oklab, var(--danger) 14%, transparent); color: var(--danger); }
+/* solid — filled accent chip (white text); ghost — transparent quiet chip.
+   Both used by JustVoice's status pills. */
+.ui-tag--solid { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+.ui-tag--ghost { background: transparent; color: var(--ink-2, var(--ink)); }

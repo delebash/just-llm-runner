@@ -56,6 +56,14 @@ function onInput(e) {
 }
 watch(() => props.modelValue, () => { if (props.autoResize) nextTick(resize); });
 onMounted(() => { if (props.autoResize) resize(); });
+
+// Expose focus/select (+ the raw element) so callers can use a template ref
+// the same way they would on a bare <textarea>.
+defineExpose({
+  focus: () => textareaEl.value?.focus(),
+  select: () => textareaEl.value?.select(),
+  el: textareaEl,
+});
 </script>
 
 <template>

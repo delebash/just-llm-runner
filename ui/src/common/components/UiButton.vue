@@ -9,8 +9,9 @@
 import { computed, useSlots } from "vue";
 
 const props = defineProps({
-  intent: { type: String, default: "primary" }, // primary|secondary|ghost|danger|success|info|accent2
-  size: { type: String, default: "regular" },    // small|regular
+  // primary|secondary|ghost|danger|danger-outline|success|info|accent2
+  intent: { type: String, default: "primary" },
+  size: { type: String, default: "regular" },    // small|regular|lg|icon
   loading: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   as: { type: String, default: "button" },       // button|label|a
@@ -22,7 +23,8 @@ const isButton = computed(() => props.as === "button");
 const classes = computed(() => [
   "ui-btn",
   `ui-btn--${props.intent}`,
-  props.size === "small" && "ui-btn--small",
+  // every non-default size gets a modifier (small | lg | icon)
+  props.size !== "regular" && `ui-btn--${props.size}`,
   { "is-loading": props.loading, "is-disabled": props.disabled || props.loading },
 ]);
 </script>

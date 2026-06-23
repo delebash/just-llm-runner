@@ -1,0 +1,65 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/*
+ * @delebash/ui — TOKEN CONTRACT (reference, not auto-applied)
+ * ==========================================================
+ * The shared primitives (.ui-btn, .ui-input, .ui-checkbox, .ui-tag, .ui-seg,
+ * .ui-toggle, .ui-field, .ui-w-*) read these CSS custom properties from the
+ * HOST app's tokens.css. common/styles.css ships a safe inline fallback for
+ * each (so a primitive still renders if a host forgets one), but every host
+ * SHOULD define them — that's how one component gets an app-correct look.
+ *
+ * This file is documentation: it is NOT imported and applies no rules. Copy the
+ * block below into a new app's tokens.css and retune the values. An app whose
+ * tokens use different names (e.g. JustVoice's --line / --info-blue / --r-control)
+ * maps them with aliases: `--border: var(--line);` etc.
+ *
+ * ── Colour roles ───────────────────────────────────────────
+ *   --accent           primary brand colour (solid buttons, checked states)
+ *   --accent-soft      faint accent tint (focus ring, soft tag bg)
+ *   --accent-ink       accent text on a soft-accent background
+ *   --on-accent        text/icon colour ON a solid --accent fill (usually #fff)
+ *   --ink              primary text
+ *   --ink-2            secondary text (button labels, field labels)
+ *   --muted            tertiary text (placeholders, hints)
+ *   --surface          base control background (input, card)
+ *   --surface-2        recessed background (segmented track, disabled input)
+ *   --surface-3        hover background for quiet controls
+ *   --border           hairline border
+ *   --border-strong    stronger border (checkbox box, secondary button)
+ *   --danger           destructive solid
+ *   --danger-bg        destructive soft background (outline-danger hover)
+ *   --success          positive solid (falls back to --accent green)
+ *   --info             informational solid (blue)
+ *   --gold             second accent / warn solid
+ *   *-bg / *-ink pairs (--success-bg/-ink, --info-bg/-ink, --warn-bg/-ink) tint
+ *     the soft tag variants; each falls back to a sensible mix.
+ *
+ * ── Shape / type ───────────────────────────────────────────
+ *   --r-sm             control corner radius (input, tag)
+ *   --btn-radius       button corner radius (defaults 8px; JV sets --r-control)
+ *   --font-ui          UI font stack
+ *
+ * ── Content-typed width caps (.ui-w-*) ─────────────────────
+ *   --w-token 110 · --w-id 180 · --w-name 280 · --w-url 360 · --w-path 480
+ *   --w-prose 640 · --w-edit 880   (px; size a field to what it holds)
+ *
+ * ── Component flags ────────────────────────────────────────
+ *   --tag-border-width  0 = borderless soft-tint tags (JustWrite);
+ *                       1px = outlined pills (JustVoice)
+ *
+ * Reference defaults (copy + retune; do NOT import this file):
+ *
+ *   :root {
+ *     --accent: #3a7d63; --accent-soft: #e8f0eb; --accent-ink: #2c6049;
+ *     --on-accent: #fff;
+ *     --ink: #1a1a1a; --ink-2: #4a4a4a; --muted: #888;
+ *     --surface: #fff; --surface-2: #fbfaf7; --surface-3: #f3f1ec;
+ *     --border: #e3e1dc; --border-strong: #cfccc4;
+ *     --danger: #a8442e; --danger-bg: #fbecea;
+ *     --success: #3a7d63; --info: #2f74b5; --gold: #c89a3a;
+ *     --r-sm: 6px; --btn-radius: 8px;
+ *     --w-token: 110px; --w-id: 180px; --w-name: 280px; --w-url: 360px;
+ *     --w-path: 480px; --w-prose: 640px; --w-edit: 880px;
+ *     --tag-border-width: 0;
+ *   }
+ */

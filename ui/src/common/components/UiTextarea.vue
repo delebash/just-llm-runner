@@ -7,6 +7,10 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 const props = defineProps({
   modelValue: { type: String, default: "" },
   autoResize: { type: Boolean, default: false },
+  // Optional bounds for autoResize (px). When set, the textarea grows between
+  // them and scrolls past the max instead of growing unbounded.
+  minHeightPx: { type: Number, default: null },
+  maxHeightPx: { type: Number, default: null },
   rows: { type: [Number, String], default: 3 },
   size: { type: String, default: "regular" }, // small | regular
   disabled: { type: Boolean, default: false },
@@ -16,6 +20,8 @@ const props = defineProps({
   id: { type: String, default: undefined },
   maxlength: { type: [Number, String], default: undefined },
   invalid: { type: Boolean, default: false },
+  // Content-typed width cap (optional): token|id|name|url|path|prose|edit|full.
+  width: { type: String, default: "" },
 });
 const emit = defineEmits(["update:modelValue", "blur", "focus", "keydown"]);
 
@@ -24,6 +30,7 @@ const classes = computed(() => [
   "ui-input",
   "ui-textarea",
   props.size === "small" && "ui-input--small",
+  props.width && `ui-w-${props.width}`,
   { "is-invalid": props.invalid, "auto-resize": props.autoResize },
 ]);
 
@@ -31,7 +38,17 @@ function resize() {
   if (!props.autoResize || !textareaEl.value) return;
   const el = textareaEl.value;
   el.style.height = "auto";
-  el.style.height = `${el.scrollHeight}px`;
+  const min = props.minHeightPx;
+  const max = props.maxHeightPx;
+  if (min != null || max != null) {
+    let target = el.scrollHeight;
+    if (max != null) target = Math.min(target, max);
+    if (min != null) target = Math.max(target, min);
+    el.style.height = `${target}px`;
+    el.style.overflowY = max != null && el.scrollHeight > max ? "auto" : "hidden";
+  } else {
+    el.style.height = `${el.scrollHeight}px`;
+  }
 }
 function onInput(e) {
   emit("update:modelValue", e.target.value);

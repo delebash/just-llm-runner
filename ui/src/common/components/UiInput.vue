@@ -16,6 +16,10 @@ const props = defineProps({
   id: { type: String, default: undefined },
   autofocus: { type: Boolean, default: false },
   invalid: { type: Boolean, default: false },
+  // Content-typed width cap (optional): token|id|name|url|path|prose|edit|full.
+  // Empty = no cap (full width). Sizes the field to what it holds rather than
+  // stretching to the container.
+  width: { type: String, default: "" },
 });
 const emit = defineEmits(["update:modelValue", "blur", "focus", "keydown"]);
 
@@ -23,6 +27,7 @@ const classes = computed(() => [
   "ui-input",
   props.size === "small" && "ui-input--small",
   props.type === "number" && "ui-input--number",
+  props.width && `ui-w-${props.width}`,
   { "is-invalid": props.invalid },
 ]);
 </script>

@@ -46,6 +46,13 @@ button:not(.ui-btn) { color: inherit; }
 /* accent2 — solid gold (second accent) */
 .ui-btn--accent2 { background: var(--gold, #b08a3e); border-color: var(--gold, #b08a3e); color: color-mix(in oklab, var(--gold, #b08a3e) 22%, black); }
 .ui-btn--accent2:not(:disabled):not(.is-disabled):hover { background: color-mix(in oklab, var(--gold, #b08a3e) 82%, black); border-color: color-mix(in oklab, var(--gold, #b08a3e) 82%, black); }
+/* danger-outline — outlined destructive (quieter than solid danger) */
+.ui-btn--danger-outline { background: transparent; border-color: var(--danger); color: var(--danger); }
+.ui-btn--danger-outline:not(:disabled):not(.is-disabled):hover { background: var(--danger-bg, color-mix(in oklab, var(--danger) 12%, transparent)); }
+
+/* sizes beyond small — lg (prominent) + icon (square, label-less) */
+.ui-btn--lg { padding: var(--btn-pad-y-lg, 10px) var(--btn-pad-x-lg, 18px); font-size: var(--btn-font-size-lg, 14px); }
+.ui-btn--icon { padding: 0; width: 32px; height: 32px; gap: 0; }
 
 /* loading spinner (replaces the icon while loading) */
 @keyframes ui-btn-spin { to { transform: rotate(360deg); } }
@@ -72,6 +79,19 @@ button:not(.ui-btn) { color: inherit; }
 .ui-textarea { display: block; line-height: 1.55; resize: vertical; min-height: 60px; }
 .ui-textarea.auto-resize { resize: none; overflow: hidden; }
 
+/* ── Content-typed width caps ──────────────────────────────── */
+/* Size a control to what it holds, not the container. Opt in via the `width`
+   prop (UiInput/UiTextarea/…) or the .ui-w-* class directly. Tokens default to
+   sensible px; a host can retune --w-* in its tokens.css. */
+.ui-w-token { max-width: var(--w-token, 110px); }
+.ui-w-id    { max-width: var(--w-id, 180px); }
+.ui-w-name  { max-width: var(--w-name, 280px); }
+.ui-w-url   { max-width: var(--w-url, 360px); }
+.ui-w-path  { max-width: var(--w-path, 480px); }
+.ui-w-prose { max-width: var(--w-prose, 640px); }
+.ui-w-edit  { max-width: var(--w-edit, 880px); }
+.ui-w-full  { max-width: none; }
+
 /* ── Checkbox ──────────────────────────────────────────────── */
 .ui-checkbox { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 13px; color: var(--ink); }
 .ui-checkbox-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -83,7 +103,10 @@ button:not(.ui-btn) { color: inherit; }
 .ui-checkbox-label { line-height: 1.4; }
 
 /* ── Tag ───────────────────────────────────────────────────── */
-.ui-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font: 600 11px/1.4 var(--font-ui, inherit); border-radius: 4px; white-space: nowrap; }
+/* Borderless soft-tint by default (--tag-border-width: 0); a host that wants
+   outlined pills (JustVoice) sets --tag-border-width: 1px → border tracks the
+   variant's text colour. */
+.ui-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font: 600 11px/1.4 var(--font-ui, inherit); border-radius: 4px; white-space: nowrap; border: var(--tag-border-width, 0) solid currentColor; }
 .ui-tag--primary { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); }
 .ui-tag--secondary { background: var(--surface-3, var(--surface-2)); color: var(--ink-2, var(--ink)); }
 .ui-tag--success { background: var(--success-bg, var(--accent-soft)); color: var(--success-ink, var(--success, #3a7d63)); }

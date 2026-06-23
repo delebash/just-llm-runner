@@ -12,9 +12,9 @@
 import { computed, onMounted, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
-import LuCheckbox from "../components/LuCheckbox.vue";
-import LuInput from "../components/LuInput.vue";
-import LuTextarea from "../components/LuTextarea.vue";
+import UiCheckbox from "../common/components/UiCheckbox.vue";
+import UiInput from "../common/components/UiInput.vue";
+import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
 
 const prompts = ref([]);
@@ -138,23 +138,23 @@ onMounted(load);
       <section v-if="draft" class="lu-pl-editor">
         <div class="lu-field">
           <label>Feature (routing key for pins / usage)</label>
-          <LuInput v-model="draft.feature" :readonly="draft.builtIn" />
+          <UiInput v-model="draft.feature" :readonly="draft.builtIn" />
         </div>
         <div class="lu-field lu-pl-grow">
           <label>System prompt</label>
-          <LuTextarea v-model="draft.system" auto-resize :rows="12" />
+          <UiTextarea v-model="draft.system" auto-resize :rows="12" />
         </div>
         <div class="lu-field">
           <label>User-prompt template <span class="lu-pl-hint">(supports {{ varHint }})</span></label>
-          <LuTextarea v-model="draft.userTemplate" auto-resize :rows="5" />
+          <UiTextarea v-model="draft.userTemplate" auto-resize :rows="5" />
         </div>
         <div class="lu-pl-row2">
           <div class="lu-field lu-pl-temp">
             <label>Temperature</label>
-            <LuInput v-model="draft.temperature" type="number" />
+            <UiInput v-model="draft.temperature" type="number" />
           </div>
           <label class="lu-pl-think">
-            <LuCheckbox v-model="draft.think" />
+            <UiCheckbox v-model="draft.think" />
             <span class="lu-muted">Reasoning (think)</span>
           </label>
         </div>

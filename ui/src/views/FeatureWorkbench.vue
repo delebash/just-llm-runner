@@ -18,10 +18,10 @@
 import { computed, nextTick, onMounted, reactive, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
-import LuCheckbox from "../components/LuCheckbox.vue";
-import LuInput from "../components/LuInput.vue";
+import UiCheckbox from "../common/components/UiCheckbox.vue";
+import UiInput from "../common/components/UiInput.vue";
 import LuModelPicker from "../components/LuModelPicker.vue";
-import LuTextarea from "../components/LuTextarea.vue";
+import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
 
 const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, temperature, think, builtIn}
@@ -382,7 +382,7 @@ onMounted(load);
               <option v-for="p in actionPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
             <UiButton v-if="selPreset" intent="ghost" size="small" title="Delete this config" @click="delPreset">🗑</UiButton>
-            <LuInput v-if="naming" ref="nameRef" v-model="newName" placeholder="name — press Enter" class="lu-fw-name-in"
+            <UiInput v-if="naming" ref="nameRef" v-model="newName" placeholder="name — press Enter" class="lu-fw-name-in"
               @keyup.enter="saveAs" @keyup.esc="naming = false; newName = ''" />
             <UiButton v-else intent="secondary" size="small" title="Save this config as a named preset" @click="startNaming">＋ Save as</UiButton>
             <UiButton intent="secondary" size="small" :loading="saving" title="Apply this config to the live pipeline" @click="useAsProduction">✓ Use as production</UiButton>
@@ -400,13 +400,13 @@ onMounted(load);
           </div>
 
           <div class="lu-field"><label>System prompt</label>
-            <LuTextarea v-model="draft.system" auto-resize :rows="7" @input="buildVars" /></div>
+            <UiTextarea v-model="draft.system" auto-resize :rows="7" @input="buildVars" /></div>
           <div class="lu-field"><label>Instruction <span class="lu-muted">— user template · {{ varHint }}</span></label>
-            <LuTextarea v-model="draft.userTemplate" auto-resize :rows="4" @input="buildVars" /></div>
+            <UiTextarea v-model="draft.userTemplate" auto-resize :rows="4" @input="buildVars" /></div>
 
           <div class="lu-fw-params">
-            <div class="lu-field lu-fw-temp"><label>Temperature</label><LuInput v-model="draft.temperature" type="number" /></div>
-            <label class="lu-fw-think"><LuCheckbox v-model="draft.think" /><span class="lu-muted">Reasoning (think)</span></label>
+            <div class="lu-field lu-fw-temp"><label>Temperature</label><UiInput v-model="draft.temperature" type="number" /></div>
+            <label class="lu-fw-think"><UiCheckbox v-model="draft.think" /><span class="lu-muted">Reasoning (think)</span></label>
             <span class="lu-fw-spacer" />
             <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</UiButton>
           </div>
@@ -414,7 +414,7 @@ onMounted(load);
           <div class="lu-fw-test">
             <div class="lu-fw-th"><b>Test on real input</b><span class="lu-muted">runs the live saved config for this action</span></div>
             <div v-for="(_, k) in vars" :key="k" class="lu-field">
-              <label>{{ k }}</label><LuTextarea v-model="vars[k]" auto-resize :rows="2" />
+              <label>{{ k }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
             </div>
             <div class="lu-fw-trow">
               <UiButton intent="primary" size="small" :loading="testing" @click="runTest">▶ Run</UiButton>

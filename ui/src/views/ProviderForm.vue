@@ -11,7 +11,7 @@ import { computed, reactive, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import LuCombobox from "../components/LuCombobox.vue";
-import LuInput from "../components/LuInput.vue";
+import UiInput from "../common/components/UiInput.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
 import LuSegmented from "../components/LuSegmented.vue";
 import { request } from "../client.js";
@@ -165,14 +165,14 @@ async function remove() {
         <div class="lu-fh">Local = on this machine, no key. Online = your metered cloud account.</div></div>
 
       <span class="lu-fl">Name</span>
-      <LuInput v-model="draft.name" placeholder="My provider" />
+      <UiInput v-model="draft.name" placeholder="My provider" />
 
       <span class="lu-fl">Base URL</span>
-      <LuInput v-model="draft.baseUrl" placeholder="http://localhost:11434/v1" />
+      <UiInput v-model="draft.baseUrl" placeholder="http://localhost:11434/v1" />
 
       <template v-if="!local">
         <span class="lu-fl">API key</span>
-        <LuInput v-model="draft.apiKey" type="password" :placeholder="isNew ? 'sk-…' : 'leave blank to keep current'" />
+        <UiInput v-model="draft.apiKey" type="password" :placeholder="isNew ? 'sk-…' : 'leave blank to keep current'" />
       </template>
 
       <span class="lu-fl">Provider type</span>

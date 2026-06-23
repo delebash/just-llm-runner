@@ -10,7 +10,7 @@ import { onMounted, ref } from "vue";
 
 import { request } from "../client.js";
 import UiButton from "../common/components/UiButton.vue";
-import LuInput from "../components/LuInput.vue";
+import UiInput from "../common/components/UiInput.vue";
 
 const emit = defineEmits(["applied"]);
 
@@ -119,7 +119,7 @@ function summary(p) {
       <li v-for="p in presets" :key="p.id" class="lu-preset">
         <div class="lu-preset-main">
           <template v-if="editingId === p.id">
-            <LuInput v-model="editName" class="lu-preset-rename" @keyup.enter="saveRename(p)" />
+            <UiInput v-model="editName" class="lu-preset-rename" @keyup.enter="saveRename(p)" />
             <UiButton intent="secondary" size="small" :disabled="busy" @click="saveRename(p)">Save</UiButton>
           </template>
           <template v-else>
@@ -138,7 +138,7 @@ function summary(p) {
     <div v-else class="lu-muted lu-presets-empty">No saved configs yet — set your routing above, then save it below.</div>
 
     <div class="lu-presets-save">
-      <LuInput v-model="newName" placeholder="Name this config (e.g. Desktop, Offline)…" @keyup.enter="saveCurrent" />
+      <UiInput v-model="newName" placeholder="Name this config (e.g. Desktop, Offline)…" @keyup.enter="saveCurrent" />
       <UiButton intent="secondary" :loading="busy" :disabled="!newName.trim()" @click="saveCurrent">Save current routing</UiButton>
     </div>
   </div>

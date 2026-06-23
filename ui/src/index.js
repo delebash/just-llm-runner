@@ -12,17 +12,14 @@ import "./styles.css";
 export { configureLlmUi, llmUiBase, llmUiUrl, request, requestStream } from "./client.js";
 
 // shared general primitives — the future @delebash/ui (housed in ./common for
-// now). UiButton supersedes LuButton/JwButton/JvButton. Re-exporting also loads
-// common/styles.css (the .ui-btn rules).
-export { UiButton } from "./common/index.js";
+// now). Ui* supersede the per-app Jw*/Jv*/Lu*. Re-exporting also loads
+// common/styles.css (the .ui-* rules).
+export { UiButton, UiInput, UiTextarea, UiCheckbox, UiTag } from "./common/index.js";
 
-// primitives (token-driven; render native in any host that defines the tokens)
-export { default as LuCheckbox } from "./components/LuCheckbox.vue";
+// llm-ui-specific primitives still local (Segmented/Select pending convergence)
 export { default as LuCombobox } from "./components/LuCombobox.vue";
-export { default as LuInput } from "./components/LuInput.vue";
 export { default as LuModelPicker } from "./components/LuModelPicker.vue";
 export { default as LuSegmented } from "./components/LuSegmented.vue";
-export { default as LuTextarea } from "./components/LuTextarea.vue";
 
 // views
 export { default as PromptLab } from "./views/PromptLab.vue";

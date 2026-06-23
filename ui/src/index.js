@@ -16,6 +16,7 @@ export { default as LuButton } from "./components/LuButton.vue";
 export { default as LuCheckbox } from "./components/LuCheckbox.vue";
 export { default as LuCombobox } from "./components/LuCombobox.vue";
 export { default as LuInput } from "./components/LuInput.vue";
+export { default as LuModelPicker } from "./components/LuModelPicker.vue";
 export { default as LuSegmented } from "./components/LuSegmented.vue";
 export { default as LuTextarea } from "./components/LuTextarea.vue";
 

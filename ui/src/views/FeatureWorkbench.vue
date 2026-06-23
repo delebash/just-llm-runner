@@ -18,6 +18,7 @@ import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import LuButton from "../components/LuButton.vue";
 import LuCheckbox from "../components/LuCheckbox.vue";
 import LuInput from "../components/LuInput.vue";
+import LuModelPicker from "../components/LuModelPicker.vue";
 import LuTextarea from "../components/LuTextarea.vue";
 import { request } from "../client.js";
 
@@ -96,34 +97,18 @@ function subGroups(actions) {
   return order.map((g) => ({ label: g, items: map[g] }));
 }
 
-// ── model picker (routing pins keyed by feature OR action) ───────────────────
-// Like Feature Routing: a "route" select (inherit / role / a provider) + a model
-// select for an explicit provider. (A real per-provider model LIST needs a new
-// endpoint — for now: the provider's saved default model.)
-function modelOptions(providerId) {
-  const p = byId.value[providerId];
-  const out = [{ value: "", label: "(provider default)" }];
-  if (p?.defaultModel) out.push({ value: p.defaultModel, label: p.defaultModel });
-  return out;
-}
+// ── routing pins (keyed by feature OR action key) ────────────────────────────
+// The picker UI is the shared <LuModelPicker>; the host just reads the current
+// pin and writes the picker's emitted pin back into routing, then saves.
 function pin(key) { return routing.value?.pins?.[key] || null; }
-function pinRoute(key) {
-  const p = pin(key);
-  if (p?.role) return `role:${p.role}`;
-  if (p?.providerId) return p.providerId;
-  return "";
-}
-function setPinRoute(key, val) {
+function setPin(key, val) {
   const pins = routing.value.pins || (routing.value.pins = {});
-  if (!val) delete pins[key];
-  else if (val.startsWith("role:")) pins[key] = { providerId: "", model: "", role: val.slice(5) };
-  else pins[key] = { providerId: val, model: pins[key]?.providerId === val ? pins[key].model : "", role: "" };
+  if (!val || (!val.providerId && !val.role)) delete pins[key]; // inherit → no pin row
+  else pins[key] = { providerId: val.providerId || "", model: val.model || "", role: val.role || "" };
   saveRouting();
 }
-function setPinModel(key, model) {
-  const p = pin(key);
-  if (!p) return;
-  p.model = model;
+function setRole(role, val) {
+  routing.value[role] = { providerId: val?.providerId || "", model: val?.model || "" };
   saveRouting();
 }
 // What a key actually resolves to, for the muted "→ …" note.
@@ -321,13 +306,8 @@ onMounted(load);
           <div class="lu-fw-roles">
             <div v-for="role in ['quick', 'accuracy']" :key="role" class="lu-fw-role">
               <span class="lu-rchip" :class="`lu-rchip--${role}`">{{ role === 'quick' ? 'QUICK' : 'ACCURACY' }}</span>
-              <select class="lu-input" v-model="routing[role].providerId" @change="routing[role].model = ''; saveRouting()">
-                <option value="">— inherit default —</option>
-                <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
-              </select>
-              <select class="lu-input" v-model="routing[role].model" :disabled="!routing[role].providerId" @change="saveRouting">
-                <option v-for="o in modelOptions(routing[role].providerId)" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
+              <LuModelPicker :model-value="routing[role]" :providers="providers" :show-roles="false"
+                inherit-label="— use Default LLM —" @update:model-value="setRole(role, $event)" />
             </div>
           </div>
         </div>
@@ -349,19 +329,9 @@ onMounted(load);
               <div class="lu-fw-ghead">
                 <span class="lu-fw-gname">{{ g.label }}</span>
                 <span class="lu-fw-gspacer" />
-                <div class="lu-fw-gdefault" :title="`Default model for all ${g.actions.length} ${g.label} actions`">
-                  <select class="lu-input lu-fw-mini" :value="pinRoute(g.key)" @change="setPinRoute(g.key, $event.target.value)">
-                    <option value="">Default</option>
-                    <option value="role:quick">Quick</option>
-                    <option value="role:accuracy">Accuracy</option>
-                    <optgroup label="Pin a provider">
-                      <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
-                    </optgroup>
-                  </select>
-                  <select v-if="pin(g.key)?.providerId" class="lu-input lu-fw-mini" :value="pin(g.key).model" @change="setPinModel(g.key, $event.target.value)">
-                    <option v-for="o in modelOptions(pin(g.key).providerId)" :key="o.value" :value="o.value">{{ o.label }}</option>
-                  </select>
-                </div>
+                <LuModelPicker :model-value="pin(g.key)" :providers="providers" inherit-label="Default" :compact="true"
+                  :title="`Default model for all ${g.actions.length} ${g.label} actions`"
+                  @update:model-value="setPin(g.key, $event)" />
               </div>
               <p v-if="g.hint" class="lu-fw-ghint">{{ g.hint }}</p>
               <template v-for="sg in subGroups(g.actions)" :key="sg.label || g.key">
@@ -398,21 +368,12 @@ onMounted(load);
             <span v-if="activePreset" class="lu-fw-prod" :title="`The live pipeline runs '${activePreset.name}'.`">✓ PRODUCTION · {{ activePreset.name }}</span>
           </div>
 
-          <!-- Model for this action -->
+          <!-- Provider + model for this action (shared LuModelPicker) -->
           <div class="lu-field">
-            <label>Model</label>
+            <label>Provider &amp; model <span class="lu-muted">— inherits the feature default unless you pin one here</span></label>
             <div class="lu-fw-route">
-              <select class="lu-input" :value="pinRoute(selAction)" @change="setPinRoute(selAction, $event.target.value)">
-                <option value="">Inherit feature default</option>
-                <option value="role:quick">Inherit · Quick</option>
-                <option value="role:accuracy">Inherit · Accuracy</option>
-                <optgroup label="Pin a provider">
-                  <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
-                </optgroup>
-              </select>
-              <select v-if="pin(selAction)?.providerId" class="lu-input" :value="pin(selAction).model" @change="setPinModel(selAction, $event.target.value)">
-                <option v-for="o in modelOptions(pin(selAction).providerId)" :key="o.value" :value="o.value">{{ o.label }}</option>
-              </select>
+              <LuModelPicker :model-value="pin(selAction)" :providers="providers" :labels="true"
+                inherit-label="Inherit feature default" @update:model-value="setPin(selAction, $event)" />
               <span class="lu-muted lu-fw-resolved">→ {{ resolvedText(selAction, true) }}</span>
             </div>
           </div>
@@ -469,7 +430,7 @@ select.lu-input { cursor: pointer; appearance: auto; }
 
 /* Body = nav + editor. The nav is a self-contained scroller (capped height,
    sticky) so a long action list never stretches the page. */
-.lu-fw-body { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 16px; align-items: start; }
+.lu-fw-body { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 16px; align-items: start; }
 .lu-fw-list { border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 240px); overflow-y: auto; position: sticky; top: 4px; }
 /* Writer-Lab-style action card: label + blurb, accent on hover/active. */
 .lu-fw-card { text-align: left; width: 100%; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; }
@@ -486,8 +447,6 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-gspacer { flex: 1; }
 .lu-fw-ghint { margin: 0 4px 4px; font-size: 10.5px; line-height: 1.4; color: var(--muted); }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 7px 0 1px 10px; }
-.lu-fw-gdefault { display: flex; gap: 4px; }
-.lu-fw-mini { font-size: 11px; padding: 3px 6px; max-width: 104px; }
 
 /* Editor */
 .lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -501,8 +460,7 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-prod { margin-left: auto; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: var(--accent); color: var(--on-accent, #fff); }
 .lu-field { display: flex; flex-direction: column; gap: 5px; }
 .lu-field > label { font-size: 12px; color: var(--muted); }
-.lu-fw-route { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.lu-fw-route .lu-input { max-width: 240px; cursor: pointer; appearance: auto; }
+.lu-fw-route { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .lu-fw-resolved { font-size: 11.5px; }
 .lu-fw-params { display: flex; gap: 24px; align-items: flex-end; }
 .lu-fw-temp { max-width: 110px; }

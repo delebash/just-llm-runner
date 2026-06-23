@@ -68,6 +68,10 @@ class RoutingResponse(BaseModel):
     quick: RoleTarget
     accuracy: RoleTarget
     features: list[FeatureRow]
+    # The raw stored pins, keyed by feature OR action key. The catalog-merged
+    # `features` above carries each feature's default; this also exposes
+    # action-level pins (e.g. "writerAI.tighten") for the Feature Workbench.
+    pins: dict[str, FeaturePin] = {}
 
 
 # ── host boundaries ─────────────────────────────────────────────────────────
@@ -111,7 +115,9 @@ def make_routing_router(
             )
             for e in get_catalog()
         ]
-        return RoutingResponse(default=cfg.default, quick=cfg.quick, accuracy=cfg.accuracy, features=rows)
+        return RoutingResponse(
+            default=cfg.default, quick=cfg.quick, accuracy=cfg.accuracy, features=rows, pins=cfg.pins
+        )
 
     @router.get("/routing", response_model=RoutingResponse)
     async def get_routing() -> RoutingResponse:

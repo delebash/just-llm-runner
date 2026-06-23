@@ -63,14 +63,55 @@ def active_production_config(config: LLMConfig, feature: str):
     return next((c for c in configs if c.feature == feature), None)
 
 
+def _resolve_action_override(
+    config: LLMConfig, action: str, reg: LLMRegistry
+) -> tuple[LLMAdapter, str, str | None] | None:
+    """Resolve an ACTION's own config (its production config or pin), or None to
+    fall back to its feature. Deliberately stops at the action's explicit config:
+    it never touches the generic feature fallbacks (role-default / prefer-local /
+    first-adapter) — those belong to the feature, so an action with nothing of its
+    own inherits the feature default (then role, then global default)."""
+    cfg = active_production_config(config, action)
+    if cfg is not None:
+        adapter = reg.get(cfg.providerId)
+        if adapter is not None:
+            return adapter, cfg.model or adapter.default_model, cfg.tier
+    pin = next((p for p in (config.feature_pins or []) if p.feature == action), None)
+    if pin is not None:
+        if pin.providerId:
+            adapter = reg.get(pin.providerId)
+            if adapter is not None:
+                return adapter, pin.model or adapter.default_model, pin.tier
+        elif pin.role:
+            resolved = _resolve_role(config, pin.role, reg)
+            if resolved is not None:
+                return resolved[0], resolved[1], pin.tier
+    return None
+
+
 def resolve_pin(
-    config: LLMConfig, feature: str, registry: LLMRegistry | None = None
+    config: LLMConfig,
+    feature: str,
+    registry: LLMRegistry | None = None,
+    action: str | None = None,
 ) -> tuple[LLMAdapter, str, str | None]:
     """Resolve the (provider, model, tier) tuple for a feature key.
+
+    When `action` is given (a specific action within the feature, e.g.
+    "writerAI.tighten"), the action's OWN config wins; if the action has nothing
+    of its own it falls back to the feature default — so the model cascade is
+    action → feature → role → global default. `action=None` (every legacy caller,
+    incl. all of JustVoice) is unchanged: pure feature-level resolution.
 
     Raises LLMNotConfiguredError when nothing resolves.
     """
     reg = _reg(registry)
+
+    # Action-level override (most specific) — falls through to the feature below.
+    if action and action != feature:
+        hit = _resolve_action_override(config, action, reg)
+        if hit is not None:
+            return hit
 
     cfg = active_production_config(config, feature)
     if cfg is not None:
@@ -142,16 +183,18 @@ def chat(
     model_override: str | None = None,
     provider_override: str | None = None,
     registry: LLMRegistry | None = None,
+    action: str | None = None,
 ) -> LLMResponse:
     """One-shot LLM call for a feature key.
 
-    `think` defaults to the resolved tier's `think` flag so reasoned-tier
-    models on Ollama emit reasoning blocks without the caller knowing the
-    tier. Pass an explicit bool to override (e.g. a Lab column forcing
-    `think: false` to compare reasoned vs direct on the same model).
+    `action` (optional) routes to the action's own model when it has one, else the
+    feature default (the per-action override cascade). `think` defaults to the
+    resolved tier's `think` flag so reasoned-tier models on Ollama emit reasoning
+    blocks without the caller knowing the tier. Pass an explicit bool to override
+    (e.g. a Lab column forcing `think: false` to compare reasoned vs direct).
     """
     reg = _reg(registry)
-    adapter, model, tier_override = resolve_pin(config, feature, reg)
+    adapter, model, tier_override = resolve_pin(config, feature, reg, action=action)
     if provider_override:
         # Lab column override — route this call through a specific
         # registered provider instead of the feature's resolved route.
@@ -214,13 +257,14 @@ def stream_chat(
     model_override: str | None = None,
     provider_override: str | None = None,
     registry: LLMRegistry | None = None,
+    action: str | None = None,
 ) -> Iterator[StreamDelta]:
     """Streaming counterpart to `chat`. Resolves the feature's provider (same
-    precedence + Lab overrides as `chat`), yields `StreamDelta` events (text
-    deltas, then one `done` event), and records usage to the ledger at the end
-    (from the `done` event's token counts)."""
+    precedence + Lab overrides as `chat`, incl. the optional `action` override),
+    yields `StreamDelta` events (text deltas, then one `done` event), and records
+    usage to the ledger at the end (from the `done` event's token counts)."""
     reg = _reg(registry)
-    adapter, model, tier_override = resolve_pin(config, feature, reg)
+    adapter, model, tier_override = resolve_pin(config, feature, reg, action=action)
     if provider_override:
         other = reg.get(provider_override)
         if other is None:

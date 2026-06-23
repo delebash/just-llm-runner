@@ -219,6 +219,9 @@ def make_feature_router(
             resp = chat(
                 config=get_config(),
                 feature=spec.feature,
+                # The action key routes to its own model when it has one, else the
+                # feature default (per-action override cascade).
+                action=body.action,
                 messages=messages,
                 # System is templated too — most actions have no system
                 # placeholders so render() returns it unchanged; e.g. plotHoles
@@ -252,6 +255,7 @@ def make_feature_router(
                 for delta in stream_chat(
                     config=get_config(),
                     feature=spec.feature,
+                    action=body.action,
                     messages=messages,
                     system=system,
                     temperature=spec.temperature if body.temperature is None else body.temperature,

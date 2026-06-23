@@ -35,6 +35,11 @@ from .registry import (
     get_llm_registry,
     load_from_configs,
 )
+from .feature_presets_api import (
+    FeaturePreset,
+    FeaturePresetStore,
+    make_feature_presets_router,
+)
 from .routing_api import (
     FeatureCatalogEntry,
     RoutingConfig,
@@ -72,6 +77,8 @@ __all__ = [
     # routing (default + roles + per-feature pins, behind a host store)
     "RoutingStore", "RoutingConfig", "FeatureCatalogEntry", "make_routing_router",
     "RoutingPreset", "RoutingPresetStore", "make_routing_presets_router",
+    # feature presets (per-feature saved configs; active = production)
+    "FeaturePreset", "FeaturePresetStore", "make_feature_presets_router",
     # tiers
     "TIERS", "TierSpec", "classify", "spec_for",
     # usage

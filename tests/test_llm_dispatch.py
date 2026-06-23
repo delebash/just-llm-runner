@@ -134,6 +134,52 @@ def test_no_provider_raises():
         resolve_pin(LLMConfig(), "x", LLMRegistry())
 
 
+# ── Action-level override (per-action routing, falls back to the feature) ──
+
+def test_action_pin_beats_feature_default():
+    reg = make_reg(FakeAdapter("feat", "feat-model"), FakeAdapter("act", "act-model"))
+    cfg = LLMConfig(feature_pins=[
+        FeaturePinConfig(feature="writerAI", providerId="feat", model="feat-model"),
+        FeaturePinConfig(feature="writerAI.tighten", providerId="act", model="act-model"),
+    ])
+    adapter, model, _ = resolve_pin(cfg, "writerAI", reg, action="writerAI.tighten")
+    assert adapter.provider_id == "act"
+    assert model == "act-model"
+
+
+def test_action_without_pin_falls_back_to_feature():
+    reg = make_reg(FakeAdapter("feat", "feat-model"))
+    cfg = LLMConfig(feature_pins=[
+        FeaturePinConfig(feature="writerAI", providerId="feat", model="feat-model"),
+    ])
+    # the action has nothing of its own → inherits the feature default
+    adapter, model, _ = resolve_pin(cfg, "writerAI", reg, action="writerAI.rewrite")
+    assert adapter.provider_id == "feat"
+    assert model == "feat-model"
+
+
+def test_action_production_config_wins_over_feature():
+    reg = make_reg(FakeAdapter("feat", "x"), FakeAdapter("prod", "prod-model"))
+    cfg = LLMConfig(
+        production_configs=[ProductionConfig(
+            feature="writerAI.tighten", name="tuned", providerId="prod", model="prod-model")],
+        feature_pins=[FeaturePinConfig(feature="writerAI", providerId="feat", model="x")],
+    )
+    adapter, model, _ = resolve_pin(cfg, "writerAI", reg, action="writerAI.tighten")
+    assert adapter.provider_id == "prod"
+    assert model == "prod-model"
+
+
+def test_action_none_is_legacy_feature_resolution():
+    # action=None (every legacy caller, incl. all of JustVoice) is unchanged, and
+    # action==feature is a harmless no-op that falls through to the feature.
+    reg = make_reg(FakeAdapter("feat", "feat-model"))
+    cfg = LLMConfig(feature_pins=[FeaturePinConfig(feature="writerAI", providerId="feat")])
+    legacy = resolve_pin(cfg, "writerAI", reg)
+    same = resolve_pin(cfg, "writerAI", reg, action="writerAI")
+    assert legacy[0].provider_id == same[0].provider_id == "feat"
+
+
 # ── Tier classification through resolve_tier ─────────────────────────
 
 def test_resolve_tier_auto_reasoned():

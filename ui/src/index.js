@@ -15,9 +15,10 @@ export { configureLlmUi, llmUiBase, llmUiUrl, request, requestStream } from "./c
 // now). Ui* supersede the per-app Jw*/Jv*/Lu*. Re-exporting also loads
 // common/styles.css (the .ui-* rules).
 export { UiButton, UiInput, UiTextarea, UiCheckbox, UiTag, UiChip, UiSegmented, UiToggle, UiField, UiSelect } from "./common/index.js";
+export { Icon, Breadcrumb, promptDialog, confirmDialog, dialogState, _resolveDialog, tooltipDirective } from "./common/index.js";
 export { useRovingTabindex } from "./common/composables/useRovingTabindex.js";
 
-// llm-ui-specific primitives still local (Select pending convergence)
+// llm-ui-specific primitives still local (model picker/combobox)
 export { default as LuCombobox } from "./components/LuCombobox.vue";
 export { default as LuModelPicker } from "./components/LuModelPicker.vue";
 

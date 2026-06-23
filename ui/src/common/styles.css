@@ -171,3 +171,16 @@ button:not(.ui-btn) { color: inherit; }
 .ui-select-item[data-state="checked"] { color: var(--accent-ink, var(--accent)); }
 .ui-select-item[data-disabled] { opacity: .5; pointer-events: none; }
 .ui-select-indicator { display: inline-flex; align-items: center; justify-content: center; color: var(--accent); flex-shrink: 0; }
+
+/* ── Tooltip (v-tooltip directive → body-appended .ui-tooltip) ─ */
+.ui-tooltip {
+  position: fixed; top: 0; left: 0;
+  background: var(--ink); color: var(--surface);
+  padding: 5px 9px; border-radius: 5px;
+  font: 500 11.5px/1.4 var(--font-ui, inherit);
+  pointer-events: none; opacity: 0; z-index: 99999;
+  white-space: normal; max-width: 320px; word-wrap: break-word;
+  box-shadow: var(--shadow-2, 0 8px 24px rgba(0,0,0,.12));
+  transition: opacity .14s;
+}
+.ui-tooltip.is-visible { opacity: 0.96; }

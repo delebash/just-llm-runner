@@ -17,5 +17,11 @@ export { default as UiSegmented } from "./components/UiSegmented.vue";
 export { default as UiToggle } from "./components/UiToggle.vue";
 export { default as UiField } from "./components/UiField.vue";
 
+// shared app-shell components + services (app-agnostic; host provides tokens/router)
+export { default as Icon } from "./components/Icon.vue";
+export { default as Breadcrumb } from "./components/Breadcrumb.vue";
+export { promptDialog, confirmDialog, dialogState, _resolveDialog } from "./services/dialog.js";
+export { tooltipDirective } from "./services/tooltip.js";
+
 // shared composables (host-agnostic; vue-only)
 export { useRovingTabindex } from "./composables/useRovingTabindex.js";

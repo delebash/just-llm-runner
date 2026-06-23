@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Shared text input — thin <input> wrapper (v-model + standard attrs). Visual
 // rules in common/styles.css (.ui-input). Supersedes JwInput/JvInput/UiInput.
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 const props = defineProps({
   modelValue: { type: [String, Number], default: "" },
@@ -23,6 +23,15 @@ const props = defineProps({
 });
 const emit = defineEmits(["update:modelValue", "blur", "focus", "keydown"]);
 
+// Expose programmatic focus/select (+ the raw element) so callers can use a
+// template ref the same way they would on a bare <input>.
+const el = ref(null);
+defineExpose({
+  focus: () => el.value?.focus(),
+  select: () => el.value?.select(),
+  el,
+});
+
 const classes = computed(() => [
   "ui-input",
   props.size === "small" && "ui-input--small",
@@ -34,6 +43,7 @@ const classes = computed(() => [
 
 <template>
   <input
+    ref="el"
     :class="classes"
     :type="type"
     :value="modelValue"

@@ -13,7 +13,7 @@
 import { computed, onUnmounted, ref } from "vue";
 
 import { request } from "../client.js";
-import LuButton from "./LuButton.vue";
+import UiButton from "../common/components/UiButton.vue";
 
 const data = ref(null);
 const loading = ref(true);
@@ -134,16 +134,16 @@ onUnmounted(stopPoll);
               <span v-else class="lu-mstat">not downloaded</span>
             </td>
             <td class="lu-mact">
-              <LuButton v-if="m.status === 'loaded'" intent="secondary" size="small"
-                :loading="busy === 'stop'" @click="unload">Unload</LuButton>
+              <UiButton v-if="m.status === 'loaded'" intent="secondary" size="small"
+                :loading="busy === 'stop'" @click="unload">Unload</UiButton>
               <span v-else-if="m.status === 'loading'" class="lu-muted lu-mwait">working…</span>
-              <LuButton v-else-if="m.status === 'error'" intent="secondary" size="small"
-                :loading="busy === m.id" @click="load(m)">Retry</LuButton>
-              <LuButton v-else-if="m.status === 'disk'" intent="primary" size="small"
-                :loading="busy === m.id" @click="load(m)">Load</LuButton>
-              <LuButton v-else-if="m.fit === 'no'" intent="secondary" size="small" :disabled="true">Too large</LuButton>
-              <LuButton v-else intent="primary" size="small"
-                :loading="busy === m.id" @click="load(m)">Download &amp; load</LuButton>
+              <UiButton v-else-if="m.status === 'error'" intent="secondary" size="small"
+                :loading="busy === m.id" @click="load(m)">Retry</UiButton>
+              <UiButton v-else-if="m.status === 'disk'" intent="primary" size="small"
+                :loading="busy === m.id" @click="load(m)">Load</UiButton>
+              <UiButton v-else-if="m.fit === 'no'" intent="secondary" size="small" :disabled="true">Too large</UiButton>
+              <UiButton v-else intent="primary" size="small"
+                :loading="busy === m.id" @click="load(m)">Download &amp; load</UiButton>
             </td>
           </tr>
         </tbody>

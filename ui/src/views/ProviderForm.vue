@@ -9,7 +9,7 @@
 // model/Fit section is added next — it's runner-backed + GPU-gated.)
 import { computed, reactive, ref } from "vue";
 
-import LuButton from "../components/LuButton.vue";
+import UiButton from "../common/components/UiButton.vue";
 import LuCombobox from "../components/LuCombobox.vue";
 import LuInput from "../components/LuInput.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
@@ -202,12 +202,12 @@ async function remove() {
     <div v-if="saveErr" class="lu-error lu-pf-err">{{ saveErr }}</div>
 
     <div class="lu-pf-foot">
-      <LuButton intent="secondary" @click="testConnection">Test connection</LuButton>
+      <UiButton intent="secondary" @click="testConnection">Test connection</UiButton>
       <span class="lu-muted lu-pf-test">{{ testMsg }}</span>
       <span class="lu-pf-spacer" />
-      <LuButton v-if="!isNew && !isBuiltin" intent="danger" @click="remove">Delete</LuButton>
-      <LuButton intent="ghost" @click="emit('cancel')">Cancel</LuButton>
-      <LuButton intent="primary" :loading="saving" @click="save">{{ saving ? "Saving…" : "Save provider" }}</LuButton>
+      <UiButton v-if="!isNew && !isBuiltin" intent="danger" @click="remove">Delete</UiButton>
+      <UiButton intent="ghost" @click="emit('cancel')">Cancel</UiButton>
+      <UiButton intent="primary" :loading="saving" @click="save">{{ saving ? "Saving…" : "Save provider" }}</UiButton>
     </div>
   </div>
 </template>

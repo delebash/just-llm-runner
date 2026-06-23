@@ -11,7 +11,7 @@
 // per-action Lab). Ported from JustWrite's AiPromptsView.vue.
 import { computed, onMounted, ref } from "vue";
 
-import LuButton from "../components/LuButton.vue";
+import UiButton from "../common/components/UiButton.vue";
 import LuCheckbox from "../components/LuCheckbox.vue";
 import LuInput from "../components/LuInput.vue";
 import LuTextarea from "../components/LuTextarea.vue";
@@ -113,7 +113,7 @@ onMounted(load);
         <div class="lu-pl-eyebrow lu-muted">AI</div>
         <h2 class="lu-pl-title">Feature prompts</h2>
       </div>
-      <LuButton intent="ghost" :disabled="loading" @click="load">Refresh</LuButton>
+      <UiButton intent="ghost" :disabled="loading" @click="load">Refresh</UiButton>
     </header>
 
     <p class="lu-muted lu-pl-intro">
@@ -160,10 +160,10 @@ onMounted(load);
         </div>
 
         <div class="lu-pl-actions">
-          <LuButton v-if="draft.builtIn" intent="ghost" :disabled="saving" @click="resetToDefault">Reset to default</LuButton>
+          <UiButton v-if="draft.builtIn" intent="ghost" :disabled="saving" @click="resetToDefault">Reset to default</UiButton>
           <span class="lu-pl-spacer" />
           <span v-if="message" class="lu-pl-msg lu-muted">{{ message }}</span>
-          <LuButton intent="primary" :disabled="saving || !dirty" @click="save">{{ saving ? "Saving…" : "Save" }}</LuButton>
+          <UiButton intent="primary" :disabled="saving || !dirty" @click="save">{{ saving ? "Saving…" : "Save" }}</UiButton>
         </div>
       </section>
       <section v-else class="lu-pl-editor lu-pl-empty lu-muted">Select a feature to edit its prompt.</section>

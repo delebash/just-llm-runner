@@ -10,7 +10,7 @@
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
-import LuButton from "../components/LuButton.vue";
+import UiButton from "../common/components/UiButton.vue";
 
 const LOCAL_RUNNER_ID = "local-llamacpp";
 
@@ -114,9 +114,9 @@ defineEmits(["changed"]);
         <b class="lu-qs-title">Quick Setup</b>
         <span class="lu-muted lu-qs-sub">Reads your hardware and picks free local models that fit, then sets your routing.</span>
       </div>
-      <LuButton intent="secondary" size="small" @click="toggle">
+      <UiButton intent="secondary" size="small" @click="toggle">
         {{ open ? "Hide" : "Recommend for my hardware" }} {{ open ? "▴" : "▾" }}
-      </LuButton>
+      </UiButton>
     </div>
 
     <div v-if="open" class="lu-qs-body">
@@ -146,7 +146,7 @@ defineEmits(["changed"]);
           <div class="lu-qs-foot">
             <span v-if="applied" class="lu-saved">✓ Applied — routing set, Quick model loading.</span>
             <span class="lu-pf-spacer" />
-            <LuButton intent="primary" :loading="applying" @click="apply">Apply setup</LuButton>
+            <UiButton intent="primary" :loading="applying" @click="apply">Apply setup</UiButton>
           </div>
         </div>
 

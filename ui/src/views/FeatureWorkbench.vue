@@ -17,7 +17,7 @@
 // Shared across both apps — only the feature catalog differs.
 import { computed, nextTick, onMounted, reactive, ref } from "vue";
 
-import LuButton from "../components/LuButton.vue";
+import UiButton from "../common/components/UiButton.vue";
 import LuCheckbox from "../components/LuCheckbox.vue";
 import LuInput from "../components/LuInput.vue";
 import LuModelPicker from "../components/LuModelPicker.vue";
@@ -381,11 +381,11 @@ onMounted(load);
               <option value="">— current —</option>
               <option v-for="p in actionPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
-            <LuButton v-if="selPreset" intent="ghost" size="small" title="Delete this config" @click="delPreset">🗑</LuButton>
+            <UiButton v-if="selPreset" intent="ghost" size="small" title="Delete this config" @click="delPreset">🗑</UiButton>
             <LuInput v-if="naming" ref="nameRef" v-model="newName" placeholder="name — press Enter" class="lu-fw-name-in"
               @keyup.enter="saveAs" @keyup.esc="naming = false; newName = ''" />
-            <LuButton v-else intent="secondary" size="small" title="Save this config as a named preset" @click="startNaming">＋ Save as</LuButton>
-            <LuButton intent="secondary" size="small" :loading="saving" title="Apply this config to the live pipeline" @click="useAsProduction">✓ Use as production</LuButton>
+            <UiButton v-else intent="secondary" size="small" title="Save this config as a named preset" @click="startNaming">＋ Save as</UiButton>
+            <UiButton intent="secondary" size="small" :loading="saving" title="Apply this config to the live pipeline" @click="useAsProduction">✓ Use as production</UiButton>
             <span v-if="activePreset" class="lu-fw-prod" :title="`The live pipeline runs '${activePreset.name}'.`">✓ PRODUCTION · {{ activePreset.name }}</span>
           </div>
 
@@ -408,7 +408,7 @@ onMounted(load);
             <div class="lu-field lu-fw-temp"><label>Temperature</label><LuInput v-model="draft.temperature" type="number" /></div>
             <label class="lu-fw-think"><LuCheckbox v-model="draft.think" /><span class="lu-muted">Reasoning (think)</span></label>
             <span class="lu-fw-spacer" />
-            <LuButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</LuButton>
+            <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</UiButton>
           </div>
 
           <div class="lu-fw-test">
@@ -417,7 +417,7 @@ onMounted(load);
               <label>{{ k }}</label><LuTextarea v-model="vars[k]" auto-resize :rows="2" />
             </div>
             <div class="lu-fw-trow">
-              <LuButton intent="primary" size="small" :loading="testing" @click="runTest">▶ Run</LuButton>
+              <UiButton intent="primary" size="small" :loading="testing" @click="runTest">▶ Run</UiButton>
               <span v-if="testErr" class="lu-error lu-fw-terr">{{ testErr }}</span>
             </div>
             <div v-if="testOut" class="lu-fw-out">

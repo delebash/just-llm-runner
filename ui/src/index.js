@@ -11,8 +11,12 @@ import "./styles.css";
 // client — the host calls configureLlmUi({ baseUrl }) once at boot
 export { configureLlmUi, llmUiBase, llmUiUrl, request, requestStream } from "./client.js";
 
+// shared general primitives — the future @delebash/ui (housed in ./common for
+// now). UiButton supersedes LuButton/JwButton/JvButton. Re-exporting also loads
+// common/styles.css (the .ui-btn rules).
+export { UiButton } from "./common/index.js";
+
 // primitives (token-driven; render native in any host that defines the tokens)
-export { default as LuButton } from "./components/LuButton.vue";
 export { default as LuCheckbox } from "./components/LuCheckbox.vue";
 export { default as LuCombobox } from "./components/LuCombobox.vue";
 export { default as LuInput } from "./components/LuInput.vue";

@@ -10,7 +10,7 @@
 // table + the per-provider local-model/Fit section are the next chunks.
 import { computed, onMounted, ref } from "vue";
 
-import LuButton from "../components/LuButton.vue";
+import UiButton from "../common/components/UiButton.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
@@ -143,9 +143,9 @@ onMounted(loadAll);
         <div class="lu-pcard-head">
           <span class="lu-pcard-title">Providers</span>
           <span class="lu-muted lu-pcard-count">{{ providers.length }} configured</span>
-          <LuButton intent="primary" size="small" @click="editingId = editingId === 'new' ? null : 'new'">
+          <UiButton intent="primary" size="small" @click="editingId = editingId === 'new' ? null : 'new'">
             <template #icon><span class="lu-plus">＋</span></template>Add provider
-          </LuButton>
+          </UiButton>
         </div>
 
         <ProviderForm v-if="editingId === 'new'" class="lu-newform" @saved="onSaved" @cancel="editingId = null" />
@@ -170,8 +170,8 @@ onMounted(loadAll);
               </div>
             </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
-            <LuButton intent="secondary" size="small" @click="testProvider(p)">Test</LuButton>
-            <LuButton intent="primary" size="small" @click="editingId = p.id">Edit</LuButton>
+            <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
+            <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
           </div>
         </template>
         <div v-if="!loading && !localProviders.length" class="lu-pempty">No local providers yet. Click “Add provider” and point at <span class="lu-mono">http://localhost:…</span></div>
@@ -196,8 +196,8 @@ onMounted(loadAll);
               </div>
             </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
-            <LuButton intent="secondary" size="small" @click="testProvider(p)">Test</LuButton>
-            <LuButton intent="primary" size="small" @click="editingId = p.id">Edit</LuButton>
+            <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
+            <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
           </div>
         </template>
         <div v-if="!loading && !cloudProviders.length" class="lu-pempty">No cloud providers. Click “Add provider” and paste a key from OpenAI / Anthropic / OpenRouter.</div>

@@ -1,0 +1,52 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Shared UI-primitive styles for ALL apps (the future @delebash/ui). Every rule
+   is token-driven with a SAFE FALLBACK so a primitive renders even before a host
+   refines it; the host's tokens.css (+ appearance.js) tune the look per app.
+   Lifted/unified from JustWrite's .jw-btn and llm-ui's .lu-btn. */
+
+/* Native buttons inherit text colour; the styled .ui-btn family owns its own. */
+button:not(.ui-btn) { color: inherit; }
+
+.ui-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 8px;
+  padding: var(--btn-pad-y, 7px) var(--btn-pad-x, 14px);
+  font: 500 var(--btn-font-size, 13px)/1.2 var(--font-ui, inherit);
+  text-transform: var(--btn-text-transform, none);
+  letter-spacing: var(--btn-letter-spacing, normal);
+  border: 1px solid transparent;
+  border-radius: var(--btn-radius, 8px);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  background: transparent;
+  transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s;
+}
+.ui-btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+.ui-btn.is-disabled, .ui-btn:disabled { opacity: .5; cursor: not-allowed; }
+.ui-btn--small { padding: var(--btn-pad-y-sm, 4px) var(--btn-pad-x-sm, 11px); font-size: var(--btn-font-size-sm, 12px); gap: 6px; }
+.ui-btn-label { display: inline-flex; align-items: center; }
+
+/* primary — solid accent (main affordance) */
+.ui-btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
+.ui-btn--primary:not(:disabled):not(.is-disabled):hover { background: color-mix(in oklab, var(--accent) 82%, black); border-color: color-mix(in oklab, var(--accent) 82%, black); }
+/* secondary — outlined neutral (Cancel, Test) */
+.ui-btn--secondary { border-color: var(--border-strong, var(--border)); color: var(--ink-2, var(--ink)); }
+.ui-btn--secondary:not(:disabled):not(.is-disabled):hover { background: var(--surface-3, var(--surface-2)); }
+/* ghost — no border/fill (quiet utility) */
+.ui-btn--ghost { color: var(--ink-2, var(--ink)); }
+.ui-btn--ghost:not(:disabled):not(.is-disabled):hover { background: var(--surface-3, var(--surface-2)); }
+/* danger — solid (destructive) */
+.ui-btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.ui-btn--danger:not(:disabled):not(.is-disabled):hover { background: color-mix(in oklab, var(--danger) 82%, black); border-color: color-mix(in oklab, var(--danger) 82%, black); }
+/* success — solid (positive) */
+.ui-btn--success { background: var(--success, var(--status-done, #3a7d63)); border-color: var(--success, var(--status-done, #3a7d63)); color: #fff; }
+.ui-btn--success:not(:disabled):not(.is-disabled):hover { background: color-mix(in oklab, var(--success, var(--status-done, #3a7d63)) 82%, black); border-color: color-mix(in oklab, var(--success, var(--status-done, #3a7d63)) 82%, black); }
+/* info — solid (informational) */
+.ui-btn--info { background: var(--info, #3b6ea5); border-color: var(--info, #3b6ea5); color: #fff; }
+.ui-btn--info:not(:disabled):not(.is-disabled):hover { background: color-mix(in oklab, var(--info, #3b6ea5) 82%, black); border-color: color-mix(in oklab, var(--info, #3b6ea5) 82%, black); }
+/* accent2 — solid gold (second accent) */
+.ui-btn--accent2 { background: var(--gold, #b08a3e); border-color: var(--gold, #b08a3e); color: color-mix(in oklab, var(--gold, #b08a3e) 22%, black); }
+.ui-btn--accent2:not(:disabled):not(.is-disabled):hover { background: color-mix(in oklab, var(--gold, #b08a3e) 82%, black); border-color: color-mix(in oklab, var(--gold, #b08a3e) 82%, black); }
+
+/* loading spinner (replaces the icon while loading) */
+@keyframes ui-btn-spin { to { transform: rotate(360deg); } }
+.ui-btn-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: ui-btn-spin .7s linear infinite; display: inline-block; }

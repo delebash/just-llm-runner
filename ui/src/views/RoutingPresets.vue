@@ -9,7 +9,7 @@
 import { onMounted, ref } from "vue";
 
 import { request } from "../client.js";
-import LuButton from "../components/LuButton.vue";
+import UiButton from "../common/components/UiButton.vue";
 import LuInput from "../components/LuInput.vue";
 
 const emit = defineEmits(["applied"]);
@@ -120,7 +120,7 @@ function summary(p) {
         <div class="lu-preset-main">
           <template v-if="editingId === p.id">
             <LuInput v-model="editName" class="lu-preset-rename" @keyup.enter="saveRename(p)" />
-            <LuButton intent="secondary" size="small" :disabled="busy" @click="saveRename(p)">Save</LuButton>
+            <UiButton intent="secondary" size="small" :disabled="busy" @click="saveRename(p)">Save</UiButton>
           </template>
           <template v-else>
             <b class="lu-preset-name">{{ p.name }}</b>
@@ -128,9 +128,9 @@ function summary(p) {
           </template>
         </div>
         <div class="lu-preset-actions">
-          <LuButton intent="primary" size="small" :disabled="busy" @click="apply(p)">Apply</LuButton>
-          <LuButton intent="ghost" size="small" :disabled="busy" @click="startRename(p)">Rename</LuButton>
-          <LuButton intent="ghost" size="small" :disabled="busy" @click="remove(p)">Delete</LuButton>
+          <UiButton intent="primary" size="small" :disabled="busy" @click="apply(p)">Apply</UiButton>
+          <UiButton intent="ghost" size="small" :disabled="busy" @click="startRename(p)">Rename</UiButton>
+          <UiButton intent="ghost" size="small" :disabled="busy" @click="remove(p)">Delete</UiButton>
         </div>
       </li>
     </ul>
@@ -139,7 +139,7 @@ function summary(p) {
 
     <div class="lu-presets-save">
       <LuInput v-model="newName" placeholder="Name this config (e.g. Desktop, Offline)…" @keyup.enter="saveCurrent" />
-      <LuButton intent="secondary" :loading="busy" :disabled="!newName.trim()" @click="saveCurrent">Save current routing</LuButton>
+      <UiButton intent="secondary" :loading="busy" :disabled="!newName.trim()" @click="saveCurrent">Save current routing</UiButton>
     </div>
   </div>
 </template>

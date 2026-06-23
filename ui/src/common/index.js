@@ -11,6 +11,7 @@ export { default as UiInput } from "./components/UiInput.vue";
 export { default as UiTextarea } from "./components/UiTextarea.vue";
 export { default as UiCheckbox } from "./components/UiCheckbox.vue";
 export { default as UiTag } from "./components/UiTag.vue";
+export { default as UiChip } from "./components/UiChip.vue";
 export { default as UiSegmented } from "./components/UiSegmented.vue";
 export { default as UiToggle } from "./components/UiToggle.vue";
 export { default as UiField } from "./components/UiField.vue";

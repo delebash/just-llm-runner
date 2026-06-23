@@ -13,7 +13,7 @@
 // Model assignment is stored as routing pins keyed by feature OR action key
 // (/v1/ai/routing); prompts in /v1/ai/prompts; presets in /v1/ai/feature-presets.
 // Shared across both apps — only the feature catalog differs.
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 
 import LuButton from "../components/LuButton.vue";
 import LuCheckbox from "../components/LuCheckbox.vue";
@@ -34,6 +34,7 @@ const draft = ref(null);     // editable copy of the selected action's prompt
 const selPreset = ref("");
 const naming = ref(false);
 const newName = ref("");
+const nameRef = ref(null);
 const saving = ref(false);
 const collapsed = reactive({}); // feature key → collapsed in the nav
 
@@ -172,12 +173,17 @@ function snapshot(name) {
     think: !!draft.value?.think,
   };
 }
+function startNaming() {
+  naming.value = true; newName.value = "";
+  nextTick(() => { (nameRef.value?.$el || nameRef.value)?.focus?.(); });
+}
 async function saveAs() {
   const name = newName.value.trim();
-  if (!name) return;
+  if (!name) { naming.value = false; return; }
+  // Save → reload the dropdown (all of this action's configs) with the new one selected.
   presets.value = (await request("/v1/ai/feature-presets", { method: "POST", body: snapshot(name) })).presets || [];
   selPreset.value = actionPresets.value.find((p) => p.name === name)?.id || "";
-  naming.value = false; newName.value = ""; message.value = `Preset "${name}" saved.`;
+  naming.value = false; newName.value = ""; message.value = `Saved "${name}".`;
 }
 function applyPreset(id) {
   selPreset.value = id;
@@ -355,9 +361,7 @@ onMounted(load);
         <!-- Editor for the selected action -->
         <section v-if="action && draft" class="lu-fw-edit">
           <div class="lu-fw-h">
-            <span class="lu-muted lu-fw-crumb">{{ featMeta[selFeatureKey]?.label || selFeatureKey }} ›</span>
             <b>{{ actionLabel(action) }}</b>
-            <span class="lu-muted lu-fw-mono">{{ action.key }}</span>
             <span class="lu-fw-spacer" /><span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
           </div>
 
@@ -368,12 +372,10 @@ onMounted(load);
               <option value="">— current —</option>
               <option v-for="p in actionPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
             </select>
-            <LuButton v-if="selPreset" intent="ghost" size="small" title="Delete this preset" @click="delPreset">🗑</LuButton>
-            <template v-if="naming">
-              <LuInput v-model="newName" placeholder="preset name…" class="lu-fw-name-in" @keyup.enter="saveAs" />
-              <LuButton intent="secondary" size="small" @click="saveAs">Save</LuButton>
-            </template>
-            <LuButton v-else intent="secondary" size="small" title="Save this config as a named preset" @click="naming = true">＋ Save as</LuButton>
+            <LuButton v-if="selPreset" intent="ghost" size="small" title="Delete this config" @click="delPreset">🗑</LuButton>
+            <LuInput v-if="naming" ref="nameRef" v-model="newName" placeholder="name — press Enter" class="lu-fw-name-in"
+              @keyup.enter="saveAs" @keyup.esc="naming = false; newName = ''" />
+            <LuButton v-else intent="secondary" size="small" title="Save this config as a named preset" @click="startNaming">＋ Save as</LuButton>
             <LuButton intent="secondary" size="small" :loading="saving" title="Apply this config to the live pipeline" @click="useAsProduction">✓ Use as production</LuButton>
             <span v-if="activePreset" class="lu-fw-prod" :title="`The live pipeline runs '${activePreset.name}'.`">✓ PRODUCTION · {{ activePreset.name }}</span>
           </div>
@@ -470,7 +472,6 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .lu-fw-h { display: flex; align-items: baseline; gap: 8px; }
 .lu-fw-h b { font-size: 15px; color: var(--ink); }
-.lu-fw-crumb { font-size: 12px; } .lu-fw-mono { font-family: var(--font-mono, monospace); font-size: 11px; }
 .lu-fw-spacer { flex: 1; } .lu-fw-msg { font-size: 11.5px; }
 .lu-fw-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
 .lu-fw-eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }

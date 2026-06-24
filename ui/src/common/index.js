@@ -20,7 +20,7 @@ export { default as UiField } from "./components/UiField.vue";
 // shared app-shell components + services (app-agnostic; host provides tokens/router)
 export { default as Icon } from "./components/Icon.vue";
 export { default as Breadcrumb } from "./components/Breadcrumb.vue";
-export { promptDialog, confirmDialog, dialogState, _resolveDialog } from "./services/dialog.js";
+export { promptDialog, confirmDialog, dialogState, _resolveDialog, configureDialog, dialogLabels } from "./services/dialog.js";
 export { tooltipDirective } from "./services/tooltip.js";
 
 // shared in-app Help system — drawer + "?" trigger + open-state/config + the
@@ -37,8 +37,10 @@ export { pushToast, clearToasts } from "./services/toastBridge.js";
 // shared empty-state placeholder
 export { default as EmptyState } from "./components/EmptyState.vue";
 
-// shared modal shell (Reka Dialog; self-contained token-driven styles)
+// shared modal shell (Reka Dialog; self-contained token-driven styles) + the
+// imperative prompt/confirm host built on it (driven by services/dialog.js)
 export { default as AppModal } from "./components/AppModal.vue";
+export { default as AppDialog } from "./components/AppDialog.vue";
 
 // shared boot-time "can't reach the server" screen (host passes brand + URL)
 export { default as ConnectionError } from "./components/ConnectionError.vue";

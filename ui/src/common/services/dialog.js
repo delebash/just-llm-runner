@@ -20,6 +20,23 @@ export const dialogState = reactive({
   _resolve: null,
 });
 
+// Default labels the host AppDialog falls back to when a call omits them. Kept
+// here (not inside the component) so the kit stays i18n-agnostic: an app that
+// localizes its dialogs calls configureDialog({ labels }) once at boot — and
+// again on locale change — to inject translated strings. Apps that ship one
+// locale (the common case) get these generic English defaults for free.
+export const dialogLabels = reactive({
+  defaultTitle: "Are you sure?",
+  confirmLabel: "Confirm",
+  okLabel: "OK",
+  cancelLabel: "Cancel",
+  closeLabel: "Close",
+});
+
+export function configureDialog({ labels } = {}) {
+  if (labels) Object.assign(dialogLabels, labels);
+}
+
 function openDialog(kind, options) {
   // If something is already open, cancel it first so the new prompt wins.
   if (dialogState.open && dialogState._resolve) {

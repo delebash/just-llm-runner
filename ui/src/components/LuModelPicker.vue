@@ -54,8 +54,8 @@ function setModel(model) {
       <select class="lu-input lu-mp-sel" :value="route" aria-label="Provider" @change="setRoute($event.target.value)">
         <option value="">{{ inheritLabel }}</option>
         <template v-if="showRoles">
-          <option value="role:quick">Inherit · Quick</option>
-          <option value="role:accuracy">Inherit · Accuracy</option>
+          <option value="role:quick">Quick role</option>
+          <option value="role:accuracy">Accuracy role</option>
         </template>
         <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
       </select>

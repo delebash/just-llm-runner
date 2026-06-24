@@ -46,12 +46,12 @@ const byId = computed(() => Object.fromEntries(providers.value.map((p) => [p.id,
 const providerName = (id) => byId.value[id]?.name || id || "—";
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
 
-// Actions grouped by the catalog's nav CATEGORY (the group header), Writer-Lab
-// shape: category → optional sub-label → action cards. The feature is just the
-// routing key; the nav never shows a feature header. Categories appear in
-// first-seen catalog order; within a category, actions follow catalog feature
-// order, then split into sub-labels via subGroups() (writerAI's Prose actions /
-// Line edits, the Multi-reader panel, …).
+// Nav model: CATEGORY → features → (sub-labels) → action cards, each level
+// indented under its header. A category whose actions ALL come from ONE
+// multi-action feature is "merged" — the Set-all picker sits on the CATEGORY
+// header (e.g. Writing/writerAI, Analysis/critique), so there's no redundant
+// feature sub-header. Otherwise each multi-action feature inside the category
+// gets its own sub-header + Set-all; single-action features are plain cards.
 const CATEGORY_FALLBACK = "Other";
 const categories = computed(() => {
   const order = [];
@@ -61,17 +61,51 @@ const categories = computed(() => {
     if (!actions.length) continue;
     const cat = f.category || CATEGORY_FALLBACK;
     if (!(cat in byCat)) { byCat[cat] = []; order.push(cat); }
-    byCat[cat].push(...actions);
+    byCat[cat].push({ key: f.key, label: f.label, actions });
   }
-  // Any prompt whose feature isn't in the catalog still gets a home.
+  // Any prompt whose feature isn't in the catalog still gets a home (one
+  // pseudo-feature per orphan feature key under "Other").
   const known = new Set((routing.value?.features || []).map((f) => f.key));
-  const orphans = prompts.value.filter((p) => !known.has(p.feature));
-  if (orphans.length) {
+  for (const p of prompts.value) {
+    if (known.has(p.feature)) continue;
     if (!(CATEGORY_FALLBACK in byCat)) { byCat[CATEGORY_FALLBACK] = []; order.push(CATEGORY_FALLBACK); }
-    byCat[CATEGORY_FALLBACK].push(...orphans);
+    let g = byCat[CATEGORY_FALLBACK].find((x) => x.key === p.feature);
+    if (!g) { g = { key: p.feature, label: p.feature, actions: [] }; byCat[CATEGORY_FALLBACK].push(g); }
+    g.actions.push(p);
   }
-  return order.map((c) => ({ label: c, actions: byCat[c] }));
+  return order.map((c) => {
+    const features = byCat[c];
+    const merged = features.length === 1 && features[0].actions.length > 1 ? features[0] : null;
+    return { label: c, features, merged };
+  });
 });
+
+// Flat render list for the nav: one row per header / sub-label / card, each with
+// an `indent` level so children sit visibly under their header. Set-all groups
+// (a feature with >1 action) carry `setAll` so the header renders the picker.
+const navRows = computed(() => {
+  const rows = [];
+  const pushActions = (f, base) => {
+    for (const sg of subGroups(f.actions)) {
+      if (sg.label) {
+        rows.push({ type: "sub", label: sg.label, indent: base });
+        for (const a of sg.items) rows.push({ type: "card", action: a, indent: base + 1 });
+      } else {
+        for (const a of sg.items) rows.push({ type: "card", action: a, indent: base });
+      }
+    }
+  };
+  for (const cat of categories.value) {
+    rows.push({ type: "cat", label: cat.label, setAll: cat.merged || null });
+    for (const f of cat.features) {
+      if (cat.merged) pushActions(f, 1);
+      else if (f.actions.length > 1) { rows.push({ type: "ghead", label: f.label, setAll: f, indent: 1 }); pushActions(f, 2); }
+      else rows.push({ type: "card", action: f.actions[0], indent: 1 });
+    }
+  }
+  return rows;
+});
+function ml(level) { return level ? { marginLeft: `${level * 18}px` } : {}; }
 
 const action = computed(() => prompts.value.find((p) => p.key === selAction.value) || null);
 const actionPresets = computed(() => presets.value.filter((p) => p.action === selAction.value));
@@ -124,6 +158,31 @@ function setRole(role, val) {
   routing.value[role] = { providerId: val?.providerId || "", model: val?.model || "" };
   saveRouting();
 }
+// Set-all: write the same pin to every action in a feature group at once (each
+// action gets its own pin — there's no feature-level pin). Empty → clear them all
+// (every action falls back to inherit).
+function setGroupAll(group, val) {
+  const pins = routing.value.pins || (routing.value.pins = {});
+  for (const a of group.actions) {
+    if (!val || (!val.providerId && !val.role)) delete pins[a.key];
+    else pins[a.key] = { providerId: val.providerId || "", model: val.model || "", role: val.role || "" };
+  }
+  saveRouting();
+}
+// The shared pin if every action in the group has the same one, else null.
+function groupCommonPin(group) {
+  const sig = (k) => JSON.stringify(pin(k) || null);
+  const first = sig(group.actions[0].key);
+  return group.actions.every((a) => sig(a.key) === first) ? (pin(group.actions[0].key) || null) : null;
+}
+function groupMixed(group) {
+  const sig = (k) => JSON.stringify(pin(k) || null);
+  const first = sig(group.actions[0].key);
+  return !group.actions.every((a) => sig(a.key) === first);
+}
+// Label for a Set-all picker's inherit option — flags a mixed group so the empty
+// selection isn't mistaken for "all inherit".
+function setAllLabel(group) { return groupMixed(group) ? "Set all · (mixed)" : "Set all · inherit"; }
 function featureOf(key) { return prompts.value.find((p) => p.key === key)?.feature || ""; }
 const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 // What an action currently resolves to, in plain terms (the nav "→ …" + the
@@ -138,15 +197,6 @@ function activeModel(key) {
   const d = routing.value?.default?.llmId;
   return d ? `Default · ${providerName(d)}` : "Default LLM (unset)";
 }
-// Label for the picker's "inherit" option — names what inheriting resolves to
-// (the feature's default role, else the global Default LLM) so the dropdown's
-// own value matches what's applied (no separate "→ role" note needed).
-function inheritLabel(key) {
-  const dr = featMeta.value[featureOf(key)]?.defaultRole;
-  if (dr) return `Inherit default · ${cap(dr)}`;
-  const d = routing.value?.default?.llmId;
-  return d ? `Inherit default · ${providerName(d)}` : "Inherit default";
-}
 async function load() {
   loading.value = true; error.value = "";
   try {
@@ -160,7 +210,8 @@ async function load() {
     // Presets are optional per app (an app may not mount the endpoint yet).
     try { presets.value = (await request("/v1/ai/feature-presets")).presets || []; }
     catch { presets.value = []; }
-    if (!action.value && categories.value.length) selectAction(categories.value[0].actions[0].key);
+    const firstCard = navRows.value.find((r) => r.type === "card");
+    if (!action.value && firstCard) selectAction(firstCard.action.key);
   } catch (e) {
     error.value = `Couldn't load: ${e.message}`;
   } finally {
@@ -336,20 +387,38 @@ onMounted(load);
       </section>
 
       <div class="lu-fw-body">
-        <!-- Nav: category header → optional sub-label → action cards (the
-             Writer-Lab shape; the feature is just the routing key). -->
+        <!-- Nav: category → (feature sub-header) → action cards, each level
+             indented under its header. A header with a "Set all" picker routes
+             every action under it at once. -->
         <aside class="lu-fw-list">
-          <template v-for="cat in categories" :key="cat.label">
-            <div class="lu-fw-cat">{{ cat.label }}</div>
-            <template v-for="sg in subGroups(cat.actions)" :key="cat.label + '/' + (sg.label || '')">
-              <div v-if="sg.label" class="lu-fw-sublabel">{{ sg.label }}</div>
-              <button v-for="a in sg.items" :key="a.key" type="button" class="lu-fw-card"
-                :class="{ 'is-active': a.key === selAction }" @click="selectAction(a.key)">
-                <div class="lu-fw-card-label">{{ actionLabel(a) }}<span v-if="hasProd(a.key)" class="lu-fw-dot" title="has a production preset" /></div>
-                <div v-if="actionDesc(a)" class="lu-fw-card-desc">{{ actionDesc(a) }}</div>
-                <div class="lu-fw-card-model" title="currently active model">→ {{ activeModel(a.key) }}</div>
-              </button>
-            </template>
+          <template v-for="(row, i) in navRows" :key="i">
+            <!-- Category header (merged single-feature category carries Set-all) -->
+            <div v-if="row.type === 'cat'" class="lu-fw-cat">
+              <div class="lu-fw-cat-name">{{ row.label }}</div>
+              <LuModelPicker v-if="row.setAll" class="lu-fw-setall" compact
+                :model-value="groupCommonPin(row.setAll)" :providers="providers"
+                :inherit-label="setAllLabel(row.setAll)"
+                :title="`Set the provider + model for all ${row.setAll.actions.length} actions under ${row.label}`"
+                @update:model-value="setGroupAll(row.setAll, $event)" />
+            </div>
+            <!-- Feature sub-header (multi-action feature in a multi-feature category) -->
+            <div v-else-if="row.type === 'ghead'" class="lu-fw-ghead" :style="ml(row.indent)">
+              <div class="lu-fw-gname">{{ row.label }}</div>
+              <LuModelPicker class="lu-fw-setall" compact
+                :model-value="groupCommonPin(row.setAll)" :providers="providers"
+                :inherit-label="setAllLabel(row.setAll)"
+                :title="`Set the provider + model for all ${row.setAll.actions.length} ${row.label} actions`"
+                @update:model-value="setGroupAll(row.setAll, $event)" />
+            </div>
+            <!-- Sub-label divider (writerAI's Prose actions / Line edits) -->
+            <div v-else-if="row.type === 'sub'" class="lu-fw-sublabel" :style="ml(row.indent)">{{ row.label }}</div>
+            <!-- Action card -->
+            <button v-else type="button" class="lu-fw-card" :style="ml(row.indent)"
+              :class="{ 'is-active': row.action.key === selAction }" @click="selectAction(row.action.key)">
+              <div class="lu-fw-card-label">{{ actionLabel(row.action) }}<span v-if="hasProd(row.action.key)" class="lu-fw-dot" title="has a production preset" /></div>
+              <div v-if="actionDesc(row.action)" class="lu-fw-card-desc">{{ actionDesc(row.action) }}</div>
+              <div class="lu-fw-card-model" title="currently active model">→ {{ activeModel(row.action.key) }}</div>
+            </button>
           </template>
         </aside>
 
@@ -382,7 +451,7 @@ onMounted(load);
           <div class="lu-field">
             <label>Provider &amp; model <span class="lu-muted">— inherits the default unless you pick a provider + model here</span></label>
             <LuModelPicker :model-value="pin(selAction)" :providers="providers" :labels="true"
-              :inherit-label="inheritLabel(selAction)" @update:model-value="setPin(selAction, $event)" />
+              inherit-label="Inherit default" @update:model-value="setPin(selAction, $event)" />
           </div>
 
           <div class="lu-field"><label>System prompt</label>
@@ -429,29 +498,40 @@ onMounted(load);
 .lu-fw-grid { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 9px 10px; align-items: center; }
 .lu-fw-gl { color: var(--ink-2); font-size: 12px; }
 .lu-fw-roles { display: flex; flex-direction: column; gap: 10px; }
-/* chip + the (now grid-based, non-wrapping) picker filling the rest of the row */
-.lu-fw-role { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
-.lu-rchip { font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 3px 8px; text-align: center; }
+/* fixed chip column so BOTH rows' pickers start at the same x (aligned) */
+.lu-fw-role { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; align-items: center; }
+.lu-rchip { font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 3px 0; text-align: center; }
 .lu-rchip--quick { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); }
 .lu-rchip--accuracy { background: var(--gold-soft, #f5edda); color: var(--gold, #b08a3e); }
 select.lu-input { cursor: pointer; appearance: auto; }
 
 /* Body = nav + editor. The nav is a self-contained scroller (capped height,
    sticky) so a long action list never stretches the page. */
-.lu-fw-body { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 16px; align-items: start; }
+.lu-fw-body { display: grid; grid-template-columns: 480px minmax(0, 1fr); gap: 16px; align-items: start; }
 .lu-fw-list { border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 240px); overflow-y: auto; position: sticky; top: 4px; }
 /* Writer-Lab-style action card: label + blurb, accent on hover/active. */
-.lu-fw-card { text-align: left; width: 100%; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; }
+/* No width:100% — the card is a flex item that stretches to the list width, so a
+   margin-left (indent) insets it cleanly instead of overflowing + clipping. A
+   left rail makes the "under this header" grouping obvious. */
+.lu-fw-card { text-align: left; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; }
 .lu-fw-card:hover { border-color: var(--accent); background: var(--accent-soft); }
 .lu-fw-card.is-active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
 .lu-fw-card-label { font-size: 12.5px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 6px; }
 .lu-fw-card-desc { font-size: 11px; color: var(--muted); line-height: 1.4; margin-top: 3px; }
 .lu-fw-card-model { font-size: 10.5px; font-weight: 600; color: var(--accent-ink, var(--accent)); margin-top: 4px; }
 .lu-fw-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
-/* Category header — the nav's primary grouping (Writing / Analysis / …). */
-.lu-fw-cat { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); padding: 10px 4px 4px; margin-top: 6px; border-top: 1px solid var(--border); }
+/* Category header — the nav's primary grouping (Writing / Analysis / …); a
+   merged single-feature category also carries its Set-all picker below the name. */
+.lu-fw-cat { display: flex; flex-direction: column; gap: 7px; padding: 10px 2px 2px; margin-top: 8px; border-top: 1px solid var(--border); }
 .lu-fw-cat:first-child { border-top: 0; margin-top: 0; padding-top: 2px; }
-.lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 7px 0 1px 4px; }
+.lu-fw-cat-name { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); }
+/* Feature sub-header inside a multi-feature category (name + Set-all). */
+.lu-fw-ghead { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; }
+.lu-fw-gname { font-size: 12px; font-weight: 700; color: var(--ink-2); }
+/* Set-all route picker on a header — a faint dashed surface so it reads as
+   "set the model for everything indented below". */
+.lu-fw-setall { background: var(--surface); border: 1px dashed var(--border); border-radius: 7px; padding: 5px 7px; }
+.lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 6px 0 1px; }
 
 /* Editor */
 .lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; }

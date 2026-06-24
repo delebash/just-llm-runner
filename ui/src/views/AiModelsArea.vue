@@ -16,6 +16,14 @@ import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import { request } from "../client.js";
 
+// Host-contributed tab: an app passes a label + fills the #app-tab slot with its
+// own AI-domain settings (e.g. JustWrite's "Writing AI" — voice canon, RAG
+// auto-rebuild, variations). Keeps ALL AI settings in this one shared area while
+// each app's specifics stay app-side. Empty label → no extra tab.
+const props = defineProps({
+  appTabLabel: { type: String, default: "" },
+});
+
 const tab = ref("providers");
 const providers = ref([]);
 const hardware = ref(null);
@@ -120,6 +128,7 @@ onMounted(loadAll);
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Features</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
+      <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
     </nav>
 
     <div v-if="error" class="lu-error" style="margin-top:14px">{{ error }}</div>
@@ -215,6 +224,11 @@ onMounted(loadAll);
         </div>
       </div>
       <div v-else class="lu-card lu-usage-empty lu-muted">No usage recorded yet.</div>
+    </section>
+
+    <!-- ── App-contributed tab (host fills #app-tab; e.g. JW "Writing AI") ── -->
+    <section v-if="props.appTabLabel" v-show="tab === 'app'" class="lu-tab">
+      <slot name="app-tab" />
     </section>
   </div>
 </template>

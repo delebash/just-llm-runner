@@ -380,42 +380,61 @@ valueless flag is the next flag.)
 drive this endpoint; turbo* still needs the fork binary (validation is light — the
 spawn health/OOM back-off catches an unsupported KV type at runtime).
 
-### Lifecycle — how switches APPLY (load-time, not hot) — verified 2026-06-24
-The local runner is a **persistent background `llama-server`**, NOT a per-request
-spawn: `RunnerService` (singleton, `lifecycle.py`) holds ONE live process; AI
-requests are HTTP calls to it (`dispatch.py:220` → the local adapter); one model
-at a time, loading a new one replaces the running one (`LuModelCatalog.vue:156`).
-- **Plane-1 switches are launch flags** baked into the process at spawn
-  (`compose_flags` argv). llama.cpp fixes the VRAM/RAM layout at startup — there is
-  **no runtime API to change them live**. So **changing a switch = stop + respawn**,
-  the same mechanism as changing models (`stop()` → `load(modelId, overrides)`).
+### Lifecycle — models vs switch-VALUES (CORRECTED 2026-06-24)
+> **Correction (recorded per the why-rule):** an earlier version of this section
+> claimed "swap = restart, no runtime API, llama-server is one-model-per-process."
+> That was WRONG — a stale prior + shallow (confirmation-biased) research. Verified
+> against the llama.cpp server README: llama.cpp has **router mode** (one server
+> serves/swaps MANY models live). Corrected facts below so the design isn't built on
+> a false premise.
+
+**Two different things, two different costs:**
+- **Switching MODELS = LIVE (router mode).** `llama-server --models-dir <dir>` and/or
+  `--models-preset <ini>` (no `-m`) runs a router: routes each request by its `model`
+  field, loads on demand, keeps up to `--models-max` (default 4) co-resident in VRAM
+  — **no restart to change models**. Per-model settings (`n-gpu-layers`, `n-cpu-moe`,
+  `c`, `cache-type`, `jinja`, …) come from the INI (`[*]` global + `[org/MODEL:QUANT]`
+  overrides; keys = CLI args sans dashes).
+  Sources: [server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) ·
+  [glukhov](https://www.glukhov.org/llm-hosting/llama-cpp/llama-server-router-mode/).
+- **Changing a SWITCH VALUE = still a (re)start.** Per-model params are fixed by the
+  INI **at startup**; the only model API is `GET /v1/models` (no runtime param-change
+  endpoint). So to A/B `n-cpu-moe 36` vs `37` on the SAME model you must (re)launch
+  with the new value — exactly what #19 `/load`+`Overrides` (spawn with chosen flags)
+  does. So #19 stays the right tool for **switch tuning**.
 - **Plane-2 params** (temperature / top-p / max-tokens / json-schema /
-  reasoning-budget) are **per-request** (`dispatch.chat` body) → **no restart**.
-- **Consequences:** (a) #20's "apply switch" is a **reload** (show a reloading
-  state); (b) #21 Compare must run local **model/Plane-1-switch columns
-  SEQUENTIALLY** (one GPU + one runner) — only Plane-2-only columns on the same
-  loaded model, or cloud columns, can run concurrently.
+  reasoning-budget) are **per-request** (`dispatch.chat` body) → no restart, ever.
 
-**Bundled llama.cpp vs Ollama (why the reload constraint is OURS, not universal) —
-verified upstream 2026-06-24.** Both speak OpenAI-compatible HTTP, but they're
-different server types. **Ollama** = a model-manager daemon: one server that
-loads/unloads models on demand (keep-alive) → swaps models LIVE, no restart, BUT
-hides the low-level switches (decides offload for you). **Raw `llama-server`** (our
-bundled runner) = ONE model per process, exposes EVERY switch → which is exactly
-why we run it raw (for tuning/testing); cost = swap-is-restart. We support BOTH as
-providers (`llm/ollama.py` + the bundled runner): Ollama for convenience, bundled
-for switch control. [llama-swap](https://www.nijho.lt/post/llama-nixos/) is the
-existing proxy that gives `llama-server` Ollama-style auto-swap (start/stop per
-model + ttl unload) — the adopt-option (RULE #7 §D) if bundled-runner swapping ever
-matters. (llama.cpp ~1.5–1.8× faster than Ollama same HW —
-[itsfoss](https://itsfoss.com/llama-cpp/).)
+**Our current runner vs router mode (architecture fork — deep-dive, task #27, don't
+rush).** Today `RunnerService` (`lifecycle.py`) spawns ONE single-model `llama-server`
+and stops it to switch (`LuModelCatalog.vue:156`). Router mode is the better fit for
+**production model-serving** (live per-feature routing, per-model INI); #19's
+spawn-with-overrides stays right for **switch tuning**. Reconcile before changing it.
 
-**⛔ Implication for quick/accuracy roles + QuickSetup (#11):** DON'T assign two
-DIFFERENT *bundled-runner* models to quick vs accuracy — switching features would
-thrash reloads. Realize the split by: (a) ONE local model for both, accuracy just
-sets `think:true` + more tokens (per-request → no reload); (b) quick = cloud-fast +
-accuracy = local-big (local stays loaded); or (c) Ollama (live swap) for two local
-models. QuickSetup's role assignment must follow this per backend.
+**Consequences for #20/#21 (corrected):**
+- #20 "apply a switch VALUE" = a model reload (show a reloading state). Changing the
+  MODEL (not its switches) can be live via router.
+- #21 Compare: **cloud columns = parallel; different-MODEL local columns can
+  co-reside up to `--models-max` (VRAM permitting) via router; same-model
+  different-SWITCH-VALUE columns = serial** (each needs a (re)start). NOT "all local
+  columns serial," as I first wrote.
+
+**Bundled llama.cpp vs Ollama (CORRECTED).** Both speak OpenAI HTTP. **Ollama** =
+model-manager daemon (live swap, keep-alive eviction; hides low-level switches).
+**`llama-server` is NO LONGER one-model-only** — its **router mode** also swaps
+models live; the real remaining differences: llama.cpp exposes the FULL switch
+surface (why we use it for tuning) but its per-model switches are INI/startup-fixed
+(no runtime change), and it's ~1.5–1.8× faster
+([itsfoss](https://itsfoss.com/llama-cpp/)). We support both as providers
+(`llm/ollama.py` + bundled). [llama-swap](https://www.nijho.lt/post/llama-nixos/)
+predates router mode and is now largely redundant with it.
+
+**Implication for quick/accuracy + QuickSetup (#11), corrected:** two DIFFERENT
+local models for quick vs accuracy is **fine via router mode** (both registered;
+co-resident if `--models-max` ≥ 2 + VRAM allows, else a live router swap — NOT a
+process restart). The earlier "reload thrash → don't" was the wrong-premise version.
+Still useful on a tight GPU: prefer (a) one model + `think:true` for accuracy, or
+(b) cloud-quick + local-accuracy, to avoid even router swaps.
 
 ### To build (the "expose everything configurable to the GUI" ask)
 1. ✅ **Plumb `Overrides` through `/load`** (#19, done 2026-06-24) — `LoadRequest`

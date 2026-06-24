@@ -38,6 +38,8 @@ const hwLabel = computed(() => {
   const gpu = h.gpus && h.gpus[0];
   const accel = Object.entries(h.runtimes || {}).filter(([, v]) => v).map(([k]) => k.toUpperCase()).join(" / ");
   return {
+    os: h.os || "—",
+    cpu: h.cpuCores ? `${h.cpuCores} threads` : "—",
     gpu: gpu ? gpu.name : "CPU only",
     vram: gpu?.vramMb ? `${(gpu.vramMb / 1024).toFixed(0)} GB` : null,
     ram: h.ramMb ? `${(h.ramMb / 1024).toFixed(0)} GB` : "—",
@@ -107,25 +109,13 @@ onMounted(loadAll);
   <div class="lu-area">
     <p class="lu-muted lu-lede">Connect AI providers — free local or metered cloud — and manage which models power each feature.</p>
 
-    <div v-if="hwLabel" class="lu-hwcard">
-      <span class="lu-hwcard-ic" aria-hidden="true">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
-          <rect x="5.5" y="5.5" width="9" height="9" rx="1.4" />
-          <path d="M8 2.5v3M12 2.5v3M8 14.5v3M12 14.5v3M2.5 8h3M2.5 12h3M14.5 8h3M14.5 12h3" stroke-linecap="round" />
-        </svg>
-      </span>
-      <div class="lu-hwcard-body">
-        <div class="lu-hwcard-head">
-          <span class="lu-hwcard-title">Your hardware</span>
-          <span class="lu-muted lu-hwcard-note">drives the Fit scores</span>
-        </div>
-        <div class="lu-hwstats">
-          <div class="lu-hwstat"><span class="lu-hwstat-k">GPU</span><span class="lu-hwstat-v">{{ hwLabel.gpu }}</span></div>
-          <div v-if="hwLabel.vram" class="lu-hwstat"><span class="lu-hwstat-k">VRAM</span><span class="lu-hwstat-v">{{ hwLabel.vram }}</span></div>
-          <div class="lu-hwstat"><span class="lu-hwstat-k">RAM</span><span class="lu-hwstat-v">{{ hwLabel.ram }}</span></div>
-          <div class="lu-hwstat"><span class="lu-hwstat-k">Accel</span><span class="lu-hwstat-v">{{ hwLabel.accel }}</span></div>
-        </div>
-      </div>
+    <!-- One-line hardware strip (OS · CPU · Memory · GPU · Acceleration). -->
+    <div v-if="hwLabel" class="lu-hwstrip">
+      <div class="lu-hwstat"><span class="lu-hwstat-k">OS</span><span class="lu-hwstat-v">{{ hwLabel.os }}</span></div>
+      <div class="lu-hwstat"><span class="lu-hwstat-k">CPU</span><span class="lu-hwstat-v">{{ hwLabel.cpu }}</span></div>
+      <div class="lu-hwstat"><span class="lu-hwstat-k">Memory</span><span class="lu-hwstat-v">{{ hwLabel.ram }}</span></div>
+      <div class="lu-hwstat"><span class="lu-hwstat-k">GPU</span><span class="lu-hwstat-v">{{ hwLabel.gpu }}<span v-if="hwLabel.vram" class="lu-hwstat-sub"> · {{ hwLabel.vram }} VRAM</span></span></div>
+      <div class="lu-hwstat"><span class="lu-hwstat-k">Acceleration</span><span class="lu-hwstat-v">{{ hwLabel.accel }}</span></div>
     </div>
 
     <nav class="lu-subnav">
@@ -237,18 +227,13 @@ onMounted(loadAll);
 .lu-area { width: 100%; }
 .lu-h1 { font-size: 22px; font-weight: 600; margin: 0; color: var(--ink); }
 .lu-lede { font-size: 13px; margin: 4px 0 0; }
-/* Hardware summary card — icon + labelled stat blocks (GPU / VRAM / RAM / Accel). */
-.lu-hwcard { display: flex; gap: 14px; align-items: flex-start; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; margin-top: 12px; }
-.lu-hwcard-ic { flex: none; width: 38px; height: 38px; border-radius: 9px; background: var(--accent-soft); color: var(--accent-ink, var(--accent)); display: grid; place-items: center; }
-.lu-hwcard-ic svg { width: 20px; height: 20px; }
-.lu-hwcard-body { flex: 1; min-width: 0; }
-.lu-hwcard-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 9px; }
-.lu-hwcard-title { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-.lu-hwcard-note { margin-left: auto; font-size: 11.5px; }
-.lu-hwstats { display: flex; gap: 30px; flex-wrap: wrap; }
+/* One-line hardware strip — labelled stat blocks (OS · CPU · Memory · GPU · Accel),
+   stacked label-over-value, in a wrapping row (matches JV's settings strip). */
+.lu-hwstrip { display: flex; flex-wrap: wrap; gap: 8px 40px; align-items: baseline; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; margin-top: 12px; }
 .lu-hwstat { display: flex; flex-direction: column; gap: 2px; }
-.lu-hwstat-k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.lu-hwstat-k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
 .lu-hwstat-v { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.lu-hwstat-sub { color: var(--muted); font-weight: 500; }
 
 /* Sticky tab strip — stays put while a long providers/features list scrolls
    under it. var(--surface) backing matches the host card so rows pass cleanly

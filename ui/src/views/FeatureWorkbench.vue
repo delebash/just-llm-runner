@@ -1,21 +1,22 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Feature Workbench — the single AI config + test surface (AI ▸ Features). The
-// unit is the ACTION (37 of them); "feature" (writerAI, critique, …) is just the
-// visual GROUP its actions live under. Per action: pick its model (or inherit a
-// role / the global Default LLM), edit its prompt + params, TEST on real input,
-// save NAMED presets, and mark one "use as production".
+// unit is the ACTION; "feature" (writerAI, critique, …) is just the visual GROUP
+// its actions live under, inside a nav CATEGORY. Per action: pick its model (or
+// inherit a role / the global Default LLM), edit its prompt + params, TEST on real
+// input. There's ONE live config per action — edits auto-save on blur (no named
+// presets / production).
 //
 // It also absorbs the old Feature Routing: the GLOBALS (default LLM + embedding,
-// Quick/Accuracy roles) sit at the top; each multi-action group header has a
-// "Set all" applicator that writes the model for every action in the group at
-// once (there is no separate per-feature default — an action resolves: its own
-// pin → its feature's default role → the Default LLM).
+// Quick/Accuracy role cards) sit at the top; each group header has a "Set all"
+// applicator that writes the model for every action under it at once (there is no
+// separate per-feature default — an action resolves: its own pin → its feature's
+// default role → the Default LLM).
 //
 // Model assignment is stored as routing pins keyed by feature OR action key
-// (/v1/ai/routing); prompts in /v1/ai/prompts; presets in /v1/ai/feature-presets.
+// (/v1/ai/routing); prompts in /v1/ai/prompts.
 // Shared across both apps — only the feature catalog differs.
-import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
@@ -27,18 +28,12 @@ import { request } from "../client.js";
 const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, temperature, think, builtIn}
 const routing = ref(null);   // {default, quick, accuracy, features:[…], pins:{key→{providerId,model,role}}}
 const providers = ref([]);
-const presets = ref([]);     // feature presets (per action)
 const loading = ref(true);
 const error = ref("");
 const message = ref("");
 
 const selAction = ref("");   // selected ACTION key
 const draft = ref(null);     // editable copy of the selected action's prompt
-const selPreset = ref("");
-const naming = ref(false);
-const newName = ref("");
-const nameRef = ref(null);
-const saving = ref(false);
 
 const varHint = "{{variable}} placeholders";
 
@@ -121,8 +116,6 @@ const navRows = computed(() => {
 function ml(level) { return level ? { marginLeft: `${level * 18}px` } : {}; }
 
 const action = computed(() => prompts.value.find((p) => p.key === selAction.value) || null);
-const actionPresets = computed(() => presets.value.filter((p) => p.action === selAction.value));
-const activePreset = computed(() => actionPresets.value.find((p) => p.active) || null);
 
 // The action's display name: the seeded canonical label (point-of-use name) when
 // set; else the feature's catalog label for a single-action feature; else a
@@ -140,9 +133,6 @@ function actionLabel(p) {
 // Card blurb: the action's own description, else its feature's hint.
 function actionDesc(a) {
   return a?.description || featMeta.value[a?.feature]?.hint || "";
-}
-function hasProd(key) {
-  return presets.value.some((p) => p.action === key && p.active);
 }
 // Split a feature's actions into Writer-Lab-style sub-sections by their `group`
 // (e.g. writerAI → "Prose actions" / "Line edits"); "" = no sub-label.
@@ -220,9 +210,6 @@ async function load() {
     routing.value = r;
     if (!routing.value.pins) routing.value.pins = {};
     providers.value = pl.providers || [];
-    // Presets are optional per app (an app may not mount the endpoint yet).
-    try { presets.value = (await request("/v1/ai/feature-presets")).presets || []; }
-    catch { presets.value = []; }
     const firstCard = navRows.value.find((r) => r.type === "card");
     if (!action.value && firstCard) selectAction(firstCard.action.key);
   } catch (e) {
@@ -236,7 +223,7 @@ function selectAction(key) {
   selAction.value = key;
   const p = prompts.value.find((x) => x.key === key);
   draft.value = p ? { ...p } : null;
-  selPreset.value = ""; naming.value = false; message.value = "";
+  message.value = "";
   testOut.value = null; testErr.value = ""; buildVars();
 }
 
@@ -249,82 +236,22 @@ async function saveRouting() {
   if (!routing.value.pins) routing.value.pins = {};
 }
 
-// ── presets (per action) ─────────────────────────────────────────────────────
-function snapshot(name) {
-  const p = pin(selAction.value);
-  return {
-    action: selAction.value, name,
-    providerId: p && !p.role ? p.providerId || "" : "",
-    role: p?.role || "",
-    model: p?.model || "",
-    system: draft.value?.system || "", userTemplate: draft.value?.userTemplate || "",
-    temperature: draft.value?.temperature === "" || draft.value?.temperature == null ? null : Number(draft.value.temperature),
-    think: !!draft.value?.think,
-  };
-}
-function startNaming() {
-  naming.value = true; newName.value = "";
-  nextTick(() => { (nameRef.value?.$el || nameRef.value)?.focus?.(); });
-}
-async function saveAs() {
-  const name = newName.value.trim();
-  if (!name) { naming.value = false; return; }
-  // Save → reload the dropdown (all of this action's configs) with the new one selected.
-  presets.value = (await request("/v1/ai/feature-presets", { method: "POST", body: snapshot(name) })).presets || [];
-  selPreset.value = actionPresets.value.find((p) => p.name === name)?.id || "";
-  naming.value = false; newName.value = ""; message.value = `Saved "${name}".`;
-}
-function applyPreset(id) {
-  selPreset.value = id;
-  if (!id || !draft.value) { return; }
-  const p = presets.value.find((x) => x.id === id);
-  if (!p) return;
-  draft.value.system = p.system; draft.value.userTemplate = p.userTemplate;
-  draft.value.temperature = p.temperature; draft.value.think = p.think;
-  const pins = routing.value.pins || (routing.value.pins = {});
-  if (p.role) pins[selAction.value] = { providerId: "", model: "", role: p.role };
-  else if (p.providerId) pins[selAction.value] = { providerId: p.providerId, model: p.model || "", role: "" };
-  else delete pins[selAction.value];
-  buildVars();
-}
-async function delPreset() {
-  if (!selPreset.value) return;
-  presets.value = (await request(`/v1/ai/feature-presets/${selPreset.value}`, { method: "DELETE" })).presets || [];
-  selPreset.value = "";
-}
-// Apply the draft to the LIVE config: write the action's prompt + persist its
-// routing pin (saveRouting already ran on each pin change, but re-save to be safe).
-async function applyToLive() {
-  if (draft.value) await request(`/v1/ai/prompts/${encodeURIComponent(draft.value.key)}`, {
+// Auto-save the action's prompt (system / instruction / temperature / think) to
+// the live config — there's ONE config per action now (no named presets). Called
+// on field blur + before a test run, so the live pipeline always matches the
+// editor. The provider+model pin saves separately on its own change.
+async function savePrompt() {
+  if (!draft.value) return;
+  const updated = await request(`/v1/ai/prompts/${encodeURIComponent(draft.value.key)}`, {
     method: "PUT",
     body: {
       feature: draft.value.feature, system: draft.value.system, userTemplate: draft.value.userTemplate,
       temperature: Number(draft.value.temperature) || 0, think: !!draft.value.think,
     },
   });
-  await saveRouting();
-}
-async function useAsProduction() {
-  if (!draft.value) return;
-  saving.value = true; error.value = ""; message.value = "";
-  try {
-    let id = selPreset.value;
-    if (id) {
-      const name = presets.value.find((p) => p.id === id)?.name || selAction.value;
-      presets.value = (await request(`/v1/ai/feature-presets/${id}`, { method: "PUT", body: snapshot(name) })).presets || [];
-    } else {
-      const name = `${activeModel(selAction.value)} · ${new Date().toLocaleDateString()}`;
-      presets.value = (await request("/v1/ai/feature-presets", { method: "POST", body: snapshot(name) })).presets || [];
-      id = actionPresets.value.find((p) => p.name === name)?.id || ""; selPreset.value = id;
-    }
-    await applyToLive();
-    if (id) presets.value = (await request(`/v1/ai/feature-presets/${id}/use`, { method: "POST" })).presets || [];
-    message.value = "In production — the live pipeline runs this now.";
-  } catch (e) {
-    error.value = `Failed: ${e.message}`;
-  } finally {
-    saving.value = false;
-  }
+  const i = prompts.value.findIndex((p) => p.key === updated.key);
+  if (i >= 0) prompts.value[i] = updated;
+  message.value = "Saved.";
 }
 async function resetPrompt() {
   if (!draft.value?.builtIn) return;
@@ -351,6 +278,7 @@ async function runTest() {
   testing.value = true; testErr.value = ""; testOut.value = null;
   const t0 = performance.now();
   try {
+    await savePrompt(); // test runs the live config — persist edits first
     const body = { action: draft.value.key, variables: { ...vars }, temperature: Number(draft.value.temperature) };
     const r = await request("/v1/ai/run", { method: "POST", body });
     testOut.value = { content: r.content, model: r.model, ms: Math.round(performance.now() - t0) };
@@ -434,7 +362,7 @@ onMounted(load);
             <!-- Action card -->
             <button v-else type="button" class="lu-fw-card" :style="ml(row.indent)"
               :class="{ 'is-active': row.action.key === selAction }" @click="selectAction(row.action.key)">
-              <div class="lu-fw-card-label">{{ actionLabel(row.action) }}<span v-if="hasProd(row.action.key)" class="lu-fw-dot" title="has a production preset" /></div>
+              <div class="lu-fw-card-label">{{ actionLabel(row.action) }}</div>
               <div v-if="actionDesc(row.action)" class="lu-fw-card-desc">{{ actionDesc(row.action) }}</div>
               <div class="lu-fw-card-model" title="currently active model">→ {{ activeModel(row.action.key) }}</div>
             </button>
@@ -448,25 +376,9 @@ onMounted(load);
             <span class="lu-fw-spacer" /><span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
           </div>
 
-          <!-- Presets bar (SpeakerLab parity) -->
-          <div class="lu-fw-presets">
-            <span class="lu-fw-eyebrow">Presets</span>
-            <select class="lu-input lu-fw-presel" :value="selPreset" @change="applyPreset($event.target.value)">
-              <option value="">— current —</option>
-              <option v-for="p in actionPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
-            <UiButton v-if="selPreset" intent="ghost" size="small" title="Delete this config" @click="delPreset">🗑</UiButton>
-            <UiInput v-if="naming" ref="nameRef" v-model="newName" placeholder="name — press Enter" class="lu-fw-name-in"
-              @keyup.enter="saveAs" @keyup.esc="naming = false; newName = ''" />
-            <UiButton v-else intent="secondary" size="small" title="Save this config as a named preset" @click="startNaming">＋ Save as</UiButton>
-            <UiButton intent="secondary" size="small" :loading="saving" title="Apply this config to the live pipeline" @click="useAsProduction">✓ Use as production</UiButton>
-            <span v-if="activePreset" class="lu-fw-prod" :title="`The live pipeline runs '${activePreset.name}'.`">✓ PRODUCTION · {{ activePreset.name }}</span>
-          </div>
-
-          <!-- Provider + model for this action (shared LuModelPicker). The
-               selects ARE the source of truth — the inherit option names what it
-               resolves to (e.g. "Inherit default · Quick"), so there's no
-               separate redundant "→ role" note. -->
+          <!-- Provider + model for this action (shared LuModelPicker). The inherit
+               option is plain "Inherit default"; the picker IS the source of truth.
+               Edits below auto-save on blur (one live config per action). -->
           <div class="lu-field">
             <label>Provider &amp; model <span class="lu-muted">— inherits the default unless you pick a provider + model here</span></label>
             <LuModelPicker :model-value="pin(selAction)" :providers="providers" :labels="true"
@@ -474,13 +386,13 @@ onMounted(load);
           </div>
 
           <div class="lu-field"><label>System prompt</label>
-            <UiTextarea v-model="draft.system" auto-resize :rows="7" @input="buildVars" /></div>
+            <UiTextarea v-model="draft.system" auto-resize :rows="7" @input="buildVars" @blur="savePrompt" /></div>
           <div class="lu-field"><label>Instruction <span class="lu-muted">— user template · {{ varHint }}</span></label>
-            <UiTextarea v-model="draft.userTemplate" auto-resize :rows="4" @input="buildVars" /></div>
+            <UiTextarea v-model="draft.userTemplate" auto-resize :rows="4" @input="buildVars" @blur="savePrompt" /></div>
 
           <div class="lu-fw-params">
-            <div class="lu-field lu-fw-temp"><label>Temperature</label><UiInput v-model="draft.temperature" type="number" /></div>
-            <label class="lu-fw-think"><UiCheckbox v-model="draft.think" /><span class="lu-muted">Reasoning (think)</span></label>
+            <div class="lu-field lu-fw-temp"><label>Temperature</label><UiInput v-model="draft.temperature" type="number" @blur="savePrompt" /></div>
+            <label class="lu-fw-think"><UiCheckbox v-model="draft.think" @change="savePrompt" /><span class="lu-muted">Reasoning (think)</span></label>
             <span class="lu-fw-spacer" />
             <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</UiButton>
           </div>
@@ -550,7 +462,6 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-card-label { font-size: 12.5px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 6px; }
 .lu-fw-card-desc { font-size: 11px; color: var(--muted); line-height: 1.4; margin-top: 3px; }
 .lu-fw-card-model { font-size: 10.5px; font-weight: 600; color: var(--accent-ink, var(--accent)); margin-top: 4px; }
-.lu-fw-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
 /* Category header — the nav's primary grouping (Writing / Analysis / …); a
    merged single-feature category also carries its Set-all picker below the name. */
 .lu-fw-cat { display: flex; flex-direction: column; gap: 7px; padding: 10px 2px 2px; margin-top: 8px; border-top: 1px solid var(--border); }
@@ -569,11 +480,6 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-h { display: flex; align-items: baseline; gap: 8px; }
 .lu-fw-h b { font-size: 15px; color: var(--ink); }
 .lu-fw-spacer { flex: 1; } .lu-fw-msg { font-size: 11.5px; }
-.lu-fw-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
-.lu-fw-eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-.lu-fw-presel { max-width: 200px; cursor: pointer; appearance: auto; }
-.lu-fw-name-in { max-width: 170px; }
-.lu-fw-prod { margin-left: auto; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: var(--accent); color: var(--on-accent, #fff); }
 .lu-field { display: flex; flex-direction: column; gap: 5px; }
 .lu-field > label { font-size: 12px; color: var(--muted); }
 .lu-fw-params { display: flex; gap: 24px; align-items: flex-end; }

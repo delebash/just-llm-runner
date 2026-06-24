@@ -30,5 +30,9 @@ export { default as HelpTrigger } from "./components/HelpTrigger.vue";
 export { configureHelp, openHelp, closeHelp, helpState, helpConfig } from "./services/help.js";
 export { renderHelpMarkdown, slugifyHeading } from "./services/helpMarkdown.js";
 
+// shared toast host + imperative bridge (vue-sonner under the hood)
+export { default as Toast } from "./components/Toast.vue";
+export { pushToast, clearToasts } from "./services/toastBridge.js";
+
 // shared composables (host-agnostic; vue-only)
 export { useRovingTabindex } from "./composables/useRovingTabindex.js";

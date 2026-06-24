@@ -405,6 +405,26 @@ spawn health/OOM back-off catches an unsupported KV type at runtime).
 - **Plane-2 params** (temperature / top-p / max-tokens / json-schema /
   reasoning-budget) are **per-request** (`dispatch.chat` body) → no restart, ever.
 
+**Router VRAM behavior (verified 2026-06-24 — feeds task #27):** registered ≠ loaded
+— a model loads into VRAM **lazily on first request**, up to `--models-max` (default
+4). A loaded model **stays resident** (does NOT free VRAM after the response), and the
+router does **NOT auto-evict** to make room → requesting a 2nd big model OOMs
+([discussion #18939](https://github.com/ggml-org/llama.cpp/discussions/18939)). To keep
+ONE model in VRAM (hot-swap), pass **`--models-max 1` as a CLI arg** (not in the
+config file — confirmed gotcha); `--sleep-idle-seconds N` unloads an idle model.
+
+**Why we run RAW `llama-server` (not Ollama/LM Studio) — verified 2026-06-24:** the
+MoE-expert CPU offload (`--n-cpu-moe`) that fits a 35B-A3B on 6 GB is the deciding
+switch, and the GUIs don't reliably expose it. **Ollama** exposes `num_gpu`(≈ngl) /
+`num_ctx` / `OLLAMA_KV_CACHE_TYPE` / flash-attn but has **no native `--n-cpu-moe`**
+(open request [ollama#11772](https://github.com/ollama/ollama/issues/11772); only
+whole-layer auto-offload). **LM Studio** exposes most core flags + HAD a real
+`--n-cpu-moe` toggle ("Force Expert Weights onto CPU"), but **v0.4.0 regressed it** to
+a less-effective layer slider ([lmstudio#1421](https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/1421)).
+**llama-swap** ([repo](https://github.com/mostlygeek/llama-swap)) fronts ANY
+OpenAI-compatible backend (llama.cpp/vLLM/tabbyAPI) with TTL unload, but native router
+mode makes it redundant for our llama.cpp-only case.
+
 **Our current runner vs router mode (architecture fork — deep-dive, task #27, don't
 rush).** Today `RunnerService` (`lifecycle.py`) spawns ONE single-model `llama-server`
 and stops it to switch (`LuModelCatalog.vue:156`). Router mode is the better fit for

@@ -8,7 +8,8 @@
 //
 // v-model is the pin object (or null = inherit the empty fallback). The host
 // owns persistence (writes routing pins / role targets and saves).
-import { computed } from "vue";
+import { computed, reactive, watch } from "vue";
+import { request } from "../client.js";
 
 const props = defineProps({
   modelValue: { type: Object, default: null }, // { providerId, model, role } | null
@@ -29,12 +30,32 @@ const byId = computed(() => Object.fromEntries(props.providers.map((p) => [p.id,
 const pin = computed(() => props.modelValue || { providerId: "", model: "", role: "" });
 const route = computed(() => (pin.value.role ? `role:${pin.value.role}` : pin.value.providerId || ""));
 
-// Models offered for a provider. A real per-provider list needs a backend
-// endpoint; until then it's "(provider default)" + the provider's saved default.
+// Fetched model lists per provider (id → string[]). Populated lazily when a
+// provider is picked, via the same endpoint the provider form's "Fetch models"
+// uses. A provider with no key / unreachable just yields an empty list (the
+// dropdown falls back to "(provider default)" + the saved default).
+const modelsCache = reactive({});
+async function fetchModels(pid) {
+  if (!pid || pid in modelsCache) return;
+  modelsCache[pid] = []; // mark in-flight so we don't refetch
+  try {
+    const r = await request(`/v1/llm-providers/${encodeURIComponent(pid)}/models`);
+    modelsCache[pid] = (r.models || r || []).map((m) => (typeof m === "string" ? m : m?.id)).filter(Boolean);
+  } catch { /* leave empty — fall back to the saved default */ }
+}
+// Fetch the pinned provider's models on mount + whenever it changes.
+watch(() => pin.value.providerId, (pid) => { if (pid) fetchModels(pid); }, { immediate: true });
+
+// Models offered for a provider: the fetched list, plus "(provider default)" and
+// any saved/pinned model not already in it (so the current value always shows).
 function modelOptions(pid) {
   const p = byId.value[pid];
+  const fetched = modelsCache[pid] || [];
   const out = [{ value: "", label: "(provider default)" }];
-  if (p?.defaultModel) out.push({ value: p.defaultModel, label: p.defaultModel });
+  for (const m of fetched) out.push({ value: m, label: m });
+  for (const extra of [p?.defaultModel, pin.value.model]) {
+    if (extra && !out.some((o) => o.value === extra)) out.push({ value: extra, label: extra });
+  }
   return out;
 }
 function setRoute(val) {

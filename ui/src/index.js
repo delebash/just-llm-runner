@@ -13,20 +13,11 @@ import "./styles.css";
 // imports; the public `request` is the shared serverApi transport below.)
 export { configureLlmUi, llmUiBase, llmUiUrl } from "./client.js";
 
-// shared general primitives — the future @delebash/ui (housed in ./common for
-// now). Ui* supersede the per-app Jw*/Jv*/Lu*. Re-exporting also loads
-// common/styles.css (the .ui-* rules).
-export { UiButton, UiInput, UiTextarea, UiCheckbox, UiTag, UiChip, UiSegmented, UiToggle, UiField, UiSelect } from "./common/index.js";
-export { Icon, Breadcrumb, promptDialog, confirmDialog, dialogState, _resolveDialog, tooltipDirective } from "./common/index.js";
-export { HelpDrawer, HelpTrigger, configureHelp, openHelp, closeHelp, helpState, helpConfig, renderHelpMarkdown, slugifyHeading } from "./common/index.js";
-export { Toast, pushToast, clearToasts } from "./common/index.js";
-export { EmptyState } from "./common/index.js";
-export { ConnectionError } from "./common/index.js";
-export {
-  configureServerApi, makeOriginAwareResolver, serverUrl, url, lastError,
-  request, get, post, patch, put, del, requestBlob, postForm, safeRequest, checkServer,
-} from "./common/index.js";
-export { useRovingTabindex } from "./common/composables/useRovingTabindex.js";
+// shared general primitives + shells + services — the future @delebash/ui
+// (housed in ./common for now): Ui* primitives, Icon/Breadcrumb, dialog/tooltip,
+// the Help system, Toast, EmptyState, ConnectionError, the serverApi transport,
+// and the appearance engine. Re-exporting also loads common/styles.css.
+export * from "./common/index.js";
 
 // llm-ui-specific primitives still local (model picker/combobox)
 export { default as LuCombobox } from "./components/LuCombobox.vue";

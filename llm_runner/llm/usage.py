@@ -56,20 +56,37 @@ class UsageLedger:
         with self._lock:
             entries = list(self._log)
         by_feature: dict[str, dict] = {}
+        by_provider: dict[str, dict] = {}
+        total_p = total_c = 0
         for e in entries:
             agg = by_feature.setdefault(
                 e.feature,
-                {"calls": 0, "errors": 0, "prompt_tokens": 0, "completion_tokens": 0, "duration_ms": 0},
+                {"calls": 0, "errors": 0, "prompt_tokens": 0, "completion_tokens": 0, "duration_ms": 0, "cost": 0.0},
             )
             agg["calls"] += 1
             agg["errors"] += 0 if e.ok else 1
             agg["prompt_tokens"] += e.prompt_tokens
             agg["completion_tokens"] += e.completion_tokens
             agg["duration_ms"] += e.duration_ms
+            pagg = by_provider.setdefault(
+                e.provider_id or "—",
+                {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0},
+            )
+            pagg["calls"] += 1
+            pagg["prompt_tokens"] += e.prompt_tokens
+            pagg["completion_tokens"] += e.completion_tokens
+            total_p += e.prompt_tokens
+            total_c += e.completion_tokens
+        # The in-memory ledger has no pricing table → cost is 0 here; a host sink
+        # with pricing (e.g. JustWrite's) fills cost in its own snapshot.
         return {
             "by_feature": by_feature,
+            "by_provider": by_provider,
             "recent": [asdict(e) for e in reversed(entries[-30:])],
             "total_calls": len(entries),
+            "total_cost": 0.0,
+            "total_prompt_tokens": total_p,
+            "total_completion_tokens": total_c,
         }
 
     def clear(self) -> None:

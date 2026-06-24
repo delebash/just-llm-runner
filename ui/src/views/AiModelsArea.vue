@@ -53,19 +53,28 @@ const hwLabel = computed(() => {
   };
 });
 
-const usageStats = computed(() => {
+const fmtUsd = (n) => (n ? `$${Number(n).toFixed(n < 1 ? 4 : 2)}` : "$0");
+// The full ledger view (rollup + by-feature + by-provider) from /v1/ai-usage —
+// cost is server-computed (the host sink prices each row), so this renders
+// identically in any app that mounts the area. Null until something's recorded.
+const usageView = computed(() => {
   const s = usage.value;
-  if (!s) return null;
-  const byF = s.by_feature || {};
-  let tokens = 0;
-  let busy = "—";
-  let busyCalls = -1;
-  for (const [f, v] of Object.entries(byF)) {
-    tokens += (v.prompt_tokens || 0) + (v.completion_tokens || 0);
-    if ((v.calls || 0) > busyCalls) { busyCalls = v.calls || 0; busy = f; }
-  }
-  return { calls: s.total_calls || 0, tokens, busy, busyCalls: busyCalls < 0 ? 0 : busyCalls };
+  if (!s || !s.total_calls) return null;
+  const shape = (obj) => Object.entries(obj || {}).map(([key, v]) => ({
+    key, calls: v.calls || 0, prompt: v.prompt_tokens || 0,
+    completion: v.completion_tokens || 0, cost: v.cost || 0,
+  })).sort((a, b) => b.calls - a.calls);
+  const prompt = s.total_prompt_tokens || 0;
+  const completion = s.total_completion_tokens || 0;
+  return {
+    calls: s.total_calls || 0, prompt, completion, tokens: prompt + completion,
+    cost: s.total_cost || 0, feat: shape(s.by_feature), prov: shape(s.by_provider),
+  };
 });
+async function clearUsage() {
+  try { await request("/v1/ai-usage", { method: "DELETE" }); } catch { /* ignore */ }
+  await loadUsage();
+}
 
 async function loadProviders() {
   const r = await request("/v1/llm-providers");
@@ -207,22 +216,44 @@ onMounted(loadAll);
       <FeatureWorkbench v-if="tab === 'features'" />
     </section>
 
-    <!-- ── Usage ── -->
+    <!-- ── Usage — full ledger: rollup + by-feature + by-provider + reset ── -->
     <section v-show="tab === 'usage'" class="lu-tab">
-      <div v-if="usageStats" class="lu-usage">
-        <div class="lu-card lu-ucard">
-          <div class="lu-uval">{{ usageStats.calls.toLocaleString() }}</div>
-          <div class="lu-ulabel">calls recorded</div>
+      <template v-if="usageView">
+        <div class="lu-usagehead">
+          <span class="lu-pcard-title">Usage</span>
+          <span class="lu-muted lu-usagesub">Tokens + estimated cost across every AI call. Local providers are recorded at $0.</span>
+          <UiButton intent="ghost" size="small" @click="clearUsage">Reset ledger</UiButton>
         </div>
-        <div class="lu-card lu-ucard">
-          <div class="lu-uval">{{ usageStats.tokens.toLocaleString() }}</div>
-          <div class="lu-ulabel">tokens</div>
+        <div class="lu-usage">
+          <div class="lu-card lu-ucard"><div class="lu-uval">{{ usageView.calls.toLocaleString() }}</div><div class="lu-ulabel">calls</div></div>
+          <div class="lu-card lu-ucard"><div class="lu-uval">{{ usageView.tokens.toLocaleString() }}</div><div class="lu-ulabel">tokens</div></div>
+          <div class="lu-card lu-ucard"><div class="lu-uval">{{ usageView.prompt.toLocaleString() }}</div><div class="lu-ulabel">prompt</div></div>
+          <div class="lu-card lu-ucard"><div class="lu-uval">{{ usageView.completion.toLocaleString() }}</div><div class="lu-ulabel">completion</div></div>
+          <div class="lu-card lu-ucard"><div class="lu-uval">{{ fmtUsd(usageView.cost) }}</div><div class="lu-ulabel">est. cost</div></div>
         </div>
-        <div class="lu-card lu-ucard">
-          <div class="lu-uval">{{ usageStats.busy }}</div>
-          <div class="lu-ulabel">busiest · {{ usageStats.busyCalls.toLocaleString() }} calls</div>
+        <div class="lu-usage-section">
+          <div class="lu-usage-h">By feature</div>
+          <table class="lu-utable">
+            <thead><tr><th>Feature</th><th>Calls</th><th>Prompt</th><th>Completion</th><th>Cost</th></tr></thead>
+            <tbody>
+              <tr v-for="f in usageView.feat" :key="f.key">
+                <td>{{ f.key }}</td><td>{{ f.calls.toLocaleString() }}</td><td>{{ f.prompt.toLocaleString() }}</td><td>{{ f.completion.toLocaleString() }}</td><td>{{ fmtUsd(f.cost) }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </div>
+        <div class="lu-usage-section">
+          <div class="lu-usage-h">By provider</div>
+          <table class="lu-utable">
+            <thead><tr><th>Provider</th><th>Calls</th><th>Prompt</th><th>Completion</th><th>Cost</th></tr></thead>
+            <tbody>
+              <tr v-for="p in usageView.prov" :key="p.key">
+                <td>{{ p.key }}</td><td>{{ p.calls.toLocaleString() }}</td><td>{{ p.prompt.toLocaleString() }}</td><td>{{ p.completion.toLocaleString() }}</td><td>{{ fmtUsd(p.cost) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
       <div v-else class="lu-card lu-usage-empty lu-muted">No usage recorded yet.</div>
     </section>
 
@@ -291,10 +322,20 @@ onMounted(loadAll);
 .lu-newform { margin-top: 8px; border: 1px solid var(--accent); border-radius: 10px; overflow: hidden; }
 .lu-mono { font-family: var(--font-mono, monospace); }
 
-/* Usage — metric cards (big number + label) in a responsive grid. */
-.lu-usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; max-width: 640px; }
+/* Usage — header + rollup metric cards + per-feature/provider tables. */
+.lu-usagehead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+.lu-usagesub { font-size: 11.5px; flex: 1; }
+.lu-usage { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; max-width: 760px; }
 .lu-ucard { display: flex; flex-direction: column; gap: 4px; }
-.lu-uval { font-size: 25px; font-weight: 700; color: var(--ink); line-height: 1.1; }
+.lu-uval { font-size: 23px; font-weight: 700; color: var(--ink); line-height: 1.1; }
 .lu-ulabel { font-size: 12px; color: var(--muted); }
 .lu-usage-empty { text-align: center; font-size: 12.5px; }
+.lu-usage-section { margin-top: 20px; }
+.lu-usage-h { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.lu-utable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.lu-utable th { text-align: right; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.lu-utable th:first-child, .lu-utable td:first-child { text-align: left; }
+.lu-utable td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.lu-utable td:first-child { color: var(--ink); font-weight: 600; }
+.lu-utable tbody tr:last-child td { border-bottom: 0; }
 </style>

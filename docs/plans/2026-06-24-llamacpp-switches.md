@@ -396,6 +396,27 @@ at a time, loading a new one replaces the running one (`LuModelCatalog.vue:156`)
   SEQUENTIALLY** (one GPU + one runner) — only Plane-2-only columns on the same
   loaded model, or cloud columns, can run concurrently.
 
+**Bundled llama.cpp vs Ollama (why the reload constraint is OURS, not universal) —
+verified upstream 2026-06-24.** Both speak OpenAI-compatible HTTP, but they're
+different server types. **Ollama** = a model-manager daemon: one server that
+loads/unloads models on demand (keep-alive) → swaps models LIVE, no restart, BUT
+hides the low-level switches (decides offload for you). **Raw `llama-server`** (our
+bundled runner) = ONE model per process, exposes EVERY switch → which is exactly
+why we run it raw (for tuning/testing); cost = swap-is-restart. We support BOTH as
+providers (`llm/ollama.py` + the bundled runner): Ollama for convenience, bundled
+for switch control. [llama-swap](https://www.nijho.lt/post/llama-nixos/) is the
+existing proxy that gives `llama-server` Ollama-style auto-swap (start/stop per
+model + ttl unload) — the adopt-option (RULE #7 §D) if bundled-runner swapping ever
+matters. (llama.cpp ~1.5–1.8× faster than Ollama same HW —
+[itsfoss](https://itsfoss.com/llama-cpp/).)
+
+**⛔ Implication for quick/accuracy roles + QuickSetup (#11):** DON'T assign two
+DIFFERENT *bundled-runner* models to quick vs accuracy — switching features would
+thrash reloads. Realize the split by: (a) ONE local model for both, accuracy just
+sets `think:true` + more tokens (per-request → no reload); (b) quick = cloud-fast +
+accuracy = local-big (local stays loaded); or (c) Ollama (live swap) for two local
+models. QuickSetup's role assignment must follow this per backend.
+
 ### To build (the "expose everything configurable to the GUI" ask)
 1. ✅ **Plumb `Overrides` through `/load`** (#19, done 2026-06-24) — `LoadRequest`
    accepts `nGpuLayers`, `nCpuMoe`, `ctxLen`, `cacheTypeK/V`, `flashAttn`, `noMmap`,

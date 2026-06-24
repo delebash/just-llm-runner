@@ -52,6 +52,7 @@ class FeaturePromptRow:
     temperature: float
     think: bool
     built_in: bool
+    max_tokens: int = 0  # 0 → no cap (the model's own default)
     label: str = ""
     description: str = ""
     group: str = ""
@@ -96,6 +97,7 @@ class PromptOut(BaseModel):
     temperature: float
     think: bool
     builtIn: bool
+    maxTokens: int = 0
     label: str = ""
     description: str = ""
     group: str = ""
@@ -115,6 +117,7 @@ class PromptUpdate(BaseModel):
     userTemplate: str = ""
     temperature: float = 0.7
     think: bool = False
+    maxTokens: int = 0
     label: str = ""
     description: str = ""
     group: str = ""
@@ -129,6 +132,7 @@ def _out(r: FeaturePromptRow) -> PromptOut:
         temperature=r.temperature,
         think=r.think,
         builtIn=r.built_in,
+        maxTokens=r.max_tokens,
         label=r.label,
         description=r.description,
         group=r.group,
@@ -176,6 +180,7 @@ def make_prompt_router(
             temperature=body.temperature,
             think=body.think,
             built_in=built_in,
+            max_tokens=body.maxTokens,
             label=label,
             description=description,
             group=group,
@@ -196,6 +201,7 @@ def make_prompt_router(
             temperature=float(default.get("temperature", 0.7)),
             think=bool(default.get("think", False)),
             built_in=True,
+            max_tokens=int(default.get("max_tokens", 0) or 0),
             label=str(default.get("label") or ""),
             description=str(default.get("description") or ""),
             group=str(default.get("group") or ""),
@@ -222,6 +228,7 @@ class RunRequest(BaseModel):
     system: str | None = None
     userTemplate: str | None = None
     think: bool | None = None
+    maxTokens: int | None = None
     # Optional prior conversation turns ({role, content}) for multi-turn features
     # (RAG chat / character chat). Inserted between the system + the rendered user
     # message, so follow-ups keep proper message roles.
@@ -268,6 +275,7 @@ def make_feature_router(
                 system=render(sys_tpl, body.variables),
                 temperature=spec.temperature if body.temperature is None else body.temperature,
                 think=spec.think if body.think is None else body.think,
+                max_tokens=(body.maxTokens if body.maxTokens is not None else spec.max_tokens) or None,
                 provider_override=body.providerId or None,
                 model_override=body.model or None,
             )
@@ -301,6 +309,7 @@ def make_feature_router(
                     system=system,
                     temperature=spec.temperature if body.temperature is None else body.temperature,
                     think=spec.think if body.think is None else body.think,
+                    max_tokens=(body.maxTokens if body.maxTokens is not None else spec.max_tokens) or None,
                     provider_override=body.providerId or None,
                     model_override=body.model or None,
                 ):

@@ -11,7 +11,7 @@ import "./styles.css";
 // client — the host calls configureLlmUi({ baseUrl }) once at boot. (request/
 // requestStream stay internal to the kit's LLM views via ./client.js relative
 // imports; the public `request` is the shared serverApi transport below.)
-export { configureLlmUi, llmUiBase, llmUiUrl } from "./client.js";
+export { configureLlmUi, llmUiBase, llmUiUrl, requestBlob, postForm } from "./client.js";
 
 // shared general primitives + shells + services — the future @delebash/ui
 // (housed in ./common for now): Ui* primitives, Icon/Breadcrumb, dialog/tooltip,
@@ -22,6 +22,7 @@ export * from "./common/index.js";
 // llm-ui-specific primitives still local (model picker/combobox)
 export { default as LuCombobox } from "./components/LuCombobox.vue";
 export { default as LuModelPicker } from "./components/LuModelPicker.vue";
+export { default as DataManagement } from "./components/DataManagement.vue";
 
 // views
 export { default as PromptLab } from "./views/PromptLab.vue";

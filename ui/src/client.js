@@ -41,6 +41,32 @@ export async function request(path, { method = "GET", body, headers } = {}) {
   return ct.includes("application/json") ? res.json() : res.text();
 }
 
+/** Fetch a binary response as a Blob (e.g. the backup ZIP download). */
+export async function requestBlob(path, { method = "GET", body } = {}) {
+  const opts = { method, headers: {} };
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(llmUiUrl(path), opts);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+  }
+  return res.blob();
+}
+
+/** POST multipart/form-data (e.g. a backup ZIP upload); returns parsed JSON. */
+export async function postForm(path, formData) {
+  const res = await fetch(llmUiUrl(path), { method: "POST", body: formData });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+  }
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("application/json") ? res.json() : res.text();
+}
+
 /**
  * POST and consume a Server-Sent-Events stream (the /v1/ai/stream shape:
  * `data: {"delta": "..."}` per chunk, a final `data: {"done": true, ...}`,

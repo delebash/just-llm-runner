@@ -46,6 +46,19 @@ const byId = computed(() => Object.fromEntries(providers.value.map((p) => [p.id,
 const providerName = (id) => byId.value[id]?.name || id || "—";
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
 
+// Model-roles cards: the speed blurb + trade-off note are generic to the role
+// (shared by every app); "Used for" is derived from the catalog (the features
+// whose default role is this one), so it stays in sync per app.
+const ROLE_META = {
+  quick: { title: "Quick model", blurb: "Answers in under a second.", note: "A small local model keeps these fast and usually free; cloud models bill per call." },
+  accuracy: { title: "Accuracy model", blurb: "Takes its time, gets it right.", note: "These run in the background — a few extra seconds buys noticeably better results." },
+};
+function roleUsedFor(role) {
+  const labels = (routing.value?.features || []).filter((f) => f.defaultRole === role).map((f) => f.label);
+  if (!labels.length) return "nothing yet";
+  return labels.slice(0, 4).join(" · ") + (labels.length > 4 ? ` +${labels.length - 4} more` : "");
+}
+
 // Nav model: CATEGORY → features → (sub-labels) → action cards, each level
 // indented under its header. A category whose actions ALL come from ONE
 // multi-action feature is "merged" — the Set-all picker sits on the CATEGORY
@@ -359,9 +372,10 @@ onMounted(load);
     <template v-else-if="routing">
       <!-- Globals (absorbed from Feature Routing) -->
       <section class="lu-fw-globals">
+        <!-- Defaults: the global fallback provider (+ embedding), one full row. -->
         <div class="lu-fw-gcard">
           <div class="lu-fw-gh"><b>Defaults</b><span class="lu-muted">what an action falls back to when nothing more specific is set</span></div>
-          <div class="lu-fw-grid">
+          <div class="lu-fw-defgrid">
             <label class="lu-fw-gl">Default LLM</label>
             <select class="lu-input" v-model="routing.default.llmId" @change="saveRouting">
               <option value="">— pick a provider —</option>
@@ -374,14 +388,19 @@ onMounted(load);
             </select>
           </div>
         </div>
-        <div class="lu-fw-gcard">
-          <div class="lu-fw-gh"><b>Model roles</b><span class="lu-muted">two go-to models any action can inherit</span></div>
-          <div class="lu-fw-roles">
-            <div v-for="role in ['quick', 'accuracy']" :key="role" class="lu-fw-role">
+        <!-- Model roles: two go-to models any action inherits — each a card that
+             explains the trade-off + lists (from the catalog) what rides on it. -->
+        <div class="lu-fw-roles-h"><b>Model roles</b><span class="lu-muted">two jobs, two models — pick anything; the labels just explain the trade-off</span></div>
+        <div class="lu-fw-rolecards">
+          <div v-for="role in ['quick', 'accuracy']" :key="role" class="lu-fw-rolecard">
+            <div class="lu-fw-rolecard-h">
               <span class="lu-rchip" :class="`lu-rchip--${role}`">{{ role === 'quick' ? 'QUICK' : 'ACCURACY' }}</span>
-              <LuModelPicker :model-value="routing[role]" :providers="providers" :show-roles="false"
-                inherit-label="— use Default LLM —" @update:model-value="setRole(role, $event)" />
+              <b>{{ ROLE_META[role].title }}</b>
             </div>
+            <p class="lu-fw-rolecard-desc">{{ ROLE_META[role].blurb }} <span class="lu-muted">Used for: {{ roleUsedFor(role) }}</span></p>
+            <LuModelPicker :model-value="routing[role]" :providers="providers" :show-roles="false"
+              inherit-label="— use Default LLM —" @update:model-value="setRole(role, $event)" />
+            <p class="lu-fw-rolecard-note">{{ ROLE_META[role].note }}</p>
           </div>
         </div>
       </section>
@@ -490,25 +509,37 @@ onMounted(load);
 <style scoped>
 .lu-fw { display: flex; flex-direction: column; min-height: 0; }
 
-/* Globals */
-.lu-fw-globals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+/* Globals (full width): Defaults row on top, then the two role cards. */
+.lu-fw-globals { display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; }
 .lu-fw-gcard { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); }
 .lu-fw-gh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
 .lu-fw-gh b { font-size: 13px; color: var(--ink); } .lu-fw-gh .lu-muted { font-size: 11px; }
-.lu-fw-grid { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 9px 10px; align-items: center; }
+/* Defaults — one full-width row: LLM label+select · embedding label+select. */
+.lu-fw-defgrid { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 9px 12px; align-items: center; }
 .lu-fw-gl { color: var(--ink-2); font-size: 12px; }
-.lu-fw-roles { display: flex; flex-direction: column; gap: 10px; }
-/* fixed chip column so BOTH rows' pickers start at the same x (aligned) */
-.lu-fw-role { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 10px; align-items: center; }
-.lu-rchip { font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 3px 0; text-align: center; }
+/* Model roles — section header + two side-by-side role cards (the JV look: speed
+   blurb + catalog-derived "used for" + our picker + a trade-off note). */
+.lu-fw-roles-h { display: flex; align-items: baseline; gap: 10px; }
+.lu-fw-roles-h b { font-size: 13px; color: var(--ink); } .lu-fw-roles-h .lu-muted { font-size: 11px; }
+.lu-fw-rolecards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.lu-fw-rolecard { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
+.lu-fw-rolecard-h { display: flex; align-items: center; gap: 8px; }
+.lu-fw-rolecard-h b { font-size: 13px; color: var(--ink); }
+.lu-fw-rolecard-desc { margin: 0; font-size: 12px; color: var(--ink-2); line-height: 1.45; }
+.lu-fw-rolecard-note { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
+.lu-rchip { font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 3px 9px; text-align: center; }
 .lu-rchip--quick { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); }
 .lu-rchip--accuracy { background: var(--gold-soft, #f5edda); color: var(--gold, #b08a3e); }
 select.lu-input { cursor: pointer; appearance: auto; }
 
 /* Body = nav + editor. The nav is a self-contained scroller (capped height,
    sticky) so a long action list never stretches the page. */
-.lu-fw-body { display: grid; grid-template-columns: 480px minmax(0, 1fr); gap: 16px; align-items: start; }
-.lu-fw-list { border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 240px); overflow-y: auto; position: sticky; top: 4px; }
+/* Nav column grows with the window (flex-like) so the Set-all pickers are always
+   readable; min 480px keeps them usable when narrow. Editor takes the rest. */
+.lu-fw-body { display: grid; grid-template-columns: minmax(480px, 38%) minmax(0, 1fr); gap: 16px; align-items: start; }
+/* min-width:0 so the column never forces horizontal scroll — the picker selects
+   (min-width:0) shrink to fit instead of overflowing. */
+.lu-fw-list { min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 240px); overflow-y: auto; overflow-x: hidden; position: sticky; top: 4px; }
 /* Writer-Lab-style action card: label + blurb, accent on hover/active. */
 /* No width:100% — the card is a flex item that stretches to the list width, so a
    margin-left (indent) insets it cleanly instead of overflowing + clipping. A

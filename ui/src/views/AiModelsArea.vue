@@ -233,7 +233,8 @@ onMounted(loadAll);
 </template>
 
 <style scoped>
-.lu-area { max-width: 1100px; }
+/* Full width — the host card frames it; no inner cap (matches JV's settings). */
+.lu-area { width: 100%; }
 .lu-h1 { font-size: 22px; font-weight: 600; margin: 0; color: var(--ink); }
 .lu-lede { font-size: 13px; margin: 4px 0 0; }
 /* Hardware summary card — icon + labelled stat blocks (GPU / VRAM / RAM / Accel). */

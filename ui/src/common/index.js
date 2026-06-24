@@ -40,5 +40,12 @@ export { default as EmptyState } from "./components/EmptyState.vue";
 // shared boot-time "can't reach the server" screen (host passes brand + URL)
 export { default as ConnectionError } from "./components/ConnectionError.vue";
 
+// shared server transport — the single fetch layer (host calls
+// configureServerApi({ resolveBase, authToken }) once at boot)
+export {
+  configureServerApi, makeOriginAwareResolver, serverUrl, url, lastError,
+  request, get, post, patch, put, del, requestBlob, postForm, safeRequest, checkServer,
+} from "./services/serverApi.js";
+
 // shared composables (host-agnostic; vue-only)
 export { useRovingTabindex } from "./composables/useRovingTabindex.js";

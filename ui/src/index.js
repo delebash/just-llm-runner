@@ -8,8 +8,10 @@
 
 import "./styles.css";
 
-// client — the host calls configureLlmUi({ baseUrl }) once at boot
-export { configureLlmUi, llmUiBase, llmUiUrl, request, requestStream } from "./client.js";
+// client — the host calls configureLlmUi({ baseUrl }) once at boot. (request/
+// requestStream stay internal to the kit's LLM views via ./client.js relative
+// imports; the public `request` is the shared serverApi transport below.)
+export { configureLlmUi, llmUiBase, llmUiUrl } from "./client.js";
 
 // shared general primitives — the future @delebash/ui (housed in ./common for
 // now). Ui* supersede the per-app Jw*/Jv*/Lu*. Re-exporting also loads
@@ -20,6 +22,10 @@ export { HelpDrawer, HelpTrigger, configureHelp, openHelp, closeHelp, helpState,
 export { Toast, pushToast, clearToasts } from "./common/index.js";
 export { EmptyState } from "./common/index.js";
 export { ConnectionError } from "./common/index.js";
+export {
+  configureServerApi, makeOriginAwareResolver, serverUrl, url, lastError,
+  request, get, post, patch, put, del, requestBlob, postForm, safeRequest, checkServer,
+} from "./common/index.js";
 export { useRovingTabindex } from "./common/composables/useRovingTabindex.js";
 
 // llm-ui-specific primitives still local (model picker/combobox)

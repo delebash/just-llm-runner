@@ -180,6 +180,14 @@ function setDefaultLlm(val) {
   routing.value.default.model = val?.model || "";
   saveRouting();
 }
+// Default embedding = provider + model too (same control as Default LLM). The
+// model is usually typed in — the combobox suggests any embedding models the
+// provider lists but accepts a free-text id (text-embedding-3-small, etc.).
+function setDefaultEmbedding(val) {
+  routing.value.default.embeddingId = val?.providerId || "";
+  routing.value.default.embeddingModel = val?.model || "";
+  saveRouting();
+}
 // Set-all: write the same pin to every action in a feature group at once (each
 // action gets its own pin — there's no feature-level pin). Empty → clear them all
 // (every action falls back to inherit).
@@ -394,14 +402,14 @@ onMounted(load);
           <div class="lu-fw-gh"><b>Defaults</b><span class="lu-muted">what an action falls back to when nothing more specific is set</span></div>
           <div class="lu-fw-defgrid">
             <label class="lu-fw-gl">Default LLM</label>
-            <LuModelPicker :model-value="{ providerId: routing.default.llmId, model: routing.default.model || '' }"
+            <LuModelPicker editable :model-value="{ providerId: routing.default.llmId, model: routing.default.model || '' }"
               :providers="providers" :show-roles="false" inherit-label="— pick a provider —"
               @update:model-value="setDefaultLlm" />
             <label class="lu-fw-gl">Default embedding <span class="lu-muted">optional</span></label>
-            <select class="lu-input" v-model="routing.default.embeddingId" @change="saveRouting">
-              <option value="">— none —</option>
-              <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}{{ p.embeddingModel ? ` · ${p.embeddingModel}` : "" }}</option>
-            </select>
+            <LuModelPicker editable kind="embedding"
+              :model-value="{ providerId: routing.default.embeddingId, model: routing.default.embeddingModel || '' }"
+              :providers="providers" :show-roles="false" inherit-label="— none —"
+              @update:model-value="setDefaultEmbedding" />
           </div>
         </div>
         <!-- Model roles: two go-to models any action inherits — each a card that
@@ -414,7 +422,7 @@ onMounted(load);
               <b>{{ ROLE_META[role].title }}</b>
             </div>
             <p class="lu-fw-rolecard-desc">{{ ROLE_META[role].blurb }} <span class="lu-muted">Used for: {{ roleUsedFor(role) }}</span></p>
-            <LuModelPicker :model-value="routing[role]" :providers="providers" :show-roles="false"
+            <LuModelPicker editable :model-value="routing[role]" :providers="providers" :show-roles="false"
               inherit-label="— use Default LLM —" @update:model-value="setRole(role, $event)" />
             <p class="lu-fw-rolecard-note">{{ ROLE_META[role].note }}</p>
           </div>
@@ -485,7 +493,7 @@ onMounted(load);
                separate redundant "→ role" note. -->
           <div class="lu-field">
             <label>Provider &amp; model <span class="lu-muted">— inherits the default unless you pick a provider + model here</span></label>
-            <LuModelPicker :model-value="pin(selAction)" :providers="providers" :labels="true"
+            <LuModelPicker editable :model-value="pin(selAction)" :providers="providers" :labels="true"
               inherit-label="Inherit default" @update:model-value="setPin(selAction, $event)" />
           </div>
 

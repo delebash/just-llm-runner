@@ -105,6 +105,7 @@
   padding: 7px 28px 7px 9px; background: var(--surface); width: 100%; box-sizing: border-box; outline: none;
 }
 .lu-cb-in:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.lu-cb-in:disabled { background: var(--surface-2, var(--surface)); color: var(--muted); cursor: not-allowed; }
 .lu-cb-chev { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); color: var(--muted); cursor: pointer; font-size: 11px; }
 .lu-cb-list {
   position: absolute; top: 100%; left: 0; right: 0; z-index: 30;

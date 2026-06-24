@@ -40,7 +40,7 @@ def _client():
 def test_get_merges_catalog_with_empty_pins():
     client, _ = _client()
     body = client.get("/v1/ai/routing").json()
-    assert body["default"] == {"llmId": "", "model": "", "embeddingId": ""}
+    assert body["default"] == {"llmId": "", "model": "", "embeddingId": "", "embeddingModel": ""}
     feats = {f["key"]: f for f in body["features"]}
     assert set(feats) == {"critique", "brainstorm"}
     assert feats["critique"]["label"] == "Critique"

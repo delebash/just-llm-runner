@@ -31,6 +31,13 @@ const props = defineProps({
   noPadding: { type: Boolean, default: false },
   closable: { type: Boolean, default: true },
   closeLabel: { type: String, default: "Close" }, // host may pass an i18n string
+  // When true, a backdrop click closes the modal. Default false (locked) — the
+  // JustWrite default that prevents accidental data loss. JustVoice's lighter
+  // pickers/cheatsheets opt in to preserve their click-outside-to-close UX.
+  dismissable: { type: Boolean, default: false },
+  // Optional explicit width (any CSS length, e.g. "980px"); capped at 96vw.
+  // Overrides the default / --wide widths for modals that need a specific size.
+  maxWidth: { type: String, default: "" },
 });
 const emit = defineEmits(["close"]);
 
@@ -50,7 +57,7 @@ defineExpose({ close });
 // Reka fires escape-key-down BEFORE its built-in close; preventDefault() blocks
 // it to enforce closable:false. Backdrop dismissal blocked unconditionally.
 function onEscape(e) { if (!props.closable) e.preventDefault(); }
-function onOutside(e) { e.preventDefault(); }
+function onOutside(e) { if (!props.dismissable) e.preventDefault(); }
 </script>
 
 <template>
@@ -60,6 +67,7 @@ function onOutside(e) { e.preventDefault(); }
       <DialogContent
         class="ui-modal"
         :class="{ 'ui-modal--wide': wide, 'ui-modal--flush': noPadding }"
+        :style="maxWidth ? { width: `min(${maxWidth}, 96vw)` } : undefined"
         @escape-key-down="onEscape"
         @pointer-down-outside="onOutside"
         @interact-outside="onOutside"

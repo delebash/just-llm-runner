@@ -23,6 +23,7 @@ export * from "./common/index.js";
 export { default as LuCombobox } from "./components/LuCombobox.vue";
 export { default as LuModelPicker } from "./components/LuModelPicker.vue";
 export { default as DataManagement } from "./components/DataManagement.vue";
+export { default as LogsPanel } from "./components/LogsPanel.vue";
 
 // views
 export { default as PromptLab } from "./views/PromptLab.vue";

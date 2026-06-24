@@ -27,6 +27,7 @@ function resolveMode(mode) {
 // ── Curated fonts ────────────────────────────────────────────────────
 // Stacks reference families the host loads in index.html.
 export const UI_FONTS = [
+  { label: "Inter",                 stack: '"Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont, system-ui, sans-serif' },
   { label: "Spline Sans",           stack: '"Spline Sans", ui-sans-serif, system-ui, sans-serif' },
   { label: "Geist",                 stack: '"Geist", ui-sans-serif, system-ui, sans-serif' },
   { label: "Hanken Grotesk",        stack: '"Hanken Grotesk", ui-sans-serif, system-ui, sans-serif' },
@@ -45,8 +46,6 @@ export const DISPLAY_FONTS = [
   { label: "EB Garamond",       stack: '"EB Garamond", Garamond, Georgia, serif' },
   { label: "Spectral",          stack: '"Spectral", Georgia, serif' },
 ];
-
-const MONO_STACK = '"Spline Sans Mono", ui-monospace, "SF Mono", Menlo, monospace';
 
 export function uiStack(label) {
   return (UI_FONTS.find((f) => f.label === label) || UI_FONTS[0]).stack;
@@ -245,7 +244,8 @@ export function applyAppearance(appearance, opts = {}) {
 
   s.setProperty("--font-ui", uiStack(a.uiFont));
   s.setProperty("--font-serif", displayStack(a.displayFont));
-  s.setProperty("--font-mono", MONO_STACK);
+  // --font-mono is an app constant (each app's tokens.css owns it), not a theme
+  // knob — the engine doesn't touch it.
 
   // Button knobs.
   s.setProperty("--btn-radius", BUTTON_RADIUS_PX[a.btnRadius] || BUTTON_RADIUS_PX.standard);

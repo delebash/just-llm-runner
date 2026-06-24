@@ -152,3 +152,37 @@ class RunnerModelsResponse(CamelModel):
     ram_mb: int = 0
     safety_margin_mb: int = 1024
     models: list[RunnerModelInfo] = []
+
+
+# ─── Load request (POST /v1/llm-runner/load) ────────────────────────────
+
+
+class LoadRequest(CamelModel):
+    """Body for POST /v1/llm-runner/load. `modelId` is the only required field;
+    the rest are optional Plane-1 engine overrides for tuning/testing a load (see
+    docs/plans/2026-06-24-llamacpp-switches.md). Any omitted field falls back to
+    the computed Fit / the manifest's base flag preset. camelCase on the wire
+    (modelId, nGpuLayers, cacheTypeK, …); maps 1:1 to runner.process.Overrides."""
+
+    model_id: str
+    # Fit knobs.
+    n_gpu_layers: int | None = None
+    n_cpu_moe: int | None = None
+    ctx_len: int | None = None
+    # Engine flags (None = keep base preset / llama default).
+    cache_type_k: str | None = None
+    cache_type_v: str | None = None
+    flash_attn: str | None = None
+    no_mmap: bool | None = None
+    mlock: bool | None = None
+    no_kv_offload: bool | None = None
+    batch_size: int | None = None
+    ubatch_size: int | None = None
+    threads: int | None = None
+    threads_batch: int | None = None
+    parallel: int | None = None
+    cont_batching: bool | None = None
+    cache_reuse: int | None = None
+    spec_type: str | None = None
+    spec_n_max: int | None = None
+    extra_flags: list[str] = []

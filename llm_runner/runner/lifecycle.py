@@ -72,12 +72,14 @@ class RunnerService:
             self._state.update(status="error", error="llama-server exited")
         return dict(self._state)
 
-    def load(self, model_id: str) -> dict:
+    def load(self, model_id: str, overrides: Overrides | None = None) -> dict:
         with self._lock:
             if self._state["status"] in ("downloading", "starting"):
                 return dict(self._state)  # a load is already in flight
             self._state = {"status": "downloading", "modelId": model_id, "url": "", "detail": "queued", "error": ""}
-            self._thread = threading.Thread(target=self._run_load, args=(model_id,), daemon=True)
+            self._thread = threading.Thread(
+                target=self._run_load, args=(model_id, overrides or Overrides()), daemon=True,
+            )
             self._thread.start()
         return dict(self._state)
 
@@ -102,7 +104,8 @@ class RunnerService:
             raise FileNotFoundError(f"no .gguf for quant {quant!r} in {snapshot_dir}")
         return cands[0]  # first shard of a split model loads the rest
 
-    def _run_load(self, model_id: str) -> None:
+    def _run_load(self, model_id: str, overrides: Overrides | None = None) -> None:
+        ov = overrides or Overrides()
         try:
             manifest = self._manifest_fn()
             hardware = self._hardware_fn()
@@ -119,10 +122,10 @@ class RunnerService:
             )
             gguf = self._main_gguf(snapshot, model.quant)
             meta = self._read_meta(gguf)
-            fit = compute_fit(manifest, meta, gguf.stat().st_size, hardware, Overrides())
+            fit = compute_fit(manifest, meta, gguf.stat().st_size, hardware, ov)
 
             self._state.update(status="starting", detail="spawning llama-server")
-            runner = self._start(server_exe, gguf, manifest, model, fit)
+            runner = self._start(server_exe, gguf, manifest, model, fit, extra_flags=ov.extra_flags, overrides=ov)
             self._runner = runner
             self._state.update(status="running", url=runner.url, detail="")
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state

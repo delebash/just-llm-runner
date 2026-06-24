@@ -98,6 +98,62 @@ def test_compose_flags_no_moe_no_mtp(tmp_path):
     assert flags[flags.index("-ngl") + 1] == "0"
 
 
+def test_compose_flags_engine_overrides_replace(tmp_path):
+    # Value overrides REPLACE the matching base-preset flag (not duplicate it).
+    m = load_manifest(refresh=True)
+    dense = ModelEntry(id="d", name="D", tier="mid", hf_repo="x/y", quant="Q4", mtp=False)
+    flags = compose_flags(
+        m, dense, tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        overrides=Overrides(cache_type_k="turbo4", cache_type_v="turbo3", flash_attn="off",
+                            threads=8, batch_size=1024),
+    )
+    assert flags.count("--cache-type-k") == 1
+    assert flags[flags.index("--cache-type-k") + 1] == "turbo4"
+    assert flags[flags.index("--cache-type-v") + 1] == "turbo3"
+    assert "q8_0" not in flags                       # base KV values replaced
+    assert flags[flags.index("--flash-attn") + 1] == "off"
+    assert flags[flags.index("--threads") + 1] == "8"
+    assert flags[flags.index("--batch-size") + 1] == "1024"
+
+
+def test_compose_flags_presence_overrides(tmp_path):
+    # Presence flags add/remove cleanly (no value-eating).
+    m = load_manifest(refresh=True)
+    dense = ModelEntry(id="d", name="D", tier="mid", hf_repo="x/y", quant="Q4", mtp=False)
+    flags = compose_flags(
+        m, dense, tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        overrides=Overrides(mlock=False, no_mmap=True, no_kv_offload=True, cont_batching=False),
+    )
+    assert "--mlock" not in flags          # base had it → turned off
+    assert "--no-mmap" in flags            # added
+    assert "--no-kv-offload" in flags      # added
+    assert "--no-cont-batching" in flags   # cont-batching disabled
+    # the value flag after the removed --mlock wasn't accidentally eaten
+    assert flags[flags.index("-ngl") + 1] == "10"
+
+
+def test_compose_flags_spec_none_clears_mtp(tmp_path):
+    # m.models[0] is the MTP entry → base+mtp adds --spec-type draft-mtp; "none" clears it.
+    m = load_manifest(refresh=True)
+    flags = compose_flags(
+        m, m.models[0], tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        overrides=Overrides(spec_type="none"),
+    )
+    assert "--spec-type" not in flags
+    assert "--spec-draft-n-max" not in flags
+
+
+def test_compose_flags_spec_ngram(tmp_path):
+    m = load_manifest(refresh=True)
+    dense = ModelEntry(id="d", name="D", tier="mid", hf_repo="x/y", quant="Q4", mtp=False)
+    flags = compose_flags(
+        m, dense, tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        overrides=Overrides(spec_type="ngram-mod", spec_n_max=64),
+    )
+    assert flags[flags.index("--spec-type") + 1] == "ngram-mod"
+    assert flags[flags.index("--spec-ngram-mod-n-max") + 1] == "64"
+
+
 class _FakeProc:
     def __init__(self, exit_code=None, output=""):
         self._code = exit_code  # None == still running

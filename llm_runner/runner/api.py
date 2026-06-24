@@ -19,8 +19,10 @@ from .hardware import detect
 from .lifecycle import get_service
 from .manifest import load_manifest
 from .models import is_cached
+from .process import Overrides
 from .schema import (
     HardwareInfo,
+    LoadRequest,
     ModelEntry,
     RunnerManifest,
     RunnerModelInfo,
@@ -133,11 +135,24 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
 
 
 @router.post("/v1/llm-runner/load", summary="Download (if needed) + spawn a model")
-async def load_model(body: dict) -> dict:
-    model_id = (body or {}).get("modelId") or ""
-    if not model_id:
+async def load_model(body: LoadRequest) -> dict:
+    """Load a model, optionally with Plane-1 engine overrides for tuning/testing
+    (n_cpu_moe / n_gpu_layers / ctx / KV-cache type / flags / …). Omitted fields
+    fall back to the computed Fit + the manifest's base preset. See
+    docs/plans/2026-06-24-llamacpp-switches.md (Plane 1)."""
+    if not body.model_id:
         raise HTTPException(status_code=400, detail="modelId required")
-    return get_service().load(model_id)
+    overrides = Overrides(
+        n_gpu_layers=body.n_gpu_layers, n_cpu_moe=body.n_cpu_moe, ctx_len=body.ctx_len,
+        cache_type_k=body.cache_type_k, cache_type_v=body.cache_type_v, flash_attn=body.flash_attn,
+        no_mmap=body.no_mmap, mlock=body.mlock, no_kv_offload=body.no_kv_offload,
+        batch_size=body.batch_size, ubatch_size=body.ubatch_size,
+        threads=body.threads, threads_batch=body.threads_batch, parallel=body.parallel,
+        cont_batching=body.cont_batching, cache_reuse=body.cache_reuse,
+        spec_type=body.spec_type, spec_n_max=body.spec_n_max,
+        extra_flags=list(body.extra_flags or []),
+    )
+    return get_service().load(body.model_id, overrides=overrides)
 
 
 @router.get("/v1/llm-runner/status", summary="Current load/run status")

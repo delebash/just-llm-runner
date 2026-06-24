@@ -43,11 +43,40 @@ class RunnerStartError(RuntimeError):
 
 @dataclass
 class Overrides:
-    """Operator overrides — any None falls back to the computed/ default value."""
+    """Operator overrides for tuning/testing a model load — any None falls back to
+    the computed Fit or the manifest's `base` flag preset. Two groups:
+      * fit knobs (n_gpu_layers / n_cpu_moe / ctx_len) — consumed by compute_fit;
+      * engine flags — REPLACE the matching base-preset flag in compose_flags (NOT
+        appended, so llama-server never sees a duplicated flag with two values).
 
+    WHY this surface exists: POST /v1/llm-runner/load must let the GUI test the
+    speed/fit switches on the user's OWN machine (esp. --n-cpu-moe to fit a MoE on
+    a small card, and the KV/threads/batch knobs to find the fast split) — the
+    engine had the knobs but nothing could set them. Full rationale + per-flag
+    when/why: docs/plans/2026-06-24-llamacpp-switches.md (Plane 1).
+    WHAT WOULD CHANGE THIS: if llama-server grows a typed config endpoint, these
+    map 1:1 to it; until then we compose the CLI argv."""
+
+    # Fit knobs (compute_fit).
     n_gpu_layers: int | None = None
     n_cpu_moe: int | None = None
     ctx_len: int | None = None
+    # Engine flags (compose_flags; None = keep the base preset / llama default).
+    cache_type_k: str | None = None      # f16 | q8_0 | turbo3/turbo4 (fork only)
+    cache_type_v: str | None = None
+    flash_attn: str | None = None        # "on" | "off" | "auto"
+    no_mmap: bool | None = None          # True → read weights into RAM (MoE offload)
+    mlock: bool | None = None            # base sets it; False removes it
+    no_kv_offload: bool | None = None    # True → keep KV in system RAM, free VRAM
+    batch_size: int | None = None
+    ubatch_size: int | None = None
+    threads: int | None = None           # CPU gen threads (drive MoE CPU experts)
+    threads_batch: int | None = None
+    parallel: int | None = None          # server slots (batch sweeps / Compare)
+    cont_batching: bool | None = None    # False → emits --no-cont-batching
+    cache_reuse: int | None = None       # reuse a prompt prefix's KV across calls
+    spec_type: str | None = None         # "none"|"draft-mtp"|"ngram-mod"|… (dense)
+    spec_n_max: int | None = None        # drafted tokens / ngram max, per spec_type
     extra_flags: list[str] = field(default_factory=list)
 
 
@@ -83,6 +112,66 @@ def _strip_flag(flags: Sequence[str], name: str) -> list[str]:
             skip = True
             continue
         out.append(f)
+    return out
+
+
+def _set_flag(flags: list[str], name: str, value: object) -> list[str]:
+    """Set a VALUE flag (e.g. --cache-type-k q8_0): drop any existing instance, then
+    append name + value. REPLACE semantics so an override beats the base preset
+    instead of duplicating the flag (llama-server would otherwise carry two)."""
+    return _strip_flag(list(flags), name) + [name, str(value)]
+
+
+def _set_presence(flags: list[str], name: str, present: bool) -> list[str]:
+    """Set a PRESENCE flag (no value — e.g. --mlock / --no-mmap): ensure it appears
+    exactly once when present, removed when not. (Can't use _strip_flag here — it
+    eats the FOLLOWING token, which for a valueless flag is the next flag.)"""
+    out = [f for f in flags if f != name]
+    if present:
+        out.append(name)
+    return out
+
+
+# Overrides field → its llama-server VALUE flag (presence + spec handled separately).
+_VALUE_FLAGS = (
+    ("cache_type_k", "--cache-type-k"),
+    ("cache_type_v", "--cache-type-v"),
+    ("flash_attn", "--flash-attn"),
+    ("batch_size", "--batch-size"),
+    ("ubatch_size", "--ubatch-size"),
+    ("threads", "--threads"),
+    ("threads_batch", "--threads-batch"),
+    ("parallel", "--parallel"),
+    ("cache_reuse", "--cache-reuse"),
+)
+
+
+def _apply_engine_overrides(flags: list[str], ov: Overrides) -> list[str]:
+    """Layer an operator's engine overrides onto the preset flags (None = leave the
+    preset alone). Value flags replace; presence flags add/remove; spec flags are
+    handled together so spec_type='none' fully clears them (incl. the mtp preset)."""
+    out = list(flags)
+    for attr, flag in _VALUE_FLAGS:
+        val = getattr(ov, attr)
+        if val is not None:
+            out = _set_flag(out, flag, val)
+    if ov.mlock is not None:
+        out = _set_presence(out, "--mlock", ov.mlock)
+    if ov.no_mmap is not None:
+        out = _set_presence(out, "--no-mmap", ov.no_mmap)
+    if ov.no_kv_offload is not None:
+        out = _set_presence(out, "--no-kv-offload", ov.no_kv_offload)
+    if ov.cont_batching is not None:
+        # Continuous batching is ON upstream by default — only the OFF switch exists.
+        out = _set_presence(out, "--no-cont-batching", not ov.cont_batching)
+    if ov.spec_type is not None:
+        for f in ("--spec-type", "--spec-draft-n-max", "--spec-ngram-mod-n-max"):
+            out = _strip_flag(out, f)
+        if ov.spec_type != "none":
+            out += ["--spec-type", ov.spec_type]
+            if ov.spec_n_max is not None:
+                nmax = "--spec-ngram-mod-n-max" if "ngram" in ov.spec_type else "--spec-draft-n-max"
+                out += [nmax, str(ov.spec_n_max)]
     return out
 
 
@@ -145,12 +234,16 @@ def compose_flags(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     extra: Sequence[str] = (),
+    overrides: Overrides | None = None,
 ) -> list[str]:
-    """Build the llama-server argv (after the exe) from the manifest presets."""
+    """Build the llama-server argv (after the exe) from the manifest presets, with
+    any operator engine overrides replacing the matching preset flags."""
     # Start from base, but drop its placeholder -ngl 999 — we set ours below.
     flags = _strip_flag(_strip_flag(list(manifest.flag_presets.base), "-ngl"), "--n-gpu-layers")
     if model.mtp:
         flags += list(manifest.flag_presets.mtp)
+    if overrides is not None:
+        flags = _apply_engine_overrides(flags, overrides)
     flags += ["-ngl", str(n_gpu_layers)]
     if n_cpu_moe > 0:
         flags += ["--n-cpu-moe", str(n_cpu_moe)]
@@ -232,6 +325,7 @@ def start_runner(
     host: str = DEFAULT_HOST,
     port: int = DEFAULT_PORT,
     extra_flags: Sequence[str] = (),
+    overrides: Overrides | None = None,
     probe_timeout: float = 30.0,
     backoff_step: int = _BACKOFF_STEP,
     _popen: Callable | None = None,
@@ -254,6 +348,7 @@ def start_runner(
         n_cpu_moe = max(0, fit.block_count - n_gpu) if fit.is_moe else 0
         flags = compose_flags(
             manifest, model, gguf_path, n_gpu, n_cpu_moe, fit.ctx_len, host, port, extra_flags,
+            overrides=overrides,
         )
         log.info("spawning llama-server: ngl=%d n_cpu_moe=%d ctx=%d", n_gpu, n_cpu_moe, fit.ctx_len)
         proc = popen(

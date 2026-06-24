@@ -354,18 +354,39 @@ recs doc + [Qwen3 lineup guide](https://baeseokjae.github.io/posts/qwen-3-full-l
 - **`--no-mmap`** is **not** in any preset yet (the budget configs all use it —
   add it as an option).
 
-### The gap (why "we need the options to test")
-`POST /v1/llm-runner/load` (`api.py:135-140`) accepts **only** `{modelId}` and
-calls `service.load(model_id)`. It does **not** thread `n_cpu_moe` / `n_gpu_layers`
-/ `ctx` / `extra_flags` through, and no UI exposes them. So every switch above
-exists in the engine but **cannot be tuned from the app** to measure speed.
+### The gap — CLOSED 2026-06-24 (task #19, backend)
+**Was:** `POST /v1/llm-runner/load` accepted only `{modelId}` and called
+`service.load(model_id)` with a hardcoded `Overrides()` — so every switch existed
+in the engine but **could not be tuned from the app** to measure speed.
+
+**Now (backend done):** the full Plane-1 surface is plumbed end-to-end —
+`LoadRequest` (camelCase contract, `schema.py`) → `Overrides` (expanded to all
+engine flags, `process.py`) → `service.load(model_id, overrides)` (`lifecycle.py`)
+→ `compute_fit` (fit knobs) + `compose_flags(..., overrides=)` (engine flags) →
+`start_runner`. Verified: 98 tests pass (4 new merge tests) + ruff clean.
+
+**Key design decision + WHY (so a future session can re-decide):** engine flags
+**REPLACE** the matching `base`-preset flag (`_apply_engine_overrides` strips then
+re-adds) instead of being appended as `extra_flags`. *Why:* appending
+`--cache-type-k turbo4` after the base's `--cache-type-k q8_0` leaves llama-server
+with the flag twice (ambiguous / last-wins-by-luck); replace = one unambiguous
+value, and the GUI maps 1:1 to typed fields with validation. *What would change
+this:* if llama-server ships a typed config endpoint, map to it instead of
+composing CLI argv. (Presence flags like `--mlock`/`--no-mmap` use a filter, NOT
+`_strip_flag`, because `_strip_flag` eats the FOLLOWING token — which for a
+valueless flag is the next flag.)
+
+**Still open here:** the per-model **tuning UI** (#20) + **Compare** (#21) that
+drive this endpoint; turbo* still needs the fork binary (validation is light — the
+spawn health/OOM back-off catches an unsupported KV type at runtime).
 
 ### To build (the "expose everything configurable to the GUI" ask)
-1. **Plumb `Overrides` through `/load`:** accept optional `nGpuLayers`, `nCpuMoe`,
-   `ctxLen`, `extraFlags`, `kvCacheType` (q8_0 | f16 | turbo*), `flashAttn`,
-   `noMmap`, `mlock`, `specType` (+ n-max), `jinja` → `service.load(...)` →
-   `Overrides` → `compute_fit` / `compose_flags` / `start_runner`. Add `--no-mmap`
-   to the composable set. Validate turbo* needs the fork binary.
+1. ✅ **Plumb `Overrides` through `/load`** (#19, done 2026-06-24) — `LoadRequest`
+   accepts `nGpuLayers`, `nCpuMoe`, `ctxLen`, `cacheTypeK/V`, `flashAttn`, `noMmap`,
+   `mlock`, `noKvOffload`, `batchSize`, `ubatchSize`, `threads`, `threadsBatch`,
+   `parallel`, `contBatching`, `cacheReuse`, `specType`(+`specNMax`), `extraFlags`
+   → `Overrides` → `compute_fit`/`compose_flags`/`start_runner`. `--no-mmap` /
+   `--no-kv-offload` / `--no-cont-batching` are now composable.
 2. **Per-local-model tuning UI** (in AI ▸ Providers, on the model card): sliders/
    inputs for `n_cpu_moe`, `n_gpu_layers`, `ctx`; toggles for flash-attn, no-mmap,
    mlock, KV type (q8_0/turbo*), spec (off/draft-mtp/ngram-mod) + n-max, jinja —

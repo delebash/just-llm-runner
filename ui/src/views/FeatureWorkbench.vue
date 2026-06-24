@@ -174,6 +174,12 @@ function setRole(role, val) {
   routing.value[role] = { providerId: val?.providerId || "", model: val?.model || "" };
   saveRouting();
 }
+// Default LLM = provider + model (the picker), like the roles + per-action rows.
+function setDefaultLlm(val) {
+  routing.value.default.llmId = val?.providerId || "";
+  routing.value.default.model = val?.model || "";
+  saveRouting();
+}
 // Set-all: write the same pin to every action in a feature group at once (each
 // action gets its own pin — there's no feature-level pin). Empty → clear them all
 // (every action falls back to inherit).
@@ -386,10 +392,9 @@ onMounted(load);
           <div class="lu-fw-gh"><b>Defaults</b><span class="lu-muted">what an action falls back to when nothing more specific is set</span></div>
           <div class="lu-fw-defgrid">
             <label class="lu-fw-gl">Default LLM</label>
-            <select class="lu-input" v-model="routing.default.llmId" @change="saveRouting">
-              <option value="">— pick a provider —</option>
-              <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}{{ p.defaultModel ? ` · ${p.defaultModel}` : "" }}</option>
-            </select>
+            <LuModelPicker :model-value="{ providerId: routing.default.llmId, model: routing.default.model || '' }"
+              :providers="providers" :show-roles="false" inherit-label="— pick a provider —"
+              @update:model-value="setDefaultLlm" />
             <label class="lu-fw-gl">Default embedding <span class="lu-muted">optional</span></label>
             <select class="lu-input" v-model="routing.default.embeddingId" @change="saveRouting">
               <option value="">— none —</option>
@@ -524,7 +529,7 @@ onMounted(load);
 .lu-fw-gh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
 .lu-fw-gh b { font-size: 13px; color: var(--ink); } .lu-fw-gh .lu-muted { font-size: 11px; }
 /* Defaults — one full-width row: LLM label+select · embedding label+select. */
-.lu-fw-defgrid { display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr); gap: 9px 12px; align-items: center; }
+.lu-fw-defgrid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px 14px; align-items: center; }
 .lu-fw-gl { color: var(--ink-2); font-size: 12px; }
 /* Model roles — section header + two side-by-side role cards (the JV look: speed
    blurb + catalog-derived "used for" + our picker + a trade-off note). */

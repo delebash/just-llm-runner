@@ -33,6 +33,7 @@ class RoleTarget(BaseModel):
 
 class RoutingDefaults(BaseModel):
     llmId: str = ""
+    model: str = ""  # the default provider's model (empty → that provider's own default)
     embeddingId: str = ""
 
 

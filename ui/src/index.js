@@ -27,6 +27,5 @@ export { default as LuModelPicker } from "./components/LuModelPicker.vue";
 export { default as PromptLab } from "./views/PromptLab.vue";
 export { default as ProviderForm } from "./views/ProviderForm.vue";
 export { default as QuickSetup } from "./views/QuickSetup.vue";
-export { default as RoutingPresets } from "./views/RoutingPresets.vue";
 export { default as AiModelsArea } from "./views/AiModelsArea.vue";
 export { default as FeatureWorkbench } from "./views/FeatureWorkbench.vue";

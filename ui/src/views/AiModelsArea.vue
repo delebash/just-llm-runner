@@ -14,11 +14,9 @@ import UiButton from "../common/components/UiButton.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
-import RoutingPresets from "./RoutingPresets.vue";
 import { request } from "../client.js";
 
 const tab = ref("providers");
-const routingKey = ref(0); // bump to remount the Feature Workbench after a preset apply
 const providers = ref([]);
 const hardware = ref(null);
 const usage = ref(null);
@@ -197,8 +195,7 @@ onMounted(loadAll);
     <!-- ── Features — the Feature Workbench (globals + per-action config + test).
          Absorbs the old routing table; named whole-config snapshots below. ── -->
     <section v-show="tab === 'features'" class="lu-tab">
-      <FeatureWorkbench v-if="tab === 'features'" :key="routingKey" />
-      <RoutingPresets v-if="tab === 'features'" class="lu-fw-presets-block" @applied="routingKey++" />
+      <FeatureWorkbench v-if="tab === 'features'" />
     </section>
 
     <!-- ── Usage ── -->
@@ -248,7 +245,6 @@ onMounted(loadAll);
 .lu-subnav a.on { color: var(--ink); border-bottom-color: var(--accent); }
 .lu-tab { padding-top: 14px; }
 .lu-qs-wrap { display: block; margin-bottom: 14px; }
-.lu-fw-presets-block { display: block; margin-top: 20px; }
 
 /* naked control — the host wraps it in its own page card (.pane-card in JW) */
 .lu-pcard-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }

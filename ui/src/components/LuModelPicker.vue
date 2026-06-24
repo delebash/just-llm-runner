@@ -21,6 +21,7 @@ const props = defineProps({
   showRoles: { type: Boolean, default: true },
   compact: { type: Boolean, default: false }, // smaller selects (nav)
   labels: { type: Boolean, default: false },  // inline "Provider"/"Model" labels
+  stacked: { type: Boolean, default: false }, // provider OVER model (1 col) for narrow columns
 });
 const emit = defineEmits(["update:modelValue"]);
 
@@ -48,7 +49,7 @@ function setModel(model) {
 </script>
 
 <template>
-  <div class="lu-mp" :class="{ 'lu-mp--compact': compact, 'lu-mp--labels': labels }">
+  <div class="lu-mp" :class="{ 'lu-mp--compact': compact, 'lu-mp--labels': labels, 'lu-mp--stacked': stacked }">
     <div class="lu-mp-field">
       <span v-if="labels" class="lu-mp-lbl">Provider</span>
       <select class="lu-input lu-mp-sel" :value="route" aria-label="Provider" @change="setRoute($event.target.value)">
@@ -79,4 +80,6 @@ function setModel(model) {
 .lu-mp-lbl { font-size: 11px; font-weight: 600; color: var(--muted); }
 .lu-mp-sel { cursor: pointer; appearance: auto; width: 100%; min-width: 0; }
 .lu-mp--compact .lu-mp-sel { font-size: 11px; padding: 3px 6px; }
+/* Stacked: provider over model — full-width selects in a narrow column. */
+.lu-mp--stacked { grid-template-columns: 1fr; }
 </style>

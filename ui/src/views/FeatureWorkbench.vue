@@ -93,21 +93,19 @@ const categories = computed(() => {
 // (a feature with >1 action) carry `setAll` so the header renders the picker.
 const navRows = computed(() => {
   const rows = [];
+  // Everything under a category sits at ONE indent level — a sub-label / group
+  // header doesn't push its cards in further (no double indent).
   const pushActions = (f, base) => {
     for (const sg of subGroups(f.actions)) {
-      if (sg.label) {
-        rows.push({ type: "sub", label: sg.label, indent: base });
-        for (const a of sg.items) rows.push({ type: "card", action: a, indent: base + 1 });
-      } else {
-        for (const a of sg.items) rows.push({ type: "card", action: a, indent: base });
-      }
+      if (sg.label) rows.push({ type: "sub", label: sg.label, indent: base });
+      for (const a of sg.items) rows.push({ type: "card", action: a, indent: base });
     }
   };
   for (const cat of categories.value) {
     rows.push({ type: "cat", label: cat.label, setAll: cat.merged || null });
     for (const f of cat.features) {
       if (cat.merged) pushActions(f, 1);
-      else if (f.actions.length > 1) { rows.push({ type: "ghead", label: f.label, setAll: f, indent: 1 }); pushActions(f, 2); }
+      else if (f.actions.length > 1) { rows.push({ type: "ghead", label: f.label, setAll: f, indent: 1 }); pushActions(f, 1); }
       else rows.push({ type: "card", action: f.actions[0], indent: 1 });
     }
   }
@@ -348,7 +346,7 @@ onMounted(load);
             <!-- Category header (merged single-feature category carries Set-all) -->
             <div v-if="row.type === 'cat'" class="lu-fw-cat">
               <div class="lu-fw-cat-name">{{ row.label }}</div>
-              <LuModelPicker v-if="row.setAll" class="lu-fw-setall" compact
+              <LuModelPicker v-if="row.setAll" class="lu-fw-setall" compact stacked
                 :model-value="groupCommonPin(row.setAll)" :providers="providers"
                 :inherit-label="setAllLabel(row.setAll)"
                 :title="`Set the provider + model for all ${row.setAll.actions.length} actions under ${row.label}`"
@@ -452,9 +450,9 @@ select.lu-input { cursor: pointer; appearance: auto; }
 
 /* Body = nav + editor. The nav is a self-contained scroller (capped height,
    sticky) so a long action list never stretches the page. */
-/* Nav column grows with the window (flex-like) so the Set-all pickers are always
-   readable; min 480px keeps them usable when narrow. Editor takes the rest. */
-.lu-fw-body { display: grid; grid-template-columns: minmax(480px, 38%) minmax(0, 1fr); gap: 16px; align-items: start; }
+/* Narrow nav — the Set-all pickers stack (provider over model) so they fit a slim
+   column and card text just wraps. Editor takes the rest. */
+.lu-fw-body { display: grid; grid-template-columns: minmax(300px, 28%) minmax(0, 1fr); gap: 16px; align-items: start; }
 /* min-width:0 so the column never forces horizontal scroll — the picker selects
    (min-width:0) shrink to fit instead of overflowing. */
 .lu-fw-list { min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 240px); overflow-y: auto; overflow-x: hidden; position: sticky; top: 4px; }

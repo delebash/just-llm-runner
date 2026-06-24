@@ -4,6 +4,17 @@
    refines it; the host's tokens.css (+ appearance.js) tune the look per app.
    Lifted/unified from JustWrite's .jw-btn and llm-ui's .lu-btn. */
 
+/* Host token contract — fonts. Primitives use --font-ui / --font-mono. The
+   shell components (AppModal, AppDialog, EmptyState, HelpDrawer) use SEMANTIC
+   font tokens the host must map to its design (each falls back to `inherit`):
+     --font-display  heading/title font  (e.g. a serif app → var(--font-serif);
+                                           a sans app → var(--font-ui))
+     --font-body     body/prose font     (usually var(--font-ui))
+     --font-mono     monospace
+   Define these in the host's tokens.css. CSS var refs are live, so mapping them
+   to --font-serif/--font-ui lets them track the appearance engine's runtime
+   font changes automatically. */
+
 /* Native buttons inherit text colour; the styled .ui-btn family owns its own. */
 button:not(.ui-btn) { color: inherit; }
 

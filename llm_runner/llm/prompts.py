@@ -216,6 +216,12 @@ class RunRequest(BaseModel):
     # Optional per-call temperature override (writerAI's 3-variation mode runs one
     # action at 0.55/0.7/0.95). None → the action's seeded temperature.
     temperature: float | None = None
+    # Optional prompt overrides — the Feature Workbench Lab tests an in-editor
+    # CANDIDATE (a draft / preset not yet promoted to production) without writing
+    # it live. None → the stored prompt; `think=None` → the stored think.
+    system: str | None = None
+    userTemplate: str | None = None
+    think: bool | None = None
     # Optional prior conversation turns ({role, content}) for multi-turn features
     # (RAG chat / character chat). Inserted between the system + the rendered user
     # message, so follow-ups keep proper message roles.
@@ -243,7 +249,11 @@ def make_feature_router(
         spec = get_store().get(body.action)
         if spec is None:
             raise HTTPException(status_code=404, detail=f"unknown AI action {body.action!r}")
-        messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(spec.user_template, body.variables))]
+        # Lab candidate overrides (None → the stored prompt) so a draft/preset can
+        # be tested before it's promoted to production.
+        sys_tpl = spec.system if body.system is None else body.system
+        usr_tpl = spec.user_template if body.userTemplate is None else body.userTemplate
+        messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
         try:
             resp = chat(
                 config=get_config(),
@@ -255,9 +265,9 @@ def make_feature_router(
                 # System is templated too — most actions have no system
                 # placeholders so render() returns it unchanged; e.g. plotHoles
                 # injects the project's world-rules section.
-                system=render(spec.system, body.variables),
+                system=render(sys_tpl, body.variables),
                 temperature=spec.temperature if body.temperature is None else body.temperature,
-                think=spec.think,
+                think=spec.think if body.think is None else body.think,
                 provider_override=body.providerId or None,
                 model_override=body.model or None,
             )
@@ -276,8 +286,10 @@ def make_feature_router(
         spec = get_store().get(body.action)
         if spec is None:
             raise HTTPException(status_code=404, detail=f"unknown AI action {body.action!r}")
-        messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(spec.user_template, body.variables))]
-        system = render(spec.system, body.variables)
+        sys_tpl = spec.system if body.system is None else body.system
+        usr_tpl = spec.user_template if body.userTemplate is None else body.userTemplate
+        messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
+        system = render(sys_tpl, body.variables)
 
         def gen():
             try:
@@ -288,7 +300,7 @@ def make_feature_router(
                     messages=messages,
                     system=system,
                     temperature=spec.temperature if body.temperature is None else body.temperature,
-                    think=spec.think,
+                    think=spec.think if body.think is None else body.think,
                     provider_override=body.providerId or None,
                     model_override=body.model or None,
                 ):

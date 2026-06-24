@@ -354,7 +354,13 @@ async function runTest() {
   testing.value = true; testErr.value = ""; testOut.value = null;
   const t0 = performance.now();
   try {
-    const body = { action: draft.value.key, variables: { ...vars }, temperature: Number(draft.value.temperature) };
+    // Test the in-editor CANDIDATE (the loaded preset / unsaved edits), not just
+    // the live prompt — so you can try presets before promoting one to production.
+    const body = {
+      action: draft.value.key, variables: { ...vars },
+      temperature: Number(draft.value.temperature), think: !!draft.value.think,
+      system: draft.value.system, userTemplate: draft.value.userTemplate,
+    };
     const r = await request("/v1/ai/run", { method: "POST", body });
     testOut.value = { content: r.content, model: r.model, ms: Math.round(performance.now() - t0) };
   } catch (e) {
@@ -489,7 +495,7 @@ onMounted(load);
           </div>
 
           <div class="lu-fw-test">
-            <div class="lu-fw-th"><b>Test on real input</b><span class="lu-muted">runs the live saved config for this action</span></div>
+            <div class="lu-fw-th"><b>Test on real input</b><span class="lu-muted">runs the prompt + model shown above — try a preset before you save it</span></div>
             <div v-for="(_, k) in vars" :key="k" class="lu-field">
               <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
             </div>

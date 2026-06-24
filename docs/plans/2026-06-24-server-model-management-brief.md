@@ -26,25 +26,25 @@ A concrete design doc covering:
    API + settings knobs; for **BOTH** apps (JW = LLM-only; JV = TTS + LLM).
 3. **Why** — reasoning + rejected alternatives, per RULE #7 (read both sides, cited).
 
-## 1.5 STEP 1 = run the CORRECT deep research (the matrix below is NOT a substitute)
-The accurate design needs research scoped to the FULL spectrum + our implementation —
-which the first run did NOT do. Run `/deep-research` with this corrected question
-**before** finalizing any design:
+## 1.5 STEP 1 = the CORRECT deep research — ⏳ RUNNING (run `wf_41866140-cef`, 2026-06-24)
+The accurate design needs research scoped to the FULL spectrum + our implementation
+(the FIRST run `wf_11fa0bf3-5ad` was mis-scoped to 6-8 GB + generic facts). The corrected
+run is launched; full question in the workflow script `deep-research-wf_41866140-cef.js`.
+The five angles:
+1. **Per-tier MEASURED strategy** — CPU-only / NVIDIA 8(min)/12/16/24 GB+ / **Apple Silicon
+   unified memory** × 16/32+ GB RAM → model + offload + co-residence + tok/s & VRAM, per task.
+2. **Serving/switching architecture + ADOPT-vs-BUILD** — router vs spawn vs llama-swap (measured
+   latency); how Ollama / LM Studio / GPUStack / Jan / KoboldCpp / oobabooga / vLLM IMPLEMENT
+   per-hardware auto-config + switching/keep-alive/eviction; what's adoptable.
+3. **TTS + LLM + embedding VRAM coordination** on one GPU (cross-type eviction / budget / TTL).
+4. **Per-task model recs by BENCHMARK** (extraction / RAG / prose-EQBench / chat / embeddings-MTEB)
+   per tier, cited.
+5. **MoE-vs-dense extraction QUALITY** (is single-MoE-for-both viable?) + quant level + context
+   budget + structured output (`--json-schema`/GBNF).
 
-> *Across the full consumer-hardware spectrum — CPU-only, and 8 / 12 / 16 / 24 GB+ VRAM
-> each crossed with 16 GB vs 32 GB+ system RAM — what is the best SERVER-SIDE strategy to
-> run multiple task-specific local LLMs (fast-chat, careful-extraction, embeddings) while
-> MINIMIZING VRAM and switching models performantly? For EACH tier give, with MEASURED
-> tok/s + VRAM where available (not extrapolated): which model(s); full-VRAM vs
-> `--n-cpu-moe` offload + the RAM floor that gates offload; how many co-resident; and the
-> load/unload/switch mechanism (llama.cpp router `--models-max`/LRU vs spawn-per-model vs
-> llama-swap), incl. cold-load + swap latency. ALSO: how do production local-LLM servers
-> (Ollama, LM Studio, llama-swap, GPUStack, KoboldCpp, etc.) actually IMPLEMENT per-
-> hardware auto-configuration + model switching — what's adoptable? Prefer measured
-> benchmarks per tier + primary docs.*
-
-Only after that report lands do we write the tier matrix (§4) + the server design (§5
-decisions). (Could also kick this off during the break so it's ready on return — user's call.)
+**WHEN IT LANDS → write §4 (verified tier matrix, 8 GB min) + §5 (server design decisions),
+then drive #27 (architecture) / #11 (QuickSetup recipe) / #20 (tuning) / #25 (recommended_models)
+/ #18 (structured output).** The §4 matrix below stays an UNVERIFIED hypothesis until then.
 
 ## 2. CODE grounding — verified this session (do NOT re-derive)
 ### Shared runner (`just-llm-runner/llm_runner/runner/`)

@@ -405,13 +405,18 @@ spawn health/OOM back-off catches an unsupported KV type at runtime).
 - **Plane-2 params** (temperature / top-p / max-tokens / json-schema /
   reasoning-budget) are **per-request** (`dispatch.chat` body) → no restart, ever.
 
-**Router VRAM behavior (verified 2026-06-24 — feeds task #27):** registered ≠ loaded
-— a model loads into VRAM **lazily on first request**, up to `--models-max` (default
-4). A loaded model **stays resident** (does NOT free VRAM after the response), and the
-router does **NOT auto-evict** to make room → requesting a 2nd big model OOMs
-([discussion #18939](https://github.com/ggml-org/llama.cpp/discussions/18939)). To keep
-ONE model in VRAM (hot-swap), pass **`--models-max 1` as a CLI arg** (not in the
-config file — confirmed gotcha); `--sleep-idle-seconds N` unloads an idle model.
+**Router VRAM behavior (CORRECTED 2026-06-24 by the deep-research report
+`2026-06-24-small-vram-multimodel-research.md`):** registered ≠ loaded — a model
+loads into VRAM **lazily on first request**; up to `--models-max` (default **4**)
+co-reside, each in its own **child process** (crash isolation). The router **DOES
+auto-evict via LRU** at the `--models-max` COUNT cap (`unload_lru()` in
+`server-models.cpp`, called from `load()`). **Nuance:** eviction triggers on the
+COUNT, not VRAM pressure — a model bigger than *remaining* VRAM **errors** rather
+than evicting (that's the #18939 OOM case). ⚠️ An earlier version of this note
+wrongly said "router never auto-evicts" — that came from one forum thread (#18939)
+and was overturned by source-code-verified multi-source research; don't repeat it.
+For ONE model in VRAM, pass **`--models-max 1`** (forces evict-before-load);
+`/models/unload` frees VRAM explicitly; llama-swap's per-model `ttl` does idle-unload.
 
 **Why we run RAW `llama-server` (not Ollama/LM Studio) — verified 2026-06-24:** the
 MoE-expert CPU offload (`--n-cpu-moe`) that fits a 35B-A3B on 6 GB is the deciding

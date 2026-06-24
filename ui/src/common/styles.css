@@ -87,6 +87,8 @@ button:not(.ui-btn) { color: inherit; }
 .ui-input:disabled { opacity: .55; cursor: not-allowed; background: var(--surface-2); }
 .ui-input.is-invalid { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 18%, transparent); }
 .ui-input--small { padding: 5px 8px; font-size: 12.5px; }
+/* UiNumber wears .ui-input; this only adds tabular figures so digits don't jitter. */
+.ui-number { font-variant-numeric: tabular-nums; }
 .ui-textarea { display: block; line-height: 1.55; resize: vertical; min-height: 60px; }
 .ui-textarea.auto-resize { resize: none; overflow: hidden; }
 

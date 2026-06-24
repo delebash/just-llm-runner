@@ -13,6 +13,7 @@ export { default as UiCheckbox } from "./components/UiCheckbox.vue";
 export { default as UiTag } from "./components/UiTag.vue";
 export { default as UiChip } from "./components/UiChip.vue";
 export { default as UiSelect } from "./components/UiSelect.vue";
+export { default as UiNumber } from "./components/UiNumber.vue";
 export { default as UiSegmented } from "./components/UiSegmented.vue";
 export { default as UiToggle } from "./components/UiToggle.vue";
 export { default as UiField } from "./components/UiField.vue";
@@ -54,6 +55,9 @@ export {
 
 // shared appearance/theming engine + catalogs (host calls applyAppearance at boot)
 export * from "./services/appearance.js";
+
+// shared UI locale (BCP-47 tag for UiNumber's Intl formatting; host drives it)
+export { uiLocale, setUiLocale } from "./services/locale.js";
 
 // shared composables (host-agnostic; vue-only)
 export { useRovingTabindex } from "./composables/useRovingTabindex.js";

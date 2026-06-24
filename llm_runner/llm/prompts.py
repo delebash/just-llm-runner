@@ -39,9 +39,11 @@ from .schema import LLMConfig
 @dataclass
 class FeaturePromptRow:
     """One feature's editable prompt — the dispatch-time + Lab-edit view of a
-    `feature_prompts` row. The host maps its own table to/from this. `description`
-    + `group` are nav metadata (a short blurb + an optional sub-section label, e.g.
-    writerAI's "Prose actions" / "Line edits") the Feature Workbench renders."""
+    `feature_prompts` row. The host maps its own table to/from this. `label`,
+    `description` + `group` are nav metadata (the action's display name, a short
+    blurb, and an optional sub-section label, e.g. writerAI's "Prose actions" /
+    "Line edits") the Feature Workbench renders. `label` empty → the UI derives a
+    name from the key / falls back to the feature label."""
 
     key: str
     feature: str
@@ -50,6 +52,7 @@ class FeaturePromptRow:
     temperature: float
     think: bool
     built_in: bool
+    label: str = ""
     description: str = ""
     group: str = ""
 
@@ -93,6 +96,7 @@ class PromptOut(BaseModel):
     temperature: float
     think: bool
     builtIn: bool
+    label: str = ""
     description: str = ""
     group: str = ""
 
@@ -103,14 +107,15 @@ class PromptList(BaseModel):
 
 class PromptUpdate(BaseModel):
     # The editable fields. `feature` defaults to the built-in's routing key (or
-    # the key itself for a user-created prompt) when omitted. `description`/`group`
-    # are nav metadata — omitted by the prompt editor, so they fall back to the
-    # seeded defaults (see upsert) rather than being wiped on a content edit.
+    # the key itself for a user-created prompt) when omitted. `label`/`description`/
+    # `group` are nav metadata — omitted by the prompt editor, so they fall back to
+    # the seeded defaults (see upsert) rather than being wiped on a content edit.
     feature: str = ""
     system: str = ""
     userTemplate: str = ""
     temperature: float = 0.7
     think: bool = False
+    label: str = ""
     description: str = ""
     group: str = ""
 
@@ -124,6 +129,7 @@ def _out(r: FeaturePromptRow) -> PromptOut:
         temperature=r.temperature,
         think=r.think,
         builtIn=r.built_in,
+        label=r.label,
         description=r.description,
         group=r.group,
     )
@@ -159,6 +165,7 @@ def make_prompt_router(
         feature = body.feature or (str(default.get("feature")) if default else key) or key
         # Nav metadata — the editor omits these, so keep the seeded values rather
         # than wiping them on a prompt-content edit.
+        label = body.label or (str(default.get("label") or "") if default else "")
         description = body.description or (str(default.get("description") or "") if default else "")
         group = body.group or (str(default.get("group") or "") if default else "")
         get_store().upsert(FeaturePromptRow(
@@ -169,6 +176,7 @@ def make_prompt_router(
             temperature=body.temperature,
             think=body.think,
             built_in=built_in,
+            label=label,
             description=description,
             group=group,
         ))
@@ -188,6 +196,7 @@ def make_prompt_router(
             temperature=float(default.get("temperature", 0.7)),
             think=bool(default.get("think", False)),
             built_in=True,
+            label=str(default.get("label") or ""),
             description=str(default.get("description") or ""),
             group=str(default.get("group") or ""),
         ))

@@ -57,6 +57,7 @@ class FeatureRow(BaseModel):
     key: str
     label: str
     hint: str = ""
+    category: str = ""  # the catalog's nav group (e.g. "Writing", "Analysis")
     defaultRole: str = ""  # the catalog's fallback role when unpinned
     providerId: str = ""
     model: str = ""
@@ -85,12 +86,14 @@ class RoutingStore(Protocol):
 @dataclass
 class FeatureCatalogEntry:
     """One feature the host exposes for routing — its key, human label, a hint,
-    and the role it falls back to when unpinned (the dispatch default role)."""
+    the nav group it belongs to (category), and the role it falls back to when
+    unpinned (the dispatch default role)."""
 
     key: str
     label: str
     hint: str = ""
     role: str = ""
+    category: str = ""
 
 
 def make_routing_router(
@@ -108,6 +111,7 @@ def make_routing_router(
                 key=e.key,
                 label=e.label,
                 hint=e.hint,
+                category=e.category,
                 defaultRole=e.role,
                 providerId=(p := cfg.pins.get(e.key) or FeaturePin()).providerId,
                 model=p.model,

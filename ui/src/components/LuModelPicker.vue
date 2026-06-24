@@ -48,30 +48,35 @@ function setModel(model) {
 </script>
 
 <template>
-  <div class="lu-mp" :class="{ 'lu-mp--compact': compact }">
-    <span v-if="labels" class="lu-mp-lbl">Provider</span>
-    <select class="lu-input lu-mp-sel" :value="route" aria-label="Provider" @change="setRoute($event.target.value)">
-      <option value="">{{ inheritLabel }}</option>
-      <template v-if="showRoles">
-        <option value="role:quick">Inherit · Quick</option>
-        <option value="role:accuracy">Inherit · Accuracy</option>
-      </template>
-      <optgroup label="Pin a provider">
+  <div class="lu-mp" :class="{ 'lu-mp--compact': compact, 'lu-mp--labels': labels }">
+    <div class="lu-mp-field">
+      <span v-if="labels" class="lu-mp-lbl">Provider</span>
+      <select class="lu-input lu-mp-sel" :value="route" aria-label="Provider" @change="setRoute($event.target.value)">
+        <option value="">{{ inheritLabel }}</option>
+        <template v-if="showRoles">
+          <option value="role:quick">Inherit · Quick</option>
+          <option value="role:accuracy">Inherit · Accuracy</option>
+        </template>
         <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
-      </optgroup>
-    </select>
-    <span v-if="labels" class="lu-mp-lbl">Model</span>
-    <select class="lu-input lu-mp-sel" :value="pin.model || ''" :disabled="!pin.providerId" aria-label="Model"
-      :title="pin.providerId ? 'Models for the pinned provider' : 'Pin a provider first to choose its model'"
-      @change="setModel($event.target.value)">
-      <option v-for="o in modelOptions(pin.providerId)" :key="o.value" :value="o.value">{{ o.label }}</option>
-    </select>
+      </select>
+    </div>
+    <div class="lu-mp-field">
+      <span v-if="labels" class="lu-mp-lbl">Model</span>
+      <select class="lu-input lu-mp-sel" :value="pin.model || ''" :disabled="!pin.providerId" aria-label="Model"
+        :title="pin.providerId ? 'Models for the pinned provider' : 'Pick a provider first to choose its model'"
+        @change="setModel($event.target.value)">
+        <option v-for="o in modelOptions(pin.providerId)" :key="o.value" :value="o.value">{{ o.label }}</option>
+      </select>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.lu-mp { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Provider + model always side by side (grid, never wrap), each filling its
+   column so the selected value shows in full — no max-width truncation. */
+.lu-mp { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: end; min-width: 0; }
+.lu-mp-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .lu-mp-lbl { font-size: 11px; font-weight: 600; color: var(--muted); }
-.lu-mp-sel { cursor: pointer; appearance: auto; max-width: 220px; }
-.lu-mp--compact .lu-mp-sel { font-size: 11px; padding: 3px 6px; max-width: 130px; }
+.lu-mp-sel { cursor: pointer; appearance: auto; width: 100%; min-width: 0; }
+.lu-mp--compact .lu-mp-sel { font-size: 11px; padding: 3px 6px; }
 </style>

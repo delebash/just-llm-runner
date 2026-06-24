@@ -46,30 +46,42 @@ const byId = computed(() => Object.fromEntries(providers.value.map((p) => [p.id,
 const providerName = (id) => byId.value[id]?.name || id || "—";
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
 
-// Actions grouped by feature, in catalog order. Each group carries the feature
-// label/hint (for the header) and its action prompts.
-const groups = computed(() => {
-  const out = [];
-  const seen = new Set();
+// Actions grouped by the catalog's nav CATEGORY (the group header), Writer-Lab
+// shape: category → optional sub-label → action cards. The feature is just the
+// routing key; the nav never shows a feature header. Categories appear in
+// first-seen catalog order; within a category, actions follow catalog feature
+// order, then split into sub-labels via subGroups() (writerAI's Prose actions /
+// Line edits, the Multi-reader panel, …).
+const CATEGORY_FALLBACK = "Other";
+const categories = computed(() => {
+  const order = [];
+  const byCat = {};
   for (const f of routing.value?.features || []) {
     const actions = prompts.value.filter((p) => p.feature === f.key);
-    if (actions.length) { out.push({ key: f.key, label: f.label, hint: f.hint, actions }); seen.add(f.key); }
+    if (!actions.length) continue;
+    const cat = f.category || CATEGORY_FALLBACK;
+    if (!(cat in byCat)) { byCat[cat] = []; order.push(cat); }
+    byCat[cat].push(...actions);
   }
   // Any prompt whose feature isn't in the catalog still gets a home.
-  const orphans = {};
-  for (const p of prompts.value) if (!seen.has(p.feature)) (orphans[p.feature] ||= []).push(p);
-  for (const [k, actions] of Object.entries(orphans)) out.push({ key: k, label: k, hint: "", actions });
-  return out;
+  const known = new Set((routing.value?.features || []).map((f) => f.key));
+  const orphans = prompts.value.filter((p) => !known.has(p.feature));
+  if (orphans.length) {
+    if (!(CATEGORY_FALLBACK in byCat)) { byCat[CATEGORY_FALLBACK] = []; order.push(CATEGORY_FALLBACK); }
+    byCat[CATEGORY_FALLBACK].push(...orphans);
+  }
+  return order.map((c) => ({ label: c, actions: byCat[c] }));
 });
 
 const action = computed(() => prompts.value.find((p) => p.key === selAction.value) || null);
 const actionPresets = computed(() => presets.value.filter((p) => p.action === selAction.value));
 const activePreset = computed(() => actionPresets.value.find((p) => p.active) || null);
-const isMulti = (g) => g.actions.length > 1;
 
-// A readable action name from its key (the feature prefix stripped). Single-action
-// features show the feature label itself.
+// The action's display name: the seeded canonical label (point-of-use name) when
+// set; else the feature's catalog label for a single-action feature; else a
+// readable name derived from the key (feature prefix stripped).
 function actionLabel(p) {
+  if (p.label) return p.label;
   const f = p.feature;
   if (p.key === f) return featMeta.value[f]?.label || f;
   let s = p.key;
@@ -126,23 +138,15 @@ function activeModel(key) {
   const d = routing.value?.default?.llmId;
   return d ? `Default · ${providerName(d)}` : "Default LLM (unset)";
 }
-// Bulk-set every action in a group to one pin (Option A keeps no feature-level
-// pin — "set all" just writes each action's own pin).
-function setGroupAll(g, val) {
-  const pins = routing.value.pins || (routing.value.pins = {});
-  for (const a of g.actions) {
-    if (!val || (!val.providerId && !val.role)) delete pins[a.key];
-    else pins[a.key] = { providerId: val.providerId || "", model: val.model || "", role: val.role || "" };
-  }
-  saveRouting();
+// Label for the picker's "inherit" option — names what inheriting resolves to
+// (the feature's default role, else the global Default LLM) so the dropdown's
+// own value matches what's applied (no separate "→ role" note needed).
+function inheritLabel(key) {
+  const dr = featMeta.value[featureOf(key)]?.defaultRole;
+  if (dr) return `Inherit default · ${cap(dr)}`;
+  const d = routing.value?.default?.llmId;
+  return d ? `Inherit default · ${providerName(d)}` : "Inherit default";
 }
-// The shared pin when every action in a group has the same one, else null (mixed).
-function groupCommonPin(g) {
-  const sig = (k) => JSON.stringify(pin(k) || null);
-  const first = sig(g.actions[0].key);
-  return g.actions.every((a) => sig(a.key) === first) ? (pin(g.actions[0].key) || null) : null;
-}
-
 async function load() {
   loading.value = true; error.value = "";
   try {
@@ -156,7 +160,7 @@ async function load() {
     // Presets are optional per app (an app may not mount the endpoint yet).
     try { presets.value = (await request("/v1/ai/feature-presets")).presets || []; }
     catch { presets.value = []; }
-    if (!action.value && groups.value.length) selectAction(groups.value[0].actions[0].key);
+    if (!action.value && categories.value.length) selectAction(categories.value[0].actions[0].key);
   } catch (e) {
     error.value = `Couldn't load: ${e.message}`;
   } finally {
@@ -332,37 +336,19 @@ onMounted(load);
       </section>
 
       <div class="lu-fw-body">
-        <!-- Nav: actions grouped by feature -->
+        <!-- Nav: category header → optional sub-label → action cards (the
+             Writer-Lab shape; the feature is just the routing key). -->
         <aside class="lu-fw-list">
-          <template v-for="g in groups" :key="g.key">
-            <!-- single-action feature → one card (label + its feature blurb) -->
-            <button v-if="!isMulti(g)" type="button" class="lu-fw-card"
-              :class="{ 'is-active': g.actions[0].key === selAction }" @click="selectAction(g.actions[0].key)">
-              <div class="lu-fw-card-label">{{ g.label }}<span v-if="hasProd(g.actions[0].key)" class="lu-fw-dot" title="has a production preset" /></div>
-              <div v-if="actionDesc(g.actions[0])" class="lu-fw-card-desc">{{ actionDesc(g.actions[0]) }}</div>
-              <div class="lu-fw-card-model" title="currently active model">→ {{ activeModel(g.actions[0].key) }}</div>
-            </button>
-            <!-- multi-action feature → heading + a "Set all" applicator (writes
-                 every action's model at once), hint, then a card per action. -->
-            <template v-else>
-              <div class="lu-fw-ghead">
-                <span class="lu-fw-gname">{{ g.label }}</span>
-                <span class="lu-fw-gspacer" />
-                <span class="lu-fw-setall-lbl">Set all</span>
-                <LuModelPicker :model-value="groupCommonPin(g)" :providers="providers" inherit-label="Inherit default" :compact="true"
-                  :title="`Set the provider + model for all ${g.actions.length} ${g.label} actions at once`"
-                  @update:model-value="setGroupAll(g, $event)" />
-              </div>
-              <p v-if="g.hint" class="lu-fw-ghint">{{ g.hint }}</p>
-              <template v-for="sg in subGroups(g.actions)" :key="sg.label || g.key">
-                <div v-if="sg.label" class="lu-fw-sublabel">{{ sg.label }}</div>
-                <button v-for="a in sg.items" :key="a.key" type="button" class="lu-fw-card lu-fw-card--sub"
-                  :class="{ 'is-active': a.key === selAction }" @click="selectAction(a.key)">
-                  <div class="lu-fw-card-label">{{ actionLabel(a) }}<span v-if="hasProd(a.key)" class="lu-fw-dot" title="has a production preset" /></div>
-                  <div v-if="actionDesc(a)" class="lu-fw-card-desc">{{ actionDesc(a) }}</div>
-                  <div class="lu-fw-card-model" title="currently active model">→ {{ activeModel(a.key) }}</div>
-                </button>
-              </template>
+          <template v-for="cat in categories" :key="cat.label">
+            <div class="lu-fw-cat">{{ cat.label }}</div>
+            <template v-for="sg in subGroups(cat.actions)" :key="cat.label + '/' + (sg.label || '')">
+              <div v-if="sg.label" class="lu-fw-sublabel">{{ sg.label }}</div>
+              <button v-for="a in sg.items" :key="a.key" type="button" class="lu-fw-card"
+                :class="{ 'is-active': a.key === selAction }" @click="selectAction(a.key)">
+                <div class="lu-fw-card-label">{{ actionLabel(a) }}<span v-if="hasProd(a.key)" class="lu-fw-dot" title="has a production preset" /></div>
+                <div v-if="actionDesc(a)" class="lu-fw-card-desc">{{ actionDesc(a) }}</div>
+                <div class="lu-fw-card-model" title="currently active model">→ {{ activeModel(a.key) }}</div>
+              </button>
             </template>
           </template>
         </aside>
@@ -389,14 +375,14 @@ onMounted(load);
             <span v-if="activePreset" class="lu-fw-prod" :title="`The live pipeline runs '${activePreset.name}'.`">✓ PRODUCTION · {{ activePreset.name }}</span>
           </div>
 
-          <!-- Provider + model for this action (shared LuModelPicker) -->
+          <!-- Provider + model for this action (shared LuModelPicker). The
+               selects ARE the source of truth — the inherit option names what it
+               resolves to (e.g. "Inherit default · Quick"), so there's no
+               separate redundant "→ role" note. -->
           <div class="lu-field">
-            <label>Provider &amp; model <span class="lu-muted">— inherits the default unless you pin a provider + model here</span></label>
-            <div class="lu-fw-route">
-              <LuModelPicker :model-value="pin(selAction)" :providers="providers" :labels="true"
-                inherit-label="Inherit default" @update:model-value="setPin(selAction, $event)" />
-              <span class="lu-muted lu-fw-resolved">→ {{ activeModel(selAction) }}</span>
-            </div>
+            <label>Provider &amp; model <span class="lu-muted">— inherits the default unless you pick a provider + model here</span></label>
+            <LuModelPicker :model-value="pin(selAction)" :providers="providers" :labels="true"
+              :inherit-label="inheritLabel(selAction)" @update:model-value="setPin(selAction, $event)" />
           </div>
 
           <div class="lu-field"><label>System prompt</label>
@@ -442,8 +428,9 @@ onMounted(load);
 .lu-fw-gh b { font-size: 13px; color: var(--ink); } .lu-fw-gh .lu-muted { font-size: 11px; }
 .lu-fw-grid { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 9px 10px; align-items: center; }
 .lu-fw-gl { color: var(--ink-2); font-size: 12px; }
-.lu-fw-roles { display: flex; flex-direction: column; gap: 8px; }
-.lu-fw-role { display: grid; grid-template-columns: auto 1fr 1fr; gap: 8px; align-items: center; }
+.lu-fw-roles { display: flex; flex-direction: column; gap: 10px; }
+/* chip + the (now grid-based, non-wrapping) picker filling the rest of the row */
+.lu-fw-role { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
 .lu-rchip { font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 3px 8px; text-align: center; }
 .lu-rchip--quick { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); }
 .lu-rchip--accuracy { background: var(--gold-soft, #f5edda); color: var(--gold, #b08a3e); }
@@ -457,19 +444,14 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-card { text-align: left; width: 100%; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; }
 .lu-fw-card:hover { border-color: var(--accent); background: var(--accent-soft); }
 .lu-fw-card.is-active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-.lu-fw-card--sub { margin-left: 10px; }
 .lu-fw-card-label { font-size: 12.5px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 6px; }
 .lu-fw-card-desc { font-size: 11px; color: var(--muted); line-height: 1.4; margin-top: 3px; }
 .lu-fw-card-model { font-size: 10.5px; font-weight: 600; color: var(--accent-ink, var(--accent)); margin-top: 4px; }
 .lu-fw-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
-/* multi-action section: dark heading + feature-default model, hint, sub-labels */
-.lu-fw-ghead { display: flex; align-items: center; gap: 8px; padding: 8px 4px 2px; margin-top: 6px; border-top: 1px solid var(--border); }
-.lu-fw-ghead:first-child { border-top: 0; margin-top: 0; }
-.lu-fw-gname { font-size: 13px; font-weight: 700; color: var(--ink); }
-.lu-fw-gspacer { flex: 1; }
-.lu-fw-setall-lbl { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-.lu-fw-ghint { margin: 0 4px 4px; font-size: 10.5px; line-height: 1.4; color: var(--muted); }
-.lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 7px 0 1px 10px; }
+/* Category header — the nav's primary grouping (Writing / Analysis / …). */
+.lu-fw-cat { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); padding: 10px 4px 4px; margin-top: 6px; border-top: 1px solid var(--border); }
+.lu-fw-cat:first-child { border-top: 0; margin-top: 0; padding-top: 2px; }
+.lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 7px 0 1px 4px; }
 
 /* Editor */
 .lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -483,8 +465,6 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-prod { margin-left: auto; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: var(--accent); color: var(--on-accent, #fff); }
 .lu-field { display: flex; flex-direction: column; gap: 5px; }
 .lu-field > label { font-size: 12px; color: var(--muted); }
-.lu-fw-route { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.lu-fw-resolved { font-size: 11.5px; }
 .lu-fw-params { display: flex; gap: 24px; align-items: flex-end; }
 .lu-fw-temp { max-width: 110px; }
 .lu-fw-think { display: flex; align-items: center; gap: 8px; }

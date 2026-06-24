@@ -86,6 +86,9 @@ function onOutside(e) { if (!props.dismissable) e.preventDefault(); }
           <VisuallyHidden v-if="slots.header" as-child>
             <DialogTitle>{{ title || "Dialog" }}</DialogTitle>
           </VisuallyHidden>
+          <!-- Extra header content (badges/tags) between the title and the close
+               button — keeps the eyebrow/title props + their styling. -->
+          <slot name="header-extra" />
           <DialogClose v-if="closable" class="ui-modal__close" :aria-label="closeLabel">
             <Icon name="Close" :size="14" />
           </DialogClose>

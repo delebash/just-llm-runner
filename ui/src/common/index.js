@@ -37,5 +37,8 @@ export { pushToast, clearToasts } from "./services/toastBridge.js";
 // shared empty-state placeholder
 export { default as EmptyState } from "./components/EmptyState.vue";
 
+// shared boot-time "can't reach the server" screen (host passes brand + URL)
+export { default as ConnectionError } from "./components/ConnectionError.vue";
+
 // shared composables (host-agnostic; vue-only)
 export { useRovingTabindex } from "./composables/useRovingTabindex.js";

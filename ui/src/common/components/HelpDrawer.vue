@@ -92,6 +92,10 @@ function openWeb() { helpConfig.onOpenWeb?.(slug.value); }
           <article v-if="renderedHtml" class="help-drawer-prose" v-html="renderedHtml" />
           <div v-else class="help-drawer-empty">
             <p>No help article for this surface yet.</p>
+            <UiButton v-if="helpConfig.onOpenFull" intent="ghost" size="small" @click="openFull">
+              <template #icon><Icon name="Book" :size="13" /></template>
+              Browse all docs
+            </UiButton>
           </div>
         </div>
 

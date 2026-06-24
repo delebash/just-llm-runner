@@ -380,6 +380,22 @@ valueless flag is the next flag.)
 drive this endpoint; turbo* still needs the fork binary (validation is light — the
 spawn health/OOM back-off catches an unsupported KV type at runtime).
 
+### Lifecycle — how switches APPLY (load-time, not hot) — verified 2026-06-24
+The local runner is a **persistent background `llama-server`**, NOT a per-request
+spawn: `RunnerService` (singleton, `lifecycle.py`) holds ONE live process; AI
+requests are HTTP calls to it (`dispatch.py:220` → the local adapter); one model
+at a time, loading a new one replaces the running one (`LuModelCatalog.vue:156`).
+- **Plane-1 switches are launch flags** baked into the process at spawn
+  (`compose_flags` argv). llama.cpp fixes the VRAM/RAM layout at startup — there is
+  **no runtime API to change them live**. So **changing a switch = stop + respawn**,
+  the same mechanism as changing models (`stop()` → `load(modelId, overrides)`).
+- **Plane-2 params** (temperature / top-p / max-tokens / json-schema /
+  reasoning-budget) are **per-request** (`dispatch.chat` body) → **no restart**.
+- **Consequences:** (a) #20's "apply switch" is a **reload** (show a reloading
+  state); (b) #21 Compare must run local **model/Plane-1-switch columns
+  SEQUENTIALLY** (one GPU + one runner) — only Plane-2-only columns on the same
+  loaded model, or cloud columns, can run concurrently.
+
 ### To build (the "expose everything configurable to the GUI" ask)
 1. ✅ **Plumb `Overrides` through `/load`** (#19, done 2026-06-24) — `LoadRequest`
    accepts `nGpuLayers`, `nCpuMoe`, `ctxLen`, `cacheTypeK/V`, `flashAttn`, `noMmap`,

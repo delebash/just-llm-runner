@@ -14,6 +14,7 @@ export { default as UiTag } from "./components/UiTag.vue";
 export { default as UiChip } from "./components/UiChip.vue";
 export { default as UiSelect } from "./components/UiSelect.vue";
 export { default as UiNumber } from "./components/UiNumber.vue";
+export { default as UiTable } from "./components/UiTable.vue";
 export { default as UiSegmented } from "./components/UiSegmented.vue";
 export { default as UiToggle } from "./components/UiToggle.vue";
 export { default as UiField } from "./components/UiField.vue";

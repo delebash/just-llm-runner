@@ -13,6 +13,10 @@
     "vue": "^3.4",
     "reka-ui": "^2.10.0",
     "marked": "^18.0.5",
-    "vue-sonner": "^2.0.9"
+    "vue-sonner": "^2.0.9",
+    "@tanstack/vue-table": "^8.21.3"
+  },
+  "peerDependenciesMeta": {
+    "@tanstack/vue-table": { "optional": true }
   }
 }

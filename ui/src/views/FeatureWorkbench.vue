@@ -24,6 +24,15 @@ import LuModelPicker from "../components/LuModelPicker.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
 
+// Optional host runner — streams an action through the host's task system
+// (live progress, Cancel, the app's batch AI list, token usage). When given, the
+// test panel streams live with tokens + word count + a Cancel button; when
+// absent it falls back to a one-shot /v1/ai/run (output only). JustWrite passes a
+// wrapper around runAiFeatureStream (→ aiTasks); JV will wire its own.
+const props = defineProps({
+  runStream: { type: Function, default: null },
+});
+
 const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, temperature, think, builtIn}
 const routing = ref(null);   // {default, quick, accuracy, features:[…], pins:{key→{providerId,model,role}}}
 const providers = ref([]);
@@ -364,25 +373,48 @@ function buildVars() {
   for (const v of found) vars[v] = vars[v] || "";
   if (!found.size) vars.user_content = vars.user_content || "";
 }
+const testCtrl = ref(null);
+function wordCount(s) { return (String(s || "").trim().match(/\S+/g) || []).length; }
+function cancelTest() { testCtrl.value?.abort(); }
+
 async function runTest() {
   if (!draft.value) return;
   testing.value = true; testErr.value = ""; testOut.value = null;
   const t0 = performance.now();
+  // Test the in-editor CANDIDATE (loaded preset / unsaved edits), not just the
+  // live prompt — so you can try presets before promoting one to production.
+  const o = {
+    action: draft.value.key, variables: { ...vars },
+    temperature: Number(draft.value.temperature), think: !!draft.value.think,
+    maxTokens: Number(draft.value.maxTokens) || 0,
+    system: draft.value.system, userTemplate: draft.value.userTemplate,
+  };
   try {
-    // Test the in-editor CANDIDATE (the loaded preset / unsaved edits), not just
-    // the live prompt — so you can try presets before promoting one to production.
-    const body = {
-      action: draft.value.key, variables: { ...vars },
-      temperature: Number(draft.value.temperature), think: !!draft.value.think,
-      maxTokens: Number(draft.value.maxTokens) || 0,
-      system: draft.value.system, userTemplate: draft.value.userTemplate,
-    };
-    const r = await request("/v1/ai/run", { method: "POST", body });
-    testOut.value = { content: r.content, model: r.model, ms: Math.round(performance.now() - t0) };
+    if (props.runStream) {
+      // Stream via the host: live progress + Cancel + the batch AI list + tokens.
+      const ctrl = new AbortController();
+      testCtrl.value = ctrl;
+      testOut.value = { content: "", model: "", ms: 0, tokens: 0, words: 0 };
+      const res = await props.runStream({
+        ...o, signal: ctrl.signal,
+        onDelta: (_d, full) => { if (testOut.value) { testOut.value.content = full; testOut.value.words = wordCount(full); } },
+      });
+      const u = res?.usage || {};
+      testOut.value = {
+        content: res?.content || "", model: res?.model || "",
+        ms: Math.round(performance.now() - t0),
+        tokens: (u.promptTokens || 0) + (u.completionTokens || 0),
+        words: wordCount(res?.content || ""),
+      };
+    } else {
+      const r = await request("/v1/ai/run", { method: "POST", body: o });
+      testOut.value = { content: r.content, model: r.model, ms: Math.round(performance.now() - t0), tokens: 0, words: wordCount(r.content) };
+    }
   } catch (e) {
-    testErr.value = e.message?.includes("501") ? "No LLM wired for this route — set a model above or connect a provider." : (e.message || "Run failed.");
+    if (e?.name === "AbortError" || /abort|cancel/i.test(e?.message || "")) testErr.value = "Cancelled.";
+    else testErr.value = e.message?.includes("501") ? "No LLM wired for this route — set a model above or connect a provider." : (e.message || "Run failed.");
   } finally {
-    testing.value = false;
+    testing.value = false; testCtrl.value = null;
   }
 }
 
@@ -516,12 +548,17 @@ onMounted(load);
               <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
             </div>
             <div class="lu-fw-trow">
-              <UiButton intent="primary" size="small" :loading="testing" @click="runTest">▶ Run</UiButton>
+              <UiButton v-if="!testing" intent="primary" size="small" @click="runTest">▶ Run</UiButton>
+              <UiButton v-else intent="secondary" size="small" @click="cancelTest">■ Cancel</UiButton>
+              <span v-if="testing" class="lu-muted lu-fw-running">Running… (also in the AI tasks strip)</span>
               <span v-if="testErr" class="lu-error lu-fw-terr">{{ testErr }}</span>
             </div>
             <div v-if="testOut" class="lu-fw-out">
               <pre class="lu-fw-pre">{{ testOut.content }}</pre>
-              <div class="lu-muted lu-fw-stats">model <b>{{ testOut.model }}</b> · {{ testOut.ms }} ms</div>
+              <div class="lu-muted lu-fw-stats">
+                <template v-if="testOut.model">model <b>{{ testOut.model }}</b> · </template>
+                <b>{{ testOut.words }}</b> words<template v-if="testOut.tokens"> · <b>{{ testOut.tokens }}</b> tokens</template> · {{ testOut.ms }} ms
+              </div>
             </div>
           </div>
         </section>

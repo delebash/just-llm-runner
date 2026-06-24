@@ -22,6 +22,9 @@ import { request } from "../client.js";
 // each app's specifics stay app-side. Empty label → no extra tab.
 const props = defineProps({
   appTabLabel: { type: String, default: "" },
+  // Host runner forwarded to the Feature Workbench test panel (streaming +
+  // cancel + the app's batch AI list). See FeatureWorkbench `runStream`.
+  runStream: { type: Function, default: null },
 });
 
 const tab = ref("providers");
@@ -213,7 +216,7 @@ onMounted(loadAll);
     <!-- ── Features — the Feature Workbench (globals + per-action config + test).
          Absorbs the old routing table; named whole-config snapshots below. ── -->
     <section v-show="tab === 'features'" class="lu-tab">
-      <FeatureWorkbench v-if="tab === 'features'" />
+      <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
     </section>
 
     <!-- ── Usage — full ledger: rollup + by-feature + by-provider + reset ── -->

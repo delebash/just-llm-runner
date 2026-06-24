@@ -74,15 +74,18 @@ async def get_hardware() -> HardwareInfo:
     response_model_by_alias=True,
     summary="Model catalog with hardware Fit + load/disk status",
 )
-async def get_models() -> RunnerModelsResponse:
+async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     """The bundled-runner model catalog the GUI shows in the built-in provider's
     form: each manifest model annotated with a coarse Fit (vs detected VRAM),
-    whether its GGUF is already cached, and the live load status."""
+    whether its GGUF is already cached, and the live load status.
+
+    `vram_mb` overrides the detected VRAM so Quick Setup's card chooser can
+    re-score Fit for a card other than the one in this machine (0 = CPU-only)."""
     manifest = load_manifest()
     hardware = detect()
     service = get_service()
 
-    gpu_vram = max((g.vram_mb or 0 for g in hardware.gpus), default=0)
+    gpu_vram = vram_mb if vram_mb is not None else max((g.vram_mb or 0 for g in hardware.gpus), default=0)
     margin = manifest.vram_fit.safety_margin_mb
     hf_cache = service.cache_root / "hf"
 

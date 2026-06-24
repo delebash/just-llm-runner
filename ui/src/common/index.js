@@ -23,5 +23,12 @@ export { default as Breadcrumb } from "./components/Breadcrumb.vue";
 export { promptDialog, confirmDialog, dialogState, _resolveDialog } from "./services/dialog.js";
 export { tooltipDirective } from "./services/tooltip.js";
 
+// shared in-app Help system — drawer + "?" trigger + open-state/config + the
+// docs markdown renderer. The host supplies the docs content via configureHelp().
+export { default as HelpDrawer } from "./components/HelpDrawer.vue";
+export { default as HelpTrigger } from "./components/HelpTrigger.vue";
+export { configureHelp, openHelp, closeHelp, helpState, helpConfig } from "./services/help.js";
+export { renderHelpMarkdown, slugifyHeading } from "./services/helpMarkdown.js";
+
 // shared composables (host-agnostic; vue-only)
 export { useRovingTabindex } from "./composables/useRovingTabindex.js";

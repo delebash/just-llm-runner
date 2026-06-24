@@ -16,6 +16,7 @@ export { configureLlmUi, llmUiBase, llmUiUrl, request, requestStream } from "./c
 // common/styles.css (the .ui-* rules).
 export { UiButton, UiInput, UiTextarea, UiCheckbox, UiTag, UiChip, UiSegmented, UiToggle, UiField, UiSelect } from "./common/index.js";
 export { Icon, Breadcrumb, promptDialog, confirmDialog, dialogState, _resolveDialog, tooltipDirective } from "./common/index.js";
+export { HelpDrawer, HelpTrigger, configureHelp, openHelp, closeHelp, helpState, helpConfig, renderHelpMarkdown, slugifyHeading } from "./common/index.js";
 export { useRovingTabindex } from "./common/composables/useRovingTabindex.js";
 
 // llm-ui-specific primitives still local (model picker/combobox)

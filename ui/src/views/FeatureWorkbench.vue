@@ -134,6 +134,12 @@ function actionLabel(p) {
 function actionDesc(a) {
   return a?.description || featMeta.value[a?.feature]?.hint || "";
 }
+// A user-facing label for a template variable key (voiceCanon → "Voice canon",
+// chapter_text → "Chapter text") — the test panel shows these, never the raw key.
+function humanizeVar(k) {
+  const s = String(k).replace(/[_-]+/g, " ").replace(/([a-z\d])([A-Z])/g, "$1 $2").trim().toLowerCase();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : k;
+}
 // Split a feature's actions into Writer-Lab-style sub-sections by their `group`
 // (e.g. writerAI → "Prose actions" / "Line edits"); "" = no sub-label.
 function subGroups(actions) {
@@ -400,7 +406,7 @@ onMounted(load);
           <div class="lu-fw-test">
             <div class="lu-fw-th"><b>Test on real input</b><span class="lu-muted">runs the live saved config for this action</span></div>
             <div v-for="(_, k) in vars" :key="k" class="lu-field">
-              <label>{{ k }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
+              <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
             </div>
             <div class="lu-fw-trow">
               <UiButton intent="primary" size="small" :loading="testing" @click="runTest">▶ Run</UiButton>

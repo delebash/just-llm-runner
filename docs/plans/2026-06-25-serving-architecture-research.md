@@ -78,10 +78,16 @@ decision logic. [llmfit](https://github.com/AlexsJones/llmfit).
 ## ⭐ The one thing NO tool does — we must build it
 **None** of router mode / llama-swap / Ollama / GPUStack does **true VRAM-budget
 arbitration** — all are **count-based or operator-declared**. So the runner must build a thin
-**VRAM-budget planner**: detect hardware → **estimate per-model VRAM (adopt `gguf-parser`,
-don't hand-roll — it's what GPUStack uses; this replaces our `fit.py`/`compute_fit`)** →
-decide co-residence/eviction/offload per tier → emit the switching config (llama-swap groups
+**VRAM-budget planner**: detect hardware → estimate per-model VRAM → decide
+co-residence/eviction/offload per tier → emit the switching config (llama-swap groups
 + evict_cost + ttl, or router `--models-max` + manual unload).
+
+> ⚠️ **CORRECTED 2026-06-25 (user-caught):** the original line here said "estimate per-model VRAM
+> (adopt `gguf-parser` … this replaces our `fit.py`/`compute_fit`)." **WRONG** — our `fit.py`
+> ALREADY implements the VRAM-fit math (oobabooga's fitted GGUF formula; `fit.py:1-17,108-160`),
+> with `process.py`'s OOM back-off as the net. **KEEP `fit.py`.** gguf-parser at most ADDS GGUF
+> metadata parsing to feed `fit.py` (deferred #29) — it does not replace the fit math. GPUStack's
+> use of gguf-parser is a precedent for *metadata extraction*, not a reason to drop our formula.
 
 ## Gaps — NOT answered (need a follow-up pass + the user's Compare)
 - **No measured per-tier tok/s + VRAM** (8 GB floor, quant tradeoffs, `--n-cpu-moe`

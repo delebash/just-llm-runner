@@ -124,11 +124,16 @@ the user's own Compare on real hardware). **One ADOPT-vs-BUILD fork to confirm b
    shell-out PATTERN** (nvidia-smi / rocm-smi / Intel sysfs / **Apple `system_profiler`**) → report
    VRAM + RAM + platform. Apple budget = ~66 % (<64 GB) / ~75 % (≥64 GB) of UNIFIED RAM.
 2. **VRAM-budget planner (BUILD — the ONE piece NO tool provides; all are count-based/operator-declared):**
-   estimate per-model VRAM with **`gguf-parser`** (ADOPT — what GPUStack uses; **replaces our
-   hand-rolled `fit.py`/`compute_fit`** — directly fixes the earlier roll-your-own-fit miss) →
-   per tier decide: model set + `--n-cpu-moe` offload (NVIDIA only; **pointless on Apple unified
-   memory** — no PCIe) + co-residence (keep embedding + one chat resident; evict on budget) +
-   idle-TTL → emit the switching config.
+   estimate per-model VRAM → per tier decide: model set + `--n-cpu-moe` offload (NVIDIA only;
+   **pointless on Apple unified memory** — no PCIe) + co-residence (keep embedding + one chat
+   resident; evict on budget) + idle-TTL → emit the switching config.
+   ⚠️ **CORRECTED 2026-06-25 (user-caught):** an earlier version said "adopt **`gguf-parser`** —
+   it **replaces our hand-rolled `fit.py`/`compute_fit`**." **WRONG** — `fit.py` ALREADY does the
+   VRAM-fit math (oobabooga's fitted GGUF formula over ~19,500 measurements + a coarse pre-download
+   band; verified `fit.py:1-17,108-160`), and `process.py`'s OOM probe-and-back-off is the safety
+   net. **KEEP `fit.py` — do NOT replace it.** gguf-parser's only *possible* future role is reading
+   GGUF METADATA (layer count / embedding dim / KV heads) to FEED `fit.py` more precisely — that's
+   an additive question deferred to #29, NOT a replacement of our fit math.
 3. **Switching / coordination engine — the FORK (RE-EVALUATED 2026-06-25 after a wrong claim):**
    ⚠️ **CORRECTION:** an earlier version said "adopt llama-swap because it natively coordinates
    JV's TTS+LLM+embedding." **WRONG** — verified: llama-swap only manages **OpenAI/Anthropic-
@@ -163,13 +168,27 @@ the user's own Compare on real hardware). **One ADOPT-vs-BUILD fork to confirm b
 QuickSetup (#11) / tuning UI (#20) → **Compare (#21) measures on the user's real hardware** —
 this is how the MISSING measured numbers get filled (maintainer can't test broadly).
 
-**Still BUILD (confirmed):** the VRAM-budget planner (gguf-parser fit + per-tier policy + config
-emit); detection extension (AMD/Intel/Apple); structured output (#18) for extraction.
+**Still BUILD (confirmed):** the VRAM-budget planner (per-tier policy + config emit, **using the
+existing `fit.py` math — NOT gguf-parser-replaces-fit**, see §4B.2 correction); detection extension
+(AMD/Intel/Apple); structured output (#18) for extraction.
 
 ## 5. Open design questions (decide next session)
 1. **Router mode vs spawn-per-model** for production serving? Research favors **router**
    (native LRU at `--models-max`, per-model INI, multi-process isolation). #19's
    spawn-with-overrides stays for switch-VALUE tuning. → task #27.
+   **✅ EMPIRICALLY CONFIRMED (2026-06-25 local test, full detail in
+   `2026-06-24-llamacpp-switches.md` §Lifecycle):** the user's exact question —
+   *hot-swap two models with DIFFERENT switches, in the INI, WITHOUT restarting?* —
+   ran on real `llama-server` b9786: started with no `-m` + `--models-preset` +
+   `--models-max 2`; hitting `modelA` then `modelB` spawned **two child processes
+   (PPID = constant router PID 7375)** each carrying **its own** INI switches
+   (`modelA`: ctx 2048 / KV q8_0 / fa on; `modelB`: ctx 333 / KV f16 / parallel 2);
+   router never restarted. So **router mode IS capable** of per-task model swapping
+   with per-model switches. ⚠️ **This proves CAPABILITY, not the decision** — whether
+   to adopt router mode vs keep spawn-per-model (or hybrid: router for serving + #19
+   spawn for switch-VALUE tuning) is the **USER's call** (decisions-are-the-user's
+   rule); present router-vs-spawn with receipts + counter-case, don't switch the
+   runner unilaterally.
 2. **Cross-kind VRAM coordinator (JV):** budget-aware eviction across tts/llm/embedding +
    a **"Low-VRAM mode" (1-at-a-time) toggle** + idle-TTL, unifying EngineManager slots
    with the runner's `--models-max`. Is TTS+LLM ever truly concurrent or only sequential

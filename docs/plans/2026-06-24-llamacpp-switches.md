@@ -418,6 +418,69 @@ and was overturned by source-code-verified multi-source research; don't repeat i
 For ONE model in VRAM, pass **`--models-max 1`** (forces evict-before-load);
 `/models/unload` frees VRAM explicitly; llama-swap's per-model `ttl` does idle-unload.
 
+**✅ VERIFIED EMPIRICALLY (2026-06-25 local test) — per-model INI switches DO apply
+on hot-swap, router parent NOT restarted.** The user asked the exact question:
+*"can we hot swap between models — say an MoE and a dense — with different switches,
+as long as they're in the INI, WITHOUT restarting the server?"* I ran it directly
+(this was previously only an inferred-from-source claim; now it's observed). Setup:
+real `llama-server` **b9786** (latest release, Linux x64 CPU build), two tiny GGUFs
+(Qwen2.5-0.5B-Instruct-Q4_K_M as `modelA`, SmolLM2-135M-Instruct-Q4_K_M as `modelB`),
+a `--models-preset` INI giving each model **deliberately different switches**, started
+with **no `-m`** + `--models-max 2`. (Test artifacts: `scratchpad/router-test/` —
+`preset.ini`, `run-test.sh`, `router.log`.)
+
+The INI (keys = CLI args sans dashes, `[*]` global + per-model section, exactly the
+README contract):
+```ini
+version = 1
+[*]
+ctx-size = 768
+[modelA]                       ; Qwen2.5-0.5B (dense)
+model = …/qwen2.5-0.5b-instruct-q4_k_m.gguf
+ctx-size = 2048
+cache-type-k = q8_0
+cache-type-v = q8_0
+flash-attn = on
+parallel = 1
+[modelB]                       ; SmolLM2-135M — DIFFERENT switches
+model = …/SmolLM2-135M-Instruct-Q4_K_M.gguf
+ctx-size = 333
+cache-type-k = f16
+parallel = 2
+```
+
+Observed (verbatim `/proc/<pid>/cmdline`, router shell-PID **7375** throughout):
+- **After boot:** ONE process (the router, PID 7375). `GET /v1/models` lists `modelA`,
+  `modelB` both `status: unloaded`. → registered ≠ loaded; autoload is lazy.
+- **Hit `modelA`** (chat request, `"model":"modelA"`) → router spawned a **child PID
+  7400, PPID 7375**:
+  `llama-server --host 127.0.0.1 --port 39163 --alias modelA --ctx-size 2048
+  --cache-type-k q8_0 --cache-type-v q8_0 --flash-attn on --model …qwen…q4_k_m.gguf
+  --parallel 1` — **modelA's exact INI switches**. Returned `"Hello."`.
+- **Hit `modelB`** → router spawned a **second child PID 7437, PPID 7375**:
+  `llama-server --host 127.0.0.1 --port 39295 --alias modelB --ctx-size 333
+  --cache-type-k f16 --model …SmolLM2…Q4_K_M.gguf --parallel 2` — **modelB's exact,
+  DIFFERENT INI switches** (ctx 333 is impossible-as-a-default → proves the per-model
+  value was applied). Returned `"Hello!"`.
+- **Router PID 7375 unchanged across both loads** (`kill -0` confirmed alive); both
+  children co-resident under it (`--models-max 2`); each child is a **separate
+  `llama-server` process on its own auto-assigned port**.
+
+**Conclusion (now directly verified, not inferred): YES.** Router mode runs each
+model as its own child `llama-server` launched with **that model's** INI switches, on
+demand, while the router parent stays up — so two models with different switch sets
+(e.g. an MoE with `n-cpu-moe=N` and a dense with `n-gpu-layers=X`) hot-swap with no
+router restart. **Caveat tested-around:** `--n-cpu-moe` itself is **GPU-only** and
+this box is CPU-only, so I proved the *per-model-switch-application mechanism* with
+`ctx-size`/`cache-type`/`flash-attn`/`parallel` instead; `n-cpu-moe` rides the same
+INI→child-argv path (it's just another `key = value` line, confirmed present in
+`--help` as `-ncmoe, --n-cpu-moe N`), so an MoE model's offload switch would be passed
+to its child identically. **Switch-VALUE changes on the SAME model still need a child
+(re)load** (the child's argv is fixed at its spawn) — unchanged from above; that's
+what #19's `/load`+`Overrides` does. **`--models-max` is COUNT-based, not VRAM-aware**
+(run-2 caveat stands): with `--models-max 1`, loading modelB would LRU-evict modelA;
+a model bigger than *remaining* VRAM errors rather than evicting.
+
 **Why we run RAW `llama-server` (not Ollama/LM Studio) — verified 2026-06-24:** the
 MoE-expert CPU offload (`--n-cpu-moe`) that fits a 35B-A3B on 6 GB is the deciding
 switch, and the GUIs don't reliably expose it. **Ollama** exposes `num_gpu`(≈ngl) /

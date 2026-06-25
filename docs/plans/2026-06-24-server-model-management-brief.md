@@ -114,6 +114,51 @@ VRAM gates dense / resident count.
 | **16 GB + 32 GB** | dense 14B / Mistral-Small-24B / 35B-A3B | 14B | 2 co-resident; embed resident |
 | **24 GB+ + 32 GB+** | dense 27–32B (Qwen3.6-27B/DeepSeek-R1-32B) or 35B-A3B full | 14B | `--models-max` 2–4 co-resident; embed resident |
 
+## 4B. SERVER ARCHITECTURE — DESIGN (run-2 informed, 2026-06-25)
+Architecture is now well-grounded (research run 2 = `2026-06-25-serving-architecture-research.md`).
+The per-tier MODEL picks + measured tok/s/VRAM are STILL open (filled by the cited recs doc +
+the user's own Compare on real hardware). **One ADOPT-vs-BUILD fork to confirm before coding.**
+
+**The shape — 3 layers:**
+1. **Detection** (extend `runner/hardware.py`, today NVIDIA-only): adopt **llmfit's per-vendor
+   shell-out PATTERN** (nvidia-smi / rocm-smi / Intel sysfs / **Apple `system_profiler`**) → report
+   VRAM + RAM + platform. Apple budget = ~66 % (<64 GB) / ~75 % (≥64 GB) of UNIFIED RAM.
+2. **VRAM-budget planner (BUILD — the ONE piece NO tool provides; all are count-based/operator-declared):**
+   estimate per-model VRAM with **`gguf-parser`** (ADOPT — what GPUStack uses; **replaces our
+   hand-rolled `fit.py`/`compute_fit`** — directly fixes the earlier roll-your-own-fit miss) →
+   per tier decide: model set + `--n-cpu-moe` offload (NVIDIA only; **pointless on Apple unified
+   memory** — no PCIe) + co-residence (keep embedding + one chat resident; evict on budget) +
+   idle-TTL → emit the switching config.
+3. **Switching / coordination engine — the FORK:**
+   - **Option A — ADOPT `llama-swap` (RECOMMENDED).** It already fronts **LLM + embedding + TTS**
+     (`v1/audio/speech`) in ONE proxy with the exact primitives we need — keep-resident
+     (`swap:false`), cross-group evict (`exclusive`), `evict_cost`, idle `ttl`. Our planner
+     GENERATES its config from detected hardware. **This is the only option that natively
+     coordinates JV's TTS + LLM + embedding** (router mode is llama.cpp-only). Cost: bundle a Go
+     sidecar per platform. RULE #7 §D: adopt > build.
+   - **Option B — BUILD on `llama.cpp` router mode (no extra binary).** Native multi-process +
+     manual `/models/unload`; but **count-based not VRAM-aware**, **llama.cpp-only** (won't
+     coordinate JV's TTS engine → JV keeps EngineManager and we coordinate two systems), + the
+     TOCTOU (#20137) / metrics-autoload (#23096) gotchas. More to build, less unified.
+   - **Recommendation: A** — adopt llama-swap as the unified coordination layer; build only the
+     VRAM-budget planner (which nothing provides). **CONFIRM with user** (cost = a bundled Go sidecar).
+
+**Per-app:**
+- **JW (LLM-only):** planner + (llama-swap or router) over LLM + embedding. Simpler.
+- **JV (LLM + TTS + embedding):** the win case for llama-swap — keep the TTS model resident while
+  swapping LLMs under one budget; replaces the EngineManager-per-kind-slots + separate-runner
+  split with ONE coordinated budget. (If TTS stays a JV subprocess, the planner reserves its VRAM
+  as a fixed block.)
+- **Apple Silicon:** unified-memory budget; **no `--n-cpu-moe` benefit**; pick models that fit the
+  unified budget directly; TG is bandwidth-bound (set expectations by chip tier).
+
+**Auto-config + override:** detect → planner proposes per-tier config → user overrides in
+QuickSetup (#11) / tuning UI (#20) → **Compare (#21) measures on the user's real hardware** —
+this is how the MISSING measured numbers get filled (maintainer can't test broadly).
+
+**Still BUILD (confirmed):** the VRAM-budget planner (gguf-parser fit + per-tier policy + config
+emit); detection extension (AMD/Intel/Apple); structured output (#18) for extraction.
+
 ## 5. Open design questions (decide next session)
 1. **Router mode vs spawn-per-model** for production serving? Research favors **router**
    (native LRU at `--models-max`, per-model INI, multi-process isolation). #19's

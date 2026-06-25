@@ -40,6 +40,18 @@ from .feature_presets_api import (
     FeaturePresetStore,
     make_feature_presets_router,
 )
+from .jobs_api import (
+    DEFAULT_JOB_ID,
+    FeatureJobRow,
+    FeatureJobStore,
+    FeatureJobsResponse,
+    JobRow,
+    JobStore,
+    JobsResponse,
+    make_feature_jobs_router,
+    make_jobs_router,
+    slugify_job_id,
+)
 from .model_catalog_api import (
     CatalogResponse,
     CatalogRow,
@@ -102,6 +114,10 @@ __all__ = [
     "SwitchRow", "SwitchesResponse", "ModelSwitchStore", "make_switches_router",
     # feature presets (per-feature saved configs; active = production)
     "FeaturePreset", "FeaturePresetStore", "make_feature_presets_router",
+    # jobs (the editable routing-unit list) + feature→job map (replaces roles)
+    "JobRow", "JobStore", "JobsResponse", "make_jobs_router",
+    "FeatureJobRow", "FeatureJobStore", "FeatureJobsResponse", "make_feature_jobs_router",
+    "DEFAULT_JOB_ID", "slugify_job_id",
     # tiers
     "TIERS", "TierSpec", "classify", "spec_for",
     # usage

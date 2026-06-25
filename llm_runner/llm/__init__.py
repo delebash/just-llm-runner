@@ -40,6 +40,13 @@ from .feature_presets_api import (
     FeaturePresetStore,
     make_feature_presets_router,
 )
+from .recommendations_api import (
+    RecommendationRow,
+    RecommendationStore,
+    RecommendationsResponse,
+    SUGGESTED_JOBS,
+    make_recommendations_router,
+)
 from .routing_api import (
     FeatureCatalogEntry,
     RoutingConfig,
@@ -77,6 +84,9 @@ __all__ = [
     # routing (default + roles + per-feature pins, behind a host store)
     "RoutingStore", "RoutingConfig", "FeatureCatalogEntry", "make_routing_router",
     "RoutingPreset", "RoutingPresetStore", "make_routing_presets_router",
+    # recommendations (per-model job-tag curation, behind a host store)
+    "RecommendationRow", "RecommendationStore", "RecommendationsResponse",
+    "SUGGESTED_JOBS", "make_recommendations_router",
     # feature presets (per-feature saved configs; active = production)
     "FeaturePreset", "FeaturePresetStore", "make_feature_presets_router",
     # tiers

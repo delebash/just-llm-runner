@@ -14,6 +14,7 @@ import UiButton from "../common/components/UiButton.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
+import RecommendationsEditor from "./RecommendationsEditor.vue";
 import { request } from "../client.js";
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
@@ -139,6 +140,7 @@ onMounted(loadAll);
     <nav class="lu-subnav">
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Features</a>
+      <a :class="{ on: tab === 'recommendations' }" @click="tab = 'recommendations'">Recommendations</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
       <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
     </nav>
@@ -217,6 +219,11 @@ onMounted(loadAll);
          Absorbs the old routing table; named whole-config snapshots below. ── -->
     <section v-show="tab === 'features'" class="lu-tab">
       <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
+    </section>
+
+    <!-- ── Recommendations (manual editor over the Q3 layer) ── -->
+    <section v-show="tab === 'recommendations'" class="lu-tab">
+      <RecommendationsEditor v-if="tab === 'recommendations'" />
     </section>
 
     <!-- ── Usage — full ledger: rollup + by-feature + by-provider + reset ── -->

@@ -95,8 +95,8 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     cur_id = st.get("modelId") or ""
     cur_state = st.get("status") or "idle"
 
-    def _status_for(model: ModelEntry, downloaded: bool) -> str:
-        if model.id == cur_id:
+    def _status_for(model_id: str, downloaded: bool) -> str:
+        if model_id == cur_id:
             if cur_state == "running":
                 return "loaded"
             if cur_state in ("downloading", "starting"):
@@ -105,8 +105,12 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
                 return "error"
         return "disk" if downloaded else "available"
 
+    # Catalog is HOST-OWNED (DB-backed via service.catalog()). Falls through
+    # to manifest.models inside service.catalog() for standalone runner use.
+    catalog = service.catalog()
+
     models: list[RunnerModelInfo] = []
-    for m in manifest.models:
+    for m in catalog:
         downloaded = is_cached(m.hf_repo, m.quant, cache_root=hf_cache, mmproj=m.mmproj)
         models.append(
             RunnerModelInfo(
@@ -118,7 +122,7 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
                 min_vram_mb=m.recommended_for.min_vram_mb,
                 min_ram_mb=m.min_ram_mb,
                 fit=_fit(m, gpu_vram, hardware.ram_mb, margin),
-                status=_status_for(m, downloaded),
+                status=_status_for(m.id, downloaded),
                 downloaded=downloaded,
             )
         )

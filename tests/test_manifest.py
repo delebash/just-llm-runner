@@ -27,12 +27,12 @@ def test_manifest_loads_and_validates():
         assert b.asset_url or b.image
 
 
-def test_models_are_hf_repos_with_quant():
+def test_manifest_models_is_empty():
+    # The downloadable model catalog moved off the manifest into the host DB
+    # (JustWrite: model_catalog table, seeded via seed.py DEFAULT_CATALOG). The
+    # manifest now ships ONLY binaries + flag presets + vramFit.
     m = load_manifest(refresh=True)
-    assert m.models
-    for e in m.models:
-        assert "/" in e.hf_repo and e.quant
-        assert e.tier in {"cpu", "low-vram-moe", "mid", "high"}
+    assert m.models == []
 
 
 def test_json_keys_are_camelcase():

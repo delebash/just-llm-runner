@@ -16,12 +16,81 @@ import os
 import threading
 from pathlib import Path
 
+from dataclasses import fields as _dc_fields
+
 from .binary import acquire_binary as _acquire_binary
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect
 from .manifest import load_manifest as _load_manifest
 from .models import acquire_model as _acquire_model
 from .process import Overrides, compute_fit, start_runner as _start_runner
+from .schema import ModelEntry
+
+
+def _default_catalog_fn() -> list[ModelEntry]:
+    """Standalone default: no host store wired → empty catalog. Hosts override
+    this with a DB-backed function via `RunnerService(catalog_fn=...)`."""
+    return []
+
+
+def _default_switches_fn(model_id: str) -> dict[str, str]:  # noqa: ARG001
+    """Standalone default: no host store wired → no per-model switch overrides."""
+    return {}
+
+
+# Set of `Overrides` field names — used to validate switch keys at apply time
+# (a stored flag_name not in this set is silently dropped, not a crash).
+_OVERRIDE_FIELDS = {f.name for f in _dc_fields(Overrides)}
+
+
+def _parse_switch(name: str, value: str):
+    """Parse a stored switch text value into the typed `Overrides` field. Bool
+    fields recognize 'true'/'false' (case-insensitive); int fields parse as int;
+    everything else stays string. Returns `None` if the value is empty (treated
+    as 'not set')."""
+    if value is None or value == "":
+        return None
+    bool_fields = {"no_mmap", "mlock", "no_kv_offload", "cont_batching"}
+    int_fields = {
+        "n_gpu_layers", "n_cpu_moe", "ctx_len", "batch_size", "ubatch_size",
+        "threads", "threads_batch", "parallel", "cache_reuse", "spec_n_max",
+    }
+    if name in bool_fields:
+        return value.strip().lower() in ("true", "1", "yes", "on")
+    if name in int_fields:
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return value
+
+
+def _merge_overrides(base: Overrides, user: Overrides | None) -> Overrides:
+    """Layer user-supplied Overrides ON TOP of catalog-derived ones. User wins
+    per-field (a user value REPLACES the catalog default; user None leaves the
+    catalog value in place). `extra_flags` are CONCATENATED, not replaced."""
+    if user is None:
+        return base
+    merged = Overrides(extra_flags=list(base.extra_flags or []) + list(user.extra_flags or []))
+    for f in _OVERRIDE_FIELDS - {"extra_flags"}:
+        u = getattr(user, f, None)
+        merged_val = u if u is not None else getattr(base, f, None)
+        setattr(merged, f, merged_val)
+    return merged
+
+
+def _switches_to_overrides(switches: dict[str, str]) -> Overrides:
+    """Build an `Overrides` from the host's `{flag_name: flag_value}` dict
+    (variable-cardinality switch rows). Unknown keys are silently dropped."""
+    ov = Overrides()
+    for name, value in (switches or {}).items():
+        if name not in _OVERRIDE_FIELDS or name == "extra_flags":
+            continue
+        parsed = _parse_switch(name, value)
+        if parsed is None:
+            continue
+        setattr(ov, name, parsed)
+    return ov
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +111,8 @@ class RunnerService:
         *,
         manifest_fn=_load_manifest,
         hardware_fn=_detect,
+        catalog_fn=_default_catalog_fn,
+        switches_fn=_default_switches_fn,
         acquire_binary=_acquire_binary,
         acquire_model=_acquire_model,
         read_meta=_read_gguf_metadata,
@@ -50,6 +121,8 @@ class RunnerService:
         self._cache_root = Path(cache_root)
         self._manifest_fn = manifest_fn
         self._hardware_fn = hardware_fn
+        self._catalog_fn = catalog_fn
+        self._switches_fn = switches_fn
         self._acquire_binary = acquire_binary
         self._acquire_model = acquire_model
         self._read_meta = read_meta
@@ -65,6 +138,11 @@ class RunnerService:
         it). Exposed so the catalog endpoint can check on-disk state without
         reaching into a private attr."""
         return self._cache_root
+
+    def catalog(self) -> list[ModelEntry]:
+        """Host-backed downloadable model catalog. Falls back to manifest.models
+        when no host store is wired (standalone runner package use)."""
+        return self._catalog_fn() or list(self._manifest_fn().models)
 
     def status(self) -> dict:
         # Reflect a llama-server that died after it came up.
@@ -105,13 +183,19 @@ class RunnerService:
         return cands[0]  # first shard of a split model loads the rest
 
     def _run_load(self, model_id: str, overrides: Overrides | None = None) -> None:
-        ov = overrides or Overrides()
         try:
             manifest = self._manifest_fn()
             hardware = self._hardware_fn()
-            model = next((m for m in manifest.models if m.id == model_id), None)
+            # The downloadable catalog is HOST-OWNED (DB-backed via .catalog());
+            # falls through to manifest.models for standalone runner use.
+            model = next((m for m in self.catalog() if m.id == model_id), None)
             if model is None:
                 raise ValueError(f"unknown model {model_id!r}")
+
+            # Catalog-default switches layer UNDER user-supplied overrides
+            # (user wins per-field).
+            base_ov = _switches_to_overrides(self._switches_fn(model_id) or {})
+            ov = _merge_overrides(base_ov, overrides)
 
             self._state.update(status="downloading", detail="llama.cpp binary")
             server_exe = self._acquire_binary(self._cache_root, manifest, hardware)
@@ -136,9 +220,37 @@ class RunnerService:
 _service: RunnerService | None = None
 
 
+def configure_service(
+    *,
+    catalog_fn=None,
+    switches_fn=None,
+    manifest_fn=None,
+    hardware_fn=None,
+    cache_root: str | None = None,
+) -> RunnerService:
+    """Host hook to construct the singleton with DB-backed catalog/switches
+    (and any other injections). Call ONCE at boot, before `get_service()`.
+    Returns the constructed singleton."""
+    global _service
+    root = cache_root or os.environ.get("LLM_RUNNER_CACHE") or str(Path.home() / ".cache" / "just-llm-runner")
+    kwargs = {}
+    if catalog_fn is not None:
+        kwargs["catalog_fn"] = catalog_fn
+    if switches_fn is not None:
+        kwargs["switches_fn"] = switches_fn
+    if manifest_fn is not None:
+        kwargs["manifest_fn"] = manifest_fn
+    if hardware_fn is not None:
+        kwargs["hardware_fn"] = hardware_fn
+    _service = RunnerService(root, **kwargs)
+    return _service
+
+
 def get_service() -> RunnerService:
     """Process-wide singleton. Cache root from LLM_RUNNER_CACHE or the user
-    cache home (the runner is app-agnostic — it owns its own cache dir)."""
+    cache home (the runner is app-agnostic — it owns its own cache dir).
+    Hosts should call `configure_service(...)` once at boot to wire DB-backed
+    catalog/switches; otherwise this falls back to the manifest-only standalone."""
     global _service
     if _service is None:
         root = os.environ.get("LLM_RUNNER_CACHE") or str(Path.home() / ".cache" / "just-llm-runner")

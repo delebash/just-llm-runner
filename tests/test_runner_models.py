@@ -53,18 +53,24 @@ def _model(mid, min_vram_mb, *, min_ram_mb=None, total_params="14B"):
 
 
 class _FakeService:
-    def __init__(self, status):
+    def __init__(self, status, models):
         self._status = status
+        self._models = list(models or [])
         self.cache_root = Path("/nonexistent-cache-root")
 
     def status(self):
         return self._status
 
+    # Mirrors RunnerService.catalog — host-backed; falls through to manifest
+    # in production but the test feeds models in directly.
+    def catalog(self):
+        return self._models
+
 
 def _patch(monkeypatch, *, hardware, models, status):
     monkeypatch.setattr(api, "detect", lambda: hardware)
     monkeypatch.setattr(api, "load_manifest", lambda: _manifest(models))
-    monkeypatch.setattr(api, "get_service", lambda: _FakeService(status))
+    monkeypatch.setattr(api, "get_service", lambda: _FakeService(status, models))
     # Nothing is on disk in these tests.
     monkeypatch.setattr(api, "is_cached", lambda *a, **k: False)
 

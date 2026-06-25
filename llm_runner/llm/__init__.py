@@ -40,6 +40,16 @@ from .feature_presets_api import (
     FeaturePresetStore,
     make_feature_presets_router,
 )
+from .model_catalog_api import (
+    CatalogResponse,
+    CatalogRow,
+    ModelCatalogStore,
+    ModelSwitchStore,
+    SwitchRow,
+    SwitchesResponse,
+    make_catalog_router,
+    make_switches_router,
+)
 from .recommendations_api import (
     RecommendationRow,
     RecommendationStore,
@@ -87,6 +97,9 @@ __all__ = [
     # recommendations (per-model job-tag curation, behind a host store)
     "RecommendationRow", "RecommendationStore", "RecommendationsResponse",
     "SUGGESTED_JOBS", "make_recommendations_router",
+    # model catalog + switches (the DB-backed downloadable-model source of truth)
+    "CatalogRow", "CatalogResponse", "ModelCatalogStore", "make_catalog_router",
+    "SwitchRow", "SwitchesResponse", "ModelSwitchStore", "make_switches_router",
     # feature presets (per-feature saved configs; active = production)
     "FeaturePreset", "FeaturePresetStore", "make_feature_presets_router",
     # tiers

@@ -75,8 +75,11 @@ def test_fit_overrides_win():
 
 def test_compose_flags_replaces_ngl_and_adds_moe(tmp_path):
     m = load_manifest(refresh=True)
+    # The catalog now lives in the host DB; pass an inline MTP entry to drive
+    # the mtp branch (m.models is intentionally empty).
+    mtp = ModelEntry(id="t", name="T", tier="mid", hf_repo="x/y", quant="Q4", mtp=True)
     flags = compose_flags(
-        m, m.models[0], tmp_path / "model.gguf",
+        m, mtp, tmp_path / "model.gguf",
         n_gpu_layers=20, n_cpu_moe=4, ctx_len=4096, port=9999,
     )
     # the base preset's placeholder -ngl 999 is gone; ours appears once
@@ -86,7 +89,7 @@ def test_compose_flags_replaces_ngl_and_adds_moe(tmp_path):
     assert flags[flags.index("--n-cpu-moe") + 1] == "4"
     assert flags[flags.index("-m") + 1].endswith("model.gguf")
     assert flags[flags.index("--port") + 1] == "9999"
-    assert "--spec-type" in flags  # m.models[0] is the MTP entry
+    assert "--spec-type" in flags  # mtp=True → base+mtp preset
 
 
 def test_compose_flags_no_moe_no_mtp(tmp_path):
@@ -133,10 +136,11 @@ def test_compose_flags_presence_overrides(tmp_path):
 
 
 def test_compose_flags_spec_none_clears_mtp(tmp_path):
-    # m.models[0] is the MTP entry → base+mtp adds --spec-type draft-mtp; "none" clears it.
+    # An MTP entry → base+mtp adds --spec-type draft-mtp; "none" clears it.
     m = load_manifest(refresh=True)
+    mtp = ModelEntry(id="t", name="T", tier="mid", hf_repo="x/y", quant="Q4", mtp=True)
     flags = compose_flags(
-        m, m.models[0], tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        m, mtp, tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
         overrides=Overrides(spec_type="none"),
     )
     assert "--spec-type" not in flags
@@ -178,8 +182,11 @@ class _FakeProc:
 
 def _fixture():
     m = load_manifest(refresh=True)
+    # Catalog now lives in the host DB; pass an inline MTP entry (the original
+    # fixture relied on m.models[0] being the MTP row).
+    model = ModelEntry(id="t", name="T", tier="mid", hf_repo="x/y", quant="Q4", mtp=True)
     fit = FitPlan(n_gpu_layers=20, n_cpu_moe=0, ctx_len=4096, block_count=48, is_moe=True)
-    return m, m.models[0], fit
+    return m, model, fit
 
 
 def test_start_runner_healthy_first_try():

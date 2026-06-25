@@ -22,10 +22,14 @@ Compare on real hardware).
    [HF model-management blog](https://huggingface.co/blog/ggml-org/model-management-in-llamacpp).
 2. **Spawn one llama-server per model** — what our `RunnerService` does today (singleton,
    stop-to-switch). Simplest; no co-residence.
-3. **llama-swap** ⭐ — backend-agnostic Go proxy (OpenAI **+** Anthropic compatible) that
-   fronts **LLM + embedding + TTS/audio** (`v1/audio/speech`) endpoints in ONE place. This
-   is the strongest **adoptable** building block for OUR hardest requirement (TTS + LLM +
-   embedding on one GPU). Verified primitives:
+3. **llama-swap** — backend-agnostic Go proxy (OpenAI **+** Anthropic compatible) that
+   routes **LLM + embedding + audio/TTS** (`v1/audio/speech`) endpoints by the `model` field.
+   ⚠️ **CAVEAT (corrected 2026-06-25, user-caught):** it only manages **OpenAI/Anthropic-
+   compatible upstreams** and does NO inference itself. **JV's TTS engines are custom
+   `EngineProcess` servers (`/load`, `/voices`), NOT OpenAI `/v1/audio/speech`** — so
+   llama-swap would NOT manage OUR TTS as-is. Its value for us is **LLM + embedding swapping
+   only** (where llama.cpp router mode is the native alternative); the "unifies TTS+LLM+embed"
+   claim was wrong. Verified primitives (useful for the LLM/embed side):
    - **matrix DSL** `(g|q|m)&v` → keeps TTS model `v` resident while swapping LLMs g/q/m
      (exactly the keep-TTS-resident-while-switching-LLM pattern we need).
    - **`evict_cost`** per model (default 1; bias toward keeping expensive-to-reload models

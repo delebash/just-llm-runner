@@ -129,19 +129,26 @@ the user's own Compare on real hardware). **One ADOPT-vs-BUILD fork to confirm b
    per tier decide: model set + `--n-cpu-moe` offload (NVIDIA only; **pointless on Apple unified
    memory** — no PCIe) + co-residence (keep embedding + one chat resident; evict on budget) +
    idle-TTL → emit the switching config.
-3. **Switching / coordination engine — the FORK:**
-   - **Option A — ADOPT `llama-swap` (RECOMMENDED).** It already fronts **LLM + embedding + TTS**
-     (`v1/audio/speech`) in ONE proxy with the exact primitives we need — keep-resident
-     (`swap:false`), cross-group evict (`exclusive`), `evict_cost`, idle `ttl`. Our planner
-     GENERATES its config from detected hardware. **This is the only option that natively
-     coordinates JV's TTS + LLM + embedding** (router mode is llama.cpp-only). Cost: bundle a Go
-     sidecar per platform. RULE #7 §D: adopt > build.
-   - **Option B — BUILD on `llama.cpp` router mode (no extra binary).** Native multi-process +
-     manual `/models/unload`; but **count-based not VRAM-aware**, **llama.cpp-only** (won't
-     coordinate JV's TTS engine → JV keeps EngineManager and we coordinate two systems), + the
-     TOCTOU (#20137) / metrics-autoload (#23096) gotchas. More to build, less unified.
-   - **Recommendation: A** — adopt llama-swap as the unified coordination layer; build only the
-     VRAM-budget planner (which nothing provides). **CONFIRM with user** (cost = a bundled Go sidecar).
+3. **Switching / coordination engine — the FORK (RE-EVALUATED 2026-06-25 after a wrong claim):**
+   ⚠️ **CORRECTION:** an earlier version said "adopt llama-swap because it natively coordinates
+   JV's TTS+LLM+embedding." **WRONG** — verified: llama-swap only manages **OpenAI/Anthropic-
+   compatible** upstreams (routes `/v1/audio/*` by the `model` field), and **JV's TTS engines are
+   custom `EngineProcess` servers (`/load`, `/voices`), NOT OpenAI `/v1/audio/speech`** — so
+   llama-swap would NOT manage our TTS as-is. The TTS advantage collapses.
+   - **Cross-kind TTS↔LLM VRAM coordination is OURS to BUILD regardless** — no tool does
+     cross-subsystem VRAM arbitration. The planner must orchestrate TWO subsystems under one
+     budget: the LLM(+embedding) server(s) **and JV's existing `EngineManager`** (which already
+     spawns/terminates TTS engines). This is inherent, not adoptable.
+   - **LLM(+embedding) swap mechanism:** **router mode (native, no Go sidecar) is likely
+     sufficient** for our llama.cpp stack. **llama-swap** only earns its keep if we later want
+     **backend-agnostic** LLM serving (front vLLM/tabbyAPI/etc.) — its TTS/audio routing is
+     **moot for our custom TTS**.
+   - **Rejected:** rewriting every JV TTS engine as an OpenAI-`/v1/audio/speech` server so
+     llama-swap could unify them — JV's voice params / instruct / effects don't map to the thin
+     OpenAI audio API; not worth the rework.
+   - **Corrected recommendation:** **router mode for LLM+embedding + BUILD the VRAM-budget
+     planner that coordinates the LLM runner ⟷ JV `EngineManager` under one budget** (gguf-parser
+     for fit). llama-swap = optional, only for backend-agnostic LLM serving. (Confirm with user.)
 
 **Per-app:**
 - **JW (LLM-only):** planner + (llama-swap or router) over LLM + embedding. Simpler.

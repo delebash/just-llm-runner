@@ -26,6 +26,35 @@ const LOCAL_RUNNER_ID = "local-llamacpp";
 const FIT_RUNNABLE = new Set(["ok", "tight", "cpu"]);
 const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fit", unknown: "—" };
 
+// Role rows the wizard renders. `job` keys into /v1/ai/recommendations rows
+// (the curated 'this model is good FOR' layer); `fallback` is the heuristic to
+// use when no recommendation exists for that job (smallest/largest fitting).
+// `blurb` is the per-role description shown under the picker — what the role
+// actually handles in the app, so the user knows what they're choosing.
+const ROLE_DEFS = [
+  {
+    key: "default",
+    job: "accuracy",       // default = "main brain", borrow the accuracy curated list
+    fallback: "largest",
+    label: "Default model",
+    blurb: "The main model — runs every feature that isn't pinned to Quick, Accuracy, or a specific provider. Pick the strongest model that fits comfortably.",
+  },
+  {
+    key: "quick",
+    job: "quick",
+    fallback: "smallest",
+    label: "Quick role",
+    blurb: "Snappy / interactive work — brainstorm, inline rewrites, quick drafts, recaps. Picks a small model so responses feel instant.",
+  },
+  {
+    key: "accuracy",
+    job: "accuracy",
+    fallback: "largest",
+    label: "Accuracy role",
+    blurb: "Careful passes — critique, plot-hole audit, multi-reader, extraction. Picks the strongest model that fits, accepts a slower response for higher quality.",
+  },
+];
+
 // ── modal + wizard state ────────────────────────────────────────────────────
 const open = ref(false);
 const step = ref("detect"); // detect | confirm | apply | done
@@ -34,6 +63,7 @@ const error = ref("");
 
 const hw = ref(null);
 const models = ref([]);
+const recommendations = ref([]); // /v1/ai/recommendations rows — the Q3 curated layer
 const detectedVramMb = ref(0);
 // Card/VRAM override — re-scores Fit for a card other than this machine's.
 const cardOverride = ref("auto");
@@ -81,20 +111,22 @@ function fitOf(id) {
   return modelById.value[id]?.fit || "unknown";
 }
 
-// ── load hardware + catalog (optionally for an overridden card) ──────────────
+// ── load hardware + catalog + recommendations (optionally for an overridden card)
 async function loadAll() {
   loading.value = true;
   error.value = "";
   try {
     const vramQ = cardOverride.value === "auto" ? "" : `?vram_mb=${cardOverride.value}`;
-    const [h, m] = await Promise.all([
+    const [h, m, r] = await Promise.all([
       request("/v1/llm-runner/hardware"),
       request(`/v1/llm-runner/models${vramQ}`),
+      request("/v1/ai/recommendations").catch(() => ({ rows: [] })), // optional — older servers
     ]);
     hw.value = h;
     models.value = m.models || [];
+    recommendations.value = r.rows || [];
     detectedVramMb.value = (h.gpus && h.gpus[0]?.vramMb) || 0;
-    prefillFromFit();
+    prefillRoles();
   } catch (e) {
     error.value = `Couldn't read hardware / catalog: ${e.message}`;
   } finally {
@@ -102,15 +134,34 @@ async function loadAll() {
   }
 }
 
-// Quick = smallest that fits (snappy); Accuracy/Default = largest that fits well.
-function prefillFromFit() {
-  const good = fitting.value.filter((m) => m.fit === "ok" || m.fit === "tight");
-  const pool = good.length ? good : fitting.value;
-  const smallest = pool[0] || fitting.value[0] || null;
-  const largest = pool[pool.length - 1] || smallest;
-  if (!pick.value.quick) pick.value.quick = smallest?.id || "";
-  if (!pick.value.accuracy) pick.value.accuracy = largest?.id || "";
-  if (!pick.value.default) pick.value.default = (largest || smallest)?.id || "";
+// Pre-fill each role from curated recommendations (filter by job + Fit-OK, rank
+// ascending). If no recommendation fits the user's card for that job, fall back
+// to the role's heuristic (smallest/largest fitting model). Editable either way.
+function prefillRoles() {
+  const fittingIds = new Set(fitting.value.map((m) => m.id));
+  for (const role of ROLE_DEFS) {
+    if (pick.value[role.key]) continue;  // never overwrite a user pick
+    // 1. curated recommendation: rows matching this job, only models that fit.
+    const recs = recommendations.value
+      .filter((row) => row.job === role.job && fittingIds.has(row.modelId))
+      .sort((a, b) => (a.rank ?? 100) - (b.rank ?? 100));
+    if (recs.length) { pick.value[role.key] = recs[0].modelId; continue; }
+    // 2. heuristic fallback by role.
+    const good = fitting.value.filter((m) => m.fit === "ok" || m.fit === "tight");
+    const pool = good.length ? good : fitting.value;
+    const candidate = role.fallback === "smallest" ? pool[0] : pool[pool.length - 1];
+    pick.value[role.key] = candidate?.id || "";
+  }
+}
+
+// Curated "why" line for the chosen model under a role — for the inline blurb.
+function whyFor(roleKey) {
+  const role = ROLE_DEFS.find((r) => r.key === roleKey);
+  if (!role) return "";
+  const chosen = pick.value[roleKey];
+  if (!chosen) return "";
+  const rec = recommendations.value.find((row) => row.job === role.job && row.modelId === chosen);
+  return rec?.why || "";
 }
 
 async function loadRouting() {
@@ -246,28 +297,32 @@ defineExpose({ openWizard });
 
         <div v-if="loading" class="lu-muted">Re-scoring…</div>
         <template v-else-if="fitting.length">
-          <section class="lu-qs-sec">
-            <div class="lu-qs-k">Models per role <span class="lu-muted">— editable</span></div>
-            <div class="lu-qs-roles">
-              <div class="lu-qs-role">
-                <UiTag intent="ghost">DEFAULT</UiTag>
-                <UiSelect v-model="pick.default" :options="modelOptions" />
-                <span class="lu-fit" :class="`lu-fit--${fitOf(pick.default)}`">{{ FIT_LABEL[fitOf(pick.default)] }}</span>
-              </div>
-              <div class="lu-qs-role">
-                <UiTag intent="ghost">QUICK</UiTag>
-                <UiSelect v-model="pick.quick" :options="modelOptions" />
-                <span class="lu-fit" :class="`lu-fit--${fitOf(pick.quick)}`">{{ FIT_LABEL[fitOf(pick.quick)] }}</span>
-              </div>
-              <div class="lu-qs-role">
-                <UiTag intent="ghost">ACCURACY</UiTag>
-                <UiSelect v-model="pick.accuracy" :options="modelOptions" />
-                <span class="lu-fit" :class="`lu-fit--${fitOf(pick.accuracy)}`">{{ FIT_LABEL[fitOf(pick.accuracy)] }}</span>
-              </div>
+          <!-- Each role gets its own labelled section with a real description
+               of what it handles + the Fit chip inline. Stacked, not crammed
+               into a single row (the old JW shape). -->
+          <section v-for="r in ROLE_DEFS" :key="r.key" class="lu-qs-sec">
+            <div class="lu-qs-k">
+              {{ r.label }}
+              <span class="lu-fit lu-qs-fit" :class="`lu-fit--${fitOf(pick[r.key])}`">{{ FIT_LABEL[fitOf(pick[r.key])] }}</span>
             </div>
-            <p class="lu-muted lu-qs-hint">
-              Quick = snappy/interactive · Accuracy = careful passes · Default = everything else. Embedding stays as set in Providers<span v-if="pick.embeddingModel"> (<code>{{ pick.embeddingModel }}</code>)</span>.
+            <UiSelect v-model="pick[r.key]" :options="modelOptions" />
+            <p class="lu-muted lu-qs-hint">{{ r.blurb }}</p>
+            <p v-if="whyFor(r.key)" class="lu-qs-why">
+              <b>Why this pick:</b> {{ whyFor(r.key) }}
             </p>
+          </section>
+
+          <!-- What will happen on Apply — mirrors the old JW Routing summary. -->
+          <section class="lu-qs-sec lu-qs-routing">
+            <div class="lu-qs-k">What happens when you click Apply</div>
+            <ul class="lu-qs-rlist">
+              <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— default for everything not pinned to Quick or Accuracy.</span></li>
+              <li v-if="modelById[pick.quick] && pick.quick !== pick.default"><b>{{ modelById[pick.quick].name }}</b> <span class="lu-muted">— Quick role (snappy/interactive features).</span></li>
+              <li v-if="modelById[pick.accuracy] && pick.accuracy !== pick.default"><b>{{ modelById[pick.accuracy].name }}</b> <span class="lu-muted">— Accuracy role (careful analysis / extraction).</span></li>
+              <li>Default model <b>downloads now</b> if it isn't already on disk; the others download on first use.</li>
+              <li>Embedding stays as set in Providers<span v-if="pick.embeddingModel"> (currently <code>{{ pick.embeddingModel }}</code>)</span>.</li>
+              <li>Per-feature pins you've set stay as they are — this only touches the global default + the two roles.</li>
+            </ul>
           </section>
         </template>
         <div v-else class="lu-muted lu-qs-empty">
@@ -316,13 +371,26 @@ defineExpose({ openWizard });
 .lu-qs-title { font-size: 14px; color: var(--ink); }
 .lu-qs-sub { font-size: 11.5px; margin-left: 8px; }
 .lu-qs-loading { text-align: center; padding: 24px 0; }
-.lu-qs-sec { margin-bottom: 16px; }
-.lu-qs-k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; font-weight: 700; }
+.lu-qs-sec { margin-bottom: 18px; }
+.lu-qs-k {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); margin-bottom: 8px; font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+}
+.lu-qs-fit { margin-left: auto; }
 .lu-qs-detected { font-size: 13px; color: var(--ink-2); }
-.lu-qs-hint { font-size: 11.5px; line-height: 1.5; margin: 6px 0 0; }
-.lu-qs-roles { display: flex; flex-direction: column; gap: 8px; }
-.lu-qs-role { display: flex; align-items: center; gap: 8px; }
-.lu-qs-role :deep(.ui-select) { flex: 1; min-width: 0; }
+.lu-qs-hint { font-size: 11.5px; line-height: 1.55; margin: 6px 0 0; }
+.lu-qs-why {
+  font-size: 12px; line-height: 1.5; margin: 8px 0 0;
+  padding: 8px 10px; background: var(--surface-2); border-radius: 6px;
+  color: var(--ink-2); border-left: 2px solid var(--accent);
+}
+.lu-qs-why b { color: var(--ink); }
+.lu-qs-routing { background: var(--surface-2); padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border); }
+.lu-qs-rlist { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; line-height: 1.45; }
+.lu-qs-rlist li { padding-left: 14px; position: relative; }
+.lu-qs-rlist li::before { content: "•"; position: absolute; left: 0; color: var(--muted); }
+.lu-qs-rlist code { font-family: var(--font-mono, monospace); font-size: 11.5px; }
 .lu-qs-empty { font-size: 12.5px; padding: 8px 0; }
 .lu-qs-applying { font-size: 13px; }
 .lu-qs-summary { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }

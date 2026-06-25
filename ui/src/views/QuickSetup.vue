@@ -1,44 +1,72 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Shared Quick Setup — one-click local bootstrap, Fit-based (the mock's design;
-// an improvement over JW's old static GB-tier recipes). Reads detected hardware
-// + the runner catalog, recommends a fast "Quick" model and a careful "Accuracy"
-// model that fit this machine, and on Apply sets the default + Quick/Accuracy
-// roles via /v1/ai/routing and downloads+loads the Quick model. Built on the
-// shared runner endpoints, so both apps get the same wizard (replacing the
-// per-app Ollama-pull versions; Ollama stays addable via the provider form).
+// Shared Quick Setup — a MODAL WIZARD (the old JustWrite quick-setup concept,
+// rebuilt for the current shared stack). Restores what the old static card lost:
+// a stepped modal, EDITABLE per-role picks, a card/VRAM chooser, and an apply
+// that downloads + loads. On the current stack it uses the shared runner
+// endpoints (/v1/llm-runner/*) + the routing endpoint (/v1/ai/routing) — NOT the
+// old Ollama-pull path — and the kit components (AppModal/UiSelect/UiButton/Icon)
+// instead of the old Jw* forks. Both apps mount it (it's exported from the kit).
+//
+// Steps: detect -> confirm (edit the picks) -> apply (download+load) -> done.
+// Picks persist in the DB via /v1/ai/routing; the curated recommendation defaults
+// + the manual editor are a SQL-backed layer added next (this version pre-fills
+// from the runner's Fit estimate).
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
 import UiButton from "../common/components/UiButton.vue";
+import UiSelect from "../common/components/UiSelect.vue";
+import UiTag from "../common/components/UiTag.vue";
+import AppModal from "../common/components/AppModal.vue";
+
+const emit = defineEmits(["changed"]);
 
 const LOCAL_RUNNER_ID = "local-llamacpp";
+const FIT_RUNNABLE = new Set(["ok", "tight", "cpu"]);
+const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fit", unknown: "—" };
 
+// ── modal + wizard state ────────────────────────────────────────────────────
 const open = ref(false);
+const step = ref("detect"); // detect | confirm | apply | done
 const loading = ref(true);
 const error = ref("");
+
 const hw = ref(null);
 const models = ref([]);
-const applying = ref(false);
-const applied = ref(false);
+const detectedVramMb = ref(0);
+// Card/VRAM override — re-scores Fit for a card other than this machine's.
+const cardOverride = ref("auto");
+const CARD_OPTIONS = [
+  { value: "auto", label: "This machine" },
+  { value: "0", label: "CPU only (no GPU)" },
+  { value: "8192", label: "8 GB card" },
+  { value: "12288", label: "12 GB card" },
+  { value: "16384", label: "16 GB card" },
+  { value: "24576", label: "24 GB card" },
+];
 
-// Models that will run here: ok/tight on a GPU, or cpu (no GPU but RAM is enough).
-const FIT_RUNNABLE = new Set(["ok", "tight", "cpu"]);
+// Editable per-role picks (model ids). Pre-filled from Fit, fully overridable.
+const pick = ref({ default: "", quick: "", accuracy: "", embeddingId: "", embeddingModel: "" });
+
+// ── derived ─────────────────────────────────────────────────────────────────
 function paramsNum(p) {
   const n = Number.parseFloat(String(p || "").replace(/[^0-9.]/g, ""));
   return Number.isFinite(n) ? n : 999;
 }
 const fitting = computed(() =>
-  models.value.filter((m) => FIT_RUNNABLE.has(m.fit)).sort((a, b) => paramsNum(a.params) - paramsNum(b.params)),
+  models.value
+    .filter((m) => FIT_RUNNABLE.has(m.fit))
+    .sort((a, b) => paramsNum(a.params) - paramsNum(b.params)),
 );
-// Quick = smallest that fits (snappiest). Accuracy = largest that fits well
-// (prefer real GPU fit over cpu-only), for the careful passes.
-const quickPick = computed(() => fitting.value[0] || null);
-const accuracyPick = computed(() => {
-  const good = fitting.value.filter((m) => m.fit === "ok" || m.fit === "tight");
-  const pool = good.length ? good : fitting.value;
-  return pool[pool.length - 1] || null;
-});
+const modelById = computed(() => Object.fromEntries(models.value.map((m) => [m.id, m])));
+// One <option> per catalog model, Fit annotated, so a role can pick any of them.
+const modelOptions = computed(() =>
+  models.value.map((m) => ({
+    value: m.id,
+    label: `${m.name} · ${FIT_LABEL[m.fit] || "—"}${m.params ? ` · ${m.params}` : ""}`,
+  })),
+);
 
 const hwLine = computed(() => {
   const h = hw.value;
@@ -46,39 +74,82 @@ const hwLine = computed(() => {
   const g = h.gpus && h.gpus[0];
   const vram = g?.vramMb ? ` · ${Math.round(g.vramMb / 1024)} GB VRAM` : "";
   const ram = h.ramMb ? ` · ${Math.round(h.ramMb / 1024)} GB RAM` : "";
-  return `${g ? g.name : "CPU only"}${vram}${ram}`;
+  const os = h.platform ? ` · ${h.platform}` : "";
+  return `${g ? g.name : "CPU only"}${vram}${ram}${os}`;
 });
+function fitOf(id) {
+  return modelById.value[id]?.fit || "unknown";
+}
 
+// ── load hardware + catalog (optionally for an overridden card) ──────────────
 async function loadAll() {
   loading.value = true;
   error.value = "";
-  applied.value = false;
   try {
+    const vramQ = cardOverride.value === "auto" ? "" : `?vram_mb=${cardOverride.value}`;
     const [h, m] = await Promise.all([
       request("/v1/llm-runner/hardware"),
-      request("/v1/llm-runner/models"),
+      request(`/v1/llm-runner/models${vramQ}`),
     ]);
     hw.value = h;
     models.value = m.models || [];
+    detectedVramMb.value = (h.gpus && h.gpus[0]?.vramMb) || 0;
+    prefillFromFit();
   } catch (e) {
     error.value = `Couldn't read hardware / catalog: ${e.message}`;
   } finally {
     loading.value = false;
   }
 }
-function toggle() {
-  open.value = !open.value;
-  if (open.value) loadAll();
+
+// Quick = smallest that fits (snappy); Accuracy/Default = largest that fits well.
+function prefillFromFit() {
+  const good = fitting.value.filter((m) => m.fit === "ok" || m.fit === "tight");
+  const pool = good.length ? good : fitting.value;
+  const smallest = pool[0] || fitting.value[0] || null;
+  const largest = pool[pool.length - 1] || smallest;
+  if (!pick.value.quick) pick.value.quick = smallest?.id || "";
+  if (!pick.value.accuracy) pick.value.accuracy = largest?.id || "";
+  if (!pick.value.default) pick.value.default = (largest || smallest)?.id || "";
 }
 
-const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fit", unknown: "—" };
+async function loadRouting() {
+  try {
+    const r = await request("/v1/ai/routing");
+    pick.value.embeddingId = r.default?.embeddingId || "";
+    pick.value.embeddingModel = r.default?.embeddingModel || "";
+  } catch {
+    /* routing may be empty on a fresh install — leave embedding blank */
+  }
+}
 
+// ── open / close ────────────────────────────────────────────────────────────
+async function openWizard() {
+  open.value = true;
+  step.value = "detect";
+  pick.value = { default: "", quick: "", accuracy: "", embeddingId: "", embeddingModel: "" };
+  await Promise.all([loadAll(), loadRouting()]);
+  step.value = fitting.value.length ? "confirm" : "confirm"; // confirm shows the empty-state if none fit
+}
+function onModalClose() {
+  open.value = false;
+}
+async function onCardChange() {
+  // Re-score Fit for the chosen card, then re-pick (clear picks so prefill runs).
+  pick.value.default = pick.value.quick = pick.value.accuracy = "";
+  await loadAll();
+}
+
+// ── apply: persist routing (DB) + download/load the default model ────────────
+const applying = ref(false);
+const applyDetail = ref("");
 async function apply() {
-  if (!quickPick.value) return;
   applying.value = true;
   error.value = "";
+  step.value = "apply";
   try {
-    // Merge into current routing: set default + both roles to the bundled runner.
+    // Merge into existing routing: keep current per-feature pins, set default +
+    // both roles to the bundled runner with the chosen models, carry embedding.
     const r = await request("/v1/ai/routing");
     const pins = {};
     for (const f of r.features || []) {
@@ -87,74 +158,154 @@ async function apply() {
     await request("/v1/ai/routing", {
       method: "PUT",
       body: {
-        default: { llmId: LOCAL_RUNNER_ID, embeddingId: r.default?.embeddingId || "" },
-        quick: { providerId: LOCAL_RUNNER_ID, model: quickPick.value.id },
-        accuracy: { providerId: LOCAL_RUNNER_ID, model: (accuracyPick.value || quickPick.value).id },
+        default: {
+          llmId: LOCAL_RUNNER_ID,
+          model: pick.value.default,
+          embeddingId: pick.value.embeddingId || "",
+          embeddingModel: pick.value.embeddingModel || "",
+        },
+        quick: { providerId: LOCAL_RUNNER_ID, model: pick.value.quick },
+        accuracy: { providerId: LOCAL_RUNNER_ID, model: pick.value.accuracy || pick.value.default },
         pins,
       },
     });
-    // Download (if needed) + load the Quick model as the active one. Heavy +
-    // GPU/network-gated; the Accuracy model is downloadable from the catalog.
-    await request("/v1/llm-runner/load", { method: "POST", body: { modelId: quickPick.value.id } });
-    applied.value = true;
+    // Download (if needed) + load the default model as the active one, polling
+    // status so the user sees progress (the Accuracy model downloads on first use).
+    const target = pick.value.default || pick.value.quick;
+    if (target) {
+      await request("/v1/llm-runner/load", { method: "POST", body: { modelId: target } });
+      await pollLoad();
+    }
+    step.value = "done";
+    emit("changed");
   } catch (e) {
     error.value = `Apply failed: ${e.message}`;
+    step.value = "confirm";
   } finally {
     applying.value = false;
   }
 }
 
-defineEmits(["changed"]);
+async function pollLoad() {
+  for (let i = 0; i < 600; i++) {
+    let st;
+    try {
+      st = await request("/v1/llm-runner/status");
+    } catch {
+      return;
+    }
+    applyDetail.value = st.detail || st.status || "";
+    if (st.status === "running") return;
+    if (st.status === "error") {
+      error.value = st.error || "Model failed to load.";
+      return;
+    }
+    await new Promise((res) => setTimeout(res, 1200));
+  }
+}
+
+defineExpose({ openWizard });
 </script>
 
 <template>
   <div class="lu-qs">
+    <!-- Trigger (replaces the old inline card; opens the wizard) -->
     <div class="lu-qs-head">
       <div>
         <b class="lu-qs-title">Quick Setup</b>
-        <span class="lu-muted lu-qs-sub">Reads your hardware and picks free local models that fit, then sets your routing.</span>
+        <span class="lu-muted lu-qs-sub">Detect your hardware, pick free local models that fit, and set your routing — all editable.</span>
       </div>
-      <UiButton intent="secondary" size="small" @click="toggle">
-        {{ open ? "Hide" : "Recommend for my hardware" }} {{ open ? "▴" : "▾" }}
-      </UiButton>
+      <UiButton intent="primary" size="small" @click="openWizard">Run Quick Setup</UiButton>
     </div>
 
-    <div v-if="open" class="lu-qs-body">
-      <div v-if="error" class="lu-error">{{ error }}</div>
-      <div v-else-if="loading" class="lu-muted">Reading hardware…</div>
+    <AppModal
+      v-if="open"
+      eyebrow="Local LLM"
+      :title="step === 'detect' ? 'Probing your hardware…' : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : 'Recommended setup'"
+      :max-width="'640px'"
+      :closable="step !== 'apply'"
+      @close="onModalClose"
+    >
+      <!-- DETECT -->
+      <div v-if="step === 'detect'" class="lu-muted lu-qs-loading">Reading GPU + model catalog…</div>
 
-      <template v-else>
-        <div class="lu-qs-row"><span class="lu-qs-k">Detected</span> <b>{{ hwLine }}</b></div>
+      <!-- CONFIRM (editable) -->
+      <template v-else-if="step === 'confirm'">
+        <div v-if="error" class="lu-error">{{ error }}</div>
 
-        <div v-if="quickPick" class="lu-qs-picks">
-          <div class="lu-qs-pick">
-            <span class="lu-rchip lu-rchip--quick">QUICK</span>
-            <b>{{ quickPick.name }}</b>
-            <span class="lu-fit" :class="`lu-fit--${quickPick.fit}`">{{ FIT_LABEL[quickPick.fit] }}</span>
-            <span class="lu-muted">{{ quickPick.params }} · snappy / interactive</span>
-          </div>
-          <div class="lu-qs-pick">
-            <span class="lu-rchip lu-rchip--accuracy">ACCURACY</span>
-            <b>{{ (accuracyPick || quickPick).name }}</b>
-            <span class="lu-fit" :class="`lu-fit--${(accuracyPick || quickPick).fit}`">{{ FIT_LABEL[(accuracyPick || quickPick).fit] }}</span>
-            <span class="lu-muted">{{ (accuracyPick || quickPick).params }} · careful passes</span>
-          </div>
-          <div class="lu-muted lu-qs-note">
-            Apply sets <b>Default + Quick + Accuracy</b> to the built-in engine and downloads + loads the Quick model
-            (the Accuracy model can be downloaded from the catalog below). Re-run any time after a hardware change — it re-scores Fit.
-          </div>
-          <div class="lu-qs-foot">
-            <span v-if="applied" class="lu-saved">✓ Applied — routing set, Quick model loading.</span>
-            <span class="lu-pf-spacer" />
-            <UiButton intent="primary" :loading="applying" @click="apply">Apply setup</UiButton>
-          </div>
-        </div>
+        <section class="lu-qs-sec">
+          <div class="lu-qs-k">Detected</div>
+          <div class="lu-qs-detected"><b>{{ hwLine }}</b></div>
+        </section>
 
+        <section class="lu-qs-sec">
+          <div class="lu-qs-k">Plan for card</div>
+          <UiSelect v-model="cardOverride" :options="CARD_OPTIONS" @update:model-value="onCardChange" />
+          <p class="lu-muted lu-qs-hint">Re-scores Fit for another card — plan ahead, or force CPU-only.</p>
+        </section>
+
+        <div v-if="loading" class="lu-muted">Re-scoring…</div>
+        <template v-else-if="fitting.length">
+          <section class="lu-qs-sec">
+            <div class="lu-qs-k">Models per role <span class="lu-muted">— editable</span></div>
+            <div class="lu-qs-roles">
+              <div class="lu-qs-role">
+                <UiTag intent="ghost">DEFAULT</UiTag>
+                <UiSelect v-model="pick.default" :options="modelOptions" />
+                <span class="lu-fit" :class="`lu-fit--${fitOf(pick.default)}`">{{ FIT_LABEL[fitOf(pick.default)] }}</span>
+              </div>
+              <div class="lu-qs-role">
+                <UiTag intent="ghost">QUICK</UiTag>
+                <UiSelect v-model="pick.quick" :options="modelOptions" />
+                <span class="lu-fit" :class="`lu-fit--${fitOf(pick.quick)}`">{{ FIT_LABEL[fitOf(pick.quick)] }}</span>
+              </div>
+              <div class="lu-qs-role">
+                <UiTag intent="ghost">ACCURACY</UiTag>
+                <UiSelect v-model="pick.accuracy" :options="modelOptions" />
+                <span class="lu-fit" :class="`lu-fit--${fitOf(pick.accuracy)}`">{{ FIT_LABEL[fitOf(pick.accuracy)] }}</span>
+              </div>
+            </div>
+            <p class="lu-muted lu-qs-hint">
+              Quick = snappy/interactive · Accuracy = careful passes · Default = everything else. Embedding stays as set in Providers<span v-if="pick.embeddingModel"> (<code>{{ pick.embeddingModel }}</code>)</span>.
+            </p>
+          </section>
+        </template>
         <div v-else class="lu-muted lu-qs-empty">
-          No local models in the catalog fit this machine. Add a smaller model, or connect a cloud provider below for the heavy work.
+          No catalog models fit this card. Pick a larger card above, add a smaller model, or connect a cloud provider in Providers.
         </div>
       </template>
-    </div>
+
+      <!-- APPLY -->
+      <template v-else-if="step === 'apply'">
+        <p class="lu-qs-applying">Saving routing and loading <b>{{ modelById[pick.default]?.name || pick.default }}</b>…</p>
+        <p class="lu-muted">{{ applyDetail || "working…" }}</p>
+      </template>
+
+      <!-- DONE -->
+      <template v-else-if="step === 'done'">
+        <p><b>Setup applied.</b></p>
+        <ul class="lu-qs-summary">
+          <li>Default · <code>{{ modelById[pick.default]?.name || pick.default }}</code></li>
+          <li>Quick · <code>{{ modelById[pick.quick]?.name || pick.quick }}</code></li>
+          <li>Accuracy · <code>{{ modelById[pick.accuracy]?.name || pick.accuracy }}</code></li>
+        </ul>
+        <p class="lu-muted">Tune any of this per feature in the Features tab.</p>
+      </template>
+
+      <template #footer>
+        <template v-if="step === 'confirm'">
+          <UiButton intent="ghost" @click="onModalClose">Cancel</UiButton>
+          <span class="lu-qs-spacer" />
+          <UiButton intent="primary" :disabled="!fitting.length || !pick.default" :loading="applying" @click="apply">
+            Apply setup
+          </UiButton>
+        </template>
+        <template v-else-if="step === 'done'">
+          <span class="lu-qs-spacer" />
+          <UiButton intent="primary" @click="onModalClose">Close</UiButton>
+        </template>
+      </template>
+    </AppModal>
   </div>
 </template>
 
@@ -164,22 +315,19 @@ defineEmits(["changed"]);
 .lu-qs-head > div { flex: 1; min-width: 0; }
 .lu-qs-title { font-size: 14px; color: var(--ink); }
 .lu-qs-sub { font-size: 11.5px; margin-left: 8px; }
-.lu-qs-body { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
-.lu-qs-row { font-size: 12.5px; color: var(--ink-2); margin-bottom: 10px; }
-.lu-qs-k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-right: 6px; }
-.lu-qs-picks { display: flex; flex-direction: column; gap: 8px; }
-.lu-qs-pick { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
-.lu-qs-pick b { color: var(--ink); }
-.lu-qs-note { font-size: 11.5px; line-height: 1.5; margin-top: 4px; }
+.lu-qs-loading { text-align: center; padding: 24px 0; }
+.lu-qs-sec { margin-bottom: 16px; }
+.lu-qs-k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 6px; font-weight: 700; }
+.lu-qs-detected { font-size: 13px; color: var(--ink-2); }
+.lu-qs-hint { font-size: 11.5px; line-height: 1.5; margin: 6px 0 0; }
+.lu-qs-roles { display: flex; flex-direction: column; gap: 8px; }
+.lu-qs-role { display: flex; align-items: center; gap: 8px; }
+.lu-qs-role :deep(.ui-select) { flex: 1; min-width: 0; }
 .lu-qs-empty { font-size: 12.5px; padding: 8px 0; }
-.lu-qs-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-.lu-pf-spacer { flex: 1; }
-.lu-saved { color: var(--success, var(--accent)); font-size: 12px; font-weight: 600; }
-
-.lu-rchip { font-size: 9.5px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 2px 8px; flex: none; }
-.lu-rchip--quick { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); border: 1px solid var(--accent-line, var(--accent)); }
-.lu-rchip--accuracy { background: var(--gold-soft, #f5edda); color: var(--gold, #b08a3e); border: 1px solid var(--gold-line, #e2d2b0); }
-.lu-fit { display: inline-flex; align-items: center; border-radius: 999px; padding: 1px 8px; font-size: 10.5px; font-weight: 700; border: 1px solid var(--border-strong); color: var(--ink-2); }
+.lu-qs-applying { font-size: 13px; }
+.lu-qs-summary { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.lu-qs-spacer { flex: 1; }
+.lu-fit { display: inline-flex; align-items: center; border-radius: 999px; padding: 1px 8px; font-size: 10.5px; font-weight: 700; border: 1px solid var(--border-strong); color: var(--ink-2); flex: none; }
 .lu-fit--ok { background: var(--accent-soft); border-color: var(--accent-line, var(--accent)); color: var(--accent-ink, var(--accent)); }
 .lu-fit--tight { background: var(--gold-soft, #f5edda); border-color: var(--gold-line, #e2d2b0); color: var(--gold, #b08a3e); }
 .lu-fit--no { background: var(--danger-bg, #f7e7e4); border-color: var(--danger-line, var(--danger)); color: var(--danger); }

@@ -28,9 +28,9 @@ const models = ref([]); // runner catalog — for the modelId picker
 const loading = ref(true);
 const error = ref("");
 
-// SUGGESTED_JOBS mirrors the server's list (recommendations_api.py:33). The
-// editor offers these in the dropdown but accepts any free-typed string too.
-const SUGGESTED_JOBS = ["quick", "accuracy", "attribution", "prose", "chat", "extraction", "embedding"];
+// SUGGESTED_JOBS mirrors the server's list (recommendations_api.py SUGGESTED_JOBS).
+// The editor offers these in the dropdown but accepts any free-typed string too.
+const SUGGESTED_JOBS = ["chat", "prose", "extraction", "analysis", "attribution", "embedding"];
 
 const TABLE_COLUMNS = [
   { id: "modelId", accessorKey: "modelId", header: "Model", sortable: true, enableGlobalFilter: true },

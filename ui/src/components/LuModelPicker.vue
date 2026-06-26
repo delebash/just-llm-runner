@@ -38,8 +38,8 @@ const props = defineProps({
 const emit = defineEmits(["update:modelValue"]);
 
 const byId = computed(() => Object.fromEntries(props.providers.map((p) => [p.id, p])));
-const pin = computed(() => props.modelValue || { providerId: "", model: "", role: "" });
-const route = computed(() => (pin.value.role ? `role:${pin.value.role}` : pin.value.providerId || ""));
+const pin = computed(() => props.modelValue || { providerId: "", model: "" });
+const route = computed(() => pin.value.providerId || "");
 
 // Fetched model lists per provider (id → string[]). Populated lazily when a
 // provider is picked, via the same endpoint the provider form's "Fetch models"
@@ -84,9 +84,8 @@ function modelOptions(pid) {
 function comboItems(pid) { return filteredModels(pid); }
 function setRoute(val) {
   if (!val) emit("update:modelValue", null);
-  else if (val.startsWith("role:")) emit("update:modelValue", { providerId: "", model: "", role: val.slice(5) });
   // keep the model only when staying on the same provider
-  else emit("update:modelValue", { providerId: val, model: pin.value.providerId === val ? pin.value.model : "", role: "" });
+  else emit("update:modelValue", { providerId: val, model: pin.value.providerId === val ? pin.value.model : "" });
 }
 function setModel(model) {
   emit("update:modelValue", { ...pin.value, model });
@@ -99,10 +98,6 @@ function setModel(model) {
       <span v-if="labels" class="lu-mp-lbl">Provider</span>
       <select class="lu-input lu-mp-sel" :value="route" aria-label="Provider" @change="setRoute($event.target.value)">
         <option value="">{{ inheritLabel }}</option>
-        <template v-if="showRoles">
-          <option value="role:quick">Quick role</option>
-          <option value="role:accuracy">Accuracy role</option>
-        </template>
         <option v-for="p in providers" :key="p.id" :value="p.id">{{ p.name }}</option>
       </select>
     </div>

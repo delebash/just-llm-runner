@@ -118,6 +118,10 @@ def _apply_routing(s, row: db.RoutingConfigRow, cfg: RoutingConfig) -> None:
     row.default_model = cfg.default.model
     row.default_embedding_id = cfg.default.embeddingId
     row.default_embedding_model = cfg.default.embeddingModel
+    # Persist the (possibly new) config row before inserting its FK children
+    # (job_routes / routing_pins) — the host session has autoflush off + FK on.
+    s.add(row)
+    s.flush()
     s.query(db.RoutingPin).filter(db.RoutingPin.config_id == row.id).delete()
     for feature, p in cfg.pins.items():
         if p.providerId:  # explicit pin only — inherit-the-job is no row

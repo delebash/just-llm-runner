@@ -34,7 +34,9 @@ const props = defineProps({
 });
 
 const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, temperature, think, builtIn}
-const routing = ref(null);   // {default, quick, accuracy, features:[…], pins:{key→{providerId,model,role}}}
+const routing = ref(null);   // {default, jobs:{jobId→{providerId,model}}, features:[…], pins:{key→{providerId,model}}}
+const jobs = ref([]);        // the editable job list [{id,label,description,…}]
+const featureJobs = ref({}); // feature key → job id
 const providers = ref([]);
 const presets = ref([]);     // feature presets (per action)
 const loading = ref(true);
@@ -55,15 +57,13 @@ const byId = computed(() => Object.fromEntries(providers.value.map((p) => [p.id,
 const providerName = (id) => byId.value[id]?.name || id || "—";
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
 
-// Model-roles cards: the speed blurb + trade-off note are generic to the role
-// (shared by every app); "Used for" is derived from the catalog (the features
-// whose default role is this one), so it stays in sync per app.
-const ROLE_META = {
-  quick: { title: "Quick model", blurb: "Answers in under a second.", note: "A small local model keeps these fast and usually free; cloud models bill per call." },
-  accuracy: { title: "Accuracy model", blurb: "Takes its time, gets it right.", note: "These run in the background — a few extra seconds buys noticeably better results." },
-};
-function roleUsedFor(role) {
-  const labels = (routing.value?.features || []).filter((f) => f.defaultRole === role).map((f) => f.label);
+// Job cards: each job (the editable routing unit) picks the model that runs it.
+// "Used for" = the features classified into this job (the feature→job map).
+const jobLabel = (id) => jobs.value.find((j) => j.id === id)?.label || id;
+function jobUsedFor(jobId) {
+  const labels = (routing.value?.features || [])
+    .filter((f) => (featureJobs.value[f.key] || "") === jobId)
+    .map((f) => f.label);
   if (!labels.length) return "nothing yet";
   return labels.slice(0, 4).join(" · ") + (labels.length > 4 ? ` +${labels.length - 4} more` : "");
 }
@@ -175,13 +175,23 @@ function subGroups(actions) {
 function pin(key) { return routing.value?.pins?.[key] || null; }
 function setPin(key, val) {
   const pins = routing.value.pins || (routing.value.pins = {});
-  if (!val || (!val.providerId && !val.role)) delete pins[key]; // inherit → no pin row
-  else pins[key] = { providerId: val.providerId || "", model: val.model || "", role: val.role || "" };
+  if (!val || !val.providerId) delete pins[key]; // inherit the job → no pin row
+  else pins[key] = { providerId: val.providerId, model: val.model || "" };
   saveRouting();
 }
-function setRole(role, val) {
-  routing.value[role] = { providerId: val?.providerId || "", model: val?.model || "" };
+// A job's model (the routing unit). Empty → that job falls back to the Default LLM.
+function setJob(jobId, val) {
+  const jobsMap = routing.value.jobs || (routing.value.jobs = {});
+  if (!val || !val.providerId) delete jobsMap[jobId];
+  else jobsMap[jobId] = { providerId: val.providerId, model: val.model || "" };
   saveRouting();
+}
+// A feature's job classification (feature → job map), persisted immediately.
+async function setFeatureJob(feature, jobId) {
+  if (!jobId) await request(`/v1/ai/feature-jobs/${encodeURIComponent(feature)}`, { method: "DELETE" });
+  else await request("/v1/ai/feature-jobs", { method: "PUT", body: { featureKey: feature, jobId } });
+  const fj = await request("/v1/ai/feature-jobs");
+  featureJobs.value = Object.fromEntries((fj.rows || []).map((x) => [x.featureKey, x.jobId]));
 }
 // Default LLM = provider + model (the picker), like the roles + per-action rows.
 function setDefaultLlm(val) {
@@ -203,8 +213,8 @@ function setDefaultEmbedding(val) {
 function setGroupAll(group, val) {
   const pins = routing.value.pins || (routing.value.pins = {});
   for (const a of group.actions) {
-    if (!val || (!val.providerId && !val.role)) delete pins[a.key];
-    else pins[a.key] = { providerId: val.providerId || "", model: val.model || "", role: val.role || "" };
+    if (!val || !val.providerId) delete pins[a.key];
+    else pins[a.key] = { providerId: val.providerId, model: val.model || "" };
   }
   saveRouting();
 }
@@ -223,29 +233,31 @@ function groupMixed(group) {
 // selection isn't mistaken for "all inherit".
 function setAllLabel(group) { return groupMixed(group) ? "Set all · (mixed)" : "Set all · inherit"; }
 function featureOf(key) { return prompts.value.find((p) => p.key === key)?.feature || ""; }
-const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
-// What an action currently resolves to, in plain terms (the nav "→ …" + the
-// editor note). Cascade (Option A — no feature-level default): the action's own
-// pin → its feature's default role (from the catalog) → the global Default LLM.
+// What an action currently resolves to, in plain terms (the nav "→ …"). Cascade:
+// the action's own explicit pin → its feature's job model → the global Default LLM.
 function activeModel(key) {
   const p = pin(key);
   if (p?.providerId) return providerName(p.providerId) + (p.model ? ` · ${p.model}` : "");
-  if (p?.role) return `${cap(p.role)} role`;
-  const dr = featMeta.value[featureOf(key)]?.defaultRole;
-  if (dr) return `${cap(dr)} role`;
+  const jobId = featureJobs.value[featureOf(key)] || "";
+  const jt = routing.value?.jobs?.[jobId];
+  if (jt?.providerId) return `${jobLabel(jobId)} · ${providerName(jt.providerId)}`;
   const d = routing.value?.default?.llmId;
   return d ? `Default · ${providerName(d)}` : "Default LLM (unset)";
 }
 async function load() {
   loading.value = true; error.value = "";
   try {
-    const [p, r, pl] = await Promise.all([
+    const [p, r, pl, jb, fj] = await Promise.all([
       request("/v1/ai/prompts"), request("/v1/ai/routing"), request("/v1/llm-providers"),
+      request("/v1/ai/jobs"), request("/v1/ai/feature-jobs"),
     ]);
     prompts.value = p.prompts || [];
     routing.value = r;
     if (!routing.value.pins) routing.value.pins = {};
+    if (!routing.value.jobs) routing.value.jobs = {};
     providers.value = pl.providers || [];
+    jobs.value = jb.rows || [];
+    featureJobs.value = Object.fromEntries((fj.rows || []).map((x) => [x.featureKey, x.jobId]));
     // Presets are optional per app (an app may not mount the endpoint yet).
     try { presets.value = (await request("/v1/ai/feature-presets")).presets || []; }
     catch { presets.value = []; }
@@ -270,9 +282,10 @@ async function saveRouting() {
   const r = routing.value;
   routing.value = await request("/v1/ai/routing", {
     method: "PUT",
-    body: { default: r.default, quick: r.quick, accuracy: r.accuracy, pins: r.pins || {} },
+    body: { default: r.default, jobs: r.jobs || {}, pins: r.pins || {} },
   });
   if (!routing.value.pins) routing.value.pins = {};
+  if (!routing.value.jobs) routing.value.jobs = {};
 }
 
 // ── presets (per action) ─────────────────────────────────────────────────────
@@ -280,8 +293,7 @@ function snapshot(name) {
   const p = pin(selAction.value);
   return {
     action: selAction.value, name,
-    providerId: p && !p.role ? p.providerId || "" : "",
-    role: p?.role || "",
+    providerId: p?.providerId || "",
     model: p?.model || "",
     system: draft.value?.system || "", userTemplate: draft.value?.userTemplate || "",
     temperature: draft.value?.temperature === "" || draft.value?.temperature == null ? null : Number(draft.value.temperature),
@@ -308,8 +320,7 @@ function applyPreset(id) {
   draft.value.system = p.system; draft.value.userTemplate = p.userTemplate;
   draft.value.temperature = p.temperature; draft.value.think = p.think;
   const pins = routing.value.pins || (routing.value.pins = {});
-  if (p.role) pins[selAction.value] = { providerId: "", model: "", role: p.role };
-  else if (p.providerId) pins[selAction.value] = { providerId: p.providerId, model: p.model || "", role: "" };
+  if (p.providerId) pins[selAction.value] = { providerId: p.providerId, model: p.model || "" };
   else delete pins[selAction.value];
   buildVars();
 }
@@ -444,19 +455,17 @@ onMounted(load);
               @update:model-value="setDefaultEmbedding" />
           </div>
         </div>
-        <!-- Model roles: two go-to models any action inherits — each a card that
-             explains the trade-off + lists (from the catalog) what rides on it. -->
-        <div class="lu-fw-roles-h"><b>Model roles</b><span class="lu-muted">two jobs, two models — pick anything; the labels just explain the trade-off</span></div>
+        <!-- Jobs: the routing units — each picks the model that runs it; every
+             feature is classified into a job (set per feature in the editor). -->
+        <div class="lu-fw-roles-h"><b>Jobs</b><span class="lu-muted">each job runs on the model you pick — features inherit their job's model unless pinned</span></div>
         <div class="lu-fw-rolecards">
-          <div v-for="role in ['quick', 'accuracy']" :key="role" class="lu-fw-rolecard">
+          <div v-for="job in jobs" :key="job.id" class="lu-fw-rolecard">
             <div class="lu-fw-rolecard-h">
-              <span class="lu-rchip" :class="`lu-rchip--${role}`">{{ role === 'quick' ? 'QUICK' : 'ACCURACY' }}</span>
-              <b>{{ ROLE_META[role].title }}</b>
+              <span class="lu-rchip lu-rchip--job">{{ job.label }}</span>
             </div>
-            <p class="lu-fw-rolecard-desc">{{ ROLE_META[role].blurb }} <span class="lu-muted">Used for: {{ roleUsedFor(role) }}</span></p>
-            <LuModelPicker editable :model-value="routing[role]" :providers="providers" :show-roles="false"
-              inherit-label="— use Default LLM —" @update:model-value="setRole(role, $event)" />
-            <p class="lu-fw-rolecard-note">{{ ROLE_META[role].note }}</p>
+            <p class="lu-fw-rolecard-desc">{{ job.description }} <span class="lu-muted">Used for: {{ jobUsedFor(job.id) }}</span></p>
+            <LuModelPicker editable :model-value="routing.jobs?.[job.id] || null" :providers="providers"
+              inherit-label="— use Default LLM —" @update:model-value="setJob(job.id, $event)" />
           </div>
         </div>
       </section>
@@ -524,9 +533,16 @@ onMounted(load);
                resolves to (e.g. "Inherit default · Quick"), so there's no
                separate redundant "→ role" note. -->
           <div class="lu-field">
-            <label>Provider &amp; model <span class="lu-muted">— inherits the default unless you pick a provider + model here</span></label>
+            <label>Job <span class="lu-muted">— this feature's task type; it runs on the job's model unless pinned below</span></label>
+            <select class="lu-input" :value="featureJobs[action.feature] || ''" @change="setFeatureJob(action.feature, $event.target.value)">
+              <option value="">— default job —</option>
+              <option v-for="j in jobs" :key="j.id" :value="j.id">{{ j.label }}</option>
+            </select>
+          </div>
+          <div class="lu-field">
+            <label>Provider &amp; model <span class="lu-muted">— pin this action to a specific provider + model (overrides its job)</span></label>
             <LuModelPicker editable :model-value="pin(selAction)" :providers="providers" :labels="true"
-              inherit-label="Inherit default" @update:model-value="setPin(selAction, $event)" />
+              inherit-label="Inherit job" @update:model-value="setPin(selAction, $event)" />
           </div>
 
           <div class="lu-field"><label>System prompt</label>
@@ -590,8 +606,7 @@ onMounted(load);
 .lu-fw-rolecard-desc { margin: 0; font-size: 12px; color: var(--ink-2); line-height: 1.45; }
 .lu-fw-rolecard-note { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
 .lu-rchip { font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 3px 9px; text-align: center; }
-.lu-rchip--quick { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); }
-.lu-rchip--accuracy { background: var(--gold-soft, #f5edda); color: var(--gold, #b08a3e); }
+.lu-rchip--job { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); text-transform: uppercase; }
 select.lu-input { cursor: pointer; appearance: auto; }
 
 /* Body = nav + editor. The nav is a self-contained scroller (capped height,

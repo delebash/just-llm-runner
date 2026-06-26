@@ -26,34 +26,21 @@ const LOCAL_RUNNER_ID = "local-llamacpp";
 const FIT_RUNNABLE = new Set(["ok", "tight", "cpu"]);
 const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fit", unknown: "—" };
 
-// Role rows the wizard renders. `job` keys into /v1/ai/recommendations rows
-// (the curated 'this model is good FOR' layer); `fallback` is the heuristic to
-// use when no recommendation exists for that job (smallest/largest fitting).
-// `blurb` is the per-role description shown under the picker — what the role
-// actually handles in the app, so the user knows what they're choosing.
-const ROLE_DEFS = [
+// The wizard picks a Default model + a model for each JOB (the editable routing
+// units, loaded from /v1/ai/jobs). `roleRows` = the Default row + one row per job;
+// each row's `job` keys into /v1/ai/recommendations (the curated "good FOR" layer),
+// null for Default (which falls back to the largest fitting model).
+const jobs = ref([]);  // [{id,label,description,…}] from /v1/ai/jobs
+const roleRows = computed(() => [
   {
-    key: "default",
-    job: "accuracy",       // default = "main brain", borrow the accuracy curated list
-    fallback: "largest",
-    label: "Default model",
-    blurb: "The main model — runs every feature that isn't pinned to Quick, Accuracy, or a specific provider. Pick the strongest model that fits comfortably.",
+    key: "default", job: null, fallback: "largest", label: "Default model",
+    blurb: "The main model — runs every feature whose job has no model set, and anything not pinned. Pick the strongest model that fits comfortably.",
   },
-  {
-    key: "quick",
-    job: "quick",
-    fallback: "smallest",
-    label: "Quick role",
-    blurb: "Snappy / interactive work — brainstorm, inline rewrites, quick drafts, recaps. Picks a small model so responses feel instant.",
-  },
-  {
-    key: "accuracy",
-    job: "accuracy",
-    fallback: "largest",
-    label: "Accuracy role",
-    blurb: "Careful passes — critique, plot-hole audit, multi-reader, extraction. Picks the strongest model that fits, accepts a slower response for higher quality.",
-  },
-];
+  ...jobs.value.map((j) => ({
+    key: j.id, job: j.id, fallback: "largest", label: `${j.label} job`,
+    blurb: j.description || `Model for the ${j.label} job.`,
+  })),
+]);
 
 // ── modal + wizard state ────────────────────────────────────────────────────
 const open = ref(false);
@@ -76,8 +63,9 @@ const CARD_OPTIONS = [
   { value: "24576", label: "24 GB card" },
 ];
 
-// Editable per-role picks (model ids). Pre-filled from Fit, fully overridable.
-const pick = ref({ default: "", quick: "", accuracy: "", embeddingId: "", embeddingModel: "" });
+// Editable picks (model ids), keyed by row.key ("default" or a job id) + the
+// embedding fields. Pre-filled from Fit/recommendations, fully overridable.
+const pick = ref({ default: "", embeddingId: "", embeddingModel: "" });
 
 // ── derived ─────────────────────────────────────────────────────────────────
 function paramsNum(p) {
@@ -117,14 +105,16 @@ async function loadAll() {
   error.value = "";
   try {
     const vramQ = cardOverride.value === "auto" ? "" : `?vram_mb=${cardOverride.value}`;
-    const [h, m, r] = await Promise.all([
+    const [h, m, r, jb] = await Promise.all([
       request("/v1/llm-runner/hardware"),
       request(`/v1/llm-runner/models${vramQ}`),
       request("/v1/ai/recommendations").catch(() => ({ rows: [] })), // optional — older servers
+      request("/v1/ai/jobs").catch(() => ({ rows: [] })),
     ]);
     hw.value = h;
     models.value = m.models || [];
     recommendations.value = r.rows || [];
+    jobs.value = jb.rows || [];
     detectedVramMb.value = (h.gpus && h.gpus[0]?.vramMb) || 0;
     prefillRoles();
   } catch (e) {
@@ -139,14 +129,16 @@ async function loadAll() {
 // to the role's heuristic (smallest/largest fitting model). Editable either way.
 function prefillRoles() {
   const fittingIds = new Set(fitting.value.map((m) => m.id));
-  for (const role of ROLE_DEFS) {
+  for (const role of roleRows.value) {
     if (pick.value[role.key]) continue;  // never overwrite a user pick
     // 1. curated recommendation: rows matching this job, only models that fit.
-    const recs = recommendations.value
-      .filter((row) => row.job === role.job && fittingIds.has(row.modelId))
-      .sort((a, b) => (a.rank ?? 100) - (b.rank ?? 100));
+    const recs = role.job
+      ? recommendations.value
+          .filter((row) => row.job === role.job && fittingIds.has(row.modelId))
+          .sort((a, b) => (a.rank ?? 100) - (b.rank ?? 100))
+      : [];
     if (recs.length) { pick.value[role.key] = recs[0].modelId; continue; }
-    // 2. heuristic fallback by role.
+    // 2. heuristic fallback (largest/smallest fitting model).
     const good = fitting.value.filter((m) => m.fit === "ok" || m.fit === "tight");
     const pool = good.length ? good : fitting.value;
     const candidate = role.fallback === "smallest" ? pool[0] : pool[pool.length - 1];
@@ -156,8 +148,8 @@ function prefillRoles() {
 
 // Curated "why" line for the chosen model under a role — for the inline blurb.
 function whyFor(roleKey) {
-  const role = ROLE_DEFS.find((r) => r.key === roleKey);
-  if (!role) return "";
+  const role = roleRows.value.find((r) => r.key === roleKey);
+  if (!role || !role.job) return "";
   const chosen = pick.value[roleKey];
   if (!chosen) return "";
   const rec = recommendations.value.find((row) => row.job === role.job && row.modelId === chosen);
@@ -204,7 +196,13 @@ async function apply() {
     const r = await request("/v1/ai/routing");
     const pins = {};
     for (const f of r.features || []) {
-      if (f.providerId || f.role) pins[f.key] = { providerId: f.providerId, model: f.model, role: f.role };
+      if (f.providerId) pins[f.key] = { providerId: f.providerId, model: f.model };
+    }
+    // One job→model entry per job, all on the bundled runner. A job left unset
+    // falls back to the Default LLM at dispatch.
+    const jobMap = {};
+    for (const j of jobs.value) {
+      if (pick.value[j.id]) jobMap[j.id] = { providerId: LOCAL_RUNNER_ID, model: pick.value[j.id] };
     }
     await request("/v1/ai/routing", {
       method: "PUT",
@@ -215,8 +213,7 @@ async function apply() {
           embeddingId: pick.value.embeddingId || "",
           embeddingModel: pick.value.embeddingModel || "",
         },
-        quick: { providerId: LOCAL_RUNNER_ID, model: pick.value.quick },
-        accuracy: { providerId: LOCAL_RUNNER_ID, model: pick.value.accuracy || pick.value.default },
+        jobs: jobMap,
         pins,
       },
     });
@@ -300,7 +297,7 @@ defineExpose({ openWizard });
           <!-- Each role gets its own labelled section with a real description
                of what it handles + the Fit chip inline. Stacked, not crammed
                into a single row (the old JW shape). -->
-          <section v-for="r in ROLE_DEFS" :key="r.key" class="lu-qs-sec">
+          <section v-for="r in roleRows" :key="r.key" class="lu-qs-sec">
             <div class="lu-qs-k">
               {{ r.label }}
               <span class="lu-fit lu-qs-fit" :class="`lu-fit--${fitOf(pick[r.key])}`">{{ FIT_LABEL[fitOf(pick[r.key])] }}</span>
@@ -316,12 +313,13 @@ defineExpose({ openWizard });
           <section class="lu-qs-sec lu-qs-routing">
             <div class="lu-qs-k">What happens when you click Apply</div>
             <ul class="lu-qs-rlist">
-              <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— default for everything not pinned to Quick or Accuracy.</span></li>
-              <li v-if="modelById[pick.quick] && pick.quick !== pick.default"><b>{{ modelById[pick.quick].name }}</b> <span class="lu-muted">— Quick role (snappy/interactive features).</span></li>
-              <li v-if="modelById[pick.accuracy] && pick.accuracy !== pick.default"><b>{{ modelById[pick.accuracy].name }}</b> <span class="lu-muted">— Accuracy role (careful analysis / extraction).</span></li>
+              <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— Default model for every feature whose job has no model set.</span></li>
+              <template v-for="j in jobs" :key="j.id">
+                <li v-if="modelById[pick[j.id]] && pick[j.id] !== pick.default"><b>{{ modelById[pick[j.id]].name }}</b> <span class="lu-muted">— {{ j.label }} job.</span></li>
+              </template>
               <li>Default model <b>downloads now</b> if it isn't already on disk; the others download on first use.</li>
               <li>Embedding stays as set in Providers<span v-if="pick.embeddingModel"> (currently <code>{{ pick.embeddingModel }}</code>)</span>.</li>
-              <li>Per-feature pins you've set stay as they are — this only touches the global default + the two roles.</li>
+              <li>Per-feature pins you've set stay as they are — this only touches the Default model + the job models.</li>
             </ul>
           </section>
         </template>
@@ -341,8 +339,9 @@ defineExpose({ openWizard });
         <p><b>Setup applied.</b></p>
         <ul class="lu-qs-summary">
           <li>Default · <code>{{ modelById[pick.default]?.name || pick.default }}</code></li>
-          <li>Quick · <code>{{ modelById[pick.quick]?.name || pick.quick }}</code></li>
-          <li>Accuracy · <code>{{ modelById[pick.accuracy]?.name || pick.accuracy }}</code></li>
+          <template v-for="j in jobs" :key="j.id">
+            <li v-if="pick[j.id]">{{ j.label }} · <code>{{ modelById[pick[j.id]]?.name || pick[j.id] }}</code></li>
+          </template>
         </ul>
         <p class="lu-muted">Tune any of this per feature in the Features tab.</p>
       </template>

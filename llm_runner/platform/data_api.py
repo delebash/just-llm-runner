@@ -39,7 +39,7 @@ _DB_ARCNAME = "db.sqlite"
 def make_data_router(
     *,
     get_db_path: Callable[[], Path],
-    metadata: MetaData,
+    metadata: "MetaData | list[MetaData] | tuple[MetaData, ...]",
     run_reset: Callable[[], None],
     asset_dirs: Callable[[], dict[str, Path]] | None = None,
     prefix: str = "/v1/data",
@@ -47,7 +47,9 @@ def make_data_router(
     """Build the shared data backup/restore/reset router over host hooks.
 
     - `get_db_path()` → the live SQLite file path.
-    - `metadata` → the app's SQLAlchemy `MetaData` (its table list, FK-ordered).
+    - `metadata` → the app's SQLAlchemy `MetaData`, OR a list of them when the app
+      has more than one base on the same DB (e.g. the domain base + the shared
+      `LlmBase`). Tables across all metadatas are covered (no cross-base FKs).
     - `run_reset()` → wipe to first-run state (delete all rows + reseed). The host
       owns it (it knows its session + seed); kept a callback so reset and the
       app's own seeding stay one implementation.
@@ -56,6 +58,14 @@ def make_data_router(
     """
     router = APIRouter(tags=["data"], prefix=prefix)
     _assets = asset_dirs or (lambda: {})
+    _metadatas = list(metadata) if isinstance(metadata, (list, tuple)) else [metadata]
+
+    def _ordered_tables() -> list:
+        """Every table across all metadatas, FK-ordered within each (parents first)."""
+        tables: list = []
+        for m in _metadatas:
+            tables.extend(m.sorted_tables)
+        return tables
 
     def _add_dir(zf: zipfile.ZipFile, arcname: str, d: Path) -> None:
         if not d.is_dir():
@@ -108,7 +118,7 @@ def make_data_router(
             try:
                 con.execute("PRAGMA foreign_keys=OFF")
                 con.execute("ATTACH ? AS src", (str(src_db),))
-                tables = [t.name for t in metadata.sorted_tables]
+                tables = [t.name for t in _ordered_tables()]
                 src_tables = {
                     r[0] for r in con.execute(
                         "SELECT name FROM src.sqlite_master WHERE type='table'"

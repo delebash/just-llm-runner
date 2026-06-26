@@ -13,7 +13,16 @@ explicit per-feature pins. `feature_presets` has no role column either.
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Float,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 LlmBase = declarative_base()
@@ -72,6 +81,10 @@ class ModelCatalog(LlmBase):
     total_params = Column(String, nullable=False, default="")
     active_params = Column(String, nullable=False, default="")
     mtp = Column(Boolean, nullable=False, default=False)
+    # Editable capability type (dense | moe). Drives which `switch_presets` row
+    # applies (the `moe` preset's spec:none/no_mmap lives ONCE here, not copied
+    # per MoE model). Seeded from arch; `mtp` stays its own bool. (design §6.5)
+    type = Column(String, nullable=False, default="dense")
     min_vram_mb = Column(Integer, nullable=True)
     min_ram_mb = Column(Integer, nullable=True)
     tier = Column(String, nullable=False, default="mid")
@@ -87,6 +100,38 @@ class ModelSwitch(LlmBase):
 
     model_id = Column(
         String, ForeignKey("model_catalog.id", ondelete="CASCADE"), primary_key=True
+    )
+    flag_name = Column(String, primary_key=True)
+    flag_value = Column(Text, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
+# ── capability/type switch presets (the switch BASE layer; replaces the
+#    hardcoded runner-manifest `flagPresets`) — design §6.5 ──────────────────────
+class SwitchPreset(LlmBase):
+    """A capability/type switch bundle (`base` / `moe` / `dense` / `mtp` / …).
+    `applies_to` is the trigger matched against a model: `all` (every model),
+    `moe`/`dense` (matches `model_catalog.type`), or `mtp` (matches `mtp=true`).
+    The flag rows live in the `preset_switches` child. Seeded + user-editable;
+    replaces `runner-manifest.json` `flagPresets` (the last hardcoded config)."""
+
+    __tablename__ = "switch_presets"
+
+    id = Column(String, primary_key=True)  # base | moe | dense | mtp | <user id>
+    label = Column(String, nullable=False, default="")
+    applies_to = Column(String, nullable=False, default="all")  # all | moe | dense | mtp
+    position = Column(Integer, nullable=False, default=0)
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
+class PresetSwitch(LlmBase):
+    """One flag in a `switch_presets` bundle (variable-cardinality child). PK
+    (preset_id, flag_name); maps 1:1 to `process.Overrides` like `model_switches`."""
+
+    __tablename__ = "preset_switches"
+
+    preset_id = Column(
+        String, ForeignKey("switch_presets.id", ondelete="CASCADE"), primary_key=True
     )
     flag_name = Column(String, primary_key=True)
     flag_value = Column(Text, nullable=False, default="")
@@ -153,6 +198,66 @@ class JobRoute(LlmBase):
     job_id = Column(String, primary_key=True)
     provider_id = Column(String, nullable=False, default="")
     model = Column(String, nullable=False, default="")
+
+
+# ── per-job / per-feature / per-hardware switch override layers (design §6.4) ──
+# Each mirrors `model_switches`: a variable-cardinality flag child, CASCADE FK to
+# its owner, served by the one shared generic switch store. The layered merge
+# (base preset → type → mtp → per-model → per-hardware → per-job → per-feature) is
+# resolved in `switch_resolve.py` and applied via the runner's existing
+# `_merge_overrides`.
+class JobRouteSwitch(LlmBase):
+    """A per-(config, job) llama.cpp spawn-flag override — the task-shaped layer
+    (e.g. `analysis` → ctx 32k, `chat` → ctx 8k on the same model). CASCADE FK to
+    the `job_routes` row it tunes."""
+
+    __tablename__ = "job_route_switches"
+
+    config_id = Column(String, primary_key=True)
+    job_id = Column(String, primary_key=True)
+    flag_name = Column(String, primary_key=True)
+    flag_value = Column(Text, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["config_id", "job_id"],
+            ["job_routes.config_id", "job_routes.job_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+
+class PinSwitch(LlmBase):
+    """A rare per-(config, feature) spawn-flag override — the per-feature fine-tune
+    (Routing-by-feature). CASCADE FK to the `routing_pins` row it tunes."""
+
+    __tablename__ = "pin_switches"
+
+    config_id = Column(String, primary_key=True)
+    feature = Column(String, primary_key=True)
+    flag_name = Column(String, primary_key=True)
+    flag_value = Column(Text, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["config_id", "feature"],
+            ["routing_pins.config_id", "routing_pins.feature"],
+            ondelete="CASCADE",
+        ),
+    )
+
+
+class HardwareSwitch(LlmBase):
+    """A per-machine spawn-flag override keyed by GPU (`hw_key`) — the persistent
+    form of #20 tuning (auto-fit finds *a* working value; this saves the *fast*
+    one). No FK: `hw_key` is a free-form hardware identifier."""
+
+    __tablename__ = "hardware_switches"
+
+    hw_key = Column(String, primary_key=True)
+    flag_name = Column(String, primary_key=True)
+    flag_value = Column(Text, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
 
 
 # ── jobs (the editable routing unit) + the feature→job map ────────────────────

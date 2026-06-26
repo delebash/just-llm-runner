@@ -51,6 +51,10 @@ class RoutingConfig(BaseModel):
     quick: RoleTarget = RoleTarget()
     accuracy: RoleTarget = RoleTarget()
     pins: dict[str, FeaturePin] = {}
+    # job → (provider, model) map (the jobs architecture; key = Job.id). Additive
+    # and optional: a host that doesn't use jobs leaves it empty and behaves as
+    # before. JustWrite resolves feature → job → this target into the dispatch.
+    jobs: dict[str, RoleTarget] = {}
 
 
 class FeatureRow(BaseModel):
@@ -70,6 +74,7 @@ class RoutingResponse(BaseModel):
     default: RoutingDefaults
     quick: RoleTarget
     accuracy: RoleTarget
+    jobs: dict[str, RoleTarget] = {}  # job → (provider, model) map (jobs architecture)
     features: list[FeatureRow]
     # The raw stored pins, keyed by feature OR action key. The catalog-merged
     # `features` above carries each feature's default; this also exposes
@@ -122,7 +127,8 @@ def make_routing_router(
             for e in get_catalog()
         ]
         return RoutingResponse(
-            default=cfg.default, quick=cfg.quick, accuracy=cfg.accuracy, features=rows, pins=cfg.pins
+            default=cfg.default, quick=cfg.quick, accuracy=cfg.accuracy, jobs=cfg.jobs,
+            features=rows, pins=cfg.pins
         )
 
     @router.get("/routing", response_model=RoutingResponse)

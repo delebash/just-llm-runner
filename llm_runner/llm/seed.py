@@ -69,7 +69,7 @@ DEFAULT_PROVIDERS: list[dict] = [
 DEFAULT_CATALOG: list[dict] = [
     {"id": "qwen3.6-35b-a3b-mtp", "name": "Qwen3.6 35B-A3B (MTP)",
      "hf_repo": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF", "quant": "UD-Q4_K_XL",
-     "total_params": "35B", "active_params": "3.6B", "mtp": True,
+     "total_params": "35B", "active_params": "3.6B", "mtp": True, "type": "moe",
      "min_vram_mb": 6000, "min_ram_mb": 24000, "tier": "low-vram-moe", "position": 0},
     {"id": "qwen3.5-9b-q4_k_s", "name": "Qwen3.5 9B · Q4_K_S",
      "hf_repo": "unsloth/Qwen3.5-9B-GGUF", "quant": "Q4_K_S",
@@ -89,11 +89,25 @@ DEFAULT_CATALOG: list[dict] = [
      "min_ram_mb": 26000, "min_vram_mb": 20000, "tier": "high", "position": 5},
 ]
 
-DEFAULT_SWITCHES: list[dict] = [
-    {"model_id": "qwen3.6-35b-a3b-mtp", "flag_name": "spec_type", "flag_value": "none"},
-    {"model_id": "qwen3.6-35b-a3b-mtp", "flag_name": "no_mmap", "flag_value": "true"},
-    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "flag_name": "spec_type", "flag_value": "draft-mtp"},
-    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "flag_name": "spec_n_max", "flag_value": "3"},
+# Per-model switch overrides — EMPTY by default now: the MoE (spec:none/no_mmap)
+# and MTP (draft-mtp) rules moved to the capability/type presets below (§6.5), so
+# they live ONCE and any new MoE/MTP model inherits them via its `type`/`mtp`.
+# `model_switches` remains the RARE per-model exception (user-added).
+DEFAULT_SWITCHES: list[dict] = []
+
+# Capability/type switch presets — the switch BASE layer (design §6.5), the
+# seeded-editable replacement for the hardcoded runner-manifest `flagPresets`,
+# translated into `Overrides` field names. `applies_to`: `all` (every model) |
+# `moe`/`dense` (matches `model_catalog.type`) | `mtp` (matches `mtp=true`).
+# Resolved + layered by `switch_resolve.resolve_model_switches`. (`-ngl` is NOT
+# here — it's a computed fit knob, not a constant.)
+DEFAULT_SWITCH_PRESETS: list[dict] = [
+    {"id": "base", "label": "Base (every model)", "applies_to": "all", "position": 0,
+     "switches": {"flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true"}},
+    {"id": "moe", "label": "MoE (mixture-of-experts)", "applies_to": "moe", "position": 1,
+     "switches": {"spec_type": "none", "no_mmap": "true"}},
+    {"id": "mtp", "label": "Speculative decode (MTP)", "applies_to": "mtp", "position": 2,
+     "switches": {"spec_type": "draft-mtp", "spec_n_max": "3"}},
 ]
 
 # Job tags use the seeded job ids (chat/prose/extraction/analysis). Editable (#25).
@@ -151,7 +165,8 @@ def seed_default_catalog(s) -> int:
             id=c["id"], name=str(c.get("name") or ""), hf_repo=str(c.get("hf_repo") or ""),
             quant=str(c.get("quant") or ""), mmproj=c.get("mmproj"),
             total_params=str(c.get("total_params") or ""), active_params=str(c.get("active_params") or ""),
-            mtp=bool(c.get("mtp") or False), min_vram_mb=c.get("min_vram_mb"), min_ram_mb=c.get("min_ram_mb"),
+            mtp=bool(c.get("mtp") or False), type=str(c.get("type") or "dense"),
+            min_vram_mb=c.get("min_vram_mb"), min_ram_mb=c.get("min_ram_mb"),
             tier=str(c.get("tier") or "mid"), built_in=True, position=int(c.get("position") or 0),
         ))
         added += 1
@@ -166,6 +181,25 @@ def seed_default_switches(s) -> int:
             continue
         s.add(db.ModelSwitch(model_id=x["model_id"], flag_name=x["flag_name"],
                              flag_value=str(x.get("flag_value") or ""), built_in=True))
+        added += 1
+    return added
+
+
+def seed_default_switch_presets(s) -> int:
+    """Seed the capability/type switch presets (base/moe/mtp) + their flag rows.
+    Flushes each preset before its FK child rows (host session is autoflush=False
+    with FK enforcement on — see the routing FK gotcha)."""
+    existing = {r.id for r in s.query(db.SwitchPreset.id).all()}
+    added = 0
+    for p in DEFAULT_SWITCH_PRESETS:
+        if p["id"] in existing:
+            continue
+        s.add(db.SwitchPreset(id=p["id"], label=str(p.get("label") or ""),
+                              applies_to=str(p.get("applies_to") or "all"),
+                              position=int(p.get("position") or 0), built_in=True))
+        s.flush()  # parent in the DB before its FK children
+        for fname, fval in (p.get("switches") or {}).items():
+            s.add(db.PresetSwitch(preset_id=p["id"], flag_name=fname, flag_value=str(fval), built_in=True))
         added += 1
     return added
 
@@ -244,6 +278,7 @@ def seed_llm(s=None) -> None:
         seed_default_routing(s)
         seed_default_catalog(s)
         seed_default_switches(s)
+        seed_default_switch_presets(s)
         seed_default_recommendations(s)
         seed_default_jobs(s)
         seed_default_feature_jobs(s)

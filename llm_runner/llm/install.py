@@ -91,6 +91,12 @@ def _wire_runner_catalog() -> None:
         ]
 
     def switches_fn(model_id: str):
-        return {x.flagName: x.flagValue for x in stores.get_model_switch_store().list() if x.modelId == model_id}
+        # Layered model-level resolution (base preset → type → mtp → per-model →
+        # per-hardware), returned as a flag→value dict that flows through the
+        # runner's existing Override path. Replaces the flat per-model lookup so
+        # the MoE/MTP rules come from the type presets, not per-model copies (§6.5).
+        from .switch_resolve import resolve_model_switches
+
+        return resolve_model_switches(model_id)
 
     configure_service(catalog_fn=catalog_fn, switches_fn=switches_fn)

@@ -40,6 +40,7 @@ class CatalogRow(BaseModel):
     totalParams: str = ""
     activeParams: str = ""
     mtp: bool = False
+    type: str = "dense"  # dense | moe — drives which switch preset applies (§6.5)
     minVramMb: int | None = None
     minRamMb: int | None = None
     tier: str = "mid"   # cpu | low-vram-moe | mid | high

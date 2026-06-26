@@ -2,17 +2,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Routing by job — the PRIMARY routing surface (design §2.8/§9). "Pick one model
 // per kind of task. Most people only touch this." Holds the global Defaults
-// (Default LLM + embedding) + one card per job (the job→model map) + the job-list
+// (Default LLM + embedding) + one ROW per job (the job→model map) + the job-list
 // editor (add / rename / remove / reset over /v1/ai/jobs). Per-feature overrides
 // live in the sibling "Routing by feature" workbench. Job CRUD lives here — with
 // the job list — matching the app's manage-entities-where-listed pattern
-// (Providers tab, Recommendations tab). Switch-preset/flag editing per job comes
-// with the Switches-phase UI (design §6).
+// (Providers tab, Recommendations tab).
+//
+// #33: jobs render as a UiTable grid (was cards), reusing the SAME table + AppModal
+// CRUD shape RecommendationsEditor.vue already uses — one pattern, not a copy.
 import { onMounted, ref } from "vue";
 
+import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
+import UiTable from "../common/components/UiTable.vue";
 import LuModelPicker from "../components/LuModelPicker.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { request } from "../client.js";
@@ -27,12 +31,18 @@ const {
 
 const loading = ref(true);
 const error = ref("");
-const busy = ref("");          // a job id mid-action (delete), for button feedback
-const editing = ref(null);     // 'new' | a job id | null
-const draft = ref({ label: "", description: "" });
+const busy = ref(""); // a job id mid-action (delete), for button feedback
+
+const TABLE_COLUMNS = [
+  { id: "label", accessorKey: "label", header: "Job", sortable: true, enableGlobalFilter: true, cellStyle: { width: "150px" } },
+  { id: "model", accessorKey: "_model", header: "Model", cellStyle: { minWidth: "260px" } },
+  { id: "usedFor", accessorKey: "_usedFor", header: "Used for" },
+  { id: "actions", accessorKey: "_actions", header: "", cellStyle: { width: "120px", textAlign: "right" } },
+];
 
 async function load() {
-  loading.value = true; error.value = "";
+  loading.value = true;
+  error.value = "";
   try {
     await loadRouting();
   } catch (e) {
@@ -43,30 +53,45 @@ async function load() {
 }
 onMounted(load);
 
-// ── job-list editor (CRUD over /v1/ai/jobs) ──────────────────────────────────
-function startAdd() { editing.value = "new"; draft.value = { label: "", description: "" }; }
-function startEdit(job) { editing.value = job.id; draft.value = { label: job.label, description: job.description || "" }; }
-function cancelEdit() { editing.value = null; }
-
+// ── add / edit job (modal) ───────────────────────────────────────────────────
+const editing = ref(null); // null | { id?, label, description }  (no id = new)
 const saving = ref(false);
+const saveError = ref("");
+
+function startAdd() {
+  editing.value = { label: "", description: "" };
+  saveError.value = "";
+}
+function startEdit(job) {
+  editing.value = { id: job.id, label: job.label, description: job.description || "" };
+  saveError.value = "";
+}
+function cancelEdit() {
+  editing.value = null;
+}
+
 async function saveEdit() {
-  const label = (draft.value.label || "").trim();
-  if (!label) { cancelEdit(); return; }
-  saving.value = true; error.value = "";
+  const label = (editing.value.label || "").trim();
+  if (!label) {
+    saveError.value = "Name is required.";
+    return;
+  }
+  saving.value = true;
+  saveError.value = "";
   try {
-    if (editing.value === "new") {
-      await request("/v1/ai/jobs", { method: "POST", body: { label, description: draft.value.description || "" } });
+    if (!editing.value.id) {
+      await request("/v1/ai/jobs", { method: "POST", body: { label, description: editing.value.description || "" } });
     } else {
-      const job = jobs.value.find((j) => j.id === editing.value);
-      await request(`/v1/ai/jobs/${encodeURIComponent(editing.value)}`, {
+      const job = jobs.value.find((j) => j.id === editing.value.id);
+      await request(`/v1/ai/jobs/${encodeURIComponent(editing.value.id)}`, {
         method: "PUT",
-        body: { id: editing.value, label, description: draft.value.description || "", position: job?.position || 0 },
+        body: { id: editing.value.id, label, description: editing.value.description || "", position: job?.position || 0 },
       });
     }
     await reloadJobs();
     editing.value = null;
   } catch (e) {
-    error.value = e?.message || "Save failed.";
+    saveError.value = e?.message || "Save failed.";
   } finally {
     saving.value = false;
   }
@@ -132,7 +157,7 @@ async function resetJobs() {
         </div>
       </div>
 
-      <!-- Jobs — one card per job (model + Used-for) + the CRUD editor. -->
+      <!-- Jobs — one ROW per job (model + Used-for) + the CRUD editor. -->
       <div class="lu-rbj-jobs-h">
         <b>Jobs</b><span class="lu-muted">each task type runs on the model you pick; features inherit their job's model</span>
         <span class="lu-rbj-spacer" />
@@ -140,43 +165,59 @@ async function resetJobs() {
         <UiButton intent="primary" size="small" @click="startAdd">＋ Add job</UiButton>
       </div>
 
-      <div class="lu-rbj-cards">
-        <div v-for="job in jobs" :key="job.id" class="lu-rbj-jobcard">
-          <template v-if="editing === job.id">
-            <UiInput v-model="draft.label" placeholder="Job name" />
-            <UiTextarea v-model="draft.description" :rows="2" placeholder="What this job is for…" />
-            <div class="lu-rbj-editrow">
-              <UiButton intent="ghost" size="small" @click="cancelEdit">Cancel</UiButton>
-              <span class="lu-rbj-spacer" />
-              <UiButton intent="primary" size="small" :loading="saving" @click="saveEdit">Save</UiButton>
-            </div>
-          </template>
-          <template v-else>
-            <div class="lu-rbj-jobcard-h">
-              <span class="lu-rchip lu-rchip--job">{{ job.label }}</span>
-              <span class="lu-rbj-spacer" />
-              <UiButton intent="ghost" size="small" title="Rename / edit" @click="startEdit(job)">Edit</UiButton>
-              <UiButton v-if="job.id !== DEFAULT_JOB_ID" intent="danger" size="small"
-                :loading="busy === job.id" title="Delete this job" @click="removeJob(job)">Delete</UiButton>
-            </div>
-            <p class="lu-rbj-jobcard-desc">{{ job.description }} <span class="lu-muted">Used for: {{ jobUsedFor(job.id) }}</span></p>
-            <LuModelPicker editable :model-value="routing.jobs?.[job.id] || null" :providers="providers"
-              inherit-label="— use Default LLM —" @update:model-value="setJob(job.id, $event)" />
-          </template>
-        </div>
+      <UiTable
+        :data="jobs"
+        :columns="TABLE_COLUMNS"
+        data-key="id"
+        row-hover
+      >
+        <template #label="{ row }">
+          <span class="lu-rchip lu-rchip--job">{{ row.label }}</span>
+        </template>
 
-        <!-- New-job editor card -->
-        <div v-if="editing === 'new'" class="lu-rbj-jobcard lu-rbj-jobcard--new">
-          <UiInput v-model="draft.label" placeholder="New job name (e.g. Marketing)" />
-          <UiTextarea v-model="draft.description" :rows="2" placeholder="What this job is for…" />
-          <div class="lu-rbj-editrow">
-            <UiButton intent="ghost" size="small" @click="cancelEdit">Cancel</UiButton>
-            <span class="lu-rbj-spacer" />
-            <UiButton intent="primary" size="small" :loading="saving" @click="saveEdit">Add job</UiButton>
-          </div>
-        </div>
-      </div>
+        <template #model="{ row }">
+          <LuModelPicker editable :model-value="routing.jobs?.[row.id] || null" :providers="providers"
+            inherit-label="— use Default LLM —" @update:model-value="setJob(row.id, $event)" />
+        </template>
+
+        <template #usedFor="{ row }">
+          <span class="lu-muted lu-rbj-usedfor">{{ jobUsedFor(row.id) }}</span>
+        </template>
+
+        <template #actions="{ row }">
+          <UiButton intent="ghost" size="small" title="Rename / edit" @click.stop="startEdit(row)">Edit</UiButton>
+          <UiButton v-if="row.id !== DEFAULT_JOB_ID" intent="danger" size="small"
+            :loading="busy === row.id" title="Delete this job" @click.stop="removeJob(row)">Delete</UiButton>
+        </template>
+
+        <template #empty>
+          <span class="lu-muted">No jobs — add one above, or "Reset to factory".</span>
+        </template>
+      </UiTable>
     </template>
+
+    <!-- Add / edit job modal -->
+    <AppModal
+      v-if="editing"
+      :title="editing.id ? 'Edit job' : 'Add job'"
+      :max-width="'480px'"
+      @close="cancelEdit"
+    >
+      <div class="lu-rbj-form">
+        <label class="lu-rbj-label">Name
+          <UiInput v-model="editing.label" placeholder="e.g. Marketing" />
+        </label>
+        <label class="lu-rbj-label">Description
+          <UiTextarea v-model="editing.description" :rows="2" placeholder="What this job is for…" />
+        </label>
+        <div v-if="saveError" class="lu-error">{{ saveError }}</div>
+      </div>
+      <template #footer>
+        <UiButton intent="ghost" @click="cancelEdit">Cancel</UiButton>
+        <span class="lu-rbj-spacer" />
+        <UiButton intent="primary" :loading="saving" @click="saveEdit">{{ editing.id ? "Save changes" : "Add job" }}</UiButton>
+      </template>
+    </AppModal>
   </section>
 </template>
 
@@ -192,12 +233,9 @@ async function resetJobs() {
 .lu-rbj-jobs-h { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
 .lu-rbj-jobs-h b { font-size: 13px; color: var(--ink); } .lu-rbj-jobs-h .lu-muted { font-size: 11px; }
 .lu-rbj-spacer { flex: 1; }
-.lu-rbj-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.lu-rbj-jobcard { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
-.lu-rbj-jobcard--new { border-color: var(--accent); }
-.lu-rbj-jobcard-h { display: flex; align-items: center; gap: 8px; }
-.lu-rbj-jobcard-desc { margin: 0; font-size: 12px; color: var(--ink-2); line-height: 1.45; }
-.lu-rbj-editrow { display: flex; align-items: center; gap: 8px; }
-.lu-rchip { font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 3px 9px; text-align: center; }
+.lu-rbj-usedfor { font-size: 11.5px; }
+.lu-rchip { font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 3px 9px; text-align: center; display: inline-block; }
 .lu-rchip--job { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); text-transform: uppercase; }
+.lu-rbj-form { display: flex; flex-direction: column; gap: 14px; }
+.lu-rbj-label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--ink-2); font-weight: 600; }
 </style>

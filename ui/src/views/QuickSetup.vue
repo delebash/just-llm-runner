@@ -170,7 +170,7 @@ async function loadRouting() {
 async function openWizard() {
   open.value = true;
   step.value = "detect";
-  pick.value = { default: "", quick: "", accuracy: "", embeddingId: "", embeddingModel: "" };
+  pick.value = { default: "", embeddingId: "", embeddingModel: "" };
   await Promise.all([loadAll(), loadRouting()]);
   step.value = fitting.value.length ? "confirm" : "confirm"; // confirm shows the empty-state if none fit
 }
@@ -178,8 +178,9 @@ function onModalClose() {
   open.value = false;
 }
 async function onCardChange() {
-  // Re-score Fit for the chosen card, then re-pick (clear picks so prefill runs).
-  pick.value.default = pick.value.quick = pick.value.accuracy = "";
+  // Re-score Fit for the chosen card, then re-pick (clear picks so prefill runs;
+  // keep the embedding). Replacing the object drops the per-job picks too.
+  pick.value = { default: "", embeddingId: pick.value.embeddingId, embeddingModel: pick.value.embeddingModel };
   await loadAll();
 }
 
@@ -191,8 +192,8 @@ async function apply() {
   error.value = "";
   step.value = "apply";
   try {
-    // Merge into existing routing: keep current per-feature pins, set default +
-    // both roles to the bundled runner with the chosen models, carry embedding.
+    // Merge into existing routing: keep current per-feature pins, set the default
+    // + each job's model on the bundled runner, carry the embedding.
     const r = await request("/v1/ai/routing");
     const pins = {};
     for (const f of r.features || []) {
@@ -218,8 +219,8 @@ async function apply() {
       },
     });
     // Download (if needed) + load the default model as the active one, polling
-    // status so the user sees progress (the Accuracy model downloads on first use).
-    const target = pick.value.default || pick.value.quick;
+    // status so the user sees progress (per-job models download on first use).
+    const target = pick.value.default;
     if (target) {
       await request("/v1/llm-runner/load", { method: "POST", body: { modelId: target } });
       await pollLoad();

@@ -537,26 +537,8 @@ onMounted(load);
 <style scoped>
 .lu-fw { display: flex; flex-direction: column; min-height: 0; }
 
-/* Globals (full width): Defaults row on top, then the two role cards. */
-.lu-fw-globals { display: flex; flex-direction: column; gap: 14px; margin-bottom: 16px; }
-.lu-fw-gcard { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); }
-.lu-fw-gh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
-.lu-fw-gh b { font-size: 13px; color: var(--ink); } .lu-fw-gh .lu-muted { font-size: 11px; }
-/* Defaults — one full-width row: LLM label+select · embedding label+select. */
-.lu-fw-defgrid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px 14px; align-items: center; }
-.lu-fw-gl { color: var(--ink-2); font-size: 12px; }
-/* Model roles — section header + two side-by-side role cards (the JV look: speed
-   blurb + catalog-derived "used for" + our picker + a trade-off note). */
-.lu-fw-roles-h { display: flex; align-items: baseline; gap: 10px; }
-.lu-fw-roles-h b { font-size: 13px; color: var(--ink); } .lu-fw-roles-h .lu-muted { font-size: 11px; }
-.lu-fw-rolecards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.lu-fw-rolecard { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
-.lu-fw-rolecard-h { display: flex; align-items: center; gap: 8px; }
-.lu-fw-rolecard-h b { font-size: 13px; color: var(--ink); }
-.lu-fw-rolecard-desc { margin: 0; font-size: 12px; color: var(--ink-2); line-height: 1.45; }
-.lu-fw-rolecard-note { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
-.lu-rchip { font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 3px 9px; text-align: center; }
-.lu-rchip--job { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); text-transform: uppercase; }
+/* (Defaults + per-job role cards moved to the Routing-by-job tab — their styles
+   live in RoutingByJob.vue now; removed the dead globals CSS here.) */
 select.lu-input { cursor: pointer; appearance: auto; }
 
 /* Body = nav + editor. The nav is a self-contained scroller (capped height,

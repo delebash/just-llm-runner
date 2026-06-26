@@ -1,0 +1,8 @@
+{
+  "minTokens": 50,
+  "pattern": "src/**/*.{js,vue}",
+  "ignore": ["**/node_modules/**", "**/dist/**", "**/scripts/**"],
+  "reporters": ["console"],
+  "absolute": true,
+  "threshold": 1.5
+}

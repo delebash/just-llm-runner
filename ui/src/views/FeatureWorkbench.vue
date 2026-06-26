@@ -21,6 +21,7 @@ import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiInput from "../common/components/UiInput.vue";
 import LuModelPicker from "../components/LuModelPicker.vue";
+import LuJobSelect from "../components/LuJobSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
 
@@ -482,10 +483,9 @@ onMounted(load);
                separate redundant "→ role" note. -->
           <div class="lu-field">
             <label>Job <span class="lu-muted">— this feature's task type; it runs on the job's model unless pinned below</span></label>
-            <select class="lu-input" :value="featureJobs[action.feature] || ''" @change="setFeatureJob(action.feature, $event.target.value)">
-              <option value="">— default job —</option>
-              <option v-for="j in jobs" :key="j.id" :value="j.id">{{ j.label }}</option>
-            </select>
+            <LuJobSelect :model-value="featureJobs[action.feature] || ''" :jobs="jobs"
+              empty-label="— default job —"
+              @update:model-value="setFeatureJob(action.feature, $event)" />
           </div>
           <div class="lu-field">
             <label>Provider &amp; model <span class="lu-muted">— pin this action to a specific provider + model (overrides its job)</span></label>

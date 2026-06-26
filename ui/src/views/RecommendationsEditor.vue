@@ -21,16 +21,13 @@ import UiSelect from "../common/components/UiSelect.vue";
 import UiTable from "../common/components/UiTable.vue";
 import UiTag from "../common/components/UiTag.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
+import LuJobSelect from "../components/LuJobSelect.vue";
 import { request } from "../client.js";
 
 const rows = ref([]);
 const models = ref([]); // runner catalog — for the modelId picker
 const loading = ref(true);
 const error = ref("");
-
-// SUGGESTED_JOBS mirrors the server's list (recommendations_api.py SUGGESTED_JOBS).
-// The editor offers these in the dropdown but accepts any free-typed string too.
-const SUGGESTED_JOBS = ["chat", "prose", "extraction", "analysis", "attribution", "embedding"];
 
 const TABLE_COLUMNS = [
   { id: "modelId", accessorKey: "modelId", header: "Model", sortable: true, enableGlobalFilter: true },
@@ -53,7 +50,6 @@ const modelOptions = computed(() => {
     ...Array.from(new Set(extras)).map((id) => ({ value: id, label: `${id} (user-added)` })),
   ];
 });
-const jobOptions = SUGGESTED_JOBS.map((j) => ({ value: j, label: j }));
 
 // ── load ────────────────────────────────────────────────────────────────────
 async function loadAll() {
@@ -79,7 +75,7 @@ const editing = ref(null);     // null | the row being edited (a draft copy)
 const editingOriginal = ref(null); // the original (modelId, job) for delete-then-upsert when keys change
 
 function startNew() {
-  editing.value = { modelId: "", job: SUGGESTED_JOBS[0], rank: 100, why: "" };
+  editing.value = { modelId: "", job: "chat", rank: 100, why: "" };
   editingOriginal.value = null;
 }
 function startEdit(row) {
@@ -216,8 +212,8 @@ async function resetFactory() {
           <UiSelect v-model="editing.modelId" :options="modelOptions" placeholder="Pick a catalog model or type an id" />
         </label>
         <label class="lu-rec-label">Job
-          <UiSelect v-model="editing.job" :options="jobOptions" />
-          <span class="lu-muted lu-rec-hint">Suggested: {{ SUGGESTED_JOBS.join(" · ") }}. Free text accepted.</span>
+          <LuJobSelect v-model="editing.job" />
+          <span class="lu-muted lu-rec-hint">Jobs come from your editable list (Routing by job → Jobs).</span>
         </label>
         <label class="lu-rec-label">Rank
           <UiNumber v-model="editing.rank" :min="1" :max="999" :step="10" />

@@ -6,15 +6,13 @@ to a provider+model through `resolve_pin` and runs via `chat`. Lifted
 from JustVoice `server/justvoice/engines/llm/dispatch.py` into the shared
 `llm_runner` package (2026-06-21 AI-stack convergence).
 
-The ONE change from JV: dispatch no longer reads a JustVoice `settings`
-object. It takes an `LLMConfig` (this package's schema) so both apps feed
-it from their own settings. The precedence chain is unchanged:
+Dispatch reads an `LLMConfig` (this package's schema), built by the shared
+`config_builder` from the shared stores. The precedence chain (job-native):
     1. active production config
     2. feature pin with explicit provider/model
-    3. feature pin inheriting a role ("quick"/"accuracy")
-    4. the feature's default role (config.default_feature_roles) → llm_roles
-    5. preferred local runner (config.prefer_local_features)
-    6. first registered adapter (legacy fallback)
+    3. the feature's JOB (config.feature_jobs[feature] → config.jobs[job_id])
+    4. preferred local runner (config.prefer_local_features)
+    5. first registered adapter (legacy fallback)
 """
 
 from __future__ import annotations
@@ -43,12 +41,13 @@ def _reg(registry: LLMRegistry | None) -> LLMRegistry:
     return registry or get_llm_registry()
 
 
-def _resolve_role(
-    config: LLMConfig, role: str, registry: LLMRegistry | None = None
+def _resolve_job(
+    config: LLMConfig, feature: str, registry: LLMRegistry | None = None
 ) -> tuple[LLMAdapter, str] | None:
-    """Map a role name to (adapter, model) via config.llm_roles."""
-    roles = config.llm_roles
-    target = getattr(roles, role, None) if roles else None
+    """Map a feature to (adapter, model) via its job: feature_jobs[feature] (or
+    the default job) → jobs[job_id] → that job's provider+model."""
+    job_id = config.feature_jobs.get(feature) or config.default_job_id
+    target = config.jobs.get(job_id)
     if target is None or not target.providerId:
         return None
     adapter = _reg(registry).get(target.providerId)
@@ -66,26 +65,21 @@ def active_production_config(config: LLMConfig, feature: str):
 def _resolve_action_override(
     config: LLMConfig, action: str, reg: LLMRegistry
 ) -> tuple[LLMAdapter, str, str | None] | None:
-    """Resolve an ACTION's own config (its production config or pin), or None to
-    fall back to its feature. Deliberately stops at the action's explicit config:
-    it never touches the generic feature fallbacks (role-default / prefer-local /
+    """Resolve an ACTION's own explicit config (its production config or pin), or
+    None to fall back to its feature. Deliberately stops at the action's explicit
+    config: it never touches the generic feature fallbacks (job / prefer-local /
     first-adapter) — those belong to the feature, so an action with nothing of its
-    own inherits the feature default (then role, then global default)."""
+    own inherits the feature default (then its job, then the global default)."""
     cfg = active_production_config(config, action)
     if cfg is not None:
         adapter = reg.get(cfg.providerId)
         if adapter is not None:
             return adapter, cfg.model or adapter.default_model, cfg.tier
     pin = next((p for p in (config.feature_pins or []) if p.feature == action), None)
-    if pin is not None:
-        if pin.providerId:
-            adapter = reg.get(pin.providerId)
-            if adapter is not None:
-                return adapter, pin.model or adapter.default_model, pin.tier
-        elif pin.role:
-            resolved = _resolve_role(config, pin.role, reg)
-            if resolved is not None:
-                return resolved[0], resolved[1], pin.tier
+    if pin is not None and pin.providerId:
+        adapter = reg.get(pin.providerId)
+        if adapter is not None:
+            return adapter, pin.model or adapter.default_model, pin.tier
     return None
 
 
@@ -98,10 +92,9 @@ def resolve_pin(
     """Resolve the (provider, model, tier) tuple for a feature key.
 
     When `action` is given (a specific action within the feature, e.g.
-    "writerAI.tighten"), the action's OWN config wins; if the action has nothing
-    of its own it falls back to the feature default — so the model cascade is
-    action → feature → role → global default. `action=None` (every legacy caller,
-    incl. all of JustVoice) is unchanged: pure feature-level resolution.
+    "writerAI.tighten"), the action's OWN explicit config wins; if the action has
+    nothing of its own it falls back to the feature — so the cascade is
+    action → feature → job → first. `action=None` is pure feature-level resolution.
 
     Raises LLMNotConfiguredError when nothing resolves.
     """
@@ -123,44 +116,39 @@ def resolve_pin(
             cfg.name, feature, cfg.providerId,
         )
 
-    feature_pins = config.feature_pins or []
-    pin = next((p for p in feature_pins if p.feature == feature), None)
+    pin = next((p for p in (config.feature_pins or []) if p.feature == feature), None)
 
-    if pin is not None and not pin.providerId and pin.role:
-        resolved = _resolve_role(config, pin.role, reg)
-        if resolved is not None:
-            return resolved[0], resolved[1], pin.tier
-
-    if pin is None or not pin.providerId:
-        # Role-default path: the feature's factory role, if configured.
-        default_role = config.default_feature_roles.get(feature)
-        if default_role:
-            resolved = _resolve_role(config, default_role, reg)
-            if resolved is not None:
-                return resolved[0], resolved[1], None
-        # Built-in local runner is the smart default for its target features
-        # (e.g. attribution) when nothing more specific is configured.
-        if feature in config.prefer_local_features:
-            local = reg.get(config.local_runner_provider_id)
-            if local is not None:
-                return local, local.default_model, None
-        # No pin set yet — fall back to the first registered LLM if any.
-        adapters = reg.all()
-        if not adapters:
+    # Explicit per-feature pin (provider+model).
+    if pin is not None and pin.providerId:
+        adapter = reg.get(pin.providerId)
+        if adapter is None:
             raise LLMNotConfiguredError(
-                f"No LLM provider registered. Add one in the AI engines tab, "
-                f"then pin it to '{feature}' in feature routing."
+                f"Feature {feature!r} is pinned to provider {pin.providerId!r} "
+                f"but that provider isn't registered."
             )
-        adapter = adapters[0]
-        return adapter, adapter.default_model, None
+        return adapter, pin.model or adapter.default_model, pin.tier
 
-    adapter = reg.get(pin.providerId)
-    if adapter is None:
+    # The feature's JOB (feature_jobs → jobs) — the layer that replaced roles.
+    resolved = _resolve_job(config, feature, reg)
+    if resolved is not None:
+        return resolved[0], resolved[1], None
+
+    # Built-in local runner is the smart default for its target features
+    # (e.g. attribution) when nothing more specific is configured.
+    if feature in config.prefer_local_features:
+        local = reg.get(config.local_runner_provider_id)
+        if local is not None:
+            return local, local.default_model, None
+
+    # Nothing routed yet — fall back to the first registered LLM if any.
+    adapters = reg.all()
+    if not adapters:
         raise LLMNotConfiguredError(
-            f"Feature {feature!r} is pinned to provider {pin.providerId!r} "
-            f"but that provider isn't registered."
+            f"No LLM provider registered. Add one in the AI engines tab, "
+            f"then route '{feature}' to a job (or pin it) in feature routing."
         )
-    return adapter, pin.model or adapter.default_model, pin.tier
+    adapter = adapters[0]
+    return adapter, adapter.default_model, None
 
 
 def resolve_tier(

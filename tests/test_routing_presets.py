@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from llm_runner.llm import RoutingConfig, RoutingPreset, make_routing_presets_router
-from llm_runner.llm.routing_api import RoleTarget, RoutingDefaults
+from llm_runner.llm.routing_api import JobTarget, RoutingDefaults
 
 
 class FakePresetStore:
@@ -56,12 +56,12 @@ def test_create_list_delete():
 def test_from_current_snapshots_active_routing():
     rs = FakeRoutingStore()
     rs.cfg = RoutingConfig(default=RoutingDefaults(llmId="claude"),
-                           quick=RoleTarget(providerId="local", model="qwen"))
+                           jobs={"prose": JobTarget(providerId="local", model="qwen")})
     c = _client(FakePresetStore(), rs)
     p = c.post("/v1/ai/routing-presets/from-current", json={"name": "Now"}).json()["presets"][0]
     assert p["name"] == "Now"
     assert p["routing"]["default"]["llmId"] == "claude"
-    assert p["routing"]["quick"]["model"] == "qwen"
+    assert p["routing"]["jobs"]["prose"]["model"] == "qwen"
 
 
 def test_update_rename_and_routing():
@@ -79,11 +79,11 @@ def test_apply_writes_active_routing():
     c = _client(FakePresetStore(), rs)
     pid = c.post("/v1/ai/routing-presets",
                  json={"name": "P", "routing": {"default": {"llmId": "local-llamacpp"},
-                                                "accuracy": {"providerId": "anthropic", "model": "sonnet"}}}
+                                                "jobs": {"analysis": {"providerId": "anthropic", "model": "sonnet"}}}}
                  ).json()["presets"][0]["id"]
     assert rs.cfg.default.llmId == ""  # not applied yet
     applied = c.post(f"/v1/ai/routing-presets/{pid}/apply").json()
     assert applied["name"] == "P"
     assert rs.cfg.default.llmId == "local-llamacpp"  # active routing now updated
-    assert rs.cfg.accuracy.model == "sonnet"
+    assert rs.cfg.jobs["analysis"].model == "sonnet"
     assert c.post("/v1/ai/routing-presets/nope/apply").status_code == 404

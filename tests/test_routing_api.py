@@ -25,8 +25,8 @@ class _MemStore:
 
 
 CATALOG = [
-    FeatureCatalogEntry(key="critique", label="Critique", hint="line notes", role="accuracy"),
-    FeatureCatalogEntry(key="brainstorm", label="Brainstorm", hint="ideas", role="quick"),
+    FeatureCatalogEntry(key="critique", label="Critique", hint="line notes", category="Analysis"),
+    FeatureCatalogEntry(key="brainstorm", label="Brainstorm", hint="ideas", category="Drafting"),
 ]
 
 
@@ -44,31 +44,33 @@ def test_get_merges_catalog_with_empty_pins():
     feats = {f["key"]: f for f in body["features"]}
     assert set(feats) == {"critique", "brainstorm"}
     assert feats["critique"]["label"] == "Critique"
-    assert feats["critique"]["defaultRole"] == "accuracy"
     # No pin yet → empty route.
-    assert feats["critique"]["providerId"] == "" and feats["critique"]["role"] == ""
+    assert feats["critique"]["providerId"] == "" and feats["critique"]["model"] == ""
 
 
-def test_put_persists_defaults_roles_and_pins():
+def test_put_persists_defaults_jobs_and_pins():
     client, store = _client()
     payload = {
         "default": {"llmId": "openai", "embeddingId": "ollama-local"},
-        "quick": {"providerId": "local-llamacpp", "model": "qwen3-4b"},
-        "accuracy": {"providerId": "openai", "model": "gpt-4o"},
+        "jobs": {
+            "prose": {"providerId": "local-llamacpp", "model": "qwen3-4b"},
+            "analysis": {"providerId": "openai", "model": "gpt-4o"},
+        },
         "pins": {
-            "critique": {"providerId": "openai", "model": "gpt-4o", "role": ""},
-            "brainstorm": {"providerId": "", "model": "", "role": "quick"},
+            "critique": {"providerId": "openai", "model": "gpt-4o"},
         },
     }
     r = client.put("/v1/ai/routing", json=payload)
     assert r.status_code == 200
     # Persisted into the store.
     assert store.get_routing().default.llmId == "openai"
-    assert store.get_routing().quick.model == "qwen3-4b"
+    assert store.get_routing().jobs["prose"].model == "qwen3-4b"
     # GET reflects it, merged onto the catalog rows.
-    feats = {f["key"]: f for f in client.get("/v1/ai/routing").json()["features"]}
+    body = client.get("/v1/ai/routing").json()
+    assert body["jobs"]["analysis"]["model"] == "gpt-4o"
+    feats = {f["key"]: f for f in body["features"]}
     assert feats["critique"]["providerId"] == "openai" and feats["critique"]["model"] == "gpt-4o"
-    assert feats["brainstorm"]["role"] == "quick" and feats["brainstorm"]["providerId"] == ""
+    assert feats["brainstorm"]["providerId"] == ""
 
 
 def test_put_response_is_the_merged_view():

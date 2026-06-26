@@ -26,7 +26,9 @@ from pydantic import BaseModel
 
 
 # ── wire shapes (camelCase) ─────────────────────────────────────────────────
-class RoleTarget(BaseModel):
+class JobTarget(BaseModel):
+    """The provider+model that runs a job (job_id → this)."""
+
     providerId: str = ""
     model: str = ""
 
@@ -39,46 +41,41 @@ class RoutingDefaults(BaseModel):
 
 
 class FeaturePin(BaseModel):
+    """An explicit per-feature provider+model override (empty = inherit the
+    feature's job)."""
+
     providerId: str = ""
     model: str = ""
-    role: str = ""  # "quick" | "accuracy" | "" (empty = explicit provider, or none)
 
 
 class RoutingConfig(BaseModel):
-    """The stored routing shape (PUT body)."""
+    """The stored routing shape (PUT body). `jobs` maps job_id → its provider+model
+    (what QuickSetup / Routing-by-job set); `pins` are explicit per-feature
+    overrides. A feature inherits its job's target unless pinned."""
 
     default: RoutingDefaults = RoutingDefaults()
-    quick: RoleTarget = RoleTarget()
-    accuracy: RoleTarget = RoleTarget()
+    jobs: dict[str, JobTarget] = {}
     pins: dict[str, FeaturePin] = {}
-    # job → (provider, model) map (the jobs architecture; key = Job.id). Additive
-    # and optional: a host that doesn't use jobs leaves it empty and behaves as
-    # before. JustWrite resolves feature → job → this target into the dispatch.
-    jobs: dict[str, RoleTarget] = {}
 
 
 class FeatureRow(BaseModel):
-    """One catalog feature merged with its current pin (GET response)."""
+    """One catalog feature merged with its current explicit pin (GET response).
+    The feature's job classification comes from the /v1/ai/feature-jobs map."""
 
     key: str
     label: str
     hint: str = ""
     category: str = ""  # the catalog's nav group (e.g. "Writing", "Analysis")
-    defaultRole: str = ""  # the catalog's fallback role when unpinned
     providerId: str = ""
     model: str = ""
-    role: str = ""
 
 
 class RoutingResponse(BaseModel):
     default: RoutingDefaults
-    quick: RoleTarget
-    accuracy: RoleTarget
-    jobs: dict[str, RoleTarget] = {}  # job → (provider, model) map (jobs architecture)
+    jobs: dict[str, JobTarget] = {}  # job_id → (provider, model)
     features: list[FeatureRow]
-    # The raw stored pins, keyed by feature OR action key. The catalog-merged
-    # `features` above carries each feature's default; this also exposes
-    # action-level pins (e.g. "writerAI.tighten") for the Feature Workbench.
+    # The raw stored pins, keyed by feature OR action key (e.g. "writerAI.tighten"),
+    # for the Feature Workbench.
     pins: dict[str, FeaturePin] = {}
 
 
@@ -93,13 +90,12 @@ class RoutingStore(Protocol):
 @dataclass
 class FeatureCatalogEntry:
     """One feature the host exposes for routing — its key, human label, a hint,
-    the nav group it belongs to (category), and the role it falls back to when
-    unpinned (the dispatch default role)."""
+    and the nav group it belongs to (category). The feature's job classification
+    is separate data (the feature_jobs map)."""
 
     key: str
     label: str
     hint: str = ""
-    role: str = ""
     category: str = ""
 
 
@@ -119,16 +115,13 @@ def make_routing_router(
                 label=e.label,
                 hint=e.hint,
                 category=e.category,
-                defaultRole=e.role,
                 providerId=(p := cfg.pins.get(e.key) or FeaturePin()).providerId,
                 model=p.model,
-                role=p.role,
             )
             for e in get_catalog()
         ]
         return RoutingResponse(
-            default=cfg.default, quick=cfg.quick, accuracy=cfg.accuracy, jobs=cfg.jobs,
-            features=rows, pins=cfg.pins
+            default=cfg.default, jobs=cfg.jobs, features=rows, pins=cfg.pins
         )
 
     @router.get("/routing", response_model=RoutingResponse)

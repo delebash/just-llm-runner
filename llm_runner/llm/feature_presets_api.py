@@ -27,15 +27,14 @@ from pydantic import BaseModel
 
 class FeaturePreset(BaseModel):
     """A named saved config for one ACTION. `active` marks the production one
-    (at most one active per action). Model is an explicit provider+model OR an
-    inherited role; prompt/params override the action's seeded defaults."""
+    (at most one active per action). Model is an explicit provider+model;
+    prompt/params override the action's seeded defaults."""
 
     id: str = ""
     action: str = ""  # the action key this configures, e.g. "writerAI.tighten"
     name: str = ""
     active: bool = False
     providerId: str = ""
-    role: str = ""  # "quick" | "accuracy" | "" — inherit a role instead of a provider
     model: str = ""
     system: str = ""
     userTemplate: str = ""

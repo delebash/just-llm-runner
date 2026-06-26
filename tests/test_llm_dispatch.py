@@ -13,12 +13,11 @@ import pytest
 from llm_runner.llm import (
     FeaturePinConfig,
     LLMConfig,
+    LLMJobTarget,
     LLMMessage,
     LLMNotConfiguredError,
     LLMRegistry,
     LLMResponse,
-    LLMRolesSettings,
-    LLMRoleTarget,
     ProductionConfig,
     StreamDelta,
     chat,
@@ -81,34 +80,33 @@ def test_production_config_wins():
     assert tier == "direct"
 
 
-def test_explicit_pin_beats_role():
+def test_explicit_pin_beats_job():
     reg = make_reg(FakeAdapter("local"), FakeAdapter("cloud"))
     cfg = LLMConfig(
         feature_pins=[FeaturePinConfig(feature="compose", providerId="local", model="qwen3-4b")],
-        llm_roles=LLMRolesSettings(quick=LLMRoleTarget(providerId="cloud", model="gpt")),
+        feature_jobs={"compose": "prose"},
+        jobs={"prose": LLMJobTarget(providerId="cloud", model="gpt")},
     )
     adapter, model, _ = resolve_pin(cfg, "compose", reg)
-    assert adapter.provider_id == "local"
+    assert adapter.provider_id == "local"  # explicit pin wins over the job
     assert model == "qwen3-4b"
 
 
-def test_pin_inherits_role():
+def test_feature_inherits_job():
     reg = make_reg(FakeAdapter("local", "qwen3-4b"))
     cfg = LLMConfig(
-        feature_pins=[FeaturePinConfig(feature="compose", role="quick")],
-        llm_roles=LLMRolesSettings(quick=LLMRoleTarget(providerId="local", model="qwen3-4b")),
+        feature_jobs={"compose": "prose"},
+        jobs={"prose": LLMJobTarget(providerId="local", model="qwen3-4b")},
     )
     adapter, model, _ = resolve_pin(cfg, "compose", reg)
     assert adapter.provider_id == "local"
     assert model == "qwen3-4b"
 
 
-def test_default_feature_role():
+def test_default_job_fallback():
     reg = make_reg(FakeAdapter("cloud", "big"), FakeAdapter("local"))
-    cfg = LLMConfig(
-        llm_roles=LLMRolesSettings(accuracy=LLMRoleTarget(providerId="cloud", model="big")),
-        default_feature_roles={"speaker_attribution": "accuracy"},
-    )
+    # No feature_jobs entry → falls back to default_job_id ("chat").
+    cfg = LLMConfig(jobs={"chat": LLMJobTarget(providerId="cloud", model="big")})
     adapter, model, _ = resolve_pin(cfg, "speaker_attribution", reg)
     assert adapter.provider_id == "cloud"
     assert model == "big"

@@ -45,31 +45,22 @@ class LLMProviderConfig(BaseModel):
 
 
 class FeaturePinConfig(BaseModel):
-    """Which provider+model handles each LLM feature. Looked up at
-    dispatch time by feature key."""
+    """An explicit per-feature (or per-action) provider+model override, looked up
+    at dispatch time by feature key. A feature with no pin inherits its JOB's
+    model (LLMConfig.feature_jobs → LLMConfig.jobs)."""
 
     feature: str
     providerId: str = ""
     model: str = ""
     tier: str | None = None  # "guided" | "direct" | "reasoned" — null = auto-classify
-    # Inherit a model role instead of naming provider+model directly.
-    # "quick" | "accuracy" | None. Explicit providerId/model win over role.
-    role: str | None = None
 
 
-class LLMRoleTarget(BaseModel):
-    """One half of the Quick/Accuracy pair."""
+class LLMJobTarget(BaseModel):
+    """The provider+model that runs a job. A feature inherits its job's target
+    unless pinned to something explicit."""
 
     providerId: str
     model: str = ""
-
-
-class LLMRolesSettings(BaseModel):
-    """The two plain-language model roles. Features inherit one of these
-    unless pinned to something specific."""
-
-    quick: LLMRoleTarget | None = None
-    accuracy: LLMRoleTarget | None = None
 
 
 class ProductionConfig(BaseModel):
@@ -93,28 +84,27 @@ class ProductionConfig(BaseModel):
 class LLMConfig:
     """The dispatch-time view of an app's LLM configuration.
 
-    Replaces the JustVoice-specific `settings.engines.*` coupling the old
-    dispatch read directly. A host builds this from its own settings:
+    A host builds this from the shared stores (see `config_builder`):
 
         LLMConfig(
-            providers=settings.engines.llm,
-            feature_pins=settings.engines.feature_pins,
-            llm_roles=settings.engines.llm_roles,
-            production_configs=settings.engines.production_configs,
-            default_feature_roles=DEFAULT_FEATURE_ROLES,   # the app's catalog
-            prefer_local_features={"speaker_attribution"}, # optional
+            providers=provider_store.list(),
+            feature_pins=[...explicit pins...],
+            jobs={"chat": LLMJobTarget(...), "prose": LLMJobTarget(...)},
+            feature_jobs={"writerAI": "prose", "critique": "analysis", ...},
+            prefer_local_features={"speaker_attribution"},  # optional, per-app
         )
 
-    `default_feature_roles` and `prefer_local_features` are per-app
-    catalog data (which features exist, which default to quick/accuracy,
-    which prefer the local runner) — the shared package ships no
-    app-specific defaults.
+    A feature resolves: explicit pin → its job (feature_jobs → jobs) →
+    prefer-local → first adapter. `jobs`/`feature_jobs` are the job-routing
+    layer that replaced the old quick/accuracy roles. A feature with no
+    `feature_jobs` entry falls back to `default_job_id`.
     """
 
     providers: list[LLMProviderConfig] = field(default_factory=list)
     feature_pins: list[FeaturePinConfig] = field(default_factory=list)
-    llm_roles: LLMRolesSettings | None = None
+    jobs: dict[str, LLMJobTarget] = field(default_factory=dict)
+    feature_jobs: dict[str, str] = field(default_factory=dict)
     production_configs: list[ProductionConfig] = field(default_factory=list)
-    default_feature_roles: dict[str, str] = field(default_factory=dict)
     prefer_local_features: set[str] = field(default_factory=set)
     local_runner_provider_id: str = "local-llamacpp"
+    default_job_id: str = "chat"

@@ -71,7 +71,10 @@ from .recommendations_api import (
 )
 from .routing_api import (
     FeatureCatalogEntry,
+    FeaturePin,
+    JobTarget,
     RoutingConfig,
+    RoutingDefaults,
     RoutingPreset,
     RoutingPresetStore,
     RoutingStore,
@@ -81,20 +84,24 @@ from .routing_api import (
 from .schema import (
     FeaturePinConfig,
     LLMConfig,
+    LLMJobTarget,
     LLMProviderConfig,
-    LLMRolesSettings,
-    LLMRoleTarget,
     ProductionConfig,
 )
 from .tiers import TIERS, TierSpec, classify, spec_for
 from .usage import UsageEntry, UsageLedger, UsageSink, get_ledger, set_ledger
+from . import stores
+from .config_builder import build_llm_config
+from .db import LlmBase, configure_storage, create_all, session
+from .install import install_llm
+from .seed import configure_app_seed, seed_llm
 
 __all__ = [
     # contract
     "LLMAdapter", "LLMMessage", "LLMResponse", "StreamDelta",
     # schema
-    "LLMConfig", "LLMProviderConfig", "FeaturePinConfig", "LLMRoleTarget",
-    "LLMRolesSettings", "ProductionConfig",
+    "LLMConfig", "LLMProviderConfig", "FeaturePinConfig", "LLMJobTarget",
+    "ProductionConfig",
     # registry
     "LLMRegistry", "get_llm_registry", "construct", "load_from_configs",
     # dispatch
@@ -103,8 +110,9 @@ __all__ = [
     # prompts (per-feature prompt store contract + render + router factories)
     "FeaturePromptRow", "PromptStore", "render",
     "make_prompt_router", "make_feature_router",
-    # routing (default + roles + per-feature pins, behind a host store)
-    "RoutingStore", "RoutingConfig", "FeatureCatalogEntry", "make_routing_router",
+    # routing (default + jobs + per-feature pins, behind a host store)
+    "RoutingStore", "RoutingConfig", "RoutingDefaults", "FeaturePin", "JobTarget",
+    "FeatureCatalogEntry", "make_routing_router",
     "RoutingPreset", "RoutingPresetStore", "make_routing_presets_router",
     # recommendations (per-model job-tag curation, behind a host store)
     "RecommendationRow", "RecommendationStore", "RecommendationsResponse",
@@ -122,6 +130,9 @@ __all__ = [
     "TIERS", "TierSpec", "classify", "spec_for",
     # usage
     "UsageEntry", "UsageLedger", "UsageSink", "get_ledger", "set_ledger",
+    # shared storage + drop-in install (the whole LLM stack, one call)
+    "LlmBase", "configure_storage", "create_all", "session",
+    "build_llm_config", "configure_app_seed", "seed_llm", "install_llm",
     # submodules
-    "dispatch", "registry", "tiers",
+    "dispatch", "registry", "tiers", "stores",
 ]

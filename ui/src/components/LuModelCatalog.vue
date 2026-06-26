@@ -13,7 +13,11 @@
 import { computed, onUnmounted, ref } from "vue";
 
 import { request } from "../client.js";
+import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
+import UiInput from "../common/components/UiInput.vue";
+import UiSelect from "../common/components/UiSelect.vue";
+import { confirmDialog } from "../common/services/dialog.js";
 
 const data = ref(null);
 const loading = ref(true);
@@ -100,14 +104,107 @@ async function unload() {
   }
 }
 
+// ── manager: add / edit / delete a catalog model + its per-model switches (#30) ─
+// Backed by the EXISTING tested routers: /v1/ai/model-catalog (CRUD+reset) and
+// /v1/ai/model-switches (CRUD). The catalog row carries the editable fields
+// (hfRepo/quant/type/params); the /models view above is fit-shaped, so edit
+// fetches the catalog row. `type` drives which switch preset applies (§6.5).
+const TYPES = [{ value: "dense", label: "Dense" }, { value: "moe", label: "MoE (mixture-of-experts)" }];
+const editing = ref(null);     // null | a draft catalog row
+const editingNew = ref(false);
+const editSwitches = ref([]);  // [{flagName, flagValue}] for the model being edited
+const saving = ref(false);
+const saveErr = ref("");
+
+function blankModel() {
+  return { id: "", name: "", hfRepo: "", quant: "", type: "dense", totalParams: "",
+    activeParams: "", mtp: false, minVramMb: null, minRamMb: null, tier: "mid", position: 0 };
+}
+function startAdd() { editing.value = blankModel(); editingNew.value = true; editSwitches.value = []; saveErr.value = ""; }
+async function startEdit(m) {
+  saveErr.value = "";
+  try {
+    const [cat, sw] = await Promise.all([request("/v1/ai/model-catalog"), request("/v1/ai/model-switches")]);
+    const row = (cat.rows || []).find((r) => r.id === m.id) || { ...blankModel(), id: m.id, name: m.name };
+    editing.value = { ...blankModel(), ...row };
+    editingNew.value = false;
+    editSwitches.value = (sw.rows || []).filter((r) => r.modelId === m.id).map((r) => ({ flagName: r.flagName, flagValue: r.flagValue }));
+  } catch (e) {
+    saveErr.value = e.message || "Couldn't load the model.";
+    editing.value = { ...blankModel(), id: m.id, name: m.name }; editingNew.value = false; editSwitches.value = [];
+  }
+}
+function cancelEdit() { editing.value = null; saveErr.value = ""; }
+function addSwitchRow() { editSwitches.value.push({ flagName: "", flagValue: "" }); }
+function removeSwitchRow(i) { editSwitches.value.splice(i, 1); }
+
+function slugFromName(name) {
+  return (name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+async function saveModel() {
+  const e = editing.value;
+  if (editingNew.value && !e.id?.trim()) e.id = slugFromName(e.name);
+  if (!e.id?.trim()) { saveErr.value = "A name (for the id) is required."; return; }
+  saving.value = true; saveErr.value = "";
+  try {
+    await request("/v1/ai/model-catalog", {
+      method: "PUT",
+      body: { ...e, id: e.id.trim(), minVramMb: e.minVramMb || null, minRamMb: e.minRamMb || null, position: e.position || 0 },
+    });
+    // Sync per-model switches: delete removed rows, upsert the rest.
+    const sw = await request("/v1/ai/model-switches");
+    const before = (sw.rows || []).filter((r) => r.modelId === e.id);
+    const keep = new Set(editSwitches.value.map((r) => (r.flagName || "").trim()).filter(Boolean));
+    for (const r of before) {
+      if (!keep.has(r.flagName)) {
+        await request(`/v1/ai/model-switches?modelId=${encodeURIComponent(e.id)}&flagName=${encodeURIComponent(r.flagName)}`, { method: "DELETE" });
+      }
+    }
+    for (const r of editSwitches.value) {
+      const fn = (r.flagName || "").trim();
+      if (fn) await request("/v1/ai/model-switches", { method: "PUT", body: { modelId: e.id, flagName: fn, flagValue: r.flagValue || "" } });
+    }
+    editing.value = null;
+    await refresh();
+  } catch (err) {
+    saveErr.value = err.message || "Save failed.";
+  } finally {
+    saving.value = false;
+  }
+}
+async function deleteModel(m) {
+  const ok = await confirmDialog({
+    title: `Remove "${m.name || m.id}" from the catalog?`,
+    message: "Removes the catalog entry (downloaded files on disk are not deleted). Reset restores built-ins.",
+    danger: true,
+  });
+  if (!ok) return;
+  busy.value = m.id;
+  try {
+    await request(`/v1/ai/model-catalog?modelId=${encodeURIComponent(m.id)}`, { method: "DELETE" });
+    await refresh();
+  } catch (e) { error.value = e.message || "Delete failed."; } finally { busy.value = ""; }
+}
+async function resetCatalog() {
+  const ok = await confirmDialog({ title: "Reset the model catalog to factory?", message: "Restores the built-in models. Your added models are kept." });
+  if (!ok) return;
+  try {
+    await request("/v1/ai/model-catalog/reset", { method: "POST" });
+    await refresh();
+  } catch (e) { error.value = e.message || "Reset failed."; }
+}
+
 refresh();
 onUnmounted(stopPoll);
 </script>
 
 <template>
   <div class="lu-mcat">
-    <div class="lu-mcat-head">
-      Models — <b>Fit</b> estimates how well each runs on your GPU · downloaded models load on first use
+    <div class="lu-mcat-head lu-mcat-bar">
+      <span>Models — <b>Fit</b> estimates how well each runs on your GPU · downloaded models load on first use</span>
+      <span class="lu-mcat-spacer" />
+      <UiButton intent="secondary" size="small" @click="resetCatalog">Reset catalog</UiButton>
+      <UiButton intent="primary" size="small" @click="startAdd"><template #icon>＋</template>Add model</UiButton>
     </div>
 
     <div v-if="error" class="lu-error lu-mcat-err">{{ error }}</div>
@@ -134,6 +231,8 @@ onUnmounted(stopPoll);
               <span v-else class="lu-mstat">not downloaded</span>
             </td>
             <td class="lu-mact">
+              <UiButton intent="ghost" size="small" title="Edit fields + per-model switches" @click="startEdit(m)">Edit</UiButton>
+              <UiButton intent="ghost" size="small" title="Remove from catalog" :loading="busy === m.id" @click="deleteModel(m)">Delete</UiButton>
               <UiButton v-if="m.status === 'loaded'" intent="secondary" size="small"
                 :loading="busy === 'stop'" @click="unload">Unload</UiButton>
               <span v-else-if="m.status === 'loading'" class="lu-muted lu-mwait">working…</span>
@@ -155,6 +254,42 @@ onUnmounted(stopPoll);
       <a class="lu-mlink" href="https://huggingface.co/models?library=gguf" target="_blank" rel="noopener">Hugging Face ↗</a>
       — the open model hub. One model loads at a time; loading a new one replaces the running one.
     </div>
+
+    <!-- Add / edit a catalog model + its per-model switches (#30). -->
+    <AppModal v-if="editing" :title="editingNew ? 'Add model' : `Edit ${editing.name || editing.id}`"
+      :max-width="'560px'" @close="cancelEdit">
+      <div class="lu-mm-form">
+        <label class="lu-mm-l">Name<UiInput v-model="editing.name" placeholder="Qwen3 14B · Q4_K_M" /></label>
+        <label v-if="editingNew" class="lu-mm-l">Id <span class="lu-muted">blank → derived from name</span><UiInput v-model="editing.id" placeholder="qwen3-14b-q4_k_m" /></label>
+        <label class="lu-mm-l">Hugging Face repo<UiInput v-model="editing.hfRepo" placeholder="unsloth/Qwen3-14B-GGUF" /></label>
+        <label class="lu-mm-l">Quant<UiInput v-model="editing.quant" placeholder="Q4_K_M" /></label>
+        <label class="lu-mm-l">Type <span class="lu-muted">— drives which switch preset applies</span><UiSelect v-model="editing.type" :options="TYPES" /></label>
+        <div class="lu-mm-row">
+          <label class="lu-mm-l">Total params<UiInput v-model="editing.totalParams" placeholder="14B" /></label>
+          <label class="lu-mm-l">Active params <span class="lu-muted">MoE only</span><UiInput v-model="editing.activeParams" placeholder="3.6B" /></label>
+        </div>
+        <div class="lu-mm-row">
+          <label class="lu-mm-l">Min VRAM (MB)<UiInput v-model.number="editing.minVramMb" type="number" placeholder="11000" /></label>
+          <label class="lu-mm-l">Min RAM (MB)<UiInput v-model.number="editing.minRamMb" type="number" placeholder="14000" /></label>
+        </div>
+
+        <div class="lu-mm-sw">
+          <div class="lu-mm-sw-h"><b>Per-model switches</b><span class="lu-muted">flag (an Overrides field) → value; layers under the type presets, the rare per-model exception</span></div>
+          <div v-for="(s, i) in editSwitches" :key="i" class="lu-mm-sw-row">
+            <UiInput v-model="s.flagName" placeholder="spec_type / ctx_len / no_mmap" />
+            <UiInput v-model="s.flagValue" placeholder="none / 8192 / true" />
+            <UiButton intent="ghost" size="small" title="Remove" @click="removeSwitchRow(i)">✕</UiButton>
+          </div>
+          <UiButton intent="ghost" size="small" @click="addSwitchRow">＋ Add switch</UiButton>
+        </div>
+        <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
+      </div>
+      <template #footer>
+        <UiButton intent="ghost" @click="cancelEdit">Cancel</UiButton>
+        <span class="lu-mm-spacer" />
+        <UiButton intent="primary" :loading="saving" @click="saveModel">{{ editingNew ? "Add model" : "Save" }}</UiButton>
+      </template>
+    </AppModal>
   </div>
 </template>
 
@@ -197,4 +332,19 @@ onUnmounted(stopPoll);
 
 .lu-mcat-foot { font-size: 11px; margin-top: 7px; }
 .lu-mlink { color: var(--accent-ink, var(--accent)); }
+
+/* Manager: header bar + the add/edit modal form (#30). */
+.lu-mcat-bar { display: flex; align-items: center; gap: 8px; }
+.lu-mcat-bar > span:first-child { flex: 0 1 auto; }
+.lu-mcat-spacer { flex: 1; }
+.lu-mm-form { display: flex; flex-direction: column; gap: 12px; }
+.lu-mm-l { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--ink-2); font-weight: 600; }
+.lu-mm-l .lu-muted { font-weight: 400; }
+.lu-mm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.lu-mm-sw { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
+.lu-mm-sw-h { display: flex; flex-direction: column; gap: 2px; }
+.lu-mm-sw-h b { font-size: 12.5px; color: var(--ink); }
+.lu-mm-sw-h .lu-muted { font-size: 10.5px; line-height: 1.4; }
+.lu-mm-sw-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; width: 100%; }
+.lu-mm-spacer { flex: 1; }
 </style>

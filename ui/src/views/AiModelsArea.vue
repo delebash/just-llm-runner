@@ -12,6 +12,7 @@ import { computed, onMounted, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
+import RoutingByJob from "./RoutingByJob.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import RecommendationsEditor from "./RecommendationsEditor.vue";
@@ -139,7 +140,8 @@ onMounted(loadAll);
 
     <nav class="lu-subnav">
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
-      <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Features</a>
+      <a :class="{ on: tab === 'jobs' }" @click="tab = 'jobs'">Routing by job</a>
+      <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
       <a :class="{ on: tab === 'recommendations' }" @click="tab = 'recommendations'">Recommendations</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
       <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
@@ -215,8 +217,14 @@ onMounted(loadAll);
       </div>
     </section>
 
-    <!-- ── Features — the Feature Workbench (globals + per-action config + test).
-         Absorbs the old routing table; named whole-config snapshots below. ── -->
+    <!-- ── Routing by job (NEW) — the primary routing surface: Defaults + a model
+         per job + the job-list editor. Most users only touch this. ── -->
+    <section v-show="tab === 'jobs'" class="lu-tab">
+      <RoutingByJob v-if="tab === 'jobs'" />
+    </section>
+
+    <!-- ── Routing by feature — the Feature Workbench (per-action config + test +
+         the per-feature job dropdown). The rare fine-tune surface. ── -->
     <section v-show="tab === 'features'" class="lu-tab">
       <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
     </section>

@@ -57,16 +57,10 @@ const byId = computed(() => Object.fromEntries(providers.value.map((p) => [p.id,
 const providerName = (id) => byId.value[id]?.name || id || "—";
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
 
-// Job cards: each job (the editable routing unit) picks the model that runs it.
-// "Used for" = the features classified into this job (the feature→job map).
+// jobLabel — display label for a job id (used by the nav's activeModel note).
+// (Job→model cards + Defaults moved to the "Routing by job" tab; this workbench
+// only classifies features into jobs + does per-action pins/prompts/test.)
 const jobLabel = (id) => jobs.value.find((j) => j.id === id)?.label || id;
-function jobUsedFor(jobId) {
-  const labels = (routing.value?.features || [])
-    .filter((f) => (featureJobs.value[f.key] || "") === jobId)
-    .map((f) => f.label);
-  if (!labels.length) return "nothing yet";
-  return labels.slice(0, 4).join(" · ") + (labels.length > 4 ? ` +${labels.length - 4} more` : "");
-}
 
 // Nav model: CATEGORY → features → (sub-labels) → action cards, each level
 // indented under its header. A category whose actions ALL come from ONE
@@ -179,33 +173,12 @@ function setPin(key, val) {
   else pins[key] = { providerId: val.providerId, model: val.model || "" };
   saveRouting();
 }
-// A job's model (the routing unit). Empty → that job falls back to the Default LLM.
-function setJob(jobId, val) {
-  const jobsMap = routing.value.jobs || (routing.value.jobs = {});
-  if (!val || !val.providerId) delete jobsMap[jobId];
-  else jobsMap[jobId] = { providerId: val.providerId, model: val.model || "" };
-  saveRouting();
-}
 // A feature's job classification (feature → job map), persisted immediately.
 async function setFeatureJob(feature, jobId) {
   if (!jobId) await request(`/v1/ai/feature-jobs/${encodeURIComponent(feature)}`, { method: "DELETE" });
   else await request("/v1/ai/feature-jobs", { method: "PUT", body: { featureKey: feature, jobId } });
   const fj = await request("/v1/ai/feature-jobs");
   featureJobs.value = Object.fromEntries((fj.rows || []).map((x) => [x.featureKey, x.jobId]));
-}
-// Default LLM = provider + model (the picker), like the roles + per-action rows.
-function setDefaultLlm(val) {
-  routing.value.default.llmId = val?.providerId || "";
-  routing.value.default.model = val?.model || "";
-  saveRouting();
-}
-// Default embedding = provider + model too (same control as Default LLM). The
-// model is usually typed in — the combobox suggests any embedding models the
-// provider lists but accepts a free-text id (text-embedding-3-small, etc.).
-function setDefaultEmbedding(val) {
-  routing.value.default.embeddingId = val?.providerId || "";
-  routing.value.default.embeddingModel = val?.model || "";
-  saveRouting();
 }
 // Set-all: write the same pin to every action in a feature group at once (each
 // action gets its own pin — there's no feature-level pin). Empty → clear them all
@@ -438,38 +411,9 @@ onMounted(load);
     <div v-if="loading" class="lu-muted">Loading…</div>
 
     <template v-else-if="routing">
-      <!-- Globals (absorbed from Feature Routing) -->
-      <section class="lu-fw-globals">
-        <!-- Defaults: the global fallback provider (+ embedding), one full row. -->
-        <div class="lu-fw-gcard">
-          <div class="lu-fw-gh"><b>Defaults</b><span class="lu-muted">what an action falls back to when nothing more specific is set</span></div>
-          <div class="lu-fw-defgrid">
-            <label class="lu-fw-gl">Default LLM</label>
-            <LuModelPicker editable :model-value="{ providerId: routing.default.llmId, model: routing.default.model || '' }"
-              :providers="providers" :show-roles="false" inherit-label="— pick a provider —"
-              @update:model-value="setDefaultLlm" />
-            <label class="lu-fw-gl">Default embedding <span class="lu-muted">optional</span></label>
-            <LuModelPicker editable kind="embedding"
-              :model-value="{ providerId: routing.default.embeddingId, model: routing.default.embeddingModel || '' }"
-              :providers="providers" :show-roles="false" inherit-label="— none —"
-              @update:model-value="setDefaultEmbedding" />
-          </div>
-        </div>
-        <!-- Jobs: the routing units — each picks the model that runs it; every
-             feature is classified into a job (set per feature in the editor). -->
-        <div class="lu-fw-roles-h"><b>Jobs</b><span class="lu-muted">each job runs on the model you pick — features inherit their job's model unless pinned</span></div>
-        <div class="lu-fw-rolecards">
-          <div v-for="job in jobs" :key="job.id" class="lu-fw-rolecard">
-            <div class="lu-fw-rolecard-h">
-              <span class="lu-rchip lu-rchip--job">{{ job.label }}</span>
-            </div>
-            <p class="lu-fw-rolecard-desc">{{ job.description }} <span class="lu-muted">Used for: {{ jobUsedFor(job.id) }}</span></p>
-            <LuModelPicker editable :model-value="routing.jobs?.[job.id] || null" :providers="providers"
-              inherit-label="— use Default LLM —" @update:model-value="setJob(job.id, $event)" />
-          </div>
-        </div>
-      </section>
-
+      <!-- Defaults + the per-job model cards moved to the "Routing by job" tab
+           (RoutingByJob.vue). This workbench is per-feature: classify each feature
+           into a job + the rare per-action pin/prompt/test. -->
       <div class="lu-fw-body">
         <!-- Nav: category → (feature sub-header) → action cards, each level
              indented under its header. A header with a "Set all" picker routes

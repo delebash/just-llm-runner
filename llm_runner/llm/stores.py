@@ -269,7 +269,8 @@ def _prompt_to_row(r: db.FeaturePrompt) -> FeaturePromptRow:
     return FeaturePromptRow(
         key=r.key, feature=r.feature, system=r.system, user_template=r.user_template,
         temperature=r.temperature, think=r.think, built_in=r.built_in,
-        max_tokens=r.max_tokens, label=r.label, description=r.description, group=r.subgroup,
+        max_tokens=r.max_tokens, json_mode=r.json_mode, top_p=r.top_p,
+        label=r.label, description=r.description, group=r.subgroup,
     )
 
 
@@ -297,7 +298,8 @@ class PromptStore:
                 s.add(db.FeaturePrompt(
                     key=row.key, feature=row.feature, system=row.system, user_template=row.user_template,
                     temperature=row.temperature, think=row.think, built_in=row.built_in,
-                    max_tokens=row.max_tokens, label=row.label, description=row.description, subgroup=row.group,
+                    max_tokens=row.max_tokens, json_mode=row.json_mode, top_p=row.top_p,
+                    label=row.label, description=row.description, subgroup=row.group,
                 ))
             else:
                 existing.feature = row.feature
@@ -306,6 +308,8 @@ class PromptStore:
                 existing.temperature = row.temperature
                 existing.think = row.think
                 existing.max_tokens = row.max_tokens
+                existing.json_mode = row.json_mode
+                existing.top_p = row.top_p
                 existing.label = row.label
                 existing.description = row.description
                 existing.subgroup = row.group

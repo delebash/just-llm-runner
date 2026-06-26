@@ -311,6 +311,8 @@ async function applyToLive() {
       feature: draft.value.feature, system: draft.value.system, userTemplate: draft.value.userTemplate,
       temperature: Number(draft.value.temperature) || 0, think: !!draft.value.think,
       maxTokens: Number(draft.value.maxTokens) || 0,
+      jsonMode: !!draft.value.jsonMode,
+      topP: draft.value.topP === "" || draft.value.topP == null ? null : Number(draft.value.topP),
     },
   });
   await saveRouting();
@@ -371,6 +373,8 @@ async function runTest() {
     action: draft.value.key, variables: { ...vars },
     temperature: Number(draft.value.temperature), think: !!draft.value.think,
     maxTokens: Number(draft.value.maxTokens) || 0,
+    jsonMode: !!draft.value.jsonMode,
+    topP: draft.value.topP === "" || draft.value.topP == null ? null : Number(draft.value.topP),
     system: draft.value.system, userTemplate: draft.value.userTemplate,
   };
   try {
@@ -496,8 +500,10 @@ onMounted(load);
 
           <div class="lu-fw-params">
             <div class="lu-field lu-fw-temp"><label>Temperature</label><UiInput v-model="draft.temperature" type="number" /></div>
+            <div class="lu-field lu-fw-temp"><label>Top-p <span class="lu-muted">blank = default</span></label><UiInput v-model="draft.topP" type="number" /></div>
             <div class="lu-field lu-fw-temp"><label>Max tokens <span class="lu-muted">0 = none</span></label><UiInput v-model="draft.maxTokens" type="number" /></div>
             <label class="lu-fw-think"><UiCheckbox v-model="draft.think" /><span class="lu-muted">Reasoning (think)</span></label>
+            <label class="lu-fw-think"><UiCheckbox v-model="draft.jsonMode" /><span class="lu-muted">JSON output</span></label>
             <span class="lu-fw-spacer" />
             <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</UiButton>
           </div>

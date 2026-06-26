@@ -172,6 +172,7 @@ def chat(
     provider_override: str | None = None,
     registry: LLMRegistry | None = None,
     action: str | None = None,
+    extra: dict | None = None,
 ) -> LLMResponse:
     """One-shot LLM call for a feature key.
 
@@ -212,6 +213,7 @@ def chat(
             max_tokens=max_tokens,
             system=system,
             think=tier.think if think is None else think,
+            extra=extra,
         )
     except Exception as e:
         get_ledger().record(
@@ -246,6 +248,7 @@ def stream_chat(
     provider_override: str | None = None,
     registry: LLMRegistry | None = None,
     action: str | None = None,
+    extra: dict | None = None,
 ) -> Iterator[StreamDelta]:
     """Streaming counterpart to `chat`. Resolves the feature's provider (same
     precedence + Lab overrides as `chat`, incl. the optional `action` override),
@@ -276,6 +279,7 @@ def stream_chat(
             max_tokens=max_tokens,
             system=system,
             think=tier.think if think is None else think,
+            extra=extra,
         ):
             if delta.done:
                 pt, ct = delta.prompt_tokens, delta.completion_tokens

@@ -321,6 +321,9 @@ class FeaturePrompt(LlmBase):
     temperature = Column(Float, nullable=False, default=0.7)
     think = Column(Boolean, nullable=False, default=False)
     max_tokens = Column(Integer, nullable=False, default=0)  # 0 → no cap
+    # Plane-2 per-request params (sent in the chat call, no model reload):
+    json_mode = Column(Boolean, nullable=False, default=False)  # response_format=json_object (#18)
+    top_p = Column(Float, nullable=True)  # nucleus sampling (#22); null → provider default
     built_in = Column(Boolean, nullable=False, default=True)
     label = Column(String, nullable=False, default="")
     description = Column(Text, nullable=False, default="")

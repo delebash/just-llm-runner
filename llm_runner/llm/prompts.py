@@ -53,6 +53,8 @@ class FeaturePromptRow:
     think: bool
     built_in: bool
     max_tokens: int = 0  # 0 → no cap (the model's own default)
+    json_mode: bool = False  # response_format=json_object (#18)
+    top_p: float | None = None  # nucleus sampling (#22); None → provider default
     label: str = ""
     description: str = ""
     group: str = ""
@@ -98,6 +100,8 @@ class PromptOut(BaseModel):
     think: bool
     builtIn: bool
     maxTokens: int = 0
+    jsonMode: bool = False
+    topP: float | None = None
     label: str = ""
     description: str = ""
     group: str = ""
@@ -118,6 +122,8 @@ class PromptUpdate(BaseModel):
     temperature: float = 0.7
     think: bool = False
     maxTokens: int = 0
+    jsonMode: bool = False
+    topP: float | None = None
     label: str = ""
     description: str = ""
     group: str = ""
@@ -133,6 +139,8 @@ def _out(r: FeaturePromptRow) -> PromptOut:
         think=r.think,
         builtIn=r.built_in,
         maxTokens=r.max_tokens,
+        jsonMode=r.json_mode,
+        topP=r.top_p,
         label=r.label,
         description=r.description,
         group=r.group,
@@ -181,6 +189,8 @@ def make_prompt_router(
             think=body.think,
             built_in=built_in,
             max_tokens=body.maxTokens,
+            json_mode=body.jsonMode,
+            top_p=body.topP,
             label=label,
             description=description,
             group=group,
@@ -202,6 +212,8 @@ def make_prompt_router(
             think=bool(default.get("think", False)),
             built_in=True,
             max_tokens=int(default.get("max_tokens", 0) or 0),
+            json_mode=bool(default.get("json_mode", False)),
+            top_p=default.get("top_p"),
             label=str(default.get("label") or ""),
             description=str(default.get("description") or ""),
             group=str(default.get("group") or ""),
@@ -229,6 +241,10 @@ class RunRequest(BaseModel):
     userTemplate: str | None = None
     think: bool | None = None
     maxTokens: int | None = None
+    # Optional per-action Plane-2 params (None → the stored value): structured
+    # output (JSON) + nucleus sampling. (#18 / #22)
+    jsonMode: bool | None = None
+    topP: float | None = None
     # Optional prior conversation turns ({role, content}) for multi-turn features
     # (RAG chat / character chat). Inserted between the system + the rendered user
     # message, so follow-ups keep proper message roles.
@@ -238,6 +254,20 @@ class RunRequest(BaseModel):
 class RunResponse(BaseModel):
     content: str
     model: str
+
+
+def _plane2_extra(spec: FeaturePromptRow, body: RunRequest) -> dict | None:
+    """Per-request `extra` from the action's Plane-2 params (json_mode/top_p),
+    each overridable by the request. Merges straight into the OpenAI-compatible
+    chat body (the adapter applies `extra`); no model reload. (#18 / #22)"""
+    extra: dict = {}
+    json_mode = spec.json_mode if body.jsonMode is None else body.jsonMode
+    if json_mode:
+        extra["response_format"] = {"type": "json_object"}
+    top_p = spec.top_p if body.topP is None else body.topP
+    if top_p is not None:
+        extra["top_p"] = top_p
+    return extra or None
 
 
 def make_feature_router(
@@ -278,6 +308,7 @@ def make_feature_router(
                 max_tokens=(body.maxTokens if body.maxTokens is not None else spec.max_tokens) or None,
                 provider_override=body.providerId or None,
                 model_override=body.model or None,
+                extra=_plane2_extra(spec, body),
             )
         except LLMNotConfiguredError as e:
             # 501 → the UI shows the actionable "wire an LLM provider" message.
@@ -312,6 +343,7 @@ def make_feature_router(
                     max_tokens=(body.maxTokens if body.maxTokens is not None else spec.max_tokens) or None,
                     provider_override=body.providerId or None,
                     model_override=body.model or None,
+                    extra=_plane2_extra(spec, body),
                 ):
                     if delta.done:
                         frame = {

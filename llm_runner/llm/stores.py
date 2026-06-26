@@ -19,6 +19,7 @@ from .feature_presets_api import FeaturePreset
 from .jobs_api import FeatureJobRow, JobRow
 from .model_catalog_api import CatalogRow, SwitchRow
 from .prompts import FeaturePromptRow
+from .switch_presets_api import PresetSwitchRow, SwitchPresetRow
 from .recommendations_api import RecommendationRow
 from .routing_api import FeaturePin, JobTarget, RoutingConfig, RoutingDefaults, RoutingPreset
 from .schema import LLMProviderConfig
@@ -487,6 +488,79 @@ class ModelSwitchStore:
             s.close()
 
 
+# ── capability/type switch presets (base/moe/mtp) ─────────────────────────────
+def _switch_preset_to_wire(p: db.SwitchPreset, switches: list[db.PresetSwitch]) -> SwitchPresetRow:
+    return SwitchPresetRow(
+        id=p.id, label=p.label, appliesTo=p.applies_to, position=p.position, builtIn=p.built_in,
+        switches=[PresetSwitchRow(flagName=s.flag_name, flagValue=s.flag_value) for s in switches],
+    )
+
+
+class SwitchPresetStore:
+    def list(self) -> list[SwitchPresetRow]:
+        s = db.session()
+        try:
+            presets = s.query(db.SwitchPreset).order_by(db.SwitchPreset.position, db.SwitchPreset.id).all()
+            by_preset: dict[str, list] = {}
+            for r in s.query(db.PresetSwitch).order_by(db.PresetSwitch.flag_name).all():
+                by_preset.setdefault(r.preset_id, []).append(r)
+            return [_switch_preset_to_wire(p, by_preset.get(p.id, [])) for p in presets]
+        finally:
+            s.close()
+
+    def upsert(self, row: SwitchPresetRow) -> SwitchPresetRow:
+        s = db.session()
+        try:
+            existing = s.get(db.SwitchPreset, row.id)
+            if existing is None:
+                existing = db.SwitchPreset(id=row.id)
+                s.add(existing)
+            existing.label = row.label
+            existing.applies_to = row.appliesTo or "all"
+            existing.position = row.position
+            existing.built_in = False
+            s.flush()  # parent row in the DB before its FK children
+            for old in s.query(db.PresetSwitch).filter(db.PresetSwitch.preset_id == row.id).all():
+                s.delete(old)
+            s.flush()
+            for sw in row.switches:
+                fn = (sw.flagName or "").strip()
+                if fn:
+                    s.add(db.PresetSwitch(preset_id=row.id, flag_name=fn, flag_value=sw.flagValue or "", built_in=False))
+            s.commit()
+            return row
+        finally:
+            s.close()
+
+    def delete(self, preset_id: str) -> None:
+        s = db.session()
+        try:
+            for old in s.query(db.PresetSwitch).filter(db.PresetSwitch.preset_id == preset_id).all():
+                s.delete(old)
+            p = s.get(db.SwitchPreset, preset_id)
+            if p is not None:
+                s.delete(p)
+            s.commit()
+        finally:
+            s.close()
+
+    def reset_to_factory(self) -> None:
+        from . import seed
+        s = db.session()
+        try:
+            for p in seed.DEFAULT_SWITCH_PRESETS:
+                for old in s.query(db.PresetSwitch).filter(db.PresetSwitch.preset_id == p["id"]).all():
+                    s.delete(old)
+                row = s.get(db.SwitchPreset, p["id"])
+                if row is not None:
+                    s.delete(row)
+            s.flush()
+            seed.seed_default_switch_presets(s)
+            s.commit()
+        finally:
+            s.close()
+
+
 # ── jobs + feature→job map ────────────────────────────────────────────────────
 def _job_to_wire(r: db.Job) -> JobRow:
     return JobRow(id=r.id, label=r.label, description=r.description, position=r.position, builtIn=r.built_in)
@@ -601,6 +675,7 @@ _prompt = PromptStore()
 _recommendation = RecommendationStore()
 _model_catalog = ModelCatalogStore()
 _model_switch = ModelSwitchStore()
+_switch_preset = SwitchPresetStore()
 _job = JobStore()
 _feature_job = FeatureJobStore()
 
@@ -613,5 +688,6 @@ def get_prompt_store() -> PromptStore: return _prompt
 def get_recommendation_store() -> RecommendationStore: return _recommendation
 def get_model_catalog_store() -> ModelCatalogStore: return _model_catalog
 def get_model_switch_store() -> ModelSwitchStore: return _model_switch
+def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
 def get_job_store() -> JobStore: return _job
 def get_feature_job_store() -> FeatureJobStore: return _feature_job

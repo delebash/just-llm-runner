@@ -25,6 +25,7 @@ from .prompts import make_feature_router, make_prompt_router
 from .provider_api import make_provider_router
 from .recommendations_api import make_recommendations_router
 from .routing_api import make_routing_presets_router, make_routing_router
+from .switch_presets_api import make_switch_presets_router
 from .usage import set_ledger
 from .usage_sink import DbUsageSink
 
@@ -67,6 +68,7 @@ def install_llm(
     app.include_router(make_recommendations_router(stores.get_recommendation_store))
     app.include_router(make_catalog_router(stores.get_model_catalog_store))
     app.include_router(make_switches_router(stores.get_model_switch_store))
+    app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
     app.include_router(make_jobs_router(stores.get_job_store))
     app.include_router(make_feature_jobs_router(stores.get_feature_job_store))
     # 6. point the bundled runner's catalog/switches at the shared DB.

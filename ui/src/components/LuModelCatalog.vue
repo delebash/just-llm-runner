@@ -14,6 +14,7 @@ import { computed, onUnmounted, ref } from "vue";
 
 import { request } from "../client.js";
 import AppModal from "../common/components/AppModal.vue";
+import LuSwitchPresets from "./LuSwitchPresets.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiSelect from "../common/components/UiSelect.vue";
@@ -254,6 +255,9 @@ onUnmounted(stopPoll);
       <a class="lu-mlink" href="https://huggingface.co/models?library=gguf" target="_blank" rel="noopener">Hugging Face ↗</a>
       — the open model hub. One model loads at a time; loading a new one replaces the running one.
     </div>
+
+    <!-- The capability/type switch presets (base/moe/mtp) the resolver layers (§6.5). -->
+    <LuSwitchPresets />
 
     <!-- Add / edit a catalog model + its per-model switches (#30). -->
     <AppModal v-if="editing" :title="editingNew ? 'Add model' : `Edit ${editing.name || editing.id}`"

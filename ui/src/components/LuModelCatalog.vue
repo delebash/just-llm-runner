@@ -113,7 +113,6 @@ async function unload() {
 const TYPES = [{ value: "dense", label: "Dense" }, { value: "moe", label: "MoE (mixture-of-experts)" }];
 const editing = ref(null);     // null | a draft catalog row
 const editingNew = ref(false);
-const editSwitches = ref([]);  // [{flagName, flagValue}] for the model being edited
 const saving = ref(false);
 const saveErr = ref("");
 
@@ -121,23 +120,20 @@ function blankModel() {
   return { id: "", name: "", hfRepo: "", quant: "", type: "dense", totalParams: "",
     activeParams: "", mtp: false, minVramMb: null, minRamMb: null, tier: "mid", position: 0 };
 }
-function startAdd() { editing.value = blankModel(); editingNew.value = true; editSwitches.value = []; saveErr.value = ""; }
+function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; }
 async function startEdit(m) {
   saveErr.value = "";
   try {
-    const [cat, sw] = await Promise.all([request("/v1/ai/model-catalog"), request("/v1/ai/model-switches")]);
+    const cat = await request("/v1/ai/model-catalog");
     const row = (cat.rows || []).find((r) => r.id === m.id) || { ...blankModel(), id: m.id, name: m.name };
     editing.value = { ...blankModel(), ...row };
     editingNew.value = false;
-    editSwitches.value = (sw.rows || []).filter((r) => r.modelId === m.id).map((r) => ({ flagName: r.flagName, flagValue: r.flagValue }));
   } catch (e) {
     saveErr.value = e.message || "Couldn't load the model.";
-    editing.value = { ...blankModel(), id: m.id, name: m.name }; editingNew.value = false; editSwitches.value = [];
+    editing.value = { ...blankModel(), id: m.id, name: m.name }; editingNew.value = false;
   }
 }
 function cancelEdit() { editing.value = null; saveErr.value = ""; }
-function addSwitchRow() { editSwitches.value.push({ flagName: "", flagValue: "" }); }
-function removeSwitchRow(i) { editSwitches.value.splice(i, 1); }
 
 function slugFromName(name) {
   return (name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -152,19 +148,6 @@ async function saveModel() {
       method: "PUT",
       body: { ...e, id: e.id.trim(), minVramMb: e.minVramMb || null, minRamMb: e.minRamMb || null, position: e.position || 0 },
     });
-    // Sync per-model switches: delete removed rows, upsert the rest.
-    const sw = await request("/v1/ai/model-switches");
-    const before = (sw.rows || []).filter((r) => r.modelId === e.id);
-    const keep = new Set(editSwitches.value.map((r) => (r.flagName || "").trim()).filter(Boolean));
-    for (const r of before) {
-      if (!keep.has(r.flagName)) {
-        await request(`/v1/ai/model-switches?modelId=${encodeURIComponent(e.id)}&flagName=${encodeURIComponent(r.flagName)}`, { method: "DELETE" });
-      }
-    }
-    for (const r of editSwitches.value) {
-      const fn = (r.flagName || "").trim();
-      if (fn) await request("/v1/ai/model-switches", { method: "PUT", body: { modelId: e.id, flagName: fn, flagValue: r.flagValue || "" } });
-    }
     editing.value = null;
     await refresh();
   } catch (err) {
@@ -232,7 +215,7 @@ onUnmounted(stopPoll);
               <span v-else class="lu-mstat">not downloaded</span>
             </td>
             <td class="lu-mact">
-              <UiButton intent="ghost" size="small" title="Edit fields + per-model switches" @click="startEdit(m)">Edit</UiButton>
+              <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
               <UiButton intent="ghost" size="small" title="Remove from catalog" :loading="busy === m.id" @click="deleteModel(m)">Delete</UiButton>
               <UiButton v-if="m.status === 'loaded'" intent="secondary" size="small"
                 :loading="busy === 'stop'" @click="unload">Unload</UiButton>
@@ -259,7 +242,8 @@ onUnmounted(stopPoll);
     <!-- The capability/type switch presets (base/moe/mtp) the resolver layers (§6.5). -->
     <LuSwitchPresets />
 
-    <!-- Add / edit a catalog model + its per-model switches (#30). -->
+    <!-- Add / edit a catalog model. Per-model switch editing moved to the Profile
+         (Routing-by-job) — switches are per-Profile now (§6.6). -->
     <AppModal v-if="editing" :title="editingNew ? 'Add model' : `Edit ${editing.name || editing.id}`"
       :max-width="'560px'" @close="cancelEdit">
       <div class="lu-mm-form">
@@ -277,15 +261,6 @@ onUnmounted(stopPoll);
           <label class="lu-mm-l">Min RAM (MB)<UiInput v-model.number="editing.minRamMb" type="number" placeholder="14000" /></label>
         </div>
 
-        <div class="lu-mm-sw">
-          <div class="lu-mm-sw-h"><b>Per-model switches</b><span class="lu-muted">flag (an Overrides field) → value; layers under the type presets, the rare per-model exception</span></div>
-          <div v-for="(s, i) in editSwitches" :key="i" class="lu-mm-sw-row">
-            <UiInput v-model="s.flagName" placeholder="spec_type / ctx_len / no_mmap" />
-            <UiInput v-model="s.flagValue" placeholder="none / 8192 / true" />
-            <UiButton intent="ghost" size="small" title="Remove" @click="removeSwitchRow(i)">✕</UiButton>
-          </div>
-          <UiButton intent="ghost" size="small" @click="addSwitchRow">＋ Add switch</UiButton>
-        </div>
         <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
       </div>
       <template #footer>

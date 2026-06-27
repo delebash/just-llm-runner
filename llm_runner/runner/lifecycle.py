@@ -81,15 +81,27 @@ def _merge_overrides(base: Overrides, user: Overrides | None) -> Overrides:
 
 def _switches_to_overrides(switches: dict[str, str]) -> Overrides:
     """Build an `Overrides` from the host's `{flag_name: flag_value}` dict
-    (variable-cardinality switch rows). Unknown keys are silently dropped."""
+    (variable-cardinality switch rows).
+
+    A key that matches an `Overrides` field maps to that typed field. ANY OTHER
+    key is a raw passthrough flag → it lands in `extra_flags` verbatim (the key is
+    the literal llama-server flag token, e.g. `--top-n-sigma`, with the value
+    appended when non-empty). So a NEW llama.cpp flag works with **no code change**
+    — the host just stores a switch row for it (the shared `<KnobGrid>` escape).
+    The literal key `extra_flags` is reserved (not itself a flag) and skipped."""
     ov = Overrides()
     for name, value in (switches or {}).items():
-        if name not in _OVERRIDE_FIELDS or name == "extra_flags":
+        if name == "extra_flags":
+            continue  # reserved: the passthrough list itself, not a flag name
+        if name in _OVERRIDE_FIELDS:
+            parsed = _parse_switch(name, value)
+            if parsed is not None:
+                setattr(ov, name, parsed)
             continue
-        parsed = _parse_switch(name, value)
-        if parsed is None:
-            continue
-        setattr(ov, name, parsed)
+        # Unknown key → raw passthrough flag (the "add a flag, no code" escape).
+        ov.extra_flags.append(name)
+        if value not in (None, ""):
+            ov.extra_flags.append(str(value))
     return ov
 
 log = logging.getLogger(__name__)

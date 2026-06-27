@@ -172,6 +172,11 @@ def _apply_engine_overrides(flags: list[str], ov: Overrides) -> list[str]:
             if ov.spec_n_max is not None:
                 nmax = "--spec-ngram-mod-n-max" if "ngram" in ov.spec_type else "--spec-draft-n-max"
                 out += [nmax, str(ov.spec_n_max)]
+    # Raw passthrough flags (the "new llama.cpp flag, no code" escape) — appended
+    # verbatim so a switch the typed Overrides set doesn't know still reaches the
+    # server. _switches_to_overrides routes any non-field switch row here.
+    if ov.extra_flags:
+        out += list(ov.extra_flags)
     return out
 
 

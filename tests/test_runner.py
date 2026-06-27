@@ -158,6 +158,33 @@ def test_compose_flags_spec_ngram(tmp_path):
     assert flags[flags.index("--spec-ngram-mod-n-max") + 1] == "64"
 
 
+def test_switches_to_overrides_routes_unknown_to_extra_flags():
+    # Known keys → typed Overrides fields; any other key → a raw passthrough flag
+    # in extra_flags (the "new llama.cpp flag, no code" escape the KnobGrid uses).
+    from llm_runner.runner.lifecycle import _switches_to_overrides
+
+    ov = _switches_to_overrides({
+        "n_cpu_moe": "8",          # known → typed int field
+        "flash_attn": "on",        # known → typed value field
+        "--top-n-sigma": "0.05",   # unknown → raw flag + value
+        "--some-bool-flag": "",    # unknown valueless → just the flag token
+    })
+    assert ov.n_cpu_moe == 8
+    assert ov.flash_attn == "on"
+    assert ov.extra_flags == ["--top-n-sigma", "0.05", "--some-bool-flag"]
+
+
+def test_compose_flags_extra_flags_passthrough(tmp_path):
+    # extra_flags reach the spawned argv verbatim (after the typed overrides).
+    m = load_manifest(refresh=True)
+    dense = ModelEntry(id="d", name="D", tier="mid", hf_repo="x/y", quant="Q4", mtp=False)
+    flags = compose_flags(
+        m, dense, tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        overrides=Overrides(extra_flags=["--top-n-sigma", "0.05"]),
+    )
+    assert flags[flags.index("--top-n-sigma") + 1] == "0.05"
+
+
 class _FakeProc:
     def __init__(self, exit_code=None, output=""):
         self._code = exit_code  # None == still running

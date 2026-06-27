@@ -93,6 +93,46 @@ Cloud (Claude/GPT) stays an optional ceiling for any job, but is **no longer req
 **`DEFAULT_RECOMMENDATIONS`:** prose → Qwen3.6-27B rank 10, **Qwen3-235B rank 3** (cloud-class on high-RAM), Gemma-4-31B rank 20; extraction → Mistral rank 5, **GLM-4.5-Air rank 3** (BFCL leader); chat → Gemma-4-12B rank 15. Reword 35B-A3B rows: "runs at the floor (8 GB GPU + 32 GB RAM) via expert offload."
 **Switches:** extraction path runs MoE **thinking-off** under JSON schema (confirmed llama.cpp bug); flat schemas. **Tests** auto-adjust to new counts; re-run pytest + ruff.
 
+## Switch sets per model TYPE (the recommendation — folded in)
+The catalog stores a model's `type` (dense | moe) and `mtp` flag; the resolver
+layers the matching seeded **switch preset** (`seed.py DEFAULT_SWITCH_PRESETS`)
+onto every load. The recommended Plane-1 sets:
+
+**DENSE** (Qwen3.5-9B, Qwen3-14B, Qwen3.6-27B, Mistral-3.2-24B, Gemma-4-12B/31B):
+```
+-ngl 999 --flash-attn on --cache-type-k q8_0 --cache-type-v q8_0 --mlock --ctx-size <task>
+# + MTP speed (~+40%) when the GGUF is an MTP build AND dense:
+--spec-type draft-mtp --spec-draft-n-max 3
+```
+= the `base` preset (+ `mtp` preset when `mtp=true`).
+
+**MoE** (Qwen3.6-35B-A3B, Llama-4-Scout/Maverick, GLM-4.5-Air, Qwen3-235B):
+```
+-ngl 999 --n-cpu-moe <fit> --no-mmap --mlock --flash-attn on --cache-type-k q8_0 --cache-type-v q8_0 --ctx-size <task>
+# NO spec decoding — it SLOWS the A3B-class MoE in llama.cpp (verified)
+```
+= `base` + `moe` preset + a computed `n_cpu_moe` (raised until it fits VRAM; the
+gate then becomes RAM). `--no-mmap --mlock` keep the offloaded experts resident.
+
+**Per-JOB Plane-2** (per-request sampling, the FeatureSampler rows — NOT load flags):
+- **extraction / attribution:** temperature ≈ 0, **thinking-OFF** under a JSON schema (llama.cpp bug), **flat** schema, `json-schema` response_format.
+- **prose:** temperature ~0.8–1.0 + repetition penalties.
+- **chat:** moderate temp. **analysis:** moderate temp, thinking-ON allowed (cap with `reasoning-budget`).
+
+Every Plane-1 flag above is already typed in `Overrides`/`LoadRequest`
+(`process.py:60-80`, `runner/schema.py:167-188`) and composes via
+`_apply_engine_overrides`; anything new rides `extra_flags`. So all of these are
+**choosable in code today** — the missing piece is the friendly UI (#20 below).
+
+## Tuning UI (#20) — build plan
+**Goal:** let the user find the fastest switch split on THEIR machine and SEE it.
+- **Where:** a collapsible "Tune & measure" panel on each model card (AI ▸ Providers & models / model-manager).
+- **What (Plane-1, via the existing generic `KnobGrid` + a known-knob catalog for labels/defaults/dense-MoE hints):** number inputs `n_cpu_moe` · `n_gpu_layers` · `ctx`; toggles `flash-attn` · `no-mmap` · `mlock` · `no-kv-offload` · `cont-batching`; selects `cache-type-k/v` · `spec-type`(+`n-max`); numbers `batch`/`ubatch` · `threads`/`threads-batch` · `parallel` · `cache-reuse`; **advanced (collapsed)** RoPE/YaRN + multi-GPU split → `extra_flags`.
+- **Defaults:** pre-fill from the model's type-preset (MoE → the offload set; dense → MTP). The "Reset to model default" path already exists.
+- **Measure:** "Load & measure" → `POST /v1/llm-runner/load` with the `Overrides` (already plumbed, #19) → run a fixed probe prompt → show **tok/s + VRAM used + RAM used**. "Save as this model's switches" persists to the model's switch rows.
+- **In-container vs GPU-gated:** the panel + the load-with-overrides call + render are build/smoke-verifiable here; the **real tok/s + VRAM/RAM numbers are measured on the user's box** (GPU-gated) — the smoke checks the panel renders + the request shape is right.
+- **Reuses:** `KnobGrid` (generic editor) · the `/load` endpoint (#19) · `DEFAULT_SWITCH_PRESETS` for pre-fill · a new tok/s probe endpoint. Compare (#21) then A/Bs two switch sets side by side.
+
 ## Critical caveats
 1. 🚨 **Gemma ≤ 3 is NOT permissively licensed** (Gemma Terms of Use) — only **Gemma 4** is Apache-2.0. Never seed Gemma ≤ 3.
 2. **llama.cpp drops JSON-schema enforcement when thinking is on** (reproduced on the MoE Qwen) → extraction must run **thinking-off**; attribution = **2-pass** (reason → emit). This is why dense Mistral (no thinking mode) is the safe 16 GB extraction pick.

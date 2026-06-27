@@ -194,3 +194,24 @@ def test_stream_emits_sse_frames():
     assert '"done": true' in body and '"completionTokens": 4' in body
     assert body.strip().endswith("data: [DONE]")
     assert adapter.last["user"] == "Hi Sam"
+
+
+def test_effective_think_guardrail_off_under_json():
+    """B3: a reasoning block corrupts strict JSON, so think is forced off whenever
+    json_mode is on (stored OR request override), even if think would be on."""
+    from llm_runner.llm.prompts import RunRequest, _effective_think
+
+    def spec(think, json_mode):
+        return FeaturePromptRow(
+            key="f", feature="f", system="", user_template="", temperature=0.5,
+            think=think, json_mode=json_mode, built_in=True,
+        )
+
+    def req(think=None, jsonMode=None):
+        return RunRequest(action="f", think=think, jsonMode=jsonMode)
+
+    assert _effective_think(spec(True, False), req()) is True          # think on, no json
+    assert _effective_think(spec(True, True), req()) is False          # stored json_mode → off
+    assert _effective_think(spec(True, False), req(jsonMode=True)) is False   # request json → off
+    assert _effective_think(spec(False, True), req(think=True)) is False      # guardrail beats override
+    assert _effective_think(spec(False, False), req()) is False        # think off → off

@@ -301,6 +301,17 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest) -> dict | None:
     return extra or None
 
 
+def _effective_think(spec: FeaturePromptRow, body: RunRequest) -> bool:
+    """The think flag for this call, with the B3 guardrail: a reasoning block
+    corrupts strict JSON, so think is FORCED off whenever json_mode is on (the
+    request's jsonMode override, else the action's stored json_mode) — even if the
+    action/tier would otherwise reason. (Attribution's reason-then-emit two-pass is
+    the JV-side refinement; here the guardrail keeps extraction/JSON actions valid.)"""
+    think = spec.think if body.think is None else body.think
+    json_mode = spec.json_mode if body.jsonMode is None else body.jsonMode
+    return bool(think) and not json_mode
+
+
 def make_feature_router(
     get_store: Callable[[], PromptStore],
     get_config: Callable[[], LLMConfig],
@@ -335,7 +346,7 @@ def make_feature_router(
                 # injects the project's world-rules section.
                 system=render(sys_tpl, body.variables),
                 temperature=spec.temperature if body.temperature is None else body.temperature,
-                think=spec.think if body.think is None else body.think,
+                think=_effective_think(spec, body),
                 max_tokens=(body.maxTokens if body.maxTokens is not None else spec.max_tokens) or None,
                 provider_override=body.providerId or None,
                 model_override=body.model or None,
@@ -370,7 +381,7 @@ def make_feature_router(
                     messages=messages,
                     system=system,
                     temperature=spec.temperature if body.temperature is None else body.temperature,
-                    think=spec.think if body.think is None else body.think,
+                    think=_effective_think(spec, body),
                     max_tokens=(body.maxTokens if body.maxTokens is not None else spec.max_tokens) or None,
                     provider_override=body.providerId or None,
                     model_override=body.model or None,

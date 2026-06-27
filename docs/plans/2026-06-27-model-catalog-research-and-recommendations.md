@@ -66,18 +66,25 @@ GLM-4.6 (355B, MIT — 24 GB + 128 GB RAM @ ~5 t/s, or 40 GB GPU + 205 GB RAM) �
 
 ---
 
-## Per-job × per-tier routing matrix
-Bold = primary. "+RAM" = MoE (RAM-gated). Extraction/attribution = **thinking-OFF** under a JSON schema.
+## Per-job × per-tier routing matrix — COMPLETE (no blank cells)
+Reconciled from a 3-reviewer panel (quality-max · fit/license · end-user-sensible). **Every cell has a pick** — a bigger tier either upgrades the model or repeats the best one that fits ("(same)"), never "nothing". `+RAM` = MoE, RAM-gated (runs on a small card via `--n-cpu-moe`). Extraction/attribution = **thinking-OFF** when emitting JSON.
 
-| Job | CPU (32 GB RAM) | 8 GB+32 GB (floor) | 12–16 GB | 24 GB | 32–48 GB | high-RAM (64–128 GB) |
-|---|---|---|---|---|---|---|
-| **Chat** | 35B-A3B+RAM / 9B | **Qwen3.5-9B** | Gemma-4-12B / Qwen3-14B | Qwen3.6-27B | Qwen3.6-27B | any |
-| **Prose** | 35B-A3B (drafts) | Qwen3.5-9B (drafts) | Qwen3-14B / Gemma-4-12B | **Qwen3.6-27B** (local ceiling) | Gemma-4-31B / Qwen3.6-27B Q6 | **★ Qwen3-235B (cloud-class)** |
-| **Extraction** (think-off) | 35B-A3B+RAM | Qwen3.5-9B (flat) | 35B-A3B+RAM / Qwen3-14B | **Mistral-3.2** / 35B-A3B | 35B-A3B | **GLM-4.5-Air (leader)** |
-| **Attribution** | 35B-A3B+RAM (2-pass) | *route up — 8B fails* | 35B-A3B+RAM | **Mistral / 35B-A3B** | 35B-A3B | GLM-4.5-Air / 235B |
-| **Analysis** | 35B-A3B+RAM | Qwen3.5-9B | **35B-A3B+RAM** | **Qwen3.6-27B** | 35B-A3B / 27B | Qwen3-235B / GLM-4.5-Air |
+| Job | CPU-only (32 GB RAM) | 8 GB+32 GB (floor) | 12 GB | 16 GB | 24 GB | 32 GB | 64 GB RAM | 96 GB RAM | 128 GB+ workstation |
+|---|---|---|---|---|---|---|---|---|---|
+| **Chat** | Qwen3.5-9B (fast) · *35B-A3B = smarter* | **Qwen3.5-9B** (~55 t/s, re-askable) · *35B-A3B+RAM = "smarter chat" toggle* | Gemma-4-12B | Qwen3-14B | Qwen3.6-27B | Qwen3.6-27B | Qwen3.6-27B (same) | Qwen3.6-27B (same) | Qwen3.6-27B (same) |
+| **Prose** | 35B-A3B+RAM | **35B-A3B+RAM** · *9B = fast drafts* | Qwen3-14B | Qwen3-14B | **Qwen3.6-27B** (local ceiling) | Gemma-4-31B | Gemma-4-31B | **★ Qwen3-235B+RAM** (cloud-class) | Qwen3-235B+RAM (GLM-4.6 opt) |
+| **Extraction** (think-off) | 35B-A3B+RAM | 35B-A3B+RAM | Qwen3-14B / 35B-A3B+RAM | **Mistral-3.2-24B** | Mistral-3.2-24B | 35B-A3B+RAM / Mistral | **GLM-4.5-Air+RAM** (BFCL leader) | GLM-4.5-Air+RAM | GLM-4.5-Air+RAM |
+| **Attribution** (14B+ floor, CoT) | 35B-A3B+RAM (2-pass) | **35B-A3B+RAM** (8B fails → MoE) | 35B-A3B+RAM | Mistral-3.2-24B / 35B-A3B | Mistral / 35B-A3B | 35B-A3B+RAM | GLM-4.5-Air+RAM | Qwen3-235B+RAM / GLM-Air | GLM-4.5-Air+RAM |
+| **Analysis** (think-on ok) | 35B-A3B+RAM | **35B-A3B+RAM** | 35B-A3B+RAM | 35B-A3B+RAM | **Qwen3.6-27B** | Qwen3.6-27B / 35B-A3B | GLM-4.5-Air+RAM | **★ Qwen3-235B+RAM** | Qwen3-235B+RAM |
 
-Cloud (Claude/GPT) stays an optional ceiling for any job, but is **no longer required** — a high-RAM rig runs Qwen3-235B locally for prose. MTP variants = speed knob, not quality.
+**Panel reconciliation + the floor-default fix (user, 2026-06-27):**
+- **At the floor (8 GB + 32 GB), the 35B-A3B MoE is the DEFAULT workhorse for the four quality/accuracy jobs — prose, extraction, attribution, analysis.** It runs ~17–20 t/s via `--n-cpu-moe` (fast enough for these batch/semi-batch jobs) at ~32B-class quality, far better than the weak 9B (which the attribution research shows *fails* on implicit quotes — it's disqualified on accuracy, not speed).
+- **Chat is the deliberate exception: it defaults to the fast Qwen3.5-9B (~55 t/s), with the 35B-A3B offered as a "smarter chat" toggle.** Why: chat is interactive, short (~150–400 tok), and re-askable, so the 9B's ~3× speed is a *felt* win and the accuracy bar is lower; the per-task analysis (2026-06-27) showed speed only bites on interactive+short output, which is chat. The 9B is also the fallback for **< 32 GB-RAM** machines that can't run the MoE. *(User can flip chat to 35B-A3B-default anytime.)*
+- **Chat tops out at the fast dense Qwen3.6-27B** on bigger rigs and repeats it — don't put a 235B in chat (latency); spend the big RAM on prose/analysis. Never blank — "(same)".
+- **Fit corrections:** Qwen3.6-27B (~18 GB) needs **24 GB** → 16 GB = Qwen3-14B; Mistral-3.2-24B (~14 GB) needs **16 GB** → 12 GB = Qwen3-14B / 35B-A3B; **Qwen3-235B needs ~96 GB RAM** → 64 GB tier = GLM-4.5-Air.
+- **GLM-4.5-Air (MIT)** = high-RAM extraction/general; **Qwen3-235B (Apache)** = high-RAM prose/analysis; **Llama-4-Scout** (Llama Community License) listed, never a default (dominated by license-clean MoEs).
+- Cloud stays an optional ceiling, **not required** — a 96 GB rig runs Qwen3-235B locally for prose.
+- **`--spec-type` / MTP on the A3B MoE is MACHINE-DEPENDENT — measure, don't dogmatize.** The budget-GPU video gained ~**+16% (17 → 19.7 t/s)** adding `--spec-type` with the MTP-GGUF, but a full-GPU RTX 3090 benchmark found every spec variant *slower*. The offload vs full-GPU bottleneck differs. So we expose the switch and let the **tuning UI's tok/s readout (#20)** settle it per machine — that's exactly what it's for. (Corrects this doc's earlier flat "spec OFF for MoE".)
 
 ---
 

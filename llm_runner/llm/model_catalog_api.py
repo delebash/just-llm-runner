@@ -43,7 +43,8 @@ class CatalogRow(BaseModel):
     type: str = "dense"  # dense | moe — drives which switch preset applies (§6.5)
     minVramMb: int | None = None
     minRamMb: int | None = None
-    tier: str = "mid"   # cpu | low-vram-moe | mid | high
+    tier: str = "mid"   # cpu | low-vram-moe | mid | high | high-ram
+    license: str = ""   # SPDX id (Apache-2.0 | MIT | Llama-Community | …); "" = unknown
     position: int = 0
     builtIn: bool = False
 

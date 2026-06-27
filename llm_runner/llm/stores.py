@@ -380,7 +380,7 @@ def _catalog_to_wire(r: db.ModelCatalog) -> CatalogRow:
     return CatalogRow(
         id=r.id, name=r.name, hfRepo=r.hf_repo, quant=r.quant, mmproj=r.mmproj,
         totalParams=r.total_params, activeParams=r.active_params, mtp=r.mtp, type=r.type,
-        minVramMb=r.min_vram_mb, minRamMb=r.min_ram_mb, tier=r.tier,
+        minVramMb=r.min_vram_mb, minRamMb=r.min_ram_mb, tier=r.tier, license=r.license,
         position=r.position, builtIn=r.built_in,
     )
 
@@ -415,6 +415,7 @@ class ModelCatalogStore:
             existing.min_vram_mb = row.minVramMb
             existing.min_ram_mb = row.minRamMb
             existing.tier = row.tier or "mid"
+            existing.license = row.license or ""
             existing.position = row.position
             existing.built_in = False
             s.commit()

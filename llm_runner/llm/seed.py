@@ -66,27 +66,55 @@ DEFAULT_PROVIDERS: list[dict] = [
      "provider_type": "openrouter", "base_url": "https://openrouter.ai/api/v1", "local": False},
 ]
 
+# The downloadable catalog spans the FULL hardware range (CPU/8 GB floor → no
+# upper cap) with family diversity (Qwen · Gemma · Mistral · GLM · Llama). Repo
+# ids + licenses web-verified 2026-06-27 (HF + vendor announcements): Gemma 4
+# ships Apache-2.0 (NOT the old Gemma Terms — only Gemma 4 is seedable);
+# GLM-4.5-Air is MIT; Mistral-Small-3.2 + every Qwen3.x + nomic-embed are
+# Apache-2.0; Llama-4 is the use-limited Llama Community license → carried as a
+# FLAG, never a default. `min_ram_mb` = the RAM floor (dense: weights-in-RAM +
+# overhead, matching the 9B→~10 GB / 14B→14 GB pattern; MoE: the FULL model in
+# RAM since experts offload to RAM). `min_vram_mb` = the load-time VRAM band (MoE
+# = active-path + KV, much smaller than total). The tuning UI (#20) measures real.
 DEFAULT_CATALOG: list[dict] = [
+    {"id": "qwen3.5-9b-q4_k_m", "name": "Qwen3.5 9B · Q4_K_M",
+     "hf_repo": "unsloth/Qwen3.5-9B-GGUF", "quant": "Q4_K_M", "total_params": "9B",
+     "min_ram_mb": 10000, "min_vram_mb": 7500, "tier": "mid", "license": "Apache-2.0", "position": 0},
+    {"id": "gemma-4-12b-q4_k_m", "name": "Gemma 4 12B · Q4_K_M",
+     "hf_repo": "unsloth/gemma-4-12b-it-GGUF", "quant": "Q4_K_M", "total_params": "12B",
+     "min_ram_mb": 13000, "min_vram_mb": 7000, "tier": "mid", "license": "Apache-2.0", "position": 1},
+    {"id": "qwen3-14b-q4_k_m", "name": "Qwen3 14B · Q4_K_M",
+     "hf_repo": "unsloth/Qwen3-14B-GGUF", "quant": "Q4_K_M", "total_params": "14B",
+     "min_ram_mb": 14000, "min_vram_mb": 11000, "tier": "mid", "license": "Apache-2.0", "position": 2},
+    {"id": "mistral-small-3.2-24b-q4_k_m", "name": "Mistral Small 3.2 24B · Q4_K_M",
+     "hf_repo": "unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF", "quant": "Q4_K_M",
+     "total_params": "24B", "min_ram_mb": 20000, "min_vram_mb": 14000, "tier": "high",
+     "license": "Apache-2.0", "position": 3},
+    {"id": "qwen3.6-27b-mtp-q4_k_m", "name": "Qwen3.6 27B (MTP) · Q4_K_M",
+     "hf_repo": "unsloth/Qwen3.6-27B-MTP-GGUF", "quant": "Q4_K_M", "total_params": "27B", "mtp": True,
+     "min_ram_mb": 26000, "min_vram_mb": 20000, "tier": "high", "license": "Apache-2.0", "position": 4},
+    {"id": "gemma-4-31b-it", "name": "Gemma 4 31B · Q4_K_M",
+     "hf_repo": "unsloth/gemma-4-31b-it-GGUF", "quant": "Q4_K_M", "total_params": "31B",
+     "min_ram_mb": 26000, "min_vram_mb": 22000, "tier": "high", "license": "Apache-2.0", "position": 5},
     {"id": "qwen3.6-35b-a3b-mtp", "name": "Qwen3.6 35B-A3B (MTP)",
      "hf_repo": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF", "quant": "UD-Q4_K_XL",
      "total_params": "35B", "active_params": "3.6B", "mtp": True, "type": "moe",
-     "min_vram_mb": 6000, "min_ram_mb": 24000, "tier": "low-vram-moe", "position": 0},
-    {"id": "qwen3.5-9b-q4_k_s", "name": "Qwen3.5 9B · Q4_K_S",
-     "hf_repo": "unsloth/Qwen3.5-9B-GGUF", "quant": "Q4_K_S",
-     "total_params": "9B", "min_ram_mb": 9500, "min_vram_mb": 7000, "tier": "mid", "position": 1},
-    {"id": "qwen3.5-9b-q4_k_m", "name": "Qwen3.5 9B · Q4_K_M",
-     "hf_repo": "unsloth/Qwen3.5-9B-GGUF", "quant": "Q4_K_M",
-     "total_params": "9B", "min_ram_mb": 10000, "min_vram_mb": 7500, "tier": "mid", "position": 2},
-    {"id": "qwen3-14b-q3_k_m", "name": "Qwen3 14B · Q3_K_M",
-     "hf_repo": "unsloth/Qwen3-14B-GGUF", "quant": "Q3_K_M",
-     "total_params": "14B", "min_ram_mb": 12000, "min_vram_mb": 9000, "tier": "mid", "position": 3},
-    {"id": "qwen3-14b-q4_k_m", "name": "Qwen3 14B · Q4_K_M",
-     "hf_repo": "unsloth/Qwen3-14B-GGUF", "quant": "Q4_K_M",
-     "total_params": "14B", "min_ram_mb": 14000, "min_vram_mb": 11000, "tier": "mid", "position": 4},
-    {"id": "qwen3.6-27b-mtp-q4_k_m", "name": "Qwen3.6 27B (MTP) · Q4_K_M",
-     "hf_repo": "unsloth/Qwen3.6-27B-MTP-GGUF", "quant": "Q4_K_M",
-     "total_params": "27B", "mtp": True,
-     "min_ram_mb": 26000, "min_vram_mb": 20000, "tier": "high", "position": 5},
+     "min_vram_mb": 6000, "min_ram_mb": 32000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 6},
+    {"id": "glm-4.5-air", "name": "GLM-4.5-Air (106B-A12B MoE)",
+     "hf_repo": "unsloth/GLM-4.5-Air-GGUF", "quant": "UD-Q4_K_XL",
+     "total_params": "106B", "active_params": "12B", "type": "moe",
+     "min_vram_mb": 12000, "min_ram_mb": 64000, "tier": "high-ram", "license": "MIT", "position": 7},
+    {"id": "llama-4-scout", "name": "Llama 4 Scout (109B-A17B MoE)",
+     "hf_repo": "unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF", "quant": "Q4_K_M",
+     "total_params": "109B", "active_params": "17B", "type": "moe",
+     "min_vram_mb": 12000, "min_ram_mb": 64000, "tier": "high-ram", "license": "Llama-Community", "position": 8},
+    {"id": "qwen3-235b-a22b", "name": "Qwen3 235B-A22B (2507 MoE)",
+     "hf_repo": "unsloth/Qwen3-235B-A22B-Instruct-2507-GGUF", "quant": "UD-Q2_K_XL",
+     "total_params": "235B", "active_params": "22B", "type": "moe",
+     "min_vram_mb": 16000, "min_ram_mb": 96000, "tier": "high-ram", "license": "Apache-2.0", "position": 9},
+    {"id": "nomic-embed-text", "name": "Nomic Embed Text v1.5",
+     "hf_repo": "nomic-ai/nomic-embed-text-v1.5-GGUF", "quant": "Q4_K_M", "total_params": "137M",
+     "min_vram_mb": 1000, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 10},
 ]
 
 # Per-model switch overrides — EMPTY by default now: the MoE (spec:none/no_mmap)
@@ -110,18 +138,29 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
      "switches": {"spec_type": "draft-mtp", "spec_n_max": "3"}},
 ]
 
-# Job tags use the seeded job ids (chat/prose/extraction/analysis). Editable (#25).
+# Cited per-job picks, one row per (model, job). `rank` = priority (lower wins).
+# Job ids are the seeded set (chat/prose/extraction/analysis). All model_ids must
+# exist in DEFAULT_CATALOG above. Editable (#25); MEASURED tok/s still pending (#28).
 DEFAULT_RECOMMENDATIONS: list[dict] = [
-    {"model_id": "qwen3.5-9b-q4_k_s", "job": "chat", "rank": 10, "why": "Smallest dense — snappy interactive chat."},
-    {"model_id": "qwen3.5-9b-q4_k_m", "job": "chat", "rank": 20, "why": "Same 9B, higher quant — still quick on most cards."},
-    {"model_id": "qwen3.5-9b-q4_k_s", "job": "prose", "rank": 10, "why": "Fast dense — fluent drafting and rewrites."},
-    {"model_id": "qwen3-14b-q4_k_m", "job": "prose", "rank": 20, "why": "14B dense — richer prose when VRAM allows."},
-    {"model_id": "qwen3-14b-q4_k_m", "job": "analysis", "rank": 10, "why": "14B dense — best accuracy that fits ≥11 GB VRAM."},
-    {"model_id": "qwen3-14b-q3_k_m", "job": "analysis", "rank": 20, "why": "14B dense, lower quant — fits ≥9 GB."},
-    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "job": "analysis", "rank": 5, "why": "27B (MTP) — best accuracy at the high tier (~20 GB+ VRAM)."},
-    {"model_id": "qwen3.6-35b-a3b-mtp", "job": "analysis", "rank": 15, "why": "35B-A3B MoE — runs on 6 GB VRAM via CPU expert offload (needs 24 GB RAM)."},
-    {"model_id": "qwen3.6-35b-a3b-mtp", "job": "extraction", "rank": 10, "why": "MoE 35B-A3B — strong at structured extraction; CPU-offload friendly."},
-    {"model_id": "qwen3-14b-q4_k_m", "job": "extraction", "rank": 20, "why": "14B dense — reliable structured extraction."},
+    # chat — fast, grounded interactive answers
+    {"model_id": "qwen3.5-9b-q4_k_m", "job": "chat", "rank": 10, "why": "Smallest dense — snappy interactive chat (the Fast default)."},
+    {"model_id": "gemma-4-12b-q4_k_m", "job": "chat", "rank": 15, "why": "Gemma 4 12B — a second family at ~7 GB VRAM; strong instruction-following."},
+    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "job": "chat", "rank": 20, "why": "27B (MTP) — richest chat when VRAM allows (~20 GB+)."},
+    # prose — creative drafting and rewriting
+    {"model_id": "qwen3-235b-a22b", "job": "prose", "rank": 3, "why": "Qwen3-235B — best-that-fits prose on a high-RAM rig (96 GB+); near-cloud quality."},
+    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "job": "prose", "rank": 10, "why": "Qwen3.6 27B — the local prose ceiling; fluent, coherent long-form."},
+    {"model_id": "gemma-4-31b-it", "job": "prose", "rank": 20, "why": "Gemma 4 31B — an alternative high-tier prose voice (~22 GB VRAM)."},
+    {"model_id": "qwen3.5-9b-q4_k_m", "job": "prose", "rank": 30, "why": "9B dense — fast drafts and rewrites on small cards."},
+    # extraction — structured facts / JSON (think-OFF)
+    {"model_id": "glm-4.5-air", "job": "extraction", "rank": 3, "why": "GLM-4.5-Air — top structured extraction on a high-RAM rig; strong JSON adherence."},
+    {"model_id": "mistral-small-3.2-24b-q4_k_m", "job": "extraction", "rank": 5, "why": "Mistral Small 3.2 24B — excellent structured/JSON extraction (function-calling strength)."},
+    {"model_id": "qwen3.6-35b-a3b-mtp", "job": "extraction", "rank": 10, "why": "35B-A3B MoE — strong structured extraction; runs at floor (8 GB VRAM + 32 GB RAM) via CPU expert offload."},
+    {"model_id": "qwen3-14b-q4_k_m", "job": "extraction", "rank": 20, "why": "14B dense — reliable structured extraction when VRAM is tight."},
+    # analysis — careful reasoning and critique (think-ON, capped)
+    {"model_id": "qwen3-235b-a22b", "job": "analysis", "rank": 5, "why": "Qwen3-235B — deepest reasoning/critique on a high-RAM rig (96 GB+)."},
+    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "job": "analysis", "rank": 10, "why": "27B (MTP) — best local analysis accuracy at the high tier (~20 GB+ VRAM)."},
+    {"model_id": "qwen3.6-35b-a3b-mtp", "job": "analysis", "rank": 15, "why": "35B-A3B MoE — capable analysis; runs at floor (8 GB VRAM + 32 GB RAM) via offload."},
+    {"model_id": "qwen3-14b-q4_k_m", "job": "analysis", "rank": 20, "why": "14B dense — solid analysis that fits ≥11 GB VRAM."},
 ]
 
 DEFAULT_JOBS: list[dict] = [
@@ -167,7 +206,8 @@ def seed_default_catalog(s) -> int:
             total_params=str(c.get("total_params") or ""), active_params=str(c.get("active_params") or ""),
             mtp=bool(c.get("mtp") or False), type=str(c.get("type") or "dense"),
             min_vram_mb=c.get("min_vram_mb"), min_ram_mb=c.get("min_ram_mb"),
-            tier=str(c.get("tier") or "mid"), built_in=True, position=int(c.get("position") or 0),
+            tier=str(c.get("tier") or "mid"), license=str(c.get("license") or ""),
+            built_in=True, position=int(c.get("position") or 0),
         ))
         added += 1
     return added

@@ -88,6 +88,11 @@ class ModelCatalog(LlmBase):
     min_vram_mb = Column(Integer, nullable=True)
     min_ram_mb = Column(Integer, nullable=True)
     tier = Column(String, nullable=False, default="mid")
+    # SPDX license id of the model weights (e.g. "Apache-2.0", "MIT",
+    # "Llama-Community"). Drives the license badge/flag in the model UI and the
+    # ship-license gate — a use-limited license (Llama, Mistral-Research) is
+    # listed but never a default. Empty = unknown.
+    license = Column(String, nullable=False, default="")
     built_in = Column(Boolean, nullable=False, default=False)
     position = Column(Integer, nullable=False, default=0)
 

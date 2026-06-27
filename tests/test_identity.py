@@ -41,7 +41,7 @@ def test_type_from_meta():
 
 
 def test_detect_flips_type_to_moe_and_keeps_built_in(configured):
-    mid = "qwen3.5-9b-q4_k_s"  # seeded type=dense, built_in=True
+    mid = "qwen3.5-9b-q4_k_m"  # seeded type=dense, built_in=True
     assert _row(mid).type == "dense"
     assert _row(mid).builtIn is True
     out = identity.detect_and_store_model_type(mid, "x.gguf", read_meta=lambda _p: _meta(128))
@@ -52,7 +52,7 @@ def test_detect_flips_type_to_moe_and_keeps_built_in(configured):
 
 
 def test_detect_dense_is_noop_when_already_dense(configured):
-    mid = "qwen3.5-9b-q4_k_s"
+    mid = "qwen3.5-9b-q4_k_m"
     out = identity.detect_and_store_model_type(mid, "x.gguf", read_meta=lambda _p: _meta(0))
     assert out == "dense"
     assert _row(mid).type == "dense"

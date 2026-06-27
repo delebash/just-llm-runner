@@ -48,19 +48,20 @@
 
 Markers: **[IC]** in-container-buildable now · **🔒** needs your GPU/live model · **🔬** research · **❓** decision-first.
 
-## PHASE A — Catalog seed  [IC]  (NOT built — verified: `seed.py` still old Qwen-only)
-- **A1 — verify GGUF repos** (web; most already confirmed in research): `unsloth/gemma-4-12b-it-GGUF` (fallback `…-qat-GGUF`) · `Mistral-Small-3.2-24B-Instruct-2506-GGUF` · `GLM-4.5-Air-GGUF` · `Llama-4-Scout-17B-16E-Instruct-GGUF` · `Qwen3-235B-A22B-Instruct-2507-GGUF` · `gemma-4-31b-it-GGUF` · a `nomic-embed-text` GGUF. **Accept:** each confirmed or fallback chosen. (Show me the search prompt first if it needs an agent.)
+## PHASE A — Catalog seed  [IC]  ✅ **A1–A6 DONE (2026-06-27); A7 + GGUF-orphan-wiring remain**
+> **Shipped:** `license` column on `model_catalog` (`db.py:90+`, `CatalogRow.license`, `_catalog_to_wire`/upsert in `stores.py`); `DEFAULT_CATALOG` rebuilt to 11 rows across the full hardware range with web-verified repo ids + licenses (`seed.py`); `DEFAULT_RECOMMENDATIONS` rewritten to cited per-job picks referencing only live ids; `coarse_fit` GPU-branch RAM gate (`fit.py:97+`); tests extended (145 pass + ruff clean) + verified end-to-end against a fresh JW DB (`GET /v1/ai/model-catalog` → 11 rows, licenses, `high-ram` tier, 35B-A3B RAM floor 32 GB). **Correction folded:** the A2 table's `min_ram_mb=32000` for the DENSE 12B/24B was a paste artifact (it would wrongly exclude a 16 GB box from a 7 GB model, contradicting Part 3.1); seeded the defensible weights-in-RAM floors instead (12B→13000, 24B→20000, 31B→26000) — table below corrected.
+- **A1 — verify GGUF repos ✅** (web-verified 2026-06-27 via WebSearch; HF API 403'd through the proxy so used search): **Gemma 4 = Apache-2.0** confirmed (Google dropped the Gemma Terms for v4 — VentureBeat/WinBuzzer 2026-04-03; my training-based doubt was wrong) · GLM-4.5-Air = **MIT** · Mistral-Small-3.2-24B-2506 + Qwen3.5-9B (rel. 2026-03-02) + Qwen3.6-35B-A3B-MTP (rel. 2026-04-16) + Qwen3-235B-A22B-2507 all exist + Apache · `nomic-ai/nomic-embed-text-v1.5-GGUF` for embeddings. Llama-4-Scout = Llama Community (use-limited) → carried as a FLAG, never default.
 - **A2 — `DEFAULT_CATALOG`** (`seed.py:69-90`). **DROP** `qwen3.5-9b-q4_k_s`, `qwen3-14b-q3_k_m` (redundant quants). **CHANGE** `qwen3.6-35b-a3b-mtp` `min_ram_mb` 24000→**32000** (RAM is the floor). **ADD** (MoE VRAM = active-path+KV *estimate*; RAM = total; the tuning UI measures real):
 
   | id | repo | quant | total/active | min_vram_mb | min_ram_mb | tier | license |
   |---|---|---|---|---|---|---|---|
-  | gemma-4-12b-q4_k_m | unsloth/gemma-4-12b-it-GGUF | Q4_K_M | 12B dense | 7000 | 32000 | mid | Apache-2.0 |
-  | mistral-small-3.2-24b-q4_k_m | unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF | Q4_K_M | 24B dense | 14000 | 32000 | high | Apache-2.0 |
+  | gemma-4-12b-q4_k_m | unsloth/gemma-4-12b-it-GGUF | Q4_K_M | 12B dense | 7000 | 13000 | mid | Apache-2.0 |
+  | mistral-small-3.2-24b-q4_k_m | unsloth/Mistral-Small-3.2-24B-Instruct-2506-GGUF | Q4_K_M | 24B dense | 14000 | 20000 | high | Apache-2.0 |
   | glm-4.5-air | unsloth/GLM-4.5-Air-GGUF | UD-Q4_K_XL | 106B/12B MoE | 12000 | 64000 | high-ram | **MIT** |
-  | llama-4-scout | unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF | Q4 | 109B/17B MoE | 12000 | 64000 | high-ram | **Llama-Community → FLAG** |
-  | qwen3-235b-a22b | unsloth/Qwen3-235B-A22B-Instruct-2507-GGUF | UD-Q2_K_XL→Q4 | 235B/22B MoE | 16000 | 96000 | high-ram | Apache-2.0 |
-  | gemma-4-31b-it | unsloth/gemma-4-31b-it-GGUF | Q4_K_M | 31B dense | 22000 | 32000 | high | Apache-2.0 |
-  | nomic-embed-text | (embeddings GGUF) | Q4_K_M | embed | 1000 | 4000 | cpu | Apache-2.0 |
+  | llama-4-scout | unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF | Q4_K_M | 109B/17B MoE | 12000 | 64000 | high-ram | **Llama-Community → FLAG** |
+  | qwen3-235b-a22b | unsloth/Qwen3-235B-A22B-Instruct-2507-GGUF | UD-Q2_K_XL | 235B/22B MoE | 16000 | 96000 | high-ram | Apache-2.0 |
+  | gemma-4-31b-it | unsloth/gemma-4-31b-it-GGUF | Q4_K_M | 31B dense | 22000 | 26000 | high | Apache-2.0 |
+  | nomic-ai/nomic-embed-text-v1.5-GGUF | nomic-ai/nomic-embed-text-v1.5-GGUF | Q4_K_M | embed | 1000 | 4000 | cpu | Apache-2.0 |
 
   Add a `high-ram` tier value (`CatalogRow.tier`, `model_catalog_api.py`). **B-audit: also ADD a `license` column to `model_catalog` (`db.py:70` has NONE) — the A2 rows seed license values + the §F license-flag UI needs somewhere to store/read them (today there's nowhere).** **WHY:** family diversity + the full hardware range; the all-Qwen catalog had no non-Qwen, no 8GB 2nd family, no high-RAM tier. **Verify:** `test_recommendations_catalog.py` (add id asserts) + reseed. **NEVER seed Gemma ≤3** (Gemma Terms of Use — not GPL/Apache-safe; only Gemma 4 is Apache).
 - **A3 — RAM-gated fit-filter (CODE FIX — NARROWED by the 2026-06-27 audit; the earlier description overstated it).** Verified: `coarse_fit` (`fit.py:75-105`) ALREADY accepts `ram_mb`+`min_ram_override` and RAM-gates the **CPU** path (`fit.py:91-96`); `_fit` (`runner/api.py:35-50`) ALREADY passes `min_ram_override=model.min_ram_mb`; `get_models` ALREADY passes detected `hardware.ram_mb` (`runner/api.py:124`). So the ONLY missing piece is **the RAM check in `coarse_fit`'s GPU branch** (`fit.py:97-105`, currently VRAM-only → an 8 GB-VRAM / 16 GB-RAM box is wrongly offered the 32 GB-RAM MoE). FIX ≈ 3 lines in `coarse_fit`. *(Optional nicety: a `ram_mb` OVERRIDE query param on `get_models` so QuickSetup can re-score for a different RAM, mirroring `vram_mb` — NOT required for the gate.)* **Accept:** 8 GB+16 GB-RAM → 35B-A3B/GLM-Air NOT offered; 8 GB+32 GB → offered. **Verify:** pytest (`test_fit.py`).

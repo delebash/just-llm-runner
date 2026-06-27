@@ -94,6 +94,12 @@ def coarse_fit(
         if floor and ram_mb and ram_mb < floor:
             return "no"
         return "cpu"
+    # A GPU box still needs enough system RAM: a MoE offloads its experts to RAM
+    # (`--n-cpu-moe`), so an 8 GB-VRAM / 16 GB-RAM box cannot run a 32–64 GB-RAM
+    # MoE no matter how the active path fits VRAM. Gate on the DECLARED RAM floor
+    # only (a dense model fully in VRAM sets no large floor); absent → no RAM gate.
+    if min_ram_override and ram_mb and ram_mb < min_ram_override:
+        return "no"
     need = float(min_vram_override) if min_vram_override else weights_mb(total_params, quant)
     if not need:
         return "unknown"

@@ -48,7 +48,7 @@ def test_seed_populates_recommendations_ordered(wired):
     assert all(r.builtIn for r in rows)  # every seeded row is built-in
     # Ordered by (job, rank, model_id): "analysis" sorts first, lowest rank first.
     assert rows[0].job == "analysis" and rows[0].rank == 5
-    assert rows[0].modelId == "qwen3.6-27b-mtp-q4_k_m"
+    assert rows[0].modelId == "qwen3-235b-a22b"
 
 
 def test_recommendation_upsert_new_then_update(wired):
@@ -105,6 +105,21 @@ def test_seed_populates_catalog(wired):
     rows = stores.get_model_catalog_store().list()
     assert len(rows) == len(seed.DEFAULT_CATALOG)
     assert all(r.builtIn for r in rows)
+    by_id = {r.id: r for r in rows}
+    # Family diversity + the full hardware range landed (A2).
+    for mid in ("qwen3.5-9b-q4_k_m", "gemma-4-12b-q4_k_m", "mistral-small-3.2-24b-q4_k_m",
+                "glm-4.5-air", "llama-4-scout", "qwen3-235b-a22b", "nomic-embed-text"):
+        assert mid in by_id, mid
+    # The redundant quants were dropped.
+    assert "qwen3.5-9b-q4_k_s" not in by_id
+    assert "qwen3-14b-q3_k_m" not in by_id
+    # The license column round-trips, verbatim from the seed (A2 + the license gate).
+    assert by_id["gemma-4-12b-q4_k_m"].license == "Apache-2.0"
+    assert by_id["glm-4.5-air"].license == "MIT"
+    assert by_id["llama-4-scout"].license == "Llama-Community"  # use-limited → flag, never default
+    # The high-ram tier + the 35B-A3B RAM floor bump (24 GB → 32 GB).
+    assert by_id["glm-4.5-air"].tier == "high-ram"
+    assert by_id["qwen3.6-35b-a3b-mtp"].minRamMb == 32000
 
 
 def test_catalog_upsert_new_then_update(wired):

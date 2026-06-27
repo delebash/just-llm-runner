@@ -52,6 +52,22 @@ def test_coarse_fit_override_and_unknown():
                           ram_mb=64000, margin_mb=1024) == "unknown"
 
 
+def test_coarse_fit_gpu_ram_gate():
+    # A GPU box must ALSO clear the model's RAM floor (MoE experts live in RAM).
+    # 35B-A3B: 8 GB VRAM fits the active path, but it needs 32 GB RAM.
+    a3b = dict(total_params="35B", quant="UD-Q4_K_XL", vram_mb=8000,
+               margin_mb=1024, min_vram_override=6000, min_ram_override=32000)
+    assert fit.coarse_fit(ram_mb=16000, **a3b) == "no"   # 8 GB VRAM + 16 GB RAM → not offered
+    assert fit.coarse_fit(ram_mb=32000, **a3b) == "ok"   # 8 GB VRAM + 32 GB RAM → offered
+    # GLM-4.5-Air needs 64 GB RAM — a 32 GB box is gated out even with VRAM to spare.
+    assert fit.coarse_fit(total_params="106B", quant="UD-Q4_K_XL", vram_mb=16000,
+                          ram_mb=32000, margin_mb=1024, min_vram_override=12000,
+                          min_ram_override=64000) == "no"
+    # A dense model with no large RAM floor is unaffected by the gate.
+    assert fit.coarse_fit(total_params="12B", quant="Q4_K_M", vram_mb=12000,
+                          ram_mb=16000, margin_mb=1024, min_ram_override=13000) == "ok"
+
+
 def _cfg(**kw):
     base = dict(size_mb=4400, n_layers=32, n_kv_heads=8, embedding_dim=4096,
                 ctx_size=4096, cache_type=16)

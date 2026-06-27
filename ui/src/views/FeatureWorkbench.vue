@@ -410,21 +410,26 @@ async function runTest() {
       // Stream via the host: live progress + Cancel + the batch AI list + tokens.
       const ctrl = new AbortController();
       testCtrl.value = ctrl;
-      testOut.value = { content: "", model: "", ms: 0, tokens: 0, words: 0 };
+      testOut.value = { content: "", model: "", ms: 0, tokens: 0, tps: 0, words: 0 };
       const res = await props.runStream({
         ...o, signal: ctrl.signal,
         onDelta: (_d, full) => { if (testOut.value) { testOut.value.content = full; testOut.value.words = wordCount(full); } },
       });
       const u = res?.usage || {};
+      const ms = Math.round(performance.now() - t0);
+      const outTokens = u.completionTokens || 0;
       testOut.value = {
         content: res?.content || "", model: res?.model || "",
-        ms: Math.round(performance.now() - t0),
-        tokens: (u.promptTokens || 0) + (u.completionTokens || 0),
+        ms,
+        tokens: (u.promptTokens || 0) + outTokens,
+        // Decode speed = output tokens / wall-second (prompt tokens are prefilled,
+        // not decoded, so they're excluded). The lab's engine-tuning yardstick.
+        tps: ms > 0 && outTokens > 0 ? +(outTokens / (ms / 1000)).toFixed(1) : 0,
         words: wordCount(res?.content || ""),
       };
     } else {
       const r = await request("/v1/ai/run", { method: "POST", body: o });
-      testOut.value = { content: r.content, model: r.model, ms: Math.round(performance.now() - t0), tokens: 0, words: wordCount(r.content) };
+      testOut.value = { content: r.content, model: r.model, ms: Math.round(performance.now() - t0), tokens: 0, tps: 0, words: wordCount(r.content) };
     }
   } catch (e) {
     if (e?.name === "AbortError" || /abort|cancel/i.test(e?.message || "")) testErr.value = "Cancelled.";
@@ -562,7 +567,7 @@ onMounted(load);
               <pre class="lu-fw-pre">{{ testOut.content }}</pre>
               <div class="lu-muted lu-fw-stats">
                 <template v-if="testOut.model">model <b>{{ testOut.model }}</b> · </template>
-                <b>{{ testOut.words }}</b> words<template v-if="testOut.tokens"> · <b>{{ testOut.tokens }}</b> tokens</template> · {{ testOut.ms }} ms
+                <b>{{ testOut.words }}</b> words<template v-if="testOut.tokens"> · <b>{{ testOut.tokens }}</b> tokens</template><template v-if="testOut.tps"> · <b>{{ testOut.tps }}</b> tok/s</template> · {{ testOut.ms }} ms
               </div>
             </div>
           </div>

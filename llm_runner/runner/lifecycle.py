@@ -38,6 +38,11 @@ def _default_switches_fn(model_id: str) -> dict[str, str]:  # noqa: ARG001
     return {}
 
 
+def _default_identify_fn(model_id: str, gguf_path) -> None:  # noqa: ARG001
+    """Standalone default: no host store wired → no catalog type auto-detect."""
+    return None
+
+
 # Set of `Overrides` field names — used to validate switch keys at apply time
 # (a stored flag_name not in this set is silently dropped, not a crash).
 _OVERRIDE_FIELDS = {f.name for f in _dc_fields(Overrides)}
@@ -125,6 +130,7 @@ class RunnerService:
         hardware_fn=_detect,
         catalog_fn=_default_catalog_fn,
         switches_fn=_default_switches_fn,
+        identify_fn=_default_identify_fn,
         acquire_binary=_acquire_binary,
         acquire_model=_acquire_model,
         read_meta=_read_gguf_metadata,
@@ -135,6 +141,7 @@ class RunnerService:
         self._hardware_fn = hardware_fn
         self._catalog_fn = catalog_fn
         self._switches_fn = switches_fn
+        self._identify_fn = identify_fn
         self._acquire_binary = acquire_binary
         self._acquire_model = acquire_model
         self._read_meta = read_meta
@@ -223,6 +230,13 @@ class RunnerService:
             )
             gguf = self._main_gguf(snapshot, model.quant)
             meta = self._read_meta(gguf)
+            # Best-effort: auto-detect the catalog `type` (moe|dense) from the
+            # downloaded GGUF so a user-added model's switch presets are grounded
+            # in the file, not a hand-typed guess. Never fail the load on this.
+            try:
+                self._identify_fn(model_id, gguf)
+            except Exception:  # noqa: BLE001 — identification is advisory only
+                log.warning("model type auto-detect failed for %s", model_id, exc_info=True)
             fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
                               safety_margin_mb=config.safety_margin_mb)
 
@@ -242,6 +256,7 @@ def configure_service(
     *,
     catalog_fn=None,
     switches_fn=None,
+    identify_fn=None,
     config_fn=None,
     hardware_fn=None,
     cache_root: str | None = None,
@@ -256,6 +271,8 @@ def configure_service(
         kwargs["catalog_fn"] = catalog_fn
     if switches_fn is not None:
         kwargs["switches_fn"] = switches_fn
+    if identify_fn is not None:
+        kwargs["identify_fn"] = identify_fn
     if config_fn is not None:
         kwargs["config_fn"] = config_fn
     if hardware_fn is not None:

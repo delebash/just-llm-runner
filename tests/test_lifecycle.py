@@ -17,11 +17,12 @@ def _fake_runner(url="http://127.0.0.1:8080"):
     return SimpleNamespace(url=url, is_alive=lambda: True, stop=lambda: None)
 
 
-def _service_for(tmp_path, *, start=None, gguf_quant=None):
+def _service_for(tmp_path, *, start=None, gguf_quant=None, identify_fn=None):
     quant = gguf_quant or _TEST_MODEL.quant
     snap = tmp_path / "snap"
     snap.mkdir()
     (snap / f"model-{quant}.gguf").write_bytes(b"x" * 1024)
+    kw = {"identify_fn": identify_fn} if identify_fn is not None else {}
     return RunnerService(
         tmp_path,
         catalog_fn=lambda: [_TEST_MODEL],
@@ -29,6 +30,7 @@ def _service_for(tmp_path, *, start=None, gguf_quant=None):
         acquire_model=lambda *a, **k: snap,
         read_meta=lambda p: SimpleNamespace(block_count=24, embedding_length=2048, is_moe=False, n_kv_heads=8),
         start=start or (lambda *a, **k: _fake_runner()),
+        **kw,
     )
 
 
@@ -67,6 +69,27 @@ def test_stop_returns_to_idle(tmp_path):
     svc._thread.join(timeout=5)
     assert svc.status()["status"] == "running"
     assert svc.stop()["status"] == "idle"
+
+
+def test_load_calls_identify_fn(tmp_path):
+    # After download, the runner auto-detects the catalog type via identify_fn.
+    seen = []
+    svc = _service_for(tmp_path, identify_fn=lambda mid, path: seen.append(mid))
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert seen == [_TEST_MODEL.id]
+
+
+def test_load_survives_identify_failure(tmp_path):
+    # Type auto-detect is advisory — a failure must NOT fail the load.
+    def boom(mid, path):
+        raise RuntimeError("gguf unreadable")
+
+    svc = _service_for(tmp_path, identify_fn=boom)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
 
 
 def test_dead_process_flips_to_error(tmp_path):

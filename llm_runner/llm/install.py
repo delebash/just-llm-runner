@@ -108,6 +108,15 @@ def _wire_runner_catalog() -> None:
 
         return resolve_model_switches(model_id)
 
+    def identify_fn(model_id: str, gguf_path):
+        # After a model downloads, read its GGUF header → set model_catalog.type
+        # (moe|dense) from expert_count, so a user-added model's switch presets are
+        # grounded in the file rather than a hand-typed guess (was an orphan).
+        from .identity import detect_and_store_model_type
+
+        detect_and_store_model_type(model_id, gguf_path)
+
     configure_service(
-        catalog_fn=catalog_fn, switches_fn=switches_fn, config_fn=stores.build_runner_config,
+        catalog_fn=catalog_fn, switches_fn=switches_fn, identify_fn=identify_fn,
+        config_fn=stores.build_runner_config,
     )

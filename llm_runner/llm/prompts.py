@@ -256,10 +256,33 @@ class RunResponse(BaseModel):
     model: str
 
 
+def _parse_sampler_value(v: str):
+    """A stored text sampler value → the JSON type the chat API expects
+    (bool / int / float / str). Empty → None ('not set')."""
+    s = (v or "").strip()
+    if not s:
+        return None
+    low = s.lower()
+    if low in ("true", "false"):
+        return low == "true"
+    try:
+        return int(s)
+    except ValueError:
+        pass
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    return s
+
+
 def _plane2_extra(spec: FeaturePromptRow, body: RunRequest) -> dict | None:
-    """Per-request `extra` from the action's Plane-2 params (json_mode/top_p),
-    each overridable by the request. Merges straight into the OpenAI-compatible
-    chat body (the adapter applies `extra`); no model reload. (#18 / #22)"""
+    """Per-request `extra` from the action's Plane-2 params — json_mode/top_p PLUS
+    its long-tail sampler knobs (feature_sampler_params: top_k/min_p/mirostat/…),
+    each overridable by the request. Merges straight into the OpenAI-compatible chat
+    body (the adapter applies `extra`); no model reload. Safe across adapters:
+    openai-compat sends all (cloud ignores unknown fields), the others map
+    selectively. (#18 / #22 / §8)"""
     extra: dict = {}
     json_mode = spec.json_mode if body.jsonMode is None else body.jsonMode
     if json_mode:
@@ -267,6 +290,14 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest) -> dict | None:
     top_p = spec.top_p if body.topP is None else body.topP
     if top_p is not None:
         extra["top_p"] = top_p
+    # Long-tail per-action samplers. Lazy import: stores imports prompts
+    # (FeaturePromptRow), so a top-level import would cycle.
+    from . import stores
+
+    for row in stores.get_feature_sampler_store().list(body.action):
+        val = _parse_sampler_value(row.flagValue)
+        if val is not None and row.flagName not in extra:
+            extra[row.flagName] = val
     return extra or None
 
 

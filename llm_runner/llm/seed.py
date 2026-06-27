@@ -13,6 +13,7 @@ clobber user edits (the `seed_default_providers` pattern).
 from __future__ import annotations
 
 from . import db
+from ..runner.config import DEFAULT_BINARIES, DEFAULT_PINNED_BUILD, DEFAULT_SAFETY_MARGIN_MB
 
 # ── per-app registration (the ONLY per-app inputs) ────────────────────────────
 _APP: dict = {"feature_catalog": [], "feature_jobs": [], "feature_prompts": {}}
@@ -175,6 +176,15 @@ DEFAULT_JOBS: list[dict] = [
 ]
 
 
+# Runner config (was runner-manifest.json). The binary list + scalars are
+# imported from the runner package (ONE source of truth; the standalone runner
+# also reads them via runner.config.default_config) and seeded built_in.
+DEFAULT_RUNNER_SETTINGS: list[dict] = [
+    {"key": "pinned_build", "value": DEFAULT_PINNED_BUILD},
+    {"key": "safety_margin_mb", "value": str(DEFAULT_SAFETY_MARGIN_MB)},
+]
+
+
 # ── seeders (operate on a passed session, no commit) ──────────────────────────
 def seed_default_providers(s) -> int:
     existing = {r.id for r in s.query(db.LlmProvider).all()}
@@ -256,6 +266,32 @@ def seed_default_recommendations(s) -> int:
     return added
 
 
+def seed_default_runner_binaries(s) -> int:
+    existing = {(r.platform, r.gpu) for r in s.query(db.RunnerBinary.platform, db.RunnerBinary.gpu).all()}
+    added = 0
+    for i, b in enumerate(DEFAULT_BINARIES):
+        if (b["platform"], b["gpu"]) in existing:
+            continue
+        s.add(db.RunnerBinary(
+            platform=b["platform"], gpu=b["gpu"], source=str(b.get("source") or "github"),
+            asset_url=b.get("asset_url"), image=b.get("image"), sha256=b.get("sha256"),
+            server_exe=str(b.get("server_exe") or "llama-server"), built_in=True, position=i,
+        ))
+        added += 1
+    return added
+
+
+def seed_default_runner_settings(s) -> int:
+    existing = {r.key for r in s.query(db.RunnerSetting.key).all()}
+    added = 0
+    for r in DEFAULT_RUNNER_SETTINGS:
+        if r["key"] in existing:
+            continue
+        s.add(db.RunnerSetting(key=r["key"], value=str(r.get("value") or ""), built_in=True))
+        added += 1
+    return added
+
+
 def seed_default_jobs(s) -> int:
     existing = {r.id for r in s.query(db.Job.id).all()}
     added = 0
@@ -321,6 +357,8 @@ def seed_llm(s=None) -> None:
         seed_default_switches(s)
         seed_default_switch_presets(s)
         seed_default_recommendations(s)
+        seed_default_runner_binaries(s)
+        seed_default_runner_settings(s)
         seed_default_jobs(s)
         seed_default_feature_jobs(s)
         seed_default_feature_prompts(s)

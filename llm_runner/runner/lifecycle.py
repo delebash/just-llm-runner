@@ -19,9 +19,9 @@ from pathlib import Path
 from dataclasses import fields as _dc_fields
 
 from .binary import acquire_binary as _acquire_binary
+from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect
-from .manifest import load_manifest as _load_manifest
 from .models import acquire_model as _acquire_model
 from .process import Overrides, compute_fit, start_runner as _start_runner
 from .schema import ModelEntry
@@ -121,7 +121,7 @@ class RunnerService:
         self,
         cache_root,
         *,
-        manifest_fn=_load_manifest,
+        config_fn=_default_config,
         hardware_fn=_detect,
         catalog_fn=_default_catalog_fn,
         switches_fn=_default_switches_fn,
@@ -131,7 +131,7 @@ class RunnerService:
         start=_start_runner,
     ):
         self._cache_root = Path(cache_root)
-        self._manifest_fn = manifest_fn
+        self._config_fn = config_fn
         self._hardware_fn = hardware_fn
         self._catalog_fn = catalog_fn
         self._switches_fn = switches_fn
@@ -152,9 +152,15 @@ class RunnerService:
         return self._cache_root
 
     def catalog(self) -> list[ModelEntry]:
-        """Host-backed downloadable model catalog. Falls back to manifest.models
-        when no host store is wired (standalone runner package use)."""
-        return self._catalog_fn() or list(self._manifest_fn().models)
+        """Host-backed downloadable model catalog (DB via catalog_fn). Empty for
+        standalone runner use (no host store wired) — the manifest's model list
+        is gone (A7)."""
+        return self._catalog_fn()
+
+    def config(self):
+        """The runner config (binaries + VRAM margin): DB-backed in the host (via
+        the injected config_fn), or the seed defaults standalone."""
+        return self._config_fn()
 
     def status(self) -> dict:
         # Reflect a llama-server that died after it came up.
@@ -196,21 +202,20 @@ class RunnerService:
 
     def _run_load(self, model_id: str, overrides: Overrides | None = None) -> None:
         try:
-            manifest = self._manifest_fn()
+            config = self._config_fn()
             hardware = self._hardware_fn()
-            # The downloadable catalog is HOST-OWNED (DB-backed via .catalog());
-            # falls through to manifest.models for standalone runner use.
+            # The downloadable catalog is HOST-OWNED (DB-backed via .catalog()).
             model = next((m for m in self.catalog() if m.id == model_id), None)
             if model is None:
                 raise ValueError(f"unknown model {model_id!r}")
 
             # Catalog-default switches layer UNDER user-supplied overrides
-            # (user wins per-field).
+            # (user wins per-field). base_ov carries the DB base/moe/mtp presets.
             base_ov = _switches_to_overrides(self._switches_fn(model_id) or {})
             ov = _merge_overrides(base_ov, overrides)
 
             self._state.update(status="downloading", detail="llama.cpp binary")
-            server_exe = self._acquire_binary(self._cache_root, manifest, hardware)
+            server_exe = self._acquire_binary(self._cache_root, config, hardware)
 
             self._state.update(detail="model weights")
             snapshot = self._acquire_model(
@@ -218,10 +223,11 @@ class RunnerService:
             )
             gguf = self._main_gguf(snapshot, model.quant)
             meta = self._read_meta(gguf)
-            fit = compute_fit(manifest, meta, gguf.stat().st_size, hardware, ov)
+            fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
+                              safety_margin_mb=config.safety_margin_mb)
 
             self._state.update(status="starting", detail="spawning llama-server")
-            runner = self._start(server_exe, gguf, manifest, model, fit, extra_flags=ov.extra_flags, overrides=ov)
+            runner = self._start(server_exe, gguf, fit, extra_flags=ov.extra_flags, overrides=ov)
             self._runner = runner
             self._state.update(status="running", url=runner.url, detail="")
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
@@ -236,11 +242,11 @@ def configure_service(
     *,
     catalog_fn=None,
     switches_fn=None,
-    manifest_fn=None,
+    config_fn=None,
     hardware_fn=None,
     cache_root: str | None = None,
 ) -> RunnerService:
-    """Host hook to construct the singleton with DB-backed catalog/switches
+    """Host hook to construct the singleton with DB-backed catalog/switches/config
     (and any other injections). Call ONCE at boot, before `get_service()`.
     Returns the constructed singleton."""
     global _service
@@ -250,8 +256,8 @@ def configure_service(
         kwargs["catalog_fn"] = catalog_fn
     if switches_fn is not None:
         kwargs["switches_fn"] = switches_fn
-    if manifest_fn is not None:
-        kwargs["manifest_fn"] = manifest_fn
+    if config_fn is not None:
+        kwargs["config_fn"] = config_fn
     if hardware_fn is not None:
         kwargs["hardware_fn"] = hardware_fn
     _service = RunnerService(root, **kwargs)

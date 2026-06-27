@@ -26,8 +26,9 @@ from typing import Callable, Sequence
 import requests
 
 from . import fit
+from .config import DEFAULT_SAFETY_MARGIN_MB
 from .gguf import GgufMeta
-from .schema import HardwareInfo, ModelEntry, RunnerManifest
+from .schema import HardwareInfo
 
 log = logging.getLogger(__name__)
 
@@ -44,10 +45,11 @@ class RunnerStartError(RuntimeError):
 @dataclass
 class Overrides:
     """Operator overrides for tuning/testing a model load — any None falls back to
-    the computed Fit or the manifest's `base` flag preset. Two groups:
+    the computed Fit or the llama default. Two groups:
       * fit knobs (n_gpu_layers / n_cpu_moe / ctx_len) — consumed by compute_fit;
-      * engine flags — REPLACE the matching base-preset flag in compose_flags (NOT
-        appended, so llama-server never sees a duplicated flag with two values).
+      * engine flags — rendered into the argv by compose_flags. The base/moe/mtp
+        defaults arrive HERE already (resolved from the DB `switch_presets` via the
+        runner's switches_fn), so compose_flags renders purely from these.
 
     WHY this surface exists: POST /v1/llm-runner/load must let the GUI test the
     speed/fit switches on the user's OWN machine (esp. --n-cpu-moe to fit a MoE on
@@ -91,13 +93,6 @@ class FitPlan:
 
 def _max_vram_mb(hw: HardwareInfo) -> int:
     return max((g.vram_mb or 0 for g in hw.gpus), default=0)
-
-
-def _flag_value(flags: Sequence[str], name: str) -> str | None:
-    for i, f in enumerate(flags):
-        if f == name and i + 1 < len(flags):
-            return flags[i + 1]
-    return None
 
 
 def _strip_flag(flags: Sequence[str], name: str) -> list[str]:
@@ -181,11 +176,12 @@ def _apply_engine_overrides(flags: list[str], ov: Overrides) -> list[str]:
 
 
 def compute_fit(
-    manifest: RunnerManifest,
     meta: GgufMeta,
     total_weight_bytes: int,
     hardware: HardwareInfo,
     overrides: Overrides | None = None,
+    *,
+    safety_margin_mb: int = DEFAULT_SAFETY_MARGIN_MB,
 ) -> FitPlan:
     """Decide how much of the model fits on the GPU.
 
@@ -193,6 +189,10 @@ def compute_fit(
     by the average per-layer weight bytes. MoE expert layers that don't fit
     are offloaded to CPU RAM. Probe-and-back-off at spawn corrects any
     overestimate, so this only needs to be a sane first guess.
+
+    `safety_margin_mb` comes from the RunnerConfig (DB-backed, host) or its
+    default; the KV cache-type is taken from the resolved overrides (the DB
+    `base` preset sets q8_0) so it isn't under-counted.
     """
     ov = overrides or Overrides()
     ctx_len = ov.ctx_len or DEFAULT_CTX
@@ -202,8 +202,8 @@ def compute_fit(
         n_gpu = max(0, min(n_layers, ov.n_gpu_layers))
     else:
         vram_mb = _max_vram_mb(hardware)
-        budget_mb = max(0, vram_mb - manifest.vram_fit.safety_margin_mb)
-        cache_type = fit.cache_type_bits(_flag_value(manifest.flag_presets.base, "--cache-type-k"))
+        budget_mb = max(0, vram_mb - safety_margin_mb)
+        cache_type = fit.cache_type_bits(ov.cache_type_k or "q8_0")
         # head_count_kv is absent in some GGUF headers — fall back to MHA
         # (≈ hidden_dim / 128, a typical head_dim) so KV isn't under-counted.
         n_kv_heads = meta.n_kv_heads or max(1, meta.embedding_length // 128)
@@ -230,8 +230,6 @@ def compute_fit(
 
 
 def compose_flags(
-    manifest: RunnerManifest,
-    model: ModelEntry,
     gguf_path: Path | str,
     n_gpu_layers: int,
     n_cpu_moe: int,
@@ -241,12 +239,12 @@ def compose_flags(
     extra: Sequence[str] = (),
     overrides: Overrides | None = None,
 ) -> list[str]:
-    """Build the llama-server argv (after the exe) from the manifest presets, with
-    any operator engine overrides replacing the matching preset flags."""
-    # Start from base, but drop its placeholder -ngl 999 — we set ours below.
-    flags = _strip_flag(_strip_flag(list(manifest.flag_presets.base), "-ngl"), "--n-gpu-layers")
-    if model.mtp:
-        flags += list(manifest.flag_presets.mtp)
+    """Build the llama-server argv (after the exe) from the resolved engine
+    overrides. The base/moe/mtp flag defaults (flash-attn, KV cache type, mlock,
+    spec-decode, …) arrive in `overrides` already — resolved from the DB
+    `switch_presets` by the runner's switches_fn — so there is no manifest preset
+    to merge here; we just render the overrides + the computed fit knobs."""
+    flags: list[str] = []
     if overrides is not None:
         flags = _apply_engine_overrides(flags, overrides)
     flags += ["-ngl", str(n_gpu_layers)]
@@ -323,8 +321,6 @@ def _wait_until_healthy(proc, url, timeout, health, sleep, now) -> bool:
 def start_runner(
     server_exe: Path | str,
     gguf_path: Path | str,
-    manifest: RunnerManifest,
-    model: ModelEntry,
     fit: FitPlan,
     *,
     host: str = DEFAULT_HOST,
@@ -352,7 +348,7 @@ def start_runner(
     while True:
         n_cpu_moe = max(0, fit.block_count - n_gpu) if fit.is_moe else 0
         flags = compose_flags(
-            manifest, model, gguf_path, n_gpu, n_cpu_moe, fit.ctx_len, host, port, extra_flags,
+            gguf_path, n_gpu, n_cpu_moe, fit.ctx_len, host, port, extra_flags,
             overrides=overrides,
         )
         log.info("spawning llama-server: ngl=%d n_cpu_moe=%d ctx=%d", n_gpu, n_cpu_moe, fit.ctx_len)

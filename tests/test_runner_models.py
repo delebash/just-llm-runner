@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """GET /v1/llm-runner/models — the catalog view with hardware Fit + status.
 
-Hardware / manifest / runner-service are injected (the endpoint reads them via
-module-level `detect` / `load_manifest` / `get_service`), so the Fit bands and
-status mapping are exercised with no GPU and no download.
-"""
+Hardware / runner-service are injected (the endpoint reads them via module-level
+`detect` / `get_service`), so the Fit bands and status mapping are exercised with
+no GPU and no download. Post-A7 the VRAM safety margin comes from the service's
+RunnerConfig (was the manifest)."""
 
 from __future__ import annotations
 
@@ -14,29 +14,24 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import llm_runner.runner.api as api
+from llm_runner.runner import lifecycle
+from llm_runner.runner.config import default_config
 from llm_runner.runner.schema import (
     GpuInfo,
     HardwareInfo,
     LlamacppSpec,
     ModelEntry,
     RecommendedFor,
-    RunnerManifest,
-    VramFit,
+    RunnerConfig,
 )
+
+_TEST_CONFIG = RunnerConfig(llamacpp=LlamacppSpec(pinned_build="bTEST"), safety_margin_mb=1024)
 
 
 def _client():
     app = FastAPI()
     app.include_router(api.router)
     return TestClient(app)
-
-
-def _manifest(models):
-    return RunnerManifest(
-        llamacpp=LlamacppSpec(pinned_build="bTEST"),
-        models=models,
-        vram_fit=VramFit(safety_margin_mb=1024),
-    )
 
 
 def _model(mid, min_vram_mb, *, min_ram_mb=None, total_params="14B"):
@@ -61,15 +56,15 @@ class _FakeService:
     def status(self):
         return self._status
 
-    # Mirrors RunnerService.catalog — host-backed; falls through to manifest
-    # in production but the test feeds models in directly.
     def catalog(self):
         return self._models
+
+    def config(self):
+        return _TEST_CONFIG  # safety_margin_mb=1024
 
 
 def _patch(monkeypatch, *, hardware, models, status):
     monkeypatch.setattr(api, "detect", lambda: hardware)
-    monkeypatch.setattr(api, "load_manifest", lambda: _manifest(models))
     monkeypatch.setattr(api, "get_service", lambda: _FakeService(status, models))
     # Nothing is on disk in these tests.
     monkeypatch.setattr(api, "is_cached", lambda *a, **k: False)
@@ -102,7 +97,7 @@ def test_fit_bands_on_a_12gb_gpu(monkeypatch):
 def test_cpu_only_machine(monkeypatch):
     hw = HardwareInfo(os="Linux", platform="linux", cpu_cores=8, ram_mb=16000, gpus=[])
     models = [
-        _model("fits-ram", 8000, min_ram_mb=8000),    # CPU + enough RAM -> cpu
+        _model("fits-ram", 8000, min_ram_mb=8000),      # CPU + enough RAM -> cpu
         _model("too-big-ram", 8000, min_ram_mb=64000),  # CPU but RAM too small -> no
     ]
     _patch(monkeypatch, hardware=hw, models=models,
@@ -124,7 +119,9 @@ def test_status_reflects_loaded_model(monkeypatch):
 
 
 def test_models_endpoint_real_camelcase():
-    # No patching — exercises the real manifest + hardware detect on this box.
+    # No per-call patching — exercise the real endpoint with a clean default-backed
+    # service (empty standalone catalog), confirming the camelCase contract.
+    lifecycle.configure_service(config_fn=default_config)
     r = _client().get("/v1/llm-runner/models")
     assert r.status_code == 200
     body = r.json()

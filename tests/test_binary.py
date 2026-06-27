@@ -8,7 +8,7 @@ import zipfile
 
 import pytest
 
-from llm_runner import load_manifest, select_binary
+from llm_runner import default_config, select_binary
 from llm_runner.runner import binary as binmod
 from llm_runner.runner.schema import GpuInfo, HardwareInfo
 
@@ -21,32 +21,32 @@ def _hw(platform_name, runtimes, gpus=None):
 
 
 def test_select_windows_cuda():
-    m = load_manifest(refresh=True)
+    m = default_config()
     hw = _hw("windows", {"cuda": True}, [GpuInfo(vendor="NVIDIA", name="RTX 2070 SUPER", vram_mb=8192)])
     a = select_binary(m, hw)
     assert a and a.platform == "windows" and a.gpu == "cuda12" and a.asset_url
 
 
 def test_select_windows_cpu_fallback():
-    m = load_manifest(refresh=True)
+    m = default_config()
     a = select_binary(m, _hw("windows", {}))
     assert a and a.gpu == "cpu"
 
 
 def test_select_macos_metal():
-    m = load_manifest(refresh=True)
+    m = default_config()
     a = select_binary(m, _hw("macos", {"metal": True}))
     assert a and a.gpu == "metal" and a.server_exe == "llama-server"
 
 
 def test_select_linux_cuda_docker():
-    m = load_manifest(refresh=True)
+    m = default_config()
     a = select_binary(m, _hw("linux", {"cuda": True}))
     assert a and a.source == "docker" and a.image
 
 
 def test_acquire_github_zip(monkeypatch, tmp_path):
-    m = load_manifest(refresh=True)
+    m = default_config()
     hw = _hw("windows", {"cuda": True})
 
     def fake_stream(url, dest, on_progress=None, cancel_check=None):
@@ -70,6 +70,6 @@ def test_acquire_github_zip(monkeypatch, tmp_path):
 
 
 def test_acquire_docker_raises(tmp_path):
-    m = load_manifest(refresh=True)
+    m = default_config()
     with pytest.raises(NotImplementedError):
         binmod.acquire_binary(tmp_path, m, _hw("linux", {"cuda": True}))

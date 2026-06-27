@@ -83,8 +83,9 @@ def install_llm(
 
 
 def _wire_runner_catalog() -> None:
-    """The bundled llama.cpp runner reads its downloadable-model catalog + per-model
-    switches from the shared DB (replacing its manifest fallback)."""
+    """The bundled llama.cpp runner reads its downloadable-model catalog, per-model
+    switches, AND its load config (llama.cpp binaries + VRAM margin) from the
+    shared DB — fully replacing runner-manifest.json (A7)."""
     from ..runner.lifecycle import configure_service
     from ..runner.schema import ModelEntry, RecommendedFor
 
@@ -107,4 +108,6 @@ def _wire_runner_catalog() -> None:
 
         return resolve_model_switches(model_id)
 
-    configure_service(catalog_fn=catalog_fn, switches_fn=switches_fn)
+    configure_service(
+        catalog_fn=catalog_fn, switches_fn=switches_fn, config_fn=stores.build_runner_config,
+    )

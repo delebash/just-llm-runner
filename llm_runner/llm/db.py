@@ -265,6 +265,38 @@ class HardwareSwitch(LlmBase):
     built_in = Column(Boolean, nullable=False, default=False)
 
 
+# ── runner config (was runner-manifest.json — now DB, seeded built_in) ────────
+class RunnerBinary(LlmBase):
+    """One prebuilt llama-server distribution, selected by (platform, gpu).
+    Replaces `runner-manifest.json` `llamacpp.binaries` — config is data, it
+    lives in the DB (user decree 2026-06-27), seeded `built_in`. The CUDA runtime
+    is bundled inside the asset; this only records which build to fetch."""
+
+    __tablename__ = "runner_binary"
+
+    platform = Column(String, primary_key=True)   # windows | macos | linux
+    gpu = Column(String, primary_key=True)        # cuda12 | cuda13 | metal | cpu | …
+    source = Column(String, nullable=False, default="github")  # github | docker
+    asset_url = Column(String, nullable=True)
+    image = Column(String, nullable=True)
+    sha256 = Column(String, nullable=True)
+    server_exe = Column(String, nullable=False, default="llama-server")
+    built_in = Column(Boolean, nullable=False, default=False)
+    position = Column(Integer, nullable=False, default=0)
+
+
+class RunnerSetting(LlmBase):
+    """A scalar runner config value (key/value) — `pinned_build`, `safety_margin_mb`.
+    Replaces the `runner-manifest.json` scalars; genuinely scalar config, not a
+    JSON blob. Seeded `built_in`."""
+
+    __tablename__ = "runner_setting"
+
+    key = Column(String, primary_key=True)
+    value = Column(String, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
 # ── jobs (the editable routing unit) + the feature→job map ────────────────────
 class Job(LlmBase):
     """One job — the routing unit that replaced quick/accuracy roles. A small,

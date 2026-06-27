@@ -11,11 +11,11 @@ See docs/plans/2026-06-16-builtin-llm-runner.md in the JustVoice repo.
 
 from .runner.api import router
 from .runner.binary import acquire_binary, acquired_server_exe, binary_dir, select_binary
+from .runner.config import default_config
 from .runner.download import DownloadCancelled, stream_download
 from .runner.gguf import GgufMeta, read_gguf_metadata
 from .runner.hardware import detect, platform_key
 from .runner.lifecycle import RunnerService, get_service
-from .runner.manifest import load_manifest, manifest_path
 from .runner.models import acquire_model, hf_cache_root, is_cached, select_files
 from .runner.process import (
     FitPlan,
@@ -28,7 +28,7 @@ from .runner.process import (
 )
 from .runner.schema import (
     HardwareInfo,
-    RunnerManifest,
+    RunnerConfig,
     RunnerModelInfo,
     RunnerModelsResponse,
 )
@@ -37,9 +37,8 @@ __all__ = [
     "router",
     "RunnerService",
     "get_service",
-    "load_manifest",
-    "manifest_path",
-    "RunnerManifest",
+    "default_config",
+    "RunnerConfig",
     "RunnerModelInfo",
     "RunnerModelsResponse",
     "HardwareInfo",

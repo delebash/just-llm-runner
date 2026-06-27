@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""P1.4 — VRAM-fit, flag composition, and spawn + probe-and-back-off. The
-subprocess and health probe are injected, so this runs anywhere (no GPU,
-no llama-server binary, no model)."""
+"""VRAM-fit, flag composition, and spawn + probe-and-back-off. The subprocess
+and health probe are injected, so this runs anywhere (no GPU, no llama-server
+binary, no model).
+
+Post-A7: there is no runner-manifest. `compute_fit` takes the VRAM safety margin
+directly (default), and `compose_flags` renders PURELY from the resolved
+`Overrides` (the base/moe/mtp flag defaults arrive in `Overrides`, resolved from
+the DB `switch_presets` by the runner's switches_fn) + the computed fit knobs."""
 
 from __future__ import annotations
 
 import pytest
 
-from llm_runner import load_manifest
 from llm_runner.runner.gguf import GgufMeta
 from llm_runner.runner.process import (
     FitPlan,
@@ -18,7 +22,7 @@ from llm_runner.runner.process import (
     compute_fit,
     start_runner,
 )
-from llm_runner.runner.schema import GpuInfo, HardwareInfo, ModelEntry
+from llm_runner.runner.schema import GpuInfo, HardwareInfo
 
 # layer_bytes = 10 GB / 10 layers = 1 GB/layer → clean fit arithmetic.
 _TEN_GB = 10_000_000_000
@@ -39,33 +43,31 @@ def _meta(block_count=10, dim=1000, expert_count=0):
     )
 
 
+# ── compute_fit ───────────────────────────────────────────────────────────────
+
 def test_fit_cpu_only_no_gpu():
-    m = load_manifest(refresh=True)
-    fit = compute_fit(m, _meta(), _TEN_GB, _hw(vram_mb=None))
+    fit = compute_fit(_meta(), _TEN_GB, _hw(vram_mb=None))
     assert fit.n_gpu_layers == 0
     assert fit.n_cpu_moe == 0
 
 
 def test_fit_large_gpu_all_layers():
-    m = load_manifest(refresh=True)
-    fit = compute_fit(m, _meta(block_count=10), _TEN_GB, _hw(vram_mb=24000))
+    fit = compute_fit(_meta(block_count=10), _TEN_GB, _hw(vram_mb=24000))
     assert fit.n_gpu_layers == 10  # everything fits
 
 
 def test_fit_small_gpu_moe_offloads_rest():
-    m = load_manifest(refresh=True)
     # 10 GB model on an 8 GB GPU → only some layers fit; the oobabooga formula
     # (incl. base CUDA overhead) sets how many, and the MoE rest offloads to CPU.
-    fit = compute_fit(m, _meta(block_count=10, expert_count=128), _TEN_GB, _hw(vram_mb=8192))
+    fit = compute_fit(_meta(block_count=10, expert_count=128), _TEN_GB, _hw(vram_mb=8192))
     assert fit.is_moe
     assert 0 < fit.n_gpu_layers < 10                 # partial fit
     assert fit.n_cpu_moe == 10 - fit.n_gpu_layers    # the rest offloads to CPU
 
 
 def test_fit_overrides_win():
-    m = load_manifest(refresh=True)
     fit = compute_fit(
-        m, _meta(block_count=40, expert_count=8), _TEN_GB, _hw(vram_mb=24000),
+        _meta(block_count=40, expert_count=8), _TEN_GB, _hw(vram_mb=24000),
         overrides=Overrides(n_gpu_layers=5, n_cpu_moe=2, ctx_len=8192),
     )
     assert fit.n_gpu_layers == 5
@@ -73,74 +75,76 @@ def test_fit_overrides_win():
     assert fit.ctx_len == 8192
 
 
-def test_compose_flags_replaces_ngl_and_adds_moe(tmp_path):
-    m = load_manifest(refresh=True)
-    # The catalog now lives in the host DB; pass an inline MTP entry to drive
-    # the mtp branch (m.models is intentionally empty).
-    mtp = ModelEntry(id="t", name="T", tier="mid", hf_repo="x/y", quant="Q4", mtp=True)
+def test_fit_safety_margin_shrinks_budget():
+    # A larger margin reserves more VRAM → no more layers fit than a small margin.
+    tight = compute_fit(_meta(block_count=10), _TEN_GB, _hw(vram_mb=8192), safety_margin_mb=6000)
+    loose = compute_fit(_meta(block_count=10), _TEN_GB, _hw(vram_mb=8192), safety_margin_mb=512)
+    assert tight.n_gpu_layers <= loose.n_gpu_layers
+
+
+# ── compose_flags (renders from Overrides + fit knobs; no manifest preset) ─────
+
+def test_compose_flags_sets_ngl_and_moe(tmp_path):
     flags = compose_flags(
-        m, mtp, tmp_path / "model.gguf",
-        n_gpu_layers=20, n_cpu_moe=4, ctx_len=4096, port=9999,
+        tmp_path / "model.gguf", n_gpu_layers=20, n_cpu_moe=4, ctx_len=4096, port=9999,
     )
-    # the base preset's placeholder -ngl 999 is gone; ours appears once
     assert flags.count("-ngl") == 1
     assert flags[flags.index("-ngl") + 1] == "20"
-    assert "999" not in flags
     assert flags[flags.index("--n-cpu-moe") + 1] == "4"
     assert flags[flags.index("-m") + 1].endswith("model.gguf")
     assert flags[flags.index("--port") + 1] == "9999"
-    assert "--spec-type" in flags  # mtp=True → base+mtp preset
+    assert flags[flags.index("--ctx-size") + 1] == "4096"
 
 
-def test_compose_flags_no_moe_no_mtp(tmp_path):
-    m = load_manifest(refresh=True)
-    dense = ModelEntry(id="d", name="D", tier="mid", hf_repo="x/y", quant="Q4", mtp=False)
-    flags = compose_flags(m, dense, tmp_path / "m.gguf", n_gpu_layers=0, n_cpu_moe=0, ctx_len=2048)
+def test_compose_flags_omits_moe_when_zero(tmp_path):
+    flags = compose_flags(tmp_path / "m.gguf", n_gpu_layers=0, n_cpu_moe=0, ctx_len=2048)
     assert "--n-cpu-moe" not in flags  # omitted when 0
-    assert "--spec-type" not in flags  # non-MTP model
     assert flags[flags.index("-ngl") + 1] == "0"
 
 
-def test_compose_flags_engine_overrides_replace(tmp_path):
-    # Value overrides REPLACE the matching base-preset flag (not duplicate it).
-    m = load_manifest(refresh=True)
-    dense = ModelEntry(id="d", name="D", tier="mid", hf_repo="x/y", quant="Q4", mtp=False)
+def test_compose_flags_base_preset_via_overrides(tmp_path):
+    # The DB `base` preset reaches the spawn as Overrides → rendered onto empty.
     flags = compose_flags(
-        m, dense, tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
-        overrides=Overrides(cache_type_k="turbo4", cache_type_v="turbo3", flash_attn="off",
-                            threads=8, batch_size=1024),
+        tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        overrides=Overrides(cache_type_k="q8_0", cache_type_v="q8_0", flash_attn="on",
+                            mlock=True, threads=8, batch_size=1024),
     )
     assert flags.count("--cache-type-k") == 1
-    assert flags[flags.index("--cache-type-k") + 1] == "turbo4"
-    assert flags[flags.index("--cache-type-v") + 1] == "turbo3"
-    assert "q8_0" not in flags                       # base KV values replaced
-    assert flags[flags.index("--flash-attn") + 1] == "off"
+    assert flags[flags.index("--cache-type-k") + 1] == "q8_0"
+    assert flags[flags.index("--cache-type-v") + 1] == "q8_0"
+    assert flags[flags.index("--flash-attn") + 1] == "on"
+    assert "--mlock" in flags
     assert flags[flags.index("--threads") + 1] == "8"
     assert flags[flags.index("--batch-size") + 1] == "1024"
 
 
 def test_compose_flags_presence_overrides(tmp_path):
     # Presence flags add/remove cleanly (no value-eating).
-    m = load_manifest(refresh=True)
-    dense = ModelEntry(id="d", name="D", tier="mid", hf_repo="x/y", quant="Q4", mtp=False)
     flags = compose_flags(
-        m, dense, tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
         overrides=Overrides(mlock=False, no_mmap=True, no_kv_offload=True, cont_batching=False),
     )
-    assert "--mlock" not in flags          # base had it → turned off
+    assert "--mlock" not in flags          # mlock=False → not present
     assert "--no-mmap" in flags            # added
     assert "--no-kv-offload" in flags      # added
     assert "--no-cont-batching" in flags   # cont-batching disabled
-    # the value flag after the removed --mlock wasn't accidentally eaten
     assert flags[flags.index("-ngl") + 1] == "10"
 
 
-def test_compose_flags_spec_none_clears_mtp(tmp_path):
-    # An MTP entry → base+mtp adds --spec-type draft-mtp; "none" clears it.
-    m = load_manifest(refresh=True)
-    mtp = ModelEntry(id="t", name="T", tier="mid", hf_repo="x/y", quant="Q4", mtp=True)
+def test_compose_flags_spec_draft_mtp(tmp_path):
+    # The DB `mtp` preset arrives as Overrides(spec_type=draft-mtp) for MTP models.
     flags = compose_flags(
-        m, mtp, tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        overrides=Overrides(spec_type="draft-mtp", spec_n_max=3),
+    )
+    assert flags[flags.index("--spec-type") + 1] == "draft-mtp"
+    assert flags[flags.index("--spec-draft-n-max") + 1] == "3"
+
+
+def test_compose_flags_spec_none_clears(tmp_path):
+    # spec_type="none" (the MoE preset) emits no spec flags.
+    flags = compose_flags(
+        tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
         overrides=Overrides(spec_type="none"),
     )
     assert "--spec-type" not in flags
@@ -148,10 +152,8 @@ def test_compose_flags_spec_none_clears_mtp(tmp_path):
 
 
 def test_compose_flags_spec_ngram(tmp_path):
-    m = load_manifest(refresh=True)
-    dense = ModelEntry(id="d", name="D", tier="mid", hf_repo="x/y", quant="Q4", mtp=False)
     flags = compose_flags(
-        m, dense, tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
         overrides=Overrides(spec_type="ngram-mod", spec_n_max=64),
     )
     assert flags[flags.index("--spec-type") + 1] == "ngram-mod"
@@ -176,14 +178,14 @@ def test_switches_to_overrides_routes_unknown_to_extra_flags():
 
 def test_compose_flags_extra_flags_passthrough(tmp_path):
     # extra_flags reach the spawned argv verbatim (after the typed overrides).
-    m = load_manifest(refresh=True)
-    dense = ModelEntry(id="d", name="D", tier="mid", hf_repo="x/y", quant="Q4", mtp=False)
     flags = compose_flags(
-        m, dense, tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+        tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
         overrides=Overrides(extra_flags=["--top-n-sigma", "0.05"]),
     )
     assert flags[flags.index("--top-n-sigma") + 1] == "0.05"
 
+
+# ── start_runner (probe + OOM back-off; subprocess injected) ───────────────────
 
 class _FakeProc:
     def __init__(self, exit_code=None, output=""):
@@ -207,17 +209,12 @@ class _FakeProc:
         pass
 
 
-def _fixture():
-    m = load_manifest(refresh=True)
-    # Catalog now lives in the host DB; pass an inline MTP entry (the original
-    # fixture relied on m.models[0] being the MTP row).
-    model = ModelEntry(id="t", name="T", tier="mid", hf_repo="x/y", quant="Q4", mtp=True)
-    fit = FitPlan(n_gpu_layers=20, n_cpu_moe=0, ctx_len=4096, block_count=48, is_moe=True)
-    return m, model, fit
+def _fit():
+    return FitPlan(n_gpu_layers=20, n_cpu_moe=0, ctx_len=4096, block_count=48, is_moe=True)
 
 
 def test_start_runner_healthy_first_try():
-    m, model, fit = _fixture()
+    fit = _fit()
     spawned = []
 
     def popen(argv, **k):
@@ -225,7 +222,7 @@ def test_start_runner_healthy_first_try():
         return _FakeProc(exit_code=None)  # alive
 
     r = start_runner(
-        "llama-server", "m.gguf", m, model, fit,
+        "llama-server", "m.gguf", fit,
         _popen=popen, _health=lambda u: True, _sleep=lambda s: None,
     )
     assert isinstance(r, Runner) and r.is_alive()
@@ -234,7 +231,7 @@ def test_start_runner_healthy_first_try():
 
 
 def test_start_runner_backs_off_on_oom():
-    m, model, fit = _fixture()
+    fit = _fit()
     procs = [
         _FakeProc(exit_code=1, output="ggml_cuda: CUDA error: out of memory"),  # OOM exit
         _FakeProc(exit_code=None),                                              # then healthy
@@ -247,7 +244,7 @@ def test_start_runner_backs_off_on_oom():
         return p
 
     r = start_runner(
-        "llama-server", "m.gguf", m, model, fit, backoff_step=4,
+        "llama-server", "m.gguf", fit, backoff_step=4,
         _popen=popen, _health=lambda u: state["n"] >= 2, _sleep=lambda s: None,
     )
     assert state["n"] == 2          # spawned twice
@@ -257,13 +254,13 @@ def test_start_runner_backs_off_on_oom():
 
 
 def test_start_runner_raises_on_non_oom():
-    m, model, fit = _fixture()
+    fit = _fit()
 
     def popen(argv, **k):
         return _FakeProc(exit_code=1, output="fatal: model file not found")
 
     with pytest.raises(RunnerStartError):
         start_runner(
-            "llama-server", "m.gguf", m, model, fit,
+            "llama-server", "m.gguf", fit,
             _popen=popen, _health=lambda u: False, _sleep=lambda s: None,
         )

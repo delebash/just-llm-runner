@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Callable
 
 from .download import stream_download
-from .schema import BinaryAsset, HardwareInfo, RunnerManifest
+from .schema import BinaryAsset, HardwareInfo, RunnerConfig
 
 log = logging.getLogger(__name__)
 
@@ -40,9 +40,9 @@ def _gpu_preference(hardware: HardwareInfo) -> list[str]:
     return prefs
 
 
-def select_binary(manifest: RunnerManifest, hardware: HardwareInfo) -> BinaryAsset | None:
+def select_binary(config: RunnerConfig, hardware: HardwareInfo) -> BinaryAsset | None:
     """Pick the best binary asset for (platform, gpu); None if none match."""
-    by_gpu = {b.gpu: b for b in manifest.llamacpp.binaries if b.platform == hardware.platform}
+    by_gpu = {b.gpu: b for b in config.llamacpp.binaries if b.platform == hardware.platform}
     for gpu in _gpu_preference(hardware):
         if gpu in by_gpu:
             return by_gpu[gpu]
@@ -65,12 +65,12 @@ def _find_server_exe(root: Path, exe_name: str) -> Path | None:
 
 
 def acquired_server_exe(
-    cache_root: Path, manifest: RunnerManifest, hardware: HardwareInfo
+    cache_root: Path, config: RunnerConfig, hardware: HardwareInfo
 ) -> Path | None:
-    asset = select_binary(manifest, hardware)
+    asset = select_binary(config, hardware)
     if asset is None:
         return None
-    return _find_server_exe(binary_dir(cache_root, manifest.llamacpp.pinned_build), asset.server_exe)
+    return _find_server_exe(binary_dir(cache_root, config.llamacpp.pinned_build), asset.server_exe)
 
 
 def _unzip(zip_path: Path, dest: Path) -> None:
@@ -81,7 +81,7 @@ def _unzip(zip_path: Path, dest: Path) -> None:
 
 def acquire_binary(
     cache_root: Path,
-    manifest: RunnerManifest,
+    config: RunnerConfig,
     hardware: HardwareInfo,
     on_progress: Callable[[int], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
@@ -91,11 +91,11 @@ def acquire_binary(
     Idempotent. github-zip assets download + unzip; docker sources raise
     (Linux CUDA via docker is a later item).
     """
-    asset = select_binary(manifest, hardware)
+    asset = select_binary(config, hardware)
     if asset is None:
-        raise RuntimeError(f"no llama.cpp binary in manifest for platform={hardware.platform}")
+        raise RuntimeError(f"no llama.cpp binary configured for platform={hardware.platform}")
 
-    dest = binary_dir(cache_root, manifest.llamacpp.pinned_build)
+    dest = binary_dir(cache_root, config.llamacpp.pinned_build)
     existing = _find_server_exe(dest, asset.server_exe)
     if existing is not None:
         return existing

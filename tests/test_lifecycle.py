@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """RunnerService state machine — the download/spawn IO is injected so the
 orchestration (status transitions, error handling) tests offline. The real
-manifest + compute_fit run unmocked."""
+default RunnerConfig + compute_fit run unmocked."""
 
 from types import SimpleNamespace
 
 from llm_runner.runner.lifecycle import RunnerService
 from llm_runner.runner.schema import ModelEntry
 
-# Catalog lives in the host DB now (runner-manifest models is []); tests feed
-# in their own test models via the `catalog_fn` injection.
+# Catalog lives in the host DB now (there is no runner manifest); tests feed in
+# their own test models via the `catalog_fn` injection.
 _TEST_MODEL = ModelEntry(id="test-model", name="Test", tier="mid", hf_repo="org/test-GGUF", quant="Q4_K_M")
 
 

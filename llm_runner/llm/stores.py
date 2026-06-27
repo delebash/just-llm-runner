@@ -793,3 +793,35 @@ def get_job_store() -> JobStore: return _job
 def get_feature_job_store() -> FeatureJobStore: return _feature_job
 def get_job_route_switch_store() -> JobRouteSwitchStore: return _job_route_switch
 def get_feature_sampler_store() -> FeatureSamplerStore: return _feature_sampler
+
+
+def build_runner_config():
+    """Build the bundled runner's RunnerConfig from the DB (runner_binary +
+    runner_setting) — the host-side replacement for the old runner-manifest.json.
+    Wired into the runner service as its `config_fn` by install_llm. Falls back to
+    the runner's seed defaults if the binaries haven't been seeded yet."""
+    from ..runner.config import DEFAULT_PINNED_BUILD, DEFAULT_SAFETY_MARGIN_MB, default_config
+    from ..runner.schema import BinaryAsset, LlamacppSpec, RunnerConfig
+
+    s = db.session()
+    try:
+        bins = [
+            BinaryAsset(
+                platform=b.platform, gpu=b.gpu, source=b.source, asset_url=b.asset_url,
+                image=b.image, sha256=b.sha256, server_exe=b.server_exe,
+            )
+            for b in s.query(db.RunnerBinary).order_by(db.RunnerBinary.position, db.RunnerBinary.platform).all()
+        ]
+        if not bins:
+            return default_config()  # not seeded yet → the engine defaults
+        settings = {r.key: r.value for r in s.query(db.RunnerSetting).all()}
+        try:
+            margin = int(settings.get("safety_margin_mb") or DEFAULT_SAFETY_MARGIN_MB)
+        except (TypeError, ValueError):
+            margin = DEFAULT_SAFETY_MARGIN_MB
+        return RunnerConfig(
+            llamacpp=LlamacppSpec(pinned_build=settings.get("pinned_build") or DEFAULT_PINNED_BUILD, binaries=bins),
+            safety_margin_mb=margin,
+        )
+    finally:
+        s.close()

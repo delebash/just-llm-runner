@@ -17,14 +17,13 @@ from fastapi import APIRouter, HTTPException
 from . import fit
 from .hardware import detect
 from .lifecycle import get_service
-from .manifest import load_manifest
 from .models import is_cached
 from .process import Overrides
 from .schema import (
     HardwareInfo,
     LoadRequest,
     ModelEntry,
-    RunnerManifest,
+    RunnerConfig,
     RunnerModelInfo,
     RunnerModelsResponse,
 )
@@ -51,13 +50,13 @@ def _fit(model: ModelEntry, gpu_vram_mb: int, ram_mb: int, margin_mb: int) -> st
 
 
 @router.get(
-    "/v1/llm-runner/manifest",
-    response_model=RunnerManifest,
+    "/v1/llm-runner/config",
+    response_model=RunnerConfig,
     response_model_by_alias=True,
-    summary="Built-in LLM runner manifest (binaries, model catalog, flags)",
+    summary="Built-in LLM runner config (llama.cpp binaries + VRAM safety margin)",
 )
-async def get_manifest() -> RunnerManifest:
-    return load_manifest()
+async def get_config() -> RunnerConfig:
+    return get_service().config()
 
 
 @router.get(
@@ -83,12 +82,11 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
 
     `vram_mb` overrides the detected VRAM so Quick Setup's card chooser can
     re-score Fit for a card other than the one in this machine (0 = CPU-only)."""
-    manifest = load_manifest()
     hardware = detect()
     service = get_service()
 
     gpu_vram = vram_mb if vram_mb is not None else max((g.vram_mb or 0 for g in hardware.gpus), default=0)
-    margin = manifest.vram_fit.safety_margin_mb
+    margin = service.config().safety_margin_mb
     hf_cache = service.cache_root / "hf"
 
     st = service.status()

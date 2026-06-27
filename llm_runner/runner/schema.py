@@ -98,32 +98,22 @@ class ModelEntry(CamelModel):
     recommended_for: RecommendedFor = RecommendedFor()
 
 
-# ─── Flag presets + VRAM-fit ────────────────────────────────────────────
+# ─── Runner config (binaries + the VRAM safety margin) ──────────────────
+# Was `runner-manifest.json`; now DB-backed (seeded built_in) + injected as a
+# RunnerConfig — NO config file on disk (user decree 2026-06-27: "it's just
+# data, mark it built_in"). The base/mtp flag presets moved ENTIRELY to the DB
+# `switch_presets` (resolved into `Overrides` via the runner's switches_fn), so
+# compose_flags no longer carries them; the dead `vram_fit.tiers` and the always
+# empty `models` are gone (the catalog is DB-backed via catalog_fn).
 
 
-class TurboquantPreset(CamelModel):
-    experimental: bool = True
-    fork: str | None = None
-    flags: list[str] = []
+class RunnerConfig(CamelModel):
+    """The runner's load-time config: which llama.cpp build/binaries to use and
+    the VRAM safety margin. Built from the DB (host) or the seed defaults
+    (standalone) — never read from a file."""
 
-
-class FlagPresets(CamelModel):
-    base: list[str] = []
-    mtp: list[str] = []
-    turboquant: TurboquantPreset = TurboquantPreset()
-
-
-class VramFit(CamelModel):
-    safety_margin_mb: int = 1024
-    tiers: dict[str, int] = {}
-
-
-class RunnerManifest(CamelModel):
-    schema_version: int = 1
     llamacpp: LlamacppSpec
-    models: list[ModelEntry] = []
-    flag_presets: FlagPresets = FlagPresets()
-    vram_fit: VramFit = VramFit()
+    safety_margin_mb: int = 1024
 
 
 # ─── Model catalog view (GET /v1/llm-runner/models) ─────────────────────

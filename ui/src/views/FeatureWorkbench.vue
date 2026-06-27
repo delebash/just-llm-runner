@@ -21,6 +21,7 @@ import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiInput from "../common/components/UiInput.vue";
 import LuModelPicker from "../components/LuModelPicker.vue";
+import KnobGrid from "../components/KnobGrid.vue";
 import LuJobSelect from "../components/LuJobSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
@@ -40,6 +41,7 @@ const jobs = ref([]);        // the editable job list [{id,label,description,…
 const featureJobs = ref({}); // feature key → job id
 const providers = ref([]);
 const presets = ref([]);     // feature presets (per action)
+const samplerRows = ref([]); // the selected action's long-tail samplers (KnobGrid v-model: {name,value})
 const loading = ref(true);
 const error = ref("");
 const message = ref("");
@@ -250,6 +252,19 @@ function selectAction(key) {
   draft.value = p ? { ...p } : null;
   selPreset.value = ""; naming.value = false; message.value = "";
   testOut.value = null; testErr.value = ""; buildVars();
+  loadSamplers(key);
+}
+
+// The action's long-tail samplers (top_k/min_p/mirostat/…) beyond the built-in
+// temp/top-p/json/think fields — stored in feature_sampler_params, merged into the
+// dispatch `extra`. Saved with the action on "Use as production".
+async function loadSamplers(key) {
+  try {
+    const r = await request(`/v1/ai/feature-samplers?feature=${encodeURIComponent(key)}`);
+    samplerRows.value = (r.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue }));
+  } catch {
+    samplerRows.value = [];
+  }
 }
 
 async function saveRouting() {
@@ -306,16 +321,28 @@ async function delPreset() {
 // Apply the draft to the LIVE config: write the action's prompt + persist its
 // routing pin (saveRouting already ran on each pin change, but re-save to be safe).
 async function applyToLive() {
-  if (draft.value) await request(`/v1/ai/prompts/${encodeURIComponent(draft.value.key)}`, {
-    method: "PUT",
-    body: {
-      feature: draft.value.feature, system: draft.value.system, userTemplate: draft.value.userTemplate,
-      temperature: Number(draft.value.temperature) || 0, think: !!draft.value.think,
-      maxTokens: Number(draft.value.maxTokens) || 0,
-      jsonMode: !!draft.value.jsonMode,
-      topP: draft.value.topP === "" || draft.value.topP == null ? null : Number(draft.value.topP),
-    },
-  });
+  if (draft.value) {
+    await request(`/v1/ai/prompts/${encodeURIComponent(draft.value.key)}`, {
+      method: "PUT",
+      body: {
+        feature: draft.value.feature, system: draft.value.system, userTemplate: draft.value.userTemplate,
+        temperature: Number(draft.value.temperature) || 0, think: !!draft.value.think,
+        maxTokens: Number(draft.value.maxTokens) || 0,
+        jsonMode: !!draft.value.jsonMode,
+        topP: draft.value.topP === "" || draft.value.topP == null ? null : Number(draft.value.topP),
+      },
+    });
+    // Persist the action's long-tail samplers alongside its prompt.
+    await request("/v1/ai/feature-samplers", {
+      method: "PUT",
+      body: {
+        feature: draft.value.key,
+        samplers: samplerRows.value
+          .filter((r) => (r.name || "").trim())
+          .map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
+      },
+    });
+  }
   await saveRouting();
 }
 async function useAsProduction() {
@@ -507,6 +534,18 @@ onMounted(load);
             <span class="lu-fw-spacer" />
             <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</UiButton>
           </div>
+
+          <!-- Advanced samplers (Plane-2 long tail) — the same KnobGrid as engine
+               switches; saved with the action on "Use as production", merged into
+               the chat call at dispatch. Most apply to local models. -->
+          <details class="lu-fw-samplers" style="margin: 2px 0 6px">
+            <summary class="lu-fw-eyebrow" style="cursor: pointer">Advanced samplers
+              <span class="lu-muted">— extra knobs: top_k · min_p · mirostat · dry_* … (mostly local models)</span>
+            </summary>
+            <div style="margin-top: 8px">
+              <KnobGrid v-model="samplerRows" add-label="＋ Add sampler" name-placeholder="sampler (e.g. top_k)" />
+            </div>
+          </details>
 
           <div class="lu-fw-test">
             <div class="lu-fw-th"><b>Test on real input</b><span class="lu-muted">runs the prompt + model shown above — try a preset before you save it</span></div>

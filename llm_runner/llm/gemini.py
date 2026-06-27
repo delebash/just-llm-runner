@@ -97,6 +97,30 @@ class GeminiAdapter:
             }
         return payload
 
+    # openai-compat `extra` key -> Gemini generationConfig (camelCase). Keys absent
+    # here (min_p, mirostat, dry_*, xtc_*, top_n_sigma, …) Gemini doesn't support → dropped.
+    _GEN_KEYS = {
+        "top_p": "topP", "top_k": "topK", "max_tokens": "maxOutputTokens",
+        "stop": "stopSequences", "seed": "seed",
+        "presence_penalty": "presencePenalty", "frequency_penalty": "frequencyPenalty",
+    }
+
+    @classmethod
+    def _apply_extra(cls, payload: dict, extra: dict | None) -> None:
+        """Route per-call `extra` into Gemini's generationConfig (camelCase, mapped
+        names) + responseMimeType for JSON; drop params Gemini doesn't support.
+        (Was payload.update(extra) → top-level keys Gemini ignored; #18 / #22 / §8.)"""
+        if not extra:
+            return
+        gc = payload.setdefault("generationConfig", {})
+        for k, v in extra.items():
+            if k == "response_format":
+                fmt = v.get("type") if isinstance(v, dict) else v
+                if fmt in ("json_object", "json"):
+                    gc["responseMimeType"] = "application/json"
+            elif k in cls._GEN_KEYS:
+                gc[cls._GEN_KEYS[k]] = v
+
     def chat(
         self,
         messages: list[LLMMessage],
@@ -112,8 +136,7 @@ class GeminiAdapter:
         payload = self._build_payload(
             messages, system, temperature=temperature, max_tokens=max_tokens
         )
-        if extra:
-            payload.update(extra)
+        self._apply_extra(payload, extra)
 
         url = f"{self._base_url}/v1beta/models/{model_id}:generateContent"
         try:
@@ -152,8 +175,7 @@ class GeminiAdapter:
         payload = self._build_payload(
             messages, system, temperature=temperature, max_tokens=max_tokens
         )
-        if extra:
-            payload.update(extra)
+        self._apply_extra(payload, extra)
 
         url = f"{self._base_url}/v1beta/models/{model_id}:streamGenerateContent"
         params = {**self._params(), "alt": "sse"}

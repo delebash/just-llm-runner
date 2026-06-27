@@ -65,6 +65,23 @@ class OllamaAdapter:
             out.append({"role": m.role, "content": m.content})
         return out
 
+    @staticmethod
+    def _apply_extra(body: dict, extra: dict | None) -> None:
+        """Route per-call `extra` into Ollama's shape: sampling params under
+        `options`, structured output via the top-level `format`. (Was
+        body.update(extra) → sampling params landed top-level and Ollama ignored
+        them; #18 / #22 / §8.)"""
+        if not extra:
+            return
+        opts = body.setdefault("options", {})
+        for k, v in extra.items():
+            if k == "response_format":
+                fmt = v.get("type") if isinstance(v, dict) else v
+                if fmt in ("json_object", "json"):
+                    body["format"] = "json"
+            else:
+                opts[k] = v
+
     def chat(
         self,
         messages: list[LLMMessage],
@@ -88,8 +105,7 @@ class OllamaAdapter:
         # No-op for non-reasoning models so passing it always is safe.
         if think:
             body["think"] = True
-        if extra:
-            body.update(extra)
+        self._apply_extra(body, extra)
 
         url = f"{self._base_url}/api/chat"
         try:
@@ -134,8 +150,7 @@ class OllamaAdapter:
             body["options"]["num_predict"] = max_tokens
         if think:
             body["think"] = True
-        if extra:
-            body.update(extra)
+        self._apply_extra(body, extra)
 
         url = f"{self._base_url}/api/chat"
         pt = ct = 0

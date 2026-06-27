@@ -17,6 +17,7 @@ import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import UiTable from "../common/components/UiTable.vue";
+import KnobGrid from "../components/KnobGrid.vue";
 import LuModelPicker from "../components/LuModelPicker.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { request } from "../client.js";
@@ -54,17 +55,24 @@ async function load() {
 onMounted(load);
 
 // ── add / edit job (modal) ───────────────────────────────────────────────────
-const editing = ref(null); // null | { id?, label, description }  (no id = new)
+const editing = ref(null); // null | { id?, label, description, model }  (no id = new)
 const saving = ref(false);
 const saveError = ref("");
+// The Profile's engine switches (Plane-1), edited via the shared KnobGrid. A
+// Profile = a job + its model + these switches; switches only attach once the job
+// has a model (its job_route is the FK parent of job_route_switches).
+const switchRows = ref([]); // [{ name, value }]
 
 function startAdd() {
   editing.value = { label: "", description: "" };
   saveError.value = "";
 }
-function startEdit(job) {
-  editing.value = { id: job.id, label: job.label, description: job.description || "" };
+async function startEdit(job) {
+  const model = routing.value?.jobs?.[job.id]?.model || "";
+  editing.value = { id: job.id, label: job.label, description: job.description || "", model };
   saveError.value = "";
+  switchRows.value = [];
+  if (model) await loadSwitches(job.id);
 }
 function cancelEdit() {
   editing.value = null;
@@ -88,12 +96,49 @@ async function saveEdit() {
         body: { id: editing.value.id, label, description: editing.value.description || "", position: job?.position || 0 },
       });
     }
+    // Save the Profile's engine switches (existing job + a model = its job_route).
+    if (editing.value.id && editing.value.model) {
+      await request("/v1/ai/job-switches", {
+        method: "PUT",
+        body: {
+          jobId: editing.value.id,
+          configId: "active",
+          switches: switchRows.value
+            .filter((r) => (r.name || "").trim())
+            .map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
+        },
+      });
+    }
     await reloadJobs();
     editing.value = null;
   } catch (e) {
     saveError.value = e?.message || "Save failed.";
   } finally {
     saving.value = false;
+  }
+}
+
+async function loadSwitches(jobId) {
+  try {
+    const r = await request(`/v1/ai/job-switches?jobId=${encodeURIComponent(jobId)}&configId=active`);
+    switchRows.value = (r.switches || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue }));
+  } catch {
+    switchRows.value = [];
+  }
+}
+
+// "Reset to model default" — re-fill the switches from the model's type-default
+// (the moe/dense/mtp preset), via the server prefill bridge.
+async function resetSwitches() {
+  if (!editing.value?.id) return;
+  try {
+    const r = await request("/v1/ai/job-switches/prefill", {
+      method: "POST",
+      body: { jobId: editing.value.id, configId: "active", model: editing.value.model || "" },
+    });
+    switchRows.value = (r.switches || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue }));
+  } catch (e) {
+    saveError.value = e?.message || "Reset failed.";
   }
 }
 
@@ -210,6 +255,21 @@ async function resetJobs() {
         <label class="lu-rbj-label">Description
           <UiTextarea v-model="editing.description" :rows="2" placeholder="What this job is for…" />
         </label>
+
+        <!-- Engine switches (Plane-1) — the Profile's llama.cpp launch flags.
+             Only for an existing job WITH a model (its job_route exists). Pre-filled
+             from the model's type-default; tune via the shared KnobGrid. -->
+        <div v-if="editing.id" class="lu-rbj-switches">
+          <div class="lu-rbj-switches-h">
+            Engine switches
+            <span class="lu-muted">{{ editing.model ? `llama.cpp flags for ${editing.model}` : "— set a model for this job to tune its engine" }}</span>
+          </div>
+          <template v-if="editing.model">
+            <KnobGrid v-model="switchRows" />
+            <UiButton intent="ghost" size="small" @click="resetSwitches">Reset to model default</UiButton>
+          </template>
+        </div>
+
         <div v-if="saveError" class="lu-error">{{ saveError }}</div>
       </div>
       <template #footer>
@@ -238,4 +298,7 @@ async function resetJobs() {
 .lu-rchip--job { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); text-transform: uppercase; }
 .lu-rbj-form { display: flex; flex-direction: column; gap: 14px; }
 .lu-rbj-label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--ink-2); font-weight: 600; }
+.lu-rbj-switches { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; border-top: 1px solid var(--border); }
+.lu-rbj-switches-h { font-size: 11.5px; color: var(--ink-2); font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+.lu-rbj-switches-h .lu-muted { font-weight: 400; font-size: 11px; }
 </style>

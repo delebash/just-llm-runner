@@ -1,3 +1,5 @@
+> ⛔ **NOT THE CURRENT PLAN.** The ONE current plan is `./2026-06-27-MASTER-PLAN.md` — everything is folded in there (✅ done + ⬜ outstanding, full detail). This doc is kept as **historical background only** (past plan / design / research / evidence). Read it for context; **plan from the master.**
+
 # Small-VRAM multi-model serving — deep-research report (2026-06-24)
 
 Output of the `/deep-research` harness (run `wf_11fa0bf3-5ad`; 103 agents, 21 sources

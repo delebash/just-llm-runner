@@ -1,3 +1,5 @@
+> ⛔ **NOT THE CURRENT PLAN.** The ONE current plan is `./2026-06-27-MASTER-PLAN.md` — everything is folded in there (✅ done + ⬜ outstanding, full detail). This doc is kept as **historical background only** (past plan / design / research / evidence). Read it for context; **plan from the master.**
+
 # Model catalog — research, recommendations, and FINALIZED PLAN (2026-06-27)
 
 Shared LLM stack (JW + JV). Decides which local GGUF models seed
@@ -87,6 +89,27 @@ Reconciled from a 3-reviewer panel (quality-max · fit/license · end-user-sensi
 - **`--spec-type` / MTP on the A3B MoE is MACHINE-DEPENDENT — measure, don't dogmatize.** The budget-GPU video gained ~**+16% (17 → 19.7 t/s)** adding `--spec-type` with the MTP-GGUF, but a full-GPU RTX 3090 benchmark found every spec variant *slower*. The offload vs full-GPU bottleneck differs. So we expose the switch and let the **tuning UI's tok/s readout (#20)** settle it per machine — that's exactly what it's for. (Corrects this doc's earlier flat "spec OFF for MoE".)
 
 ---
+
+## The Fast / Balanced / Best dial (user-facing quality control) — DECIDED 2026-06-27
+**One per-job control — Fast / Balanced / Best — instead of exposing raw model-pick + a separate
+think toggle to the everyday user** (two technical dials on the same speed↔quality axis confuse a
+novelist, and a naive "think on" silently breaks JSON extraction). The dial resolves to a concrete
+**(model, think)** under the hood, **fit-filtered to the user's hardware** (so each stop maps to the
+best option that runs on their VRAM+RAM, from the per-job matrix above). Raw model + switches + think
+stay in the **Lab** (#20/#21) for power tuning. **Guardrail: `think` auto-disables under a JSON
+schema** (extraction), and attribution uses **reason-then-emit** (think to reason → think-off to emit).
+
+| Job | **Fast** (small, think-off) | **Balanced** (default — capable, think-off) | **Best** (best-that-fits; think where it helps) |
+|---|---|---|---|
+| **chat** | Qwen3.5-9B | tier pick (9B→14B→27B) | 35B-A3B "smarter" — *think off* (chat = latency) |
+| **prose** | smaller dense | Qwen3.6-27B (tier pick) | best prose that fits → Qwen3-235B / cloud — *think off* |
+| **extraction** | 9B (flat schema) | Mistral-3.2-24B / 35B-A3B | GLM-4.5-Air / best — **think OFF (JSON)** |
+| **attribution** | 35B-A3B | 35B-A3B (reason→emit) | Qwen3-235B / cloud (reason→emit) |
+| **analysis** | Qwen3.5-9B | 35B-A3B | best that fits — **think ON** |
+
+- **`think` only varies at "Best"**, and only for **analysis (think-on)** + **attribution (reason-then-emit)**; chat / prose / extraction stay think-off at every stop. So the dial bundles *model + the job-appropriate think setting* into one choice.
+- **Default = Balanced** (Fast for chat). **Resolution:** dial → take the per-job recommendation list, fit-filter to the user's (VRAM, RAM), pick the stop's model; set `think` per the table.
+- **Storage:** a `quality` enum (fast|balanced|best) on the job route; the Lab can still override the raw model/switches/think for tuning. (This is a UX layer ON TOP of the catalog/recommendations data — see the build plan `2026-06-27-model-catalog-build-plan.md` Phase C.)
 
 ## Verification (R1 prose / R2 GLM / R3 high-end), 2026-06-27 web
 - **R1 — local prose is real.** The deep-research "Qwen3.5-27B" was a version mixup; the real creative 27B is **Qwen3.6-27B** (in our catalog), which **beats Gemma-4-31B on a 500-prompt creative test (76.8 vs 76.4)**, strong NPC dialogue + world-building, Q4_K_M on a 24 GB 4090 (~25.6 t/s, Simon Willison). And at the top, **Qwen3-235B-A22B** is the #3-overall open prose model, runnable on 24 GB + 96 GB RAM. So prose is local at every tier; cloud optional. [aithinkerlab](https://aithinkerlab.com/qwen-3-6-27b-vs-gemma-4-31b-game-dev-benchmark/) · [eqbench](https://eqbench.com/creative_writing.html)

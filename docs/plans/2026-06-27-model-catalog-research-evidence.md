@@ -1,3 +1,5 @@
+> ⛔ **NOT THE CURRENT PLAN.** The ONE current plan is `./2026-06-27-MASTER-PLAN.md` — everything is folded in there (✅ done + ⬜ outstanding, full detail). This doc is kept as **historical background only** (past plan / design / research / evidence). Read it for context; **plan from the master.**
+
 # Catalog research — evidence (deep-research wf_7fbb7f99, 2026-06-27)
 
 104 agents · 22 sources · 107 claims · 25 verified -> 17 confirmed / 8 killed. The harness's final synthesis step stubbed out; this evidence is reconstructed from the saved agent transcripts. Treat CONFIRMED as high-confidence, KILLED as rejected, UNVERIFIED as corroborate-before-use.

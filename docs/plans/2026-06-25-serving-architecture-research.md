@@ -1,3 +1,5 @@
+> ⛔ **NOT THE CURRENT PLAN.** The ONE current plan is `./2026-06-27-MASTER-PLAN.md` — everything is folded in there (✅ done + ⬜ outstanding, full detail). This doc is kept as **historical background only** (past plan / design / research / evidence). Read it for context; **plan from the master.**
+
 # Serving / switching architecture + adopt-vs-build — deep-research report (2026-06-25)
 
 Output of the corrected `/deep-research` (run `wf_41866140-cef`; 106 agents, 24 sources →

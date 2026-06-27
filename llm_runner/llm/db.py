@@ -330,6 +330,22 @@ class FeaturePrompt(LlmBase):
     subgroup = Column(String, nullable=False, default="")  # wire field `group` (GROUP reserved)
 
 
+class FeatureSamplerParam(LlmBase):
+    """One per-action sampler knob BEYOND the built-in temp/top_p/json/think/max
+    columns above — the long tail (top_k, min_p, typical_p, mirostat*, dry_*, xtc_*,
+    samplers-order, …). Variable-cardinality key/value rows so a NEW sampler needs
+    no schema change (design D14 / §8). PK (key, param_name); `key` is the action id
+    (FeaturePrompt.key). Merged into the per-call `extra` at dispatch + filtered per
+    adapter. No FK — `key` is an app-catalog action id, not a DB row."""
+
+    __tablename__ = "feature_sampler_params"
+
+    key = Column(String, primary_key=True)         # action id, e.g. "writerAI.tighten"
+    param_name = Column(String, primary_key=True)  # e.g. "top_k", "min_p", "mirostat"
+    value = Column(Text, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
 # ── storage wiring (host hands its session factory; install_llm calls these) ──
 _SessionLocal: sessionmaker | None = None
 

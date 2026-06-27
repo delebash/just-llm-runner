@@ -16,6 +16,7 @@ import uuid
 
 from . import db
 from .feature_presets_api import FeaturePreset
+from .feature_samplers_api import FeatureSamplerRow
 from .job_switches_api import JobSwitchRow
 from .jobs_api import FeatureJobRow, JobRow
 from .model_catalog_api import CatalogRow, SwitchRow
@@ -549,6 +550,41 @@ class JobRouteSwitchStore:
         return self.list(config_id, job_id)
 
 
+class FeatureSamplerStore:
+    """Per-action long-tail sampler knobs (feature_sampler_params) — edited by the
+    lab via make_feature_samplers_router, merged into the per-call extra at dispatch."""
+
+    def list(self, key: str) -> list[FeatureSamplerRow]:
+        s = db.session()
+        try:
+            return [
+                FeatureSamplerRow(flagName=r.param_name, flagValue=r.value, builtIn=r.built_in)
+                for r in s.query(db.FeatureSamplerParam)
+                .filter(db.FeatureSamplerParam.key == key)
+                .order_by(db.FeatureSamplerParam.param_name)
+                .all()
+            ]
+        finally:
+            s.close()
+
+    def replace(self, key: str, samplers: list[FeatureSamplerRow]) -> list[FeatureSamplerRow]:
+        """Replace the whole sampler set for an action. The lab sends every row;
+        empty-named rows are dropped."""
+        s = db.session()
+        try:
+            s.query(db.FeatureSamplerParam).filter(db.FeatureSamplerParam.key == key).delete()
+            for sp in samplers:
+                if not (sp.flagName or "").strip():
+                    continue
+                s.add(db.FeatureSamplerParam(
+                    key=key, param_name=sp.flagName.strip(), value=sp.flagValue or "", built_in=False,
+                ))
+            s.commit()
+        finally:
+            s.close()
+        return self.list(key)
+
+
 # ── capability/type switch presets (base/moe/mtp) ─────────────────────────────
 def _switch_preset_to_wire(p: db.SwitchPreset, switches: list[db.PresetSwitch]) -> SwitchPresetRow:
     return SwitchPresetRow(
@@ -740,6 +776,7 @@ _switch_preset = SwitchPresetStore()
 _job = JobStore()
 _feature_job = FeatureJobStore()
 _job_route_switch = JobRouteSwitchStore()
+_feature_sampler = FeatureSamplerStore()
 
 
 def get_provider_store() -> ProviderStore: return _provider
@@ -754,3 +791,4 @@ def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
 def get_job_store() -> JobStore: return _job
 def get_feature_job_store() -> FeatureJobStore: return _feature_job
 def get_job_route_switch_store() -> JobRouteSwitchStore: return _job_route_switch
+def get_feature_sampler_store() -> FeatureSamplerStore: return _feature_sampler

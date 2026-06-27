@@ -444,6 +444,21 @@ class ModelCatalogStore:
         finally:
             s.close()
 
+    def set_type(self, model_id: str, model_type: str) -> bool:
+        """Set ONLY the capability `type` (moe|dense) on a catalog row — for GGUF
+        identity auto-detect. Preserves every other field incl. `built_in` (unlike
+        `upsert`, which marks the row user-edited). Returns True if it changed."""
+        s = db.session()
+        try:
+            existing = s.get(db.ModelCatalog, model_id)
+            if existing is None or existing.type == model_type:
+                return False
+            existing.type = model_type
+            s.commit()
+            return True
+        finally:
+            s.close()
+
 
 class ModelSwitchStore:
     def list(self) -> list[SwitchRow]:

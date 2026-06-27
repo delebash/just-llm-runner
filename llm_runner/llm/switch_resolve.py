@@ -64,3 +64,34 @@ def resolve_model_switches(model_id: str, hw_key: str = "") -> dict[str, str]:
         return merged
     finally:
         s.close()
+
+
+def resolve_profile_switches(
+    job_id: str, hw_key: str = "", config_id: str = "active"
+) -> dict[str, str]:
+    """The LOAD-time switch dict for a **Profile** (a routing job + its engine).
+
+    A Profile's switches are **frozen** on its job-route (`job_route_switches`),
+    pre-filled from the model's type-default when the model is set (design D8) —
+    so this does NOT re-layer the base/type/mtp presets at load (that's the
+    *pre-fill* resolver's job, `resolve_model_switches`). It returns the Profile's
+    own stored switches, then layers this machine's per-hardware tune on top
+    (`hardware_switches` — the persistent per-GPU override wins). Empty `{}` when
+    the Profile has nothing set, so the load path can fall back to the model-level
+    pre-fill resolver during the migration."""
+    s = db.session()
+    try:
+        merged: dict[str, str] = {}
+        for r in (
+            s.query(db.JobRouteSwitch)
+            .filter(db.JobRouteSwitch.config_id == config_id, db.JobRouteSwitch.job_id == job_id)
+            .all()
+        ):
+            merged[r.flag_name] = r.flag_value
+        # per-hardware tune layers on top (this machine's saved fast values win)
+        if hw_key:
+            for r in s.query(db.HardwareSwitch).filter(db.HardwareSwitch.hw_key == hw_key).all():
+                merged[r.flag_name] = r.flag_value
+        return merged
+    finally:
+        s.close()

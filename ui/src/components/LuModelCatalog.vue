@@ -105,11 +105,12 @@ async function unload() {
   }
 }
 
-// ── manager: add / edit / delete a catalog model + its per-model switches (#30) ─
-// Backed by the EXISTING tested routers: /v1/ai/model-catalog (CRUD+reset) and
-// /v1/ai/model-switches (CRUD). The catalog row carries the editable fields
-// (hfRepo/quant/type/params); the /models view above is fit-shaped, so edit
-// fetches the catalog row. `type` drives which switch preset applies (§6.5).
+// ── manager: add / edit / delete a catalog model (#30) ─
+// Backed by the EXISTING tested router /v1/ai/model-catalog (CRUD+reset). The
+// catalog row carries the editable fields (hfRepo/quant/type/params); the
+// /models view above is fit-shaped, so edit fetches the catalog row. `type`
+// drives which switch preset applies (§6.5). Switch editing was moved OUT of
+// this tab to the lab (§6.6) — no per-model switch sub-editor here anymore.
 const TYPES = [{ value: "dense", label: "Dense" }, { value: "moe", label: "MoE (mixture-of-experts)" }];
 const editing = ref(null);     // null | a draft catalog row
 const editingNew = ref(false);
@@ -320,10 +321,5 @@ onUnmounted(stopPoll);
 .lu-mm-l { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--ink-2); font-weight: 600; }
 .lu-mm-l .lu-muted { font-weight: 400; }
 .lu-mm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.lu-mm-sw { border-top: 1px solid var(--border); padding-top: 10px; display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
-.lu-mm-sw-h { display: flex; flex-direction: column; gap: 2px; }
-.lu-mm-sw-h b { font-size: 12.5px; color: var(--ink); }
-.lu-mm-sw-h .lu-muted { font-size: 10.5px; line-height: 1.4; }
-.lu-mm-sw-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; width: 100%; }
 .lu-mm-spacer { flex: 1; }
 </style>

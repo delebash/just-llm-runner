@@ -19,6 +19,7 @@ from . import db, seed, stores
 from .api import router as shared_api_router
 from .config_builder import build_llm_config
 from .feature_presets_api import make_feature_presets_router
+from .job_switches_api import make_job_switches_router
 from .jobs_api import make_feature_jobs_router, make_jobs_router
 from .model_catalog_api import make_catalog_router, make_switches_router
 from .prompts import make_feature_router, make_prompt_router
@@ -69,6 +70,7 @@ def install_llm(
     app.include_router(make_catalog_router(stores.get_model_catalog_store))
     app.include_router(make_switches_router(stores.get_model_switch_store))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
+    app.include_router(make_job_switches_router(stores.get_job_route_switch_store))
     app.include_router(make_jobs_router(stores.get_job_store))
     app.include_router(make_feature_jobs_router(stores.get_feature_job_store))
     # 6. point the bundled runner's catalog/switches at the shared DB.

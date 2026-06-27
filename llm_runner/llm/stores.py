@@ -16,6 +16,7 @@ import uuid
 
 from . import db
 from .feature_presets_api import FeaturePreset
+from .job_switches_api import JobSwitchRow
 from .jobs_api import FeatureJobRow, JobRow
 from .model_catalog_api import CatalogRow, SwitchRow
 from .prompts import FeaturePromptRow
@@ -507,6 +508,47 @@ class ModelSwitchStore:
             s.close()
 
 
+class JobRouteSwitchStore:
+    """Per-Profile (job-route) engine switches — read at load by
+    `resolve_profile_switches`, written by the lab via `make_job_switches_router`."""
+
+    def list(self, config_id: str, job_id: str) -> list[JobSwitchRow]:
+        s = db.session()
+        try:
+            return [
+                JobSwitchRow(flagName=r.flag_name, flagValue=r.flag_value, builtIn=r.built_in)
+                for r in s.query(db.JobRouteSwitch)
+                .filter(db.JobRouteSwitch.config_id == config_id, db.JobRouteSwitch.job_id == job_id)
+                .order_by(db.JobRouteSwitch.flag_name)
+                .all()
+            ]
+        finally:
+            s.close()
+
+    def replace(
+        self, config_id: str, job_id: str, switches: list[JobSwitchRow]
+    ) -> list[JobSwitchRow]:
+        """Replace the whole switch set for a (config, job). The lab sends every
+        row; empty-named rows are dropped. Requires the parent `job_routes` row to
+        exist (the Profile's model is set first)."""
+        s = db.session()
+        try:
+            s.query(db.JobRouteSwitch).filter(
+                db.JobRouteSwitch.config_id == config_id, db.JobRouteSwitch.job_id == job_id
+            ).delete()
+            for sw in switches:
+                if not (sw.flagName or "").strip():
+                    continue
+                s.add(db.JobRouteSwitch(
+                    config_id=config_id, job_id=job_id,
+                    flag_name=sw.flagName, flag_value=sw.flagValue or "", built_in=False,
+                ))
+            s.commit()
+        finally:
+            s.close()
+        return self.list(config_id, job_id)
+
+
 # ── capability/type switch presets (base/moe/mtp) ─────────────────────────────
 def _switch_preset_to_wire(p: db.SwitchPreset, switches: list[db.PresetSwitch]) -> SwitchPresetRow:
     return SwitchPresetRow(
@@ -697,6 +739,7 @@ _model_switch = ModelSwitchStore()
 _switch_preset = SwitchPresetStore()
 _job = JobStore()
 _feature_job = FeatureJobStore()
+_job_route_switch = JobRouteSwitchStore()
 
 
 def get_provider_store() -> ProviderStore: return _provider
@@ -710,3 +753,4 @@ def get_model_switch_store() -> ModelSwitchStore: return _model_switch
 def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
 def get_job_store() -> JobStore: return _job
 def get_feature_job_store() -> FeatureJobStore: return _feature_job
+def get_job_route_switch_store() -> JobRouteSwitchStore: return _job_route_switch

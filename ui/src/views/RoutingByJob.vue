@@ -192,12 +192,12 @@ async function resetJobs() {
         <div class="lu-rbj-defgrid">
           <label class="lu-rbj-dl">Default LLM</label>
           <LuModelPicker editable :model-value="{ providerId: routing.default.llmId, model: routing.default.model || '' }"
-            :providers="providers" :show-roles="false" inherit-label="— pick a provider —"
+            :providers="providers" inherit-label="— pick a provider —"
             @update:model-value="setDefaultLlm" />
           <label class="lu-rbj-dl">Default embedding <span class="lu-muted">optional</span></label>
           <LuModelPicker editable kind="embedding"
             :model-value="{ providerId: routing.default.embeddingId, model: routing.default.embeddingModel || '' }"
-            :providers="providers" :show-roles="false" inherit-label="— none —"
+            :providers="providers" inherit-label="— none —"
             @update:model-value="setDefaultEmbedding" />
         </div>
       </div>

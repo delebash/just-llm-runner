@@ -109,7 +109,7 @@ function capList(p) {
 async function testProvider(p) {
   status.value = { ...status.value, [p.id]: "checking" };
   try {
-    const r = await request(`/v1/llm-providers/${encodeURIComponent(p.id)}/ping`);
+    const r = await request(`/v1/llm-providers/${encodeURIComponent(p.id)}/ping`, { method: "POST" });
     status.value = { ...status.value, [p.id]: r.ok ? "ok" : "fail" };
   } catch {
     status.value = { ...status.value, [p.id]: "fail" };

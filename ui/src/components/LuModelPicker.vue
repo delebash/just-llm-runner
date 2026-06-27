@@ -1,26 +1,24 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // LuModelPicker — the ONE provider+model (route) picker for the shared AI UI.
-// A "pin" is { providerId, model, role }: pick a provider (then its model), or
-// inherit (a role, or the empty fallback). Used by the Feature Workbench's
-// per-action editor, its per-feature group default, and the Quick/Accuracy
-// roles — so the control exists once, not copy-pasted per site.
+// A "pin" is { providerId, model }: pick a provider, then its model; the empty
+// fallback (null) inherits the default. Used by the routing defaults, the
+// Feature Workbench's per-action editor, and its per-feature group default — so
+// the control exists once, not copy-pasted per site. (Job inheritance lives in
+// LuJobSelect / RoutingByJob, not here — the old role-inherit options are gone.)
 //
 // v-model is the pin object (or null = inherit the empty fallback). The host
-// owns persistence (writes routing pins / role targets and saves).
+// owns persistence (writes the routing pin and saves).
 import { computed, reactive, watch } from "vue";
 import { request } from "../client.js";
 import LuCombobox from "./LuCombobox.vue";
 
 const props = defineProps({
-  modelValue: { type: Object, default: null }, // { providerId, model, role } | null
+  modelValue: { type: Object, default: null }, // { providerId, model } | null
   providers: { type: Array, default: () => [] },
   // Text of the "no explicit provider" option (e.g. "Inherit default",
   // "Use Default LLM", "Default").
   inheritLabel: { type: String, default: "Inherit default" },
-  // Offer "inherit a role" (Quick/Accuracy) options. Off for the roles editor
-  // itself (a role can't inherit a role).
-  showRoles: { type: Boolean, default: true },
   compact: { type: Boolean, default: false }, // smaller selects (nav)
   labels: { type: Boolean, default: false },  // inline "Provider"/"Model" labels
   stacked: { type: Boolean, default: false }, // provider OVER model (1 col) for narrow columns

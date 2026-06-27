@@ -22,6 +22,7 @@ import UiTable from "../common/components/UiTable.vue";
 import UiTag from "../common/components/UiTag.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import LuJobSelect from "../components/LuJobSelect.vue";
+import { confirmDialog } from "../common/services/dialog.js";
 import { request } from "../client.js";
 
 const rows = ref([]);
@@ -123,7 +124,12 @@ async function saveEdit() {
 // ── row actions ─────────────────────────────────────────────────────────────
 const busy = ref("");  // composite key being acted on, for button feedback
 async function deleteRow(row) {
-  if (!confirm(`Delete recommendation "${row.modelId}" for job "${row.job}"?`)) return;
+  const ok = await confirmDialog({
+    title: "Delete recommendation?",
+    message: `Delete recommendation "${row.modelId}" for job "${row.job}"?`,
+    danger: true,
+  });
+  if (!ok) return;
   const key = `${row.modelId}|${row.job}`;
   busy.value = key;
   try {
@@ -141,7 +147,11 @@ async function deleteRow(row) {
 
 const resetting = ref(false);
 async function resetFactory() {
-  if (!confirm("Reset factory recommendations? Deleted built-in rows will return; your user-added rows are kept.")) return;
+  const ok = await confirmDialog({
+    title: "Reset factory recommendations?",
+    message: "Deleted built-in rows will return; your user-added rows are kept.",
+  });
+  if (!ok) return;
   resetting.value = true;
   try {
     const r = await request("/v1/ai/recommendations/reset", { method: "POST" });

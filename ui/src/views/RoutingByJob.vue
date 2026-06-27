@@ -15,6 +15,7 @@ import { onMounted, ref } from "vue";
 import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
+import UiSegmented from "../common/components/UiSegmented.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import UiTable from "../common/components/UiTable.vue";
 import KnobGrid from "../components/KnobGrid.vue";
@@ -25,14 +26,52 @@ import { useRouting } from "../composables/useRouting.js";
 
 const DEFAULT_JOB_ID = "chat"; // the un-deletable fallback job (jobs_api.DEFAULT_JOB_ID)
 
+// The Fast/Balanced/Best dial (Phase B). Picking a stop resolves a concrete model
+// for the detected hardware (server fit-filters the job's recommendations) and
+// pins it as the job's model; the explicit picker below is the advanced override.
+const QUALITY_OPTIONS = [
+  { value: "fast", label: "Fast" },
+  { value: "balanced", label: "Balanced" },
+  { value: "best", label: "Best" },
+];
+
 const {
   routing, providers, jobs, loadRouting, jobUsedFor,
-  setJob, setDefaultLlm, setDefaultEmbedding, reloadJobs,
+  setJob, setDefaultLlm, setDefaultEmbedding, reloadJobs, resolveQuality,
 } = useRouting();
 
 const loading = ref(true);
 const error = ref("");
 const busy = ref(""); // a job id mid-action (delete), for button feedback
+const busyDial = ref(""); // a job id mid quality-resolve, to disable its dial
+
+// The dial stop a job is currently on ("" = an explicit model pin, no dial).
+function jobQuality(id) {
+  return routing.value?.jobs?.[id]?.quality || "";
+}
+
+// The muted note under the dial: the resolved/pinned model, or the Default LLM.
+function jobModelNote(id) {
+  const t = routing.value?.jobs?.[id];
+  if (!t || !t.providerId) return "Uses the Default LLM";
+  const m = t.model || "provider default";
+  return t.quality ? `→ ${m}` : `Pinned: ${m}`;
+}
+
+// Pick a quality stop → resolve a model for this hardware, then pin it + the stop.
+async function pickQuality(jobId, quality) {
+  busyDial.value = jobId;
+  error.value = "";
+  try {
+    const r = await resolveQuality(jobId, quality);
+    if (r?.model) setJob(jobId, { providerId: r.providerId, model: r.model, quality });
+    else error.value = `No "${quality}" model fits your hardware for this job — it routes to the Default LLM.`;
+  } catch (e) {
+    error.value = e?.message || "Couldn't resolve a model for that quality.";
+  } finally {
+    busyDial.value = "";
+  }
+}
 
 const TABLE_COLUMNS = [
   { id: "label", accessorKey: "label", header: "Job", sortable: true, enableGlobalFilter: true, cellStyle: { width: "150px" } },
@@ -221,8 +260,20 @@ async function resetJobs() {
         </template>
 
         <template #model="{ row }">
-          <LuModelPicker editable :model-value="routing.jobs?.[row.id] || null" :providers="providers"
-            inherit-label="— use Default LLM —" @update:model-value="setJob(row.id, $event)" />
+          <div class="lu-rbj-model">
+            <UiSegmented
+              :options="QUALITY_OPTIONS"
+              :model-value="jobQuality(row.id)"
+              variant="connected"
+              size="small"
+              :disabled="busyDial === row.id"
+              :aria-label="`Quality for ${row.label}`"
+              @update:model-value="pickQuality(row.id, $event)"
+            />
+            <span class="lu-muted lu-rbj-model-note">{{ jobModelNote(row.id) }}</span>
+            <LuModelPicker editable :model-value="routing.jobs?.[row.id] || null" :providers="providers"
+              inherit-label="— or pin a specific model —" @update:model-value="setJob(row.id, $event)" />
+          </div>
         </template>
 
         <template #usedFor="{ row }">
@@ -294,6 +345,8 @@ async function resetJobs() {
 .lu-rbj-jobs-h b { font-size: 13px; color: var(--ink); } .lu-rbj-jobs-h .lu-muted { font-size: 11px; }
 .lu-rbj-spacer { flex: 1; }
 .lu-rbj-usedfor { font-size: 11.5px; }
+.lu-rbj-model { display: flex; flex-direction: column; gap: 6px; }
+.lu-rbj-model-note { font-size: 11px; }
 .lu-rchip { font-size: 9px; font-weight: 800; letter-spacing: .04em; border-radius: 999px; padding: 3px 9px; text-align: center; display: inline-block; }
 .lu-rchip--job { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); text-transform: uppercase; }
 .lu-rbj-form { display: flex; flex-direction: column; gap: 14px; }

@@ -59,11 +59,21 @@ export function useRouting() {
   }
 
   // A job's model (the routing unit). Empty → that job falls back to the Default LLM.
+  // `quality` records the Fast/Balanced/Best dial stop (model is the resolved pick);
+  // an explicit pin passes no quality ("").
   function setJob(jobId, val) {
     const m = routing.value.jobs || (routing.value.jobs = {});
     if (!val || !val.providerId) delete m[jobId];
-    else m[jobId] = { providerId: val.providerId, model: val.model || "" };
+    else m[jobId] = { providerId: val.providerId, model: val.model || "", quality: val.quality || "" };
     saveRouting();
+  }
+
+  // Resolve a job at a quality stop → { providerId, model, think, candidates } for
+  // the detected hardware (the dial). The UI persists the pick via setJob.
+  function resolveQuality(jobId, quality) {
+    return request(
+      `/v1/ai/job-quality?job=${encodeURIComponent(jobId)}&quality=${encodeURIComponent(quality)}`,
+    );
   }
   function setDefaultLlm(val) {
     routing.value.default.llmId = val?.providerId || "";
@@ -93,6 +103,6 @@ export function useRouting() {
     routing, providers, jobs, featureJobs,
     byId, featMeta, providerName, jobLabel, jobUsedFor, pin,
     loadRouting, reloadJobs, reloadFeatureJobs, saveRouting,
-    setJob, setDefaultLlm, setDefaultEmbedding, setPin, setFeatureJob,
+    setJob, setDefaultLlm, setDefaultEmbedding, setPin, setFeatureJob, resolveQuality,
   };
 }

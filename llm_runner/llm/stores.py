@@ -104,7 +104,7 @@ def _row_to_routing(s, row: db.RoutingConfigRow) -> RoutingConfig:
         for p in s.query(db.RoutingPin).filter(db.RoutingPin.config_id == row.id).all()
     }
     jobs = {
-        jr.job_id: JobTarget(providerId=jr.provider_id, model=jr.model)
+        jr.job_id: JobTarget(providerId=jr.provider_id, model=jr.model, quality=jr.quality or "")
         for jr in s.query(db.JobRoute).filter(db.JobRoute.config_id == row.id).all()
     }
     return RoutingConfig(
@@ -132,7 +132,8 @@ def _apply_routing(s, row: db.RoutingConfigRow, cfg: RoutingConfig) -> None:
     s.query(db.JobRoute).filter(db.JobRoute.config_id == row.id).delete()
     for job_id, t in cfg.jobs.items():
         if t.providerId:
-            s.add(db.JobRoute(config_id=row.id, job_id=job_id, provider_id=t.providerId, model=t.model))
+            s.add(db.JobRoute(config_id=row.id, job_id=job_id, provider_id=t.providerId,
+                              model=t.model, quality=t.quality or ""))
 
 
 class RoutingStore:

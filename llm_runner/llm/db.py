@@ -203,6 +203,10 @@ class JobRoute(LlmBase):
     job_id = Column(String, primary_key=True)
     provider_id = Column(String, nullable=False, default="")
     model = Column(String, nullable=False, default="")
+    # The Fast/Balanced/Best quality stop the user picked for this job (the dial).
+    # `model` above is the resolved pick; this records the INTENT so the dial can
+    # re-resolve when hardware changes. "" = no dial (an explicit model pin).
+    quality = Column(String, nullable=False, default="")
 
 
 # ── per-job / per-feature / per-hardware switch override layers (design §6.4) ──

@@ -27,10 +27,13 @@ from pydantic import BaseModel
 
 # ── wire shapes (camelCase) ─────────────────────────────────────────────────
 class JobTarget(BaseModel):
-    """The provider+model that runs a job (job_id → this)."""
+    """The provider+model that runs a job (job_id → this). `quality` is the
+    Fast/Balanced/Best dial stop the user picked (model is the resolved pick;
+    "" quality = an explicit model pin, no dial)."""
 
     providerId: str = ""
     model: str = ""
+    quality: str = ""
 
 
 class RoutingDefaults(BaseModel):

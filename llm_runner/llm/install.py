@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from ..runner.hardware import detect as _detect_hardware
 from . import db, seed, stores, switch_resolve
 from .api import router as shared_api_router
 from .config_builder import build_llm_config
@@ -25,6 +26,7 @@ from .jobs_api import make_feature_jobs_router, make_jobs_router
 from .model_catalog_api import make_catalog_router, make_switches_router
 from .prompts import make_feature_router, make_prompt_router
 from .provider_api import make_provider_router
+from .quality_api import make_quality_router
 from .recommendations_api import make_recommendations_router
 from .routing_api import make_routing_presets_router, make_routing_router
 from .switch_presets_api import make_switch_presets_router
@@ -68,6 +70,9 @@ def install_llm(
     app.include_router(make_routing_presets_router(stores.get_routing_preset_store, stores.get_routing_store))
     app.include_router(make_feature_presets_router(stores.get_feature_preset_store))
     app.include_router(make_recommendations_router(stores.get_recommendation_store))
+    app.include_router(make_quality_router(
+        stores.get_model_catalog_store, stores.get_recommendation_store, detect_fn=_detect_hardware,
+    ))
     app.include_router(make_catalog_router(stores.get_model_catalog_store))
     app.include_router(make_switches_router(stores.get_model_switch_store))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))

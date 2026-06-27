@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 import pytest
 
-from llm_runner.llm import db, stores
+from llm_runner.llm import db, seed, stores, switch_resolve
 from llm_runner.llm.job_switches_api import JobSwitchRow
 
 
@@ -18,6 +18,8 @@ def configured():
     db.create_all(eng)
     db.configure_storage(sessionmaker(bind=eng, autoflush=False))
     s = db.session()
+    seed.seed_default_switch_presets(s)  # base/moe/mtp → prefill type-defaults
+    seed.seed_default_catalog(s)         # so prefill knows which models are local
     # FK parents: job_route_switches -> job_routes -> routing_configs.
     s.add(db.RoutingConfigRow(id="active"))
     s.add(db.JobRoute(config_id="active", job_id="analysis"))
@@ -49,3 +51,22 @@ def test_replace_overwrites_prior_set(configured):
     store.replace("active", "analysis", [JobSwitchRow(flagName="flash_attn", flagValue="off")])
     rows = {r.flagName: r.flagValue for r in store.list("active", "analysis")}
     assert rows == {"flash_attn": "off"}  # the prior ctx_len is gone (whole-set replace)
+
+
+def test_prefill_moe_model_writes_type_default(configured):
+    # Setting a MoE model on a Profile fills the moe type-default switches.
+    rows = switch_resolve.prefill_job_switches("active", "analysis", "qwen3.6-35b-a3b-mtp")
+    d = {r.flagName: r.flagValue for r in rows}
+    assert d["spec_type"] == "none"   # moe preset wins (35B-A3B is type=moe)
+    assert d["no_mmap"] == "true"
+    assert d["flash_attn"] == "on"    # base preset
+    persisted = {r.flagName: r.flagValue for r in stores.get_job_route_switch_store().list("active", "analysis")}
+    assert persisted["spec_type"] == "none"
+
+
+def test_prefill_cloud_or_unknown_model_clears_switches(configured):
+    # A model not in the local catalog (e.g. a cloud model) → no launch switches.
+    switch_resolve.prefill_job_switches("active", "analysis", "qwen3.6-35b-a3b-mtp")
+    rows = switch_resolve.prefill_job_switches("active", "analysis", "gpt-4o-mini")
+    assert rows == []
+    assert stores.get_job_route_switch_store().list("active", "analysis") == []

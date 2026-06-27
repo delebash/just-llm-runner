@@ -36,6 +36,14 @@ class JobSwitchesPut(BaseModel):
     switches: list[JobSwitchRow] = []
 
 
+class JobSwitchesPrefill(BaseModel):
+    """Ask the server to fill a Profile's switches from its model's type-default."""
+
+    jobId: str
+    model: str = ""
+    configId: str = "active"
+
+
 class JobRouteSwitchStore(Protocol):
     """Persistence boundary the host implements over its own storage."""
 
@@ -45,8 +53,12 @@ class JobRouteSwitchStore(Protocol):
     ) -> list[JobSwitchRow]: ...  # replaces the whole (config, job) set
 
 
-def make_job_switches_router(get_store: Callable[[], JobRouteSwitchStore]) -> APIRouter:
-    """GET/PUT a Profile's engine switches. PUT replaces the whole (config, job) set."""
+def make_job_switches_router(
+    get_store: Callable[[], JobRouteSwitchStore], *, prefill: Callable | None = None
+) -> APIRouter:
+    """GET/PUT a Profile's engine switches (PUT replaces the whole (config, job)
+    set). When `prefill(config_id, job_id, model) -> list[JobSwitchRow]` is given,
+    also expose POST /job-switches/prefill (fill from the model's type-default)."""
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     @router.get("/job-switches", response_model=JobSwitchesResponse)
@@ -64,5 +76,14 @@ def make_job_switches_router(get_store: Callable[[], JobRouteSwitchStore]) -> AP
         cfg = body.configId or "active"
         rows = get_store().replace(cfg, body.jobId, body.switches)
         return JobSwitchesResponse(configId=cfg, jobId=body.jobId, switches=rows)
+
+    if prefill is not None:
+        @router.post("/job-switches/prefill", response_model=JobSwitchesResponse)
+        async def prefill_switches(body: JobSwitchesPrefill) -> JobSwitchesResponse:
+            if not body.jobId.strip():
+                raise HTTPException(status_code=400, detail="jobId is required")
+            cfg = body.configId or "active"
+            rows = prefill(cfg, body.jobId, body.model)
+            return JobSwitchesResponse(configId=cfg, jobId=body.jobId, switches=rows)
 
     return router

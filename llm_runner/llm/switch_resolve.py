@@ -95,3 +95,19 @@ def resolve_profile_switches(
         return merged
     finally:
         s.close()
+
+
+def prefill_job_switches(config_id: str, job_id: str, model: str):
+    """Pre-fill a Profile's switches from its model's type-default (base→type→mtp)
+    when `model` is a known local (bundled-runner) catalog model; a cloud/unknown
+    model gets NO launch switches (llama.cpp flags don't apply to it). Replaces the
+    (config, job)'s stored switches and returns the resulting rows. Called when a
+    Profile's model is set so "pick a model → get the right moe/dense switches"
+    works with no hand-tuning (design S3 / D17). Lazy imports avoid an import cycle."""
+    from . import stores
+    from .job_switches_api import JobSwitchRow
+
+    catalog_ids = {r.id for r in stores.get_model_catalog_store().list()}
+    merged = resolve_model_switches(model) if (model and model in catalog_ids) else {}
+    rows = [JobSwitchRow(flagName=k, flagValue=v) for k, v in merged.items()]
+    return stores.get_job_route_switch_store().replace(config_id, job_id, rows)

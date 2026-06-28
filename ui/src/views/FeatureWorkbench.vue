@@ -42,6 +42,14 @@ const featureJobs = ref({}); // feature key → job id
 const providers = ref([]);
 const presets = ref([]);     // feature presets (per action)
 const samplerRows = ref([]); // the selected action's long-tail samplers (KnobGrid v-model: {name,value})
+const knobCatalog = ref([]); // knob_catalog metadata (C1); samplerCatalog = the plane-2 subset
+const samplerCatalog = computed(() =>
+  Object.fromEntries(
+    knobCatalog.value
+      .filter((k) => k.plane === 2)
+      .map((k) => [k.flagName, { label: k.label, help: k.help, options: k.options?.length ? k.options : undefined }]),
+  ),
+);
 const loading = ref(true);
 const error = ref("");
 const message = ref("");
@@ -237,6 +245,9 @@ async function load() {
     // Presets are optional per app (an app may not mount the endpoint yet).
     try { presets.value = (await request("/v1/ai/feature-presets")).presets || []; }
     catch { presets.value = []; }
+    // Knob catalog (C1) enriches the sampler KnobGrid with labelled/typed inputs.
+    try { knobCatalog.value = (await request("/v1/ai/knob-catalog")).knobs || []; }
+    catch { knobCatalog.value = []; }
     const firstCard = navRows.value.find((r) => r.type === "card");
     if (!action.value && firstCard) selectAction(firstCard.action.key);
   } catch (e) {
@@ -548,7 +559,7 @@ onMounted(load);
               <span class="lu-muted">— extra knobs: top_k · min_p · mirostat · dry_* … (mostly local models)</span>
             </summary>
             <div style="margin-top: 8px">
-              <KnobGrid v-model="samplerRows" add-label="＋ Add sampler" name-placeholder="sampler (e.g. top_k)" />
+              <KnobGrid v-model="samplerRows" :catalog="samplerCatalog" add-label="＋ Add sampler" name-placeholder="sampler (e.g. top_k)" />
             </div>
           </details>
 

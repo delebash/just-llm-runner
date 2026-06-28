@@ -227,6 +227,20 @@ DEFAULT_KNOBS: list[dict] = [
      "help": "Drop tokens below this fraction of the top token's probability."},
     {"flag_name": "repeat_penalty", "label": "Repeat penalty", "kind": "float", "plane": 2,
      "help": "Penalize recently-used tokens (>1 reduces repetition)."},
+    {"flag_name": "presence_penalty", "label": "Presence penalty", "kind": "float", "plane": 2,
+     "help": "Penalize tokens that already appeared at all (OpenAI-style)."},
+    {"flag_name": "frequency_penalty", "label": "Frequency penalty", "kind": "float", "plane": 2,
+     "help": "Penalize tokens by how often they've appeared (OpenAI-style)."},
+    {"flag_name": "typical_p", "label": "Typical-p", "kind": "float", "plane": 2,
+     "help": "Locally-typical sampling — keep tokens near the expected information content."},
+    {"flag_name": "dry_multiplier", "label": "DRY penalty", "kind": "float", "plane": 2,
+     "help": "Don't-Repeat-Yourself: penalize repeated n-gram sequences (0 = off)."},
+    {"flag_name": "xtc_probability", "label": "XTC probability", "kind": "float", "plane": 2,
+     "help": "Exclude-Top-Choices: chance to drop the most-likely tokens for variety (0 = off)."},
+    {"flag_name": "mirostat", "label": "Mirostat", "kind": "int", "plane": 2,
+     "help": "Adaptive perplexity sampler: 0 = off, 1 = v1, 2 = v2."},
+    {"flag_name": "seed", "label": "Seed", "kind": "int", "plane": 2,
+     "help": "Fixed RNG seed for reproducible output (-1 = random)."},
 ]
 
 

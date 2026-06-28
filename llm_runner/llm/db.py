@@ -66,10 +66,11 @@ class LlmUsage(LlmBase):
     meta = Column(Text, nullable=False, default="{}")  # JSON
 
 
-# ── downloadable model catalog + per-model spawn-flag switches ────────────────
+# ── downloadable model catalog ────────────────────────────────────────────────
 class ModelCatalog(LlmBase):
-    """One downloadable llama.cpp model — catalog fields only (switches live in
-    the `model_switches` child). `built_in` marks a seeded row."""
+    """One downloadable llama.cpp model — catalog fields only. `built_in` marks a
+    seeded row. (Per-model switches were dropped per D9; engine switches live on
+    the type presets + the Profile's `job_route_switches`.)"""
 
     __tablename__ = "model_catalog"
 
@@ -117,7 +118,7 @@ class SwitchPreset(LlmBase):
 
 class PresetSwitch(LlmBase):
     """One flag in a `switch_presets` bundle (variable-cardinality child). PK
-    (preset_id, flag_name); maps 1:1 to `process.Overrides` like `model_switches`."""
+    (preset_id, flag_name); each maps 1:1 to a `process.Overrides` field."""
 
     __tablename__ = "preset_switches"
 

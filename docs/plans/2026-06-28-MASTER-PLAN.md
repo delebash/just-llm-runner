@@ -74,6 +74,14 @@ there are none.)*
 >   independently re-diffed. *(If you want belt-and-suspenders on these, say so and I'll diff each.)*
 > The plan is COMPLETE. Source docs remain in the repo as the verbatim backstop.
 
+> **Code-vs-plan status:** ✅ the built A–E code was strict-diffed against THIS plan (2026-06-28, independent
+> auditor, NOT trusting the test suite). All areas match at file:line EXCEPT the Compare/ConfigColumn frontend
+> (rebuilt to AREA 1 — see §1.9) and ONE backend gap (FeaturePreset dropped `maxTokens`+`jsonMode` on
+> round-trip) — both now **fixed + verified** (174 runner pytest + ruff · build:vite · headless smoke 0 JS
+> errors · interaction 19/19). The Part-2 items below are GPU-gated / research / decided-future backlog, NOT
+> deviations. Commits: runner `0d85b0e` (plan) / `820e597` (Compare rebuild) / `5541fd4` (preset fix); JW
+> `27854e4` (repoint).
+
 > **Fold status per area — ALL FOLDED 2026-06-28:**
 > - AREA 1 — Lab / Compare / ConfigColumn — ✅ folded INLINE (Decision 23 + switch-param-lab + jobs §8)
 > - AREA 2 — Switches: planes / presets / layering / storage / D1–D17 — ✅ folded INLINE (switch-and-preset + jobs §6 + llamacpp-switches §planes)

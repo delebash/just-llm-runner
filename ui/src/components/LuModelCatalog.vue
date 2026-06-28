@@ -49,6 +49,28 @@ async function loadKnobCatalog() {
   }
 }
 
+// Model licenses (from the catalog CRUD endpoint — the fit-shaped /models view
+// doesn't carry it). Drives the per-model license badge + the use-limited warning.
+const catalogRows = ref([]);
+const licenseById = computed(() =>
+  Object.fromEntries(catalogRows.value.map((r) => [r.id, r.license || ""])),
+);
+function licenseOf(m) { return licenseById.value[m.id] || ""; }
+// Use-limited / non-free licenses (Llama Community, *-Research, non-commercial,
+// Gemma terms) get a warning chip — they can't be a default and need care for a
+// commercial ship; the catalog only LISTS them (llama.cpp downloads on the box).
+function licenseWarn(lic) { return /community|research|non-?commercial|\bllama\b|\bgemma\b|cc-by-nc/i.test(lic || ""); }
+function licenseTitle(m) {
+  const lic = licenseOf(m);
+  return licenseWarn(lic)
+    ? `${lic} — use-limited: not free for unrestricted/commercial use, never a default. The catalog only lists it; the weights download on your machine.`
+    : (lic ? `${lic} — permissive (free to use).` : "license unknown");
+}
+async function loadCatalogMeta() {
+  try { catalogRows.value = (await request("/v1/ai/model-catalog")).rows || []; }
+  catch { catalogRows.value = []; } // badge is enrichment — the table still works
+}
+
 const FIT_LABEL = { ok: "Fits", tight: "Tight", no: "Won't fit", cpu: "CPU", unknown: "—" };
 const gb = (mb) => (mb >= 10240 ? `${Math.round(mb / 1024)}` : `${(mb / 1024).toFixed(1)}`);
 function fitLabel(m) {
@@ -256,6 +278,7 @@ async function saveModel() {
     });
     editing.value = null;
     await refresh();
+    loadCatalogMeta();
   } catch (err) {
     saveErr.value = err.message || "Save failed.";
   } finally {
@@ -281,11 +304,13 @@ async function resetCatalog() {
   try {
     await request("/v1/ai/model-catalog/reset", { method: "POST" });
     await refresh();
+    loadCatalogMeta();
   } catch (e) { error.value = e.message || "Reset failed."; }
 }
 
 refresh();
 loadKnobCatalog();
+loadCatalogMeta();
 onUnmounted(stopPoll);
 </script>
 
@@ -305,12 +330,18 @@ onUnmounted(stopPoll);
     <div v-else class="lu-mcat-wrap">
       <table class="lu-mgrid">
         <thead>
-          <tr><th>Model</th><th>Params</th><th>Fit</th><th>Status</th><th /></tr>
+          <tr><th>Model</th><th>Params</th><th>License</th><th>Fit</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
           <tr v-for="m in models" :key="m.id">
             <td class="lu-mn">{{ m.name }}<div class="lu-mid">{{ m.id }}</div></td>
             <td class="lu-mm">{{ sizeLabel(m) }}</td>
+            <td>
+              <span v-if="licenseOf(m)" class="lu-lic" :class="{ 'lu-lic--warn': licenseWarn(licenseOf(m)) }" :title="licenseTitle(m)">
+                <template v-if="licenseWarn(licenseOf(m))">⚠ </template>{{ licenseOf(m) }}
+              </span>
+              <span v-else class="lu-muted">—</span>
+            </td>
             <td>
               <span class="lu-fit" :class="`lu-fit--${m.fit}`" :title="fitTitle(m)">{{ fitLabel(m) }}</span>
             </td>
@@ -453,6 +484,11 @@ onUnmounted(stopPoll);
 .lu-fit--tight { background: var(--gold-soft, #f5edda); border-color: var(--gold-line, #e2d2b0); color: var(--gold, #b08a3e); }
 .lu-fit--no { background: var(--danger-bg, #f7e7e4); border-color: var(--danger-line, var(--danger)); color: var(--danger); }
 .lu-fit--cpu, .lu-fit--unknown { background: var(--surface-3); }
+
+/* License badge — neutral for permissive (Apache/MIT), a gold warning chip for
+   use-limited licenses (Llama-Community, *-Research, Gemma terms). */
+.lu-lic { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 700; border: 1px solid var(--border-strong); color: var(--ink-2); background: var(--surface); white-space: nowrap; }
+.lu-lic--warn { background: var(--gold-soft, #f5edda); border-color: var(--gold-line, #e2d2b0); color: var(--gold, #b08a3e); }
 
 .lu-pill { font-size: 10px; font-weight: 700; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
 .lu-pill--run { background: var(--accent); color: var(--on-accent, #fff); }

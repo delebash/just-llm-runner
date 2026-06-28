@@ -18,10 +18,9 @@
 import { computed, nextTick, onMounted, reactive, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
-import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiInput from "../common/components/UiInput.vue";
 import LuModelPicker from "../components/LuModelPicker.vue";
-import KnobGrid from "../components/KnobGrid.vue";
+import ConfigColumn from "../components/ConfigColumn.vue";
 import LuJobSelect from "../components/LuJobSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
@@ -262,7 +261,7 @@ function selectAction(key) {
   const p = prompts.value.find((x) => x.key === key);
   draft.value = p ? { ...p } : null;
   selPreset.value = ""; naming.value = false; message.value = "";
-  testOut.value = null; testErr.value = ""; buildVars();
+  buildVars();
   loadSamplers(key);
 }
 
@@ -277,6 +276,35 @@ async function loadSamplers(key) {
     samplerRows.value = [];
   }
 }
+
+// The selected action's run-config, as <ConfigColumn>'s v-model: the routing pin
+// + the per-call params (held on draft) + the long-tail samplers. The getter
+// reflects FW's existing state (so Save-as / Use-as-production read the same
+// draft/samplerRows/pin); the setter writes them back and persists a PIN change
+// immediately (as the old inline picker did — params don't touch routing).
+const columnConfig = computed({
+  get() {
+    const d = draft.value || {};
+    return {
+      pin: pin(selAction.value),
+      temperature: d.temperature, topP: d.topP, maxTokens: d.maxTokens,
+      think: d.think, jsonMode: d.jsonMode, samplers: samplerRows.value,
+    };
+  },
+  set(v) {
+    if (draft.value) {
+      draft.value.temperature = v.temperature;
+      draft.value.topP = v.topP;
+      draft.value.maxTokens = v.maxTokens;
+      draft.value.think = v.think;
+      draft.value.jsonMode = v.jsonMode;
+    }
+    samplerRows.value = v.samplers || [];
+    if (JSON.stringify(pin(selAction.value) || null) !== JSON.stringify(v.pin || null)) {
+      setPin(selAction.value, v.pin);
+    }
+  },
+});
 
 async function saveRouting() {
   const r = routing.value;
@@ -386,68 +414,15 @@ async function resetPrompt() {
   draft.value = { ...updated }; buildVars(); message.value = "Reset to seeded default.";
 }
 
-// ── test panel ───────────────────────────────────────────────────────────────
+// ── test input (the action's {{variables}}) — the shared input <ConfigColumn>
+// runs with. The Run button + result + tok/s live in <ConfigColumn> now. ───────
 const vars = reactive({});
-const testOut = ref(null);
-const testErr = ref("");
-const testing = ref(false);
 function buildVars() {
   for (const k of Object.keys(vars)) delete vars[k];
   const tpl = `${draft.value?.userTemplate || ""}\n${draft.value?.system || ""}`;
   const found = new Set([...tpl.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]));
   for (const v of found) vars[v] = vars[v] || "";
   if (!found.size) vars.user_content = vars.user_content || "";
-}
-const testCtrl = ref(null);
-function wordCount(s) { return (String(s || "").trim().match(/\S+/g) || []).length; }
-function cancelTest() { testCtrl.value?.abort(); }
-
-async function runTest() {
-  if (!draft.value) return;
-  testing.value = true; testErr.value = ""; testOut.value = null;
-  const t0 = performance.now();
-  // Test the in-editor CANDIDATE (loaded preset / unsaved edits), not just the
-  // live prompt — so you can try presets before promoting one to production.
-  const o = {
-    action: draft.value.key, variables: { ...vars },
-    temperature: Number(draft.value.temperature), think: !!draft.value.think,
-    maxTokens: Number(draft.value.maxTokens) || 0,
-    jsonMode: !!draft.value.jsonMode,
-    topP: draft.value.topP === "" || draft.value.topP == null ? null : Number(draft.value.topP),
-    system: draft.value.system, userTemplate: draft.value.userTemplate,
-  };
-  try {
-    if (props.runStream) {
-      // Stream via the host: live progress + Cancel + the batch AI list + tokens.
-      const ctrl = new AbortController();
-      testCtrl.value = ctrl;
-      testOut.value = { content: "", model: "", ms: 0, tokens: 0, tps: 0, words: 0 };
-      const res = await props.runStream({
-        ...o, signal: ctrl.signal,
-        onDelta: (_d, full) => { if (testOut.value) { testOut.value.content = full; testOut.value.words = wordCount(full); } },
-      });
-      const u = res?.usage || {};
-      const ms = Math.round(performance.now() - t0);
-      const outTokens = u.completionTokens || 0;
-      testOut.value = {
-        content: res?.content || "", model: res?.model || "",
-        ms,
-        tokens: (u.promptTokens || 0) + outTokens,
-        // Decode speed = output tokens / wall-second (prompt tokens are prefilled,
-        // not decoded, so they're excluded). The lab's engine-tuning yardstick.
-        tps: ms > 0 && outTokens > 0 ? +(outTokens / (ms / 1000)).toFixed(1) : 0,
-        words: wordCount(res?.content || ""),
-      };
-    } else {
-      const r = await request("/v1/ai/run", { method: "POST", body: o });
-      testOut.value = { content: r.content, model: r.model, ms: Math.round(performance.now() - t0), tokens: 0, tps: 0, words: wordCount(r.content) };
-    }
-  } catch (e) {
-    if (e?.name === "AbortError" || /abort|cancel/i.test(e?.message || "")) testErr.value = "Cancelled.";
-    else testErr.value = e.message?.includes("501") ? "No LLM wired for this route — set a model above or connect a provider." : (e.message || "Run failed.");
-  } finally {
-    testing.value = false; testCtrl.value = null;
-  }
 }
 
 onMounted(load);
@@ -530,57 +505,28 @@ onMounted(load);
               empty-label="— default job —"
               @update:model-value="setFeatureJob(action.feature, $event)" />
           </div>
-          <div class="lu-field">
-            <label>Provider &amp; model <span class="lu-muted">— pin this action to a specific provider + model (overrides its job)</span></label>
-            <LuModelPicker editable :model-value="pin(selAction)" :providers="providers" :labels="true"
-              inherit-label="Inherit job" @update:model-value="setPin(selAction, $event)" />
-          </div>
-
           <div class="lu-field"><label>System prompt</label>
             <UiTextarea v-model="draft.system" auto-resize :rows="7" @input="buildVars" /></div>
           <div class="lu-field"><label>Instruction <span class="lu-muted">— user template · {{ varHint }}</span></label>
             <UiTextarea v-model="draft.userTemplate" auto-resize :rows="4" @input="buildVars" /></div>
 
-          <div class="lu-fw-params">
-            <div class="lu-field lu-fw-temp"><label>Temperature</label><UiInput v-model="draft.temperature" type="number" /></div>
-            <div class="lu-field lu-fw-temp"><label>Top-p <span class="lu-muted">blank = default</span></label><UiInput v-model="draft.topP" type="number" /></div>
-            <div class="lu-field lu-fw-temp"><label>Max tokens <span class="lu-muted">0 = none</span></label><UiInput v-model="draft.maxTokens" type="number" /></div>
-            <label class="lu-fw-think"><UiCheckbox v-model="draft.think" /><span class="lu-muted">Reasoning (think)</span></label>
-            <label class="lu-fw-think"><UiCheckbox v-model="draft.jsonMode" /><span class="lu-muted">JSON output</span></label>
-            <span class="lu-fw-spacer" />
-            <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</UiButton>
+          <div v-if="draft.builtIn" class="lu-fw-resetrow">
+            <UiButton intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</UiButton>
           </div>
 
-          <!-- Advanced samplers (Plane-2 long tail) — the same KnobGrid as engine
-               switches; saved with the action on "Use as production", merged into
-               the chat call at dispatch. Most apply to local models. -->
-          <details class="lu-fw-samplers" style="margin: 2px 0 6px">
-            <summary class="lu-fw-eyebrow" style="cursor: pointer">Advanced samplers
-              <span class="lu-muted">— extra knobs: top_k · min_p · mirostat · dry_* … (mostly local models)</span>
-            </summary>
-            <div style="margin-top: 8px">
-              <KnobGrid v-model="samplerRows" :catalog="samplerCatalog" add-label="＋ Add sampler" name-placeholder="sampler (e.g. top_k)" />
-            </div>
-          </details>
-
+          <!-- Run config + test: the shared <ConfigColumn> (model + params +
+               Plane-2 samplers + Run + result) — the SAME unit the Compare lab
+               renders per column (T3, one source). The action's prompt (draft,
+               possibly unsaved) + the test input (vars) are passed in. -->
           <div class="lu-fw-test">
-            <div class="lu-fw-th"><b>Test on real input</b><span class="lu-muted">runs the prompt + model shown above — try a preset before you save it</span></div>
+            <div class="lu-fw-th"><b>Run &amp; test</b><span class="lu-muted">try a model / preset on a sample input before you save it</span></div>
             <div v-for="(_, k) in vars" :key="k" class="lu-field">
               <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
             </div>
-            <div class="lu-fw-trow">
-              <UiButton v-if="!testing" intent="primary" size="small" @click="runTest">▶ Run</UiButton>
-              <UiButton v-else intent="secondary" size="small" @click="cancelTest">■ Cancel</UiButton>
-              <span v-if="testing" class="lu-muted lu-fw-running">Running… (also in the AI tasks strip)</span>
-              <span v-if="testErr" class="lu-error lu-fw-terr">{{ testErr }}</span>
-            </div>
-            <div v-if="testOut" class="lu-fw-out">
-              <pre class="lu-fw-pre">{{ testOut.content }}</pre>
-              <div class="lu-muted lu-fw-stats">
-                <template v-if="testOut.model">model <b>{{ testOut.model }}</b> · </template>
-                <b>{{ testOut.words }}</b> words<template v-if="testOut.tokens"> · <b>{{ testOut.tokens }}</b> tokens</template><template v-if="testOut.tps"> · <b>{{ testOut.tps }}</b> tok/s</template> · {{ testOut.ms }} ms
-              </div>
-            </div>
+            <ConfigColumn :key="selAction" v-model="columnConfig"
+              :action="selAction" :providers="providers" :sampler-catalog="samplerCatalog"
+              :vars="vars" :prompt-override="{ system: draft.system, userTemplate: draft.userTemplate }"
+              :run-stream="props.runStream" inherit-label="Inherit job" />
           </div>
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
@@ -640,13 +586,7 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-prod { margin-left: auto; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: var(--accent); color: var(--on-accent, #fff); }
 .lu-field { display: flex; flex-direction: column; gap: 5px; }
 .lu-field > label { font-size: 12px; color: var(--muted); }
-.lu-fw-params { display: flex; gap: 24px; align-items: flex-end; }
-.lu-fw-temp { max-width: 110px; }
-.lu-fw-think { display: flex; align-items: center; gap: 8px; }
+.lu-fw-resetrow { display: flex; justify-content: flex-end; }
 .lu-fw-test { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
 .lu-fw-th { display: flex; align-items: baseline; gap: 10px; } .lu-fw-th b { font-size: 13px; } .lu-fw-th .lu-muted { font-size: 11.5px; }
-.lu-fw-trow { display: flex; align-items: center; gap: 10px; } .lu-fw-terr { font-size: 12px; }
-.lu-fw-out { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 10px 12px; }
-.lu-fw-pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono, monospace); font-size: 11.5px; line-height: 1.5; max-height: 260px; overflow: auto; color: var(--ink); }
-.lu-fw-stats { font-size: 11.5px; margin-top: 8px; }
 </style>

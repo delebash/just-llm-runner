@@ -75,8 +75,9 @@ class CaptureAdapter:
 
     def chat(self, messages, *, model=None, temperature=0.7, max_tokens=None,
              system=None, think=False, extra=None):
-        self.last = {"system": system, "user": messages[-1].content, "think": think}
-        return LLMResponse(text="answer", model=model or self.default_model)
+        self.last = {"system": system, "user": messages[-1].content, "think": think, "extra": extra}
+        return LLMResponse(text="answer", model=model or self.default_model,
+                           prompt_tokens=3, completion_tokens=7)
 
     def stream_chat(self, messages, *, model=None, temperature=0.7, max_tokens=None,
                     system=None, think=False, extra=None):
@@ -157,10 +158,24 @@ def test_run_renders_prompt_and_returns_content():
     c, adapter = _feature_client(MemPromptStore())
     r = c.post("/v1/ai/run", json={"action": "farewell", "variables": {"name": "Sam", "role": "bot"}})
     assert r.status_code == 200
-    assert r.json() == {"content": "answer", "model": "m"}
+    # content + model + token usage (so a Lab can rank columns by decode tok/s)
+    assert r.json() == {"content": "answer", "model": "m", "promptTokens": 3, "completionTokens": 7}
     # the DB template was rendered with the caller's variables before dispatch
     assert adapter.last["user"] == "Bye Sam"
     assert adapter.last["system"] == "You are bot."
+
+
+def test_run_applies_adhoc_samplers():
+    # #21 Lab column: ad-hoc samplers in the request reach the dispatch `extra`
+    # (this call only), text values coerced to JSON types.
+    c, adapter = _feature_client(MemPromptStore())
+    r = c.post("/v1/ai/run", json={
+        "action": "greet", "variables": {"name": "x", "role": "y"},
+        "samplers": [{"flagName": "top_k", "flagValue": "40"}, {"flagName": "min_p", "flagValue": "0.05"}],
+    })
+    assert r.status_code == 200
+    assert adapter.last["extra"]["top_k"] == 40       # int-coerced
+    assert adapter.last["extra"]["min_p"] == 0.05     # float-coerced
 
 
 def test_run_unknown_action_404():

@@ -245,6 +245,11 @@ class RunRequest(BaseModel):
     # output (JSON) + nucleus sampling. (#18 / #22)
     jsonMode: bool | None = None
     topP: float | None = None
+    # Optional ad-hoc long-tail samplers for a Lab column (Compare / Workbench
+    # test): [{flagName, flagValue}] applied to THIS call only — not saved —
+    # overriding the action's stored feature_sampler_params. Lets a column vary
+    # samplers without persisting them. (#21)
+    samplers: list[dict] = []
     # Optional prior conversation turns ({role, content}) for multi-turn features
     # (RAG chat / character chat). Inserted between the system + the rendered user
     # message, so follow-ups keep proper message roles.
@@ -254,6 +259,10 @@ class RunRequest(BaseModel):
 class RunResponse(BaseModel):
     content: str
     model: str
+    # Token usage so a one-shot run can report decode tok/s (a Lab ranks columns
+    # by it) — the streaming path already emits these in its done frame.
+    promptTokens: int = 0
+    completionTokens: int = 0
 
 
 def _parse_sampler_value(v: str):
@@ -290,7 +299,16 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest) -> dict | None:
     top_p = spec.top_p if body.topP is None else body.topP
     if top_p is not None:
         extra["top_p"] = top_p
-    # Long-tail per-action samplers. Lazy import: stores imports prompts
+    # Ad-hoc per-call samplers (a Lab column) win over the stored ones — added
+    # first so the stored loop's `not in extra` guard skips an overridden key.
+    for row in body.samplers or []:
+        name = (row.get("flagName") or "").strip()
+        if not name:
+            continue
+        val = _parse_sampler_value(row.get("flagValue") or "")
+        if val is not None:
+            extra[name] = val
+    # Long-tail per-action samplers (stored). Lazy import: stores imports prompts
     # (FeaturePromptRow), so a top-level import would cycle.
     from . import stores
 
@@ -355,7 +373,10 @@ def make_feature_router(
         except LLMNotConfiguredError as e:
             # 501 → the UI shows the actionable "wire an LLM provider" message.
             raise HTTPException(status_code=501, detail=str(e)) from e
-        return RunResponse(content=resp.text, model=resp.model)
+        return RunResponse(
+            content=resp.text, model=resp.model,
+            promptTokens=resp.prompt_tokens, completionTokens=resp.completion_tokens,
+        )
 
     @router.post("/stream")
     async def stream_feature(body: RunRequest):

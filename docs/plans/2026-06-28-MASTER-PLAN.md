@@ -282,6 +282,33 @@ catalog-doc completeness extraction — a status conflict ACROSS the catalog doc
 
 ---
 
+## 1c. IMPLEMENTATION DECISIONS (2026-06-28) — my coding judgment calls, each vs the docs (all overridable)
+
+> The calls I made WHILE building (the "you made a decision about hardcoding" kind). **"vs docs"** = follows a
+> doc/decision (which) OR a NEW implementation call (what governs). Flag any like #27. (Design conflicts → §1
+> C1–C7; decision-state → §1b R1–R7; no-hardcoding → DECIDED section.)
+
+| # | Decision | vs docs |
+|---|---|---|
+| A1 | `ConfigColumn` = a v-model unit that EMITS preset/promote events; the parent owns routing + endpoints | impl of the Decision-23 convergence; events-vs-internal split = MY call (RULE #7) |
+| A2 | Promote path is config-aware — ONE path for ×1 and a promoted Compare column | NEW (DRY); serves Decision-23 promote |
+| A3 | Plane-1 switches NOT sent on `/run` (load-time); on Promote they write to the feature's **JOB** | **doc-backed:** C3 + D9 + Decision-23 "switch testing = load-time" |
+| A4 | `cost` added to `/v1/ai/run`; the streaming path leaves cost 0 (deferred) | **doc-backed:** Decision-23 "cost per column"; the stream-deferral = MY call |
+| A5 | b1 budget guard = **SOFT** (editable window, default 8192) | **NEW** — the doc DEFERRED a hard guard (no reliable per-model ctx data); I built a soft one so the guard exists |
+| A6 | Compare scheduler = cloud-parallel + local-serial via `isLocal(provider)`; inherit→parallel | **doc-backed:** Decision-23 scheduler; the `isLocal` heuristic = MY call |
+| A7 | Compare = a `compareMode` toggle in FW → new `CompareStrip` (not a separate view) | **doc-backed:** C1 + Decision-23 "a MODE, not a tab"; the `CompareStrip` split = MY call |
+| A8 | `CompareStrip` seeds 2 columns; `:key=selAction` remounts on action switch | **doc-backed:** Decision-23 "2-up base" |
+| A9 | License badge = pure-frontend join from `/v1/ai/model-catalog` (no runner `/models` change) | **NEW** (avoid a backend change); serves the F-item |
+| A10 | "Use-limited" license = regex (`community/research/non-commercial/llama/gemma/cc-by-nc`) | **NEW** heuristic |
+| A11 | FeaturePreset += `maxTokens` + `jsonMode` | **doc-backed:** audit / status-index flagged the round-trip gap |
+| A12 | Test-isolation = autouse per-test in-memory DB fixture (not a shared conftest) | **NEW** impl |
+| A13 | Dead-fork delete removed the 2 files; left any now-unused `ai`-store action | **doc-backed** (delete the fork); leaving the store action = MY call (avoid ai-store risk) |
+| A14 | Doc architecture: PART A (verbatim source folds) + PART B (old master carried verbatim) + source docs KEPT as backstop; all 36 refs repointed | **NEW** — my rebuild architecture; PART-B-carried-verbatim is WHY the stale decisions slipped (the #27 root cause) — fixed by §1b + the LIVE TASK TRACKER |
+| A15 | Verification = COMPLETENESS-not-accuracy extraction agents + code-vs-plan audit + decision re-verify, then confirmed in code myself | **NEW** process (the "other yous confirm") |
+| A16 | Used Opus subagents despite "inline by default" for the fan-out | **NEW** process (T10 allows; I re-read load-bearing results in code) |
+
+---
+
 ## AREA 1 — THE LAB / COMPARE / `<ConfigColumn>`  (FULL DETAIL)
 
 > Sources folded VERBATIM: **Decision 23** (`shared-ai-stack-plan.md:912-1006`), **switch-param-lab.md**

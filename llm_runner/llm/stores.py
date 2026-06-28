@@ -796,6 +796,27 @@ def get_job_route_switch_store() -> JobRouteSwitchStore: return _job_route_switc
 def get_feature_sampler_store() -> FeatureSamplerStore: return _feature_sampler
 
 
+def list_knob_catalog() -> list[dict]:
+    """The knob catalog joined with its enum options, as plain dicts (camelCase) —
+    name → friendly KnobGrid metadata. The friendly-input source for C1."""
+    s = db.session()
+    try:
+        opts: dict[str, list] = {}
+        for o in s.query(db.KnobOption).order_by(db.KnobOption.flag_name, db.KnobOption.position).all():
+            opts.setdefault(o.flag_name, []).append({"value": o.value, "label": o.label})
+        rows = s.query(db.KnobCatalog).order_by(db.KnobCatalog.plane, db.KnobCatalog.position).all()
+        return [
+            {
+                "flagName": k.flag_name, "label": k.label, "kind": k.kind,
+                "default": k.default_value, "help": k.help, "plane": k.plane,
+                "appliesTo": k.applies_to, "options": opts.get(k.flag_name, []),
+            }
+            for k in rows
+        ]
+    finally:
+        s.close()
+
+
 def build_runner_config():
     """Build the bundled runner's RunnerConfig from the DB (runner_binary +
     runner_setting) — the host-side replacement for the old runner-manifest.json.

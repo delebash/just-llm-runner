@@ -10,7 +10,7 @@
 //
 // #33: jobs render as a UiTable grid (was cards), reusing the SAME table + AppModal
 // CRUD shape RecommendationsEditor.vue already uses — one pattern, not a copy.
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -44,6 +44,17 @@ const loading = ref(true);
 const error = ref("");
 const busy = ref(""); // a job id mid-action (delete), for button feedback
 const busyDial = ref(""); // a job id mid quality-resolve, to disable its dial
+
+// Knob-catalog metadata (C1) — turns raw switch keys into labelled, typed inputs
+// in the KnobGrid. Plane-1 knobs only (the Profile's engine switches).
+const knobCatalog = ref([]);
+const switchCatalog = computed(() =>
+  Object.fromEntries(
+    knobCatalog.value
+      .filter((k) => k.plane === 1)
+      .map((k) => [k.flagName, { label: k.label, help: k.help, options: k.options?.length ? k.options : undefined }]),
+  ),
+);
 
 // The dial stop a job is currently on ("" = an explicit model pin, no dial).
 function jobQuality(id) {
@@ -85,6 +96,11 @@ async function load() {
   error.value = "";
   try {
     await loadRouting();
+    try {
+      knobCatalog.value = (await request("/v1/ai/knob-catalog")).knobs || [];
+    } catch {
+      knobCatalog.value = []; // catalog is an enrichment — raw rows still work
+    }
   } catch (e) {
     error.value = `Couldn't load: ${e.message}`;
   } finally {
@@ -316,7 +332,7 @@ async function resetJobs() {
             <span class="lu-muted">{{ editing.model ? `llama.cpp flags for ${editing.model}` : "— set a model for this job to tune its engine" }}</span>
           </div>
           <template v-if="editing.model">
-            <KnobGrid v-model="switchRows" />
+            <KnobGrid v-model="switchRows" :catalog="switchCatalog" />
             <UiButton intent="ghost" size="small" @click="resetSwitches">Reset to model default</UiButton>
           </template>
         </div>

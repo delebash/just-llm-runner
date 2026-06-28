@@ -184,6 +184,53 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
     {"key": "safety_margin_mb", "value": str(DEFAULT_SAFETY_MARGIN_MB)},
 ]
 
+# Knob catalog — metadata that turns a raw switch/sampler key into a friendly
+# KnobGrid input. Plane 1 = load-time engine switch (maps to a process.Overrides
+# field); Plane 2 = per-request sampler (maps to the dispatch `extra`). `options`
+# (inline) become enum rows in knob_option. C1: data only, no code per param.
+_ENUM_CACHE = [{"value": "f16", "label": "f16 (full)"}, {"value": "q8_0", "label": "q8_0"}, {"value": "q4_0", "label": "q4_0"}]
+DEFAULT_KNOBS: list[dict] = [
+    # ── Plane 1 — load switches ──
+    {"flag_name": "n_cpu_moe", "label": "CPU MoE layers", "kind": "int", "plane": 1, "applies_to": "moe",
+     "help": "Expert layers to run on CPU — frees VRAM (MoE only). Auto-fit sets it; pin the fast value here."},
+    {"flag_name": "ctx_len", "label": "Context size", "kind": "int", "plane": 1, "default_value": "4096",
+     "help": "Max context tokens. The KV cache grows with this — bigger = more VRAM."},
+    {"flag_name": "flash_attn", "label": "Flash attention", "kind": "enum", "plane": 1, "default_value": "on",
+     "help": "Faster attention + less KV VRAM.", "options": [{"value": "on", "label": "On"}, {"value": "off", "label": "Off"}, {"value": "auto", "label": "Auto"}]},
+    {"flag_name": "cache_type_k", "label": "KV cache type (K)", "kind": "enum", "plane": 1, "default_value": "q8_0",
+     "help": "Quantize the K cache to save VRAM (q8_0 is near-lossless).", "options": _ENUM_CACHE},
+    {"flag_name": "cache_type_v", "label": "KV cache type (V)", "kind": "enum", "plane": 1, "default_value": "q8_0",
+     "help": "Quantize the V cache to save VRAM.", "options": _ENUM_CACHE},
+    {"flag_name": "no_mmap", "label": "Load into RAM", "kind": "bool", "plane": 1, "applies_to": "moe",
+     "help": "Read all weights into RAM instead of mmap — needed for MoE CPU expert offload."},
+    {"flag_name": "mlock", "label": "Lock in RAM", "kind": "bool", "plane": 1, "default_value": "true",
+     "help": "Stop the OS swapping weights out (steadier latency)."},
+    {"flag_name": "no_kv_offload", "label": "KV in system RAM", "kind": "bool", "plane": 1,
+     "help": "Keep the KV cache in system RAM to free VRAM (slower)."},
+    {"flag_name": "spec_type", "label": "Speculative decode", "kind": "enum", "plane": 1, "default_value": "none",
+     "help": "Draft-model speculative decode. MTP GGUF only; gains are machine-dependent — measure.",
+     "options": [{"value": "none", "label": "Off"}, {"value": "draft-mtp", "label": "MTP draft"}, {"value": "ngram-mod", "label": "N-gram"}]},
+    {"flag_name": "spec_n_max", "label": "Spec draft tokens", "kind": "int", "plane": 1, "default_value": "3",
+     "help": "How many tokens the draft proposes per step."},
+    {"flag_name": "threads", "label": "CPU threads", "kind": "int", "plane": 1,
+     "help": "Generation threads (drive MoE CPU experts). Default = physical cores."},
+    {"flag_name": "batch_size", "label": "Batch size", "kind": "int", "plane": 1, "default_value": "2048",
+     "help": "Prompt batch size (throughput vs memory)."},
+    {"flag_name": "parallel", "label": "Parallel slots", "kind": "int", "plane": 1, "default_value": "1",
+     "help": "Concurrent server slots (batch sweeps / Compare)."},
+    # ── Plane 2 — per-request samplers ──
+    {"flag_name": "temperature", "label": "Temperature", "kind": "float", "plane": 2, "default_value": "0.7",
+     "help": "Randomness. Low (≈0) for extraction/JSON; higher (0.8–1.0) for prose."},
+    {"flag_name": "top_p", "label": "Top-p", "kind": "float", "plane": 2, "default_value": "0.95",
+     "help": "Nucleus sampling — keep the smallest set of tokens summing to this probability."},
+    {"flag_name": "top_k", "label": "Top-k", "kind": "int", "plane": 2,
+     "help": "Keep only the k most-likely tokens (0 = off)."},
+    {"flag_name": "min_p", "label": "Min-p", "kind": "float", "plane": 2,
+     "help": "Drop tokens below this fraction of the top token's probability."},
+    {"flag_name": "repeat_penalty", "label": "Repeat penalty", "kind": "float", "plane": 2,
+     "help": "Penalize recently-used tokens (>1 reduces repetition)."},
+]
+
 
 # ── seeders (operate on a passed session, no commit) ──────────────────────────
 def seed_default_providers(s) -> int:
@@ -292,6 +339,28 @@ def seed_default_runner_settings(s) -> int:
     return added
 
 
+def seed_default_knobs(s) -> int:
+    """Seed knob_catalog + its enum options (knob_option). Flush each parent before
+    its FK children (host session: autoflush off + FK on)."""
+    existing = {r.flag_name for r in s.query(db.KnobCatalog.flag_name).all()}
+    added = 0
+    for i, k in enumerate(DEFAULT_KNOBS):
+        if k["flag_name"] in existing:
+            continue
+        s.add(db.KnobCatalog(
+            flag_name=k["flag_name"], label=str(k.get("label") or ""), kind=str(k.get("kind") or "string"),
+            default_value=str(k.get("default_value") or ""), help=str(k.get("help") or ""),
+            plane=int(k.get("plane") or 1), applies_to=str(k.get("applies_to") or "all"),
+            position=i, built_in=True,
+        ))
+        s.flush()
+        for j, opt in enumerate(k.get("options") or []):
+            s.add(db.KnobOption(flag_name=k["flag_name"], value=str(opt["value"]),
+                                label=str(opt.get("label") or opt["value"]), position=j, built_in=True))
+        added += 1
+    return added
+
+
 def seed_default_jobs(s) -> int:
     existing = {r.id for r in s.query(db.Job.id).all()}
     added = 0
@@ -359,6 +428,7 @@ def seed_llm(s=None) -> None:
         seed_default_recommendations(s)
         seed_default_runner_binaries(s)
         seed_default_runner_settings(s)
+        seed_default_knobs(s)
         seed_default_jobs(s)
         seed_default_feature_jobs(s)
         seed_default_feature_prompts(s)

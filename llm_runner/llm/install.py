@@ -23,6 +23,7 @@ from .feature_presets_api import make_feature_presets_router
 from .feature_samplers_api import make_feature_samplers_router
 from .job_switches_api import make_job_switches_router
 from .jobs_api import make_feature_jobs_router, make_jobs_router
+from .knob_catalog_api import make_knob_catalog_router
 from .model_catalog_api import make_catalog_router, make_switches_router
 from .prompts import make_feature_router, make_prompt_router
 from .provider_api import make_provider_router
@@ -70,6 +71,7 @@ def install_llm(
     app.include_router(make_routing_presets_router(stores.get_routing_preset_store, stores.get_routing_store))
     app.include_router(make_feature_presets_router(stores.get_feature_preset_store))
     app.include_router(make_recommendations_router(stores.get_recommendation_store))
+    app.include_router(make_knob_catalog_router(stores.list_knob_catalog))
     app.include_router(make_quality_router(
         stores.get_model_catalog_store, stores.get_recommendation_store, detect_fn=_detect_hardware,
     ))

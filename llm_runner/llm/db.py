@@ -301,6 +301,39 @@ class RunnerSetting(LlmBase):
     built_in = Column(Boolean, nullable=False, default=False)
 
 
+# ── knob catalog — metadata that turns a raw switch/sampler key into a friendly
+#    KnobGrid input (label/type/default/help/plane). DATA, no code per param
+#    (design C1). `flag_name` maps to an Overrides field (Plane-1) or a sampler
+#    `extra` key (Plane-2). Enum options live in the child `knob_option`. ──────────
+class KnobCatalog(LlmBase):
+    __tablename__ = "knob_catalog"
+
+    flag_name = Column(String, primary_key=True)
+    label = Column(String, nullable=False, default="")
+    kind = Column(String, nullable=False, default="string")  # bool|int|float|enum|string
+    default_value = Column(String, nullable=False, default="")
+    help = Column(Text, nullable=False, default="")
+    plane = Column(Integer, nullable=False, default=1)        # 1 = load switch, 2 = sampler
+    applies_to = Column(String, nullable=False, default="all")  # all|moe|dense
+    position = Column(Integer, nullable=False, default=0)
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
+class KnobOption(LlmBase):
+    """One choice for an enum knob (e.g. flash_attn → on|off|auto). Relational, not
+    a JSON list on the parent."""
+
+    __tablename__ = "knob_option"
+
+    flag_name = Column(
+        String, ForeignKey("knob_catalog.flag_name", ondelete="CASCADE"), primary_key=True
+    )
+    value = Column(String, primary_key=True)
+    label = Column(String, nullable=False, default="")
+    position = Column(Integer, nullable=False, default=0)
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
 # ── jobs (the editable routing unit) + the feature→job map ────────────────────
 class Job(LlmBase):
     """One job — the routing unit that replaced quick/accuracy roles. A small,

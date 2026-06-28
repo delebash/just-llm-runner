@@ -28,6 +28,64 @@
 
 ---
 
+## ⛔ LIVE TASK TRACKER — the SINGLE source of task status (update on EVERY commit)
+
+> **This is the live tracker. RULES:** (1) the plan is the single source of truth; (2) **every code commit is
+> backed by a task row here** (no code without a task item); (3) a task is created here BEFORE the code, set
+> `WIP` while in flight, `✅` + its commit sha on push; (4) **STATUS lives ONLY in this table** — the ✅/⬜
+> markers elsewhere in this doc are *detail/history*, this table governs; (5) each row points to its full detail
+> (AREA n / §x / PART B). Status key: ✅ done+verified · WIP in-flight · ⬜ todo (in-container) · ❓ open-decision ·
+> 🔒 GPU-gated · 🔬 research.
+
+### Done — 2026-06-28 session (verified: 174 runner pytest + ruff · build:vite · headless smoke 0 errors · interaction 19/19)
+| # | Task | Status | Commit | Detail |
+|---|---|---|---|---|
+| T1 | Rebuild master plan — full detail folded verbatim + completeness check | ✅ | `0d85b0e` rn · `27854e4` jw | §0/§1/PART A |
+| T2 | Compare/ConfigColumn rebuilt to Decision 23 (×1 + Compare mode + CompareStrip) | ✅ | `820e597` rn | AREA 1 §1.9 |
+| T3 | `/v1/ai/run` returns `cost` (pricing.cost_for) | ✅ | `820e597` rn | AREA 1 §1.1 |
+| T4 | b1 budget guard (soft, editable window) | ✅ | `820e597` rn | AREA 1 §1.9 |
+| T5 | FeaturePreset round-trip — maxTokens + jsonMode | ✅ | `5541fd4` rn | code-vs-plan / §1b |
+| T6 | License-flag badge + use-limited warning | ✅ | `24b6f93` rn | PART B F (license) |
+| T7 | Delete dead JW QuickSetup fork | ✅ | `5a7469e` jw | PART B F (cleanup) |
+| T8 | Test-isolation fixtures (pass alone) | ✅ | `638f6c5` rn | PART B F (test-iso) |
+| T9 | No-hardcoding F-items decided (PROVIDER_DEFAULTS/pricing/tiers) | ✅ | `ce40c1b` rn | DECIDED |
+| T10 | Decision-state re-verified in code (§1b R1–R7 / O1–O3) | ✅ | `b7a57d8`,`e7315f2` rn | §1b |
+| T11 | Recap + handoff brought current | ✅ | `60d0172` jw | MORNING_RECAP / handoff |
+| T12 | Verification passes (completeness · code-vs-plan · decision-state — independent + in-code) | ✅ | (no code) | completeness/code-vs-plan status |
+
+### Done — earlier (pre-2026-06-28; file:line evidence in PART B Part 1; predate this tracker so no sha here)
+| # | Task | Status | Detail |
+|---|---|---|---|
+| T0a | #31 routing data-loss fix | ✅ | PART B P1 |
+| T0b | Phase A — catalog + fit RAM-gate + license col + manifest→DB | ✅ | AREA 5 / PART B P1 |
+| T0c | Phase B — Fast/Balanced/Best dial + B3 guardrail | ✅ | AREA 6 / PART B P1 |
+| T0d | Phase C — C1 knob_catalog · C2 Tune & measure | ✅ | AREA 2/9 |
+| T0e | Phase D — D1 drops (D9) · D3 JobPreset+promote · D4 presets relocated | ✅ | AREA 1/2 |
+| T0f | Phase E — E2 samplers + reasoning enum + b1 preview/tokens | ✅ | AREA 2 §2.10 / §1b R2 |
+| T0g | Routing — job-replaces-role + dispatch cascade | ✅ | AREA 7 |
+
+### Remaining — in-container buildable
+| # | Task | Status | Detail |
+|---|---|---|---|
+| T13 | Durable "Implementation decisions" section (A1–16 vs docs) + PART-2 "status = tracker" banner + explain A3/A6/A7 + B/C/D | ✅ | §1c (added) |
+| T20 | QuickSetup enhancements (RAM Fit-gate · MoE-aware Fit · Test→Compare deep-link · editable embedding) | ⬜ | AREA 8 / PART B F |
+| T21 | #23 shared AI task queue → `@delebash/llm-ui` (~46-consumer sweep; per-component diff first) | ⬜ | PART B F (#23) |
+| T22 | Shared LLM-UI views (RunnerStatus · DownloadStrip · UsageView · ProviderSelect) | ⬜ | PART B F |
+| T23 | O3 — `json_schema`/grammar upgrade (#18) | ⬜ | §1b O3 / AREA 2 §2.10 |
+| T24 | cleanup tail (htmlToText/tailWords dedup · RULE-5 popup audit) | ⬜ | PART B F |
+
+### Open decisions · GPU-gated · research
+| # | Task | Status | Detail |
+|---|---|---|---|
+| T30 | O1 `prefer_local_features` editable-vs-hardcoded | ❓ | §1b O1 |
+| T31 | O2 prompt caching (Anthropic/Gemini) | ❓ | §1b O2 |
+| T40 | #27 router-mode build (decision = router, R1) | 🔒 | AREA 10 / §1b R1 |
+| T41 | #29 residency/VRAM planner + live switch-apply + real tok/s | 🔒 | AREA 10 |
+| T42 | #18 structured-output quality eval | 🔒 | PART B |
+| T50 | #28 measured per-tier benchmarks + per-task picks | 🔬 | AREA 6 / PART B research |
+
+---
+
 ## 0. THE CURATED SOURCE SET (the base — verified 2026-06-28, NOT all ~30 docs)
 
 We do **not** fold all ~30 plan docs. Last session we already spent time curating which are *current*
@@ -5372,6 +5430,10 @@ arXiv:2406.11380 + aclanthology 2025.naacl-short.62 (LLM CoT SOTA) · arXiv:2307
 ---
 
 # PART 2 — ⬜ OUTSTANDING (everything, phased; what · why · file:line · acceptance · verify · gate)
+
+> ⛔ **STATUS lives in the LIVE TASK TRACKER (top of this doc).** The ✅/⬜ markers + "decisions to settle" below
+> are **DETAIL / history** — the tracker (+ §1b) governs current status. Several items below are already DONE
+> (see the tracker): license badge, dead-fork delete, test-isolation, the no-hardcoding decisions, etc.
 
 Markers: **[IC]** in-container-buildable now · **🔒** needs your GPU/live model · **🔬** research · **❓** decision-first.
 

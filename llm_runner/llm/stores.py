@@ -17,13 +17,14 @@ import uuid
 from . import db
 from .feature_presets_api import FeaturePreset
 from .feature_samplers_api import FeatureSamplerRow
+from .job_presets_api import JobPreset, JobPresetSwitchRow
 from .job_switches_api import JobSwitchRow
 from .jobs_api import FeatureJobRow, JobRow
 from .model_catalog_api import CatalogRow
 from .prompts import FeaturePromptRow
 from .switch_presets_api import PresetSwitchRow, SwitchPresetRow
 from .recommendations_api import RecommendationRow
-from .routing_api import FeaturePin, JobTarget, RoutingConfig, RoutingDefaults, RoutingPreset
+from .routing_api import FeaturePin, JobTarget, RoutingConfig, RoutingDefaults
 from .schema import LLMProviderConfig
 
 _ACTIVE_ID = "active"
@@ -154,47 +155,6 @@ class RoutingStore:
                 s.add(row)
             _apply_routing(s, row, cfg)
             s.commit()
-        finally:
-            s.close()
-
-
-class RoutingPresetStore:
-    def list_presets(self) -> list[RoutingPreset]:
-        s = db.session()
-        try:
-            rows = (
-                s.query(db.RoutingConfigRow)
-                .filter(db.RoutingConfigRow.is_active.is_(False))
-                .order_by(db.RoutingConfigRow.position)
-                .all()
-            )
-            return [RoutingPreset(id=r.id, name=r.name, routing=_row_to_routing(s, r)) for r in rows]
-        finally:
-            s.close()
-
-    def save_preset(self, preset: RoutingPreset) -> None:
-        s = db.session()
-        try:
-            row = s.get(db.RoutingConfigRow, preset.id) if preset.id else None
-            if row is None or row.is_active:
-                pos = s.query(db.RoutingConfigRow).filter(db.RoutingConfigRow.is_active.is_(False)).count()
-                row = db.RoutingConfigRow(id=preset.id or uuid.uuid4().hex[:12], is_active=False, position=pos)
-                s.add(row)
-            row.name = preset.name
-            _apply_routing(s, row, preset.routing)
-            s.commit()
-        finally:
-            s.close()
-
-    def delete_preset(self, preset_id: str) -> None:
-        s = db.session()
-        try:
-            row = s.get(db.RoutingConfigRow, preset_id)
-            if row is not None and not row.is_active:
-                s.query(db.RoutingPin).filter(db.RoutingPin.config_id == preset_id).delete()
-                s.query(db.JobRoute).filter(db.JobRoute.config_id == preset_id).delete()
-                s.delete(row)
-                s.commit()
         finally:
             s.close()
 
@@ -715,9 +675,101 @@ class FeatureJobStore:
 
 
 # ── singletons (the routers take a getter; one instance each) ─────────────────
+def _job_preset_to_wire(s, r) -> JobPreset:
+    switches = [
+        JobPresetSwitchRow(flagName=sw.flag_name, flagValue=sw.flag_value)
+        for sw in s.query(db.JobPresetSwitch)
+        .filter(db.JobPresetSwitch.preset_id == r.id)
+        .order_by(db.JobPresetSwitch.flag_name)
+        .all()
+    ]
+    return JobPreset(
+        id=r.id, jobId=r.job_id, name=r.name, providerId=r.provider_id, model=r.model,
+        switches=switches, builtIn=r.built_in,
+    )
+
+
+class JobPresetStore:
+    """Named saved (job + model + switches) configs; `promote` applies one to the
+    live job route + its job_route_switches."""
+
+    def list_presets(self) -> list[JobPreset]:
+        s = db.session()
+        try:
+            rows = s.query(db.JobPreset).order_by(db.JobPreset.job_id, db.JobPreset.position, db.JobPreset.id).all()
+            return [_job_preset_to_wire(s, r) for r in rows]
+        finally:
+            s.close()
+
+    def save_preset(self, preset: JobPreset) -> JobPreset:
+        s = db.session()
+        try:
+            pid = preset.id or uuid.uuid4().hex[:12]
+            row = s.get(db.JobPreset, pid)
+            if row is None:
+                pos = s.query(db.JobPreset).filter(db.JobPreset.job_id == preset.jobId).count()
+                row = db.JobPreset(id=pid, position=pos)
+                s.add(row)
+            row.job_id = preset.jobId
+            row.name = preset.name
+            row.provider_id = preset.providerId
+            row.model = preset.model
+            row.built_in = False
+            s.flush()  # parent before its FK switch children
+            s.query(db.JobPresetSwitch).filter(db.JobPresetSwitch.preset_id == pid).delete()
+            for sw in preset.switches:
+                if (sw.flagName or "").strip():
+                    s.add(db.JobPresetSwitch(preset_id=pid, flag_name=sw.flagName.strip(), flag_value=sw.flagValue or ""))
+            s.commit()
+            return _job_preset_to_wire(s, row)
+        finally:
+            s.close()
+
+    def delete_preset(self, preset_id: str) -> None:
+        s = db.session()
+        try:
+            row = s.get(db.JobPreset, preset_id)
+            if row is not None:
+                s.delete(row)
+                s.commit()
+        finally:
+            s.close()
+
+    def promote(self, preset_id: str) -> None:
+        """Write the preset's model into the live `job_routes` row + replace that
+        job's `job_route_switches` with the preset's switches."""
+        s = db.session()
+        try:
+            p = s.get(db.JobPreset, preset_id)
+            if p is None:
+                return
+            row = s.get(db.RoutingConfigRow, _ACTIVE_ID)
+            if row is None:
+                row = db.RoutingConfigRow(id=_ACTIVE_ID, is_active=True, position=0)
+                s.add(row)
+                s.flush()
+            jr = s.get(db.JobRoute, (_ACTIVE_ID, p.job_id))
+            if jr is None:
+                jr = db.JobRoute(config_id=_ACTIVE_ID, job_id=p.job_id)
+                s.add(jr)
+            jr.provider_id = p.provider_id
+            jr.model = p.model
+            jr.quality = ""  # an explicit promoted model — the dial isn't driving it
+            s.flush()
+            s.query(db.JobRouteSwitch).filter(
+                db.JobRouteSwitch.config_id == _ACTIVE_ID, db.JobRouteSwitch.job_id == p.job_id
+            ).delete()
+            for sw in s.query(db.JobPresetSwitch).filter(db.JobPresetSwitch.preset_id == preset_id).all():
+                s.add(db.JobRouteSwitch(config_id=_ACTIVE_ID, job_id=p.job_id,
+                                        flag_name=sw.flag_name, flag_value=sw.flag_value))
+            s.commit()
+        finally:
+            s.close()
+
+
 _provider = ProviderStore()
 _routing = RoutingStore()
-_routing_preset = RoutingPresetStore()
+_job_preset = JobPresetStore()
 _feature_preset = FeaturePresetStore()
 _prompt = PromptStore()
 _recommendation = RecommendationStore()
@@ -731,7 +783,7 @@ _feature_sampler = FeatureSamplerStore()
 
 def get_provider_store() -> ProviderStore: return _provider
 def get_routing_store() -> RoutingStore: return _routing
-def get_routing_preset_store() -> RoutingPresetStore: return _routing_preset
+def get_job_preset_store() -> JobPresetStore: return _job_preset
 def get_feature_preset_store() -> FeaturePresetStore: return _feature_preset
 def get_prompt_store() -> PromptStore: return _prompt
 def get_recommendation_store() -> RecommendationStore: return _recommendation

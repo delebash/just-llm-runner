@@ -65,16 +65,18 @@ from .recommendations_api import (
     SUGGESTED_JOBS,
     make_recommendations_router,
 )
+from .job_presets_api import (
+    JobPreset,
+    JobPresetStore,
+    make_job_presets_router,
+)
 from .routing_api import (
     FeatureCatalogEntry,
     FeaturePin,
     JobTarget,
     RoutingConfig,
     RoutingDefaults,
-    RoutingPreset,
-    RoutingPresetStore,
     RoutingStore,
-    make_routing_presets_router,
     make_routing_router,
 )
 from .schema import (
@@ -109,7 +111,7 @@ __all__ = [
     # routing (default + jobs + per-feature pins, behind a host store)
     "RoutingStore", "RoutingConfig", "RoutingDefaults", "FeaturePin", "JobTarget",
     "FeatureCatalogEntry", "make_routing_router",
-    "RoutingPreset", "RoutingPresetStore", "make_routing_presets_router",
+    "JobPreset", "JobPresetStore", "make_job_presets_router",
     # recommendations (per-model job-tag curation, behind a host store)
     "RecommendationRow", "RecommendationStore", "RecommendationsResponse",
     "SUGGESTED_JOBS", "make_recommendations_router",

@@ -301,6 +301,38 @@ class KnobOption(LlmBase):
     built_in = Column(Boolean, nullable=False, default=False)
 
 
+# ── job presets (named saved Profile configs; promote → live job route) ────────
+class JobPreset(LlmBase):
+    """A named, saved (job + model + switches) config the lab can PROMOTE to the
+    live job route. Mirrors `FeaturePreset` (per-action) at the per-JOB grain; the
+    per-job replacement for the old whole-config routing-presets (dropped per the
+    2026-06-28 soundness pass). Switches live in the `job_preset_switches` child."""
+
+    __tablename__ = "job_presets"
+
+    id = Column(String, primary_key=True)
+    job_id = Column(String, nullable=False, default="")
+    name = Column(String, nullable=False, default="")
+    provider_id = Column(String, nullable=False, default="")
+    model = Column(String, nullable=False, default="")
+    position = Column(Integer, nullable=False, default=0)
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
+class JobPresetSwitch(LlmBase):
+    """One engine switch in a JobPreset's frozen switch set (CASCADE child of
+    `job_presets`)."""
+
+    __tablename__ = "job_preset_switches"
+
+    preset_id = Column(
+        String, ForeignKey("job_presets.id", ondelete="CASCADE"), primary_key=True
+    )
+    flag_name = Column(String, primary_key=True)
+    flag_value = Column(Text, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
 # ── jobs (the editable routing unit) + the feature→job map ────────────────────
 class Job(LlmBase):
     """One job — the routing unit that replaced quick/accuracy roles. A small,

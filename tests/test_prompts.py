@@ -159,7 +159,7 @@ def test_run_renders_prompt_and_returns_content():
     r = c.post("/v1/ai/run", json={"action": "farewell", "variables": {"name": "Sam", "role": "bot"}})
     assert r.status_code == 200
     # content + model + token usage (so a Lab can rank columns by decode tok/s)
-    assert r.json() == {"content": "answer", "model": "m", "promptTokens": 3, "completionTokens": 7}
+    assert r.json() == {"content": "answer", "model": "m", "promptTokens": 3, "completionTokens": 7, "cost": 0.0}
     # the DB template was rendered with the caller's variables before dispatch
     assert adapter.last["user"] == "Bye Sam"
     assert adapter.last["system"] == "You are bot."

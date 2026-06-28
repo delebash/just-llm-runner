@@ -397,6 +397,20 @@ Strict-diff of the decided design (above) against the code as built:
 - b1 shipped preview + count but **deferred the budget guard**; the guard gets added (soft guard from the
   loaded model's ctx-size, or a configurable default; warn when assembled prompt approaches/exceeds it).
 
+> **✅ REBUILT 2026-06-28 — AREA 1 now matches this design (verified).** `ConfigColumn.vue` rewritten to the
+> FULL editor: model + **Plane-1 engine-switch KnobGrid** + **prompt (system+user)** + Plane-2 params + sampler
+> KnobGrid + **preview/tokens + a context-budget guard (b1)** + **presets bar & Promote** + Run/result with
+> **cost** (`/v1/ai/run` now returns `cost` from `pricing.cost_for`). `FeatureWorkbench.vue` renders it **×1**
+> (prompt/presets/Promote moved INTO the column — the real convergence; job dropdown + shared test input stay in
+> FW); promote is config-aware so the SAME path serves ×1 and a promoted Compare column (RULE #7); Plane-1
+> switches write to the action's **job** (C3). New `CompareStrip.vue` = Compare as a **MODE** inside
+> Routing-by-feature (C1) — N ConfigColumns, **2-up + horizontal-scroll + collapse-nav**, Run-all
+> (**cloud-parallel / local-serial** scheduler), rank by tok/s + cost, **promote the winner**. The separate
+> "Compare" tab + `Compare.vue` were **removed**. **Verified:** 174 runner pytest + ruff, `build:vite`, headless
+> smoke (6 AI sub-tabs, 0 JS errors), interaction test 19/19 (every decided section present + Compare add/remove/
+> run-all functions). **Still GPU-gated (Track B, unchanged):** per-switch live tok/s, true local co-residency /
+> router-swap (#27/#29) — the column edits + promotes switches now; their live apply needs a model + GPU.
+
 ---
 
 ## AREA 2 — SWITCHES: two planes · presets · layering · storage · D1–D17  (FULL DETAIL)

@@ -32,6 +32,7 @@ from pydantic import BaseModel
 
 from .base import LLMMessage
 from .dispatch import LLMNotConfiguredError, chat, stream_chat
+from .pricing import cost_for
 from .schema import LLMConfig
 
 
@@ -272,6 +273,10 @@ class RunResponse(BaseModel):
     # by it) — the streaming path already emits these in its done frame.
     promptTokens: int = 0
     completionTokens: int = 0
+    # Estimated USD cost of this call — Compare ranks columns by cost too (Decision
+    # 23). Server-priced from the RESOLVED model via pricing.cost_for; local models
+    # have no price entry → 0.
+    cost: float = 0.0
 
 
 def _parse_sampler_value(v: str):
@@ -394,6 +399,7 @@ def make_feature_router(
         return RunResponse(
             content=resp.text, model=resp.model,
             promptTokens=resp.prompt_tokens, completionTokens=resp.completion_tokens,
+            cost=cost_for(resp.model, resp.prompt_tokens, resp.completion_tokens),
         )
 
     @router.post("/stream")

@@ -1,47 +1,45 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Feature Workbench — the single AI config + test surface (AI ▸ Features). The
-// unit is the ACTION (37 of them); "feature" (writerAI, critique, …) is just the
-// visual GROUP its actions live under. Per action: pick its model (or inherit a
-// role / the global Default LLM), edit its prompt + params, TEST on real input,
-// save NAMED presets, and mark one "use as production".
+// Feature Workbench — the single AI config + test surface (AI ▸ Routing by feature).
+// The unit is the ACTION (37 of them); "feature" (writerAI, critique, …) is just
+// the visual GROUP its actions live under. Per action: classify it into a job, then
+// edit + test its FULL run config in the shared <ConfigColumn> (model + Plane-1
+// engine switches + prompt + Plane-2 params/samplers + presets + Promote + a test
+// with tok/s + cost). This is the ×1 rendering of <ConfigColumn>; Compare renders
+// the SAME component ×N (Decision 23 — "the Feature view's editor pane already IS
+// one Compare column"). RULE #7: one component, two call sites.
 //
-// It also absorbs the old Feature Routing: the GLOBALS (default LLM + embedding,
-// Quick/Accuracy roles) sit at the top; each multi-action group header has a
-// "Set all" applicator that writes the model for every action in the group at
-// once (there is no separate per-feature default — an action resolves: its own
-// pin → its feature's default role → the Default LLM).
-//
-// Model assignment is stored as routing pins keyed by feature OR action key
-// (/v1/ai/routing); prompts in /v1/ai/prompts; presets in /v1/ai/feature-presets.
+// Model assignment is stored as routing pins keyed by action key (/v1/ai/routing);
+// prompts in /v1/ai/prompts; per-action samplers in /v1/ai/feature-samplers; the
+// action's JOB switches in /v1/ai/job-switches; presets in /v1/ai/feature-presets.
 // Shared across both apps — only the feature catalog differs.
-import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 
-import UiButton from "../common/components/UiButton.vue";
-import UiInput from "../common/components/UiInput.vue";
-import LuModelPicker from "../components/LuModelPicker.vue";
+import CompareStrip from "../components/CompareStrip.vue";
 import ConfigColumn from "../components/ConfigColumn.vue";
 import LuJobSelect from "../components/LuJobSelect.vue";
+import LuModelPicker from "../components/LuModelPicker.vue";
+import UiButton from "../common/components/UiButton.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
 
-// Optional host runner — streams an action through the host's task system
-// (live progress, Cancel, the app's batch AI list, token usage). When given, the
-// test panel streams live with tokens + word count + a Cancel button; when
-// absent it falls back to a one-shot /v1/ai/run (output only). JustWrite passes a
-// wrapper around runAiFeatureStream (→ aiTasks); JV will wire its own.
+// Optional host runner — streams an action through the host's task system (live
+// progress, Cancel, the app's batch AI list). When given the column streams live;
+// when absent it falls back to a one-shot /v1/ai/run. JustWrite passes a wrapper
+// around runAiFeatureStream (→ aiTasks); JV will wire its own.
 const props = defineProps({
   runStream: { type: Function, default: null },
 });
 
-const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, temperature, think, builtIn}
+const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, …}
 const routing = ref(null);   // {default, jobs:{jobId→{providerId,model}}, features:[…], pins:{key→{providerId,model}}}
 const jobs = ref([]);        // the editable job list [{id,label,description,…}]
 const featureJobs = ref({}); // feature key → job id
 const providers = ref([]);
 const presets = ref([]);     // feature presets (per action)
-const samplerRows = ref([]); // the selected action's long-tail samplers (KnobGrid v-model: {name,value})
-const knobCatalog = ref([]); // knob_catalog metadata (C1); samplerCatalog = the plane-2 subset
+const samplerRows = ref([]); // the selected action's long-tail samplers (Plane-2 KnobGrid v-model)
+const switchRows = ref([]);  // the selected action's JOB engine switches (Plane-1 KnobGrid v-model)
+const knobCatalog = ref([]); // knob_catalog metadata (C1)
 const samplerCatalog = computed(() =>
   Object.fromEntries(
     knobCatalog.value
@@ -49,35 +47,35 @@ const samplerCatalog = computed(() =>
       .map((k) => [k.flagName, { label: k.label, help: k.help, options: k.options?.length ? k.options : undefined }]),
   ),
 );
+const switchCatalog = computed(() =>
+  Object.fromEntries(
+    knobCatalog.value
+      .filter((k) => k.plane === 1)
+      .map((k) => [k.flagName, { label: k.label, help: k.help, options: k.options?.length ? k.options : undefined }]),
+  ),
+);
 const loading = ref(true);
 const error = ref("");
 const message = ref("");
+const varHint = "{{variables}}"; // shown literally in the UI (avoids a nested {{ }} in the template)
 
 const selAction = ref("");   // selected ACTION key
 const draft = ref(null);     // editable copy of the selected action's prompt
-const selPreset = ref("");
-const naming = ref(false);
-const newName = ref("");
-const nameRef = ref(null);
 const saving = ref(false);
-
-const varHint = "{{variable}} placeholders";
 
 const byId = computed(() => Object.fromEntries(providers.value.map((p) => [p.id, p])));
 const providerName = (id) => byId.value[id]?.name || id || "—";
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
 
 // jobLabel — display label for a job id (used by the nav's activeModel note).
-// (Job→model cards + Defaults moved to the "Routing by job" tab; this workbench
-// only classifies features into jobs + does per-action pins/prompts/test.)
 const jobLabel = (id) => jobs.value.find((j) => j.id === id)?.label || id;
 
 // Nav model: CATEGORY → features → (sub-labels) → action cards, each level
 // indented under its header. A category whose actions ALL come from ONE
 // multi-action feature is "merged" — the Set-all picker sits on the CATEGORY
-// header (e.g. Writing/writerAI, Analysis/critique), so there's no redundant
-// feature sub-header. Otherwise each multi-action feature inside the category
-// gets its own sub-header + Set-all; single-action features are plain cards.
+// header — so there's no redundant feature sub-header. Otherwise each multi-action
+// feature inside the category gets its own sub-header + Set-all; single-action
+// features are plain cards.
 const CATEGORY_FALLBACK = "Other";
 const categories = computed(() => {
   const order = [];
@@ -111,8 +109,6 @@ const categories = computed(() => {
 // (a feature with >1 action) carry `setAll` so the header renders the picker.
 const navRows = computed(() => {
   const rows = [];
-  // Everything under a category sits at ONE indent level — a sub-label / group
-  // header doesn't push its cards in further (no double indent).
   const pushActions = (f, base) => {
     for (const sg of subGroups(f.actions)) {
       if (sg.label) rows.push({ type: "sub", label: sg.label, indent: base });
@@ -133,11 +129,10 @@ function ml(level) { return level ? { marginLeft: `${level * 18}px` } : {}; }
 
 const action = computed(() => prompts.value.find((p) => p.key === selAction.value) || null);
 const actionPresets = computed(() => presets.value.filter((p) => p.action === selAction.value));
-const activePreset = computed(() => actionPresets.value.find((p) => p.active) || null);
 
-// The action's display name: the seeded canonical label (point-of-use name) when
-// set; else the feature's catalog label for a single-action feature; else a
-// readable name derived from the key (feature prefix stripped).
+// The action's display name: the seeded canonical label when set; else the
+// feature's catalog label for a single-action feature; else a readable name
+// derived from the key (feature prefix stripped).
 function actionLabel(p) {
   if (p.label) return p.label;
   const f = p.feature;
@@ -160,8 +155,7 @@ function humanizeVar(k) {
 function hasProd(key) {
   return presets.value.some((p) => p.action === key && p.active);
 }
-// Split a feature's actions into Writer-Lab-style sub-sections by their `group`
-// (e.g. writerAI → "Prose actions" / "Line edits"); "" = no sub-label.
+// Split a feature's actions into Writer-Lab-style sub-sections by their `group`.
 function subGroups(actions) {
   const order = [];
   const map = {};
@@ -174,8 +168,6 @@ function subGroups(actions) {
 }
 
 // ── routing pins (keyed by feature OR action key) ────────────────────────────
-// The picker UI is the shared <LuModelPicker>; the host just reads the current
-// pin and writes the picker's emitted pin back into routing, then saves.
 function pin(key) { return routing.value?.pins?.[key] || null; }
 function setPin(key, val) {
   const pins = routing.value.pins || (routing.value.pins = {});
@@ -189,10 +181,10 @@ async function setFeatureJob(feature, jobId) {
   else await request("/v1/ai/feature-jobs", { method: "PUT", body: { featureKey: feature, jobId } });
   const fj = await request("/v1/ai/feature-jobs");
   featureJobs.value = Object.fromEntries((fj.rows || []).map((x) => [x.featureKey, x.jobId]));
+  // The action's switches live on its (new) job — reload them.
+  if (selAction.value) loadSwitches(selAction.value);
 }
-// Set-all: write the same pin to every action in a feature group at once (each
-// action gets its own pin — there's no feature-level pin). Empty → clear them all
-// (every action falls back to inherit).
+// Set-all: write the same pin to every action in a feature group at once.
 function setGroupAll(group, val) {
   const pins = routing.value.pins || (routing.value.pins = {});
   for (const a of group.actions) {
@@ -212,8 +204,6 @@ function groupMixed(group) {
   const first = sig(group.actions[0].key);
   return !group.actions.every((a) => sig(a.key) === first);
 }
-// Label for a Set-all picker's inherit option — flags a mixed group so the empty
-// selection isn't mistaken for "all inherit".
 function setAllLabel(group) { return groupMixed(group) ? "Set all · (mixed)" : "Set all · inherit"; }
 function featureOf(key) { return prompts.value.find((p) => p.key === key)?.feature || ""; }
 // What an action currently resolves to, in plain terms (the nav "→ …"). Cascade:
@@ -241,13 +231,11 @@ async function load() {
     providers.value = pl.providers || [];
     jobs.value = jb.rows || [];
     featureJobs.value = Object.fromEntries((fj.rows || []).map((x) => [x.featureKey, x.jobId]));
-    // Presets are optional per app (an app may not mount the endpoint yet).
     try { presets.value = (await request("/v1/ai/feature-presets")).presets || []; }
     catch { presets.value = []; }
-    // Knob catalog (C1) enriches the sampler KnobGrid with labelled/typed inputs.
     try { knobCatalog.value = (await request("/v1/ai/knob-catalog")).knobs || []; }
     catch { knobCatalog.value = []; }
-    const firstCard = navRows.value.find((r) => r.type === "card");
+    const firstCard = navRows.value.find((rw) => rw.type === "card");
     if (!action.value && firstCard) selectAction(firstCard.action.key);
   } catch (e) {
     error.value = `Couldn't load: ${e.message}`;
@@ -260,14 +248,13 @@ function selectAction(key) {
   selAction.value = key;
   const p = prompts.value.find((x) => x.key === key);
   draft.value = p ? { ...p } : null;
-  selPreset.value = ""; naming.value = false; message.value = "";
+  message.value = "";
   buildVars();
   loadSamplers(key);
+  loadSwitches(key);
 }
 
-// The action's long-tail samplers (top_k/min_p/mirostat/…) beyond the built-in
-// temp/top-p/json/think fields — stored in feature_sampler_params, merged into the
-// dispatch `extra`. Saved with the action on "Use as production".
+// The action's long-tail samplers (Plane-2; feature_sampler_params).
 async function loadSamplers(key) {
   try {
     const r = await request(`/v1/ai/feature-samplers?feature=${encodeURIComponent(key)}`);
@@ -277,16 +264,33 @@ async function loadSamplers(key) {
   }
 }
 
-// The selected action's run-config, as <ConfigColumn>'s v-model: the routing pin
-// + the per-call params (held on draft) + the long-tail samplers. The getter
-// reflects FW's existing state (so Save-as / Use-as-production read the same
-// draft/samplerRows/pin); the setter writes them back and persists a PIN change
-// immediately (as the old inline picker did — params don't touch routing).
+// The action's JOB engine switches (Plane-1; job_route_switches). Switches are a
+// per-Profile(job)+hardware axis (D17) — a feature column shows its job's switches,
+// pre-filled, and Promote writes them back to the job (C3). No job → none.
+async function loadSwitches(key) {
+  const jobId = featureJobs.value[featureOf(key)] || "";
+  if (!jobId) { switchRows.value = []; return; }
+  try {
+    const r = await request(`/v1/ai/job-switches?jobId=${encodeURIComponent(jobId)}&configId=active`);
+    switchRows.value = (r.switches || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue }));
+  } catch {
+    switchRows.value = [];
+  }
+}
+
+// The selected action's run-config, as <ConfigColumn>'s v-model: the routing pin +
+// the JOB switches + the prompt draft + per-call params + the long-tail samplers.
+// The getter reflects FW state (so Save-as / Use-as-production read the same
+// draft/rows/pin); the setter writes them back, persists a PIN change immediately
+// (params/prompt/switches don't touch routing until Promote), and refreshes the
+// shared var set when the prompt changes.
 const columnConfig = computed({
   get() {
     const d = draft.value || {};
     return {
       pin: pin(selAction.value),
+      switches: switchRows.value,
+      system: d.system, userTemplate: d.userTemplate,
       temperature: d.temperature, topP: d.topP, maxTokens: d.maxTokens,
       // think (bool) + reasoningEffort (level) collapse into ONE select: think on
       // with no stored level shows as "medium" (the default level).
@@ -296,6 +300,8 @@ const columnConfig = computed({
   },
   set(v) {
     if (draft.value) {
+      draft.value.system = v.system;
+      draft.value.userTemplate = v.userTemplate;
       draft.value.temperature = v.temperature;
       draft.value.topP = v.topP;
       draft.value.maxTokens = v.maxTokens;
@@ -304,9 +310,11 @@ const columnConfig = computed({
       draft.value.jsonMode = v.jsonMode;
     }
     samplerRows.value = v.samplers || [];
+    switchRows.value = v.switches || [];
     if (JSON.stringify(pin(selAction.value) || null) !== JSON.stringify(v.pin || null)) {
       setPin(selAction.value, v.pin);
     }
+    buildVars(); // the prompt may have changed → refresh the shared var inputs
   },
 });
 
@@ -320,35 +328,30 @@ async function saveRouting() {
   if (!routing.value.jobs) routing.value.jobs = {};
 }
 
-// ── presets (per action) ─────────────────────────────────────────────────────
-function snapshot(name) {
-  const p = pin(selAction.value);
+// ── presets (per action) — the <ConfigColumn> bar emits; FW owns the endpoints ──
+// snapshot/applyToLive/useAsProduction operate on a CONFIG (default = the ×1
+// editor's columnConfig); the Compare strip passes a specific column's config, so
+// the promote path is shared by both surfaces (RULE #7) — not duplicated per view.
+function snapshot(name, cfg) {
+  const c = cfg || columnConfig.value;
   return {
     action: selAction.value, name,
-    providerId: p?.providerId || "",
-    model: p?.model || "",
-    system: draft.value?.system || "", userTemplate: draft.value?.userTemplate || "",
-    temperature: draft.value?.temperature === "" || draft.value?.temperature == null ? null : Number(draft.value.temperature),
-    think: !!draft.value?.think,
-    topP: draft.value?.topP === "" || draft.value?.topP == null ? null : Number(draft.value.topP),
-    reasoningEffort: draft.value?.reasoningEffort || "",
+    providerId: c.pin?.providerId || "",
+    model: c.pin?.model || "",
+    system: c.system || "", userTemplate: c.userTemplate || "",
+    temperature: c.temperature === "" || c.temperature == null ? null : Number(c.temperature),
+    think: !!c.reasoningEffort,
+    topP: c.topP === "" || c.topP == null ? null : Number(c.topP),
+    reasoningEffort: c.reasoningEffort || "",
   };
 }
-function startNaming() {
-  naming.value = true; newName.value = "";
-  nextTick(() => { (nameRef.value?.$el || nameRef.value)?.focus?.(); });
-}
-async function saveAs() {
-  const name = newName.value.trim();
-  if (!name) { naming.value = false; return; }
-  // Save → reload the dropdown (all of this action's configs) with the new one selected.
-  presets.value = (await request("/v1/ai/feature-presets", { method: "POST", body: snapshot(name) })).presets || [];
-  selPreset.value = actionPresets.value.find((p) => p.name === name)?.id || "";
-  naming.value = false; newName.value = ""; message.value = `Saved "${name}".`;
+async function saveAs(name, cfg) {
+  if (!name) return;
+  presets.value = (await request("/v1/ai/feature-presets", { method: "POST", body: snapshot(name, cfg) })).presets || [];
+  message.value = `Saved "${name}".`;
 }
 function applyPreset(id) {
-  selPreset.value = id;
-  if (!id || !draft.value) { return; }
+  if (!id || !draft.value) return;
   const p = presets.value.find((x) => x.id === id);
   if (!p) return;
   draft.value.system = p.system; draft.value.userTemplate = p.userTemplate;
@@ -359,53 +362,74 @@ function applyPreset(id) {
   else delete pins[selAction.value];
   buildVars();
 }
-async function delPreset() {
-  if (!selPreset.value) return;
-  presets.value = (await request(`/v1/ai/feature-presets/${selPreset.value}`, { method: "DELETE" })).presets || [];
-  selPreset.value = "";
+async function delPreset(id) {
+  if (!id) return;
+  presets.value = (await request(`/v1/ai/feature-presets/${id}`, { method: "DELETE" })).presets || [];
 }
-// Apply the draft to the LIVE config: write the action's prompt + persist its
-// routing pin (saveRouting already ran on each pin change, but re-save to be safe).
-async function applyToLive() {
-  if (draft.value) {
-    await request(`/v1/ai/prompts/${encodeURIComponent(draft.value.key)}`, {
+// Apply a CONFIG to the LIVE pipeline: the action's prompt + params + samplers +
+// routing pin + (C3) its JOB switches. Default cfg = the ×1 editor; the Compare
+// strip passes the winning column's config.
+async function applyToLive(cfg) {
+  const c = cfg || columnConfig.value;
+  const act = action.value;
+  if (act) {
+    await request(`/v1/ai/prompts/${encodeURIComponent(act.key)}`, {
       method: "PUT",
       body: {
-        feature: draft.value.feature, system: draft.value.system, userTemplate: draft.value.userTemplate,
-        temperature: Number(draft.value.temperature) || 0, think: !!draft.value.think,
-        maxTokens: Number(draft.value.maxTokens) || 0,
-        jsonMode: !!draft.value.jsonMode,
-        topP: draft.value.topP === "" || draft.value.topP == null ? null : Number(draft.value.topP),
-        reasoningEffort: draft.value.reasoningEffort || "",
+        feature: act.feature, system: c.system || "", userTemplate: c.userTemplate || "",
+        temperature: Number(c.temperature) || 0, think: !!c.reasoningEffort,
+        maxTokens: Number(c.maxTokens) || 0,
+        jsonMode: !!c.jsonMode,
+        topP: c.topP === "" || c.topP == null ? null : Number(c.topP),
+        reasoningEffort: c.reasoningEffort || "",
       },
     });
-    // Persist the action's long-tail samplers alongside its prompt.
     await request("/v1/ai/feature-samplers", {
       method: "PUT",
       body: {
-        feature: draft.value.key,
-        samplers: samplerRows.value
+        feature: act.key,
+        samplers: (c.samplers || [])
           .filter((r) => (r.name || "").trim())
           .map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
       },
     });
+    // Plane-1 switches → the action's JOB (per C3 / D17). No job → nowhere to store.
+    const jobId = featureJobs.value[act.feature] || "";
+    if (jobId) {
+      await request("/v1/ai/job-switches", {
+        method: "PUT",
+        body: {
+          jobId, configId: "active",
+          switches: (c.switches || [])
+            .filter((r) => (r.name || "").trim())
+            .map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
+        },
+      });
+    }
+    // ×1 already wrote the pin live on edit; for a Compare promote, write the
+    // winning column's pin to the action now.
+    if (cfg) {
+      const pins = routing.value.pins || (routing.value.pins = {});
+      if (c.pin?.providerId) pins[act.key] = { providerId: c.pin.providerId, model: c.pin.model || "" };
+      else delete pins[act.key];
+    }
   }
   await saveRouting();
 }
-async function useAsProduction() {
-  if (!draft.value) return;
+async function useAsProduction(presetId, cfg) {
+  if (!action.value) return;
   saving.value = true; error.value = ""; message.value = "";
   try {
-    let id = selPreset.value;
+    let id = presetId || "";
     if (id) {
       const name = presets.value.find((p) => p.id === id)?.name || selAction.value;
-      presets.value = (await request(`/v1/ai/feature-presets/${id}`, { method: "PUT", body: snapshot(name) })).presets || [];
+      presets.value = (await request(`/v1/ai/feature-presets/${id}`, { method: "PUT", body: snapshot(name, cfg) })).presets || [];
     } else {
       const name = `${activeModel(selAction.value)} · ${new Date().toLocaleDateString()}`;
-      presets.value = (await request("/v1/ai/feature-presets", { method: "POST", body: snapshot(name) })).presets || [];
-      id = actionPresets.value.find((p) => p.name === name)?.id || ""; selPreset.value = id;
+      presets.value = (await request("/v1/ai/feature-presets", { method: "POST", body: snapshot(name, cfg) })).presets || [];
+      id = actionPresets.value.find((p) => p.name === name)?.id || "";
     }
-    await applyToLive();
+    await applyToLive(cfg);
     if (id) presets.value = (await request(`/v1/ai/feature-presets/${id}/use`, { method: "POST" })).presets || [];
     message.value = "In production — the live pipeline runs this now.";
   } catch (e) {
@@ -422,8 +446,7 @@ async function resetPrompt() {
   draft.value = { ...updated }; buildVars(); message.value = "Reset to seeded default.";
 }
 
-// ── test input (the action's {{variables}}) — the shared input <ConfigColumn>
-// runs with. The Run button + result + tok/s live in <ConfigColumn> now. ───────
+// ── shared test input (the action's {{variables}}) — passed to <ConfigColumn> ──
 const vars = reactive({});
 function buildVars() {
   for (const k of Object.keys(vars)) delete vars[k];
@@ -433,25 +456,31 @@ function buildVars() {
   if (!found.size) vars.user_content = vars.user_content || "";
 }
 
+// ── Compare mode (Decision 23: a MODE inside this surface, not a separate tab) ──
+const compareMode = ref(false);
+const navCollapsed = ref(false);
+
+// Promote a winning Compare column: run the SAME promote path the ×1 editor uses
+// on that column's config (model + prompt + params → the action; Plane-1 switches →
+// the action's job).
+function onComparePromote(cfg) {
+  useAsProduction("", cfg);
+}
+
 onMounted(load);
 </script>
 
 <template>
-  <div class="lu-fw">
+  <div class="lu-fw" :class="{ 'is-compare': compareMode }">
     <div v-if="error" class="lu-error" style="margin-bottom:10px">{{ error }}</div>
     <div v-if="loading" class="lu-muted">Loading…</div>
 
     <template v-else-if="routing">
-      <!-- Defaults + the per-job model cards moved to the "Routing by job" tab
-           (RoutingByJob.vue). This workbench is per-feature: classify each feature
-           into a job + the rare per-action pin/prompt/test. -->
       <div class="lu-fw-body">
-        <!-- Nav: category → (feature sub-header) → action cards, each level
-             indented under its header. A header with a "Set all" picker routes
-             every action under it at once. -->
-        <aside class="lu-fw-list">
+        <!-- Nav: category → (feature sub-header) → action cards. Hidden in Compare
+             mode when the user collapses it for full column width. -->
+        <aside v-show="!compareMode || !navCollapsed" class="lu-fw-list">
           <template v-for="(row, i) in navRows" :key="i">
-            <!-- Category header (merged single-feature category carries Set-all) -->
             <div v-if="row.type === 'cat'" class="lu-fw-cat">
               <div class="lu-fw-cat-name">{{ row.label }}</div>
               <LuModelPicker v-if="row.setAll" class="lu-fw-setall" compact stacked
@@ -460,7 +489,6 @@ onMounted(load);
                 :title="`Set the provider + model for all ${row.setAll.actions.length} actions under ${row.label}`"
                 @update:model-value="setGroupAll(row.setAll, $event)" />
             </div>
-            <!-- Feature sub-header (multi-action feature in a multi-feature category) -->
             <div v-else-if="row.type === 'ghead'" class="lu-fw-ghead" :style="ml(row.indent)">
               <div class="lu-fw-gname">{{ row.label }}</div>
               <LuModelPicker class="lu-fw-setall" compact stacked
@@ -469,9 +497,7 @@ onMounted(load);
                 :title="`Set the provider + model for all ${row.setAll.actions.length} ${row.label} actions`"
                 @update:model-value="setGroupAll(row.setAll, $event)" />
             </div>
-            <!-- Sub-label divider (writerAI's Prose actions / Line edits) -->
             <div v-else-if="row.type === 'sub'" class="lu-fw-sublabel" :style="ml(row.indent)">{{ row.label }}</div>
-            <!-- Action card -->
             <button v-else type="button" class="lu-fw-card" :style="ml(row.indent)"
               :class="{ 'is-active': row.action.key === selAction }" @click="selectAction(row.action.key)">
               <div class="lu-fw-card-label">{{ actionLabel(row.action) }}<span v-if="hasProd(row.action.key)" class="lu-fw-dot" title="has a production preset" /></div>
@@ -485,57 +511,52 @@ onMounted(load);
         <section v-if="action && draft" class="lu-fw-edit">
           <div class="lu-fw-h">
             <b>{{ actionLabel(action) }}</b>
-            <span class="lu-fw-spacer" /><span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
+            <span class="lu-fw-spacer" />
+            <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
+            <UiButton v-if="compareMode" intent="ghost" size="small"
+              :title="navCollapsed ? 'Show the feature list' : 'Hide the list for full column width'"
+              @click="navCollapsed = !navCollapsed">{{ navCollapsed ? '☰ Show list' : '⟨ Collapse list' }}</UiButton>
+            <UiButton :intent="compareMode ? 'primary' : 'secondary'" size="small"
+              title="Compare this action across several model / switch / param configs"
+              @click="compareMode = !compareMode">{{ compareMode ? '✓ Compare mode' : '⊞ Compare' }}</UiButton>
           </div>
 
-          <!-- Presets bar (SpeakerLab parity) -->
-          <div class="lu-fw-presets">
-            <span class="lu-fw-eyebrow">Presets</span>
-            <select class="lu-input lu-fw-presel" :value="selPreset" @change="applyPreset($event.target.value)">
-              <option value="">— current —</option>
-              <option v-for="p in actionPresets" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
-            <UiButton v-if="selPreset" intent="ghost" size="small" title="Delete this config" @click="delPreset">🗑</UiButton>
-            <UiInput v-if="naming" ref="nameRef" v-model="newName" placeholder="name — press Enter" class="lu-fw-name-in"
-              @keyup.enter="saveAs" @keyup.esc="naming = false; newName = ''" />
-            <UiButton v-else intent="secondary" size="small" title="Save this config as a named preset" @click="startNaming">＋ Save as</UiButton>
-            <UiButton intent="secondary" size="small" :loading="saving" title="Apply this config to the live pipeline" @click="useAsProduction">✓ Use as production</UiButton>
-            <span v-if="activePreset" class="lu-fw-prod" :title="`The live pipeline runs '${activePreset.name}'.`">✓ PRODUCTION · {{ activePreset.name }}</span>
-          </div>
-
-          <!-- Provider + model for this action (shared LuModelPicker). The
-               selects ARE the source of truth — the inherit option names what it
-               resolves to (e.g. "Inherit default · Quick"), so there's no
-               separate redundant "→ role" note. -->
+          <!-- Job classification (this stays in FW — it's a per-feature routing
+               concern, not part of the engine column). -->
           <div class="lu-field">
-            <label>Job <span class="lu-muted">— this feature's task type; it runs on the job's model unless pinned below</span></label>
+            <label>Job <span class="lu-muted">— this feature's task type; it runs on the job's model + switches unless pinned</span></label>
             <LuJobSelect :model-value="featureJobs[action.feature] || ''" :jobs="jobs"
               empty-label="— default job —"
               @update:model-value="setFeatureJob(action.feature, $event)" />
           </div>
-          <div class="lu-field"><label>System prompt</label>
-            <UiTextarea v-model="draft.system" auto-resize :rows="7" @input="buildVars" /></div>
-          <div class="lu-field"><label>Instruction <span class="lu-muted">— user template · {{ varHint }}</span></label>
-            <UiTextarea v-model="draft.userTemplate" auto-resize :rows="4" @input="buildVars" /></div>
 
-          <div v-if="draft.builtIn" class="lu-fw-resetrow">
-            <UiButton intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</UiButton>
-          </div>
-
-          <!-- Run config + test: the shared <ConfigColumn> (model + params +
-               Plane-2 samplers + Run + result) — the SAME unit the Compare lab
-               renders per column (T3, one source). The action's prompt (draft,
-               possibly unsaved) + the test input (vars) are passed in. -->
-          <div class="lu-fw-test">
-            <div class="lu-fw-th"><b>Run &amp; test</b><span class="lu-muted">try a model / preset on a sample input before you save it</span></div>
+          <!-- Shared test input — the action's {{variables}}; ONE set used by every
+               column in Compare (a fair comparison). -->
+          <div class="lu-fw-testin">
+            <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across compare columns</span></div>
             <div v-for="(_, k) in vars" :key="k" class="lu-field">
               <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
             </div>
-            <ConfigColumn :key="selAction" v-model="columnConfig"
-              :action="selAction" :providers="providers" :sampler-catalog="samplerCatalog"
-              :vars="vars" :prompt-override="{ system: draft.system, userTemplate: draft.userTemplate }"
-              :run-stream="props.runStream" inherit-label="Inherit job" />
+            <div class="lu-fw-resetrow">
+              <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</UiButton>
+            </div>
           </div>
+
+          <!-- ×1: the shared <ConfigColumn> (full editor). Compare renders the SAME
+               component ×N in CompareStrip. -->
+          <ConfigColumn v-if="!compareMode" :key="selAction" v-model="columnConfig"
+            :action="selAction" :providers="providers"
+            :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
+            :vars="vars" :presets="actionPresets" :run-stream="props.runStream"
+            inherit-label="Inherit job"
+            @save-as="saveAs" @apply-preset="applyPreset" @use-production="useAsProduction" @delete-preset="delPreset" />
+
+          <!-- ×N: Compare mode — N ConfigColumns over the shared action + input. -->
+          <CompareStrip v-else :key="selAction"
+            :action="selAction" :base-config="columnConfig" :providers="providers"
+            :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
+            :vars="vars" :presets="actionPresets"
+            @promote="onComparePromote" @save-as="saveAs" @delete-preset="delPreset" />
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
       </div>
@@ -545,23 +566,12 @@ onMounted(load);
 
 <style scoped>
 .lu-fw { display: flex; flex-direction: column; min-height: 0; }
-
-/* (Defaults + per-job role cards moved to the Routing-by-job tab — their styles
-   live in RoutingByJob.vue now; removed the dead globals CSS here.) */
 select.lu-input { cursor: pointer; appearance: auto; }
 
-/* Body = nav + editor. The nav is a self-contained scroller (capped height,
-   sticky) so a long action list never stretches the page. */
-/* Nav column grows with the window (flex-like) so the Set-all pickers are always
-   readable; min 480px keeps them usable when narrow. Editor takes the rest. */
 .lu-fw-body { display: grid; grid-template-columns: minmax(300px, 28%) minmax(0, 1fr); gap: 16px; align-items: start; }
-/* min-width:0 so the column never forces horizontal scroll — the picker selects
-   (min-width:0) shrink to fit instead of overflowing. */
+/* Compare mode: when the nav is collapsed the body is a single full-width column. */
+.lu-fw.is-compare .lu-fw-body { grid-template-columns: minmax(280px, 24%) minmax(0, 1fr); }
 .lu-fw-list { min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 240px); overflow-y: auto; overflow-x: hidden; position: sticky; top: 4px; }
-/* Writer-Lab-style action card: label + blurb, accent on hover/active. */
-/* No width:100% — the card is a flex item that stretches to the list width, so a
-   margin-left (indent) insets it cleanly instead of overflowing + clipping. A
-   left rail makes the "under this header" grouping obvious. */
 .lu-fw-card { text-align: left; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; }
 .lu-fw-card:hover { border-color: var(--accent); background: var(--accent-soft); }
 .lu-fw-card.is-active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -569,32 +579,21 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-card-desc { font-size: 11px; color: var(--muted); line-height: 1.4; margin-top: 3px; }
 .lu-fw-card-model { font-size: 10.5px; font-weight: 600; color: var(--accent-ink, var(--accent)); margin-top: 4px; }
 .lu-fw-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
-/* Category header — the nav's primary grouping (Writing / Analysis / …); a
-   merged single-feature category also carries its Set-all picker below the name. */
 .lu-fw-cat { display: flex; flex-direction: column; gap: 7px; padding: 10px 2px 2px; margin-top: 8px; border-top: 1px solid var(--border); }
 .lu-fw-cat:first-child { border-top: 0; margin-top: 0; padding-top: 2px; }
 .lu-fw-cat-name { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); }
-/* Feature sub-header inside a multi-feature category (name + Set-all). */
 .lu-fw-ghead { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; }
 .lu-fw-gname { font-size: 12px; font-weight: 700; color: var(--ink-2); }
-/* Set-all route picker on a header — a faint dashed surface so it reads as
-   "set the model for everything indented below". */
 .lu-fw-setall { background: var(--surface); border: 1px dashed var(--border); border-radius: 7px; padding: 5px 7px; }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 6px 0 1px; }
 
-/* Editor */
 .lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .lu-fw-h { display: flex; align-items: baseline; gap: 8px; }
 .lu-fw-h b { font-size: 15px; color: var(--ink); }
 .lu-fw-spacer { flex: 1; } .lu-fw-msg { font-size: 11.5px; }
-.lu-fw-presets { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2); }
-.lu-fw-eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
-.lu-fw-presel { max-width: 200px; cursor: pointer; appearance: auto; }
-.lu-fw-name-in { max-width: 170px; }
-.lu-fw-prod { margin-left: auto; font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: var(--accent); color: var(--on-accent, #fff); }
 .lu-field { display: flex; flex-direction: column; gap: 5px; }
 .lu-field > label { font-size: 12px; color: var(--muted); }
+.lu-fw-testin { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
+.lu-fw-testin-h { display: flex; align-items: baseline; gap: 10px; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
 .lu-fw-resetrow { display: flex; justify-content: flex-end; }
-.lu-fw-test { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
-.lu-fw-th { display: flex; align-items: baseline; gap: 10px; } .lu-fw-th b { font-size: 13px; } .lu-fw-th .lu-muted { font-size: 11.5px; }
 </style>

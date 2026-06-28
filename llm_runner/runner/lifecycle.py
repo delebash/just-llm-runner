@@ -76,6 +76,15 @@ def _default_measure_sample() -> dict:
     }
 
 
+def _default_tokenize_probe(url: str, text: str) -> int:
+    """EXACT token count for `text` via the running llama-server's /tokenize
+    (b1/E2) — the loaded model's own tokenizer, so no client-side reimplementation.
+    A real network call; injected in tests."""
+    resp = requests.post(url.rstrip("/") + "/tokenize", json={"content": text}, timeout=30)
+    resp.raise_for_status()
+    return len((resp.json() or {}).get("tokens") or [])
+
+
 # Set of `Overrides` field names — used to validate switch keys at apply time
 # (a stored flag_name not in this set is silently dropped, not a crash).
 _OVERRIDE_FIELDS = {f.name for f in _dc_fields(Overrides)}
@@ -257,6 +266,21 @@ class RunnerService:
             "ok": True, "modelId": self._state.get("modelId", ""),
             "tokensPerSec": tps, "completionTokens": ct, "ms": round(ms, 1), **sample(),
         }
+
+    def tokenize(self, *, text: str, probe=None) -> dict:
+        """Exact token count for `text` via the RUNNING model's own tokenizer
+        (b1/E2 — the prompt-preview's exact-when-local count). Requires a model
+        running; callers fall back to a client-side heuristic otherwise. `probe`
+        injected in tests."""
+        runner = self._runner
+        if runner is None or self._state.get("status") != "running":
+            return {"ok": False, "error": "no model running"}
+        probe = probe or _default_tokenize_probe
+        try:
+            count = probe(runner.url, text)
+        except Exception as exc:  # noqa: BLE001 — surface the probe error, don't crash
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "count": int(count)}
 
     # ── internals ─────────────────────────────────────────────────────────
 

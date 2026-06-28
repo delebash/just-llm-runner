@@ -174,3 +174,11 @@ async def measure_model(prompt: str = "Write one vivid paragraph about the sea."
     """#20 'Tune & measure': run a fixed probe against the loaded model and return
     decode tok/s + the box's VRAM/RAM context. Requires a model running."""
     return get_service().measure(prompt=prompt, max_tokens=max_tokens)
+
+
+@router.post("/v1/llm-runner/tokenize", summary="Exact token count for text via the running model")
+async def tokenize_text(body: dict) -> dict:
+    """b1 'prompt preview': exact token count via the loaded model's own tokenizer
+    (/tokenize). Requires a model running — the UI falls back to a heuristic when
+    `ok` is false (no local model)."""
+    return get_service().tokenize(text=str((body or {}).get("text") or ""))

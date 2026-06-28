@@ -181,6 +181,21 @@ def test_measure_requires_running_model(tmp_path):
     assert out["ok"] is False and "no model running" in out["error"]
 
 
+def test_tokenize_counts_via_running_model(tmp_path):
+    # b1 prompt-preview: exact count via the running model's /tokenize (probe injected).
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    out = svc.tokenize(text="hello world", probe=lambda url, t: 7)
+    assert out["ok"] is True and out["count"] == 7
+
+
+def test_tokenize_requires_running_model(tmp_path):
+    svc = _service_for(tmp_path)  # idle
+    out = svc.tokenize(text="x", probe=lambda *a: 1)
+    assert out["ok"] is False and "no model running" in out["error"]
+
+
 def test_dead_process_flips_to_error(tmp_path):
     dead = SimpleNamespace(url="http://127.0.0.1:8080", is_alive=lambda: False, stop=lambda: None)
     svc = _service_for(tmp_path, start=lambda *a, **k: dead)

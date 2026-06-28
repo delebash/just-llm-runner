@@ -192,6 +192,7 @@ onMounted(load);
           <ConfigColumn :ref="(el) => setColRef(col.id, el)"
             v-model="col.config" :action="selAction" :providers="providers"
             :sampler-catalog="samplerCatalog" :vars="vars"
+            :prompt-override="actionSpec ? { system: actionSpec.system, userTemplate: actionSpec.userTemplate } : null"
             inherit-label="— pick a model —"
             @result="onResult(col.id, $event)" />
         </div>

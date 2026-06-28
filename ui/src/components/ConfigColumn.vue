@@ -13,9 +13,10 @@
 // Workbench feeds its in-editor draft prompt. The column runs via the host
 // `runStream` (live, with Cancel) when given, else a one-shot POST /v1/ai/run
 // (both return token usage → the same decode-tok/s math).
-import { ref } from "vue";
+import { computed, ref, watch } from "vue";
 
 import { request } from "../client.js";
+import { assemblePrompt, estimateTokens } from "../tokens.js";
 import KnobGrid from "./KnobGrid.vue";
 import LuModelPicker from "./LuModelPicker.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -55,6 +56,28 @@ const testing = ref(false);
 const testOut = ref(null);
 const testErr = ref("");
 const testCtrl = ref(null);
+
+// Prompt preview + token count (b1/E2): the assembled prompt (system + the user
+// template with vars filled) = what actually gets sent; estimate = instant
+// heuristic; exact = the loaded model's own tokenizer (on demand, local only).
+const previewText = computed(() =>
+  assemblePrompt(props.promptOverride?.system, props.promptOverride?.userTemplate, props.vars),
+);
+const estTokens = computed(() => estimateTokens(previewText.value));
+const exactTokens = ref(null);
+const counting = ref(false);
+watch(previewText, () => { exactTokens.value = null; }); // the exact count goes stale on edit
+async function countExact() {
+  counting.value = true;
+  try {
+    const r = await request("/v1/llm-runner/tokenize", { method: "POST", body: { text: previewText.value } });
+    exactTokens.value = r.ok ? r.count : null; // not ok → no local model; keep the heuristic
+  } catch {
+    exactTokens.value = null;
+  } finally {
+    counting.value = false;
+  }
+}
 
 function wordCount(s) {
   return (String(s || "").trim().match(/\S+/g) || []).length;
@@ -181,6 +204,20 @@ defineExpose({ run, cancel });
       </div>
     </details>
 
+    <details v-if="promptOverride" class="cc-preview">
+      <summary class="cc-eyebrow">Preview &amp; tokens
+        <span class="lu-muted">— what gets sent · {{ exactTokens != null ? `${exactTokens} tokens` : `≈${estTokens} tokens` }}</span>
+      </summary>
+      <div class="cc-preview-body">
+        <pre class="cc-pre">{{ previewText || "(empty)" }}</pre>
+        <div class="cc-preview-foot">
+          <span class="lu-muted">{{ exactTokens != null ? `${exactTokens} tokens (exact)` : `≈ ${estTokens} tokens (estimate)` }}</span>
+          <UiButton v-if="exactTokens == null" intent="ghost" size="small" :loading="counting"
+            title="Count with the loaded local model's tokenizer" @click="countExact">Count exact</UiButton>
+        </div>
+      </div>
+    </details>
+
     <div class="cc-run">
       <UiButton v-if="!testing" intent="primary" size="small" @click="run">▶ Run</UiButton>
       <UiButton v-else intent="secondary" size="small" @click="cancel">■ Cancel</UiButton>
@@ -208,6 +245,8 @@ defineExpose({ run, cancel });
 .cc-chk { display: flex; align-items: center; gap: 7px; }
 .cc-eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
 .cc-samplers-body { margin-top: 8px; }
+.cc-preview-body { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.cc-preview-foot { display: flex; align-items: center; gap: 10px; font-size: 11.5px; }
 .cc-run { display: flex; align-items: center; gap: 10px; }
 .cc-running { font-size: 11.5px; } .cc-err { font-size: 12px; }
 .cc-out { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 10px 12px; }

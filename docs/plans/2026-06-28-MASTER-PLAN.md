@@ -173,6 +173,57 @@ catalog-doc completeness extraction — a status conflict ACROSS the catalog doc
 
 ---
 
+## 1b. DECISIONS — RESOLVED (re-verified 2026-06-28; SUPERSEDES the stale "❓ decisions to settle" lists in the folds + PART B)
+
+> **Why this exists:** the carried-forward PART B (and some PART-A folds) list "❓ decisions to settle / the
+> USER's call / NOT implemented" that were ACTUALLY decided or built later — a stale decision-state. The user
+> caught one (router-vs-spawn shown as "your call" when it was decided = router). This is the AUTHORITATIVE
+> current decision state; where a fold or PART B says "to settle / user's call / not implemented," **THIS
+> section governs.** Each entry is verified against the CODE/source, not the old framing. *(R2+ are appended as
+> the 2026-06-28 decision-state re-verification completes.)*
+
+- **R1 — Router vs spawn → DECIDED: llama.cpp ROUTER mode** (user, confirmed 2026-06-28). The serving design
+  already assumes it (residency `--models-max`, the Compare live model-swap, the two-plane lifecycle — jobs §7,
+  AREA 10). Receipts: the deep-research's high-confidence recommendation ("router mode for LLM+embedding + build
+  the VRAM-budget planner" — AREA 10 / `serving-architecture-research`) + the **empirically-verified 2026-06-25
+  hot-swap test** (router PID unchanged; per-model child processes spawned with their own INI argv — AREA 10 /
+  `llamacpp-switches` §B.6). The `#19` single spawn-load is KEPT for the C2 measure/tune path (probe one model
+  with ad-hoc switches) — it coexists with router serving, not a competing architecture. **Building #27 router
+  + #29 residency stays GPU-gated; the DECISION is closed.** *(Was shown "USER's call" in PART B + the
+  catalog/build-plan fold — now resolved.)*
+- **R2 — Reasoning-effort enum + per-adapter native mapping → BUILT (a1).** All 4 adapters MAP the effort to
+  their native control (NOT accept-and-drop): `ollama.py:85-90`, `anthropic.py:82-93` (`thinking` + budget),
+  `gemini.py:128-136` (`thinkingConfig.thinkingBudget`), `openai_compat.py:108-116`; threaded
+  `prompts.py:59,257,333-341` + `base.py:52-60`. ⚠️ **This makes PART B's line ~1221 claim — "Anthropic
+  `thinking` / Gemini `thinkingConfig` verified NOT implemented … accept `think` but ignore it" — FALSE;
+  superseded here.** (Only prompt caching + Gemini safety-settings in that same bullet remain unbuilt → O2.)
+- **R3 — Tokenizer for token-count → BUILT (b1).** `POST /v1/llm-runner/tokenize` (`runner/api.py:179-184`,
+  `lifecycle.py:270-283`) proxies the loaded model's `/tokenize`; chars/4 heuristic fallback; UI
+  `ConfigColumn.vue:121,326`. (The "tokenizer = not yet decided" line is stale.)
+- **R4 — Samplers per-action vs a job default → DECIDED + BUILT, per-ACTION (D2).** `feature_sampler_params`
+  (`db.py:411-419`, `stores.py:473-499`, `feature_samplers_api.py`) → dispatch `extra` (`prompts.py:325-331`).
+- **R5 — Job lifecycle on delete/rename → DECIDED + BUILT.** Immutable job id + label-only rename + graceful
+  fallback to the default job at dispatch (`jobs_api.py:19-25,96,107,112-117`). (jobs §12a.)
+- **R6 — `flagPresets` + binaries → DB (A7) → BUILT; `vramFit.tiers` → REMOVED (dead).** Switch presets +
+  binaries seeded in DB (`seed.py:131,285,427,177-182`; `config.py:8,57`); `vram_fit.tiers` removed
+  (`runner/schema.py:106-107`); `runner-manifest.json` DELETED. ⚠️ **PART B's AREA-7 hardcoding table still
+  cites the deleted `runner-manifest.json:49-61` and self-contradicts (FLAG vs dead) — superseded here: A7 is
+  DONE, the manifest is gone, `vramFit.tiers` is dead.**
+- **R7 — router-vs-spawn → DECIDED = router (see R1).**
+
+> **Still GENUINELY OPEN (the REAL remaining decisions — verified 2026-06-28, NOT stale):**
+> - **O1 — `prefer_local_features`** is hardcoded (`schema.py:108` — the master's `:119` cite is drift); no DB
+>   editor. Decide: a per-feature/job editable flag vs accept-as-default. (Low priority.)
+> - **O2 — Prompt caching** (Anthropic `cache_control` / Gemini `cachedContent`) + Gemini safety-settings:
+>   not implemented (zero hits). A cost/safety optimization; build when wanted.
+> - **O3 — Structured-output `json_schema`/GBNF upgrade (#18):** only the weak `json_object` today
+>   (`prompts.py:312`); upgrade to `json_schema`/grammar where the backend supports it. (Pairs with the
+>   GPU-gated #18 quality eval.)
+> - **GPU-gated BUILDS (decided, just need a GPU):** #27 router mode, #29 residency/VRAM planner, real per-tier
+>   tok/s, live per-job switch-apply.
+
+---
+
 ## AREA 1 — THE LAB / COMPARE / `<ConfigColumn>`  (FULL DETAIL)
 
 > Sources folded VERBATIM: **Decision 23** (`shared-ai-stack-plan.md:912-1006`), **switch-param-lab.md**
@@ -1212,13 +1263,13 @@ The **switch grid = `KnobGrid.vue`** (ONE generic key/value editor for Plane-1 s
 - **License-flag UI (panel gap):** render the model's license as a badge/warning in the model UI (Llama-4 carries the flag as data; nothing displays it). **file:** B2 control / JW provider views. (in-container)
 - **#23 shared AI task queue** → move `aiTasks.js`+`AiTaskStrip.vue`+`aiFeature.js` into `@delebash/llm-ui`, sweep JW consumers, delete copies (Decision 22). (in-container)
 - **#29 VRAM/RAM-budget planner** (residency/LRU/co-reside; **embeddings never-swap rule**; gguf-parser feeds fit.py metadata, NOT a fit.py replacement). (in-container core; live timing 🔒 GPU)
-- **#27 router mode** (`--models-preset` INI, `--models-max`, route-by-model; design around count-eviction OOM + TOCTOU). **🔒 GPU + ❓ router-vs-spawn is a USER decision first** (complete-remaining-plan §4).
+- **#27 router mode** (`--models-preset` INI, `--models-max`, route-by-model; design around count-eviction OOM + TOCTOU). **🔒 GPU to BUILD; router-vs-spawn DECIDED = router (§1b R1/R7, 2026-06-28)** — was framed a USER decision; resolved.
 - **#28 measured benchmarks** (per-tier tok/s + 8 GB-exact) — research, **🔒 needs a GPU**.
 - **#32 audit** shared-vs-app (RULE #7) — in-container (note: §0 once marked #32 "dropped"; the build-plan keeps it as an audit task — reconcile with the user).
 - **Test isolation fix:** `test_plane2_params.py` fails alone (missing `configured` fixture) — add fixture/conftest. **Stale `.pyc` cleanup** (gateway debris). (in-container)
 
 ##### ❓ DECISIONS to settle before building the gated items (complete-remaining-plan §4)
-Router-vs-spawn (+hybrid) = USER's call · cloud-native adapters (Anthropic `thinking`, Gemini thinkingConfig/safety, **prompt caching** — verified NOT implemented: `anthropic.py:88,139`/`gemini.py:132,171` accept `think` but ignore it) · reasoning-effort enum · `prefer_local_features`/`vramFit.tiers` editable-vs-hardcoded (currently hardcoded) · job lifecycle on delete/rename · samplers per-action-vs-default.
+⚠️ **SUPERSEDED by §1b — most decided/built; the "verified NOT implemented" claim is FALSE (R2: Anthropic `thinking` + Gemini `thinkingConfig` ARE mapped to native reasoning).** Historical text: Router-vs-spawn (+hybrid) = USER's call · cloud-native adapters (Anthropic `thinking`, Gemini thinkingConfig/safety, **prompt caching** — verified NOT implemented: `anthropic.py:88,139`/`gemini.py:132,171` accept `think` but ignore it) · reasoning-effort enum · `prefer_local_features`/`vramFit.tiers` editable-vs-hardcoded (currently hardcoded) · job lifecycle on delete/rename · samplers per-action-vs-default.
 
 ---
 
@@ -5412,6 +5463,11 @@ ONE per-job quality control resolving to **(model, think)**, fit-filtered — re
 - **#28** corrected deep-research → measured per-tier tok/s + VRAM (incl. real 8 GB-exact), serving/switching adopt-vs-build, MoE-vs-dense extraction quality, per-task benchmark recs. **#25** curate `model_recommendations` (cited per-job; EQ-Bench/MTEB overlay) — **answered by the 2026-06-27 research** (Part 3); only the MEASURED numbers remain (#28). Adopt `gguf-parser` to feed `fit.py` metadata (additive, #29; NOT a fit.py replacement); extend `hardware.py` beyond NVIDIA → AMD/Intel/Apple. Study **GPUStack v0.x** (NOT v2). TurboQuant fork ship-or-not (lean: stock default, advanced opt-in).
 
 ## ❓ DECISIONS to settle before the gated builds
+> ⚠️ **SUPERSEDED by §1b "DECISIONS — RESOLVED" (2026-06-28).** Most below are now decided/built: router = R1/R7
+> (DECIDED; only the BUILD is GPU-gated); reasoning-effort enum + Anthropic `thinking` + Gemini `thinkingConfig`
+> = R2 **BUILT** — the "verified NOT implemented … accept `think` but ignore it" claim below is **FALSE**;
+> tokenizer = R3; samplers-per-action = R4; job-lifecycle = R5; vramFit/binary→DB = R6. Genuinely OPEN: only
+> `prefer_local_features` (O1), prompt caching + Gemini safety (O2). Historical text:
 Router-vs-spawn (+hybrid: router-serve + #19-spawn-for-switch-tuning) = USER's call (present receipts, don't switch unilaterally) · serving/switching mechanism (router vs llama-swap vs spawn) + keep-TTS-resident · job lifecycle on delete/rename (immutable id + editable label) · feature→job scope (global vs per-config) · samplers per-action vs also per-default · tokenizer for token-count · **cloud-native adapters** (Anthropic `thinking`, Gemini thinkingConfig/safety, **prompt caching**, Ollama-native think:false — verified NOT implemented: `anthropic.py:88,139`/`gemini.py:132,171` accept `think` but ignore it; no prompt caching anywhere) · `prefer_local_features` editable-vs-hardcoded · prose/embedding/recommendation defaults · kit git-dep packaging at release. *(RESOLVED by the 2026-06-27 audit: the `runner-manifest.json` / `vramFit.tiers` / binary-pin "editable-vs-hardcoded" question is settled — ALL of it moves to DB per A7; there is NO config-JSON exception. JV `engines/llm/config.py` is the mirror to fix in §G.)*
 
 ## DECIDED — not to build / superseded (no work)

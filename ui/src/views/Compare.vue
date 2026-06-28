@@ -71,7 +71,7 @@ function pickAction(key) {
 // Columns — each its own ConfigColumn config + last result, addressed by id.
 let nextId = 1;
 function blankConfig() {
-  return { pin: null, temperature: "", topP: "", maxTokens: 0, think: false, jsonMode: false, samplers: [] };
+  return { pin: null, temperature: "", topP: "", maxTokens: 0, reasoningEffort: "", jsonMode: false, samplers: [] };
 }
 const columns = ref([]);
 const colRefs = new Map(); // id -> ConfigColumn instance (for run())

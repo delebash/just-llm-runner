@@ -378,6 +378,8 @@ class FeaturePreset(LlmBase):
     user_template = Column(Text, nullable=False, default="")
     temperature = Column(Float, nullable=True)
     think = Column(Boolean, nullable=False, default=False)
+    top_p = Column(Float, nullable=True)  # nucleus sampling (#22)
+    reasoning_effort = Column(String, nullable=False, default="")  # "" | low | medium | high (a1/E2)
 
 
 class FeaturePrompt(LlmBase):
@@ -397,6 +399,7 @@ class FeaturePrompt(LlmBase):
     # Plane-2 per-request params (sent in the chat call, no model reload):
     json_mode = Column(Boolean, nullable=False, default=False)  # response_format=json_object (#18)
     top_p = Column(Float, nullable=True)  # nucleus sampling (#22); null → provider default
+    reasoning_effort = Column(String, nullable=False, default="")  # "" | low | medium | high (a1/E2)
     built_in = Column(Boolean, nullable=False, default=True)
     label = Column(String, nullable=False, default="")
     description = Column(Text, nullable=False, default="")

@@ -19,7 +19,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse, StreamDelta
+from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning_effort
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +75,23 @@ class AnthropicAdapter:
             out.append({"role": m.role, "content": m.content})
         return ("\n\n".join(system_parts) if system_parts else None, out)
 
+    # Effort → thinking budget_tokens (must be ≥1024). Verified against the
+    # Anthropic extended-thinking docs (2026-06-28), not recalled.
+    _THINK_BUDGET = {"low": 1024, "medium": 4096, "high": 8192}
+
+    @staticmethod
+    def _apply_reasoning(body: dict, think: bool, effort: str) -> None:
+        """Anthropic extended thinking (a1/E2): a `thinking` block with
+        budget_tokens (≥1024 AND < max_tokens) → bump max_tokens to leave room for
+        the answer. Extended thinking also requires the default temperature, so drop
+        any override. think off → no thinking block (the model answers directly)."""
+        if not think:
+            return
+        budget = AnthropicAdapter._THINK_BUDGET.get(effort, 4096)
+        body["thinking"] = {"type": "enabled", "budget_tokens": budget}
+        body["max_tokens"] = max(int(body.get("max_tokens") or 4096), budget + 2048)
+        body.pop("temperature", None)  # thinking requires the default temperature
+
     # ── Protocol implementation ─────────────────────────────────────
 
     def chat(
@@ -98,8 +115,10 @@ class AnthropicAdapter:
         }
         if sys_prompt:
             body["system"] = sys_prompt
+        extra, effort = pop_reasoning_effort(extra)
         if extra:
             body.update(extra)
+        self._apply_reasoning(body, think, effort)
 
         url = f"{self._base_url}/v1/messages"
         try:
@@ -149,8 +168,10 @@ class AnthropicAdapter:
         }
         if sys_prompt:
             body["system"] = sys_prompt
+        extra, effort = pop_reasoning_effort(extra)
         if extra:
             body.update(extra)
+        self._apply_reasoning(body, think, effort)
 
         url = f"{self._base_url}/v1/messages"
         pt = ct = 0

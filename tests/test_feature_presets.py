@@ -81,6 +81,18 @@ def test_use_marks_active_per_action():
     assert c.post("/v1/ai/feature-presets/nope/use").status_code == 404
 
 
+def test_preset_roundtrips_reasoning_and_topp():
+    # a1/E2 + #22: a preset persists the reasoning level + top_p, so Save→Apply is
+    # lossless (both were silently dropped before).
+    c = _client(FakeStore())
+    body = c.post("/v1/ai/feature-presets", json={
+        "action": "writerAI.tighten", "name": "R",
+        "think": True, "reasoningEffort": "high", "topP": 0.9,
+    }).json()
+    p = body["presets"][0]
+    assert p["reasoningEffort"] == "high" and p["topP"] == 0.9 and p["think"] is True
+
+
 def test_update_preserves_action_and_active():
     c = _client(FakeStore())
     pid = c.post("/v1/ai/feature-presets", json={"action": "chat", "name": "A"}).json()["presets"][0]["id"]

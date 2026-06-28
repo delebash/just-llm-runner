@@ -288,7 +288,10 @@ const columnConfig = computed({
     return {
       pin: pin(selAction.value),
       temperature: d.temperature, topP: d.topP, maxTokens: d.maxTokens,
-      think: d.think, jsonMode: d.jsonMode, samplers: samplerRows.value,
+      // think (bool) + reasoningEffort (level) collapse into ONE select: think on
+      // with no stored level shows as "medium" (the default level).
+      reasoningEffort: d.think ? (d.reasoningEffort || "medium") : "",
+      jsonMode: d.jsonMode, samplers: samplerRows.value,
     };
   },
   set(v) {
@@ -296,7 +299,8 @@ const columnConfig = computed({
       draft.value.temperature = v.temperature;
       draft.value.topP = v.topP;
       draft.value.maxTokens = v.maxTokens;
-      draft.value.think = v.think;
+      draft.value.reasoningEffort = v.reasoningEffort || "";
+      draft.value.think = !!v.reasoningEffort;   // reasoning on when an effort is picked
       draft.value.jsonMode = v.jsonMode;
     }
     samplerRows.value = v.samplers || [];
@@ -326,6 +330,8 @@ function snapshot(name) {
     system: draft.value?.system || "", userTemplate: draft.value?.userTemplate || "",
     temperature: draft.value?.temperature === "" || draft.value?.temperature == null ? null : Number(draft.value.temperature),
     think: !!draft.value?.think,
+    topP: draft.value?.topP === "" || draft.value?.topP == null ? null : Number(draft.value.topP),
+    reasoningEffort: draft.value?.reasoningEffort || "",
   };
 }
 function startNaming() {
@@ -347,6 +353,7 @@ function applyPreset(id) {
   if (!p) return;
   draft.value.system = p.system; draft.value.userTemplate = p.userTemplate;
   draft.value.temperature = p.temperature; draft.value.think = p.think;
+  draft.value.topP = p.topP; draft.value.reasoningEffort = p.reasoningEffort || "";
   const pins = routing.value.pins || (routing.value.pins = {});
   if (p.providerId) pins[selAction.value] = { providerId: p.providerId, model: p.model || "" };
   else delete pins[selAction.value];
@@ -369,6 +376,7 @@ async function applyToLive() {
         maxTokens: Number(draft.value.maxTokens) || 0,
         jsonMode: !!draft.value.jsonMode,
         topP: draft.value.topP === "" || draft.value.topP == null ? null : Number(draft.value.topP),
+        reasoningEffort: draft.value.reasoningEffort || "",
       },
     });
     // Persist the action's long-tail samplers alongside its prompt.

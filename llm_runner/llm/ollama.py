@@ -18,7 +18,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse, StreamDelta
+from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning_effort
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +82,13 @@ class OllamaAdapter:
             else:
                 opts[k] = v
 
+    @staticmethod
+    def _apply_reasoning(body: dict, think: bool, effort: str) -> None:
+        """Ollama's `think` takes a bool OR a level string (low/medium/high/max) —
+        so the effort maps straight through. think off → omit (model default)."""
+        if think:
+            body["think"] = effort if effort in ("low", "medium", "high", "max") else True
+
     def chat(
         self,
         messages: list[LLMMessage],
@@ -101,11 +108,9 @@ class OllamaAdapter:
         }
         if max_tokens is not None:
             body["options"]["num_predict"] = max_tokens
-        # think: true → emit reasoning blocks on reasoning models.
-        # No-op for non-reasoning models so passing it always is safe.
-        if think:
-            body["think"] = True
+        extra, effort = pop_reasoning_effort(extra)
         self._apply_extra(body, extra)
+        self._apply_reasoning(body, think, effort)
 
         url = f"{self._base_url}/api/chat"
         try:
@@ -148,9 +153,9 @@ class OllamaAdapter:
         }
         if max_tokens is not None:
             body["options"]["num_predict"] = max_tokens
-        if think:
-            body["think"] = True
+        extra, effort = pop_reasoning_effort(extra)
         self._apply_extra(body, extra)
+        self._apply_reasoning(body, think, effort)
 
         url = f"{self._base_url}/api/chat"
         pt = ct = 0

@@ -178,6 +178,24 @@ def test_run_applies_adhoc_samplers():
     assert adapter.last["extra"]["min_p"] == 0.05     # float-coerced
 
 
+def test_run_threads_reasoning_effort_into_extra():
+    # a1/E2: with reasoning on, the level rides in extra under the reserved key
+    # (each real adapter pops + maps it); json_mode forces reasoning off (B3), so
+    # the level is NOT added then.
+    c, adapter = _feature_client(MemPromptStore())
+    c.post("/v1/ai/run", json={
+        "action": "greet", "variables": {"name": "x", "role": "y"},
+        "think": True, "reasoningEffort": "high",
+    })
+    assert adapter.last["extra"]["reasoning_effort"] == "high"
+    # json_mode on → reasoning gated off → no level threaded.
+    c.post("/v1/ai/run", json={
+        "action": "greet", "variables": {"name": "x", "role": "y"},
+        "think": True, "reasoningEffort": "high", "jsonMode": True,
+    })
+    assert "reasoning_effort" not in (adapter.last["extra"] or {})
+
+
 def test_run_unknown_action_404():
     c, _ = _feature_client(MemPromptStore())
     assert c.post("/v1/ai/run", json={"action": "nope"}).status_code == 404

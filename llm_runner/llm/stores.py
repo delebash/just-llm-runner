@@ -165,6 +165,7 @@ def _preset_to_wire(r: db.FeaturePreset) -> FeaturePreset:
         id=r.id, action=r.action, name=r.name, active=r.is_active,
         providerId=r.provider_id, model=r.model, system=r.system,
         userTemplate=r.user_template, temperature=r.temperature, think=r.think,
+        topP=r.top_p, reasoningEffort=r.reasoning_effort,
     )
 
 
@@ -177,6 +178,8 @@ def _apply_preset(row: db.FeaturePreset, p: FeaturePreset) -> None:
     row.user_template = p.userTemplate
     row.temperature = p.temperature
     row.think = p.think
+    row.top_p = p.topP
+    row.reasoning_effort = p.reasoningEffort
 
 
 class FeaturePresetStore:
@@ -233,6 +236,7 @@ def _prompt_to_row(r: db.FeaturePrompt) -> FeaturePromptRow:
         key=r.key, feature=r.feature, system=r.system, user_template=r.user_template,
         temperature=r.temperature, think=r.think, built_in=r.built_in,
         max_tokens=r.max_tokens, json_mode=r.json_mode, top_p=r.top_p,
+        reasoning_effort=r.reasoning_effort,
         label=r.label, description=r.description, group=r.subgroup,
     )
 
@@ -262,6 +266,7 @@ class PromptStore:
                     key=row.key, feature=row.feature, system=row.system, user_template=row.user_template,
                     temperature=row.temperature, think=row.think, built_in=row.built_in,
                     max_tokens=row.max_tokens, json_mode=row.json_mode, top_p=row.top_p,
+                    reasoning_effort=row.reasoning_effort,
                     label=row.label, description=row.description, subgroup=row.group,
                 ))
             else:
@@ -273,6 +278,7 @@ class PromptStore:
                 existing.max_tokens = row.max_tokens
                 existing.json_mode = row.json_mode
                 existing.top_p = row.top_p
+                existing.reasoning_effort = row.reasoning_effort
                 existing.label = row.label
                 existing.description = row.description
                 existing.subgroup = row.group

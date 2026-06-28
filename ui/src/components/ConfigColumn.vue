@@ -21,6 +21,16 @@ import LuModelPicker from "./LuModelPicker.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiInput from "../common/components/UiInput.vue";
+import UiSelect from "../common/components/UiSelect.vue";
+
+// Reasoning-effort (a1/E2): Off = no reasoning; Low/Med/High map to each provider's
+// native control server-side. JSON mode forces it off (B3) regardless of this pick.
+const REASONING_OPTIONS = [
+  { value: "", label: "Off" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+];
 
 const props = defineProps({
   action: { type: String, default: "" },
@@ -62,7 +72,8 @@ function buildBody() {
     action: props.action,
     variables: { ...(props.vars || {}) },
     temperature: c.temperature === "" || c.temperature == null ? null : Number(c.temperature),
-    think: !!c.think,
+    think: !!c.reasoningEffort,                 // reasoning on when an effort is picked
+    reasoningEffort: c.reasoningEffort || "",   // the level → native control server-side
     maxTokens: Number(c.maxTokens) || 0,
     jsonMode: !!c.jsonMode,
     topP: c.topP === "" || c.topP == null ? null : Number(c.topP),
@@ -153,7 +164,9 @@ defineExpose({ run, cancel });
         <UiInput :model-value="modelValue?.topP" type="number" @update:model-value="patch('topP', $event)" /></div>
       <div class="cc-field cc-num"><label>Max tok <span class="lu-muted">0=none</span></label>
         <UiInput :model-value="modelValue?.maxTokens" type="number" @update:model-value="patch('maxTokens', $event)" /></div>
-      <label class="cc-chk"><UiCheckbox :model-value="modelValue?.think" @update:model-value="patch('think', $event)" /><span class="lu-muted">Think</span></label>
+      <div class="cc-field cc-reason"><label>Reasoning</label>
+        <UiSelect :model-value="modelValue?.reasoningEffort || ''" :options="REASONING_OPTIONS"
+          @update:model-value="patch('reasoningEffort', $event)" /></div>
       <label class="cc-chk"><UiCheckbox :model-value="modelValue?.jsonMode" @update:model-value="patch('jsonMode', $event)" /><span class="lu-muted">JSON</span></label>
     </div>
 
@@ -191,6 +204,7 @@ defineExpose({ run, cancel });
 .cc-field > label { font-size: 12px; color: var(--muted); }
 .cc-params { display: flex; gap: 14px 18px; align-items: flex-end; flex-wrap: wrap; }
 .cc-num { max-width: 92px; }
+.cc-reason { max-width: 120px; }
 .cc-chk { display: flex; align-items: center; gap: 7px; }
 .cc-eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
 .cc-samplers-body { margin-top: 8px; }

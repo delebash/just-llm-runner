@@ -407,6 +407,7 @@ def seed_default_feature_prompts(s) -> int:
             user_template=str(spec.get("user_template") or ""), temperature=float(spec.get("temperature", 0.7)),
             think=bool(spec.get("think", False)), built_in=True, max_tokens=int(spec.get("max_tokens", 0) or 0),
             json_mode=bool(spec.get("json_mode", False)), top_p=spec.get("top_p"),
+            reasoning_effort=str(spec.get("reasoning_effort", "") or ""),
             label=str(spec.get("label") or ""), description=str(spec.get("description") or ""),
             subgroup=str(spec.get("group") or ""),
         ))

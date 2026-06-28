@@ -40,6 +40,8 @@ class FeaturePreset(BaseModel):
     userTemplate: str = ""
     temperature: float | None = None
     think: bool = False
+    topP: float | None = None         # nucleus sampling (#22)
+    reasoningEffort: str = ""          # "" | low | medium | high (a1/E2)
 
 
 class FeaturePresetStore(Protocol):

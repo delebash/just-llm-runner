@@ -49,6 +49,17 @@ class StreamDelta:
     completion_tokens: int = 0
 
 
+def pop_reasoning_effort(extra: dict[str, Any] | None) -> tuple[dict[str, Any] | None, str]:
+    """Split the reserved ``reasoning_effort`` level out of a per-call ``extra``
+    dict (a1/E2). Returns ``(extra_without_it, effort)`` — a COPY, so the level
+    never leaks into a backend body verbatim; each adapter then maps the effort to
+    its own native reasoning control. ``effort`` is "" when absent."""
+    if not extra:
+        return extra, ""
+    e = dict(extra)
+    return e, (e.pop("reasoning_effort", "") or "")
+
+
 @runtime_checkable
 class LLMAdapter(Protocol):
     """The contract every LLM provider adapter satisfies."""

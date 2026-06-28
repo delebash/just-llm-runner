@@ -19,7 +19,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse, StreamDelta
+from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning_effort
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +121,20 @@ class GeminiAdapter:
             elif k in cls._GEN_KEYS:
                 gc[cls._GEN_KEYS[k]] = v
 
+    # Effort → Gemini thinkingBudget (0=off, range 128–32768 on 2.5). Verified
+    # against the Gemini thinking docs (2026-06-28), not recalled.
+    _THINK_BUDGET = {"low": 2048, "medium": 8192, "high": 24576}
+
+    @classmethod
+    def _apply_reasoning(cls, payload: dict, think: bool, effort: str) -> None:
+        """Gemini thinking (a1/E2): generationConfig.thinkingConfig.thinkingBudget.
+        Only set when reasoning is on, so a model that defaults to no-thinking is
+        untouched when off (and 3.x's thinkingLevel path is left for a later pass)."""
+        if not think:
+            return
+        gc = payload.setdefault("generationConfig", {})
+        gc["thinkingConfig"] = {"thinkingBudget": cls._THINK_BUDGET.get(effort, 8192)}
+
     def chat(
         self,
         messages: list[LLMMessage],
@@ -136,7 +150,9 @@ class GeminiAdapter:
         payload = self._build_payload(
             messages, system, temperature=temperature, max_tokens=max_tokens
         )
+        extra, effort = pop_reasoning_effort(extra)
         self._apply_extra(payload, extra)
+        self._apply_reasoning(payload, think, effort)
 
         url = f"{self._base_url}/v1beta/models/{model_id}:generateContent"
         try:
@@ -175,7 +191,9 @@ class GeminiAdapter:
         payload = self._build_payload(
             messages, system, temperature=temperature, max_tokens=max_tokens
         )
+        extra, effort = pop_reasoning_effort(extra)
         self._apply_extra(payload, extra)
+        self._apply_reasoning(payload, think, effort)
 
         url = f"{self._base_url}/v1beta/models/{model_id}:streamGenerateContent"
         params = {**self._params(), "alt": "sse"}

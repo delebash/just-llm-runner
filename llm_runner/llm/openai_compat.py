@@ -16,7 +16,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse, StreamDelta
+from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning_effort
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +100,21 @@ class OpenAICompatAdapter:
             out.append({"role": m.role, "content": m.content})
         return out
 
+    # Servers that take HF-style per-request `chat_template_kwargs.enable_thinking`
+    # (local llama.cpp + generic compat) vs OpenAI-family clouds that take the
+    # `reasoning_effort` body param. Verified 2026-06-28.
+    _LOCAL_TYPES = {"local-llamacpp", "openai-compat"}
+
+    def _apply_reasoning(self, body: dict, think: bool, effort: str) -> None:
+        """Map reasoning to this server's native control (a1/E2). think off →
+        nothing (the model's default)."""
+        if not think:
+            return
+        if self.provider_type in self._LOCAL_TYPES:
+            body.setdefault("chat_template_kwargs", {})["enable_thinking"] = True
+        else:
+            body["reasoning_effort"] = effort or "medium"
+
     def chat(
         self,
         messages: list[LLMMessage],
@@ -118,8 +133,10 @@ class OpenAICompatAdapter:
         }
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
+        extra, effort = pop_reasoning_effort(extra)
         if extra:
             body.update(extra)
+        self._apply_reasoning(body, think, effort)
 
         url = f"{self._base_url}/chat/completions"
         try:
@@ -168,8 +185,10 @@ class OpenAICompatAdapter:
         }
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
+        extra, effort = pop_reasoning_effort(extra)
         if extra:
             body.update(extra)
+        self._apply_reasoning(body, think, effort)
 
         url = f"{self._base_url}/chat/completions"
         pt = ct = 0

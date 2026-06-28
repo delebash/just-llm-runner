@@ -55,6 +55,7 @@ class FeaturePromptRow:
     max_tokens: int = 0  # 0 → no cap (the model's own default)
     json_mode: bool = False  # response_format=json_object (#18)
     top_p: float | None = None  # nucleus sampling (#22); None → provider default
+    reasoning_effort: str = ""  # "" | low | medium | high (a1/E2); the level when think is on
     label: str = ""
     description: str = ""
     group: str = ""
@@ -102,6 +103,7 @@ class PromptOut(BaseModel):
     maxTokens: int = 0
     jsonMode: bool = False
     topP: float | None = None
+    reasoningEffort: str = ""
     label: str = ""
     description: str = ""
     group: str = ""
@@ -124,6 +126,7 @@ class PromptUpdate(BaseModel):
     maxTokens: int = 0
     jsonMode: bool = False
     topP: float | None = None
+    reasoningEffort: str = ""
     label: str = ""
     description: str = ""
     group: str = ""
@@ -141,6 +144,7 @@ def _out(r: FeaturePromptRow) -> PromptOut:
         maxTokens=r.max_tokens,
         jsonMode=r.json_mode,
         topP=r.top_p,
+        reasoningEffort=r.reasoning_effort,
         label=r.label,
         description=r.description,
         group=r.group,
@@ -191,6 +195,7 @@ def make_prompt_router(
             max_tokens=body.maxTokens,
             json_mode=body.jsonMode,
             top_p=body.topP,
+            reasoning_effort=body.reasoningEffort,
             label=label,
             description=description,
             group=group,
@@ -214,6 +219,7 @@ def make_prompt_router(
             max_tokens=int(default.get("max_tokens", 0) or 0),
             json_mode=bool(default.get("json_mode", False)),
             top_p=default.get("top_p"),
+            reasoning_effort=str(default.get("reasoning_effort") or ""),
             label=str(default.get("label") or ""),
             description=str(default.get("description") or ""),
             group=str(default.get("group") or ""),
@@ -245,6 +251,9 @@ class RunRequest(BaseModel):
     # output (JSON) + nucleus sampling. (#18 / #22)
     jsonMode: bool | None = None
     topP: float | None = None
+    # Reasoning-effort override (a1/E2): "" | low | medium | high; None → the
+    # action's stored level. Applied only when reasoning is effectively on.
+    reasoningEffort: str | None = None
     # Optional ad-hoc long-tail samplers for a Lab column (Compare / Workbench
     # test): [{flagName, flagValue}] applied to THIS call only — not saved —
     # overriding the action's stored feature_sampler_params. Lets a column vary
@@ -316,6 +325,15 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest) -> dict | None:
         val = _parse_sampler_value(row.flagValue)
         if val is not None and row.flagName not in extra:
             extra[row.flagName] = val
+    # Reasoning-effort LEVEL (a1/E2) — carried under the reserved `reasoning_effort`
+    # key, which each adapter pops + maps to its backend's native reasoning control
+    # (Anthropic budget_tokens / Gemini thinkingBudget / OpenAI reasoning_effort /
+    # llama.cpp chat_template_kwargs / Ollama think-level). ONLY when reasoning is
+    # effectively on (B3: think gated off under json_mode), so it never corrupts JSON.
+    if _effective_think(spec, body):
+        effort = (body.reasoningEffort if body.reasoningEffort is not None else spec.reasoning_effort) or ""
+        if effort:
+            extra["reasoning_effort"] = effort
     return extra or None
 
 

@@ -12,12 +12,14 @@ that RESTORES built-ins while KEEPING user rows, and ModelCatalogStore.set_type
 from __future__ import annotations
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from llm_runner.llm import db, seed, stores
-from llm_runner.llm.model_catalog_api import CatalogRow
+from llm_runner.llm import db, seed, stores, switch_resolve
+from llm_runner.llm.model_catalog_api import CatalogRow, make_catalog_router
 from llm_runner.llm.recommendations_api import RecommendationRow
 from llm_runner.llm.routing_api import FeatureCatalogEntry
 
@@ -161,3 +163,24 @@ def test_catalog_reset_to_factory(wired):
     ids = {r.id for r in store.list()}
     assert victim.id in ids        # built-in restored
     assert "extra" in ids          # user-added catalog row preserved
+
+
+# ── resolved-switches GET (the #20 model-card grid pre-fill) ──────────────────
+
+def test_resolved_switches_endpoint(wired):
+    app = FastAPI()
+    app.include_router(make_catalog_router(
+        stores.get_model_catalog_store, resolve_switches=switch_resolve.resolve_model_switches,
+    ))
+    client = TestClient(app)
+
+    # A seeded dense model resolves to its layered base switch defaults — the
+    # model-card "Tune & measure" grid pre-fills from this read-only view.
+    r = client.get("/v1/ai/model-catalog/switches", params={"modelId": "gemma-4-12b-q4_k_m"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["modelId"] == "gemma-4-12b-q4_k_m"
+    names = {s["flagName"] for s in body["switches"]}
+    assert {"flash_attn", "cache_type_k", "cache_type_v", "mlock"} <= names  # the base preset
+    # Empty modelId → 400 (not a silent empty resolve).
+    assert client.get("/v1/ai/model-catalog/switches", params={"modelId": ""}).status_code == 400

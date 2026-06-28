@@ -126,6 +126,28 @@ def test_load_uses_model_base_without_job(tmp_path):
     assert captured["ov"].ctx_len == 4096
 
 
+def test_load_applies_adhoc_switches(tmp_path):
+    # #20 "Tune & measure": ad-hoc switches passed to load() win over the model
+    # base, and an unknown key routes to extra_flags (same converter as stored
+    # switches). No job_id → model base from switches_fn.
+    captured = {}
+
+    def fake_start(*a, **k):
+        captured["ov"] = k.get("overrides")
+        return _fake_runner()
+
+    svc = _service_for(
+        tmp_path, start=fake_start,
+        switches_fn=lambda mid: {"ctx_len": "4096"},  # model base
+    )
+    svc.load(_TEST_MODEL.id, switches={"ctx_len": "16384", "--top-n-sigma": "2"})
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert captured["ov"].ctx_len == 16384                  # ad-hoc beats the base
+    assert "--top-n-sigma" in captured["ov"].extra_flags    # unknown → passthrough
+    assert "2" in captured["ov"].extra_flags
+
+
 def test_load_survives_identify_failure(tmp_path):
     # Type auto-detect is advisory — a failure must NOT fail the load.
     def boom(mid, path):

@@ -14,6 +14,7 @@ import { computed, onUnmounted, ref } from "vue";
 
 import { request } from "../client.js";
 import AppModal from "../common/components/AppModal.vue";
+import KnobGrid from "./KnobGrid.vue";
 import LuSwitchPresets from "./LuSwitchPresets.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
@@ -30,6 +31,24 @@ let timer = null;
 const models = computed(() => data.value?.models || []);
 const vramMb = computed(() => data.value?.vramMb || 0);
 const anyLoading = computed(() => models.value.some((m) => m.status === "loading"));
+
+// Knob-catalog metadata (C1) — labels/typed inputs for the Tune & measure grid.
+// Plane-1 (engine switches) only; mirrors RoutingByJob's switchCatalog.
+const knobCatalog = ref([]);
+const switchCatalog = computed(() =>
+  Object.fromEntries(
+    knobCatalog.value
+      .filter((k) => k.plane === 1)
+      .map((k) => [k.flagName, { label: k.label, help: k.help, options: k.options?.length ? k.options : undefined }]),
+  ),
+);
+async function loadKnobCatalog() {
+  try {
+    knobCatalog.value = (await request("/v1/ai/knob-catalog")).knobs || [];
+  } catch {
+    knobCatalog.value = []; // enrichment only — raw rows still work
+  }
+}
 
 const FIT_LABEL = { ok: "Fits", tight: "Tight", no: "Won't fit", cpu: "CPU", unknown: "—" };
 const gb = (mb) => (mb >= 10240 ? `${Math.round(mb / 1024)}` : `${(mb / 1024).toFixed(1)}`);
@@ -102,6 +121,93 @@ async function unload() {
     error.value = e.message || "Unload failed.";
   } finally {
     busy.value = "";
+  }
+}
+
+// ── Tune & measure (#20) ─
+// Load the model with ad-hoc Plane-1 engine flags + probe decode tok/s on this
+// box. The grid pre-fills from the model's RESOLVED switch defaults (show the
+// truth) and tweaks flow through POST /load { switches } → the same server-side
+// converter stored switches use. Measure-only: per D9 engine switches live on a
+// Profile (Routing by job), so there's no per-model save here.
+const tuning = ref(null);        // null | the model being tuned
+const tuneRows = ref([]);        // KnobGrid rows [{ name, value }]
+const tunePhase = ref("");       // "" | loading | measuring | done | error
+const tuneDetail = ref("");      // live load detail
+const tuneResult = ref(null);    // { tokensPerSec, completionTokens, ms, vramTotalMb, ramTotalMb }
+const tuneErr = ref("");
+const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value === "measuring");
+
+async function fetchResolved(id) {
+  const r = await request(`/v1/ai/model-catalog/switches?modelId=${encodeURIComponent(id)}`);
+  return (r.switches || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue }));
+}
+async function startTune(m) {
+  tuning.value = m;
+  tuneRows.value = [];
+  tuneResult.value = null;
+  tuneErr.value = "";
+  tunePhase.value = "";
+  tuneDetail.value = "";
+  try {
+    tuneRows.value = await fetchResolved(m.id);
+  } catch {
+    tuneRows.value = []; // pre-fill is an enrichment; tuning still works empty
+  }
+}
+function cancelTune() {
+  tuning.value = null;
+}
+async function resetTuneSwitches() {
+  if (!tuning.value) return;
+  try {
+    tuneRows.value = await fetchResolved(tuning.value.id);
+  } catch (e) {
+    tuneErr.value = e.message || "Couldn't reset to defaults.";
+  }
+}
+function rowsToSwitches(rows) {
+  const out = {};
+  for (const r of rows || []) {
+    const name = (r.name || "").trim();
+    if (name) out[name] = r.value ?? "";
+  }
+  return out;
+}
+async function pollUntilSettled(maxMs = 180000) {
+  const start = Date.now();
+  for (;;) {
+    const st = await request("/v1/llm-runner/status");
+    if (st.status === "running") return st;
+    if (st.status === "error") throw new Error(st.error || "Load failed.");
+    tuneDetail.value = st.detail || st.status || "";
+    if (Date.now() - start > maxMs) throw new Error("Timed out waiting for the model to load.");
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+}
+async function runMeasure() {
+  tuneErr.value = "";
+  tuneResult.value = null;
+  tunePhase.value = "loading";
+  tuneDetail.value = "preparing";
+  try {
+    // Respawn cleanly with the requested flags (one model runs at a time).
+    await request("/v1/llm-runner/stop", { method: "POST" }).catch(() => {});
+    await request("/v1/llm-runner/load", {
+      method: "POST",
+      body: { modelId: tuning.value.id, switches: rowsToSwitches(tuneRows.value) },
+    });
+    await pollUntilSettled();
+    tunePhase.value = "measuring";
+    const res = await request("/v1/llm-runner/measure", { method: "POST" });
+    if (!res.ok) throw new Error(res.error || "Measurement failed.");
+    tuneResult.value = res;
+    tunePhase.value = "done";
+  } catch (e) {
+    tuneErr.value = e.message || "Measurement failed.";
+    tunePhase.value = "error";
+  } finally {
+    refresh(); // sync the table's load status
   }
 }
 
@@ -180,6 +286,7 @@ async function resetCatalog() {
 }
 
 refresh();
+loadKnobCatalog();
 onUnmounted(stopPoll);
 </script>
 
@@ -218,6 +325,8 @@ onUnmounted(stopPoll);
             <td class="lu-mact">
               <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
               <UiButton intent="ghost" size="small" title="Remove from catalog" :loading="busy === m.id" @click="deleteModel(m)">Delete</UiButton>
+              <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
+                title="Tune engine flags &amp; measure decode speed" @click="startTune(m)">Tune</UiButton>
               <UiButton v-if="m.status === 'loaded'" intent="secondary" size="small"
                 :loading="busy === 'stop'" @click="unload">Unload</UiButton>
               <span v-else-if="m.status === 'loading'" class="lu-muted lu-mwait">working…</span>
@@ -268,6 +377,48 @@ onUnmounted(stopPoll);
         <UiButton intent="ghost" @click="cancelEdit">Cancel</UiButton>
         <span class="lu-mm-spacer" />
         <UiButton intent="primary" :loading="saving" @click="saveModel">{{ editingNew ? "Add model" : "Save" }}</UiButton>
+      </template>
+    </AppModal>
+
+    <!-- Tune & measure (#20): load with ad-hoc Plane-1 flags + probe tok/s.
+         Measure-only — engine switches persist on a Profile (Routing by job). -->
+    <AppModal v-if="tuning" :title="`Tune & measure — ${tuning.name || tuning.id}`"
+      :max-width="'560px'" @close="cancelTune">
+      <div class="lu-tune">
+        <p class="lu-muted lu-tune-lede">
+          Load this model with custom engine flags and measure decode speed on your hardware.
+          Flags are pre-filled from the model's defaults — tweak, then measure.
+        </p>
+
+        <KnobGrid v-model="tuneRows" :catalog="switchCatalog" />
+        <UiButton intent="ghost" size="small" @click="resetTuneSwitches">Reset to model default</UiButton>
+
+        <div class="lu-tune-note lu-muted">
+          These flags are for measuring. To keep a fast config, set it on a job in
+          <b>Routing by job</b> — engine switches live on a Profile, not per model.
+        </div>
+
+        <div v-if="tunePhase === 'loading'" class="lu-tune-status">Loading… {{ tuneDetail }}</div>
+        <div v-else-if="tunePhase === 'measuring'" class="lu-tune-status">Measuring decode speed…</div>
+
+        <div v-if="tuneResult" class="lu-tune-result">
+          <div class="lu-tune-tps"><b>{{ tuneResult.tokensPerSec }}</b> tok/s</div>
+          <div class="lu-tune-meta">
+            {{ tuneResult.completionTokens }} tokens · {{ tuneResult.ms }} ms<template
+              v-if="tuneResult.vramTotalMb"> · VRAM {{ gb(tuneResult.vramTotalMb) }} GB</template><template
+              v-if="tuneResult.ramTotalMb"> · RAM {{ gb(tuneResult.ramTotalMb) }} GB</template>
+          </div>
+          <div v-if="!tuneResult.vramTotalMb" class="lu-muted lu-tune-cpu">No GPU detected — measured on CPU.</div>
+        </div>
+
+        <div v-if="tuneErr" class="lu-error">{{ tuneErr }}</div>
+      </div>
+      <template #footer>
+        <UiButton intent="ghost" @click="cancelTune">Close</UiButton>
+        <span class="lu-mm-spacer" />
+        <UiButton intent="primary" :loading="tuneBusy" @click="runMeasure">
+          {{ tuneResult ? "Measure again" : "Load & measure" }}
+        </UiButton>
       </template>
     </AppModal>
   </div>
@@ -322,4 +473,15 @@ onUnmounted(stopPoll);
 .lu-mm-l .lu-muted { font-weight: 400; }
 .lu-mm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .lu-mm-spacer { flex: 1; }
+
+/* Tune & measure modal (#20). */
+.lu-tune { display: flex; flex-direction: column; gap: 12px; }
+.lu-tune-lede { font-size: 12px; margin: 0; }
+.lu-tune-note { font-size: 11px; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); }
+.lu-tune-status { font-size: 12.5px; color: var(--ink-2); }
+.lu-tune-result { padding: 12px 14px; background: var(--accent-soft); border: 1px solid var(--accent-line, var(--accent)); border-radius: var(--r-sm, 8px); }
+.lu-tune-tps { font-size: 13px; color: var(--ink-2); }
+.lu-tune-tps b { font-size: 22px; color: var(--accent-ink, var(--accent)); font-weight: 800; }
+.lu-tune-meta { font-size: 11.5px; color: var(--ink-2); margin-top: 3px; }
+.lu-tune-cpu { font-size: 11px; margin-top: 3px; }
 </style>

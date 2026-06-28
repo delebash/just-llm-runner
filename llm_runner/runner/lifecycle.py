@@ -210,13 +210,16 @@ class RunnerService:
             self._state.update(status="error", error="llama-server exited")
         return dict(self._state)
 
-    def load(self, model_id: str, overrides: Overrides | None = None, job_id: str | None = None) -> dict:
+    def load(
+        self, model_id: str, overrides: Overrides | None = None,
+        job_id: str | None = None, switches: dict[str, str] | None = None,
+    ) -> dict:
         with self._lock:
             if self._state["status"] in ("downloading", "starting"):
                 return dict(self._state)  # a load is already in flight
             self._state = {"status": "downloading", "modelId": model_id, "url": "", "detail": "queued", "error": ""}
             self._thread = threading.Thread(
-                target=self._run_load, args=(model_id, overrides or Overrides(), job_id), daemon=True,
+                target=self._run_load, args=(model_id, overrides or Overrides(), job_id, switches), daemon=True,
             )
             self._thread.start()
         return dict(self._state)
@@ -265,7 +268,10 @@ class RunnerService:
             raise FileNotFoundError(f"no .gguf for quant {quant!r} in {snapshot_dir}")
         return cands[0]  # first shard of a split model loads the rest
 
-    def _run_load(self, model_id: str, overrides: Overrides | None = None, job_id: str | None = None) -> None:
+    def _run_load(
+        self, model_id: str, overrides: Overrides | None = None,
+        job_id: str | None = None, switches: dict[str, str] | None = None,
+    ) -> None:
         try:
             config = self._config_fn()
             hardware = self._hardware_fn()
@@ -284,6 +290,11 @@ class RunnerService:
                 base_switches = self._switches_fn(model_id) or {}
             base_ov = _switches_to_overrides(base_switches)
             ov = _merge_overrides(base_ov, overrides)
+            # Ad-hoc #20 "Tune & measure" switches win last (over named-field
+            # overrides AND the model/profile base) — the same converter, so an
+            # unknown key still routes to extra_flags.
+            if switches:
+                ov = _merge_overrides(ov, _switches_to_overrides(switches))
 
             self._state.update(status="downloading", detail="llama.cpp binary")
             server_exe = self._acquire_binary(self._cache_root, config, hardware)

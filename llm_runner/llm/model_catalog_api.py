@@ -52,6 +52,21 @@ class CatalogResponse(BaseModel):
     rows: list[CatalogRow]
 
 
+class ResolvedSwitch(BaseModel):
+    """One resolved engine switch for a model (read-only): the layered
+    base→type→mtp default the runner would launch with. `flagName`/`flagValue`
+    match the JobSwitchRow shape so the model-card KnobGrid (#20 Tune & measure)
+    pre-fills from the same wire shape as the Profile editor."""
+
+    flagName: str
+    flagValue: str = ""
+
+
+class ResolvedSwitchesResponse(BaseModel):
+    modelId: str
+    switches: list[ResolvedSwitch]
+
+
 class ModelCatalogStore(Protocol):
     """Persistence boundary the host implements over its own storage."""
 
@@ -61,8 +76,16 @@ class ModelCatalogStore(Protocol):
     def reset_to_factory(self) -> None: ...
 
 
-def make_catalog_router(get_store: Callable[[], ModelCatalogStore]) -> APIRouter:
-    """CRUD + reset for the per-model llama.cpp catalog."""
+def make_catalog_router(
+    get_store: Callable[[], ModelCatalogStore],
+    *,
+    resolve_switches: Callable[[str], dict[str, str]] | None = None,
+) -> APIRouter:
+    """CRUD + reset for the per-model llama.cpp catalog. When
+    `resolve_switches(model_id) -> {flag_name: value}` is given, also expose
+    GET /model-catalog/switches (the model's resolved engine-flag default, so the
+    #20 model-card KnobGrid shows the real launch flags before tuning — read-only;
+    persisting tuned flags is a Profile concern, not per-model, per D9)."""
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     def _list() -> CatalogResponse:
@@ -91,5 +114,16 @@ def make_catalog_router(get_store: Callable[[], ModelCatalogStore]) -> APIRouter
     async def reset_catalog() -> CatalogResponse:
         get_store().reset_to_factory()
         return _list()
+
+    if resolve_switches is not None:
+        @router.get("/model-catalog/switches", response_model=ResolvedSwitchesResponse)
+        async def resolved_switches(modelId: str) -> ResolvedSwitchesResponse:
+            if not modelId.strip():
+                raise HTTPException(status_code=400, detail="modelId is required")
+            merged = resolve_switches(modelId) or {}
+            return ResolvedSwitchesResponse(
+                modelId=modelId,
+                switches=[ResolvedSwitch(flagName=k, flagValue=str(v)) for k, v in merged.items()],
+            )
 
     return router

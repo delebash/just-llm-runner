@@ -76,7 +76,9 @@ def install_llm(
     app.include_router(make_quality_router(
         stores.get_model_catalog_store, stores.get_recommendation_store, detect_fn=_detect_hardware,
     ))
-    app.include_router(make_catalog_router(stores.get_model_catalog_store))
+    app.include_router(make_catalog_router(
+        stores.get_model_catalog_store, resolve_switches=switch_resolve.resolve_model_switches,
+    ))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
     app.include_router(make_job_switches_router(
         stores.get_job_route_switch_store, prefill=switch_resolve.prefill_job_switches

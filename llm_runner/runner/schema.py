@@ -181,3 +181,10 @@ class LoadRequest(CamelModel):
     spec_type: str | None = None
     spec_n_max: int | None = None
     extra_flags: list[str] = []
+    # Ad-hoc Plane-1 switches for #20 "Tune & measure" (the model-card KnobGrid):
+    # a {flag_name: value} map converted server-side by the SAME
+    # lifecycle._switches_to_overrides used for stored switches (unknown keys →
+    # extra_flags), layered LAST — over the named fields above AND the model base.
+    # Per-model switches have no persistent home (D9: switches live on Profiles),
+    # so these are transient tuning inputs, not saved.
+    switches: dict[str, str] | None = None

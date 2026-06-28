@@ -1,4 +1,11 @@
-# MASTER PLAN — LLM stack + JustWrite — THE single source of truth (2026-06-27)
+> ⛔ **SUPERSEDED 2026-06-28 by `2026-06-28-MASTER-PLAN.md`.** This 196-line version was a TRUNCATED summary: it
+> claimed "everything is in here, in full detail" but dropped the detail (the decided Compare layout, the §8
+> sampler body, the §6.1 layer diagram, …) — and we built the wrong things from it. The 2026-06-28 rebuild
+> CARRIES the full detail folded verbatim from the curated source docs, with a COMPLETENESS check (not the
+> accuracy check that missed the truncation four times). **Plan from the 2026-06-28 master.** This file is kept
+> only as the prior reference — and because PART B of the new master carries this file's Part 1–4 verbatim.
+
+# MASTER PLAN — LLM stack + JustWrite — (2026-06-27) [SUPERSEDED — see 2026-06-28-MASTER-PLAN.md]
 
 > **This is the ONE master plan. Everything is in here, in full detail — what + why, ✅ completed and
 > ⬜ outstanding. There are NO secondary plan docs to chase: every other plan doc is SUPERSEDED and

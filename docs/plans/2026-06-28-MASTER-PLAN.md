@@ -5417,6 +5417,19 @@ Router-vs-spawn (+hybrid: router-serve + #19-spawn-for-switch-tuning) = USER's c
 ## DECIDED — not to build / superseded (no work)
 §6.6: switches edited in the lab (NOT in Providers), **via the shared `KnobGrid` key/value editor — D15 REVISED the earlier "freeform string" (B-audit: the master had kept the stale "freeform string" wording; `KnobGrid` is shipped, `RoutingByJob.vue:268`)**; **#20 separate tuning UI → folded into the lab.** **#32** Locations↔Objects convergence → **dropped** (NOTE: a separate #32 "audit shared-vs-app" task also exists — reconcile which #32 the user means). VRAM fit math stays per-domain (only the "fits" badge is shared). App/UI prefs stay a simple store (not relational). Roles→jobs end-to-end. Connection-profiles/instruct-templates/CFG/beam/Author's-Note → design-reference only.
 
+**No-hardcoding F-items — DECIDED 2026-06-28 (accept as reference/heuristic, NOT operator settings → no DB move):**
+- **`openai_compat.PROVIDER_DEFAULTS`** (per-provider-TYPE base_url/default_model fallback) is NOT a harmful dup of
+  the seed's `DEFAULT_PROVIDERS` (per-INSTANCE rows): different layers — the adapter fallback fires only when a
+  provider row has an EMPTY base_url (a user-made provider), while the seed sets the initial rows' base_url.
+  Making the stateless dispatch adapter read the DB seed would couple the wrong layers. **KEEP as-is** (already
+  commented as a fallback). The B-audit "adapter should read the seed" note is rejected on the merits.
+- **`pricing.py` `MODEL_PRICING`** = shared vendor reference rates for the usage ledger (per its module
+  docstring), not a per-install operator knob. **KEEP** (a DB table + UI is marginal value; rates are global +
+  change rarely). Move later only if operators need per-install overrides.
+- **`tiers.py`** model→tier maps + `confidence_floor` + per-tier `think` = an engine heuristic, not an operator
+  setting. **KEEP** as a code heuristic (the no-hardcoding rule targets operator-tunable values; these are
+  internal classification defaults). Revisit only if it must become user-editable.
+
 ## DEFERRED-until-needed
 P2.5 incremental per-scene writes; full per-entity write REST; RAG sqlite-vec ANN; IDB→SQLite import; drop dead `idb-keyval`; boot/splash UX for spawn; dead Tauri `images_save` cleanup. P5 extract kit `common/` → `@delebash/ui`; llama-swap optional layer; Tauri/package rename PR (track, don't churn).
 

@@ -4,9 +4,14 @@ feature-execution router (all over an in-memory PromptStore)."""
 
 from __future__ import annotations
 
+import pytest
+import sqlalchemy as sa
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from llm_runner.llm import db
 from llm_runner.llm import (
     FeaturePromptRow,
     LLMConfig,
@@ -17,6 +22,18 @@ from llm_runner.llm import (
     make_prompt_router,
     render,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_storage():
+    # The /run path lazily reads feature_sampler_params via db.session(); without a
+    # configured store these tests fail in ISOLATION (they passed only because
+    # another test configured the global storage first). Per-test in-memory DB.
+    engine = sa.create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    db.LlmBase.metadata.create_all(engine)
+    db.configure_storage(sessionmaker(bind=engine))
+    yield
+
 
 # ── a host store + seed defaults, in memory ─────────────────────────────────
 DEFAULTS = {

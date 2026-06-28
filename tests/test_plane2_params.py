@@ -12,6 +12,16 @@ from llm_runner.llm import db
 from llm_runner.llm.prompts import FeaturePromptRow, RunRequest, _plane2_extra
 
 
+@pytest.fixture(autouse=True)
+def _isolated_storage():
+    # _plane2_extra reads feature_sampler_params via db.session(); configure a
+    # per-test in-memory store so these pass in ISOLATION, not just in-suite.
+    engine = sa.create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    db.LlmBase.metadata.create_all(engine)
+    db.configure_storage(sessionmaker(bind=engine))
+    yield
+
+
 def _spec(**kw):
     base = dict(key="k", feature="f", system="", user_template="", temperature=0.7, think=False, built_in=False)
     base.update(kw)

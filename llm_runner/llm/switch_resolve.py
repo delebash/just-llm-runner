@@ -9,8 +9,9 @@ Layer order (later wins), per §6.5:
     base preset  →  the model's TYPE preset (moe | dense)  →  the mtp preset
     (applied ONLY if `mtp` AND `type != "moe"`, so a MoE+MTP model like the
     35B-A3B-MTP keeps the moe preset's `spec_type=none` instead of draft-mtp)  →
-    per-model override (`model_switches`, the rare exception)  →  per-hardware
-    (`hardware_switches`, the persistent per-machine tune).
+    per-hardware (`hardware_switches`, the persistent per-machine tune).
+    (Per-model overrides — `model_switches` — were DROPPED per the D9 ruling:
+    switches belong to the Profile/job [`job_route_switches`], not per-model.)
 
 The per-JOB and per-FEATURE override layers are deliberately NOT applied here:
 they are passed to `POST /v1/llm-runner/load` as explicit `overrides` by the
@@ -54,9 +55,6 @@ def resolve_model_switches(model_id: str, hw_key: str = "") -> dict[str, str]:
         _apply(mtype)                      # the model's type preset (moe | dense)
         if is_mtp and mtype != "moe":      # mtp preset; the moe preset's spec:none wins (§6.5)
             _apply("mtp")
-        # per-model override (the rare instance-specific exception)
-        for r in s.query(db.ModelSwitch).filter(db.ModelSwitch.model_id == model_id).all():
-            merged[r.flag_name] = r.flag_value
         # per-hardware (the persistent per-machine tune)
         if hw_key:
             for r in s.query(db.HardwareSwitch).filter(db.HardwareSwitch.hw_key == hw_key).all():

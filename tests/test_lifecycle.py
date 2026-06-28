@@ -17,12 +17,19 @@ def _fake_runner(url="http://127.0.0.1:8080"):
     return SimpleNamespace(url=url, is_alive=lambda: True, stop=lambda: None)
 
 
-def _service_for(tmp_path, *, start=None, gguf_quant=None, identify_fn=None):
+def _service_for(tmp_path, *, start=None, gguf_quant=None, identify_fn=None,
+                 switches_fn=None, profile_switches_fn=None):
     quant = gguf_quant or _TEST_MODEL.quant
     snap = tmp_path / "snap"
     snap.mkdir()
     (snap / f"model-{quant}.gguf").write_bytes(b"x" * 1024)
-    kw = {"identify_fn": identify_fn} if identify_fn is not None else {}
+    kw = {}
+    if identify_fn is not None:
+        kw["identify_fn"] = identify_fn
+    if switches_fn is not None:
+        kw["switches_fn"] = switches_fn
+    if profile_switches_fn is not None:
+        kw["profile_switches_fn"] = profile_switches_fn
     return RunnerService(
         tmp_path,
         catalog_fn=lambda: [_TEST_MODEL],
@@ -79,6 +86,44 @@ def test_load_calls_identify_fn(tmp_path):
     svc._thread.join(timeout=5)
     assert svc.status()["status"] == "running"
     assert seen == [_TEST_MODEL.id]
+
+
+def test_load_applies_profile_switches_for_job(tmp_path):
+    # D9 load-reader: with a job_id, the Profile's frozen switches REPLACE the
+    # model-level base (the Profile wins wholesale).
+    captured = {}
+
+    def fake_start(*a, **k):
+        captured["ov"] = k.get("overrides")
+        return _fake_runner()
+
+    svc = _service_for(
+        tmp_path, start=fake_start,
+        switches_fn=lambda mid: {"ctx_len": "4096"},           # model base
+        profile_switches_fn=lambda jid: {"ctx_len": "32768"},  # the Profile wins
+    )
+    svc.load(_TEST_MODEL.id, job_id="analysis")
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert captured["ov"].ctx_len == 32768
+
+
+def test_load_uses_model_base_without_job(tmp_path):
+    # No job_id → the model-level switches apply (profile reader untouched).
+    captured = {}
+
+    def fake_start(*a, **k):
+        captured["ov"] = k.get("overrides")
+        return _fake_runner()
+
+    svc = _service_for(
+        tmp_path, start=fake_start,
+        switches_fn=lambda mid: {"ctx_len": "4096"},
+        profile_switches_fn=lambda jid: {"ctx_len": "32768"},
+    )
+    svc.load(_TEST_MODEL.id)  # no job_id
+    svc._thread.join(timeout=5)
+    assert captured["ov"].ctx_len == 4096
 
 
 def test_load_survives_identify_failure(tmp_path):

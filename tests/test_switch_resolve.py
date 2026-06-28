@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Layered switch resolver (design §6.5) — the model-level merge:
 base preset → type preset (moe|dense) → mtp preset (only if mtp and not moe) →
-per-model override → per-hardware. Pure data/logic; no GPU needed."""
+per-hardware. (Per-model overrides were dropped per D9.) Plus the Profile-level
+resolver (job_route_switches + hardware). Pure data/logic; no GPU needed."""
 
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
@@ -46,21 +47,10 @@ def test_dense_mtp_model_gets_draft_mtp(configured):
 
 def test_plain_dense_model_base_only(configured):
     # 9B dense, no mtp → base preset only, no spec flags.
-    sw = switch_resolve.resolve_model_switches("qwen3.5-9b-q4_k_s")
+    sw = switch_resolve.resolve_model_switches("qwen3.5-9b-q4_k_m")
     assert sw["flash_attn"] == "on"
     assert sw["mlock"] == "true"
     assert "spec_type" not in sw
-
-
-def test_per_model_override_wins(configured):
-    # A per-model ModelSwitch row overrides the preset layer for that model.
-    s = db.session()
-    s.add(db.ModelSwitch(model_id="qwen3.5-9b-q4_k_s", flag_name="ctx_len", flag_value="8192"))
-    s.commit()
-    s.close()
-    sw = switch_resolve.resolve_model_switches("qwen3.5-9b-q4_k_s")
-    assert sw["ctx_len"] == "8192"
-    assert sw["flash_attn"] == "on"  # base still present
 
 
 def test_unknown_model_empty(configured):

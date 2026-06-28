@@ -19,7 +19,7 @@ from .feature_presets_api import FeaturePreset
 from .feature_samplers_api import FeatureSamplerRow
 from .job_switches_api import JobSwitchRow
 from .jobs_api import FeatureJobRow, JobRow
-from .model_catalog_api import CatalogRow, SwitchRow
+from .model_catalog_api import CatalogRow
 from .prompts import FeaturePromptRow
 from .switch_presets_api import PresetSwitchRow, SwitchPresetRow
 from .recommendations_api import RecommendationRow
@@ -386,10 +386,6 @@ def _catalog_to_wire(r: db.ModelCatalog) -> CatalogRow:
     )
 
 
-def _switch_to_wire(r: db.ModelSwitch) -> SwitchRow:
-    return SwitchRow(modelId=r.model_id, flagName=r.flag_name, flagValue=r.flag_value, builtIn=r.built_in)
-
-
 class ModelCatalogStore:
     def list(self) -> list[CatalogRow]:
         s = db.session()
@@ -460,53 +456,6 @@ class ModelCatalogStore:
             existing.type = model_type
             s.commit()
             return True
-        finally:
-            s.close()
-
-
-class ModelSwitchStore:
-    def list(self) -> list[SwitchRow]:
-        s = db.session()
-        try:
-            return [_switch_to_wire(r) for r in s.query(db.ModelSwitch).order_by(db.ModelSwitch.model_id, db.ModelSwitch.flag_name).all()]
-        finally:
-            s.close()
-
-    def upsert(self, row: SwitchRow) -> SwitchRow:
-        s = db.session()
-        try:
-            existing = s.get(db.ModelSwitch, (row.modelId, row.flagName))
-            if existing is None:
-                existing = db.ModelSwitch(model_id=row.modelId, flag_name=row.flagName)
-                s.add(existing)
-            existing.flag_value = row.flagValue
-            existing.built_in = False
-            s.commit()
-            return _switch_to_wire(existing)
-        finally:
-            s.close()
-
-    def delete(self, model_id: str, flag_name: str) -> None:
-        s = db.session()
-        try:
-            existing = s.get(db.ModelSwitch, (model_id, flag_name))
-            if existing is not None:
-                s.delete(existing)
-                s.commit()
-        finally:
-            s.close()
-
-    def reset_to_factory(self) -> None:
-        from . import seed
-        s = db.session()
-        try:
-            for mid, fname in {(x["model_id"], x["flag_name"]) for x in seed.DEFAULT_SWITCHES}:
-                row = s.get(db.ModelSwitch, (mid, fname))
-                if row is not None:
-                    s.delete(row)
-            s.flush()
-            seed.seed_default_switches(s)
-            s.commit()
         finally:
             s.close()
 
@@ -773,7 +722,6 @@ _feature_preset = FeaturePresetStore()
 _prompt = PromptStore()
 _recommendation = RecommendationStore()
 _model_catalog = ModelCatalogStore()
-_model_switch = ModelSwitchStore()
 _switch_preset = SwitchPresetStore()
 _job = JobStore()
 _feature_job = FeatureJobStore()
@@ -788,7 +736,6 @@ def get_feature_preset_store() -> FeaturePresetStore: return _feature_preset
 def get_prompt_store() -> PromptStore: return _prompt
 def get_recommendation_store() -> RecommendationStore: return _recommendation
 def get_model_catalog_store() -> ModelCatalogStore: return _model_catalog
-def get_model_switch_store() -> ModelSwitchStore: return _model_switch
 def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
 def get_job_store() -> JobStore: return _job
 def get_feature_job_store() -> FeatureJobStore: return _feature_job

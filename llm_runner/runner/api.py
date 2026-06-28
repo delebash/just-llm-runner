@@ -154,7 +154,7 @@ async def load_model(body: LoadRequest) -> dict:
         spec_type=body.spec_type, spec_n_max=body.spec_n_max,
         extra_flags=list(body.extra_flags or []),
     )
-    return get_service().load(body.model_id, overrides=overrides)
+    return get_service().load(body.model_id, overrides=overrides, job_id=body.job_id)
 
 
 @router.get("/v1/llm-runner/status", summary="Current load/run status")

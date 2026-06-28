@@ -155,6 +155,11 @@ class LoadRequest(CamelModel):
     (modelId, nGpuLayers, cacheTypeK, …); maps 1:1 to runner.process.Overrides."""
 
     model_id: str
+    # Optional Profile context: when set, the runner applies that job's frozen
+    # switches (job_route_switches, resolved by resolve_profile_switches) as the
+    # base, instead of the model-level type-default pre-fill. The per-job live
+    # apply at scale is router-mode (#27); this is the single-load reader.
+    job_id: str | None = None
     # Fit knobs.
     n_gpu_layers: int | None = None
     n_cpu_moe: int | None = None

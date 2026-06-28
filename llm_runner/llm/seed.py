@@ -118,11 +118,9 @@ DEFAULT_CATALOG: list[dict] = [
      "min_vram_mb": 1000, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 10},
 ]
 
-# Per-model switch overrides — EMPTY by default now: the MoE (spec:none/no_mmap)
-# and MTP (draft-mtp) rules moved to the capability/type presets below (§6.5), so
-# they live ONCE and any new MoE/MTP model inherits them via its `type`/`mtp`.
-# `model_switches` remains the RARE per-model exception (user-added).
-DEFAULT_SWITCHES: list[dict] = []
+# (Per-model switch overrides — the `model_switches` table — were DROPPED per the
+# D9 ruling: switches belong to the Profile/job [`job_route_switches`], and the
+# MoE/MTP rules live ONCE on the type presets below.)
 
 # Capability/type switch presets — the switch BASE layer (design §6.5), the
 # seeded-editable replacement for the hardcoded runner-manifest `flagPresets`,
@@ -270,18 +268,6 @@ def seed_default_catalog(s) -> int:
     return added
 
 
-def seed_default_switches(s) -> int:
-    existing = {(r.model_id, r.flag_name) for r in s.query(db.ModelSwitch.model_id, db.ModelSwitch.flag_name).all()}
-    added = 0
-    for x in DEFAULT_SWITCHES:
-        if (x["model_id"], x["flag_name"]) in existing:
-            continue
-        s.add(db.ModelSwitch(model_id=x["model_id"], flag_name=x["flag_name"],
-                             flag_value=str(x.get("flag_value") or ""), built_in=True))
-        added += 1
-    return added
-
-
 def seed_default_switch_presets(s) -> int:
     """Seed the capability/type switch presets (base/moe/mtp) + their flag rows.
     Flushes each preset before its FK child rows (host session is autoflush=False
@@ -423,7 +409,6 @@ def seed_llm(s=None) -> None:
         seed_default_providers(s)
         seed_default_routing(s)
         seed_default_catalog(s)
-        seed_default_switches(s)
         seed_default_switch_presets(s)
         seed_default_recommendations(s)
         seed_default_runner_binaries(s)

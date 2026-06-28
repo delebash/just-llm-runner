@@ -43,6 +43,11 @@ def _default_identify_fn(model_id: str, gguf_path) -> None:  # noqa: ARG001
     return None
 
 
+def _default_profile_switches_fn(job_id: str) -> dict[str, str]:  # noqa: ARG001
+    """Standalone default: no host store wired → no Profile (job) switches."""
+    return {}
+
+
 # Set of `Overrides` field names — used to validate switch keys at apply time
 # (a stored flag_name not in this set is silently dropped, not a crash).
 _OVERRIDE_FIELDS = {f.name for f in _dc_fields(Overrides)}
@@ -130,6 +135,7 @@ class RunnerService:
         hardware_fn=_detect,
         catalog_fn=_default_catalog_fn,
         switches_fn=_default_switches_fn,
+        profile_switches_fn=_default_profile_switches_fn,
         identify_fn=_default_identify_fn,
         acquire_binary=_acquire_binary,
         acquire_model=_acquire_model,
@@ -141,6 +147,7 @@ class RunnerService:
         self._hardware_fn = hardware_fn
         self._catalog_fn = catalog_fn
         self._switches_fn = switches_fn
+        self._profile_switches_fn = profile_switches_fn
         self._identify_fn = identify_fn
         self._acquire_binary = acquire_binary
         self._acquire_model = acquire_model
@@ -175,13 +182,13 @@ class RunnerService:
             self._state.update(status="error", error="llama-server exited")
         return dict(self._state)
 
-    def load(self, model_id: str, overrides: Overrides | None = None) -> dict:
+    def load(self, model_id: str, overrides: Overrides | None = None, job_id: str | None = None) -> dict:
         with self._lock:
             if self._state["status"] in ("downloading", "starting"):
                 return dict(self._state)  # a load is already in flight
             self._state = {"status": "downloading", "modelId": model_id, "url": "", "detail": "queued", "error": ""}
             self._thread = threading.Thread(
-                target=self._run_load, args=(model_id, overrides or Overrides()), daemon=True,
+                target=self._run_load, args=(model_id, overrides or Overrides(), job_id), daemon=True,
             )
             self._thread.start()
         return dict(self._state)
@@ -207,7 +214,7 @@ class RunnerService:
             raise FileNotFoundError(f"no .gguf for quant {quant!r} in {snapshot_dir}")
         return cands[0]  # first shard of a split model loads the rest
 
-    def _run_load(self, model_id: str, overrides: Overrides | None = None) -> None:
+    def _run_load(self, model_id: str, overrides: Overrides | None = None, job_id: str | None = None) -> None:
         try:
             config = self._config_fn()
             hardware = self._hardware_fn()
@@ -216,9 +223,15 @@ class RunnerService:
             if model is None:
                 raise ValueError(f"unknown model {model_id!r}")
 
-            # Catalog-default switches layer UNDER user-supplied overrides
-            # (user wins per-field). base_ov carries the DB base/moe/mtp presets.
-            base_ov = _switches_to_overrides(self._switches_fn(model_id) or {})
+            # Switch base, UNDER user-supplied overrides (user wins per-field).
+            # A Profile (job) context wins wholesale: its frozen-flat
+            # job_route_switches (pre-filled from the model's type-default, then
+            # tuned) REPLACE the model-level pre-fill. Empty/no job → the model
+            # base/moe/mtp presets (resolve_model_switches).
+            base_switches = self._profile_switches_fn(job_id) if job_id else {}
+            if not base_switches:
+                base_switches = self._switches_fn(model_id) or {}
+            base_ov = _switches_to_overrides(base_switches)
             ov = _merge_overrides(base_ov, overrides)
 
             self._state.update(status="downloading", detail="llama.cpp binary")
@@ -256,6 +269,7 @@ def configure_service(
     *,
     catalog_fn=None,
     switches_fn=None,
+    profile_switches_fn=None,
     identify_fn=None,
     config_fn=None,
     hardware_fn=None,
@@ -271,6 +285,8 @@ def configure_service(
         kwargs["catalog_fn"] = catalog_fn
     if switches_fn is not None:
         kwargs["switches_fn"] = switches_fn
+    if profile_switches_fn is not None:
+        kwargs["profile_switches_fn"] = profile_switches_fn
     if identify_fn is not None:
         kwargs["identify_fn"] = identify_fn
     if config_fn is not None:

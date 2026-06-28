@@ -97,20 +97,6 @@ class ModelCatalog(LlmBase):
     position = Column(Integer, nullable=False, default=0)
 
 
-class ModelSwitch(LlmBase):
-    """Per-model llama.cpp spawn-flag override (variable-cardinality child of
-    `model_catalog`). PK (model_id, flag_name); maps 1:1 to `process.Overrides`."""
-
-    __tablename__ = "model_switches"
-
-    model_id = Column(
-        String, ForeignKey("model_catalog.id", ondelete="CASCADE"), primary_key=True
-    )
-    flag_name = Column(String, primary_key=True)
-    flag_value = Column(Text, nullable=False, default="")
-    built_in = Column(Boolean, nullable=False, default=False)
-
-
 # ── capability/type switch presets (the switch BASE layer; replaces the
 #    hardcoded runner-manifest `flagPresets`) — design §6.5 ──────────────────────
 class SwitchPreset(LlmBase):
@@ -231,26 +217,6 @@ class JobRouteSwitch(LlmBase):
         ForeignKeyConstraint(
             ["config_id", "job_id"],
             ["job_routes.config_id", "job_routes.job_id"],
-            ondelete="CASCADE",
-        ),
-    )
-
-
-class PinSwitch(LlmBase):
-    """A rare per-(config, feature) spawn-flag override — the per-feature fine-tune
-    (Routing-by-feature). CASCADE FK to the `routing_pins` row it tunes."""
-
-    __tablename__ = "pin_switches"
-
-    config_id = Column(String, primary_key=True)
-    feature = Column(String, primary_key=True)
-    flag_name = Column(String, primary_key=True)
-    flag_value = Column(Text, nullable=False, default="")
-    built_in = Column(Boolean, nullable=False, default=False)
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["config_id", "feature"],
-            ["routing_pins.config_id", "routing_pins.feature"],
             ondelete="CASCADE",
         ),
     )

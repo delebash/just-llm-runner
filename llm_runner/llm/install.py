@@ -24,7 +24,7 @@ from .feature_samplers_api import make_feature_samplers_router
 from .job_switches_api import make_job_switches_router
 from .jobs_api import make_feature_jobs_router, make_jobs_router
 from .knob_catalog_api import make_knob_catalog_router
-from .model_catalog_api import make_catalog_router, make_switches_router
+from .model_catalog_api import make_catalog_router
 from .prompts import make_feature_router, make_prompt_router
 from .provider_api import make_provider_router
 from .quality_api import make_quality_router
@@ -76,7 +76,6 @@ def install_llm(
         stores.get_model_catalog_store, stores.get_recommendation_store, detect_fn=_detect_hardware,
     ))
     app.include_router(make_catalog_router(stores.get_model_catalog_store))
-    app.include_router(make_switches_router(stores.get_model_switch_store))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
     app.include_router(make_job_switches_router(
         stores.get_job_route_switch_store, prefill=switch_resolve.prefill_job_switches
@@ -115,6 +114,13 @@ def _wire_runner_catalog() -> None:
 
         return resolve_model_switches(model_id)
 
+    def profile_switches_fn(job_id: str):
+        # A Profile's frozen switches (job_route_switches), the D9 survivor — read
+        # at load when the runner is given a job context (the load-path reader).
+        from .switch_resolve import resolve_profile_switches
+
+        return resolve_profile_switches(job_id)
+
     def identify_fn(model_id: str, gguf_path):
         # After a model downloads, read its GGUF header → set model_catalog.type
         # (moe|dense) from expert_count, so a user-added model's switch presets are
@@ -124,6 +130,6 @@ def _wire_runner_catalog() -> None:
         detect_and_store_model_type(model_id, gguf_path)
 
     configure_service(
-        catalog_fn=catalog_fn, switches_fn=switches_fn, identify_fn=identify_fn,
-        config_fn=stores.build_runner_config,
+        catalog_fn=catalog_fn, switches_fn=switches_fn, profile_switches_fn=profile_switches_fn,
+        identify_fn=identify_fn, config_fn=stores.build_runner_config,
     )

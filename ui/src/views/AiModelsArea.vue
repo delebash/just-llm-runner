@@ -142,6 +142,7 @@ onMounted(loadAll);
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
       <a :class="{ on: tab === 'jobs' }" @click="tab = 'jobs'">Routing by job</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
+      <a :class="{ on: tab === 'tuning' }" @click="tab = 'tuning'">Tuning</a>
       <a :class="{ on: tab === 'recommendations' }" @click="tab = 'recommendations'">Recommendations</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
       <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
@@ -227,6 +228,12 @@ onMounted(loadAll);
          the per-feature job dropdown). The rare fine-tune surface. ── -->
     <section v-show="tab === 'features'" class="lu-tab">
       <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
+    </section>
+
+    <!-- ── Tuning — the SAME Feature Workbench mounted in multi-column Compare mode,
+         on its own tab (not a toggle inside Routing-by-feature). ── -->
+    <section v-show="tab === 'tuning'" class="lu-tab">
+      <FeatureWorkbench v-if="tab === 'tuning'" mode="tuning" :run-stream="props.runStream" />
     </section>
 
     <!-- ── Recommendations (manual editor over the Q3 layer) ── -->

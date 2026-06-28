@@ -29,6 +29,10 @@ import { request } from "../client.js";
 // around runAiFeatureStream (→ aiTasks); JV will wire its own.
 const props = defineProps({
   runStream: { type: Function, default: null },
+  // "feature" = the per-action editor (Routing by feature, ×1 ConfigColumn);
+  // "tuning" = the multi-column Compare surface (its own Tuning tab, ×N). Same
+  // component, two mount points (RULE #7) — not a copy.
+  mode: { type: String, default: "feature" },
 });
 
 const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, …}
@@ -459,8 +463,9 @@ function buildVars() {
   if (!found.size) vars.user_content = vars.user_content || "";
 }
 
-// ── Compare mode (Decision 23: a MODE inside this surface, not a separate tab) ──
-const compareMode = ref(false);
+// ── Compare surface — driven by the `mode` prop. mode="tuning" → the Tuning tab
+// renders N ConfigColumns (Compare); mode="feature" → the single ×1 editor.
+const compareMode = computed(() => props.mode === "tuning");
 const navCollapsed = ref(false);
 
 // Promote a winning Compare column: run the SAME promote path the ×1 editor uses
@@ -519,9 +524,6 @@ onMounted(load);
             <UiButton v-if="compareMode" intent="ghost" size="small"
               :title="navCollapsed ? 'Show the feature list' : 'Hide the list for full column width'"
               @click="navCollapsed = !navCollapsed">{{ navCollapsed ? '☰ Show list' : '⟨ Collapse list' }}</UiButton>
-            <UiButton :intent="compareMode ? 'primary' : 'secondary'" size="small"
-              title="Compare this action across several model / switch / param configs"
-              @click="compareMode = !compareMode">{{ compareMode ? '✓ Compare mode' : '⊞ Compare' }}</UiButton>
           </div>
 
           <!-- Job classification (this stays in FW — it's a per-feature routing

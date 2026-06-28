@@ -378,6 +378,8 @@ class FeaturePreset(LlmBase):
     user_template = Column(Text, nullable=False, default="")
     temperature = Column(Float, nullable=True)
     think = Column(Boolean, nullable=False, default=False)
+    max_tokens = Column(Integer, nullable=False, default=0)  # 0 → no cap (#18 round-trip)
+    json_mode = Column(Boolean, nullable=False, default=False)  # response_format=json_object (#18)
     top_p = Column(Float, nullable=True)  # nucleus sampling (#22)
     reasoning_effort = Column(String, nullable=False, default="")  # "" | low | medium | high (a1/E2)
 

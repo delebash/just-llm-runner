@@ -81,16 +81,19 @@ def test_use_marks_active_per_action():
     assert c.post("/v1/ai/feature-presets/nope/use").status_code == 404
 
 
-def test_preset_roundtrips_reasoning_and_topp():
-    # a1/E2 + #22: a preset persists the reasoning level + top_p, so Save→Apply is
-    # lossless (both were silently dropped before).
+def test_preset_roundtrips_full_plane2():
+    # a1/E2 + #22 + #18: a preset persists the reasoning level + top_p + maxTokens +
+    # jsonMode, so Save→Apply is lossless (these were silently dropped before — the
+    # 2026-06-28 code-vs-plan audit caught maxTokens/jsonMode still missing).
     c = _client(FakeStore())
     body = c.post("/v1/ai/feature-presets", json={
         "action": "writerAI.tighten", "name": "R",
         "think": True, "reasoningEffort": "high", "topP": 0.9,
+        "maxTokens": 1024, "jsonMode": True,
     }).json()
     p = body["presets"][0]
     assert p["reasoningEffort"] == "high" and p["topP"] == 0.9 and p["think"] is True
+    assert p["maxTokens"] == 1024 and p["jsonMode"] is True
 
 
 def test_update_preserves_action_and_active():

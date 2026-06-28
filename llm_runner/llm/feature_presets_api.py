@@ -40,6 +40,8 @@ class FeaturePreset(BaseModel):
     userTemplate: str = ""
     temperature: float | None = None
     think: bool = False
+    maxTokens: int = 0                 # 0 → no cap (#18 — preset must carry it to round-trip)
+    jsonMode: bool = False             # response_format=json_object (#18)
     topP: float | None = None         # nucleus sampling (#22)
     reasoningEffort: str = ""          # "" | low | medium | high (a1/E2)
 

@@ -341,6 +341,8 @@ function snapshot(name, cfg) {
     system: c.system || "", userTemplate: c.userTemplate || "",
     temperature: c.temperature === "" || c.temperature == null ? null : Number(c.temperature),
     think: !!c.reasoningEffort,
+    maxTokens: Number(c.maxTokens) || 0,
+    jsonMode: !!c.jsonMode,
     topP: c.topP === "" || c.topP == null ? null : Number(c.topP),
     reasoningEffort: c.reasoningEffort || "",
   };
@@ -356,6 +358,7 @@ function applyPreset(id) {
   if (!p) return;
   draft.value.system = p.system; draft.value.userTemplate = p.userTemplate;
   draft.value.temperature = p.temperature; draft.value.think = p.think;
+  draft.value.maxTokens = p.maxTokens; draft.value.jsonMode = p.jsonMode;
   draft.value.topP = p.topP; draft.value.reasoningEffort = p.reasoningEffort || "";
   const pins = routing.value.pins || (routing.value.pins = {});
   if (p.providerId) pins[selAction.value] = { providerId: p.providerId, model: p.model || "" };

@@ -165,6 +165,7 @@ def _preset_to_wire(r: db.FeaturePreset) -> FeaturePreset:
         id=r.id, action=r.action, name=r.name, active=r.is_active,
         providerId=r.provider_id, model=r.model, system=r.system,
         userTemplate=r.user_template, temperature=r.temperature, think=r.think,
+        maxTokens=r.max_tokens, jsonMode=r.json_mode,
         topP=r.top_p, reasoningEffort=r.reasoning_effort,
     )
 
@@ -178,6 +179,8 @@ def _apply_preset(row: db.FeaturePreset, p: FeaturePreset) -> None:
     row.user_template = p.userTemplate
     row.temperature = p.temperature
     row.think = p.think
+    row.max_tokens = p.maxTokens
+    row.json_mode = p.jsonMode
     row.top_p = p.topP
     row.reasoning_effort = p.reasoningEffort
 

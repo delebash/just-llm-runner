@@ -97,6 +97,8 @@ function presetToConfig(p, base) {
     system: p.system ?? base.system,
     userTemplate: p.userTemplate ?? base.userTemplate,
     temperature: p.temperature ?? base.temperature,
+    maxTokens: p.maxTokens ?? base.maxTokens,
+    jsonMode: p.jsonMode ?? base.jsonMode,
     topP: p.topP ?? base.topP,
     reasoningEffort: p.reasoningEffort || "",
   };

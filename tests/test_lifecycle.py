@@ -137,6 +137,28 @@ def test_load_survives_identify_failure(tmp_path):
     assert svc.status()["status"] == "running"
 
 
+def test_measure_probes_running_model(tmp_path):
+    # #20 measure: probe the running model → tok/s + resource context (probe injected).
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    out = svc.measure(
+        probe=lambda url, p, n: (256, 2000.0),  # 256 tokens in 2.0s → 128 tok/s
+        sample=lambda: {"vramTotalMb": 8000, "ramTotalMb": 32000},
+    )
+    assert out["ok"] is True
+    assert out["tokensPerSec"] == 128.0
+    assert out["completionTokens"] == 256
+    assert out["vramTotalMb"] == 8000 and out["ramTotalMb"] == 32000
+
+
+def test_measure_requires_running_model(tmp_path):
+    svc = _service_for(tmp_path)  # never loaded → idle
+    out = svc.measure(probe=lambda *a: (1, 1.0), sample=dict)
+    assert out["ok"] is False and "no model running" in out["error"]
+
+
 def test_dead_process_flips_to_error(tmp_path):
     dead = SimpleNamespace(url="http://127.0.0.1:8080", is_alive=lambda: False, stop=lambda: None)
     svc = _service_for(tmp_path, start=lambda *a, **k: dead)

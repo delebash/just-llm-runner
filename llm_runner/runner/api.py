@@ -165,3 +165,10 @@ async def runner_status() -> dict:
 @router.post("/v1/llm-runner/stop", summary="Stop the running model")
 async def stop_model() -> dict:
     return get_service().stop()
+
+
+@router.post("/v1/llm-runner/measure", summary="Probe the running model → decode tok/s + resource context")
+async def measure_model(prompt: str = "Write one vivid paragraph about the sea.", max_tokens: int = 128) -> dict:
+    """#20 'Tune & measure': run a fixed probe against the loaded model and return
+    decode tok/s + the box's VRAM/RAM context. Requires a model running."""
+    return get_service().measure(prompt=prompt, max_tokens=max_tokens)

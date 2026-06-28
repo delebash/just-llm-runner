@@ -14,7 +14,10 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from pathlib import Path
+
+import requests
 
 from dataclasses import fields as _dc_fields
 
@@ -46,6 +49,31 @@ def _default_identify_fn(model_id: str, gguf_path) -> None:  # noqa: ARG001
 def _default_profile_switches_fn(job_id: str) -> dict[str, str]:  # noqa: ARG001
     """Standalone default: no host store wired → no Profile (job) switches."""
     return {}
+
+
+def _default_measure_probe(url: str, prompt: str, max_tokens: int) -> tuple[int, float]:
+    """POST a fixed prompt to the running llama-server → (completion_tokens,
+    decode_ms). A real network call to the live model — injected in tests."""
+    t0 = time.monotonic()
+    resp = requests.post(
+        url.rstrip("/") + "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "stream": False},
+        timeout=120,
+    )
+    ms = (time.monotonic() - t0) * 1000
+    resp.raise_for_status()
+    usage = (resp.json() or {}).get("usage") or {}
+    return int(usage.get("completion_tokens") or 0), ms
+
+
+def _default_measure_sample() -> dict:
+    """The box's resource context (TOTALS, from hardware detect). Per-process USED
+    VRAM/RAM is a GPU-box refinement — inject a richer sampler there."""
+    hw = _detect()
+    return {
+        "vramTotalMb": max((g.vram_mb or 0 for g in hw.gpus), default=0),
+        "ramTotalMb": hw.ram_mb,
+    }
 
 
 # Set of `Overrides` field names — used to validate switch keys at apply time
@@ -203,6 +231,29 @@ class RunnerService:
                 self._runner = None
             self._state = _idle()
         return dict(self._state)
+
+    def measure(
+        self, *, prompt: str = "Write one vivid paragraph about the sea.",
+        max_tokens: int = 128, probe=None, sample=None,
+    ) -> dict:
+        """Probe the RUNNING model with a fixed prompt → decode tok/s + the box's
+        resource context (#20 "Tune & measure"). Requires a model running. The real
+        tok/s is GPU-gated, but the endpoint shape + timing math are not — `probe`
+        / `sample` are injected in tests."""
+        runner = self._runner
+        if runner is None or self._state.get("status") != "running":
+            return {"ok": False, "error": "no model running — load one first"}
+        probe = probe or _default_measure_probe
+        sample = sample or _default_measure_sample
+        try:
+            ct, ms = probe(runner.url, prompt, max_tokens)
+        except Exception as exc:  # noqa: BLE001 — surface the probe error, don't crash
+            return {"ok": False, "error": str(exc)}
+        tps = round(ct / (ms / 1000), 1) if ms > 0 and ct else 0.0
+        return {
+            "ok": True, "modelId": self._state.get("modelId", ""),
+            "tokensPerSec": tps, "completionTokens": ct, "ms": round(ms, 1), **sample(),
+        }
 
     # ── internals ─────────────────────────────────────────────────────────
 

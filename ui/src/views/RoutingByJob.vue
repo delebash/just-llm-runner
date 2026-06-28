@@ -20,6 +20,7 @@ import UiTextarea from "../common/components/UiTextarea.vue";
 import UiTable from "../common/components/UiTable.vue";
 import KnobGrid from "../components/KnobGrid.vue";
 import LuModelPicker from "../components/LuModelPicker.vue";
+import LuSwitchPresets from "../components/LuSwitchPresets.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { request } from "../client.js";
 import { useRouting } from "../composables/useRouting.js";
@@ -306,6 +307,18 @@ async function resetJobs() {
           <span class="lu-muted">No jobs — add one above, or "Reset to factory".</span>
         </template>
       </UiTable>
+
+      <!-- Advanced · the global engine type-presets (base / MoE / speculative) that
+           pre-fill a Profile's switches when its model is set (§6.5). Moved here
+           from the Providers tab (§6.6: no switch editing in Providers) — it lives
+           with the per-Profile switches it feeds. Collapsed so the simple routing
+           flow stays uncluttered (most people never open it). -->
+      <details class="lu-rbj-advanced">
+        <summary class="lu-rbj-adv-sum">Advanced · engine type presets
+          <span class="lu-muted">— the base / MoE / speculative flag defaults every model inherits</span>
+        </summary>
+        <div class="lu-rbj-adv-body"><LuSwitchPresets /></div>
+      </details>
     </template>
 
     <!-- Add / edit job modal -->
@@ -370,4 +383,9 @@ async function resetJobs() {
 .lu-rbj-switches { display: flex; flex-direction: column; gap: 8px; padding-top: 4px; border-top: 1px solid var(--border); }
 .lu-rbj-switches-h { font-size: 11.5px; color: var(--ink-2); font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
 .lu-rbj-switches-h .lu-muted { font-weight: 400; font-size: 11px; }
+/* Advanced engine type-presets — collapsed below the jobs table. */
+.lu-rbj-advanced { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); padding: 4px 12px; }
+.lu-rbj-adv-sum { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--ink-2); padding: 8px 2px; }
+.lu-rbj-adv-sum .lu-muted { font-weight: 400; font-size: 11px; }
+.lu-rbj-adv-body { padding: 4px 0 8px; }
 </style>

@@ -15,7 +15,6 @@ import { computed, onUnmounted, ref } from "vue";
 import { request } from "../client.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
-import LuSwitchPresets from "./LuSwitchPresets.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiSelect from "../common/components/UiSelect.vue";
@@ -349,8 +348,9 @@ onUnmounted(stopPoll);
       — the open model hub. One model loads at a time; loading a new one replaces the running one.
     </div>
 
-    <!-- The capability/type switch presets (base/moe/mtp) the resolver layers (§6.5). -->
-    <LuSwitchPresets />
+    <!-- The base/moe/mtp engine type-presets editor moved to Routing-by-job
+         (§6.6: no switch editing in Providers) — it lives with the per-Profile
+         switches it pre-fills. -->
 
     <!-- Add / edit a catalog model. Per-model switch editing moved to the Profile
          (Routing-by-job) — switches are per-Profile now (§6.6). -->

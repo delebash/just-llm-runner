@@ -147,7 +147,11 @@ Nothing else is computed silently.
 >     so the `max-width:180px` did nothing. The cap is the UiSelect **`width` prop** (→ `ui-w-{token}` on the
 >     trigger; tokens in `ui/src/common/styles.css`: token 110 / id 180 / name 280 / url 360 / …). Applied
 >     `width="name"` (280px) + moved the "Use in production" button to sit **next to** the dropdown (before the
->     spacer), per the user. **Pending the user's visual re-check** ("fix it later").
+>     spacer), per the user. **User reviewed (2026-06-29) — dropdown width OK; follow-up tweak:** the
+>     `＋ Save as preset` button was flung to the far right by a `cc-spacer`; the spacer was removed so the
+>     preset-bar actions group on the left — order is now `Preset · dropdown · Use in production · Save as preset ·
+>     🗑 delete` (delete shows only when a saved preset is selected), dead space on the right per the layout
+>     grammar. Verified by screenshot.
 >   - **#5 Samplers + switches grid rework — DONE (2026-06-29).** The add-a-blank-row sampler/switch editors in
 >     `ConfigColumn` are replaced by a **prefilled checklist** built from the seeded `knob_catalog`. Grounded in
 >     the SillyTavern survey (`justwrite-app/docs/plans/2026-06-24-sillytavern-survey.md` §"Minimum useful first

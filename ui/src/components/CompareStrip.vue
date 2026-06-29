@@ -25,7 +25,7 @@ const props = defineProps({
   vars: { type: Object, default: () => ({}) },
   presets: { type: Array, default: () => [] },
 });
-const emit = defineEmits(["promote", "save-as", "delete-preset"]);
+const emit = defineEmits(["save-as", "delete-preset"]);
 
 let nextId = 1;
 const columns = ref([]);          // [{ id, config }]
@@ -89,18 +89,21 @@ function colModelLabel(config) {
   return p?.model || p?.providerId || "inherited";
 }
 
-// ── preset events from a column (the action's shared preset list) ────────────
+// ── load an ENGINE preset into a column (model + switches + params + fit-knobs;
+// NOT the prompt — that's the feature's shared test input) ───────────────────
 function presetToConfig(p, base) {
   return {
     ...base,
-    pin: p.providerId ? { providerId: p.providerId, model: p.model || "" } : null,
-    system: p.system ?? base.system,
-    userTemplate: p.userTemplate ?? base.userTemplate,
+    pin: p.providerId ? { providerId: p.providerId, model: p.model || "" } : base.pin,
     temperature: p.temperature ?? base.temperature,
+    topP: p.topP ?? base.topP,
     maxTokens: p.maxTokens ?? base.maxTokens,
     jsonMode: p.jsonMode ?? base.jsonMode,
-    topP: p.topP ?? base.topP,
     reasoningEffort: p.reasoningEffort || "",
+    nglOverride: p.nglOverride ?? null,
+    nCpuMoeOverride: p.nCpuMoeOverride ?? null,
+    switches: (p.switches || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
+    samplers: (p.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
   };
 }
 function applyPresetTo(col, id) {
@@ -141,7 +144,6 @@ onMounted(() => {
           :label="`Config ${i + 1}`" inherit-label="— pick a model —"
           @result="onResult(col.id, $event)"
           @remove="removeColumn(col.id)"
-          @use-production="emit('promote', col.config)"
           @apply-preset="applyPresetTo(col, $event)"
           @save-as="emit('save-as', $event, col.config)"
           @delete-preset="emit('delete-preset', $event)" />

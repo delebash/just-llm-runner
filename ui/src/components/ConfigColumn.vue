@@ -79,7 +79,7 @@ const props = defineProps({
 });
 const emit = defineEmits([
   "update:modelValue", "result",
-  "save-as", "apply-preset", "use-production", "delete-preset", "remove",
+  "save-as", "apply-preset", "delete-preset", "remove",
 ]);
 
 // ── config patching (v-model) ───────────────────────────────────────────────
@@ -94,7 +94,6 @@ function patchPin(val) {
 const selPreset = ref("");
 const naming = ref(false);
 const newName = ref("");
-const activePreset = computed(() => (props.presets || []).find((p) => p.active) || null);
 function onApplyPreset(id) {
   selPreset.value = id;
   emit("apply-preset", id);
@@ -245,18 +244,18 @@ defineExpose({ run, cancel });
       <UiButton v-if="removable" intent="ghost" size="small" title="Remove column" @click="emit('remove')">✕</UiButton>
     </div>
 
-    <!-- Presets + Promote (SpeakerLab parity) — the parent owns the endpoints -->
+    <!-- Engine-preset bar — load an existing preset into this column, or save the
+         (tested) config as a new preset. The parent owns the /engine-presets calls. -->
     <div class="cc-presets">
       <span class="cc-eyebrow">Preset</span>
       <UiSelect class="cc-presel" :model-value="selPreset"
-        :options="[{ value: '', label: '— current —' }, ...presets.map((p) => ({ value: p.id, label: p.name }))]"
+        :options="[{ value: '', label: '— start fresh —' }, ...presets.map((p) => ({ value: p.id, label: p.name }))]"
         @update:model-value="onApplyPreset" />
       <UiButton v-if="selPreset" intent="ghost" size="small" title="Delete this preset" @click="emit('delete-preset', selPreset)">🗑</UiButton>
+      <span class="cc-spacer" />
       <UiInput v-if="naming" v-model="newName" placeholder="name — Enter" class="cc-name-in"
         @keyup.enter="confirmSaveAs" @keyup.esc="naming = false; newName = ''" />
-      <UiButton v-else intent="secondary" size="small" title="Save this config as a named preset" @click="startNaming">＋ Save as</UiButton>
-      <UiButton intent="primary" size="small" :loading="busy" title="Promote this config to production" @click="emit('use-production')">✓ Use as production</UiButton>
-      <span v-if="activePreset" class="cc-prod" :title="`Production: ${activePreset.name}`">✓ PRODUCTION</span>
+      <UiButton v-else intent="primary" size="small" title="Save this tested config as a reusable preset" @click="startNaming">＋ Save as preset</UiButton>
     </div>
 
     <!-- Model -->
@@ -301,6 +300,16 @@ defineExpose({ run, cancel });
         <UiSelect :model-value="modelValue?.reasoningEffort || ''" :options="REASONING_OPTIONS"
           @update:model-value="patch('reasoningEffort', $event)" /></div>
       <label class="cc-chk"><UiCheckbox :model-value="modelValue?.jsonMode" @update:model-value="patch('jsonMode', $event)" /><span class="lu-muted">JSON</span></label>
+    </div>
+
+    <!-- Hardware fit knobs (Plane-1, load-time): blank = auto-computed for this
+         machine at load; set to pin an override (stored in the preset). -->
+    <div class="cc-params cc-fit">
+      <span class="cc-eyebrow cc-fit-eye">Hardware fit <span class="lu-muted">blank = auto</span></span>
+      <div class="cc-field cc-num"><label>-ngl</label>
+        <UiInput :model-value="modelValue?.nglOverride" type="number" placeholder="auto" @update:model-value="patch('nglOverride', $event)" /></div>
+      <div class="cc-field cc-num"><label>n_cpu_moe</label>
+        <UiInput :model-value="modelValue?.nCpuMoeOverride" type="number" placeholder="auto" @update:model-value="patch('nCpuMoeOverride', $event)" /></div>
     </div>
 
     <!-- Plane-2 long-tail samplers (KnobGrid) -->

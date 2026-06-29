@@ -119,9 +119,16 @@ Nothing else is computed silently.
 >   Lab) and a feature is just prompt + which-preset. `FeatureWorkbench.vue` still carries some
 >   now-dead helpers (the old job/pin/set-all functions); they get cleaned out in the Lab-rework
 >   commit once the tuning surface stops using them.
-> - **Remaining:** the Lab rework (Save-as-preset + the fit-knob row + assign + drop the old
->   bar/promote); setup auto-generating presets per task; the download "use it for ‹task›?" offer
->   + Retune-all; removing the old job switch-editor + the Routing-by-job engine screen.
+> - **Lab — REWORKED + shipped + smoke-verified.** The Tuning tab is now the preset editor: each
+>   column is an engine config (model + switches + **fit-knob row** + params) you **test** (Run),
+>   then **Save as preset**; below the columns an **assignment matrix** sets the **Default** and a
+>   preset **per category**. The old feature-preset bar + promote-to-job are gone from the lab.
+>   `ConfigColumn` + `CompareStrip` now speak engine-presets; `FeatureWorkbench` tuning-mode owns
+>   the `/v1/ai/engine-presets` + `/preset-assignments` calls. (Some now-dead job/pin/feature-preset
+>   helpers remain in `FeatureWorkbench`; they come out in the next cleanup commit.)
+> - **Remaining:** dead-code cleanup in `FeatureWorkbench`; setup auto-generating presets per task;
+>   the download "use it for ‹task›?" offer + Retune-all; removing the old Routing-by-job engine
+>   screen + the job switch-editor.
 
 1. **Data model** — `preset` (model + switches + params + optional fit-knob overrides);
    `category → preset` assignment; `feature → preset` override; the cascade resolver. DB reset

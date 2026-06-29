@@ -163,7 +163,7 @@ function humanizeVar(k) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : k;
 }
 function hasProd(key) {
-  return presets.value.some((p) => p.action === key && p.active);
+  return !!presetAssign.value.features?.[key];  // the feature has its own preset override
 }
 // Split a feature's actions into Writer-Lab-style sub-sections by their `group`.
 function subGroups(actions) {
@@ -310,6 +310,7 @@ const columnConfig = computed({
       // with no stored level shows as "medium" (the default level).
       reasoningEffort: d.think ? (d.reasoningEffort || "medium") : "",
       jsonMode: d.jsonMode, samplers: samplerRows.value,
+      nglOverride: null, nCpuMoeOverride: null,
     };
   },
   set(v) {
@@ -361,10 +362,25 @@ function snapshot(name, cfg) {
     reasoningEffort: c.reasoningEffort || "",
   };
 }
+// Save a tuning column's tested config as an ENGINE preset (model + switches +
+// params + fit-knobs; the prompt is the feature's test input, NOT part of it).
+function cfgToEnginePreset(name, cfg) {
+  const num = (v) => (v === "" || v == null ? null : Number(v));
+  return {
+    name,
+    providerId: cfg.pin?.providerId || "", model: cfg.pin?.model || "",
+    temperature: num(cfg.temperature), topP: num(cfg.topP),
+    maxTokens: Number(cfg.maxTokens) || 0, jsonMode: !!cfg.jsonMode,
+    reasoningEffort: cfg.reasoningEffort || "",
+    nglOverride: num(cfg.nglOverride), nCpuMoeOverride: num(cfg.nCpuMoeOverride),
+    switches: (cfg.switches || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
+    samplers: (cfg.samplers || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
+  };
+}
 async function saveAs(name, cfg) {
-  if (!name) return;
-  presets.value = (await request("/v1/ai/feature-presets", { method: "POST", body: snapshot(name, cfg) })).presets || [];
-  message.value = `Saved "${name}".`;
+  if (!name || !cfg) return;
+  enginePresets.value = (await request("/v1/ai/engine-presets", { method: "POST", body: cfgToEnginePreset(name, cfg) })).presets || [];
+  message.value = `Saved preset "${name}".`;
 }
 function applyPreset(id) {
   if (!id || !draft.value) return;
@@ -381,7 +397,19 @@ function applyPreset(id) {
 }
 async function delPreset(id) {
   if (!id) return;
-  presets.value = (await request(`/v1/ai/feature-presets/${id}`, { method: "DELETE" })).presets || [];
+  enginePresets.value = (await request(`/v1/ai/engine-presets/${id}`, { method: "DELETE" })).presets || [];
+}
+// ── preset assignment (the Lab) — Default + per-category → which preset runs.
+// The category list reuses the existing `categories` nav computed (RULE #7). ──
+const presetSelOptions = computed(() => [
+  { value: "", label: "— none —" },
+  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
+]);
+async function setDefaultPreset(id) {
+  presetAssign.value = await request("/v1/ai/preset-assignments/default", { method: "PUT", body: { presetId: id } });
+}
+async function setCategoryPreset(cat, id) {
+  presetAssign.value = await request("/v1/ai/preset-assignments/category", { method: "PUT", body: { category: cat, presetId: id } });
 }
 // Apply a CONFIG to the LIVE pipeline: the action's prompt + params + samplers +
 // routing pin + (C3) its JOB switches. Default cfg = the ×1 editor; the Compare
@@ -603,8 +631,22 @@ onMounted(load);
             <CompareStrip :key="selAction"
               :action="selAction" :base-config="columnConfig" :providers="providers"
               :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
-              :vars="vars" :presets="actionPresets"
-              @promote="onComparePromote" @save-as="saveAs" @delete-preset="delPreset" />
+              :vars="vars" :presets="enginePresets"
+              @save-as="saveAs" @delete-preset="delPreset" />
+
+            <!-- Assign saved presets — Default + per category. Build them in the
+                 columns above; a single feature can still override in Routing-by-feature. -->
+            <div class="lu-fw-assign">
+              <div class="lu-fw-assign-h"><b>Assign presets</b><span class="lu-muted">which preset each kind of feature runs by default</span></div>
+              <div class="lu-fw-assign-row">
+                <span class="lu-fw-assign-k">Default <span class="lu-muted">— everything, unless overridden</span></span>
+                <UiSelect :model-value="presetAssign.defaultPresetId || ''" :options="presetSelOptions" @update:model-value="setDefaultPreset" />
+              </div>
+              <div v-for="c in categories" :key="c.label" class="lu-fw-assign-row">
+                <span class="lu-fw-assign-k">{{ c.label }}</span>
+                <UiSelect :model-value="presetAssign.categories[c.label] || ''" :options="presetSelOptions" @update:model-value="(v) => setCategoryPreset(c.label, v)" />
+              </div>
+            </div>
           </template>
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
@@ -644,5 +686,9 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-field > label { font-size: 12px; color: var(--muted); }
 .lu-fw-testin { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
 .lu-fw-testin-h { display: flex; align-items: baseline; gap: 10px; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
-.lu-fw-resetrow { display: flex; justify-content: flex-end; }
+.lu-fw-resetrow { display: flex; gap: 8px; justify-content: flex-end; }
+.lu-fw-assign { margin-top: 14px; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
+.lu-fw-assign-h { display: flex; align-items: baseline; gap: 8px; } .lu-fw-assign-h b { font-size: 13px; color: var(--ink); } .lu-fw-assign-h .lu-muted { font-size: 11px; }
+.lu-fw-assign-row { display: grid; grid-template-columns: minmax(180px, 280px) minmax(0, 1fr); gap: 12px; align-items: center; }
+.lu-fw-assign-k { font-size: 12px; color: var(--ink-2); }
 </style>

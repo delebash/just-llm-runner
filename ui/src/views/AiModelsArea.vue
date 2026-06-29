@@ -140,10 +140,9 @@ onMounted(loadAll);
 
     <nav class="lu-subnav">
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
-      <a :class="{ on: tab === 'jobs' }" @click="tab = 'jobs'">Routing</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
       <a :class="{ on: tab === 'tuning' }" @click="tab = 'tuning'">Tuning</a>
-      <a :class="{ on: tab === 'assignments' }" @click="tab = 'assignments'">Assignments</a>
+      <a :class="{ on: tab === 'category' }" @click="tab = 'category'">Routing by category</a>
       <a :class="{ on: tab === 'recommendations' }" @click="tab = 'recommendations'">Recommendations</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
       <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
@@ -219,15 +218,8 @@ onMounted(loadAll);
       </div>
     </section>
 
-    <!-- ── Routing by job (NEW) — the primary routing surface: Defaults + a model
-         per job + the job-list editor. Most users only touch this. ── -->
-    <!-- Variant A: the old "Routing by job" slot, repurposed → preset assignment. -->
-    <section v-show="tab === 'jobs'" class="lu-tab">
-      <AssignPresets v-if="tab === 'jobs'" />
-    </section>
-
-    <!-- ── Routing by feature — the Feature Workbench (per-action config + test +
-         the per-feature job dropdown). The rare fine-tune surface. ── -->
+    <!-- ── Routing by feature — the Feature Workbench: per-feature prompt + which
+         engine preset it runs (model/switches/params live in the preset). ── -->
     <section v-show="tab === 'features'" class="lu-tab">
       <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
     </section>
@@ -238,10 +230,11 @@ onMounted(loadAll);
       <FeatureWorkbench v-if="tab === 'tuning'" mode="tuning" :run-stream="props.runStream" />
     </section>
 
-    <!-- Variant B (TEMP, for comparison): the same AssignPresets page as its own
-         separate "Assignments" tab. We keep ONE of A/B after you pick. -->
-    <section v-show="tab === 'assignments'" class="lu-tab">
-      <AssignPresets v-if="tab === 'assignments'" />
+    <!-- ── Routing by category — assign an engine preset to each feature CATEGORY
+         (+ a global Default). Presets are built/tested in Tuning; a single feature
+         can override in Routing by feature. ── -->
+    <section v-show="tab === 'category'" class="lu-tab">
+      <AssignPresets v-if="tab === 'category'" />
     </section>
 
     <!-- ── Recommendations (manual editor over the Q3 layer) ── -->

@@ -157,7 +157,7 @@ Nothing else is computed silently.
 > existing preset + "Save as preset"); the old "Use as production" / promote-to-job emit path was removed
 > from both.
 >
-> **The assignment surface — EXTRACTED to its own page; its PLACEMENT is the one OPEN decision (UNCOMMITTED).**
+> **The assignment surface — EXTRACTED to its own page; placement DECIDED + shipped: "Routing by category", after Tuning.**
 > The Lab-rework first placed the Default + per-category preset assignment as a matrix at the bottom of the
 > Lab. On review the user said that felt wrong — "the assign presets feels wrong to be on every page at the
 > bottom… not sure if it should be its own page" — and observed this is "full circle" to how the old jobs
@@ -167,46 +167,59 @@ Nothing else is computed silently.
 > page loads `/v1/ai/engine-presets`, `/v1/ai/preset-assignments`, and `/v1/ai/routing` (for the category
 > list), and renders a global Default preset dropdown plus one dropdown per category, each persisting via
 > PUT `/v1/ai/preset-assignments/default` and `/category` respectively (a single feature can still override
-> in Routing-by-feature). The remaining OPEN question is strictly a placement/naming decision for the user
-> to make by feel — NOT a design change, and per the standing rule I will not decide it myself — namely
-> WHERE this page sits in the AI-area sub-nav. To let the user feel both options, `ui/src/views/AiModelsArea.vue`
-> currently mounts `AssignPresets` TWICE, temporarily: variant A reuses the old "Routing by job" tab slot
-> (`tab==='jobs'`), renamed in the nav from "Routing by job" to "Routing"; variant B is a brand-new
-> "Assignments" tab (`tab==='assignments'`). After the user picks one, the other variant (and any now-unused
-> nav entry) is removed. These three files — `AssignPresets.vue` (new), `AiModelsArea.vue` (both variants
-> mounted), and `FeatureWorkbench.vue` (assignment matrix removed) — are UNCOMMITTED as of this writing and
-> will be committed/pushed so the user can pull the branch and walk through both placements on their machine.
+> in Routing-by-feature). The placement/naming was strictly the user's call (NOT a design change), so the
+> two options were first shipped side-by-side for the user to feel — variant A reused the old "Routing by
+> job" tab slot renamed "Routing", variant B was a new "Assignments" tab (committed at `7688c71`). **The
+> user chose: name it "Routing by category", positioned right after Tuning** (2026-06-29). That decision is
+> now applied in `AiModelsArea.vue`: the variant-A "Routing" tab and its section are removed, and the
+> surviving tab is `tab==='category'` labelled "Routing by category", sitting after "Tuning". The final AI
+> sub-nav is: Providers & models · Routing by feature · Tuning · **Routing by category** · Recommendations ·
+> Usage · (the host app tab). Smoke confirms 7 sub-tabs, "Routing by category" rendering clean.
 >
-> **Known dead code carried in `FeatureWorkbench.vue` (UNCOMMITTED, pending the cleanup commit).** With the
-> feature screen slimmed and the promote/job paths removed, the following are now unreferenced by either
-> template path and must be removed in the cleanup commit (each verified unreferenced against the template
-> this turn, 2026-06-29): the legacy feature-preset `presets` ref together with `actionPresets` and
-> `applyPreset`; the promote path `snapshot` + `applyToLive` + `useAsProduction` + `onComparePromote`; the
-> old job wiring `setFeatureJob` + `activeModel` + `jobLabel`; the set-all helpers `setGroupAll` +
-> `groupCommonPin` + `groupMixed` + `setAllLabel`; and the now-unused imports `LuModelPicker` and
-> `LuJobSelect`. The LIVE paths are intact and real (not stubs): feature-mode prompt + preset-picker
-> (`featurePreset`/`setFeaturePreset`/`presetOptions`/`savePrompt`/`resetPrompt`), tuning-mode CompareStrip
+> **Dead-code cleanup in `FeatureWorkbench.vue` — DONE + verified (2026-06-29).** With the feature screen
+> slimmed and the promote/job paths removed, the following were unreferenced by either template path (each
+> verified unreferenced by grep against the whole file before removal) and have now been deleted: the legacy
+> feature-preset `presets` ref together with `actionPresets` and `applyPreset`; the promote path `snapshot` +
+> `applyToLive` + `useAsProduction` + `onComparePromote`; the old job wiring `setFeatureJob` + `activeModel` +
+> `jobLabel` + the `jobs` ref + its `/v1/ai/jobs` fetch in `load()` + the legacy `/v1/ai/feature-presets`
+> fetch; the set-all helpers `setGroupAll` + `groupCommonPin` + `groupMixed` + `setAllLabel` + the now-dead
+> `setAll` row property in `navRows`; the orphaned `byId` + `providerName` (only `activeModel` used them) and
+> the unused `saving` ref; and the unused imports `LuModelPicker`, `LuJobSelect`, and `ConfigColumn` (the
+> feature screen no longer renders a ConfigColumn directly — `CompareStrip` owns the columns in tuning mode).
+> The stale top-of-file doc comment was rewritten to describe the actual two-mode behavior. The LIVE paths
+> are intact and real (not stubs): feature-mode prompt + preset-picker
+> (`featurePreset`/`setFeaturePreset`/`presetOptions`/`savePrompt`/`resetPrompt`), tuning-mode `CompareStrip`
 > with `saveAs`/`delPreset`/`cfgToEnginePreset`, the category-grouped nav, and the `columnConfig` bridge.
-> The dead code is harmless (unreferenced) but unprofessional to ship, so it is removed before this work is
-> called done — held to the same cleanup commit as the placement decision to avoid two churns of the file.
+> (`loadSwitches`/`featureJobs`/`featureOf` are kept: they still feed the tuning column's switch v-model;
+> with jobs demoted they resolve to empty, which is correct — the user adds switches per column.)
 >
 > **Verification of the current uncommitted state:** see the "Verification log" line appended at the very
 > end of this status block before the commit (`build:vite` + `node scripts/headless-smoke.mjs`).
 >
-> **Remaining work, in order:** (1) the user picks the assignment-page placement → remove the losing
-> variant and its nav entry; (2) the `FeatureWorkbench.vue` dead-code cleanup listed above, then re-verify
-> `build:vite` + headless smoke; (3) Setup (QuickSetup) auto-generating a ready-made preset per task at
-> first run and assigning each to its matching category; (4) the download "use it for ‹task›?" offer +
-> Retune / Retune-all + the load-time fits/doesn't-fit warning; (5) removing the obsolete standalone
-> "Routing by job" engine screen (`RoutingByJob.vue`) and the job switch-editor entirely — task-type
-> survives only as the recommendation key, per the locked design above.
+> **Remaining work, in order:**
+> - ✅ DONE (2026-06-29) — the user chose the assignment-page placement ("Routing by category", after
+>   Tuning); the variant-A "Routing" tab was removed.
+> - ✅ DONE (2026-06-29) — the `FeatureWorkbench.vue` dead-code cleanup above, re-verified with `build:vite`
+>   + headless smoke (both clean).
+> - ⬜ Setup (QuickSetup) auto-generating a ready-made preset per task at first run and assigning each to its
+>   matching category.
+> - ⬜ The download "use it for ‹task›?" offer + Retune / Retune-all + the load-time fits/doesn't-fit warning.
+> - ⬜ Removing the obsolete standalone "Routing by job" engine screen (`RoutingByJob.vue`) and the job
+>   switch-editor entirely — task-type survives only as the recommendation key, per the locked design above.
+>   (Note: `RoutingByJob.vue` is already unmounted — `AiModelsArea.vue` no longer imports or renders it — so
+>   it is dead-but-present; the file deletion + any remaining job-switch-editor UI is the only step left here.)
 >
-> **Verification log (this turn, 2026-06-29):** `npm run build:vite` (from `justwrite-app`, which compiles the
-> kit via the `@delebash/llm-ui` alias) exits 0 — "✓ built in 3.74s". `node scripts/headless-smoke.mjs` PASSES
-> with ZERO JS errors across every hash route AND all 8 AI sub-tabs; the smoke auto-discovered the new nav and
-> rendered both placement variants clean — "Routing" (variant A) and "Assignments" (variant B) each at 1607
-> chars (identical, confirming both mount the same `AssignPresets` component). The two servers used: JustWrite
-> Python server on :17495 and `npm run dev:vite` on :1420.
+> **Verification log (2026-06-29):**
+> 1. Two-variant review state: `npm run build:vite` (from `justwrite-app`, compiling the kit via the
+>    `@delebash/llm-ui` alias) exited 0 — "✓ built in 3.74s"; `node scripts/headless-smoke.mjs` PASSED with
+>    ZERO JS errors across every hash route AND all 8 AI sub-tabs; the smoke auto-discovered the new nav and
+>    rendered both placement variants clean — "Routing" (variant A) and "Assignments" (variant B) each at 1607
+>    chars (identical, confirming both mount the same `AssignPresets` component).
+> 2. Finalize state (placement decided + dead-code cleanup): `npm run build:vite` exited 0 — "✓ built in
+>    3.71s"; `node scripts/headless-smoke.mjs` PASSED with ZERO JS errors; the nav is now 7 sub-tabs with
+>    "Routing by category" (1607 chars) after Tuning and the variant-A "Routing" tab gone; Routing-by-feature
+>    (6149 chars) and Tuning (7220 chars) still render, confirming the dead-code removal broke nothing.
+> Servers used throughout: JustWrite Python server on :17495 and `npm run dev:vite` on :1420.
 
 1. **Data model** — `preset` (model + switches + params + optional fit-knob overrides);
    `category → preset` assignment; `feature → preset` override; the cascade resolver. DB reset

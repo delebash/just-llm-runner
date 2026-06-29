@@ -1,24 +1,24 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Feature Workbench — the single AI config + test surface (AI ▸ Routing by feature).
-// The unit is the ACTION (37 of them); "feature" (writerAI, critique, …) is just
-// the visual GROUP its actions live under. Per action: classify it into a job, then
-// edit + test its FULL run config in the shared <ConfigColumn> (model + Plane-1
-// engine switches + prompt + Plane-2 params/samplers + presets + Promote + a test
-// with tok/s + cost). This is the ×1 rendering of <ConfigColumn>; Compare renders
-// the SAME component ×N (Decision 23 — "the Feature view's editor pane already IS
-// one Compare column"). RULE #7: one component, two call sites.
+// Feature Workbench — one component, two modes (the `mode` prop), per the
+// 2026-06-29 lab+preset model. The unit is the ACTION; "feature" (writerAI,
+// critique, …) is just the visual GROUP its actions live under.
+//   • mode="feature"  (AI ▸ Routing by feature): per action, edit its PROMPT
+//     (system + instruction) and pick WHICH engine preset runs it — or inherit
+//     its category's preset. The model + switches + params live IN the preset
+//     (built + tested in the Lab), so there is no model picker / switch grid here.
+//   • mode="tuning"   (AI ▸ Tuning, the Lab): a shared {{variables}} test input
+//     feeds <CompareStrip>, which renders N engine-config columns you Run and then
+//     Save as engine presets. Preset→category assignment lives on its own page
+//     (AssignPresets.vue / "Routing by category"), not here.
 //
-// Model assignment is stored as routing pins keyed by action key (/v1/ai/routing);
-// prompts in /v1/ai/prompts; per-action samplers in /v1/ai/feature-samplers; the
-// action's JOB switches in /v1/ai/job-switches; presets in /v1/ai/feature-presets.
-// Shared across both apps — only the feature catalog differs.
+// Endpoints: prompts in /v1/ai/prompts; the per-feature preset override in
+// /v1/ai/preset-assignments; the engine-preset library in /v1/ai/engine-presets;
+// the knob catalog in /v1/ai/knob-catalog. Shared across both apps — only the
+// feature catalog differs.
 import { computed, onMounted, reactive, ref } from "vue";
 
 import CompareStrip from "../components/CompareStrip.vue";
-import ConfigColumn from "../components/ConfigColumn.vue";
-import LuJobSelect from "../components/LuJobSelect.vue";
-import LuModelPicker from "../components/LuModelPicker.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import UiSelect from "../common/components/UiSelect.vue";
@@ -38,10 +38,8 @@ const props = defineProps({
 
 const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, …}
 const routing = ref(null);   // {default, jobs:{jobId→{providerId,model}}, features:[…], pins:{key→{providerId,model}}}
-const jobs = ref([]);        // the editable job list [{id,label,description,…}]
-const featureJobs = ref({}); // feature key → job id
+const featureJobs = ref({}); // feature key → job id (still read by loadSwitches for the tuning column's switch pre-fill)
 const providers = ref([]);
-const presets = ref([]);     // feature presets (per action) — LEGACY, used by the tuning strip until Commit 2
 // 2026-06-29 lab+preset model: the engine-preset library + the per-feature/category
 // assignment. Routing-by-feature picks WHICH preset a feature runs; the preset is
 // built in the Lab (Tuning).
@@ -71,14 +69,8 @@ const varHint = "{{variables}}"; // shown literally in the UI (avoids a nested {
 
 const selAction = ref("");   // selected ACTION key
 const draft = ref(null);     // editable copy of the selected action's prompt
-const saving = ref(false);
 
-const byId = computed(() => Object.fromEntries(providers.value.map((p) => [p.id, p])));
-const providerName = (id) => byId.value[id]?.name || id || "—";
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
-
-// jobLabel — display label for a job id (used by the nav's activeModel note).
-const jobLabel = (id) => jobs.value.find((j) => j.id === id)?.label || id;
 
 // Nav model: CATEGORY → features → (sub-labels) → action cards, each level
 // indented under its header. A category whose actions ALL come from ONE
@@ -115,8 +107,7 @@ const categories = computed(() => {
 });
 
 // Flat render list for the nav: one row per header / sub-label / card, each with
-// an `indent` level so children sit visibly under their header. Set-all groups
-// (a feature with >1 action) carry `setAll` so the header renders the picker.
+// an `indent` level so children sit visibly under their header.
 const navRows = computed(() => {
   const rows = [];
   const pushActions = (f, base) => {
@@ -126,10 +117,10 @@ const navRows = computed(() => {
     }
   };
   for (const cat of categories.value) {
-    rows.push({ type: "cat", label: cat.label, setAll: cat.merged || null });
+    rows.push({ type: "cat", label: cat.label });
     for (const f of cat.features) {
       if (cat.merged) pushActions(f, 1);
-      else if (f.actions.length > 1) { rows.push({ type: "ghead", label: f.label, setAll: f, indent: 1 }); pushActions(f, 1); }
+      else if (f.actions.length > 1) { rows.push({ type: "ghead", label: f.label, indent: 1 }); pushActions(f, 1); }
       else rows.push({ type: "card", action: f.actions[0], indent: 1 });
     }
   }
@@ -138,7 +129,6 @@ const navRows = computed(() => {
 function ml(level) { return level ? { marginLeft: `${level * 18}px` } : {}; }
 
 const action = computed(() => prompts.value.find((p) => p.key === selAction.value) || null);
-const actionPresets = computed(() => presets.value.filter((p) => p.action === selAction.value));
 
 // The action's display name: the seeded canonical label when set; else the
 // feature's catalog label for a single-action feature; else a readable name
@@ -185,64 +175,20 @@ function setPin(key, val) {
   else pins[key] = { providerId: val.providerId, model: val.model || "" };
   saveRouting();
 }
-// A feature's job classification (feature → job map), persisted immediately.
-async function setFeatureJob(feature, jobId) {
-  if (!jobId) await request(`/v1/ai/feature-jobs/${encodeURIComponent(feature)}`, { method: "DELETE" });
-  else await request("/v1/ai/feature-jobs", { method: "PUT", body: { featureKey: feature, jobId } });
-  const fj = await request("/v1/ai/feature-jobs");
-  featureJobs.value = Object.fromEntries((fj.rows || []).map((x) => [x.featureKey, x.jobId]));
-  // The action's switches live on its (new) job — reload them.
-  if (selAction.value) loadSwitches(selAction.value);
-}
-// Set-all: write the same pin to every action in a feature group at once.
-function setGroupAll(group, val) {
-  const pins = routing.value.pins || (routing.value.pins = {});
-  for (const a of group.actions) {
-    if (!val || !val.providerId) delete pins[a.key];
-    else pins[a.key] = { providerId: val.providerId, model: val.model || "" };
-  }
-  saveRouting();
-}
-// The shared pin if every action in the group has the same one, else null.
-function groupCommonPin(group) {
-  const sig = (k) => JSON.stringify(pin(k) || null);
-  const first = sig(group.actions[0].key);
-  return group.actions.every((a) => sig(a.key) === first) ? (pin(group.actions[0].key) || null) : null;
-}
-function groupMixed(group) {
-  const sig = (k) => JSON.stringify(pin(k) || null);
-  const first = sig(group.actions[0].key);
-  return !group.actions.every((a) => sig(a.key) === first);
-}
-function setAllLabel(group) { return groupMixed(group) ? "Set all · (mixed)" : "Set all · inherit"; }
 function featureOf(key) { return prompts.value.find((p) => p.key === key)?.feature || ""; }
-// What an action currently resolves to, in plain terms (the nav "→ …"). Cascade:
-// the action's own explicit pin → its feature's job model → the global Default LLM.
-function activeModel(key) {
-  const p = pin(key);
-  if (p?.providerId) return providerName(p.providerId) + (p.model ? ` · ${p.model}` : "");
-  const jobId = featureJobs.value[featureOf(key)] || "";
-  const jt = routing.value?.jobs?.[jobId];
-  if (jt?.providerId) return `${jobLabel(jobId)} · ${providerName(jt.providerId)}`;
-  const d = routing.value?.default?.llmId;
-  return d ? `Default · ${providerName(d)}` : "Default LLM (unset)";
-}
 async function load() {
   loading.value = true; error.value = "";
   try {
-    const [p, r, pl, jb, fj] = await Promise.all([
+    const [p, r, pl, fj] = await Promise.all([
       request("/v1/ai/prompts"), request("/v1/ai/routing"), request("/v1/llm-providers"),
-      request("/v1/ai/jobs"), request("/v1/ai/feature-jobs"),
+      request("/v1/ai/feature-jobs"),
     ]);
     prompts.value = p.prompts || [];
     routing.value = r;
     if (!routing.value.pins) routing.value.pins = {};
     if (!routing.value.jobs) routing.value.jobs = {};
     providers.value = pl.providers || [];
-    jobs.value = jb.rows || [];
     featureJobs.value = Object.fromEntries((fj.rows || []).map((x) => [x.featureKey, x.jobId]));
-    try { presets.value = (await request("/v1/ai/feature-presets")).presets || []; }
-    catch { presets.value = []; }
     try { knobCatalog.value = (await request("/v1/ai/knob-catalog")).knobs || []; }
     catch { knobCatalog.value = []; }
     try { enginePresets.value = (await request("/v1/ai/engine-presets")).presets || []; }
@@ -343,25 +289,8 @@ async function saveRouting() {
   if (!routing.value.jobs) routing.value.jobs = {};
 }
 
-// ── presets (per action) — the <ConfigColumn> bar emits; FW owns the endpoints ──
-// snapshot/applyToLive/useAsProduction operate on a CONFIG (default = the ×1
-// editor's columnConfig); the Compare strip passes a specific column's config, so
-// the promote path is shared by both surfaces (RULE #7) — not duplicated per view.
-function snapshot(name, cfg) {
-  const c = cfg || columnConfig.value;
-  return {
-    action: selAction.value, name,
-    providerId: c.pin?.providerId || "",
-    model: c.pin?.model || "",
-    system: c.system || "", userTemplate: c.userTemplate || "",
-    temperature: c.temperature === "" || c.temperature == null ? null : Number(c.temperature),
-    think: !!c.reasoningEffort,
-    maxTokens: Number(c.maxTokens) || 0,
-    jsonMode: !!c.jsonMode,
-    topP: c.topP === "" || c.topP == null ? null : Number(c.topP),
-    reasoningEffort: c.reasoningEffort || "",
-  };
-}
+// ── engine presets (the Lab) — Save-as / Delete a tested column as an engine
+// preset. FW owns the /v1/ai/engine-presets endpoints; CompareStrip emits. ──
 // Save a tuning column's tested config as an ENGINE preset (model + switches +
 // params + fit-knobs; the prompt is the feature's test input, NOT part of it).
 function cfgToEnginePreset(name, cfg) {
@@ -382,97 +311,13 @@ async function saveAs(name, cfg) {
   enginePresets.value = (await request("/v1/ai/engine-presets", { method: "POST", body: cfgToEnginePreset(name, cfg) })).presets || [];
   message.value = `Saved preset "${name}".`;
 }
-function applyPreset(id) {
-  if (!id || !draft.value) return;
-  const p = presets.value.find((x) => x.id === id);
-  if (!p) return;
-  draft.value.system = p.system; draft.value.userTemplate = p.userTemplate;
-  draft.value.temperature = p.temperature; draft.value.think = p.think;
-  draft.value.maxTokens = p.maxTokens; draft.value.jsonMode = p.jsonMode;
-  draft.value.topP = p.topP; draft.value.reasoningEffort = p.reasoningEffort || "";
-  const pins = routing.value.pins || (routing.value.pins = {});
-  if (p.providerId) pins[selAction.value] = { providerId: p.providerId, model: p.model || "" };
-  else delete pins[selAction.value];
-  buildVars();
-}
 async function delPreset(id) {
   if (!id) return;
   enginePresets.value = (await request(`/v1/ai/engine-presets/${id}`, { method: "DELETE" })).presets || [];
 }
 // Preset assignment (Default + per-category) lives on its own page now
-// (AssignPresets.vue) — out of the Lab. The Lab only builds/tests/saves presets.
-// Apply a CONFIG to the LIVE pipeline: the action's prompt + params + samplers +
-// routing pin + (C3) its JOB switches. Default cfg = the ×1 editor; the Compare
-// strip passes the winning column's config.
-async function applyToLive(cfg) {
-  const c = cfg || columnConfig.value;
-  const act = action.value;
-  if (act) {
-    await request(`/v1/ai/prompts/${encodeURIComponent(act.key)}`, {
-      method: "PUT",
-      body: {
-        feature: act.feature, system: c.system || "", userTemplate: c.userTemplate || "",
-        temperature: Number(c.temperature) || 0, think: !!c.reasoningEffort,
-        maxTokens: Number(c.maxTokens) || 0,
-        jsonMode: !!c.jsonMode,
-        topP: c.topP === "" || c.topP == null ? null : Number(c.topP),
-        reasoningEffort: c.reasoningEffort || "",
-      },
-    });
-    await request("/v1/ai/feature-samplers", {
-      method: "PUT",
-      body: {
-        feature: act.key,
-        samplers: (c.samplers || [])
-          .filter((r) => (r.name || "").trim())
-          .map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
-      },
-    });
-    // Plane-1 switches → the action's JOB (per C3 / D17). No job → nowhere to store.
-    const jobId = featureJobs.value[act.feature] || "";
-    if (jobId) {
-      await request("/v1/ai/job-switches", {
-        method: "PUT",
-        body: {
-          jobId, configId: "active",
-          switches: (c.switches || [])
-            .filter((r) => (r.name || "").trim())
-            .map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
-        },
-      });
-    }
-    // ×1 already wrote the pin live on edit; for a Compare promote, write the
-    // winning column's pin to the action now.
-    if (cfg) {
-      const pins = routing.value.pins || (routing.value.pins = {});
-      if (c.pin?.providerId) pins[act.key] = { providerId: c.pin.providerId, model: c.pin.model || "" };
-      else delete pins[act.key];
-    }
-  }
-  await saveRouting();
-}
-async function useAsProduction(presetId, cfg) {
-  if (!action.value) return;
-  saving.value = true; error.value = ""; message.value = "";
-  try {
-    let id = presetId || "";
-    if (id) {
-      const name = presets.value.find((p) => p.id === id)?.name || selAction.value;
-      presets.value = (await request(`/v1/ai/feature-presets/${id}`, { method: "PUT", body: snapshot(name, cfg) })).presets || [];
-    } else {
-      const name = `${activeModel(selAction.value)} · ${new Date().toLocaleDateString()}`;
-      presets.value = (await request("/v1/ai/feature-presets", { method: "POST", body: snapshot(name, cfg) })).presets || [];
-      id = actionPresets.value.find((p) => p.name === name)?.id || "";
-    }
-    await applyToLive(cfg);
-    if (id) presets.value = (await request(`/v1/ai/feature-presets/${id}/use`, { method: "POST" })).presets || [];
-    message.value = "In production — the live pipeline runs this now.";
-  } catch (e) {
-    error.value = `Failed: ${e.message}`;
-  } finally {
-    saving.value = false;
-  }
-}
+// (AssignPresets.vue / the "Routing by category" tab) — out of the Lab. The Lab
+// only builds/tests/saves presets; a feature picks WHICH preset in feature-mode.
 async function resetPrompt() {
   if (!draft.value?.builtIn) return;
   const updated = await request(`/v1/ai/prompts/${encodeURIComponent(draft.value.key)}/reset`, { method: "POST" });
@@ -538,13 +383,6 @@ function buildVars() {
 // renders N ConfigColumns (Compare); mode="feature" → the single ×1 editor.
 const compareMode = computed(() => props.mode === "tuning");
 const navCollapsed = ref(false);
-
-// Promote a winning Compare column: run the SAME promote path the ×1 editor uses
-// on that column's config (model + prompt + params → the action; Plane-1 switches →
-// the action's job).
-function onComparePromote(cfg) {
-  useAsProduction("", cfg);
-}
 
 onMounted(load);
 </script>

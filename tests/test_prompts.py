@@ -265,3 +265,33 @@ def test_effective_think_guardrail_off_under_json():
     assert _effective_think(spec(True, False), req(jsonMode=True)) is False   # request json → off
     assert _effective_think(spec(False, True), req(think=True)) is False      # guardrail beats override
     assert _effective_think(spec(False, False), req()) is False        # think off → off
+
+
+def test_run_uses_resolved_preset():
+    """The lab+preset model: with a `category_of` wired + a preset assigned to the
+    feature's category, /run dispatches the PRESET's model + params (its top_p /
+    reasoning), not the prompt's. No preset / no category_of → the legacy path is
+    unchanged (every other test runs make_feature_router without category_of)."""
+    from llm_runner.llm import stores
+    from llm_runner.llm.presets_api import EnginePresetRow
+
+    p = stores.get_engine_preset_store().save(EnginePresetRow(
+        name="W", model="preset-model", temperature=0.2, topP=0.9, reasoningEffort="high",
+    ))
+    stores.get_category_preset_store().set("Writing", p.id)
+
+    get_llm_registry()._adapters = {}
+    adapter = CaptureAdapter()
+    get_llm_registry().register(adapter)
+    app = FastAPI()
+    app.include_router(make_feature_router(
+        lambda: MemPromptStore(), lambda: LLMConfig(), category_of=lambda feature: "Writing",
+    ))
+    c = TestClient(app, raise_server_exceptions=False)
+
+    r = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}})
+    assert r.status_code == 200
+    assert r.json()["model"] == "preset-model"               # the preset's model overrode the route
+    assert adapter.last["extra"]["top_p"] == 0.9             # the preset's top_p flowed through
+    assert adapter.last["extra"]["reasoning_effort"] == "high"
+    assert adapter.last["think"] is True                     # reasoning on (no json) from the preset

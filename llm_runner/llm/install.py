@@ -64,11 +64,18 @@ def install_llm(
     def _config():
         return build_llm_config(plf)
 
+    def _category_of(feature_key: str) -> str:
+        """A feature key → its catalog category (for the preset cascade at dispatch)."""
+        for e in seed.app_feature_catalog():
+            if getattr(e, "key", "") == feature_key:
+                return getattr(e, "category", "") or ""
+        return ""
+
     # 5. mount every LLM router (the same surface in every app).
     app.include_router(shared_api_router)
     app.include_router(make_provider_router(stores.get_provider_store))
     app.include_router(make_prompt_router(stores.get_prompt_store, feature_prompts))
-    app.include_router(make_feature_router(stores.get_prompt_store, _config))
+    app.include_router(make_feature_router(stores.get_prompt_store, _config, category_of=_category_of))
     app.include_router(make_routing_router(stores.get_routing_store, seed.app_feature_catalog))
     app.include_router(make_job_presets_router(stores.get_job_preset_store))
     app.include_router(make_feature_presets_router(stores.get_feature_preset_store))

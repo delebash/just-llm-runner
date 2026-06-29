@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Protocol
 
 from fastapi import APIRouter, HTTPException
@@ -32,6 +32,7 @@ from pydantic import BaseModel
 
 from .base import LLMMessage
 from .dispatch import LLMNotConfiguredError, chat, stream_chat
+from .preset_resolve import resolve_feature_preset
 from .pricing import cost_for
 from .schema import LLMConfig
 
@@ -353,9 +354,40 @@ def _effective_think(spec: FeaturePromptRow, body: RunRequest) -> bool:
     return bool(think) and not json_mode
 
 
+def _resolve_preset(action: str, feature: str, category_of):
+    """The engine preset for this action (cascade: feature override → its
+    category → the global default), or None. `category_of` maps a feature key → its
+    catalog category; None (no catalog wired, e.g. tests) → no preset = legacy
+    routing, so behaviour is unchanged until presets are configured."""
+    if category_of is None:
+        return None
+    return resolve_feature_preset(action, category_of(feature) or "")
+
+
+def _effective_spec(spec: FeaturePromptRow, preset) -> FeaturePromptRow:
+    """Overlay a resolved preset's engine params onto the prompt spec. In the
+    lab+preset model the PRESET is the source of truth for params (temperature /
+    json / top_p / reasoning / max-tokens); the prompt only carries system/user
+    text. None → spec unchanged. Request-level overrides still win downstream.
+    (The preset's MODEL is applied separately as the provider/model override; its
+    long-tail samplers are wired in a follow-up.)"""
+    if preset is None:
+        return spec
+    return replace(
+        spec,
+        temperature=spec.temperature if preset.temperature is None else preset.temperature,
+        think=bool(preset.reasoningEffort),
+        max_tokens=preset.maxTokens or spec.max_tokens,
+        json_mode=preset.jsonMode,
+        top_p=preset.topP,
+        reasoning_effort=preset.reasoningEffort,
+    )
+
+
 def make_feature_router(
     get_store: Callable[[], PromptStore],
     get_config: Callable[[], LLMConfig],
+    category_of: Callable[[str], str] | None = None,
 ) -> APIRouter:
     """Build the /v1/ai/run + /v1/ai/stream feature-execution router. The host
     supplies its `PromptStore` and an `llm_config()` builder (its settings →
@@ -374,6 +406,8 @@ def make_feature_router(
         sys_tpl = spec.system if body.system is None else body.system
         usr_tpl = spec.user_template if body.userTemplate is None else body.userTemplate
         messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
+        preset = _resolve_preset(body.action, spec.feature, category_of)
+        eff = _effective_spec(spec, preset)
         try:
             resp = chat(
                 config=get_config(),
@@ -386,12 +420,12 @@ def make_feature_router(
                 # placeholders so render() returns it unchanged; e.g. plotHoles
                 # injects the project's world-rules section.
                 system=render(sys_tpl, body.variables),
-                temperature=spec.temperature if body.temperature is None else body.temperature,
-                think=_effective_think(spec, body),
-                max_tokens=(body.maxTokens if body.maxTokens is not None else spec.max_tokens) or None,
-                provider_override=body.providerId or None,
-                model_override=body.model or None,
-                extra=_plane2_extra(spec, body),
+                temperature=eff.temperature if body.temperature is None else body.temperature,
+                think=_effective_think(eff, body),
+                max_tokens=(body.maxTokens if body.maxTokens is not None else eff.max_tokens) or None,
+                provider_override=body.providerId or (preset.providerId if preset else "") or None,
+                model_override=body.model or (preset.model if preset else "") or None,
+                extra=_plane2_extra(eff, body),
             )
         except LLMNotConfiguredError as e:
             # 501 → the UI shows the actionable "wire an LLM provider" message.
@@ -416,6 +450,8 @@ def make_feature_router(
         usr_tpl = spec.user_template if body.userTemplate is None else body.userTemplate
         messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
         system = render(sys_tpl, body.variables)
+        preset = _resolve_preset(body.action, spec.feature, category_of)
+        eff = _effective_spec(spec, preset)
 
         def gen():
             try:
@@ -425,12 +461,12 @@ def make_feature_router(
                     action=body.action,
                     messages=messages,
                     system=system,
-                    temperature=spec.temperature if body.temperature is None else body.temperature,
-                    think=_effective_think(spec, body),
-                    max_tokens=(body.maxTokens if body.maxTokens is not None else spec.max_tokens) or None,
-                    provider_override=body.providerId or None,
-                    model_override=body.model or None,
-                    extra=_plane2_extra(spec, body),
+                    temperature=eff.temperature if body.temperature is None else body.temperature,
+                    think=_effective_think(eff, body),
+                    max_tokens=(body.maxTokens if body.maxTokens is not None else eff.max_tokens) or None,
+                    provider_override=body.providerId or (preset.providerId if preset else "") or None,
+                    model_override=body.model or (preset.model if preset else "") or None,
+                    extra=_plane2_extra(eff, body),
                 ):
                     if delta.done:
                         frame = {

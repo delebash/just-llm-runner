@@ -112,8 +112,8 @@ function applyPresetTo(col, id) {
 }
 
 onMounted(() => {
-  // Start 2-up (Decision 23): the current config + a copy to vary.
-  addColumn();
+  // Start with ONE column = the feature's current config (2026-06-29 single-page
+  // trial: one column reads cleaner; "+ Add column" adds more to compare/tune).
   addColumn();
 });
 </script>

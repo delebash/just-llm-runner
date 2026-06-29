@@ -32,10 +32,6 @@ import { request } from "../client.js";
 // around runAiFeatureStream (→ aiTasks); JV will wire its own.
 const props = defineProps({
   runStream: { type: Function, default: null },
-  // "feature" = the per-action editor (Routing by feature, ×1 ConfigColumn);
-  // "tuning" = the multi-column Compare surface (its own Tuning tab, ×N). Same
-  // component, two mount points (RULE #7) — not a copy.
-  mode: { type: String, default: "feature" },
 });
 
 const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, …}
@@ -423,32 +419,30 @@ function buildVars() {
   if (!found.size) vars.user_content = vars.user_content || "";
 }
 
-// ── Compare surface — driven by the `mode` prop. mode="tuning" → the Tuning tab
-// renders N ConfigColumns (Compare); mode="feature" → the single ×1 editor.
-const compareMode = computed(() => props.mode === "tuning");
+// The left list can be collapsed to give the column workbench full width.
 const navCollapsed = ref(false);
 
 onMounted(load);
 </script>
 
 <template>
-  <div class="lu-fw" :class="{ 'is-compare': compareMode }">
+  <div class="lu-fw">
     <div v-if="error" class="lu-error" style="margin-bottom:10px">{{ error }}</div>
     <div v-if="loading" class="lu-muted">Loading…</div>
 
     <template v-else-if="routing">
-      <div class="lu-fw-body">
-        <!-- Nav: category → (feature sub-header) → action cards. Hidden in Compare
-             mode when the user collapses it for full column width. -->
-        <aside v-show="!compareMode || !navCollapsed" class="lu-fw-list">
-          <div v-if="!compareMode" class="lu-fw-default">
+      <div class="lu-fw-body" :class="{ 'nav-collapsed': navCollapsed }">
+        <!-- Nav: a global Default + per-category set-all dropdowns, then the feature
+             cards. Collapsible to give the column workbench full width. -->
+        <aside v-show="!navCollapsed" class="lu-fw-list">
+          <div class="lu-fw-default">
             <div class="lu-fw-default-k">Default <span class="lu-muted">— every feature, unless set below</span></div>
             <UiSelect :model-value="defaultPresetId" :options="defaultOptions" @update:model-value="setDefaultPreset" />
           </div>
           <template v-for="(row, i) in navRows" :key="i">
             <div v-if="row.type === 'cat'" class="lu-fw-cat">
               <div class="lu-fw-cat-name">{{ row.label }}</div>
-              <div v-if="!compareMode" class="lu-fw-cat-assign">
+              <div class="lu-fw-cat-assign">
                 <UiSelect class="lu-fw-cat-preset" :model-value="categoryPreset(row.label)"
                   :options="categoryOptions" @update:model-value="(v) => setCategoryPreset(row.label, v)" />
                 <UiButton intent="ghost" size="small" title="Reset every feature in this category to inherit the category preset"
@@ -474,36 +468,33 @@ onMounted(load);
             <b>{{ actionLabel(action) }}</b>
             <span class="lu-fw-spacer" />
             <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
-            <UiButton v-if="compareMode" intent="ghost" size="small"
+            <UiButton intent="ghost" size="small"
               :title="navCollapsed ? 'Show the feature list' : 'Hide the list for full column width'"
               @click="navCollapsed = !navCollapsed">{{ navCollapsed ? '☰ Show list' : '⟨ Collapse list' }}</UiButton>
           </div>
 
-          <!-- FEATURE MODE (Routing by feature): the feature's PROMPT + which engine
-               PRESET it runs. Per the 2026-06-29 lab+preset model the model /
-               switches / params live in the PRESET (built + tested in the Lab); here
-               you only edit the text and pick the preset. -->
-          <template v-if="!compareMode">
-            <div class="lu-field">
-              <label>Engine preset <span class="lu-muted">— the model + switches + params this feature runs (built in the Lab); blank = inherit its category's preset</span></label>
-              <UiSelect :model-value="featurePreset(selAction)" :options="presetOptions"
-                @update:model-value="setFeaturePreset(selAction, $event)" />
-            </div>
-            <div class="lu-field"><label>System prompt</label>
-              <UiTextarea :model-value="draft.system || ''" auto-resize :rows="6"
-                @update:model-value="draft.system = $event" /></div>
-            <div class="lu-field"><label>Instruction <span class="lu-muted">— user template · {{ varHint }} placeholders</span></label>
-              <UiTextarea :model-value="draft.userTemplate || ''" auto-resize :rows="3"
-                @update:model-value="draft.userTemplate = $event" /></div>
-            <div class="lu-fw-resetrow">
-              <UiButton intent="primary" size="small" @click="savePrompt">Save prompt</UiButton>
-              <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset to default</UiButton>
-            </div>
-          </template>
+          <!-- The feature's PROMPT + which engine preset it runs (override). -->
+          <div class="lu-field">
+            <label>Engine preset <span class="lu-muted">— which preset this feature runs; blank = inherit its category (then Default)</span></label>
+            <UiSelect :model-value="featurePreset(selAction)" :options="presetOptions"
+              @update:model-value="setFeaturePreset(selAction, $event)" />
+          </div>
+          <div class="lu-field"><label>System prompt</label>
+            <UiTextarea :model-value="draft.system || ''" auto-resize :rows="6"
+              @update:model-value="draft.system = $event" /></div>
+          <div class="lu-field"><label>Instruction <span class="lu-muted">— user template · {{ varHint }} placeholders</span></label>
+            <UiTextarea :model-value="draft.userTemplate || ''" auto-resize :rows="3"
+              @update:model-value="draft.userTemplate = $event" /></div>
+          <div class="lu-fw-resetrow">
+            <UiButton intent="primary" size="small" @click="savePrompt">Save prompt</UiButton>
+            <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset to default</UiButton>
+          </div>
 
-          <!-- TUNING MODE (the Lab): the shared test input + N engine columns to test
-               and save as presets. (Reworked to engine-presets in Commit 2.) -->
-          <template v-else>
+          <!-- The Lab, in-place: build/compare engine configs on this feature's test
+               input; Save adds a named preset to the dropdowns above. One column by
+               default; "+ Add column" adds more to compare. -->
+          <div class="lu-fw-tune">
+            <div class="lu-fw-tune-h"><b>Tune presets</b><span class="lu-muted">run this feature's prompt on a test input · Save a column as a preset (it appears in the dropdowns)</span></div>
             <div class="lu-fw-testin">
               <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
               <div v-for="(_, k) in vars" :key="k" class="lu-field">
@@ -515,7 +506,7 @@ onMounted(load);
               :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
               :vars="vars" :presets="enginePresets"
               @save-as="saveAs" @delete-preset="delPreset" />
-          </template>
+          </div>
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
       </div>
@@ -527,9 +518,9 @@ onMounted(load);
 .lu-fw { display: flex; flex-direction: column; min-height: 0; }
 select.lu-input { cursor: pointer; appearance: auto; }
 
-.lu-fw-body { display: grid; grid-template-columns: minmax(300px, 28%) minmax(0, 1fr); gap: 16px; align-items: start; }
-/* Compare mode: when the nav is collapsed the body is a single full-width column. */
-.lu-fw.is-compare .lu-fw-body { grid-template-columns: minmax(280px, 24%) minmax(0, 1fr); }
+.lu-fw-body { display: grid; grid-template-columns: minmax(280px, 26%) minmax(0, 1fr); gap: 16px; align-items: start; }
+/* Collapsed list → the editor + column workbench take the full width. */
+.lu-fw-body.nav-collapsed { grid-template-columns: minmax(0, 1fr); }
 .lu-fw-list { min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 240px); overflow-y: auto; overflow-x: hidden; position: sticky; top: 4px; }
 .lu-fw-card { text-align: left; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; }
 .lu-fw-card:hover { border-color: var(--accent); background: var(--accent-soft); }
@@ -559,4 +550,8 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-testin { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
 .lu-fw-testin-h { display: flex; align-items: baseline; gap: 10px; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
 .lu-fw-resetrow { display: flex; gap: 8px; justify-content: flex-end; }
+.lu-fw-tune { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--border); }
+.lu-fw-tune-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.lu-fw-tune-h b { font-size: 13px; color: var(--ink); }
+.lu-fw-tune-h .lu-muted { font-size: 11.5px; }
 </style>

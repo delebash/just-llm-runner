@@ -110,7 +110,7 @@ Nothing else is computed silently.
 > history isn't lost.**
 >
 > **Trial iteration log (newest first):**
-> - **Trial 3 — collapse toward ONE page (idea 1 DONE; idea 2 pending).** The user decided the separate
+> - **Trial 3 — collapse to ONE page (idea 1 + idea 2 DONE).** The user decided the separate
 >   assignment tab still felt like too many pages and proposed folding everything into **Routing by feature**:
 >   a preset dropdown on each CATEGORY heading that sets all its features, with per-feature overrides, plus a
 >   global Default — and (idea 2) making the right pane a 1→N column workbench so Tuning folds in too. **Idea 1
@@ -131,9 +131,21 @@ Nothing else is computed silently.
 >   prompt is per-feature; columns are SHARED engine presets; "+ add column" just adds another column (no
 >   dialog); Save makes a named shared preset that appears in the dropdowns. **"Use in production" (the old JW
 >   lab→test→use button) is DEFERRED** — the user wants to try the Save→dropdown→select flow first and decide
->   later. **Idea 2 (fold the Tuning 1→N columns into the Routing-by-feature right pane, drop the Tuning tab)
->   is the next trial.** Verified: `build:vite` 0, headless smoke 0 JS errors, 6 sub-tabs; 5 preset pytest +
->   ruff clean.
+>   later. **Idea 2 — DONE.** The Tuning tab is GONE and its column workbench is folded into the
+>   Routing-by-feature right pane: under the feature's prompt + override there is now a **Tune presets** section
+>   = this feature's `{{variables}}` test input + `<CompareStrip>` starting with **one** column (was 2-up;
+>   `CompareStrip` `onMounted` now adds a single column) seeded from the feature's resolved config; **+ Add
+>   column** adds more to compare (no dialog); **Save** a column → a named shared engine preset that appears in
+>   the dropdowns above. The `mode` prop + `compareMode` branch were removed from `FeatureWorkbench` (one
+>   unified view); the left list is collapsible (`nav-collapsed`) to give the columns full width. "Use in
+>   production" stays DEFERRED (user: try Save→dropdown first). AI sub-nav is now **5 tabs**: Providers & models
+>   · Routing by feature · Recommendations · Usage · (host app tab). Verified: `build:vite` 0, headless smoke 0
+>   JS errors, 5 sub-tabs; 5 preset pytest + ruff clean.
+>   **Open for the next trials:** (a) the per-feature override picker + column 1 are loosely coupled right now
+>   (column 1 seeds from the feature's config, the override dropdown assigns an existing preset) — may want
+>   selecting a preset to load it into column 1; (b) "Use in production" (save + assign in one click) if the
+>   Save→dropdown flow feels like too many steps; (c) whether the always-on full ConfigColumn under every
+>   prompt is too heavy vs. collapsed-until-needed.
 > - **Trial 2 — assignment as its own "Routing by category" tab** (commit `addde83`): extracted the assignment
 >   matrix to `AssignPresets.vue`, shipped two placement variants, user chose "Routing by category" after Tuning.
 >   SUPERSEDED by Trial 3 (folded into Routing-by-feature).

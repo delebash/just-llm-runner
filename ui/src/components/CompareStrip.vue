@@ -160,9 +160,8 @@ onMounted(() => {
 .lu-cmp-rank-h { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--accent-ink, var(--accent)); }
 .lu-cmp-rank-item { font-size: 11px; color: var(--ink-2); }
 .lu-cmp-rank-item.win b { color: var(--accent-ink, var(--accent)); }
-/* The strip: a single row that scrolls horizontally; each column a FIXED tidy
-   width so a lone column doesn't stretch across the pane and extra columns are
-   reached by scrolling. */
+/* The strip is flex: ONE column grows to full width; TWO split the row 50/50;
+   three+ hit the min-width and the row scrolls horizontally. No hardcoded widths. */
 .lu-cmp-strip { display: flex; gap: 14px; overflow-x: auto; align-items: flex-start; padding-bottom: 8px; }
-.lu-cmp-col { flex: 0 0 400px; max-width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--surface); min-width: 0; }
+.lu-cmp-col { flex: 1 1 0; min-width: 360px; border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--surface); }
 </style>

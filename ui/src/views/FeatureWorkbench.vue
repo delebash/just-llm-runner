@@ -348,24 +348,13 @@ async function setFeaturePreset(key, presetId) {
   });
 }
 
-// ── preset assignment in the nav (idea-1 trial): the global Default + a per-CATEGORY
-// "set all" preset, both folded into the Routing-by-feature list (no separate page).
-// Setting a category preset is a SET-ALL — it also CLEARS that category's per-feature
-// overrides so every feature in it snaps back to the (new) category preset.
-const defaultOptions = computed(() => [
-  { value: "", label: "— none —" },
-  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
-]);
+// ── per-CATEGORY "set all" preset assignment in the nav. Setting a category preset
+// is a SET-ALL; the per-category Reset clears that category's per-feature overrides
+// so every feature in it re-inherits the category preset.
 const categoryOptions = computed(() => [
   { value: "", label: "— inherit default —" },
   ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
 ]);
-const defaultPresetId = computed(() => presetAssign.value.defaultPresetId || "");
-async function setDefaultPreset(presetId) {
-  presetAssign.value = await request("/v1/ai/preset-assignments/default", {
-    method: "PUT", body: { presetId },
-  });
-}
 function categoryPreset(cat) { return presetAssign.value.categories?.[cat] || ""; }
 function categoryOf(actionKey) {
   return featMeta.value[featureOf(actionKey)]?.category || CATEGORY_FALLBACK;
@@ -432,13 +421,9 @@ onMounted(load);
 
     <template v-else-if="routing">
       <div class="lu-fw-body" :class="{ 'nav-collapsed': navCollapsed }">
-        <!-- Nav: a global Default + per-category set-all dropdowns, then the feature
-             cards. Collapsible to give the column workbench full width. -->
+        <!-- Nav: per-category set-all dropdowns, then the feature cards.
+             Collapsible to give the column workbench full width. -->
         <aside v-show="!navCollapsed" class="lu-fw-list">
-          <div class="lu-fw-default">
-            <div class="lu-fw-default-k">Default <span class="lu-muted">— every feature, unless set below</span></div>
-            <UiSelect :model-value="defaultPresetId" :options="defaultOptions" @update:model-value="setDefaultPreset" />
-          </div>
           <template v-for="(row, i) in navRows" :key="i">
             <div v-if="row.type === 'cat'" class="lu-fw-cat">
               <div class="lu-fw-cat-name">{{ row.label }}</div>
@@ -473,28 +458,18 @@ onMounted(load);
               @click="navCollapsed = !navCollapsed">{{ navCollapsed ? '☰ Show list' : '⟨ Collapse list' }}</UiButton>
           </div>
 
-          <!-- The feature's PROMPT + which engine preset it runs (override). -->
+          <!-- Which engine preset this feature runs (the per-feature override). -->
           <div class="lu-field">
             <label>Engine preset <span class="lu-muted">— which preset this feature runs; blank = inherit its category (then Default)</span></label>
             <UiSelect :model-value="featurePreset(selAction)" :options="presetOptions"
               @update:model-value="setFeaturePreset(selAction, $event)" />
           </div>
-          <div class="lu-field"><label>System prompt</label>
-            <UiTextarea :model-value="draft.system || ''" auto-resize :rows="6"
-              @update:model-value="draft.system = $event" /></div>
-          <div class="lu-field"><label>Instruction <span class="lu-muted">— user template · {{ varHint }} placeholders</span></label>
-            <UiTextarea :model-value="draft.userTemplate || ''" auto-resize :rows="3"
-              @update:model-value="draft.userTemplate = $event" /></div>
-          <div class="lu-fw-resetrow">
-            <UiButton intent="primary" size="small" @click="savePrompt">Save prompt</UiButton>
-            <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset to default</UiButton>
-          </div>
 
-          <!-- The Lab, in-place: build/compare engine configs on this feature's test
-               input; Save adds a named preset to the dropdowns above. One column by
-               default; "+ Add column" adds more to compare. -->
+          <!-- The Lab, in-place: the feature's prompt (the testing prompt) + test input
+               live in the column below; build/compare engine configs; Save a column as
+               a preset (it appears in the dropdowns). -->
           <div class="lu-fw-tune">
-            <div class="lu-fw-tune-h"><b>Tune presets</b></div>
+            <div class="lu-fw-tune-h"><b>Tune presets</b><span class="lu-muted">run this feature's prompt on a test input · Save a column as a preset (it appears in the dropdowns)</span></div>
             <div class="lu-fw-testin">
               <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
               <div v-for="(_, k) in vars" :key="k" class="lu-field">

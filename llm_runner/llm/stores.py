@@ -953,7 +953,7 @@ def list_knob_catalog() -> list[dict]:
             {
                 "flagName": k.flag_name, "label": k.label, "kind": k.kind,
                 "default": k.default_value, "help": k.help, "plane": k.plane,
-                "appliesTo": k.applies_to, "options": opts.get(k.flag_name, []),
+                "appliesTo": k.applies_to, "tier": k.tier, "options": opts.get(k.flag_name, []),
             }
             for k in rows
         ]

@@ -41,6 +41,24 @@ def test_seed_populates_knob_catalog(wired):
     assert planes == sorted(planes)
 
 
+def test_knob_tiers_and_expanded_set(wired):
+    """The Common/Advanced tier split + the expanded knob set (with cited defaults)."""
+    by_name = {k["flagName"]: k for k in stores.list_knob_catalog()}
+    # Tier drives the UI checklist split — common shown, advanced behind an expander.
+    assert by_name["ctx_len"]["tier"] == "common"
+    assert by_name["top_k"]["tier"] == "common"
+    assert by_name["repeat_last_n"]["tier"] == "common"
+    assert by_name["mlock"]["tier"] == "advanced"
+    assert by_name["mirostat_tau"]["tier"] == "advanced"
+    # The expanded set landed, with the README-cited defaults.
+    assert by_name["repeat_last_n"]["default"] == "64"
+    assert by_name["mirostat_tau"]["default"] == "5.0"
+    assert by_name["top_n_sigma"]["default"] == "-1.0"
+    # The 4 already-plumbed switches are present (Plane-1); cont_batching is a bool.
+    assert by_name["ubatch_size"]["plane"] == 1
+    assert by_name["cont_batching"]["plane"] == 1 and by_name["cont_batching"]["kind"] == "bool"
+
+
 def test_enum_options_join(wired):
     by_name = {k["flagName"]: k for k in stores.list_knob_catalog()}
     # flash_attn carries its enum options; a non-enum knob carries none.

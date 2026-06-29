@@ -12,13 +12,14 @@
 //   • CHECKLIST (`checklist` + `catalogList`) — a PREFILLED grid of KNOWN knobs
 //     from the seeded knob_catalog (ordered common-first by the API). Each row is
 //     an enable/disable checkbox + a kind-aware value (enum→select, int/float→
-//     number, bool→checkbox-only at value "true"), with a per-row "↺ reset to
-//     default" when the value differs from the catalog default, plus a footer
-//     "Reset to defaults". Names NOT in the visible catalog (a custom key, or one
+//     number, bool→On/Off select), with a per-row "↺ reset to default" when the
+//     value differs from the catalog default, plus a footer "Reset to defaults".
+//     Rows split into Common (shown) + Advanced (behind a "▸ Advanced" expander)
+//     by each row's `tier`. Names NOT in the visible catalog (a custom key, or one
 //     `exclude`d because it is edited elsewhere) fall into the raw "Other keys"
 //     section so nothing is ever hidden. `catalogList` rows are the RAW catalog
-//     rows: { flagName, label, kind, default, help, options }.
-import { computed } from "vue";
+//     rows: { flagName, label, kind, default, tier, help, options }.
+import { computed, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
@@ -72,14 +73,15 @@ function valOf(name) {
   const r = rows.value.find((x) => x.name === name);
   return r ? r.value : undefined;
 }
-// The value a knob takes when first enabled: a bool flag is a presence flag (on =
-// "true"); everything else prefills from the catalog default (may be "" → type it).
-function enableValue(m) {
-  return m.kind === "bool" ? "true" : (m.default ?? "");
+// A knob's default value, normalized: a bool flag is a presence flag whose natural
+// "on" value is "true" (or its catalog default); everything else uses the catalog
+// default (may be "" → the user types it). Drives enable-prefill + reset + changed.
+function defaultFor(m) {
+  return m.kind === "bool" ? (m.default || "true") : (m.default ?? "");
 }
 function toggle(m, on) {
   if (on) {
-    if (!isOn(m.flagName)) commit([...rows.value, { name: m.flagName, value: enableValue(m) }]);
+    if (!isOn(m.flagName)) commit([...rows.value, { name: m.flagName, value: defaultFor(m) }]);
   } else {
     commit(rows.value.filter((r) => r.name !== m.flagName));
   }
@@ -88,57 +90,78 @@ function setVal(name, v) {
   commit(rows.value.map((r) => (r.name === name ? { ...r, value: v } : r)));
 }
 function isChanged(m) {
-  return m.kind !== "bool" && isOn(m.flagName) && (valOf(m.flagName) ?? "") !== (m.default ?? "");
+  return isOn(m.flagName) && (valOf(m.flagName) ?? "") !== defaultFor(m);
 }
 function resetOne(m) {
-  setVal(m.flagName, m.default ?? "");
+  setVal(m.flagName, defaultFor(m));
 }
 function resetAll() {
   commit(
     rows.value.map((r) => {
       const m = visibleCatalog.value.find((k) => k.flagName === r.name);
-      return m && m.kind !== "bool" ? { ...r, value: m.default ?? "" } : r;
+      return m ? { ...r, value: defaultFor(m) } : r;
     }),
   );
 }
+
+// Common rows show directly; advanced sit behind an expander (anti-overwhelm split).
+const BOOL_OPTIONS = [{ value: "true", label: "On" }, { value: "false", label: "Off" }];
+const commonRows = computed(() => visibleCatalog.value.filter((k) => k.tier !== "advanced"));
+const advancedRows = computed(() => visibleCatalog.value.filter((k) => k.tier === "advanced"));
+const advancedOpen = ref(false);
+// ONE render list: common rows, an expander marker (when any advanced exist), then
+// the advanced rows when open — so the row markup stays single-sourced (no dup).
+const displayRows = computed(() => {
+  const out = commonRows.value.map((m) => ({ m }));
+  if (advancedRows.value.length) out.push({ expander: true });
+  if (advancedOpen.value) out.push(...advancedRows.value.map((m) => ({ m })));
+  return out;
+});
 </script>
 
 <template>
   <!-- Checklist mode (opt-in): prefilled, enable/disable, kind-aware, scrollable. -->
   <div v-if="checklist && catalogList.length" class="ui-kg ui-kg-check">
     <div class="ui-kg-scroll" :style="{ maxHeight: scrollMax }">
-      <div v-for="m in visibleCatalog" :key="m.flagName" class="ui-kg-crow" :class="{ 'is-on': isOn(m.flagName) }">
-        <UiCheckbox :model-value="isOn(m.flagName)" @update:model-value="(on) => toggle(m, on)" />
-        <div class="ui-kg-metacell" :title="m.help || ''">
-          <span class="ui-kg-label">{{ m.label || m.flagName }}</span>
-          <code class="ui-kg-flag">{{ m.flagName }}</code>
-        </div>
-        <template v-if="m.kind === 'bool'">
-          <span class="ui-kg-bool lu-muted">{{ isOn(m.flagName) ? "on" : "off" }}</span>
-          <span class="ui-kg-resetspace" />
-        </template>
-        <template v-else>
+      <template v-for="row in displayRows" :key="row.expander ? '__adv' : row.m.flagName">
+        <button v-if="row.expander" type="button" class="ui-kg-advtoggle" @click="advancedOpen = !advancedOpen">
+          {{ advancedOpen ? "▾" : "▸" }} Advanced <span class="ui-kg-advcount">({{ advancedRows.length }})</span>
+        </button>
+        <div v-else class="ui-kg-crow" :class="{ 'is-on': isOn(row.m.flagName) }">
+          <UiCheckbox :model-value="isOn(row.m.flagName)" @update:model-value="(on) => toggle(row.m, on)" />
+          <div class="ui-kg-metacell" :title="row.m.help || ''">
+            <span class="ui-kg-label">{{ row.m.label || row.m.flagName }}</span>
+            <code class="ui-kg-flag">{{ row.m.flagName }}</code>
+          </div>
           <UiSelect
-            v-if="m.options && m.options.length"
+            v-if="row.m.kind === 'bool'"
             class="ui-kg-val"
-            :model-value="valOf(m.flagName) ?? ''"
-            :options="m.options"
-            :disabled="!isOn(m.flagName)"
-            @update:model-value="setVal(m.flagName, $event)"
+            :model-value="valOf(row.m.flagName) ?? 'true'"
+            :options="BOOL_OPTIONS"
+            :disabled="!isOn(row.m.flagName)"
+            @update:model-value="setVal(row.m.flagName, $event)"
+          />
+          <UiSelect
+            v-else-if="row.m.options && row.m.options.length"
+            class="ui-kg-val"
+            :model-value="valOf(row.m.flagName) ?? ''"
+            :options="row.m.options"
+            :disabled="!isOn(row.m.flagName)"
+            @update:model-value="setVal(row.m.flagName, $event)"
           />
           <UiInput
             v-else
             class="ui-kg-val"
-            :model-value="valOf(m.flagName) ?? ''"
-            :type="m.kind === 'int' || m.kind === 'float' ? 'number' : 'text'"
-            :disabled="!isOn(m.flagName)"
-            :placeholder="m.default || 'value'"
-            @update:model-value="setVal(m.flagName, $event)"
+            :model-value="valOf(row.m.flagName) ?? ''"
+            :type="row.m.kind === 'int' || row.m.kind === 'float' ? 'number' : 'text'"
+            :disabled="!isOn(row.m.flagName)"
+            :placeholder="row.m.default || 'value'"
+            @update:model-value="setVal(row.m.flagName, $event)"
           />
-          <UiButton v-if="isChanged(m)" intent="ghost" size="small" title="Reset to default" @click="resetOne(m)">↺</UiButton>
+          <UiButton v-if="isChanged(row.m)" intent="ghost" size="small" title="Reset to default" @click="resetOne(row.m)">↺</UiButton>
           <span v-else class="ui-kg-resetspace" />
-        </template>
-      </div>
+        </div>
+      </template>
 
       <!-- Keys not in the list above: a custom key, or one set here while also
            edited elsewhere. Raw name/value so nothing is hidden from the user. -->
@@ -203,7 +226,11 @@ function resetAll() {
 .ui-kg-label { font-size: 12.5px; color: var(--ink); line-height: 1.25; }
 .ui-kg-flag { font-family: var(--font-mono, monospace); font-size: 10px; color: var(--muted); }
 .ui-kg-val :deep(input) { font-family: var(--font-mono, monospace); }
-.ui-kg-bool { font-size: 11px; justify-self: start; }
+/* Advanced expander — a disclosure affordance styled like the section eyebrows
+   (muted uppercase), not a ghost action button. */
+.ui-kg-advtoggle { align-self: start; background: none; border: 0; cursor: pointer; font: inherit; font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 6px 2px 2px; }
+.ui-kg-advtoggle:hover { color: var(--accent-ink, var(--accent)); }
+.ui-kg-advcount { font-weight: 600; }
 .ui-kg-resetspace { width: 0; }
 .ui-kg-extras-h { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; margin: 8px 0 1px; }
 .ui-kg-foot { display: flex; align-items: center; margin-top: 9px; }

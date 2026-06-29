@@ -282,6 +282,7 @@ class KnobCatalog(LlmBase):
     help = Column(Text, nullable=False, default="")
     plane = Column(Integer, nullable=False, default=1)        # 1 = load switch, 2 = sampler
     applies_to = Column(String, nullable=False, default="all")  # all|moe|dense
+    tier = Column(String, nullable=False, default="common")    # common|advanced (UI checklist split)
     position = Column(Integer, nullable=False, default=0)
     built_in = Column(Boolean, nullable=False, default=False)
 

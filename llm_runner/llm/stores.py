@@ -23,6 +23,7 @@ from .jobs_api import FeatureJobRow, JobRow
 from .model_catalog_api import CatalogRow
 from .prompts import FeaturePromptRow
 from .switch_presets_api import PresetSwitchRow, SwitchPresetRow
+from .presets_api import EnginePresetRow, PresetFlagRow
 from .recommendations_api import RecommendationRow
 from .routing_api import FeaturePin, JobTarget, RoutingConfig, RoutingDefaults
 from .schema import LLMProviderConfig
@@ -776,6 +777,135 @@ class JobPresetStore:
             s.close()
 
 
+# ── engine presets (the 2026-06-29 lab+preset model: model+switches+params, the
+# source of truth for what runs). Assigned by CATEGORY (CategoryPreset[""] = the
+# global default) or a per-feature override (FeaturePresetRef). ──
+def _engine_preset_to_wire(p, switches, samplers) -> EnginePresetRow:
+    return EnginePresetRow(
+        id=p.id, name=p.name, providerId=p.provider_id, model=p.model,
+        temperature=p.temperature, topP=p.top_p, maxTokens=p.max_tokens,
+        jsonMode=p.json_mode, reasoningEffort=p.reasoning_effort,
+        nglOverride=p.ngl_override, nCpuMoeOverride=p.n_cpu_moe_override,
+        switches=[PresetFlagRow(flagName=x.flag_name, flagValue=x.flag_value) for x in switches],
+        samplers=[PresetFlagRow(flagName=x.param_name, flagValue=x.value) for x in samplers],
+        builtIn=p.built_in, position=p.position,
+    )
+
+
+class EnginePresetStore:
+    def list(self) -> list[EnginePresetRow]:
+        s = db.session()
+        try:
+            sw: dict[str, list] = {}
+            for r in s.query(db.EnginePresetSwitch).all():
+                sw.setdefault(r.preset_id, []).append(r)
+            sm: dict[str, list] = {}
+            for r in s.query(db.EnginePresetSampler).all():
+                sm.setdefault(r.preset_id, []).append(r)
+            return [
+                _engine_preset_to_wire(
+                    p,
+                    sorted(sw.get(p.id, []), key=lambda x: x.flag_name),
+                    sorted(sm.get(p.id, []), key=lambda x: x.param_name),
+                )
+                for p in s.query(db.EnginePreset).order_by(db.EnginePreset.position, db.EnginePreset.id).all()
+            ]
+        finally:
+            s.close()
+
+    def save(self, preset: EnginePresetRow) -> EnginePresetRow:
+        s = db.session()
+        try:
+            pid = preset.id or uuid.uuid4().hex[:12]
+            row = s.get(db.EnginePreset, pid)
+            if row is None:
+                row = db.EnginePreset(id=pid, position=s.query(db.EnginePreset).count())
+                s.add(row)
+            row.name = preset.name
+            row.provider_id = preset.providerId
+            row.model = preset.model
+            row.temperature = preset.temperature
+            row.top_p = preset.topP
+            row.max_tokens = preset.maxTokens
+            row.json_mode = preset.jsonMode
+            row.reasoning_effort = preset.reasoningEffort
+            row.ngl_override = preset.nglOverride
+            row.n_cpu_moe_override = preset.nCpuMoeOverride
+            s.query(db.EnginePresetSwitch).filter(db.EnginePresetSwitch.preset_id == pid).delete()
+            for x in preset.switches:
+                if not (x.flagName or "").strip():
+                    continue
+                s.add(db.EnginePresetSwitch(preset_id=pid, flag_name=x.flagName.strip(), flag_value=x.flagValue or ""))
+            s.query(db.EnginePresetSampler).filter(db.EnginePresetSampler.preset_id == pid).delete()
+            for x in preset.samplers:
+                if not (x.flagName or "").strip():
+                    continue
+                s.add(db.EnginePresetSampler(preset_id=pid, param_name=x.flagName.strip(), value=x.flagValue or ""))
+            s.commit()
+            preset.id = pid
+            return preset
+        finally:
+            s.close()
+
+    def delete(self, preset_id: str) -> None:
+        s = db.session()
+        try:
+            row = s.get(db.EnginePreset, preset_id)
+            if row is not None:
+                s.delete(row)
+                s.commit()
+        finally:
+            s.close()
+
+
+class CategoryPresetStore:
+    def list(self) -> dict[str, str]:
+        s = db.session()
+        try:
+            return {r.category: r.preset_id for r in s.query(db.CategoryPreset).all()}
+        finally:
+            s.close()
+
+    def set(self, category: str, preset_id: str) -> None:
+        s = db.session()
+        try:
+            row = s.get(db.CategoryPreset, category)
+            if not preset_id:
+                if row is not None:
+                    s.delete(row)
+            elif row is None:
+                s.add(db.CategoryPreset(category=category, preset_id=preset_id))
+            else:
+                row.preset_id = preset_id
+            s.commit()
+        finally:
+            s.close()
+
+
+class FeaturePresetRefStore:
+    def list(self) -> dict[str, str]:
+        s = db.session()
+        try:
+            return {r.key: r.preset_id for r in s.query(db.FeaturePresetRef).all()}
+        finally:
+            s.close()
+
+    def set(self, feature_key: str, preset_id: str) -> None:
+        s = db.session()
+        try:
+            row = s.get(db.FeaturePresetRef, feature_key)
+            if not preset_id:
+                if row is not None:
+                    s.delete(row)
+            elif row is None:
+                s.add(db.FeaturePresetRef(key=feature_key, preset_id=preset_id))
+            else:
+                row.preset_id = preset_id
+            s.commit()
+        finally:
+            s.close()
+
+
 _provider = ProviderStore()
 _routing = RoutingStore()
 _job_preset = JobPresetStore()
@@ -788,6 +918,9 @@ _job = JobStore()
 _feature_job = FeatureJobStore()
 _job_route_switch = JobRouteSwitchStore()
 _feature_sampler = FeatureSamplerStore()
+_engine_preset = EnginePresetStore()
+_category_preset = CategoryPresetStore()
+_feature_preset_ref = FeaturePresetRefStore()
 
 
 def get_provider_store() -> ProviderStore: return _provider
@@ -802,6 +935,9 @@ def get_job_store() -> JobStore: return _job
 def get_feature_job_store() -> FeatureJobStore: return _feature_job
 def get_job_route_switch_store() -> JobRouteSwitchStore: return _job_route_switch
 def get_feature_sampler_store() -> FeatureSamplerStore: return _feature_sampler
+def get_engine_preset_store() -> EnginePresetStore: return _engine_preset
+def get_category_preset_store() -> CategoryPresetStore: return _category_preset
+def get_feature_preset_ref_store() -> FeaturePresetRefStore: return _feature_preset_ref
 
 
 def list_knob_catalog() -> list[dict]:

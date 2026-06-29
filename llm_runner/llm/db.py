@@ -424,6 +424,80 @@ class FeatureSamplerParam(LlmBase):
     built_in = Column(Boolean, nullable=False, default=False)
 
 
+# ── engine presets (the Lab's output; the SOURCE OF TRUTH for what runs — the
+# 2026-06-29 lab+preset model). A preset = model + frozen switches + params. It is
+# assigned to features by CATEGORY (CategoryPreset) or a per-feature override
+# (FeaturePresetRef); the global fallback is the `default_preset_id` setting. The
+# PROMPT is NOT here — it stays on the feature (FeaturePrompt). Frozen (stored = run)
+# EXCEPT ngl / n_cpu_moe, which auto-compute at load when their override is null. ──
+class EnginePreset(LlmBase):
+    """A reusable engine config built + saved in the Lab: a model + per-request
+    params + a frozen Plane-1 switch child + optional hardware-fit-knob overrides."""
+
+    __tablename__ = "engine_presets"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False, default="")
+    provider_id = Column(String, nullable=False, default="")
+    model = Column(String, nullable=False, default="")
+    # Plane-2 per-request params (sent in the chat call, no reload):
+    temperature = Column(Float, nullable=True)
+    top_p = Column(Float, nullable=True)
+    max_tokens = Column(Integer, nullable=False, default=0)        # 0 → no cap
+    json_mode = Column(Boolean, nullable=False, default=False)
+    reasoning_effort = Column(String, nullable=False, default="")  # "" | low | medium | high
+    # Hardware-fit knobs: null → auto-compute at load; set → frozen override that wins.
+    ngl_override = Column(Integer, nullable=True)
+    n_cpu_moe_override = Column(Integer, nullable=True)
+    position = Column(Integer, nullable=False, default=0)
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
+class EnginePresetSwitch(LlmBase):
+    """One FROZEN Plane-1 switch in a preset (flash-attn, cache types, mlock,
+    no-mmap, moe spec-off, …) — variable-cardinality child, PK (preset_id, flag_name).
+    NOT the auto fit knobs (ngl / n_cpu_moe are columns on EnginePreset)."""
+
+    __tablename__ = "engine_preset_switches"
+
+    preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), primary_key=True)
+    flag_name = Column(String, primary_key=True)
+    flag_value = Column(String, nullable=False, default="")
+
+
+class EnginePresetSampler(LlmBase):
+    """One long-tail sampler in a preset (top_k, min_p, mirostat*, dry_*, xtc_*, …)
+    beyond the typed param columns. PK (preset_id, param_name); merged into the
+    per-call `extra` at dispatch."""
+
+    __tablename__ = "engine_preset_samplers"
+
+    preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), primary_key=True)
+    param_name = Column(String, primary_key=True)
+    value = Column(Text, nullable=False, default="")
+
+
+class CategoryPreset(LlmBase):
+    """category → preset assignment — the bulk handle. Every feature in the category
+    inherits this preset (and a NEW feature in it auto-joins) unless the feature has
+    its own FeaturePresetRef override."""
+
+    __tablename__ = "category_presets"
+
+    category = Column(String, primary_key=True)
+    preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), nullable=False)
+
+
+class FeaturePresetRef(LlmBase):
+    """A per-feature preset OVERRIDE (the rare escape). Absent → the feature inherits
+    its category's preset, else the default. `key` is the action id."""
+
+    __tablename__ = "feature_preset_refs"
+
+    key = Column(String, primary_key=True)
+    preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), nullable=False)
+
+
 # ── storage wiring (host hands its session factory; install_llm calls these) ──
 _SessionLocal: sessionmaker | None = None
 

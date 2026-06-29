@@ -110,6 +110,53 @@ Nothing else is computed silently.
 > history isn't lost.**
 >
 > **Trial iteration log (newest first):**
+> - **Trial 4 — walk-through corrections on the one-page build (2026-06-29).** After walking the one-page
+>   build on their own machine (Windows / RTX 2070 SUPER 8 GB), the user drove a sequence of UI fixes. They
+>   also repeatedly flagged that I kept making changes BEYOND what was asked (removed the category dropdown off
+>   a *question*, invented a prompt-persistence "bubble", deleted the wrong helper line) — the hard rule was
+>   reaffirmed and is now load-bearing: **ZERO decisions on my own; do EXACTLY what's said and nothing adjacent;
+>   a question is a question (answer it, don't act); stop and ask on anything ambiguous.** Sub-changes this trial:
+>   - **Global Default row — REMOVED** from the left nav (user: "use your recommendation"). The per-category
+>     set-all dropdown was **KEPT** (user: the left nav is otherwise correct — I had wrongly removed it). The
+>     duplicate **System + Instruction prompt block** above "Tune presets" was **REMOVED** (the prompt now lives
+>     only in the column = the "testing prompt"); the **"Tune presets" helper line was RESTORED**. The tune
+>     column width is **flex** (1 col = full width, 2 = split 50/50, 3+ scroll) — `CompareStrip .lu-cmp-col
+>     { flex: 1 1 0; min-width: 360px }`, not a hardcoded width. Commits `0b4a6e0`, `1302f88`.
+>   - **#2 Remove the per-feature "Engine preset" override dropdown** from the right pane — DONE (`1302f88`).
+>   - **#3 "Use in production" — DONE** (`1302f88` + `81d9875`). A button in the column's preset bar sets the
+>     feature's preset (`FeaturePresetRef`, via PUT `/v1/ai/preset-assignments/feature`) to the column's
+>     currently-selected preset; on open the column preselects + loads the feature's in-production preset
+>     (`ConfigColumn` `productionPresetId` prop → `onMounted` sets `selPreset` + emits `apply-preset`); the
+>     button is **always visible** (disabled until a preset is loaded; reads "✓ In production" when it is the
+>     feature's live one). Wired `ConfigColumn` → `CompareStrip` (`use-production` emit) → `FeatureWorkbench.onUseProduction`.
+>   - **#1 Page must not scroll — only nav + content — DONE** (`81d9875` runner + `5877090` JW). The FIRST
+>     attempt (`675a035`, `height:100%`) FAILED because a percentage height does not resolve through a flex item,
+>     so the page still scrolled (and I only eyeballed the top instead of measuring). The REAL fix is a flex
+>     chain (`flex:1; min-height:0` at every level): `AiView` now wraps the area in a flex-fill `.ai-fill`
+>     (flex:1, flex column, min-height:0) instead of the scrolling `.scrollarea`; `AiModelsArea .lu-area` is
+>     `flex:1` + flex column; the Routing-by-feature `<section>` is `.lu-tab-fill` (flex column, `overflow:hidden`,
+>     no own scroll) so FeatureWorkbench fills it; `FeatureWorkbench .lu-fw` is `flex:1`, `.lu-fw-body` is
+>     `grid-template-rows: minmax(0,1fr); flex:1; min-height:0`, and `.lu-fw-list` + `.lu-fw-edit` are
+>     `overflow-y:auto; min-height:0`. VERIFIED programmatically (not eyeballed): `document` overflow 0,
+>     `.ai-fill`/`.lu-area` overflow 0, nav list + editor pane each scroll. **JV note:** this touches the SHARED
+>     kit — JustVoice's AI host still uses a scrolling container, so it needs the same flex-fill wrapper as
+>     `AiView` (degrades gracefully — scrolls as before — until then). I have the JV repo in scope and CAN verify
+>     it; the user said NOT to for now.
+>   - **#4 Preset dropdown was full-width — FIX IN PROGRESS** (uncommitted/just-applied at the compaction). Root
+>     cause: a `class=` on `<UiSelect>` falls through to its `SelectRoot` wrapper, NOT the visible `SelectTrigger`,
+>     so the `max-width:180px` did nothing. The cap is the UiSelect **`width` prop** (→ `ui-w-{token}` on the
+>     trigger; tokens in `ui/src/common/styles.css`: token 110 / id 180 / name 280 / url 360 / …). Applied
+>     `width="name"` (280px) + moved the "Use in production" button to sit **next to** the dropdown (before the
+>     spacer), per the user. **Pending the user's visual re-check** ("fix it later").
+>   - **#5 Samplers grid rework — PENDING (the big one, NOT started).** Agreed spec, grounded in the SillyTavern
+>     survey (`justwrite-app/docs/plans/2026-06-24-sillytavern-survey.md`) + the user's "anchor on llama.cpp":
+>     replace the add-a-blank-row `KnobGrid` with a **prefilled checklist** built from `knob_catalog` — which
+>     ALREADY has everything needed (`default_value`, `position`, `kind`), so NO new backend data. Rows
+>     **common-first** (by `position`), each with an **enable/disable** toggle + value, an **add-custom** row, a
+>     **reset-to-defaults**, in a **fixed-height scrollable** grid. Same treatment for the Plane-1 engine
+>     switches. Do it **ADDITIVELY** (a new KnobGrid checklist mode, opt-in) so the other KnobGrid call sites +
+>     JustVoice are NOT disturbed. **Provider-applicability tagging (local-only grey-out) is DEFERRED** — user:
+>     "online providers … we can research later" (the survey already has the portability matrix when we do).
 > - **Trial 3 — collapse to ONE page (idea 1 + idea 2 DONE).** The user decided the separate
 >   assignment tab still felt like too many pages and proposed folding everything into **Routing by feature**:
 >   a preset dropdown on each CATEGORY heading that sets all its features, with per-feature overrides, plus a

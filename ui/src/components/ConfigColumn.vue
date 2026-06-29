@@ -49,10 +49,12 @@ const varHint = "{{variable}}"; // shown literally in the UI (avoids a nested {{
 const props = defineProps({
   action: { type: String, default: "" },
   providers: { type: Array, default: () => [] },
-  // Plane-2 (samplers) + Plane-1 (engine switches) knob-catalog subsets → labelled/
-  // typed inputs in their KnobGrids; unknown keys still pass through as raw rows.
-  samplerCatalog: { type: Object, default: () => ({}) },
-  switchCatalog: { type: Object, default: () => ({}) },
+  // Plane-2 (samplers) + Plane-1 (engine switches) knob-catalog rows, ordered
+  // common-first — drive the prefilled KnobGrid checklists. Raw catalog rows
+  // ({ flagName, label, kind, default, help, options }); unknown keys still edit
+  // raw under "Other keys".
+  samplerCatalogList: { type: Array, default: () => [] },
+  switchCatalogList: { type: Array, default: () => [] },
   // The shared test input (parent-owned; ONE set across Compare's columns).
   vars: { type: Object, default: () => ({}) },
   // Host runner for live streaming (Cancel + token usage). Null → one-shot /run.
@@ -280,12 +282,14 @@ defineExpose({ run, cancel });
         :inherit-label="inheritLabel" @update:model-value="patchPin" />
     </div>
 
-    <!-- Plane-1 engine switches (KnobGrid, D15) -->
+    <!-- Plane-1 engine switches (KnobGrid checklist, D15). n_cpu_moe is excluded —
+         it is a hardware-fit knob edited in the Hardware-fit row below. -->
     <details class="cc-switches">
-      <summary class="cc-eyebrow">Engine switches <span class="lu-muted">— Plane-1 (load-time): n_cpu_moe · ctx · kv-type · flags</span></summary>
+      <summary class="cc-eyebrow">Engine switches <span class="lu-muted">— Plane-1 (load-time): ctx · kv-type · flash-attn · flags</span></summary>
       <div class="cc-switches-body">
-        <KnobGrid :model-value="modelValue?.switches || []" :catalog="switchCatalog"
-          add-label="＋ Add switch" name-placeholder="switch (e.g. ctx_len)"
+        <KnobGrid checklist :catalog-list="switchCatalogList" :exclude="['n_cpu_moe']"
+          :model-value="modelValue?.switches || []"
+          add-label="＋ Add custom switch" name-placeholder="switch (e.g. ctx_len)"
           @update:model-value="patch('switches', $event)" />
         <p class="lu-muted cc-switch-note">Applied when the engine (re)loads — the Run below tests the
           currently-loaded / cloud model; per-switch tok/s needs a local model (router #27). Promote writes
@@ -327,12 +331,14 @@ defineExpose({ run, cancel });
         <UiInput :model-value="modelValue?.nCpuMoeOverride" type="number" placeholder="auto" @update:model-value="patch('nCpuMoeOverride', $event)" /></div>
     </div>
 
-    <!-- Plane-2 long-tail samplers (KnobGrid) -->
+    <!-- Plane-2 long-tail samplers (KnobGrid checklist). temperature + top_p are
+         excluded — they are edited in the per-call params row above. -->
     <details class="cc-samplers">
-      <summary class="cc-eyebrow">Advanced samplers <span class="lu-muted">— top_k · min_p · mirostat … (mostly local)</span></summary>
+      <summary class="cc-eyebrow">Advanced samplers <span class="lu-muted">— top_k · min_p · penalties · mirostat … (mostly local)</span></summary>
       <div class="cc-samplers-body">
-        <KnobGrid :model-value="modelValue?.samplers || []" :catalog="samplerCatalog"
-          add-label="＋ Add sampler" name-placeholder="sampler (e.g. top_k)"
+        <KnobGrid checklist :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']"
+          :model-value="modelValue?.samplers || []"
+          add-label="＋ Add custom sampler" name-placeholder="sampler (e.g. top_k)"
           @update:model-value="patch('samplers', $event)" />
       </div>
     </details>

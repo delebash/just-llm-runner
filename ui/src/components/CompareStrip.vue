@@ -20,8 +20,8 @@ const props = defineProps({
   action: { type: String, default: "" },
   baseConfig: { type: Object, default: () => ({}) }, // seed each new column from this
   providers: { type: Array, default: () => [] },
-  samplerCatalog: { type: Object, default: () => ({}) },
-  switchCatalog: { type: Object, default: () => ({}) },
+  samplerCatalogList: { type: Array, default: () => [] },
+  switchCatalogList: { type: Array, default: () => [] },
   vars: { type: Object, default: () => ({}) },
   presets: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },  // the feature's in-production preset
@@ -139,7 +139,7 @@ onMounted(() => {
       <div v-for="(col, i) in columns" :key="col.id" class="lu-cmp-col">
         <ConfigColumn :ref="(el) => setColRef(col.id, el)"
           v-model="col.config" :action="action" :providers="providers"
-          :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
+          :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
           :vars="vars" :presets="presets" :prompt-editable="true"
           :production-preset-id="productionPresetId"
           :run-stream="null" :busy="runningAll" :removable="columns.length > 1"

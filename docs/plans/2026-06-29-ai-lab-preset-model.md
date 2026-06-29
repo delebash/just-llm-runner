@@ -148,15 +148,73 @@ Nothing else is computed silently.
 >     trigger; tokens in `ui/src/common/styles.css`: token 110 / id 180 / name 280 / url 360 / …). Applied
 >     `width="name"` (280px) + moved the "Use in production" button to sit **next to** the dropdown (before the
 >     spacer), per the user. **Pending the user's visual re-check** ("fix it later").
->   - **#5 Samplers grid rework — PENDING (the big one, NOT started).** Agreed spec, grounded in the SillyTavern
->     survey (`justwrite-app/docs/plans/2026-06-24-sillytavern-survey.md`) + the user's "anchor on llama.cpp":
->     replace the add-a-blank-row `KnobGrid` with a **prefilled checklist** built from `knob_catalog` — which
->     ALREADY has everything needed (`default_value`, `position`, `kind`), so NO new backend data. Rows
->     **common-first** (by `position`), each with an **enable/disable** toggle + value, an **add-custom** row, a
->     **reset-to-defaults**, in a **fixed-height scrollable** grid. Same treatment for the Plane-1 engine
->     switches. Do it **ADDITIVELY** (a new KnobGrid checklist mode, opt-in) so the other KnobGrid call sites +
->     JustVoice are NOT disturbed. **Provider-applicability tagging (local-only grey-out) is DEFERRED** — user:
->     "online providers … we can research later" (the survey already has the portability matrix when we do).
+>   - **#5 Samplers + switches grid rework — DONE (2026-06-29).** The add-a-blank-row sampler/switch editors in
+>     `ConfigColumn` are replaced by a **prefilled checklist** built from the seeded `knob_catalog`. Grounded in
+>     the SillyTavern survey (`justwrite-app/docs/plans/2026-06-24-sillytavern-survey.md` §"Minimum useful first
+>     slice") + the user's "anchor on llama.cpp; online providers we can research later." Implementation, additive:
+>     - **The shared `KnobGrid` got an opt-in `checklist` MODE** (new props `checklist`, `catalogList`, `exclude`,
+>       `scrollMax`). When `checklist` + `catalogList` are given it renders the prefilled grid; otherwise the
+>       EXISTING add-a-row UI is byte-unchanged as the `v-else` branch. Both branches funnel through the SAME
+>       `commit`/`patch`/`remove` helpers (no forked logic — T3). The two OTHER live `KnobGrid` consumers —
+>       `LuModelCatalog.vue:424` (the per-model switch editor) and `RoutingByJob.vue:348` (dead-but-present) —
+>       pass ONLY the legacy object-map `:catalog`, so they are completely untouched; JustVoice (which consumes
+>       the kit) is likewise undisturbed. This was the central "additive, opt-in" requirement and it held.
+>     - **Each managed row** = an enable/disable checkbox (presence in the v-model `[{name,value}]` array) + a
+>       kind-aware value control: enum → `UiSelect`; int/float → `UiInput type=number`; **bool → the checkbox
+>       ALONE** (a llama.cpp presence flag — enabling stores value `"true"`, there is no separate value box, the
+>       row shows "on"/"off"); string → text. A per-row **↺ reset-to-default** appears when an enabled value
+>       differs from the catalog default. The value control is disabled until the row is enabled, and prefills the
+>       catalog default on enable (a knob with no seeded default enables blank → the user types it; an enabled,
+>       value-less sampler is dropped on the wire by `_parse_sampler_value("")→None`, no crash).
+>     - **Rows are common-first** — the catalog API already returns rows ordered by `(plane, position)`
+>       (`stores.list_knob_catalog`), and the seed insertion order IS the intended priority (verified against the
+>       survey's "minimum useful first slice": the common samplers before the exotics). VERIFIED in-browser the
+>       sampler order is `["top_k","min_p","repeat_penalty","presence_penalty","frequency_penalty","typical_p","dry_multiplier","xtc_probability","mirostat","seed"]`
+>       and switches `["ctx_len","flash_attn","cache_type_k","cache_type_v","no_mmap","mlock","no_kv_offload","spec_type","spec_n_max","threads","batch_size","parallel"]`.
+>     - **Footer** = `＋ Add custom …` (the future-proof escape — a key not in the catalog) + **Reset to
+>       defaults** (restores every listed knob's value to its catalog default; bool + custom rows untouched). A
+>       **fixed-height scroll** (`scrollMax`, default 260px) keeps the column compact — the user's "scrollable
+>       data grid, a certain height then it scrolls." Layout is **label-then-value adjacent** (a 200px label
+>       column, the value next to it) with dead space on the RIGHT — fixing a first cut that flung the value to
+>       the far edge (the "fragment orphaned across a spacer" the layout grammar forbids).
+>     - **⚠ TWO EXCLUDE LISTS — a judgment call made while the user slept; FLAGGED so it can be reversed in
+>       seconds.** The prefilled grid would otherwise list knobs that ALREADY have a dedicated control elsewhere,
+>       which would let two controls write the SAME knob to two different stores (a real double-edit bug, both
+>       paths confirmed in code). So: the **samplers** grid excludes `temperature` + `top_p` — they live in the
+>       per-call params row (`ConfigColumn` Temp / Top-p) and are sent as top-level `temperature`/`topP` by
+>       `buildBody`; the **switches** grid excludes `n_cpu_moe` — it is a hardware-FIT knob stored as
+>       `nCpuMoeOverride` and edited in the Hardware-fit row per the locked Entities section above, NOT a frozen
+>       switch. **If the user instead wants temperature/top_p/n_cpu_moe shown IN the grid, delete the matching
+>       `:exclude="[…]"` array on the `<KnobGrid>` in `ConfigColumn.vue` (and remove the now-duplicate dedicated
+>       control).** An excluded knob that is nonetheless already set in a loaded preset does NOT vanish (see next).
+>     - **Excluded-but-present + custom keys** both fall into a raw **"Other keys"** sub-section — defined as
+>       anything in the v-model whose name is not in the *visible* catalog — rendered as raw name/value rows with
+>       a remove ✕, so a hand-added key (old add-row UI) or a future setup-generated key, or an excluded knob that
+>       was set anyway, is ALWAYS visible and removable, never silently dropped while still being saved.
+>     - **NO backend change.** `knob_catalog` already carries `label`/`kind`/`default`/`help`/`plane`/`options`
+>       and is returned ordered, so the checklist needed no new data. The UI now reads the RAW catalog rows — note
+>       the wire field is **`default`** (not `defaultValue`/`default_value`, the DB name) — instead of the
+>       stripped object-map. `FeatureWorkbench` computes `samplerCatalogList`/`switchCatalogList` (= the raw
+>       `knobCatalog` filtered by plane) and threads them through `CompareStrip` → `ConfigColumn`; the old stripped
+>       object-map computeds + their props were REPLACED (the checklist needs `kind`+`default`+order that the
+>       object-map dropped). This rename is confined to the ConfigColumn catalog chain (3 files already edited for
+>       this feature) and touches no external consumer (LuModelCatalog/RoutingByJob build their own object-maps).
+>     - **Provider-applicability tagging (local-only grey-out) is still DEFERRED** — user: "online providers … we
+>       can research later" (the survey's portability matrix is ready when we do).
+>     - **Files:** `ui/src/components/KnobGrid.vue` (the checklist mode + an updated header doc comment),
+>       `ui/src/components/ConfigColumn.vue` (both grids → checklist, the two excludes, the `*List` prop rename,
+>       the stale `n_cpu_moe` summary-copy fix), `ui/src/components/CompareStrip.vue` (thread the arrays),
+>       `ui/src/views/FeatureWorkbench.vue` (the ordered-array computeds). **Verified:** `npm run build:vite`
+>       exit 0; `node scripts/headless-smoke.mjs` PASSED with ZERO JS errors across every route + all 5 AI
+>       sub-tabs (Routing-by-feature 6650 chars; Providers & models + model-manager 0 errors → LuModelCatalog's
+>       legacy grid intact); a dedicated Playwright check confirmed the prefilled rows, the common-first order,
+>       BOTH excludes, the "Other keys" fallback, and that toggling a knob enables its value input (all green,
+>       0 JS errors); `ruff check` clean + the preset/prompt pytest (17) green (no Python touched).
+>     - **Process:** a **2-checker rules panel** (architecture-fit + reuse/scope lenses) was run on the PLAN
+>       BEFORE any code; both returned FAIL with actionable findings that were folded in before coding — stay
+>       additive on the shared component, read the `default` wire field + the raw rows, never drop an
+>       excluded-but-present row, fix the stale `n_cpu_moe` summary copy, and ship the doc update WITH the feature
+>       (this entry). The exclude-list call is the one item the panel said to surface to the user — hence the ⚠ above.
 > - **Trial 3 — collapse to ONE page (idea 1 + idea 2 DONE).** The user decided the separate
 >   assignment tab still felt like too many pages and proposed folding everything into **Routing by feature**:
 >   a preset dropdown on each CATEGORY heading that sets all its features, with per-feature overrides, plus a

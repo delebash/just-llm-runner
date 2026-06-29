@@ -46,20 +46,11 @@ const presetAssign = ref({ defaultPresetId: "", categories: {}, features: {} });
 const samplerRows = ref([]); // the selected action's long-tail samplers (Plane-2 KnobGrid v-model)
 const switchRows = ref([]);  // the selected action's JOB engine switches (Plane-1 KnobGrid v-model)
 const knobCatalog = ref([]); // knob_catalog metadata (C1)
-const samplerCatalog = computed(() =>
-  Object.fromEntries(
-    knobCatalog.value
-      .filter((k) => k.plane === 2)
-      .map((k) => [k.flagName, { label: k.label, help: k.help, options: k.options?.length ? k.options : undefined }]),
-  ),
-);
-const switchCatalog = computed(() =>
-  Object.fromEntries(
-    knobCatalog.value
-      .filter((k) => k.plane === 1)
-      .map((k) => [k.flagName, { label: k.label, help: k.help, options: k.options?.length ? k.options : undefined }]),
-  ),
-);
+// Plane-2 samplers + Plane-1 switches as ORDERED raw catalog rows (the API returns
+// them common-first by position) → the prefilled <KnobGrid> checklists in each
+// ConfigColumn. The raw rows carry `kind` + `default`, which the checklist needs.
+const samplerCatalogList = computed(() => knobCatalog.value.filter((k) => k.plane === 2));
+const switchCatalogList = computed(() => knobCatalog.value.filter((k) => k.plane === 1));
 const loading = ref(true);
 const error = ref("");
 const message = ref("");
@@ -472,7 +463,7 @@ onMounted(load);
             </div>
             <CompareStrip :key="selAction"
               :action="selAction" :base-config="columnConfig" :providers="providers"
-              :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
+              :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
               :vars="vars" :presets="enginePresets" :production-preset-id="featurePreset(selAction)"
               @save-as="saveAs" @delete-preset="delPreset" @use-production="onUseProduction" />
           </div>

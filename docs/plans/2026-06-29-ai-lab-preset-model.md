@@ -95,6 +95,22 @@ Nothing else is computed silently.
   VRAM decides which model per task. (User, 2026-06-29.)
 
 ## Build plan (phased — verify `build:vite` + headless smoke + reseed each)
+
+> **Status (2026-06-29):**
+> - **Phase 1 — DONE + tested + pushed** (178 pytest, ruff). Data model (`engine_presets`
+>   + children + `category_presets` + `feature_preset_refs`), preset API (CRUD + default/
+>   category/feature assignment), the resolve cascade, and the **dispatch wiring** — `/v1/ai/run`
+>   now uses the resolved preset's model + params, with a fallback to legacy routing so nothing
+>   breaks. Commits: `f18e80b` (doc) · `b11f6b5` (data) · `deacca0` (API+resolver) · `7acb78d` (dispatch).
+> - **Phase 2 — Lab preset library shipped** (`EnginePresets.vue` in the Tuning tab): create an
+>   engine-preset (model + params + fit-knob overrides + switch KnobGrid) and assign it as the
+>   global **default** or per **category**. Smoke-verified (0 JS errors). REMAINING in Phase 2:
+>   "save from a tuning column" + the fit-knob row inside `ConfigColumn`, Retune.
+> - **Phases 3–7 pending:** routing-by-feature slim (prompt + preset picker), setup generation,
+>   download offer, removals.
+> - **This is now a walkable loop:** Tuning → New preset → assign to a category/default → a
+>   feature in that category runs it.
+
 1. **Data model** — `preset` (model + switches + params + optional fit-knob overrides);
    `category → preset` assignment; `feature → preset` override; the cascade resolver. DB reset
    (schema change, per the drop+reseed policy).

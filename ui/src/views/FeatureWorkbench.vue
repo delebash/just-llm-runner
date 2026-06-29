@@ -323,10 +323,6 @@ async function resetPrompt() {
 
 // ── engine preset (2026-06-29 model) — Routing-by-feature only sets WHICH preset a
 // feature runs (its model+switches+params live in the preset, built in the Lab). ──
-const presetOptions = computed(() => [
-  { value: "", label: "— inherit this feature's category —" },
-  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
-]);
 function featurePreset(key) {
   return presetAssign.value.features?.[key] || "";
 }
@@ -346,6 +342,11 @@ async function setFeaturePreset(key, presetId) {
   presetAssign.value = await request("/v1/ai/preset-assignments/feature", {
     method: "PUT", body: { featureKey: key, presetId },
   });
+}
+// "Use in production" — make the column's selected preset the one this feature runs.
+async function onUseProduction(presetId) {
+  await setFeaturePreset(selAction.value, presetId);
+  message.value = "In production — this feature runs that preset now.";
 }
 
 // ── per-CATEGORY "set all" preset assignment in the nav. Setting a category preset
@@ -458,13 +459,6 @@ onMounted(load);
               @click="navCollapsed = !navCollapsed">{{ navCollapsed ? '☰ Show list' : '⟨ Collapse list' }}</UiButton>
           </div>
 
-          <!-- Which engine preset this feature runs (the per-feature override). -->
-          <div class="lu-field">
-            <label>Engine preset <span class="lu-muted">— which preset this feature runs; blank = inherit its category (then Default)</span></label>
-            <UiSelect :model-value="featurePreset(selAction)" :options="presetOptions"
-              @update:model-value="setFeaturePreset(selAction, $event)" />
-          </div>
-
           <!-- The Lab, in-place: the feature's prompt (the testing prompt) + test input
                live in the column below; build/compare engine configs; Save a column as
                a preset (it appears in the dropdowns). -->
@@ -479,8 +473,8 @@ onMounted(load);
             <CompareStrip :key="selAction"
               :action="selAction" :base-config="columnConfig" :providers="providers"
               :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
-              :vars="vars" :presets="enginePresets"
-              @save-as="saveAs" @delete-preset="delPreset" />
+              :vars="vars" :presets="enginePresets" :production-preset-id="featurePreset(selAction)"
+              @save-as="saveAs" @delete-preset="delPreset" @use-production="onUseProduction" />
           </div>
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>

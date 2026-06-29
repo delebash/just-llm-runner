@@ -24,8 +24,9 @@ const props = defineProps({
   switchCatalog: { type: Object, default: () => ({}) },
   vars: { type: Object, default: () => ({}) },
   presets: { type: Array, default: () => [] },
+  productionPresetId: { type: String, default: "" },  // the feature's in-production preset
 });
-const emit = defineEmits(["save-as", "delete-preset"]);
+const emit = defineEmits(["save-as", "delete-preset", "use-production"]);
 
 let nextId = 1;
 const columns = ref([]);          // [{ id, config }]
@@ -140,13 +141,15 @@ onMounted(() => {
           v-model="col.config" :action="action" :providers="providers"
           :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
           :vars="vars" :presets="presets" :prompt-editable="true"
+          :production-preset-id="productionPresetId"
           :run-stream="null" :busy="runningAll" :removable="columns.length > 1"
           :label="`Config ${i + 1}`" inherit-label="— pick a model —"
           @result="onResult(col.id, $event)"
           @remove="removeColumn(col.id)"
           @apply-preset="applyPresetTo(col, $event)"
           @save-as="emit('save-as', $event, col.config)"
-          @delete-preset="emit('delete-preset', $event)" />
+          @delete-preset="emit('delete-preset', $event)"
+          @use-production="emit('use-production', $event)" />
       </div>
     </div>
   </section>

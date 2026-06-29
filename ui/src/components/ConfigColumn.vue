@@ -25,7 +25,7 @@
 // per-switch comparison are GPU-gated (router/residency #27/#29). The KnobGrid here
 // EDITS them (for Promote → the action's job, and for the model-card load+measure
 // path); the column surfaces that so the readout isn't mistaken for a switch A/B.
-import { computed, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import { request } from "../client.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
@@ -63,6 +63,8 @@ const props = defineProps({
   inheritLabel: { type: String, default: "— inherit —" },
   // This action's saved presets (parent-owned list, already filtered to the action).
   presets: { type: Array, default: () => [] },
+  // The feature's current IN-PRODUCTION preset id → preselect it + mark it.
+  productionPresetId: { type: String, default: "" },
   // Show the system/user prompt editors. Features ×1 = true; Compare may pass false
   // to compare engines on a shared (locked) prompt, true for prompt A/B.
   promptEditable: { type: Boolean, default: true },
@@ -79,7 +81,7 @@ const props = defineProps({
 });
 const emit = defineEmits([
   "update:modelValue", "result",
-  "save-as", "apply-preset", "delete-preset", "remove",
+  "save-as", "apply-preset", "delete-preset", "remove", "use-production",
 ]);
 
 // ── config patching (v-model) ───────────────────────────────────────────────
@@ -232,6 +234,15 @@ function fmtCost(c) {
   return c < 0.01 ? `$${c.toFixed(4)}` : `$${c.toFixed(2)}`;
 }
 
+// Preselect + load the feature's in-production preset into this column on open
+// ("whatever preset is in production loads the dropdown with that one").
+onMounted(() => {
+  if (props.productionPresetId) {
+    selPreset.value = props.productionPresetId;
+    emit("apply-preset", props.productionPresetId);
+  }
+});
+
 defineExpose({ run, cancel });
 </script>
 
@@ -251,8 +262,10 @@ defineExpose({ run, cancel });
       <UiSelect class="cc-presel" :model-value="selPreset"
         :options="[{ value: '', label: '— start fresh —' }, ...presets.map((p) => ({ value: p.id, label: p.name }))]"
         @update:model-value="onApplyPreset" />
+      <span v-if="selPreset && selPreset === productionPresetId" class="cc-inprod" title="This preset is in production for this feature">● in production</span>
       <UiButton v-if="selPreset" intent="ghost" size="small" title="Delete this preset" @click="emit('delete-preset', selPreset)">🗑</UiButton>
       <span class="cc-spacer" />
+      <UiButton v-if="selPreset && selPreset !== productionPresetId" intent="success" size="small" title="Make this preset the one this feature uses" @click="emit('use-production', selPreset)">Use in production</UiButton>
       <UiInput v-if="naming" v-model="newName" placeholder="name — Enter" class="cc-name-in"
         @keyup.enter="confirmSaveAs" @keyup.esc="naming = false; newName = ''" />
       <UiButton v-else intent="primary" size="small" title="Save this tested config as a reusable preset" @click="startNaming">＋ Save as preset</UiButton>
@@ -375,6 +388,7 @@ defineExpose({ run, cancel });
 .cc-eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
 .cc-presel { max-width: 180px; }
 .cc-name-in { max-width: 150px; }
+.cc-inprod { font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--success, #3a7d63); white-space: nowrap; }
 .cc-prod { margin-left: auto; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 3px 9px; background: var(--accent); color: var(--on-accent, #fff); }
 .cc-params { display: flex; gap: 14px 18px; align-items: flex-end; flex-wrap: wrap; }
 .cc-num { max-width: 92px; }

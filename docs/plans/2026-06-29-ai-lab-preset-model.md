@@ -141,6 +141,10 @@ Nothing else is computed silently.
 >   production" stays DEFERRED (user: try Save→dropdown first). AI sub-nav is now **5 tabs**: Providers & models
 >   · Routing by feature · Recommendations · Usage · (host app tab). Verified: `build:vite` 0, headless smoke 0
 >   JS errors, 5 sub-tabs; 5 preset pytest + ruff clean.
+>   **Tweaks after the user's first look (2026-06-29):** removed the descriptive helper line under the "Tune
+>   presets" heading (user: "we don't need the extra prompt info above tune presets"); pinned each tune column
+>   to a fixed ~400px (`CompareStrip` `.lu-cmp-col`, was `clamp(320,42%,460)`) so a lone column reads as a tidy
+>   card instead of stretching across the pane.
 >   **Open for the next trials:** (a) the per-feature override picker + column 1 are loosely coupled right now
 >   (column 1 seeds from the feature's config, the override dropdown assigns an existing preset) — may want
 >   selecting a preset to load it into column 1; (b) "Use in production" (save + assign in one click) if the

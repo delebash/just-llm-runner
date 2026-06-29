@@ -494,7 +494,7 @@ onMounted(load);
                input; Save adds a named preset to the dropdowns above. One column by
                default; "+ Add column" adds more to compare. -->
           <div class="lu-fw-tune">
-            <div class="lu-fw-tune-h"><b>Tune presets</b><span class="lu-muted">run this feature's prompt on a test input · Save a column as a preset (it appears in the dropdowns)</span></div>
+            <div class="lu-fw-tune-h"><b>Tune presets</b></div>
             <div class="lu-fw-testin">
               <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
               <div v-for="(_, k) in vars" :key="k" class="lu-field">

@@ -103,6 +103,43 @@ Nothing else is computed silently.
 > stands. It is kept current on every change, in full prose, never summarized or truncated (user rule:
 > the plan is the live task tracker).**
 >
+> **⚠ WORKING MODE (user, 2026-06-29): the AI-area SCREEN STRUCTURE is being iterated by trial-and-error —
+> "locking sorta of, we are trial and error testing different designs until we get it correct." So the
+> entities + cascade below are stable/locked, but the exact tabs and where assignment/tuning live are NOT
+> frozen; they change build-to-build until the UX feels right. The trial log records each iteration so the
+> history isn't lost.**
+>
+> **Trial iteration log (newest first):**
+> - **Trial 3 — collapse toward ONE page (idea 1 DONE; idea 2 pending).** The user decided the separate
+>   assignment tab still felt like too many pages and proposed folding everything into **Routing by feature**:
+>   a preset dropdown on each CATEGORY heading that sets all its features, with per-feature overrides, plus a
+>   global Default — and (idea 2) making the right pane a 1→N column workbench so Tuning folds in too. **Idea 1
+>   is built:** the standalone "Routing by category" tab/section and `AssignPresets.vue` were REMOVED; its
+>   assignment moved INTO the Routing-by-feature LEFT list — a global **Default** preset row at the top, then
+>   each category heading carries a **set-all** preset dropdown (`setCategoryPreset` just PUTs
+>   `/preset-assignments/category` — non-overridden features inherit it live via the cascade; it does NOT
+>   silently wipe overrides) plus an explicit **Reset** button that clears that category's per-feature
+>   overrides so they all re-inherit (the user's "jw had it right way back" set-all reset). Each feature card
+>   shows its **resolved** preset with provenance (`featurePresetLabel`: own override → `· category` → `· default`).
+>   The per-feature OVERRIDE picker stays in the right pane for this trial (candidate to move inline onto the
+>   cards next). One small BACKEND addition for the reset: `POST /v1/ai/preset-assignments/clear-features`
+>   (`FeatureClearRequest{featureKeys}`) bulk-clears the given features' overrides — the client passes the
+>   category's feature keys (test `test_clear_features_bulk`, 5 preset tests pass). Otherwise the backend was
+>   unchanged — `CategoryPreset` (per-category default, `""`=global default) + `FeaturePresetRef` (override) +
+>   the cascade already supported all of this. AI sub-nav is now 6 tabs: Providers & models · Routing by
+>   feature · Tuning · Recommendations · Usage · (host app tab). **Confirmed with the user (2026-06-29):**
+>   prompt is per-feature; columns are SHARED engine presets; "+ add column" just adds another column (no
+>   dialog); Save makes a named shared preset that appears in the dropdowns. **"Use in production" (the old JW
+>   lab→test→use button) is DEFERRED** — the user wants to try the Save→dropdown→select flow first and decide
+>   later. **Idea 2 (fold the Tuning 1→N columns into the Routing-by-feature right pane, drop the Tuning tab)
+>   is the next trial.** Verified: `build:vite` 0, headless smoke 0 JS errors, 6 sub-tabs; 5 preset pytest +
+>   ruff clean.
+> - **Trial 2 — assignment as its own "Routing by category" tab** (commit `addde83`): extracted the assignment
+>   matrix to `AssignPresets.vue`, shipped two placement variants, user chose "Routing by category" after Tuning.
+>   SUPERSEDED by Trial 3 (folded into Routing-by-feature).
+> - **Trial 1 — assignment matrix at the bottom of the Lab** (commit `74f7819`): the first cut; user found the
+>   bottom-of-page placement wrong. SUPERSEDED by Trial 2.
+>
 > **Phase 1 — the backend — DONE, tested, committed, pushed.** The complete data model lives in
 > `llm_runner/llm/db.py`: the `engine_presets` table is the preset row (id, name, provider_id, model,
 > temperature, top_p, max_tokens, json_mode, reasoning_effort, the two hardware fit-knob overrides

@@ -12,7 +12,6 @@ import { computed, onMounted, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
-import AssignPresets from "./AssignPresets.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import RecommendationsEditor from "./RecommendationsEditor.vue";
@@ -142,7 +141,6 @@ onMounted(loadAll);
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
       <a :class="{ on: tab === 'tuning' }" @click="tab = 'tuning'">Tuning</a>
-      <a :class="{ on: tab === 'category' }" @click="tab = 'category'">Routing by category</a>
       <a :class="{ on: tab === 'recommendations' }" @click="tab = 'recommendations'">Recommendations</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
       <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
@@ -228,13 +226,6 @@ onMounted(loadAll);
          on its own tab (not a toggle inside Routing-by-feature). ── -->
     <section v-show="tab === 'tuning'" class="lu-tab">
       <FeatureWorkbench v-if="tab === 'tuning'" mode="tuning" :run-stream="props.runStream" />
-    </section>
-
-    <!-- ── Routing by category — assign an engine preset to each feature CATEGORY
-         (+ a global Default). Presets are built/tested in Tuning; a single feature
-         can override in Routing by feature. ── -->
-    <section v-show="tab === 'category'" class="lu-tab">
-      <AssignPresets v-if="tab === 'category'" />
     </section>
 
     <!-- ── Recommendations (manual editor over the Q3 layer) ── -->

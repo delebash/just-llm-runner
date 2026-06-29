@@ -65,6 +65,13 @@ class FeatureAssignment(BaseModel):
     presetId: str = ""   # "" → clear (feature inherits its category)
 
 
+class FeatureClearRequest(BaseModel):
+    """Bulk-clear the per-feature overrides for a set of features (the "reset" a
+    category does so every feature in it re-inherits the category preset)."""
+
+    featureKeys: list[str] = []
+
+
 class DefaultAssignment(BaseModel):
     presetId: str = ""
 
@@ -167,6 +174,17 @@ def make_presets_router(
         if not body.featureKey.strip():
             raise HTTPException(status_code=400, detail="featureKey is required")
         get_refs().set(body.featureKey, body.presetId)
+        return _assignments()
+
+    @router.post("/preset-assignments/clear-features", response_model=AssignmentsResponse)
+    async def clear_features(body: FeatureClearRequest) -> AssignmentsResponse:
+        """Reset: clear the per-feature override for each given feature so it
+        re-inherits its category preset. Used by the per-category "reset" button
+        (the client passes that category's feature keys)."""
+        refs = get_refs()
+        for key in body.featureKeys:
+            if key.strip():
+                refs.set(key, "")
         return _assignments()
 
     return router

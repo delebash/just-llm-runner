@@ -4,13 +4,15 @@
 // 2026-06-29 lab+preset model. The unit is the ACTION; "feature" (writerAI,
 // critique, …) is just the visual GROUP its actions live under.
 //   • mode="feature"  (AI ▸ Routing by feature): per action, edit its PROMPT
-//     (system + instruction) and pick WHICH engine preset runs it — or inherit
-//     its category's preset. The model + switches + params live IN the preset
-//     (built + tested in the Lab), so there is no model picker / switch grid here.
+//     (system + instruction) and pick WHICH engine preset runs it. The model +
+//     switches + params live IN the preset (built/tested in the Lab), so there is
+//     no model picker / switch grid here. The LEFT list also carries the preset
+//     ASSIGNMENT: a global Default + a per-CATEGORY "set all" preset, with each
+//     feature inheriting unless overridden (the cascade feature → category →
+//     default). Setting a category preset clears that category's overrides.
 //   • mode="tuning"   (AI ▸ Tuning, the Lab): a shared {{variables}} test input
 //     feeds <CompareStrip>, which renders N engine-config columns you Run and then
-//     Save as engine presets. Preset→category assignment lives on its own page
-//     (AssignPresets.vue / "Routing by category"), not here.
+//     Save as engine presets (which then appear in the assignment dropdowns).
 //
 // Endpoints: prompts in /v1/ai/prompts; the per-feature preset override in
 // /v1/ai/preset-assignments; the engine-preset library in /v1/ai/engine-presets;
@@ -315,9 +317,6 @@ async function delPreset(id) {
   if (!id) return;
   enginePresets.value = (await request(`/v1/ai/engine-presets/${id}`, { method: "DELETE" })).presets || [];
 }
-// Preset assignment (Default + per-category) lives on its own page now
-// (AssignPresets.vue / the "Routing by category" tab) — out of the Lab. The Lab
-// only builds/tests/saves presets; a feature picks WHICH preset in feature-mode.
 async function resetPrompt() {
   if (!draft.value?.builtIn) return;
   const updated = await request(`/v1/ai/prompts/${encodeURIComponent(draft.value.key)}/reset`, { method: "POST" });
@@ -335,14 +334,59 @@ const presetOptions = computed(() => [
 function featurePreset(key) {
   return presetAssign.value.features?.[key] || "";
 }
+const presetName = (id) => enginePresets.value.find((p) => p.id === id)?.name || "preset";
+// What a feature actually resolves to, with provenance — own override → its
+// category's preset → the global default. Shown muted on the nav card.
 function featurePresetLabel(key) {
-  const id = presetAssign.value.features?.[key];
-  if (id) return enginePresets.value.find((p) => p.id === id)?.name || "preset";
-  return "inherits category";
+  const fid = presetAssign.value.features?.[key];
+  if (fid) return presetName(fid);
+  const cid = presetAssign.value.categories?.[categoryOf(key)];
+  if (cid) return `${presetName(cid)} · category`;
+  const did = presetAssign.value.defaultPresetId;
+  if (did) return `${presetName(did)} · default`;
+  return "— none —";
 }
 async function setFeaturePreset(key, presetId) {
   presetAssign.value = await request("/v1/ai/preset-assignments/feature", {
     method: "PUT", body: { featureKey: key, presetId },
+  });
+}
+
+// ── preset assignment in the nav (idea-1 trial): the global Default + a per-CATEGORY
+// "set all" preset, both folded into the Routing-by-feature list (no separate page).
+// Setting a category preset is a SET-ALL — it also CLEARS that category's per-feature
+// overrides so every feature in it snaps back to the (new) category preset.
+const defaultOptions = computed(() => [
+  { value: "", label: "— none —" },
+  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
+]);
+const categoryOptions = computed(() => [
+  { value: "", label: "— inherit default —" },
+  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
+]);
+const defaultPresetId = computed(() => presetAssign.value.defaultPresetId || "");
+async function setDefaultPreset(presetId) {
+  presetAssign.value = await request("/v1/ai/preset-assignments/default", {
+    method: "PUT", body: { presetId },
+  });
+}
+function categoryPreset(cat) { return presetAssign.value.categories?.[cat] || ""; }
+function categoryOf(actionKey) {
+  return featMeta.value[featureOf(actionKey)]?.category || CATEGORY_FALLBACK;
+}
+async function setCategoryPreset(cat, presetId) {
+  // Set the category default. Non-overridden features inherit it live via the
+  // cascade; existing per-feature overrides stay until the category's Reset.
+  presetAssign.value = await request("/v1/ai/preset-assignments/category", {
+    method: "PUT", body: { category: cat, presetId },
+  });
+}
+// Reset a category: clear the per-feature override on every feature in it so they
+// all re-inherit the category preset (one bulk call — the "jw had it" set-all reset).
+async function resetCategory(cat) {
+  const keys = prompts.value.filter((p) => categoryOf(p.key) === cat).map((p) => p.key);
+  presetAssign.value = await request("/v1/ai/preset-assignments/clear-features", {
+    method: "POST", body: { featureKeys: keys },
   });
 }
 // Save just the feature's PROMPT text (params live in the preset now). Keeps the
@@ -397,9 +441,19 @@ onMounted(load);
         <!-- Nav: category → (feature sub-header) → action cards. Hidden in Compare
              mode when the user collapses it for full column width. -->
         <aside v-show="!compareMode || !navCollapsed" class="lu-fw-list">
+          <div v-if="!compareMode" class="lu-fw-default">
+            <div class="lu-fw-default-k">Default <span class="lu-muted">— every feature, unless set below</span></div>
+            <UiSelect :model-value="defaultPresetId" :options="defaultOptions" @update:model-value="setDefaultPreset" />
+          </div>
           <template v-for="(row, i) in navRows" :key="i">
             <div v-if="row.type === 'cat'" class="lu-fw-cat">
               <div class="lu-fw-cat-name">{{ row.label }}</div>
+              <div v-if="!compareMode" class="lu-fw-cat-assign">
+                <UiSelect class="lu-fw-cat-preset" :model-value="categoryPreset(row.label)"
+                  :options="categoryOptions" @update:model-value="(v) => setCategoryPreset(row.label, v)" />
+                <UiButton intent="ghost" size="small" title="Reset every feature in this category to inherit the category preset"
+                  @click="resetCategory(row.label)">Reset</UiButton>
+              </div>
             </div>
             <div v-else-if="row.type === 'ghead'" class="lu-fw-ghead" :style="ml(row.indent)">
               <div class="lu-fw-gname">{{ row.label }}</div>
@@ -489,7 +543,11 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-cat-name { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); }
 .lu-fw-ghead { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; }
 .lu-fw-gname { font-size: 12px; font-weight: 700; color: var(--ink-2); }
-.lu-fw-setall { background: var(--surface); border: 1px dashed var(--border); border-radius: 7px; padding: 5px 7px; }
+.lu-fw-default { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-bottom: 4px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); }
+.lu-fw-default-k { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
+.lu-fw-default-k .lu-muted { font-weight: 600; letter-spacing: 0; text-transform: none; }
+.lu-fw-cat-assign { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+.lu-fw-cat-assign .lu-fw-cat-preset { flex: 1; min-width: 0; margin-top: 0; }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 6px 0 1px; }
 
 .lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; }

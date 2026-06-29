@@ -81,6 +81,17 @@ def test_assignment_layers(client):
     assert "brainstorm" not in asg["features"]
 
 
+def test_clear_features_bulk(client):
+    a = _pid(client.post("/v1/ai/engine-presets", json={"name": "A", "model": "m-a"}), "A")
+    for key in ("brainstorm", "describe", "summarize"):
+        client.put("/v1/ai/preset-assignments/feature", json={"featureKey": key, "presetId": a})
+    # the per-category "reset" clears just that category's feature overrides
+    asg = client.post("/v1/ai/preset-assignments/clear-features",
+                      json={"featureKeys": ["brainstorm", "describe"]}).json()
+    assert "brainstorm" not in asg["features"] and "describe" not in asg["features"]
+    assert asg["features"]["summarize"] == a  # an unrelated override is untouched
+
+
 def test_resolve_cascade(client):
     from llm_runner.llm.preset_resolve import resolve_feature_preset
 

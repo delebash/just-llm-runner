@@ -1,5 +1,17 @@
 # MASTER PLAN — LLM stack + JustWrite — COMPLETE / full-detail rebuild (2026-06-28)
 
+> ## ⛔⛔ SUPERSESSION NOTICE (2026-06-29) — the AI routing/tuning model has been REDESIGNED
+> The AI config model in THIS doc is **job-centric** (a per-job model route; the Compare/lab at job grain; the
+> Fast/Balanced/Best dial; the "Routing by job" engine screen). On 2026-06-28/29 the user and I redesigned that whole
+> model into the **Lab + Preset** model, locked in `docs/plans/2026-06-29-ai-lab-preset-model.md`. In the new model a
+> **preset** (model + frozen switches + params, with auto/overridable fit-knobs) is the single source of truth, built and
+> tested in the **Lab**; a **feature** is just a prompt that points at a preset; presets are assigned in bulk **by
+> category** (feature-override → category → global Default); the Fast/Balanced/Best dial is dropped and "job" is demoted to
+> the recommendation key only. **For anything about routing, the lab, switches, presets, or the AI sub-nav, read and plan
+> from the 2026-06-29 design doc, NOT the corresponding sections here.** This master remains authoritative ONLY for the
+> parts the redesign does not touch: the model catalog, the Fit/VRAM engine, licensing/attribution, and the model
+> research (Part 3 / Part 4). Those parts are unchanged.
+
 > ## ⛔ WHY THIS REBUILD EXISTS — read first
 > The prior master (`2026-06-27-MASTER-PLAN.md`) claimed at its top *"everything is in here, in full
 > detail"* — but it was a **196-line SUMMARY** of ~12 design docs that run to thousands of lines. It

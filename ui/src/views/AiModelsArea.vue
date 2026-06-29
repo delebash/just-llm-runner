@@ -12,7 +12,7 @@ import { computed, onMounted, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
-import RoutingByJob from "./RoutingByJob.vue";
+import AssignPresets from "./AssignPresets.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import RecommendationsEditor from "./RecommendationsEditor.vue";
@@ -140,9 +140,10 @@ onMounted(loadAll);
 
     <nav class="lu-subnav">
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
-      <a :class="{ on: tab === 'jobs' }" @click="tab = 'jobs'">Routing by job</a>
+      <a :class="{ on: tab === 'jobs' }" @click="tab = 'jobs'">Routing</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
       <a :class="{ on: tab === 'tuning' }" @click="tab = 'tuning'">Tuning</a>
+      <a :class="{ on: tab === 'assignments' }" @click="tab = 'assignments'">Assignments</a>
       <a :class="{ on: tab === 'recommendations' }" @click="tab = 'recommendations'">Recommendations</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
       <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
@@ -220,8 +221,9 @@ onMounted(loadAll);
 
     <!-- ── Routing by job (NEW) — the primary routing surface: Defaults + a model
          per job + the job-list editor. Most users only touch this. ── -->
+    <!-- Variant A: the old "Routing by job" slot, repurposed → preset assignment. -->
     <section v-show="tab === 'jobs'" class="lu-tab">
-      <RoutingByJob v-if="tab === 'jobs'" />
+      <AssignPresets v-if="tab === 'jobs'" />
     </section>
 
     <!-- ── Routing by feature — the Feature Workbench (per-action config + test +
@@ -234,6 +236,12 @@ onMounted(loadAll);
          on its own tab (not a toggle inside Routing-by-feature). ── -->
     <section v-show="tab === 'tuning'" class="lu-tab">
       <FeatureWorkbench v-if="tab === 'tuning'" mode="tuning" :run-stream="props.runStream" />
+    </section>
+
+    <!-- Variant B (TEMP, for comparison): the same AssignPresets page as its own
+         separate "Assignments" tab. We keep ONE of A/B after you pick. -->
+    <section v-show="tab === 'assignments'" class="lu-tab">
+      <AssignPresets v-if="tab === 'assignments'" />
     </section>
 
     <!-- ── Recommendations (manual editor over the Q3 layer) ── -->

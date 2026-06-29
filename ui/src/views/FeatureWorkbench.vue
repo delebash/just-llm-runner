@@ -399,18 +399,8 @@ async function delPreset(id) {
   if (!id) return;
   enginePresets.value = (await request(`/v1/ai/engine-presets/${id}`, { method: "DELETE" })).presets || [];
 }
-// ── preset assignment (the Lab) — Default + per-category → which preset runs.
-// The category list reuses the existing `categories` nav computed (RULE #7). ──
-const presetSelOptions = computed(() => [
-  { value: "", label: "— none —" },
-  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
-]);
-async function setDefaultPreset(id) {
-  presetAssign.value = await request("/v1/ai/preset-assignments/default", { method: "PUT", body: { presetId: id } });
-}
-async function setCategoryPreset(cat, id) {
-  presetAssign.value = await request("/v1/ai/preset-assignments/category", { method: "PUT", body: { category: cat, presetId: id } });
-}
+// Preset assignment (Default + per-category) lives on its own page now
+// (AssignPresets.vue) — out of the Lab. The Lab only builds/tests/saves presets.
 // Apply a CONFIG to the LIVE pipeline: the action's prompt + params + samplers +
 // routing pin + (C3) its JOB switches. Default cfg = the ×1 editor; the Compare
 // strip passes the winning column's config.
@@ -633,20 +623,6 @@ onMounted(load);
               :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
               :vars="vars" :presets="enginePresets"
               @save-as="saveAs" @delete-preset="delPreset" />
-
-            <!-- Assign saved presets — Default + per category. Build them in the
-                 columns above; a single feature can still override in Routing-by-feature. -->
-            <div class="lu-fw-assign">
-              <div class="lu-fw-assign-h"><b>Assign presets</b><span class="lu-muted">which preset each kind of feature runs by default</span></div>
-              <div class="lu-fw-assign-row">
-                <span class="lu-fw-assign-k">Default <span class="lu-muted">— everything, unless overridden</span></span>
-                <UiSelect :model-value="presetAssign.defaultPresetId || ''" :options="presetSelOptions" @update:model-value="setDefaultPreset" />
-              </div>
-              <div v-for="c in categories" :key="c.label" class="lu-fw-assign-row">
-                <span class="lu-fw-assign-k">{{ c.label }}</span>
-                <UiSelect :model-value="presetAssign.categories[c.label] || ''" :options="presetSelOptions" @update:model-value="(v) => setCategoryPreset(c.label, v)" />
-              </div>
-            </div>
           </template>
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
@@ -687,8 +663,4 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-testin { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
 .lu-fw-testin-h { display: flex; align-items: baseline; gap: 10px; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
 .lu-fw-resetrow { display: flex; gap: 8px; justify-content: flex-end; }
-.lu-fw-assign { margin-top: 14px; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
-.lu-fw-assign-h { display: flex; align-items: baseline; gap: 8px; } .lu-fw-assign-h b { font-size: 13px; color: var(--ink); } .lu-fw-assign-h .lu-muted { font-size: 11px; }
-.lu-fw-assign-row { display: grid; grid-template-columns: minmax(180px, 280px) minmax(0, 1fr); gap: 12px; align-items: center; }
-.lu-fw-assign-k { font-size: 12px; color: var(--ink-2); }
 </style>

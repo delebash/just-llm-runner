@@ -12,7 +12,6 @@ import { computed, onMounted, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
-import EnginePresets from "../components/EnginePresets.vue";
 import RoutingByJob from "./RoutingByJob.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
@@ -234,7 +233,6 @@ onMounted(loadAll);
     <!-- ── Tuning — the SAME Feature Workbench mounted in multi-column Compare mode,
          on its own tab (not a toggle inside Routing-by-feature). ── -->
     <section v-show="tab === 'tuning'" class="lu-tab">
-      <EnginePresets v-if="tab === 'tuning'" />
       <FeatureWorkbench v-if="tab === 'tuning'" mode="tuning" :run-stream="props.runStream" />
     </section>
 

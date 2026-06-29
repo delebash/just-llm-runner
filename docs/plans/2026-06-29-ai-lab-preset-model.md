@@ -97,19 +97,31 @@ Nothing else is computed silently.
 ## Build plan (phased — verify `build:vite` + headless smoke + reseed each)
 
 > **Status (2026-06-29):**
-> - **Phase 1 — DONE + tested + pushed** (178 pytest, ruff). Data model (`engine_presets`
->   + children + `category_presets` + `feature_preset_refs`), preset API (CRUD + default/
->   category/feature assignment), the resolve cascade, and the **dispatch wiring** — `/v1/ai/run`
->   now uses the resolved preset's model + params, with a fallback to legacy routing so nothing
->   breaks. Commits: `f18e80b` (doc) · `b11f6b5` (data) · `deacca0` (API+resolver) · `7acb78d` (dispatch).
-> - **Phase 2 — Lab preset library shipped** (`EnginePresets.vue` in the Tuning tab): create an
->   engine-preset (model + params + fit-knob overrides + switch KnobGrid) and assign it as the
->   global **default** or per **category**. Smoke-verified (0 JS errors). REMAINING in Phase 2:
->   "save from a tuning column" + the fit-knob row inside `ConfigColumn`, Retune.
-> - **Phases 3–7 pending:** routing-by-feature slim (prompt + preset picker), setup generation,
->   download offer, removals.
-> - **This is now a walkable loop:** Tuning → New preset → assign to a category/default → a
->   feature in that category runs it.
+> - **Phase 1 — DONE + tested + pushed** (178 pytest, ruff). The data model (`engine_presets`
+>   + switch/sampler children + `category_presets` + `feature_preset_refs`), the preset API
+>   (CRUD + the default/category/feature assignment layers), the resolve cascade (feature
+>   override → category → global default), and the **dispatch wiring** — `/v1/ai/run` and
+>   `/v1/ai/stream` now build an "effective spec" from the resolved preset (its model + params)
+>   and fall back to the legacy routing when no preset is assigned, so nothing breaks during the
+>   migration. Commits: `f18e80b` (doc) · `b11f6b5` (data) · `deacca0` (API + resolver) ·
+>   `7acb78d` (dispatch).
+> - **Phase 2 — CORRECTED course.** A first attempt put preset *creation* in a standalone popup
+>   (`EnginePresets.vue`). The user rejected that as wrong, and rightly so: a preset is the
+>   OUTPUT of the Lab — you build an engine config, **test it**, then **save** the tested result;
+>   a popup you fill in blind makes no sense. That popup has been removed. The Lab itself is being
+>   reworked into the preset editor (Save-as-preset from a tested column + the fit-knob row +
+>   assign), and the old feature-preset bar / promote-to-job are being taken out of it.
+> - **Routing by feature — SLIMMED + shipped + smoke-verified.** It now shows only the feature's
+>   **prompt** (system + user) and a **preset picker** (which engine preset it runs — inherit its
+>   category, or a specific one). Removed from it: the model picker, the Plane-1 switch grid, the
+>   per-call params, the job classification, the bulk set-all model pickers, and the in-line
+>   Compare — because in this model the model/switches/params live in the preset (built in the
+>   Lab) and a feature is just prompt + which-preset. `FeatureWorkbench.vue` still carries some
+>   now-dead helpers (the old job/pin/set-all functions); they get cleaned out in the Lab-rework
+>   commit once the tuning surface stops using them.
+> - **Remaining:** the Lab rework (Save-as-preset + the fit-knob row + assign + drop the old
+>   bar/promote); setup auto-generating presets per task; the download "use it for ‹task›?" offer
+>   + Retune-all; removing the old job switch-editor + the Routing-by-job engine screen.
 
 1. **Data model** — `preset` (model + switches + params + optional fit-knob overrides);
    `category → preset` assignment; `feature → preset` override; the cascade resolver. DB reset

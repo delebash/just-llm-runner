@@ -21,6 +21,7 @@ import LuJobSelect from "../components/LuJobSelect.vue";
 import LuModelPicker from "../components/LuModelPicker.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
+import UiSelect from "../common/components/UiSelect.vue";
 import { request } from "../client.js";
 
 // Optional host runner — streams an action through the host's task system (live
@@ -40,7 +41,12 @@ const routing = ref(null);   // {default, jobs:{jobId→{providerId,model}}, fea
 const jobs = ref([]);        // the editable job list [{id,label,description,…}]
 const featureJobs = ref({}); // feature key → job id
 const providers = ref([]);
-const presets = ref([]);     // feature presets (per action)
+const presets = ref([]);     // feature presets (per action) — LEGACY, used by the tuning strip until Commit 2
+// 2026-06-29 lab+preset model: the engine-preset library + the per-feature/category
+// assignment. Routing-by-feature picks WHICH preset a feature runs; the preset is
+// built in the Lab (Tuning).
+const enginePresets = ref([]);   // EnginePresetRow[]
+const presetAssign = ref({ defaultPresetId: "", categories: {}, features: {} });
 const samplerRows = ref([]); // the selected action's long-tail samplers (Plane-2 KnobGrid v-model)
 const switchRows = ref([]);  // the selected action's JOB engine switches (Plane-1 KnobGrid v-model)
 const knobCatalog = ref([]); // knob_catalog metadata (C1)
@@ -239,6 +245,10 @@ async function load() {
     catch { presets.value = []; }
     try { knobCatalog.value = (await request("/v1/ai/knob-catalog")).knobs || []; }
     catch { knobCatalog.value = []; }
+    try { enginePresets.value = (await request("/v1/ai/engine-presets")).presets || []; }
+    catch { enginePresets.value = []; }
+    try { presetAssign.value = await request("/v1/ai/preset-assignments"); }
+    catch { presetAssign.value = { defaultPresetId: "", categories: {}, features: {} }; }
     const firstCard = navRows.value.find((rw) => rw.type === "card");
     if (!action.value && firstCard) selectAction(firstCard.action.key);
   } catch (e) {
@@ -453,6 +463,49 @@ async function resetPrompt() {
   draft.value = { ...updated }; buildVars(); message.value = "Reset to seeded default.";
 }
 
+// ── engine preset (2026-06-29 model) — Routing-by-feature only sets WHICH preset a
+// feature runs (its model+switches+params live in the preset, built in the Lab). ──
+const presetOptions = computed(() => [
+  { value: "", label: "— inherit this feature's category —" },
+  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
+]);
+function featurePreset(key) {
+  return presetAssign.value.features?.[key] || "";
+}
+function featurePresetLabel(key) {
+  const id = presetAssign.value.features?.[key];
+  if (id) return enginePresets.value.find((p) => p.id === id)?.name || "preset";
+  return "inherits category";
+}
+async function setFeaturePreset(key, presetId) {
+  presetAssign.value = await request("/v1/ai/preset-assignments/feature", {
+    method: "PUT", body: { featureKey: key, presetId },
+  });
+}
+// Save just the feature's PROMPT text (params live in the preset now). Keeps the
+// prompt row's existing param fields so nothing is wiped.
+async function savePrompt() {
+  const act = action.value;
+  if (!act || !draft.value) return;
+  try {
+    const updated = await request(`/v1/ai/prompts/${encodeURIComponent(act.key)}`, {
+      method: "PUT",
+      body: {
+        feature: act.feature,
+        system: draft.value.system || "", userTemplate: draft.value.userTemplate || "",
+        temperature: draft.value.temperature, think: draft.value.think,
+        maxTokens: draft.value.maxTokens, jsonMode: draft.value.jsonMode,
+        topP: draft.value.topP, reasoningEffort: draft.value.reasoningEffort || "",
+      },
+    });
+    const i = prompts.value.findIndex((p) => p.key === updated.key);
+    if (i >= 0) prompts.value[i] = updated;
+    message.value = "Prompt saved.";
+  } catch (e) {
+    error.value = `Save failed: ${e.message}`;
+  }
+}
+
 // ── shared test input (the action's {{variables}}) — passed to <ConfigColumn> ──
 const vars = reactive({});
 function buildVars() {
@@ -491,26 +544,16 @@ onMounted(load);
           <template v-for="(row, i) in navRows" :key="i">
             <div v-if="row.type === 'cat'" class="lu-fw-cat">
               <div class="lu-fw-cat-name">{{ row.label }}</div>
-              <LuModelPicker v-if="row.setAll" class="lu-fw-setall" compact stacked
-                :model-value="groupCommonPin(row.setAll)" :providers="providers"
-                :inherit-label="setAllLabel(row.setAll)"
-                :title="`Set the provider + model for all ${row.setAll.actions.length} actions under ${row.label}`"
-                @update:model-value="setGroupAll(row.setAll, $event)" />
             </div>
             <div v-else-if="row.type === 'ghead'" class="lu-fw-ghead" :style="ml(row.indent)">
               <div class="lu-fw-gname">{{ row.label }}</div>
-              <LuModelPicker class="lu-fw-setall" compact stacked
-                :model-value="groupCommonPin(row.setAll)" :providers="providers"
-                :inherit-label="setAllLabel(row.setAll)"
-                :title="`Set the provider + model for all ${row.setAll.actions.length} ${row.label} actions`"
-                @update:model-value="setGroupAll(row.setAll, $event)" />
             </div>
             <div v-else-if="row.type === 'sub'" class="lu-fw-sublabel" :style="ml(row.indent)">{{ row.label }}</div>
             <button v-else type="button" class="lu-fw-card" :style="ml(row.indent)"
               :class="{ 'is-active': row.action.key === selAction }" @click="selectAction(row.action.key)">
               <div class="lu-fw-card-label">{{ actionLabel(row.action) }}<span v-if="hasProd(row.action.key)" class="lu-fw-dot" title="has a production preset" /></div>
               <div v-if="actionDesc(row.action)" class="lu-fw-card-desc">{{ actionDesc(row.action) }}</div>
-              <div class="lu-fw-card-model" title="currently active model">→ {{ activeModel(row.action.key) }}</div>
+              <div class="lu-fw-card-model" title="engine preset for this feature">→ {{ featurePresetLabel(row.action.key) }}</div>
             </button>
           </template>
         </aside>
@@ -526,42 +569,43 @@ onMounted(load);
               @click="navCollapsed = !navCollapsed">{{ navCollapsed ? '☰ Show list' : '⟨ Collapse list' }}</UiButton>
           </div>
 
-          <!-- Job classification (this stays in FW — it's a per-feature routing
-               concern, not part of the engine column). -->
-          <div class="lu-field">
-            <label>Job <span class="lu-muted">— this feature's task type; it runs on the job's model + switches unless pinned</span></label>
-            <LuJobSelect :model-value="featureJobs[action.feature] || ''" :jobs="jobs"
-              empty-label="— default job —"
-              @update:model-value="setFeatureJob(action.feature, $event)" />
-          </div>
-
-          <!-- Shared test input — the action's {{variables}}; ONE set used by every
-               column in Compare (a fair comparison). -->
-          <div class="lu-fw-testin">
-            <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across compare columns</span></div>
-            <div v-for="(_, k) in vars" :key="k" class="lu-field">
-              <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
+          <!-- FEATURE MODE (Routing by feature): the feature's PROMPT + which engine
+               PRESET it runs. Per the 2026-06-29 lab+preset model the model /
+               switches / params live in the PRESET (built + tested in the Lab); here
+               you only edit the text and pick the preset. -->
+          <template v-if="!compareMode">
+            <div class="lu-field">
+              <label>Engine preset <span class="lu-muted">— the model + switches + params this feature runs (built in the Lab); blank = inherit its category's preset</span></label>
+              <UiSelect :model-value="featurePreset(selAction)" :options="presetOptions"
+                @update:model-value="setFeaturePreset(selAction, $event)" />
             </div>
+            <div class="lu-field"><label>System prompt</label>
+              <UiTextarea :model-value="draft.system || ''" auto-resize :rows="6"
+                @update:model-value="draft.system = $event" /></div>
+            <div class="lu-field"><label>Instruction <span class="lu-muted">— user template · {{ varHint }} placeholders</span></label>
+              <UiTextarea :model-value="draft.userTemplate || ''" auto-resize :rows="3"
+                @update:model-value="draft.userTemplate = $event" /></div>
             <div class="lu-fw-resetrow">
-              <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset prompt to default</UiButton>
+              <UiButton intent="primary" size="small" @click="savePrompt">Save prompt</UiButton>
+              <UiButton v-if="draft.builtIn" intent="ghost" size="small" @click="resetPrompt">Reset to default</UiButton>
             </div>
-          </div>
+          </template>
 
-          <!-- ×1: the shared <ConfigColumn> (full editor). Compare renders the SAME
-               component ×N in CompareStrip. -->
-          <ConfigColumn v-if="!compareMode" :key="selAction" v-model="columnConfig"
-            :action="selAction" :providers="providers"
-            :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
-            :vars="vars" :presets="actionPresets" :run-stream="props.runStream"
-            inherit-label="Inherit job"
-            @save-as="saveAs" @apply-preset="applyPreset" @use-production="useAsProduction" @delete-preset="delPreset" />
-
-          <!-- ×N: Compare mode — N ConfigColumns over the shared action + input. -->
-          <CompareStrip v-else :key="selAction"
-            :action="selAction" :base-config="columnConfig" :providers="providers"
-            :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
-            :vars="vars" :presets="actionPresets"
-            @promote="onComparePromote" @save-as="saveAs" @delete-preset="delPreset" />
+          <!-- TUNING MODE (the Lab): the shared test input + N engine columns to test
+               and save as presets. (Reworked to engine-presets in Commit 2.) -->
+          <template v-else>
+            <div class="lu-fw-testin">
+              <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
+              <div v-for="(_, k) in vars" :key="k" class="lu-field">
+                <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
+              </div>
+            </div>
+            <CompareStrip :key="selAction"
+              :action="selAction" :base-config="columnConfig" :providers="providers"
+              :sampler-catalog="samplerCatalog" :switch-catalog="switchCatalog"
+              :vars="vars" :presets="actionPresets"
+              @promote="onComparePromote" @save-as="saveAs" @delete-preset="delPreset" />
+          </template>
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
       </div>

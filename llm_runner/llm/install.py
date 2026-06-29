@@ -21,6 +21,7 @@ from .api import router as shared_api_router
 from .config_builder import build_llm_config
 from .feature_presets_api import make_feature_presets_router
 from .feature_samplers_api import make_feature_samplers_router
+from .presets_api import make_presets_router
 from .job_switches_api import make_job_switches_router
 from .jobs_api import make_feature_jobs_router, make_jobs_router
 from .knob_catalog_api import make_knob_catalog_router
@@ -71,6 +72,12 @@ def install_llm(
     app.include_router(make_routing_router(stores.get_routing_store, seed.app_feature_catalog))
     app.include_router(make_job_presets_router(stores.get_job_preset_store))
     app.include_router(make_feature_presets_router(stores.get_feature_preset_store))
+    app.include_router(make_presets_router(
+        stores.get_engine_preset_store, stores.get_category_preset_store,
+        stores.get_feature_preset_ref_store,
+        lambda: stores.get_category_preset_store().list().get("", ""),
+        lambda pid: stores.get_category_preset_store().set("", pid),
+    ))
     app.include_router(make_recommendations_router(stores.get_recommendation_store))
     app.include_router(make_knob_catalog_router(stores.list_knob_catalog))
     app.include_router(make_quality_router(

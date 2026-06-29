@@ -259,15 +259,15 @@ defineExpose({ run, cancel });
          (tested) config as a new preset. The parent owns the /engine-presets calls. -->
     <div class="cc-presets">
       <span class="cc-eyebrow">Preset</span>
-      <UiSelect class="cc-presel" :model-value="selPreset"
+      <UiSelect width="name" :model-value="selPreset"
         :options="[{ value: '', label: '— start fresh —' }, ...presets.map((p) => ({ value: p.id, label: p.name }))]"
         @update:model-value="onApplyPreset" />
-      <UiButton v-if="selPreset" intent="ghost" size="small" title="Delete this preset" @click="emit('delete-preset', selPreset)">🗑</UiButton>
-      <span class="cc-spacer" />
       <UiButton intent="success" size="small"
         :disabled="!selPreset || selPreset === productionPresetId"
         :title="!selPreset ? 'Load or save a preset first' : (selPreset === productionPresetId ? 'Already in production for this feature' : 'Make this preset the one this feature uses')"
         @click="emit('use-production', selPreset)">{{ selPreset && selPreset === productionPresetId ? '✓ In production' : 'Use in production' }}</UiButton>
+      <UiButton v-if="selPreset" intent="ghost" size="small" title="Delete this preset" @click="emit('delete-preset', selPreset)">🗑</UiButton>
+      <span class="cc-spacer" />
       <UiInput v-if="naming" v-model="newName" placeholder="name — Enter" class="cc-name-in"
         @keyup.enter="confirmSaveAs" @keyup.esc="naming = false; newName = ''" />
       <UiButton v-else intent="primary" size="small" title="Save this tested config as a reusable preset" @click="startNaming">＋ Save as preset</UiButton>
@@ -388,7 +388,6 @@ defineExpose({ run, cancel });
 .cc-ta { font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.5; resize: vertical; width: 100%; }
 .cc-presets { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); }
 .cc-eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); cursor: pointer; }
-.cc-presel { max-width: 180px; }
 .cc-name-in { max-width: 150px; }
 .cc-inprod { font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--success, #3a7d63); white-space: nowrap; }
 .cc-prod { margin-left: auto; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 3px 9px; background: var(--accent); color: var(--on-accent, #fff); }

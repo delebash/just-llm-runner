@@ -484,13 +484,13 @@ onMounted(load);
 </template>
 
 <style scoped>
-.lu-fw { display: flex; flex-direction: column; min-height: 0; }
+.lu-fw { display: flex; flex-direction: column; min-height: 0; height: 100%; }
 select.lu-input { cursor: pointer; appearance: auto; }
 
-.lu-fw-body { display: grid; grid-template-columns: minmax(280px, 26%) minmax(0, 1fr); gap: 16px; align-items: start; }
+.lu-fw-body { display: grid; grid-template-columns: minmax(280px, 26%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
 /* Collapsed list → the editor + column workbench take the full width. */
 .lu-fw-body.nav-collapsed { grid-template-columns: minmax(0, 1fr); }
-.lu-fw-list { min-width: 0; border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: calc(100vh - 240px); overflow-y: auto; overflow-x: hidden; position: sticky; top: 4px; }
+.lu-fw-list { min-width: 0; min-height: 0; border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; overflow-x: hidden; }
 .lu-fw-card { text-align: left; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; }
 .lu-fw-card:hover { border-color: var(--accent); background: var(--accent-soft); }
 .lu-fw-card.is-active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
@@ -510,7 +510,7 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-cat-assign .lu-fw-cat-preset { flex: 1; min-width: 0; margin-top: 0; }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 6px 0 1px; }
 
-.lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow-y: auto; }
 .lu-fw-h { display: flex; align-items: baseline; gap: 8px; }
 .lu-fw-h b { font-size: 15px; color: var(--ink); }
 .lu-fw-spacer { flex: 1; } .lu-fw-msg { font-size: 11.5px; }

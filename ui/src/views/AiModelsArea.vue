@@ -217,7 +217,7 @@ onMounted(loadAll);
 
     <!-- ── Routing by feature — the Feature Workbench: per-feature prompt + which
          engine preset it runs (model/switches/params live in the preset). ── -->
-    <section v-show="tab === 'features'" class="lu-tab">
+    <section v-show="tab === 'features'" class="lu-tab lu-tab-fill">
       <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
     </section>
 
@@ -276,7 +276,7 @@ onMounted(loadAll);
 
 <style scoped>
 /* Full width — the host card frames it; no inner cap (matches JV's settings). */
-.lu-area { width: 100%; height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.lu-area { width: 100%; flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .lu-h1 { font-size: 22px; font-weight: 600; margin: 0; color: var(--ink); }
 .lu-lede { font-size: 13px; margin: 4px 0 0; }
 /* One-line hardware strip — labelled stat blocks (OS · CPU · Memory · GPU · Accel),
@@ -299,6 +299,9 @@ onMounted(loadAll);
 .lu-subnav a { padding: 11px 16px; font-size: 12.5px; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; font-weight: 600; }
 .lu-subnav a.on { color: var(--ink); border-bottom-color: var(--accent); }
 .lu-tab { padding-top: 14px; flex: 1; min-height: 0; overflow-y: auto; }
+/* Routing-by-feature fills its height (its own nav + content panes scroll); it
+   does not scroll as a whole. */
+.lu-tab.lu-tab-fill { overflow: hidden; display: flex; flex-direction: column; }
 .lu-qs-wrap { display: block; margin-bottom: 14px; }
 
 /* naked control — the host wraps it in its own page card (.pane-card in JW) */

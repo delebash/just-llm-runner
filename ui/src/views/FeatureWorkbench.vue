@@ -484,7 +484,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-.lu-fw { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.lu-fw { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 select.lu-input { cursor: pointer; appearance: auto; }
 
 .lu-fw-body { display: grid; grid-template-columns: minmax(280px, 26%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }

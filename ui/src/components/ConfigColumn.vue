@@ -262,10 +262,12 @@ defineExpose({ run, cancel });
       <UiSelect class="cc-presel" :model-value="selPreset"
         :options="[{ value: '', label: '— start fresh —' }, ...presets.map((p) => ({ value: p.id, label: p.name }))]"
         @update:model-value="onApplyPreset" />
-      <span v-if="selPreset && selPreset === productionPresetId" class="cc-inprod" title="This preset is in production for this feature">● in production</span>
       <UiButton v-if="selPreset" intent="ghost" size="small" title="Delete this preset" @click="emit('delete-preset', selPreset)">🗑</UiButton>
       <span class="cc-spacer" />
-      <UiButton v-if="selPreset && selPreset !== productionPresetId" intent="success" size="small" title="Make this preset the one this feature uses" @click="emit('use-production', selPreset)">Use in production</UiButton>
+      <UiButton intent="success" size="small"
+        :disabled="!selPreset || selPreset === productionPresetId"
+        :title="!selPreset ? 'Load or save a preset first' : (selPreset === productionPresetId ? 'Already in production for this feature' : 'Make this preset the one this feature uses')"
+        @click="emit('use-production', selPreset)">{{ selPreset && selPreset === productionPresetId ? '✓ In production' : 'Use in production' }}</UiButton>
       <UiInput v-if="naming" v-model="newName" placeholder="name — Enter" class="cc-name-in"
         @keyup.enter="confirmSaveAs" @keyup.esc="naming = false; newName = ''" />
       <UiButton v-else intent="primary" size="small" title="Save this tested config as a reusable preset" @click="startNaming">＋ Save as preset</UiButton>

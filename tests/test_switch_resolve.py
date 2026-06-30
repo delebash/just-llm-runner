@@ -56,7 +56,8 @@ def test_plain_dense_model_base_only(configured):
 def test_unknown_model_empty(configured):
     assert switch_resolve.resolve_model_switches("does-not-exist") == {
         "flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true",
-    }  # unknown model → treated as dense, base preset only
+        "context_shift": "true", "cache_reuse": "256",
+    }  # unknown model → treated as dense, base preset only (incl. snappy-edit defaults)
 
 
 def _seed_profile(s, job_id="analysis", config_id="active"):

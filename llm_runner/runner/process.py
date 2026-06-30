@@ -76,6 +76,7 @@ class Overrides:
     threads_batch: int | None = None
     parallel: int | None = None          # server slots (batch sweeps / Compare)
     cont_batching: bool | None = None    # False → emits --no-cont-batching
+    context_shift: bool | None = None    # True → --context-shift (snappy edits); False → --no-context-shift
     cache_reuse: int | None = None       # reuse a prompt prefix's KV across calls
     spec_type: str | None = None         # "none"|"draft-mtp"|"ngram-mod"|… (dense)
     spec_n_max: int | None = None        # drafted tokens / ngram max, per spec_type
@@ -159,6 +160,11 @@ def _apply_engine_overrides(flags: list[str], ov: Overrides) -> list[str]:
     if ov.cont_batching is not None:
         # Continuous batching is ON upstream by default — only the OFF switch exists.
         out = _set_presence(out, "--no-cont-batching", not ov.cont_batching)
+    if ov.context_shift is not None:
+        # Context shift is OFF upstream by default — emit the explicit flag either way.
+        # (llama.cpp auto-disables it for sliding-window models, e.g. Gemma, with a warning.)
+        out = _set_presence(out, "--context-shift", ov.context_shift)
+        out = _set_presence(out, "--no-context-shift", not ov.context_shift)
     if ov.spec_type is not None:
         for f in ("--spec-type", "--spec-draft-n-max", "--spec-ngram-mod-n-max"):
             out = _strip_flag(out, f)

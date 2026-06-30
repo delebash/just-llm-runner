@@ -97,7 +97,7 @@ def _parse_switch(name: str, value: str):
     as 'not set')."""
     if value is None or value == "":
         return None
-    bool_fields = {"no_mmap", "mlock", "no_kv_offload", "cont_batching"}
+    bool_fields = {"no_mmap", "mlock", "no_kv_offload", "cont_batching", "context_shift"}
     int_fields = {
         "n_gpu_layers", "n_cpu_moe", "ctx_len", "batch_size", "ubatch_size",
         "threads", "threads_batch", "parallel", "cache_reuse", "spec_n_max",

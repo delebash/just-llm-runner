@@ -177,6 +177,7 @@ class LoadRequest(CamelModel):
     threads_batch: int | None = None
     parallel: int | None = None
     cont_batching: bool | None = None
+    context_shift: bool | None = None
     cache_reuse: int | None = None
     spec_type: str | None = None
     spec_n_max: int | None = None

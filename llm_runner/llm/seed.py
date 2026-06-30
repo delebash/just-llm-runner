@@ -130,7 +130,8 @@ DEFAULT_CATALOG: list[dict] = [
 # here — it's a computed fit knob, not a constant.)
 DEFAULT_SWITCH_PRESETS: list[dict] = [
     {"id": "base", "label": "Base (every model)", "applies_to": "all", "position": 0,
-     "switches": {"flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true"}},
+     "switches": {"flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true",
+                  "context_shift": "true", "cache_reuse": "256"}},
     {"id": "moe", "label": "MoE (mixture-of-experts)", "applies_to": "moe", "position": 1,
      "switches": {"spec_type": "none", "no_mmap": "true"}},
     {"id": "mtp", "label": "Speculative decode (MTP)", "applies_to": "mtp", "position": 2,
@@ -222,6 +223,8 @@ DEFAULT_KNOBS: list[dict] = [
      "help": "Concurrent server slots (used by batch sweeps / Compare)."},
     {"flag_name": "cont_batching", "label": "Continuous batching", "kind": "bool", "plane": 1, "default_value": "true", "tier": "advanced",
      "help": "Overlap requests for throughput. On by default in llama.cpp; only turn it off to debug."},
+    {"flag_name": "context_shift", "label": "Context shift", "kind": "bool", "plane": 1, "default_value": "true", "tier": "advanced",
+     "help": "When the context fills, drop the oldest tokens and shift the KV cache instead of re-reading the whole prompt — keeps long generations + edits fast. On by default; llama.cpp auto-disables it for sliding-window models (e.g. Gemma)."},
     {"flag_name": "cache_reuse", "label": "KV prefix reuse", "kind": "int", "plane": 1, "default_value": "0", "tier": "advanced",
      "help": "Reuse a shared prompt prefix's KV cache across calls to skip re-processing it (0 = off)."},
     {"flag_name": "spec_type", "label": "Speculative decode", "kind": "enum", "plane": 1, "default_value": "none", "tier": "advanced",

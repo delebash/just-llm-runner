@@ -150,7 +150,7 @@ async def load_model(body: LoadRequest) -> dict:
         no_mmap=body.no_mmap, mlock=body.mlock, no_kv_offload=body.no_kv_offload,
         batch_size=body.batch_size, ubatch_size=body.ubatch_size,
         threads=body.threads, threads_batch=body.threads_batch, parallel=body.parallel,
-        cont_batching=body.cont_batching, cache_reuse=body.cache_reuse,
+        cont_batching=body.cont_batching, context_shift=body.context_shift, cache_reuse=body.cache_reuse,
         spec_type=body.spec_type, spec_n_max=body.spec_n_max,
         extra_flags=list(body.extra_flags or []),
     )

@@ -121,8 +121,9 @@ the dev DB first. Then a diff rules-check → commit + push.
   `displayRows` list. Add-row branch + the other consumers (LuModelCatalog/RoutingByJob) untouched.
 - [x] Reseed dev DB: stopped the server, dropped `knob_catalog` + `knob_option` (FK-safe), restarted →
   `create_all` recreated them with `tier`, `seed_workspace` repopulated. Verified the live
-  `/v1/ai/knob-catalog` returns **40 knobs** (plane1 17, plane2 23) with correct kind/default/tier.
-- [x] Verified: `ruff` clean; `pytest` 179 passed; `npm run build:vite` 0; `node scripts/headless-smoke.mjs`
+  `/v1/ai/knob-catalog` returns **40 knobs** (plane1 17, plane2 23) with correct kind/default/tier. *(→ 41 after
+  the `context_shift` switch added in §DECISION below.)*
+- [x] Verified: `ruff` clean; `pytest` 179 passed *(→ 180 after the snappy-defaults test, §DECISION)*; `npm run build:vite` 0; `node scripts/headless-smoke.mjs`
   0 JS errors across all AI sub-tabs (LuModelCatalog legacy grid intact); a dedicated Playwright check —
   10/10 green: Common shown / Advanced hidden until expanded / excludes hold (temperature·top_p·n_cpu_moe) /
   expander reveals the new rows (mirostat_tau, dry_base, top_n_sigma, ubatch_size, cont_batching) / enabling
@@ -182,8 +183,10 @@ see the prior follow-ups + the 2026-06-24 research docs, now bannered), the user
 - **Part 2 — snappy-edit defaults SHIPPED.** llama.cpp's prefix reuse (`cache_prompt`) is already on by default;
   added the two that were off: a new **`context_shift`** Plane-1 switch (bool, default on, advanced tier) +
   **`cache_reuse`** — both now default-ON via the **`base` switch preset** (`context_shift:"true"`,
-  `cache_reuse:"256"`), applied at model load. Wired `context_shift` through `Overrides` +
-  `_apply_engine_overrides` (emits `--context-shift` / `--no-context-shift`) + `_parse_switch` (bool). **SWA-safe:**
+  `cache_reuse:"256"`), applied at model load. Wired `context_shift` end-to-end: `Overrides` +
+  `_apply_engine_overrides` (emits `--context-shift` / `--no-context-shift`) + `_parse_switch` (bool) + the typed
+  `LoadRequest` body field + the `api.py` load constructor (so `POST /v1/llm-runner/load` can set it like its
+  sibling switches — the "maps 1:1 to Overrides" contract holds). **SWA-safe:**
   llama.cpp auto-disables context-shift on sliding-window models (Gemma) with a warning, no crash (verified
   upstream). Both flags **empirically spawn-tested** (stock llama-server b9786 + qwen2.5-0.5b → healthy with
   `--context-shift --cache-reuse 256`). Verified: ruff + 180 pytest (incl. an updated `test_unknown_model_empty`

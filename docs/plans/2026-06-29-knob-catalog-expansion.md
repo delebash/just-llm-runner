@@ -150,6 +150,18 @@ first seed.
     per-model `llama-server` IS what respawns; the host Python app stays up.
 - **Endpoint: we use CHAT completion, not text completion** (verified). `openai_compat.py` POSTs
   `/chat/completions` (our bundled llama-server speaks OpenAI-compat, + cloud); `ollama.py` POSTs `/api/chat`
-  (chosen so `think:true` works). The server applies the chat template; samplers ride as body fields. Text
-  completion (raw prompt + our own template) is NOT used — the only thing it would add is the `samplers`
-  ORDER param + raw GBNF/template control, which stay DEFERRED.
+  (chosen so `think:true` works). The server applies the chat template; samplers ride as body fields
+  (`body.update(extra)`).
+- **Sampler ORDER on the chat endpoint — EMPIRICALLY VERIFIED (2026-06-29), not just doc-read.** Spun the stock
+  `llama-server` (b9786, qwen2.5-0.5b) in `scratchpad/router-test` and tested `/v1/chat/completions`:
+  (A) a valid `"samplers":[…]` array → HTTP 200; (B) `/completion` echoed back the EXACT array sent
+  (`generation_settings.samplers == ["min_p","temperature"]`, not the default chain) → the build parses+applies
+  it; (C) **behavioral discriminator on the chat path** — identical params (`top_k:1, temperature:5.0, seed:7`),
+  the only difference the `samplers` array: `["temperature"]` (top_k excluded) → garbage
+  (`"(Input Pump🐠 SOAP periodic forex…"`), `["top_k","temperature"]` (top_k included → greedy) → clean
+  (`"Hello! How can I assist you today?"`). Output flipped on order alone ⇒ **`/v1/chat/completions` HONORS the
+  per-request `samplers` order.** So Google AI's "you must hardcode `--samplers` at startup, globally locked" is
+  FALSE for current llama.cpp. **Consequence:** per-feature sampler ORDER is feasible as a per-request body
+  field (no `--samplers` startup switch, no model reload) — the same path as our other samplers. If we build a
+  sampler-order UI, it's a reorderable list writing a `samplers` array into the feature's params, NOT a Plane-1
+  switch. (Still not built — surfaced for the user's decision.)

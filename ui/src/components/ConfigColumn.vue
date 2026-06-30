@@ -360,7 +360,7 @@ defineExpose({ run, cancel });
     <details class="cc-samplers">
       <summary class="cc-eyebrow">Samplers <span class="lu-muted">— top_k · min_p · penalties · mirostat … (mostly local)</span></summary>
       <div class="cc-samplers-body">
-        <KnobGrid checklist :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']" :reserved-keys="['samplers']"
+        <KnobGrid checklist :columns="3" :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']" :reserved-keys="['samplers']"
           :model-value="modelValue?.samplers || []"
           add-label="＋ Add custom sampler" name-placeholder="sampler (e.g. top_k)"
           @update:model-value="patch('samplers', $event)" />

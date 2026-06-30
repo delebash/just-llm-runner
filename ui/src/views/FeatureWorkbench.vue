@@ -501,7 +501,7 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-cat-assign .lu-fw-cat-preset { flex: 1; min-width: 0; margin-top: 0; }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 6px 0 1px; }
 
-.lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow-y: auto; }
+.lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
 .lu-fw-h { display: flex; align-items: baseline; gap: 8px; }
 .lu-fw-h b { font-size: 15px; color: var(--ink); }
 .lu-fw-spacer { flex: 1; } .lu-fw-msg { font-size: 11.5px; }

@@ -1,5 +1,26 @@
 # Knob-catalog expansion + Common/Advanced tiers (2026-06-29)
 
+> **⚠️ SUPERSEDED IN PART (2026-06-30) — samplers UI is now a flat 3-column grid, NOT a Common/Advanced
+> split.** After living with the tiered samplers checklist, the user decided the Common/Advanced expander was
+> the wrong shape for samplers: *"why don't we just not have the extra advanced — anyone who is going to change
+> these params is already at advanced … all in one list … split it into 3 columns, add[s] one to [the] next
+> column and so on."* So the samplers checklist (`ConfigColumn` → `KnobGrid :columns="3"`) now renders **one
+> flat list of all ~21 samplers in a 3-column grid** (row-major: each successive/added knob lands in the next
+> column) — no expander. The `tier` field is NOT removed: it still orders the list common-first, and the
+> **Engine switches** editor keeps the single-column tiered expander (only samplers went flat — the user was
+> pointing at samplers; switches weren't in scope). This ALSO fixed a layout bug the user hit: clicking a
+> sampler checkbox visibly shifted the layout (worse in Advanced), because enabling rows / expanding Advanced
+> overflowed the inner `max-height:260px` scroll and, on Windows/WebView2 (classic space-taking scrollbars;
+> headless Chromium uses overlay scrollbars so it didn't reproduce here), the scrollbar's appearance reflowed
+> the column. The 3-column grid removes the inner scroll entirely (all knobs fit, the column is the single
+> scroller — honoring "one scroller per area"), and `scrollbar-gutter: stable` on `.ui-kg-scroll` +
+> `.lu-fw-edit` reserves any scrollbar space as a backstop. Implemented as a reusable `KnobGrid` `columns`
+> prop (`>1` → flat multi-column grid, no inner scroll); the `Common/Advanced` design below remains accurate
+> for the **switches** editor. Verified: `build:vite` 0; `node scripts/headless-smoke.mjs` PASSED (all routes
+> + AI sub-tabs + the committed `sampler-order` probe still green: present/hidden-until-on/default-chain/
+> reorder/no-dup, 0 JS errors); screenshot confirmed the 3-column grid. (Visual scrollbar behavior itself is
+> WebView2-specific and can't be rendered in headless — the structural fix removes the overflow regardless.)
+
 > **Relationship to the other plans:** this is a focused sub-plan of the AI-lab work. The lab/preset
 > MODEL + the sampler/switch CHECKLIST UI are in `2026-06-29-ai-lab-preset-model.md` (Trial-4 #5). The
 > master remains `2026-06-28-MASTER-PLAN.md`. This doc covers ONLY the knob INVENTORY expansion + the

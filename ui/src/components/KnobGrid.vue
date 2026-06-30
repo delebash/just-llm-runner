@@ -37,7 +37,8 @@ const props = defineProps({
   catalogList: { type: Array, default: () => [] }, // ordered raw rows [{ flagName, label, kind, default, help, options }]
   exclude: { type: Array, default: () => [] },     // flag names to hide from the managed list (edited elsewhere)
   reservedKeys: { type: Array, default: () => [] },// names managed by another control → hidden from "Other keys" too
-  scrollMax: { type: String, default: "260px" },   // fixed height before the grid scrolls
+  scrollMax: { type: String, default: "260px" },   // fixed height before the grid scrolls (single-column only)
+  columns: { type: Number, default: 1 },           // >1 → flat multi-column grid (no Common/Advanced split), no inner scroll
 });
 const emit = defineEmits(["update:modelValue"]);
 
@@ -107,14 +108,16 @@ function resetAll() {
   );
 }
 
-// Common rows show directly; advanced sit behind an expander (anti-overwhelm split).
 const BOOL_OPTIONS = [{ value: "true", label: "On" }, { value: "false", label: "Off" }];
+// Multi-column (samplers): ONE flat list — all knobs visible at once, flowing
+// row-major into the next column (user decision 2026-06-30: no Common/Advanced
+// split — anyone tuning these is already advanced). Single-column (switches) keeps
+// the anti-overwhelm tiered expander: common rows shown, advanced behind a toggle.
 const commonRows = computed(() => visibleCatalog.value.filter((k) => k.tier !== "advanced"));
 const advancedRows = computed(() => visibleCatalog.value.filter((k) => k.tier === "advanced"));
 const advancedOpen = ref(false);
-// ONE render list: common rows, an expander marker (when any advanced exist), then
-// the advanced rows when open — so the row markup stays single-sourced (no dup).
 const displayRows = computed(() => {
+  if (props.columns > 1) return visibleCatalog.value.map((m) => ({ m }));
   const out = commonRows.value.map((m) => ({ m }));
   if (advancedRows.value.length) out.push({ expander: true });
   if (advancedOpen.value) out.push(...advancedRows.value.map((m) => ({ m })));
@@ -124,8 +127,8 @@ const displayRows = computed(() => {
 
 <template>
   <!-- Checklist mode (opt-in): prefilled, enable/disable, kind-aware, scrollable. -->
-  <div v-if="checklist && catalogList.length" class="ui-kg ui-kg-check">
-    <div class="ui-kg-scroll" :style="{ maxHeight: scrollMax }">
+  <div v-if="checklist && catalogList.length" class="ui-kg ui-kg-check" :class="{ 'is-cols': columns > 1 }" :style="columns > 1 ? { '--kg-cols': columns } : null">
+    <div class="ui-kg-scroll" :style="{ maxHeight: columns > 1 ? 'none' : scrollMax }">
       <template v-for="row in displayRows" :key="row.expander ? '__adv' : row.m.flagName">
         <button v-if="row.expander" type="button" class="ui-kg-advtoggle" @click="advancedOpen = !advancedOpen">
           {{ advancedOpen ? "▾" : "▸" }} Advanced <span class="ui-kg-advcount">({{ advancedRows.length }})</span>
@@ -220,11 +223,24 @@ const displayRows = computed(() => {
 
 /* Checklist mode */
 .ui-kg-check { gap: 0; }
-.ui-kg-scroll { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px; }
+/* scrollbar-gutter: stable reserves the scrollbar's space ALWAYS, so a classic
+   (space-taking) scrollbar appearing on overflow — Windows/WebView2; headless uses
+   overlay scrollbars — never shifts the rows sideways. */
+.ui-kg-scroll { overflow-y: auto; scrollbar-gutter: stable; display: flex; flex-direction: column; gap: 6px; padding-right: 4px; }
 /* A tidy data grid: label sized to content + value adjacent, rows packed left so
    dead space falls on the right (never a gap between the label and its value). */
 .ui-kg-crow { display: grid; grid-template-columns: auto 200px minmax(110px, 150px) auto; justify-content: start; gap: 9px; align-items: center; }
 .ui-kg-crow.ui-kg-extra { grid-template-columns: 200px minmax(110px, 150px) auto; }
+
+/* Multi-column flat grid (samplers, columns>1): every knob visible at once, flowing
+   row-major so each successive/added knob lands in the next column; no inner scroll
+   (the column is the single scroller). Cells are compact: flexible label + a narrow
+   value. "Other keys" + custom rows span the full width. */
+.ui-kg-check.is-cols .ui-kg-scroll { display: grid; grid-template-columns: repeat(var(--kg-cols, 3), minmax(0, 1fr)); gap: 6px 16px; align-content: start; padding-right: 0; }
+.ui-kg-check.is-cols .ui-kg-crow { grid-template-columns: auto minmax(0, 1fr) 84px auto; gap: 7px; }
+.ui-kg-check.is-cols .ui-kg-label, .ui-kg-check.is-cols .ui-kg-flag { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-kg-check.is-cols .ui-kg-extras-h, .ui-kg-check.is-cols .ui-kg-crow.ui-kg-extra { grid-column: 1 / -1; }
+.ui-kg-check.is-cols .ui-kg-crow.ui-kg-extra { grid-template-columns: 200px minmax(110px, 150px) auto; justify-content: start; }
 .ui-kg-metacell { display: flex; flex-direction: column; min-width: 0; }
 .ui-kg-label { font-size: 12.5px; color: var(--ink); line-height: 1.25; }
 .ui-kg-flag { font-family: var(--font-mono, monospace); font-size: 10px; color: var(--muted); }

@@ -295,3 +295,50 @@ def test_run_uses_resolved_preset():
     assert adapter.last["extra"]["top_p"] == 0.9             # the preset's top_p flowed through
     assert adapter.last["extra"]["reasoning_effort"] == "high"
     assert adapter.last["think"] is True                     # reasoning on (no json) from the preset
+
+
+def _preset_sampler_app(samplers):
+    """A /run app whose feature resolves to a preset carrying `samplers`."""
+    from llm_runner.llm import stores
+    from llm_runner.llm.presets_api import EnginePresetRow
+
+    p = stores.get_engine_preset_store().save(EnginePresetRow(name="S", model="m", samplers=samplers))
+    stores.get_category_preset_store().set("Writing", p.id)
+    get_llm_registry()._adapters = {}
+    adapter = CaptureAdapter()
+    get_llm_registry().register(adapter)
+    app = FastAPI()
+    app.include_router(make_feature_router(
+        lambda: MemPromptStore(), lambda: LLMConfig(), category_of=lambda feature: "Writing",
+    ))
+    return TestClient(app, raise_server_exceptions=False), adapter
+
+
+def test_run_applies_preset_samplers_and_order():
+    """The resolved preset's long-tail samplers reach the chat body (extra), and the
+    reserved `samplers` ORDER value is split from a comma list into an array."""
+    from llm_runner.llm.presets_api import PresetFlagRow
+
+    c, adapter = _preset_sampler_app([
+        PresetFlagRow(flagName="top_k", flagValue="40"),
+        PresetFlagRow(flagName="min_p", flagValue="0.05"),
+        PresetFlagRow(flagName="samplers", flagValue="dry,top_k,min_p,temperature"),
+    ])
+    r = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}})
+    assert r.status_code == 200
+    extra = adapter.last["extra"]
+    assert extra["top_k"] == 40 and extra["min_p"] == 0.05          # preset samplers dispatched
+    assert extra["samplers"] == ["dry", "top_k", "min_p", "temperature"]  # ORDER split to a list
+
+
+def test_run_body_samplers_override_preset():
+    """Per-call body.samplers win over the preset's samplers (precedence)."""
+    from llm_runner.llm.presets_api import PresetFlagRow
+
+    c, adapter = _preset_sampler_app([PresetFlagRow(flagName="top_k", flagValue="40")])
+    r = c.post("/v1/ai/run", json={
+        "action": "greet", "variables": {"name": "x", "role": "y"},
+        "samplers": [{"flagName": "top_k", "flagValue": "5"}],
+    })
+    assert r.status_code == 200
+    assert adapter.last["extra"]["top_k"] == 5                       # body overrode the preset's 40

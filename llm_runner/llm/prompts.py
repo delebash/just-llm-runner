@@ -300,13 +300,15 @@ def _parse_sampler_value(v: str):
     return s
 
 
-def _plane2_extra(spec: FeaturePromptRow, body: RunRequest) -> dict | None:
+def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict | None:
     """Per-request `extra` from the action's Plane-2 params — json_mode/top_p PLUS
-    its long-tail sampler knobs (feature_sampler_params: top_k/min_p/mirostat/…),
-    each overridable by the request. Merges straight into the OpenAI-compatible chat
-    body (the adapter applies `extra`); no model reload. Safe across adapters:
-    openai-compat sends all (cloud ignores unknown fields), the others map
-    selectively. (#18 / #22 / §8)"""
+    its long-tail sampler knobs, each overridable by the request. Precedence
+    (highest→lowest): per-call `body.samplers` → stored `feature_sampler_params` →
+    the resolved PRESET's samplers (the lab+preset source of truth). The reserved
+    `samplers` key is the sampler ORDER — a comma-joined name list that is split into
+    an array for the engine. Merges straight into the OpenAI-compatible chat body
+    (the adapter applies `extra`); no model reload. Safe across adapters: openai-compat
+    sends all (cloud ignores unknown fields), the others map selectively. (#18 / #22 / §8)"""
     extra: dict = {}
     json_mode = spec.json_mode if body.jsonMode is None else body.jsonMode
     if json_mode:
@@ -331,6 +333,14 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest) -> dict | None:
         val = _parse_sampler_value(row.flagValue)
         if val is not None and row.flagName not in extra:
             extra[row.flagName] = val
+    # Resolved preset's long-tail samplers (the lab+preset source of truth) — LOWEST
+    # precedence: applied only where a per-call / per-feature value hasn't set it.
+    for row in getattr(preset, "samplers", None) or []:
+        name = (getattr(row, "flagName", "") or "").strip()
+        if name and name not in extra:
+            val = _parse_sampler_value(getattr(row, "flagValue", "") or "")
+            if val is not None:
+                extra[name] = val
     # Reasoning-effort LEVEL (a1/E2) — carried under the reserved `reasoning_effort`
     # key, which each adapter pops + maps to its backend's native reasoning control
     # (Anthropic budget_tokens / Gemini thinkingBudget / OpenAI reasoning_effort /
@@ -340,6 +350,10 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest) -> dict | None:
         effort = (body.reasoningEffort if body.reasoningEffort is not None else spec.reasoning_effort) or ""
         if effort:
             extra["reasoning_effort"] = effort
+    # The sampler ORDER ("samplers") is an ARRAY of sampler names — accept a
+    # comma-joined string from the knob value and split it for the engine.
+    if isinstance(extra.get("samplers"), str):
+        extra["samplers"] = [s.strip() for s in extra["samplers"].split(",") if s.strip()]
     return extra or None
 
 
@@ -425,7 +439,7 @@ def make_feature_router(
                 max_tokens=(body.maxTokens if body.maxTokens is not None else eff.max_tokens) or None,
                 provider_override=body.providerId or (preset.providerId if preset else "") or None,
                 model_override=body.model or (preset.model if preset else "") or None,
-                extra=_plane2_extra(eff, body),
+                extra=_plane2_extra(eff, body, preset),
             )
         except LLMNotConfiguredError as e:
             # 501 → the UI shows the actionable "wire an LLM provider" message.
@@ -466,7 +480,7 @@ def make_feature_router(
                     max_tokens=(body.maxTokens if body.maxTokens is not None else eff.max_tokens) or None,
                     provider_override=body.providerId or (preset.providerId if preset else "") or None,
                     model_override=body.model or (preset.model if preset else "") or None,
-                    extra=_plane2_extra(eff, body),
+                    extra=_plane2_extra(eff, body, preset),
                 ):
                     if delta.done:
                         frame = {

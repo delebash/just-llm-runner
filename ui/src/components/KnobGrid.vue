@@ -128,7 +128,7 @@ const displayRows = computed(() => {
 <template>
   <!-- Checklist mode (opt-in): prefilled, enable/disable, kind-aware, scrollable. -->
   <div v-if="checklist && catalogList.length" class="ui-kg ui-kg-check" :class="{ 'is-cols': columns > 1 }" :style="columns > 1 ? { '--kg-cols': columns } : null">
-    <div class="ui-kg-scroll" :style="{ maxHeight: columns > 1 ? 'none' : scrollMax }">
+    <div class="ui-kg-scroll" :style="{ maxHeight: scrollMax }">
       <template v-for="row in displayRows" :key="row.expander ? '__adv' : row.m.flagName">
         <button v-if="row.expander" type="button" class="ui-kg-advtoggle" @click="advancedOpen = !advancedOpen">
           {{ advancedOpen ? "▾" : "▸" }} Advanced <span class="ui-kg-advcount">({{ advancedRows.length }})</span>
@@ -232,11 +232,13 @@ const displayRows = computed(() => {
 .ui-kg-crow { display: grid; grid-template-columns: auto 200px minmax(110px, 150px) auto; justify-content: start; gap: 9px; align-items: center; }
 .ui-kg-crow.ui-kg-extra { grid-template-columns: 200px minmax(110px, 150px) auto; }
 
-/* Multi-column flat grid (samplers, columns>1): every knob visible at once, flowing
-   row-major so each successive/added knob lands in the next column; no inner scroll
-   (the column is the single scroller). Cells are compact: flexible label + a narrow
-   value. "Other keys" + custom rows span the full width. */
-.ui-kg-check.is-cols .ui-kg-scroll { display: grid; grid-template-columns: repeat(var(--kg-cols, 3), minmax(0, 1fr)); gap: 6px 16px; align-content: start; padding-right: 0; }
+/* Multi-column flat grid (samplers, columns>1): knobs flow row-major so each
+   successive/added knob lands in the next column. Columns hold a MIN width and the
+   grid SCROLLS (both axes) rather than shrinking to fit — vertical past scrollMax,
+   horizontal when the columns can't fit (e.g. a narrow Compare column); scrollbar-
+   gutter (on the base .ui-kg-scroll rule) keeps it from shifting. "Other keys" +
+   custom rows span the full width. */
+.ui-kg-check.is-cols .ui-kg-scroll { display: grid; grid-template-columns: repeat(var(--kg-cols, 3), minmax(210px, 1fr)); gap: 6px 16px; align-content: start; overflow-x: auto; padding-right: 0; }
 .ui-kg-check.is-cols .ui-kg-crow { grid-template-columns: auto minmax(0, 1fr) 84px auto; gap: 7px; }
 .ui-kg-check.is-cols .ui-kg-label, .ui-kg-check.is-cols .ui-kg-flag { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ui-kg-check.is-cols .ui-kg-extras-h, .ui-kg-check.is-cols .ui-kg-crow.ui-kg-extra { grid-column: 1 / -1; }

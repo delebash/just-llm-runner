@@ -8,18 +8,34 @@
 > flat list of all ~21 samplers in a 3-column grid** (row-major: each successive/added knob lands in the next
 > column) — no expander. The `tier` field is NOT removed: it still orders the list common-first, and the
 > **Engine switches** editor keeps the single-column tiered expander (only samplers went flat — the user was
-> pointing at samplers; switches weren't in scope). This ALSO fixed a layout bug the user hit: clicking a
-> sampler checkbox visibly shifted the layout (worse in Advanced), because enabling rows / expanding Advanced
-> overflowed the inner `max-height:260px` scroll and, on Windows/WebView2 (classic space-taking scrollbars;
-> headless Chromium uses overlay scrollbars so it didn't reproduce here), the scrollbar's appearance reflowed
-> the column. The 3-column grid removes the inner scroll entirely (all knobs fit, the column is the single
-> scroller — honoring "one scroller per area"), and `scrollbar-gutter: stable` on `.ui-kg-scroll` +
-> `.lu-fw-edit` reserves any scrollbar space as a backstop. Implemented as a reusable `KnobGrid` `columns`
-> prop (`>1` → flat multi-column grid, no inner scroll); the `Common/Advanced` design below remains accurate
-> for the **switches** editor. Verified: `build:vite` 0; `node scripts/headless-smoke.mjs` PASSED (all routes
-> + AI sub-tabs + the committed `sampler-order` probe still green: present/hidden-until-on/default-chain/
-> reorder/no-dup, 0 JS errors); screenshot confirmed the 3-column grid. (Visual scrollbar behavior itself is
-> WebView2-specific and can't be rendered in headless — the structural fix removes the overflow regardless.)
+> pointing at samplers; switches weren't in scope). Implemented as a reusable `KnobGrid` `columns` prop
+> (`>1` → flat multi-column grid); the `Common/Advanced` design below remains accurate for the **switches**
+> editor.
+>
+> **Grid sizing refined (2026-06-30 cont.):** the first cut used `repeat(3, minmax(0,1fr))` + `maxHeight:none`,
+> which (a) let columns collapse to ~112px inside a narrow Compare column and (b) never capped the height. Per
+> the user ("make it scrollable after a certain height"; "it should not try to fit the 3 columns in view, it is
+> off scrollable; it kept shrinking column size"), it is now `repeat(var(--kg-cols,3), minmax(210px,1fr))` with
+> `overflow-x:auto` (columns hold a 210px min and the grid SCROLLS horizontally instead of shrinking) and the
+> `scrollMax` height cap restored with `overflow-y:auto` + `scrollbar-gutter:stable` (scrollable-after-height,
+> no shift). Verified by measurement: wide single column → 3 tracks @351px, v-scroll on; 366px Compare column →
+> 3 tracks HOLD 210px, h-scroll on.
+>
+> **⚠️ Correction — the 3-column change did NOT fix the reported layout shift.** An earlier draft of this banner
+> claimed it did (scrollbar-on-overflow theory). That theory is DISPROVEN by a scroll-chain probe (2026-06-30
+> cont.): the ONLY scroller in the AI feature area is `.lu-fw-edit`, it is ALWAYS scrolling (≈1492px content >
+> ≈712px viewport) with `scrollbar-gutter:stable` already applied, the page never scrolls, and toggling a
+> checkbox moves nothing in headless (no scrollbar appears/disappears). The shift cannot be reproduced in
+> headless Chromium (overlay scrollbars) and appears Windows/WebView2-specific — it is UNRESOLVED, blocked on a
+> user screen recording / same-scroll before-after (tracker #67). No further guess will be shipped.
+>
+> **Custom-sampler persistence (2026-06-30 cont.):** verified WORKING — a named custom sampler added via "+ Add
+> custom sampler" persists through Save-as-preset (UI round-trip → `GET /v1/ai/engine-presets` returns it;
+> backend also confirmed via direct curl). Per-feature sampler edits do NOT auto-persist (persistence rides
+> presets per §Reorder — no `/feature-samplers` PUT); auto-persist-on-edit would be a design change, raised with
+> the user. Verified: `build:vite` 0; `node scripts/headless-smoke.mjs` PASSED (all routes + AI sub-tabs +
+> sampler-order probe green; the probe's `no-dup` selector was also corrected from a vacuous `.ui-kg-name input`
+> to `.ui-kg-name`). Full prose in `justwrite-app/MORNING_RECAP.md`.
 
 > **Relationship to the other plans:** this is a focused sub-plan of the AI-lab work. The lab/preset
 > MODEL + the sampler/switch CHECKLIST UI are in `2026-06-29-ai-lab-preset-model.md` (Trial-4 #5). The

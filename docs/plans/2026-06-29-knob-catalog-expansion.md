@@ -218,3 +218,16 @@ through the backend split above. `KnobGrid` got a `reservedKeys` prop so the `sa
 the checklist's "Other keys" (managed by this control, not double-shown). Verified: build:vite 0 + headless smoke
 0 JS errors + a Playwright check (5/5: control present, hidden until enabled, default 7-name order shown, ▼
 reorders, `samplers` not in Other keys). **Part 3 is now fully complete (dispatch + order + reorder UI).**
+
+**Durable regression coverage (2026-06-30).** Those 5/5 assertions had lived only in an ephemeral scratchpad
+script; they are now a committed probe block in the JustWrite renderer gate
+(`justwrite-app/scripts/headless-smoke.mjs`, where the AI-area probes live — the shared kit has no standalone
+renderer host, so the durable check rides the consumer app that already boots the kit, joining the sibling AI-area
+probes in one shared boot session rather than as a second standalone script). It navigates
+Routing-by-feature ▸ a feature ▸ Samplers, forces the `<details>` open, normalizes the toggle to OFF (deterministic
+regardless of any persisted order, since `toggleOrder(true)` re-seeds DEFAULT), then asserts present / hidden-until-on
+/ default chain / ▼ reorders / `samplers` not double-shown — so the reorder control can't silently regress. The same
+pass fixed a latent hygiene bug it surfaced: the model-manager probe left its Add-model `AppModal` open, whose Reka
+overlay blocked later probes' actionability (locator) clicks; it now dismisses with Esc (closable AppModal). Full
+`node scripts/headless-smoke.mjs` PASSED (`sampler-order present=true hidden-until-on=true default-chain=true
+reorder=true no-dup=true errors=0`; jscpd + shared-picker REUSE gates green).

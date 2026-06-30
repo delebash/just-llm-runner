@@ -36,6 +36,7 @@ const props = defineProps({
   checklist: { type: Boolean, default: false },
   catalogList: { type: Array, default: () => [] }, // ordered raw rows [{ flagName, label, kind, default, help, options }]
   exclude: { type: Array, default: () => [] },     // flag names to hide from the managed list (edited elsewhere)
+  reservedKeys: { type: Array, default: () => [] },// names managed by another control → hidden from "Other keys" too
   scrollMax: { type: String, default: "260px" },   // fixed height before the grid scrolls
 });
 const emit = defineEmits(["update:modelValue"]);
@@ -64,7 +65,9 @@ const visibleNames = computed(() => new Set(visibleCatalog.value.map((k) => k.fl
 // Anything in the model that is NOT a managed row — custom keys, blank new rows,
 // or an excluded knob that happens to be set — shown raw so it is never dropped.
 const extraRows = computed(() =>
-  rows.value.map((r, i) => ({ r, i })).filter(({ r }) => !visibleNames.value.has(r.name)),
+  rows.value
+    .map((r, i) => ({ r, i }))
+    .filter(({ r }) => !visibleNames.value.has(r.name) && !props.reservedKeys.includes(r.name)),
 );
 function isOn(name) {
   return rows.value.some((r) => r.name === name);

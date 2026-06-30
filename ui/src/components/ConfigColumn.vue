@@ -94,6 +94,31 @@ function patchPin(val) {
   patch("pin", val && val.providerId ? { providerId: val.providerId, model: val.model || "" } : null);
 }
 
+// ── sampler ORDER (the reserved `samplers` entry in the samplers array) ───────
+// Off = engine default order. On = a per-request order, stored as a single
+// {name:"samplers", value:"dry,top_k,…"} row; the server splits it to an array.
+const DEFAULT_SAMPLER_ORDER = ["dry", "top_k", "typ_p", "top_p", "min_p", "xtc", "temperature"];
+const samplerArr = computed(() => props.modelValue?.samplers || []);
+const orderRow = computed(() => samplerArr.value.find((r) => r.name === "samplers") || null);
+const orderOn = computed(() => !!orderRow.value);
+const orderList = computed(() => {
+  const v = orderRow.value?.value || "";
+  const names = v.split(",").map((s) => s.trim()).filter(Boolean);
+  return names.length ? names : [...DEFAULT_SAMPLER_ORDER];
+});
+function writeOrder(list) {
+  const rest = samplerArr.value.filter((r) => r.name !== "samplers");
+  patch("samplers", list ? [...rest, { name: "samplers", value: list.join(",") }] : rest);
+}
+function toggleOrder(on) { writeOrder(on ? [...DEFAULT_SAMPLER_ORDER] : null); }
+function moveOrder(i, d) {
+  const list = [...orderList.value];
+  const j = i + d;
+  if (j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  writeOrder(list);
+}
+
 // ── presets bar (emits; the parent owns the endpoints) ──────────────────────
 const selPreset = ref("");
 const naming = ref(false);
@@ -335,10 +360,23 @@ defineExpose({ run, cancel });
     <details class="cc-samplers">
       <summary class="cc-eyebrow">Samplers <span class="lu-muted">— top_k · min_p · penalties · mirostat … (mostly local)</span></summary>
       <div class="cc-samplers-body">
-        <KnobGrid checklist :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']"
+        <KnobGrid checklist :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']" :reserved-keys="['samplers']"
           :model-value="modelValue?.samplers || []"
           add-label="＋ Add custom sampler" name-placeholder="sampler (e.g. top_k)"
           @update:model-value="patch('samplers', $event)" />
+
+        <!-- Sampler ORDER — the chain the samplers apply in (off = engine default). -->
+        <div class="cc-samporder">
+          <label class="cc-chk"><UiCheckbox :model-value="orderOn" @update:model-value="toggleOrder" /><span class="lu-muted">Custom sampler order</span></label>
+          <div v-if="orderOn" class="cc-samporder-list">
+            <div v-for="(name, i) in orderList" :key="name" class="cc-samporder-row">
+              <span class="cc-samporder-name"><span class="lu-muted">{{ i + 1 }}.</span> {{ name }}</span>
+              <UiButton intent="ghost" size="small" :disabled="i === 0" title="Move up" @click="moveOrder(i, -1)">▲</UiButton>
+              <UiButton intent="ghost" size="small" :disabled="i === orderList.length - 1" title="Move down" @click="moveOrder(i, 1)">▼</UiButton>
+            </div>
+            <UiButton intent="ghost" size="small" title="Restore the engine's default sampler order" @click="toggleOrder(true)">Reset order</UiButton>
+          </div>
+        </div>
       </div>
     </details>
 
@@ -401,6 +439,10 @@ defineExpose({ run, cancel });
 .cc-reason { max-width: 120px; }
 .cc-chk { display: flex; align-items: center; gap: 7px; }
 .cc-switches-body, .cc-samplers-body { margin-top: 8px; }
+.cc-samporder { margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 7px; }
+.cc-samporder-list { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.cc-samporder-row { display: grid; grid-template-columns: minmax(140px, 200px) auto auto; gap: 6px; align-items: center; }
+.cc-samporder-name { font-size: 12px; font-family: var(--font-mono, monospace); color: var(--ink); }
 .cc-switch-note { font-size: 11px; margin: 8px 0 0; line-height: 1.4; }
 .cc-preview-body { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .cc-preview-foot { display: flex; align-items: center; gap: 10px; font-size: 11.5px; flex-wrap: wrap; }

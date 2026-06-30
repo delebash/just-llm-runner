@@ -133,3 +133,23 @@ the dev DB first. Then a diff rules-check → commit + push.
 **Shipped-install reminder (unchanged from above):** this is a schema bump — existing users **Reset
 workspace** to pick up the `tier` column + the new rows (the drop+reseed policy). New installs get it on
 first seed.
+
+## Follow-ups (2026-06-29, after the user's review)
+- **Double-"Advanced" fixed.** The samplers `<details>` was titled **"Advanced samplers"** AND now carries an
+  inner **"▾ Advanced (N)"** tier expander — two "Advanced". Renamed the section **"Advanced samplers" →
+  "Samplers"** (it now leads with the common rows), so each section reads `Samplers › Advanced (N)` /
+  `Engine switches › Advanced (N)` — one "Advanced" each. `ConfigColumn.vue` summary only. Build + smoke clean.
+- **Params vs switches — reload semantics (verified in code, for the record).** The runner holds ONE
+  `llama-server` at a time (`lifecycle.py` `load()`/`stop()` + a single `self._runner`).
+  - **Params (Plane 2 — samplers, temp, top_p, max tokens, reasoning, JSON):** sent per request in the API
+    body (`_plane2_extra` → `extra`); **no reload** — effective next call; local + cloud.
+  - **Engine switches (Plane 1 — ctx, KV-type, flash-attn, n_cpu_moe, -ngl, mlock, batch/ubatch, threads,
+    cont-batching, cache-reuse, spec):** baked into the `llama-server` launch flags; **require a model reload**
+    (stop + respawn the local process); **local only**. `n_cpu_moe` is one of these (a hardware-fit switch).
+  - Changing the **model** also reloads (new GGUF). There is **no separate "server restart"** tier — the
+    per-model `llama-server` IS what respawns; the host Python app stays up.
+- **Endpoint: we use CHAT completion, not text completion** (verified). `openai_compat.py` POSTs
+  `/chat/completions` (our bundled llama-server speaks OpenAI-compat, + cloud); `ollama.py` POSTs `/api/chat`
+  (chosen so `think:true` works). The server applies the chat template; samplers ride as body fields. Text
+  completion (raw prompt + our own template) is NOT used — the only thing it would add is the `samplers`
+  ORDER param + raw GBNF/template control, which stay DEFERRED.

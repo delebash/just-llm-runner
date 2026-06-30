@@ -333,7 +333,7 @@ defineExpose({ run, cancel });
     <!-- Plane-2 long-tail samplers (KnobGrid checklist). temperature + top_p are
          excluded — they are edited in the per-call params row above. -->
     <details class="cc-samplers">
-      <summary class="cc-eyebrow">Advanced samplers <span class="lu-muted">— top_k · min_p · penalties · mirostat … (mostly local)</span></summary>
+      <summary class="cc-eyebrow">Samplers <span class="lu-muted">— top_k · min_p · penalties · mirostat … (mostly local)</span></summary>
       <div class="cc-samplers-body">
         <KnobGrid checklist :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']"
           :model-value="modelValue?.samplers || []"

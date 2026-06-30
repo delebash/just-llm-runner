@@ -193,7 +193,7 @@ see the prior follow-ups + the 2026-06-24 research docs, now bannered), the user
   asserting the new base defaults) + build:vite + headless smoke (0 errors) + live reseed (41 knobs;
   base preset carries the two defaults).
 
-## Part 3 — sampler dispatch WIRED (2026-06-29); reorder UI remaining
+## Part 3 — COMPLETE (2026-06-29): sampler dispatch WIRED + reorder UI
 **RESOLVED (2026-06-29):** the dispatch gap below is FIXED — `_plane2_extra(spec, body, preset)` now applies the
 resolved preset's samplers (precedence body → feature → preset) and splits the reserved `samplers` ORDER key
 (comma string → array). Both `/v1/ai/run` + `/v1/ai/stream` pass the preset. Verified by
@@ -209,6 +209,12 @@ the "Add custom sampler" escape: name `samplers`, value `dry,top_k,…`). The ga
 **DONE (the real Part 3 step 1):** the resolved preset's samplers are merged into dispatch in `_plane2_extra`.
 Persistence + load ride the PRESET (Save-as-preset → `engine_preset_samplers`; `applyPreset`/`presetToConfig`
 loads them back into the column) — so no separate feature-samplers PUT was needed; the per-feature
-`feature_sampler_params` store still dispatches as an override layer. **Remaining (polish, not yet built):** a
-small reorderable sampler-order control in the Samplers section that writes the `{name:"samplers"}` entry, instead
-of typing it via the custom-sampler escape.
+`feature_sampler_params` store still dispatches as an override layer. **Reorder UI — DONE (2026-06-29).** A
+"Custom sampler order" control in `ConfigColumn.vue`'s Samplers section: a `UiCheckbox` toggle (off = engine
+default), then the default order (`dry · top_k · typ_p · top_p · min_p · xtc · temperature`) as a list with ▲▼
+`UiButton`s + a Reset; it reads/writes the single reserved `{name:"samplers", value:"<comma names>"}` row in the
+column's `samplers` array via the existing `patch('samplers', …)`, so it persists via the preset + dispatches
+through the backend split above. `KnobGrid` got a `reservedKeys` prop so the `samplers` order key is hidden from
+the checklist's "Other keys" (managed by this control, not double-shown). Verified: build:vite 0 + headless smoke
+0 JS errors + a Playwright check (5/5: control present, hidden until enabled, default 7-name order shown, ▼
+reorders, `samplers` not in Other keys). **Part 3 is now fully complete (dispatch + order + reorder UI).**

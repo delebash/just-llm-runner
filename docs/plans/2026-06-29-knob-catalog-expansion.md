@@ -193,16 +193,22 @@ see the prior follow-ups + the 2026-06-24 research docs, now bannered), the user
   asserting the new base defaults) + build:vite + headless smoke (0 errors) + live reseed (41 knobs;
   base preset carries the two defaults).
 
-## Part 3 — BLOCKED by a verified dispatch gap (do this FIRST, then the order UI)
-The sampler-ORDER UI cannot be a real (non-stub) feature until **samplers reach production dispatch**, which they
-do not today:
+## Part 3 — sampler dispatch WIRED (2026-06-29); reorder UI remaining
+**RESOLVED (2026-06-29):** the dispatch gap below is FIXED — `_plane2_extra(spec, body, preset)` now applies the
+resolved preset's samplers (precedence body → feature → preset) and splits the reserved `samplers` ORDER key
+(comma string → array). Both `/v1/ai/run` + `/v1/ai/stream` pass the preset. Verified by
+`tests/test_prompts.py::test_run_applies_preset_samplers_and_order` + `test_run_body_samplers_override_preset`
+(preset samplers reach `extra`; the order becomes a list; per-call body overrides the preset). So **all the
+knob-catalog samplers now take effect in production**, and a per-feature sampler ORDER is dispatchable today (via
+the "Add custom sampler" escape: name `samplers`, value `dry,top_k,…`). The gap, for the record, was:
 - **`_effective_spec` (prompts.py) does NOT apply the resolved preset's samplers** — its own docstring says
   *"its long-tail samplers are wired in a follow-up."* So a feature's preset samplers never hit the body.
 - **The UI only GETs `/feature-samplers`, never PUTs** — so the checklist samplers aren't persisted to the one
   store `_plane2_extra` actually dispatches (feature-stored + per-call). That's why the in-lab **Run** test
   applies them (it sends `body.samplers` ad-hoc) but a real feature call does not.
-**Prerequisite (the real Part 3 step 1):** wire the resolved preset's (and/or feature's) samplers into dispatch
-(merge them in `_plane2_extra`/`_effective_spec`) + persist the checklist samplers from the UI. THEN the
-sampler-order is one more entry (`{name:"samplers", value:"dry,top_k,…"}` with a comma→array split in
-`_plane2_extra`) + a small reorderable list. **Not built — surfaced; this also makes the whole knob-catalog
-expansion actually take effect in production, so it's worth doing regardless of the order UI.**
+**DONE (the real Part 3 step 1):** the resolved preset's samplers are merged into dispatch in `_plane2_extra`.
+Persistence + load ride the PRESET (Save-as-preset → `engine_preset_samplers`; `applyPreset`/`presetToConfig`
+loads them back into the column) — so no separate feature-samplers PUT was needed; the per-feature
+`feature_sampler_params` store still dispatches as an override layer. **Remaining (polish, not yet built):** a
+small reorderable sampler-order control in the Samplers section that writes the `{name:"samplers"}` entry, instead
+of typing it via the custom-sampler escape.

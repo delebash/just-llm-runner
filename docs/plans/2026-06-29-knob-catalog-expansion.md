@@ -165,3 +165,41 @@ first seed.
   field (no `--samplers` startup switch, no model reload) — the same path as our other samplers. If we build a
   sampler-order UI, it's a reorderable list writing a `samplers` array into the feature's params, NOT a Plane-1
   switch. (Still not built — surfaced for the user's decision.)
+
+## DECISION — engine + serving model (2026-06-29, user-confirmed)
+After fact-checking the KoboldCpp / TabbyAPI / Aphrodite pitch (mostly outdated or wrong vs current llama.cpp;
+see the prior follow-ups + the 2026-06-24 research docs, now bannered), the user confirmed:
+- **Stay on stock `ggml-org/llama.cpp`** (release binaries) + **spawn-per-model** (one `llama-server` at a time,
+  respawn to switch). **Router mode deferred** — the low-VRAM trap (evict/reload pause OR RAM spill) + the
+  1-model common case make it not worth it now; revisit only if multi-model co-residency / Compare-across-models
+  becomes a priority. **Kobold/Tabby/Aphrodite rejected:** Kobold = end-user/RP features we don't use + its
+  context-shift/KV-quant/per-request-sampler claims are already in llama.cpp (verified); Tabby/ExLlamaV2 =
+  GPU-only, **no CPU offload** → worse for low-VRAM-that-can't-fit + NVIDIA-only (no Mac); Aphrodite =
+  server-scale overkill. **Task #27 resolved by this.**
+
+## DONE this turn (Parts 1 + 2)
+- **Part 1 — decision recorded** (this section + banners on the three 2026-06-24 router-leaning docs + recap).
+- **Part 2 — snappy-edit defaults SHIPPED.** llama.cpp's prefix reuse (`cache_prompt`) is already on by default;
+  added the two that were off: a new **`context_shift`** Plane-1 switch (bool, default on, advanced tier) +
+  **`cache_reuse`** — both now default-ON via the **`base` switch preset** (`context_shift:"true"`,
+  `cache_reuse:"256"`), applied at model load. Wired `context_shift` through `Overrides` +
+  `_apply_engine_overrides` (emits `--context-shift` / `--no-context-shift`) + `_parse_switch` (bool). **SWA-safe:**
+  llama.cpp auto-disables context-shift on sliding-window models (Gemma) with a warning, no crash (verified
+  upstream). Both flags **empirically spawn-tested** (stock llama-server b9786 + qwen2.5-0.5b → healthy with
+  `--context-shift --cache-reuse 256`). Verified: ruff + 180 pytest (incl. an updated `test_unknown_model_empty`
+  asserting the new base defaults) + build:vite + headless smoke (0 errors) + live reseed (41 knobs;
+  base preset carries the two defaults).
+
+## Part 3 — BLOCKED by a verified dispatch gap (do this FIRST, then the order UI)
+The sampler-ORDER UI cannot be a real (non-stub) feature until **samplers reach production dispatch**, which they
+do not today:
+- **`_effective_spec` (prompts.py) does NOT apply the resolved preset's samplers** — its own docstring says
+  *"its long-tail samplers are wired in a follow-up."* So a feature's preset samplers never hit the body.
+- **The UI only GETs `/feature-samplers`, never PUTs** — so the checklist samplers aren't persisted to the one
+  store `_plane2_extra` actually dispatches (feature-stored + per-call). That's why the in-lab **Run** test
+  applies them (it sends `body.samplers` ad-hoc) but a real feature call does not.
+**Prerequisite (the real Part 3 step 1):** wire the resolved preset's (and/or feature's) samplers into dispatch
+(merge them in `_plane2_extra`/`_effective_spec`) + persist the checklist samplers from the UI. THEN the
+sampler-order is one more entry (`{name:"samplers", value:"dry,top_k,…"}` with a comma→array split in
+`_plane2_extra`) + a small reorderable list. **Not built — surfaced; this also makes the whole knob-catalog
+expansion actually take effect in production, so it's worth doing regardless of the order UI.**

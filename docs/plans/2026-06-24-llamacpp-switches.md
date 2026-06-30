@@ -1,4 +1,6 @@
 > ⛔ **NOT THE CURRENT PLAN.** The ONE current plan is `./2026-06-28-MASTER-PLAN.md` — everything is folded in there (✅ done + ⬜ outstanding, full detail). This doc is kept as **historical background only** (past plan / design / research / evidence). Read it for context; **plan from the master.**
+>
+> 🔁 **ROUTER DECISION (2026-06-29, user-confirmed):** this doc's "router mode is the better fit" note was RESOLVED the other way — **stay spawn-per-model + stock llama.cpp; router deferred** (low-VRAM trap + 1-model common case; Kobold/Tabby/Aphrodite evaluated + rejected). Rationale: `2026-06-29-knob-catalog-expansion.md` §DECISION.
 
 # llama.cpp engine switches — what each does, why, when, for which models (2026-06-24)
 

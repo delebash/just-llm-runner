@@ -84,6 +84,26 @@
 > `headless-smoke.mjs` green. **Separate OPEN UX call (NOT done, the user's decision):** llama.cpp documents
 > `top_k=40`/`min_p=0.05`/`top_p=0.95`/`temperature=0.80` defaults but our seed leaves top_k/min_p blank (enabling
 > gives an empty box, dropped at dispatch = engine default) — prefilling the real defaults is a UX choice left as-is.
+>
+> **✅ Stop sequences added (2026-07-01, #73 — user asked for KoboldCpp "Tokens ▸ Stop Sequences" parity after
+> surveying Kobold's sampler/token tabs; this was the ONE genuine gap, everything else Kobold shows we already have
+> or is Kobold-only).** A per-feature STOP-sequence list: generation halts when the model emits any of them.
+> Implemented with NO DB schema change (no workspace reset) by REUSING the reserved-key pattern the sampler ORDER
+> already uses — a reserved `stop` row rides the samplers array (`feature_sampler_params` per-feature +
+> `engine_preset_samplers` per-preset), so it persists + round-trips through the existing preset machinery. **UI:**
+> a dedicated one-per-line `<textarea class="cc-stops-ta">` in the Samplers section of `ConfigColumn.vue` (bound to
+> `stopText`/`writeStop`), with `stop` added to the KnobGrid `reservedKeys` so it is NOT double-shown in the
+> checklist "Other keys". **Dispatch:** `_plane2_extra` (`prompts.py`) normalizes the reserved `stop` value → a
+> string ARRAY (newline-split, robust to `_parse_sampler_value`'s numeric coercion — a numeric-looking stop like
+> "42" stays "42"). **Per-adapter mapping, verified from adapter source:** openai-compat + local llama.cpp take
+> `stop` natively (`body.update(extra)`); Gemini already mapped `stop→stopSequences` (`gemini.py` `_GEN_KEYS`);
+> Ollama routes it to `options.stop` (`_apply_extra`); Anthropic needed the one adapter change — a new `_map_extra`
+> renames `stop→stop_sequences` (Claude's field) in both `chat` + `stream_chat`. **Verified:** ruff + **186 runner
+> pytest** (4 new in `test_plane2_params.py` — split-to-array, numeric-kept-as-string, blank-dropped,
+> anthropic-rename) + `build:vite` + `node scripts/headless-smoke.mjs` (`stop=true` folded into the sampler-order
+> probe: field renders, value round-trips, not double-shown) + a Playwright round-trip probe (type multi-line stops
+> → Save-as-preset → `GET /v1/ai/engine-presets` returns `{flagName:"stop", flagValue:"END\nUSER:"}`, persisted).
+> Shared kit, so JustVoice gets the field too (not re-verified per "not now").
 
 > **Relationship to the other plans:** this is a focused sub-plan of the AI-lab work. The lab/preset
 > MODEL + the sampler/switch CHECKLIST UI are in `2026-06-29-ai-lab-preset-model.md` (Trial-4 #5). The

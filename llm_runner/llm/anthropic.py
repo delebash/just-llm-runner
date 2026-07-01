@@ -94,6 +94,17 @@ class AnthropicAdapter:
 
     # ── Protocol implementation ─────────────────────────────────────
 
+    @staticmethod
+    def _map_extra(extra: dict | None) -> dict | None:
+        """Anthropic uses `stop_sequences` (array), not the OpenAI `stop`; rename so
+        the shared per-feature stop-sequence list reaches Claude. Other keys pass
+        through unchanged."""
+        if not extra or "stop" not in extra:
+            return extra
+        out = dict(extra)
+        out["stop_sequences"] = out.pop("stop")
+        return out
+
     def chat(
         self,
         messages: list[LLMMessage],
@@ -116,6 +127,7 @@ class AnthropicAdapter:
         if sys_prompt:
             body["system"] = sys_prompt
         extra, effort = pop_reasoning_effort(extra)
+        extra = self._map_extra(extra)
         if extra:
             body.update(extra)
         self._apply_reasoning(body, think, effort)
@@ -169,6 +181,7 @@ class AnthropicAdapter:
         if sys_prompt:
             body["system"] = sys_prompt
         extra, effort = pop_reasoning_effort(extra)
+        extra = self._map_extra(extra)
         if extra:
             body.update(extra)
         self._apply_reasoning(body, think, effort)

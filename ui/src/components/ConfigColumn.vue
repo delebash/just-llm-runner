@@ -125,6 +125,17 @@ function moveOrder(i, d) {
   writeOrder(list);
 }
 
+// ── reserved `stop` key: per-feature STOP sequences (one per line). Rides the
+// samplers array like the order key; the server splits it to an array + maps it
+// per adapter (openai/llama.cpp stop · gemini stopSequences · ollama options.stop
+// · anthropic stop_sequences). Stored verbatim so the textarea round-trips.
+const stopRow = computed(() => samplerArr.value.find((r) => r.name === "stop") || null);
+const stopText = computed(() => stopRow.value?.value || "");
+function writeStop(text) {
+  const rest = samplerArr.value.filter((r) => r.name !== "stop");
+  patch("samplers", (text || "").trim() ? [...rest, { name: "stop", value: text }] : rest);
+}
+
 // ── presets bar (emits; the parent owns the endpoints) ──────────────────────
 const selPreset = ref("");
 const naming = ref(false);
@@ -366,7 +377,7 @@ defineExpose({ run, cancel });
     <details class="cc-samplers">
       <summary class="cc-eyebrow">Samplers <span class="lu-muted">— top_k · min_p · penalties · mirostat … (mostly local)</span></summary>
       <div class="cc-samplers-body">
-        <KnobGrid checklist :columns="3" :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']" :reserved-keys="['samplers']"
+        <KnobGrid checklist :columns="3" :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']" :reserved-keys="['samplers', 'stop']"
           :model-value="modelValue?.samplers || []"
           add-label="＋ Add custom sampler" name-placeholder="sampler (e.g. top_k)"
           @update:model-value="patch('samplers', $event)" />
@@ -382,6 +393,13 @@ defineExpose({ run, cancel });
             </div>
             <UiButton intent="ghost" size="small" title="Restore the engine's default sampler order" @click="toggleOrder(true)">Reset order</UiButton>
           </div>
+        </div>
+
+        <!-- Per-feature STOP sequences — one per line; generation halts on any. -->
+        <div class="cc-stops">
+          <span class="cc-eyebrow">Stop sequences <span class="lu-muted">— one per line; generation halts on any</span></span>
+          <textarea class="lu-input cc-stops-ta" rows="2" :value="stopText"
+            placeholder="one stop string per line" @input="writeStop($event.target.value)" />
         </div>
       </div>
     </details>
@@ -449,6 +467,8 @@ defineExpose({ run, cancel });
 .cc-samporder-list { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .cc-samporder-row { display: grid; grid-template-columns: minmax(140px, 200px) auto auto; gap: 6px; align-items: center; }
 .cc-samporder-name { font-size: 12px; font-family: var(--font-mono, monospace); color: var(--ink); }
+.cc-stops { margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 6px; }
+.cc-stops-ta { resize: vertical; min-height: 42px; font-family: var(--font-mono, monospace); font-size: 12px; }
 .cc-switch-note { font-size: 11px; margin: 8px 0 0; line-height: 1.4; }
 .cc-preview-body { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .cc-preview-foot { display: flex; align-items: center; gap: 10px; font-size: 11.5px; flex-wrap: wrap; }

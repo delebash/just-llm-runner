@@ -354,6 +354,19 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict
     # comma-joined string from the knob value and split it for the engine.
     if isinstance(extra.get("samplers"), str):
         extra["samplers"] = [s.strip() for s in extra["samplers"].split(",") if s.strip()]
+    # The reserved `stop` key is a per-feature STOP-sequence list — one per line in
+    # the UI → an ARRAY of strings for the engine. Robust to _parse_sampler_value's
+    # numeric coercion (a numeric-looking stop like "42" comes back as int). Each
+    # adapter maps the array: openai/llama.cpp `stop`, gemini `stopSequences`,
+    # ollama `options.stop`, anthropic `stop_sequences`.
+    if "stop" in extra:
+        raw = extra["stop"]
+        parts = raw.split("\n") if isinstance(raw, str) else [raw]
+        stops = [str(s).strip() for s in parts if str(s).strip()]
+        if stops:
+            extra["stop"] = stops
+        else:
+            del extra["stop"]
     return extra or None
 
 

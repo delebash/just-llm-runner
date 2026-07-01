@@ -58,3 +58,28 @@ def test_prompt_store_roundtrips_json_top_p(configured):
                                temperature=0.5, think=False, built_in=False, json_mode=True, top_p=0.8))
     r = st.get("x")
     assert r.json_mode is True and r.top_p == 0.8
+
+
+# ── Stop sequences (#73) — the reserved `stop` key rides the samplers array and
+# is normalized to a string ARRAY for the engine; anthropic renames it. ──
+def test_stop_sequences_split_to_array():
+    e = _plane2_extra(_spec(), RunRequest(action="k", samplers=[{"flagName": "stop", "flagValue": "END\nUSER:"}]))
+    assert e == {"stop": ["END", "USER:"]}
+
+
+def test_stop_numeric_value_kept_as_string():
+    # A numeric-looking stop must survive _parse_sampler_value's int/float coercion.
+    e = _plane2_extra(_spec(), RunRequest(action="k", samplers=[{"flagName": "stop", "flagValue": "42"}]))
+    assert e == {"stop": ["42"]}
+
+
+def test_stop_blank_is_dropped():
+    e = _plane2_extra(_spec(), RunRequest(action="k", samplers=[{"flagName": "stop", "flagValue": "  \n  "}]))
+    assert e is None
+
+
+def test_anthropic_renames_stop_to_stop_sequences():
+    from llm_runner.llm.anthropic import AnthropicAdapter
+    assert AnthropicAdapter._map_extra({"stop": ["END"], "top_p": 0.9}) == {"stop_sequences": ["END"], "top_p": 0.9}
+    assert AnthropicAdapter._map_extra(None) is None
+    assert AnthropicAdapter._map_extra({"top_p": 0.9}) == {"top_p": 0.9}

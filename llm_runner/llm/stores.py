@@ -283,7 +283,7 @@ class PromptStore:
 
 # ── recommendations ───────────────────────────────────────────────────────────
 def _rec_to_wire(r: db.ModelRecommendation) -> RecommendationRow:
-    return RecommendationRow(modelId=r.model_id, job=r.job, rank=r.rank, why=r.why, builtIn=r.built_in)
+    return RecommendationRow(modelId=r.model_id, taskKind=r.task_kind, rank=r.rank, why=r.why, builtIn=r.built_in)
 
 
 class RecommendationStore:
@@ -291,7 +291,7 @@ class RecommendationStore:
         s = db.session()
         try:
             rows = s.query(db.ModelRecommendation).order_by(
-                db.ModelRecommendation.job, db.ModelRecommendation.rank, db.ModelRecommendation.model_id).all()
+                db.ModelRecommendation.task_kind, db.ModelRecommendation.rank, db.ModelRecommendation.model_id).all()
             return [_rec_to_wire(r) for r in rows]
         finally:
             s.close()
@@ -299,9 +299,9 @@ class RecommendationStore:
     def upsert(self, row: RecommendationRow) -> RecommendationRow:
         s = db.session()
         try:
-            existing = s.get(db.ModelRecommendation, (row.modelId, row.job))
+            existing = s.get(db.ModelRecommendation, (row.modelId, row.taskKind))
             if existing is None:
-                existing = db.ModelRecommendation(model_id=row.modelId, job=row.job)
+                existing = db.ModelRecommendation(model_id=row.modelId, task_kind=row.taskKind)
                 s.add(existing)
             existing.rank = row.rank
             existing.why = row.why
@@ -311,10 +311,10 @@ class RecommendationStore:
         finally:
             s.close()
 
-    def delete(self, model_id: str, job: str) -> None:
+    def delete(self, model_id: str, task_kind: str) -> None:
         s = db.session()
         try:
-            existing = s.get(db.ModelRecommendation, (model_id, job))
+            existing = s.get(db.ModelRecommendation, (model_id, task_kind))
             if existing is not None:
                 s.delete(existing)
                 s.commit()
@@ -325,8 +325,8 @@ class RecommendationStore:
         from . import seed
         s = db.session()
         try:
-            for mid, job in {(r["model_id"], r["job"]) for r in seed.DEFAULT_RECOMMENDATIONS}:
-                row = s.get(db.ModelRecommendation, (mid, job))
+            for mid, tk in {(r["model_id"], r["task_kind"]) for r in seed.DEFAULT_RECOMMENDATIONS}:
+                row = s.get(db.ModelRecommendation, (mid, tk))
                 if row is not None:
                     s.delete(row)
             s.flush()

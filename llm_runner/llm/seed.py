@@ -131,29 +131,30 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
      "switches": {"spec_type": "draft-mtp", "spec_n_max": "3"}},
 ]
 
-# Cited per-job picks, one row per (model, job). `rank` = priority (lower wins).
-# Job ids are the seeded set (chat/prose/extraction/analysis). All model_ids must
-# exist in DEFAULT_CATALOG above. Editable (#25); MEASURED tok/s still pending (#28).
+# Cited per-taskKind picks, one row per (model, taskKind). `rank` = priority (lower
+# wins). taskKinds are the work-shapes (chat.grounded / prose.generate /
+# extract.structured / judge.scored). All model_ids must exist in DEFAULT_CATALOG
+# above. Editable (#25); MEASURED tok/s still pending (#28).
 DEFAULT_RECOMMENDATIONS: list[dict] = [
     # chat — fast, grounded interactive answers
-    {"model_id": "qwen3.5-9b-q4_k_m", "job": "chat", "rank": 10, "why": "Smallest dense — snappy interactive chat (the Fast default)."},
-    {"model_id": "gemma-4-12b-q4_k_m", "job": "chat", "rank": 15, "why": "Gemma 4 12B — a second family at ~7 GB VRAM; strong instruction-following."},
-    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "job": "chat", "rank": 20, "why": "27B (MTP) — richest chat when VRAM allows (~20 GB+)."},
+    {"model_id": "qwen3.5-9b-q4_k_m", "task_kind": "chat.grounded", "rank": 10, "why": "Smallest dense — snappy interactive chat (the Fast default)."},
+    {"model_id": "gemma-4-12b-q4_k_m", "task_kind": "chat.grounded", "rank": 15, "why": "Gemma 4 12B — a second family at ~7 GB VRAM; strong instruction-following."},
+    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "task_kind": "chat.grounded", "rank": 20, "why": "27B (MTP) — richest chat when VRAM allows (~20 GB+)."},
     # prose — creative drafting and rewriting
-    {"model_id": "qwen3-235b-a22b", "job": "prose", "rank": 3, "why": "Qwen3-235B — best-that-fits prose on a high-RAM rig (96 GB+); near-cloud quality."},
-    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "job": "prose", "rank": 10, "why": "Qwen3.6 27B — the local prose ceiling; fluent, coherent long-form."},
-    {"model_id": "gemma-4-31b-it", "job": "prose", "rank": 20, "why": "Gemma 4 31B — an alternative high-tier prose voice (~22 GB VRAM)."},
-    {"model_id": "qwen3.5-9b-q4_k_m", "job": "prose", "rank": 30, "why": "9B dense — fast drafts and rewrites on small cards."},
+    {"model_id": "qwen3-235b-a22b", "task_kind": "prose.generate", "rank": 3, "why": "Qwen3-235B — best-that-fits prose on a high-RAM rig (96 GB+); near-cloud quality."},
+    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "task_kind": "prose.generate", "rank": 10, "why": "Qwen3.6 27B — the local prose ceiling; fluent, coherent long-form."},
+    {"model_id": "gemma-4-31b-it", "task_kind": "prose.generate", "rank": 20, "why": "Gemma 4 31B — an alternative high-tier prose voice (~22 GB VRAM)."},
+    {"model_id": "qwen3.5-9b-q4_k_m", "task_kind": "prose.generate", "rank": 30, "why": "9B dense — fast drafts and rewrites on small cards."},
     # extraction — structured facts / JSON (think-OFF)
-    {"model_id": "glm-4.5-air", "job": "extraction", "rank": 3, "why": "GLM-4.5-Air — top structured extraction on a high-RAM rig; strong JSON adherence."},
-    {"model_id": "mistral-small-3.2-24b-q4_k_m", "job": "extraction", "rank": 5, "why": "Mistral Small 3.2 24B — excellent structured/JSON extraction (function-calling strength)."},
-    {"model_id": "qwen3.6-35b-a3b-mtp", "job": "extraction", "rank": 10, "why": "35B-A3B MoE — strong structured extraction; runs at floor (8 GB VRAM + 32 GB RAM) via CPU expert offload."},
-    {"model_id": "qwen3-14b-q4_k_m", "job": "extraction", "rank": 20, "why": "14B dense — reliable structured extraction when VRAM is tight."},
+    {"model_id": "glm-4.5-air", "task_kind": "extract.structured", "rank": 3, "why": "GLM-4.5-Air — top structured extraction on a high-RAM rig; strong JSON adherence."},
+    {"model_id": "mistral-small-3.2-24b-q4_k_m", "task_kind": "extract.structured", "rank": 5, "why": "Mistral Small 3.2 24B — excellent structured/JSON extraction (function-calling strength)."},
+    {"model_id": "qwen3.6-35b-a3b-mtp", "task_kind": "extract.structured", "rank": 10, "why": "35B-A3B MoE — strong structured extraction; runs at floor (8 GB VRAM + 32 GB RAM) via CPU expert offload."},
+    {"model_id": "qwen3-14b-q4_k_m", "task_kind": "extract.structured", "rank": 20, "why": "14B dense — reliable structured extraction when VRAM is tight."},
     # analysis — careful reasoning and critique (think-ON, capped)
-    {"model_id": "qwen3-235b-a22b", "job": "analysis", "rank": 5, "why": "Qwen3-235B — deepest reasoning/critique on a high-RAM rig (96 GB+)."},
-    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "job": "analysis", "rank": 10, "why": "27B (MTP) — best local analysis accuracy at the high tier (~20 GB+ VRAM)."},
-    {"model_id": "qwen3.6-35b-a3b-mtp", "job": "analysis", "rank": 15, "why": "35B-A3B MoE — capable analysis; runs at floor (8 GB VRAM + 32 GB RAM) via offload."},
-    {"model_id": "qwen3-14b-q4_k_m", "job": "analysis", "rank": 20, "why": "14B dense — solid analysis that fits ≥11 GB VRAM."},
+    {"model_id": "qwen3-235b-a22b", "task_kind": "judge.scored", "rank": 5, "why": "Qwen3-235B — deepest reasoning/critique on a high-RAM rig (96 GB+)."},
+    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "task_kind": "judge.scored", "rank": 10, "why": "27B (MTP) — best local analysis accuracy at the high tier (~20 GB+ VRAM)."},
+    {"model_id": "qwen3.6-35b-a3b-mtp", "task_kind": "judge.scored", "rank": 15, "why": "35B-A3B MoE — capable analysis; runs at floor (8 GB VRAM + 32 GB RAM) via offload."},
+    {"model_id": "qwen3-14b-q4_k_m", "task_kind": "judge.scored", "rank": 20, "why": "14B dense — solid analysis that fits ≥11 GB VRAM."},
 ]
 
 
@@ -352,12 +353,12 @@ def seed_default_switch_presets(s) -> int:
 
 
 def seed_default_recommendations(s) -> int:
-    existing = {(r.model_id, r.job) for r in s.query(db.ModelRecommendation.model_id, db.ModelRecommendation.job).all()}
+    existing = {(r.model_id, r.task_kind) for r in s.query(db.ModelRecommendation.model_id, db.ModelRecommendation.task_kind).all()}
     added = 0
     for r in DEFAULT_RECOMMENDATIONS:
-        if (r["model_id"], r["job"]) in existing:
+        if (r["model_id"], r["task_kind"]) in existing:
             continue
-        s.add(db.ModelRecommendation(model_id=r["model_id"], job=r["job"],
+        s.add(db.ModelRecommendation(model_id=r["model_id"], task_kind=r["task_kind"],
                                      rank=int(r.get("rank") or 100), why=str(r.get("why") or ""), built_in=True))
         added += 1
     return added

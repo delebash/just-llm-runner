@@ -6,10 +6,10 @@
 // host's DB via its RecommendationStore (JustWrite: model_recommendations
 // table; JustVoice's host store when adopted). One UI for both apps.
 //
-// Shape: rows of {modelId, job, rank, why, builtIn}. Built-in rows are seeded
-// merges (factory defaults the editor can reset); user rows are everything else.
+// Shape: rows of {modelId, taskKind, rank, why, builtIn}. Built-in rows are
+// seeded merges (factory defaults the editor can reset); user rows are the rest.
 // The editor: table of all rows · row-click to edit inline · "Add row" creates
-// a new (modelId, job) pin · DELETE removes one · "Reset built-in defaults"
+// a new (modelId, taskKind) pin · DELETE removes one · "Reset built-in defaults"
 // re-seeds the built_in rows AND preserves user-added rows (proven live).
 import { computed, onMounted, ref } from "vue";
 
@@ -21,7 +21,6 @@ import UiSelect from "../common/components/UiSelect.vue";
 import UiTable from "../common/components/UiTable.vue";
 import UiTag from "../common/components/UiTag.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
-import LuJobSelect from "../components/LuJobSelect.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { request } from "../client.js";
 
@@ -32,7 +31,7 @@ const error = ref("");
 
 const TABLE_COLUMNS = [
   { id: "modelId", accessorKey: "modelId", header: "Model", sortable: true, enableGlobalFilter: true },
-  { id: "job", accessorKey: "job", header: "Job", sortable: true, enableGlobalFilter: true, cellStyle: { width: "140px" } },
+  { id: "taskKind", accessorKey: "taskKind", header: "Task kind", sortable: true, enableGlobalFilter: true, cellStyle: { width: "160px" } },
   { id: "rank", accessorKey: "rank", header: "Rank", sortable: true, cellStyle: { width: "80px", textAlign: "right" } },
   { id: "why", accessorKey: "why", header: "Why", enableGlobalFilter: true },
   { id: "source", accessorKey: "builtIn", header: "Source", sortable: true, cellStyle: { width: "110px" } },
@@ -73,15 +72,15 @@ onMounted(loadAll);
 
 // ── editor modal (add / edit one row) ──────────────────────────────────────
 const editing = ref(null);     // null | the row being edited (a draft copy)
-const editingOriginal = ref(null); // the original (modelId, job) for delete-then-upsert when keys change
+const editingOriginal = ref(null); // the original (modelId, taskKind) for delete-then-upsert when keys change
 
 function startNew() {
-  editing.value = { modelId: "", job: "chat", rank: 100, why: "" };
+  editing.value = { modelId: "", taskKind: "chat.grounded", rank: 100, why: "" };
   editingOriginal.value = null;
 }
 function startEdit(row) {
-  editing.value = { modelId: row.modelId, job: row.job, rank: row.rank, why: row.why };
-  editingOriginal.value = { modelId: row.modelId, job: row.job };
+  editing.value = { modelId: row.modelId, taskKind: row.taskKind, rank: row.rank, why: row.why };
+  editingOriginal.value = { modelId: row.modelId, taskKind: row.taskKind };
 }
 function cancelEdit() {
   editing.value = null;
@@ -91,26 +90,26 @@ function cancelEdit() {
 const saveError = ref("");
 const saving = ref(false);
 async function saveEdit() {
-  if (!editing.value.modelId.trim() || !editing.value.job.trim()) {
-    saveError.value = "Model and Job are required.";
+  if (!editing.value.modelId.trim() || !editing.value.taskKind.trim()) {
+    saveError.value = "Model and Task kind are required.";
     return;
   }
   saving.value = true;
   saveError.value = "";
   try {
-    // If the user changed the (modelId, job) primary key, delete the old row
-    // first — the PUT will then create the new (modelId, job) cleanly.
+    // If the user changed the (modelId, taskKind) primary key, delete the old row
+    // first — the PUT will then create the new (modelId, taskKind) cleanly.
     const orig = editingOriginal.value;
     const next = editing.value;
-    if (orig && (orig.modelId !== next.modelId || orig.job !== next.job)) {
+    if (orig && (orig.modelId !== next.modelId || orig.taskKind !== next.taskKind)) {
       await request(
-        `/v1/ai/recommendations?modelId=${encodeURIComponent(orig.modelId)}&job=${encodeURIComponent(orig.job)}`,
+        `/v1/ai/recommendations?modelId=${encodeURIComponent(orig.modelId)}&taskKind=${encodeURIComponent(orig.taskKind)}`,
         { method: "DELETE" },
       );
     }
     const r = await request("/v1/ai/recommendations", {
       method: "PUT",
-      body: { modelId: next.modelId.trim(), job: next.job.trim(), rank: Number(next.rank) || 100, why: next.why || "" },
+      body: { modelId: next.modelId.trim(), taskKind: next.taskKind.trim(), rank: Number(next.rank) || 100, why: next.why || "" },
     });
     rows.value = r.rows || [];
     cancelEdit();
@@ -126,15 +125,15 @@ const busy = ref("");  // composite key being acted on, for button feedback
 async function deleteRow(row) {
   const ok = await confirmDialog({
     title: "Delete recommendation?",
-    message: `Delete recommendation "${row.modelId}" for job "${row.job}"?`,
+    message: `Delete recommendation "${row.modelId}" for task kind "${row.taskKind}"?`,
     danger: true,
   });
   if (!ok) return;
-  const key = `${row.modelId}|${row.job}`;
+  const key = `${row.modelId}|${row.taskKind}`;
   busy.value = key;
   try {
     const r = await request(
-      `/v1/ai/recommendations?modelId=${encodeURIComponent(row.modelId)}&job=${encodeURIComponent(row.job)}`,
+      `/v1/ai/recommendations?modelId=${encodeURIComponent(row.modelId)}&taskKind=${encodeURIComponent(row.taskKind)}`,
       { method: "DELETE" },
     );
     rows.value = r.rows || [];
@@ -180,7 +179,7 @@ async function resetFactory() {
     <div v-if="error" class="lu-error lu-rec-err">{{ error }}</div>
 
     <div class="lu-rec-toolbar">
-      <UiInput v-model="filter" placeholder="Filter by model id, job, or why…" />
+      <UiInput v-model="filter" placeholder="Filter by model id, task kind, or why…" />
     </div>
 
     <UiTable
@@ -188,23 +187,23 @@ async function resetFactory() {
       :columns="TABLE_COLUMNS"
       data-key="_key"
       :global-filter="filter"
-      :global-filter-fields="['modelId', 'job', 'why']"
+      :global-filter-fields="['modelId', 'taskKind', 'why']"
       :pagination="{ pageSize: 25, pageSizeOptions: [10, 25, 50, 100] }"
-      :default-sort="{ id: 'job', desc: false }"
+      :default-sort="{ id: 'taskKind', desc: false }"
       row-hover
       @row-click="({ data }) => startEdit(data)"
     >
       <template #modelId="{ row }">
         <code class="lu-mono">{{ row.modelId }}</code>
       </template>
-      <template #job="{ row }">
-        <UiTag intent="ghost">{{ row.job }}</UiTag>
+      <template #taskKind="{ row }">
+        <UiTag intent="ghost">{{ row.taskKind }}</UiTag>
       </template>
       <template #source="{ row }">
         <UiTag :intent="row.builtIn ? 'success' : 'secondary'">{{ row.builtIn ? "factory" : "user" }}</UiTag>
       </template>
       <template #actions="{ row }">
-        <UiButton intent="danger" size="small" :loading="busy === `${row.modelId}|${row.job}`" @click.stop="deleteRow(row)">Delete</UiButton>
+        <UiButton intent="danger" size="small" :loading="busy === `${row.modelId}|${row.taskKind}`" @click.stop="deleteRow(row)">Delete</UiButton>
       </template>
       <template #empty>
         <span class="lu-muted">No recommendations yet — add one above, or hit "Reset factory defaults".</span>
@@ -221,13 +220,13 @@ async function resetFactory() {
         <label class="lu-rec-label">Model
           <UiSelect v-model="editing.modelId" :options="modelOptions" placeholder="Pick a catalog model or type an id" />
         </label>
-        <label class="lu-rec-label">Job
-          <LuJobSelect v-model="editing.job" />
-          <span class="lu-muted lu-rec-hint">Jobs come from your editable list (Routing by job → Jobs).</span>
+        <label class="lu-rec-label">Task kind
+          <UiInput v-model="editing.taskKind" placeholder="e.g. prose.generate, extract.structured" />
+          <span class="lu-muted lu-rec-hint">The LLM-work kind this model is good for (the taskKind that routes to a preset).</span>
         </label>
         <label class="lu-rec-label">Rank
           <UiNumber v-model="editing.rank" :min="1" :max="999" :step="10" />
-          <span class="lu-muted lu-rec-hint">Lower = preferred. The wizard uses this to order candidates within a job.</span>
+          <span class="lu-muted lu-rec-hint">Lower = preferred. The wizard uses this to order candidates within a taskKind.</span>
         </label>
         <label class="lu-rec-label">Why
           <UiTextarea v-model="editing.why" placeholder="One-line cited reason shown in the wizard." />

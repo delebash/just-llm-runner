@@ -47,20 +47,20 @@ def test_seed_populates_recommendations_ordered(wired):
     rows = stores.get_recommendation_store().list()
     assert len(rows) == len(seed.DEFAULT_RECOMMENDATIONS)
     assert all(r.builtIn for r in rows)  # every seeded row is built-in
-    # Ordered by (job, rank, model_id): "analysis" sorts first, lowest rank first.
-    assert rows[0].job == "analysis" and rows[0].rank == 5
-    assert rows[0].modelId == "qwen3-235b-a22b"
+    # Ordered by (task_kind, rank, model_id): "chat.grounded" sorts first alphabetically.
+    assert rows[0].taskKind == "chat.grounded" and rows[0].rank == 10
+    assert rows[0].modelId == "qwen3.5-9b-q4_k_m"
 
 
 def test_recommendation_upsert_new_then_update(wired):
     store = stores.get_recommendation_store()
-    out = store.upsert(RecommendationRow(modelId="my-gguf", job="chat", rank=3, why="mine"))
+    out = store.upsert(RecommendationRow(modelId="my-gguf", taskKind="chat.grounded", rank=3, why="mine"))
     assert out.builtIn is False  # user-added → not built-in
-    got = {(r.modelId, r.job): r for r in store.list()}
-    assert got[("my-gguf", "chat")].rank == 3
-    # Upsert the same (model, job) updates in place — no duplicate row.
-    store.upsert(RecommendationRow(modelId="my-gguf", job="chat", rank=7, why="changed"))
-    rows = [r for r in store.list() if r.modelId == "my-gguf" and r.job == "chat"]
+    got = {(r.modelId, r.taskKind): r for r in store.list()}
+    assert got[("my-gguf", "chat.grounded")].rank == 3
+    # Upsert the same (model, taskKind) updates in place — no duplicate row.
+    store.upsert(RecommendationRow(modelId="my-gguf", taskKind="chat.grounded", rank=7, why="changed"))
+    rows = [r for r in store.list() if r.modelId == "my-gguf" and r.taskKind == "chat.grounded"]
     assert len(rows) == 1 and rows[0].rank == 7 and rows[0].why == "changed"
 
 
@@ -68,16 +68,16 @@ def test_recommendation_upsert_over_builtin_marks_user_edited(wired):
     store = stores.get_recommendation_store()
     seed_row = store.list()[0]  # a built-in
     assert seed_row.builtIn is True
-    store.upsert(RecommendationRow(modelId=seed_row.modelId, job=seed_row.job, rank=999, why="x"))
-    edited = next(r for r in store.list() if r.modelId == seed_row.modelId and r.job == seed_row.job)
+    store.upsert(RecommendationRow(modelId=seed_row.modelId, taskKind=seed_row.taskKind, rank=999, why="x"))
+    edited = next(r for r in store.list() if r.modelId == seed_row.modelId and r.taskKind == seed_row.taskKind)
     assert edited.builtIn is False and edited.rank == 999  # editing a built-in flips the flag
 
 
 def test_recommendation_delete(wired):
     store = stores.get_recommendation_store()
     target = store.list()[0]
-    store.delete(target.modelId, target.job)
-    assert not any(r.modelId == target.modelId and r.job == target.job for r in store.list())
+    store.delete(target.modelId, target.taskKind)
+    assert not any(r.modelId == target.modelId and r.taskKind == target.taskKind for r in store.list())
 
 
 def test_recommendation_reset_restores_builtins_keeps_user(wired):
@@ -85,19 +85,19 @@ def test_recommendation_reset_restores_builtins_keeps_user(wired):
     edited = store.list()[0]                 # built-in we'll edit
     deleted = store.list()[1]                # built-in we'll delete
     # 1) add a user row, 2) edit a built-in, 3) delete a built-in.
-    store.upsert(RecommendationRow(modelId="user-model", job="chat", rank=1, why="mine"))
-    store.upsert(RecommendationRow(modelId=edited.modelId, job=edited.job, rank=999, why="edited"))
-    store.delete(deleted.modelId, deleted.job)
+    store.upsert(RecommendationRow(modelId="user-model", taskKind="chat.grounded", rank=1, why="mine"))
+    store.upsert(RecommendationRow(modelId=edited.modelId, taskKind=edited.taskKind, rank=999, why="edited"))
+    store.delete(deleted.modelId, deleted.taskKind)
 
     store.reset_to_factory()
 
-    after = {(r.modelId, r.job): r for r in store.list()}
+    after = {(r.modelId, r.taskKind): r for r in store.list()}
     # Built-ins restored to seed values + re-flagged built_in.
-    assert after[(edited.modelId, edited.job)].rank == edited.rank
-    assert after[(edited.modelId, edited.job)].builtIn is True
-    assert (deleted.modelId, deleted.job) in after
+    assert after[(edited.modelId, edited.taskKind)].rank == edited.rank
+    assert after[(edited.modelId, edited.taskKind)].builtIn is True
+    assert (deleted.modelId, deleted.taskKind) in after
     # The user-added row survives the reset.
-    assert ("user-model", "chat") in after and after[("user-model", "chat")].builtIn is False
+    assert ("user-model", "chat.grounded") in after and after[("user-model", "chat.grounded")].builtIn is False
 
 
 # ── ModelCatalogStore ─────────────────────────────────────────────────────────

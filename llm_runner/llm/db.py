@@ -148,13 +148,13 @@ class PresetSwitch(LlmBase):
 
 
 class ModelRecommendation(LlmBase):
-    """One curated 'model X is good for job Y' record (QuickSetup pre-fill). PK
-    (model_id, job); `rank` orders candidates within a job."""
+    """One curated 'model X is good for taskKind Y' record (QuickSetup pre-fill).
+    PK (model_id, task_kind); `rank` orders candidates within a taskKind."""
 
     __tablename__ = "model_recommendations"
 
     model_id = Column(String, primary_key=True)
-    job = Column(String, primary_key=True)
+    task_kind = Column(String, primary_key=True)
     rank = Column(Integer, nullable=False, default=100)
     why = Column(Text, nullable=False, default="")
     built_in = Column(Boolean, nullable=False, default=False)

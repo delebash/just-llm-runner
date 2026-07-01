@@ -149,3 +149,38 @@ restored the shipped URL; and a forced bad-URL load surfaced a real
 `404 Client Error: Not Found for url: …` in `status.error` (proving both the error surface and
 that a valid URL reaches GitHub through the proxy — i.e. the corrected URLs will download on
 the user's machine).
+
+## Fixed follow-up (2026-07-01, same session)
+The UI rules-checker flagged a PRE-EXISTING bug in `LuModelCatalog.vue` (not introduced by
+this change): the `busy` ref was keyed by `m.id` for BOTH the row's load/download action and
+the delete action, and the Delete button and the Download/Load/Retry buttons both read
+`:loading="busy === m.id"` — so clicking Delete spun the load button and vice-versa. **Fixed**
+at the user's request: `deleteModel` now sets `busy = \`del:${m.id}\`` and the Delete button
+reads `:loading="busy === 'del:' + m.id"`, disjoint from the row's load key. Verified by
+`build:vite`.
+
+## Deferred follow-ups / known gaps (not blocking the fix)
+None block the download fix — the editable engine panel is the manual escape hatch for every
+one of them.
+
+- **AMD/Intel VRAM detection for the Fit estimate.** `detect()` now routes AMD to the
+  ROCm/Vulkan build, but `GpuInfo.vram_mb` is still only populated for NVIDIA (from
+  `nvidia-smi`). On an AMD box the coarse Fit reads 0 VRAM and mislabels GPU-sized models
+  "won't fit". Fix: parse `rocm-smi`/`vulkaninfo`/sysfs for AMD VRAM. Only the Fit *label* is
+  affected — the *download* selection is correct today.
+- **Intel discrete-GPU (Arc) auto-routing.** `_amd_gpu_present()` is AMD-only; Intel iGPUs are
+  deliberately not auto-routed to Vulkan (an iGPU is usually slower than CPU for LLM inference,
+  and Arc-discrete vs iGPU is hard to tell apart). An Intel Arc user picks the Vulkan build in
+  the editable panel; a future `_intel_dgpu_present()` could auto-route Arc.
+- **Spawn-time backend retry chain.** "ROCm first, Vulkan fallback" is delivered at *detection*
+  time (don't pick ROCm unless its runtime is present); there is no runtime retry if the chosen
+  build fails to *spawn*. A spawn-fail → next-candidate loop in `lifecycle._run_load` would
+  harden the tail.
+- **Linux CUDA has no prebuilt archive.** llama.cpp ships Linux CUDA only as a container image,
+  so `linux/cuda` stays a `source="docker"` row and `acquire_binary` raises a clear
+  NotImplementedError. Wiring the container path is a separate feature.
+
+Two deliberate, documented design choices (the editable panel covers them if they ever change):
+`runtime_url` is a single nullable field (exactly one cudart companion, only on the two Windows
+CUDA rows); and the two `cudart-*` URLs are the only asset URLs that do NOT interpolate the
+pinned build tag, because that redistributable is unversioned across builds.

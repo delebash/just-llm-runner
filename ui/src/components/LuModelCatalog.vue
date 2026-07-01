@@ -328,7 +328,7 @@ async function deleteModel(m) {
     danger: true,
   });
   if (!ok) return;
-  busy.value = m.id;
+  busy.value = `del:${m.id}`; // namespaced so Delete's spinner ≠ the row's load/download spinner
   try {
     await request(`/v1/ai/model-catalog?modelId=${encodeURIComponent(m.id)}`, { method: "DELETE" });
     await refresh();
@@ -393,7 +393,7 @@ onUnmounted(stopPoll);
             </td>
             <td class="lu-mact">
               <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
-              <UiButton intent="ghost" size="small" title="Remove from catalog" :loading="busy === m.id" @click="deleteModel(m)">Delete</UiButton>
+              <UiButton intent="ghost" size="small" title="Remove from catalog" :loading="busy === 'del:' + m.id" @click="deleteModel(m)">Delete</UiButton>
               <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
                 title="Tune engine flags &amp; measure decode speed" @click="startTune(m)">Tune</UiButton>
               <UiButton v-if="m.status === 'loaded'" intent="secondary" size="small"

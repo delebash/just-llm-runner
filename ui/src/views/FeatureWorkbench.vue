@@ -160,7 +160,7 @@ function subGroups(actions) {
 function pin(key) { return routing.value?.pins?.[key] || null; }
 function setPin(key, val) {
   const pins = routing.value.pins || (routing.value.pins = {});
-  if (!val || !val.providerId) delete pins[key]; // inherit the job → no pin row
+  if (!val || !val.providerId) delete pins[key]; // no override → no pin row
   else pins[key] = { providerId: val.providerId, model: val.model || "" };
   saveRouting();
 }
@@ -168,16 +168,13 @@ function featureOf(key) { return prompts.value.find((p) => p.key === key)?.featu
 async function load() {
   loading.value = true; error.value = "";
   try {
-    const [p, r, pl, fj] = await Promise.all([
+    const [p, r, pl] = await Promise.all([
       request("/v1/ai/prompts"), request("/v1/ai/routing"), request("/v1/llm-providers"),
-      request("/v1/ai/feature-jobs"),
     ]);
     prompts.value = p.prompts || [];
     routing.value = r;
     if (!routing.value.pins) routing.value.pins = {};
-    if (!routing.value.jobs) routing.value.jobs = {};
     providers.value = pl.providers || [];
-    featureJobs.value = Object.fromEntries((fj.rows || []).map((x) => [x.featureKey, x.jobId]));
     try { knobCatalog.value = (await request("/v1/ai/knob-catalog")).knobs || []; }
     catch { knobCatalog.value = []; }
     try { enginePresets.value = (await request("/v1/ai/engine-presets")).presets || []; }
@@ -272,10 +269,9 @@ async function saveRouting() {
   const r = routing.value;
   routing.value = await request("/v1/ai/routing", {
     method: "PUT",
-    body: { default: r.default, jobs: r.jobs || {}, pins: r.pins || {} },
+    body: { default: r.default, pins: r.pins || {} },
   });
   if (!routing.value.pins) routing.value.pins = {};
-  if (!routing.value.jobs) routing.value.jobs = {};
 }
 
 // ── engine presets (the Lab) — Save-as / Delete a tested column as an engine

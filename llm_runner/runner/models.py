@@ -136,7 +136,7 @@ def acquire_model(
     mmproj: str | None = None,
     revision: str = "main",
     cache_root: Path | None = None,
-    on_progress: Callable[[int], None] | None = None,
+    on_progress: Callable[[int, int | None], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
     """Download the GGUF(s) for `quant` into the HF cache; return the snapshot
@@ -144,10 +144,12 @@ def acquire_model(
 
     Writes the canonical HF cache layout (blobs + snapshot symlink/copy +
     refs). Idempotent: a blob already on disk at the right size is skipped.
-    `on_progress` receives CUMULATIVE bytes across all selected files;
-    `cancel_check` is polled per file and passed through to the stream.
+    `on_progress(cumulative, total)` receives cumulative bytes across ALL
+    selected files against the summed grand total (so the caller can show one
+    smooth bar); `cancel_check` is polled per file and passed to the stream.
     """
     commit_sha, files = select_files(repo, quant, mmproj, revision)
+    grand_total = sum(_entry_size(e) for e in files) or None
 
     root = cache_root or hf_cache_root()
     repo_dir = root / ("models--" + repo.replace("/", "--"))
@@ -175,7 +177,9 @@ def acquire_model(
             log.info("downloading %s (%d bytes) from %s", path, size, repo)
             stream_download(
                 file_url, blob,
-                on_progress=((lambda n, _b=base: on_progress(_b + n)) if on_progress else None),
+                on_progress=(
+                    (lambda n, _t, _b=base: on_progress(_b + n, grand_total)) if on_progress else None
+                ),
                 cancel_check=cancel_check,
             )
 
@@ -190,7 +194,7 @@ def acquire_model(
 
         cumulative += size
         if on_progress:
-            on_progress(cumulative)
+            on_progress(cumulative, grand_total)
 
     # Pin refs/<rev> -> commit_sha so the resolver maps the symbolic ref next time.
     (refs_dir / revision).write_text(commit_sha)

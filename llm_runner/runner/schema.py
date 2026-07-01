@@ -34,6 +34,7 @@ class GpuInfo(CamelModel):
     name: str
     vram_mb: int | None = None
     driver: str | None = None
+    compute_cap: str | None = None   # NVIDIA compute capability, e.g. "7.5" | "12.0" (Blackwell)
 
 
 class HardwareInfo(CamelModel):
@@ -51,16 +52,20 @@ class HardwareInfo(CamelModel):
 class BinaryAsset(CamelModel):
     """One prebuilt llama-server distribution, selected by platform + gpu.
 
-    `asset_url` (a direct GitHub-release zip — official Windows CUDA builds
-    bundle cudart; macOS Metal builds) OR `source="docker"` + `image`
-    (Linux CUDA). The CUDA RUNTIME is bundled inside the asset — there is
-    NO CUDA-toolkit install; we only detect + pick the right build.
+    `asset_url` is a direct archive URL (GitHub-release `.zip` on Windows,
+    `.tar.gz` on macOS/Linux) that contains `server_exe`; OR `source="docker"`
+    + `image` (Linux CUDA has no prebuilt archive). `runtime_url` is an OPTIONAL
+    companion archive unpacked into the SAME dir — the Windows CUDA builds do
+    NOT bundle the CUDA runtime DLLs (`cudart-*`); those ship as a separate
+    download that must sit alongside `llama-server.exe` for it to launch. No
+    CUDA-toolkit install is ever required; we only detect + pick the right build.
     """
 
     platform: str
     gpu: str                 # "cuda12" | "cuda13" | "metal" | "cpu" | "vulkan" | "rocm"
     source: str = "github"   # "github" | "docker"
     asset_url: str | None = None
+    runtime_url: str | None = None   # companion (e.g. cudart DLLs) unpacked alongside
     image: str | None = None
     sha256: str | None = None
     server_exe: str = "llama-server"

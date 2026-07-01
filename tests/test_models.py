@@ -49,7 +49,7 @@ def _make_stream(calls):
         dest.write_bytes(b"GGUF")  # 4 bytes == every entry's declared size
         calls.append(url)
         if on_progress:
-            on_progress(4)
+            on_progress(4, 4)  # (downloaded, total) — this file is 4 bytes
         return "deadbeef"
 
     return _stream
@@ -83,10 +83,11 @@ def test_acquire_model_writes_hf_cache_layout(monkeypatch, tmp_path):
     monkeypatch.setattr(models.requests, "get", _make_get(TREE))
     calls: list[str] = []
     monkeypatch.setattr(models, "stream_download", _make_stream(calls))
-    progress: list[int] = []
+    progress: list[tuple[int, int | None]] = []
 
     snap = models.acquire_model(
-        "owner/repo", "UD-Q4_K_XL", cache_root=tmp_path, on_progress=progress.append
+        "owner/repo", "UD-Q4_K_XL", cache_root=tmp_path,
+        on_progress=lambda d, t: progress.append((d, t)),
     )
 
     repo_dir = tmp_path / "models--owner--repo"
@@ -99,9 +100,9 @@ def test_acquire_model_writes_hf_cache_layout(monkeypatch, tmp_path):
     assert not (repo_dir / "blobs" / "o1").exists()
     # refs/<rev> pins the commit sha
     assert (repo_dir / "refs" / "main").read_text() == "abc1234"
-    # exactly the two shards downloaded; cumulative progress totals their bytes
+    # exactly the two shards downloaded; final progress = (cumulative, grand total)
     assert len(calls) == 2
-    assert progress[-1] == 8
+    assert progress[-1] == (8, 8)
 
 
 def test_acquire_model_idempotent(monkeypatch, tmp_path):

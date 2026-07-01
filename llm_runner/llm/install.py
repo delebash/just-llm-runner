@@ -27,6 +27,7 @@ from .jobs_api import make_feature_jobs_router, make_jobs_router
 from .knob_catalog_api import make_knob_catalog_router
 from .model_catalog_api import make_catalog_router
 from .pricing_api import make_pricing_router
+from .runner_config_api import make_runner_config_router
 from .prompts import make_feature_router, make_prompt_router
 from .provider_api import make_provider_router
 from .quality_api import make_quality_router
@@ -95,6 +96,7 @@ def install_llm(
         stores.get_model_catalog_store, resolve_switches=switch_resolve.resolve_model_switches,
     ))
     app.include_router(make_pricing_router(stores.get_pricing_store))
+    app.include_router(make_runner_config_router(stores.get_runner_config_store))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
     app.include_router(make_job_switches_router(
         stores.get_job_route_switch_store, prefill=switch_resolve.prefill_job_switches

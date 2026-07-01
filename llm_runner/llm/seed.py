@@ -389,7 +389,8 @@ def seed_default_runner_binaries(s) -> int:
             continue
         s.add(db.RunnerBinary(
             platform=b["platform"], gpu=b["gpu"], source=str(b.get("source") or "github"),
-            asset_url=b.get("asset_url"), image=b.get("image"), sha256=b.get("sha256"),
+            asset_url=b.get("asset_url"), runtime_url=b.get("runtime_url"),
+            image=b.get("image"), sha256=b.get("sha256"),
             server_exe=str(b.get("server_exe") or "llama-server"), built_in=True, position=i,
         ))
         added += 1

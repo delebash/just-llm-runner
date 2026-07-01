@@ -21,15 +21,17 @@ class DownloadCancelled(Exception):
 def stream_download(
     url: str,
     dest: Path,
-    on_progress: Callable[[int], None] | None = None,
+    on_progress: Callable[[int, int | None], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     chunk_size: int = 1024 * 64,
 ) -> str:
     """Stream `url` into `dest`, returning the sha256 hex digest.
 
-    Polls `cancel_check` every chunk (cancel within ~64 KB); throttles
-    `on_progress` to ~once per MB. The partial file is left on disk for the
-    caller to clean up on cancel.
+    `on_progress(downloaded, total)` receives cumulative bytes written and the
+    total from the `Content-Length` header (`None` if the server omits it, e.g.
+    a chunked response). Polls `cancel_check` every chunk (cancel within
+    ~64 KB); throttles `on_progress` to ~once per MB. The partial file is left
+    on disk for the caller to clean up on cancel.
     """
     h = hashlib.sha256()
     downloaded = 0
@@ -37,6 +39,10 @@ def stream_download(
     dest.parent.mkdir(parents=True, exist_ok=True)
     with requests.get(url, stream=True, timeout=600) as r:
         r.raise_for_status()
+        try:
+            total = int(r.headers["Content-Length"])
+        except (KeyError, ValueError, TypeError):
+            total = None
         with dest.open("wb") as f:
             for chunk in r.iter_content(chunk_size=chunk_size):
                 if cancel_check is not None and cancel_check():
@@ -48,8 +54,8 @@ def stream_download(
                 downloaded += len(chunk)
                 if downloaded - progress_at >= 1024 * 1024:
                     if on_progress:
-                        on_progress(downloaded)
+                        on_progress(downloaded, total)
                     progress_at = downloaded
     if on_progress:
-        on_progress(downloaded)
+        on_progress(downloaded, total)
     return h.hexdigest()

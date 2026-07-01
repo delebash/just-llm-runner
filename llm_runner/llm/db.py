@@ -258,8 +258,9 @@ class HardwareSwitch(LlmBase):
 class RunnerBinary(LlmBase):
     """One prebuilt llama-server distribution, selected by (platform, gpu).
     Replaces `runner-manifest.json` `llamacpp.binaries` — config is data, it
-    lives in the DB (user decree 2026-06-27), seeded `built_in`. The CUDA runtime
-    is bundled inside the asset; this only records which build to fetch."""
+    lives in the DB (user decree 2026-06-27), seeded `built_in`. `runtime_url` is
+    an optional companion archive (the Windows CUDA cudart DLLs) unpacked
+    alongside the exe; this only records which build to fetch."""
 
     __tablename__ = "runner_binary"
 
@@ -267,6 +268,7 @@ class RunnerBinary(LlmBase):
     gpu = Column(String, primary_key=True)        # cuda12 | cuda13 | metal | cpu | …
     source = Column(String, nullable=False, default="github")  # github | docker
     asset_url = Column(String, nullable=True)
+    runtime_url = Column(String, nullable=True)   # companion (cudart DLLs) unpacked alongside
     image = Column(String, nullable=True)
     sha256 = Column(String, nullable=True)
     server_exe = Column(String, nullable=False, default="llama-server")

@@ -155,7 +155,8 @@ log = logging.getLogger(__name__)
 
 
 def _idle() -> dict:
-    return {"status": "idle", "modelId": "", "url": "", "detail": "", "error": ""}
+    return {"status": "idle", "modelId": "", "url": "", "detail": "", "error": "",
+            "downloaded": 0, "total": 0}
 
 
 class RunnerService:
@@ -226,7 +227,8 @@ class RunnerService:
         with self._lock:
             if self._state["status"] in ("downloading", "starting"):
                 return dict(self._state)  # a load is already in flight
-            self._state = {"status": "downloading", "modelId": model_id, "url": "", "detail": "queued", "error": ""}
+            self._state = {"status": "downloading", "modelId": model_id, "url": "", "detail": "queued",
+                           "error": "", "downloaded": 0, "total": 0}
             self._thread = threading.Thread(
                 target=self._run_load, args=(model_id, overrides or Overrides(), job_id, switches), daemon=True,
             )
@@ -320,12 +322,20 @@ class RunnerService:
             if switches:
                 ov = _merge_overrides(ov, _switches_to_overrides(switches))
 
-            self._state.update(status="downloading", detail="llama.cpp binary")
-            server_exe = self._acquire_binary(self._cache_root, config, hardware)
+            def _progress(downloaded: int, total: int | None) -> None:
+                # Live byte counters the GUI polls via status() to draw a bar.
+                self._state["downloaded"] = downloaded
+                self._state["total"] = total or 0
 
-            self._state.update(detail="model weights")
+            self._state.update(status="downloading", detail="llama.cpp binary", downloaded=0, total=0)
+            server_exe = self._acquire_binary(
+                self._cache_root, config, hardware, on_progress=_progress,
+            )
+
+            self._state.update(detail="model weights", downloaded=0, total=0)
             snapshot = self._acquire_model(
                 model.hf_repo, model.quant, model.mmproj, cache_root=self._cache_root / "hf",
+                on_progress=_progress,
             )
             gguf = self._main_gguf(snapshot, model.quant)
             meta = self._read_meta(gguf)
@@ -339,13 +349,13 @@ class RunnerService:
             fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
                               safety_margin_mb=config.safety_margin_mb)
 
-            self._state.update(status="starting", detail="spawning llama-server")
+            self._state.update(status="starting", detail="spawning llama-server", downloaded=0, total=0)
             runner = self._start(server_exe, gguf, fit, extra_flags=ov.extra_flags, overrides=ov)
             self._runner = runner
-            self._state.update(status="running", url=runner.url, detail="")
+            self._state.update(status="running", url=runner.url, detail="", downloaded=0, total=0)
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
             log.exception("runner load failed")
-            self._state.update(status="error", detail="", error=str(exc))
+            self._state.update(status="error", detail="", error=str(exc), downloaded=0, total=0)
 
 
 _service: RunnerService | None = None

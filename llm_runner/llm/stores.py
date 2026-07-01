@@ -22,6 +22,7 @@ from .job_switches_api import JobSwitchRow
 from .jobs_api import FeatureJobRow, JobRow
 from .model_catalog_api import CatalogRow
 from .pricing_api import PricingRow
+from .runner_config_api import EngineConfig, RunnerBinaryRow
 from .prompts import FeaturePromptRow
 from .switch_presets_api import PresetSwitchRow, SwitchPresetRow
 from .presets_api import EnginePresetRow, PresetFlagRow
@@ -962,8 +963,85 @@ class PricingStore:
             s.close()
 
 
+def _runner_binary_to_row(b) -> RunnerBinaryRow:
+    return RunnerBinaryRow(
+        platform=b.platform, gpu=b.gpu, source=b.source, assetUrl=b.asset_url,
+        runtimeUrl=b.runtime_url, image=b.image, serverExe=b.server_exe,
+    )
+
+
+class RunnerConfigStore:
+    """The bundled llama.cpp engine config — binaries (download URLs) + pinned
+    build + VRAM margin. DB-backed + seeded, editable via /v1/ai/engine-config so
+    a moved/renamed release asset can be pasted-fixed with no code change. The
+    runner reads the SAME rows live via `build_runner_config()`."""
+
+    def get_config(self) -> EngineConfig:
+        cfg = build_runner_config()
+        return EngineConfig(
+            pinnedBuild=cfg.llamacpp.pinned_build,
+            safetyMarginMb=cfg.safety_margin_mb,
+            binaries=[_runner_binary_to_row(b) for b in cfg.llamacpp.binaries],
+        )
+
+    def upsert_binary(self, row: RunnerBinaryRow) -> None:
+        s = db.session()
+        try:
+            platform, gpu = row.platform.strip(), row.gpu.strip()
+            existing = s.get(db.RunnerBinary, (platform, gpu))
+            if existing is None:
+                positions = [r.position for r in s.query(db.RunnerBinary.position).all()]
+                existing = db.RunnerBinary(platform=platform, gpu=gpu, position=(max(positions, default=0) + 1))
+                s.add(existing)
+            existing.source = (row.source or "github").strip()
+            existing.asset_url = row.assetUrl or None
+            existing.runtime_url = row.runtimeUrl or None
+            existing.image = row.image or None
+            existing.server_exe = (row.serverExe or "llama-server").strip()
+            s.commit()
+        finally:
+            s.close()
+
+    def set_setting(self, key: str, value: str) -> None:
+        s = db.session()
+        try:
+            existing = s.get(db.RunnerSetting, key)
+            if existing is None:
+                existing = db.RunnerSetting(key=key)
+                s.add(existing)
+            existing.value = value
+            s.commit()
+        finally:
+            s.close()
+
+    def reset_to_defaults(self) -> None:
+        """Restore the shipped binary rows (corrected URLs) + the two scalar
+        settings to their seed defaults; user-added custom rows are preserved."""
+        from ..runner.config import DEFAULT_BINARIES, DEFAULT_PINNED_BUILD, DEFAULT_SAFETY_MARGIN_MB
+        from . import seed
+        s = db.session()
+        try:
+            for b in DEFAULT_BINARIES:
+                row = s.get(db.RunnerBinary, (b["platform"], b["gpu"]))
+                if row is not None:
+                    s.delete(row)
+            s.flush()
+            seed.seed_default_runner_binaries(s)
+            for key, val in (("pinned_build", DEFAULT_PINNED_BUILD),
+                             ("safety_margin_mb", str(DEFAULT_SAFETY_MARGIN_MB))):
+                existing = s.get(db.RunnerSetting, key)
+                if existing is None:
+                    existing = db.RunnerSetting(key=key, built_in=True)
+                    s.add(existing)
+                existing.value = val
+            s.commit()
+        finally:
+            s.close()
+
+
 _model_catalog = ModelCatalogStore()
 _pricing = PricingStore()
+_runner_config = RunnerConfigStore()
 _switch_preset = SwitchPresetStore()
 _job = JobStore()
 _feature_job = FeatureJobStore()
@@ -982,6 +1060,7 @@ def get_prompt_store() -> PromptStore: return _prompt
 def get_recommendation_store() -> RecommendationStore: return _recommendation
 def get_model_catalog_store() -> ModelCatalogStore: return _model_catalog
 def get_pricing_store() -> PricingStore: return _pricing
+def get_runner_config_store() -> RunnerConfigStore: return _runner_config
 def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
 def get_job_store() -> JobStore: return _job
 def get_feature_job_store() -> FeatureJobStore: return _feature_job
@@ -1026,7 +1105,7 @@ def build_runner_config():
         bins = [
             BinaryAsset(
                 platform=b.platform, gpu=b.gpu, source=b.source, asset_url=b.asset_url,
-                image=b.image, sha256=b.sha256, server_exe=b.server_exe,
+                runtime_url=b.runtime_url, image=b.image, sha256=b.sha256, server_exe=b.server_exe,
             )
             for b in s.query(db.RunnerBinary).order_by(db.RunnerBinary.position, db.RunnerBinary.platform).all()
         ]

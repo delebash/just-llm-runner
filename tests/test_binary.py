@@ -4,6 +4,8 @@ detection) and network mocked, so tests run anywhere."""
 
 from __future__ import annotations
 
+import io
+import tarfile
 import zipfile
 
 import pytest
@@ -27,6 +29,22 @@ def test_select_windows_cuda():
     assert a and a.platform == "windows" and a.gpu == "cuda12" and a.asset_url
 
 
+def test_select_cuda_by_chip():
+    # The CUDA build is chosen by the GPU chip (compute capability): Blackwell
+    # (sm_120 -> 12.0, datacenter sm_100 -> 10.0) needs 13.x; older cards + an
+    # unknown capability use the broad-compat 12.4 build.
+    m = default_config()
+
+    def cap(c):
+        return [GpuInfo(vendor="NVIDIA", name="gpu", vram_mb=16000, compute_cap=c)]
+
+    assert select_binary(m, _hw("windows", {"cuda": True}, cap("12.0"))).gpu == "cuda13"
+    assert select_binary(m, _hw("windows", {"cuda": True}, cap("10.0"))).gpu == "cuda13"
+    assert select_binary(m, _hw("windows", {"cuda": True}, cap("7.5"))).gpu == "cuda12"
+    assert select_binary(m, _hw("windows", {"cuda": True}, cap("8.9"))).gpu == "cuda12"
+    assert select_binary(m, _hw("windows", {"cuda": True}, cap(None))).gpu == "cuda12"
+
+
 def test_select_windows_cpu_fallback():
     m = default_config()
     a = select_binary(m, _hw("windows", {}))
@@ -45,21 +63,54 @@ def test_select_linux_cuda_docker():
     assert a and a.source == "docker" and a.image
 
 
-def test_acquire_github_zip(monkeypatch, tmp_path):
+def test_select_cross_platform_rows():
+    # Every (platform, gpu) the detector can route to must resolve to a real,
+    # fetchable asset — not fall through to None (the "no binary configured" bug).
     m = default_config()
-    hw = _hw("windows", {"cuda": True})
+    cases = [
+        ("windows", {"rocm": True}, "rocm"),
+        ("windows", {"vulkan": True}, "vulkan"),
+        ("linux", {}, "cpu"),           # linux CPU had no row before the fix
+        ("linux", {"rocm": True}, "rocm"),
+        ("linux", {"vulkan": True}, "vulkan"),
+    ]
+    for platform_name, runtimes, want_gpu in cases:
+        a = select_binary(m, _hw(platform_name, runtimes))
+        assert a and a.gpu == want_gpu and a.asset_url, f"{platform_name}/{want_gpu} unresolved"
 
-    def fake_stream(url, dest, on_progress=None, cancel_check=None):
-        with zipfile.ZipFile(dest, "w") as zf:
-            zf.writestr("llama-server.exe", b"MZ fake")
+
+def _make_stream(calls, exe_name):
+    """Fake stream_download: writes a `.zip` or `.tar.gz` (by dest suffix)
+    containing `exe_name`, recording each fetched URL."""
+    def _stream(url, dest, on_progress=None, cancel_check=None):
+        if str(dest).lower().endswith((".tar.gz", ".tgz")):
+            with tarfile.open(dest, "w:gz") as tf:
+                data = b"MZ fake"
+                info = tarfile.TarInfo(exe_name)
+                info.size = len(data)
+                tf.addfile(info, io.BytesIO(data))
+        else:
+            with zipfile.ZipFile(dest, "w") as zf:
+                zf.writestr(exe_name, b"MZ fake")
+        calls.append(url)
         if on_progress:
-            on_progress(7)
+            on_progress(7, 7)  # (downloaded, total)
         return "deadbeef"
 
-    monkeypatch.setattr(binmod, "stream_download", fake_stream)
+    return _stream
+
+
+def test_acquire_windows_cuda_downloads_cudart_companion(monkeypatch, tmp_path):
+    m = default_config()
+    hw = _hw("windows", {"cuda": True})
+    calls: list[str] = []
+    monkeypatch.setattr(binmod, "stream_download", _make_stream(calls, "llama-server.exe"))
 
     exe = binmod.acquire_binary(tmp_path, m, hw)
     assert exe.is_file() and exe.name == "llama-server.exe"
+    # BOTH the build zip (has the exe) AND the cudart runtime companion are fetched.
+    assert len(calls) == 2
+    assert any("cudart" in u for u in calls)
     assert not (binmod.binary_dir(tmp_path, m.llamacpp.pinned_build) / "_download.zip").exists()
 
     # Idempotent — second call returns same path without downloading.
@@ -67,6 +118,20 @@ def test_acquire_github_zip(monkeypatch, tmp_path):
         raise AssertionError("should not re-download")
     monkeypatch.setattr(binmod, "stream_download", boom)
     assert binmod.acquire_binary(tmp_path, m, hw) == exe
+
+
+def test_acquire_tar_gz_macos(monkeypatch, tmp_path):
+    # macOS/Linux assets are .tar.gz — _unpack must handle them (was zip-only).
+    m = default_config()
+    hw = _hw("macos", {"metal": True})
+    calls: list[str] = []
+    monkeypatch.setattr(binmod, "stream_download", _make_stream(calls, "llama-server"))
+
+    exe = binmod.acquire_binary(tmp_path, m, hw)
+    assert exe.is_file() and exe.name == "llama-server"
+    assert len(calls) == 1  # metal has no runtime companion
+    dest = binmod.binary_dir(tmp_path, m.llamacpp.pinned_build)
+    assert not list(dest.glob("_download*"))  # temp archive cleaned up
 
 
 def test_acquire_docker_raises(tmp_path):

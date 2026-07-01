@@ -1,18 +1,18 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Feature Workbench — one component, two modes (the `mode` prop), per the
-// 2026-06-29 lab+preset model. The unit is the ACTION; "feature" (writerAI,
-// critique, …) is just the visual GROUP its actions live under.
-//   • mode="feature"  (AI ▸ Routing by feature): per action, edit its PROMPT
-//     (system + instruction) and pick WHICH engine preset runs it. The model +
-//     switches + params live IN the preset (built/tested in the Lab), so there is
-//     no model picker / switch grid here. The LEFT list also carries the preset
-//     ASSIGNMENT: a global Default + a per-CATEGORY "set all" preset, with each
-//     feature inheriting unless overridden (the cascade feature → category →
-//     default). Setting a category preset clears that category's overrides.
-//   • mode="tuning"   (AI ▸ Tuning, the Lab): a shared {{variables}} test input
-//     feeds <CompareStrip>, which renders N engine-config columns you Run and then
-//     Save as engine presets (which then appear in the assignment dropdowns).
+// Feature Workbench — per the 2026-06-29 lab+preset model + the 2026-07-01 taskKind
+// routing model. The unit is the ACTION; "feature" (writerAI, critique, …) is just
+// the visual group its actions live under. The LEFT list groups actions by their
+// nav `group` (display-only) and, per action, edits its PROMPT (system + instruction)
+// + shows the engine preset it resolves to. The model + switches + params live IN the
+// preset (built/tested in the Lab), so there is no model picker / switch grid here.
+//   • Routing keys on the LLM-work taskKind, NOT the nav group: a preset is assigned
+//     per taskKind (the assignment surface is a separate Phase-4 screen), with a
+//     per-feature override on top (the cascade action-override → taskKind preset →
+//     global default). This view still edits the per-feature override + shows the
+//     resolved preset as provenance.
+//   • Tuning (the Lab): a shared {{variables}} test input feeds <CompareStrip>, which
+//     renders N engine-config columns you Run and then Save as engine presets.
 //
 // Endpoints: prompts in /v1/ai/prompts; the per-feature preset override in
 // /v1/ai/preset-assignments; the engine-preset library in /v1/ai/engine-presets;
@@ -23,7 +23,6 @@ import { computed, onMounted, reactive, ref } from "vue";
 import CompareStrip from "../components/CompareStrip.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
-import UiSelect from "../common/components/UiSelect.vue";
 import { request } from "../client.js";
 
 // Optional host runner — streams an action through the host's task system (live
@@ -37,11 +36,11 @@ const props = defineProps({
 const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, …}
 const routing = ref(null);   // {default, features:[…], pins:{key→{providerId,model}}}
 const providers = ref([]);
-// 2026-06-29 lab+preset model: the engine-preset library + the per-feature/category
-// assignment. Routing-by-feature picks WHICH preset a feature runs; the preset is
-// built in the Lab (Tuning).
+// The engine-preset library + the assignment maps. `presetAssign.taskKinds` is the
+// taskKind→preset map (edited on the Phase-4 assignment surface); `.features` is the
+// per-feature override this view edits; `.defaultPresetId` is the global default.
 const enginePresets = ref([]);   // EnginePresetRow[]
-const presetAssign = ref({ defaultPresetId: "", categories: {}, features: {} });
+const presetAssign = ref({ defaultPresetId: "", taskKinds: {}, features: {} });
 const samplerRows = ref([]); // the selected action's long-tail samplers (Plane-2 KnobGrid v-model)
 const switchRows = ref([]);  // the selected action's engine switches (Plane-1 KnobGrid v-model)
 const knobCatalog = ref([]); // knob_catalog metadata (C1)
@@ -60,35 +59,34 @@ const draft = ref(null);     // editable copy of the selected action's prompt
 
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
 
-// Nav model: CATEGORY → features → (sub-labels) → action cards, each level
-// indented under its header. A category whose actions ALL come from ONE
-// multi-action feature is "merged" — the Set-all picker sits on the CATEGORY
-// header — so there's no redundant feature sub-header. Otherwise each multi-action
-// feature inside the category gets its own sub-header + Set-all; single-action
-// features are plain cards.
-const CATEGORY_FALLBACK = "Other";
-const categories = computed(() => {
+// Nav model: GROUP → features → (sub-labels) → action cards, each level indented
+// under its header (the `group` is display-only, not a routing key). A group whose
+// actions ALL come from ONE multi-action feature is "merged" — no redundant feature
+// sub-header; otherwise each multi-action feature inside the group gets its own
+// sub-header. Single-action features are plain cards.
+const GROUP_FALLBACK = "Other";
+const navGroups = computed(() => {
   const order = [];
-  const byCat = {};
+  const byGroup = {};
   for (const f of routing.value?.features || []) {
     const actions = prompts.value.filter((p) => p.feature === f.key);
     if (!actions.length) continue;
-    const cat = f.category || CATEGORY_FALLBACK;
-    if (!(cat in byCat)) { byCat[cat] = []; order.push(cat); }
-    byCat[cat].push({ key: f.key, label: f.label, actions });
+    const grp = f.group || GROUP_FALLBACK;
+    if (!(grp in byGroup)) { byGroup[grp] = []; order.push(grp); }
+    byGroup[grp].push({ key: f.key, label: f.label, actions });
   }
   // Any prompt whose feature isn't in the catalog still gets a home (one
   // pseudo-feature per orphan feature key under "Other").
   const known = new Set((routing.value?.features || []).map((f) => f.key));
   for (const p of prompts.value) {
     if (known.has(p.feature)) continue;
-    if (!(CATEGORY_FALLBACK in byCat)) { byCat[CATEGORY_FALLBACK] = []; order.push(CATEGORY_FALLBACK); }
-    let g = byCat[CATEGORY_FALLBACK].find((x) => x.key === p.feature);
-    if (!g) { g = { key: p.feature, label: p.feature, actions: [] }; byCat[CATEGORY_FALLBACK].push(g); }
+    if (!(GROUP_FALLBACK in byGroup)) { byGroup[GROUP_FALLBACK] = []; order.push(GROUP_FALLBACK); }
+    let g = byGroup[GROUP_FALLBACK].find((x) => x.key === p.feature);
+    if (!g) { g = { key: p.feature, label: p.feature, actions: [] }; byGroup[GROUP_FALLBACK].push(g); }
     g.actions.push(p);
   }
   return order.map((c) => {
-    const features = byCat[c];
+    const features = byGroup[c];
     const merged = features.length === 1 && features[0].actions.length > 1 ? features[0] : null;
     return { label: c, features, merged };
   });
@@ -104,10 +102,10 @@ const navRows = computed(() => {
       for (const a of sg.items) rows.push({ type: "card", action: a, indent: base });
     }
   };
-  for (const cat of categories.value) {
-    rows.push({ type: "cat", label: cat.label });
-    for (const f of cat.features) {
-      if (cat.merged) pushActions(f, 1);
+  for (const grp of navGroups.value) {
+    rows.push({ type: "group", label: grp.label });
+    for (const f of grp.features) {
+      if (grp.merged) pushActions(f, 1);
       else if (f.actions.length > 1) { rows.push({ type: "ghead", label: f.label, indent: 1 }); pushActions(f, 1); }
       else rows.push({ type: "card", action: f.actions[0], indent: 1 });
     }
@@ -179,7 +177,7 @@ async function load() {
     try { enginePresets.value = (await request("/v1/ai/engine-presets")).presets || []; }
     catch { enginePresets.value = []; }
     try { presetAssign.value = await request("/v1/ai/preset-assignments"); }
-    catch { presetAssign.value = { defaultPresetId: "", categories: {}, features: {} }; }
+    catch { presetAssign.value = { defaultPresetId: "", taskKinds: {}, features: {} }; }
     const firstCard = navRows.value.find((rw) => rw.type === "card");
     if (!action.value && firstCard) selectAction(firstCard.action.key);
   } catch (e) {
@@ -293,19 +291,19 @@ async function resetPrompt() {
   draft.value = { ...updated }; buildVars(); message.value = "Reset to seeded default.";
 }
 
-// ── engine preset (2026-06-29 model) — Routing-by-feature only sets WHICH preset a
-// feature runs (its model+switches+params live in the preset, built in the Lab). ──
+// ── engine preset — this view edits the per-feature override; its model+switches+
+// params live in the preset (built in the Lab). The taskKind→preset tier resolves
+// server-side at dispatch (surfaced on the Phase-4 assignment surface). ──
 function featurePreset(key) {
   return presetAssign.value.features?.[key] || "";
 }
 const presetName = (id) => enginePresets.value.find((p) => p.id === id)?.name || "preset";
-// What a feature actually resolves to, with provenance — own override → its
-// category's preset → the global default. Shown muted on the nav card.
+// The preset shown muted on the nav card: the feature's own override if set, else
+// the global default. The middle taskKind tier is resolved by the server at dispatch
+// and isn't shown here yet — the Phase-4 assignment surface adds taskKind provenance.
 function featurePresetLabel(key) {
   const fid = presetAssign.value.features?.[key];
   if (fid) return presetName(fid);
-  const cid = presetAssign.value.categories?.[categoryOf(key)];
-  if (cid) return `${presetName(cid)} · category`;
   const did = presetAssign.value.defaultPresetId;
   if (did) return `${presetName(did)} · default`;
   return "— none —";
@@ -321,32 +319,11 @@ async function onUseProduction(presetId) {
   message.value = "In production — this feature runs that preset now.";
 }
 
-// ── per-CATEGORY "set all" preset assignment in the nav. Setting a category preset
-// is a SET-ALL; the per-category Reset clears that category's per-feature overrides
-// so every feature in it re-inherits the category preset.
-const categoryOptions = computed(() => [
-  { value: "", label: "— inherit default —" },
-  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
-]);
-function categoryPreset(cat) { return presetAssign.value.categories?.[cat] || ""; }
-function categoryOf(actionKey) {
-  return featMeta.value[featureOf(actionKey)]?.category || CATEGORY_FALLBACK;
-}
-async function setCategoryPreset(cat, presetId) {
-  // Set the category default. Non-overridden features inherit it live via the
-  // cascade; existing per-feature overrides stay until the category's Reset.
-  presetAssign.value = await request("/v1/ai/preset-assignments/category", {
-    method: "PUT", body: { category: cat, presetId },
-  });
-}
-// Reset a category: clear the per-feature override on every feature in it so they
-// all re-inherit the category preset (one bulk call — the "jw had it" set-all reset).
-async function resetCategory(cat) {
-  const keys = prompts.value.filter((p) => categoryOf(p.key) === cat).map((p) => p.key);
-  presetAssign.value = await request("/v1/ai/preset-assignments/clear-features", {
-    method: "POST", body: { featureKeys: keys },
-  });
-}
+// The bulk preset assignment used to be a per-nav-group "set all" dropdown here.
+// Routing now keys on the LLM-work taskKind, not the nav group, so bulk assignment
+// moves to a dedicated taskKind→preset surface (Phase 4). This view keeps the
+// per-feature override (setFeaturePreset above) + the resolved-preset provenance.
+
 // Save just the feature's PROMPT text (params live in the preset now). Keeps the
 // prompt row's existing param fields so nothing is wiped.
 async function savePrompt() {
@@ -394,18 +371,12 @@ onMounted(load);
 
     <template v-else-if="routing">
       <div class="lu-fw-body" :class="{ 'nav-collapsed': navCollapsed }">
-        <!-- Nav: per-category set-all dropdowns, then the feature cards.
+        <!-- Nav: features grouped by their nav `group`, then the action cards.
              Collapsible to give the column workbench full width. -->
         <aside v-show="!navCollapsed" class="lu-fw-list">
           <template v-for="(row, i) in navRows" :key="i">
-            <div v-if="row.type === 'cat'" class="lu-fw-cat">
+            <div v-if="row.type === 'group'" class="lu-fw-cat">
               <div class="lu-fw-cat-name">{{ row.label }}</div>
-              <div class="lu-fw-cat-assign">
-                <UiSelect class="lu-fw-cat-preset" :model-value="categoryPreset(row.label)"
-                  :options="categoryOptions" @update:model-value="(v) => setCategoryPreset(row.label, v)" />
-                <UiButton intent="ghost" size="small" title="Reset every feature in this category to inherit the category preset"
-                  @click="resetCategory(row.label)">Reset</UiButton>
-              </div>
             </div>
             <div v-else-if="row.type === 'ghead'" class="lu-fw-ghead" :style="ml(row.indent)">
               <div class="lu-fw-gname">{{ row.label }}</div>
@@ -478,8 +449,6 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-default { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-bottom: 4px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); }
 .lu-fw-default-k { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
 .lu-fw-default-k .lu-muted { font-weight: 600; letter-spacing: 0; text-transform: none; }
-.lu-fw-cat-assign { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
-.lu-fw-cat-assign .lu-fw-cat-preset { flex: 1; min-width: 0; margin-top: 0; }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 6px 0 1px; }
 
 .lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }

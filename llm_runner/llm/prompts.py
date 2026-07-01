@@ -381,14 +381,18 @@ def _effective_think(spec: FeaturePromptRow, body: RunRequest) -> bool:
     return bool(think) and not json_mode
 
 
-def _resolve_preset(action: str, feature: str, category_of):
-    """The engine preset for this action (cascade: feature override → its
-    category → the global default), or None. `category_of` maps a feature key → its
-    catalog category; None (no catalog wired, e.g. tests) → no preset = legacy
-    routing, so behaviour is unchanged until presets are configured."""
-    if category_of is None:
+def _resolve_preset(action: str, feature: str, task_kind_of):
+    """The engine preset for this action (cascade: action/feature override → its
+    taskKind's preset → the global default), or None. `task_kind_of` maps an action
+    (or feature) key → its LLM-work taskKind; None (no map wired, e.g. tests) → no
+    preset = legacy routing, so behaviour is unchanged until presets are configured.
+    The ACTION's taskKind is tried first (falling back to the feature's) so
+    writerAI.continue (prose.generate) and writerAI.tighten (prose.edit) resolve to
+    DIFFERENT presets — that per-action split is the point of the taskKind key."""
+    if task_kind_of is None:
         return None
-    return resolve_feature_preset(action, category_of(feature) or "")
+    task_kind = task_kind_of(action) or task_kind_of(feature) or ""
+    return resolve_feature_preset(action, task_kind)
 
 
 def _effective_spec(spec: FeaturePromptRow, preset) -> FeaturePromptRow:
@@ -414,7 +418,7 @@ def _effective_spec(spec: FeaturePromptRow, preset) -> FeaturePromptRow:
 def make_feature_router(
     get_store: Callable[[], PromptStore],
     get_config: Callable[[], LLMConfig],
-    category_of: Callable[[str], str] | None = None,
+    task_kind_of: Callable[[str], str] | None = None,
 ) -> APIRouter:
     """Build the /v1/ai/run + /v1/ai/stream feature-execution router. The host
     supplies its `PromptStore` and an `llm_config()` builder (its settings →
@@ -433,7 +437,7 @@ def make_feature_router(
         sys_tpl = spec.system if body.system is None else body.system
         usr_tpl = spec.user_template if body.userTemplate is None else body.userTemplate
         messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
-        preset = _resolve_preset(body.action, spec.feature, category_of)
+        preset = _resolve_preset(body.action, spec.feature, task_kind_of)
         eff = _effective_spec(spec, preset)
         try:
             resp = chat(
@@ -477,7 +481,7 @@ def make_feature_router(
         usr_tpl = spec.user_template if body.userTemplate is None else body.userTemplate
         messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
         system = render(sys_tpl, body.variables)
-        preset = _resolve_preset(body.action, spec.feature, category_of)
+        preset = _resolve_preset(body.action, spec.feature, task_kind_of)
         eff = _effective_spec(spec, preset)
 
         def gen():

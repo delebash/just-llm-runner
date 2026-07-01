@@ -41,6 +41,9 @@ def install_llm(
     session_factory,
     feature_catalog,
     feature_prompts,
+    engine_presets=None,
+    taskkind_presets=None,
+    feature_task_kinds=None,
     prefer_local_features: Iterable[str] | None = None,
     runner_catalog: bool = True,
 ) -> None:
@@ -48,9 +51,14 @@ def install_llm(
     # 1. storage — the app's own engine/session back every shared table.
     db.configure_storage(session_factory)
     db.create_all(engine)
-    # 2. register the app's feature DATA (the ONLY per-app inputs).
+    # 2. register the app's feature DATA (the ONLY per-app inputs): the feature
+    # catalog + prompts, plus the routing seed — the built-in engine presets, the
+    # taskKind→preset assignments, and the action→taskKind map (all optional; an
+    # app that passes none simply seeds no presets → legacy routing).
     seed.configure_app_seed(
-        feature_catalog=feature_catalog, feature_prompts=feature_prompts
+        feature_catalog=feature_catalog, feature_prompts=feature_prompts,
+        engine_presets=engine_presets, taskkind_presets=taskkind_presets,
+        feature_task_kinds=feature_task_kinds,
     )
     # 3. DB-backed usage ledger (survives restarts).
     set_ledger(DbUsageSink())
@@ -60,25 +68,31 @@ def install_llm(
     def _config():
         return build_llm_config(plf)
 
-    def _category_of(feature_key: str) -> str:
-        """A feature key → its catalog category (for the preset cascade at dispatch)."""
-        for e in seed.app_feature_catalog():
-            if getattr(e, "key", "") == feature_key:
-                return getattr(e, "category", "") or ""
+    def _task_kind_of(key: str) -> str:
+        """An action id (or feature key) → its LLM-work taskKind, for the preset
+        cascade at dispatch. Reads the app's action→taskKind map; every
+        `writerAI.rule.*` line-edit falls to prose.edit. Unknown → "" (→ the global
+        default preset / legacy routing). The nav `group` is deliberately NOT
+        consulted here — routing keys on taskKind; nav grouping stays separate (D1)."""
+        work = seed.app_feature_task_kinds()
+        if key in work:
+            return work[key]
+        if key.startswith("writerAI.rule."):
+            return "prose.edit"
         return ""
 
     # 5. mount every LLM router (the same surface in every app).
     app.include_router(shared_api_router)
     app.include_router(make_provider_router(stores.get_provider_store))
     app.include_router(make_prompt_router(stores.get_prompt_store, feature_prompts))
-    app.include_router(make_feature_router(stores.get_prompt_store, _config, category_of=_category_of))
+    app.include_router(make_feature_router(stores.get_prompt_store, _config, task_kind_of=_task_kind_of))
     app.include_router(make_routing_router(stores.get_routing_store, seed.app_feature_catalog))
     app.include_router(make_feature_presets_router(stores.get_feature_preset_store))
     app.include_router(make_presets_router(
-        stores.get_engine_preset_store, stores.get_category_preset_store,
+        stores.get_engine_preset_store, stores.get_task_kind_preset_store,
         stores.get_feature_preset_ref_store,
-        lambda: stores.get_category_preset_store().list().get("", ""),
-        lambda pid: stores.get_category_preset_store().set("", pid),
+        lambda: stores.get_task_kind_preset_store().list().get("", ""),
+        lambda pid: stores.get_task_kind_preset_store().set("", pid),
     ))
     app.include_router(make_recommendations_router(stores.get_recommendation_store))
     app.include_router(make_knob_catalog_router(stores.list_knob_catalog))

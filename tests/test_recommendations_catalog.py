@@ -34,7 +34,7 @@ def wired():
     db.configure_storage(SessionLocal)
     db.create_all(engine)
     seed.configure_app_seed(
-        feature_catalog=[FeatureCatalogEntry(key="chat", label="Chat", category="Chat")],
+        feature_catalog=[FeatureCatalogEntry(key="chat", label="Chat", group="Chat")],
         feature_prompts={},
     )
     seed.seed_llm()

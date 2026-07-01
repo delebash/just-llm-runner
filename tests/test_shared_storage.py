@@ -26,8 +26,8 @@ def wired():
     db.create_all(engine)
     seed.configure_app_seed(
         feature_catalog=[
-            FeatureCatalogEntry(key="critique", label="Critique", category="Analysis"),
-            FeatureCatalogEntry(key="chat", label="Ask the book", category="Chat"),
+            FeatureCatalogEntry(key="critique", label="Critique", group="Analysis"),
+            FeatureCatalogEntry(key="chat", label="Ask the book", group="Chat"),
         ],
         feature_prompts={
             "critique": {"feature": "critique", "system": "S", "user_template": "U", "temperature": 0.4},

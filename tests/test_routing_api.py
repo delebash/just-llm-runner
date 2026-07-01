@@ -25,8 +25,8 @@ class _MemStore:
 
 
 CATALOG = [
-    FeatureCatalogEntry(key="critique", label="Critique", hint="line notes", category="Analysis"),
-    FeatureCatalogEntry(key="brainstorm", label="Brainstorm", hint="ideas", category="Drafting"),
+    FeatureCatalogEntry(key="critique", label="Critique", hint="line notes", group="Analysis"),
+    FeatureCatalogEntry(key="brainstorm", label="Brainstorm", hint="ideas", group="Drafting"),
 ]
 
 

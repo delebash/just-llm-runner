@@ -1,9 +1,26 @@
 # AI Lab + Preset Model — LOCKED design (2026-06-29)
 
+> ## ⛔ PARTIALLY SUPERSEDED (2026-07-01) — read `2026-07-01-taskkind-routing.md` for the live model
+> The **Lab + preset ENTITIES** below still stand (a preset = model + frozen switches +
+> params; a feature carries a prompt and points at a preset; ready-made default presets).
+> What changed on 2026-07-01 (the "taskKind routing" refactor — live tracker:
+> `docs/plans/2026-07-01-taskkind-routing.md`) is the **ROUTING KEY** and the symbol names
+> this doc still uses as if current. The renames shipped in code; treat every mention below
+> of the following as HISTORICAL, mapped to its new name:
+> - `CategoryPreset` / table `category_presets` → **`TaskKindPreset`** / `task_kind_presets`
+> - `PUT /v1/ai/preset-assignments/category` → **`…/task-kind`** (body `{taskKind, presetId}`)
+> - `resolve_feature_preset(feature_key, category)` → **`(feature_key, task_kind)`**
+> - `_category_of` (feature→nav-category) → **`_task_kind_of`** (action-keyed → LLM-work taskKind)
+> - `AssignmentsResponse.categories` → **`.taskKinds`**; nav `FeatureCatalogEntry.category` → **`.group`**
+> - the "legacy job/pin routing" fallback: the **job** leg is DELETED (Phase 1); only pins + default remain.
+>
+> The cascade is now `feature/action override → the action's **taskKind** preset → global default`
+> (routing keys on LLM work, not the nav grouping). The rest of this doc is the original
+> 2026-06-29 design record, kept for history.
+
 > The agreed redesign of the AI area's routing/tuning model, worked out with the user
-> over 2026-06-28/29. **This is the source of truth for the AI config model going
-> forward.** It SUPERSEDES the job-centric routing in the master plan (AREA 1/2 and the
-> C1/C2/C3/C5 "conflict" resolutions for the lab/switches, and the "Routing by job" engine
+> over 2026-06-28/29. It SUPERSEDED the job-centric routing in the master plan (AREA 1/2 and
+> the C1/C2/C3/C5 "conflict" resolutions for the lab/switches, and the "Routing by job" engine
 > screen). The master stays authoritative only for the catalog / Fit / license / model
 > research (unchanged by this).
 

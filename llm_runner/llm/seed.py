@@ -16,17 +16,29 @@ from . import db
 from ..runner.config import DEFAULT_BINARIES, DEFAULT_PINNED_BUILD, DEFAULT_SAFETY_MARGIN_MB
 
 # ── per-app registration (the ONLY per-app inputs) ────────────────────────────
-_APP: dict = {"feature_catalog": [], "feature_prompts": {}}
+_APP: dict = {"feature_catalog": [], "feature_prompts": {},
+              "engine_presets": [], "taskkind_presets": [], "feature_task_kinds": {}}
 
 
-def configure_app_seed(*, feature_catalog=None, feature_prompts=None) -> None:
+def configure_app_seed(*, feature_catalog=None, feature_prompts=None,
+                       engine_presets=None, taskkind_presets=None,
+                       feature_task_kinds=None) -> None:
     """The host registers its feature DATA once at boot (install_llm does this):
     `feature_catalog` (list of FeatureCatalogEntry), `feature_prompts` (dict
-    key→spec)."""
+    key→spec), and the ROUTING seed — `engine_presets` (the built-in preset library),
+    `taskkind_presets` (taskKind→preset assignments), and `feature_task_kinds` (the
+    action→taskKind map). The routing seed is optional; an app that registers none
+    simply seeds no presets and falls back to legacy routing."""
     if feature_catalog is not None:
         _APP["feature_catalog"] = list(feature_catalog)
     if feature_prompts is not None:
         _APP["feature_prompts"] = dict(feature_prompts)
+    if engine_presets is not None:
+        _APP["engine_presets"] = list(engine_presets)
+    if taskkind_presets is not None:
+        _APP["taskkind_presets"] = list(taskkind_presets)
+    if feature_task_kinds is not None:
+        _APP["feature_task_kinds"] = dict(feature_task_kinds)
 
 
 def app_feature_catalog() -> list:
@@ -36,6 +48,21 @@ def app_feature_catalog() -> list:
 
 def app_feature_prompts() -> dict:
     return _APP["feature_prompts"]
+
+
+def app_engine_presets() -> list:
+    """The host's built-in engine presets (list of dicts) — the factory preset library."""
+    return _APP["engine_presets"]
+
+
+def app_taskkind_presets() -> list:
+    """The host's taskKind→preset assignments (list of {task_kind, preset_id} dicts)."""
+    return _APP["taskkind_presets"]
+
+
+def app_feature_task_kinds() -> dict:
+    """The host's action→taskKind map — the routing key `_task_kind_of` reads."""
+    return _APP["feature_task_kinds"]
 
 
 # ── SHARED seed data ──────────────────────────────────────────────────────────
@@ -352,6 +379,48 @@ def seed_default_switch_presets(s) -> int:
     return added
 
 
+def seed_default_engine_presets(s) -> int:
+    """Seed the host's built-in engine presets (the factory preset library, the
+    2026-06-29 lab+preset model) + their FK switch/sampler children. Flush each
+    parent before its children (host session: autoflush off + FK on — the
+    switch-preset seeder gotcha). Per-app data via `app_engine_presets()`."""
+    existing = {r.id for r in s.query(db.EnginePreset.id).all()}
+    added = 0
+    for p in app_engine_presets():
+        if p["id"] in existing:
+            continue
+        s.add(db.EnginePreset(
+            id=p["id"], name=str(p.get("name") or ""), provider_id=str(p.get("provider_id") or ""),
+            model=str(p.get("model") or ""), temperature=p.get("temperature"), top_p=p.get("top_p"),
+            max_tokens=int(p.get("max_tokens") or 0), json_mode=bool(p.get("json_mode") or False),
+            reasoning_effort=str(p.get("reasoning_effort") or ""),
+            ngl_override=p.get("ngl_override"), n_cpu_moe_override=p.get("n_cpu_moe_override"),
+            position=int(p.get("position") or 0), built_in=True))
+        s.flush()  # parent in the DB before its FK children
+        for fname, fval in (p.get("switches") or {}).items():
+            s.add(db.EnginePresetSwitch(preset_id=p["id"], flag_name=fname, flag_value=str(fval)))
+        for pname, pval in (p.get("samplers") or {}).items():
+            s.add(db.EnginePresetSampler(preset_id=p["id"], param_name=pname, value=str(pval)))
+        added += 1
+    return added
+
+
+def seed_default_taskkind_presets(s) -> int:
+    """Seed the built-in taskKind→preset assignments (the routing defaults, the
+    `TaskKindPreset` bulk handle). FK-safe: skip any assignment whose preset_id
+    isn't a known EnginePreset (seeded above or already in the DB). Per-app data via
+    `app_taskkind_presets()` (list of {task_kind, preset_id})."""
+    existing = {r.task_kind for r in s.query(db.TaskKindPreset.task_kind).all()}
+    valid = {p["id"] for p in app_engine_presets()} | {r.id for r in s.query(db.EnginePreset.id).all()}
+    added = 0
+    for c in app_taskkind_presets():
+        if c["task_kind"] in existing or c["preset_id"] not in valid:
+            continue
+        s.add(db.TaskKindPreset(task_kind=c["task_kind"], preset_id=c["preset_id"]))
+        added += 1
+    return added
+
+
 def seed_default_recommendations(s) -> int:
     existing = {(r.model_id, r.task_kind) for r in s.query(db.ModelRecommendation.model_id, db.ModelRecommendation.task_kind).all()}
     added = 0
@@ -455,6 +524,8 @@ def seed_llm(s=None) -> None:
         seed_default_catalog(s)
         seed_default_pricing(s)
         seed_default_switch_presets(s)
+        seed_default_engine_presets(s)
+        seed_default_taskkind_presets(s)
         seed_default_recommendations(s)
         seed_default_runner_binaries(s)
         seed_default_runner_settings(s)

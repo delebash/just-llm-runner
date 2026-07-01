@@ -268,24 +268,24 @@ def test_effective_think_guardrail_off_under_json():
 
 
 def test_run_uses_resolved_preset():
-    """The lab+preset model: with a `category_of` wired + a preset assigned to the
-    feature's category, /run dispatches the PRESET's model + params (its top_p /
-    reasoning), not the prompt's. No preset / no category_of → the legacy path is
-    unchanged (every other test runs make_feature_router without category_of)."""
+    """The lab+preset model: with a `task_kind_of` wired + a preset assigned to the
+    action's taskKind, /run dispatches the PRESET's model + params (its top_p /
+    reasoning), not the prompt's. No preset / no task_kind_of → the legacy path is
+    unchanged (every other test runs make_feature_router without task_kind_of)."""
     from llm_runner.llm import stores
     from llm_runner.llm.presets_api import EnginePresetRow
 
     p = stores.get_engine_preset_store().save(EnginePresetRow(
         name="W", model="preset-model", temperature=0.2, topP=0.9, reasoningEffort="high",
     ))
-    stores.get_category_preset_store().set("Writing", p.id)
+    stores.get_task_kind_preset_store().set("prose.generate", p.id)
 
     get_llm_registry()._adapters = {}
     adapter = CaptureAdapter()
     get_llm_registry().register(adapter)
     app = FastAPI()
     app.include_router(make_feature_router(
-        lambda: MemPromptStore(), lambda: LLMConfig(), category_of=lambda feature: "Writing",
+        lambda: MemPromptStore(), lambda: LLMConfig(), task_kind_of=lambda key: "prose.generate",
     ))
     c = TestClient(app, raise_server_exceptions=False)
 
@@ -303,13 +303,13 @@ def _preset_sampler_app(samplers):
     from llm_runner.llm.presets_api import EnginePresetRow
 
     p = stores.get_engine_preset_store().save(EnginePresetRow(name="S", model="m", samplers=samplers))
-    stores.get_category_preset_store().set("Writing", p.id)
+    stores.get_task_kind_preset_store().set("prose.generate", p.id)
     get_llm_registry()._adapters = {}
     adapter = CaptureAdapter()
     get_llm_registry().register(adapter)
     app = FastAPI()
     app.include_router(make_feature_router(
-        lambda: MemPromptStore(), lambda: LLMConfig(), category_of=lambda feature: "Writing",
+        lambda: MemPromptStore(), lambda: LLMConfig(), task_kind_of=lambda key: "prose.generate",
     ))
     return TestClient(app, raise_server_exceptions=False), adapter
 

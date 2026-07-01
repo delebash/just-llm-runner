@@ -6,7 +6,7 @@ per-request params + optional hardware-fit-knob overrides) built and saved in th
 Lab. It is the SOURCE OF TRUTH for what runs (combined with a feature's prompt).
 
 A feature resolves its preset via the cascade:
-    its own override (FeaturePresetRef) → its CATEGORY's preset (CategoryPreset)
+    its own override (FeaturePresetRef) → its taskKind's preset (TaskKindPreset)
     → the global default preset.
 
 The PROMPT is NOT here — it lives on the feature (FeaturePrompt). Switches and
@@ -55,19 +55,19 @@ class EnginePresetRow(BaseModel):
     position: int = 0
 
 
-class CategoryAssignment(BaseModel):
-    category: str
-    presetId: str = ""   # "" → clear (category falls back to the default)
+class TaskKindAssignment(BaseModel):
+    taskKind: str
+    presetId: str = ""   # "" → clear (this taskKind falls back to the default)
 
 
 class FeatureAssignment(BaseModel):
     featureKey: str
-    presetId: str = ""   # "" → clear (feature inherits its category)
+    presetId: str = ""   # "" → clear (feature inherits its taskKind)
 
 
 class FeatureClearRequest(BaseModel):
-    """Bulk-clear the per-feature overrides for a set of features (the "reset" a
-    category does so every feature in it re-inherits the category preset)."""
+    """Bulk-clear the per-feature overrides for a set of features (the "reset" that
+    drops each feature's own override so it re-inherits its taskKind preset)."""
 
     featureKeys: list[str] = []
 
@@ -84,9 +84,9 @@ class EnginePresetStore(Protocol):
     def delete(self, preset_id: str) -> None: ...
 
 
-class CategoryPresetStore(Protocol):
-    def list(self) -> dict[str, str]: ...                      # category → preset_id
-    def set(self, category: str, preset_id: str) -> None: ...  # "" clears the row
+class TaskKindPresetStore(Protocol):
+    def list(self) -> dict[str, str]: ...                       # task_kind → preset_id
+    def set(self, task_kind: str, preset_id: str) -> None: ...  # "" clears the row
 
 
 class FeaturePresetRefStore(Protocol):
@@ -100,13 +100,13 @@ class PresetsResponse(BaseModel):
 
 class AssignmentsResponse(BaseModel):
     defaultPresetId: str = ""
-    categories: dict[str, str] = {}   # category → preset_id
+    taskKinds: dict[str, str] = {}    # task_kind → preset_id
     features: dict[str, str] = {}     # feature_key → preset_id (overrides)
 
 
 def make_presets_router(
     get_presets: Callable[[], EnginePresetStore],
-    get_categories: Callable[[], CategoryPresetStore],
+    get_task_kinds: Callable[[], TaskKindPresetStore],
     get_refs: Callable[[], FeaturePresetRefStore],
     get_default: Callable[[], str],
     set_default: Callable[[str], None],
@@ -122,7 +122,7 @@ def make_presets_router(
     def _assignments() -> AssignmentsResponse:
         return AssignmentsResponse(
             defaultPresetId=get_default(),
-            categories=get_categories().list(),
+            taskKinds=get_task_kinds().list(),
             features=get_refs().list(),
         )
 
@@ -162,11 +162,11 @@ def make_presets_router(
         set_default(body.presetId)
         return _assignments()
 
-    @router.put("/preset-assignments/category", response_model=AssignmentsResponse)
-    async def put_category(body: CategoryAssignment) -> AssignmentsResponse:
-        if not body.category.strip():
-            raise HTTPException(status_code=400, detail="category is required")
-        get_categories().set(body.category, body.presetId)
+    @router.put("/preset-assignments/task-kind", response_model=AssignmentsResponse)
+    async def put_task_kind(body: TaskKindAssignment) -> AssignmentsResponse:
+        if not body.taskKind.strip():
+            raise HTTPException(status_code=400, detail="taskKind is required")
+        get_task_kinds().set(body.taskKind, body.presetId)
         return _assignments()
 
     @router.put("/preset-assignments/feature", response_model=AssignmentsResponse)

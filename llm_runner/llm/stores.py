@@ -530,7 +530,7 @@ class SwitchPresetStore:
 
 
 # ── engine presets (the 2026-06-29 lab+preset model: model+switches+params, the
-# source of truth for what runs). Assigned by CATEGORY (CategoryPreset[""] = the
+# source of truth for what runs). Assigned by TASKKIND (TaskKindPreset[""] = the
 # global default) or a per-feature override (FeaturePresetRef). ──
 def _engine_preset_to_wire(p, switches, samplers) -> EnginePresetRow:
     return EnginePresetRow(
@@ -610,23 +610,23 @@ class EnginePresetStore:
             s.close()
 
 
-class CategoryPresetStore:
+class TaskKindPresetStore:
     def list(self) -> dict[str, str]:
         s = db.session()
         try:
-            return {r.category: r.preset_id for r in s.query(db.CategoryPreset).all()}
+            return {r.task_kind: r.preset_id for r in s.query(db.TaskKindPreset).all()}
         finally:
             s.close()
 
-    def set(self, category: str, preset_id: str) -> None:
+    def set(self, task_kind: str, preset_id: str) -> None:
         s = db.session()
         try:
-            row = s.get(db.CategoryPreset, category)
+            row = s.get(db.TaskKindPreset, task_kind)
             if not preset_id:
                 if row is not None:
                     s.delete(row)
             elif row is None:
-                s.add(db.CategoryPreset(category=category, preset_id=preset_id))
+                s.add(db.TaskKindPreset(task_kind=task_kind, preset_id=preset_id))
             else:
                 row.preset_id = preset_id
             s.commit()
@@ -793,7 +793,7 @@ _runner_config = RunnerConfigStore()
 _switch_preset = SwitchPresetStore()
 _feature_sampler = FeatureSamplerStore()
 _engine_preset = EnginePresetStore()
-_category_preset = CategoryPresetStore()
+_task_kind_preset = TaskKindPresetStore()
 _feature_preset_ref = FeaturePresetRefStore()
 
 
@@ -808,7 +808,7 @@ def get_runner_config_store() -> RunnerConfigStore: return _runner_config
 def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
 def get_feature_sampler_store() -> FeatureSamplerStore: return _feature_sampler
 def get_engine_preset_store() -> EnginePresetStore: return _engine_preset
-def get_category_preset_store() -> CategoryPresetStore: return _category_preset
+def get_task_kind_preset_store() -> TaskKindPresetStore: return _task_kind_preset
 def get_feature_preset_ref_store() -> FeaturePresetRefStore: return _feature_preset_ref
 
 

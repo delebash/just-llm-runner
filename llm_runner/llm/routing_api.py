@@ -9,7 +9,7 @@ dispatch precedence chain (see `dispatch.resolve_pin`):
 Like `provider_api.py` and `prompts.py`, this is a router factory over a
 host-supplied `RoutingStore` (real persistence — both apps in their shared DB
 routing tables) plus the host's **feature catalog** (which features exist + their
-labels/hints/category — per-app data). The GET merges the catalog with the stored
+labels/hints/group — per-app data). The GET merges the catalog with the stored
 pins so the UI renders one row per feature with its current route; the PUT persists
 the whole routing config.
 """
@@ -53,7 +53,7 @@ class FeatureRow(BaseModel):
     key: str
     label: str
     hint: str = ""
-    category: str = ""  # the catalog's nav group (e.g. "Writing", "Analysis")
+    group: str = ""  # the catalog's nav grouping (display-only), e.g. "Writing", "Analysis"
     providerId: str = ""
     model: str = ""
 
@@ -77,12 +77,13 @@ class RoutingStore(Protocol):
 @dataclass
 class FeatureCatalogEntry:
     """One feature the host exposes for routing — its key, human label, a hint,
-    and the nav group it belongs to (category, display-only)."""
+    and the nav group it belongs to (`group`, display-only; NOT a routing key —
+    routing is by taskKind)."""
 
     key: str
     label: str
     hint: str = ""
-    category: str = ""
+    group: str = ""
 
 
 def make_routing_router(
@@ -100,7 +101,7 @@ def make_routing_router(
                 key=e.key,
                 label=e.label,
                 hint=e.hint,
-                category=e.category,
+                group=e.group,
                 providerId=(p := cfg.pins.get(e.key) or FeaturePin()).providerId,
                 model=p.model,
             )

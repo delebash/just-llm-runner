@@ -7,10 +7,9 @@
 // + shows the engine preset it resolves to. The model + switches + params live IN the
 // preset (built/tested in the Lab), so there is no model picker / switch grid here.
 //   • Routing keys on the LLM-work taskKind, NOT the nav group: a preset is assigned
-//     per taskKind (the assignment surface is a separate Phase-4 screen), with a
-//     per-feature override on top (the cascade action-override → taskKind preset →
-//     global default). This view still edits the per-feature override + shows the
-//     resolved preset as provenance.
+//     per taskKind (the "Presets by task kind" panel at the top of the left list),
+//     with a per-feature override on top (the cascade action-override → taskKind
+//     preset → global default). Each card shows its resolved preset + provenance.
 //   • Tuning (the Lab): a shared {{variables}} test input feeds <CompareStrip>, which
 //     renders N engine-config columns you Run and then Save as engine presets.
 //
@@ -23,6 +22,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import CompareStrip from "../components/CompareStrip.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
+import UiSelect from "../common/components/UiSelect.vue";
 import { request } from "../client.js";
 
 // Optional host runner — streams an action through the host's task system (live
@@ -41,6 +41,8 @@ const providers = ref([]);
 // per-feature override this view edits; `.defaultPresetId` is the global default.
 const enginePresets = ref([]);   // EnginePresetRow[]
 const presetAssign = ref({ defaultPresetId: "", taskKinds: {}, features: {} });
+const taskKinds = ref([]);        // canonical taskKind catalog [{id,label,description}]
+const featureTaskKinds = ref({}); // action key → its resolved taskKind (for card provenance)
 const samplerRows = ref([]); // the selected action's long-tail samplers (Plane-2 KnobGrid v-model)
 const switchRows = ref([]);  // the selected action's engine switches (Plane-1 KnobGrid v-model)
 const knobCatalog = ref([]); // knob_catalog metadata (C1)
@@ -178,6 +180,11 @@ async function load() {
     catch { enginePresets.value = []; }
     try { presetAssign.value = await request("/v1/ai/preset-assignments"); }
     catch { presetAssign.value = { defaultPresetId: "", taskKinds: {}, features: {} }; }
+    try {
+      const tk = await request("/v1/ai/task-kinds");
+      taskKinds.value = tk.taskKinds || [];
+      featureTaskKinds.value = tk.featureTaskKinds || {};
+    } catch { taskKinds.value = []; featureTaskKinds.value = {}; }
     const firstCard = navRows.value.find((rw) => rw.type === "card");
     if (!action.value && firstCard) selectAction(firstCard.action.key);
   } catch (e) {
@@ -298,12 +305,15 @@ function featurePreset(key) {
   return presetAssign.value.features?.[key] || "";
 }
 const presetName = (id) => enginePresets.value.find((p) => p.id === id)?.name || "preset";
-// The preset shown muted on the nav card: the feature's own override if set, else
-// the global default. The middle taskKind tier is resolved by the server at dispatch
-// and isn't shown here yet — the Phase-4 assignment surface adds taskKind provenance.
+const taskKindLabel = (id) => taskKinds.value.find((t) => t.id === id)?.label || id;
+// What a feature actually resolves to, with provenance — own override → its
+// taskKind's assigned preset → the global default. Shown muted on the nav card.
 function featurePresetLabel(key) {
   const fid = presetAssign.value.features?.[key];
   if (fid) return presetName(fid);
+  const tk = featureTaskKinds.value?.[key];
+  const tkPid = tk ? presetAssign.value.taskKinds?.[tk] : "";
+  if (tkPid) return `${presetName(tkPid)} · ${taskKindLabel(tk)}`;
   const did = presetAssign.value.defaultPresetId;
   if (did) return `${presetName(did)} · default`;
   return "— none —";
@@ -319,10 +329,30 @@ async function onUseProduction(presetId) {
   message.value = "In production — this feature runs that preset now.";
 }
 
-// The bulk preset assignment used to be a per-nav-group "set all" dropdown here.
-// Routing now keys on the LLM-work taskKind, not the nav group, so bulk assignment
-// moves to a dedicated taskKind→preset surface (Phase 4). This view keeps the
-// per-feature override (setFeaturePreset above) + the resolved-preset provenance.
+// ── bulk taskKind → preset assignment (the "Presets by task kind" panel at the top
+// of the left list). Routing keys on the LLM-work taskKind, so a preset assigned to a
+// taskKind runs for EVERY feature of that taskKind unless the feature has its own
+// override. "— inherit default —" clears the taskKind's assignment; Reset clears the
+// per-feature overrides on that taskKind's features so they all re-inherit. ──
+const presetOptions = computed(() => [
+  { value: "", label: "— inherit default —" },
+  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
+]);
+function taskKindPreset(tkId) { return presetAssign.value.taskKinds?.[tkId] || ""; }
+async function setTaskKindPreset(tkId, presetId) {
+  presetAssign.value = await request("/v1/ai/preset-assignments/task-kind", {
+    method: "PUT", body: { taskKind: tkId, presetId },
+  });
+}
+async function resetTaskKind(tkId) {
+  // Clear the per-feature override on every action of this taskKind so they all
+  // re-inherit the taskKind's preset (one bulk clear-features call).
+  const keys = Object.entries(featureTaskKinds.value).filter(([, tk]) => tk === tkId).map(([k]) => k);
+  if (!keys.length) return;
+  presetAssign.value = await request("/v1/ai/preset-assignments/clear-features", {
+    method: "POST", body: { featureKeys: keys },
+  });
+}
 
 // Save just the feature's PROMPT text (params live in the preset now). Keeps the
 // prompt row's existing param fields so nothing is wiped.
@@ -360,6 +390,9 @@ function buildVars() {
 
 // The left list can be collapsed to give the column workbench full width.
 const navCollapsed = ref(false);
+// The taskKind→preset assignment panel is collapsed by default so the feature nav
+// stays primary; each card's provenance already shows what a taskKind resolves to.
+const tkOpen = ref(false);
 
 onMounted(load);
 </script>
@@ -371,9 +404,28 @@ onMounted(load);
 
     <template v-else-if="routing">
       <div class="lu-fw-body" :class="{ 'nav-collapsed': navCollapsed }">
-        <!-- Nav: features grouped by their nav `group`, then the action cards.
-             Collapsible to give the column workbench full width. -->
+        <!-- Left list: the bulk taskKind→preset assignment panel, then the features
+             grouped by their nav `group`. Collapsible for full column width. -->
         <aside v-show="!navCollapsed" class="lu-fw-list">
+          <div v-if="taskKinds.length" class="lu-fw-tkpanel">
+            <button type="button" class="lu-fw-tkpanel-h" @click="tkOpen = !tkOpen">
+              <span class="lu-fw-tkchevron">{{ tkOpen ? "▾" : "▸" }}</span>
+              Presets by task kind
+              <span class="lu-fw-tkcount">{{ taskKinds.length }}</span>
+            </button>
+            <div v-if="tkOpen" class="lu-fw-tkrows">
+              <div v-for="tk in taskKinds" :key="tk.id" class="lu-fw-tkrow">
+                <div class="lu-fw-tktop">
+                  <span class="lu-fw-tkname" :title="tk.description">{{ tk.label }}</span>
+                  <UiButton intent="ghost" size="small" class="lu-fw-tkreset"
+                    title="Clear per-feature overrides for this task kind so its features re-inherit"
+                    @click="resetTaskKind(tk.id)">↺</UiButton>
+                </div>
+                <UiSelect class="lu-fw-tksel" :model-value="taskKindPreset(tk.id)" :options="presetOptions"
+                  @update:model-value="(v) => setTaskKindPreset(tk.id, v)" />
+              </div>
+            </div>
+          </div>
           <template v-for="(row, i) in navRows" :key="i">
             <div v-if="row.type === 'group'" class="lu-fw-cat">
               <div class="lu-fw-cat-name">{{ row.label }}</div>
@@ -450,6 +502,18 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-default-k { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
 .lu-fw-default-k .lu-muted { font-weight: 600; letter-spacing: 0; text-transform: none; }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 6px 0 1px; }
+/* Bulk taskKind → preset assignment panel (top of the left list) — collapsible so
+   the feature nav stays primary; each row is stacked (full-width label + dropdown). */
+.lu-fw-tkpanel { border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); margin-bottom: 6px; }
+.lu-fw-tkpanel-h { width: 100%; text-align: left; font: inherit; cursor: pointer; background: none; border: 0; padding: 9px 10px; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+.lu-fw-tkchevron { color: var(--muted); font-size: 9px; }
+.lu-fw-tkcount { margin-left: auto; font-weight: 700; color: var(--muted); letter-spacing: 0; }
+.lu-fw-tkrows { display: flex; flex-direction: column; gap: 10px; padding: 2px 10px 10px; }
+.lu-fw-tkrow { display: flex; flex-direction: column; gap: 3px; }
+.lu-fw-tktop { display: flex; align-items: center; gap: 6px; }
+.lu-fw-tkname { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; color: var(--ink-2); }
+.lu-fw-tkreset { flex: none; }
+.lu-fw-tksel { width: 100%; }
 
 .lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
 .lu-fw-h { display: flex; align-items: baseline; gap: 8px; }

@@ -30,6 +30,7 @@ from .provider_api import make_provider_router
 from .recommendations_api import make_recommendations_router
 from .routing_api import make_routing_router
 from .switch_presets_api import make_switch_presets_router
+from .task_kinds_api import make_task_kinds_router
 from .usage import set_ledger
 from .usage_sink import DbUsageSink
 
@@ -86,6 +87,7 @@ def install_llm(
     app.include_router(make_provider_router(stores.get_provider_store))
     app.include_router(make_prompt_router(stores.get_prompt_store, feature_prompts))
     app.include_router(make_feature_router(stores.get_prompt_store, _config, task_kind_of=_task_kind_of))
+    app.include_router(make_task_kinds_router(stores.get_prompt_store, task_kind_of=_task_kind_of))
     app.include_router(make_routing_router(stores.get_routing_store, seed.app_feature_catalog))
     app.include_router(make_feature_presets_router(stores.get_feature_preset_store))
     app.include_router(make_presets_router(

@@ -96,8 +96,14 @@ function patchPin(val) {
 
 // ── sampler ORDER (the reserved `samplers` entry in the samplers array) ───────
 // Off = engine default order. On = a per-request order, stored as a single
-// {name:"samplers", value:"dry,top_k,…"} row; the server splits it to an array.
-const DEFAULT_SAMPLER_ORDER = ["dry", "top_k", "typ_p", "top_p", "min_p", "xtc", "temperature"];
+// {name:"samplers", value:"penalties,dry,…"} row; the server splits it to an array.
+// The default MUST match llama.cpp's real default chain (common/common.h,
+// common_params_sampling.samplers) — otherwise enabling the control OVERRIDES the
+// engine and silently DROPS the omitted stages. That chain is 9 names; an earlier
+// 7-name list dropped `penalties` (the combined repeat/presence/frequency stage)
+// and `top_n_sigma`. Names are llama.cpp sampler-chain names, verified valid request
+// names in sampling.cpp common_sampler_types_from_names() (note `penalties`, `typ_p`).
+const DEFAULT_SAMPLER_ORDER = ["penalties", "dry", "top_n_sigma", "top_k", "typ_p", "top_p", "min_p", "xtc", "temperature"];
 const samplerArr = computed(() => props.modelValue?.samplers || []);
 const orderRow = computed(() => samplerArr.value.find((r) => r.name === "samplers") || null);
 const orderOn = computed(() => !!orderRow.value);

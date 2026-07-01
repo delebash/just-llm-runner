@@ -68,6 +68,22 @@
 > never built). Verified: `build:vite` 0; `node scripts/headless-smoke.mjs` PASSED (all routes + AI sub-tabs +
 > sampler-order probe green; the probe's `no-dup` selector was also corrected from a vacuous `.ui-kg-name input`
 > to `.ui-kg-name`). Full prose in `justwrite-app/MORNING_RECAP.md`.
+>
+> **✅ Reorder DEFAULT chain corrected to llama.cpp's real 9 (2026-07-01, #72).** The "Custom sampler order"
+> control's `DEFAULT_SAMPLER_ORDER` in `ConfigColumn.vue` was **7 names** (`dry,top_k,typ_p,top_p,min_p,xtc,
+> temperature`). Because the request `samplers` field is an ordered name list where OMITTED names are DROPPED from
+> the chain, enabling the control silently DISABLED `penalties` (the combined repeat/presence/frequency stage) +
+> `top_n_sigma`. The server README is **self-contradictory** (its request-`samplers` doc shows a 7-name default +
+> "these are all the available values"; its CLI `--samplers` shows 9), so the AUTHORITATIVE source was used to
+> resolve it: `common/common.h` `common_params_sampling.samplers` default = the 9-name vector
+> `PENALTIES, DRY, TOP_N_SIGMA, TOP_K, TYPICAL_P, TOP_P, MIN_P, XTC, TEMPERATURE`, and `common/sampling.cpp`
+> `common_sampler_types_from_names()` explicitly accepts `"penalties"` and `"top_n_sigma"` as valid request names.
+> Now `["penalties","dry","top_n_sigma","top_k","typ_p","top_p","min_p","xtc","temperature"]` (the code comment
+> cites common.h/sampling.cpp so it can't silently drift). The committed smoke `sampler-order` probe was updated to
+> assert the 9-name chain (length 9, penalties→temperature, ▼ swaps penalties↔dry); `build:vite` + full
+> `headless-smoke.mjs` green. **Separate OPEN UX call (NOT done, the user's decision):** llama.cpp documents
+> `top_k=40`/`min_p=0.05`/`top_p=0.95`/`temperature=0.80` defaults but our seed leaves top_k/min_p blank (enabling
+> gives an empty box, dropped at dispatch = engine default) — prefilling the real defaults is a UX choice left as-is.
 
 > **Relationship to the other plans:** this is a focused sub-plan of the AI-lab work. The lab/preset
 > MODEL + the sampler/switch CHECKLIST UI are in `2026-06-29-ai-lab-preset-model.md` (Trial-4 #5). The

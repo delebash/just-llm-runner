@@ -171,13 +171,31 @@ async function countExact() {
     counting.value = false;
   }
 }
-// Budget guard: the prompt tokens + the reserved output (maxTokens) vs the model's
-// context window. The window comes from the parent (loaded-model ctx) or this
-// editable fallback so the guard always works; warn when the call can't fit.
-const winFallback = ref(8192);
+// Budget guard: prompt tokens + reserved output (maxTokens) vs the model's context
+// window. The window is the REAL launch value — the column's own `-c` (ctx_len)
+// switch — falling back to the parent's loaded-model ctx, then a LABELED "assumed"
+// default (never a silent guess). The user can still override the field. (#3)
+const ASSUMED_WINDOW = 8192;
+const ctxFromSwitches = computed(() => {
+  const row = (props.modelValue?.switches || []).find((sw) => sw.name === "ctx_len");
+  const n = Number(row?.value);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+});
+const winOverride = ref(null); // null = auto-derive; a number = the user's override
 const window = computed({
-  get: () => (props.contextWindow > 0 ? props.contextWindow : winFallback.value),
-  set: (v) => { winFallback.value = Math.max(0, Number(v) || 0); },
+  get: () => {
+    if (winOverride.value != null) return winOverride.value;
+    if (props.contextWindow > 0) return props.contextWindow;
+    if (ctxFromSwitches.value > 0) return ctxFromSwitches.value;
+    return ASSUMED_WINDOW;
+  },
+  set: (v) => { winOverride.value = Math.max(0, Number(v) || 0); },
+});
+const windowSource = computed(() => {
+  if (winOverride.value != null) return "set";
+  if (props.contextWindow > 0) return "loaded";
+  if (ctxFromSwitches.value > 0) return "-c";
+  return "assumed";
 });
 const promptTok = computed(() => (exactTokens.value != null ? exactTokens.value : estTokens.value));
 const outReserve = computed(() => Number(props.modelValue?.maxTokens) || 0);
@@ -416,7 +434,7 @@ defineExpose({ run, cancel });
           <UiButton v-if="exactTokens == null" intent="ghost" size="small" :loading="counting"
             title="Count with the loaded local model's tokenizer" @click="countExact">Count exact</UiButton>
           <span class="cc-spacer" />
-          <label class="cc-win">window <UiInput :model-value="window" type="number" class="cc-win-in" @update:model-value="window = $event" /></label>
+          <label class="cc-win">window <span class="lu-muted" :title="windowSource === 'assumed' ? 'No -c (ctx_len) switch set — this is an assumed default, edit it to your model\'s real window' : 'From the column\'s -c (ctx_len) switch / loaded model'">({{ windowSource }})</span> <UiInput :model-value="window" type="number" class="cc-win-in" @update:model-value="window = $event" /></label>
         </div>
         <div v-if="overBudget" class="cc-budget cc-budget-over">
           ⚠ prompt ≈{{ promptTok }} + {{ outReserve || 0 }} output = {{ budgetUsed }} tok exceeds the {{ window }}-token window — it will truncate or error.

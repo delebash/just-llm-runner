@@ -35,8 +35,7 @@ const props = defineProps({
 });
 
 const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, …}
-const routing = ref(null);   // {default, jobs:{jobId→{providerId,model}}, features:[…], pins:{key→{providerId,model}}}
-const featureJobs = ref({}); // feature key → job id (still read by loadSwitches for the tuning column's switch pre-fill)
+const routing = ref(null);   // {default, features:[…], pins:{key→{providerId,model}}}
 const providers = ref([]);
 // 2026-06-29 lab+preset model: the engine-preset library + the per-feature/category
 // assignment. Routing-by-feature picks WHICH preset a feature runs; the preset is
@@ -44,7 +43,7 @@ const providers = ref([]);
 const enginePresets = ref([]);   // EnginePresetRow[]
 const presetAssign = ref({ defaultPresetId: "", categories: {}, features: {} });
 const samplerRows = ref([]); // the selected action's long-tail samplers (Plane-2 KnobGrid v-model)
-const switchRows = ref([]);  // the selected action's JOB engine switches (Plane-1 KnobGrid v-model)
+const switchRows = ref([]);  // the selected action's engine switches (Plane-1 KnobGrid v-model)
 const knobCatalog = ref([]); // knob_catalog metadata (C1)
 // Plane-2 samplers + Plane-1 switches as ORDERED raw catalog rows (the API returns
 // them common-first by position) → the prefilled <KnobGrid> checklists in each
@@ -197,7 +196,7 @@ function selectAction(key) {
   message.value = "";
   buildVars();
   loadSamplers(key);
-  loadSwitches(key);
+  switchRows.value = [];
 }
 
 // The action's long-tail samplers (Plane-2; feature_sampler_params).
@@ -210,22 +209,8 @@ async function loadSamplers(key) {
   }
 }
 
-// The action's JOB engine switches (Plane-1; job_route_switches). Switches are a
-// per-Profile(job)+hardware axis (D17) — a feature column shows its job's switches,
-// pre-filled, and Promote writes them back to the job (C3). No job → none.
-async function loadSwitches(key) {
-  const jobId = featureJobs.value[featureOf(key)] || "";
-  if (!jobId) { switchRows.value = []; return; }
-  try {
-    const r = await request(`/v1/ai/job-switches?jobId=${encodeURIComponent(jobId)}&configId=active`);
-    switchRows.value = (r.switches || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue }));
-  } catch {
-    switchRows.value = [];
-  }
-}
-
 // The selected action's run-config, as <ConfigColumn>'s v-model: the routing pin +
-// the JOB switches + the prompt draft + per-call params + the long-tail samplers.
+// the switches + the prompt draft + per-call params + the long-tail samplers.
 // The getter reflects FW state (so Save-as / Use-as-production read the same
 // draft/rows/pin); the setter writes them back, persists a PIN change immediately
 // (params/prompt/switches don't touch routing until Promote), and refreshes the

@@ -7,12 +7,11 @@ from JustVoice `server/justvoice/engines/llm/dispatch.py` into the shared
 `llm_runner` package (2026-06-21 AI-stack convergence).
 
 Dispatch reads an `LLMConfig` (this package's schema), built by the shared
-`config_builder` from the shared stores. The precedence chain (job-native):
+`config_builder` from the shared stores. The precedence chain:
     1. active production config
     2. feature pin with explicit provider/model
-    3. the feature's JOB (config.feature_jobs[feature] → config.jobs[job_id])
-    4. preferred local runner (config.prefer_local_features)
-    5. first registered adapter (legacy fallback)
+    3. preferred local runner (config.prefer_local_features)
+    4. first registered adapter (fallback)
 """
 
 from __future__ import annotations
@@ -39,21 +38,6 @@ class LLMNotConfiguredError(RuntimeError):
 
 def _reg(registry: LLMRegistry | None) -> LLMRegistry:
     return registry or get_llm_registry()
-
-
-def _resolve_job(
-    config: LLMConfig, feature: str, registry: LLMRegistry | None = None
-) -> tuple[LLMAdapter, str] | None:
-    """Map a feature to (adapter, model) via its job: feature_jobs[feature] (or
-    the default job) → jobs[job_id] → that job's provider+model."""
-    job_id = config.feature_jobs.get(feature) or config.default_job_id
-    target = config.jobs.get(job_id)
-    if target is None or not target.providerId:
-        return None
-    adapter = _reg(registry).get(target.providerId)
-    if adapter is None:
-        return None
-    return adapter, target.model or adapter.default_model
 
 
 def active_production_config(config: LLMConfig, feature: str):
@@ -127,11 +111,6 @@ def resolve_pin(
                 f"but that provider isn't registered."
             )
         return adapter, pin.model or adapter.default_model, pin.tier
-
-    # The feature's JOB (feature_jobs → jobs) — the layer that replaced roles.
-    resolved = _resolve_job(config, feature, reg)
-    if resolved is not None:
-        return resolved[0], resolved[1], None
 
     # Built-in local runner is the smart default for its target features
     # (e.g. attribution) when nothing more specific is configured.

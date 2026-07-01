@@ -3,7 +3,7 @@
 dispatch layer.
 
 These Pydantic models are lifted from JustVoice's `models.py` (the
-LLM-provider / feature-pin / role / production-config shapes) so the
+LLM-provider / feature-pin / production-config shapes) so the
 shared dispatch can resolve a feature → provider without importing any
 app's settings object. Both JustVoice and JustWrite construct an
 `LLMConfig` from their own settings and hand it to `dispatch`.
@@ -46,21 +46,13 @@ class LLMProviderConfig(BaseModel):
 
 class FeaturePinConfig(BaseModel):
     """An explicit per-feature (or per-action) provider+model override, looked up
-    at dispatch time by feature key. A feature with no pin inherits its JOB's
-    model (LLMConfig.feature_jobs → LLMConfig.jobs)."""
+    at dispatch time by feature key. A feature with no pin (and no preset) falls
+    through to the global default provider."""
 
     feature: str
     providerId: str = ""
     model: str = ""
     tier: str | None = None  # "guided" | "direct" | "reasoned" — null = auto-classify
-
-
-class LLMJobTarget(BaseModel):
-    """The provider+model that runs a job. A feature inherits its job's target
-    unless pinned to something explicit."""
-
-    providerId: str
-    model: str = ""
 
 
 class ProductionConfig(BaseModel):
@@ -89,22 +81,16 @@ class LLMConfig:
         LLMConfig(
             providers=provider_store.list(),
             feature_pins=[...explicit pins...],
-            jobs={"chat": LLMJobTarget(...), "prose": LLMJobTarget(...)},
-            feature_jobs={"writerAI": "prose", "critique": "analysis", ...},
             prefer_local_features={"speaker_attribution"},  # optional, per-app
         )
 
-    A feature resolves: explicit pin → its job (feature_jobs → jobs) →
-    prefer-local → first adapter. `jobs`/`feature_jobs` are the job-routing
-    layer that replaced the old quick/accuracy roles. A feature with no
-    `feature_jobs` entry falls back to `default_job_id`.
+    A feature resolves: active production config → explicit pin → prefer-local →
+    first adapter. Engine presets (the taskKind → preset cascade) are resolved
+    separately in `prompts._resolve_preset` and overlaid onto the call.
     """
 
     providers: list[LLMProviderConfig] = field(default_factory=list)
     feature_pins: list[FeaturePinConfig] = field(default_factory=list)
-    jobs: dict[str, LLMJobTarget] = field(default_factory=dict)
-    feature_jobs: dict[str, str] = field(default_factory=dict)
     production_configs: list[ProductionConfig] = field(default_factory=list)
     prefer_local_features: set[str] = field(default_factory=set)
     local_runner_provider_id: str = "local-llamacpp"
-    default_job_id: str = "chat"

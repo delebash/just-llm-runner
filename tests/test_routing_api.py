@@ -48,14 +48,10 @@ def test_get_merges_catalog_with_empty_pins():
     assert feats["critique"]["providerId"] == "" and feats["critique"]["model"] == ""
 
 
-def test_put_persists_defaults_jobs_and_pins():
+def test_put_persists_defaults_and_pins():
     client, store = _client()
     payload = {
         "default": {"llmId": "openai", "embeddingId": "ollama-local"},
-        "jobs": {
-            "prose": {"providerId": "local-llamacpp", "model": "qwen3-4b"},
-            "analysis": {"providerId": "openai", "model": "gpt-4o"},
-        },
         "pins": {
             "critique": {"providerId": "openai", "model": "gpt-4o"},
         },
@@ -64,10 +60,9 @@ def test_put_persists_defaults_jobs_and_pins():
     assert r.status_code == 200
     # Persisted into the store.
     assert store.get_routing().default.llmId == "openai"
-    assert store.get_routing().jobs["prose"].model == "qwen3-4b"
+    assert store.get_routing().pins["critique"].model == "gpt-4o"
     # GET reflects it, merged onto the catalog rows.
     body = client.get("/v1/ai/routing").json()
-    assert body["jobs"]["analysis"]["model"] == "gpt-4o"
     feats = {f["key"]: f for f in body["features"]}
     assert feats["critique"]["providerId"] == "openai" and feats["critique"]["model"] == "gpt-4o"
     assert feats["brainstorm"]["providerId"] == ""

@@ -2,7 +2,7 @@
 """Dispatch precedence + tier classification for the shared LLM layer.
 
 No network: a FakeAdapter stands in for a provider. Verifies the
-config → pin → role → default-role → prefer-local → first chain that JV
+config → pin → prefer-local → first chain that JV
 relied on, now decoupled from any app's settings object.
 """
 
@@ -13,7 +13,6 @@ import pytest
 from llm_runner.llm import (
     FeaturePinConfig,
     LLMConfig,
-    LLMJobTarget,
     LLMMessage,
     LLMNotConfiguredError,
     LLMRegistry,
@@ -80,36 +79,14 @@ def test_production_config_wins():
     assert tier == "direct"
 
 
-def test_explicit_pin_beats_job():
+def test_explicit_pin_resolves():
     reg = make_reg(FakeAdapter("local"), FakeAdapter("cloud"))
     cfg = LLMConfig(
         feature_pins=[FeaturePinConfig(feature="compose", providerId="local", model="qwen3-4b")],
-        feature_jobs={"compose": "prose"},
-        jobs={"prose": LLMJobTarget(providerId="cloud", model="gpt")},
     )
     adapter, model, _ = resolve_pin(cfg, "compose", reg)
-    assert adapter.provider_id == "local"  # explicit pin wins over the job
+    assert adapter.provider_id == "local"  # the explicit pin resolves
     assert model == "qwen3-4b"
-
-
-def test_feature_inherits_job():
-    reg = make_reg(FakeAdapter("local", "qwen3-4b"))
-    cfg = LLMConfig(
-        feature_jobs={"compose": "prose"},
-        jobs={"prose": LLMJobTarget(providerId="local", model="qwen3-4b")},
-    )
-    adapter, model, _ = resolve_pin(cfg, "compose", reg)
-    assert adapter.provider_id == "local"
-    assert model == "qwen3-4b"
-
-
-def test_default_job_fallback():
-    reg = make_reg(FakeAdapter("cloud", "big"), FakeAdapter("local"))
-    # No feature_jobs entry → falls back to default_job_id ("chat").
-    cfg = LLMConfig(jobs={"chat": LLMJobTarget(providerId="cloud", model="big")})
-    adapter, model, _ = resolve_pin(cfg, "speaker_attribution", reg)
-    assert adapter.provider_id == "cloud"
-    assert model == "big"
 
 
 def test_prefer_local_runner():

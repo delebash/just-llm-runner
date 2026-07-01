@@ -6,9 +6,9 @@ domain tables on its own Base) and hands it to `configure_storage`. `install_llm
 calls `create_all(engine)` + `configure_storage(SessionLocal)` for the host — no
 app re-declares an LLM table.
 
-Job-native (2026-06-26): `routing_configs` has NO quick/accuracy columns and
-`routing_pins` has NO role column — routing is default + per-job (`job_routes`) +
-explicit per-feature pins. `feature_presets` has no role column either.
+Routing is the default LLM/embedding + explicit per-feature pins (no
+quick/accuracy/role/job columns). Engine config is owned by the taskKind → preset
+cascade (`engine_presets`), overlaid at dispatch.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from sqlalchemy import (
     Column,
     Float,
     ForeignKey,
-    ForeignKeyConstraint,
     Integer,
     String,
     Text,
@@ -70,7 +69,7 @@ class LlmUsage(LlmBase):
 class ModelCatalog(LlmBase):
     """One downloadable llama.cpp model — catalog fields only. `built_in` marks a
     seeded row. (Per-model switches were dropped per D9; engine switches live on
-    the type presets + the Profile's `job_route_switches`.)"""
+    the type presets, merged in `switch_resolve`.)"""
 
     __tablename__ = "model_catalog"
 
@@ -161,12 +160,11 @@ class ModelRecommendation(LlmBase):
     built_in = Column(Boolean, nullable=False, default=False)
 
 
-# ── routing: default + per-job routes + explicit pins (live row + presets) ────
+# ── routing: default LLM + explicit per-feature pins (live row + presets) ─────
 class RoutingConfigRow(LlmBase):
     """A routing config — the live config (id='active') AND named presets share
     this table (`is_active` + `name` distinguish). Default LLM/embedding are
-    columns; the per-job map is `job_routes`, explicit overrides are
-    `routing_pins`. NO quick/accuracy columns (job-native)."""
+    columns; explicit per-feature overrides are `routing_pins`."""
 
     __tablename__ = "routing_configs"
 
@@ -182,8 +180,8 @@ class RoutingConfigRow(LlmBase):
 
 class RoutingPin(LlmBase):
     """One feature → explicit provider/model override within a routing config. A
-    row exists only for a feature pinned to something explicit; inheriting the
-    feature's job is the absence of a row. NO role column (job-native)."""
+    row exists only for a feature pinned to something explicit; no override is the
+    absence of a row."""
 
     __tablename__ = "routing_pins"
 
@@ -195,52 +193,9 @@ class RoutingPin(LlmBase):
     model = Column(String, nullable=False, default="")
 
 
-class JobRoute(LlmBase):
-    """The per-config job→model map: which provider+model serves each job (what
-    QuickSetup / Routing-by-job sets). `job_id` is a soft ref to `jobs.id` (a
-    deleted job's routes are harmless dangling rows resolved to the default job)."""
-
-    __tablename__ = "job_routes"
-
-    config_id = Column(
-        String, ForeignKey("routing_configs.id", ondelete="CASCADE"), primary_key=True
-    )
-    job_id = Column(String, primary_key=True)
-    provider_id = Column(String, nullable=False, default="")
-    model = Column(String, nullable=False, default="")
-    # The Fast/Balanced/Best quality stop the user picked for this job (the dial).
-    # `model` above is the resolved pick; this records the INTENT so the dial can
-    # re-resolve when hardware changes. "" = no dial (an explicit model pin).
-    quality = Column(String, nullable=False, default="")
-
-
-# ── per-job / per-feature / per-hardware switch override layers (design §6.4) ──
-# Each mirrors `model_switches`: a variable-cardinality flag child, CASCADE FK to
-# its owner, served by the one shared generic switch store. The layered merge
-# (base preset → type → mtp → per-model → per-hardware → per-job → per-feature) is
-# resolved in `switch_resolve.py` and applied via the runner's existing
-# `_merge_overrides`.
-class JobRouteSwitch(LlmBase):
-    """A per-(config, job) llama.cpp spawn-flag override — the task-shaped layer
-    (e.g. `analysis` → ctx 32k, `chat` → ctx 8k on the same model). CASCADE FK to
-    the `job_routes` row it tunes."""
-
-    __tablename__ = "job_route_switches"
-
-    config_id = Column(String, primary_key=True)
-    job_id = Column(String, primary_key=True)
-    flag_name = Column(String, primary_key=True)
-    flag_value = Column(Text, nullable=False, default="")
-    built_in = Column(Boolean, nullable=False, default=False)
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["config_id", "job_id"],
-            ["job_routes.config_id", "job_routes.job_id"],
-            ondelete="CASCADE",
-        ),
-    )
-
-
+# ── per-hardware switch override layer (design §6.4) ──────────────────────────
+# The persistent per-machine switch tune, merged after the base→type→mtp presets
+# in `switch_resolve.py` and applied via the runner's existing `_merge_overrides`.
 class HardwareSwitch(LlmBase):
     """A per-machine spawn-flag override keyed by GPU (`hw_key`) — the persistent
     form of #20 tuning (auto-fit finds *a* working value; this saves the *fast*
@@ -319,65 +274,6 @@ class KnobOption(LlmBase):
     value = Column(String, primary_key=True)
     label = Column(String, nullable=False, default="")
     position = Column(Integer, nullable=False, default=0)
-    built_in = Column(Boolean, nullable=False, default=False)
-
-
-# ── job presets (named saved Profile configs; promote → live job route) ────────
-class JobPreset(LlmBase):
-    """A named, saved (job + model + switches) config the lab can PROMOTE to the
-    live job route. Mirrors `FeaturePreset` (per-action) at the per-JOB grain; the
-    per-job replacement for the old whole-config routing-presets (dropped per the
-    2026-06-28 soundness pass). Switches live in the `job_preset_switches` child."""
-
-    __tablename__ = "job_presets"
-
-    id = Column(String, primary_key=True)
-    job_id = Column(String, nullable=False, default="")
-    name = Column(String, nullable=False, default="")
-    provider_id = Column(String, nullable=False, default="")
-    model = Column(String, nullable=False, default="")
-    position = Column(Integer, nullable=False, default=0)
-    built_in = Column(Boolean, nullable=False, default=False)
-
-
-class JobPresetSwitch(LlmBase):
-    """One engine switch in a JobPreset's frozen switch set (CASCADE child of
-    `job_presets`)."""
-
-    __tablename__ = "job_preset_switches"
-
-    preset_id = Column(
-        String, ForeignKey("job_presets.id", ondelete="CASCADE"), primary_key=True
-    )
-    flag_name = Column(String, primary_key=True)
-    flag_value = Column(Text, nullable=False, default="")
-    built_in = Column(Boolean, nullable=False, default=False)
-
-
-# ── jobs (the editable routing unit) + the feature→job map ────────────────────
-class Job(LlmBase):
-    """One job — the routing unit that replaced quick/accuracy roles. A small,
-    user-editable list (seeded chat/prose/extraction/analysis). `id` is an
-    IMMUTABLE slug so a rename (edits only `label`) never orphans references."""
-
-    __tablename__ = "jobs"
-
-    id = Column(String, primary_key=True)
-    label = Column(String, nullable=False, default="")
-    description = Column(Text, nullable=False, default="")
-    position = Column(Integer, nullable=False, default=0)
-    built_in = Column(Boolean, nullable=False, default=False)
-
-
-class FeatureJob(LlmBase):
-    """One feature's job classification (the per-feature dropdown). `feature_key`
-    matches the host's feature catalog; `job_id` is a `Job.id` (soft ref —
-    a missing job resolves to the default job at dispatch)."""
-
-    __tablename__ = "feature_jobs"
-
-    feature_key = Column(String, primary_key=True)
-    job_id = Column(String, nullable=False, default="")
     built_in = Column(Boolean, nullable=False, default=False)
 
 

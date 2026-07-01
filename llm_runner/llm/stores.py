@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The concrete LLM stores — ONE shared implementation of every storage Protocol
 (provider / routing / routing-presets / feature-presets / prompts / recommendations
-/ model-catalog / model-switches / jobs / feature-jobs) over the shared session
+/ model-catalog / model-switches) over the shared session
 (`db.session`). Replaces every per-app `*_store.py`: an app installs the shared
 LLM stack and gets these — it does not implement storage.
 
@@ -17,9 +17,6 @@ import uuid
 from . import db
 from .feature_presets_api import FeaturePreset
 from .feature_samplers_api import FeatureSamplerRow
-from .job_presets_api import JobPreset, JobPresetSwitchRow
-from .job_switches_api import JobSwitchRow
-from .jobs_api import FeatureJobRow, JobRow
 from .model_catalog_api import CatalogRow
 from .pricing_api import PricingRow
 from .runner_config_api import EngineConfig, RunnerBinaryRow
@@ -27,7 +24,7 @@ from .prompts import FeaturePromptRow
 from .switch_presets_api import PresetSwitchRow, SwitchPresetRow
 from .presets_api import EnginePresetRow, PresetFlagRow
 from .recommendations_api import RecommendationRow
-from .routing_api import FeaturePin, JobTarget, RoutingConfig, RoutingDefaults
+from .routing_api import FeaturePin, RoutingConfig, RoutingDefaults
 from .schema import LLMProviderConfig
 
 _ACTIVE_ID = "active"
@@ -101,22 +98,18 @@ class ProviderStore:
             s.close()
 
 
-# ── routing (default + per-job routes + explicit pins) ────────────────────────
+# ── routing (default + explicit pins) ─────────────────────────────────────────
 def _row_to_routing(s, row: db.RoutingConfigRow) -> RoutingConfig:
     pins = {
         p.feature: FeaturePin(providerId=p.provider_id, model=p.model)
         for p in s.query(db.RoutingPin).filter(db.RoutingPin.config_id == row.id).all()
-    }
-    jobs = {
-        jr.job_id: JobTarget(providerId=jr.provider_id, model=jr.model, quality=jr.quality or "")
-        for jr in s.query(db.JobRoute).filter(db.JobRoute.config_id == row.id).all()
     }
     return RoutingConfig(
         default=RoutingDefaults(
             llmId=row.default_llm_id, model=row.default_model,
             embeddingId=row.default_embedding_id, embeddingModel=row.default_embedding_model,
         ),
-        jobs=jobs, pins=pins,
+        pins=pins,
     )
 
 
@@ -126,18 +119,13 @@ def _apply_routing(s, row: db.RoutingConfigRow, cfg: RoutingConfig) -> None:
     row.default_embedding_id = cfg.default.embeddingId
     row.default_embedding_model = cfg.default.embeddingModel
     # Persist the (possibly new) config row before inserting its FK children
-    # (job_routes / routing_pins) — the host session has autoflush off + FK on.
+    # (routing_pins) — the host session has autoflush off + FK on.
     s.add(row)
     s.flush()
     s.query(db.RoutingPin).filter(db.RoutingPin.config_id == row.id).delete()
     for feature, p in cfg.pins.items():
-        if p.providerId:  # explicit pin only — inherit-the-job is no row
+        if p.providerId:  # explicit pin only
             s.add(db.RoutingPin(config_id=row.id, feature=feature, provider_id=p.providerId, model=p.model))
-    s.query(db.JobRoute).filter(db.JobRoute.config_id == row.id).delete()
-    for job_id, t in cfg.jobs.items():
-        if t.providerId:
-            s.add(db.JobRoute(config_id=row.id, job_id=job_id, provider_id=t.providerId,
-                              model=t.model, quality=t.quality or ""))
 
 
 class RoutingStore:
@@ -433,47 +421,6 @@ class ModelCatalogStore:
             s.close()
 
 
-class JobRouteSwitchStore:
-    """Per-Profile (job-route) engine switches — read at load by
-    `resolve_profile_switches`, written by the lab via `make_job_switches_router`."""
-
-    def list(self, config_id: str, job_id: str) -> list[JobSwitchRow]:
-        s = db.session()
-        try:
-            return [
-                JobSwitchRow(flagName=r.flag_name, flagValue=r.flag_value, builtIn=r.built_in)
-                for r in s.query(db.JobRouteSwitch)
-                .filter(db.JobRouteSwitch.config_id == config_id, db.JobRouteSwitch.job_id == job_id)
-                .order_by(db.JobRouteSwitch.flag_name)
-                .all()
-            ]
-        finally:
-            s.close()
-
-    def replace(
-        self, config_id: str, job_id: str, switches: list[JobSwitchRow]
-    ) -> list[JobSwitchRow]:
-        """Replace the whole switch set for a (config, job). The lab sends every
-        row; empty-named rows are dropped. Requires the parent `job_routes` row to
-        exist (the Profile's model is set first)."""
-        s = db.session()
-        try:
-            s.query(db.JobRouteSwitch).filter(
-                db.JobRouteSwitch.config_id == config_id, db.JobRouteSwitch.job_id == job_id
-            ).delete()
-            for sw in switches:
-                if not (sw.flagName or "").strip():
-                    continue
-                s.add(db.JobRouteSwitch(
-                    config_id=config_id, job_id=job_id,
-                    flag_name=sw.flagName, flag_value=sw.flagValue or "", built_in=False,
-                ))
-            s.commit()
-        finally:
-            s.close()
-        return self.list(config_id, job_id)
-
-
 class FeatureSamplerStore:
     """Per-action long-tail sampler knobs (feature_sampler_params) — edited by the
     lab via make_feature_samplers_router, merged into the per-call extra at dispatch."""
@@ -577,204 +524,6 @@ class SwitchPresetStore:
                     s.delete(row)
             s.flush()
             seed.seed_default_switch_presets(s)
-            s.commit()
-        finally:
-            s.close()
-
-
-# ── jobs + feature→job map ────────────────────────────────────────────────────
-def _job_to_wire(r: db.Job) -> JobRow:
-    return JobRow(id=r.id, label=r.label, description=r.description, position=r.position, builtIn=r.built_in)
-
-
-def _feature_job_to_wire(r: db.FeatureJob) -> FeatureJobRow:
-    return FeatureJobRow(featureKey=r.feature_key, jobId=r.job_id, builtIn=r.built_in)
-
-
-class JobStore:
-    def list(self) -> list[JobRow]:
-        s = db.session()
-        try:
-            return [_job_to_wire(r) for r in s.query(db.Job).order_by(db.Job.position, db.Job.id).all()]
-        finally:
-            s.close()
-
-    def upsert(self, row: JobRow) -> JobRow:
-        s = db.session()
-        try:
-            existing = s.get(db.Job, row.id)
-            if existing is None:
-                existing = db.Job(id=row.id)
-                s.add(existing)
-            existing.label = row.label
-            existing.description = row.description
-            existing.position = row.position
-            existing.built_in = row.builtIn
-            s.commit()
-            return _job_to_wire(existing)
-        finally:
-            s.close()
-
-    def delete(self, job_id: str) -> None:
-        s = db.session()
-        try:
-            existing = s.get(db.Job, job_id)
-            if existing is not None:
-                s.delete(existing)
-                s.commit()
-        finally:
-            s.close()
-
-    def reset_to_factory(self) -> None:
-        from . import seed
-        s = db.session()
-        try:
-            for j in seed.DEFAULT_JOBS:
-                row = s.get(db.Job, j["id"])
-                if row is not None:
-                    s.delete(row)
-            s.flush()
-            seed.seed_default_jobs(s)
-            s.commit()
-        finally:
-            s.close()
-
-
-class FeatureJobStore:
-    def list(self) -> list[FeatureJobRow]:
-        s = db.session()
-        try:
-            return [_feature_job_to_wire(r) for r in s.query(db.FeatureJob).order_by(db.FeatureJob.feature_key).all()]
-        finally:
-            s.close()
-
-    def upsert(self, row: FeatureJobRow) -> FeatureJobRow:
-        s = db.session()
-        try:
-            existing = s.get(db.FeatureJob, row.featureKey)
-            if existing is None:
-                existing = db.FeatureJob(feature_key=row.featureKey)
-                s.add(existing)
-            existing.job_id = row.jobId
-            existing.built_in = False
-            s.commit()
-            return _feature_job_to_wire(existing)
-        finally:
-            s.close()
-
-    def delete(self, feature_key: str) -> None:
-        s = db.session()
-        try:
-            existing = s.get(db.FeatureJob, feature_key)
-            if existing is not None:
-                s.delete(existing)
-                s.commit()
-        finally:
-            s.close()
-
-    def reset_to_factory(self) -> None:
-        from . import seed
-        s = db.session()
-        try:
-            for fj in seed.app_feature_jobs():
-                row = s.get(db.FeatureJob, fj["feature_key"])
-                if row is not None:
-                    s.delete(row)
-            s.flush()
-            seed.seed_default_feature_jobs(s)
-            s.commit()
-        finally:
-            s.close()
-
-
-# ── singletons (the routers take a getter; one instance each) ─────────────────
-def _job_preset_to_wire(s, r) -> JobPreset:
-    switches = [
-        JobPresetSwitchRow(flagName=sw.flag_name, flagValue=sw.flag_value)
-        for sw in s.query(db.JobPresetSwitch)
-        .filter(db.JobPresetSwitch.preset_id == r.id)
-        .order_by(db.JobPresetSwitch.flag_name)
-        .all()
-    ]
-    return JobPreset(
-        id=r.id, jobId=r.job_id, name=r.name, providerId=r.provider_id, model=r.model,
-        switches=switches, builtIn=r.built_in,
-    )
-
-
-class JobPresetStore:
-    """Named saved (job + model + switches) configs; `promote` applies one to the
-    live job route + its job_route_switches."""
-
-    def list_presets(self) -> list[JobPreset]:
-        s = db.session()
-        try:
-            rows = s.query(db.JobPreset).order_by(db.JobPreset.job_id, db.JobPreset.position, db.JobPreset.id).all()
-            return [_job_preset_to_wire(s, r) for r in rows]
-        finally:
-            s.close()
-
-    def save_preset(self, preset: JobPreset) -> JobPreset:
-        s = db.session()
-        try:
-            pid = preset.id or uuid.uuid4().hex[:12]
-            row = s.get(db.JobPreset, pid)
-            if row is None:
-                pos = s.query(db.JobPreset).filter(db.JobPreset.job_id == preset.jobId).count()
-                row = db.JobPreset(id=pid, position=pos)
-                s.add(row)
-            row.job_id = preset.jobId
-            row.name = preset.name
-            row.provider_id = preset.providerId
-            row.model = preset.model
-            row.built_in = False
-            s.flush()  # parent before its FK switch children
-            s.query(db.JobPresetSwitch).filter(db.JobPresetSwitch.preset_id == pid).delete()
-            for sw in preset.switches:
-                if (sw.flagName or "").strip():
-                    s.add(db.JobPresetSwitch(preset_id=pid, flag_name=sw.flagName.strip(), flag_value=sw.flagValue or ""))
-            s.commit()
-            return _job_preset_to_wire(s, row)
-        finally:
-            s.close()
-
-    def delete_preset(self, preset_id: str) -> None:
-        s = db.session()
-        try:
-            row = s.get(db.JobPreset, preset_id)
-            if row is not None:
-                s.delete(row)
-                s.commit()
-        finally:
-            s.close()
-
-    def promote(self, preset_id: str) -> None:
-        """Write the preset's model into the live `job_routes` row + replace that
-        job's `job_route_switches` with the preset's switches."""
-        s = db.session()
-        try:
-            p = s.get(db.JobPreset, preset_id)
-            if p is None:
-                return
-            row = s.get(db.RoutingConfigRow, _ACTIVE_ID)
-            if row is None:
-                row = db.RoutingConfigRow(id=_ACTIVE_ID, is_active=True, position=0)
-                s.add(row)
-                s.flush()
-            jr = s.get(db.JobRoute, (_ACTIVE_ID, p.job_id))
-            if jr is None:
-                jr = db.JobRoute(config_id=_ACTIVE_ID, job_id=p.job_id)
-                s.add(jr)
-            jr.provider_id = p.provider_id
-            jr.model = p.model
-            jr.quality = ""  # an explicit promoted model — the dial isn't driving it
-            s.flush()
-            s.query(db.JobRouteSwitch).filter(
-                db.JobRouteSwitch.config_id == _ACTIVE_ID, db.JobRouteSwitch.job_id == p.job_id
-            ).delete()
-            for sw in s.query(db.JobPresetSwitch).filter(db.JobPresetSwitch.preset_id == preset_id).all():
-                s.add(db.JobRouteSwitch(config_id=_ACTIVE_ID, job_id=p.job_id,
-                                        flag_name=sw.flag_name, flag_value=sw.flag_value))
             s.commit()
         finally:
             s.close()
@@ -911,7 +660,6 @@ class FeaturePresetRefStore:
 
 _provider = ProviderStore()
 _routing = RoutingStore()
-_job_preset = JobPresetStore()
 _feature_preset = FeaturePresetStore()
 _prompt = PromptStore()
 _recommendation = RecommendationStore()
@@ -1043,9 +791,6 @@ _model_catalog = ModelCatalogStore()
 _pricing = PricingStore()
 _runner_config = RunnerConfigStore()
 _switch_preset = SwitchPresetStore()
-_job = JobStore()
-_feature_job = FeatureJobStore()
-_job_route_switch = JobRouteSwitchStore()
 _feature_sampler = FeatureSamplerStore()
 _engine_preset = EnginePresetStore()
 _category_preset = CategoryPresetStore()
@@ -1054,7 +799,6 @@ _feature_preset_ref = FeaturePresetRefStore()
 
 def get_provider_store() -> ProviderStore: return _provider
 def get_routing_store() -> RoutingStore: return _routing
-def get_job_preset_store() -> JobPresetStore: return _job_preset
 def get_feature_preset_store() -> FeaturePresetStore: return _feature_preset
 def get_prompt_store() -> PromptStore: return _prompt
 def get_recommendation_store() -> RecommendationStore: return _recommendation
@@ -1062,9 +806,6 @@ def get_model_catalog_store() -> ModelCatalogStore: return _model_catalog
 def get_pricing_store() -> PricingStore: return _pricing
 def get_runner_config_store() -> RunnerConfigStore: return _runner_config
 def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
-def get_job_store() -> JobStore: return _job
-def get_feature_job_store() -> FeatureJobStore: return _feature_job
-def get_job_route_switch_store() -> JobRouteSwitchStore: return _job_route_switch
 def get_feature_sampler_store() -> FeatureSamplerStore: return _feature_sampler
 def get_engine_preset_store() -> EnginePresetStore: return _engine_preset
 def get_category_preset_store() -> CategoryPresetStore: return _category_preset

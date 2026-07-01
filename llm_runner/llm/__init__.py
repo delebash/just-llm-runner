@@ -3,7 +3,7 @@
 
 The whole AI backend spine — provider adapters (cloud + local), a
 registry, tier classification, a usage ledger, and feature dispatch with
-the precedence chain config → pin → role → tier → first. Hosts build an
+the precedence chain production-config → pin → prefer-local → first. Hosts build an
 `LLMConfig` from their own settings and call `dispatch.chat(config=..., feature=...)`.
 
 Lifted from JustVoice's `engines/llm/*` (2026-06-21 AI-stack convergence)
@@ -40,18 +40,6 @@ from .feature_presets_api import (
     FeaturePresetStore,
     make_feature_presets_router,
 )
-from .jobs_api import (
-    DEFAULT_JOB_ID,
-    FeatureJobRow,
-    FeatureJobStore,
-    FeatureJobsResponse,
-    JobRow,
-    JobStore,
-    JobsResponse,
-    make_feature_jobs_router,
-    make_jobs_router,
-    slugify_job_id,
-)
 from .model_catalog_api import (
     CatalogResponse,
     CatalogRow,
@@ -62,18 +50,11 @@ from .recommendations_api import (
     RecommendationRow,
     RecommendationStore,
     RecommendationsResponse,
-    SUGGESTED_JOBS,
     make_recommendations_router,
-)
-from .job_presets_api import (
-    JobPreset,
-    JobPresetStore,
-    make_job_presets_router,
 )
 from .routing_api import (
     FeatureCatalogEntry,
     FeaturePin,
-    JobTarget,
     RoutingConfig,
     RoutingDefaults,
     RoutingStore,
@@ -82,7 +63,6 @@ from .routing_api import (
 from .schema import (
     FeaturePinConfig,
     LLMConfig,
-    LLMJobTarget,
     LLMProviderConfig,
     ProductionConfig,
 )
@@ -98,7 +78,7 @@ __all__ = [
     # contract
     "LLMAdapter", "LLMMessage", "LLMResponse", "StreamDelta",
     # schema
-    "LLMConfig", "LLMProviderConfig", "FeaturePinConfig", "LLMJobTarget",
+    "LLMConfig", "LLMProviderConfig", "FeaturePinConfig",
     "ProductionConfig",
     # registry
     "LLMRegistry", "get_llm_registry", "construct", "load_from_configs",
@@ -108,21 +88,16 @@ __all__ = [
     # prompts (per-feature prompt store contract + render + router factories)
     "FeaturePromptRow", "PromptStore", "render",
     "make_prompt_router", "make_feature_router",
-    # routing (default + jobs + per-feature pins, behind a host store)
-    "RoutingStore", "RoutingConfig", "RoutingDefaults", "FeaturePin", "JobTarget",
+    # routing (default + per-feature pins, behind a host store)
+    "RoutingStore", "RoutingConfig", "RoutingDefaults", "FeaturePin",
     "FeatureCatalogEntry", "make_routing_router",
-    "JobPreset", "JobPresetStore", "make_job_presets_router",
-    # recommendations (per-model job-tag curation, behind a host store)
+    # recommendations (per-model taskKind-tag curation, behind a host store)
     "RecommendationRow", "RecommendationStore", "RecommendationsResponse",
-    "SUGGESTED_JOBS", "make_recommendations_router",
+    "make_recommendations_router",
     # model catalog (the DB-backed downloadable-model source of truth)
     "CatalogRow", "CatalogResponse", "ModelCatalogStore", "make_catalog_router",
     # feature presets (per-feature saved configs; active = production)
     "FeaturePreset", "FeaturePresetStore", "make_feature_presets_router",
-    # jobs (the editable routing-unit list) + feature→job map (replaces roles)
-    "JobRow", "JobStore", "JobsResponse", "make_jobs_router",
-    "FeatureJobRow", "FeatureJobStore", "FeatureJobsResponse", "make_feature_jobs_router",
-    "DEFAULT_JOB_ID", "slugify_job_id",
     # tiers
     "TIERS", "TierSpec", "classify", "spec_for",
     # usage

@@ -35,7 +35,6 @@ def wired():
     db.create_all(engine)
     seed.configure_app_seed(
         feature_catalog=[FeatureCatalogEntry(key="chat", label="Chat", category="Chat")],
-        feature_jobs=[{"feature_key": "chat", "job_id": "chat"}],
         feature_prompts={},
     )
     seed.seed_llm()

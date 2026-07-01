@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Layered switch resolver (design §6.5) — the model-level merge:
 base preset → type preset (moe|dense) → mtp preset (only if mtp and not moe) →
-per-hardware. (Per-model overrides were dropped per D9.) Plus the Profile-level
-resolver (job_route_switches + hardware). Pure data/logic; no GPU needed."""
+per-hardware. (Per-model overrides were dropped per D9.) Pure data/logic; no GPU
+needed."""
 
 import sqlalchemy as sa
 from sqlalchemy.orm import sessionmaker
@@ -58,40 +58,3 @@ def test_unknown_model_empty(configured):
         "flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true",
         "context_shift": "true", "cache_reuse": "256",
     }  # unknown model → treated as dense, base preset only (incl. snappy-edit defaults)
-
-
-def _seed_profile(s, job_id="analysis", config_id="active"):
-    # FK chain: job_route_switches -> job_routes -> routing_configs. Seed parents.
-    if s.get(db.RoutingConfigRow, config_id) is None:
-        s.add(db.RoutingConfigRow(id=config_id))
-    if s.get(db.JobRoute, (config_id, job_id)) is None:
-        s.add(db.JobRoute(config_id=config_id, job_id=job_id))
-    s.flush()
-
-
-def test_profile_switches_frozen_plus_hardware(configured):
-    # A Profile's switches = its OWN frozen job_route_switches (no type re-layer),
-    # then this machine's hardware tune on top (hardware wins).
-    s = db.session()
-    _seed_profile(s, "analysis")
-    s.add(db.JobRouteSwitch(config_id="active", job_id="analysis", flag_name="ctx_len", flag_value="32768"))
-    s.add(db.JobRouteSwitch(config_id="active", job_id="analysis", flag_name="flash_attn", flag_value="on"))
-    s.add(db.HardwareSwitch(hw_key="rtx3060", flag_name="flash_attn", flag_value="off"))
-    s.add(db.HardwareSwitch(hw_key="rtx3060", flag_name="n_cpu_moe", flag_value="20"))
-    s.commit()
-    s.close()
-    # No hardware key → just the Profile's frozen switches (no base/type re-layer).
-    assert switch_resolve.resolve_profile_switches("analysis") == {
-        "ctx_len": "32768", "flash_attn": "on",
-    }
-    # With a hardware key → the per-GPU tune layers on top (override wins).
-    sw = switch_resolve.resolve_profile_switches("analysis", hw_key="rtx3060")
-    assert sw["ctx_len"] == "32768"
-    assert sw["flash_attn"] == "off"   # hardware override wins
-    assert sw["n_cpu_moe"] == "20"
-
-
-def test_profile_switches_empty_when_unset(configured):
-    # A Profile with no stored switches → {} (load path falls back to the
-    # model-level pre-fill resolver during the migration).
-    assert switch_resolve.resolve_profile_switches("chat") == {}

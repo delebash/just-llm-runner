@@ -15,24 +15,19 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from ..runner.hardware import detect as _detect_hardware
 from . import db, seed, stores, switch_resolve
 from .api import router as shared_api_router
 from .config_builder import build_llm_config
 from .feature_presets_api import make_feature_presets_router
 from .feature_samplers_api import make_feature_samplers_router
 from .presets_api import make_presets_router
-from .job_switches_api import make_job_switches_router
-from .jobs_api import make_feature_jobs_router, make_jobs_router
 from .knob_catalog_api import make_knob_catalog_router
 from .model_catalog_api import make_catalog_router
 from .pricing_api import make_pricing_router
 from .runner_config_api import make_runner_config_router
 from .prompts import make_feature_router, make_prompt_router
 from .provider_api import make_provider_router
-from .quality_api import make_quality_router
 from .recommendations_api import make_recommendations_router
-from .job_presets_api import make_job_presets_router
 from .routing_api import make_routing_router
 from .switch_presets_api import make_switch_presets_router
 from .usage import set_ledger
@@ -46,7 +41,6 @@ def install_llm(
     session_factory,
     feature_catalog,
     feature_prompts,
-    feature_jobs,
     prefer_local_features: Iterable[str] | None = None,
     runner_catalog: bool = True,
 ) -> None:
@@ -56,7 +50,7 @@ def install_llm(
     db.create_all(engine)
     # 2. register the app's feature DATA (the ONLY per-app inputs).
     seed.configure_app_seed(
-        feature_catalog=feature_catalog, feature_jobs=feature_jobs, feature_prompts=feature_prompts
+        feature_catalog=feature_catalog, feature_prompts=feature_prompts
     )
     # 3. DB-backed usage ledger (survives restarts).
     set_ledger(DbUsageSink())
@@ -79,7 +73,6 @@ def install_llm(
     app.include_router(make_prompt_router(stores.get_prompt_store, feature_prompts))
     app.include_router(make_feature_router(stores.get_prompt_store, _config, category_of=_category_of))
     app.include_router(make_routing_router(stores.get_routing_store, seed.app_feature_catalog))
-    app.include_router(make_job_presets_router(stores.get_job_preset_store))
     app.include_router(make_feature_presets_router(stores.get_feature_preset_store))
     app.include_router(make_presets_router(
         stores.get_engine_preset_store, stores.get_category_preset_store,
@@ -89,21 +82,13 @@ def install_llm(
     ))
     app.include_router(make_recommendations_router(stores.get_recommendation_store))
     app.include_router(make_knob_catalog_router(stores.list_knob_catalog))
-    app.include_router(make_quality_router(
-        stores.get_model_catalog_store, stores.get_recommendation_store, detect_fn=_detect_hardware,
-    ))
     app.include_router(make_catalog_router(
         stores.get_model_catalog_store, resolve_switches=switch_resolve.resolve_model_switches,
     ))
     app.include_router(make_pricing_router(stores.get_pricing_store))
     app.include_router(make_runner_config_router(stores.get_runner_config_store))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
-    app.include_router(make_job_switches_router(
-        stores.get_job_route_switch_store, prefill=switch_resolve.prefill_job_switches
-    ))
     app.include_router(make_feature_samplers_router(stores.get_feature_sampler_store))
-    app.include_router(make_jobs_router(stores.get_job_store))
-    app.include_router(make_feature_jobs_router(stores.get_feature_job_store))
     # 6. point the bundled runner's catalog/switches at the shared DB.
     if runner_catalog:
         _wire_runner_catalog()
@@ -135,13 +120,6 @@ def _wire_runner_catalog() -> None:
 
         return resolve_model_switches(model_id)
 
-    def profile_switches_fn(job_id: str):
-        # A Profile's frozen switches (job_route_switches), the D9 survivor — read
-        # at load when the runner is given a job context (the load-path reader).
-        from .switch_resolve import resolve_profile_switches
-
-        return resolve_profile_switches(job_id)
-
     def identify_fn(model_id: str, gguf_path):
         # After a model downloads, read its GGUF header → set model_catalog.type
         # (moe|dense) from expert_count, so a user-added model's switch presets are
@@ -151,6 +129,6 @@ def _wire_runner_catalog() -> None:
         detect_and_store_model_type(model_id, gguf_path)
 
     configure_service(
-        catalog_fn=catalog_fn, switches_fn=switches_fn, profile_switches_fn=profile_switches_fn,
+        catalog_fn=catalog_fn, switches_fn=switches_fn,
         identify_fn=identify_fn, config_fn=stores.build_runner_config,
     )

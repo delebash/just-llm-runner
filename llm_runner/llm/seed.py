@@ -2,10 +2,10 @@
 """Shared LLM seed data + seeders + the per-app registration hook.
 
 SHARED seed data (identical for every app, shipped here): default providers, the
-downloadable model catalog, per-model switches, recommendations, the job set, and
-the live routing row. PER-APP seed data (the only thing that differs between apps)
-is registered by the host via `configure_app_seed`: its feature catalog, its
-feature→job map, and its feature prompts. `seed_llm` runs every seeder; stores'
+downloadable model catalog, per-model switches, recommendations, and the live
+routing row. PER-APP seed data (the only thing that differs between apps) is
+registered by the host via `configure_app_seed`: its feature catalog and its
+feature prompts. `seed_llm` runs every seeder; stores'
 `reset_to_factory` re-run individual seeders. All seeders merge-by-key and never
 clobber user edits (the `seed_default_providers` pattern).
 """
@@ -16,17 +16,15 @@ from . import db
 from ..runner.config import DEFAULT_BINARIES, DEFAULT_PINNED_BUILD, DEFAULT_SAFETY_MARGIN_MB
 
 # ── per-app registration (the ONLY per-app inputs) ────────────────────────────
-_APP: dict = {"feature_catalog": [], "feature_jobs": [], "feature_prompts": {}}
+_APP: dict = {"feature_catalog": [], "feature_prompts": {}}
 
 
-def configure_app_seed(*, feature_catalog=None, feature_jobs=None, feature_prompts=None) -> None:
+def configure_app_seed(*, feature_catalog=None, feature_prompts=None) -> None:
     """The host registers its feature DATA once at boot (install_llm does this):
-    `feature_catalog` (list of FeatureCatalogEntry), `feature_jobs` (list of
-    {feature_key, job_id}), `feature_prompts` (dict key→spec)."""
+    `feature_catalog` (list of FeatureCatalogEntry), `feature_prompts` (dict
+    key→spec)."""
     if feature_catalog is not None:
         _APP["feature_catalog"] = list(feature_catalog)
-    if feature_jobs is not None:
-        _APP["feature_jobs"] = list(feature_jobs)
     if feature_prompts is not None:
         _APP["feature_prompts"] = dict(feature_prompts)
 
@@ -34,10 +32,6 @@ def configure_app_seed(*, feature_catalog=None, feature_jobs=None, feature_promp
 def app_feature_catalog() -> list:
     """The host's feature catalog (FeatureCatalogEntry list) — get_catalog for the routing router."""
     return _APP["feature_catalog"]
-
-
-def app_feature_jobs() -> list[dict]:
-    return _APP["feature_jobs"]
 
 
 def app_feature_prompts() -> dict:
@@ -118,8 +112,7 @@ DEFAULT_CATALOG: list[dict] = [
      "min_vram_mb": 1000, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 10},
 ]
 
-# (Per-model switch overrides — the `model_switches` table — were DROPPED per the
-# D9 ruling: switches belong to the Profile/job [`job_route_switches`], and the
+# (Per-model switch overrides — the `model_switches` table — were DROPPED: the
 # MoE/MTP rules live ONCE on the type presets below.)
 
 # Capability/type switch presets — the switch BASE layer (design §6.5), the
@@ -161,17 +154,6 @@ DEFAULT_RECOMMENDATIONS: list[dict] = [
     {"model_id": "qwen3.6-27b-mtp-q4_k_m", "job": "analysis", "rank": 10, "why": "27B (MTP) — best local analysis accuracy at the high tier (~20 GB+ VRAM)."},
     {"model_id": "qwen3.6-35b-a3b-mtp", "job": "analysis", "rank": 15, "why": "35B-A3B MoE — capable analysis; runs at floor (8 GB VRAM + 32 GB RAM) via offload."},
     {"model_id": "qwen3-14b-q4_k_m", "job": "analysis", "rank": 20, "why": "14B dense — solid analysis that fits ≥11 GB VRAM."},
-]
-
-DEFAULT_JOBS: list[dict] = [
-    {"id": "chat", "label": "Chat",
-     "description": "Conversational Q&A over your content — fast, grounded answers.", "position": 0},
-    {"id": "prose", "label": "Prose",
-     "description": "Creative drafting and rewriting — text, descriptions, ideas, marketing copy.", "position": 1},
-    {"id": "extraction", "label": "Extraction",
-     "description": "Pulling structured facts out of the text — entities, beats, outlines, relationships.", "position": 2},
-    {"id": "analysis", "label": "Analysis",
-     "description": "Careful reasoning and critique — plot holes, structure, reactions, drift.", "position": 3},
 ]
 
 
@@ -431,18 +413,6 @@ def seed_default_knobs(s) -> int:
     return added
 
 
-def seed_default_jobs(s) -> int:
-    existing = {r.id for r in s.query(db.Job.id).all()}
-    added = 0
-    for j in DEFAULT_JOBS:
-        if j["id"] in existing:
-            continue
-        s.add(db.Job(id=j["id"], label=str(j.get("label") or ""), description=str(j.get("description") or ""),
-                     position=int(j.get("position") or 0), built_in=True))
-        added += 1
-    return added
-
-
 def seed_default_routing(s) -> bool:
     """Seed the live routing row (id='active') if missing — default LLM + embedding
     point at the local OpenAI-compatible provider (free local inference)."""
@@ -451,18 +421,6 @@ def seed_default_routing(s) -> bool:
     s.add(db.RoutingConfigRow(id="active", is_active=True, position=0,
                               default_llm_id="openai-compat-local", default_embedding_id="openai-compat-local"))
     return True
-
-
-def seed_default_feature_jobs(s) -> int:
-    """Seed the host's registered feature→job map (per-app data)."""
-    existing = {r.feature_key for r in s.query(db.FeatureJob.feature_key).all()}
-    added = 0
-    for fj in app_feature_jobs():
-        if fj["feature_key"] in existing:
-            continue
-        s.add(db.FeatureJob(feature_key=fj["feature_key"], job_id=str(fj.get("job_id") or ""), built_in=True))
-        added += 1
-    return added
 
 
 def seed_default_feature_prompts(s) -> int:
@@ -500,8 +458,6 @@ def seed_llm(s=None) -> None:
         seed_default_runner_binaries(s)
         seed_default_runner_settings(s)
         seed_default_knobs(s)
-        seed_default_jobs(s)
-        seed_default_feature_jobs(s)
         seed_default_feature_prompts(s)
         s.commit()
     finally:

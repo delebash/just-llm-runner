@@ -304,6 +304,18 @@ def seed_default_providers(s) -> int:
     return added
 
 
+# Use-limited licenses (not free for unrestricted/commercial use) → the ⚠ badge.
+# This keyword match runs ONCE at seed time to populate the per-model `use_limited`
+# flag, which is then DB-stored + editable per-model — so there is NO hardcoded
+# runtime license rule (the old client-side regex is gone).
+_USE_LIMITED_TERMS = ("community", "research", "non-commercial", "noncommercial", "llama", "gemma", "cc-by-nc")
+
+
+def _use_limited(license_id: str) -> bool:
+    lic = (license_id or "").lower()
+    return any(t in lic for t in _USE_LIMITED_TERMS)
+
+
 def seed_default_catalog(s) -> int:
     existing = {r.id for r in s.query(db.ModelCatalog.id).all()}
     added = 0
@@ -317,6 +329,7 @@ def seed_default_catalog(s) -> int:
             mtp=bool(c.get("mtp") or False), type=str(c.get("type") or "dense"),
             min_vram_mb=c.get("min_vram_mb"), min_ram_mb=c.get("min_ram_mb"),
             tier=str(c.get("tier") or "mid"), license=str(c.get("license") or ""),
+            use_limited=_use_limited(str(c.get("license") or "")),
             built_in=True, position=int(c.get("position") or 0),
         ))
         added += 1

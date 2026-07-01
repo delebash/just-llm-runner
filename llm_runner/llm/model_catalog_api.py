@@ -44,6 +44,7 @@ class CatalogRow(BaseModel):
     minRamMb: int | None = None
     tier: str = "mid"   # cpu | low-vram-moe | mid | high | high-ram
     license: str = ""   # SPDX id (Apache-2.0 | MIT | Llama-Community | …); "" = unknown
+    useLimited: bool = False  # not free for unrestricted/commercial use → the ⚠ badge (DB-stored)
     position: int = 0
     builtIn: bool = False
 

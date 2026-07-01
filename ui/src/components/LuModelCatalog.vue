@@ -18,6 +18,7 @@ import KnobGrid from "./KnobGrid.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiSelect from "../common/components/UiSelect.vue";
+import UiCheckbox from "../common/components/UiCheckbox.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 
 const data = ref(null);
@@ -55,15 +56,20 @@ const catalogRows = ref([]);
 const licenseById = computed(() =>
   Object.fromEntries(catalogRows.value.map((r) => [r.id, r.license || ""])),
 );
+// Use-limited is now a DB column (`use_limited`, seeded from the license + editable
+// per-model in the form) — the old client-side license regex is gone. Non-free
+// licenses (Llama Community, *-Research, non-commercial, Gemma terms) get the ⚠ chip;
+// they can't be a default and need care for a commercial ship (the catalog only
+// LISTS them — llama.cpp downloads the weights on the box).
+const useLimitedById = computed(() =>
+  Object.fromEntries(catalogRows.value.map((r) => [r.id, !!r.useLimited])),
+);
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
-// Use-limited / non-free licenses (Llama Community, *-Research, non-commercial,
-// Gemma terms) get a warning chip — they can't be a default and need care for a
-// commercial ship; the catalog only LISTS them (llama.cpp downloads on the box).
-function licenseWarn(lic) { return /community|research|non-?commercial|\bllama\b|\bgemma\b|cc-by-nc/i.test(lic || ""); }
+function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
 function licenseTitle(m) {
   const lic = licenseOf(m);
-  return licenseWarn(lic)
-    ? `${lic} — use-limited: not free for unrestricted/commercial use, never a default. The catalog only lists it; the weights download on your machine.`
+  return useLimitedOf(m)
+    ? `${lic || "license"} — use-limited: not free for unrestricted/commercial use, never a default. The catalog only lists it; the weights download on your machine.`
     : (lic ? `${lic} — permissive (free to use).` : "license unknown");
 }
 async function loadCatalogMeta() {
@@ -246,7 +252,8 @@ const saveErr = ref("");
 
 function blankModel() {
   return { id: "", name: "", hfRepo: "", quant: "", type: "dense", totalParams: "",
-    activeParams: "", mtp: false, minVramMb: null, minRamMb: null, tier: "mid", position: 0 };
+    activeParams: "", mtp: false, minVramMb: null, minRamMb: null, tier: "mid",
+    license: "", useLimited: false, position: 0 };
 }
 function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; }
 async function startEdit(m) {
@@ -337,8 +344,8 @@ onUnmounted(stopPoll);
             <td class="lu-mn">{{ m.name }}<div class="lu-mid">{{ m.id }}</div></td>
             <td class="lu-mm">{{ sizeLabel(m) }}</td>
             <td>
-              <span v-if="licenseOf(m)" class="lu-lic" :class="{ 'lu-lic--warn': licenseWarn(licenseOf(m)) }" :title="licenseTitle(m)">
-                <template v-if="licenseWarn(licenseOf(m))">⚠ </template>{{ licenseOf(m) }}
+              <span v-if="licenseOf(m)" class="lu-lic" :class="{ 'lu-lic--warn': useLimitedOf(m) }" :title="licenseTitle(m)">
+                <template v-if="useLimitedOf(m)">⚠ </template>{{ licenseOf(m) }}
               </span>
               <span v-else class="lu-muted">—</span>
             </td>
@@ -401,6 +408,9 @@ onUnmounted(stopPoll);
           <label class="lu-mm-l">Min VRAM (MB)<UiInput v-model.number="editing.minVramMb" type="number" placeholder="11000" /></label>
           <label class="lu-mm-l">Min RAM (MB)<UiInput v-model.number="editing.minRamMb" type="number" placeholder="14000" /></label>
         </div>
+
+        <label class="lu-mm-l">License <span class="lu-muted">— SPDX id (Apache-2.0 · MIT · Llama-Community · …)</span><UiInput v-model="editing.license" placeholder="Apache-2.0" /></label>
+        <div class="lu-mm-l"><UiCheckbox v-model="editing.useLimited"><span>Use-limited license <span class="lu-muted">— not free for unrestricted/commercial use; shows the ⚠ badge</span></span></UiCheckbox></div>
 
         <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
       </div>

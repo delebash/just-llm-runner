@@ -94,6 +94,10 @@ class ModelCatalog(LlmBase):
     # ship-license gate — a use-limited license (Llama, Mistral-Research) is
     # listed but never a default. Empty = unknown.
     license = Column(String, nullable=False, default="")
+    # Use-limited flag (Llama-Community, *-Research, non-commercial, …): DB-stored so
+    # it is editable per-model; seeded from `license` at seed time (no hardcoded
+    # runtime license rule — the keyword match is a one-time seed helper).
+    use_limited = Column(Boolean, nullable=False, default=False)
     built_in = Column(Boolean, nullable=False, default=False)
     position = Column(Integer, nullable=False, default=0)
 

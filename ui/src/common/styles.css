@@ -106,7 +106,12 @@ button:not(.ui-btn) { color: inherit; }
 .ui-w-full  { max-width: none; }
 
 /* ── Checkbox ──────────────────────────────────────────────── */
-.ui-checkbox { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 13px; color: var(--ink); }
+/* position: relative ANCHORS the visually-hidden input below to its own label.
+   Without it, the position:absolute input is anchored to a distant ancestor and
+   strands far from its visible box when the list is scrolled; clicking then
+   focuses that stranded input and the browser scrolls the container to reveal it
+   — a large layout lurch (#67, measured ~1263px). Keep the parent positioned. */
+.ui-checkbox { position: relative; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 13px; color: var(--ink); }
 .ui-checkbox-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .ui-checkbox-box { flex: 0 0 auto; width: 16px; height: 16px; display: inline-grid; place-items: center; border: 1px solid var(--border-strong, var(--border)); border-radius: 4px; background: var(--surface); color: transparent; transition: background-color .12s, border-color .12s, color .12s, box-shadow .12s; }
 .ui-checkbox-tick { width: 12px; height: 12px; }

@@ -23,11 +23,42 @@
 >
 > **⚠️ Correction — the 3-column change did NOT fix the reported layout shift.** An earlier draft of this banner
 > claimed it did (scrollbar-on-overflow theory). That theory is DISPROVEN by a scroll-chain probe (2026-06-30
-> cont.): the ONLY scroller in the AI feature area is `.lu-fw-edit`, it is ALWAYS scrolling (≈1492px content >
-> ≈712px viewport) with `scrollbar-gutter:stable` already applied, the page never scrolls, and toggling a
-> checkbox moves nothing in headless (no scrollbar appears/disappears). The shift cannot be reproduced in
-> headless Chromium (overlay scrollbars) and appears Windows/WebView2-specific — it is UNRESOLVED, blocked on a
-> user screen recording / same-scroll before-after (tracker #67). No further guess will be shipped.
+> cont.): the ONLY page-area scroller is `.lu-fw-edit`, it is ALWAYS scrolling (≈1492px content > ≈712px
+> viewport) with `scrollbar-gutter:stable` already applied, the page never scrolls, and toggling a checkbox
+> moves nothing in headless when the toggle is done PROGRAMMATICALLY. It was UNRESOLVED at that point — see the
+> ✅ RESOLVED block below (2026-07-01), which found the true cause once the user narrowed it to the checkbox and
+> the probe was corrected to actually FOCUS the input (the missing ingredient).
+>
+> **✅ #67 RESOLVED (2026-07-01) — the checkbox-click shift was a focus-scroll on the visually-hidden
+> `.ui-checkbox` input; fixed with one line in the shared kit.** The user narrowed it on their WebView2 machine:
+> removing the `ui-checkbox-input` class (which reverts the custom checkbox to a plain native in-flow one) made
+> the shift vanish; re-adding it brought it back — isolating the cause to the visually-hidden native input the
+> custom checkbox uses. Root cause, then PROVEN by measurement in headless (the earlier probes MISSED it because
+> they set `input.checked` programmatically and fired `change`, which never FOCUSES the input — so the
+> focus-scroll path never ran): `.ui-checkbox-input` is `position: absolute` (`common/styles.css:115`) but its
+> label `.ui-checkbox` was NOT `position: relative` (`:114`), so the absolute input was anchored to a distant
+> ancestor. When the samplers/switches list is scrolled to reach a checkbox, the VISIBLE box scrolls but the
+> hidden input stays STRANDED far away — measured **1271px** below its own box. Clicking the label focuses that
+> stranded input, and the browser runs `scrollIntoView` to reveal it, lurching the `.lu-fw-edit` / `.pane-card`
+> scroller by **~1263px** — the shift. "Worse in Advanced" = more expanded content = a larger stranded gap. A
+> pure `input.focus()` (no toggle, no Playwright auto-scroll) scrolling `.pane-card` `0 → 1352` cleanly isolated
+> the mechanism. **Fix:** add `position: relative` to `.ui-checkbox` (`common/styles.css:114`) so the hidden
+> input is anchored to its own label and moves WITH the visible box (offset 1271px → 8px). A head-to-head
+> candidate test confirmed `position:relative` ALONE drops `boxMovedBy` from −1263 to **0**; belt-and-suspenders
+> variants (`+ top:0;left:0` → 3px; input-overlay → 0px) were measured too but the one-line fix fully suffices,
+> so the minimal change shipped. Verified against the REAL served CSS (no injected style): all 8 checkboxes across
+> the samplers grid AND the switches Advanced section show `boxMovedBy: 0` with `computedPosition=relative`; the
+> full `node scripts/headless-smoke.mjs` PASSED (every route + 5 AI sub-tabs + sampler-order/model-manager/recs
+> probes, 0 JS errors). This is a SHARED `@delebash/llm-ui` primitive, so the fix also lands in JustVoice (a pure
+> robustness win; JV not re-verified per the user's "not now"). It also unblocks tracker **#70** — the reorder
+> control's "same CSS problem" was this same shift (its toggle is the same `UiCheckbox`, now anchored). A code
+> comment on `.ui-checkbox` records WHY the `position: relative` must stay, so it is not removed as it looks
+> deletable. Sibling class-of-bug swept: `UiToggle` is safe (a `<button role="switch">`; focus lands on the
+> visible button and `.ui-toggle` is already `position: relative`), the `.ui-table-pager-size-label` is a
+> non-focusable sr-only `<label>`, and the legacy **`.lu-checkbox`** (`styles.css:50–68`) carries the identical
+> unanchored pattern BUT is dead CSS (zero references across `*.{js,ts,jsx,tsx,vue,html,mjs}` under `/home/user`)
+> — a pre-`Ui*`-convergence duplicate of `.ui-checkbox`, flagged for deletion in a dedup/cleanup pass (T3), not a
+> live bug. Shipped this session on branch `claude/admiring-galileo-il3q0o` (runner).
 >
 > **Custom-sampler persistence (2026-06-30 cont.):** verified WORKING — a named custom sampler added via "+ Add
 > custom sampler" persists through Save-as-preset (UI round-trip → `GET /v1/ai/engine-presets` returns it;

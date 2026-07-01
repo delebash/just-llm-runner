@@ -102,7 +102,7 @@ The master stamped my C1 ruling onto the verbatim **D11** entry (and E1) — so 
 4. **Per-model "Tune & measure"** = add a per-model save (reopen D9) or keep save-in-the-job only.
 5. **Promote** target split (rests on #3).
 6. **License flag** keyword list → move to DB? — ✅ **DONE (2026-07-01):** now a DB-seeded per-model `use_limited` boolean (seeded from the license by a one-time helper), editable in the model form; the runtime regex is gone.
-7. **Pricing** → move to DB + make editable?
+7. **Pricing** → move to DB + make editable? — ✅ **DONE (2026-07-01):** now a seeded `model_pricing` DB table (`price_for` reads it live; `DEFAULT_PRICING` is only the seed source + no-DB fallback), edited in a **Cloud pricing** editor in the Usage tab (CRUD `/v1/ai/pricing`).
 8. **Budget guard** = the soft 8192 default acceptable, or wire the real per-model window?
 
 ---

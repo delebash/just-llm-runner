@@ -15,6 +15,7 @@ import FeatureWorkbench from "./FeatureWorkbench.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import RecommendationsEditor from "./RecommendationsEditor.vue";
+import PricingEditor from "./PricingEditor.vue";
 import { request } from "../client.js";
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
@@ -265,6 +266,7 @@ onMounted(loadAll);
         </div>
       </template>
       <div v-else class="lu-card lu-usage-empty lu-muted">No usage recorded yet.</div>
+      <PricingEditor v-if="tab === 'usage'" />
     </section>
 
     <!-- ── App-contributed tab (host fills #app-tab; e.g. JW "Writing AI") ── -->

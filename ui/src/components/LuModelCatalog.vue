@@ -19,18 +19,38 @@ import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
+import UiProgress from "../common/components/UiProgress.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 
 const data = ref(null);
 const loading = ref(true);
 const error = ref("");
-const detail = ref(""); // live status detail while a model is loading
+const detail = ref(""); // live status phase while a model is loading
+const downloaded = ref(0); // live bytes of the in-flight load (for the progress bar)
+const total = ref(0); // total bytes of the current phase (0 = unknown → indeterminate)
+const loadErr = ref(""); // the actual server error message when a load fails
 const busy = ref(""); // model id whose action is in flight (button feedback)
 let timer = null;
 
 const models = computed(() => data.value?.models || []);
 const vramMb = computed(() => data.value?.vramMb || 0);
 const anyLoading = computed(() => models.value.some((m) => m.status === "loading"));
+const anyError = computed(() => models.value.some((m) => m.status === "error"));
+
+function fmtBytes(n) {
+  if (!n) return "";
+  const mb = n / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+// Phase + bytes caption shown above the download progress bar.
+const progressLabel = computed(() => {
+  const phase = detail.value || "loading…";
+  const cur = fmtBytes(downloaded.value);
+  const tot = fmtBytes(total.value);
+  if (cur && tot) return `${phase} · ${cur} / ${tot}`;
+  if (cur) return `${phase} · ${cur}`;
+  return phase;
+});
 
 // Knob-catalog metadata (C1) — labels/typed inputs for the Tune & measure grid.
 // Plane-1 (engine switches) only; mirrors RoutingByJob's switchCatalog.
@@ -98,16 +118,25 @@ async function refresh() {
   try {
     data.value = await request("/v1/llm-runner/models");
     error.value = "";
-    if (anyLoading.value) {
+    // Pull live status while a load is in flight (progress) OR after one failed
+    // (so we can surface the real error, not a bare "failed").
+    if (anyLoading.value || anyError.value) {
       try {
         const st = await request("/v1/llm-runner/status");
         detail.value = st.detail || (st.status === "downloading" ? "downloading…" : "starting…");
+        downloaded.value = Number(st.downloaded) || 0;
+        total.value = Number(st.total) || 0;
+        loadErr.value = st.error || "";
       } catch {
         detail.value = "";
       }
-      startPoll();
+      if (anyLoading.value) startPoll();
+      else stopPoll();
     } else {
       detail.value = "";
+      downloaded.value = 0;
+      total.value = 0;
+      loadErr.value = "";
       stopPoll();
     }
   } catch (e) {
@@ -354,8 +383,11 @@ onUnmounted(stopPoll);
             </td>
             <td>
               <span v-if="m.status === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
-              <span v-else-if="m.status === 'loading'" class="lu-pill lu-pill--load">{{ detail || "loading…" }}</span>
-              <span v-else-if="m.status === 'error'" class="lu-mstat lu-mstat--err">failed</span>
+              <UiProgress v-else-if="m.status === 'loading'" class="lu-mprog"
+                :value="downloaded" :max="total" :label="progressLabel" />
+              <span v-else-if="m.status === 'error'" class="lu-mstat lu-mstat--err" :title="loadErr || 'Load failed'">
+                {{ loadErr || "failed" }}
+              </span>
               <span v-else-if="m.status === 'disk'" class="lu-pill lu-pill--disk">on disk</span>
               <span v-else class="lu-mstat">not downloaded</span>
             </td>
@@ -505,7 +537,8 @@ onUnmounted(stopPoll);
 .lu-pill--load { background: var(--gold-soft, #f5edda); color: var(--gold, #b08a3e); border: 1px solid var(--gold-line, #e2d2b0); }
 .lu-pill--disk { background: var(--surface-3); color: var(--ink-2); border: 1px solid var(--border); }
 .lu-mstat { font-size: 11px; color: var(--muted); }
-.lu-mstat--err { color: var(--danger); }
+.lu-mstat--err { color: var(--danger); font-size: 11px; display: inline-block; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.lu-mprog { min-width: 150px; }
 
 .lu-mcat-foot { font-size: 11px; margin-top: 7px; }
 .lu-mlink { color: var(--accent-ink, var(--accent)); }

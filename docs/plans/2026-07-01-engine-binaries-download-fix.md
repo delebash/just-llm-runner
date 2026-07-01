@@ -127,3 +127,25 @@ Honest limits: the multi-gigabyte assets cannot be pulled through the dev proxy 
 401) and there is no GPU in this environment, so download correctness rests on the
 API-verified asset names plus the unpack/companion/progress/detection unit tests, with live
 GPU verification on the user's own machines.
+
+## UI (shared @delebash/llm-ui kit) + live verification
+The kit had no progress bar, so a reusable `common/components/UiProgress.vue` (determinate
+when a total is known, indeterminate sweep otherwise) was added; `LuModelCatalog.vue` now
+draws it during a download (phase + bytes + percent) and surfaces the actual `status.error`
+instead of the bare word "failed". A new `components/LuRunnerBinaries.vue` — a collapsible
+"Engine binaries (advanced)" panel mirroring the inline-editable `PricingEditor` pattern —
+edits every binary's asset/runtime URL + server-exe, the pinned build, and the VRAM margin,
+with a link + instructions to the llama.cpp releases page and a Reset-to-defaults action; it
+mounts under the Built-in provider form (`ProviderForm.vue`, `isBuiltin`). Both apps inherit
+it via the kit alias.
+
+Verified live in this environment against the JustWrite server on the updated runner (DB
+reset for the new column): `GET /v1/ai/engine-config` returns the 10 corrected rows with
+`windows/cuda12` → `llama-b9644-bin-win-cuda-12.4-x64.zip` + the `cudart-…` runtime companion
+(the exact bug, fixed); `npm run build:vite` compiles the kit; the headless smoke renders
+every route including the Providers tab with zero JS errors; a Playwright probe expanded the
+panel, edited `windows/cuda12`'s asset URL, saved (round-tripped through the PUT), and Reset
+restored the shipped URL; and a forced bad-URL load surfaced a real
+`404 Client Error: Not Found for url: …` in `status.error` (proving both the error surface and
+that a valid URL reaches GitHub through the proxy — i.e. the corrected URLs will download on
+the user's machine).

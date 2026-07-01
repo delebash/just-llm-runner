@@ -63,8 +63,9 @@
 > **Custom-sampler persistence (2026-06-30 cont.):** verified WORKING — a named custom sampler added via "+ Add
 > custom sampler" persists through Save-as-preset (UI round-trip → `GET /v1/ai/engine-presets` returns it;
 > backend also confirmed via direct curl). Per-feature sampler edits do NOT auto-persist (persistence rides
-> presets per §Reorder — no `/feature-samplers` PUT); auto-persist-on-edit would be a design change, raised with
-> the user. Verified: `build:vite` 0; `node scripts/headless-smoke.mjs` PASSED (all routes + AI sub-tabs +
+> presets per §Reorder — no `/feature-samplers` PUT); auto-persist-on-edit was raised with the user, who
+> **DECIDED (2026-07-01, "keep"): KEEP Save-as-preset, do NOT add per-feature auto-persist** (the PUT is dropped,
+> never built). Verified: `build:vite` 0; `node scripts/headless-smoke.mjs` PASSED (all routes + AI sub-tabs +
 > sampler-order probe green; the probe's `no-dup` selector was also corrected from a vacuous `.ui-kg-name input`
 > to `.ui-kg-name`). Full prose in `justwrite-app/MORNING_RECAP.md`.
 

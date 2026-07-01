@@ -102,6 +102,20 @@ class ModelCatalog(LlmBase):
     position = Column(Integer, nullable=False, default=0)
 
 
+# ── cloud pricing (the usage-ledger cost source; replaces the hardcoded
+#    pricing.py MODEL_PRICING dict — seeded + editable) ──────────────────────────
+class ModelPricing(LlmBase):
+    """Per-1M-token USD price for a cloud model id (input, output). Seeded from
+    `pricing.DEFAULT_PRICING`, edited via `/v1/ai/pricing`, read by
+    `pricing.price_for`. Local models have no row → cost 0."""
+
+    __tablename__ = "model_pricing"
+
+    model_id = Column(String, primary_key=True)  # lowercased cloud model id
+    input_per_m = Column(Float, nullable=False, default=0.0)
+    output_per_m = Column(Float, nullable=False, default=0.0)
+
+
 # ── capability/type switch presets (the switch BASE layer; replaces the
 #    hardcoded runner-manifest `flagPresets`) — design §6.5 ──────────────────────
 class SwitchPreset(LlmBase):

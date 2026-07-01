@@ -336,6 +336,20 @@ def seed_default_catalog(s) -> int:
     return added
 
 
+def seed_default_pricing(s) -> int:
+    """Seed the cloud pricing table from DEFAULT_PRICING (merge-by-id — never
+    clobber user edits). Runtime pricing reads the DB (editable), not this dict."""
+    from .pricing import DEFAULT_PRICING
+    existing = {r.model_id for r in s.query(db.ModelPricing.model_id).all()}
+    added = 0
+    for mid, (inp, out) in DEFAULT_PRICING.items():
+        if mid in existing:
+            continue
+        s.add(db.ModelPricing(model_id=mid, input_per_m=float(inp), output_per_m=float(out)))
+        added += 1
+    return added
+
+
 def seed_default_switch_presets(s) -> int:
     """Seed the capability/type switch presets (base/moe/mtp) + their flag rows.
     Flushes each preset before its FK child rows (host session is autoflush=False
@@ -479,6 +493,7 @@ def seed_llm(s=None) -> None:
         seed_default_providers(s)
         seed_default_routing(s)
         seed_default_catalog(s)
+        seed_default_pricing(s)
         seed_default_switch_presets(s)
         seed_default_recommendations(s)
         seed_default_runner_binaries(s)

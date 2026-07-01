@@ -21,6 +21,7 @@ from .job_presets_api import JobPreset, JobPresetSwitchRow
 from .job_switches_api import JobSwitchRow
 from .jobs_api import FeatureJobRow, JobRow
 from .model_catalog_api import CatalogRow
+from .pricing_api import PricingRow
 from .prompts import FeaturePromptRow
 from .switch_presets_api import PresetSwitchRow, SwitchPresetRow
 from .presets_api import EnginePresetRow, PresetFlagRow
@@ -913,7 +914,56 @@ _job_preset = JobPresetStore()
 _feature_preset = FeaturePresetStore()
 _prompt = PromptStore()
 _recommendation = RecommendationStore()
+def _pricing_to_wire(r: db.ModelPricing) -> PricingRow:
+    return PricingRow(modelId=r.model_id, inputPerM=r.input_per_m, outputPerM=r.output_per_m)
+
+
+class PricingStore:
+    """Cloud model pricing (usage-ledger cost source). Replaces the hardcoded
+    pricing.py dict — seeded from DEFAULT_PRICING, editable via /v1/ai/pricing."""
+
+    def list(self) -> list[PricingRow]:
+        s = db.session()
+        try:
+            return [_pricing_to_wire(r) for r in s.query(db.ModelPricing).order_by(db.ModelPricing.model_id).all()]
+        finally:
+            s.close()
+
+    def as_map(self) -> dict[str, tuple[float, float]]:
+        s = db.session()
+        try:
+            return {r.model_id.lower(): (r.input_per_m, r.output_per_m) for r in s.query(db.ModelPricing).all()}
+        finally:
+            s.close()
+
+    def upsert(self, row: PricingRow) -> PricingRow:
+        s = db.session()
+        try:
+            mid = (row.modelId or "").strip().lower()
+            existing = s.get(db.ModelPricing, mid)
+            if existing is None:
+                existing = db.ModelPricing(model_id=mid)
+                s.add(existing)
+            existing.input_per_m = float(row.inputPerM or 0.0)
+            existing.output_per_m = float(row.outputPerM or 0.0)
+            s.commit()
+            return _pricing_to_wire(existing)
+        finally:
+            s.close()
+
+    def delete(self, model_id: str) -> None:
+        s = db.session()
+        try:
+            existing = s.get(db.ModelPricing, (model_id or "").strip().lower())
+            if existing is not None:
+                s.delete(existing)
+                s.commit()
+        finally:
+            s.close()
+
+
 _model_catalog = ModelCatalogStore()
+_pricing = PricingStore()
 _switch_preset = SwitchPresetStore()
 _job = JobStore()
 _feature_job = FeatureJobStore()
@@ -931,6 +981,7 @@ def get_feature_preset_store() -> FeaturePresetStore: return _feature_preset
 def get_prompt_store() -> PromptStore: return _prompt
 def get_recommendation_store() -> RecommendationStore: return _recommendation
 def get_model_catalog_store() -> ModelCatalogStore: return _model_catalog
+def get_pricing_store() -> PricingStore: return _pricing
 def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
 def get_job_store() -> JobStore: return _job
 def get_feature_job_store() -> FeatureJobStore: return _feature_job

@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Per-1M-token cloud pricing for the usage ledger — SHARED (every app prices the
-same models the same way). Local providers (Ollama / LM Studio / llama.cpp) have
-no entry, so `price_for` returns None and the cost is 0.
+"""Cloud pricing for the usage ledger. The AUTHORITATIVE source is the DB
+`model_pricing` table (seeded from `DEFAULT_PRICING` below, editable via
+`/v1/ai/pricing`); `DEFAULT_PRICING` is only the seed source + a no-DB fallback,
+so prices are operator-editable and not hardcoded at runtime. Local providers
+(Ollama / LM Studio / llama.cpp) have no entry → `price_for` returns None, cost 0.
 """
 
 from __future__ import annotations
 
-# (input, output) USD per 1,000,000 tokens.
-MODEL_PRICING: dict[str, tuple[float, float]] = {
+# (input, output) USD per 1,000,000 tokens. SEED SOURCE — the live values are the
+# `model_pricing` DB table (this dict seeds it + is the no-DB fallback only).
+DEFAULT_PRICING: dict[str, tuple[float, float]] = {
     # OpenAI
     "gpt-5": (1.25, 10.00),
     "gpt-5-mini": (0.25, 2.00),
@@ -28,15 +31,30 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
 }
 
 
+def _live_pricing() -> dict[str, tuple[float, float]]:
+    """The authoritative price map: the DB `model_pricing` table (seeded from
+    DEFAULT_PRICING, editable via /v1/ai/pricing). Falls back to DEFAULT_PRICING
+    only when the DB is unavailable/unseeded (bare tests, pre-seed boot)."""
+    try:
+        from . import stores
+
+        live = stores.get_pricing_store().as_map()
+        return live or DEFAULT_PRICING
+    except Exception:
+        return DEFAULT_PRICING
+
+
 def price_for(model_id: str | None) -> tuple[float, float] | None:
     """Exact (lowercased) match first, then prefix match (catches dated
-    suffixes like `-2026-01-01`). None when unknown (→ cost 0)."""
+    suffixes like `-2026-01-01`). None when unknown (→ cost 0). Reads the LIVE
+    DB pricing — DEFAULT_PRICING is only the seed source + no-DB fallback."""
     if not model_id:
         return None
     mid = str(model_id).lower()
-    if mid in MODEL_PRICING:
-        return MODEL_PRICING[mid]
-    for key, p in MODEL_PRICING.items():
+    pricing = _live_pricing()
+    if mid in pricing:
+        return pricing[mid]
+    for key, p in pricing.items():
         if mid.startswith(key):
             return p
     return None

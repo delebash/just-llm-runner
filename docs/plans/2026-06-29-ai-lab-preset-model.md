@@ -1,6 +1,6 @@
 # AI Lab + Preset Model — LOCKED design (2026-06-29)
 
-> ## ⛔ PARTIALLY SUPERSEDED (2026-07-01) — read `2026-07-01-taskkind-routing.md` for the live model
+> ## ⛔ PARTIALLY SUPERSEDED (2026-07-01, further evolved 2026-07-02) — the CURRENT AI-routing/preset model is `2026-07-02-preset-model-a-resets.md` (Plan A: the task owns the preset, 2-tier cascade); `2026-07-01-taskkind-routing.md` holds the routing-key rename history
 > The **Lab + preset ENTITIES** below still stand (a preset = model + frozen switches +
 > params; a feature carries a prompt and points at a preset; ready-made default presets).
 > What changed on 2026-07-01 (the "taskKind routing" refactor — live tracker:

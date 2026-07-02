@@ -1,5 +1,7 @@
 # PLAN v2 — Kill the job/category routing duality: `taskKind → preset` is the single routing model (2026-07-01)
 
+> **⚠ SUPERSEDED IN PART (2026-07-02).** The taskKind routing key, the `group`/`taskKind` split, and the seed all still stand — but the **preset cascade** described below evolved twice the next day: (1) taskKinds became user-creatable DB-backed **Tasks** (`docs/plans/2026-07-02-user-tasks-model.md`); (2) **Plan A** dropped the per-feature `FeaturePresetRef` override tier, so the cascade is now **2-tier — the task's preset → the global default** (`docs/plans/2026-07-02-preset-model-a-resets.md`, the current AI-routing model). Wherever this doc says `FeaturePresetRef(action override) → …`, read the 2-tier model.
+
 ## ⛔ LIVE STATUS — where this refactor stands (2026-07-01, kept current; the single source of truth)
 
 This section is the live tracker for the whole refactor and is kept in FULL PROSE per the user's rule (no bullets, no truncation, never summarized). Read it first; the rest of this doc is the original v2 plan + the v2.1 panel-fold, which remain the authoritative touch-list for the work still outstanding. Branch (all repos): `claude/admiring-galileo-il3q0o`; everything below is committed AND pushed to origin unless it says "uncommitted."
@@ -36,7 +38,7 @@ User (2026-07-01): "you can change design docs and anything outdated deprecate �
 ## Target model — ONE task taxonomy
 - **`group`** = feature nav grouping, display only ("Writing"/"Whole book"…). Zero routing meaning.
 - **`taskKind`** = the LLM-work shape (9, action-keyed): `prose.generate · prose.edit · ideation · creative.structured · summary.grounded · extract.structured · judge.scored · chat.grounded · chat.inVoice`. THE single routing key + recommendation tag + QuickSetup unit.
-- **`preset`** = engine config (model+switches+params). Cascade: `FeaturePresetRef`(action override) → `TaskKindPreset`(action's taskKind) → global default (`""` key).
+- **`preset`** = engine config (model+switches+params). Cascade (AS OF 2026-07-01; **2026-07-02 Plan A removed the `FeaturePresetRef` tier → now 2-tier**): `TaskKindPreset`(action's taskKind) → global default (`""` key). *(Originally `FeaturePresetRef`(action override) sat on top; dropped by Plan A.)*
 - Drop+reseed on every schema change (`POST /v1/data/reset`). Verify per phase: runner `ruff`+`pytest`; JW `ruff`+`pytest`+`build:vite`+`node scripts/headless-smoke.mjs`.
 
 ---

@@ -8,7 +8,8 @@
 > tested in the **Lab**; a **feature** is just a prompt that points at a preset; presets are assigned in bulk **by
 > category** (feature-override → category → global Default); the Fast/Balanced/Best dial is dropped and "job" is demoted to
 > the recommendation key only. **For anything about routing, the lab, switches, presets, or the AI sub-nav, read and plan
-> from the 2026-06-29 design doc, NOT the corresponding sections here.** This master remains authoritative ONLY for the
+> from the CURRENT model — `docs/plans/2026-07-02-preset-model-a-resets.md` (Plan A: the task owns the preset; 2-tier
+> cascade task→default; it caps the 2026-06-29 → 2026-07-01 → 2026-07-02-user-tasks chain) — NOT the sections here.** This master remains authoritative ONLY for the
 > parts the redesign does not touch: the model catalog, the Fit/VRAM engine, licensing/attribution, and the model
 > research (Part 3 / Part 4). Those parts are unchanged.
 

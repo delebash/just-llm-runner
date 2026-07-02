@@ -10,9 +10,10 @@
 // provider with a manifest + VRAM-fit + HF-GGUF download/spawn lifecycle
 // (/v1/llm-runner/*). Ollama / LM Studio manage their own models, so they keep
 // the Fetch-models combobox instead of this table (a documented divergence).
-import { computed, onUnmounted, ref } from "vue";
+import { computed, ref } from "vue";
 
 import { request } from "../client.js";
+import { usePoll } from "../common/composables/usePoll.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -30,12 +31,14 @@ const downloaded = ref(0); // live bytes of the in-flight load (for the progress
 const total = ref(0); // total bytes of the current phase (0 = unknown → indeterminate)
 const loadErr = ref(""); // the actual server error message when a load fails
 const busy = ref(""); // model id whose action is in flight (button feedback)
-let timer = null;
 
 const models = computed(() => data.value?.models || []);
 const vramMb = computed(() => data.value?.vramMb || 0);
 const anyLoading = computed(() => models.value.some((m) => m.status === "loading"));
 const anyError = computed(() => models.value.some((m) => m.status === "error"));
+// A model load now REQUIRES the engine installed (it no longer auto-downloads it);
+// surface that as a CTA pointing at the Local engine panel, not a raw error code.
+const needsEngine = computed(() => loadErr.value === "engine-not-installed");
 
 function fmtBytes(n) {
   if (!n) return "";
@@ -146,16 +149,7 @@ async function refresh() {
   }
 }
 
-function startPoll() {
-  if (timer) return;
-  timer = setInterval(refresh, 1500);
-}
-function stopPoll() {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
-  }
-}
+const { start: startPoll, stop: stopPoll } = usePoll(refresh, 1500);
 
 async function load(m) {
   busy.value = m.id;
@@ -347,7 +341,6 @@ async function resetCatalog() {
 refresh();
 loadKnobCatalog();
 loadCatalogMeta();
-onUnmounted(stopPoll);
 </script>
 
 <template>
@@ -385,8 +378,9 @@ onUnmounted(stopPoll);
               <span v-if="m.status === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
               <UiProgress v-else-if="m.status === 'loading'" class="lu-mprog"
                 :value="downloaded" :max="total" :label="progressLabel" />
-              <span v-else-if="m.status === 'error'" class="lu-mstat lu-mstat--err" :title="loadErr || 'Load failed'">
-                {{ loadErr || "failed" }}
+              <span v-else-if="m.status === 'error'" class="lu-mstat lu-mstat--err"
+                :title="needsEngine ? 'Install the engine first — see Local engine above' : (loadErr || 'Load failed')">
+                {{ needsEngine ? "install engine ↑" : (loadErr || "failed") }}
               </span>
               <span v-else-if="m.status === 'disk'" class="lu-pill lu-pill--disk">on disk</span>
               <span v-else class="lu-mstat">not downloaded</span>

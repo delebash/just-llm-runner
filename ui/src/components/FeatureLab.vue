@@ -29,7 +29,7 @@ const props = defineProps({
   productionPresetId: { type: String, default: "" },
   pin: { type: Object, default: null },         // the action's routing pin (parent-owned)
 });
-const emit = defineEmits(["save-as", "delete-preset", "use-production", "pin-change"]);
+const emit = defineEmits(["use-production", "presets-changed"]);
 
 const draft = ref(null);       // editable copy of the prompt (ephemeral test edits)
 const samplerRows = ref([]);   // the action's long-tail samplers (Plane-2)
@@ -60,43 +60,54 @@ function humanizeVar(k) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : k;
 }
 
+// Save-as / delete a tested column as an ENGINE preset. FeatureLab owns the
+// /v1/ai/engine-presets calls (one source for both hosts) and emits the refreshed
+// list; the parent updates its `presets` ref. Where the tested preset is then USED
+// (a per-feature override vs a task assignment) is the parent's call → `use-production`.
+function cfgToEnginePreset(name, cfg) {
+  const num = (v) => (v === "" || v == null ? null : Number(v));
+  return {
+    name,
+    providerId: cfg.pin?.providerId || "", model: cfg.pin?.model || "",
+    temperature: num(cfg.temperature), topP: num(cfg.topP),
+    maxTokens: Number(cfg.maxTokens) || 0, jsonMode: !!cfg.jsonMode,
+    reasoningEffort: cfg.reasoningEffort || "",
+    nglOverride: num(cfg.nglOverride), nCpuMoeOverride: num(cfg.nCpuMoeOverride),
+    switches: (cfg.switches || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
+    samplers: (cfg.samplers || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
+  };
+}
+async function saveAs(name, cfg) {
+  if (!name || !cfg) return;
+  const r = await request("/v1/ai/engine-presets", { method: "POST", body: cfgToEnginePreset(name, cfg) });
+  emit("presets-changed", r.presets || []);
+}
+async function delPreset(id) {
+  if (!id) return;
+  const r = await request(`/v1/ai/engine-presets/${id}`, { method: "DELETE" });
+  emit("presets-changed", r.presets || []);
+}
+
 // Reset the local test state whenever the parent selects a different action.
 watch(() => props.prompt, (p) => { draft.value = p ? { ...p } : null; buildVars(); }, { immediate: true });
 watch(() => props.action, (k) => { switchRows.value = []; loadSamplers(k); }, { immediate: true });
 
-// The action's run-config, as <ConfigColumn>'s v-model. The getter reads the pin PROP
-// (parent-owned); the setter emits pin-change when it differs instead of persisting.
-const columnConfig = computed({
-  get() {
-    const d = draft.value || {};
-    return {
-      pin: props.pin,
-      switches: switchRows.value,
-      system: d.system, userTemplate: d.userTemplate,
-      temperature: d.temperature, topP: d.topP, maxTokens: d.maxTokens,
-      reasoningEffort: d.think ? (d.reasoningEffort || "medium") : "",
-      jsonMode: d.jsonMode, samplers: samplerRows.value,
-      nglOverride: null, nCpuMoeOverride: null,
-    };
-  },
-  set(v) {
-    if (draft.value) {
-      draft.value.system = v.system;
-      draft.value.userTemplate = v.userTemplate;
-      draft.value.temperature = v.temperature;
-      draft.value.topP = v.topP;
-      draft.value.maxTokens = v.maxTokens;
-      draft.value.reasoningEffort = v.reasoningEffort || "";
-      draft.value.think = !!v.reasoningEffort;
-      draft.value.jsonMode = v.jsonMode;
-    }
-    samplerRows.value = v.samplers || [];
-    switchRows.value = v.switches || [];
-    if (JSON.stringify(props.pin || null) !== JSON.stringify(v.pin || null)) {
-      emit("pin-change", v.pin || null);
-    }
-    buildVars();
-  },
+// The action's run-config SEED for <ConfigColumn>. Read-only: CompareStrip deep-clones
+// this into each column, so edits live on the column and reach us through the column's
+// save-as (not a write-back setter). `pin` is the feature's current routing pin, used
+// only to seed the column's model — persisting a chosen model is done via Save-as-preset
+// + assign ("Use in production" / "Use for this task"), NOT via the routing pin.
+const columnConfig = computed(() => {
+  const d = draft.value || {};
+  return {
+    pin: props.pin,
+    switches: switchRows.value,
+    system: d.system, userTemplate: d.userTemplate,
+    temperature: d.temperature, topP: d.topP, maxTokens: d.maxTokens,
+    reasoningEffort: d.think ? (d.reasoningEffort || "medium") : "",
+    jsonMode: d.jsonMode, samplers: samplerRows.value,
+    nglOverride: null, nCpuMoeOverride: null,
+  };
 });
 </script>
 
@@ -113,8 +124,8 @@ const columnConfig = computed({
       :action="action" :base-config="columnConfig" :providers="providers"
       :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
       :vars="vars" :presets="presets" :production-preset-id="productionPresetId"
-      @save-as="(name, cfg) => emit('save-as', name, cfg)"
-      @delete-preset="(id) => emit('delete-preset', id)"
+      @save-as="saveAs"
+      @delete-preset="delPreset"
       @use-production="(id) => emit('use-production', id)" />
   </div>
 </template>

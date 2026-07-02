@@ -253,6 +253,7 @@ button:not(.ui-btn) { color: inherit; }
 /* ── Master/detail workbench shell (shared by FeatureWorkbench + TaskKinds; moved
    here 2026-07-02 from FeatureWorkbench's scoped block so a second SFC can consume it
    without copying it — a left nav list + a right editor pane, each its own scroller). */
+.lu-fw { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .lu-fw-body { display: grid; grid-template-columns: minmax(280px, 26%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
 .lu-fw-body.nav-collapsed { grid-template-columns: minmax(0, 1fr); }
 .lu-fw-list { min-width: 0; min-height: 0; border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; overflow-x: hidden; }

@@ -174,43 +174,14 @@ async function setDefaultPreset(presetId) {
   } catch (e) { error.value = `Default failed: ${e.message}`; }
 }
 
-// ── the Lab (test the TASK's preset against a member feature) ──
-async function saveAs(name, cfg) {
-  if (!name || !cfg) return;
-  const num = (v) => (v === "" || v == null ? null : Number(v));
-  const body = {
-    name,
-    providerId: cfg.pin?.providerId || "", model: cfg.pin?.model || "",
-    temperature: num(cfg.temperature), topP: num(cfg.topP),
-    maxTokens: Number(cfg.maxTokens) || 0, jsonMode: !!cfg.jsonMode,
-    reasoningEffort: cfg.reasoningEffort || "",
-    nglOverride: num(cfg.nglOverride), nCpuMoeOverride: num(cfg.nCpuMoeOverride),
-    switches: (cfg.switches || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
-    samplers: (cfg.samplers || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
-  };
-  presets.value = (await request("/v1/ai/engine-presets", { method: "POST", body })).presets || [];
-  message.value = `Saved preset "${name}".`;
-}
-async function delPreset(id) {
-  if (!id) return;
-  presets.value = (await request(`/v1/ai/engine-presets/${id}`, { method: "DELETE" })).presets || [];
-}
-// "Use for this task" — the tested preset becomes THIS TASK's preset (not a feature override).
+// ── the Lab (test the TASK's preset against a member feature). FeatureLab owns the
+// engine-preset Save-as / Delete calls (one source for both hosts) + emits the refreshed
+// list; we store it. "Use for this task" makes the tested preset THIS TASK's preset. ──
+function onPresetsChanged(list) { presets.value = list || []; }
 async function onUseForTask(presetId) {
   if (!selTask.value) return;
   await setTaskPreset(selTask.value, presetId);
   message.value = "In production — this task runs that preset now.";
-}
-function setPin(key, val) {
-  const pins = routing.value.pins || (routing.value.pins = {});
-  if (!val || !val.providerId) delete pins[key];
-  else pins[key] = { providerId: val.providerId, model: val.model || "" };
-  saveRouting();
-}
-async function saveRouting() {
-  const r = routing.value;
-  routing.value = await request("/v1/ai/routing", { method: "PUT", body: { default: r.default, pins: r.pins || {} } });
-  if (!routing.value.pins) routing.value.pins = {};
 }
 
 const navCollapsed = ref(false);
@@ -289,8 +260,7 @@ onMounted(load);
                 :action="testAgainst" :prompt="testPrompt" :providers="providers" :presets="presets"
                 :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
                 :production-preset-id="taskPreset(selTask)" :pin="pin(testAgainst)"
-                @save-as="saveAs" @delete-preset="delPreset" @use-production="onUseForTask"
-                @pin-change="(p) => setPin(testAgainst, p)" />
+                @use-production="onUseForTask" @presets-changed="onPresetsChanged" />
             </template>
             <div v-else class="lu-tk-empty lu-muted">Assign a feature to this task to test its preset.</div>
           </div>
@@ -302,7 +272,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.lu-fw { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .lu-tk-new { width: 100%; justify-content: center; margin-bottom: 4px; }
 .lu-tk-tag { margin-left: 6px; }
 .lu-tk-default { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 5px; }

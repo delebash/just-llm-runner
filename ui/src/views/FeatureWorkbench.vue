@@ -131,20 +131,9 @@ function subGroups(actions) {
   return order.map((g) => ({ label: g, items: map[g] }));
 }
 
-// ── routing pins (keyed by feature OR action key) — parent-owned; FeatureLab emits a
-// pin change and this persists it (one routing source of truth). ──
+// Routing pin — a read-only seed for the Lab column's model. Per-feature model choices
+// now persist via presets (Use in production), not the pin. Keyed by feature/action key.
 function pin(key) { return routing.value?.pins?.[key] || null; }
-function setPin(key, val) {
-  const pins = routing.value.pins || (routing.value.pins = {});
-  if (!val || !val.providerId) delete pins[key];
-  else pins[key] = { providerId: val.providerId, model: val.model || "" };
-  saveRouting();
-}
-async function saveRouting() {
-  const r = routing.value;
-  routing.value = await request("/v1/ai/routing", { method: "PUT", body: { default: r.default, pins: r.pins || {} } });
-  if (!routing.value.pins) routing.value.pins = {};
-}
 
 async function load() {
   loading.value = true; error.value = "";
@@ -181,30 +170,9 @@ function selectAction(key) {
   message.value = "";
 }
 
-// ── engine presets (the Lab) — Save-as / Delete a tested column as an engine preset.
-// FW owns the /v1/ai/engine-presets endpoints; FeatureLab (via CompareStrip) emits. ──
-function cfgToEnginePreset(name, cfg) {
-  const num = (v) => (v === "" || v == null ? null : Number(v));
-  return {
-    name,
-    providerId: cfg.pin?.providerId || "", model: cfg.pin?.model || "",
-    temperature: num(cfg.temperature), topP: num(cfg.topP),
-    maxTokens: Number(cfg.maxTokens) || 0, jsonMode: !!cfg.jsonMode,
-    reasoningEffort: cfg.reasoningEffort || "",
-    nglOverride: num(cfg.nglOverride), nCpuMoeOverride: num(cfg.nCpuMoeOverride),
-    switches: (cfg.switches || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
-    samplers: (cfg.samplers || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
-  };
-}
-async function saveAs(name, cfg) {
-  if (!name || !cfg) return;
-  enginePresets.value = (await request("/v1/ai/engine-presets", { method: "POST", body: cfgToEnginePreset(name, cfg) })).presets || [];
-  message.value = `Saved preset "${name}".`;
-}
-async function delPreset(id) {
-  if (!id) return;
-  enginePresets.value = (await request(`/v1/ai/engine-presets/${id}`, { method: "DELETE" })).presets || [];
-}
+// FeatureLab owns the Save-as / Delete engine-preset calls (one source for both hosts)
+// and emits the refreshed list; we just store it.
+function onPresetsChanged(list) { enginePresets.value = list || []; }
 
 // ── provenance + the per-feature override ──
 function featurePreset(key) {
@@ -301,8 +269,7 @@ onMounted(load);
           <FeatureLab :action="selAction" :prompt="action" :providers="providers" :presets="enginePresets"
             :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
             :production-preset-id="featurePreset(selAction)" :pin="pin(selAction)"
-            @save-as="saveAs" @delete-preset="delPreset" @use-production="onUseProduction"
-            @pin-change="(p) => setPin(selAction, p)" />
+            @use-production="onUseProduction" @presets-changed="onPresetsChanged" />
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
       </div>
@@ -311,7 +278,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.lu-fw { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 select.lu-input { cursor: pointer; appearance: auto; }
 /* Nav sub-headers (FW's left list only; the shared shell classes live in styles.css). */
 .lu-fw-ghead { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; }

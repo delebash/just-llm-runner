@@ -1,75 +1,58 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The canonical taskKind taxonomy + the read endpoint the UI needs for routing.
+"""Task-kind CRUD + the resolved action→taskKind map — the user-editable "tasks" model.
 
-`TASK_KINDS` is the fixed set of nine LLM-work shapes routing keys on (the
-2026-07-01 taskKind model). It is app-agnostic — both apps share the same nine —
-so it lives here, not in per-app seed data. An app's per-action MAP (which action
-is which taskKind) is host data (`configure_app_seed(feature_task_kinds=…)`),
-resolved through `_task_kind_of` at dispatch.
+A TASK (taskKind) is the LLM-work bucket a feature is assigned to; it carries a name +
+description and (via `TaskKindPreset`) an engine preset. The nine defaults are SEEDED
+(shared `seed.DEFAULT_TASK_KINDS`), but the set is now user-editable: create / rename /
+delete CUSTOM tasks (built-ins are protected). The feature→task MAP is likewise
+DB-backed (`feature_task_kinds`) + reassignable.
 
-`GET /v1/ai/task-kinds` serves the catalog (the nine, id + label + description)
-PLUS the resolved action→taskKind map, so the Feature Workbench can render each
-card's `own-override → taskKind preset → global default` provenance and the
-assignment surface can list the nine rows.
+`GET /v1/ai/task-kinds` serves the catalog (from the DB store) PLUS the resolved
+action→taskKind map — built by running the wired `task_kind_of` over the prompt-store
+keys (NOT a raw table dump), so actions that resolve via the `writerAI.rule.*` prefix
+keep their provenance. Mutating calls return the full response so the UI re-renders once.
 """
 
 from __future__ import annotations
 
 from typing import Callable
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-
-# The nine canonical LLM-work shapes. `id` is the routing key (matches the
-# TaskKindPreset PK + the recommendation task_kind + FEATURE_TASK_KINDS values);
-# label/description are UI copy. Ordered prose → structured → chat.
-TASK_KINDS: list[dict] = [
-    {"id": "prose.generate", "label": "Generate prose",
-     "description": "Write new voiced narrative prose."},
-    {"id": "prose.edit", "label": "Edit prose",
-     "description": "Faithful line-level revision of existing prose."},
-    {"id": "ideation", "label": "Ideation",
-     "description": "Open-ended brainstorming of names, titles, and plot moves."},
-    {"id": "creative.structured", "label": "Structured creative",
-     "description": "Creative output emitted as structured JSON."},
-    {"id": "summary.grounded", "label": "Grounded summary",
-     "description": "A faithful digest grounded in the source text."},
-    {"id": "extract.structured", "label": "Structured extraction",
-     "description": "Extract facts / entities as structured JSON."},
-    {"id": "judge.scored", "label": "Judgment & scoring",
-     "description": "Careful analysis and scored critique, emitted as JSON."},
-    {"id": "chat.grounded", "label": "Grounded chat",
-     "description": "Q&A grounded in retrieved excerpts (RAG)."},
-    {"id": "chat.inVoice", "label": "In-character chat",
-     "description": "First-person, in-voice answers from a character."},
-]
 
 
 class TaskKindRow(BaseModel):
-    id: str
-    label: str
+    id: str = ""            # "" on create → the store derives a slug from the label
+    label: str = ""
     description: str = ""
+    position: int = 0
+    builtIn: bool = False   # seeded defaults; the store blocks deleting these
 
 
 class TaskKindsResponse(BaseModel):
-    taskKinds: list[TaskKindRow]
+    taskKinds: list[TaskKindRow] = []
     # action key → its resolved taskKind (only actions that resolve to one). The UI
-    # reads this for per-card provenance; absent action → "" (no taskKind tier).
+    # reads this for per-card provenance + the per-task member list; absent → no tier.
     featureTaskKinds: dict[str, str] = {}
 
 
+class FeatureTaskAssignment(BaseModel):
+    featureKey: str
+    taskKind: str = ""   # "" → clear the override (feature re-floats to its factory task)
+
+
 def make_task_kinds_router(
+    get_task_kinds: Callable[[], object],
+    get_feature_task_kinds: Callable[[], object],
     get_prompt_store: Callable[[], object],
     task_kind_of: Callable[[str], str] | None = None,
 ) -> APIRouter:
-    """GET /v1/ai/task-kinds — the canonical nine + the resolved action→taskKind map
-    (from the host's prompt store keys through `task_kind_of`). `task_kind_of` None
-    (no map wired) → an empty map, so the UI degrades to own→default provenance."""
+    """CRUD for tasks + the feature→task assignment + the read the UI needs. Mutating
+    calls return the full state (mirror presets_api). `task_kind_of` None (no map
+    wired) → an empty map, catalog still served."""
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
-    @router.get("/task-kinds", response_model=TaskKindsResponse)
-    async def list_task_kinds() -> TaskKindsResponse:
-        rows = [TaskKindRow(**t) for t in TASK_KINDS]
+    def _feature_map() -> dict[str, str]:
         mapping: dict[str, str] = {}
         if task_kind_of is not None:
             for spec in get_prompt_store().list():
@@ -79,6 +62,47 @@ def make_task_kinds_router(
                 tk = task_kind_of(action)
                 if tk:
                     mapping[action] = tk
-        return TaskKindsResponse(taskKinds=rows, featureTaskKinds=mapping)
+        return mapping
+
+    def _response() -> TaskKindsResponse:
+        return TaskKindsResponse(taskKinds=get_task_kinds().list(), featureTaskKinds=_feature_map())
+
+    @router.get("/task-kinds", response_model=TaskKindsResponse)
+    async def list_task_kinds() -> TaskKindsResponse:
+        return _response()
+
+    @router.post("/task-kinds", response_model=TaskKindsResponse)
+    async def create_task_kind(body: TaskKindRow) -> TaskKindsResponse:
+        if not body.label.strip():
+            raise HTTPException(status_code=400, detail="label is required")
+        body.id = ""          # force a fresh slug-derived id (never overwrite by id)
+        body.builtIn = False  # users create custom tasks only
+        get_task_kinds().upsert(body)
+        return _response()
+
+    # NOTE: this literal-path PUT must be declared BEFORE the `/{task_id}` PUT below,
+    # or "feature" would match as a task_id.
+    @router.put("/task-kinds/feature", response_model=TaskKindsResponse)
+    async def assign_feature(body: FeatureTaskAssignment) -> TaskKindsResponse:
+        if not body.featureKey.strip():
+            raise HTTPException(status_code=400, detail="featureKey is required")
+        get_feature_task_kinds().set(body.featureKey, body.taskKind)
+        return _response()
+
+    @router.put("/task-kinds/{task_id}", response_model=TaskKindsResponse)
+    async def update_task_kind(task_id: str, body: TaskKindRow) -> TaskKindsResponse:
+        if not any(t.id == task_id for t in get_task_kinds().list()):
+            raise HTTPException(status_code=404, detail=f"task {task_id!r} not found")
+        body.id = task_id
+        get_task_kinds().upsert(body)
+        return _response()
+
+    @router.delete("/task-kinds/{task_id}", response_model=TaskKindsResponse)
+    async def delete_task_kind(task_id: str) -> TaskKindsResponse:
+        try:
+            get_task_kinds().delete(task_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return _response()
 
     return router

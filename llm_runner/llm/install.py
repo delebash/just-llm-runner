@@ -71,10 +71,14 @@ def install_llm(
 
     def _task_kind_of(key: str) -> str:
         """An action id (or feature key) → its LLM-work taskKind, for the preset
-        cascade at dispatch. Reads the app's action→taskKind map; every
-        `writerAI.rule.*` line-edit falls to prose.edit. Unknown → "" (→ the global
-        default preset / legacy routing). The nav `group` is deliberately NOT
-        consulted here — routing keys on taskKind; nav grouping stays separate (D1)."""
+        cascade at dispatch. Resolution order: the user-editable feature→task DB row
+        (a UI reassignment wins) → the app's in-memory seed map (so routing stays
+        correct even if the DB seed is empty — JW swallows seed errors) → the
+        `writerAI.rule.*→prose.edit` prefix → "" (→ the global default preset). The nav
+        `group` is deliberately NOT consulted — routing keys on taskKind (D1)."""
+        row = stores.get_feature_task_kind_store().list().get(key)
+        if row:
+            return row
         work = seed.app_feature_task_kinds()
         if key in work:
             return work[key]
@@ -87,7 +91,10 @@ def install_llm(
     app.include_router(make_provider_router(stores.get_provider_store))
     app.include_router(make_prompt_router(stores.get_prompt_store, feature_prompts))
     app.include_router(make_feature_router(stores.get_prompt_store, _config, task_kind_of=_task_kind_of))
-    app.include_router(make_task_kinds_router(stores.get_prompt_store, task_kind_of=_task_kind_of))
+    app.include_router(make_task_kinds_router(
+        stores.get_task_kind_store, stores.get_feature_task_kind_store,
+        stores.get_prompt_store, task_kind_of=_task_kind_of,
+    ))
     app.include_router(make_routing_router(stores.get_routing_store, seed.app_feature_catalog))
     app.include_router(make_feature_presets_router(stores.get_feature_preset_store))
     app.include_router(make_presets_router(

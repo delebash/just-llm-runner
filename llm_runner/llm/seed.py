@@ -184,6 +184,26 @@ DEFAULT_RECOMMENDATIONS: list[dict] = [
     {"model_id": "qwen3-14b-q4_k_m", "task_kind": "judge.scored", "rank": 20, "why": "14B dense — solid analysis that fits ≥11 GB VRAM."},
 ]
 
+# The nine canonical LLM-work TASKS — the seed defaults for the user-editable
+# `task_kinds` table. App-agnostic (both apps share the same nine), so they live here
+# in the SHARED block, NOT in per-app seed data (moved out of task_kinds_api.TASK_KINDS,
+# 2026-07-02). Users create / rename / delete CUSTOM tasks; these built-ins are
+# protected (TaskKindStore.delete blocks them) and re-seed on boot. `id` is the routing
+# key — it matches feature_task_kinds.task_kind + task_kind_presets + model_recommendations.
+# Only the feature→task MAP + the task→preset assignments are per-app. Ordered prose →
+# structured → chat.
+DEFAULT_TASK_KINDS: list[dict] = [
+    {"id": "prose.generate", "label": "Generate prose", "description": "Write new voiced narrative prose."},
+    {"id": "prose.edit", "label": "Edit prose", "description": "Faithful line-level revision of existing prose."},
+    {"id": "ideation", "label": "Ideation", "description": "Open-ended brainstorming of names, titles, and plot moves."},
+    {"id": "creative.structured", "label": "Structured creative", "description": "Creative output emitted as structured JSON."},
+    {"id": "summary.grounded", "label": "Grounded summary", "description": "A faithful digest grounded in the source text."},
+    {"id": "extract.structured", "label": "Structured extraction", "description": "Extract facts / entities as structured JSON."},
+    {"id": "judge.scored", "label": "Judgment & scoring", "description": "Careful analysis and scored critique, emitted as JSON."},
+    {"id": "chat.grounded", "label": "Grounded chat", "description": "Q&A grounded in retrieved excerpts (RAG)."},
+    {"id": "chat.inVoice", "label": "In-character chat", "description": "First-person, in-voice answers from a character."},
+]
+
 
 # Runner config (was runner-manifest.json). The binary list + scalars are
 # imported from the runner package (ONE source of truth; the standalone runner
@@ -421,6 +441,38 @@ def seed_default_taskkind_presets(s) -> int:
     return added
 
 
+def seed_default_task_kinds(s) -> int:
+    """Seed the shared built-in TASKS (the LLM-work buckets) into the user-editable
+    `task_kinds` table. App-agnostic — from the shared DEFAULT_TASK_KINDS, not per-app
+    data. Merge-by-id (skips existing), so a user's custom/renamed rows survive a
+    re-seed; built_in=True marks the defaults un-deletable in TaskKindStore."""
+    existing = {r.id for r in s.query(db.TaskKind.id).all()}
+    added = 0
+    for i, t in enumerate(DEFAULT_TASK_KINDS):
+        if t["id"] in existing:
+            continue
+        s.add(db.TaskKind(id=t["id"], label=str(t.get("label") or ""),
+                          description=str(t.get("description") or ""),
+                          position=int(t.get("position", i)), built_in=True))
+        added += 1
+    return added
+
+
+def seed_default_feature_task_kinds(s) -> int:
+    """Seed the host's action→task MAP into the user-editable `feature_task_kinds`
+    table (per-app data via `app_feature_task_kinds()`). Merge-by-key so a user's
+    reassignments survive a re-seed; an absent row falls back to the in-memory map in
+    `install._task_kind_of`, so routing is correct even if this seed is empty."""
+    existing = {r.key for r in s.query(db.FeatureTaskKind.key).all()}
+    added = 0
+    for key, tk in app_feature_task_kinds().items():
+        if key in existing or not tk:
+            continue
+        s.add(db.FeatureTaskKind(key=key, task_kind=tk))
+        added += 1
+    return added
+
+
 def seed_default_recommendations(s) -> int:
     existing = {(r.model_id, r.task_kind) for r in s.query(db.ModelRecommendation.model_id, db.ModelRecommendation.task_kind).all()}
     added = 0
@@ -525,6 +577,8 @@ def seed_llm(s=None) -> None:
         seed_default_pricing(s)
         seed_default_switch_presets(s)
         seed_default_engine_presets(s)
+        seed_default_task_kinds(s)
+        seed_default_feature_task_kinds(s)
         seed_default_taskkind_presets(s)
         seed_default_recommendations(s)
         seed_default_runner_binaries(s)

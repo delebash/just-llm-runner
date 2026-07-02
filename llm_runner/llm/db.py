@@ -416,6 +416,34 @@ class FeaturePresetRef(LlmBase):
     preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), nullable=False)
 
 
+class TaskKind(LlmBase):
+    """A user-editable LLM-work TASK — the routing bucket features are assigned to.
+    Seeded with the shared defaults (`seed.DEFAULT_TASK_KINDS`); users create / rename /
+    delete CUSTOM tasks (built-ins are protected). `id` is the routing key — it matches
+    `FeatureTaskKind.task_kind`, `TaskKindPreset.task_kind`, and `ModelRecommendation.task_kind`
+    (all plain-String SOFT references, no FK: the "" global-default preset row survives, and a
+    task delete cascades cleanup across those tables in `TaskKindStore.delete`)."""
+
+    __tablename__ = "task_kinds"
+
+    id = Column(String, primary_key=True)
+    label = Column(String, nullable=False, default="")
+    description = Column(Text, nullable=False, default="")
+    position = Column(Integer, nullable=False, default=0)
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
+class FeatureTaskKind(LlmBase):
+    """A feature/action key → its LLM-work task (the user-editable reassignment layer).
+    Absent → `install._task_kind_of` falls back to the in-memory seed map, then the
+    `writerAI.rule.*` prefix, then "". Seeded from the host's action→task map."""
+
+    __tablename__ = "feature_task_kinds"
+
+    key = Column(String, primary_key=True)
+    task_kind = Column(String, nullable=False, default="")
+
+
 # ── storage wiring (host hands its session factory; install_llm calls these) ──
 _SessionLocal: sessionmaker | None = None
 

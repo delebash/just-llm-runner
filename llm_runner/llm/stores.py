@@ -12,6 +12,7 @@ preserves user-added rows (lazy-imports the shared `seed` to avoid an import cyc
 
 from __future__ import annotations
 
+import re
 import uuid
 
 from . import db
@@ -25,6 +26,7 @@ from .switch_presets_api import PresetSwitchRow, SwitchPresetRow
 from .presets_api import EnginePresetRow, PresetFlagRow
 from .recommendations_api import RecommendationRow
 from .routing_api import FeaturePin, RoutingConfig, RoutingDefaults
+from .task_kinds_api import TaskKindRow
 from .schema import LLMProviderConfig
 
 _ACTIVE_ID = "active"
@@ -658,6 +660,99 @@ class FeaturePresetRefStore:
             s.close()
 
 
+def _slugify_task(label: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", ".", (label or "").strip().lower()).strip(".")
+    return s or "task"
+
+
+def _task_kind_to_wire(r: db.TaskKind) -> TaskKindRow:
+    return TaskKindRow(id=r.id, label=r.label, description=r.description, position=r.position, builtIn=r.built_in)
+
+
+class TaskKindStore:
+    """The user-editable TASK catalog (`db.TaskKind`). Seeded with the shared built-in
+    nine; users create / rename / delete CUSTOM tasks. Built-ins are protected from
+    delete; a custom delete cascades cleanup across the SOFT-referencing tables (no FK)."""
+
+    def list(self) -> list[TaskKindRow]:
+        s = db.session()
+        try:
+            return [_task_kind_to_wire(r) for r in s.query(db.TaskKind).order_by(db.TaskKind.position, db.TaskKind.id).all()]
+        finally:
+            s.close()
+
+    def upsert(self, row: TaskKindRow) -> TaskKindRow:
+        s = db.session()
+        try:
+            tid = (row.id or "").strip()
+            if not tid:
+                # new: derive a stable id from the label; suffix on collision, never clobber.
+                base = _slugify_task(row.label)
+                tid = base
+                n = 2
+                while s.get(db.TaskKind, tid) is not None:
+                    tid = f"{base}-{n}"
+                    n += 1
+            existing = s.get(db.TaskKind, tid)
+            if existing is None:
+                existing = db.TaskKind(id=tid, position=s.query(db.TaskKind).count())
+                s.add(existing)
+            existing.label = row.label
+            existing.description = row.description or ""
+            if row.position:
+                existing.position = row.position
+            # built_in is set only by the seeder; upsert never promotes/demotes it.
+            s.commit()
+            return _task_kind_to_wire(existing)
+        finally:
+            s.close()
+
+    def delete(self, task_id: str) -> None:
+        s = db.session()
+        try:
+            row = s.get(db.TaskKind, task_id)
+            if row is None:
+                return
+            if row.built_in:
+                raise ValueError("cannot delete a built-in task")
+            # cascade cleanup across every SOFT reference (no FK to task_kinds): its
+            # preset assignment, every feature assigned to it, and its recommendations.
+            s.query(db.TaskKindPreset).filter(db.TaskKindPreset.task_kind == task_id).delete()
+            s.query(db.FeatureTaskKind).filter(db.FeatureTaskKind.task_kind == task_id).delete()
+            s.query(db.ModelRecommendation).filter(db.ModelRecommendation.task_kind == task_id).delete()
+            s.delete(row)
+            s.commit()
+        finally:
+            s.close()
+
+
+class FeatureTaskKindStore:
+    """feature/action key → its task (the user-editable reassignment layer). "" clears
+    the row → the feature re-floats to its factory task via `install._task_kind_of`."""
+
+    def list(self) -> dict[str, str]:
+        s = db.session()
+        try:
+            return {r.key: r.task_kind for r in s.query(db.FeatureTaskKind).all()}
+        finally:
+            s.close()
+
+    def set(self, feature_key: str, task_kind: str) -> None:
+        s = db.session()
+        try:
+            row = s.get(db.FeatureTaskKind, feature_key)
+            if not task_kind:
+                if row is not None:
+                    s.delete(row)
+            elif row is None:
+                s.add(db.FeatureTaskKind(key=feature_key, task_kind=task_kind))
+            else:
+                row.task_kind = task_kind
+            s.commit()
+        finally:
+            s.close()
+
+
 _provider = ProviderStore()
 _routing = RoutingStore()
 _feature_preset = FeaturePresetStore()
@@ -795,6 +890,8 @@ _feature_sampler = FeatureSamplerStore()
 _engine_preset = EnginePresetStore()
 _task_kind_preset = TaskKindPresetStore()
 _feature_preset_ref = FeaturePresetRefStore()
+_task_kind = TaskKindStore()
+_feature_task_kind = FeatureTaskKindStore()
 
 
 def get_provider_store() -> ProviderStore: return _provider
@@ -810,6 +907,8 @@ def get_feature_sampler_store() -> FeatureSamplerStore: return _feature_sampler
 def get_engine_preset_store() -> EnginePresetStore: return _engine_preset
 def get_task_kind_preset_store() -> TaskKindPresetStore: return _task_kind_preset
 def get_feature_preset_ref_store() -> FeaturePresetRefStore: return _feature_preset_ref
+def get_task_kind_store() -> TaskKindStore: return _task_kind
+def get_feature_task_kind_store() -> FeatureTaskKindStore: return _feature_task_kind
 
 
 def list_knob_catalog() -> list[dict]:

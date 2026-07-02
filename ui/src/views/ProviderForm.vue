@@ -6,14 +6,13 @@
 // comboboxes (Fetch via the draft-probe endpoint) · Test · Save/Delete/Cancel.
 // Self-contained: calls the shared /v1/llm-providers* endpoints via the shared
 // client; emits "saved"/"deleted" so the parent reloads its list. The built-in
-// provider also mounts the Local engine panel + model catalog + binaries editor.
+// provider also mounts the Local engine panel (which hosts the binaries editor) + model catalog.
 import { computed, reactive, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import LuCombobox from "../components/LuCombobox.vue";
 import UiInput from "../common/components/UiInput.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
-import LuRunnerBinaries from "../components/LuRunnerBinaries.vue";
 import LuRunnerEngine from "../components/LuRunnerEngine.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
 import { request } from "../client.js";
@@ -201,7 +200,6 @@ async function remove() {
 
     <LuRunnerEngine v-if="isBuiltin" />
     <LuModelCatalog v-if="isBuiltin" />
-    <LuRunnerBinaries v-if="isBuiltin" />
 
     <div v-if="saveErr" class="lu-error lu-pf-err">{{ saveErr }}</div>
 

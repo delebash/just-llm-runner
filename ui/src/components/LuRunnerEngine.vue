@@ -6,11 +6,15 @@
 // Install / Update button with a progress bar, the last spawn-log tail, and any
 // error. Backed by the shared runner /v1/llm-runner/engine/* endpoints. Its
 // sibling precedent is LuModelCatalog (UiProgress + status surface); both share
-// the common/composables/usePoll.js interval poller.
+// the common/composables/usePoll.js interval poller. Hosts the collapsed "Engine
+// binaries (advanced)" editor (LuRunnerBinaries) as its own drawer at the panel
+// bottom — the binary download URLs belong to the engine you install, so they
+// live UNDER this panel (user, 2026-07-02), not as a separate card by the catalog.
 import { computed, onMounted, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import UiProgress from "../common/components/UiProgress.vue";
+import LuRunnerBinaries from "./LuRunnerBinaries.vue";
 import { request } from "../client.js";
 import { usePoll } from "../common/composables/usePoll.js";
 
@@ -103,6 +107,8 @@ onMounted(refresh);
 
     <p v-if="error" class="lu-eng-err">{{ error }}</p>
     <pre v-if="showLog" class="lu-eng-log">{{ logText }}</pre>
+
+    <LuRunnerBinaries />
   </div>
 </template>
 

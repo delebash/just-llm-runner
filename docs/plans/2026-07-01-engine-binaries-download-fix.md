@@ -136,8 +136,11 @@ instead of the bare word "failed". A new `components/LuRunnerBinaries.vue` — a
 "Engine binaries (advanced)" panel mirroring the inline-editable `PricingEditor` pattern —
 edits every binary's asset/runtime URL + server-exe, the pinned build, and the VRAM margin,
 with a link + instructions to the llama.cpp releases page and a Reset-to-defaults action; it
-mounts under the Built-in provider form (`ProviderForm.vue`, `isBuiltin`). Both apps inherit
-it via the kit alias.
+mounts under the Built-in provider form (`ProviderForm.vue`, `isBuiltin`). **Nested 2026-07-02
+as a collapsed "Advanced" drawer INSIDE the Local-engine install panel (`LuRunnerEngine.vue`),
+not a sibling of the model catalog** (the binary download URLs belong to the engine you
+install — user: "engine binaries should be under the install engine"). Both apps inherit it
+via the kit alias.
 
 Verified live in this environment against the JustWrite server on the updated runner (DB
 reset for the new column): `GET /v1/ai/engine-config` returns the 10 corrected rows with

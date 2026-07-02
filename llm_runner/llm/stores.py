@@ -662,7 +662,11 @@ class FeaturePresetRefStore:
 
 def _slugify_task(label: str) -> str:
     s = re.sub(r"[^a-z0-9]+", ".", (label or "").strip().lower()).strip(".")
-    return s or "task"
+    if not s:
+        return "task"
+    # "feature" is a reserved id: PUT /task-kinds/feature is a literal route that would
+    # shadow PUT /task-kinds/{id}, so a task with that id could never be renamed.
+    return "feature.task" if s == "feature" else s
 
 
 def _task_kind_to_wire(r: db.TaskKind) -> TaskKindRow:

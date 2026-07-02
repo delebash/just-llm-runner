@@ -63,3 +63,50 @@ def test_build_llm_config_pins(wired):
     ))
     cfg = build_llm_config()
     assert {p.feature: p.model for p in cfg.feature_pins} == {"critique": "big"}
+
+
+def test_task_kind_delete_cascades_and_builtin_guard(wired):
+    from llm_runner.llm.presets_api import EnginePresetRow
+    from llm_runner.llm.recommendations_api import RecommendationRow
+    from llm_runner.llm.task_kinds_api import TaskKindRow
+
+    tks = stores.get_task_kind_store()
+    # the shared built-in nine are seeded, and built-ins cannot be deleted
+    assert len(tks.list()) == len(seed.DEFAULT_TASK_KINDS)
+    assert all(t.builtIn for t in tks.list())
+    with pytest.raises(ValueError):
+        tks.delete("prose.generate")
+
+    # create a custom task and hang all three soft references off it
+    created = tks.upsert(TaskKindRow(label="Zzz Custom"))
+    assert created.id == "zzz.custom" and created.builtIn is False
+    preset = stores.get_engine_preset_store().save(
+        EnginePresetRow(name="probe", providerId="local-llamacpp", model="m")
+    )
+    stores.get_task_kind_preset_store().set("zzz.custom", preset.id)
+    stores.get_feature_task_kind_store().set("somefeature", "zzz.custom")
+    stores.get_recommendation_store().upsert(
+        RecommendationRow(modelId="m1", taskKind="zzz.custom", rank=1, why="")
+    )
+    assert stores.get_task_kind_preset_store().list().get("zzz.custom") == preset.id
+    assert stores.get_feature_task_kind_store().list().get("somefeature") == "zzz.custom"
+    assert any(r.taskKind == "zzz.custom" for r in stores.get_recommendation_store().list())
+
+    # delete the custom task → cascade cleans all three; the feature re-floats (row gone)
+    tks.delete("zzz.custom")
+    assert not any(t.id == "zzz.custom" for t in tks.list())
+    assert "zzz.custom" not in stores.get_task_kind_preset_store().list()
+    assert "somefeature" not in stores.get_feature_task_kind_store().list()
+    assert not any(r.taskKind == "zzz.custom" for r in stores.get_recommendation_store().list())
+
+
+def test_task_kind_slug_collision_suffixes(wired):
+    from llm_runner.llm.task_kinds_api import TaskKindRow
+
+    tks = stores.get_task_kind_store()
+    a = tks.upsert(TaskKindRow(label="My Task"))
+    b = tks.upsert(TaskKindRow(label="My Task"))
+    assert a.id == "my.task"
+    assert b.id == "my.task-2"   # collision → numeric suffix, never clobber
+    # a label that slugs to the reserved "feature" is deflected
+    assert tks.upsert(TaskKindRow(label="Feature")).id == "feature.task"

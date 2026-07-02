@@ -49,7 +49,9 @@ def _default_identify_fn(model_id: str, gguf_path) -> None:  # noqa: ARG001
 
 
 def _default_profile_switches_fn(job_id: str) -> dict[str, str]:  # noqa: ARG001
-    """Standalone default: no host store wired → no Profile (job) switches."""
+    """Standalone default for the legacy `job_id` override hook (unused by
+    JustWrite, which resolves switches from the model type baseline): no hook
+    wired → fall back to the model's own switches."""
     return {}
 
 
@@ -395,10 +397,9 @@ class RunnerService:
                 raise ValueError(f"unknown model {model_id!r}")
 
             # Switch base, UNDER user-supplied overrides (user wins per-field).
-            # A Profile (job) context wins wholesale: its frozen-flat
-            # job_route_switches (pre-filled from the model's type-default, then
-            # tuned) REPLACE the model-level pre-fill. Empty/no job → the model
-            # base/moe/mtp presets (resolve_model_switches).
+            # An optional legacy `job_id` override hook (unused by JustWrite) can
+            # REPLACE the base wholesale; normally there is no job → the model's
+            # own base/moe/mtp type presets (resolve_model_switches).
             base_switches = self._profile_switches_fn(job_id) if job_id else {}
             if not base_switches:
                 base_switches = self._switches_fn(model_id) or {}

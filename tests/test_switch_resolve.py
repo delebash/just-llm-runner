@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Layered switch resolver (design §6.5) — the model-level merge:
 base preset → type preset (moe|dense) → mtp preset (only if mtp and not moe) →
-per-hardware. (Per-model overrides were dropped per D9.) Pure data/logic; no GPU
+per-hardware. (There is no per-model override layer.) Pure data/logic; no GPU
 needed."""
 
 import sqlalchemy as sa

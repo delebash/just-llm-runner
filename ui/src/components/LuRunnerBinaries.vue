@@ -6,8 +6,8 @@
 // host DB (runner_binary + runner_setting, seeded from the module defaults). The
 // app auto-detects the system and downloads the matching build; this panel lets the
 // user paste a corrected URL from the llama.cpp releases page if an asset ever moves
-// or is renamed — config is data, nothing is hardcoded. Advanced + collapsed by
-// default; lazy-loads on first open.
+// or is renamed — config is data, nothing is hardcoded. Collapsed by default;
+// lazy-loads on first open.
 import { ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
@@ -106,7 +106,7 @@ async function reset() {
 <template>
   <details class="lu-engbin" @toggle="onToggle">
     <summary class="lu-engbin-summary">
-      <span class="lu-engbin-title">Engine binaries (advanced)</span>
+      <span class="lu-engbin-title">Engine binaries</span>
       <span class="lu-muted">llama.cpp download URLs · pinned build · VRAM margin</span>
     </summary>
 

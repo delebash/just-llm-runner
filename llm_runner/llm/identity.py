@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Model identity auto-detection — read a downloaded model's GGUF header and set
 its catalog capability `type` (moe | dense) from `expert_count`, so the type
-default switch preset that pre-fills a Profile is grounded in the file rather
+default switch preset the model resolves to is grounded in the file rather
 than a hand-typed guess (design docs/plans/2026-06-27-switch-and-preset-architecture
 S3 / D17, in justwrite-app).
 

@@ -90,8 +90,8 @@ def test_load_calls_identify_fn(tmp_path):
 
 
 def test_load_applies_profile_switches_for_job(tmp_path):
-    # D9 load-reader: with a job_id, the Profile's frozen switches REPLACE the
-    # model-level base (the Profile wins wholesale).
+    # Legacy job_id override hook (unused by JustWrite): a profile_switches_fn
+    # result REPLACES the model-level base wholesale.
     captured = {}
 
     def fake_start(*a, **k):
@@ -101,7 +101,7 @@ def test_load_applies_profile_switches_for_job(tmp_path):
     svc = _service_for(
         tmp_path, start=fake_start,
         switches_fn=lambda mid: {"ctx_len": "4096"},           # model base
-        profile_switches_fn=lambda jid: {"ctx_len": "32768"},  # the Profile wins
+        profile_switches_fn=lambda jid: {"ctx_len": "32768"},  # the override hook wins
     )
     svc.load(_TEST_MODEL.id, job_id="analysis")
     svc._thread.join(timeout=5)

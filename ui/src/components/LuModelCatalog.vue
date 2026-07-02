@@ -56,7 +56,7 @@ const progressLabel = computed(() => {
 });
 
 // Knob-catalog metadata (C1) — labels/typed inputs for the Tune & measure grid.
-// Plane-1 (engine switches) only; mirrors RoutingByJob's switchCatalog.
+// Plane-1 (engine switches) only.
 const knobCatalog = ref([]);
 const switchCatalog = computed(() =>
   Object.fromEntries(
@@ -178,8 +178,8 @@ async function unload() {
 // Load the model with ad-hoc Plane-1 engine flags + probe decode tok/s on this
 // box. The grid pre-fills from the model's RESOLVED switch defaults (show the
 // truth) and tweaks flow through POST /load { switches } → the same server-side
-// converter stored switches use. Measure-only: per D9 engine switches live on a
-// Profile (Routing by job), so there's no per-model save here.
+// converter stored switches use. Measure-only: to persist a config, tune it in
+// the Lab and Save it as a preset for a Task — there's no per-model save here.
 const tuning = ref(null);        // null | the model being tuned
 const tuneRows = ref([]);        // KnobGrid rows [{ name, value }]
 const tunePhase = ref("");       // "" | loading | measuring | done | error
@@ -412,12 +412,12 @@ loadCatalogMeta();
       — the open model hub. One model loads at a time; loading a new one replaces the running one.
     </div>
 
-    <!-- The base/moe/mtp engine type-presets editor moved to Routing-by-job
-         (§6.6: no switch editing in Providers) — it lives with the per-Profile
-         switches it pre-fills. -->
+    <!-- The base/moe/mtp engine type-baseline is seed/reset-managed (switch_presets,
+         resolved by resolve_model_switches); switches are tuned per-Task in the Lab,
+         not edited here in Providers. -->
 
-    <!-- Add / edit a catalog model. Per-model switch editing moved to the Profile
-         (Routing-by-job) — switches are per-Profile now (§6.6). -->
+    <!-- Add / edit a catalog model. Switch editing lives in the Lab (per-Task
+         presets), not here — this form is catalog metadata only. -->
     <AppModal v-if="editing" :title="editingNew ? 'Add model' : `Edit ${editing.name || editing.id}`"
       :max-width="'560px'" @close="cancelEdit">
       <div class="lu-mm-form">
@@ -448,7 +448,7 @@ loadCatalogMeta();
     </AppModal>
 
     <!-- Tune & measure (#20): load with ad-hoc Plane-1 flags + probe tok/s.
-         Measure-only — engine switches persist on a Profile (Routing by job). -->
+         Measure-only — to persist a config, save a preset for a Task in the Lab. -->
     <AppModal v-if="tuning" :title="`Tune & measure — ${tuning.name || tuning.id}`"
       :max-width="'560px'" @close="cancelTune">
       <div class="lu-tune">
@@ -461,8 +461,8 @@ loadCatalogMeta();
         <UiButton intent="ghost" size="small" @click="resetTuneSwitches">Reset to model default</UiButton>
 
         <div class="lu-tune-note lu-muted">
-          These flags are for measuring. To keep a fast config, set it on a job in
-          <b>Routing by job</b> — engine switches live on a Profile, not per model.
+          Measuring only. To keep a config, tune it in the <b>Lab</b> and
+          <b>Save it as a preset</b> for a <b>Task</b> (Routing by feature).
         </div>
 
         <div v-if="tunePhase === 'loading'" class="lu-tune-status">Loading… {{ tuneDetail }}</div>

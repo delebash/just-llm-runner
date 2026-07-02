@@ -4,8 +4,8 @@
 // A "pin" is { providerId, model }: pick a provider, then its model; the empty
 // fallback (null) inherits the default. Used by the routing defaults, the
 // Feature Workbench's per-action editor, and its per-feature group default — so
-// the control exists once, not copy-pasted per site. (Job inheritance lives in
-// LuJobSelect / RoutingByJob, not here — the old role-inherit options are gone.)
+// the control exists once, not copy-pasted per site. (Inheritance = the empty
+// null fallback above; the old job/role-inherit options are gone.)
 //
 // v-model is the pin object (or null = inherit the empty fallback). The host
 // owns persistence (writes the routing pin and saves).

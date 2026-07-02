@@ -7,8 +7,8 @@
 //
 //   • DEFAULT (add-a-row) — `catalog` is an object map (name -> {label,help,
 //     options}). You add a blank row, type a name + value, remove. So a NEW
-//     llama.cpp param needs no code — just a row. Used by the per-model switch
-//     editor (LuModelCatalog) and the legacy job editor.
+//     llama.cpp param needs no code — just a row. Used by the Tune & measure
+//     switch grid (LuModelCatalog).
 //   • CHECKLIST (`checklist` + `catalogList`) — a PREFILLED grid of KNOWN knobs
 //     from the seeded knob_catalog (ordered common-first by the API). Each row is
 //     an enable/disable checkbox + a kind-aware value (enum→select, int/float→

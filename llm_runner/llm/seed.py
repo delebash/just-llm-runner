@@ -2,7 +2,7 @@
 """Shared LLM seed data + seeders + the per-app registration hook.
 
 SHARED seed data (identical for every app, shipped here): default providers, the
-downloadable model catalog, per-model switches, recommendations, and the live
+downloadable model catalog, the type switch presets, recommendations, and the live
 routing row. PER-APP seed data (the only thing that differs between apps) is
 registered by the host via `configure_app_seed`: its feature catalog and its
 feature prompts. `seed_llm` runs every seeder; stores'

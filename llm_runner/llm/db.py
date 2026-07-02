@@ -68,8 +68,8 @@ class LlmUsage(LlmBase):
 # ── downloadable model catalog ────────────────────────────────────────────────
 class ModelCatalog(LlmBase):
     """One downloadable llama.cpp model — catalog fields only. `built_in` marks a
-    seeded row. (Per-model switches were dropped per D9; engine switches live on
-    the type presets, merged in `switch_resolve`.)"""
+    seeded row. (There is no per-model switch column; engine switches come from the
+    type presets, merged in `switch_resolve`.)"""
 
     __tablename__ = "model_catalog"
 

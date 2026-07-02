@@ -7,7 +7,7 @@
 // error. Backed by the shared runner /v1/llm-runner/engine/* endpoints. Its
 // sibling precedent is LuModelCatalog (UiProgress + status surface); both share
 // the common/composables/usePoll.js interval poller. Hosts the collapsed "Engine
-// binaries (advanced)" editor (LuRunnerBinaries) as its own drawer at the panel
+// binaries" editor (LuRunnerBinaries) as its own drawer at the panel
 // bottom — the binary download URLs belong to the engine you install, so they
 // live UNDER this panel (user, 2026-07-02), not as a separate card by the catalog.
 import { computed, onMounted, ref } from "vue";

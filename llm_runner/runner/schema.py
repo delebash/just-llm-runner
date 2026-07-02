@@ -160,10 +160,10 @@ class LoadRequest(CamelModel):
     (modelId, nGpuLayers, cacheTypeK, …); maps 1:1 to runner.process.Overrides."""
 
     model_id: str
-    # Optional Profile context: when set, the runner applies that job's frozen
-    # switches (job_route_switches, resolved by resolve_profile_switches) as the
-    # base, instead of the model-level type-default pre-fill. The per-job live
-    # apply at scale is router-mode (#27); this is the single-load reader.
+    # Optional legacy override hook: when set, a host-supplied function may
+    # replace the base switches wholesale. Unused by JustWrite, which resolves a
+    # model's switches from its type baseline (resolve_model_switches) + the
+    # per-Task engine_presets config. Kept for API back-compat.
     job_id: str | None = None
     # Fit knobs.
     n_gpu_layers: int | None = None
@@ -191,6 +191,6 @@ class LoadRequest(CamelModel):
     # a {flag_name: value} map converted server-side by the SAME
     # lifecycle._switches_to_overrides used for stored switches (unknown keys →
     # extra_flags), layered LAST — over the named fields above AND the model base.
-    # Per-model switches have no persistent home (D9: switches live on Profiles),
-    # so these are transient tuning inputs, not saved.
+    # These are transient tuning inputs (measure-only), not saved per-model — a
+    # tuned config persists per-Task in engine_presets via the Lab.
     switches: dict[str, str] | None = None

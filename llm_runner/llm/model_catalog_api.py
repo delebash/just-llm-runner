@@ -10,10 +10,10 @@ One Protocol + one router (parallel to routing_api / recommendations_api):
   * ModelCatalogStore  -> /v1/ai/model-catalog        (GET/PUT/DELETE/reset)
 
 `built_in` marks seeded rows; reset = restore factory values for seeded keys,
-preserve user-added rows. (Per-model spawn-flag overrides — the old
-`model_switches` table + `/v1/ai/model-switches` router — were DROPPED per the
-D9 ruling: switches belong to the Profile/job, in `job_route_switches`, not
-per-model.)
+preserve user-added rows. (There is no per-model spawn-flag table — a model's
+switches are its type baseline in `switch_presets` (resolved by
+`resolve_model_switches`) plus the per-Task `engine_presets` config tuned in the
+Lab; the old `model_switches` / `/v1/ai/model-switches` surfaces were dropped.)
 """
 
 from __future__ import annotations
@@ -55,9 +55,8 @@ class CatalogResponse(BaseModel):
 
 class ResolvedSwitch(BaseModel):
     """One resolved engine switch for a model (read-only): the layered
-    base→type→mtp default the runner would launch with. `flagName`/`flagValue`
-    match the JobSwitchRow shape so the model-card KnobGrid (#20 Tune & measure)
-    pre-fills from the same wire shape as the Profile editor."""
+    base→type→mtp default the runner would launch with, so the model-card KnobGrid
+    (#20 Tune & measure) pre-fills from the model's real launch flags."""
 
     flagName: str
     flagValue: str = ""
@@ -86,7 +85,7 @@ def make_catalog_router(
     `resolve_switches(model_id) -> {flag_name: value}` is given, also expose
     GET /model-catalog/switches (the model's resolved engine-flag default, so the
     #20 model-card KnobGrid shows the real launch flags before tuning — read-only;
-    persisting tuned flags is a Profile concern, not per-model, per D9)."""
+    tuned flags persist per-Task in `engine_presets` via the Lab, not per-model)."""
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     def _list() -> CatalogResponse:

@@ -16,14 +16,14 @@
 // touch routing or call preset endpoints itself — it EMITS (`save-as`,
 // `apply-preset`, `use-production`, `delete-preset`) so the PARENT (Feature
 // Workbench ×1 or the Compare strip ×N) decides what a promote means (write the
-// action's routing pin + prompt + the job's switches). That keeps routing
+// action's routing pin + prompt + the preset's switches). That keeps routing
 // single-owned and lets Compare promote per-column. The config is a v-model.
 //
 // SWITCHES NOTE: Plane-1 engine switches are LOAD-TIME — they take effect when the
 // local model (re)spawns with them, so the per-call /v1/ai/run test does NOT apply
 // them (it uses whatever model is loaded); their live tok/s effect + the
 // per-switch comparison are GPU-gated (router/residency #27/#29). The KnobGrid here
-// EDITS them (for Promote → the action's job, and for the model-card load+measure
+// EDITS them (for Promote → the action's preset, and for the model-card load+measure
 // path); the column surfaces that so the readout isn't mistaken for a switch A/B.
 import { computed, onMounted, ref, watch } from "vue";
 
@@ -352,8 +352,8 @@ defineExpose({ run, cancel });
           add-label="＋ Add custom switch" name-placeholder="switch (e.g. ctx_len)"
           @update:model-value="patch('switches', $event)" />
         <p class="lu-muted cc-switch-note">Applied when the engine (re)loads — the Run below tests the
-          currently-loaded / cloud model; per-switch tok/s needs a local model (router #27). Promote writes
-          these to the action's job.</p>
+          currently-loaded / cloud model; per-switch tok/s needs a local model (router #27). Save writes
+          these into this Task's preset.</p>
       </div>
     </details>
 

@@ -14,6 +14,7 @@ only wires the runner's *catalog source* to the shared DB.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 
 from . import db, seed, stores, switch_resolve
 from .api import router as shared_api_router
@@ -47,6 +48,7 @@ def install_llm(
     feature_task_kinds=None,
     prefer_local_features: Iterable[str] | None = None,
     runner_catalog: bool = True,
+    data_dir=None,
 ) -> None:
     """Wire + mount the whole shared LLM stack onto `app`. Idempotent table create."""
     # 1. storage — the app's own engine/session back every shared table.
@@ -115,13 +117,15 @@ def install_llm(
     app.include_router(make_feature_samplers_router(stores.get_feature_sampler_store))
     # 6. point the bundled runner's catalog/switches at the shared DB.
     if runner_catalog:
-        _wire_runner_catalog()
+        _wire_runner_catalog(data_dir)
 
 
-def _wire_runner_catalog() -> None:
+def _wire_runner_catalog(data_dir=None) -> None:
     """The bundled llama.cpp runner reads its downloadable-model catalog, per-model
     switches, AND its load config (llama.cpp binaries + VRAM margin) from the
-    shared DB — fully replacing runner-manifest.json (A7)."""
+    shared DB — fully replacing runner-manifest.json (A7). When the host passes a
+    `data_dir`, the runner's engine + model cache lives under `<data_dir>/ai-cache`
+    so all app data shares one portable root; None → the runner default (~/.cache)."""
     from ..runner.lifecycle import configure_service
     from ..runner.schema import ModelEntry, RecommendedFor
 
@@ -155,4 +159,5 @@ def _wire_runner_catalog() -> None:
     configure_service(
         catalog_fn=catalog_fn, switches_fn=switches_fn,
         identify_fn=identify_fn, config_fn=stores.build_runner_config,
+        cache_root=(str(Path(data_dir) / "ai-cache") if data_dir else None),
     )

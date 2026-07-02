@@ -87,6 +87,13 @@ async function delPreset(id) {
   const r = await request(`/v1/ai/engine-presets/${id}`, { method: "DELETE" });
   emit("presets-changed", r.presets || []);
 }
+// Edit-in-place: update the loaded preset (keeps its id + name) instead of a new copy.
+async function updatePreset(id, cfg) {
+  if (!id || !cfg) return;
+  const p = props.presets.find((x) => x.id === id);
+  const r = await request(`/v1/ai/engine-presets/${id}`, { method: "PUT", body: cfgToEnginePreset(p?.name || "preset", cfg) });
+  emit("presets-changed", r.presets || []);
+}
 
 // Reset the local test state whenever the parent selects a different action.
 watch(() => props.prompt, (p) => { draft.value = p ? { ...p } : null; buildVars(); }, { immediate: true });
@@ -125,6 +132,7 @@ const columnConfig = computed(() => {
       :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
       :vars="vars" :presets="presets" :production-preset-id="productionPresetId"
       @save-as="saveAs"
+      @update-preset="updatePreset"
       @delete-preset="delPreset"
       @use-production="(id) => emit('use-production', id)" />
   </div>

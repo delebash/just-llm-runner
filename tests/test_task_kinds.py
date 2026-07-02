@@ -91,13 +91,23 @@ def _make_task_kind_of(feat_store):
     return _resolve
 
 
+FACTORY_PRESETS = {"prose.generate": "p_prose_voiced", "prose.edit": "p_prose_edit"}
+
+
 def _client(with_resolver=True):
     tasks = _MemTaskKindStore()
     feats = _MemFeatureTaskKindStore()
     prompts = _MemPromptStore(["writerAI.continue", "writerAI.tighten", "writerAI.rule.filter-words", "chat", "orphan"])
     tk_of = _make_task_kind_of(feats) if with_resolver else None
+
+    def _reset():
+        feats._m.clear()  # the global reset clears feature overrides (mem stand-in)
+
     app = FastAPI()
-    app.include_router(make_task_kinds_router(lambda: tasks, lambda: feats, lambda: prompts, task_kind_of=tk_of))
+    app.include_router(make_task_kinds_router(
+        lambda: tasks, lambda: feats, lambda: prompts, task_kind_of=tk_of,
+        get_factory_task_presets=lambda: dict(FACTORY_PRESETS), reset_fn=_reset,
+    ))
     return TestClient(app), tasks, feats
 
 
@@ -141,6 +151,18 @@ def test_builtin_delete_blocked():
     r = c.delete("/v1/ai/task-kinds/prose.generate")
     assert r.status_code == 400
     assert "built-in" in r.json()["detail"]
+
+
+def test_factory_presets_and_global_reset():
+    c, _, feats = _client()
+    body = c.get("/v1/ai/task-kinds").json()
+    assert body["factoryTaskPresets"] == FACTORY_PRESETS   # the per-task ↺ reads this
+    # a reassignment, then the global reset clears the overrides
+    c.put("/v1/ai/task-kinds/feature", json={"featureKey": "chat", "taskKind": "chat.inVoice"})
+    assert feats.list().get("chat") == "chat.inVoice"
+    body = c.post("/v1/ai/task-kinds/reset").json()
+    assert "chat" not in feats.list()                      # reset_fn ran
+    assert body["factoryTaskPresets"] == FACTORY_PRESETS
 
 
 def test_reassign_feature_wins_then_clear_refloats():

@@ -110,3 +110,24 @@ def test_task_kind_slug_collision_suffixes(wired):
     assert b.id == "my.task-2"   # collision → numeric suffix, never clobber
     # a label that slugs to the reserved "feature" is deflected
     assert tks.upsert(TaskKindRow(label="Feature")).id == "feature.task"
+
+
+def test_reset_routing_to_factory(wired):
+    from llm_runner.llm.presets_api import EnginePresetRow
+
+    # a factory action->task map for the reset to restore (taskkind_presets empty here).
+    seed.configure_app_seed(feature_task_kinds={"critique": "judge.scored"}, taskkind_presets=[])
+    ft = stores.get_feature_task_kind_store()
+    ft.set("critique", "prose.edit")      # user reassigns a factory feature
+    ft.set("chat", "chat.inVoice")        # a non-factory override
+    p = stores.get_engine_preset_store().save(EnginePresetRow(name="x", providerId="local-llamacpp", model="m"))
+    stores.get_feature_preset_ref_store().set("critique", p.id)     # a per-feature preset override
+    stores.get_task_kind_preset_store().set("chat.inVoice", p.id)   # a custom task->preset
+
+    seed.reset_routing_to_factory()
+
+    m = ft.list()
+    assert m.get("critique") == "judge.scored"                 # restored to the factory map
+    assert "chat" not in m                                     # non-factory override cleared
+    assert stores.get_feature_preset_ref_store().list() == {}  # per-feature overrides cleared
+    assert stores.get_task_kind_preset_store().list() == {}    # task->preset cleared + reseeded (none)

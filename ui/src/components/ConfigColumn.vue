@@ -83,7 +83,7 @@ const props = defineProps({
 });
 const emit = defineEmits([
   "update:modelValue", "result",
-  "save-as", "apply-preset", "delete-preset", "remove", "use-production",
+  "save-as", "update-preset", "apply-preset", "delete-preset", "remove", "use-production",
 ]);
 
 // ── config patching (v-model) ───────────────────────────────────────────────
@@ -328,6 +328,7 @@ defineExpose({ run, cancel });
         :disabled="!selPreset || selPreset === productionPresetId"
         :title="!selPreset ? 'Load or save a preset first' : (selPreset === productionPresetId ? 'Already in production for this feature' : 'Make this preset the one this feature uses')"
         @click="emit('use-production', selPreset)">{{ selPreset && selPreset === productionPresetId ? '✓ In production' : 'Use in production' }}</UiButton>
+      <UiButton v-if="selPreset && !naming" intent="secondary" size="small" title="Update the loaded preset in place (no new copy)" @click="emit('update-preset', selPreset)">Update</UiButton>
       <UiInput v-if="naming" v-model="newName" placeholder="name — Enter" class="cc-name-in"
         @keyup.enter="confirmSaveAs" @keyup.esc="naming = false; newName = ''" />
       <UiButton v-else intent="primary" size="small" title="Save this tested config as a reusable preset" @click="startNaming">＋ Save as preset</UiButton>

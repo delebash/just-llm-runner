@@ -25,6 +25,7 @@ const tasks = ref([]);              // [{id,label,description,position,builtIn}]
 const featureTaskKinds = ref({});  // action key → task id
 const presets = ref([]);           // EnginePresetRow[]
 const assign = ref({ defaultPresetId: "", taskKinds: {}, features: {} });
+const factoryTaskPresets = ref({});  // task id → its seeded preset (for the per-task ↺)
 const prompts = ref([]);           // all action prompts (member labels + the Lab prompt)
 const providers = ref([]);
 const knobCatalog = ref([]);
@@ -81,6 +82,7 @@ function pin(key) { return routing.value?.pins?.[key] || null; }
 function applyTaskResp(r) {
   if (r?.taskKinds) tasks.value = r.taskKinds;
   featureTaskKinds.value = r?.featureTaskKinds || {};
+  factoryTaskPresets.value = r?.factoryTaskPresets || {};
 }
 
 async function load() {
@@ -173,6 +175,21 @@ async function setDefaultPreset(presetId) {
     message.value = "Default preset set.";
   } catch (e) { error.value = `Default failed: ${e.message}`; }
 }
+// Per-task ↺ — reset one task's preset to its shipped (factory) default.
+function resetTaskPreset(taskId) { setTaskPreset(taskId, factoryTaskPresets.value[taskId] || ""); }
+// Global reset — restore all seeded routing assignments (custom tasks + presets kept).
+async function resetAll() {
+  const ok = await confirmDialog({
+    title: "Reset all task routing to defaults?", danger: true,
+    message: "Restores the seeded task→preset + feature→task assignments and clears per-feature overrides. Your custom tasks + presets are kept.",
+  });
+  if (!ok) return;
+  try {
+    await request("/v1/ai/task-kinds/reset", { method: "POST" });
+    await load();
+    message.value = "Reset to defaults.";
+  } catch (e) { error.value = `Reset failed: ${e.message}`; }
+}
 
 // ── the Lab (test the TASK's preset against a member feature). FeatureLab owns the
 // engine-preset Save-as / Delete calls (one source for both hosts) + emits the refreshed
@@ -209,6 +226,9 @@ onMounted(load);
             <div class="lu-tk-default-k">Default preset <span class="lu-muted">(fallback for any task with none)</span></div>
             <UiSelect :model-value="assign.defaultPresetId || ''" :options="defaultOptions" width="name"
               @update:model-value="setDefaultPreset" />
+            <UiButton intent="ghost" size="small" class="lu-tk-resetall"
+              title="Restore the seeded task/preset + feature assignments — your custom tasks + presets are kept"
+              @click="resetAll">↺ Reset all to defaults</UiButton>
           </div>
         </aside>
 
@@ -248,6 +268,8 @@ onMounted(load);
               <span class="lu-tk-presetrow-k">Preset</span>
               <UiSelect :model-value="taskPreset(selTask)" :options="presetOptions" width="name"
                 @update:model-value="(v) => setTaskPreset(selTask, v)" />
+              <UiButton intent="ghost" size="small" title="Reset this task's preset to its shipped default"
+                @click="resetTaskPreset(selTask)">↺</UiButton>
             </div>
             <template v-if="selMembers.length">
               <div class="lu-tk-testrow">

@@ -26,7 +26,7 @@ const props = defineProps({
   presets: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },  // the feature's in-production preset
 });
-const emit = defineEmits(["save-as", "delete-preset", "use-production"]);
+const emit = defineEmits(["save-as", "update-preset", "delete-preset", "use-production"]);
 
 let nextId = 1;
 const columns = ref([]);          // [{ id, config }]
@@ -148,6 +148,7 @@ onMounted(() => {
           @remove="removeColumn(col.id)"
           @apply-preset="applyPresetTo(col, $event)"
           @save-as="emit('save-as', $event, col.config)"
+          @update-preset="emit('update-preset', $event, col.config)"
           @delete-preset="emit('delete-preset', $event)"
           @use-production="emit('use-production', $event)" />
       </div>

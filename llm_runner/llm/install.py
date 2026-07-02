@@ -94,6 +94,8 @@ def install_llm(
     app.include_router(make_task_kinds_router(
         stores.get_task_kind_store, stores.get_feature_task_kind_store,
         stores.get_prompt_store, task_kind_of=_task_kind_of,
+        get_factory_task_presets=lambda: {c["task_kind"]: c["preset_id"] for c in seed.app_taskkind_presets()},
+        reset_fn=seed.reset_routing_to_factory,
     ))
     app.include_router(make_routing_router(stores.get_routing_store, seed.app_feature_catalog))
     app.include_router(make_feature_presets_router(stores.get_feature_preset_store))

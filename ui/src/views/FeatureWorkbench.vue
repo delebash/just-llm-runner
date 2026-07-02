@@ -217,6 +217,18 @@ async function setFeatureTask(key, taskKind) {
     message.value = "Task reassigned.";
   } catch (e) { error.value = `Task change failed: ${e.message}`; }
 }
+// Reset THIS feature to its factory routing: drop its per-feature preset override AND
+// its task override, so it re-floats to its seeded task + inherited preset.
+async function resetFeature(key) {
+  if (!key) return;
+  try {
+    presetAssign.value = await request("/v1/ai/preset-assignments/feature", { method: "PUT", body: { featureKey: key, presetId: "" } });
+    const tk = await request("/v1/ai/task-kinds/feature", { method: "PUT", body: { featureKey: key, taskKind: "" } });
+    taskKinds.value = tk.taskKinds || taskKinds.value;
+    featureTaskKinds.value = tk.featureTaskKinds || {};
+    message.value = "Reset to defaults.";
+  } catch (e) { error.value = `Reset failed: ${e.message}`; }
+}
 
 // The left list can be collapsed to give the Lab full width.
 const navCollapsed = ref(false);
@@ -258,6 +270,8 @@ onMounted(load);
               <span class="lu-fw-task-k">Task</span>
               <UiSelect :model-value="featureTask(selAction)" :options="taskOptions" width="name"
                 @update:model-value="(v) => setFeatureTask(selAction, v)" />
+              <UiButton intent="ghost" size="small" title="Reset this feature to its default task + preset"
+                @click="resetFeature(selAction)">↺</UiButton>
             </span>
             <span class="lu-fw-spacer" />
             <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>

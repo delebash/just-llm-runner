@@ -473,6 +473,27 @@ def seed_default_feature_task_kinds(s) -> int:
     return added
 
 
+def reset_routing_to_factory() -> None:
+    """Restore the seeded ROUTING assignments to factory (the Tasks page "Reset to
+    defaults"): clear task→preset (`task_kind_presets`), feature→task
+    (`feature_task_kinds`), and every per-feature preset override (`feature_preset_refs`),
+    then re-seed the built-in tasks + the app's factory task-map + task→preset assignments.
+    CUSTOM tasks + CUSTOM presets are KEPT (the app's reset convention — see the model
+    catalog / switch-preset resets); only the assignments snap back to defaults."""
+    s = db.session()
+    try:
+        s.query(db.TaskKindPreset).delete()
+        s.query(db.FeatureTaskKind).delete()
+        s.query(db.FeaturePresetRef).delete()
+        s.flush()
+        seed_default_task_kinds(s)          # re-add any missing built-in tasks
+        seed_default_feature_task_kinds(s)  # the app's factory action→task map
+        seed_default_taskkind_presets(s)    # the app's factory task→preset assignments
+        s.commit()
+    finally:
+        s.close()
+
+
 def seed_default_recommendations(s) -> int:
     existing = {(r.model_id, r.task_kind) for r in s.query(db.ModelRecommendation.model_id, db.ModelRecommendation.task_kind).all()}
     added = 0

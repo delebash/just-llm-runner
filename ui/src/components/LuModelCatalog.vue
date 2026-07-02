@@ -13,6 +13,7 @@
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
+import { fetchResolvedSwitches } from "../switchResolve.js";
 import { usePoll } from "../common/composables/usePoll.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
@@ -189,8 +190,7 @@ const tuneErr = ref("");
 const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value === "measuring");
 
 async function fetchResolved(id) {
-  const r = await request(`/v1/ai/model-catalog/switches?modelId=${encodeURIComponent(id)}`);
-  return (r.switches || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue }));
+  return fetchResolvedSwitches(id); // shared with ConfigColumn's model->switch seed (one source)
 }
 async function startTune(m) {
   tuning.value = m;

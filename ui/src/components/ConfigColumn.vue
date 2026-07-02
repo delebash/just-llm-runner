@@ -28,6 +28,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 
 import { request } from "../client.js";
+import { fetchResolvedSwitches } from "../switchResolve.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
 import KnobGrid from "./KnobGrid.vue";
 import LuModelPicker from "./LuModelPicker.vue";
@@ -91,7 +92,54 @@ function patch(key, val) {
   emit("update:modelValue", { ...(props.modelValue || {}), [key]: val });
 }
 function patchPin(val) {
-  patch("pin", val && val.providerId ? { providerId: val.providerId, model: val.model || "" } : null);
+  const pin = val && val.providerId ? { providerId: val.providerId, model: val.model || "" } : null;
+  // A USER-driven provider/model pick re-opens the model->switch seed (switches are
+  // model-specific — the new model's baseline should show). A PRESET load keeps its
+  // own 'preset' tag (it goes through CompareStrip.presetToConfig, not patchPin), so
+  // the seed never clobbers a freshly-loaded preset.
+  patchMany({ pin, switchesSource: "model" });
+}
+function patchMany(obj) {
+  emit("update:modelValue", { ...(props.modelValue || {}), ...obj });
+}
+
+// ── model -> engine-switch baseline seed (connect model selection to switches) ─
+// When THIS column's model changes, pre-fill the Plane-1 switch KnobGrid with that
+// model's RESOLVED baseline (base->type->mtp — the SAME source Tune & measure reads,
+// via the shared switchResolve helper), so picking a model shows its real launch
+// flags instead of an empty/generic grid. Provenance guard (`switchesSource` on the
+// config): never clobber switches from a loaded PRESET (CompareStrip.presetToConfig
+// tags 'preset') or a USER edit (`onEditSwitches` tags 'user'); only (re)seed when
+// they are empty or a prior model seed. An async token + a post-await re-check make a
+// late-resolving fetch safe against a preset-apply / another model-change meanwhile.
+let seedToken = 0;
+function providerIsKnownCloud(providerId) {
+  const p = props.providers.find((x) => x.id === providerId);
+  return !!p && !p.local; // known cloud → skip (switches are a local-engine concept); unknown → attempt
+}
+async function seedSwitchesFromModel(modelId, providerId) {
+  const src = props.modelValue?.switchesSource;
+  if (src === "preset" || src === "user") return;
+  if ((props.modelValue?.switches || []).length && src !== "model") return;
+  if (!modelId || providerIsKnownCloud(providerId)) return;
+  const my = ++seedToken;
+  const rows = await fetchResolvedSwitches(modelId);
+  if (my !== seedToken) return;                          // superseded by a newer model change
+  if (props.modelValue?.pin?.model !== modelId) return; // model changed mid-fetch
+  const now = props.modelValue?.switchesSource;
+  if (now === "preset" || now === "user") return;       // a preset/user edit landed during the fetch
+  patchMany({ switches: rows, switchesSource: "model" });
+}
+// Watch the model STRING (not an array getter) so it fires ONLY when the model
+// actually changes — an array getter re-fires on every modelValue reference change
+// (incl. the seed's own switch write), which would loop.
+watch(
+  () => props.modelValue?.pin?.model,
+  (mid) => seedSwitchesFromModel(mid, props.modelValue?.pin?.providerId),
+  { immediate: true },
+);
+function onEditSwitches(rows) {
+  patchMany({ switches: rows, switchesSource: "user" });
 }
 
 // ── sampler ORDER (the reserved `samplers` entry in the samplers array) ───────
@@ -350,7 +398,7 @@ defineExpose({ run, cancel });
         <KnobGrid checklist :catalog-list="switchCatalogList" :exclude="['n_cpu_moe']"
           :model-value="modelValue?.switches || []"
           add-label="＋ Add custom switch" name-placeholder="switch (e.g. ctx_len)"
-          @update:model-value="patch('switches', $event)" />
+          @update:model-value="onEditSwitches" />
         <p class="lu-muted cc-switch-note">Applied when the engine (re)loads — the Run below tests the
           currently-loaded / cloud model; per-switch tok/s needs a local model (router #27). Save writes
           these into this Task's preset.</p>

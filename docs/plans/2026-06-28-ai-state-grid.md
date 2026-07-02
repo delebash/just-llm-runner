@@ -39,7 +39,7 @@ The AI area has **5 menus** across the top (verified `ui/src/views/AiModelsArea.
 | **Two planes** | Load-time engine switches (need a reload) vs per-request samplers (ride the request) | Built as two planes (load path vs dispatch `extra`) | Keep — you said you want to discuss | ✅ (discuss) |
 | **Switch editor** | **D7**: a typed STRING. **D15** (revises D7): the shared **KnobGrid** | `KnobGrid.vue` — one key/value grid for both switches + samplers; used in `RoutingByJob.vue` | KnobGrid (D15) — **you don't remember it**; your call | ⚠️ |
 | **Where switches live** | §6.4: keep per-model + per-feature tables. **D9** (you): drop both, put on the **job** | D9 executed: `model_switches`/`pin_switches` dropped, `job_route_switches` survives (`switch_resolve.py`, `stores.py`) | Per D9 (your ruling) — confirm it still holds | ⚠️ |
-| **Switch presets (type defaults)** | base/moe/mtp bundles pre-fill switches by model TYPE | Kept + seeded; `LuSwitchPresets.vue` editor (moved to Routing-by-job) | Settled per D9/D17 | ✅ |
+| **Switch presets (type defaults)** | base/moe/mtp bundles pre-fill switches by model TYPE | Kept + seeded (`switch_presets`); the **Lab now seeds switches from the model** on pick (2026-07-02, `switchResolve.js` → `ConfigColumn`); `LuSwitchPresets.vue` deleted (orphan) → the baseline is seed/reset/API-only | Settled | ✅ |
 
 ### Cluster 3 — Models / routing / cost
 

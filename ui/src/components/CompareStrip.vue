@@ -105,6 +105,9 @@ function presetToConfig(p, base) {
     nCpuMoeOverride: p.nCpuMoeOverride ?? null,
     switches: (p.switches || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
     samplers: (p.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
+    // Mark provenance so ConfigColumn's model->switch seed never clobbers a loaded
+    // preset's switches (even when the preset changes the column's model).
+    switchesSource: "preset",
   };
 }
 function applyPresetTo(col, id) {

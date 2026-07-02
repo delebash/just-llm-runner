@@ -9,7 +9,7 @@
 > category** (feature-override → category → global Default); the Fast/Balanced/Best dial is dropped and "job" is demoted to
 > the recommendation key only. **For anything about routing, the lab, switches, presets, or the AI sub-nav, read and plan
 > from the CURRENT model — `docs/plans/2026-07-02-preset-model-a-resets.md` (Plan A: the task owns the preset; 2-tier
-> cascade task→default; it caps the 2026-06-29 → 2026-07-01 → 2026-07-02-user-tasks chain) — NOT the sections here.** This master remains authoritative ONLY for the
+> cascade task→default; it caps the 2026-06-29 → 2026-07-01 → 2026-07-02-user-tasks chain) — NOT the sections here.** The **model→switch connect** + **model Edit-form simplification** are newer still (2026-07-02): the Lab now **seeds switches from the model**, the orphaned `LuSwitchPresets.vue` editor was **deleted** (so this doc's `RoutingByJob.vue`/`LuSwitchPresets` references are historical only), `switch_presets` is the seed/reset/API-only baseline, and `mtp` was surfaced in the model Edit form — see `docs/plans/2026-07-02-model-switch-connect.md`. This master remains authoritative ONLY for the
 > parts the redesign does not touch: the model catalog, the Fit/VRAM engine, licensing/attribution, and the model
 > research (Part 3 / Part 4). Those parts are unchanged.
 

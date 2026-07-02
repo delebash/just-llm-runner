@@ -91,9 +91,6 @@ def _make_task_kind_of(feat_store):
     return _resolve
 
 
-FACTORY_PRESETS = {"prose.generate": "p_prose_voiced", "prose.edit": "p_prose_edit"}
-
-
 def _client(with_resolver=True):
     tasks = _MemTaskKindStore()
     feats = _MemFeatureTaskKindStore()
@@ -103,10 +100,15 @@ def _client(with_resolver=True):
     def _reset():
         feats._m.clear()  # the global reset clears feature overrides (mem stand-in)
 
+    def _reset_task(task_id):
+        # built-in only; the real fn restores label/desc/preset (mem stand-in validates)
+        if task_id not in {t["id"] for t in DEFAULT_TASK_KINDS}:
+            raise ValueError(f"{task_id!r} is not a built-in task")
+
     app = FastAPI()
     app.include_router(make_task_kinds_router(
         lambda: tasks, lambda: feats, lambda: prompts, task_kind_of=tk_of,
-        get_factory_task_presets=lambda: dict(FACTORY_PRESETS), reset_fn=_reset,
+        reset_fn=_reset, reset_task_fn=_reset_task,
     ))
     return TestClient(app), tasks, feats
 
@@ -153,16 +155,13 @@ def test_builtin_delete_blocked():
     assert "built-in" in r.json()["detail"]
 
 
-def test_factory_presets_and_global_reset():
+def test_global_reset_runs_reset_fn():
     c, _, feats = _client()
-    body = c.get("/v1/ai/task-kinds").json()
-    assert body["factoryTaskPresets"] == FACTORY_PRESETS   # the per-task ↺ reads this
-    # a reassignment, then the global reset clears the overrides
+    # a reassignment, then the global reset clears the overrides (reset_fn ran)
     c.put("/v1/ai/task-kinds/feature", json={"featureKey": "chat", "taskKind": "chat.inVoice"})
     assert feats.list().get("chat") == "chat.inVoice"
-    body = c.post("/v1/ai/task-kinds/reset").json()
-    assert "chat" not in feats.list()                      # reset_fn ran
-    assert body["factoryTaskPresets"] == FACTORY_PRESETS
+    c.post("/v1/ai/task-kinds/reset")
+    assert "chat" not in feats.list()
 
 
 def test_reassign_feature_wins_then_clear_refloats():
@@ -175,3 +174,14 @@ def test_reassign_feature_wins_then_clear_refloats():
     body = c.put("/v1/ai/task-kinds/feature", json={"featureKey": "chat", "taskKind": ""}).json()
     assert body["featureTaskKinds"]["chat"] == "chat.grounded"
     assert "chat" not in feats.list()
+
+
+def test_reset_one_task_builtin_ok_custom_400():
+    c, _, _ = _client()
+    # a built-in task resets fine (200)
+    assert c.post("/v1/ai/task-kinds/prose.generate/reset").status_code == 200
+    # a custom task has no factory to reset to → 400
+    c.post("/v1/ai/task-kinds", json={"label": "My Task"})
+    r = c.post("/v1/ai/task-kinds/my.task/reset")
+    assert r.status_code == 400
+    assert "built-in" in r.json()["detail"]

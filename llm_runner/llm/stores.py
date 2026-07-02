@@ -532,8 +532,8 @@ class SwitchPresetStore:
 
 
 # ── engine presets (the 2026-06-29 lab+preset model: model+switches+params, the
-# source of truth for what runs). Assigned by TASKKIND (TaskKindPreset[""] = the
-# global default) or a per-feature override (FeaturePresetRef). ──
+# source of truth for what runs). Assigned by TASKKIND (TaskKindPreset), with
+# TaskKindPreset[""] as the global default (2026-07-02: no per-feature override tier). ──
 def _engine_preset_to_wire(p, switches, samplers) -> EnginePresetRow:
     return EnginePresetRow(
         id=p.id, name=p.name, providerId=p.provider_id, model=p.model,
@@ -544,6 +544,19 @@ def _engine_preset_to_wire(p, switches, samplers) -> EnginePresetRow:
         samplers=[PresetFlagRow(flagName=x.param_name, flagValue=x.value) for x in samplers],
         builtIn=p.built_in, position=p.position,
     )
+
+
+def _delete_engine_preset_rows(s, ids) -> None:
+    """Delete engine presets + their FK children (switches/samplers) explicitly, in
+    the given session. Host-agnostic — does NOT rely on SQLite ON DELETE CASCADE (the
+    runner's own reset path runs with FK enforcement off). ONE teardown path, shared by
+    EnginePresetStore.delete + seed.restore_built_in_engine_presets."""
+    ids = [i for i in ids if i]
+    if not ids:
+        return
+    s.query(db.EnginePresetSwitch).filter(db.EnginePresetSwitch.preset_id.in_(ids)).delete(synchronize_session=False)
+    s.query(db.EnginePresetSampler).filter(db.EnginePresetSampler.preset_id.in_(ids)).delete(synchronize_session=False)
+    s.query(db.EnginePreset).filter(db.EnginePreset.id.in_(ids)).delete(synchronize_session=False)
 
 
 class EnginePresetStore:
@@ -604,10 +617,8 @@ class EnginePresetStore:
     def delete(self, preset_id: str) -> None:
         s = db.session()
         try:
-            row = s.get(db.EnginePreset, preset_id)
-            if row is not None:
-                s.delete(row)
-                s.commit()
+            _delete_engine_preset_rows(s, [preset_id])  # children + parent (host-agnostic)
+            s.commit()
         finally:
             s.close()
 
@@ -629,30 +640,6 @@ class TaskKindPresetStore:
                     s.delete(row)
             elif row is None:
                 s.add(db.TaskKindPreset(task_kind=task_kind, preset_id=preset_id))
-            else:
-                row.preset_id = preset_id
-            s.commit()
-        finally:
-            s.close()
-
-
-class FeaturePresetRefStore:
-    def list(self) -> dict[str, str]:
-        s = db.session()
-        try:
-            return {r.key: r.preset_id for r in s.query(db.FeaturePresetRef).all()}
-        finally:
-            s.close()
-
-    def set(self, feature_key: str, preset_id: str) -> None:
-        s = db.session()
-        try:
-            row = s.get(db.FeaturePresetRef, feature_key)
-            if not preset_id:
-                if row is not None:
-                    s.delete(row)
-            elif row is None:
-                s.add(db.FeaturePresetRef(key=feature_key, preset_id=preset_id))
             else:
                 row.preset_id = preset_id
             s.commit()
@@ -893,7 +880,6 @@ _switch_preset = SwitchPresetStore()
 _feature_sampler = FeatureSamplerStore()
 _engine_preset = EnginePresetStore()
 _task_kind_preset = TaskKindPresetStore()
-_feature_preset_ref = FeaturePresetRefStore()
 _task_kind = TaskKindStore()
 _feature_task_kind = FeatureTaskKindStore()
 
@@ -910,7 +896,6 @@ def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
 def get_feature_sampler_store() -> FeatureSamplerStore: return _feature_sampler
 def get_engine_preset_store() -> EnginePresetStore: return _engine_preset
 def get_task_kind_preset_store() -> TaskKindPresetStore: return _task_kind_preset
-def get_feature_preset_ref_store() -> FeaturePresetRefStore: return _feature_preset_ref
 def get_task_kind_store() -> TaskKindStore: return _task_kind
 def get_feature_task_kind_store() -> FeatureTaskKindStore: return _feature_task_kind
 

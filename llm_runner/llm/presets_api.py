@@ -5,9 +5,9 @@ An ENGINE PRESET = a reusable engine config (model + frozen Plane-1 switches +
 per-request params + optional hardware-fit-knob overrides) built and saved in the
 Lab. It is the SOURCE OF TRUTH for what runs (combined with a feature's prompt).
 
-A feature resolves its preset via the cascade:
-    its own override (FeaturePresetRef) → its taskKind's preset (TaskKindPreset)
-    → the global default preset.
+A feature resolves its preset via the cascade (2026-07-02 "task owns the preset"):
+    its taskKind's preset (TaskKindPreset) → the global default preset.
+(The per-feature override tier was removed — a feature's preset IS its task's.)
 
 The PROMPT is NOT here — it lives on the feature (FeaturePrompt). Switches and
 long-tail samplers are variable-cardinality children; `nglOverride` /
@@ -60,18 +60,6 @@ class TaskKindAssignment(BaseModel):
     presetId: str = ""   # "" → clear (this taskKind falls back to the default)
 
 
-class FeatureAssignment(BaseModel):
-    featureKey: str
-    presetId: str = ""   # "" → clear (feature inherits its taskKind)
-
-
-class FeatureClearRequest(BaseModel):
-    """Bulk-clear the per-feature overrides for a set of features (the "reset" that
-    drops each feature's own override so it re-inherits its taskKind preset)."""
-
-    featureKeys: list[str] = []
-
-
 class DefaultAssignment(BaseModel):
     presetId: str = ""
 
@@ -89,11 +77,6 @@ class TaskKindPresetStore(Protocol):
     def set(self, task_kind: str, preset_id: str) -> None: ...  # "" clears the row
 
 
-class FeaturePresetRefStore(Protocol):
-    def list(self) -> dict[str, str]: ...                      # feature_key → preset_id
-    def set(self, feature_key: str, preset_id: str) -> None: ...  # "" clears the row
-
-
 class PresetsResponse(BaseModel):
     presets: list[EnginePresetRow]
 
@@ -101,19 +84,18 @@ class PresetsResponse(BaseModel):
 class AssignmentsResponse(BaseModel):
     defaultPresetId: str = ""
     taskKinds: dict[str, str] = {}    # task_kind → preset_id
-    features: dict[str, str] = {}     # feature_key → preset_id (overrides)
 
 
 def make_presets_router(
     get_presets: Callable[[], EnginePresetStore],
     get_task_kinds: Callable[[], TaskKindPresetStore],
-    get_refs: Callable[[], FeaturePresetRefStore],
     get_default: Callable[[], str],
     set_default: Callable[[str], None],
 ) -> APIRouter:
-    """CRUD for engine presets + the three assignment layers (default · category ·
-    per-feature override). Mutating calls return the full list/assignments so the UI
-    re-renders from one response."""
+    """CRUD for engine presets + the two assignment layers (default · task-kind).
+    Mutating calls return the full list/assignments so the UI re-renders from one
+    response. (2026-07-02 Plan A: the per-feature override layer was removed — a
+    feature's preset IS its task's.)"""
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     def _presets() -> PresetsResponse:
@@ -123,7 +105,6 @@ def make_presets_router(
         return AssignmentsResponse(
             defaultPresetId=get_default(),
             taskKinds=get_task_kinds().list(),
-            features=get_refs().list(),
         )
 
     # ── presets CRUD ──────────────────────────────────────────────────────────
@@ -152,7 +133,7 @@ def make_presets_router(
         get_presets().delete(preset_id)
         return _presets()
 
-    # ── assignments (default · category · per-feature override) ────────────────
+    # ── assignments (default · task-kind) ──────────────────────────────────────
     @router.get("/preset-assignments", response_model=AssignmentsResponse)
     async def list_assignments() -> AssignmentsResponse:
         return _assignments()
@@ -167,24 +148,6 @@ def make_presets_router(
         if not body.taskKind.strip():
             raise HTTPException(status_code=400, detail="taskKind is required")
         get_task_kinds().set(body.taskKind, body.presetId)
-        return _assignments()
-
-    @router.put("/preset-assignments/feature", response_model=AssignmentsResponse)
-    async def put_feature(body: FeatureAssignment) -> AssignmentsResponse:
-        if not body.featureKey.strip():
-            raise HTTPException(status_code=400, detail="featureKey is required")
-        get_refs().set(body.featureKey, body.presetId)
-        return _assignments()
-
-    @router.post("/preset-assignments/clear-features", response_model=AssignmentsResponse)
-    async def clear_features(body: FeatureClearRequest) -> AssignmentsResponse:
-        """Reset: clear the per-feature override for each given feature so it
-        re-inherits its category preset. Used by the per-category "reset" button
-        (the client passes that category's feature keys)."""
-        refs = get_refs()
-        for key in body.featureKeys:
-            if key.strip():
-                refs.set(key, "")
         return _assignments()
 
     return router

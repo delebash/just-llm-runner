@@ -8,11 +8,11 @@
 //
 // State boundary (panel-decided): FeatureLab OWNS draft(prompt, read to run) + vars +
 // samplers + switches + columnConfig + the CompareStrip. ROUTING stays in the PARENT —
-// the pin arrives as a prop and a pin change is EMITTED (`pin-change`); the parent
-// persists it via its own saveRouting, so there is ONE routing source of truth (no
-// forked copy). save-as / delete-preset / use-production are likewise emitted; the
-// parent decides the target (a feature override in the Workbench, a task assignment on
-// the Tasks page).
+// the pin arrives as a prop and is a READ-ONLY seed for the column's model (the pin-edit
+// path was removed as vestigial; models persist via presets, not the routing pin), so
+// there is ONE routing source of truth. save-as / update-preset / delete-preset /
+// use-production are emitted; the parent decides the target — under Plan A that is always
+// a TASK preset (the feature's task in the Workbench, the selected task on the Tasks page).
 import { computed, reactive, ref, watch } from "vue";
 
 import CompareStrip from "./CompareStrip.vue";
@@ -60,10 +60,11 @@ function humanizeVar(k) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : k;
 }
 
-// Save-as / delete a tested column as an ENGINE preset. FeatureLab owns the
+// Save-as / delete / update a tested column as an ENGINE preset. FeatureLab owns the
 // /v1/ai/engine-presets calls (one source for both hosts) and emits the refreshed
 // list; the parent updates its `presets` ref. Where the tested preset is then USED
-// (a per-feature override vs a task assignment) is the parent's call → `use-production`.
+// (the feature's task preset vs the selected task's preset — both task-grained under
+// Plan A) is the parent's call → `use-production`.
 function cfgToEnginePreset(name, cfg) {
   const num = (v) => (v === "" || v == null ? null : Number(v));
   return {
@@ -91,7 +92,8 @@ async function delPreset(id) {
 async function updatePreset(id, cfg) {
   if (!id || !cfg) return;
   const p = props.presets.find((x) => x.id === id);
-  const r = await request(`/v1/ai/engine-presets/${id}`, { method: "PUT", body: cfgToEnginePreset(p?.name || "preset", cfg) });
+  if (!p) return;  // preset not in the list (e.g. just deleted) → no-op, never silently rename
+  const r = await request(`/v1/ai/engine-presets/${id}`, { method: "PUT", body: cfgToEnginePreset(p.name, cfg) });
   emit("presets-changed", r.presets || []);
 }
 
@@ -103,7 +105,7 @@ watch(() => props.action, (k) => { switchRows.value = []; loadSamplers(k); }, { 
 // this into each column, so edits live on the column and reach us through the column's
 // save-as (not a write-back setter). `pin` is the feature's current routing pin, used
 // only to seed the column's model — persisting a chosen model is done via Save-as-preset
-// + assign ("Use in production" / "Use for this task"), NOT via the routing pin.
+// + assign ("Use for this task"), NOT via the routing pin.
 const columnConfig = computed(() => {
   const d = draft.value || {};
   return {

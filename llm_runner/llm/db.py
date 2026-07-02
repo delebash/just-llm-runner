@@ -343,8 +343,8 @@ class FeatureSamplerParam(LlmBase):
 
 # ── engine presets (the Lab's output; the SOURCE OF TRUTH for what runs — the
 # 2026-06-29 lab+preset model). A preset = model + frozen switches + params. It is
-# assigned to features by TASKKIND (TaskKindPreset) or a per-feature override
-# (FeaturePresetRef); the global fallback is the `default_preset_id` setting. The
+# assigned to features by TASKKIND (TaskKindPreset), with TaskKindPreset[""] as the
+# global default (2026-07-02: a feature's preset IS its task's — no per-feature tier). The
 # PROMPT is NOT here — it stays on the feature (FeaturePrompt). Frozen (stored = run)
 # EXCEPT ngl / n_cpu_moe, which auto-compute at load when their override is null. ──
 class EnginePreset(LlmBase):
@@ -397,22 +397,12 @@ class EnginePresetSampler(LlmBase):
 class TaskKindPreset(LlmBase):
     """taskKind → preset assignment — the bulk handle. Every action whose LLM-work
     taskKind matches this key inherits this preset (and a NEW action of that taskKind
-    auto-joins) unless the action has its own FeaturePresetRef override. `task_kind` ""
-    is the global-default row."""
+    auto-joins). `task_kind` "" is the global-default row. (2026-07-02: a feature's
+    preset IS its task's — there is no per-feature override tier.)"""
 
     __tablename__ = "task_kind_presets"
 
     task_kind = Column(String, primary_key=True)
-    preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), nullable=False)
-
-
-class FeaturePresetRef(LlmBase):
-    """A per-feature preset OVERRIDE (the rare escape). Absent → the feature inherits
-    its taskKind's preset, else the default. `key` is the action id."""
-
-    __tablename__ = "feature_preset_refs"
-
-    key = Column(String, primary_key=True)
     preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), nullable=False)
 
 

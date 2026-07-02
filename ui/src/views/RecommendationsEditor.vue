@@ -23,15 +23,17 @@ import UiTag from "../common/components/UiTag.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { request } from "../client.js";
+import { taskLabel } from "../common/taskLabels.js";
 
 const rows = ref([]);
 const models = ref([]); // runner catalog — for the modelId picker
+const tasks = ref([]);  // task catalog — resolve taskKind id → label + the Task picker
 const loading = ref(true);
 const error = ref("");
 
 const TABLE_COLUMNS = [
   { id: "modelId", accessorKey: "modelId", header: "Model", sortable: true, enableGlobalFilter: true },
-  { id: "taskKind", accessorKey: "taskKind", header: "Task kind", sortable: true, enableGlobalFilter: true, cellStyle: { width: "160px" } },
+  { id: "taskKind", accessorKey: "taskKind", header: "Task", sortable: true, enableGlobalFilter: true, cellStyle: { width: "160px" } },
   { id: "rank", accessorKey: "rank", header: "Rank", sortable: true, cellStyle: { width: "80px", textAlign: "right" } },
   { id: "why", accessorKey: "why", header: "Why", enableGlobalFilter: true },
   { id: "source", accessorKey: "builtIn", header: "Source", sortable: true, cellStyle: { width: "110px" } },
@@ -51,17 +53,30 @@ const modelOptions = computed(() => {
   ];
 });
 
+// Task picker options — the task catalog, plus any taskKind already used by a row that
+// isn't in the catalog (so editing a legacy/custom pin still shows it).
+const taskOptions = computed(() => {
+  const known = new Set(tasks.value.map((t) => t.id));
+  const extras = rows.value.map((r) => r.taskKind).filter((id) => id && !known.has(id));
+  return [
+    ...tasks.value.map((t) => ({ value: t.id, label: t.label })),
+    ...Array.from(new Set(extras)).map((id) => ({ value: id, label: taskLabel(id, tasks.value) })),
+  ];
+});
+
 // ── load ────────────────────────────────────────────────────────────────────
 async function loadAll() {
   loading.value = true;
   error.value = "";
   try {
-    const [r, m] = await Promise.all([
+    const [r, m, t] = await Promise.all([
       request("/v1/ai/recommendations"),
       request("/v1/llm-runner/models"),
+      request("/v1/ai/task-kinds"),
     ]);
     rows.value = r.rows || [];
     models.value = m.models || [];
+    tasks.value = t.taskKinds || [];
   } catch (e) {
     error.value = e?.message || "Couldn't load recommendations.";
   } finally {
@@ -91,7 +106,7 @@ const saveError = ref("");
 const saving = ref(false);
 async function saveEdit() {
   if (!editing.value.modelId.trim() || !editing.value.taskKind.trim()) {
-    saveError.value = "Model and Task kind are required.";
+    saveError.value = "Model and Task are required.";
     return;
   }
   saving.value = true;
@@ -125,7 +140,7 @@ const busy = ref("");  // composite key being acted on, for button feedback
 async function deleteRow(row) {
   const ok = await confirmDialog({
     title: "Delete recommendation?",
-    message: `Delete recommendation "${row.modelId}" for task kind "${row.taskKind}"?`,
+    message: `Delete recommendation "${row.modelId}" for task "${taskLabel(row.taskKind, tasks.value)}"?`,
     danger: true,
   });
   if (!ok) return;
@@ -179,7 +194,7 @@ async function resetFactory() {
     <div v-if="error" class="lu-error lu-rec-err">{{ error }}</div>
 
     <div class="lu-rec-toolbar">
-      <UiInput v-model="filter" placeholder="Filter by model id, task kind, or why…" />
+      <UiInput v-model="filter" placeholder="Filter by model id, task, or why…" />
     </div>
 
     <UiTable
@@ -197,7 +212,7 @@ async function resetFactory() {
         <code class="lu-mono">{{ row.modelId }}</code>
       </template>
       <template #taskKind="{ row }">
-        <UiTag intent="ghost">{{ row.taskKind }}</UiTag>
+        <UiTag intent="ghost">{{ taskLabel(row.taskKind, tasks) }}</UiTag>
       </template>
       <template #source="{ row }">
         <UiTag :intent="row.builtIn ? 'success' : 'secondary'">{{ row.builtIn ? "factory" : "user" }}</UiTag>
@@ -220,13 +235,13 @@ async function resetFactory() {
         <label class="lu-rec-label">Model
           <UiSelect v-model="editing.modelId" :options="modelOptions" placeholder="Pick a catalog model or type an id" />
         </label>
-        <label class="lu-rec-label">Task kind
-          <UiInput v-model="editing.taskKind" placeholder="e.g. prose.generate, extract.structured" />
-          <span class="lu-muted lu-rec-hint">The LLM-work kind this model is good for (the taskKind that routes to a preset).</span>
+        <label class="lu-rec-label">Task
+          <UiSelect v-model="editing.taskKind" :options="taskOptions" placeholder="Pick the task this model is good for" />
+          <span class="lu-muted lu-rec-hint">The task (LLM-work kind) this model is good for — it routes to that task's preset.</span>
         </label>
         <label class="lu-rec-label">Rank
           <UiNumber v-model="editing.rank" :min="1" :max="999" :step="10" />
-          <span class="lu-muted lu-rec-hint">Lower = preferred. The wizard uses this to order candidates within a taskKind.</span>
+          <span class="lu-muted lu-rec-hint">Lower = preferred. The wizard uses this to order candidates within a task.</span>
         </label>
         <label class="lu-rec-label">Why
           <UiTextarea v-model="editing.why" placeholder="One-line cited reason shown in the wizard." />

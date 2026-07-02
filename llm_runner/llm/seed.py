@@ -473,22 +473,85 @@ def seed_default_feature_task_kinds(s) -> int:
     return added
 
 
+def restore_built_in_engine_presets(s) -> None:
+    """Restore the built-in engine presets to factory: delete the seeded (built_in)
+    presets + their FK children, then re-seed. CUSTOM presets are untouched. The
+    `s.flush()` is MANDATORY — the host session is autoflush-OFF (see `seed_llm`), so
+    without it `seed_default_engine_presets`' existence query (it skips ids already in
+    the DB) would still see the pending-deleted rows and refuse to re-add them → the
+    built-ins would be permanently gone. Mirrors `SwitchPresetStore.reset_to_factory`."""
+    from . import stores
+    ids = [r.id for r in s.query(db.EnginePreset.id).filter(db.EnginePreset.built_in.is_(True)).all()]
+    stores._delete_engine_preset_rows(s, ids)
+    s.flush()
+    seed_default_engine_presets(s)
+
+
+def restore_built_in_task_defs(s) -> None:
+    """Overwrite each built-in task's label/description/position back to factory (from the
+    shared DEFAULT_TASK_KINDS). CUSTOM tasks are untouched. Position is the list index —
+    DEFAULT_TASK_KINDS rows carry no `position` key (`seed_default_task_kinds` derives it)."""
+    by_id = {t.id: t for t in s.query(db.TaskKind).filter(db.TaskKind.built_in.is_(True)).all()}
+    for i, t in enumerate(DEFAULT_TASK_KINDS):
+        row = by_id.get(t["id"])
+        if row is None:
+            continue  # a missing built-in is (re)added by seed_default_task_kinds
+        row.label = str(t.get("label") or "")
+        row.description = str(t.get("description") or "")
+        row.position = i
+
+
 def reset_routing_to_factory() -> None:
-    """Restore the seeded ROUTING assignments to factory (the Tasks page "Reset to
-    defaults"): clear task→preset (`task_kind_presets`), feature→task
-    (`feature_task_kinds`), and every per-feature preset override (`feature_preset_refs`),
-    then re-seed the built-in tasks + the app's factory task-map + task→preset assignments.
-    CUSTOM tasks + CUSTOM presets are KEPT (the app's reset convention — see the model
-    catalog / switch-preset resets); only the assignments snap back to defaults."""
+    """Restore the AI routing config to factory (the Tasks page "Reset all to defaults"):
+    clear task→preset (`task_kind_presets`) + feature→task (`feature_task_kinds`), RESTORE
+    the built-in engine presets + built-in task label/desc, then re-seed the built-in tasks
+    + the app's factory action→task map + task→preset assignments. CUSTOM tasks + CUSTOM
+    presets are KEPT (the app's reset convention — see the model catalog / switch-preset
+    resets); only the built-ins + assignments snap back to defaults."""
     s = db.session()
     try:
         s.query(db.TaskKindPreset).delete()
         s.query(db.FeatureTaskKind).delete()
-        s.query(db.FeaturePresetRef).delete()
         s.flush()
+        restore_built_in_engine_presets(s)  # delete → flush → re-seed (custom kept)
+        restore_built_in_task_defs(s)       # overwrite built-in label/desc back to factory
         seed_default_task_kinds(s)          # re-add any missing built-in tasks
         seed_default_feature_task_kinds(s)  # the app's factory action→task map
-        seed_default_taskkind_presets(s)    # the app's factory task→preset assignments
+        seed_default_taskkind_presets(s)    # factory task→preset (FK-safe: presets restored first)
+        s.commit()
+    finally:
+        s.close()
+
+
+def reset_task_to_factory(task_id: str) -> None:
+    """Reset ONE built-in task to factory: restore its label/description/position from
+    DEFAULT_TASK_KINDS + set its task→preset to the app's factory assignment. A CUSTOM
+    task has no factory to reset to → ValueError (the API maps it to 400). Edges: if the
+    task has no factory preset entry, or that preset was user-deleted, the task→preset row
+    is CLEARED (falls back to the global default) rather than left stale / FK-violating."""
+    factory = {t["id"]: (i, t) for i, t in enumerate(DEFAULT_TASK_KINDS)}
+    if task_id not in factory:
+        raise ValueError(f"{task_id!r} is not a built-in task")
+    pos, t = factory[task_id]
+    s = db.session()
+    try:
+        row = s.get(db.TaskKind, task_id)
+        if row is None or not row.built_in:
+            raise ValueError(f"{task_id!r} is not a built-in task")
+        row.label = str(t.get("label") or "")
+        row.description = str(t.get("description") or "")
+        row.position = pos
+        factory_preset = {c["task_kind"]: c["preset_id"] for c in app_taskkind_presets()}.get(task_id, "")
+        valid = {r.id for r in s.query(db.EnginePreset.id).all()}
+        target = factory_preset if factory_preset in valid else ""
+        tkp = s.get(db.TaskKindPreset, task_id)
+        if not target:
+            if tkp is not None:
+                s.delete(tkp)          # no factory preset (or it was deleted) → fall back to default
+        elif tkp is None:
+            s.add(db.TaskKindPreset(task_kind=task_id, preset_id=target))
+        else:
+            tkp.preset_id = target
         s.commit()
     finally:
         s.close()

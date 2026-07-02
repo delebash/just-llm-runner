@@ -326,8 +326,8 @@ defineExpose({ run, cancel });
         @update:model-value="onApplyPreset" />
       <UiButton intent="success" size="small"
         :disabled="!selPreset || selPreset === productionPresetId"
-        :title="!selPreset ? 'Load or save a preset first' : (selPreset === productionPresetId ? 'Already in production for this feature' : 'Make this preset the one this feature uses')"
-        @click="emit('use-production', selPreset)">{{ selPreset && selPreset === productionPresetId ? '✓ In production' : 'Use in production' }}</UiButton>
+        :title="!selPreset ? 'Load or save a preset first' : (selPreset === productionPresetId ? 'Already this task’s preset' : 'Make this preset the one this task runs')"
+        @click="emit('use-production', selPreset)">{{ selPreset && selPreset === productionPresetId ? '✓ Task preset' : 'Use for this task' }}</UiButton>
       <UiButton v-if="selPreset && !naming" intent="secondary" size="small" title="Update the loaded preset in place (no new copy)" @click="emit('update-preset', selPreset)">Update</UiButton>
       <UiInput v-if="naming" v-model="newName" placeholder="name — Enter" class="cc-name-in"
         @keyup.enter="confirmSaveAs" @keyup.esc="naming = false; newName = ''" />

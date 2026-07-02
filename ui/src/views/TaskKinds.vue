@@ -18,14 +18,14 @@ import FeatureLab from "../components/FeatureLab.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiTag from "../common/components/UiTag.vue";
+import Icon from "../common/components/Icon.vue";
 import { request } from "../client.js";
 import { promptDialog, confirmDialog } from "../common/services/dialog.js";
 
 const tasks = ref([]);              // [{id,label,description,position,builtIn}]
 const featureTaskKinds = ref({});  // action key → task id
 const presets = ref([]);           // EnginePresetRow[]
-const assign = ref({ defaultPresetId: "", taskKinds: {}, features: {} });
-const factoryTaskPresets = ref({});  // task id → its seeded preset (for the per-task ↺)
+const assign = ref({ defaultPresetId: "", taskKinds: {} });
 const prompts = ref([]);           // all action prompts (member labels + the Lab prompt)
 const providers = ref([]);
 const knobCatalog = ref([]);
@@ -82,7 +82,6 @@ function pin(key) { return routing.value?.pins?.[key] || null; }
 function applyTaskResp(r) {
   if (r?.taskKinds) tasks.value = r.taskKinds;
   featureTaskKinds.value = r?.featureTaskKinds || {};
-  factoryTaskPresets.value = r?.factoryTaskPresets || {};
 }
 
 async function load() {
@@ -95,7 +94,7 @@ async function load() {
     ]);
     applyTaskResp(tk);
     presets.value = ep.presets || [];
-    assign.value = pa || { defaultPresetId: "", taskKinds: {}, features: {} };
+    assign.value = pa || { defaultPresetId: "", taskKinds: {} };
     prompts.value = pr.prompts || [];
     routing.value = rt; if (!routing.value.pins) routing.value.pins = {};
     providers.value = pl.providers || [];
@@ -175,13 +174,26 @@ async function setDefaultPreset(presetId) {
     message.value = "Default preset set.";
   } catch (e) { error.value = `Default failed: ${e.message}`; }
 }
-// Per-task ↺ — reset one task's preset to its shipped (factory) default.
-function resetTaskPreset(taskId) { setTaskPreset(taskId, factoryTaskPresets.value[taskId] || ""); }
-// Global reset — restore all seeded routing assignments (custom tasks + presets kept).
+// Per-task Reset (built-in only) — restore ONE task's name/description/preset to factory.
+async function resetTask(t) {
+  if (!t?.builtIn) return;
+  const ok = await confirmDialog({
+    title: `Reset “${t.label}” to defaults?`,
+    message: "Restores this task's name, description, and preset to their shipped defaults. Its features stay where they are.",
+  });
+  if (!ok) return;
+  try {
+    applyTaskResp(await request(`/v1/ai/task-kinds/${encodeURIComponent(t.id)}/reset`, { method: "POST" }));
+    assign.value = await request("/v1/ai/preset-assignments");
+    message.value = "Task reset to defaults.";
+  } catch (e) { error.value = `Reset failed: ${e.message}`; }
+}
+// Global reset — restore ALL seeded routing to factory (built-in presets + task names +
+// every assignment, incl. the Default preset). Custom tasks + custom presets are kept.
 async function resetAll() {
   const ok = await confirmDialog({
-    title: "Reset all task routing to defaults?", danger: true,
-    message: "Restores the seeded task→preset + feature→task assignments and clears per-feature overrides. Your custom tasks + presets are kept.",
+    title: "Reset all tasks to defaults?", danger: true,
+    message: "Restores the built-in presets + task names and every task→preset / feature→task assignment (including the Default preset). Your custom tasks + custom presets are kept.",
   });
   if (!ok) return;
   try {
@@ -238,11 +250,16 @@ onMounted(load);
             <b>{{ selected.label }}</b>
             <UiTag v-if="selected.builtIn" class="lu-tk-tag">built-in</UiTag>
             <UiButton intent="ghost" size="small" @click="renameTask(selected)">Rename</UiButton>
+            <UiButton v-if="selected.builtIn" intent="ghost" size="small"
+              title="Reset this task to its defaults (name, description, preset)"
+              @click="resetTask(selected)">Reset</UiButton>
             <UiButton v-if="!selected.builtIn" intent="ghost" size="small" @click="deleteTask(selected)">Delete</UiButton>
             <span class="lu-fw-spacer" />
             <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
             <UiButton intent="ghost" size="small"
-              @click="navCollapsed = !navCollapsed">{{ navCollapsed ? '☰ Show list' : '⟨ Collapse list' }}</UiButton>
+              v-tooltip.bottom="navCollapsed ? 'Show list' : 'Hide list'"
+              :aria-label="navCollapsed ? 'Show list' : 'Hide list'"
+              @click="navCollapsed = !navCollapsed"><Icon name="SidebarToggle" :size="14" /></UiButton>
           </div>
           <div v-if="selected.description" class="lu-tk-desc">{{ selected.description }}</div>
 
@@ -268,8 +285,6 @@ onMounted(load);
               <span class="lu-tk-presetrow-k">Preset</span>
               <UiSelect :model-value="taskPreset(selTask)" :options="presetOptions" width="name"
                 @update:model-value="(v) => setTaskPreset(selTask, v)" />
-              <UiButton intent="ghost" size="small" title="Reset this task's preset to its shipped default"
-                @click="resetTaskPreset(selTask)">↺</UiButton>
             </div>
             <template v-if="selMembers.length">
               <div class="lu-tk-testrow">

@@ -114,20 +114,123 @@ def test_task_kind_slug_collision_suffixes(wired):
 
 def test_reset_routing_to_factory(wired):
     from llm_runner.llm.presets_api import EnginePresetRow
+    from llm_runner.llm.task_kinds_api import TaskKindRow
 
     # a factory action->task map for the reset to restore (taskkind_presets empty here).
     seed.configure_app_seed(feature_task_kinds={"critique": "judge.scored"}, taskkind_presets=[])
     ft = stores.get_feature_task_kind_store()
+    tks = stores.get_task_kind_store()
+    eps = stores.get_engine_preset_store()
+
     ft.set("critique", "prose.edit")      # user reassigns a factory feature
     ft.set("chat", "chat.inVoice")        # a non-factory override
-    p = stores.get_engine_preset_store().save(EnginePresetRow(name="x", providerId="local-llamacpp", model="m"))
-    stores.get_feature_preset_ref_store().set("critique", p.id)     # a per-feature preset override
-    stores.get_task_kind_preset_store().set("chat.inVoice", p.id)   # a custom task->preset
+    tks.upsert(TaskKindRow(id="prose.generate", label="RENAMED", description="x"))   # rename a built-in
+    custom_task = tks.upsert(TaskKindRow(label="My Custom"))            # a custom task (must survive)
+    custom_preset = eps.save(EnginePresetRow(name="Mine", providerId="local-llamacpp", model="m-custom"))
+    stores.get_task_kind_preset_store().set("chat.inVoice", custom_preset.id)   # a custom task->preset
 
     seed.reset_routing_to_factory()
 
-    m = ft.list()
-    assert m.get("critique") == "judge.scored"                 # restored to the factory map
-    assert "chat" not in m                                     # non-factory override cleared
-    assert stores.get_feature_preset_ref_store().list() == {}  # per-feature overrides cleared
-    assert stores.get_task_kind_preset_store().list() == {}    # task->preset cleared + reseeded (none)
+    assert ft.list().get("critique") == "judge.scored"          # restored to the factory map
+    assert "chat" not in ft.list()                              # non-factory override cleared
+    assert stores.get_task_kind_preset_store().list() == {}     # task->preset cleared + reseeded (none)
+    # a renamed built-in task label is restored from DEFAULT_TASK_KINDS
+    assert next(t for t in tks.list() if t.id == "prose.generate").label == "Generate prose"
+    # CUSTOM task + custom preset SURVIVE the reset
+    assert any(t.id == custom_task.id for t in tks.list())
+    assert any(p.id == custom_preset.id for p in eps.list())
+
+
+def test_reset_restores_built_in_preset(wired):
+    from llm_runner.llm import db as _db
+    from llm_runner.llm.presets_api import EnginePresetRow
+
+    seed.configure_app_seed(
+        feature_task_kinds={},
+        engine_presets=[{"id": "p_fac", "name": "Factory", "provider_id": "local-llamacpp", "model": "m-fac"}],
+        taskkind_presets=[{"task_kind": "prose.generate", "preset_id": "p_fac"}],
+    )
+    s = _db.session()
+    try:
+        seed.seed_default_engine_presets(s)      # add the factory built-in preset
+        seed.seed_default_taskkind_presets(s)    # + its factory task->preset
+        s.commit()
+    finally:
+        s.close()
+    eps = stores.get_engine_preset_store()
+    eps.save(EnginePresetRow(id="p_fac", name="EDITED", providerId="local-llamacpp", model="hacked"))  # edit built-in
+    custom = eps.save(EnginePresetRow(name="Mine", providerId="local-llamacpp", model="m-mine"))       # custom preset
+    assert next(p for p in eps.list() if p.id == "p_fac").model == "hacked"
+
+    seed.reset_routing_to_factory()
+
+    fac = next(p for p in eps.list() if p.id == "p_fac")
+    assert fac.name == "Factory" and fac.model == "m-fac"                              # built-in restored
+    assert any(p.id == custom.id for p in eps.list())                                  # custom kept
+    assert stores.get_task_kind_preset_store().list().get("prose.generate") == "p_fac"  # factory assignment restored
+
+
+def test_reset_task_to_factory(wired):
+    from llm_runner.llm import db as _db
+    from llm_runner.llm.presets_api import EnginePresetRow
+    from llm_runner.llm.task_kinds_api import TaskKindRow
+
+    seed.configure_app_seed(
+        feature_task_kinds={},
+        engine_presets=[{"id": "p_fac", "name": "Factory", "provider_id": "local-llamacpp", "model": "m-fac"}],
+        taskkind_presets=[{"task_kind": "prose.edit", "preset_id": "p_fac"}],
+    )
+    s = _db.session()
+    try:
+        seed.seed_default_engine_presets(s)
+        s.commit()
+    finally:
+        s.close()
+    tks = stores.get_task_kind_store()
+    tkp = stores.get_task_kind_preset_store()
+    tks.upsert(TaskKindRow(id="prose.edit", label="WRONG", description="x"))       # rename a built-in
+    custom = stores.get_engine_preset_store().save(EnginePresetRow(name="Mine", providerId="local-llamacpp", model="m"))
+    tkp.set("prose.edit", custom.id)                                               # point it at the wrong preset
+
+    seed.reset_task_to_factory("prose.edit")
+
+    assert next(t for t in tks.list() if t.id == "prose.edit").label == "Edit prose"  # label restored
+    assert tkp.list().get("prose.edit") == "p_fac"                                    # factory preset restored
+
+    # a custom task cannot be reset (nothing to reset to) → ValueError
+    cst = tks.upsert(TaskKindRow(label="Custom X"))
+    with pytest.raises(ValueError):
+        seed.reset_task_to_factory(cst.id)
+
+    # a built-in with NO factory preset entry → its assignment is cleared (falls back to default)
+    tkp.set("ideation", custom.id)
+    seed.reset_task_to_factory("ideation")
+    assert "ideation" not in tkp.list()
+
+
+def test_engine_preset_delete_removes_children(wired):
+    from llm_runner.llm import db as _db
+    from llm_runner.llm.presets_api import EnginePresetRow, PresetFlagRow
+
+    eps = stores.get_engine_preset_store()
+    p = eps.save(EnginePresetRow(
+        name="P", providerId="local-llamacpp", model="m",
+        switches=[PresetFlagRow(flagName="flash_attn", flagValue="on")],
+        samplers=[PresetFlagRow(flagName="top_k", flagValue="40")],
+    ))
+    s = _db.session()
+    try:
+        assert s.query(_db.EnginePresetSwitch).filter_by(preset_id=p.id).count() == 1
+        assert s.query(_db.EnginePresetSampler).filter_by(preset_id=p.id).count() == 1
+    finally:
+        s.close()
+
+    eps.delete(p.id)
+
+    s = _db.session()
+    try:
+        assert s.query(_db.EnginePreset).filter_by(id=p.id).count() == 0
+        assert s.query(_db.EnginePresetSwitch).filter_by(preset_id=p.id).count() == 0   # children gone (no orphans)
+        assert s.query(_db.EnginePresetSampler).filter_by(preset_id=p.id).count() == 0
+    finally:
+        s.close()

@@ -6,20 +6,23 @@
 // shows the engine preset it resolves to (with provenance). The RIGHT pane is the
 // action's LLM TASK (a dropdown to reassign it) + the shared <FeatureLab> (test + tune +
 // Save-as-preset). The model + switches + params live in the preset (built in the Lab).
-//   • Routing keys on the LLM-work taskKind, NOT the nav group; the cascade is
-//     action-override → the action's task preset → global default. Creating + TESTING a
-//     task and its preset lives on the Tasks page; here you reassign a feature's task
-//     and (optionally) override its preset via "Use in production".
+//   • Routing keys on the LLM-work taskKind, NOT the nav group; the cascade is 2-tier —
+//     the action's TASK preset → the global default (2026-07-02 Plan A: a feature's preset
+//     IS its task's; there is no per-feature override). Creating + TESTING a task and its
+//     preset lives on the Tasks page; here you reassign a feature's task, and the Lab's
+//     "Use for this task" sets that task's preset (the preset here is shown read-only).
 //
-// Endpoints: prompts /v1/ai/prompts; the per-feature override + provenance
+// Endpoints: prompts /v1/ai/prompts; the task→preset assignments + provenance
 // /v1/ai/preset-assignments; the feature→task map + reassignment /v1/ai/task-kinds;
 // the engine-preset library /v1/ai/engine-presets; the knob catalog /v1/ai/knob-catalog.
 import { computed, onMounted, ref } from "vue";
 
 import FeatureLab from "../components/FeatureLab.vue";
+import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import { request } from "../client.js";
+import { taskLabel } from "../common/taskLabels.js";
 
 const props = defineProps({
   // Optional host runner (streaming) — forwarded to the Lab test panel when present.
@@ -30,9 +33,9 @@ const prompts = ref([]);     // all action prompts {key, feature, system, userTe
 const routing = ref(null);   // {default, features:[…], pins:{key→{providerId,model}}}
 const providers = ref([]);
 const enginePresets = ref([]);   // EnginePresetRow[]
-// The assignment maps: `.taskKinds` (task→preset, edited on the Tasks page) + `.features`
-// (the per-feature override) + `.defaultPresetId` (the global default) — for provenance.
-const presetAssign = ref({ defaultPresetId: "", taskKinds: {}, features: {} });
+// The assignment maps: `.taskKinds` (task→preset, edited on the Tasks page) +
+// `.defaultPresetId` (the global default) — for the read-only provenance line.
+const presetAssign = ref({ defaultPresetId: "", taskKinds: {} });
 const taskKinds = ref([]);        // task catalog [{id,label,description}] — the reassign dropdown
 const featureTaskKinds = ref({}); // action key → its resolved task (provenance + the dropdown)
 const knobCatalog = ref([]);      // knob_catalog metadata (C1)
@@ -116,9 +119,6 @@ function actionLabel(p) {
 function actionDesc(a) {
   return a?.description || featMeta.value[a?.feature]?.hint || "";
 }
-function hasProd(key) {
-  return !!presetAssign.value.features?.[key];  // the feature has its own preset override
-}
 // Split a feature's actions into sub-sections by their `group`.
 function subGroups(actions) {
   const order = [];
@@ -132,7 +132,7 @@ function subGroups(actions) {
 }
 
 // Routing pin — a read-only seed for the Lab column's model. Per-feature model choices
-// now persist via presets (Use in production), not the pin. Keyed by feature/action key.
+// now persist via presets (Use for this task), not the pin. Keyed by feature/action key.
 function pin(key) { return routing.value?.pins?.[key] || null; }
 
 async function load() {
@@ -150,7 +150,7 @@ async function load() {
     try { enginePresets.value = (await request("/v1/ai/engine-presets")).presets || []; }
     catch { enginePresets.value = []; }
     try { presetAssign.value = await request("/v1/ai/preset-assignments"); }
-    catch { presetAssign.value = { defaultPresetId: "", taskKinds: {}, features: {} }; }
+    catch { presetAssign.value = { defaultPresetId: "", taskKinds: {} }; }
     try {
       const tk = await request("/v1/ai/task-kinds");
       taskKinds.value = tk.taskKinds || [];
@@ -174,34 +174,36 @@ function selectAction(key) {
 // and emits the refreshed list; we just store it.
 function onPresetsChanged(list) { enginePresets.value = list || []; }
 
-// ── provenance + the per-feature override ──
-function featurePreset(key) {
-  return presetAssign.value.features?.[key] || "";
-}
-const presetName = (id) => enginePresets.value.find((p) => p.id === id)?.name || "preset";
-const taskKindLabel = (id) => taskKinds.value.find((t) => t.id === id)?.label || id;
-// What a feature actually resolves to, with provenance — own override → its task's
-// assigned preset → the global default. Shown muted on the nav card.
+// ── provenance (2-tier: the feature's task preset → the global default) ──
+const presetName = (id) => enginePresets.value.find((p) => p.id === id)?.name || "—";
+// What a feature actually resolves to, with provenance — its task's assigned preset →
+// the global default. Shown muted on the nav card + the read-only line in the editor.
 function featurePresetLabel(key) {
-  const fid = presetAssign.value.features?.[key];
-  if (fid) return presetName(fid);
   const tk = featureTaskKinds.value?.[key];
   const tkPid = tk ? presetAssign.value.taskKinds?.[tk] : "";
-  if (tkPid) return `${presetName(tkPid)} · ${taskKindLabel(tk)}`;
+  if (tkPid) return `${presetName(tkPid)} · ${taskLabel(tk, taskKinds.value)}`;
   const did = presetAssign.value.defaultPresetId;
   if (did) return `${presetName(did)} · default`;
   return "— none —";
 }
-async function setFeaturePreset(key, presetId) {
-  presetAssign.value = await request("/v1/ai/preset-assignments/feature", {
-    method: "PUT", body: { featureKey: key, presetId },
-  });
-}
-// "Use in production" — make the column's selected preset the one THIS FEATURE runs
-// (a per-feature override on top of its task's preset).
+// The preset the selected feature resolves to (its task's, else the global default) —
+// seeds the Lab column; changed via "Use for this task" (below) or on the Tasks page.
+const selTaskPreset = computed(() => {
+  const tk = featureTaskKinds.value?.[selAction.value];
+  return (tk ? presetAssign.value.taskKinds?.[tk] : "") || presetAssign.value.defaultPresetId || "";
+});
+// Plan A: a feature's preset IS its task's, so the Lab's chosen preset is assigned to
+// the feature's TASK (every feature in it runs it). No per-feature override any more;
+// the same preset can also be set on the Tasks page.
 async function onUseProduction(presetId) {
-  await setFeaturePreset(selAction.value, presetId);
-  message.value = "In production — this feature runs that preset now.";
+  const tk = featureTaskKinds.value?.[selAction.value];
+  if (!tk) { error.value = "This feature has no task to assign a preset to."; return; }
+  try {
+    presetAssign.value = await request("/v1/ai/preset-assignments/task-kind", {
+      method: "PUT", body: { taskKind: tk, presetId },
+    });
+    message.value = `Set for task “${taskLabel(tk, taskKinds.value)}” — every feature in it runs that preset now.`;
+  } catch (e) { error.value = `Assign failed: ${e.message}`; }
 }
 
 // ── the action's LLM TASK — reassign from the feature side (the Tasks page is the
@@ -217,12 +219,12 @@ async function setFeatureTask(key, taskKind) {
     message.value = "Task reassigned.";
   } catch (e) { error.value = `Task change failed: ${e.message}`; }
 }
-// Reset THIS feature to its factory routing: drop its per-feature preset override AND
-// its task override, so it re-floats to its seeded task + inherited preset.
+// Reset THIS feature to its factory routing: clear its task override so it re-floats to
+// its seeded task (and thus that task's preset). Plan A: there is no per-feature preset
+// override to clear any more — the preset lives on the task.
 async function resetFeature(key) {
   if (!key) return;
   try {
-    presetAssign.value = await request("/v1/ai/preset-assignments/feature", { method: "PUT", body: { featureKey: key, presetId: "" } });
     const tk = await request("/v1/ai/task-kinds/feature", { method: "PUT", body: { featureKey: key, taskKind: "" } });
     taskKinds.value = tk.taskKinds || taskKinds.value;
     featureTaskKinds.value = tk.featureTaskKinds || {};
@@ -255,7 +257,7 @@ onMounted(load);
             <div v-else-if="row.type === 'sub'" class="lu-fw-sublabel" :style="ml(row.indent)">{{ row.label }}</div>
             <button v-else type="button" class="lu-fw-card" :style="ml(row.indent)"
               :class="{ 'is-active': row.action.key === selAction }" @click="selectAction(row.action.key)">
-              <div class="lu-fw-card-label">{{ actionLabel(row.action) }}<span v-if="hasProd(row.action.key)" class="lu-fw-dot" title="has a production preset" /></div>
+              <div class="lu-fw-card-label">{{ actionLabel(row.action) }}</div>
               <div v-if="actionDesc(row.action)" class="lu-fw-card-desc">{{ actionDesc(row.action) }}</div>
               <div class="lu-fw-card-model" title="engine preset for this feature">→ {{ featurePresetLabel(row.action.key) }}</div>
             </button>
@@ -270,19 +272,24 @@ onMounted(load);
               <span class="lu-fw-task-k">Task</span>
               <UiSelect :model-value="featureTask(selAction)" :options="taskOptions" width="name"
                 @update:model-value="(v) => setFeatureTask(selAction, v)" />
-              <UiButton intent="ghost" size="small" title="Reset this feature to its default task + preset"
+              <UiButton intent="ghost" size="small" title="Reset this feature to its default task"
                 @click="resetFeature(selAction)">↺</UiButton>
             </span>
             <span class="lu-fw-spacer" />
             <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
             <UiButton intent="ghost" size="small"
-              :title="navCollapsed ? 'Show the feature list' : 'Hide the list for full column width'"
-              @click="navCollapsed = !navCollapsed">{{ navCollapsed ? '☰ Show list' : '⟨ Collapse list' }}</UiButton>
+              v-tooltip.bottom="navCollapsed ? 'Show list' : 'Hide list'"
+              :aria-label="navCollapsed ? 'Show list' : 'Hide list'"
+              @click="navCollapsed = !navCollapsed"><Icon name="SidebarToggle" :size="14" /></UiButton>
+          </div>
+          <div class="lu-fw-runs">
+            <span class="lu-fw-task-k">Preset</span>
+            <span class="lu-muted">{{ featurePresetLabel(selAction) }} — set it on the task</span>
           </div>
 
           <FeatureLab :action="selAction" :prompt="action" :providers="providers" :presets="enginePresets"
             :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
-            :production-preset-id="featurePreset(selAction)" :pin="pin(selAction)"
+            :production-preset-id="selTaskPreset" :pin="pin(selAction)"
             @use-production="onUseProduction" @presets-changed="onPresetsChanged" />
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
@@ -300,4 +307,5 @@ select.lu-input { cursor: pointer; appearance: auto; }
 /* The per-action LLM-task reassign control in the editor header. */
 .lu-fw-task { display: inline-flex; align-items: center; gap: 6px; }
 .lu-fw-task-k { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.lu-fw-runs { display: flex; align-items: baseline; gap: 8px; }
 </style>

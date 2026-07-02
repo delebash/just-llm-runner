@@ -34,9 +34,6 @@ class TaskKindsResponse(BaseModel):
     # action key → its resolved taskKind (only actions that resolve to one). The UI
     # reads this for per-card provenance + the per-task member list; absent → no tier.
     featureTaskKinds: dict[str, str] = {}
-    # task id → its SEEDED (factory) preset id — lets the UI reset one task's preset to
-    # its default (the per-task ↺). Empty when no factory map is wired.
-    factoryTaskPresets: dict[str, str] = {}
 
 
 class FeatureTaskAssignment(BaseModel):
@@ -49,13 +46,13 @@ def make_task_kinds_router(
     get_feature_task_kinds: Callable[[], object],
     get_prompt_store: Callable[[], object],
     task_kind_of: Callable[[str], str] | None = None,
-    get_factory_task_presets: Callable[[], dict] | None = None,
     reset_fn: Callable[[], None] | None = None,
+    reset_task_fn: Callable[[str], None] | None = None,
 ) -> APIRouter:
     """CRUD for tasks + the feature→task assignment + the read the UI needs. Mutating
     calls return the full state (mirror presets_api). `task_kind_of` None → an empty map;
-    `get_factory_task_presets` → the seeded task→preset map (for the per-task reset ↺);
-    `reset_fn` → restore all routing assignments to factory (the global reset)."""
+    `reset_fn` → restore all routing assignments to factory (the global reset);
+    `reset_task_fn` → reset ONE built-in task to factory (the per-task Reset)."""
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     def _feature_map() -> dict[str, str]:
@@ -73,7 +70,6 @@ def make_task_kinds_router(
     def _response() -> TaskKindsResponse:
         return TaskKindsResponse(
             taskKinds=get_task_kinds().list(), featureTaskKinds=_feature_map(),
-            factoryTaskPresets=(get_factory_task_presets() if get_factory_task_presets else {}),
         )
 
     @router.get("/task-kinds", response_model=TaskKindsResponse)
@@ -119,6 +115,17 @@ def make_task_kinds_router(
         """Restore all routing assignments to factory (custom tasks + presets kept)."""
         if reset_fn is not None:
             reset_fn()
+        return _response()
+
+    @router.post("/task-kinds/{task_id}/reset", response_model=TaskKindsResponse)
+    async def reset_one_task(task_id: str) -> TaskKindsResponse:
+        """Reset ONE built-in task to factory (label/description/preset). 400 on a
+        custom task (nothing to reset to)."""
+        if reset_task_fn is not None:
+            try:
+                reset_task_fn(task_id)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
         return _response()
 
     return router

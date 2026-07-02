@@ -32,7 +32,7 @@ from pydantic import BaseModel
 
 from .base import LLMMessage
 from .dispatch import LLMNotConfiguredError, chat, stream_chat
-from .preset_resolve import resolve_feature_preset
+from .preset_resolve import resolve_task_preset
 from .pricing import cost_for
 from .schema import LLMConfig
 
@@ -382,17 +382,18 @@ def _effective_think(spec: FeaturePromptRow, body: RunRequest) -> bool:
 
 
 def _resolve_preset(action: str, feature: str, task_kind_of):
-    """The engine preset for this action (cascade: action/feature override → its
-    taskKind's preset → the global default), or None. `task_kind_of` maps an action
-    (or feature) key → its LLM-work taskKind; None (no map wired, e.g. tests) → no
-    preset = legacy routing, so behaviour is unchanged until presets are configured.
-    The ACTION's taskKind is tried first (falling back to the feature's) so
-    writerAI.continue (prose.generate) and writerAI.tighten (prose.edit) resolve to
-    DIFFERENT presets — that per-action split is the point of the taskKind key."""
+    """The engine preset for this action (cascade: the action's taskKind preset →
+    the global default), or None. `task_kind_of` maps an action (or feature) key →
+    its LLM-work taskKind; None (no map wired, e.g. tests) → no preset = legacy
+    routing, so behaviour is unchanged until presets are configured. The ACTION's
+    taskKind is tried first (falling back to the feature's) so writerAI.continue
+    (prose.generate) and writerAI.tighten (prose.edit) resolve to DIFFERENT presets
+    — that per-action split is the point of the taskKind key. (The per-feature
+    override tier was removed 2026-07-02 — a feature's preset IS its task's.)"""
     if task_kind_of is None:
         return None
     task_kind = task_kind_of(action) or task_kind_of(feature) or ""
-    return resolve_feature_preset(action, task_kind)
+    return resolve_task_preset(task_kind)
 
 
 def _effective_spec(spec: FeaturePromptRow, preset) -> FeaturePromptRow:

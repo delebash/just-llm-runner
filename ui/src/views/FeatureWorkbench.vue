@@ -1,71 +1,56 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Feature Workbench — per the 2026-06-29 lab+preset model + the 2026-07-01 taskKind
-// routing model. The unit is the ACTION; "feature" (writerAI, critique, …) is just
-// the visual group its actions live under. The LEFT list groups actions by their
-// nav `group` (display-only) and, per action, edits its PROMPT (system + instruction)
-// + shows the engine preset it resolves to. The model + switches + params live IN the
-// preset (built/tested in the Lab), so there is no model picker / switch grid here.
-//   • Routing keys on the LLM-work taskKind, NOT the nav group: a preset is assigned
-//     per taskKind (the "Presets by task kind" panel at the top of the left list),
-//     with a per-feature override on top (the cascade action-override → taskKind
-//     preset → global default). Each card shows its resolved preset + provenance.
-//   • Tuning (the Lab): a shared {{variables}} test input feeds <CompareStrip>, which
-//     renders N engine-config columns you Run and then Save as engine presets.
+// Feature Workbench — per the lab+preset + taskKind-routing model. The unit is the
+// ACTION; "feature" (writerAI, critique, …) is the visual group its actions live under.
+// The LEFT list groups actions by their nav `group` (display-only) and, per action,
+// shows the engine preset it resolves to (with provenance). The RIGHT pane is the
+// action's LLM TASK (a dropdown to reassign it) + the shared <FeatureLab> (test + tune +
+// Save-as-preset). The model + switches + params live in the preset (built in the Lab).
+//   • Routing keys on the LLM-work taskKind, NOT the nav group; the cascade is
+//     action-override → the action's task preset → global default. Creating + TESTING a
+//     task and its preset lives on the Tasks page; here you reassign a feature's task
+//     and (optionally) override its preset via "Use in production".
 //
-// Endpoints: prompts in /v1/ai/prompts; the per-feature preset override in
-// /v1/ai/preset-assignments; the engine-preset library in /v1/ai/engine-presets;
-// the knob catalog in /v1/ai/knob-catalog. Shared across both apps — only the
-// feature catalog differs.
-import { computed, onMounted, reactive, ref } from "vue";
+// Endpoints: prompts /v1/ai/prompts; the per-feature override + provenance
+// /v1/ai/preset-assignments; the feature→task map + reassignment /v1/ai/task-kinds;
+// the engine-preset library /v1/ai/engine-presets; the knob catalog /v1/ai/knob-catalog.
+import { computed, onMounted, ref } from "vue";
 
-import CompareStrip from "../components/CompareStrip.vue";
+import FeatureLab from "../components/FeatureLab.vue";
 import UiButton from "../common/components/UiButton.vue";
-import UiTextarea from "../common/components/UiTextarea.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import { request } from "../client.js";
 
-// Optional host runner — streams an action through the host's task system (live
-// progress, Cancel, the app's batch AI list). When given the column streams live;
-// when absent it falls back to a one-shot /v1/ai/run. JustWrite passes a wrapper
-// around runAiFeatureStream (→ aiTasks); JV will wire its own.
 const props = defineProps({
+  // Optional host runner (streaming) — forwarded to the Lab test panel when present.
   runStream: { type: Function, default: null },
 });
 
 const prompts = ref([]);     // all action prompts {key, feature, system, userTemplate, …}
 const routing = ref(null);   // {default, features:[…], pins:{key→{providerId,model}}}
 const providers = ref([]);
-// The engine-preset library + the assignment maps. `presetAssign.taskKinds` is the
-// taskKind→preset map (edited on the Phase-4 assignment surface); `.features` is the
-// per-feature override this view edits; `.defaultPresetId` is the global default.
 const enginePresets = ref([]);   // EnginePresetRow[]
+// The assignment maps: `.taskKinds` (task→preset, edited on the Tasks page) + `.features`
+// (the per-feature override) + `.defaultPresetId` (the global default) — for provenance.
 const presetAssign = ref({ defaultPresetId: "", taskKinds: {}, features: {} });
-const taskKinds = ref([]);        // canonical taskKind catalog [{id,label,description}]
-const featureTaskKinds = ref({}); // action key → its resolved taskKind (for card provenance)
-const samplerRows = ref([]); // the selected action's long-tail samplers (Plane-2 KnobGrid v-model)
-const switchRows = ref([]);  // the selected action's engine switches (Plane-1 KnobGrid v-model)
-const knobCatalog = ref([]); // knob_catalog metadata (C1)
-// Plane-2 samplers + Plane-1 switches as ORDERED raw catalog rows (the API returns
-// them common-first by position) → the prefilled <KnobGrid> checklists in each
-// ConfigColumn. The raw rows carry `kind` + `default`, which the checklist needs.
+const taskKinds = ref([]);        // task catalog [{id,label,description}] — the reassign dropdown
+const featureTaskKinds = ref({}); // action key → its resolved task (provenance + the dropdown)
+const knobCatalog = ref([]);      // knob_catalog metadata (C1)
+// Plane-2 samplers + Plane-1 switches as ORDERED raw catalog rows (common-first) →
+// FeatureLab's prefilled <KnobGrid> checklists. The raw rows carry `kind` + `default`.
 const samplerCatalogList = computed(() => knobCatalog.value.filter((k) => k.plane === 2));
 const switchCatalogList = computed(() => knobCatalog.value.filter((k) => k.plane === 1));
 const loading = ref(true);
 const error = ref("");
 const message = ref("");
-const varHint = "{{variables}}"; // shown literally in the UI (avoids a nested {{ }} in the template)
 
 const selAction = ref("");   // selected ACTION key
-const draft = ref(null);     // editable copy of the selected action's prompt
 
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
 
-// Nav model: GROUP → features → (sub-labels) → action cards, each level indented
-// under its header (the `group` is display-only, not a routing key). A group whose
-// actions ALL come from ONE multi-action feature is "merged" — no redundant feature
-// sub-header; otherwise each multi-action feature inside the group gets its own
-// sub-header. Single-action features are plain cards.
+// Nav model: GROUP → features → (sub-labels) → action cards, each level indented under
+// its header (the `group` is display-only, not a routing key). A group whose actions ALL
+// come from ONE multi-action feature is "merged" — no redundant feature sub-header.
 const GROUP_FALLBACK = "Other";
 const navGroups = computed(() => {
   const order = [];
@@ -77,8 +62,6 @@ const navGroups = computed(() => {
     if (!(grp in byGroup)) { byGroup[grp] = []; order.push(grp); }
     byGroup[grp].push({ key: f.key, label: f.label, actions });
   }
-  // Any prompt whose feature isn't in the catalog still gets a home (one
-  // pseudo-feature per orphan feature key under "Other").
   const known = new Set((routing.value?.features || []).map((f) => f.key));
   for (const p of prompts.value) {
     if (known.has(p.feature)) continue;
@@ -94,8 +77,8 @@ const navGroups = computed(() => {
   });
 });
 
-// Flat render list for the nav: one row per header / sub-label / card, each with
-// an `indent` level so children sit visibly under their header.
+// Flat render list for the nav: one row per header / sub-label / card, each with an
+// `indent` level so children sit visibly under their header.
 const navRows = computed(() => {
   const rows = [];
   const pushActions = (f, base) => {
@@ -118,9 +101,8 @@ function ml(level) { return level ? { marginLeft: `${level * 18}px` } : {}; }
 
 const action = computed(() => prompts.value.find((p) => p.key === selAction.value) || null);
 
-// The action's display name: the seeded canonical label when set; else the
-// feature's catalog label for a single-action feature; else a readable name
-// derived from the key (feature prefix stripped).
+// The action's display name: the seeded canonical label; else the feature's catalog
+// label for a single-action feature; else a readable name derived from the key.
 function actionLabel(p) {
   if (p.label) return p.label;
   const f = p.feature;
@@ -131,19 +113,13 @@ function actionLabel(p) {
   s = s.replace(/[._-]/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim();
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : p.key;
 }
-// Card blurb: the action's own description, else its feature's hint.
 function actionDesc(a) {
   return a?.description || featMeta.value[a?.feature]?.hint || "";
-}
-// A user-facing label for a template variable key (voiceCanon → "Voice canon").
-function humanizeVar(k) {
-  const s = String(k).replace(/[_-]+/g, " ").replace(/([a-z\d])([A-Z])/g, "$1 $2").trim().toLowerCase();
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : k;
 }
 function hasProd(key) {
   return !!presetAssign.value.features?.[key];  // the feature has its own preset override
 }
-// Split a feature's actions into Writer-Lab-style sub-sections by their `group`.
+// Split a feature's actions into sub-sections by their `group`.
 function subGroups(actions) {
   const order = [];
   const map = {};
@@ -155,15 +131,21 @@ function subGroups(actions) {
   return order.map((g) => ({ label: g, items: map[g] }));
 }
 
-// ── routing pins (keyed by feature OR action key) ────────────────────────────
+// ── routing pins (keyed by feature OR action key) — parent-owned; FeatureLab emits a
+// pin change and this persists it (one routing source of truth). ──
 function pin(key) { return routing.value?.pins?.[key] || null; }
 function setPin(key, val) {
   const pins = routing.value.pins || (routing.value.pins = {});
-  if (!val || !val.providerId) delete pins[key]; // no override → no pin row
+  if (!val || !val.providerId) delete pins[key];
   else pins[key] = { providerId: val.providerId, model: val.model || "" };
   saveRouting();
 }
-function featureOf(key) { return prompts.value.find((p) => p.key === key)?.feature || ""; }
+async function saveRouting() {
+  const r = routing.value;
+  routing.value = await request("/v1/ai/routing", { method: "PUT", body: { default: r.default, pins: r.pins || {} } });
+  if (!routing.value.pins) routing.value.pins = {};
+}
+
 async function load() {
   loading.value = true; error.value = "";
   try {
@@ -196,78 +178,11 @@ async function load() {
 
 function selectAction(key) {
   selAction.value = key;
-  const p = prompts.value.find((x) => x.key === key);
-  draft.value = p ? { ...p } : null;
   message.value = "";
-  buildVars();
-  loadSamplers(key);
-  switchRows.value = [];
 }
 
-// The action's long-tail samplers (Plane-2; feature_sampler_params).
-async function loadSamplers(key) {
-  try {
-    const r = await request(`/v1/ai/feature-samplers?feature=${encodeURIComponent(key)}`);
-    samplerRows.value = (r.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue }));
-  } catch {
-    samplerRows.value = [];
-  }
-}
-
-// The selected action's run-config, as <ConfigColumn>'s v-model: the routing pin +
-// the switches + the prompt draft + per-call params + the long-tail samplers.
-// The getter reflects FW state (so Save-as / Use-as-production read the same
-// draft/rows/pin); the setter writes them back, persists a PIN change immediately
-// (params/prompt/switches don't touch routing until Promote), and refreshes the
-// shared var set when the prompt changes.
-const columnConfig = computed({
-  get() {
-    const d = draft.value || {};
-    return {
-      pin: pin(selAction.value),
-      switches: switchRows.value,
-      system: d.system, userTemplate: d.userTemplate,
-      temperature: d.temperature, topP: d.topP, maxTokens: d.maxTokens,
-      // think (bool) + reasoningEffort (level) collapse into ONE select: think on
-      // with no stored level shows as "medium" (the default level).
-      reasoningEffort: d.think ? (d.reasoningEffort || "medium") : "",
-      jsonMode: d.jsonMode, samplers: samplerRows.value,
-      nglOverride: null, nCpuMoeOverride: null,
-    };
-  },
-  set(v) {
-    if (draft.value) {
-      draft.value.system = v.system;
-      draft.value.userTemplate = v.userTemplate;
-      draft.value.temperature = v.temperature;
-      draft.value.topP = v.topP;
-      draft.value.maxTokens = v.maxTokens;
-      draft.value.reasoningEffort = v.reasoningEffort || "";
-      draft.value.think = !!v.reasoningEffort;   // reasoning on when an effort is picked
-      draft.value.jsonMode = v.jsonMode;
-    }
-    samplerRows.value = v.samplers || [];
-    switchRows.value = v.switches || [];
-    if (JSON.stringify(pin(selAction.value) || null) !== JSON.stringify(v.pin || null)) {
-      setPin(selAction.value, v.pin);
-    }
-    buildVars(); // the prompt may have changed → refresh the shared var inputs
-  },
-});
-
-async function saveRouting() {
-  const r = routing.value;
-  routing.value = await request("/v1/ai/routing", {
-    method: "PUT",
-    body: { default: r.default, pins: r.pins || {} },
-  });
-  if (!routing.value.pins) routing.value.pins = {};
-}
-
-// ── engine presets (the Lab) — Save-as / Delete a tested column as an engine
-// preset. FW owns the /v1/ai/engine-presets endpoints; CompareStrip emits. ──
-// Save a tuning column's tested config as an ENGINE preset (model + switches +
-// params + fit-knobs; the prompt is the feature's test input, NOT part of it).
+// ── engine presets (the Lab) — Save-as / Delete a tested column as an engine preset.
+// FW owns the /v1/ai/engine-presets endpoints; FeatureLab (via CompareStrip) emits. ──
 function cfgToEnginePreset(name, cfg) {
   const num = (v) => (v === "" || v == null ? null : Number(v));
   return {
@@ -290,24 +205,15 @@ async function delPreset(id) {
   if (!id) return;
   enginePresets.value = (await request(`/v1/ai/engine-presets/${id}`, { method: "DELETE" })).presets || [];
 }
-async function resetPrompt() {
-  if (!draft.value?.builtIn) return;
-  const updated = await request(`/v1/ai/prompts/${encodeURIComponent(draft.value.key)}/reset`, { method: "POST" });
-  const i = prompts.value.findIndex((p) => p.key === updated.key);
-  if (i >= 0) prompts.value[i] = updated;
-  draft.value = { ...updated }; buildVars(); message.value = "Reset to seeded default.";
-}
 
-// ── engine preset — this view edits the per-feature override; its model+switches+
-// params live in the preset (built in the Lab). The taskKind→preset tier resolves
-// server-side at dispatch (surfaced on the Phase-4 assignment surface). ──
+// ── provenance + the per-feature override ──
 function featurePreset(key) {
   return presetAssign.value.features?.[key] || "";
 }
 const presetName = (id) => enginePresets.value.find((p) => p.id === id)?.name || "preset";
 const taskKindLabel = (id) => taskKinds.value.find((t) => t.id === id)?.label || id;
-// What a feature actually resolves to, with provenance — own override → its
-// taskKind's assigned preset → the global default. Shown muted on the nav card.
+// What a feature actually resolves to, with provenance — own override → its task's
+// assigned preset → the global default. Shown muted on the nav card.
 function featurePresetLabel(key) {
   const fid = presetAssign.value.features?.[key];
   if (fid) return presetName(fid);
@@ -323,76 +229,29 @@ async function setFeaturePreset(key, presetId) {
     method: "PUT", body: { featureKey: key, presetId },
   });
 }
-// "Use in production" — make the column's selected preset the one this feature runs.
+// "Use in production" — make the column's selected preset the one THIS FEATURE runs
+// (a per-feature override on top of its task's preset).
 async function onUseProduction(presetId) {
   await setFeaturePreset(selAction.value, presetId);
   message.value = "In production — this feature runs that preset now.";
 }
 
-// ── bulk taskKind → preset assignment (the "Presets by task kind" panel at the top
-// of the left list). Routing keys on the LLM-work taskKind, so a preset assigned to a
-// taskKind runs for EVERY feature of that taskKind unless the feature has its own
-// override. "— inherit default —" clears the taskKind's assignment; Reset clears the
-// per-feature overrides on that taskKind's features so they all re-inherit. ──
-const presetOptions = computed(() => [
-  { value: "", label: "— inherit default —" },
-  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
-]);
-function taskKindPreset(tkId) { return presetAssign.value.taskKinds?.[tkId] || ""; }
-async function setTaskKindPreset(tkId, presetId) {
-  presetAssign.value = await request("/v1/ai/preset-assignments/task-kind", {
-    method: "PUT", body: { taskKind: tkId, presetId },
-  });
-}
-async function resetTaskKind(tkId) {
-  // Clear the per-feature override on every action of this taskKind so they all
-  // re-inherit the taskKind's preset (one bulk clear-features call).
-  const keys = Object.entries(featureTaskKinds.value).filter(([, tk]) => tk === tkId).map(([k]) => k);
-  if (!keys.length) return;
-  presetAssign.value = await request("/v1/ai/preset-assignments/clear-features", {
-    method: "POST", body: { featureKeys: keys },
-  });
-}
-
-// Save just the feature's PROMPT text (params live in the preset now). Keeps the
-// prompt row's existing param fields so nothing is wiped.
-async function savePrompt() {
-  const act = action.value;
-  if (!act || !draft.value) return;
+// ── the action's LLM TASK — reassign from the feature side (the Tasks page is the
+// other side). Every feature always has a task, so this is reassignment, not "none". ──
+const taskOptions = computed(() => taskKinds.value.map((t) => ({ value: t.id, label: t.label })));
+function featureTask(key) { return featureTaskKinds.value?.[key] || ""; }
+async function setFeatureTask(key, taskKind) {
+  if (!key || !taskKind || taskKind === featureTask(key)) return;
   try {
-    const updated = await request(`/v1/ai/prompts/${encodeURIComponent(act.key)}`, {
-      method: "PUT",
-      body: {
-        feature: act.feature,
-        system: draft.value.system || "", userTemplate: draft.value.userTemplate || "",
-        temperature: draft.value.temperature, think: draft.value.think,
-        maxTokens: draft.value.maxTokens, jsonMode: draft.value.jsonMode,
-        topP: draft.value.topP, reasoningEffort: draft.value.reasoningEffort || "",
-      },
-    });
-    const i = prompts.value.findIndex((p) => p.key === updated.key);
-    if (i >= 0) prompts.value[i] = updated;
-    message.value = "Prompt saved.";
-  } catch (e) {
-    error.value = `Save failed: ${e.message}`;
-  }
+    const tk = await request("/v1/ai/task-kinds/feature", { method: "PUT", body: { featureKey: key, taskKind } });
+    taskKinds.value = tk.taskKinds || taskKinds.value;
+    featureTaskKinds.value = tk.featureTaskKinds || {};
+    message.value = "Task reassigned.";
+  } catch (e) { error.value = `Task change failed: ${e.message}`; }
 }
 
-// ── shared test input (the action's {{variables}}) — passed to <ConfigColumn> ──
-const vars = reactive({});
-function buildVars() {
-  for (const k of Object.keys(vars)) delete vars[k];
-  const tpl = `${draft.value?.userTemplate || ""}\n${draft.value?.system || ""}`;
-  const found = new Set([...tpl.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map((m) => m[1]));
-  for (const v of found) vars[v] = vars[v] || "";
-  if (!found.size) vars.user_content = vars.user_content || "";
-}
-
-// The left list can be collapsed to give the column workbench full width.
+// The left list can be collapsed to give the Lab full width.
 const navCollapsed = ref(false);
-// The taskKind→preset assignment panel is collapsed by default so the feature nav
-// stays primary; each card's provenance already shows what a taskKind resolves to.
-const tkOpen = ref(false);
 
 onMounted(load);
 </script>
@@ -404,28 +263,8 @@ onMounted(load);
 
     <template v-else-if="routing">
       <div class="lu-fw-body" :class="{ 'nav-collapsed': navCollapsed }">
-        <!-- Left list: the bulk taskKind→preset assignment panel, then the features
-             grouped by their nav `group`. Collapsible for full column width. -->
+        <!-- Left list: features grouped by their nav `group`. -->
         <aside v-show="!navCollapsed" class="lu-fw-list">
-          <div v-if="taskKinds.length" class="lu-fw-tkpanel">
-            <button type="button" class="lu-fw-tkpanel-h" @click="tkOpen = !tkOpen">
-              <span class="lu-fw-tkchevron">{{ tkOpen ? "▾" : "▸" }}</span>
-              Presets by task kind
-              <span class="lu-fw-tkcount">{{ taskKinds.length }}</span>
-            </button>
-            <div v-if="tkOpen" class="lu-fw-tkrows">
-              <div v-for="tk in taskKinds" :key="tk.id" class="lu-fw-tkrow">
-                <div class="lu-fw-tktop">
-                  <span class="lu-fw-tkname" :title="tk.description">{{ tk.label }}</span>
-                  <UiButton intent="ghost" size="small" class="lu-fw-tkreset"
-                    title="Clear per-feature overrides for this task kind so its features re-inherit"
-                    @click="resetTaskKind(tk.id)">↺</UiButton>
-                </div>
-                <UiSelect class="lu-fw-tksel" :model-value="taskKindPreset(tk.id)" :options="presetOptions"
-                  @update:model-value="(v) => setTaskKindPreset(tk.id, v)" />
-              </div>
-            </div>
-          </div>
           <template v-for="(row, i) in navRows" :key="i">
             <div v-if="row.type === 'group'" class="lu-fw-cat">
               <div class="lu-fw-cat-name">{{ row.label }}</div>
@@ -443,10 +282,15 @@ onMounted(load);
           </template>
         </aside>
 
-        <!-- Editor for the selected action -->
-        <section v-if="action && draft" class="lu-fw-edit">
+        <!-- Editor for the selected action: its LLM task + the shared Lab. -->
+        <section v-if="action" class="lu-fw-edit">
           <div class="lu-fw-h">
             <b>{{ actionLabel(action) }}</b>
+            <span v-if="taskOptions.length" class="lu-fw-task">
+              <span class="lu-fw-task-k">Task</span>
+              <UiSelect :model-value="featureTask(selAction)" :options="taskOptions" width="name"
+                @update:model-value="(v) => setFeatureTask(selAction, v)" />
+            </span>
             <span class="lu-fw-spacer" />
             <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
             <UiButton intent="ghost" size="small"
@@ -454,23 +298,11 @@ onMounted(load);
               @click="navCollapsed = !navCollapsed">{{ navCollapsed ? '☰ Show list' : '⟨ Collapse list' }}</UiButton>
           </div>
 
-          <!-- The Lab, in-place: the feature's prompt (the testing prompt) + test input
-               live in the column below; build/compare engine configs; Save a column as
-               a preset (it appears in the dropdowns). -->
-          <div class="lu-fw-tune">
-            <div class="lu-fw-tune-h"><b>Tune presets</b><span class="lu-muted">run this feature's prompt on a test input · Save a column as a preset (it appears in the dropdowns)</span></div>
-            <div class="lu-fw-testin">
-              <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
-              <div v-for="(_, k) in vars" :key="k" class="lu-field">
-                <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
-              </div>
-            </div>
-            <CompareStrip :key="selAction"
-              :action="selAction" :base-config="columnConfig" :providers="providers"
-              :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
-              :vars="vars" :presets="enginePresets" :production-preset-id="featurePreset(selAction)"
-              @save-as="saveAs" @delete-preset="delPreset" @use-production="onUseProduction" />
-          </div>
+          <FeatureLab :action="selAction" :prompt="action" :providers="providers" :presets="enginePresets"
+            :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
+            :production-preset-id="featurePreset(selAction)" :pin="pin(selAction)"
+            @save-as="saveAs" @delete-preset="delPreset" @use-production="onUseProduction"
+            @pin-change="(p) => setPin(selAction, p)" />
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
       </div>
@@ -481,51 +313,11 @@ onMounted(load);
 <style scoped>
 .lu-fw { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 select.lu-input { cursor: pointer; appearance: auto; }
-
-.lu-fw-body { display: grid; grid-template-columns: minmax(280px, 26%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
-/* Collapsed list → the editor + column workbench take the full width. */
-.lu-fw-body.nav-collapsed { grid-template-columns: minmax(0, 1fr); }
-.lu-fw-list { min-width: 0; min-height: 0; border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; overflow-x: hidden; }
-.lu-fw-card { text-align: left; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; }
-.lu-fw-card:hover { border-color: var(--accent); background: var(--accent-soft); }
-.lu-fw-card.is-active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-.lu-fw-card-label { font-size: 12.5px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 6px; }
-.lu-fw-card-desc { font-size: 11px; color: var(--muted); line-height: 1.4; margin-top: 3px; }
-.lu-fw-card-model { font-size: 10.5px; font-weight: 600; color: var(--accent-ink, var(--accent)); margin-top: 4px; }
-.lu-fw-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
-.lu-fw-cat { display: flex; flex-direction: column; gap: 7px; padding: 10px 2px 2px; margin-top: 8px; border-top: 1px solid var(--border); }
-.lu-fw-cat:first-child { border-top: 0; margin-top: 0; padding-top: 2px; }
-.lu-fw-cat-name { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); }
+/* Nav sub-headers (FW's left list only; the shared shell classes live in styles.css). */
 .lu-fw-ghead { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; }
 .lu-fw-gname { font-size: 12px; font-weight: 700; color: var(--ink-2); }
-.lu-fw-default { display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-bottom: 4px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); }
-.lu-fw-default-k { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--ink); }
-.lu-fw-default-k .lu-muted { font-weight: 600; letter-spacing: 0; text-transform: none; }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 6px 0 1px; }
-/* Bulk taskKind → preset assignment panel (top of the left list) — collapsible so
-   the feature nav stays primary; each row is stacked (full-width label + dropdown). */
-.lu-fw-tkpanel { border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); margin-bottom: 6px; }
-.lu-fw-tkpanel-h { width: 100%; text-align: left; font: inherit; cursor: pointer; background: none; border: 0; padding: 9px 10px; font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--ink); display: flex; align-items: center; gap: 6px; }
-.lu-fw-tkchevron { color: var(--muted); font-size: 9px; }
-.lu-fw-tkcount { margin-left: auto; font-weight: 700; color: var(--muted); letter-spacing: 0; }
-.lu-fw-tkrows { display: flex; flex-direction: column; gap: 10px; padding: 2px 10px 10px; }
-.lu-fw-tkrow { display: flex; flex-direction: column; gap: 3px; }
-.lu-fw-tktop { display: flex; align-items: center; gap: 6px; }
-.lu-fw-tkname { flex: 1; min-width: 0; font-size: 11px; font-weight: 600; color: var(--ink-2); }
-.lu-fw-tkreset { flex: none; }
-.lu-fw-tksel { width: 100%; }
-
-.lu-fw-edit { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
-.lu-fw-h { display: flex; align-items: baseline; gap: 8px; }
-.lu-fw-h b { font-size: 15px; color: var(--ink); }
-.lu-fw-spacer { flex: 1; } .lu-fw-msg { font-size: 11.5px; }
-.lu-field { display: flex; flex-direction: column; gap: 5px; }
-.lu-field > label { font-size: 12px; color: var(--muted); }
-.lu-fw-testin { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
-.lu-fw-testin-h { display: flex; align-items: baseline; gap: 10px; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
-.lu-fw-resetrow { display: flex; gap: 8px; justify-content: flex-end; }
-.lu-fw-tune { display: flex; flex-direction: column; gap: 12px; margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--border); }
-.lu-fw-tune-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.lu-fw-tune-h b { font-size: 13px; color: var(--ink); }
-.lu-fw-tune-h .lu-muted { font-size: 11.5px; }
+/* The per-action LLM-task reassign control in the editor header. */
+.lu-fw-task { display: inline-flex; align-items: center; gap: 6px; }
+.lu-fw-task-k { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 </style>

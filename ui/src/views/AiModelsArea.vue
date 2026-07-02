@@ -12,6 +12,7 @@ import { computed, onMounted, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
+import TaskKinds from "./TaskKinds.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import RecommendationsEditor from "./RecommendationsEditor.vue";
@@ -140,6 +141,7 @@ onMounted(loadAll);
 
     <nav class="lu-subnav">
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
+      <a :class="{ on: tab === 'tasks' }" @click="tab = 'tasks'">Tasks</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
       <a :class="{ on: tab === 'recommendations' }" @click="tab = 'recommendations'">Recommendations</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
@@ -216,7 +218,12 @@ onMounted(loadAll);
       </div>
     </section>
 
-    <!-- ── Routing by feature — the Feature Workbench: per-feature prompt + which
+    <!-- ── Tasks — create / test / assign the LLM-work tasks + their engine presets. ── -->
+    <section v-show="tab === 'tasks'" class="lu-tab lu-tab-fill">
+      <TaskKinds v-if="tab === 'tasks'" />
+    </section>
+
+    <!-- ── Routing by feature — the Feature Workbench: per-feature task + which
          engine preset it runs (model/switches/params live in the preset). ── -->
     <section v-show="tab === 'features'" class="lu-tab lu-tab-fill">
       <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />

@@ -4,6 +4,15 @@
 >
 > **Validated by a 3-checker rules panel (architecture-fit · reuse/convergence · grounding).** All three confirmed the macro shape ("connect, don't collapse") is correct and the grounding claims verify (T2 all-true). Their FAILs — the preset-clobber guard (T1), shared-helper extraction (T3), the switch-presets-editor gap (T5), the backend copy-sweep (T6), and docs (T11) — are folded below and marked 【panel】.
 
+## ⛔ LIVE STATUS — where this stands (kept current)
+Branch `claude/admiring-galileo-il3q0o`; verified per phase (build:vite · headless-smoke 0 JS errors · Playwright probe · rules-checker). JustWrite-only.
+- **Phase 0 — copy sweep + dead-code: SHIPPED** (`b0a9f09`). Stale "job/Profile/D9/RoutingByJob" copy re-termed across UI + backend docstrings; orphaned `LuSwitchPresets.vue` deleted (the `/v1/ai/switch-presets` router + `switch_presets` table KEPT as API/reset surface — Decision 4); "(advanced)" dropped from the Engine-binaries panel. rules-checker PASS (T6 sweep re-verified).
+- **Phase 1 — connect model → switches: SHIPPED** (`2b0543f`). New shared `ui/src/switchResolve.js`; `ConfigColumn` seeds the switch KnobGrid from the model's resolved baseline on the model-STRING change, guarded by a `switchesSource` tag (`'model'|'preset'|'user'`) + async token + post-await re-checks (no preset/user clobber, no loop); `CompareStrip.presetToConfig` tags `'preset'`; `LuModelCatalog.fetchResolved` delegates to the helper. Probe: dense=6 / MoE=8 switches, differ, seedReqCount=2. rules-checker PASS (T1 guard + T3 single source).
+- **Phase 2 — Tune & measure: kept, relabelled.** No separate code — it now shares `switchResolve.js` (Phase 1) and its "Routing by job/Profile" copy was fixed in Phase 0.
+- **Phase 3 — trim the model Edit form + surface mtp: SHIPPED** (this commit). `LuModelCatalog` Edit form restructured — download-source note (repo+quant = the one thing you must set), fit-estimate note (pre-download guess; the GGUF sets the real fit), `type` relabeled "auto-detected at download" + demoted into a "Capability flags" Advanced disclosure, new `mtp` `UiCheckbox` (rides the existing catalog PUT — `mtp` round-trips: `stores.py:345,372`). Probe + a live PUT round-trip green.
+- **Phase 4 — final docs + verify: pending.** Refresh the JustWrite `MORNING_RECAP.md` active-plan map; full-suite re-verify.
+- **Decision 4 (open):** after deleting the orphaned editor, the `switch_presets` baseline is seed/reset/API-only by design; the full `/v1/ai/switch-presets` router removal is a shared-shapes/test cascade — deferred + flagged, kept as API surface. QuickSetup `/v1/ai/jobs` copy = the separate deferred #100.
+
 ## Context (why this change)
 Walking the Providers → AI surface, the user hit a real architectural disconnect and a pile of stale/dead bits. Grounded findings (cited, panel-verified):
 

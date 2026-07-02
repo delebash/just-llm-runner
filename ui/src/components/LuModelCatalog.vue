@@ -423,9 +423,12 @@ loadCatalogMeta();
       <div class="lu-mm-form">
         <label class="lu-mm-l">Name<UiInput v-model="editing.name" placeholder="Qwen3 14B · Q4_K_M" /></label>
         <label v-if="editingNew" class="lu-mm-l">Id <span class="lu-muted">blank → derived from name</span><UiInput v-model="editing.id" placeholder="qwen3-14b-q4_k_m" /></label>
+
+        <div class="lu-mm-note"><b>Download source</b> — where the GGUF is pulled from. The one thing you must set (the rest is read from the model itself once it downloads).</div>
         <label class="lu-mm-l">Hugging Face repo<UiInput v-model="editing.hfRepo" placeholder="unsloth/Qwen3-14B-GGUF" /></label>
         <label class="lu-mm-l">Quant<UiInput v-model="editing.quant" placeholder="Q4_K_M" /></label>
-        <label class="lu-mm-l">Type <span class="lu-muted">— drives which switch preset applies</span><UiSelect v-model="editing.type" :options="TYPES" /></label>
+
+        <div class="lu-mm-note"><b>Fit estimate</b> — a pre-download guess so the list can show “will it fit?”; once downloaded the GGUF sets the real fit.</div>
         <div class="lu-mm-row">
           <label class="lu-mm-l">Total params<UiInput v-model="editing.totalParams" placeholder="14B" /></label>
           <label class="lu-mm-l">Active params <span class="lu-muted">MoE only</span><UiInput v-model="editing.activeParams" placeholder="3.6B" /></label>
@@ -437,6 +440,12 @@ loadCatalogMeta();
 
         <label class="lu-mm-l">License <span class="lu-muted">— SPDX id (Apache-2.0 · MIT · Llama-Community · …)</span><UiInput v-model="editing.license" placeholder="Apache-2.0" /></label>
         <div class="lu-mm-l"><UiCheckbox v-model="editing.useLimited"><span>Use-limited license <span class="lu-muted">— not free for unrestricted/commercial use; shows the ⚠ badge</span></span></UiCheckbox></div>
+
+        <details class="lu-mm-adv">
+          <summary class="lu-mm-note"><b>Capability flags</b> <span class="lu-muted">— mostly auto-managed; rarely edited by hand</span></summary>
+          <label class="lu-mm-l">Type <span class="lu-muted">— dense / MoE, auto-detected from the model at download; drives the switch baseline</span><UiSelect v-model="editing.type" :options="TYPES" /></label>
+          <div class="lu-mm-l"><UiCheckbox v-model="editing.mtp"><span>Speculative decode (MTP) <span class="lu-muted">— not GGUF-detectable; set it for MTP / draft models</span></span></UiCheckbox></div>
+        </details>
 
         <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
       </div>
@@ -545,6 +554,10 @@ loadCatalogMeta();
 .lu-mm-l { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--ink-2); font-weight: 600; }
 .lu-mm-l .lu-muted { font-weight: 400; }
 .lu-mm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.lu-mm-note { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.lu-mm-note b { color: var(--ink-2); font-weight: 700; }
+.lu-mm-adv { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.lu-mm-adv > summary { cursor: pointer; user-select: none; }
 .lu-mm-spacer { flex: 1; }
 
 /* Tune & measure modal (#20). */

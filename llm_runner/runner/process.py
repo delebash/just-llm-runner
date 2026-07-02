@@ -283,6 +283,15 @@ def _drain(proc) -> str:
         return ""
 
 
+def _tail_file(path, max_lines: int = 40) -> str:
+    """Last ~max_lines of the redirected llama-server log (lenient decode)."""
+    try:
+        text = Path(path).read_bytes().decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001 — no log yet / unreadable → empty tail
+        return ""
+    return "\n".join(text.splitlines()[-max_lines:])
+
+
 def _kill(proc) -> None:
     for fn in ("kill", "wait"):
         try:
@@ -333,6 +342,7 @@ def start_runner(
     port: int = DEFAULT_PORT,
     extra_flags: Sequence[str] = (),
     overrides: Overrides | None = None,
+    log_path: Path | str | None = None,
     probe_timeout: float = 30.0,
     backoff_step: int = _BACKOFF_STEP,
     _popen: Callable | None = None,
@@ -343,34 +353,60 @@ def start_runner(
     """Spawn llama-server, wait for `/health`, shed GPU layers on CUDA-OOM.
 
     Returns a live `Runner`. Raises `RunnerStartError` if it can't become
-    healthy for a non-OOM reason (or after backing off to 0 GPU layers).
-    `_popen`/`_health`/`_sleep`/`_now` are injection points for tests.
+    healthy for a non-OOM reason (or after backing off to 0 GPU layers) — the
+    error carries the process exit status (None = still running, killed on the
+    health timeout = a hang; a number = it exited on its own, e.g. Windows
+    3221225781 / 0xC0000135 = a DLL failed to load) plus the tail of the log.
+    When `log_path` is set, llama-server's merged stdout+stderr is redirected
+    straight to that file (survives a hang/crash/kill and is tailed on failure);
+    otherwise it is captured via a pipe (the legacy path used by the offline
+    tests that inject `_popen`). `_popen`/`_health`/`_sleep`/`_now` are injection
+    points for tests.
     """
     popen = _popen or subprocess.Popen
     health = _health or _default_health
     url = f"http://{host}:{port}"
     n_gpu = fit.n_gpu_layers
+    if log_path:
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
 
-    while True:
-        n_cpu_moe = max(0, fit.block_count - n_gpu) if fit.is_moe else 0
-        flags = compose_flags(
-            gguf_path, n_gpu, n_cpu_moe, fit.ctx_len, host, port, extra_flags,
-            overrides=overrides,
-        )
-        log.info("spawning llama-server: ngl=%d n_cpu_moe=%d ctx=%d", n_gpu, n_cpu_moe, fit.ctx_len)
-        proc = popen(
-            [str(server_exe), *flags],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
-        if _wait_until_healthy(proc, url, probe_timeout, health, _sleep, _now):
-            return Runner(process=proc, url=url, n_gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe)
+    # One log handle for the whole load: each (re)spawn dups it, so the sequential
+    # OOM-backoff attempts append into the same per-load file; the parent copy is
+    # closed in the finally (a healthy child keeps its own dup open + keeps writing).
+    logf = open(log_path, "wb") if log_path else None
+    try:
+        while True:
+            n_cpu_moe = max(0, fit.block_count - n_gpu) if fit.is_moe else 0
+            flags = compose_flags(
+                gguf_path, n_gpu, n_cpu_moe, fit.ctx_len, host, port, extra_flags,
+                overrides=overrides,
+            )
+            log.info("spawning llama-server: ngl=%d n_cpu_moe=%d ctx=%d", n_gpu, n_cpu_moe, fit.ctx_len)
+            if logf is not None:
+                proc = popen([str(server_exe), *flags], stdout=logf, stderr=subprocess.STDOUT)
+            else:
+                proc = popen(
+                    [str(server_exe), *flags],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                )
+            if _wait_until_healthy(proc, url, probe_timeout, health, _sleep, _now):
+                return Runner(process=proc, url=url, n_gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe)
 
-        output = _drain(proc)
-        _kill(proc)
-        if n_gpu > 0 and _looks_like_oom(output):
-            n_gpu = max(0, n_gpu - backoff_step)
-            log.warning("llama-server OOM — backing off to ngl=%d", n_gpu)
-            continue
-        raise RunnerStartError(
-            f"llama-server failed to become healthy (ngl={n_gpu}): {output[:300]}"
-        )
+            # Capture WHY before killing: poll() is None for a hang (still alive at
+            # the deadline) or the self-exit code if it died on its own.
+            rc = proc.poll()
+            output = _tail_file(log_path) if log_path else _drain(proc)
+            _kill(proc)
+            if n_gpu > 0 and _looks_like_oom(output):
+                n_gpu = max(0, n_gpu - backoff_step)
+                log.warning("llama-server OOM — backing off to ngl=%d", n_gpu)
+                continue
+            status = "still running, killed on timeout" if rc is None else f"exit {rc}"
+            where = f"  [log: {log_path}]" if log_path else ""
+            raise RunnerStartError(
+                f"llama-server failed to become healthy (ngl={n_gpu}, {status}): "
+                f"{output[-1000:]}{where}"
+            )
+    finally:
+        if logf is not None:
+            logf.close()

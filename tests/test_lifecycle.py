@@ -34,6 +34,7 @@ def _service_for(tmp_path, *, start=None, gguf_quant=None, identify_fn=None,
         tmp_path,
         catalog_fn=lambda: [_TEST_MODEL],
         acquire_binary=lambda *a, **k: tmp_path / "llama-server",
+        acquired_exe=lambda *a, **k: tmp_path / "llama-server",
         acquire_model=lambda *a, **k: snap,
         read_meta=lambda p: SimpleNamespace(block_count=24, embedding_length=2048, is_moe=False, n_kv_heads=8),
         start=start or (lambda *a, **k: _fake_runner()),
@@ -203,3 +204,57 @@ def test_dead_process_flips_to_error(tmp_path):
     svc._thread.join(timeout=5)
     # _run_load set running; next status() sees the process is dead.
     assert svc.status()["status"] == "error"
+
+
+# ── engine install as its own step, separate from a model load ─────────────────
+
+def test_load_without_engine_errors(tmp_path):
+    # A model load now REQUIRES the engine installed; it no longer silently
+    # downloads it. No engine → a clear engine-not-installed error.
+    svc = _service_for(tmp_path)
+    svc._acquired_exe = lambda *a, **k: None  # engine not installed
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    st = svc.status()
+    assert st["status"] == "error"
+    assert st["error"] == "engine-not-installed"
+
+
+def test_engine_status_reports_installed(tmp_path):
+    svc = _service_for(tmp_path)  # acquired_exe stub returns a path → installed
+    es = svc.engine_status()
+    assert es["installed"] is True
+    assert es["build"]  # the pinned llama.cpp release tag
+    assert es["status"] == "idle"
+
+
+def test_engine_status_not_installed(tmp_path):
+    svc = _service_for(tmp_path)
+    svc._acquired_exe = lambda *a, **k: None
+    assert svc.engine_status()["installed"] is False
+
+
+def test_install_engine_runs_acquire(tmp_path):
+    called = {}
+
+    def fake_acquire(*a, **k):
+        called["hit"] = True
+        return tmp_path / "llama-server"
+
+    svc = _service_for(tmp_path)
+    svc._acquire_binary = fake_acquire
+    svc.install_engine()
+    svc._engine_thread.join(timeout=5)
+    assert called.get("hit") is True
+    assert svc.engine_status()["status"] == "installed"
+
+
+def test_engine_log_empty_then_tails(tmp_path):
+    svc = _service_for(tmp_path)
+    assert svc.engine_log() == {"path": "", "text": ""}
+    p = tmp_path / "runner.log"
+    p.write_text("a\nb\nc\n")
+    svc._last_log_path = p
+    out = svc.engine_log(tail=2)
+    assert out["text"] == "b\nc"
+    assert out["path"] == str(p)

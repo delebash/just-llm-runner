@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -22,11 +23,12 @@ import requests
 from dataclasses import fields as _dc_fields
 
 from .binary import acquire_binary as _acquire_binary
+from .binary import acquired_server_exe, binary_dir, select_binary
 from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect
 from .models import acquire_model as _acquire_model
-from .process import Overrides, compute_fit, start_runner as _start_runner
+from .process import Overrides, _tail_file, compute_fit, start_runner as _start_runner
 from .schema import ModelEntry
 
 
@@ -159,6 +161,12 @@ def _idle() -> dict:
             "downloaded": 0, "total": 0}
 
 
+def _engine_idle() -> dict:
+    # Separate channel from the model-load state (a model load must not clobber
+    # engine-install progress, and vice-versa). status ∈ idle|installing|installed|error.
+    return {"status": "idle", "detail": "", "error": "", "downloaded": 0, "total": 0}
+
+
 class RunnerService:
     """Owns the single live llama-server + its load state.
 
@@ -176,6 +184,7 @@ class RunnerService:
         profile_switches_fn=_default_profile_switches_fn,
         identify_fn=_default_identify_fn,
         acquire_binary=_acquire_binary,
+        acquired_exe=acquired_server_exe,
         acquire_model=_acquire_model,
         read_meta=_read_gguf_metadata,
         start=_start_runner,
@@ -188,13 +197,17 @@ class RunnerService:
         self._profile_switches_fn = profile_switches_fn
         self._identify_fn = identify_fn
         self._acquire_binary = acquire_binary
+        self._acquired_exe = acquired_exe
         self._acquire_model = acquire_model
         self._read_meta = read_meta
         self._start = start
         self._state = _idle()
+        self._engine_state = _engine_idle()
         self._runner = None
         self._lock = threading.Lock()
         self._thread = None
+        self._engine_thread = None
+        self._last_log_path = None
 
     @property
     def cache_root(self) -> Path:
@@ -219,6 +232,53 @@ class RunnerService:
         if self._runner is not None and self._state["status"] == "running" and not self._runner.is_alive():
             self._state.update(status="error", error="llama-server exited")
         return dict(self._state)
+
+    # ── Engine install — its OWN once-per-machine step, separate from loading a
+    #    model (a load REQUIRES the engine present; see _run_load). ──────────────
+    def engine_status(self) -> dict:
+        """Is the llama.cpp engine installed for THIS box? Reports the selected
+        build/gpu, whether the exe + (on Windows CUDA) its cudart companion are
+        present, and any in-flight install progress (`_engine_state`)."""
+        config = self._config_fn()
+        hardware = self._hardware_fn()
+        exe = self._acquired_exe(self.cache_root, config, hardware)
+        asset = select_binary(config, hardware)
+        has_runtime = True
+        if exe is not None and asset is not None and asset.runtime_url:
+            # A Windows CUDA build needs the cudart DLLs unpacked next to the exe.
+            has_runtime = any(exe.parent.glob("cudart*"))
+        return {
+            "installed": exe is not None,
+            "serverExe": str(exe) if exe else "",
+            "build": config.llamacpp.pinned_build,
+            "gpu": asset.gpu if asset else "",
+            "platform": hardware.platform,
+            "hasRuntime": has_runtime,
+            **self._engine_state,
+        }
+
+    def install_engine(self, force: bool = False) -> dict:
+        """Download + unpack the llama.cpp engine for this box (its OWN step, not
+        folded into a model load). Idempotent unless `force`. Runs on a dedicated
+        thread so it can't clobber an in-flight model load."""
+        with self._lock:
+            if self._engine_state["status"] == "installing":
+                return dict(self._engine_state)
+            self._engine_state = {"status": "installing", "detail": "llama.cpp engine",
+                                  "error": "", "downloaded": 0, "total": 0}
+            self._engine_thread = threading.Thread(
+                target=self._run_install, args=(force,), daemon=True,
+            )
+            self._engine_thread.start()
+        return dict(self._engine_state)
+
+    def engine_log(self, tail: int = 200) -> dict:
+        """Tail of the most recent llama-server spawn log (the 'view log'
+        affordance) — empty when nothing has spawned yet."""
+        path = self._last_log_path
+        if not path or not Path(path).exists():
+            return {"path": "", "text": ""}
+        return {"path": str(path), "text": _tail_file(path, tail)}
 
     def load(
         self, model_id: str, overrides: Overrides | None = None,
@@ -294,6 +354,34 @@ class RunnerService:
             raise FileNotFoundError(f"no .gguf for quant {quant!r} in {snapshot_dir}")
         return cands[0]  # first shard of a split model loads the rest
 
+    def _runner_log_path(self, model_id: str) -> Path:
+        """Per-load log file — real `start_runner` creates the dir + redirects the
+        merged stdout/stderr here (tailed on failure + by `engine_log`)."""
+        safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in model_id)[:60]
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        return self.cache_root / "llamacpp" / "logs" / f"runner-{safe}-{ts}.log"
+
+    def _run_install(self, force: bool) -> None:
+        try:
+            config = self._config_fn()
+            hardware = self._hardware_fn()
+            if force:
+                d = binary_dir(self.cache_root, config.llamacpp.pinned_build)
+                if d.exists():
+                    shutil.rmtree(d, ignore_errors=True)
+
+            def _progress(downloaded: int, total: int | None) -> None:
+                self._engine_state["downloaded"] = downloaded
+                self._engine_state["total"] = total or 0
+
+            self._acquire_binary(self.cache_root, config, hardware, on_progress=_progress)
+            self._engine_state = {"status": "installed", "detail": "", "error": "",
+                                  "downloaded": 0, "total": 0}
+        except Exception as exc:  # noqa: BLE001 — any failure becomes error state
+            log.exception("engine install failed")
+            self._engine_state = {"status": "error", "detail": "", "error": str(exc),
+                                  "downloaded": 0, "total": 0}
+
     def _run_load(
         self, model_id: str, overrides: Overrides | None = None,
         job_id: str | None = None, switches: dict[str, str] | None = None,
@@ -327,10 +415,13 @@ class RunnerService:
                 self._state["downloaded"] = downloaded
                 self._state["total"] = total or 0
 
-            self._state.update(status="downloading", detail="llama.cpp binary", downloaded=0, total=0)
-            server_exe = self._acquire_binary(
-                self._cache_root, config, hardware, on_progress=_progress,
-            )
+            # Engine install is its OWN step now (POST /engine/install); a model
+            # load REQUIRES it already present and never silently downloads it.
+            server_exe = self._acquired_exe(self._cache_root, config, hardware)
+            if server_exe is None:
+                self._state.update(status="error", detail="Install the engine first",
+                                   error="engine-not-installed", downloaded=0, total=0)
+                return
 
             self._state.update(detail="model weights", downloaded=0, total=0)
             snapshot = self._acquire_model(
@@ -350,7 +441,10 @@ class RunnerService:
                               safety_margin_mb=config.safety_margin_mb)
 
             self._state.update(status="starting", detail="spawning llama-server", downloaded=0, total=0)
-            runner = self._start(server_exe, gguf, fit, extra_flags=ov.extra_flags, overrides=ov)
+            log_path = self._runner_log_path(model_id)
+            self._last_log_path = log_path
+            runner = self._start(server_exe, gguf, fit, extra_flags=ov.extra_flags,
+                                 overrides=ov, log_path=log_path)
             self._runner = runner
             self._state.update(status="running", url=runner.url, detail="", downloaded=0, total=0)
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state

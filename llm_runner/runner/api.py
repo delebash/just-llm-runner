@@ -169,6 +169,26 @@ async def stop_model() -> dict:
     return get_service().stop()
 
 
+# ── Engine (the llama.cpp binary): install as its OWN step, separate from
+#    downloading a model — a model load requires the engine already installed. ──
+
+
+@router.get("/v1/llm-runner/engine/status", summary="Is the llama.cpp engine installed for this box?")
+async def engine_status() -> dict:
+    return get_service().engine_status()
+
+
+@router.post("/v1/llm-runner/engine/install", summary="Download + install the llama.cpp engine (its own step)")
+async def engine_install(body: dict | None = None) -> dict:
+    force = bool((body or {}).get("force"))
+    return get_service().install_engine(force=force)
+
+
+@router.get("/v1/llm-runner/engine/log", summary="Tail the most recent llama-server spawn log")
+async def engine_log(tail: int = 200) -> dict:
+    return get_service().engine_log(tail=tail)
+
+
 @router.post("/v1/llm-runner/measure", summary="Probe the running model → decode tok/s + resource context")
 async def measure_model(prompt: str = "Write one vivid paragraph about the sea.", max_tokens: int = 128) -> dict:
     """#20 'Tune & measure': run a fixed probe against the loaded model and return

@@ -18,6 +18,7 @@ from llm_runner.runner.process import (
     Overrides,
     Runner,
     RunnerStartError,
+    _tail_file,
     compose_flags,
     compute_fit,
     start_runner,
@@ -264,3 +265,79 @@ def test_start_runner_raises_on_non_oom():
             "llama-server", "m.gguf", fit,
             _popen=popen, _health=lambda u: False, _sleep=lambda s: None,
         )
+
+
+# ── spawn diagnostics (log file + exit code + tail) ────────────────────────────
+
+def test_tail_file_returns_last_lines(tmp_path):
+    p = tmp_path / "runner.log"
+    p.write_text("\n".join(f"line {i}" for i in range(100)))
+    assert _tail_file(p, max_lines=3).splitlines() == ["line 97", "line 98", "line 99"]
+    assert _tail_file(tmp_path / "nope.log") == ""  # missing → empty, not a crash
+
+
+def test_start_runner_error_reports_exit_code():
+    # A self-exited llama-server (e.g. a missing DLL on Windows) surfaces its exit
+    # code + captured output, not a bare "failed".
+    def popen(argv, **k):
+        return _FakeProc(exit_code=3221225781, output="error while loading shared libraries")
+
+    with pytest.raises(RunnerStartError) as ei:
+        start_runner("llama-server", "m.gguf", _fit(),
+                     _popen=popen, _health=lambda u: False, _sleep=lambda s: None)
+    msg = str(ei.value)
+    assert "exit 3221225781" in msg
+    assert "error while loading shared libraries" in msg
+
+
+def test_start_runner_hang_reports_still_running():
+    # A hang (never healthy, never exits) reports "still running" — the case the
+    # old empty-tail message could not distinguish from a crash.
+    times = iter([0.0, 0.0, 1000.0])  # deadline calc, first check, then past deadline
+
+    def popen(argv, **k):
+        return _FakeProc(exit_code=None, output="")  # alive the whole time
+
+    with pytest.raises(RunnerStartError) as ei:
+        start_runner("llama-server", "m.gguf", _fit(),
+                     _popen=popen, _health=lambda u: False, _sleep=lambda s: None,
+                     _now=lambda: next(times))
+    assert "still running" in str(ei.value)
+
+
+def test_start_runner_redirects_to_log_and_cites_path(tmp_path):
+    # With log_path set, output is redirected to that file and the failure cites
+    # the log path so the user can open it.
+    log_path = tmp_path / "logs" / "runner.log"
+
+    def popen(argv, **k):
+        assert "stdout" in k  # redirected to the file, not a pipe we drain
+        return _FakeProc(exit_code=1, output="")
+
+    with pytest.raises(RunnerStartError) as ei:
+        start_runner("llama-server", "m.gguf", _fit(), log_path=log_path,
+                     _popen=popen, _health=lambda u: False, _sleep=lambda s: None)
+    assert f"[log: {log_path}]" in str(ei.value)
+    assert log_path.exists()  # start_runner created the dir + opened the file
+
+
+def test_start_runner_backs_off_on_oom_via_log(tmp_path):
+    # On the file-redirect path (the one _run_load actually uses), the OOM signal
+    # is read from the LOG-FILE tail, not a pipe. First attempt writes an OOM line
+    # into the redirected log → back-off → second attempt healthy.
+    log_path = tmp_path / "logs" / "runner.log"
+    procs = [_FakeProc(exit_code=1), _FakeProc(exit_code=None)]  # OOM exit, then alive
+    state = {"n": 0}
+
+    def popen(argv, **k):
+        if state["n"] == 0:
+            k["stdout"].write(b"ggml_cuda: CUDA error: out of memory")  # into the log file
+            k["stdout"].flush()
+        p = procs[state["n"]]
+        state["n"] += 1
+        return p
+
+    r = start_runner("llama-server", "m.gguf", _fit(), backoff_step=4, log_path=log_path,
+                     _popen=popen, _health=lambda u: state["n"] >= 2, _sleep=lambda s: None)
+    assert state["n"] == 2           # spawned twice: the log-tail OOM drove the retry
+    assert r.n_gpu_layers == 16      # 20 − 4

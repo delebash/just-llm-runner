@@ -100,6 +100,13 @@ class ModelCatalog(LlmBase):
     # it is editable per-model; seeded from `license` at seed time (no hardcoded
     # runtime license rule — the keyword match is a one-time seed helper).
     use_limited = Column(Boolean, nullable=False, default=False)
+    # Curated overall-quality order (LOWER = better) — QuickSetup picks the best-quality
+    # model that FITS the box; fit gates, this ranks. 100 = unranked (a user-added model
+    # sorts last until edited). Editable per-model (curation, not file-derived).
+    quality_rank = Column(Integer, nullable=False, default=100)
+    # Plain-language "what this model is" — shown in the catalog + surfaced by QuickSetup.
+    # Editable curation (distilled from the research; not file-derived).
+    description = Column(Text, nullable=False, default="")
     built_in = Column(Boolean, nullable=False, default=False)
     position = Column(Integer, nullable=False, default=0)
 

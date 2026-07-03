@@ -22,6 +22,42 @@ Branch `claude/admiring-galileo-il3q0o`; JW-only; verify per phase (runner ruff+
 - **Phase 4 — Per-hardware recommendation grid:** NOT STARTED
 - **Phase 5 — Tune & measure → Tasks Lab handoff:** NOT STARTED
 - **Phase 6 — Docs + final verify:** NOT STARTED
+- **⚠️ Phase 1 SCOPE EXPANDED (2026-07-03) — model-recommended sampler capture folded in:** Option B + Option 2 SETTLED; **2 OPEN decisions block the build** (catalog↔recommendations redundancy · per-task sampler richness). Full detail + decisions in the "## Phase 1 EXPANSION" section below. Do not build the sampler part until both are resolved + "go".
+
+---
+
+## Phase 1 EXPANSION — read the model's recommended sampler settings from the file (added 2026-07-03; sampler decisions IN PROGRESS)
+
+**Why this is part of Phase 1.** Phase 1 stalled on the *data* question — *which* GGUF facts we read and *why*. A model's recommended sampler settings are one of those facts. The user confirmed (2026-07-03, "B") that reading them is part of Phase 1's "read model facts from the file" mandate, not a separate feature. This section records the sampler decisions settled this session and the ones still open, so nothing is lost across a restart.
+
+**Goal (user's words):** the best sampler settings for the model *and* the task. Wrong settings degrade output (too hot → rambling/hallucination; too cold → repetition); each model's maker publishes a recommended baseline.
+
+**Verified in code this session:**
+- Our per-task/per-feature config sets **temperature only** (+ `think` + `json_mode`) — `justwrite-app/server/justwrite_server/seed_feature_prompts.py`: `temperature` per feature (extraction 0.15, prose 0.7, …), **zero** non-temperature sampler keys (grep count = 0). `top_k`/`min_p`/`top_p`/penalties sit at ONE generic default for every model (`llm_runner/llm/seed.py:266-310`; engine presets seed empty).
+- So today: per-**task** sampling ✅ (temperature); per-**model** sampling ❌ (the gap).
+- `general.sampling.*` = 12 keys, verified literally in llama.cpp `gguf-py/gguf/constants.py` (temp/top_k/top_p/min_p/penalty_repeat/penalty_last_n/xtc_*/mirostat*/sequence); PR #17120 populates them from `generation_config.json` at GGUF-conversion time.
+- `generation_config.json` lives in the model's ORIGINAL repo (live-probed: Qwen original → 200 with temp 0.7/top_p 0.8/top_k 20; GGUF quant repos → 404; Llama/Gemma → 401 gated; Mistral → present but no sampler keys). No single source covers every model.
+- Catalog = 11 UNMEASURED example models (`seed.py:101-140`; "MEASURED tok/s still pending #28" `:164`); recommendations linked by `model_id` STRING, no FK (`db.py:156`); Phase 4 grid = a read-time VIEW joining recs × live fit (no merge/replacement).
+
+**DECIDED this session (user-confirmed 2026-07-03) — do NOT re-litigate:**
+1. **Option B** — sampler capture is part of Phase 1.
+2. **Option 2 — auto-read the model's recommended sampler settings FROM THE FILE**, not hand-curated per model. Option 3 (hand-curate per built-in model) REJECTED: (a) the catalog is an unmeasured example set — curation would be throwaway; (b) hand-curating model facts is the exact anti-pattern this plan kills (root cause: "model facts are hand-typed, not read from the file"). Reading samplers from the file = the same principle as ctx/MTP/type.
+3. **Base = generic defaults + per-task temperatures stay the backbone**; model-recommended values are ADDITIVE, never a replacement.
+4. **Task wins per-knob** — the task owns temperature (and any knob it sets); the model fills the SECONDARY knobs the task leaves blank (`top_k`/`min_p`/`top_p`/penalties). Temperature stays task-driven (the model does NOT move temperature — the simpler branch, chosen this session).
+5. **Sources + precedence:** `general.sampling.*` from the GGUF header when present → else fetch `generation_config.json` from the ORIGINAL repo → else generic default. **No `huggingface_hub` dependency** — reuse the runner's own `models.py` HF fetcher (a one-file GET).
+6. **Keep `tokenizer.chat_template`** (+ `chat_template.{name}` / `chat_templates`) — reason to document: so the catalog can display/verify which chat format a model uses.
+7. **Save-grid rule:** read every useful GGUF field except the token/tokenizer blobs (the big arrays).
+8. **Model-card "best used for" tags → Phase 4** (recommendation grid), not the sampler work.
+
+**Storage + dispatch (answers "is it saved as a new task preset or overwrite the existing one?" — NEITHER):**
+- Model-recommended sampling is stored **per-MODEL** (on the `model_catalog` row / a small side table), read-only "auto-detected from the file" — exactly like `type`/`mtp`/`trained_ctx` in Phase 2. It is **never** written into a task preset, and no new preset is created.
+- Task presets are per-TASK (model-agnostic); model-recommended is per-MODEL (task-agnostic). Different dimensions → different storage.
+- At dispatch they are **layered read-only** (not merged into storage): generic default < model-recommended (fills the knobs the task left unset) < task preset (temperature etc. — wins) < per-call/user override. **The task preset is READ, never written.**
+- **Why not write it into a task preset:** a task preset is shared across models; baking Qwen's values into "extraction" would wrongly apply them when the same task runs on Gemma. Model facts stay attached to the model.
+
+**OPEN decisions (pending — do NOT implement until the user decides + says "go"):**
+- **[OPEN-A] Catalog ↔ recommendations redundancy.** The two surfaces feel redundant (a user downloads from the recommendation grid, not by "manually adding to the catalog"). Verified: two tables linked by `model_id` string (no FK, `db.py:156`); catalog = the models (download + installed + tune config), recommendations = task→model advice; Phase 4's grid is a read-time VIEW joining them + live fit, WITH a Download button (plan line 68). The plan already flags the flat-list overlap and DEFERS collapsing it (line 70). **Decision needed:** keep both (defer the merge) OR unify now (the grid becomes the single model surface; the catalog's flat list is folded in). *(Lean: real overlap, worth unifying — but it is a scope call for the user.)*
+- **[OPEN-B] Per-task sampler richness.** Community/model guidance gives richer per-goal settings (e.g. creative writing: Temp 1.0, Top-P 0.95, Min-P 0.05, Top-nSigma 1.25); our per-task config sets only temperature. **Decision needed:** (a) keep temperature-only per task and let Option 2 fill `top_p`/`min_p`/etc. from the model file (consistent with Option 2 — the community numbers are model/general baselines, exactly what Option 2 reads), OR (b) also set task-specific values for the secondary knobs. *(Lean: (a).)*
 
 ---
 

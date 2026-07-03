@@ -5,8 +5,8 @@
 > immediately after the GGUF-grounded model layer (`2026-07-02-gguf-grounded-model-layer.md`,
 > Phases 1–6) shipped and the user walked the resulting **Models tab** and found it confusing.
 > The decisions below were made by the user turn by turn and confirmed with an explicit "go".
-> **One core piece — the QuickSetup front-door mechanics — is STILL TO BE DISCUSSED and must NOT
-> be built until that discussion completes and the user gives another explicit go.** Both repos
+> **The QuickSetup front-door mechanics are now DESIGNED (Phase D below, settled 2026-07-03 via "go").
+> Implementation is still NOT started — no code in any repo until the user gives an explicit build-go.** Both repos
 > were clean and synced with origin when this was written (runner `b7290ff` / JW `f513189`). This
 > plan supersedes the Phase-4 decision in the GGUF plan that "the per-hardware recommendation grid
 > becomes the single model surface" — the user reconsidered that after using it, which is a
@@ -116,9 +116,10 @@ re-scores it with a `?vram_mb=` card override (`QuickSetup.vue:110`).
 `default.{llmId,model,embeddingId,embeddingModel}` + a `jobs` map + `pins`
 (`QuickSetup.vue:110‑112,161,197,208`) — the OLD jobs-based routing, NOT the current
 task-owns-the-preset model (Plan A, `2026-07-02-preset-model-a-resets.md`). To become the front
-door it must be rewired to set the **global default preset** (and optionally per-task presets), not
-the dead `jobs` map. This is exactly why the user said "we have quick setup that we have not linked
-yet."
+door it must be rewired to write the one fit-best model INTO the per-task presets (see Phase D — the
+model does NOT live in routing or in the global default `[""]`, both of which are dead; verified this
+session against `seed_presets.py`). This is exactly why the user said "we have quick setup that we have
+not linked yet."
 
 ## Decisions
 
@@ -151,8 +152,11 @@ yet."
   automatically at dispatch (`prompts.py` `_effective_spec`).
 - The **Tasks tab** stays exactly as-is as the per-task override surface (a power/advanced surface;
   "advanced" never meant hiding it).
-- **"One good model that fits your hardware = the shared default"**, attached to the global default
-  preset `task_kind_presets[""]`, flowing to every task without its own preset.
+- **"One good model that fits your hardware = the shared default"** — realised (per Phase D, verified
+  this session) NOT via the global default preset `task_kind_presets[""]` (which is never reached: the JW
+  seed assigns every one of the 9 tasks an explicit preset, so the cascade always hits the task's own
+  preset and `[""]` is dead). The model lives IN the per-task presets; "one good model" means QuickSetup
+  writes the one fit-best model onto every task preset (option A), keeping each preset's per-task settings.
 
 ### Recommendations accepted via "go" (reversible before build)
 
@@ -179,7 +183,7 @@ yet."
    make on its own; measurement (the Tune & measure path shipped in Phase 5 of the GGUF plan)
    eventually replaces the guessed quality rank with real tokens/sec + quality per model (#28).
 
-## The plan (PARTIAL — Phase D is pending discussion; do NOT build ahead of it)
+## The plan (Phase D now designed; build on the user's explicit go)
 
 Scope is the shared `just-llm-runner` (runner + `ui` kit) consumed by JustWrite; **JustVoice is OUT**
 (JV inherits the shared kit; it mounts the runner router directly and never calls `install_llm`, so
@@ -212,12 +216,43 @@ of plain-language behaviour ("runs fully on your GPU" / "uses GPU + system RAM")
 `LuModelCatalog.vue`, and any reader (QuickSetup — Phase D). Schema touch → drop-and-reseed the dev DB
 (pre-production, free).
 
-### Phase D — QuickSetup front door (⛔ PENDING DISCUSSION — do NOT build)
-Rewire QuickSetup off the deleted `/v1/ai/jobs` + the old `/v1/ai/routing` write onto **setting the
-global default preset** (`task_kind_presets[""]`) with the fit-best LLM + the embed model, ideally in
-one click, using `coarse_fit` for the pick + the Phase-C quality signal to rank. Exact UX, what it
-writes, and how it shows Fit are the subject of the still-to-be-had discussion (the user's "(c) we
-need to discuss"). This also resolves backlog #100 (QuickSetup `/v1/ai/jobs` → taskKind/preset).
+### Phase D — QuickSetup front door (DESIGNED 2026-07-03; build on the user's go)
+**Grounding correction (verified this session):** the model does NOT resolve from routing or from the
+global default preset `[""]`. The JW seed (`seed_presets.py`) defines 8 engine presets, each bundling a
+model + settings, and assigns every one of the 9 tasks to one of them (`DEFAULT_TASKKIND_PRESETS:75‑85`);
+no `[""]` default is seeded, so `[""]` is never reached. The seed today even runs a **2‑model split** —
+`qwen3.6-35b-a3b-mtp` for the quality tasks, but the fast `qwen3.5-9b` for ideation / prose-edit / digest
+(`:47,50,69`). So "one good model = the default" is a real change and must be written INTO the per-task
+presets, not into `[""]`.
+
+**Decided approach — option A (model → all presets), reversible toward D:**
+- QuickSetup picks the one **fit-best** model (`coarse_fit` + the Phase-C quality signal, editable) and, on
+  Apply, writes that model onto **every task preset** via `PUT /v1/ai/engine-presets/{id}` — keeping each
+  preset's per-task settings (top_p / json_mode / samplers; temperature stays per-action). One model
+  everywhere, per-task settings preserved. It also sets the **embedding** via the live
+  `routing.default.embedding*` (that half of the old routing write is genuinely used) and **downloads +
+  loads** the chosen model (keep the existing detect / card-override re-score / progress-poll machinery).
+- **Drop entirely:** the `/v1/ai/jobs` load + the per-job role rows + the `jobs` map and `routing.default.model`
+  write (all dead). The confirm step becomes "here's the one model that best fits your box" (editable) + embed.
+- **Also download the fast 9B** during setup (small, fits almost any box) so it is on disk and ready to try.
+- **Non-clobber on re-run:** QuickSetup must only overwrite presets still pointing at the *previous* default
+  model — never a per-task model the user has changed — so testing the 9B on a task survives a re-run.
+- **Align the seed to one model:** drop the seed's arbitrary 9B split (ideation/edit/digest) so the pre- and
+  post-QuickSetup baseline agree; the 9B becomes a tested per-task opt-in, not a hidden default.
+
+**The "9B vs one model" option (user: "i want option for 9b and 1 model, i have no idea if 9b will work"):**
+served by EXISTING mechanisms, no new architecture — one good model is the default; the 9B is installed and
+one swap away on the **Tasks tab** (the per-task preset override, which stays), with **Tune & measure** (the
+Phase-5 Lab) to compare the 9B vs the good model on a real prompt (quality + tokens/sec) and keep or revert
+per task. This IS decision #2's "we will test."
+
+**Noted options (NOT this build):** (D) evolve to "model lives once" — a global default preset holds the
+model, per-task presets carry only settings and inherit it (resolution: task-preset model → default-preset
+model → routing); cleaner "one knob," but needs a resolution change + seed rework + a Tasks-tab "inherits
+default" tweak. (Toggle) an optional QuickSetup "also use the fast 9B for quick tasks" one-click split —
+agent lean is to NOT add it (keep the front door to one model; the Tasks tab is the split), but it is cheap.
+
+This also resolves backlog #100 (QuickSetup `/v1/ai/jobs` → taskKind/preset).
 
 ### Phase E — verify + docs
 Runner `ruff` + `pytest`; JW `build:vite` + headless smoke (0 JS errors) over every route + the AI
@@ -226,10 +261,12 @@ each commit (doc-only commits exempt). Update this plan's LIVE STATUS, `MORNING_
 GGUF plan's cross-reference. Commit per-repo on `claude/admiring-galileo-il3q0o`, push `-u`.
 
 ## Open items
-- **Phase D (QuickSetup mechanics)** — the pending discussion; blocks build of the front door.
 - **#7 storage sub-choice** — quality + description as catalog columns (agent lean, option A) vs a
   slim recommendations table (option B). Settle at Phase C.
 - **#9 freshness** — seed-only now; remote curated manifest is a later product decision.
+- **Phase D → option D** — evolve to "model lives once + per-task presets inherit" (noted in Phase D);
+  a future refactor, not this build.
+- **Phase D → toggle** — optional QuickSetup "also use the fast 9B for quick tasks"; agent lean = skip.
 - **Re-confirm #7** — collapse vs keep-per-task, if "go" was meant only as "save the ledger."
 
 ## Out of scope

@@ -85,6 +85,9 @@ class ModelCatalog(LlmBase):
     # applies (the `moe` preset's spec:none/no_mmap lives ONCE here, not copied
     # per MoE model). Seeded from arch; `mtp` stays its own bool. (design §6.5)
     type = Column(String, nullable=False, default="dense")
+    # Trained context length (`<arch>.context_length` in the GGUF header), file-
+    # derived — null until the header is read (on Add via /inspect, or at download).
+    trained_ctx = Column(Integer, nullable=True)
     min_vram_mb = Column(Integer, nullable=True)
     min_ram_mb = Column(Integer, nullable=True)
     tier = Column(String, nullable=False, default="mid")
@@ -99,6 +102,25 @@ class ModelCatalog(LlmBase):
     use_limited = Column(Boolean, nullable=False, default=False)
     built_in = Column(Boolean, nullable=False, default=False)
     position = Column(Integer, nullable=False, default=0)
+
+
+# ── per-model recommended samplers — a FILE-derived fact (the GGUF `general.sampling.*`
+#    header keys, else the origin repo's generation_config.json), NOT hand-typed. Read
+#    from the model, shown read-only ("auto-detected from the file"); it SEEDS the Lab
+#    sampler grid (seen = run). Variable-cardinality child so a new sampler key needs no
+#    schema change (mirrors engine_preset_samplers / feature_sampler_params). ──────────
+class ModelSampler(LlmBase):
+    """One model's recommended sampler value, keyed by the llama.cpp param name
+    (temp/top_k/top_p/min_p/…). PK (model_id, param_name); no FK — `model_id` is a
+    soft ref to the catalog (like ModelRecommendation). Written ONLY by GGUF identity
+    detect (`ModelCatalogStore.set_derived`), never by the user-edit `upsert`."""
+
+    __tablename__ = "model_samplers"
+
+    model_id = Column(String, primary_key=True)
+    param_name = Column(String, primary_key=True)
+    value = Column(Text, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
 
 
 # ── cloud pricing (the usage-ledger cost source; replaces the hardcoded

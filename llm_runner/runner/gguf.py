@@ -63,6 +63,10 @@ class GgufMeta:
     expert_used_count: int = 0        # active experts per token (MoE)
     nextn_predict_layers: int = 0     # <arch>.nextn_predict_layers; > 0 => MTP
     file_type: int = 0                # general.file_type (quant enum)
+    # general.size_label — the param-scale label. Dense = the param count ("27B");
+    # MoE = an expert-config label ("128x9.4B") that does NOT decompose into
+    # total/active params (spec docs/gguf.md: "number of weights and experts").
+    size_label: str = ""
     # Author-recommended sampling baked into the GGUF header at conversion
     # (general.sampling.*, e.g. {"temp": 1.0, "top_k": 20, "top_p": 0.95}).
     # Empty when the converter did not carry it — the caller then falls back to
@@ -158,6 +162,7 @@ def _meta_from_kv(kv: dict[str, object]) -> GgufMeta:
         expert_used_count=_int("expert_used_count", 0),
         nextn_predict_layers=_int("nextn_predict_layers", 0),
         file_type=int(kv.get("general.file_type") or 0),
+        size_label=str(kv.get("general.size_label") or ""),
         sampling=sampling,
         base_repo_url=base_repo,
     )

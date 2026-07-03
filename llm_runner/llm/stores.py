@@ -339,10 +339,11 @@ class RecommendationStore:
 
 
 # ── model catalog + switches ──────────────────────────────────────────────────
-def _catalog_to_wire(r: db.ModelCatalog) -> CatalogRow:
+def _catalog_to_wire(r: db.ModelCatalog, samplers: dict[str, str] | None = None) -> CatalogRow:
     return CatalogRow(
         id=r.id, name=r.name, hfRepo=r.hf_repo, quant=r.quant, mmproj=r.mmproj,
         totalParams=r.total_params, activeParams=r.active_params, mtp=r.mtp, type=r.type,
+        trainedCtx=r.trained_ctx, samplers=dict(samplers or {}),
         minVramMb=r.min_vram_mb, minRamMb=r.min_ram_mb, tier=r.tier, license=r.license,
         useLimited=r.use_limited, position=r.position, builtIn=r.built_in,
     )
@@ -352,7 +353,13 @@ class ModelCatalogStore:
     def list(self) -> list[CatalogRow]:
         s = db.session()
         try:
-            return [_catalog_to_wire(r) for r in s.query(db.ModelCatalog).order_by(db.ModelCatalog.position, db.ModelCatalog.id).all()]
+            by_model: dict[str, dict[str, str]] = {}
+            for sp in s.query(db.ModelSampler).order_by(db.ModelSampler.model_id, db.ModelSampler.param_name).all():
+                by_model.setdefault(sp.model_id, {})[sp.param_name] = sp.value
+            return [
+                _catalog_to_wire(r, by_model.get(r.id))
+                for r in s.query(db.ModelCatalog).order_by(db.ModelCatalog.position, db.ModelCatalog.id).all()
+            ]
         finally:
             s.close()
 
@@ -371,6 +378,7 @@ class ModelCatalogStore:
             existing.active_params = row.activeParams
             existing.mtp = row.mtp
             existing.type = row.type or "dense"
+            existing.trained_ctx = row.trainedCtx
             existing.min_vram_mb = row.minVramMb
             existing.min_ram_mb = row.minRamMb
             existing.tier = row.tier or "mid"
@@ -379,7 +387,9 @@ class ModelCatalogStore:
             existing.position = row.position
             existing.built_in = False
             s.commit()
-            return _catalog_to_wire(existing)
+            samplers = {sp.param_name: sp.value for sp in
+                        s.query(db.ModelSampler).filter(db.ModelSampler.model_id == row.id).all()}
+            return _catalog_to_wire(existing, samplers)
         finally:
             s.close()
 
@@ -388,6 +398,7 @@ class ModelCatalogStore:
         try:
             existing = s.get(db.ModelCatalog, model_id)
             if existing is not None:
+                s.query(db.ModelSampler).filter(db.ModelSampler.model_id == model_id).delete()
                 s.delete(existing)
                 s.commit()
         finally:
@@ -398,6 +409,7 @@ class ModelCatalogStore:
         s = db.session()
         try:
             for cid in {c["id"] for c in seed.DEFAULT_CATALOG}:
+                s.query(db.ModelSampler).filter(db.ModelSampler.model_id == cid).delete()
                 row = s.get(db.ModelCatalog, cid)
                 if row is not None:
                     s.delete(row)
@@ -419,6 +431,42 @@ class ModelCatalogStore:
             existing.type = model_type
             s.commit()
             return True
+        finally:
+            s.close()
+
+    def set_derived(self, model_id: str, *, model_type: str, mtp: bool,
+                    trained_ctx: int | None, total_params: str | None = None,
+                    samplers: dict[str, str] | None = None) -> bool:
+        """Set the FILE-DERIVED catalog fields (`type`/`mtp`/`trained_ctx`, and
+        `total_params` when the file gives one) AND replace the per-model recommended
+        sampler rows for `model_id`, from a GGUF header read (the GGUF-grounded model
+        layer, Phase 2). `total_params` is written only when not None — a dense model
+        exposes it via `general.size_label` ("27B"), but a MoE expert-label ("128x9.4B")
+        does NOT decompose, so it stays None → the curated value is preserved. Preserves
+        every other field incl. `built_in` (unlike `upsert`, which marks the row
+        user-edited). The sampler set is always REPLACED with the given map (empty
+        clears it). Returns True if a `type`/`mtp`/`trained_ctx`/`total_params` value
+        changed; False when the model row is absent."""
+        s = db.session()
+        try:
+            existing = s.get(db.ModelCatalog, model_id)
+            if existing is None:
+                return False
+            changed = (existing.type != model_type or bool(existing.mtp) != bool(mtp)
+                       or existing.trained_ctx != trained_ctx
+                       or (total_params is not None and existing.total_params != total_params))
+            existing.type = model_type or "dense"
+            existing.mtp = bool(mtp)
+            existing.trained_ctx = trained_ctx
+            if total_params is not None:
+                existing.total_params = total_params
+            s.query(db.ModelSampler).filter(db.ModelSampler.model_id == model_id).delete()
+            for name, val in (samplers or {}).items():
+                nm = (name or "").strip()
+                if nm:
+                    s.add(db.ModelSampler(model_id=model_id, param_name=nm, value=str(val), built_in=False))
+            s.commit()
+            return changed
         finally:
             s.close()
 

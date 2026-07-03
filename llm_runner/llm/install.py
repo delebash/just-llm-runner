@@ -108,8 +108,17 @@ def install_llm(
     ))
     app.include_router(make_recommendations_router(stores.get_recommendation_store))
     app.include_router(make_knob_catalog_router(stores.list_knob_catalog))
+
+    def _inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> dict:
+        # Pre-download GGUF inspect for the Add-a-model form (reads the header over the
+        # HF link, no weights). Lazy import: identity pulls in the runner remote fetcher.
+        from .identity import inspect_model_from_link
+
+        return inspect_model_from_link(repo, quant, revision)
+
     app.include_router(make_catalog_router(
         stores.get_model_catalog_store, resolve_switches=switch_resolve.resolve_model_switches,
+        inspect_fn=_inspect_model_from_link,
     ))
     app.include_router(make_pricing_router(stores.get_pricing_store))
     app.include_router(make_runner_config_router(stores.get_runner_config_store))
@@ -149,12 +158,18 @@ def _wire_runner_catalog(data_dir=None) -> None:
         return resolve_model_switches(model_id)
 
     def identify_fn(model_id: str, gguf_path):
-        # After a model downloads, read its GGUF header → set model_catalog.type
-        # (moe|dense) from expert_count, so a user-added model's switch presets are
-        # grounded in the file rather than a hand-typed guess (was an orphan).
+        # After a model downloads, read its GGUF header → set model_catalog
+        # type/mtp/trained_ctx + the recommended sampler baseline from the file
+        # (the GGUF-grounded model layer, Phase 2), so a user-added model's catalog
+        # facts are grounded in the file, not a hand-typed guess. Samplers fall back
+        # to the origin repo's generation_config.json when the GGUF carries none.
+        from ..runner.gguf_remote import fetch_generation_config_samplers
         from .identity import detect_and_store_model_type
 
-        detect_and_store_model_type(model_id, gguf_path)
+        detect_and_store_model_type(
+            model_id, gguf_path,
+            samplers_fallback=lambda meta: fetch_generation_config_samplers(meta.base_repo_url),
+        )
 
     configure_service(
         catalog_fn=catalog_fn, switches_fn=switches_fn,

@@ -167,3 +167,114 @@ def test_fetch_gguf_meta_sums_shards_and_parses(monkeypatch):
     assert meta.architecture == "qwen35" and meta.is_mtp
     assert meta.sampling["temp"] == pytest.approx(1.0)
     assert total == 3000                       # summed shard sizes (real weight bytes)
+
+
+def test_repo_from_url():
+    from llm_runner.runner.gguf_remote import _repo_from_url
+    assert _repo_from_url("https://huggingface.co/Qwen/Qwen3.6-27B") == "Qwen/Qwen3.6-27B"
+    assert _repo_from_url("https://huggingface.co/Qwen/Qwen3.6-27B/tree/main") == "Qwen/Qwen3.6-27B"
+    assert _repo_from_url("zai-org/GLM-4.5-Air") == "zai-org/GLM-4.5-Air"
+    assert _repo_from_url("") == "" and _repo_from_url("nope") == ""
+
+
+def test_generation_config_samplers_maps_keys(monkeypatch):
+    from llm_runner.runner import gguf_remote
+
+    class _Resp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"temperature": 0.7, "top_p": 0.8, "top_k": 20,
+                    "repetition_penalty": 1.05, "do_sample": True}
+
+    monkeypatch.setattr(gguf_remote.requests, "get", lambda url, timeout=60: _Resp())
+    out = gguf_remote.fetch_generation_config_samplers("Qwen/Qwen3.6-27B")
+    # HF names mapped to the llama.cpp namespace; non-numeric (do_sample) dropped.
+    assert out == {"temp": 0.7, "top_p": 0.8, "top_k": 20.0, "penalty_repeat": 1.05}
+
+
+def test_generation_config_samplers_best_effort(monkeypatch):
+    from llm_runner.runner import gguf_remote
+
+    def _boom(url, timeout=60):
+        raise RuntimeError("404 gated repo")
+
+    monkeypatch.setattr(gguf_remote.requests, "get", _boom)
+    assert gguf_remote.fetch_generation_config_samplers("Qwen/Qwen3.6-27B") == {}
+    assert gguf_remote.fetch_generation_config_samplers("") == {}  # no repo → no fetch
+
+
+def test_bool_sampling_key_excluded():
+    # a general.sampling.* with a BOOL value must be DROPPED (not coerced to 0/1).
+    blob = _build_gguf([
+        _kv_str("general.architecture", "llama"),
+        _gstr("general.sampling.some_bool") + struct.pack("<I", 7) + struct.pack("<?", True),  # 7 = BOOL
+        _kv_f32("general.sampling.temp", 0.8),
+    ])
+    m = read_gguf_metadata_from_stream(io.BytesIO(blob))
+    assert m.sampling == {"temp": pytest.approx(0.8)}
+
+
+def test_nested_array_value_is_skipped():
+    # an ARRAY-of-ARRAY between two wanted keys must be skipped without misparsing.
+    inner = struct.pack("<I", 4) + struct.pack("<Q", 2) + struct.pack("<I", 1) + struct.pack("<I", 2)  # u32[2]
+    outer_body = struct.pack("<I", 9) + struct.pack("<Q", 2) + inner + inner                            # array[2] of arrays
+    blob = _build_gguf([
+        _kv_str("general.architecture", "llama"),
+        _gstr("llama.nested") + struct.pack("<I", 9) + outer_body,
+        _kv_u32("llama.block_count", 40),
+    ])
+    m = read_gguf_metadata_from_stream(io.BytesIO(blob))
+    assert m.architecture == "llama" and m.block_count == 40
+
+
+def test_fetch_gguf_meta_retries_on_truncated_first_read(monkeypatch):
+    from llm_runner.runner import gguf_remote
+    full = _build_gguf([
+        _kv_str("general.architecture", "qwen35"),
+        _kv_u32("qwen35.context_length", 4096),
+    ])
+    calls = {"n": 0}
+
+    def fake_range_read(url, n, timeout=60):
+        calls["n"] += 1
+        return full[:8] if calls["n"] == 1 else full   # first read cut short → retry gets the full header
+
+    monkeypatch.setattr(gguf_remote, "select_files",
+                        lambda repo, quant, mmproj, revision: ("sha", [{"path": "m-00001-of-00001.gguf", "lfs": {"size": 100}}]))
+    monkeypatch.setattr(gguf_remote, "_range_read", fake_range_read)
+    meta, total = gguf_remote.fetch_gguf_meta("r/x-GGUF", "Q4_K_M")
+    assert meta.architecture == "qwen35" and calls["n"] == 2 and total == 100
+
+
+def test_range_read_stops_at_n_even_if_cdn_ignores_range(monkeypatch):
+    from llm_runner.runner import gguf_remote
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size=0):
+            yield b"x" * 5_000_000   # CDN streams the whole file despite the Range header
+            yield b"y" * 5_000_000
+
+    monkeypatch.setattr(gguf_remote.requests, "get", lambda *a, **k: _Resp())
+    assert len(gguf_remote._range_read("http://x", 1000)) == 1000
+
+
+def test_reads_size_label():
+    # _meta_from_kv reads the documented general.size_label key (dense param scale).
+    blob = _build_gguf([
+        _kv_str("general.architecture", "llama"),
+        _kv_str("general.size_label", "27B"),
+        _kv_u32("llama.block_count", 32),
+    ])
+    m = read_gguf_metadata_from_stream(io.BytesIO(blob))
+    assert m.size_label == "27B" and m.block_count == 32

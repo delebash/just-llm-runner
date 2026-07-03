@@ -19,7 +19,6 @@ import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
-import UiSelect from "../common/components/UiSelect.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiProgress from "../common/components/UiProgress.vue";
 import { confirmDialog } from "../common/services/dialog.js";
@@ -267,20 +266,56 @@ async function runMeasure() {
 // /models view above is fit-shaped, so edit fetches the catalog row. `type`
 // drives which switch preset applies (§6.5). Switch editing was moved OUT of
 // this tab to the lab (§6.6) — no per-model switch sub-editor here anymore.
-const TYPES = [{ value: "dense", label: "Dense" }, { value: "moe", label: "MoE (mixture-of-experts)" }];
 const editing = ref(null);     // null | a draft catalog row
 const editingNew = ref(false);
 const saving = ref(false);
 const saveErr = ref("");
+// Pre-download GGUF inspect (POST /model-catalog/inspect): fills the file-derived
+// fields on the draft (type/mtp/trainedCtx, persisted on Save) + a read-only preview
+// (samplers/size/est VRAM). `inspected` is the last preview; null before Read-from-link.
+const inspecting = ref(false);
+const inspectErr = ref("");
+const inspected = ref(null);
+
+const samplersLabel = computed(() => {
+  const s = inspected.value?.samplers || editing.value?.samplers || {};
+  const entries = Object.entries(s);
+  return entries.length ? entries.map(([k, v]) => `${k} ${v}`).join(" · ") : "—";
+});
+
+async function inspectLink() {
+  const e = editing.value;
+  if (!e?.hfRepo?.trim()) { inspectErr.value = "Enter the Hugging Face repo first."; return; }
+  inspecting.value = true; inspectErr.value = ""; inspected.value = null;
+  try {
+    const params = new URLSearchParams({ repo: e.hfRepo.trim(), quant: e.quant || "" });
+    const r = await request(`/v1/ai/model-catalog/inspect?${params}`, { method: "POST" });
+    // File-derived scalar facts flow into the draft (persisted by the Save PUT);
+    // the sampler set persists from the local file at download (identify → set_derived).
+    e.type = r.type || "dense";
+    e.mtp = !!r.mtp;
+    e.trainedCtx = r.trainedCtx ?? null;
+    if (r.totalParams) e.totalParams = r.totalParams;  // file-derived (dense); MoE stays curated
+    if (!e.minVramMb && r.estVramMb) e.minVramMb = r.estVramMb;
+    inspected.value = {
+      architecture: r.architecture || "", experts: r.experts || 0, sizeLabel: r.sizeLabel || "",
+      samplers: r.samplers || {}, sizeBytes: r.sizeBytes || 0, estVramMb: r.estVramMb ?? null,
+    };
+  } catch (err) {
+    inspectErr.value = err.message || "Couldn't read the model from the link.";
+  } finally {
+    inspecting.value = false;
+  }
+}
 
 function blankModel() {
   return { id: "", name: "", hfRepo: "", quant: "", type: "dense", totalParams: "",
-    activeParams: "", mtp: false, minVramMb: null, minRamMb: null, tier: "mid",
-    license: "", useLimited: false, position: 0 };
+    activeParams: "", mtp: false, trainedCtx: null, samplers: {}, minVramMb: null, minRamMb: null,
+    tier: "mid", license: "", useLimited: false, position: 0 };
 }
-function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; }
+function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; }
 async function startEdit(m) {
-  saveErr.value = "";
+  saveErr.value = ""; inspected.value = null; inspectErr.value = "";
   try {
     const cat = await request("/v1/ai/model-catalog");
     const row = (cat.rows || []).find((r) => r.id === m.id) || { ...blankModel(), id: m.id, name: m.name };
@@ -291,7 +326,7 @@ async function startEdit(m) {
     editing.value = { ...blankModel(), id: m.id, name: m.name }; editingNew.value = false;
   }
 }
-function cancelEdit() { editing.value = null; saveErr.value = ""; }
+function cancelEdit() { editing.value = null; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; }
 
 function slugFromName(name) {
   return (name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -424,9 +459,24 @@ loadCatalogMeta();
         <label class="lu-mm-l">Name<UiInput v-model="editing.name" placeholder="Qwen3 14B · Q4_K_M" /></label>
         <label v-if="editingNew" class="lu-mm-l">Id <span class="lu-muted">blank → derived from name</span><UiInput v-model="editing.id" placeholder="qwen3-14b-q4_k_m" /></label>
 
-        <div class="lu-mm-note"><b>Download source</b> — where the GGUF is pulled from. The one thing you must set (the rest is read from the model itself once it downloads).</div>
+        <div class="lu-mm-note"><b>Download source</b> — where the GGUF is pulled from. The one thing you must set; the rest is read from the model itself.</div>
         <label class="lu-mm-l">Hugging Face repo<UiInput v-model="editing.hfRepo" placeholder="unsloth/Qwen3-14B-GGUF" /></label>
         <label class="lu-mm-l">Quant<UiInput v-model="editing.quant" placeholder="Q4_K_M" /></label>
+        <div class="lu-mm-inspect">
+          <UiButton intent="secondary" size="small" :loading="inspecting" @click="inspectLink">Read from link</UiButton>
+          <span class="lu-muted">reads the GGUF header over the link — no download</span>
+        </div>
+        <div v-if="inspectErr" class="lu-error">{{ inspectErr }}</div>
+
+        <div class="lu-mm-note"><b>Auto-detected from the file</b> <span class="lu-muted">— read from the GGUF header (Read from link, or confirmed at download); not hand-edited</span></div>
+        <div class="lu-mm-auto">
+          <div class="lu-mm-auto-row"><span class="lu-muted">Type</span><span>{{ editing.type || "dense" }}<template v-if="inspected"> · {{ inspected.architecture }}<template v-if="inspected.experts"> · {{ inspected.experts }} experts</template></template></span></div>
+          <div v-if="inspected?.sizeLabel" class="lu-mm-auto-row"><span class="lu-muted">Size (file)</span><span>{{ inspected.sizeLabel }}</span></div>
+          <div class="lu-mm-auto-row"><span class="lu-muted">Speculative decode (MTP)</span><span>{{ editing.mtp ? "supported" : "no" }} <span class="lu-muted">— from the header (nextn_predict_layers)</span></span></div>
+          <div class="lu-mm-auto-row"><span class="lu-muted">Trained context</span><span>{{ editing.trainedCtx ? `${editing.trainedCtx.toLocaleString()} tokens` : "—" }}</span></div>
+          <div class="lu-mm-auto-row"><span class="lu-muted">Recommended samplers</span><span>{{ samplersLabel }}</span></div>
+          <div v-if="inspected?.sizeBytes" class="lu-mm-auto-row"><span class="lu-muted">Download size</span><span>{{ fmtBytes(inspected.sizeBytes) }}<template v-if="inspected.estVramMb"> · ≈ {{ inspected.estVramMb.toLocaleString() }} MB VRAM (full GPU · 8K ctx)</template></span></div>
+        </div>
 
         <div class="lu-mm-note"><b>Fit estimate</b> — a pre-download guess so the list can show “will it fit?”; once downloaded the GGUF sets the real fit.</div>
         <div class="lu-mm-row">
@@ -440,12 +490,6 @@ loadCatalogMeta();
 
         <label class="lu-mm-l">License <span class="lu-muted">— SPDX id (Apache-2.0 · MIT · Llama-Community · …)</span><UiInput v-model="editing.license" placeholder="Apache-2.0" /></label>
         <div class="lu-mm-l"><UiCheckbox v-model="editing.useLimited"><span>Use-limited license <span class="lu-muted">— not free for unrestricted/commercial use; shows the ⚠ badge</span></span></UiCheckbox></div>
-
-        <details class="lu-mm-adv">
-          <summary class="lu-mm-note"><b>Capability flags</b> <span class="lu-muted">— mostly auto-managed; rarely edited by hand</span></summary>
-          <label class="lu-mm-l">Type <span class="lu-muted">— dense / MoE, auto-detected from the model at download; drives the switch baseline</span><UiSelect v-model="editing.type" :options="TYPES" /></label>
-          <div class="lu-mm-l"><UiCheckbox v-model="editing.mtp"><span>Speculative decode (MTP) <span class="lu-muted">— not GGUF-detectable; set it for MTP / draft models</span></span></UiCheckbox></div>
-        </details>
 
         <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
       </div>
@@ -556,8 +600,10 @@ loadCatalogMeta();
 .lu-mm-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .lu-mm-note { font-size: 11px; color: var(--muted); line-height: 1.4; }
 .lu-mm-note b { color: var(--ink-2); font-weight: 700; }
-.lu-mm-adv { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
-.lu-mm-adv > summary { cursor: pointer; user-select: none; }
+.lu-mm-inspect { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lu-mm-auto { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.lu-mm-auto-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; align-items: baseline; }
+.lu-mm-auto-row > .lu-muted:first-child { flex: 0 0 auto; }
 .lu-mm-spacer { flex: 1; }
 
 /* Tune & measure modal (#20). */

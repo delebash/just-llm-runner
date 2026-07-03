@@ -74,3 +74,45 @@ def fetch_gguf_meta(
         raw = _range_read(url, header_bytes * 4)
         meta = read_gguf_metadata_from_stream(BytesIO(raw))
     return meta, total
+
+
+# ── generation_config.json fallback — the ORIGINAL model repo (from the GGUF
+# header's `base_model.0.repo_url`) publishes the author-recommended samplers when
+# the GGUF itself did not bake `general.sampling.*` in (GLM ships none, Qwen does).
+# generation_config uses HF key names; we map to the llama.cpp namespace so header
+# samplers and fallback samplers land as ONE key set. ───────────────────────────
+_GEN_CFG_TO_LLAMA = {"temperature": "temp", "repetition_penalty": "penalty_repeat"}
+_GEN_CFG_KEYS = ("temperature", "top_p", "top_k", "min_p", "typical_p", "repetition_penalty")
+
+
+def _repo_from_url(url: str) -> str:
+    """'https://huggingface.co/Qwen/Qwen3.6-27B' or 'Qwen/Qwen3.6-27B' -> 'Qwen/Qwen3.6-27B'."""
+    u = (url or "").strip().rstrip("/")
+    if u.startswith("http"):
+        _, _, tail = u.partition("huggingface.co/")
+        u = tail
+    segs = [p for p in u.split("/") if p]
+    return "/".join(segs[:2]) if len(segs) >= 2 else ""
+
+
+def fetch_generation_config_samplers(base_repo_url: str, revision: str = "main") -> dict[str, float]:
+    """Fetch `generation_config.json` from the origin repo and extract its sampler
+    keys, mapped to llama.cpp names — the plan's header -> generation_config -> generic
+    precedence for a model's recommended samplers. Best-effort: returns {} on any
+    error (missing file, gated/404 repo, bad JSON), never raises into the caller."""
+    repo = _repo_from_url(base_repo_url)
+    if not repo:
+        return {}
+    url = f"{_HF_BASE}/{repo}/resolve/{revision}/generation_config.json"
+    try:
+        r = requests.get(url, timeout=_TIMEOUT)
+        r.raise_for_status()
+        cfg = r.json()
+    except Exception:  # noqa: BLE001 — advisory fallback; never raise into the caller
+        return {}
+    out: dict[str, float] = {}
+    for k in _GEN_CFG_KEYS:
+        v = cfg.get(k) if isinstance(cfg, dict) else None
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            out[_GEN_CFG_TO_LLAMA.get(k, k)] = float(v)
+    return out

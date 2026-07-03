@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Callable, Protocol
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── Catalog ──────────────────────────────────────────────────────────────────
@@ -40,6 +40,8 @@ class CatalogRow(BaseModel):
     activeParams: str = ""
     mtp: bool = False
     type: str = "dense"  # dense | moe — drives which switch preset applies (§6.5)
+    trainedCtx: int | None = None  # GGUF `<arch>.context_length`, file-derived (null until read)
+    samplers: dict[str, str] = Field(default_factory=dict)  # file-derived recommended samplers (read-only)
     minVramMb: int | None = None
     minRamMb: int | None = None
     tier: str = "mid"   # cpu | low-vram-moe | mid | high | high-ram
@@ -51,6 +53,24 @@ class CatalogRow(BaseModel):
 
 class CatalogResponse(BaseModel):
     rows: list[CatalogRow]
+
+
+class InspectResponse(BaseModel):
+    """The file-derived facts the Add-a-model form pre-fills from the GGUF header,
+    read PRE-download over the HF link (`POST /model-catalog/inspect`). type/mtp/
+    trainedCtx/samplers are the read-only "auto-detected from the file" facts;
+    sizeBytes/estVramMb ground the fit estimate in the real file, not a guess."""
+
+    architecture: str = ""
+    type: str = "dense"
+    mtp: bool = False
+    trainedCtx: int | None = None
+    experts: int = 0            # expert_count (0 = dense)
+    sizeLabel: str = ""         # general.size_label ("27B" dense; "128x9.4B" MoE expert-config)
+    totalParams: str = ""       # param count file-derived from size_label — dense only; "" for MoE
+    samplers: dict[str, str] = Field(default_factory=dict)  # recommended samplers (read-only fact)
+    sizeBytes: int = 0          # real total weight size (summed shards) — the download size
+    estVramMb: int | None = None  # est. VRAM to fully offload at 8K ctx (real header + size)
 
 
 class ResolvedSwitch(BaseModel):
@@ -80,6 +100,7 @@ def make_catalog_router(
     get_store: Callable[[], ModelCatalogStore],
     *,
     resolve_switches: Callable[[str], dict[str, str]] | None = None,
+    inspect_fn: Callable[[str, str, str], dict] | None = None,
 ) -> APIRouter:
     """CRUD + reset for the per-model llama.cpp catalog. When
     `resolve_switches(model_id) -> {flag_name: value}` is given, also expose
@@ -125,5 +146,23 @@ def make_catalog_router(
                 modelId=modelId,
                 switches=[ResolvedSwitch(flagName=k, flagValue=str(v)) for k, v in merged.items()],
             )
+
+    if inspect_fn is not None:
+        @router.post("/model-catalog/inspect", response_model=InspectResponse)
+        async def inspect_catalog(repo: str, quant: str = "", revision: str = "main") -> InspectResponse:
+            """Pre-download: read the GGUF header from the HF link (no weights) so the
+            Add-a-model form fills the file-derived fields (type/mtp/trainedCtx/samplers)
+            + the real size + a VRAM estimate before committing to a multi-GB download."""
+            if not repo.strip():
+                raise HTTPException(status_code=400, detail="repo is required")
+            try:
+                data = inspect_fn(repo.strip(), quant.strip(), (revision or "main").strip())
+            except FileNotFoundError as e:
+                raise HTTPException(status_code=404, detail=str(e) or "no GGUF for that repo/quant") from e
+            except HTTPException:
+                raise
+            except Exception as e:  # noqa: BLE001 — network/parse failure → 502 with the reason
+                raise HTTPException(status_code=502, detail=f"inspect failed: {e}") from e
+            return InspectResponse(**data)
 
     return router

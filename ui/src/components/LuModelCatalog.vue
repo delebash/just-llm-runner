@@ -18,6 +18,7 @@ import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
+import UiTextarea from "../common/components/UiTextarea.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiProgress from "../common/components/UiProgress.vue";
 import { confirmDialog } from "../common/services/dialog.js";
@@ -65,7 +66,11 @@ const licenseById = computed(() =>
 const useLimitedById = computed(() =>
   Object.fromEntries(catalogRows.value.map((r) => [r.id, !!r.useLimited])),
 );
+const descriptionById = computed(() =>
+  Object.fromEntries(catalogRows.value.map((r) => [r.id, r.description || ""])),
+);
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
+function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
 function licenseTitle(m) {
   const lic = licenseOf(m);
@@ -134,7 +139,7 @@ async function inspectLink() {
 function blankModel() {
   return { id: "", name: "", hfRepo: "", quant: "", type: "dense", totalParams: "",
     activeParams: "", mtp: false, trainedCtx: null, samplers: {}, minVramMb: null, minRamMb: null,
-    tier: "mid", license: "", useLimited: false, position: 0 };
+    tier: "mid", license: "", useLimited: false, description: "", qualityRank: 100, position: 0 };
 }
 function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; }
 async function startEdit(m) {
@@ -222,7 +227,7 @@ loadCatalogMeta();
         </thead>
         <tbody>
           <tr v-for="m in shownModels" :key="m.id">
-            <td class="lu-mn">{{ m.name }}<div class="lu-mid">{{ m.id }}</div></td>
+            <td class="lu-mn">{{ m.name }}<div class="lu-mid">{{ m.id }}</div><div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div></td>
             <td class="lu-mm">{{ sizeLabel(m) }}</td>
             <td>
               <span v-if="licenseOf(m)" class="lu-lic" :class="{ 'lu-lic--warn': useLimitedOf(m) }" :title="licenseTitle(m)">
@@ -311,6 +316,10 @@ loadCatalogMeta();
         <label class="lu-mm-l">License <span class="lu-muted">— SPDX id (Apache-2.0 · MIT · Llama-Community · …)</span><UiInput v-model="editing.license" placeholder="Apache-2.0" /></label>
         <div class="lu-mm-l"><UiCheckbox v-model="editing.useLimited"><span>Use-limited license <span class="lu-muted">— not free for unrestricted/commercial use; shows the ⚠ badge</span></span></UiCheckbox></div>
 
+        <div class="lu-mm-note"><b>Curation</b> <span class="lu-muted">— editable "what this is" + the quality order QuickSetup uses to pick the best model that fits your box.</span></div>
+        <label class="lu-mm-l">Description<UiTextarea v-model="editing.description" placeholder="Plain-language 'what this model is' — e.g. fast 9B for quick chat and drafts" /></label>
+        <label class="lu-mm-l">Quality rank <span class="lu-muted">— lower = better; 100 = unranked (sorts last)</span><UiInput v-model.number="editing.qualityRank" type="number" placeholder="100" /></label>
+
         <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
       </div>
       <template #footer>
@@ -342,6 +351,7 @@ loadCatalogMeta();
 .lu-mgrid tr:last-child td { border-bottom: 0; }
 .lu-mn { font-weight: 600; color: var(--ink); min-width: 150px; }
 .lu-mid { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px; }
+.lu-mdesc { font-size: 11px; color: var(--ink-2); font-weight: 400; margin-top: 3px; max-width: 46ch; line-height: 1.4; }
 .lu-mm { color: var(--ink-2); white-space: nowrap; }
 .lu-mact { text-align: right; white-space: nowrap; }
 .lu-mwait { font-size: 11px; }

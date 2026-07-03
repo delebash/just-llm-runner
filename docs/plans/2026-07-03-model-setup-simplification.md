@@ -1,6 +1,6 @@
 # Plan — Model-setup simplification (delete the grid · one good model + embed · catalog under Providers · collapse recommendations to a quality signal + a model description)
 
-> ⛔ **LIVE STATUS (2026-07-03): BUILD IN PROGRESS — Phase A SHIPPED (grid deleted, runner `91b7194` / JW `e26606c`); Phases B–E pending.**
+> ⛔ **LIVE STATUS (2026-07-03): BUILD IN PROGRESS — Phases A + B SHIPPED (grid deleted; catalog relocated under Providers → Built-in, installed-first, Models tab dissolved); Phase C in progress; D–E pending.**
 > This is a chat-plan design consolidation reached through a long, grounded discussion held
 > immediately after the GGUF-grounded model layer (`2026-07-02-gguf-grounded-model-layer.md`,
 > Phases 1–6) shipped and the user walked the resulting **Models tab** and found it confusing.

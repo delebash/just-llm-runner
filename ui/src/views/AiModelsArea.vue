@@ -31,7 +31,8 @@ const props = defineProps({
 });
 
 // The subnav tab is backed by the SHARED `activeAiTab` (labHandoff.js) so a Tune→Tasks
-// handoff fired from a modal under the Models tab can switch us to "tasks". A computed
+// handoff fired from the Tune modal (opened from the built-in provider's model catalog on
+// the Providers tab) can switch us to "tasks". A computed
 // get/set (not the raw imported ref) so the template's `tab = 'x'` writes unambiguously
 // hit `.value`. Side effect (benign): the tab now persists across AiModelsArea remounts.
 const tab = computed({ get: () => activeAiTab.value, set: (v) => { activeAiTab.value = v; } });

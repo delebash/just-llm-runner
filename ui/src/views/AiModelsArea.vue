@@ -15,7 +15,6 @@ import FeatureWorkbench from "./FeatureWorkbench.vue";
 import TaskKinds from "./TaskKinds.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
-import RecommendationGrid from "./RecommendationGrid.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
 import RecommendationsEditor from "./RecommendationsEditor.vue";
 import PricingEditor from "./PricingEditor.vue";
@@ -236,14 +235,13 @@ onMounted(loadAll);
       <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
     </section>
 
-    <!-- ── Models — the unified surface (Phase 4): the per-hardware recommendation grid
-         (discover → download → load → tune) + the full catalog "Manage all models"
-         (Add-your-own-GGUF · edit · delete · reset), + the advanced recommendations
-         editor under a disclosure. Both the grid and the catalog share one live model
-         status (useRunnerModels). ── -->
+    <!-- ── Models — the catalog "Manage all models" (Add-your-own-GGUF · edit · delete ·
+         reset · tune, via useRunnerModels) + the advanced recommendations editor under a
+         disclosure. The per-hardware recommendation grid was deleted (model-setup
+         simplification, Phase A); Phase B relocates this catalog under Providers → Built-in
+         and dissolves this tab. ── -->
     <section v-show="tab === 'models'" class="lu-tab">
       <template v-if="tab === 'models'">
-        <RecommendationGrid />
         <div class="lu-models-manage">
           <div class="lu-models-h">Manage all models</div>
           <LuModelCatalog />

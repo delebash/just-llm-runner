@@ -217,50 +217,6 @@ DEFAULT_TASK_KINDS: list[dict] = [
 ]
 
 
-# ── Recommendation grid (Phase 4): hardware tiers × functions ─────────────────
-# The grid ROWS — representative hardware bands reproducing the research matrix
-# columns (docs/plans/2026-06-27-model-catalog-research-and-recommendations.md:74).
-# vram_mb/ram_mb feed `coarse_fit` per (model, tier); the RAM pairing is what gates
-# the MoEs (via `min_ram_override`): 35B-A3B (min_ram 32000) fits from the 8 GB floor;
-# GLM-4.5-Air (64000) unlocks at 64 GB-RAM; Qwen3-235B (96000) at 96 GB-RAM. The high
-# tiers pair a mid GPU (24 GB, the research's quoted pairing) with escalating RAM.
-DEFAULT_HARDWARE_TIERS: list[dict] = [
-    {"key": "cpu",    "label": "CPU-only",           "vram_mb": 0,     "ram_mb": 32000},
-    {"key": "vram8",  "label": "8 GB GPU",           "vram_mb": 8000,  "ram_mb": 32000},
-    {"key": "vram12", "label": "12 GB GPU",          "vram_mb": 12000, "ram_mb": 32000},
-    {"key": "vram16", "label": "16 GB GPU",          "vram_mb": 16000, "ram_mb": 32000},
-    {"key": "vram24", "label": "24 GB GPU",          "vram_mb": 24000, "ram_mb": 32000},
-    {"key": "vram32", "label": "32 GB GPU",          "vram_mb": 32000, "ram_mb": 32000},
-    {"key": "ram64",  "label": "64 GB RAM",          "vram_mb": 24000, "ram_mb": 64000},
-    {"key": "ram96",  "label": "96 GB RAM",          "vram_mb": 24000, "ram_mb": 96000},
-    {"key": "ram128", "label": "128 GB workstation", "vram_mb": 24000, "ram_mb": 128000},
-]
-
-# taskKind → grid FUNCTION (column). Collapses the nine work-shapes into the research's
-# four quality jobs + `embed`; any taskKind NOT here → the explicit `other` bucket (custom
-# tasks / JV's future `attribution`) so nothing silently vanishes. ONE source (here), not a
-# component. `embed` is a pseudo-taskKind (the RAG role), not in DEFAULT_TASK_KINDS.
-TASKKIND_FUNCTIONS: dict[str, str] = {
-    "chat.grounded": "chat", "chat.inVoice": "chat",
-    "prose.generate": "prose", "prose.edit": "prose", "ideation": "prose",
-    "extract.structured": "extract", "summary.grounded": "extract", "creative.structured": "extract",
-    "judge.scored": "analysis",
-    "embed": "embed",
-}
-
-# Grid function COLUMN order + display labels (id → label). `other`/`embed` last.
-FUNCTION_ORDER: list[str] = ["chat", "prose", "extract", "analysis", "other", "embed"]
-FUNCTION_LABELS: dict[str, str] = {
-    "chat": "Chat", "prose": "Prose", "extract": "Extract",
-    "analysis": "Analysis", "other": "Other", "embed": "Embed",
-}
-
-
-def function_of(task_kind: str) -> str:
-    """The grid function (column) for a taskKind; unmapped → 'other' (never dropped)."""
-    return TASKKIND_FUNCTIONS.get(task_kind, "other")
-
-
 # Runner config (was runner-manifest.json). The binary list + scalars are
 # imported from the runner package (ONE source of truth; the standalone runner
 # also reads them via runner.config.default_config) and seeded built_in.

@@ -15,8 +15,6 @@ import FeatureWorkbench from "./FeatureWorkbench.vue";
 import TaskKinds from "./TaskKinds.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
-import LuModelCatalog from "../components/LuModelCatalog.vue";
-import RecommendationsEditor from "./RecommendationsEditor.vue";
 import PricingEditor from "./PricingEditor.vue";
 import { activeAiTab } from "../common/services/labHandoff.js";
 import { request } from "../client.js";
@@ -149,7 +147,6 @@ onMounted(loadAll);
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
       <a :class="{ on: tab === 'tasks' }" @click="tab = 'tasks'">Tasks</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
-      <a :class="{ on: tab === 'models' }" @click="tab = 'models'">Models</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
       <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
     </nav>
@@ -235,24 +232,6 @@ onMounted(loadAll);
       <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
     </section>
 
-    <!-- ── Models — the catalog "Manage all models" (Add-your-own-GGUF · edit · delete ·
-         reset · tune, via useRunnerModels) + the advanced recommendations editor under a
-         disclosure. The per-hardware recommendation grid was deleted (model-setup
-         simplification, Phase A); Phase B relocates this catalog under Providers → Built-in
-         and dissolves this tab. ── -->
-    <section v-show="tab === 'models'" class="lu-tab">
-      <template v-if="tab === 'models'">
-        <div class="lu-models-manage">
-          <div class="lu-models-h">Manage all models</div>
-          <LuModelCatalog />
-        </div>
-        <details class="lu-adv-recs">
-          <summary>Advanced: edit recommendations</summary>
-          <RecommendationsEditor />
-        </details>
-      </template>
-    </section>
-
     <!-- ── Usage — full ledger: rollup + by-feature + by-provider + reset ── -->
     <section v-show="tab === 'usage'" class="lu-tab">
       <template v-if="usageView">
@@ -331,13 +310,6 @@ onMounted(loadAll);
    does not scroll as a whole. */
 .lu-tab.lu-tab-fill { overflow: hidden; display: flex; flex-direction: column; }
 .lu-qs-wrap { display: block; margin-bottom: 14px; }
-
-/* Models tab — the "Manage all models" catalog, then the advanced editor. */
-.lu-models-manage { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
-.lu-models-h { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.lu-adv-recs { margin-top: 22px; border-top: 1px solid var(--border); padding-top: 12px; }
-.lu-adv-recs > summary { font-size: 12px; font-weight: 600; color: var(--ink-2); cursor: pointer; list-style: revert; padding: 4px 0; }
-.lu-adv-recs[open] > summary { margin-bottom: 12px; }
 
 /* naked control — the host wraps it in its own page card (.pane-card in JW) */
 .lu-pcard-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }

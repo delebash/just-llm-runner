@@ -1,11 +1,11 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The bundled-runner model catalog — the "Manage all models" flat list, now folded
-// into the unified "Models" tab (Phase 4) alongside the Recommendation grid. Lists the
-// catalog models with a hardware Fit estimate + on-disk/loaded status, loads/unloads
-// them, and manages catalog rows (Add-your-own-GGUF · Edit · Delete · Reset). The live
-// model state + load/download + the Tune modal are SHARED (useRunnerModels /
-// TuneMeasureModal) so the grid and this list are one status truth, not two pollers.
+// The bundled-runner model catalog — mounted under Providers → Built-in (next to the
+// Local engine panel). INSTALLED-FIRST: "Your models" lists what's downloaded (empty on
+// a fresh install); "Browse catalog" reveals the rest of the seeded set to download +
+// Add-your-own-GGUF. Each row shows a hardware Fit estimate + on-disk/loaded status,
+// loads/unloads, and manages catalog rows (Add · Edit · Delete · Reset). The live model
+// state + load/download + the Tune modal are SHARED (useRunnerModels / TuneMeasureModal).
 //
 // Scope: this catalog backs the BUNDLED runner only — the one provider with a manifest +
 // VRAM-fit + HF-GGUF download/spawn lifecycle (/v1/llm-runner/*). Ollama / LM Studio
@@ -28,6 +28,14 @@ const {
   models, vramMb, loading, error, downloaded, total, loadErr, loadingId,
   needsEngine, progressLabel, fmtBytes, FIT_LABEL, refresh, load, unload,
 } = useRunnerModels();
+
+// Installed-first framing: "Your models" = anything downloaded / loaded / in-flight /
+// errored; the rest of the seeded catalog is available to download behind "Browse catalog".
+// A fresh install has zero installed → the Your-models list is empty (browse to add one).
+const browseOpen = ref(false);
+const yourModels = computed(() => models.value.filter((m) => m.status !== "available"));
+const availableModels = computed(() => models.value.filter((m) => m.status === "available"));
+const shownModels = computed(() => (browseOpen.value ? [...yourModels.value, ...availableModels.value] : yourModels.value));
 
 const busy = ref(""); // CATALOG-op id in flight (delete) — distinct from the shared loadingId
 
@@ -194,15 +202,18 @@ loadCatalogMeta();
 <template>
   <div class="lu-mcat">
     <div class="lu-mcat-head lu-mcat-bar">
-      <span>Models — <b>Fit</b> estimates how well each runs on your GPU · downloaded models load on first use</span>
+      <span><b>Your models</b> — downloaded &amp; ready · <b>Fit</b> shows how each runs on your GPU</span>
       <span class="lu-mcat-spacer" />
+      <UiButton intent="ghost" size="small" @click="browseOpen = !browseOpen">{{ browseOpen ? "Hide catalog" : `Browse catalog (${availableModels.length})` }}</UiButton>
       <UiButton intent="secondary" size="small" @click="resetCatalog">Reset catalog</UiButton>
       <UiButton intent="primary" size="small" @click="startAdd"><template #icon>＋</template>Add model</UiButton>
     </div>
 
     <div v-if="error" class="lu-error lu-mcat-err">{{ error }}</div>
     <div v-else-if="loading" class="lu-mcat-empty">Loading catalog…</div>
-    <div v-else-if="!models.length" class="lu-mcat-empty">No models in the catalog.</div>
+    <div v-else-if="!shownModels.length" class="lu-mcat-empty">
+      No models downloaded yet — <b>Browse catalog</b> above to download one, or run <b>Quick Setup</b> to pick the best fit for your hardware.
+    </div>
 
     <div v-else class="lu-mcat-wrap">
       <table class="lu-mgrid">
@@ -210,7 +221,7 @@ loadCatalogMeta();
           <tr><th>Model</th><th>Params</th><th>License</th><th>Fit</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          <tr v-for="m in models" :key="m.id">
+          <tr v-for="m in shownModels" :key="m.id">
             <td class="lu-mn">{{ m.name }}<div class="lu-mid">{{ m.id }}</div></td>
             <td class="lu-mm">{{ sizeLabel(m) }}</td>
             <td>

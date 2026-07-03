@@ -4,8 +4,9 @@
 // config doesn't die in the measure modal (Phase 5). Matches the dialog.js / toastBridge.js
 // singleton pattern (module-level reactive refs + helpers) — placed here beside them.
 //
-// `activeAiTab` is the shared AI-area subnav tab: the sender (a modal mounted under the
-// Models tab) flips it to "tasks", and AiModelsArea binds its tab to it. `labHandoff` is
+// `activeAiTab` is the shared AI-area subnav tab: the sender (the Tune modal, opened from
+// the built-in provider's model catalog on the Providers tab) flips it to "tasks", and
+// AiModelsArea binds its tab to it. `labHandoff` is
 // the pending payload; the Tasks Lab CONSUMES it once (takeLabHandoff) and clears it, so
 // it seeds exactly ONE column and never re-fires on a re-render / task re-select.
 import { ref } from "vue";

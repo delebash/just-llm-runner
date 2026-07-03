@@ -1,12 +1,12 @@
 # Plan — Model-setup simplification (delete the grid · one good model + embed · catalog under Providers · collapse recommendations to a quality signal + a model description)
 
-> ⛔ **LIVE STATUS (2026-07-03): DESIGN DECISIONS CAPTURED — implementation NOT STARTED.**
+> ⛔ **LIVE STATUS (2026-07-03): BUILD IN PROGRESS — Phase A SHIPPED (grid deleted, runner `91b7194` / JW `e26606c`); Phases B–E pending.**
 > This is a chat-plan design consolidation reached through a long, grounded discussion held
 > immediately after the GGUF-grounded model layer (`2026-07-02-gguf-grounded-model-layer.md`,
 > Phases 1–6) shipped and the user walked the resulting **Models tab** and found it confusing.
 > The decisions below were made by the user turn by turn and confirmed with an explicit "go".
 > **The QuickSetup front-door mechanics are now DESIGNED (Phase D below, settled 2026-07-03 via "go").
-> Implementation is still NOT started — no code in any repo until the user gives an explicit build-go.** Both repos
+> Build STARTED on the user's go — **Phase A (delete the grid) is SHIPPED** (runner `91b7194` / JW `e26606c`; verified green: runner ruff + 224 pytest, JW build:vite + headless smoke 0 JS errors; rules-checker pass after its 2 findings were folded — a missed CSS comment + this status reconciliation). Phases B–E pending; each ships on its own verification. The grid descriptions in the body below are HISTORICAL (the grid is now deleted).** Both repos
 > were clean and synced with origin when this was written (runner `b7290ff` / JW `f513189`). This
 > plan supersedes the Phase-4 decision in the GGUF plan that "the per-hardware recommendation grid
 > becomes the single model surface" — the user reconsidered that after using it, which is a

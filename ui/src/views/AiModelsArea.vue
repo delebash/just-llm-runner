@@ -332,7 +332,7 @@ onMounted(loadAll);
 .lu-tab.lu-tab-fill { overflow: hidden; display: flex; flex-direction: column; }
 .lu-qs-wrap { display: block; margin-bottom: 14px; }
 
-/* Models tab — the grid, then the "Manage all models" catalog, then the advanced editor. */
+/* Models tab — the "Manage all models" catalog, then the advanced editor. */
 .lu-models-manage { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border); }
 .lu-models-h { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .lu-adv-recs { margin-top: 22px; border-top: 1px solid var(--border); padding-top: 12px; }

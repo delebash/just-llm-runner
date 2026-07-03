@@ -171,11 +171,11 @@ DEFAULT_RECOMMENDATIONS: list[dict] = [
     # chat — grounded interactive answers: best-QUALITY-that-fits (quality) → fast 9B (faster).
     # 27B is the ceiling (wins >=16 GB where it fits); the 35B-A3B MoE (rank 12) is the FLOOR
     # quality pick (27B doesn't fit <16 GB, the A3B does via CPU offload) AND the JW p_chat
-    # default — so the grid's floor chat quality == what runs (the "seen = run" invariant, Phase 4).
+    # default — so the floor chat-quality pick == the seeded p_chat default (the "seen = run" invariant).
     {"model_id": "qwen3.6-27b-mtp-q4_k_m", "task_kind": "chat.grounded", "rank": 10, "why": "27B (MTP) — the chat quality ceiling; richest interactive chat where VRAM allows (~20 GB+)."},
     {"model_id": "qwen3.6-35b-a3b-mtp", "task_kind": "chat.grounded", "rank": 12, "why": "35B-A3B MoE — the 'smarter chat' default; runs at the floor (8 GB VRAM + 32 GB RAM) via CPU expert offload, ~32B-class quality (~17-20 t/s)."},
     {"model_id": "gemma-4-12b-q4_k_m", "task_kind": "chat.grounded", "rank": 15, "why": "Gemma 4 12B — a second family at ~7 GB VRAM; strong instruction-following."},
-    {"model_id": "qwen3.5-9b-q4_k_m", "task_kind": "chat.grounded", "rank": 30, "why": "9B dense — fast, re-askable chat (~55 t/s); the grid's 'faster' pick."},
+    {"model_id": "qwen3.5-9b-q4_k_m", "task_kind": "chat.grounded", "rank": 30, "why": "9B dense — fast, re-askable chat (~55 t/s); the fast / low-latency chat pick."},
     # prose — creative drafting and rewriting
     {"model_id": "qwen3-235b-a22b", "task_kind": "prose.generate", "rank": 3, "why": "Qwen3-235B — best-that-fits prose on a high-RAM rig (96 GB+); near-cloud quality."},
     {"model_id": "qwen3.6-27b-mtp-q4_k_m", "task_kind": "prose.generate", "rank": 10, "why": "Qwen3.6 27B — the local prose ceiling; fluent, coherent long-form."},
@@ -191,7 +191,7 @@ DEFAULT_RECOMMENDATIONS: list[dict] = [
     {"model_id": "qwen3.6-27b-mtp-q4_k_m", "task_kind": "judge.scored", "rank": 10, "why": "27B (MTP) — best local analysis accuracy at the high tier (~20 GB+ VRAM)."},
     {"model_id": "qwen3.6-35b-a3b-mtp", "task_kind": "judge.scored", "rank": 15, "why": "35B-A3B MoE — capable analysis; runs at floor (8 GB VRAM + 32 GB RAM) via offload."},
     {"model_id": "qwen3-14b-q4_k_m", "task_kind": "judge.scored", "rank": 20, "why": "14B dense — solid analysis that fits ≥11 GB VRAM."},
-    # embed — the RAG / semantic-search index (the `embed` grid function column, Phase 4).
+    # embed — the RAG / semantic-search index (the `embed` recommendation row).
     # `embed` is a pseudo-taskKind (the RAG role), not one of the nine DEFAULT_TASK_KINDS.
     {"model_id": "nomic-embed-text", "task_kind": "embed", "rank": 10, "why": "Local embedding model (~137M) — the RAG / semantic-search index; CPU-fine, Apache-2.0."},
 ]

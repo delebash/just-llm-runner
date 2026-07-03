@@ -1,8 +1,8 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Tune & measure (#20), extracted from LuModelCatalog (Phase 4) so BOTH the flat
-// model catalog and the Recommendation grid open the SAME modal. Loads the model with
-// ad-hoc Plane-1 engine flags + probes decode tok/s on this box. The grid pre-fills from
+// Tune & measure (#20), extracted from LuModelCatalog so the model catalog opens the
+// SAME modal from its per-row Tune action. Loads the model with ad-hoc Plane-1 engine
+// flags + probes decode tok/s on this box. It pre-fills from
 // the model's RESOLVED switch defaults (show the truth) and tweaks flow through
 // POST /load { switches } → the same server-side converter stored switches use.
 // Measure-only: to persist a config, tune it in the Lab and Save it as a preset for a

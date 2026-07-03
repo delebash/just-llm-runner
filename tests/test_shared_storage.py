@@ -94,6 +94,22 @@ def test_task_kind_delete_cascades_and_builtin_guard(wired):
     assert "somefeature" not in stores.get_feature_task_kind_store().list()
 
 
+def test_model_catalog_quality_and_description_roundtrip(wired):
+    from llm_runner.llm.model_catalog_api import CatalogRow
+
+    cat = stores.get_model_catalog_store()
+    # a user-added model carries the editable curation fields (C1a) through upsert -> list
+    cat.upsert(CatalogRow(id="probe-model", name="Probe", qualityRank=7, description="a probe model"))
+    row = next(r for r in cat.list() if r.id == "probe-model")
+    assert row.qualityRank == 7
+    assert row.description == "a probe model"
+    # a fresh custom model defaults to unranked (100 = sorts last), never "best" (0/low)
+    cat.upsert(CatalogRow(id="probe-default", name="Probe2"))
+    row2 = next(r for r in cat.list() if r.id == "probe-default")
+    assert row2.qualityRank == 100
+    assert row2.description == ""
+
+
 def test_task_kind_slug_collision_suffixes(wired):
     from llm_runner.llm.task_kinds_api import TaskKindRow
 

@@ -119,7 +119,7 @@ DEFAULT_CATALOG: list[dict] = [
     {"id": "qwen3.6-27b-mtp-q4_k_m", "name": "Qwen3.6 27B (MTP) · Q4_K_M",
      "hf_repo": "unsloth/Qwen3.6-27B-MTP-GGUF", "quant": "Q4_K_M", "total_params": "27B", "mtp": True,
      "min_ram_mb": 26000, "min_vram_mb": 20000, "tier": "high", "license": "Apache-2.0", "position": 4,
-     "quality_rank": 12, "description": "Qwen3.6 27B dense — the local quality ceiling: fluent long-form prose + strong reasoning; runs fully on a ~20 GB+ GPU."},
+     "quality_rank": 12, "description": "Qwen3.6 27B dense — the best dense model that runs FULLY on a ~20 GB+ GPU (no offload): fluent long-form prose + strong reasoning."},
     {"id": "gemma-4-31b-it", "name": "Gemma 4 31B · Q4_K_M",
      "hf_repo": "unsloth/gemma-4-31b-it-GGUF", "quant": "Q4_K_M", "total_params": "31B",
      "min_ram_mb": 26000, "min_vram_mb": 22000, "tier": "high", "license": "Apache-2.0", "position": 5,
@@ -179,7 +179,7 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
 # in the SHARED block, NOT in per-app seed data (moved out of task_kinds_api.TASK_KINDS,
 # 2026-07-02). Users create / rename / delete CUSTOM tasks; these built-ins are
 # protected (TaskKindStore.delete blocks them) and re-seed on boot. `id` is the routing
-# key — it matches feature_task_kinds.task_kind + task_kind_presets + model_recommendations.
+# key — it matches feature_task_kinds.task_kind + task_kind_presets.
 # Only the feature→task MAP + the task→preset assignments are per-app. Ordered prose →
 # structured → chat.
 DEFAULT_TASK_KINDS: list[dict] = [

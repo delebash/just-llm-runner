@@ -157,7 +157,7 @@ async function deleteTask(t) {
   if (t.builtIn) return;
   const ok = await confirmDialog({
     title: `Delete task “${t.label}”?`, danger: true,
-    message: "Its members re-float to their factory tasks, and its preset assignment + recommendations are removed.",
+    message: "Its members re-float to their factory tasks, and its preset assignment is removed.",
   });
   if (!ok) return;
   try {

@@ -68,10 +68,12 @@ def test_detect_dense_is_noop_when_already_dense(configured):
 
 def test_derived_fields_from_meta():
     f = identity.derived_fields_from_meta(
-        _meta_full(nextn=1, ctx=262144, sampling={"temp": 1.0, "top_k": 20})
+        _meta_full(nextn=1, ctx=262144, sampling={"temp": 1.0, "top_k": 20, "penalty_repeat": 1.05})
     )
     assert f["type"] == "dense" and f["mtp"] is True and f["trained_ctx"] == 262144
-    assert f["samplers"] == {"temp": "1.0", "top_k": "20"}  # llama.cpp keys, string values
+    # samplers are canonicalized to OUR catalog namespace (temp→temperature,
+    # penalty_repeat→repeat_penalty); unchanged keys (top_k) pass through, values → str.
+    assert f["samplers"] == {"temperature": "1.0", "top_k": "20", "repeat_penalty": "1.05"}
     # dense / no-mtp / no-ctx / no-sampling -> falsy fields (None trained_ctx, {} samplers)
     g = identity.derived_fields_from_meta(_meta_full())
     assert g["type"] == "dense" and g["mtp"] is False
@@ -110,16 +112,16 @@ def test_detect_stores_mtp_ctx_and_samplers(configured):
     assert out == "dense"
     row = _row(mid)
     assert row.mtp is True and row.trainedCtx == 262144
-    assert row.samplers == {"temp": "1.0", "top_k": "20"}
+    assert row.samplers == {"temperature": "1.0", "top_k": "20"}  # canonicalized (temp→temperature)
     assert row.builtIn is True  # set_derived preserves built_in (unlike upsert)
 
 
 def test_detect_replaces_samplers_and_uses_fallback(configured):
     mid = "qwen3.5-9b-q4_k_m"
-    # 1) header ships samplers -> stored verbatim
+    # 1) header ships samplers -> stored (canonicalized: temp→temperature)
     identity.detect_and_store_model_type(
         mid, "x.gguf", read_meta=lambda _p: _meta_full(sampling={"temp": 0.7}))
-    assert _row(mid).samplers == {"temp": "0.7"}
+    assert _row(mid).samplers == {"temperature": "0.7"}
     # 2) header EMPTY + a fallback -> fallback fills, and it REPLACES the prior set
     identity.detect_and_store_model_type(
         mid, "x.gguf", read_meta=lambda _p: _meta_full(sampling={}),
@@ -140,7 +142,7 @@ def test_inspect_model_from_link(monkeypatch):
     assert out["type"] == "dense" and out["mtp"] is True and out["trainedCtx"] == 262144
     assert out["experts"] == 0 and out["architecture"] == "qwen35"
     assert out["sizeLabel"] == "27B" and out["totalParams"] == "27B"  # dense param count from size_label
-    assert out["samplers"] == {"temp": "1.0", "top_k": "20"}
+    assert out["samplers"] == {"temperature": "1.0", "top_k": "20"}  # canonicalized
     assert out["sizeBytes"] == 17_000_000_000
     assert out["estVramMb"] and out["estVramMb"] > 0  # estimate_vram_mb fed the REAL header + size
 
@@ -154,4 +156,5 @@ def test_inspect_uses_generation_config_fallback(monkeypatch):
                         lambda url, revision="main": {"temp": 0.6, "top_p": 0.95})
     out = identity.inspect_model_from_link("unsloth/GLM-4.5-Air-GGUF", "UD-Q4_K_XL")
     assert out["type"] == "moe" and out["experts"] == 128 and out["mtp"] is True
-    assert out["samplers"] == {"temp": "0.6", "top_p": "0.95"}  # from generation_config.json fallback
+    # from generation_config.json fallback, canonicalized (temp→temperature)
+    assert out["samplers"] == {"temperature": "0.6", "top_p": "0.95"}

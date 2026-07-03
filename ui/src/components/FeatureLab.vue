@@ -13,7 +13,7 @@
 // there is ONE routing source of truth. save-as / update-preset / delete-preset /
 // use-production are emitted; the parent decides the target — under Plan A that is always
 // a TASK preset (the feature's task in the Workbench, the selected task on the Tasks page).
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 
 import CompareStrip from "./CompareStrip.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
@@ -28,6 +28,7 @@ const props = defineProps({
   switchCatalogList: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },
   pin: { type: Object, default: null },         // the action's routing pin (parent-owned)
+  handoff: { type: Object, default: null },     // a pending Tune→Tasks Lab payload (Phase 5)
 });
 const emit = defineEmits(["use-production", "presets-changed"]);
 
@@ -118,6 +119,32 @@ const columnConfig = computed(() => {
     nglOverride: null, nCpuMoeOverride: null,
   };
 });
+
+// ── Tune→Tasks Lab handoff (Phase 5): seed the tuned {model + switches} as a NEW column
+// ALONGSIDE the task's preset column (compare, not clobber). Idempotent per FeatureLab
+// instance (`seededHandoff`) but re-seeds on a fresh mount — so the column survives the
+// `:key="testAgainst"` remount when the user assigns the first member to a member-less task.
+const stripRef = ref(null);
+function bundledRunnerProviderId() {
+  // the tuned switches came from the local llama.cpp runner (/v1/llm-runner/load), so pin
+  // THAT provider — not "first local" (Ollama is also local:true but can't run this model).
+  const p = props.providers.find((x) => x.providerType === "local-llamacpp" || x.id === "local-llamacpp");
+  return p?.id || "";
+}
+let seededHandoff = null;
+function seedHandoffColumn(h) {
+  if (!h || h === seededHandoff || !stripRef.value) return;
+  seededHandoff = h;
+  const providerId = h.providerId || bundledRunnerProviderId();
+  stripRef.value.addColumn({
+    ...columnConfig.value,
+    pin: providerId || h.model ? { providerId, model: h.model || "" } : columnConfig.value.pin,
+    switches: (h.switches || []).map((r) => ({ name: r.name, value: r.value })),
+    switchesSource: "user", // the tuned switches are user-authored → the model seed won't clobber them
+  });
+}
+onMounted(() => seedHandoffColumn(props.handoff));
+watch(() => props.handoff, seedHandoffColumn);
 </script>
 
 <template>
@@ -129,7 +156,7 @@ const columnConfig = computed(() => {
         <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
       </div>
     </div>
-    <CompareStrip :key="action"
+    <CompareStrip ref="stripRef" :key="action"
       :action="action" :base-config="columnConfig" :providers="providers"
       :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
       :vars="vars" :presets="presets" :production-preset-id="productionPresetId"

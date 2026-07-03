@@ -165,22 +165,57 @@ def test_catalog_reset_to_factory(wired):
     assert "extra" in ids          # user-added catalog row preserved
 
 
-# ── resolved-switches GET (the #20 model-card grid pre-fill) ──────────────────
+# ── resolved-defaults GET (the #20 model-card grid pre-fill: switches + samplers) ─
 
-def test_resolved_switches_endpoint(wired):
+def test_resolved_defaults_endpoint(wired):
     app = FastAPI()
     app.include_router(make_catalog_router(
         stores.get_model_catalog_store, resolve_switches=switch_resolve.resolve_model_switches,
     ))
     client = TestClient(app)
 
-    # A seeded dense model resolves to its layered base switch defaults — the
-    # model-card "Tune & measure" grid pre-fills from this read-only view.
-    r = client.get("/v1/ai/model-catalog/switches", params={"modelId": "gemma-4-12b-q4_k_m"})
+    # A seeded dense model resolves to its layered base switch defaults — the Lab +
+    # model-card "Tune & measure" grids seed from this read-only view. Samplers ride the
+    # same response (Phase 5 seed-and-show); empty for a model with no downloaded baseline.
+    r = client.get("/v1/ai/model-catalog/resolved-defaults", params={"modelId": "gemma-4-12b-q4_k_m"})
     assert r.status_code == 200
     body = r.json()
     assert body["modelId"] == "gemma-4-12b-q4_k_m"
     names = {s["flagName"] for s in body["switches"]}
     assert {"flash_attn", "cache_type_k", "cache_type_v", "mlock"} <= names  # the base preset
+    assert isinstance(body["samplers"], list)  # seed-and-show channel present
     # Empty modelId → 400 (not a silent empty resolve).
-    assert client.get("/v1/ai/model-catalog/switches", params={"modelId": ""}).status_code == 400
+    assert client.get("/v1/ai/model-catalog/resolved-defaults", params={"modelId": ""}).status_code == 400
+
+
+def test_resolved_defaults_returns_stored_samplers(wired):
+    """A model's file-derived recommended samplers (Phase-2 `model_samplers`, catalog
+    namespace) come back on the resolved-defaults response — the Phase-5 Lab seed source."""
+    store = stores.get_model_catalog_store()
+    # `set_derived` is the post-download identity write; samplers arrive already
+    # canonicalized (identity.canonicalize_sampler_names), so store catalog names here.
+    store.set_derived("gemma-4-12b-q4_k_m", model_type="dense", mtp=False,
+                      trained_ctx=8192, total_params="12B",
+                      samplers={"temperature": "1.0", "top_k": "64", "repeat_penalty": "1.05"})
+    app = FastAPI()
+    app.include_router(make_catalog_router(
+        stores.get_model_catalog_store, resolve_switches=switch_resolve.resolve_model_switches,
+    ))
+    client = TestClient(app)
+    body = client.get("/v1/ai/model-catalog/resolved-defaults",
+                      params={"modelId": "gemma-4-12b-q4_k_m"}).json()
+    got = {s["flagName"]: s["flagValue"] for s in body["samplers"]}
+    assert got == {"temperature": "1.0", "top_k": "64", "repeat_penalty": "1.05"}
+
+
+def test_canonicalize_sampler_names_maps_llamacpp_to_catalog():
+    """The three llama.cpp file names that diverge from our knob catalog are remapped;
+    everything else passes through — so a seeded sampler runs (seen = run), not a no-op."""
+    from llm_runner.llm.identity import canonicalize_sampler_names
+    out = canonicalize_sampler_names(
+        {"temp": "1.0", "penalty_repeat": "1.05", "penalty_last_n": "64",
+         "top_p": "0.95", "min_p": "0.05"}
+    )
+    assert out == {"temperature": "1.0", "repeat_penalty": "1.05", "repeat_last_n": "64",
+                   "top_p": "0.95", "min_p": "0.05"}
+    assert canonicalize_sampler_names(None) == {}

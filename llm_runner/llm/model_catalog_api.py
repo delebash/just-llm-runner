@@ -73,18 +73,27 @@ class InspectResponse(BaseModel):
     estVramMb: int | None = None  # est. VRAM to fully offload at 8K ctx (real header + size)
 
 
-class ResolvedSwitch(BaseModel):
-    """One resolved engine switch for a model (read-only): the layered
-    base→type default the runner would launch with, so the model-card KnobGrid
-    (#20 Tune & measure) pre-fills from the model's real launch flags."""
+class ResolvedFlag(BaseModel):
+    """One resolved model default (a Plane-1 engine switch OR a Plane-2 recommended
+    sampler), read-only: `flagName`/`flagValue` in OUR catalog namespace, so the Lab +
+    the model-card KnobGrid (#20 Tune & measure) seed from the model's real launch
+    flags + sampler baseline."""
 
     flagName: str
     flagValue: str = ""
 
 
-class ResolvedSwitchesResponse(BaseModel):
+class ResolvedModelDefaultsResponse(BaseModel):
+    """A model's resolved run defaults — Plane-1 engine `switches` (layered base→type)
+    + Plane-2 recommended `samplers` (the file-derived per-model baseline, in the
+    catalog namespace) + `mtpCapable`. ONE call feeds BOTH the Lab's switch grid AND
+    sampler grid seed (ConfigColumn) and Tune & measure — one source, one fetch."""
+
     modelId: str
-    switches: list[ResolvedSwitch]
+    switches: list[ResolvedFlag]
+    # the model's file-derived recommended samplers (Phase-2 `model_samplers`), seeded
+    # into the Lab's Plane-2 sampler grid so what you see is what runs (seen = run).
+    samplers: list[ResolvedFlag] = Field(default_factory=list)
     # the model's GGUF ships MTP draft layers (the Phase-2 `mtp` flag) → the UI surfaces
     # Speculative decode (spec_type) as a measurable opt-in (Phase 3), default off.
     mtpCapable: bool = False
@@ -107,9 +116,10 @@ def make_catalog_router(
 ) -> APIRouter:
     """CRUD + reset for the per-model llama.cpp catalog. When
     `resolve_switches(model_id) -> {flag_name: value}` is given, also expose
-    GET /model-catalog/switches (the model's resolved engine-flag default, so the
-    #20 model-card KnobGrid shows the real launch flags before tuning — read-only;
-    tuned flags persist per-Task in `engine_presets` via the Lab, not per-model)."""
+    GET /model-catalog/resolved-defaults — the model's resolved Plane-1 switch defaults
+    PLUS its Plane-2 recommended samplers (read from the catalog row), so the Lab + the
+    #20 model-card KnobGrid seed the real launch flags + sampler baseline before tuning —
+    read-only; tuned values persist per-Task in `engine_presets` via the Lab, not per-model."""
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     def _list() -> CatalogResponse:
@@ -140,15 +150,18 @@ def make_catalog_router(
         return _list()
 
     if resolve_switches is not None:
-        @router.get("/model-catalog/switches", response_model=ResolvedSwitchesResponse)
-        async def resolved_switches(modelId: str) -> ResolvedSwitchesResponse:
+        @router.get("/model-catalog/resolved-defaults", response_model=ResolvedModelDefaultsResponse)
+        async def resolved_defaults(modelId: str) -> ResolvedModelDefaultsResponse:
             if not modelId.strip():
                 raise HTTPException(status_code=400, detail="modelId is required")
             merged = resolve_switches(modelId) or {}
-            mtp_capable = any(r.id == modelId and r.mtp for r in get_store().list())
-            return ResolvedSwitchesResponse(
-                modelId=modelId, mtpCapable=mtp_capable,
-                switches=[ResolvedSwitch(flagName=k, flagValue=str(v)) for k, v in merged.items()],
+            # ONE store read serves BOTH the mtp flag and the model's recommended samplers.
+            row = next((r for r in get_store().list() if r.id == modelId), None)
+            samplers = (row.samplers if row else None) or {}
+            return ResolvedModelDefaultsResponse(
+                modelId=modelId, mtpCapable=bool(row and row.mtp),
+                switches=[ResolvedFlag(flagName=k, flagValue=str(v)) for k, v in merged.items()],
+                samplers=[ResolvedFlag(flagName=k, flagValue=str(v)) for k, v in samplers.items()],
             )
 
     if inspect_fn is not None:

@@ -20,6 +20,26 @@ from ..runner.fit import parse_params
 from ..runner.gguf import GgufMeta, read_gguf_metadata
 from . import stores
 
+# The GGUF header + generation_config publish samplers in llama.cpp's OWN param
+# namespace (temp, penalty_repeat, penalty_last_n, …); our knob catalog (seed.py
+# Plane-2) + the run path (`_plane2_extra`, which passes flagName VERBATIM into the
+# request — prompts.py) use different names for exactly three of them. Normalize
+# file → catalog names at THIS read boundary so a seeded sampler actually applies at
+# /v1/ai/run (seen = run) instead of landing as an unlabelled "Other keys" no-op.
+# Only these three diverge — top_p/top_k/min_p/typical_p/xtc_*/mirostat*/dry_* already
+# match the catalog (verified vs seed.py + gguf.py + gguf_remote._GEN_CFG_TO_LLAMA).
+_SAMPLER_FILE_TO_CATALOG = {
+    "temp": "temperature",
+    "penalty_repeat": "repeat_penalty",
+    "penalty_last_n": "repeat_last_n",
+}
+
+
+def canonicalize_sampler_names(samplers: dict | None) -> dict:
+    """Map a file-derived sampler dict from llama.cpp's param names to our knob-catalog
+    names, so stored + Lab-seeded samplers match the names the run path sends."""
+    return {_SAMPLER_FILE_TO_CATALOG.get(k, k): v for k, v in (samplers or {}).items()}
+
 
 def model_type_from_meta(meta: GgufMeta) -> str:
     """Capability type from GGUF metadata: a model is MoE iff it has experts."""
@@ -44,7 +64,7 @@ def derived_fields_from_meta(meta: GgufMeta) -> dict:
         "trained_ctx": meta.context_length or None,
         "total_params": total_params,
         "size_label": meta.size_label,
-        "samplers": {k: str(v) for k, v in (meta.sampling or {}).items()},
+        "samplers": canonicalize_sampler_names({k: str(v) for k, v in (meta.sampling or {}).items()}),
     }
 
 
@@ -64,7 +84,9 @@ def detect_and_store_model_type(
     fields = derived_fields_from_meta(meta)
     if not fields["samplers"] and samplers_fallback is not None:
         try:
-            fields["samplers"] = {k: str(v) for k, v in (samplers_fallback(meta) or {}).items()}
+            fields["samplers"] = canonicalize_sampler_names(
+                {k: str(v) for k, v in (samplers_fallback(meta) or {}).items()}
+            )
         except Exception:  # noqa: BLE001 — the sampler fallback is advisory only
             fields["samplers"] = {}
     (store or stores.get_model_catalog_store()).set_derived(
@@ -97,9 +119,9 @@ def inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> di
     meta, total = fetch_gguf_meta(repo, quant, revision)
     fields = derived_fields_from_meta(meta)
     if not fields["samplers"] and meta.base_repo_url:
-        fields["samplers"] = {
-            k: str(v) for k, v in fetch_generation_config_samplers(meta.base_repo_url).items()
-        }
+        fields["samplers"] = canonicalize_sampler_names(
+            {k: str(v) for k, v in fetch_generation_config_samplers(meta.base_repo_url).items()}
+        )
     est_vram_mb = None
     if total and meta.block_count:
         est_vram_mb = round(estimate_vram_mb(

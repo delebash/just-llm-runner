@@ -11,7 +11,8 @@
 import { computed, onMounted, ref } from "vue";
 
 import { request } from "../client.js";
-import { resolveModelSwitches } from "../switchResolve.js";
+import { resolveModelDefaults } from "../modelDefaults.js";
+import { sendToTasksLab } from "../common/services/labHandoff.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -49,7 +50,15 @@ const tuneMtpCapable = ref(false); // the tuned model's GGUF supports MTP → su
 const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value === "measuring");
 
 async function fetchResolved(id) {
-  return resolveModelSwitches(id); // {switches, mtpCapable} — shared with ConfigColumn (one source)
+  return resolveModelDefaults(id); // {switches, samplers, mtpCapable} — shared w/ ConfigColumn (one source)
+}
+
+// Hand this tuned model + switches (incl. custom rows) to the Tasks Lab as a new Compare
+// column — the only way to KEEP a config (there is no per-model save here). providerId is
+// left blank: the Lab (which holds the providers list) resolves the bundled-runner provider.
+function sendToLab() {
+  sendToTasksLab({ providerId: "", model: props.model.id, switches: tuneRows.value });
+  emit("close");
 }
 async function startTune() {
   tuneRows.value = [];
@@ -138,8 +147,8 @@ onMounted(() => {
       <UiButton intent="ghost" size="small" @click="resetTuneSwitches">Reset to model default</UiButton>
 
       <div class="lu-tune-note lu-muted">
-        Measuring only. To keep a config, tune it in the <b>Lab</b> and
-        <b>Save it as a preset</b> for a <b>Task</b> (Routing by feature).
+        <span>Measuring only. To <b>keep</b> this tuned config, send it to a <b>Task</b> — it opens as a new column in that Task's Lab, where you Save it as a preset.</span>
+        <UiButton intent="secondary" size="small" class="lu-tune-send" @click="sendToLab">Send to Tasks Lab →</UiButton>
       </div>
 
       <div v-if="tunePhase === 'loading'" class="lu-tune-status">Loading… {{ tuneDetail }}</div>
@@ -170,7 +179,7 @@ onMounted(() => {
 <style scoped>
 .lu-tune { display: flex; flex-direction: column; gap: 12px; }
 .lu-tune-lede { font-size: 12px; margin: 0; }
-.lu-tune-note { font-size: 11px; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); }
+.lu-tune-note { font-size: 11px; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .lu-tune-status { font-size: 12.5px; color: var(--ink-2); }
 .lu-tune-result { padding: 12px 14px; background: var(--accent-soft); border: 1px solid var(--accent-line, var(--accent)); border-radius: var(--r-sm, 8px); }
 .lu-tune-tps { font-size: 13px; color: var(--ink-2); }

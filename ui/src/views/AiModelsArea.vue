@@ -19,6 +19,7 @@ import RecommendationGrid from "./RecommendationGrid.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
 import RecommendationsEditor from "./RecommendationsEditor.vue";
 import PricingEditor from "./PricingEditor.vue";
+import { activeAiTab } from "../common/services/labHandoff.js";
 import { request } from "../client.js";
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
@@ -32,7 +33,11 @@ const props = defineProps({
   runStream: { type: Function, default: null },
 });
 
-const tab = ref("providers");
+// The subnav tab is backed by the SHARED `activeAiTab` (labHandoff.js) so a Tune→Tasks
+// handoff fired from a modal under the Models tab can switch us to "tasks". A computed
+// get/set (not the raw imported ref) so the template's `tab = 'x'` writes unambiguously
+// hit `.value`. Side effect (benign): the tab now persists across AiModelsArea remounts.
+const tab = computed({ get: () => activeAiTab.value, set: (v) => { activeAiTab.value = v; } });
 const providers = ref([]);
 const hardware = ref(null);
 const usage = ref(null);

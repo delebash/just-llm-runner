@@ -28,7 +28,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 
 import { request } from "../client.js";
-import { resolveModelSwitches } from "../switchResolve.js";
+import { resolveModelDefaults } from "../modelDefaults.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
 import KnobGrid from "./KnobGrid.vue";
 import LuModelPicker from "./LuModelPicker.vue";
@@ -93,57 +93,78 @@ function patch(key, val) {
 }
 function patchPin(val) {
   const pin = val && val.providerId ? { providerId: val.providerId, model: val.model || "" } : null;
-  // A USER-driven provider/model pick re-opens the model->switch seed (switches are
-  // model-specific — the new model's baseline should show). A PRESET load keeps its
-  // own 'preset' tag (it goes through CompareStrip.presetToConfig, not patchPin), so
-  // the seed never clobbers a freshly-loaded preset.
-  patchMany({ pin, switchesSource: "model" });
+  // A USER-driven provider/model pick re-opens the model seed for BOTH grids (switches
+  // AND samplers are model-specific — the new model's baseline should show). A PRESET
+  // load keeps its own 'preset' tags (it goes through CompareStrip.presetToConfig, not
+  // patchPin), so the seed never clobbers a freshly-loaded preset.
+  patchMany({ pin, switchesSource: "model", samplersSource: "model" });
 }
 function patchMany(obj) {
   emit("update:modelValue", { ...(props.modelValue || {}), ...obj });
 }
 
-// ── model -> engine-switch baseline seed (connect model selection to switches) ─
-// When THIS column's model changes, pre-fill the Plane-1 switch KnobGrid with that
-// model's RESOLVED baseline (base->type->mtp — the SAME source Tune & measure reads,
-// via the shared switchResolve helper), so picking a model shows its real launch
-// flags instead of an empty/generic grid. Provenance guard (`switchesSource` on the
-// config): never clobber switches from a loaded PRESET (CompareStrip.presetToConfig
-// tags 'preset') or a USER edit (`onEditSwitches` tags 'user'); only (re)seed when
-// they are empty or a prior model seed. An async token + a post-await re-check make a
-// late-resolving fetch safe against a preset-apply / another model-change meanwhile.
+// ── model -> baseline seed (connect model selection to BOTH grids) ────────────
+// When THIS column's model changes, pre-fill the Plane-1 switch grid AND the Plane-2
+// sampler grid with that model's RESOLVED baseline (the SAME `resolveModelDefaults`
+// source Tune & measure reads — ONE fetch), so picking a model shows its real launch
+// flags + recommended samplers instead of an empty/generic grid. `seedFields` is the
+// ONE provenance guard for both grids (`switchesSource`/`samplersSource` on the config):
+// never clobber a loaded PRESET (CompareStrip.presetToConfig tags 'preset') or a USER
+// edit (`onEdit*` tags 'user'); only (re)seed when a grid is empty or a prior model seed.
+// An async token + a post-await re-check make a late fetch safe against a preset-apply /
+// another model-change meanwhile.
 let seedToken = 0;
 // Does the pinned model's GGUF support MTP (the Phase-2 `mtp` flag)? Read-only display
-// flag that drives the Speculative-decode opt-in hint below — independent of the switch seed.
+// flag that drives the Speculative-decode opt-in hint below — independent of the seeds.
 const mtpCapable = ref(false);
 function providerIsKnownCloud(providerId) {
   const p = props.providers.find((x) => x.id === providerId);
-  return !!p && !p.local; // known cloud → skip (switches are a local-engine concept); unknown → attempt
+  return !!p && !p.local; // known cloud → skip (a local-engine concept); unknown → attempt
 }
-async function seedSwitchesFromModel(modelId, providerId) {
+// ONE guarded-seed rule for a grid, shared by switches + samplers (RULE #3 — no copy).
+// Returns the {grid, source} fields to patch, or {} when the guard says keep the current.
+function seedFields(gridKey, srcKey, rows) {
+  const mv = props.modelValue || {};
+  const src = mv[srcKey];
+  if (src === "preset" || src === "user") return {};           // never clobber preset/user
+  if ((mv[gridKey] || []).length && src !== "model") return {}; // keep a non-model existing set
+  return { [gridKey]: rows, [srcKey]: "model" };
+}
+async function seedFromModel(modelId, providerId) {
   if (!modelId || providerIsKnownCloud(providerId)) { mtpCapable.value = false; return; }
   const my = ++seedToken;
-  const { switches: rows, mtpCapable: mtp } = await resolveModelSwitches(modelId);
+  const res = await resolveModelDefaults(modelId);
   if (my !== seedToken) return;                          // superseded by a newer model change
   if (props.modelValue?.pin?.model !== modelId) return; // model changed mid-fetch
-  mtpCapable.value = mtp;                                 // display flag — independent of the seed guard
-  // Seed the switch grid ONLY when empty or a prior model seed — never clobber a loaded
-  // PRESET (CompareStrip tags 'preset') or a USER edit (onEditSwitches tags 'user').
-  const src = props.modelValue?.switchesSource;
-  if (src === "preset" || src === "user") return;
-  if ((props.modelValue?.switches || []).length && src !== "model") return;
-  patchMany({ switches: rows, switchesSource: "model" });
+  mtpCapable.value = res.mtpCapable;                     // display flag — independent of the seeds
+  // Samplers: the model fills the SECONDARY knobs the task leaves blank (§65). `temperature`
+  // is task-owned (params row, excluded from the grid) → dropped; `top_p` is model-filled but
+  // ALSO lives in the params row → routed to `topP` below, not into the grid.
+  const gridSamplers = (res.samplers || []).filter((r) => r.name !== "temperature" && r.name !== "top_p");
+  const patch = {
+    ...seedFields("switches", "switchesSource", res.switches),
+    ...seedFields("samplers", "samplersSource", gridSamplers),
+  };
+  // top_p -> the params-row `topP`, only when the model recommends one, the column's topP
+  // is blank (task/user wins per-knob), AND the sampler grid is being (re)seeded (same guard).
+  const topPRow = (res.samplers || []).find((r) => r.name === "top_p");
+  const topPBlank = props.modelValue?.topP === "" || props.modelValue?.topP == null;
+  if (topPRow && topPBlank && "samplers" in patch) patch.topP = topPRow.value;
+  if (Object.keys(patch).length) patchMany(patch);
 }
-// Watch the model STRING (not an array getter) so it fires ONLY when the model
-// actually changes — an array getter re-fires on every modelValue reference change
-// (incl. the seed's own switch write), which would loop.
+// Watch the model STRING (not an array getter) so it fires ONLY when the model actually
+// changes — an array getter re-fires on every modelValue reference change (incl. the
+// seed's own writes), which would loop.
 watch(
   () => props.modelValue?.pin?.model,
-  (mid) => seedSwitchesFromModel(mid, props.modelValue?.pin?.providerId),
+  (mid) => seedFromModel(mid, props.modelValue?.pin?.providerId),
   { immediate: true },
 );
 function onEditSwitches(rows) {
   patchMany({ switches: rows, switchesSource: "user" });
+}
+function onEditSamplers(rows) {
+  patchMany({ samplers: rows, samplersSource: "user" });
 }
 
 // ── sampler ORDER (the reserved `samplers` entry in the samplers array) ───────
@@ -166,7 +187,8 @@ const orderList = computed(() => {
 });
 function writeOrder(list) {
   const rest = samplerArr.value.filter((r) => r.name !== "samplers");
-  patch("samplers", list ? [...rest, { name: "samplers", value: list.join(",") }] : rest);
+  // a user order edit tags the grid 'user' so a later model change never drops it.
+  patchMany({ samplers: list ? [...rest, { name: "samplers", value: list.join(",") }] : rest, samplersSource: "user" });
 }
 function toggleOrder(on) { writeOrder(on ? [...DEFAULT_SAMPLER_ORDER] : null); }
 function moveOrder(i, d) {
@@ -185,7 +207,8 @@ const stopRow = computed(() => samplerArr.value.find((r) => r.name === "stop") |
 const stopText = computed(() => stopRow.value?.value || "");
 function writeStop(text) {
   const rest = samplerArr.value.filter((r) => r.name !== "stop");
-  patch("samplers", (text || "").trim() ? [...rest, { name: "stop", value: text }] : rest);
+  // a user stop-sequence edit tags the grid 'user' so a later model change never drops it.
+  patchMany({ samplers: (text || "").trim() ? [...rest, { name: "stop", value: text }] : rest, samplersSource: "user" });
 }
 
 // ── presets bar (emits; the parent owns the endpoints) ──────────────────────
@@ -453,7 +476,7 @@ defineExpose({ run, cancel });
         <KnobGrid checklist :columns="3" :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']" :reserved-keys="['samplers', 'stop']"
           :model-value="modelValue?.samplers || []"
           add-label="＋ Add custom sampler" name-placeholder="sampler (e.g. top_k)"
-          @update:model-value="patch('samplers', $event)" />
+          @update:model-value="onEditSamplers" />
 
         <!-- Sampler ORDER — the chain the samplers apply in (off = engine default). -->
         <div class="cc-samporder">

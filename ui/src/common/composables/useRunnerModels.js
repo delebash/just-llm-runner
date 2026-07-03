@@ -2,7 +2,7 @@
 // Shared runner-models state (Phase 4): ONE source of the /v1/llm-runner/models
 // catalog list + its LIVE load/download status, consumed by BOTH the Recommendation
 // grid and the flat model catalog so there is ONE poller and ONE status truth (no
-// double-fetch, no drift). A module singleton — the switchResolve.js / dialog.js
+// double-fetch, no drift). A module singleton — the modelDefaults.js / dialog.js
 // precedent — NOT a per-component ref.
 //
 // Deliberately NOT built on usePoll: usePoll registers onUnmounted, which cannot bind

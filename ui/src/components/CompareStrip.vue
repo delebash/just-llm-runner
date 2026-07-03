@@ -105,9 +105,10 @@ function presetToConfig(p, base) {
     nCpuMoeOverride: p.nCpuMoeOverride ?? null,
     switches: (p.switches || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
     samplers: (p.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
-    // Mark provenance so ConfigColumn's model->switch seed never clobbers a loaded
-    // preset's switches (even when the preset changes the column's model).
+    // Mark provenance so ConfigColumn's model seed never clobbers a loaded preset's
+    // switches OR samplers (even when the preset changes the column's model).
     switchesSource: "preset",
+    samplersSource: "preset",
   };
 }
 function applyPresetTo(col, id) {
@@ -120,6 +121,10 @@ onMounted(() => {
   // trial: one column reads cleaner; "+ Add column" adds more to compare/tune).
   addColumn();
 });
+
+// Exposed so a parent (FeatureLab, on a Tune→Tasks Lab handoff) can seed an extra
+// column ALONGSIDE the base one — compare, not clobber (Phase 5).
+defineExpose({ addColumn });
 </script>
 
 <template>

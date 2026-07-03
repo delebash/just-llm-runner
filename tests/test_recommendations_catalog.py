@@ -48,8 +48,9 @@ def test_seed_populates_recommendations_ordered(wired):
     assert len(rows) == len(seed.DEFAULT_RECOMMENDATIONS)
     assert all(r.builtIn for r in rows)  # every seeded row is built-in
     # Ordered by (task_kind, rank, model_id): "chat.grounded" sorts first alphabetically.
+    # Chat is best-QUALITY-first (Phase 4): 27B rank 10 leads; the fast 9B is the r30 "faster" pick.
     assert rows[0].taskKind == "chat.grounded" and rows[0].rank == 10
-    assert rows[0].modelId == "qwen3.5-9b-q4_k_m"
+    assert rows[0].modelId == "qwen3.6-27b-mtp-q4_k_m"
 
 
 def test_recommendation_upsert_new_then_update(wired):

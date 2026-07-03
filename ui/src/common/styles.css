@@ -271,3 +271,19 @@ button:not(.ui-btn) { color: inherit; }
 .lu-fw-h b { font-size: 15px; color: var(--ink); }
 .lu-fw-spacer { flex: 1; }
 .lu-fw-msg { font-size: 11.5px; }
+
+/* ── Fit badge (shared by the model catalog + the Recommendation grid; moved here
+   2026-07-03 from LuModelCatalog's scoped block so the grid consumes ONE badge, not a
+   copy — the coarse ok/tight/no/cpu Fit chip). */
+.lu-fit { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; border: 1px solid var(--border-strong); color: var(--ink-2); background: var(--surface); }
+.lu-fit--ok { background: var(--accent-soft); border-color: var(--accent-line, var(--accent)); color: var(--accent-ink, var(--accent)); }
+.lu-fit--tight { background: var(--gold-soft, #f5edda); border-color: var(--gold-line, #e2d2b0); color: var(--gold, #b08a3e); }
+.lu-fit--no { background: var(--danger-bg, #f7e7e4); border-color: var(--danger-line, var(--danger)); color: var(--danger); }
+.lu-fit--cpu, .lu-fit--unknown { background: var(--surface-3); }
+
+/* ── Status pill (shared by the model catalog + the Recommendation grid; moved here
+   2026-07-03 from both scoped blocks — a loaded/on-disk status chip). */
+.lu-pill { font-size: 10px; font-weight: 700; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+.lu-pill--run { background: var(--accent); color: var(--on-accent, #fff); }
+.lu-pill--load { background: var(--gold-soft, #f5edda); color: var(--gold, #b08a3e); border: 1px solid var(--gold-line, #e2d2b0); }
+.lu-pill--disk { background: var(--surface-3); color: var(--ink-2); border: 1px solid var(--border); }

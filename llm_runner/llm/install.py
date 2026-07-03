@@ -28,6 +28,7 @@ from .pricing_api import make_pricing_router
 from .runner_config_api import make_runner_config_router
 from .prompts import make_feature_router, make_prompt_router
 from .provider_api import make_provider_router
+from .recommendation_grid_api import make_recommendation_grid_router
 from .recommendations_api import make_recommendations_router
 from .routing_api import make_routing_router
 from .switch_presets_api import make_switch_presets_router
@@ -107,6 +108,22 @@ def install_llm(
         lambda pid: stores.get_task_kind_preset_store().set("", pid),
     ))
     app.include_router(make_recommendations_router(stores.get_recommendation_store))
+
+    def _grid_margin() -> int:
+        # The recommendation grid uses the SAME VRAM safety margin as the catalog Fit
+        # badge (runner /models); lazy so llm/ stays decoupled from the runner service.
+        from ..runner.config import DEFAULT_SAFETY_MARGIN_MB
+        from ..runner.lifecycle import get_service
+
+        try:
+            return int(get_service().config().safety_margin_mb)
+        except Exception:  # noqa: BLE001 — standalone / not-yet-configured → the seed default
+            return DEFAULT_SAFETY_MARGIN_MB
+
+    app.include_router(make_recommendation_grid_router(
+        stores.get_recommendation_store, stores.get_model_catalog_store,
+        stores.get_task_kind_store, get_margin_mb=_grid_margin,
+    ))
     app.include_router(make_knob_catalog_router(stores.list_knob_catalog))
 
     def _inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> dict:

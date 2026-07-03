@@ -168,10 +168,14 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
 # extract.structured / judge.scored). All model_ids must exist in DEFAULT_CATALOG
 # above. Editable (#25); MEASURED tok/s still pending (#28).
 DEFAULT_RECOMMENDATIONS: list[dict] = [
-    # chat — fast, grounded interactive answers
-    {"model_id": "qwen3.5-9b-q4_k_m", "task_kind": "chat.grounded", "rank": 10, "why": "Smallest dense — snappy interactive chat (the Fast default)."},
+    # chat — grounded interactive answers: best-QUALITY-that-fits (quality) → fast 9B (faster).
+    # 27B is the ceiling (wins >=16 GB where it fits); the 35B-A3B MoE (rank 12) is the FLOOR
+    # quality pick (27B doesn't fit <16 GB, the A3B does via CPU offload) AND the JW p_chat
+    # default — so the grid's floor chat quality == what runs (the "seen = run" invariant, Phase 4).
+    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "task_kind": "chat.grounded", "rank": 10, "why": "27B (MTP) — the chat quality ceiling; richest interactive chat where VRAM allows (~20 GB+)."},
+    {"model_id": "qwen3.6-35b-a3b-mtp", "task_kind": "chat.grounded", "rank": 12, "why": "35B-A3B MoE — the 'smarter chat' default; runs at the floor (8 GB VRAM + 32 GB RAM) via CPU expert offload, ~32B-class quality (~17-20 t/s)."},
     {"model_id": "gemma-4-12b-q4_k_m", "task_kind": "chat.grounded", "rank": 15, "why": "Gemma 4 12B — a second family at ~7 GB VRAM; strong instruction-following."},
-    {"model_id": "qwen3.6-27b-mtp-q4_k_m", "task_kind": "chat.grounded", "rank": 20, "why": "27B (MTP) — richest chat when VRAM allows (~20 GB+)."},
+    {"model_id": "qwen3.5-9b-q4_k_m", "task_kind": "chat.grounded", "rank": 30, "why": "9B dense — fast, re-askable chat (~55 t/s); the grid's 'faster' pick."},
     # prose — creative drafting and rewriting
     {"model_id": "qwen3-235b-a22b", "task_kind": "prose.generate", "rank": 3, "why": "Qwen3-235B — best-that-fits prose on a high-RAM rig (96 GB+); near-cloud quality."},
     {"model_id": "qwen3.6-27b-mtp-q4_k_m", "task_kind": "prose.generate", "rank": 10, "why": "Qwen3.6 27B — the local prose ceiling; fluent, coherent long-form."},
@@ -187,6 +191,9 @@ DEFAULT_RECOMMENDATIONS: list[dict] = [
     {"model_id": "qwen3.6-27b-mtp-q4_k_m", "task_kind": "judge.scored", "rank": 10, "why": "27B (MTP) — best local analysis accuracy at the high tier (~20 GB+ VRAM)."},
     {"model_id": "qwen3.6-35b-a3b-mtp", "task_kind": "judge.scored", "rank": 15, "why": "35B-A3B MoE — capable analysis; runs at floor (8 GB VRAM + 32 GB RAM) via offload."},
     {"model_id": "qwen3-14b-q4_k_m", "task_kind": "judge.scored", "rank": 20, "why": "14B dense — solid analysis that fits ≥11 GB VRAM."},
+    # embed — the RAG / semantic-search index (the `embed` grid function column, Phase 4).
+    # `embed` is a pseudo-taskKind (the RAG role), not one of the nine DEFAULT_TASK_KINDS.
+    {"model_id": "nomic-embed-text", "task_kind": "embed", "rank": 10, "why": "Local embedding model (~137M) — the RAG / semantic-search index; CPU-fine, Apache-2.0."},
 ]
 
 # The nine canonical LLM-work TASKS — the seed defaults for the user-editable
@@ -208,6 +215,50 @@ DEFAULT_TASK_KINDS: list[dict] = [
     {"id": "chat.grounded", "label": "Grounded chat", "description": "Q&A grounded in retrieved excerpts (RAG)."},
     {"id": "chat.inVoice", "label": "In-character chat", "description": "First-person, in-voice answers from a character."},
 ]
+
+
+# ── Recommendation grid (Phase 4): hardware tiers × functions ─────────────────
+# The grid ROWS — representative hardware bands reproducing the research matrix
+# columns (docs/plans/2026-06-27-model-catalog-research-and-recommendations.md:74).
+# vram_mb/ram_mb feed `coarse_fit` per (model, tier); the RAM pairing is what gates
+# the MoEs (via `min_ram_override`): 35B-A3B (min_ram 32000) fits from the 8 GB floor;
+# GLM-4.5-Air (64000) unlocks at 64 GB-RAM; Qwen3-235B (96000) at 96 GB-RAM. The high
+# tiers pair a mid GPU (24 GB, the research's quoted pairing) with escalating RAM.
+DEFAULT_HARDWARE_TIERS: list[dict] = [
+    {"key": "cpu",    "label": "CPU-only",           "vram_mb": 0,     "ram_mb": 32000},
+    {"key": "vram8",  "label": "8 GB GPU",           "vram_mb": 8000,  "ram_mb": 32000},
+    {"key": "vram12", "label": "12 GB GPU",          "vram_mb": 12000, "ram_mb": 32000},
+    {"key": "vram16", "label": "16 GB GPU",          "vram_mb": 16000, "ram_mb": 32000},
+    {"key": "vram24", "label": "24 GB GPU",          "vram_mb": 24000, "ram_mb": 32000},
+    {"key": "vram32", "label": "32 GB GPU",          "vram_mb": 32000, "ram_mb": 32000},
+    {"key": "ram64",  "label": "64 GB RAM",          "vram_mb": 24000, "ram_mb": 64000},
+    {"key": "ram96",  "label": "96 GB RAM",          "vram_mb": 24000, "ram_mb": 96000},
+    {"key": "ram128", "label": "128 GB workstation", "vram_mb": 24000, "ram_mb": 128000},
+]
+
+# taskKind → grid FUNCTION (column). Collapses the nine work-shapes into the research's
+# four quality jobs + `embed`; any taskKind NOT here → the explicit `other` bucket (custom
+# tasks / JV's future `attribution`) so nothing silently vanishes. ONE source (here), not a
+# component. `embed` is a pseudo-taskKind (the RAG role), not in DEFAULT_TASK_KINDS.
+TASKKIND_FUNCTIONS: dict[str, str] = {
+    "chat.grounded": "chat", "chat.inVoice": "chat",
+    "prose.generate": "prose", "prose.edit": "prose", "ideation": "prose",
+    "extract.structured": "extract", "summary.grounded": "extract", "creative.structured": "extract",
+    "judge.scored": "analysis",
+    "embed": "embed",
+}
+
+# Grid function COLUMN order + display labels (id → label). `other`/`embed` last.
+FUNCTION_ORDER: list[str] = ["chat", "prose", "extract", "analysis", "other", "embed"]
+FUNCTION_LABELS: dict[str, str] = {
+    "chat": "Chat", "prose": "Prose", "extract": "Extract",
+    "analysis": "Analysis", "other": "Other", "embed": "Embed",
+}
+
+
+def function_of(task_kind: str) -> str:
+    """The grid function (column) for a taskKind; unmapped → 'other' (never dropped)."""
+    return TASKKIND_FUNCTIONS.get(task_kind, "other")
 
 
 # Runner config (was runner-manifest.json). The binary list + scalars are

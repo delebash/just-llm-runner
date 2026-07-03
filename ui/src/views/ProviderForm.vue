@@ -12,7 +12,6 @@ import { computed, reactive, ref } from "vue";
 import UiButton from "../common/components/UiButton.vue";
 import LuCombobox from "../components/LuCombobox.vue";
 import UiInput from "../common/components/UiInput.vue";
-import LuModelCatalog from "../components/LuModelCatalog.vue";
 import LuRunnerEngine from "../components/LuRunnerEngine.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
 import { request } from "../client.js";
@@ -199,7 +198,9 @@ async function remove() {
     </div>
 
     <LuRunnerEngine v-if="isBuiltin" />
-    <LuModelCatalog v-if="isBuiltin" />
+    <p v-if="isBuiltin" class="lu-pf-modelsptr lu-muted">
+      Browse, download &amp; tune models in the <b>Models</b> tab ↑ — the per-hardware grid + the full catalog.
+    </p>
 
     <div v-if="saveErr" class="lu-error lu-pf-err">{{ saveErr }}</div>
 
@@ -232,6 +233,8 @@ async function remove() {
 .lu-pf-foot { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
 .lu-pf-spacer { flex: 1; }
 .lu-pf-test { font-size: 11.5px; }
+.lu-pf-modelsptr { font-size: 11.5px; margin: 10px 0 0; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); }
+.lu-pf-modelsptr b { color: var(--ink-2); }
 /* the native provider-type select reuses .lu-input; force select chrome */
 select.lu-input { cursor: pointer; appearance: auto; }
 /* fixed (non-editable) value for the built-in engine's locked fields */

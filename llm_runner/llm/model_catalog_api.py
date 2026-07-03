@@ -6,7 +6,7 @@ the host DB so users can add/edit/curate without re-shipping. This module owns
 the wire shapes + Protocols + router factories; each host (JustWrite — table +
 store; JustVoice at adoption) implements the Protocols over its own storage.
 
-One Protocol + one router (parallel to routing_api / recommendations_api):
+One Protocol + one router (parallel to routing_api):
   * ModelCatalogStore  -> /v1/ai/model-catalog        (GET/PUT/DELETE/reset)
 
 `built_in` marks seeded rows; reset = restore factory values for seeded keys,

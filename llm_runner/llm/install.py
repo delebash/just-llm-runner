@@ -28,7 +28,6 @@ from .pricing_api import make_pricing_router
 from .runner_config_api import make_runner_config_router
 from .prompts import make_feature_router, make_prompt_router
 from .provider_api import make_provider_router
-from .recommendations_api import make_recommendations_router
 from .routing_api import make_routing_router
 from .switch_presets_api import make_switch_presets_router
 from .task_kinds_api import make_task_kinds_router
@@ -106,7 +105,6 @@ def install_llm(
         lambda: stores.get_task_kind_preset_store().list().get("", ""),
         lambda pid: stores.get_task_kind_preset_store().set("", pid),
     ))
-    app.include_router(make_recommendations_router(stores.get_recommendation_store))
     app.include_router(make_knob_catalog_router(stores.list_knob_catalog))
 
     def _inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> dict:

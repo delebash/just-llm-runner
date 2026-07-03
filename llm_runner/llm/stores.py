@@ -24,7 +24,6 @@ from .runner_config_api import EngineConfig, RunnerBinaryRow
 from .prompts import FeaturePromptRow
 from .switch_presets_api import PresetSwitchRow, SwitchPresetRow
 from .presets_api import EnginePresetRow, PresetFlagRow
-from .recommendations_api import RecommendationRow
 from .routing_api import FeaturePin, RoutingConfig, RoutingDefaults
 from .task_kinds_api import TaskKindRow
 from .schema import LLMProviderConfig
@@ -278,61 +277,6 @@ class PromptStore:
                 existing.label = row.label
                 existing.description = row.description
                 existing.subgroup = row.group
-            s.commit()
-        finally:
-            s.close()
-
-
-# ── recommendations ───────────────────────────────────────────────────────────
-def _rec_to_wire(r: db.ModelRecommendation) -> RecommendationRow:
-    return RecommendationRow(modelId=r.model_id, taskKind=r.task_kind, rank=r.rank, why=r.why, builtIn=r.built_in)
-
-
-class RecommendationStore:
-    def list(self) -> list[RecommendationRow]:
-        s = db.session()
-        try:
-            rows = s.query(db.ModelRecommendation).order_by(
-                db.ModelRecommendation.task_kind, db.ModelRecommendation.rank, db.ModelRecommendation.model_id).all()
-            return [_rec_to_wire(r) for r in rows]
-        finally:
-            s.close()
-
-    def upsert(self, row: RecommendationRow) -> RecommendationRow:
-        s = db.session()
-        try:
-            existing = s.get(db.ModelRecommendation, (row.modelId, row.taskKind))
-            if existing is None:
-                existing = db.ModelRecommendation(model_id=row.modelId, task_kind=row.taskKind)
-                s.add(existing)
-            existing.rank = row.rank
-            existing.why = row.why
-            existing.built_in = False
-            s.commit()
-            return _rec_to_wire(existing)
-        finally:
-            s.close()
-
-    def delete(self, model_id: str, task_kind: str) -> None:
-        s = db.session()
-        try:
-            existing = s.get(db.ModelRecommendation, (model_id, task_kind))
-            if existing is not None:
-                s.delete(existing)
-                s.commit()
-        finally:
-            s.close()
-
-    def reset_to_factory(self) -> None:
-        from . import seed
-        s = db.session()
-        try:
-            for mid, tk in {(r["model_id"], r["task_kind"]) for r in seed.DEFAULT_RECOMMENDATIONS}:
-                row = s.get(db.ModelRecommendation, (mid, tk))
-                if row is not None:
-                    s.delete(row)
-            s.flush()
-            seed.seed_default_recommendations(s)
             s.commit()
         finally:
             s.close()
@@ -758,10 +702,9 @@ class TaskKindStore:
             if row.built_in:
                 raise ValueError("cannot delete a built-in task")
             # cascade cleanup across every SOFT reference (no FK to task_kinds): its
-            # preset assignment, every feature assigned to it, and its recommendations.
+            # preset assignment + every feature assigned to it.
             s.query(db.TaskKindPreset).filter(db.TaskKindPreset.task_kind == task_id).delete()
             s.query(db.FeatureTaskKind).filter(db.FeatureTaskKind.task_kind == task_id).delete()
-            s.query(db.ModelRecommendation).filter(db.ModelRecommendation.task_kind == task_id).delete()
             s.delete(row)
             s.commit()
         finally:
@@ -799,7 +742,6 @@ _provider = ProviderStore()
 _routing = RoutingStore()
 _feature_preset = FeaturePresetStore()
 _prompt = PromptStore()
-_recommendation = RecommendationStore()
 def _pricing_to_wire(r: db.ModelPricing) -> PricingRow:
     return PricingRow(modelId=r.model_id, inputPerM=r.input_per_m, outputPerM=r.output_per_m)
 
@@ -939,7 +881,6 @@ def get_provider_store() -> ProviderStore: return _provider
 def get_routing_store() -> RoutingStore: return _routing
 def get_feature_preset_store() -> FeaturePresetStore: return _feature_preset
 def get_prompt_store() -> PromptStore: return _prompt
-def get_recommendation_store() -> RecommendationStore: return _recommendation
 def get_model_catalog_store() -> ModelCatalogStore: return _model_catalog
 def get_pricing_store() -> PricingStore: return _pricing
 def get_runner_config_store() -> RunnerConfigStore: return _runner_config

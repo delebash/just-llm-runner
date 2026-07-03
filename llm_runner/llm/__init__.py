@@ -46,12 +46,6 @@ from .model_catalog_api import (
     ModelCatalogStore,
     make_catalog_router,
 )
-from .recommendations_api import (
-    RecommendationRow,
-    RecommendationStore,
-    RecommendationsResponse,
-    make_recommendations_router,
-)
 from .routing_api import (
     FeatureCatalogEntry,
     FeaturePin,
@@ -91,9 +85,6 @@ __all__ = [
     # routing (default + per-feature pins, behind a host store)
     "RoutingStore", "RoutingConfig", "RoutingDefaults", "FeaturePin",
     "FeatureCatalogEntry", "make_routing_router",
-    # recommendations (per-model taskKind-tag curation, behind a host store)
-    "RecommendationRow", "RecommendationStore", "RecommendationsResponse",
-    "make_recommendations_router",
     # model catalog (the DB-backed downloadable-model source of truth)
     "CatalogRow", "CatalogResponse", "ModelCatalogStore", "make_catalog_router",
     # feature presets (per-feature saved configs; active = production)

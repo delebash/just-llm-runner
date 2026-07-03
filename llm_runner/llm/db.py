@@ -119,7 +119,7 @@ class ModelCatalog(LlmBase):
 class ModelSampler(LlmBase):
     """One model's recommended sampler value, keyed by the llama.cpp param name
     (temp/top_k/top_p/min_p/…). PK (model_id, param_name); no FK — `model_id` is a
-    soft ref to the catalog (like ModelRecommendation). Written ONLY by GGUF identity
+    soft ref to the catalog. Written ONLY by GGUF identity
     detect (`ModelCatalogStore.set_derived`), never by the user-edit `upsert`."""
 
     __tablename__ = "model_samplers"
@@ -174,19 +174,6 @@ class PresetSwitch(LlmBase):
     )
     flag_name = Column(String, primary_key=True)
     flag_value = Column(Text, nullable=False, default="")
-    built_in = Column(Boolean, nullable=False, default=False)
-
-
-class ModelRecommendation(LlmBase):
-    """One curated 'model X is good for taskKind Y' record (QuickSetup pre-fill).
-    PK (model_id, task_kind); `rank` orders candidates within a taskKind."""
-
-    __tablename__ = "model_recommendations"
-
-    model_id = Column(String, primary_key=True)
-    task_kind = Column(String, primary_key=True)
-    rank = Column(Integer, nullable=False, default=100)
-    why = Column(Text, nullable=False, default="")
     built_in = Column(Boolean, nullable=False, default=False)
 
 
@@ -440,8 +427,8 @@ class TaskKind(LlmBase):
     """A user-editable LLM-work TASK — the routing bucket features are assigned to.
     Seeded with the shared defaults (`seed.DEFAULT_TASK_KINDS`); users create / rename /
     delete CUSTOM tasks (built-ins are protected). `id` is the routing key — it matches
-    `FeatureTaskKind.task_kind`, `TaskKindPreset.task_kind`, and `ModelRecommendation.task_kind`
-    (all plain-String SOFT references, no FK: the "" global-default preset row survives, and a
+    `FeatureTaskKind.task_kind` and `TaskKindPreset.task_kind`
+    (both plain-String SOFT references, no FK: the "" global-default preset row survives, and a
     task delete cascades cleanup across those tables in `TaskKindStore.delete`)."""
 
     __tablename__ = "task_kinds"

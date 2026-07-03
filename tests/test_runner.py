@@ -5,8 +5,8 @@ binary, no model).
 
 Post-A7: there is no runner-manifest. `compute_fit` takes the VRAM safety margin
 directly (default), and `compose_flags` renders PURELY from the resolved
-`Overrides` (the base/moe/mtp flag defaults arrive in `Overrides`, resolved from
-the DB `switch_presets` by the runner's switches_fn) + the computed fit knobs."""
+`Overrides` (the base + type (moe|dense) flag defaults arrive in `Overrides`, resolved
+from the DB `switch_presets` by the runner's switches_fn) + the computed fit knobs."""
 
 from __future__ import annotations
 
@@ -133,7 +133,7 @@ def test_compose_flags_presence_overrides(tmp_path):
 
 
 def test_compose_flags_spec_draft_mtp(tmp_path):
-    # The DB `mtp` preset arrives as Overrides(spec_type=draft-mtp) for MTP models.
+    # A user's MTP opt-in arrives as Overrides(spec_type=draft-mtp) for MTP models (Phase 3).
     flags = compose_flags(
         tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
         overrides=Overrides(spec_type="draft-mtp", spec_n_max=3),

@@ -75,7 +75,7 @@ class InspectResponse(BaseModel):
 
 class ResolvedSwitch(BaseModel):
     """One resolved engine switch for a model (read-only): the layered
-    base→type→mtp default the runner would launch with, so the model-card KnobGrid
+    base→type default the runner would launch with, so the model-card KnobGrid
     (#20 Tune & measure) pre-fills from the model's real launch flags."""
 
     flagName: str
@@ -85,6 +85,9 @@ class ResolvedSwitch(BaseModel):
 class ResolvedSwitchesResponse(BaseModel):
     modelId: str
     switches: list[ResolvedSwitch]
+    # the model's GGUF ships MTP draft layers (the Phase-2 `mtp` flag) → the UI surfaces
+    # Speculative decode (spec_type) as a measurable opt-in (Phase 3), default off.
+    mtpCapable: bool = False
 
 
 class ModelCatalogStore(Protocol):
@@ -142,8 +145,9 @@ def make_catalog_router(
             if not modelId.strip():
                 raise HTTPException(status_code=400, detail="modelId is required")
             merged = resolve_switches(modelId) or {}
+            mtp_capable = any(r.id == modelId and r.mtp for r in get_store().list())
             return ResolvedSwitchesResponse(
-                modelId=modelId,
+                modelId=modelId, mtpCapable=mtp_capable,
                 switches=[ResolvedSwitch(flagName=k, flagValue=str(v)) for k, v in merged.items()],
             )
 

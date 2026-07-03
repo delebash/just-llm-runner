@@ -28,7 +28,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 
 import { request } from "../client.js";
-import { fetchResolvedSwitches } from "../switchResolve.js";
+import { resolveModelSwitches } from "../switchResolve.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
 import KnobGrid from "./KnobGrid.vue";
 import LuModelPicker from "./LuModelPicker.vue";
@@ -113,21 +113,25 @@ function patchMany(obj) {
 // they are empty or a prior model seed. An async token + a post-await re-check make a
 // late-resolving fetch safe against a preset-apply / another model-change meanwhile.
 let seedToken = 0;
+// Does the pinned model's GGUF support MTP (the Phase-2 `mtp` flag)? Read-only display
+// flag that drives the Speculative-decode opt-in hint below — independent of the switch seed.
+const mtpCapable = ref(false);
 function providerIsKnownCloud(providerId) {
   const p = props.providers.find((x) => x.id === providerId);
   return !!p && !p.local; // known cloud → skip (switches are a local-engine concept); unknown → attempt
 }
 async function seedSwitchesFromModel(modelId, providerId) {
+  if (!modelId || providerIsKnownCloud(providerId)) { mtpCapable.value = false; return; }
+  const my = ++seedToken;
+  const { switches: rows, mtpCapable: mtp } = await resolveModelSwitches(modelId);
+  if (my !== seedToken) return;                          // superseded by a newer model change
+  if (props.modelValue?.pin?.model !== modelId) return; // model changed mid-fetch
+  mtpCapable.value = mtp;                                 // display flag — independent of the seed guard
+  // Seed the switch grid ONLY when empty or a prior model seed — never clobber a loaded
+  // PRESET (CompareStrip tags 'preset') or a USER edit (onEditSwitches tags 'user').
   const src = props.modelValue?.switchesSource;
   if (src === "preset" || src === "user") return;
   if ((props.modelValue?.switches || []).length && src !== "model") return;
-  if (!modelId || providerIsKnownCloud(providerId)) return;
-  const my = ++seedToken;
-  const rows = await fetchResolvedSwitches(modelId);
-  if (my !== seedToken) return;                          // superseded by a newer model change
-  if (props.modelValue?.pin?.model !== modelId) return; // model changed mid-fetch
-  const now = props.modelValue?.switchesSource;
-  if (now === "preset" || now === "user") return;       // a preset/user edit landed during the fetch
   patchMany({ switches: rows, switchesSource: "model" });
 }
 // Watch the model STRING (not an array getter) so it fires ONLY when the model
@@ -395,6 +399,8 @@ defineExpose({ run, cancel });
     <details class="cc-switches">
       <summary class="cc-eyebrow">Engine switches <span class="lu-muted">— Plane-1 (load-time): ctx · kv-type · flash-attn · flags</span></summary>
       <div class="cc-switches-body">
+        <p v-if="mtpCapable" class="lu-muted cc-switch-note">This model's GGUF supports <b>MTP</b> — set
+          <b>Speculative decode</b> below to “MTP draft” to try it; gains are machine-dependent, so measure (Run) before keeping it.</p>
         <KnobGrid checklist :catalog-list="switchCatalogList" :exclude="['n_cpu_moe']"
           :model-value="modelValue?.switches || []"
           add-label="＋ Add custom switch" name-placeholder="switch (e.g. ctx_len)"

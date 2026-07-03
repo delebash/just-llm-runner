@@ -140,17 +140,18 @@ class ModelPricing(LlmBase):
 # ── capability/type switch presets (the switch BASE layer; replaces the
 #    hardcoded runner-manifest `flagPresets`) — design §6.5 ──────────────────────
 class SwitchPreset(LlmBase):
-    """A capability/type switch bundle (`base` / `moe` / `dense` / `mtp` / …).
-    `applies_to` is the trigger matched against a model: `all` (every model),
-    `moe`/`dense` (matches `model_catalog.type`), or `mtp` (matches `mtp=true`).
-    The flag rows live in the `preset_switches` child. Seeded + user-editable;
-    replaces `runner-manifest.json` `flagPresets` (the last hardcoded config)."""
+    """A capability/type switch bundle (`base` / `moe` / `dense` / …). `applies_to`
+    is the trigger matched against a model: `all` (every model) or `moe`/`dense`
+    (matches `model_catalog.type`). The flag rows live in the `preset_switches`
+    child. Seeded + user-editable; replaces `runner-manifest.json` `flagPresets`.
+    (An `mtp` applies-to existed pre-2026-07-03 but was dropped in Phase 3 — MTP is
+    opt-in/measurable via the `spec_type` knob, never an auto-applied preset.)"""
 
     __tablename__ = "switch_presets"
 
-    id = Column(String, primary_key=True)  # base | moe | dense | mtp | <user id>
+    id = Column(String, primary_key=True)  # base | moe | dense | <user id>
     label = Column(String, nullable=False, default="")
-    applies_to = Column(String, nullable=False, default="all")  # all | moe | dense | mtp
+    applies_to = Column(String, nullable=False, default="all")  # all | moe | dense
     position = Column(Integer, nullable=False, default=0)
     built_in = Column(Boolean, nullable=False, default=False)
 
@@ -216,7 +217,7 @@ class RoutingPin(LlmBase):
 
 
 # ── per-hardware switch override layer (design §6.4) ──────────────────────────
-# The persistent per-machine switch tune, merged after the base→type→mtp presets
+# The persistent per-machine switch tune, merged after the base→type presets
 # in `switch_resolve.py` and applied via the runner's existing `_merge_overrides`.
 class HardwareSwitch(LlmBase):
     """A per-machine spawn-flag override keyed by GPU (`hw_key`) — the persistent

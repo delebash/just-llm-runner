@@ -24,10 +24,12 @@ def configured():
 
 def test_list_seeded(configured):
     rows = stores.get_switch_preset_store().list()
-    assert {"base", "moe", "mtp"} <= {r.id for r in rows}
+    ids = {r.id for r in rows}
+    assert {"base", "moe"} <= ids
+    assert "mtp" not in ids   # the mtp switch-preset was dropped 2026-07-03 Phase 3
     moe = next(r for r in rows if r.id == "moe")
     sw = {s.flagName: s.flagValue for s in moe.switches}
-    assert sw["spec_type"] == "none" and sw["no_mmap"] == "true"
+    assert sw == {"no_mmap": "true"}   # only no_mmap is MoE-specific; spec_type default lives in knob_catalog
     assert moe.appliesTo == "moe"
 
 
@@ -54,4 +56,4 @@ def test_reset_restores_factory(configured):
     assert next(r for r in st.list() if r.id == "moe").switches == []
     st.reset_to_factory()
     moe = next(r for r in st.list() if r.id == "moe")
-    assert {s.flagName for s in moe.switches} == {"spec_type", "no_mmap"}
+    assert {s.flagName for s in moe.switches} == {"no_mmap"}

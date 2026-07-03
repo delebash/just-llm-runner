@@ -5,13 +5,18 @@ switch tables (design §6). A pure read over the shared session; returns a
 `lifecycle._switches_to_overrides`) at load — so it flows through the EXISTING,
 already-tested Override path and never touches the spawn/`compose_flags` logic.
 
-Layer order (later wins), per §6.5:
-    base preset  →  the model's TYPE preset (moe | dense)  →  the mtp preset
-    (applied ONLY if `mtp` AND `type != "moe"`, so a MoE+MTP model like the
-    35B-A3B-MTP keeps the moe preset's `spec_type=none` instead of draft-mtp)  →
-    per-hardware (`hardware_switches`, the persistent per-machine tune).
+Layer order (later wins):
+    base preset  →  the model's TYPE preset (moe | dense)  →  per-hardware
+    (`hardware_switches`, the persistent per-machine tune).
 
-`resolve_model_switches` is the whole story now (base → type → mtp → per-hardware).
+There is NO auto-`mtp` layer (removed 2026-07-03, GGUF-grounded model layer Phase 3):
+MTP is machine-dependent (offload can win; full-GPU / Metal can lose — measure, don't
+dogmatize), so speculative decode is NEVER auto-enabled. `spec_type` defaults to `none`
+(its `knob_catalog` default) and is an opt-in the user sets per-Task in the Lab (or
+per-machine via a `hardware_switch`) after measuring — no model is blocked from it, and
+none gets it by default. Removing the auto-layer also deleted the old `mtp != "moe"`
+skip that wrongly disabled MTP for MoE models.
+
 There is no per-job/per-feature switch layer — engine config is owned by the
 taskKind → preset cascade (`engine_presets`), overlaid at dispatch.
 """
@@ -35,7 +40,6 @@ def resolve_model_switches(model_id: str, hw_key: str = "") -> dict[str, str]:
     try:
         model = s.get(db.ModelCatalog, model_id)
         mtype = (getattr(model, "type", "") or "dense") if model else "dense"
-        is_mtp = bool(getattr(model, "mtp", False)) if model else False
 
         presets = s.query(db.SwitchPreset).order_by(db.SwitchPreset.position, db.SwitchPreset.id).all()
         by_applies: dict[str, list] = {}
@@ -50,8 +54,8 @@ def resolve_model_switches(model_id: str, hw_key: str = "") -> dict[str, str]:
 
         _apply("all")                      # base — every model
         _apply(mtype)                      # the model's type preset (moe | dense)
-        if is_mtp and mtype != "moe":      # mtp preset; the moe preset's spec:none wins (§6.5)
-            _apply("mtp")
+        # NO auto-mtp layer — MTP is opt-in + measurable (Phase 3): spec_type stays its
+        # knob default (none) unless set per-Task in the Lab or per-machine just below.
         # per-hardware (the persistent per-machine tune)
         if hw_key:
             for r in s.query(db.HardwareSwitch).filter(db.HardwareSwitch.hw_key == hw_key).all():

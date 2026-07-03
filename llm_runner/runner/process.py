@@ -47,9 +47,10 @@ class Overrides:
     """Operator overrides for tuning/testing a model load — any None falls back to
     the computed Fit or the llama default. Two groups:
       * fit knobs (n_gpu_layers / n_cpu_moe / ctx_len) — consumed by compute_fit;
-      * engine flags — rendered into the argv by compose_flags. The base/moe/mtp
-        defaults arrive HERE already (resolved from the DB `switch_presets` via the
-        runner's switches_fn), so compose_flags renders purely from these.
+      * engine flags — rendered into the argv by compose_flags. The base + type
+        (moe|dense) preset defaults arrive HERE already (resolved from the DB
+        `switch_presets` via the runner's switches_fn), so compose_flags renders
+        purely from these.
 
     WHY this surface exists: POST /v1/llm-runner/load must let the GUI test the
     speed/fit switches on the user's OWN machine (esp. --n-cpu-moe to fit a MoE on
@@ -145,7 +146,7 @@ _VALUE_FLAGS = (
 def _apply_engine_overrides(flags: list[str], ov: Overrides) -> list[str]:
     """Layer an operator's engine overrides onto the preset flags (None = leave the
     preset alone). Value flags replace; presence flags add/remove; spec flags are
-    handled together so spec_type='none' fully clears them (incl. the mtp preset)."""
+    handled together so spec_type='none' fully clears them (the default when MTP is off)."""
     out = list(flags)
     for attr, flag in _VALUE_FLAGS:
         val = getattr(ov, attr)
@@ -246,7 +247,7 @@ def compose_flags(
     overrides: Overrides | None = None,
 ) -> list[str]:
     """Build the llama-server argv (after the exe) from the resolved engine
-    overrides. The base/moe/mtp flag defaults (flash-attn, KV cache type, mlock,
+    overrides. The base + type (moe|dense) flag defaults (flash-attn, KV cache type, mlock,
     spec-decode, …) arrive in `overrides` already — resolved from the DB
     `switch_presets` by the runner's switches_fn — so there is no manifest preset
     to merge here; we just render the overrides + the computed fit knobs."""

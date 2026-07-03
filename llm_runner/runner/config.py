@@ -13,7 +13,7 @@ margin:
     still works as a library, and `llm/seed.py` imports these to seed the DB
     (one source of truth, no duplication).
 
-The base/mtp flag presets are NOT here — they live in the DB `switch_presets`
+The base/moe/dense flag presets are NOT here — they live in the DB `switch_presets`
 and reach the spawn via the runner's `switches_fn` → `Overrides`.
 """
 

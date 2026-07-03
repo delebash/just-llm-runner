@@ -506,7 +506,7 @@ class FeatureSamplerStore:
         return self.list(key)
 
 
-# ── capability/type switch presets (base/moe/mtp) ─────────────────────────────
+# ── capability/type switch presets (base/moe/dense) ───────────────────────────
 def _switch_preset_to_wire(p: db.SwitchPreset, switches: list[db.PresetSwitch]) -> SwitchPresetRow:
     return SwitchPresetRow(
         id=p.id, label=p.label, appliesTo=p.applies_to, position=p.position, builtIn=p.built_in,

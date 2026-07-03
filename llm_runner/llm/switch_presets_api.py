@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared switch-presets router — the capability/type switch bundles
-(`base`/`moe`/`dense`/`mtp`) the resolver layers (see `switch_resolve`). Seeded +
+(`base`/`moe`/`dense`) the resolver layers (see `switch_resolve`). Seeded +
 user-editable + reset-to-factory, exactly like the model catalog. A preset is a
 row (id / label / appliesTo) plus its flag rows (`preset_switches`); the PUT
 replaces a preset's WHOLE flag set (the editor sends the full preset).
 
-`appliesTo`: `all` (every model) · `moe`/`dense` (matches `model_catalog.type`) ·
-`mtp` (matches `mtp=true`). The host implements the Protocol over its DB; the
-shared store does (JustWrite + JustVoice at adoption).
+`appliesTo`: `all` (every model) · `moe`/`dense` (matches `model_catalog.type`).
+(An `mtp` applies-to existed pre-2026-07-03 but was dropped in Phase 3 — MTP is
+opt-in/measurable, not an auto-applied preset.) The host implements the Protocol
+over its DB; the shared store does (JustWrite + JustVoice at adoption).
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ class PresetSwitchRow(BaseModel):
 class SwitchPresetRow(BaseModel):
     id: str
     label: str = ""
-    appliesTo: str = "all"  # all | moe | dense | mtp
+    appliesTo: str = "all"  # all | moe | dense
     position: int = 0
     builtIn: bool = False
     switches: list[PresetSwitchRow] = []

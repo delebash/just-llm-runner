@@ -399,7 +399,7 @@ class RunnerService:
             # Switch base, UNDER user-supplied overrides (user wins per-field).
             # An optional legacy `job_id` override hook (unused by JustWrite) can
             # REPLACE the base wholesale; normally there is no job → the model's
-            # own base/moe/mtp type presets (resolve_model_switches).
+            # own base/type (moe|dense) presets (resolve_model_switches).
             base_switches = self._profile_switches_fn(job_id) if job_id else {}
             if not base_switches:
                 base_switches = self._switches_fn(model_id) or {}

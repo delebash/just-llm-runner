@@ -149,10 +149,10 @@ def _wire_runner_catalog(data_dir=None) -> None:
         ]
 
     def switches_fn(model_id: str):
-        # Layered model-level resolution (base preset → type → mtp → per-model →
-        # per-hardware), returned as a flag→value dict that flows through the
-        # runner's existing Override path. Replaces the flat per-model lookup so
-        # the MoE/MTP rules come from the type presets, not per-model copies (§6.5).
+        # Layered model-level resolution (base preset → type(moe|dense) → per-hardware),
+        # returned as a flag→value dict that flows through the runner's existing Override
+        # path. The MoE/dense rules come from the type presets, not per-model copies. No
+        # auto-mtp layer — MTP is opt-in/measurable (Phase 3).
         from .switch_resolve import resolve_model_switches
 
         return resolve_model_switches(model_id)

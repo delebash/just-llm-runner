@@ -13,7 +13,7 @@
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
-import { fetchResolvedSwitches } from "../switchResolve.js";
+import { resolveModelSwitches } from "../switchResolve.js";
 import { usePoll } from "../common/composables/usePoll.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
@@ -186,20 +186,24 @@ const tunePhase = ref("");       // "" | loading | measuring | done | error
 const tuneDetail = ref("");      // live load detail
 const tuneResult = ref(null);    // { tokensPerSec, completionTokens, ms, vramTotalMb, ramTotalMb }
 const tuneErr = ref("");
+const tuneMtpCapable = ref(false);  // the tuned model's GGUF supports MTP → surface the spec_type hint
 const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value === "measuring");
 
 async function fetchResolved(id) {
-  return fetchResolvedSwitches(id); // shared with ConfigColumn's model->switch seed (one source)
+  return resolveModelSwitches(id); // {switches, mtpCapable} — shared with ConfigColumn (one source)
 }
 async function startTune(m) {
   tuning.value = m;
   tuneRows.value = [];
+  tuneMtpCapable.value = false;
   tuneResult.value = null;
   tuneErr.value = "";
   tunePhase.value = "";
   tuneDetail.value = "";
   try {
-    tuneRows.value = await fetchResolved(m.id);
+    const res = await fetchResolved(m.id);
+    tuneRows.value = res.switches;
+    tuneMtpCapable.value = res.mtpCapable;
   } catch {
     tuneRows.value = []; // pre-fill is an enrichment; tuning still works empty
   }
@@ -210,7 +214,9 @@ function cancelTune() {
 async function resetTuneSwitches() {
   if (!tuning.value) return;
   try {
-    tuneRows.value = await fetchResolved(tuning.value.id);
+    const res = await fetchResolved(tuning.value.id);
+    tuneRows.value = res.switches;
+    tuneMtpCapable.value = res.mtpCapable;
   } catch (e) {
     tuneErr.value = e.message || "Couldn't reset to defaults.";
   }
@@ -509,6 +515,8 @@ loadCatalogMeta();
           Load this model with custom engine flags and measure decode speed on your hardware.
           Flags are pre-filled from the model's defaults — tweak, then measure.
         </p>
+        <p v-if="tuneMtpCapable" class="lu-muted lu-tune-lede">This model supports <b>MTP</b> — set
+          <b>Speculative decode</b> to “MTP draft” and measure; gains are machine-dependent.</p>
 
         <KnobGrid v-model="tuneRows" :catalog="switchCatalog" />
         <UiButton intent="ghost" size="small" @click="resetTuneSwitches">Reset to model default</UiButton>

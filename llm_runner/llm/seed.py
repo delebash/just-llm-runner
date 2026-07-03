@@ -140,12 +140,14 @@ DEFAULT_CATALOG: list[dict] = [
 ]
 
 # (Per-model switch overrides — the `model_switches` table — were DROPPED: the
-# MoE/MTP rules live ONCE on the type presets below.)
+# dense/moe TYPE rules live ONCE on the type presets below. MTP is NOT a preset — it
+# is an opt-in/measurable `spec_type` knob since Phase 3, never auto-applied.)
 
 # Capability/type switch presets — the switch BASE layer (design §6.5), the
 # seeded-editable replacement for the hardcoded runner-manifest `flagPresets`,
 # translated into `Overrides` field names. `applies_to`: `all` (every model) |
-# `moe`/`dense` (matches `model_catalog.type`) | `mtp` (matches `mtp=true`).
+# `moe`/`dense` (matches `model_catalog.type`). (The `mtp` applies-to + preset were
+# dropped 2026-07-03 Phase 3 — MTP is opt-in/measurable, not auto-applied.)
 # Resolved + layered by `switch_resolve.resolve_model_switches`. (`-ngl` is NOT
 # here — it's a computed fit knob, not a constant.)
 DEFAULT_SWITCH_PRESETS: list[dict] = [
@@ -153,9 +155,12 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
      "switches": {"flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true",
                   "context_shift": "true", "cache_reuse": "256"}},
     {"id": "moe", "label": "MoE (mixture-of-experts)", "applies_to": "moe", "position": 1,
-     "switches": {"spec_type": "none", "no_mmap": "true"}},
-    {"id": "mtp", "label": "Speculative decode (MTP)", "applies_to": "mtp", "position": 2,
-     "switches": {"spec_type": "draft-mtp", "spec_n_max": "3"}},
+     # ONLY no_mmap is genuinely MoE-specific; the spec_type default (none) lives ONCE in
+     # knob_catalog — no duplicate here (the phase's own "one source" rule, 2026-07-03 Phase 3).
+     "switches": {"no_mmap": "true"}},
+    # (No "mtp" switch-preset — removed 2026-07-03 Phase 3. MTP is opt-in/measurable,
+    # never auto-applied; when the user enables it, spec_type=draft-mtp + spec_n_max=3
+    # come from the knob_catalog defaults, so those values live in ONE place, not here.)
 ]
 
 # Cited per-taskKind picks, one row per (model, taskKind). `rank` = priority (lower
@@ -381,7 +386,7 @@ def seed_default_pricing(s) -> int:
 
 
 def seed_default_switch_presets(s) -> int:
-    """Seed the capability/type switch presets (base/moe/mtp) + their flag rows.
+    """Seed the capability/type switch presets (base + moe) + their flag rows.
     Flushes each preset before its FK child rows (host session is autoflush=False
     with FK enforcement on — see the routing FK gotcha)."""
     existing = {r.id for r in s.query(db.SwitchPreset.id).all()}

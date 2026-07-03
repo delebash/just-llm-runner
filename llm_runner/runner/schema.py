@@ -106,7 +106,7 @@ class ModelEntry(CamelModel):
 # ─── Runner config (binaries + the VRAM safety margin) ──────────────────
 # Was `runner-manifest.json`; now DB-backed (seeded built_in) + injected as a
 # RunnerConfig — NO config file on disk (user decree 2026-06-27: "it's just
-# data, mark it built_in"). The base/mtp flag presets moved ENTIRELY to the DB
+# data, mark it built_in"). The base/moe/dense flag presets moved ENTIRELY to the DB
 # `switch_presets` (resolved into `Overrides` via the runner's switches_fn), so
 # compose_flags no longer carries them; the dead `vram_fit.tiers` and the always
 # empty `models` are gone (the catalog is DB-backed via catalog_fn).

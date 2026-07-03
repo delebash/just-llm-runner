@@ -1,6 +1,7 @@
 # Plan — Model-setup simplification (delete the grid · one good model + embed · catalog under Providers · collapse recommendations to a quality signal + a model description)
 
-> ⛔ **LIVE STATUS (2026-07-03): BUILD IN PROGRESS — Phases A + B + C SHIPPED (grid deleted; catalog under Providers → Built-in, installed-first, Models tab dissolved; recommendations collapsed → editable `quality_rank` + `description` on the catalog, the recommendations table/store/API/editor deleted); Phase D (QuickSetup rewire) + E (docs) remaining.**
+> ⛔ **LIVE STATUS (2026-07-03): ALL PHASES A–E BUILT + verified + rules-checked (PASS). Phase D rewired QuickSetup onto the taskKind-preset model + the seed was aligned to one model; Phase E is docs. QuickSetup is now a WORKING front door (the old one wrote the model to the dead `routing.default`, which the current task system no longer reads → "Apply" did nothing; the rewire writes it onto the task presets, verified live).**
+> ⚠️ **DESIGN UNDER USER REVIEW (2026-07-03, post-build):** on testing, the user found the model surface confusing — partly because the *pushed* branch still had the OLD broken QuickSetup (the Phase D fix was unpushed), and partly a genuine shape question: I built QuickSetup to **auto-pick ONE best-fit model** (+ an override dropdown); the user expected to **see the models that fit and choose from a list** ("a list of models we added for QuickSetup to choose from"). The working Phase D was pushed so the user can evaluate the real thing; the auto-pick-vs-pick-from-list shape is **OPEN** — do NOT treat the auto-pick shape as final. Also clarified for the user (all verified, not bugs): the catalog is the seeded downloadable list (never empty; "Your models" is empty until you download — a fresh seed shows all 11 behind "Browse catalog"); a DB reset clears catalog *metadata* but NOT downloaded model *files* (so a previously-downloaded 9B still shows on disk); the task presets showing `qwen3.6-35b-a3b-mtp` is the seeded default placeholder, not stale state.
 > This is a chat-plan design consolidation reached through a long, grounded discussion held
 > immediately after the GGUF-grounded model layer (`2026-07-02-gguf-grounded-model-layer.md`,
 > Phases 1–6) shipped and the user walked the resulting **Models tab** and found it confusing.
@@ -236,7 +237,7 @@ presets, not into `[""]`.
   loads** the chosen model (keep the existing detect / card-override re-score / progress-poll machinery).
 - **Drop entirely:** the `/v1/ai/jobs` load + the per-job role rows + the `jobs` map and `routing.default.model`
   write (all dead). The confirm step becomes "here's the one model that best fits your box" (editable) + embed.
-- **Also download the fast 9B** during setup (small, fits almost any box) so it is on disk and ready to try.
+- **The fast 9B is NOT auto-downloaded** (the runner loads one model at a time + has no download-only endpoint) — it stays a per-task opt-in via the catalog's Browse + the Tasks tab. (Pre-downloading a second model is deferred backlog; it needs a download-only endpoint.) *(Corrected 2026-07-03: an earlier draft here said "also download the 9B during setup" — the shipped code downloads+loads the PICK only, matching the grounding note below.)*
 - **Non-clobber on re-run:** QuickSetup must only overwrite presets still pointing at the *previous* default
   model — never a per-task model the user has changed — so testing the 9B on a task survives a re-run.
 - **Align the seed to one model:** drop the seed's arbitrary 9B split (ideation/edit/digest) so the pre- and

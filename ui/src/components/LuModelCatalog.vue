@@ -14,6 +14,7 @@ import { computed, ref } from "vue";
 
 import { request } from "../client.js";
 import { useRunnerModels } from "../common/composables/useRunnerModels.js";
+import { useCatalogMeta } from "../common/composables/useCatalogMeta.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -57,18 +58,10 @@ function sizeLabel(m) {
   return m.activeParams ? `${m.params} · ${m.activeParams} active` : m.params;
 }
 
-// Model licenses (from the catalog CRUD endpoint — the fit-shaped /models view doesn't
-// carry it). Drives the per-model license badge + the use-limited warning.
-const catalogRows = ref([]);
-const licenseById = computed(() =>
-  Object.fromEntries(catalogRows.value.map((r) => [r.id, r.license || ""])),
-);
-const useLimitedById = computed(() =>
-  Object.fromEntries(catalogRows.value.map((r) => [r.id, !!r.useLimited])),
-);
-const descriptionById = computed(() =>
-  Object.fromEntries(catalogRows.value.map((r) => [r.id, r.description || ""])),
-);
+// Model catalog meta (license / use-limited / description — the fit-shaped /models view
+// doesn't carry them). Shared with QuickSetup through the useCatalogMeta singleton (one
+// source, no drift); loadCatalogMeta (its refresh) re-pulls after a catalog edit.
+const { licenseById, useLimitedById, descriptionById, refresh: loadCatalogMeta } = useCatalogMeta();
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
 function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
@@ -78,11 +71,6 @@ function licenseTitle(m) {
     ? `${lic || "license"} — use-limited: not free for unrestricted/commercial use, never a default. The catalog only lists it; the weights download on your machine.`
     : (lic ? `${lic} — permissive (free to use).` : "license unknown");
 }
-async function loadCatalogMeta() {
-  try { catalogRows.value = (await request("/v1/ai/model-catalog")).rows || []; }
-  catch { catalogRows.value = []; } // badge is enrichment — the table still works
-}
-
 async function unloadModel() {
   await unload();
 }
@@ -189,6 +177,7 @@ async function deleteModel(m) {
   try {
     await request(`/v1/ai/model-catalog?modelId=${encodeURIComponent(m.id)}`, { method: "DELETE" });
     await refresh();
+    loadCatalogMeta(); // keep the shared catalog-meta map in sync (like save/reset do)
   } catch (e) { error.value = e.message || "Delete failed."; } finally { busy.value = ""; }
 }
 async function resetCatalog() {

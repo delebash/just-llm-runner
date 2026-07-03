@@ -1,23 +1,30 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Shared Quick Setup — a MODAL WIZARD (the old JustWrite quick-setup concept,
-// rebuilt for the current shared stack). Restores what the old static card lost:
-// a stepped modal, EDITABLE per-role picks, a card/VRAM chooser, and an apply
-// that downloads + loads. On the current stack it uses the shared runner
-// endpoints (/v1/llm-runner/*) + the routing endpoint (/v1/ai/routing) — NOT the
-// old Ollama-pull path — and the kit components (AppModal/UiSelect/UiButton/Icon)
-// instead of the old Jw* forks. Both apps mount it (it's exported from the kit).
+// Shared Quick Setup — the intuitive FRONT DOOR for local models. A modal wizard
+// (detect → confirm → apply → done) that picks ONE good model that fits your box and
+// wires it as the shared default across every task, plus the always-on embedding.
 //
-// Steps: detect -> confirm (edit the picks) -> apply (download+load) -> done.
-// Picks persist in the DB via /v1/ai/routing; the curated recommendation defaults
-// + the manual editor are a SQL-backed layer added next (this version pre-fills
-// from the runner's Fit estimate).
+// How the pick works: it joins the runner's live Fit (/v1/llm-runner/models — VRAM/RAM
+// gated, re-scorable for another card) with the catalog's editable quality order
+// (/v1/ai/model-catalog `qualityRank`, LOWER = better) and takes the highest-quality
+// model that RUNS on this box — excluding the embedding model and use-limited licenses.
+// The embedding is the catalog's embed model (nomic); it rides routing.default.
+//
+// Apply (the "task owns the preset" model — 2026-07-02 Plan A): the chosen model is
+// written onto every TASK PRESET (/v1/ai/engine-presets) that still points at the
+// PREVIOUS shared default — NON-CLOBBER: a task whose preset the user re-pointed on the
+// Tasks tab keeps its own model. Each preset keeps its per-task settings (top_p / json /
+// samplers); only `.model` changes. The embedding is set via /v1/ai/routing (pins kept);
+// then the chosen model is downloaded (if needed) + loaded as the active one.
+//
+// Both apps mount it (exported from the kit). It replaces the old jobs-based wiring
+// (/v1/ai/jobs + a routing `jobs` map — both retired with the taskKind refactor).
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
+import { useCatalogMeta } from "../common/composables/useCatalogMeta.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
-import UiTag from "../common/components/UiTag.vue";
 import AppModal from "../common/components/AppModal.vue";
 
 const emit = defineEmits(["changed"]);
@@ -25,22 +32,8 @@ const emit = defineEmits(["changed"]);
 const LOCAL_RUNNER_ID = "local-llamacpp";
 const FIT_RUNNABLE = new Set(["ok", "tight", "cpu"]);
 const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fit", unknown: "—" };
-
-// The wizard picks a Default model + a model for each JOB (the editable routing
-// units, loaded from /v1/ai/jobs). `roleRows` = the Default row + one row per job;
-// each row's `job` keys into /v1/ai/recommendations (the curated "good FOR" layer),
-// null for Default (which falls back to the largest fitting model).
-const jobs = ref([]);  // [{id,label,description,…}] from /v1/ai/jobs
-const roleRows = computed(() => [
-  {
-    key: "default", job: null, fallback: "largest", label: "Default model",
-    blurb: "The main model — runs every feature whose job has no model set, and anything not pinned. Pick the strongest model that fits comfortably.",
-  },
-  ...jobs.value.map((j) => ({
-    key: j.id, job: j.id, fallback: "largest", label: `${j.label} job`,
-    blurb: j.description || `Model for the ${j.label} job.`,
-  })),
-]);
+const FIT_RANK = { ok: 0, tight: 1, cpu: 2, no: 3, unknown: 4 }; // tie-break: prefer the better fit
+const isEmbed = (m) => /embed/i.test(m.id || "") || /embed/i.test(m.name || "");
 
 // ── modal + wizard state ────────────────────────────────────────────────────
 const open = ref(false);
@@ -50,7 +43,6 @@ const error = ref("");
 
 const hw = ref(null);
 const models = ref([]);
-const recommendations = ref([]); // /v1/ai/recommendations rows — the Q3 curated layer
 const detectedVramMb = ref(0);
 // Card/VRAM override — re-scores Fit for a card other than this machine's.
 const cardOverride = ref("auto");
@@ -63,9 +55,18 @@ const CARD_OPTIONS = [
   { value: "24576", label: "24 GB card" },
 ];
 
-// Editable picks (model ids), keyed by row.key ("default" or a job id) + the
-// embedding fields. Pre-filled from Fit/recommendations, fully overridable.
+// Editable pick: the one good LLM (`default`) + the embedding provider/model.
+// Pre-filled from Fit × quality, the default is overridable in the confirm step.
 const pick = ref({ default: "", embeddingId: "", embeddingModel: "" });
+
+// ── catalog meta (by id) — quality order + use-limited + description ──────────
+// The /v1/llm-runner/models view is fit-shaped and carries none of these; the catalog
+// does. Shared with LuModelCatalog through the useCatalogMeta singleton (one source, no
+// drift — the useRunnerModels precedent).
+const { qualityById, useLimitedById, descriptionById, refresh: refreshCatalogMeta } = useCatalogMeta();
+function qualityOf(m) { return qualityById.value[m.id] ?? 100; }
+function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
+function descriptionOf(id) { return descriptionById.value[id] || ""; }
 
 // ── derived ─────────────────────────────────────────────────────────────────
 function paramsNum(p) {
@@ -78,13 +79,20 @@ const fitting = computed(() =>
     .sort((a, b) => paramsNum(a.params) - paramsNum(b.params)),
 );
 const modelById = computed(() => Object.fromEntries(models.value.map((m) => [m.id, m])));
-// One <option> per catalog model, Fit annotated, so a role can pick any of them.
+// One <option> per catalog LLM (embedding excluded — it has its own line), Fit annotated,
+// so the default can be overridden to any model.
 const modelOptions = computed(() =>
-  models.value.map((m) => ({
-    value: m.id,
-    label: `${m.name} · ${FIT_LABEL[m.fit] || "—"}${m.params ? ` · ${m.params}` : ""}`,
-  })),
+  models.value
+    .filter((m) => !isEmbed(m))
+    .map((m) => ({
+      value: m.id,
+      label: `${m.name} · ${FIT_LABEL[m.fit] || "—"}${m.params ? ` · ${m.params}` : ""}`,
+    })),
 );
+const embedName = computed(() => {
+  const e = models.value.find((m) => m.id === pick.value.embeddingModel);
+  return e?.name || pick.value.embeddingModel || "";
+});
 
 const hwLine = computed(() => {
   const h = hw.value;
@@ -99,24 +107,38 @@ function fitOf(id) {
   return modelById.value[id]?.fit || "unknown";
 }
 
-// ── load hardware + catalog + recommendations (optionally for an overridden card)
+// The one good LLM: the highest-quality model that RUNS on this box, excluding the
+// embedding model + use-limited licenses (never a default). Lower qualityRank wins;
+// ties break to the better Fit.
+function bestFittingId() {
+  const candidates = models.value.filter(
+    (m) => FIT_RUNNABLE.has(m.fit) && !isEmbed(m) && !useLimitedOf(m),
+  );
+  if (!candidates.length) return "";
+  candidates.sort((a, b) => {
+    const qa = qualityOf(a);
+    const qb = qualityOf(b);
+    if (qa !== qb) return qa - qb;
+    return (FIT_RANK[a.fit] ?? 9) - (FIT_RANK[b.fit] ?? 9);
+  });
+  return candidates[0].id;
+}
+
+// ── load hardware + catalog (optionally for an overridden card) ──────────────
 async function loadAll() {
   loading.value = true;
   error.value = "";
   try {
     const vramQ = cardOverride.value === "auto" ? "" : `?vram_mb=${cardOverride.value}`;
-    const [h, m, r, jb] = await Promise.all([
+    const [h, m] = await Promise.all([
       request("/v1/llm-runner/hardware"),
       request(`/v1/llm-runner/models${vramQ}`),
-      request("/v1/ai/recommendations").catch(() => ({ rows: [] })), // optional — older servers
-      request("/v1/ai/jobs").catch(() => ({ rows: [] })),
+      refreshCatalogMeta(), // shared catalog-meta maps (quality / use-limited / description)
     ]);
     hw.value = h;
     models.value = m.models || [];
-    recommendations.value = r.rows || [];
-    jobs.value = jb.rows || [];
     detectedVramMb.value = (h.gpus && h.gpus[0]?.vramMb) || 0;
-    prefillRoles();
+    prefillPick();
   } catch (e) {
     error.value = `Couldn't read hardware / catalog: ${e.message}`;
   } finally {
@@ -124,45 +146,28 @@ async function loadAll() {
   }
 }
 
-// Pre-fill each role from curated recommendations (filter by job + Fit-OK, rank
-// ascending). If no recommendation fits the user's card for that job, fall back
-// to the role's heuristic (smallest/largest fitting model). Editable either way.
-function prefillRoles() {
-  const fittingIds = new Set(fitting.value.map((m) => m.id));
-  for (const role of roleRows.value) {
-    if (pick.value[role.key]) continue;  // never overwrite a user pick
-    // 1. curated recommendation: rows matching this job, only models that fit.
-    const recs = role.job
-      ? recommendations.value
-          .filter((row) => row.job === role.job && fittingIds.has(row.modelId))
-          .sort((a, b) => (a.rank ?? 100) - (b.rank ?? 100))
-      : [];
-    if (recs.length) { pick.value[role.key] = recs[0].modelId; continue; }
-    // 2. heuristic fallback (largest/smallest fitting model).
-    const good = fitting.value.filter((m) => m.fit === "ok" || m.fit === "tight");
-    const pool = good.length ? good : fitting.value;
-    const candidate = role.fallback === "smallest" ? pool[0] : pool[pool.length - 1];
-    pick.value[role.key] = candidate?.id || "";
+// Pre-fill the default (best-quality-that-fits) + the embedding (the catalog's embed
+// model). Never overwrites a value already set (a user pick, or a saved embedding).
+function prefillPick() {
+  if (!pick.value.default) pick.value.default = bestFittingId();
+  if (!pick.value.embeddingModel) {
+    const e = models.value.find((m) => isEmbed(m));
+    if (e) {
+      pick.value.embeddingId = LOCAL_RUNNER_ID;
+      pick.value.embeddingModel = e.id;
+    }
   }
 }
 
-// Curated "why" line for the chosen model under a role — for the inline blurb.
-function whyFor(roleKey) {
-  const role = roleRows.value.find((r) => r.key === roleKey);
-  if (!role || !role.job) return "";
-  const chosen = pick.value[roleKey];
-  if (!chosen) return "";
-  const rec = recommendations.value.find((row) => row.job === role.job && row.modelId === chosen);
-  return rec?.why || "";
-}
-
+// Saved embedding wins over the nomic fallback — only overwrite the pre-fill when the
+// stored routing actually carries one (order-independent vs prefillPick's fallback).
 async function loadRouting() {
   try {
     const r = await request("/v1/ai/routing");
-    pick.value.embeddingId = r.default?.embeddingId || "";
-    pick.value.embeddingModel = r.default?.embeddingModel || "";
+    if (r.default?.embeddingId) pick.value.embeddingId = r.default.embeddingId;
+    if (r.default?.embeddingModel) pick.value.embeddingModel = r.default.embeddingModel;
   } catch {
-    /* routing may be empty on a fresh install — leave embedding blank */
+    /* routing may be empty on a fresh install — keep the pre-filled nomic default */
   }
 }
 
@@ -172,19 +177,19 @@ async function openWizard() {
   step.value = "detect";
   pick.value = { default: "", embeddingId: "", embeddingModel: "" };
   await Promise.all([loadAll(), loadRouting()]);
-  step.value = fitting.value.length ? "confirm" : "confirm"; // confirm shows the empty-state if none fit
+  step.value = "confirm"; // confirm renders the empty-state when nothing fits
 }
 function onModalClose() {
   open.value = false;
 }
 async function onCardChange() {
-  // Re-score Fit for the chosen card, then re-pick (clear picks so prefill runs;
-  // keep the embedding). Replacing the object drops the per-job picks too.
+  // Re-score Fit for the chosen card, then re-pick the default (clear it so prefill
+  // runs; keep the embedding, which is card-independent).
   pick.value = { default: "", embeddingId: pick.value.embeddingId, embeddingModel: pick.value.embeddingModel };
   await loadAll();
 }
 
-// ── apply: persist routing (DB) + download/load the default model ────────────
+// ── apply: one model → every task preset (non-clobber) + embedding + download/load ──
 const applying = ref(false);
 const applyDetail = ref("");
 async function apply() {
@@ -192,35 +197,59 @@ async function apply() {
   error.value = "";
   step.value = "apply";
   try {
-    // Merge into existing routing: keep current per-feature pins, set the default
-    // + each job's model on the bundled runner, carry the embedding.
+    const target = pick.value.default;
+
+    // 1. Write the chosen model onto every TASK PRESET that still points at the
+    //    PREVIOUS shared default (the model the most task presets have in common) —
+    //    never a task whose preset the user re-pointed themselves (non-clobber). Each
+    //    preset keeps its per-task settings; only `.model` changes.
+    const [asg, pr] = await Promise.all([
+      request("/v1/ai/preset-assignments"),
+      request("/v1/ai/engine-presets"),
+    ]);
+    const byId = Object.fromEntries((pr.presets || []).map((p) => [p.id, p]));
+    const ids = new Set(Object.values(asg.taskKinds || {}).filter(Boolean));
+    if (asg.defaultPresetId) ids.add(asg.defaultPresetId);
+    const taskPresets = [...ids]
+      .map((id) => byId[id])
+      .filter(Boolean)
+      .sort((a, b) => (a.position - b.position) || (a.id < b.id ? -1 : 1)); // stable order
+    // Dominant model = the most common `.model` across the task presets = the previous
+    // default. Iterating in stable order makes ties deterministic (first-seen wins).
+    const counts = {};
+    for (const p of taskPresets) counts[p.model] = (counts[p.model] || 0) + 1;
+    let dominant = "";
+    let bestCount = -1;
+    for (const p of taskPresets) {
+      if (counts[p.model] > bestCount) {
+        bestCount = counts[p.model];
+        dominant = p.model;
+      }
+    }
+    for (const p of taskPresets) {
+      if (p.model !== dominant || p.model === target) continue; // overridden or already set
+      await request(`/v1/ai/engine-presets/${p.id}`, { method: "PUT", body: { ...p, model: target } });
+    }
+
+    // 2. Set the embedding + keep the per-feature pins. Preserve the existing default
+    //    llmId/model (the deep fallback) — the model now lives in the presets, so this
+    //    write no longer carries it (and the dead `jobs` map is gone).
     const r = await request("/v1/ai/routing");
-    const pins = {};
-    for (const f of r.features || []) {
-      if (f.providerId) pins[f.key] = { providerId: f.providerId, model: f.model };
-    }
-    // One job→model entry per job, all on the bundled runner. A job left unset
-    // falls back to the Default LLM at dispatch.
-    const jobMap = {};
-    for (const j of jobs.value) {
-      if (pick.value[j.id]) jobMap[j.id] = { providerId: LOCAL_RUNNER_ID, model: pick.value[j.id] };
-    }
     await request("/v1/ai/routing", {
       method: "PUT",
       body: {
         default: {
-          llmId: LOCAL_RUNNER_ID,
-          model: pick.value.default,
+          llmId: r.default?.llmId || LOCAL_RUNNER_ID,
+          model: r.default?.model || "",
           embeddingId: pick.value.embeddingId || "",
           embeddingModel: pick.value.embeddingModel || "",
         },
-        jobs: jobMap,
-        pins,
+        pins: r.pins || {},
       },
     });
-    // Download (if needed) + load the default model as the active one, polling
-    // status so the user sees progress (per-job models download on first use).
-    const target = pick.value.default;
+
+    // 3. Download (if needed) + load the chosen model as the active one, polling status
+    //    so the user sees progress. The embedding downloads on first search/index.
     if (target) {
       await request("/v1/llm-runner/load", { method: "POST", body: { modelId: target } });
       await pollLoad();
@@ -262,7 +291,7 @@ defineExpose({ openWizard });
     <div class="lu-qs-head">
       <div>
         <b class="lu-qs-title">Quick Setup</b>
-        <span class="lu-muted lu-qs-sub">Detect your hardware, pick free local models that fit, and set your routing — all editable.</span>
+        <span class="lu-muted lu-qs-sub">Detect your hardware, pick the best free local model that fits, and set it as your default — all editable.</span>
       </div>
       <UiButton intent="primary" size="small" @click="openWizard">Run Quick Setup</UiButton>
     </div>
@@ -295,32 +324,33 @@ defineExpose({ openWizard });
 
         <div v-if="loading" class="lu-muted">Re-scoring…</div>
         <template v-else-if="fitting.length">
-          <!-- Each role gets its own labelled section with a real description
-               of what it handles + the Fit chip inline. Stacked, not crammed
-               into a single row (the old JW shape). -->
-          <section v-for="r in roleRows" :key="r.key" class="lu-qs-sec">
+          <!-- The one good model — a single editable pick that runs every task. -->
+          <section class="lu-qs-sec">
             <div class="lu-qs-k">
-              {{ r.label }}
-              <span class="lu-fit lu-qs-fit" :class="`lu-fit--${fitOf(pick[r.key])}`">{{ FIT_LABEL[fitOf(pick[r.key])] }}</span>
+              Default model
+              <span class="lu-fit lu-qs-fit" :class="`lu-fit--${fitOf(pick.default)}`">{{ FIT_LABEL[fitOf(pick.default)] }}</span>
             </div>
-            <UiSelect v-model="pick[r.key]" :options="modelOptions" />
-            <p class="lu-muted lu-qs-hint">{{ r.blurb }}</p>
-            <p v-if="whyFor(r.key)" class="lu-qs-why">
-              <b>Why this pick:</b> {{ whyFor(r.key) }}
+            <UiSelect v-model="pick.default" :options="modelOptions" />
+            <p class="lu-muted lu-qs-hint">One good model runs every task — writing, chat, extraction, judgment. Per-task overrides live on the Tasks tab; this sets the shared default.</p>
+            <p v-if="descriptionOf(pick.default)" class="lu-qs-why">
+              <b>About this model:</b> {{ descriptionOf(pick.default) }}
             </p>
           </section>
 
-          <!-- What will happen on Apply — mirrors the old JW Routing summary. -->
+          <!-- The embedding — a fixed always-on utility, not a per-task choice. -->
+          <section v-if="pick.embeddingModel" class="lu-qs-sec">
+            <div class="lu-qs-k">Embedding</div>
+            <div class="lu-qs-detected"><b>{{ embedName }}</b> <span class="lu-muted">— powers semantic search + grounded chat. Always on, runs on CPU.</span></div>
+          </section>
+
+          <!-- What will happen on Apply. -->
           <section class="lu-qs-sec lu-qs-routing">
             <div class="lu-qs-k">What happens when you click Apply</div>
             <ul class="lu-qs-rlist">
-              <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— Default model for every feature whose job has no model set.</span></li>
-              <template v-for="j in jobs" :key="j.id">
-                <li v-if="modelById[pick[j.id]] && pick[j.id] !== pick.default"><b>{{ modelById[pick[j.id]].name }}</b> <span class="lu-muted">— {{ j.label }} job.</span></li>
-              </template>
-              <li>Default model <b>downloads now</b> if it isn't already on disk; the others download on first use.</li>
-              <li>Embedding stays as set in Providers<span v-if="pick.embeddingModel"> (currently <code>{{ pick.embeddingModel }}</code>)</span>.</li>
-              <li>Per-feature pins you've set stay as they are — this only touches the Default model + the job models.</li>
+              <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— becomes the model for every task, except any you've changed yourself on the Tasks tab.</span></li>
+              <li>It <b>downloads now</b> if it isn't already on disk, then loads as the active model.</li>
+              <li v-if="pick.embeddingModel">Embedding set to <code>{{ embedName }}</code> — downloads on first search/index.</li>
+              <li>Per-feature pins you've set stay as they are.</li>
             </ul>
           </section>
         </template>
@@ -331,7 +361,7 @@ defineExpose({ openWizard });
 
       <!-- APPLY -->
       <template v-else-if="step === 'apply'">
-        <p class="lu-qs-applying">Saving routing and loading <b>{{ modelById[pick.default]?.name || pick.default }}</b>…</p>
+        <p class="lu-qs-applying">Setting your default model and loading <b>{{ modelById[pick.default]?.name || pick.default }}</b>…</p>
         <p class="lu-muted">{{ applyDetail || "working…" }}</p>
       </template>
 
@@ -339,12 +369,10 @@ defineExpose({ openWizard });
       <template v-else-if="step === 'done'">
         <p><b>Setup applied.</b></p>
         <ul class="lu-qs-summary">
-          <li>Default · <code>{{ modelById[pick.default]?.name || pick.default }}</code></li>
-          <template v-for="j in jobs" :key="j.id">
-            <li v-if="pick[j.id]">{{ j.label }} · <code>{{ modelById[pick[j.id]]?.name || pick[j.id] }}</code></li>
-          </template>
+          <li>Default model · <code>{{ modelById[pick.default]?.name || pick.default }}</code></li>
+          <li v-if="pick.embeddingModel">Embedding · <code>{{ embedName }}</code></li>
         </ul>
-        <p class="lu-muted">Tune any of this per feature in the Features tab.</p>
+        <p class="lu-muted">Change the model for any single task on the Tasks tab.</p>
       </template>
 
       <template #footer>

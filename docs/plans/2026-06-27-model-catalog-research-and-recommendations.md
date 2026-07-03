@@ -63,13 +63,17 @@ Each fit-gated so only capable rigs see it. Permissive licenses first.
 ### WORKSTATION tier (128 GB+ RAM / multi-GPU — document, seed on request)
 GLM-4.6 (355B, MIT — 24 GB + 128 GB RAM @ ~5 t/s, or 40 GB GPU + 205 GB RAM) · Llama 4 Maverick (402B — 2×48 GB) · DeepSeek V4-Flash (284B/13B — 128 GB+) · Mistral Large 123B (~75 GB Q4 — Mistral **Research** License, non-commercial, flag) · Llama 3.3 70B (~42 GB Q4). These are real and verified; they're aspirational/heavy, so list them as an opt-in "workstation" group rather than default downloads.
 
-### Embeddings (the RAG layer, separate from the 4 jobs)
+### Embeddings (the RAG layer — the `embed` function, separate from the 4 JW jobs)
 `nomic-embed-text` (local default, ~274 MB, CPU-fine, Apache-2.0); bge-m3 / Qwen3-Embedding stronger. Seed when RAG/"Ask the book" lands. (R1 — embeddings need a local default too.)
 
 ---
 
 ## Per-job × per-tier routing matrix — COMPLETE (no blank cells)
 Reconciled from a 3-reviewer panel (quality-max · fit/license · end-user-sensible). **Every cell has a pick** — a bigger tier either upgrades the model or repeats the best one that fits ("(same)"), never "nothing". `+RAM` = MoE, RAM-gated (runs on a small card via `--n-cpu-moe`). Extraction/attribution = **thinking-OFF** when emitting JSON.
+
+> **⛔ RECONCILIATION (2026-07-03, GGUF-grounded-model-layer Phase 6) — "the 4 jobs" (above) vs this 5-row matrix.** The 5 rows are the **4 JustWrite functions** — **chat · prose · extract · analysis** — **plus Attribution**, which is a **JustVoice** task (`speaker_attribution`): JW's `CLAUDE.md` bans speaker analysis here, and the attribution feature lives in JV §G / Part 3.3. So in the current app JW routes **4 functions + `embed`** — exactly the Phase-4 Models-grid columns `chat/prose/extract/analysis/embed` (with a per-app `other` bucket, `seed.py` `function_of()`); the **Attribution** row informs **JV** only (JW would map it to `other`). That resolves the "4 vs 5" wording: the embeddings note above counts the 4 JW jobs; this matrix adds the 5th, JV, row.
+>
+> **⚠️ These per-tier picks are a 3-reviewer panel + user reasoning, NOT measured benchmarks.** Each cell is an extrapolation from size/architecture/license, not a per-tier tok/s or per-task quality run (**#28** — measured per-tier benchmarks + per-task recs still needs a GPU; open). The path to ground them per-machine now exists and shipped: **Tune & measure → Tasks Lab handoff** (Phase 5 of `2026-07-02-gguf-grounded-model-layer.md`, 2026-07-03) — load a model with the tuned switches, measure real tok/s on your box, then **Send to Tasks Lab** to save the winning config as the task's preset. Until measured, treat every cell here as a reasoned default, not a benchmark. (This same matrix is folded into `2026-06-28-MASTER-PLAN.md` §3.1 / the Part-3 catalog research — the two are consistent; both are historical background.)
 
 | Job | CPU-only (32 GB RAM) | 8 GB+32 GB (floor) | 12 GB | 16 GB | 24 GB | 32 GB | 64 GB RAM | 96 GB RAM | 128 GB+ workstation |
 |---|---|---|---|---|---|---|---|---|---|

@@ -294,9 +294,13 @@ build → P1f MUST, after `POST /models/load`, POLL `GET /models` until `data[].
 (the OOM / fit-abort surfaces HERE, not in the POST's HTTP code); the router OOM back-off (`_router_load_with_backoff`) must
 key off `status==failed`, NOT the raise.** As-built P1d sets `running` immediately on the 200 and would never fire the
 back-off on an async OOM — the flagged risk, now confirmed (not a crash: `status()` is just optimistic for the ~load-time
-window until P1f adds the poll). Still to eyeball on the box (refines the poll, doesn't change the async verdict):
-`chatmoetoobig` (35B @ ngl 999) → 200 then `status.value==failed`; `chatmoe` → `loading`→`loaded`. Unknown #1 (`.ini`
-hot-read) still pending.
+window until P1f adds the poll). ALSO observed on the box: an unknown id → **404 sync**; a repeat / at-`models-max` load of
+`chatmoetoobig` → **HTTP 400 sync** (body `{"success":true}`, ignore) — so the router CAN reject a load with a 4xx.
+**→ FINAL P1f LOAD SPEC (box-grounded):** `_router_load` treats any NON-2xx POST as an immediate failure; on a **2xx
+accept**, `_run_load` POLLS `GET /models` (`data[]` where `id==model_id`) until `status.value` is `loaded` (success) or
+`failed`/`unloaded` (error → the OOM back-off) or a timeout (error). The exact settled word for an OOM'd child (`failed`
+vs `unloaded`) is a 1-curl confirm during P1f dev — the poll handles both. Unknown #1 (`.ini` hot-read) is also a P1f-dev
+curl (re-emit a new section, load its id → 404 = needs the `_bounce_router` path, load-OK = hot-read).
 
 **AS-BUILT DEVIATIONS from the spec above (folded from the rules-checker, 2026-07-04 — recorded so spec≠code drift is not silent):**
 - **`GET /models` reconciliation DEFERRED to P1f** → rows 4 & 18 are PARTIAL. The spec's `_default_router_models` client +

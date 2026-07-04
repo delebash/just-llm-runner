@@ -155,6 +155,31 @@ DEFAULT_CATALOG: list[dict] = [
      "min_vram_mb": 1000, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 10,
      "pooling": "mean",
      "quality_rank": 100, "description": "Local embedding model (~137M) — builds the RAG / semantic-search index; CPU-fine. (The embed model, not an LLM pick.)"},
+    # Box-tested tier ladder (2026-07-04, user's own box; feeds model-surface #104) — the DENSE
+    # picks the existing high tier lacks (it is MoE-heavy): dense beats MoE on time-to-first-token
+    # for prompt-heavy work. Qwen3-72B was dropped (not an official Qwen model; only community
+    # upscales exist). HF repos web-verified 2026-07-04 (upstream-audit rule).
+    {"id": "gemma-4-12b-q8_0", "name": "Gemma 4 12B · Q8_0",
+     "hf_repo": "unsloth/gemma-4-12b-it-GGUF", "quant": "Q8_0", "total_params": "12B",
+     "min_ram_mb": 16000, "min_vram_mb": 13000, "tier": "high", "license": "Apache-2.0", "position": 11,
+     "quality_rank": 26, "description": "Gemma 4 12B at Q8_0 — higher-fidelity weights than the Q4; a full-GPU pick for a ~14 GB card (box-tested tier ladder)."},
+    {"id": "qwen3-32b-q4_k_m", "name": "Qwen3 32B · Q4_K_M",
+     "hf_repo": "Qwen/Qwen3-32B-GGUF", "quant": "Q4_K_M", "total_params": "32B",
+     "min_ram_mb": 24000, "min_vram_mb": 20000, "tier": "high", "license": "Apache-2.0", "position": 12,
+     "quality_rank": 14, "description": "Qwen3 32B dense — strong reasoning + prose that runs fully on a ~20 GB GPU; box-tested for prompt-heavy work (dense beats MoE on time-to-first-token)."},
+    {"id": "llama-3.1-70b-q3_k_m", "name": "Llama 3.1 70B Instruct · Q3_K_M",
+     "hf_repo": "bartowski/Meta-Llama-3.1-70B-Instruct-GGUF", "quant": "Q3_K_M", "total_params": "70B",
+     "min_ram_mb": 40000, "min_vram_mb": 32000, "tier": "high-ram", "license": "Llama-Community", "position": 13,
+     "quality_rank": 16, "description": "Llama 3.1 70B dense (Q3_K_M, ~34 GB) — a dense 70B for a ~32 GB rig (box-tested); use-limited Llama license (never an auto-default)."},
+    {"id": "llama-3.1-70b-q6_k", "name": "Llama 3.1 70B Instruct · Q6_K",
+     "hf_repo": "bartowski/Meta-Llama-3.1-70B-Instruct-GGUF", "quant": "Q6_K", "total_params": "70B",
+     "min_ram_mb": 64000, "min_vram_mb": 58000, "tier": "high-ram", "license": "Llama-Community", "position": 14,
+     "quality_rank": 13, "description": "Llama 3.1 70B dense (Q6_K, ~58 GB, split GGUF) — near-lossless dense 70B for a 64 GB rig (box-tested); use-limited Llama license."},
+    {"id": "qwen3-embedding-0.6b", "name": "Qwen3 Embedding 0.6B",
+     "hf_repo": "Qwen/Qwen3-Embedding-0.6B-GGUF", "quant": "Q8_0", "total_params": "0.6B",
+     "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 15,
+     "pooling": "last",
+     "quality_rank": 100, "description": "Qwen3 Embedding 0.6B — the default local embedding model (stronger multilingual / MTEB than nomic, still tiny ~0.6 GB); LAST-token pooling. Builds the RAG / semantic-search index."},
 ]
 
 # (Per-model switch overrides — the `model_switches` table — were DROPPED: the
@@ -610,7 +635,7 @@ def seed_default_knobs(s) -> int:
 
 def seed_default_routing(s) -> bool:
     """Seed the live routing row (id='active') if missing. The default EMBEDDING points at the bundled
-    llama.cpp runner (`local-llamacpp`) + the co-resident nomic embed (P3) so local RAG works out of
+    llama.cpp runner (`local-llamacpp`) + the co-resident qwen3-embedding-0.6b embed (P3; #120 made it the default over nomic) so local RAG works out of
     the box — the runner pins that model resident and serves /v1/embeddings for it by id. The default
     LLM stays the local OpenAI-compatible provider (Ollama); repointing the LLM default at the bundled
     runner is model-surface #107's QuickSetup scope, not P3. Idempotent (fresh installs only — an
@@ -620,7 +645,7 @@ def seed_default_routing(s) -> bool:
     s.add(db.RoutingConfigRow(id="active", is_active=True, position=0,
                               default_llm_id="openai-compat-local",
                               default_embedding_id="local-llamacpp",
-                              default_embedding_model="nomic-embed-text"))
+                              default_embedding_model="qwen3-embedding-0.6b"))
     return True
 
 

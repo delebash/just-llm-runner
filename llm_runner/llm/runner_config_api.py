@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Edit the bundled llama.cpp engine config — the per-(platform, gpu) download
-URLs, the pinned build, and the VRAM safety margin. Config is data (DB-backed,
-seeded), so if a release asset ever moves/renames the user can paste the
-corrected URL from the llama.cpp releases page with no code change. GET/PUT +
-reset on `/v1/ai/engine-config`.
+URLs, the pinned build, the VRAM safety margin, and the two router residency
+knobs (`models_max` = how many models stay co-resident; `sleep_idle_seconds` =
+the idle-unload TTL, 0 = never). Config is data (DB-backed, seeded), so if a
+release asset ever moves/renames the user can paste the corrected URL from the
+llama.cpp releases page with no code change. GET/PUT + reset on
+`/v1/ai/engine-config`.
 
 The GET serves the same data as the runner's read-only `/v1/llm-runner/config`
 (flattened for the editor); the runner reads its live config from the same DB
@@ -30,12 +32,16 @@ class RunnerBinaryRow(BaseModel):
 class EngineConfig(BaseModel):
     pinnedBuild: str
     safetyMarginMb: int
+    modelsMax: int          # router: how many models may stay co-resident (>= 1)
+    sleepIdleSeconds: int   # router: idle-unload TTL in seconds (0 = never)
     binaries: list[RunnerBinaryRow]
 
 
 class EngineConfigUpdate(BaseModel):
     pinnedBuild: str | None = None
     safetyMarginMb: int | None = None
+    modelsMax: int | None = None
+    sleepIdleSeconds: int | None = None
     binaries: list[RunnerBinaryRow] | None = None   # each upserted by (platform, gpu)
 
 
@@ -44,7 +50,7 @@ class RunnerConfigStore(Protocol):
 
     def get_config(self) -> EngineConfig: ...
     def upsert_binary(self, row: RunnerBinaryRow) -> None: ...      # by (platform, gpu)
-    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb
+    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | models_max | sleep_idle_seconds
     def reset_to_defaults(self) -> None: ...
 
 
@@ -65,6 +71,10 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             store.set_setting("pinned_build", pb)
         if body.safetyMarginMb is not None:
             store.set_setting("safety_margin_mb", str(int(body.safetyMarginMb)))
+        if body.modelsMax is not None:
+            store.set_setting("models_max", str(max(1, int(body.modelsMax))))
+        if body.sleepIdleSeconds is not None:
+            store.set_setting("sleep_idle_seconds", str(max(0, int(body.sleepIdleSeconds))))
         for row in body.binaries or []:
             if not row.platform.strip() or not row.gpu.strip():
                 raise HTTPException(status_code=400, detail="each binary needs platform + gpu")

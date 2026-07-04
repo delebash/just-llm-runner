@@ -809,6 +809,8 @@ class RunnerConfigStore:
         return EngineConfig(
             pinnedBuild=cfg.llamacpp.pinned_build,
             safetyMarginMb=cfg.safety_margin_mb,
+            modelsMax=cfg.models_max,
+            sleepIdleSeconds=cfg.sleep_idle_seconds,
             binaries=[_runner_binary_to_row(b) for b in cfg.llamacpp.binaries],
         )
 
@@ -843,9 +845,16 @@ class RunnerConfigStore:
             s.close()
 
     def reset_to_defaults(self) -> None:
-        """Restore the shipped binary rows (corrected URLs) + the two scalar
-        settings to their seed defaults; user-added custom rows are preserved."""
-        from ..runner.config import DEFAULT_BINARIES, DEFAULT_PINNED_BUILD, DEFAULT_SAFETY_MARGIN_MB
+        """Restore the shipped binary rows (corrected URLs) + the scalar settings
+        (pinned build, VRAM margin, and the two router residency knobs) to their
+        seed defaults; user-added custom rows are preserved."""
+        from ..runner.config import (
+            DEFAULT_BINARIES,
+            DEFAULT_MODELS_MAX,
+            DEFAULT_PINNED_BUILD,
+            DEFAULT_SAFETY_MARGIN_MB,
+            DEFAULT_SLEEP_IDLE_SECONDS,
+        )
         from . import seed
         s = db.session()
         try:
@@ -856,7 +865,9 @@ class RunnerConfigStore:
             s.flush()
             seed.seed_default_runner_binaries(s)
             for key, val in (("pinned_build", DEFAULT_PINNED_BUILD),
-                             ("safety_margin_mb", str(DEFAULT_SAFETY_MARGIN_MB))):
+                             ("safety_margin_mb", str(DEFAULT_SAFETY_MARGIN_MB)),
+                             ("models_max", str(DEFAULT_MODELS_MAX)),
+                             ("sleep_idle_seconds", str(DEFAULT_SLEEP_IDLE_SECONDS))):
                 existing = s.get(db.RunnerSetting, key)
                 if existing is None:
                     existing = db.RunnerSetting(key=key, built_in=True)

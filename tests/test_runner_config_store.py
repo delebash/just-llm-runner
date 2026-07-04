@@ -5,11 +5,13 @@ get / upsert / set-setting / reset round-trip over an in-memory DB."""
 from __future__ import annotations
 
 import sqlalchemy as sa
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from llm_runner.llm import db, seed, stores
-from llm_runner.llm.runner_config_api import RunnerBinaryRow
+from llm_runner.llm.runner_config_api import RunnerBinaryRow, make_runner_config_router
 
 
 def _fresh_db():
@@ -93,3 +95,71 @@ def test_build_runner_config_reads_edited_router_knobs():
     cfg = stores.build_runner_config()
     assert cfg.models_max == 4
     assert cfg.sleep_idle_seconds == 0
+
+
+# ── 4a: the two router knobs are readable + editable via /v1/ai/engine-config ──
+
+def _engine_config_client():
+    # Mount the shared engine-config editor over the (already-seeded) in-memory DB;
+    # get_store() resolves to the same global session factory _fresh_db configured.
+    app = FastAPI()
+    app.include_router(make_runner_config_router(stores.get_runner_config_store))
+    return TestClient(app)
+
+
+def test_get_config_exposes_router_knobs():
+    # The EngineConfig wire model (what the 4a resident-view UI reads) surfaces the two
+    # knobs from the seeded runner_setting rows.
+    _fresh_db()
+    cfg = stores.get_runner_config_store().get_config()
+    assert cfg.modelsMax == seed.DEFAULT_MODELS_MAX
+    assert cfg.sleepIdleSeconds == seed.DEFAULT_SLEEP_IDLE_SECONDS
+
+
+def test_engine_config_put_persists_router_knobs():
+    _fresh_db()
+    r = _engine_config_client().put(
+        "/v1/ai/engine-config", json={"modelsMax": 3, "sleepIdleSeconds": 120}
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["modelsMax"] == 3 and body["sleepIdleSeconds"] == 120
+    # …and it reaches the runner's live config (the service reads the same rows).
+    cfg = stores.build_runner_config()
+    assert cfg.models_max == 3 and cfg.sleep_idle_seconds == 120
+
+
+def test_engine_config_put_clamps_models_max_and_allows_zero_ttl():
+    # models_max < 1 is nonsensical (at least one model must stay resident) → clamp to 1;
+    # sleep_idle_seconds = 0 is VALID (disables the idle-unload TTL) → preserved, not coerced.
+    _fresh_db()
+    body = _engine_config_client().put(
+        "/v1/ai/engine-config", json={"modelsMax": 0, "sleepIdleSeconds": 0}
+    ).json()
+    assert body["modelsMax"] == 1        # clamped up
+    assert body["sleepIdleSeconds"] == 0  # zero preserved
+
+
+def test_engine_config_put_knobs_only_does_not_clobber_binaries_or_build():
+    # T3 build-guard: a partial PUT of just the two knobs must leave pinnedBuild +
+    # binaries + safetyMarginMb untouched (EngineConfigUpdate is all-optional).
+    _fresh_db()
+    client = _engine_config_client()
+    before = client.get("/v1/ai/engine-config").json()
+    client.put("/v1/ai/engine-config", json={"modelsMax": 4})
+    after = client.get("/v1/ai/engine-config").json()
+    assert after["pinnedBuild"] == before["pinnedBuild"]
+    assert len(after["binaries"]) == len(before["binaries"])
+    assert after["safetyMarginMb"] == before["safetyMarginMb"]
+    assert after["modelsMax"] == 4
+
+
+def test_reset_restores_router_knobs():
+    _fresh_db()
+    store = stores.get_runner_config_store()
+    store.set_setting("models_max", "7")
+    store.set_setting("sleep_idle_seconds", "30")
+    store.reset_to_defaults()
+    cfg = store.get_config()
+    assert cfg.modelsMax == seed.DEFAULT_MODELS_MAX
+    assert cfg.sleepIdleSeconds == seed.DEFAULT_SLEEP_IDLE_SECONDS

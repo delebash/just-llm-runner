@@ -9,9 +9,13 @@
 > 1a–1c DONE + tested — shared `overrides_to_pairs`/`render_argv`/`render_ini` (`compose_flags` refactored onto
 > it, behavior-preserving), `emit_models_ini` (+ `ModelIniEntry`), `compose_router_argv`; ruff + 230 pytest green
 > (rules-checker flagged a T5 coverage gap on the context_shift/spec/extra-flag branches → tests added + the
-> `extra_flags` negative-value edge fixed; re-checked PASS). **1d/1e IN PROGRESS** — the per-method strict-diff (panel T5
-> artifact) is written below (§"P1d/P1e build spec") and committed; implementing the `RunnerService`→router refactor
-> + the two `RunnerConfig` knobs next.**
+> `extra_flags` negative-value edge fixed; re-checked PASS). **1d/1e DONE** — the `RunnerService`→router refactor (lazy `_router` +
+> `_resident` set · DB→`.ini` emission · re-homed measure/tokenize · router OOM back-off · Option-A Lab tuning) + the two
+> `RunnerConfig` knobs; ruff clean, 238 pytest. A rules-checker FAILED the first cut (T1 stop-during-load ghost race · T3
+> Runner/RouterHandle + is_cached duplication · T5 the `GET /models` reconciliation dropped-but-unflagged) → ALL folded
+> (cancellation re-check + a race test · `_ServerHandle` base + `is_cached` delegate · deviations + the synchronous-load
+> assumption recorded in §"AS-BUILT DEVIATIONS" + runtime-unknown #2). NEXT: P1f (api resident-set + `/resident` + the
+> deferred `GET /models` poll) then P1g (box-verify router flags + sync-load).**
 > **Hardened by a 3-checker rules panel 2026-07-04** (architecture-fit · reuse · grounding) — grounding PASS (all
 > citations verified accurate), the two FAIL findings folded in full (see "Panel review" §). The approach (router
 > mode + thin arbiter + DB→`.ini`) is unchanged and design-approved; the panel fixed the plan's *specification*.
@@ -262,10 +266,38 @@ overrides/switches (→ row 18, `ov` folds into the entry = Option A ephemeral s
 `sleep_idle_seconds: int = 900` to `RunnerConfig` (`schema.py:115-121`); seed (`seed.py:201-204`); read in
 `build_runner_config` (`stores.py:916-945`). Ownership: DB = the CAP; the arbiter (P2) works WITHIN it.
 
-**THE P1d runtime unknown (cannot run the router in-container — GitHub egress blocked):** does the router HOT-READ a
-re-emitted `.ini` on `/models/load` (a new/changed section), or need a restart? Design §8.2: "design for re-emit +
-reload regardless." Implemented as re-emit+reload with a `_bounce_router()` fallback on unknown-model. Also to confirm on
-the box: `/tokenize` + `/v1/chat/completions` honour the body `"model"` field in router mode. → **user's-box verify (P1g).**
+**THE P1d runtime unknowns (cannot run the router in-container — GitHub egress blocked → P1g box-verify):**
+1. Does the router HOT-READ a re-emitted `.ini` on `/models/load` (a new/changed section), or need a restart? Design §8.2:
+   "design for re-emit + reload regardless." Implemented as re-emit + reload with a `_bounce_router()` fallback on a
+   changed `.ini` (correct either way).
+2. **Does `POST /models/load` BLOCK until the child is loaded and return non-2xx on a CUDA-OOM abort?** P1d's
+   load-confirmation + the router OOM back-off (row 18) ASSUME it does — `_default_router_load` raises on HTTP ≥400 and the
+   back-off sniffs `_looks_like_oom(exc / router-log)`. If instead the router returns 200 then loads/OOMs ASYNC, the
+   back-off won't fire and a dead child would report `running`. If the box shows async, add a `GET /models` poll (the
+   deferred `_router_models`, see AS-BUILT) in P1f to confirm `loaded` / detect `failed`.
+3. `/tokenize` + `/v1/chat/completions` honour the body `"model"` field in router mode.
+
+**AS-BUILT DEVIATIONS from the spec above (folded from the rules-checker, 2026-07-04 — recorded so spec≠code drift is not silent):**
+- **`GET /models` reconciliation DEFERRED to P1f** → rows 4 & 18 are PARTIAL. The spec's `_default_router_models` client +
+  the `status()`/`_run_load` `/models` polling are NOT in P1d — the exact `GET /models` JSON shape is a box-unknown (rule
+  #7: don't parse an unverified schema). As-built: `status()` reconciles with `_router.is_alive()` + `_resident`
+  (back-compat single-model), and `_run_load` confirms the load via the SYNCHRONOUS `POST /models/load` raise (unknown #2
+  above). Only `_default_router_load` / `_default_router_unload` ship in P1d.
+- **`_ini_ids` REMOVED** — change-detection uses a whole-`.ini`-text compare (`_last_ini_text`); the id set was write-only.
+  `_load_via_router` bounces iff the rendered `.ini` text changed (catalog-stable order → a no-override co-resident load is
+  a no-op, no bounce).
+- **`_run_load` control flow** consolidated into `_load_via_router` (spawn-if-down / bounce-if-changed / load) +
+  `_router_load_with_backoff`; no separate `_ensure_router()` (folded into `_load_via_router` + `_spawn_router`).
+- **`start=`/`self._start` REMOVED** (start_runner no longer used by the service; kept in `process.py` for
+  standalone/tests). Injected test seams: `_start_router` / `_router_load` / `_router_unload` (no `_router_models`).
+- **status vocabulary = `downloading | starting | running | error`** (the single-model runner's words, so
+  `api.py._status_for` maps UNCHANGED); measure/tokenize require `status=='running'`.
+- **Concurrency (T1 fix)** — `_lock` guards the resident-set queue; `_router_lock` serializes router process ops and is
+  held by BOTH `stop()` and `_run_load`'s router section, so a `stop()` during a load's (unlocked) download is caught by a
+  cancellation re-check (`if model_id not in _resident: return`) BEFORE any spawn — no ghost router. Covered by
+  `test_stop_during_load_leaves_no_ghost`.
+- **T3 fixes** — `Runner` + `RouterHandle` share a `_ServerHandle` base (is_alive/health/stop, one source); `is_cached`
+  delegates to `cached_gguf_path`.
 
 ## Panel review (2026-07-04) — findings folded (transparency)
 A 3-checker rules panel (architecture-fit · reuse · grounding) reviewed the first draft. **Grounding: PASS** —

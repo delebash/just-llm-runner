@@ -13,7 +13,13 @@ clobber user edits (the `seed_default_providers` pattern).
 from __future__ import annotations
 
 from . import db
-from ..runner.config import DEFAULT_BINARIES, DEFAULT_PINNED_BUILD, DEFAULT_SAFETY_MARGIN_MB
+from ..runner.config import (
+    DEFAULT_BINARIES,
+    DEFAULT_MODELS_MAX,
+    DEFAULT_PINNED_BUILD,
+    DEFAULT_SAFETY_MARGIN_MB,
+    DEFAULT_SLEEP_IDLE_SECONDS,
+)
 
 # ── per-app registration (the ONLY per-app inputs) ────────────────────────────
 _APP: dict = {"feature_catalog": [], "feature_prompts": {},
@@ -201,6 +207,9 @@ DEFAULT_TASK_KINDS: list[dict] = [
 DEFAULT_RUNNER_SETTINGS: list[dict] = [
     {"key": "pinned_build", "value": DEFAULT_PINNED_BUILD},
     {"key": "safety_margin_mb", "value": str(DEFAULT_SAFETY_MARGIN_MB)},
+    # Router mode (P1e): DB-editable co-resident cap + idle-unload TTL.
+    {"key": "models_max", "value": str(DEFAULT_MODELS_MAX)},
+    {"key": "sleep_idle_seconds", "value": str(DEFAULT_SLEEP_IDLE_SECONDS)},
 ]
 
 # Knob catalog — metadata that turns a raw switch/sampler key into a friendly

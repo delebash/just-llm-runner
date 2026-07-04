@@ -387,13 +387,14 @@ def _kill(proc) -> None:
 
 
 @dataclass
-class Runner:
-    """A live llama-server process (OpenAI-compatible at `url`)."""
+class _ServerHandle:
+    """A live llama-server process (OpenAI-compatible at `url`) — the ONE
+    process-handle surface (`is_alive`/`health`/`stop`) shared by the single-model
+    `Runner` and the multi-model `RouterHandle` (so the aliveness/health/terminate
+    logic has a single source)."""
 
     process: object
     url: str
-    n_gpu_layers: int
-    n_cpu_moe: int
 
     def is_alive(self) -> bool:
         return self.process.poll() is None
@@ -406,6 +407,24 @@ class Runner:
             self.process.terminate()
         except Exception:  # noqa: BLE001
             pass
+
+
+@dataclass
+class Runner(_ServerHandle):
+    """A single-model `llama-server` spawn — the shared handle surface + the
+    resolved GPU split it was launched with."""
+
+    n_gpu_layers: int
+    n_cpu_moe: int
+
+
+@dataclass
+class RouterHandle(_ServerHandle):
+    """A `llama-server` in ROUTER mode (multi-model; routes by model id). Distinct from
+    `Runner` (a single-model spawn): the router owns N child servers, so it carries no
+    per-model ngl/offload — those live per section in the emitted `.ini`. It is exactly
+    the shared `_ServerHandle` surface, so the service treats router and single-model
+    spawns uniformly."""
 
 
 def _wait_until_healthy(proc, url, timeout, health, sleep, now) -> bool:
@@ -493,6 +512,65 @@ def start_runner(
                 f"llama-server failed to become healthy (ngl={n_gpu}, {status}): "
                 f"{output[-1000:]}{where}"
             )
+    finally:
+        if logf is not None:
+            logf.close()
+
+
+def start_router(
+    server_exe: Path | str,
+    *,
+    models_dir: Path | str,
+    models_preset: Path | str,
+    models_max: int = 2,
+    sleep_idle_seconds: int | None = None,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    log_path: Path | str | None = None,
+    probe_timeout: float = 60.0,
+    _popen: Callable | None = None,
+    _health: Callable[[str], bool] | None = None,
+    _sleep: Callable[[float], None] = time.sleep,
+    _now: Callable[[], float] = time.monotonic,
+) -> RouterHandle:
+    """Spawn llama-server in ROUTER mode (no `-m`; it loads models by id from the
+    `--models-preset` `.ini`) and wait for `/health`.
+
+    Unlike `start_runner` there is **NO OOM back-off here** — the router process
+    itself loads no weights; each CHILD fits independently from its `.ini` section, so
+    a child's CUDA-OOM is recovered at the SERVICE level (re-emit that model's section
+    at a lower `ngl` + reload), not by shedding layers on the router. Raises
+    `RunnerStartError` if the router never becomes healthy. `_popen`/`_health`/`_sleep`/
+    `_now` are test injection points (the router spawn is not runnable in CI)."""
+    popen = _popen or subprocess.Popen
+    health = _health or _default_health
+    url = f"http://{host}:{port}"
+    argv = compose_router_argv(
+        models_dir=models_dir, models_preset=models_preset, models_max=models_max,
+        sleep_idle_seconds=sleep_idle_seconds, host=host, port=port,
+    )
+    if log_path:
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    logf = open(log_path, "wb") if log_path else None
+    try:
+        log.info("spawning llama-server router: models_max=%d sleep_idle=%s", models_max, sleep_idle_seconds)
+        if logf is not None:
+            proc = popen([str(server_exe), *argv], stdout=logf, stderr=subprocess.STDOUT)
+        else:
+            proc = popen(
+                [str(server_exe), *argv],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            )
+        if _wait_until_healthy(proc, url, probe_timeout, health, _sleep, _now):
+            return RouterHandle(process=proc, url=url)
+        rc = proc.poll()
+        output = _tail_file(log_path) if log_path else _drain(proc)
+        _kill(proc)
+        status = "still running, killed on timeout" if rc is None else f"exit {rc}"
+        where = f"  [log: {log_path}]" if log_path else ""
+        raise RunnerStartError(
+            f"llama-server router failed to become healthy ({status}): {output[-1000:]}{where}"
+        )
     finally:
         if logf is not None:
             logf.close()

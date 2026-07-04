@@ -119,6 +119,11 @@ class RunnerConfig(CamelModel):
 
     llamacpp: LlamacppSpec
     safety_margin_mb: int = 1024
+    # Router mode (P1e): count-based co-resident cap (`--models-max`) + native
+    # idle-unload TTL in seconds (`--sleep-idle-seconds`; 0 disables). DB-editable;
+    # the arbiter (P2) works WITHIN models_max.
+    models_max: int = 2
+    sleep_idle_seconds: int = 900
 
 
 # ─── Model catalog view (GET /v1/llm-runner/models) ─────────────────────

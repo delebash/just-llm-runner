@@ -70,3 +70,26 @@ def test_reset_restores_shipped_and_keeps_custom():
     assert "cuda-12.4" in cuda.assetUrl          # shipped URL restored
     assert cfg.pinnedBuild == seed.DEFAULT_PINNED_BUILD  # setting restored
     assert any(b.gpu == "custom" for b in cfg.binaries)  # custom row preserved
+
+
+# ── P1e: the router knobs (models_max + sleep_idle_seconds) the service reads ──
+
+def test_build_runner_config_reads_seeded_router_knobs():
+    # build_runner_config is the runner service's config_fn; it must surface the two
+    # router knobs from the seeded runner_setting rows (with the shipped defaults).
+    _fresh_db()
+    cfg = stores.build_runner_config()
+    assert cfg.models_max == seed.DEFAULT_MODELS_MAX
+    assert cfg.sleep_idle_seconds == seed.DEFAULT_SLEEP_IDLE_SECONDS
+
+
+def test_build_runner_config_reads_edited_router_knobs():
+    # DB is the source of truth: an edited models_max / sleep_idle_seconds flows through.
+    # sleep_idle_seconds = 0 (disable the TTL) must be PRESERVED, not coerced to a default.
+    _fresh_db()
+    store = stores.get_runner_config_store()
+    store.set_setting("models_max", "4")
+    store.set_setting("sleep_idle_seconds", "0")
+    cfg = stores.build_runner_config()
+    assert cfg.models_max == 4
+    assert cfg.sleep_idle_seconds == 0

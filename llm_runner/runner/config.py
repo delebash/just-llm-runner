@@ -27,6 +27,14 @@ DEFAULT_PINNED_BUILD = "b9644"
 # Reserve this much VRAM headroom when computing the GPU layer split.
 DEFAULT_SAFETY_MARGIN_MB = 1024
 
+# Router mode (P1e): the count-based co-resident cap (`--models-max`; the arbiter
+# works WITHIN it) and the native idle-unload TTL (`--sleep-idle-seconds`; 0 =
+# never sleep). DB-editable via runner_setting; these are the standalone/seed
+# defaults. models_max=2 keeps a chat model + a tiny embed co-resident on a small
+# card; sleep_idle=900 s keeps the active model warm through normal writing pauses.
+DEFAULT_MODELS_MAX = 2
+DEFAULT_SLEEP_IDLE_SECONDS = 900
+
 # Prebuilt llama-server distributions, selected by (platform, gpu). We never
 # install a CUDA toolkit — we only DETECT the system and pick the matching
 # prebuilt build; the Windows CUDA builds additionally need the separate cudart
@@ -85,4 +93,6 @@ def default_config() -> RunnerConfig:
             binaries=[BinaryAsset(**b) for b in DEFAULT_BINARIES],
         ),
         safety_margin_mb=DEFAULT_SAFETY_MARGIN_MB,
+        models_max=DEFAULT_MODELS_MAX,
+        sleep_idle_seconds=DEFAULT_SLEEP_IDLE_SECONDS,
     )

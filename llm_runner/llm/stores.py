@@ -918,7 +918,13 @@ def build_runner_config():
     runner_setting) — the host-side replacement for the old runner-manifest.json.
     Wired into the runner service as its `config_fn` by install_llm. Falls back to
     the runner's seed defaults if the binaries haven't been seeded yet."""
-    from ..runner.config import DEFAULT_PINNED_BUILD, DEFAULT_SAFETY_MARGIN_MB, default_config
+    from ..runner.config import (
+        DEFAULT_MODELS_MAX,
+        DEFAULT_PINNED_BUILD,
+        DEFAULT_SAFETY_MARGIN_MB,
+        DEFAULT_SLEEP_IDLE_SECONDS,
+        default_config,
+    )
     from ..runner.schema import BinaryAsset, LlamacppSpec, RunnerConfig
 
     s = db.session()
@@ -933,13 +939,18 @@ def build_runner_config():
         if not bins:
             return default_config()  # not seeded yet → the engine defaults
         settings = {r.key: r.value for r in s.query(db.RunnerSetting).all()}
-        try:
-            margin = int(settings.get("safety_margin_mb") or DEFAULT_SAFETY_MARGIN_MB)
-        except (TypeError, ValueError):
-            margin = DEFAULT_SAFETY_MARGIN_MB
+
+        def _int(key: str, default: int) -> int:
+            try:
+                return int(settings.get(key) or default)
+            except (TypeError, ValueError):
+                return default
+
         return RunnerConfig(
             llamacpp=LlamacppSpec(pinned_build=settings.get("pinned_build") or DEFAULT_PINNED_BUILD, binaries=bins),
-            safety_margin_mb=margin,
+            safety_margin_mb=_int("safety_margin_mb", DEFAULT_SAFETY_MARGIN_MB),
+            models_max=_int("models_max", DEFAULT_MODELS_MAX),
+            sleep_idle_seconds=_int("sleep_idle_seconds", DEFAULT_SLEEP_IDLE_SECONDS),
         )
     finally:
         s.close()

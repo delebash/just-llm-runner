@@ -116,18 +116,27 @@ def select_files(
 
 
 def is_cached(repo: str, quant: str, *, cache_root: Path, mmproj: str | None = None) -> bool:
-    """Offline check: is a GGUF for `quant` already in the local cache?
+    """Offline check: is a GGUF for `quant` already in the local cache? A thin wrapper
+    over `cached_gguf_path` (ONE source of the snapshot-path + match rule) — no network
+    call, cheap enough to run per-model when building the catalog. `mmproj` is accepted
+    for symmetry with `acquire_model` but a present main GGUF is what decides "downloaded"."""
+    return cached_gguf_path(repo, quant, cache_root=cache_root, mmproj=mmproj) is not None
 
-    Looks for a `*.gguf` whose name contains `quant` under any snapshot of the
-    repo's cache dir — no network call, so it's cheap enough to run per-model
-    when building the catalog. (Mirrors `_main_gguf`'s match; `mmproj` is
-    accepted for symmetry with `acquire_model` but a present main GGUF is what
-    decides "downloaded".)"""
+
+def cached_gguf_path(
+    repo: str, quant: str, *, cache_root: Path, mmproj: str | None = None  # noqa: ARG001
+) -> Path | None:
+    """The on-disk path of a cached GGUF for `quant`, or None if not cached — the
+    path-returning sibling of `is_cached` (SAME match rule, no network call). Lets the
+    router `.ini` emitter reference a downloaded model's file WITHOUT re-downloading it.
+    Returns the first shard of a split model (loading it pulls the rest). `mmproj` is
+    accepted for signature symmetry with `is_cached`/`acquire_model`."""
     snapshots = Path(cache_root) / ("models--" + repo.replace("/", "--")) / "snapshots"
     if not snapshots.is_dir():
-        return False
+        return None
     q = quant.lower()
-    return any(q in p.name.lower() for p in snapshots.rglob("*.gguf"))
+    cands = sorted(p for p in snapshots.rglob("*.gguf") if q in p.name.lower())
+    return cands[0] if cands else None
 
 
 def acquire_model(

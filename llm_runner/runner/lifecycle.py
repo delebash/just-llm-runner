@@ -27,8 +27,20 @@ from .binary import acquired_server_exe, binary_dir, select_binary
 from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect
-from .models import acquire_model as _acquire_model
-from .process import Overrides, _tail_file, compute_fit, start_runner as _start_runner
+from .models import acquire_model as _acquire_model, cached_gguf_path
+from .process import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    ModelIniEntry,
+    Overrides,
+    RouterHandle,
+    _BACKOFF_STEP,
+    _looks_like_oom,
+    _tail_file,
+    compute_fit,
+    emit_models_ini,
+    start_router as _start_router,
+)
 from .schema import ModelEntry
 
 
@@ -55,15 +67,15 @@ def _default_profile_switches_fn(job_id: str) -> dict[str, str]:  # noqa: ARG001
     return {}
 
 
-def _default_measure_probe(url: str, prompt: str, max_tokens: int) -> tuple[int, float]:
+def _default_measure_probe(url: str, prompt: str, max_tokens: int, model_id: str = "") -> tuple[int, float]:
     """POST a fixed prompt to the running llama-server → (completion_tokens,
-    decode_ms). A real network call to the live model — injected in tests."""
+    decode_ms). In router mode the body carries `"model"` so the router dispatches to
+    the right resident child. A real network call to the live model — injected in tests."""
+    body: dict = {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "stream": False}
+    if model_id:
+        body["model"] = model_id
     t0 = time.monotonic()
-    resp = requests.post(
-        url.rstrip("/") + "/v1/chat/completions",
-        json={"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "stream": False},
-        timeout=120,
-    )
+    resp = requests.post(url.rstrip("/") + "/v1/chat/completions", json=body, timeout=120)
     ms = (time.monotonic() - t0) * 1000
     resp.raise_for_status()
     usage = (resp.json() or {}).get("usage") or {}
@@ -80,13 +92,35 @@ def _default_measure_sample() -> dict:
     }
 
 
-def _default_tokenize_probe(url: str, text: str) -> int:
+def _default_tokenize_probe(url: str, text: str, model_id: str = "") -> int:
     """EXACT token count for `text` via the running llama-server's /tokenize
-    (b1/E2) — the loaded model's own tokenizer, so no client-side reimplementation.
+    (b1/E2) — the loaded model's own tokenizer, so no client-side reimplementation. In
+    router mode the body carries `"model"` so the router uses that child's tokenizer.
     A real network call; injected in tests."""
-    resp = requests.post(url.rstrip("/") + "/tokenize", json={"content": text}, timeout=30)
+    body: dict = {"content": text}
+    if model_id:
+        body["model"] = model_id
+    resp = requests.post(url.rstrip("/") + "/tokenize", json=body, timeout=30)
     resp.raise_for_status()
     return len((resp.json() or {}).get("tokens") or [])
+
+
+def _default_router_load(url: str, model_id: str) -> None:
+    """POST {url}/models/load {"model": id} — make a model resident in the router (it
+    then routes requests for that id to the freshly-spawned child). Blocks until the
+    child is loaded or the router returns an error; raises WITH the response body on
+    failure (so the caller can sniff a CUDA-OOM abort). Injected in tests."""
+    resp = requests.post(url.rstrip("/") + "/models/load", json={"model": model_id}, timeout=600)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"/models/load {model_id!r} failed [{resp.status_code}]: {resp.text[:800]}")
+
+
+def _default_router_unload(url: str, model_id: str) -> None:
+    """POST {url}/models/unload {"model": id} — free a resident model's VRAM (the
+    arbiter drives this explicitly; auto-sleep is unreliable). Injected in tests."""
+    resp = requests.post(url.rstrip("/") + "/models/unload", json={"model": model_id}, timeout=120)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"/models/unload {model_id!r} failed [{resp.status_code}]: {resp.text[:800]}")
 
 
 # Set of `Overrides` field names — used to validate switch keys at apply time
@@ -178,9 +212,18 @@ def _download_idle() -> dict:
 
 
 class RunnerService:
-    """Owns the single live llama-server + its load state.
+    """Owns the long-lived llama-server ROUTER + the resident-model set.
 
-    status ∈ idle | downloading | starting | running | error.
+    The router (spawned LAZILY on the first `load()`) keeps up to `models_max` models
+    co-resident and routes each request by its `model` id; the manager emits the
+    router's `--models-preset` `.ini` from the DB. Per-model status ∈ downloading |
+    starting | running | error (the SAME vocabulary the single-model runner used, so
+    `api.py`'s status mapping is unchanged); `status()` exposes a back-compat
+    single-model view — the full resident set is P1f.
+
+    Concurrency: `_lock` guards the fast resident-set queue mutations (load/download/
+    install guards); `_router_lock` serializes the slow router process ops (spawn /
+    bounce / emit / load) so two concurrent loads can't race the shared router.
     """
 
     def __init__(
@@ -197,7 +240,9 @@ class RunnerService:
         acquired_exe=acquired_server_exe,
         acquire_model=_acquire_model,
         read_meta=_read_gguf_metadata,
-        start=_start_runner,
+        start_router=_start_router,
+        router_load=_default_router_load,
+        router_unload=_default_router_unload,
     ):
         self._cache_root = Path(cache_root)
         self._config_fn = config_fn
@@ -210,11 +255,17 @@ class RunnerService:
         self._acquired_exe = acquired_exe
         self._acquire_model = acquire_model
         self._read_meta = read_meta
-        self._start = start
-        self._state = _idle()
+        self._start_router = start_router
+        self._router_load = router_load
+        self._router_unload = router_unload
+        # Router + resident set (replaces the single `_runner` + `_state`).
+        self._router: RouterHandle | None = None
+        self._resident: dict[str, dict] = {}   # model_id → back-compat state dict
+        self._last_id: str = ""                 # primary for the back-compat status()
+        self._last_ini_text: str = ""           # re-emit / bounce only on a real change
         self._engine_state = _engine_idle()
-        self._runner = None
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()           # resident-set queue mutations
+        self._router_lock = threading.Lock()    # serialize router spawn/bounce/emit/load
         self._thread = None
         self._engine_thread = None
         self._download_state = _download_idle()
@@ -240,10 +291,17 @@ class RunnerService:
         return self._config_fn()
 
     def status(self) -> dict:
-        # Reflect a llama-server that died after it came up.
-        if self._runner is not None and self._state["status"] == "running" and not self._runner.is_alive():
-            self._state.update(status="error", error="llama-server exited")
-        return dict(self._state)
+        """Back-compat SINGLE-model view: the primary (most-recently-loaded) model's
+        state, reconciled against a live router. The full resident-set shape lands on
+        `/v1/llm-runner/resident` in P1f. A router that died while a model was resident
+        surfaces as `error`."""
+        st = self._resident.get(self._last_id)
+        if st is None:
+            return _idle()
+        router = self._router
+        if st.get("status") == "running" and (router is None or not router.is_alive()):
+            st.update(status="error", error="llama-server router exited")
+        return dict(st)
 
     # ── Engine install — its OWN once-per-machine step, separate from loading a
     #    model (a load REQUIRES the engine present; see _run_load). ──────────────
@@ -296,16 +354,23 @@ class RunnerService:
         self, model_id: str, overrides: Overrides | None = None,
         job_id: str | None = None, switches: dict[str, str] | None = None,
     ) -> dict:
+        """Make `model_id` resident in the router (spawning the router LAZILY on the
+        first call). The in-flight guard is PER-MODEL now — loading a DIFFERENT model
+        while one is loading proceeds (co-residence within `models_max`); a second load
+        of the SAME in-flight model returns its current state. Heavy work runs on a
+        background thread (`_run_load`)."""
         with self._lock:
-            if self._state["status"] in ("downloading", "starting"):
-                return dict(self._state)  # a load is already in flight
-            self._state = {"status": "downloading", "modelId": model_id, "url": "", "detail": "queued",
-                           "error": "", "downloaded": 0, "total": 0}
+            cur = self._resident.get(model_id)
+            if cur is not None and cur.get("status") in ("downloading", "starting"):
+                return dict(cur)  # THIS model's load is already in flight
+            self._resident[model_id] = {"status": "downloading", "modelId": model_id, "url": "",
+                                        "detail": "queued", "error": "", "downloaded": 0, "total": 0}
+            self._last_id = model_id
             self._thread = threading.Thread(
                 target=self._run_load, args=(model_id, overrides or Overrides(), job_id, switches), daemon=True,
             )
             self._thread.start()
-        return dict(self._state)
+            return dict(self._resident[model_id])
 
     def download(self, model_id: str) -> dict:
         """Download a model's GGUF into the cache WITHOUT spawning it — the catalog's
@@ -328,51 +393,74 @@ class RunnerService:
         separate from the model run-state (status()) and engine install."""
         return dict(self._download_state)
 
-    def stop(self) -> dict:
-        with self._lock:
-            if self._runner is not None:
-                try:
-                    self._runner.stop()
-                except Exception:  # noqa: BLE001 — best-effort
-                    pass
-                self._runner = None
-            self._state = _idle()
-        return dict(self._state)
+    def stop(self, model_id: str | None = None) -> dict:
+        """`stop(id)` unloads ONE resident model (frees its VRAM; the router stays up for
+        the others). `stop()` (no id — the back-compat `/v1/llm-runner/stop`) is a FULL
+        teardown: unload everything and stop the router process, matching the old
+        single-model `stop()`. Held under `_router_lock` so it can't race a load's router
+        ops."""
+        with self._router_lock:
+            router = self._router
+            if model_id:
+                if router is not None and router.is_alive():
+                    try:
+                        self._router_unload(router.url, model_id)
+                    except Exception:  # noqa: BLE001 — best-effort
+                        log.warning("router unload %s failed", model_id, exc_info=True)
+                self._resident.pop(model_id, None)
+                if self._last_id == model_id:
+                    self._last_id = next(iter(self._resident), "")
+            else:
+                if router is not None:
+                    try:
+                        router.stop()
+                    except Exception:  # noqa: BLE001 — best-effort
+                        pass
+                self._router = None
+                self._resident.clear()
+                self._last_ini_text = ""
+                self._last_id = ""
+        return self.status()
 
     def measure(
         self, *, prompt: str = "Write one vivid paragraph about the sea.",
-        max_tokens: int = 128, probe=None, sample=None,
+        max_tokens: int = 128, probe=None, sample=None, model_id: str | None = None,
     ) -> dict:
-        """Probe the RUNNING model with a fixed prompt → decode tok/s + the box's
-        resource context (#20 "Tune & measure"). Requires a model running. The real
-        tok/s is GPU-gated, but the endpoint shape + timing math are not — `probe`
-        / `sample` are injected in tests."""
-        runner = self._runner
-        if runner is None or self._state.get("status") != "running":
+        """Probe a RESIDENT model with a fixed prompt → decode tok/s + the box's resource
+        context (#20 "Tune & measure"). `model_id` defaults to the primary (most-recently
+        loaded); in router mode the probe routes by that id. Requires the model resident.
+        The real tok/s is GPU-gated, but the timing math is not — `probe` / `sample` are
+        injected in tests."""
+        mid = model_id or self._last_id
+        st = self._resident.get(mid)
+        router = self._router
+        if router is None or not router.is_alive() or st is None or st.get("status") != "running":
             return {"ok": False, "error": "no model running — load one first"}
         probe = probe or _default_measure_probe
         sample = sample or _default_measure_sample
         try:
-            ct, ms = probe(runner.url, prompt, max_tokens)
+            ct, ms = probe(router.url, prompt, max_tokens, model_id=mid)
         except Exception as exc:  # noqa: BLE001 — surface the probe error, don't crash
             return {"ok": False, "error": str(exc)}
         tps = round(ct / (ms / 1000), 1) if ms > 0 and ct else 0.0
         return {
-            "ok": True, "modelId": self._state.get("modelId", ""),
+            "ok": True, "modelId": mid,
             "tokensPerSec": tps, "completionTokens": ct, "ms": round(ms, 1), **sample(),
         }
 
-    def tokenize(self, *, text: str, probe=None) -> dict:
-        """Exact token count for `text` via the RUNNING model's own tokenizer
-        (b1/E2 — the prompt-preview's exact-when-local count). Requires a model
-        running; callers fall back to a client-side heuristic otherwise. `probe`
-        injected in tests."""
-        runner = self._runner
-        if runner is None or self._state.get("status") != "running":
+    def tokenize(self, *, text: str, probe=None, model_id: str | None = None) -> dict:
+        """Exact token count for `text` via a RESIDENT model's own tokenizer (b1/E2 — the
+        prompt-preview's exact-when-local count). `model_id` defaults to the primary; the
+        router routes /tokenize by that id. Requires the model resident; callers fall back
+        to a client-side heuristic otherwise. `probe` injected in tests."""
+        mid = model_id or self._last_id
+        st = self._resident.get(mid)
+        router = self._router
+        if router is None or not router.is_alive() or st is None or st.get("status") != "running":
             return {"ok": False, "error": "no model running"}
         probe = probe or _default_tokenize_probe
         try:
-            count = probe(runner.url, text)
+            count = probe(router.url, text, model_id=mid)
         except Exception as exc:  # noqa: BLE001 — surface the probe error, don't crash
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "count": int(count)}
@@ -393,6 +481,12 @@ class RunnerService:
         safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in model_id)[:60]
         ts = time.strftime("%Y%m%d-%H%M%S")
         return self.cache_root / "llamacpp" / "logs" / f"runner-{safe}-{ts}.log"
+
+    def _router_log_path(self) -> Path:
+        """The router's merged stdout/stderr log (tailed on a failed spawn + by
+        `engine_log`; a child's CUDA-OOM abort typically surfaces here)."""
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        return self.cache_root / "llamacpp" / "logs" / f"router-{ts}.log"
 
     def _run_install(self, force: bool) -> None:
         try:
@@ -438,6 +532,16 @@ class RunnerService:
             log.warning("model type auto-detect failed for %s", model_id, exc_info=True)
         return model, gguf
 
+    def _touch(self, model_id: str, **fields) -> bool:
+        """Update a resident model's state dict IF it still exists — a concurrent stop()
+        may have dropped it, and we must NOT resurrect a cancelled entry. Returns whether
+        the model was present. Used for the out-of-`_router_lock` status writes in
+        `_run_load` (the ones inside the lock are guarded by the cancellation re-check)."""
+        st = self._resident.get(model_id)
+        if st is not None:
+            st.update(**fields)
+        return st is not None
+
     def _run_load(
         self, model_id: str, overrides: Overrides | None = None,
         job_id: str | None = None, switches: dict[str, str] | None = None,
@@ -448,46 +552,180 @@ class RunnerService:
 
             # Switch base, UNDER user-supplied overrides (user wins per-field). An
             # optional legacy `job_id` hook can REPLACE the base wholesale; normally
-            # there is no job → the model's own base/type (moe|dense) presets.
+            # there is no job → the model's own base/type (moe|dense) presets. Ad-hoc
+            # #20 "Tune & measure" switches win last (an unknown key → extra_flags via
+            # the same converter) — the Lab per-load tuning (Option A) rides in `ov`.
             base_switches = self._profile_switches_fn(job_id) if job_id else {}
             if not base_switches:
                 base_switches = self._switches_fn(model_id) or {}
-            base_ov = _switches_to_overrides(base_switches)
-            ov = _merge_overrides(base_ov, overrides)
-            # Ad-hoc #20 "Tune & measure" switches win last (an unknown key routes to
-            # extra_flags via the same converter).
+            ov = _merge_overrides(_switches_to_overrides(base_switches), overrides)
             if switches:
                 ov = _merge_overrides(ov, _switches_to_overrides(switches))
 
             def _progress(downloaded: int, total: int | None) -> None:
                 # Live byte counters the GUI polls via status() to draw a bar.
-                self._state["downloaded"] = downloaded
-                self._state["total"] = total or 0
+                self._touch(model_id, downloaded=downloaded, total=total or 0)
 
             # Engine install is its OWN step (POST /engine/install); a model load
             # REQUIRES it present — fail fast BEFORE the multi-GB download.
             server_exe = self._acquired_exe(self._cache_root, config, hardware)
             if server_exe is None:
-                self._state.update(status="error", detail="Install the engine first",
-                                   error="engine-not-installed", downloaded=0, total=0)
+                self._touch(model_id, status="error", detail="Install the engine first",
+                            error="engine-not-installed", downloaded=0, total=0)
                 return
 
-            self._state.update(detail="model weights", downloaded=0, total=0)
+            self._touch(model_id, detail="model weights", downloaded=0, total=0)
             _model, gguf = self._acquire_and_identify(model_id, _progress)
             meta = self._read_meta(gguf)
             fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
                               safety_margin_mb=config.safety_margin_mb)
+            entry = ModelIniEntry(
+                model_id=model_id, gguf_path=str(gguf), n_gpu_layers=fit.n_gpu_layers,
+                n_cpu_moe=fit.n_cpu_moe, ctx_len=fit.ctx_len, overrides=ov,
+            )
 
-            self._state.update(status="starting", detail="spawning llama-server", downloaded=0, total=0)
-            log_path = self._runner_log_path(model_id)
-            self._last_log_path = log_path
-            runner = self._start(server_exe, gguf, fit, extra_flags=ov.extra_flags,
-                                 overrides=ov, log_path=log_path)
-            self._runner = runner
-            self._state.update(status="running", url=runner.url, detail="", downloaded=0, total=0)
+            with self._router_lock:
+                # A stop() during the (slow, unlocked) download cancels this load by
+                # dropping model_id from _resident. stop() ALSO holds _router_lock, so
+                # once WE hold it the resident set is stable — re-check before spawning,
+                # else we leave a ghost router loaded for a model no one wants (a VRAM
+                # leak that status() would report as idle).
+                if model_id not in self._resident:
+                    return
+                self._resident[model_id].update(status="starting", detail="loading into VRAM",
+                                                downloaded=0, total=0)
+                self._load_via_router(entry, fit, server_exe, config)
+                self._resident[model_id].update(status="running", url=self._router.url,
+                                                detail="", error="", downloaded=0, total=0)
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
             log.exception("runner load failed")
-            self._state.update(status="error", detail="", error=str(exc), downloaded=0, total=0)
+            # A concurrent stop() may have cancelled + removed the model — don't resurrect it.
+            self._touch(model_id, status="error", detail="", error=str(exc), downloaded=0, total=0)
+
+    # ── Router: emit the .ini from the DB → spawn/bounce → load a model by id ──
+    #    All of these assume the caller holds `_router_lock` (they mutate `_router`).
+
+    def _resolve_ini_entries(self, override: ModelIniEntry | None) -> list[ModelIniEntry]:
+        """One `ModelIniEntry` per ON-DISK catalog model, IN CATALOG ORDER (a STABLE
+        `.ini` text so a co-resident load doesn't spuriously bounce — the text only
+        changes when a section's flags actually change). `override` (the model being
+        loaded) REPLACES that model's section IN PLACE so it carries this load's exact
+        fit + any Lab tuning (Option A); the rest are DB-resolved from `switches_fn`. A
+        model whose meta/fit fails is skipped, not fatal to the whole `.ini`."""
+        hardware = self._hardware_fn()
+        margin = self._config_fn().safety_margin_mb
+        hf_cache = self._cache_root / "hf"
+        entries: list[ModelIniEntry] = []
+        for m in self.catalog():
+            if override is not None and m.id == override.model_id:
+                entries.append(override)  # this load's exact section, in the model's slot
+                continue
+            gguf = cached_gguf_path(m.hf_repo, m.quant, cache_root=hf_cache, mmproj=m.mmproj)
+            if gguf is None:
+                continue  # not on disk → no section (a section needs the file for compute_fit)
+            try:
+                ov = _switches_to_overrides(self._switches_fn(m.id) or {})
+                meta = self._read_meta(gguf)
+                fit = compute_fit(meta, gguf.stat().st_size, hardware, ov, safety_margin_mb=margin)
+                entries.append(ModelIniEntry(
+                    model_id=m.id, gguf_path=str(gguf), n_gpu_layers=fit.n_gpu_layers,
+                    n_cpu_moe=fit.n_cpu_moe, ctx_len=fit.ctx_len, overrides=ov,
+                ))
+            except Exception:  # noqa: BLE001 — skip one model, keep the rest of the .ini
+                log.warning("skipping .ini section for %s (meta/fit failed)", m.id, exc_info=True)
+        # An override for a model NOT in the catalog still gets its own section.
+        if override is not None and not any(e.model_id == override.model_id for e in entries):
+            entries.insert(0, override)
+        return entries
+
+    def _emit_ini(self, override: ModelIniEntry | None = None) -> tuple[Path, bool]:
+        """Write `<cache_root>/llamacpp/models.ini` from the on-disk catalog. Returns
+        (path, changed): `changed` is True only when the rendered text differs from what
+        the running router was started with — the signal to spawn (if down) or bounce (if
+        up). The DB is the source of truth; this `.ini` is GENERATED, never read back."""
+        entries = self._resolve_ini_entries(override)
+        text = emit_models_ini(entries)
+        path = self._cache_root / "llamacpp" / "models.ini"
+        changed = text != self._last_ini_text
+        if changed:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+            self._last_ini_text = text
+        return path, changed
+
+    def _spawn_router(self, server_exe, config) -> None:
+        """Spawn the long-lived router from the just-emitted `.ini` (models_max + idle-TTL
+        from the DB config). Caller holds `_router_lock` and has emitted the `.ini`."""
+        log_path = self._router_log_path()
+        self._last_log_path = log_path
+        self._router = self._start_router(
+            server_exe,
+            models_dir=self._cache_root / "hf",
+            models_preset=self._cache_root / "llamacpp" / "models.ini",
+            models_max=config.models_max,
+            sleep_idle_seconds=config.sleep_idle_seconds,
+            host=DEFAULT_HOST, port=DEFAULT_PORT, log_path=log_path,
+        )
+
+    def _bounce_router(self, server_exe, config) -> None:
+        """Restart the router so it re-reads a changed `.ini`, PRESERVING the resident set
+        (reload each previously-running model). Only taken when a re-emitted `.ini` changed
+        while the router was up (a new/tuned section) — the common co-residence path (model
+        already in the `.ini`) never bounces. Whether llama.cpp instead HOT-READS the `.ini`
+        on `/models/load` is the P1d runtime unknown (design §8.2); the bounce is correct
+        either way."""
+        prev = [mid for mid, st in self._resident.items() if st.get("status") == "running"]
+        if self._router is not None:
+            try:
+                self._router.stop()
+            except Exception:  # noqa: BLE001 — best-effort
+                pass
+            self._router = None
+        self._spawn_router(server_exe, config)
+        for mid in prev:
+            try:
+                self._router_load(self._router.url, mid)
+            except Exception:  # noqa: BLE001 — a resident that won't reload keeps its own status
+                log.warning("reloading %s after router bounce failed", mid, exc_info=True)
+
+    def _load_via_router(self, entry: ModelIniEntry, fit, server_exe, config) -> None:
+        """Ensure the router is up with `entry`'s section present, then load the model by
+        id with a router-level OOM back-off. Caller holds `_router_lock`."""
+        router_up = self._router is not None and self._router.is_alive()
+        _, changed = self._emit_ini(override=entry)
+        if not router_up:
+            self._spawn_router(server_exe, config)
+        elif changed:
+            self._bounce_router(server_exe, config)
+        self._router_load_with_backoff(entry, fit, server_exe, config)
+
+    def _router_load_with_backoff(self, entry: ModelIniEntry, fit, server_exe, config) -> None:
+        """`POST /models/load` the model; on a child failure that looks like CUDA-OOM,
+        re-emit that model's section at a lower `ngl` (+ derived `n_cpu_moe` for a MoE) and
+        reload — a router-level mirror of `start_runner`'s ngl-shed back-off, which the
+        router bypasses (a too-high emitted `ngl` would otherwise abort the child with no
+        recovery — design §5b, the ngl=999 abort)."""
+        ngl = fit.n_gpu_layers
+        while True:
+            try:
+                self._router_load(self._router.url, entry.model_id)
+                return
+            except Exception as exc:  # noqa: BLE001 — inspect for OOM, else re-raise
+                tail = _tail_file(self._last_log_path) if self._last_log_path else ""
+                if ngl > 0 and (_looks_like_oom(str(exc)) or _looks_like_oom(tail)):
+                    ngl = max(0, ngl - _BACKOFF_STEP)
+                    n_cpu_moe = max(0, fit.block_count - ngl) if fit.is_moe else entry.n_cpu_moe
+                    log.warning("router child OOM for %s — re-emit at ngl=%d + reload", entry.model_id, ngl)
+                    entry = ModelIniEntry(
+                        model_id=entry.model_id, gguf_path=entry.gguf_path, n_gpu_layers=ngl,
+                        n_cpu_moe=n_cpu_moe, ctx_len=entry.ctx_len, overrides=entry.overrides,
+                        embeddings=entry.embeddings, pooling=entry.pooling,
+                        load_on_startup=entry.load_on_startup,
+                    )
+                    self._emit_ini(override=entry)
+                    self._bounce_router(server_exe, config)
+                    continue
+                raise
 
     def _run_download(self, model_id: str) -> None:
         """Download-only worker (OWN channel): fetch the weights + ground the catalog

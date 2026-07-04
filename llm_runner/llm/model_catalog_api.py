@@ -47,6 +47,7 @@ class CatalogRow(BaseModel):
     tier: str = "mid"   # cpu | low-vram-moe | mid | high | high-ram
     license: str = ""   # SPDX id (Apache-2.0 | MIT | Llama-Community | …); "" = unknown
     useLimited: bool = False  # not free for unrestricted/commercial use → the ⚠ badge (DB-stored)
+    pooling: str = ""   # embedding pooling: "" | mean | cls | last | rank (intrinsic per-model; read-only in the model form) (#119)
     qualityRank: int = 100    # curated overall-quality order (LOWER = better); QuickSetup picks best-that-fits. 100 = unranked.
     description: str = ""      # plain-language "what this model is" (editable curation)
     position: int = 0

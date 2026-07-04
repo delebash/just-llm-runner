@@ -247,17 +247,31 @@ def test_emit_models_ini_chat_and_embed_sections():
         ModelIniEntry("chat", "/m/chat.gguf", n_gpu_layers=20, n_cpu_moe=4, ctx_len=4096,
                       overrides=Overrides(flash_attn="on", mlock=True)),
         ModelIniEntry("embed", "/m/embed.gguf", n_gpu_layers=99, n_cpu_moe=0, ctx_len=2048,
-                      embeddings=True, load_on_startup=True),
+                      embeddings=True, pooling="last", load_on_startup=True),
     ])
     assert "[chat]" in ini and "[embed]" in ini
     assert "model = /m/chat.gguf" in ini
     assert "n-gpu-layers = 20" in ini and "n-cpu-moe = 4" in ini
     assert "flash-attn = on" in ini and "mlock = true" in ini
     embed_block = ini.split("[embed]")[1]
-    assert "embeddings = true" in embed_block and "pooling = mean" in embed_block
+    # pooling is per-model now (#119): the entry carries it explicitly (here "last" for a
+    # decoder-based embed like qwen3), NOT a hardcoded "mean".
+    assert "embeddings = true" in embed_block and "pooling = last" in embed_block
     assert "load-on-startup = true" in embed_block
     chat_block = ini.split("[chat]")[1].split("[embed]")[0]
     assert "embeddings = true" not in chat_block and "load-on-startup" not in chat_block
+
+
+def test_emit_models_ini_omits_pooling_when_unset():
+    # pooling="" (the default) → NO `pooling =` line, so llama.cpp reads the GGUF's
+    # pooling_type (#119). The runner sets it per-model from the catalog; unset = omit.
+    ini = emit_models_ini([
+        ModelIniEntry("embed", "/m/embed.gguf", n_gpu_layers=99, n_cpu_moe=0, ctx_len=2048,
+                      embeddings=True),
+    ])
+    embed_block = ini.split("[embed]")[1]
+    assert "embeddings = true" in embed_block
+    assert "pooling" not in embed_block   # unset → omitted, not forced to mean
 
 
 def test_emit_models_ini_renders_extra_flags():

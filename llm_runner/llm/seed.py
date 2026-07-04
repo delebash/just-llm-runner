@@ -153,6 +153,7 @@ DEFAULT_CATALOG: list[dict] = [
     {"id": "nomic-embed-text", "name": "Nomic Embed Text v1.5",
      "hf_repo": "nomic-ai/nomic-embed-text-v1.5-GGUF", "quant": "Q4_K_M", "total_params": "137M",
      "min_vram_mb": 1000, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 10,
+     "pooling": "mean",
      "quality_rank": 100, "description": "Local embedding model (~137M) — builds the RAG / semantic-search index; CPU-fine. (The embed model, not an LLM pick.)"},
 ]
 
@@ -358,7 +359,7 @@ def seed_default_catalog(s) -> int:
             mtp=bool(c.get("mtp") or False), type=str(c.get("type") or "dense"),
             min_vram_mb=c.get("min_vram_mb"), min_ram_mb=c.get("min_ram_mb"),
             tier=str(c.get("tier") or "mid"), license=str(c.get("license") or ""),
-            use_limited=_use_limited(str(c.get("license") or "")),
+            use_limited=_use_limited(str(c.get("license") or "")), pooling=str(c.get("pooling") or ""),
             quality_rank=int(c.get("quality_rank") or 100), description=str(c.get("description") or ""),
             built_in=True, position=int(c.get("position") or 0),
         ))

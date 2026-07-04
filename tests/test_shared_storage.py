@@ -109,15 +109,17 @@ def test_model_catalog_quality_and_description_roundtrip(wired):
 
     cat = stores.get_model_catalog_store()
     # a user-added model carries the editable curation fields (C1a) through upsert -> list
-    cat.upsert(CatalogRow(id="probe-model", name="Probe", qualityRank=7, description="a probe model"))
+    cat.upsert(CatalogRow(id="probe-model", name="Probe", qualityRank=7, description="a probe model", pooling="last"))
     row = next(r for r in cat.list() if r.id == "probe-model")
     assert row.qualityRank == 7
     assert row.description == "a probe model"
+    assert row.pooling == "last"   # pooling round-trips DB<->wire (#119)
     # a fresh custom model defaults to unranked (100 = sorts last), never "best" (0/low)
     cat.upsert(CatalogRow(id="probe-default", name="Probe2"))
     row2 = next(r for r in cat.list() if r.id == "probe-default")
     assert row2.qualityRank == 100
     assert row2.description == ""
+    assert row2.pooling == ""   # default "" when unset (#119)
 
 
 def test_task_kind_slug_collision_suffixes(wired):

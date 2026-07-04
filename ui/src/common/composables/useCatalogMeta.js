@@ -26,6 +26,9 @@ export const useLimitedById = computed(() =>
 export const descriptionById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, r.description || ""])),
 );
+export const poolingById = computed(() =>
+  Object.fromEntries(rows.value.map((r) => [r.id, r.pooling || ""])),
+);
 
 /** (Re)fetch the catalog rows into the shared state. Enrichment — on failure the maps
  *  fall back to empty (the fit-shaped list / the pick still work without the badges). */
@@ -40,5 +43,5 @@ export async function refresh() {
 /** Shared model-catalog meta. Every consumer gets the SAME refs; call refresh() on open
  *  or after a catalog edit to (re)populate the one shared source. */
 export function useCatalogMeta() {
-  return { catalogRows, qualityById, licenseById, useLimitedById, descriptionById, refresh };
+  return { catalogRows, qualityById, licenseById, useLimitedById, descriptionById, poolingById, refresh };
 }

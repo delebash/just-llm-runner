@@ -100,6 +100,11 @@ class ModelCatalog(LlmBase):
     # it is editable per-model; seeded from `license` at seed time (no hardcoded
     # runtime license rule — the keyword match is a one-time seed helper).
     use_limited = Column(Boolean, nullable=False, default=False)
+    # Embedding pooling type ("" | mean | cls | last | rank) — INTRINSIC per-model
+    # (nomic=mean, qwen3-embedding=last). DB-stored per-model because a switch CANNOT do
+    # per-model (switch_resolve layers only all/type/hardware); "" = let llama.cpp read the
+    # GGUF's pooling_type. Emitted onto the embed's `.ini` section by the runner (#119).
+    pooling = Column(String, nullable=False, default="")
     # Curated overall-quality order (LOWER = better) — QuickSetup picks the best-quality
     # model that FITS the box; fit gates, this ranks. 100 = unranked (a user-added model
     # sorts last until edited). Editable per-model (curation, not file-derived).

@@ -923,7 +923,7 @@ def test_engine_log_empty_then_tails(tmp_path):
 # ── P3: co-resident embeddings — ensure_embedding + pinned + the .ini embed section ──
 
 _EMBED = ModelEntry(id="nomic-embed-text", name="Nomic Embed", tier="cpu",
-                    hf_repo="org/embed-GGUF", quant="Q4_K_M")
+                    hf_repo="org/embed-GGUF", quant="Q4_K_M", pooling="mean")
 
 
 def test_ensure_embedding_no_config_is_noop(tmp_path):
@@ -973,6 +973,7 @@ def test_chat_load_emits_ondisk_embed_section(tmp_path):
     assert f"[{_TEST_MODEL.id}]" in ini and f"[{_EMBED.id}]" in ini
     embed_section = ini.split(f"[{_EMBED.id}]", 1)[1]
     assert "embeddings = true" in embed_section
+    assert "pooling = mean" in embed_section  # pooling resolved by-id from the catalog on the DB-resolved path too (#119)
     # the chat model's section is NOT marked as an embed
     chat_section = ini.split(f"[{_TEST_MODEL.id}]", 1)[1].split("[", 1)[0]
     assert "embeddings = true" not in chat_section

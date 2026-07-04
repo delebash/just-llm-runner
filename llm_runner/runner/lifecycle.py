@@ -838,7 +838,8 @@ class RunnerService:
         margin = self._config_fn().safety_margin_mb
         hf_cache = self._cache_root / "hf"
         entries: list[ModelIniEntry] = []
-        for m in self.catalog():
+        catalog = list(self.catalog())
+        for m in catalog:
             if override is not None and m.id == override.model_id:
                 entries.append(override)  # this load's exact section, in the model's slot
                 continue
@@ -871,8 +872,14 @@ class RunnerService:
         # chat (~20 s). The "pin" IS the arbiter reservation; load-on-startup adds only that failure mode.
         embed_ids = self._embedding_ids_fn()
         if embed_ids:
+            # pooling is INTRINSIC per-model (nomic=mean, qwen3-embedding=last), resolved BY ID from
+            # the catalog HERE in this single post-pass — so it reaches EVERY emit path incl. the
+            # PRIMARY P3 override-load slot (a per-branch set would miss it). "" → no `pooling =` line
+            # → llama.cpp reads the GGUF's pooling_type (#119).
+            pooling_by_id = {m.id: (getattr(m, "pooling", "") or "") for m in catalog}
             entries = [
-                _dc_replace(e, embeddings=True, pooling="mean") if e.model_id in embed_ids else e
+                _dc_replace(e, embeddings=True, pooling=pooling_by_id.get(e.model_id, ""))
+                if e.model_id in embed_ids else e
                 for e in entries
             ]
         return entries

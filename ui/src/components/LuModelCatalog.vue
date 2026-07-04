@@ -61,10 +61,11 @@ function sizeLabel(m) {
 // Model catalog meta (license / use-limited / description — the fit-shaped /models view
 // doesn't carry them). Shared with QuickSetup through the useCatalogMeta singleton (one
 // source, no drift); loadCatalogMeta (its refresh) re-pulls after a catalog edit.
-const { licenseById, useLimitedById, descriptionById, refresh: loadCatalogMeta } = useCatalogMeta();
+const { licenseById, useLimitedById, descriptionById, poolingById, refresh: loadCatalogMeta } = useCatalogMeta();
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
 function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
+function poolingOf(m) { return poolingById.value[m.id] || ""; }
 function licenseTitle(m) {
   const lic = licenseOf(m);
   return useLimitedOf(m)
@@ -294,6 +295,7 @@ loadCatalogMeta();
           <div class="lu-mm-auto-row"><span class="lu-muted">Recommended samplers</span><span>{{ samplersLabel }}</span></div>
           <div v-if="inspected?.sizeBytes" class="lu-mm-auto-row"><span class="lu-muted">Download size</span><span>{{ fmtBytes(inspected.sizeBytes) }}<template v-if="inspected.estVramMb"> · ≈ {{ inspected.estVramMb.toLocaleString() }} MB VRAM (full GPU · 8K ctx)</template></span></div>
         </div>
+        <div v-if="poolingOf(editing)" class="lu-mm-note"><b>Embedding pooling: {{ poolingOf(editing) }}</b> <span class="lu-muted">— how the model's token vectors are combined into one embedding (mean · cls · last). Curated per embedding model; read-only here because the wrong pooling degrades search quality.</span></div>
 
         <div class="lu-mm-note"><b>Fit estimate</b> — a pre-download guess so the list can show “will it fit?”; once downloaded the GGUF sets the real fit.</div>
         <div class="lu-mm-row">

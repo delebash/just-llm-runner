@@ -213,7 +213,7 @@ class ModelIniEntry:
     ctx_len: int
     overrides: Overrides = field(default_factory=Overrides)
     embeddings: bool = False
-    pooling: str = "mean"
+    pooling: str = ""   # "" → no `pooling =` line (llama.cpp reads the GGUF); else mean|cls|last|rank. Set per-model from the catalog (#119).
     load_on_startup: bool = False
 
 

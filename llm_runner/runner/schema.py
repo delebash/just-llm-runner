@@ -99,6 +99,7 @@ class ModelEntry(CamelModel):
     total_params: str | None = None
     active_params: str | None = None
     mtp: bool = False
+    pooling: str = ""               # embedding pooling ("" | mean | cls | last | rank) — emitted onto the embed `.ini` section (#119)
     min_ram_mb: int | None = None
     recommended_for: RecommendedFor = RecommendedFor()
 

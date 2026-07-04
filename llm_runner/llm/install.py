@@ -141,7 +141,7 @@ def _wire_runner_catalog(data_dir=None) -> None:
             ModelEntry(
                 id=r.id, name=r.name, tier=r.tier, hf_repo=r.hfRepo, quant=r.quant, mmproj=r.mmproj,
                 total_params=r.totalParams or None, active_params=r.activeParams or None, mtp=r.mtp,
-                min_ram_mb=r.minRamMb, recommended_for=RecommendedFor(min_vram_mb=r.minVramMb),
+                pooling=r.pooling, min_ram_mb=r.minRamMb, recommended_for=RecommendedFor(min_vram_mb=r.minVramMb),
             )
             for r in stores.get_model_catalog_store().list()
         ]

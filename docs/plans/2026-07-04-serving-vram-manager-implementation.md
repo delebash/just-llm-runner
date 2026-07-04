@@ -194,6 +194,7 @@ resolves non-empty.
 chat model also resident. → **First user-verifiable ship; model-surface #104–112 unblocks here.**
 
 ### Phase 4 — UI (resident set + TTL) (shared kit)
+> **⚠ STATUS 2026-07-04 — NOT STARTED + NEEDS USER RE-CONFIRMATION (rule #10).** The user does NOT remember approving P4 and is reconsidering whether to build / reshape / drop it — do NOT build until the user re-confirms. **Agent OVERSTEP recorded:** the agent presented an `AskUserQuestion` offering the resident-panel placement as "in `LuRunnerEngine.vue` vs a separate sibling panel" — but 4a below ALREADY decided the placement (`LuRunnerEngine.vue`), and the "sibling panel" is an INVENTED option that appears in no design doc (rule #6 cannot-override-design-docs + rule #9 no-own-decisions). GROUNDED: the resident view lives IN `LuRunnerEngine.vue`; there is NO sibling panel; that sibling recommendation is RETRACTED. Full decisions-audit + context: `justwrite-app/MORNING_RECAP.md` §"RESUME — DECISIONS AUDIT + P4 OVERSTEP."
 **4a.** `LuRunnerEngine.vue`: add a "resident models" view (loaded/sleeping set + `models_max` + TTL, reading
 `/v1/llm-runner/resident`); edit the two DB-backed knobs there. Add a help/user-doc entry for the two operator
 knobs + residency (panel T11).

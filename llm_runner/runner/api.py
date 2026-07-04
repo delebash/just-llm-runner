@@ -26,6 +26,7 @@ from .schema import (
     RunnerConfig,
     RunnerModelInfo,
     RunnerModelsResponse,
+    RunnerResidentResponse,
 )
 
 router = APIRouter(tags=["llm-runner"])
@@ -89,21 +90,24 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     margin = service.config().safety_margin_mb
     hf_cache = service.cache_root / "hf"
 
-    st = service.status()
-    cur_id = st.get("modelId") or ""
-    cur_state = st.get("status") or "idle"
+    # Resident-set aware (P1f): the router co-resides up to models_max models, so read the
+    # LIVE per-model status (GET /models via service.resident()) rather than the single-model
+    # status() — multiple models can be loaded independently. Router down (lazy-spawn common
+    # case) → empty set → every model falls through to disk/available. The download-only
+    # channel still overlays independently (it can run while a model is resident).
+    live = {m["id"]: m.get("status") for m in service.resident().get("models", [])}
     dl = service.download_status()
     dl_id = dl.get("modelId") or ""
     dl_state = dl.get("status") or "idle"
 
     def _status_for(model_id: str, downloaded: bool) -> str:
-        if model_id == cur_id:
-            if cur_state == "running":
-                return "loaded"
-            if cur_state in ("downloading", "starting"):
-                return "loading"
-            if cur_state == "error":
-                return "error"
+        s = live.get(model_id)
+        if s in ("loaded", "sleeping"):
+            return "loaded"
+        if s in ("loading", "downloading", "starting"):
+            return "loading"
+        if s in ("failed", "error"):
+            return "error"
         # A download-only op runs on its OWN channel (it can overlap a loaded model).
         if model_id == dl_id:
             if dl_state == "downloading":
@@ -185,7 +189,24 @@ async def download_status() -> dict:
 
 @router.get("/v1/llm-runner/status", summary="Current load/run status")
 async def runner_status() -> dict:
+    """Back-compat SINGLE-model view (most-recently-loaded model's progress/state) — the
+    existing UI (catalog poller, QuickSetup, Tune modal) reads this shape. The full
+    co-resident set is /resident."""
     return get_service().status()
+
+
+@router.get(
+    "/v1/llm-runner/resident",
+    response_model=RunnerResidentResponse,
+    response_model_by_alias=True,
+    summary="Live resident set (router mode): which models are loaded/sleeping + the knobs that bound it",
+)
+async def runner_resident() -> RunnerResidentResponse:
+    """The router's LIVE per-model status (loaded | sleeping | loading | failed) with each
+    loaded child's real footprint (`meta` sizes), plus `modelsMax` / `sleepIdleSeconds`.
+    Router down → `router: false`, empty set. The committed/remaining VRAM budget joins this
+    in P2 (the arbiter)."""
+    return get_service().resident()
 
 
 @router.post("/v1/llm-runner/stop", summary="Stop the running model")

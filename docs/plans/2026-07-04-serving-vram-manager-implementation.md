@@ -14,8 +14,20 @@
 > `RunnerConfig` knobs; ruff clean, 238 pytest. A rules-checker FAILED the first cut (T1 stop-during-load ghost race · T3
 > Runner/RouterHandle + is_cached duplication · T5 the `GET /models` reconciliation dropped-but-unflagged) → ALL folded
 > (cancellation re-check + a race test · `_ServerHandle` base + `is_cached` delegate · deviations + the synchronous-load
-> assumption recorded in §"AS-BUILT DEVIATIONS" + runtime-unknown #2). NEXT: P1f (api resident-set + `/resident` + the
-> deferred `GET /models` poll) then P1g (box-verify router flags + sync-load).**
+> assumption recorded in §"AS-BUILT DEVIATIONS" + runtime-unknown #2). **P1f DONE + SHIPPED (2026-07-04, box-grounded
+> "go"; ruff clean, 253 pytest; rules-checker FAIL(3)→folded→re-run PASS):** the load-confirmation poll
+> (`_default_router_models` client + `_parse_router_models` reading the box-verified NESTED `data[].status.value` + `meta`;
+> `_confirm_load` polls `GET /models` until `loaded|sleeping` = success / `failed`|dead-router|timeout = error, keyed off
+> status NOT the HTTP raise, per the async box finding) wired into `_router_load_with_backoff` — which now sheds ngl ONLY on
+> a genuine CUDA-OOM log signal (`_looks_like_oom(tail)`), a non-OOM failure fails FAST with no router bounce (rules-checker
+> T1 fix; see AS-BUILT). A resident-set-aware `get_models._status_for` reads `service.resident()` (live `GET /models`
+> per-model + the download overlay + an `error` in-flight overlay so an engine-not-installed load still shows `error` —
+> rules-checker T5 fix); NEW `resident()` + `GET /v1/llm-runner/resident` (`router` up · `models_max`/`sleep_idle_seconds` ·
+> per-model status + `meta` sizes) + the `RunnerResidentResponse`/`ResidentModel` schema. `/status` STAYS single-model (3 UI
+> consumers read it that way: `useRunnerModels`/`QuickSetup`/`TuneMeasureModal`) — supersedes the plan §1f "`/status` reads
+> GET /models". KNOWN limitation deferred to P2: `_router_lock` is held across the ≤300s confirm poll (no correctness bug —
+> checker-confirmed no ghost/leak; P2's arbiter restructures this path). NEXT: P1g (box-verify router flags on b9644 +
+> the sync-vs-async POST + whether a child's OOM text reaches the router log; bump `DEFAULT_PINNED_BUILD` if a flag absent).**
 > **Hardened by a 3-checker rules panel 2026-07-04** (architecture-fit · reuse · grounding) — grounding PASS (all
 > citations verified accurate), the two FAIL findings folded in full (see "Panel review" §). The approach (router
 > mode + thin arbiter + DB→`.ini`) is unchanged and design-approved; the panel fixed the plan's *specification*.
@@ -335,6 +347,44 @@ resident size/params vs the pre-download catalog estimate).
   `test_stop_during_load_leaves_no_ghost`.
 - **T3 fixes** — `Runner` + `RouterHandle` share a `_ServerHandle` base (is_alive/health/stop, one source); `is_cached`
   delegates to `cached_gguf_path`.
+
+**P1f AS-BUILT (2026-07-04 — the deferred reconciliation, now box-grounded; ruff clean, 252 pytest; rules-checker FAIL(3)→folded→re-run):**
+- **The `GET /models` reconciliation deferred in P1d is now BUILT** (resolves rows 4 & 18). `_default_router_models(url)`
+  (GET /models) + `_parse_router_models(payload)` (reads the box-verified NESTED `data[].status.value` + the loaded child's
+  `meta` block; tolerates a flat-string/malformed entry). `_confirm_load(model_id)` polls GET /models until `loaded|sleeping`
+  (success) / `failed` or dead-router (failed) / deadline (timeout); injected `now`/`sleep`/`router_models` seams poll
+  deterministically offline. `_LOAD_POLL_TIMEOUT=300s` (a 70B cold-load headroom), `_LOAD_POLL_INTERVAL=1s`.
+- **The load path is now async-correct** — `_router_load_with_backoff` POSTs (2xx accept, async) then CONFIRMS via the poll,
+  replacing P1d's optimistic "200 means loaded" (unknown #2, box-confirmed async). A sync 4xx from the POST still propagates
+  as a plain load error (bad id / at-capacity — not OOM).
+- **OOM back-off is GATED on a CUDA-OOM signal (rules-checker T1 fix — a spec deviation, recorded).** The box-grounded spec
+  said "on `failed`/timeout → shed, keyed off status." As-built the shed fires only when `ngl>0` AND `_looks_like_oom(spawn
+  log tail)`. WHY the deviation: a NON-OOM `failed` (bad `extra_flags`, corrupt/mismatched GGUF, a rejected flag) re-emits the
+  SAME overrides — shedding ngl cannot fix it — and each `_bounce_router` knocks down + reloads EVERY healthy co-resident, so
+  a literal "shed on any failed" would bounce residents ~ngl/`_BACKOFF_STEP` times for a guaranteed-to-fail load. So a non-OOM
+  failure now fails FAST, no bounce. Residual: whether a router CHILD's OOM text actually reaches the router spawn log
+  (`_last_log_path`) is a **P1g box-check** — if it doesn't, the shed won't fire (fail-fast), acceptable because b9644
+  auto-offloads an over-fit (loads, not fails), the emitter never emits ngl=999, and P2's arbiter pre-checks fit. Covered by
+  `test_router_load_oom_backoff` (OOM log → sheds 20→16→12) + `test_non_oom_failure_does_not_shed_or_bounce` (no OOM log →
+  error, spawns==1, ngl stays 20).
+- **`api.py` is resident-set aware.** `get_models._status_for` now reads `service.resident()` (the live GET /models per-model
+  status) instead of the single-model `status()` — co-resident models each show their own state; a `sleeping` model reads
+  `loaded` in the catalog; router-down → all fall through to disk/available. NEW `resident()` service method + `GET
+  /v1/llm-runner/resident` (`RunnerResidentResponse`/`ResidentModel`: `router` up · `models_max`/`sleep_idle_seconds` ·
+  per-model status + `meta` sizes). **`resident()`'s in-flight overlay surfaces `error` too (rules-checker T5 fix)** — an
+  errored load the router never saw (engine-not-installed → no router spawned) would otherwise show `available`, losing the
+  catalog error state + the UI's install-engine CTA (`useRunnerModels.needsEngine`). Covered by `test_status_reflects_load_error`
+  (api) + `test_resident_surfaces_load_error` (lifecycle).
+- **`/status` STAYS single-model back-compat** — three UI consumers read it that way (`useRunnerModels.js`, `QuickSetup.vue`,
+  `TuneMeasureModal.vue`), so this supersedes the plan §1f "`/status` reads GET /models"; the resident-set truth is on `/resident`.
+- **KNOWN LIMITATION (rules-checker T1 secondary — DEFERRED to P2, not a bug).** `_router_lock` is held across the entire
+  ≤300s `_confirm_load` poll (via `_run_load` → `_load_via_router` → `_router_load_with_backoff` → `_confirm_load`), so a
+  concurrent `stop()` or a second co-resident load serializes behind it (typically ~20s, worst-case 300s on a stuck load).
+  The rules-checker confirmed NO correctness bug — no deadlock, no ghost/leak (the P1d cancellation re-check + shared
+  `_router_lock` hold; `test_stop_during_confirm_poll_is_clean` proves a stop() during the poll ends clean). NOT fixed in P1f:
+  releasing the lock mid-poll would reintroduce the resurrect/ghost race the checker just cleared, and **P2's arbiter
+  restructures this exact load path** (reserve→load→confirm under the ledger), so the lock discipline is redone there. Flagged
+  here so the serialization is a known, chosen tradeoff, not silent.
 
 ## Panel review (2026-07-04) — findings folded (transparency)
 A 3-checker rules panel (architecture-fit · reuse · grounding) reviewed the first draft. **Grounding: PASS** —

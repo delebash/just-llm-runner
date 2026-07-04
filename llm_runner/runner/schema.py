@@ -154,6 +154,38 @@ class RunnerModelsResponse(CamelModel):
     models: list[RunnerModelInfo] = []
 
 
+# ─── Resident set (GET /v1/llm-runner/resident) ─────────────────────────
+# The LIVE router view: which models are actually resident/sleeping RIGHT NOW
+# (router mode co-resides up to models_max), read from the router's `GET /models`.
+# Distinct from the catalog view above (all downloadable models + coarse Fit) and
+# from the back-compat single-model `/status` (which the existing UI polls). The
+# per-model VRAM budget (committed/remaining) lands here in P2 (the arbiter).
+
+
+class ResidentModel(CamelModel):
+    """One model as the router currently reports it. `status` is the router's own
+    lifecycle word (loaded | sleeping | loading | failed | unloaded) OR an in-flight
+    service word (downloading | starting) for a load not yet visible to the router.
+    The size fields come from the router's `meta` block on a LOADED child (absent
+    until loaded) — the real resident footprint vs the pre-download catalog estimate."""
+
+    id: str
+    status: str
+    n_params: int | None = None      # meta.n_params (real param count once loaded)
+    size_bytes: int | None = None    # meta.size (resident weight bytes)
+    n_ctx: int | None = None         # meta.n_ctx (the child's context window)
+
+
+class RunnerResidentResponse(CamelModel):
+    """The live resident set + the two operator knobs that bound it. `router` is
+    whether the long-lived router process is up (it spawns lazily on the first load)."""
+
+    router: bool = False
+    models_max: int = 2
+    sleep_idle_seconds: int = 900
+    models: list[ResidentModel] = []
+
+
 # ─── Load request (POST /v1/llm-runner/load) ────────────────────────────
 
 

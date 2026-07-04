@@ -5,6 +5,7 @@ back-off, error handling) tests offline. The real default RunnerConfig + compute
 run unmocked; a fake HF cache lets `cached_gguf_path` resolve on-disk models faithfully."""
 
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
 from llm_runner.runner.lifecycle import RunnerService
@@ -22,11 +23,18 @@ def _fake_router(url="http://127.0.0.1:8080", alive=True):
 
 
 def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
-                 router_unload=None, identify_fn=None, switches_fn=None, profile_switches_fn=None):
+                 router_unload=None, router_models=None, now=None, sleep=None,
+                 identify_fn=None, switches_fn=None, profile_switches_fn=None):
     """A RunnerService with the router + download IO injected. Every catalog model is
     seeded into a fake HF cache (`<root>/hf/models--<repo>/snapshots/sha/<file>.gguf`)
     so both `cached_gguf_path` (the .ini emitter) and the injected `acquire_model`
-    resolve the SAME on-disk path — faithful to production."""
+    resolve the SAME on-disk path — faithful to production.
+
+    The default injected `router_models` reports EVERY catalog model as `loaded`, so a
+    load's confirmation poll (`_confirm_load`, P1f) resolves on the first GET /models and
+    the load reaches `running` without touching a real socket. A test that needs a
+    `loading` / `failed` / timeout path injects its own `router_models` (+ `now`/`sleep`
+    to drive the clock deterministically)."""
     models = list(catalog or [_TEST_MODEL])
     snaps = {}
     for m in models:
@@ -34,6 +42,10 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         d.mkdir(parents=True, exist_ok=True)
         (d / f"model-{m.quant}.gguf").write_bytes(b"x" * 1024)
         snaps[m.hf_repo] = d
+
+    def _all_loaded(url):
+        return {"object": "list", "data": [{"id": m.id, "status": {"value": "loaded"}} for m in models]}
+
     kw = {}
     if identify_fn is not None:
         kw["identify_fn"] = identify_fn
@@ -41,6 +53,10 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         kw["switches_fn"] = switches_fn
     if profile_switches_fn is not None:
         kw["profile_switches_fn"] = profile_switches_fn
+    if now is not None:
+        kw["now"] = now
+    if sleep is not None:
+        kw["sleep"] = sleep
     return RunnerService(
         tmp_path,
         catalog_fn=lambda: models,
@@ -51,6 +67,7 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         start_router=start_router or (lambda *a, **k: _fake_router()),
         router_load=router_load or (lambda *a, **k: None),
         router_unload=router_unload or (lambda *a, **k: None),
+        router_models=router_models or _all_loaded,
         **kw,
     )
 
@@ -252,21 +269,238 @@ def test_stop_during_load_leaves_no_ghost(tmp_path):
 # ── router-level OOM back-off (start_runner's shed doesn't run in router mode) ─
 
 def test_router_load_oom_backoff(tmp_path):
-    # A child that aborts on a too-high ngl → re-emit that section at a lower ngl +
-    # reload, mirroring start_runner's shed. Force ngl>0 via an explicit override.
-    calls = []
+    # POST /models/load is ASYNC (b9644) — the OOM back-off keys off the child's GET /models
+    # status, NOT an HTTP raise, AND only fires when the spawn log looks like CUDA-OOM. A child
+    # that reports `failed` on a too-high ngl (+ an OOM log) → re-emit that section at a lower
+    # ngl + reload, mirroring start_runner's shed. Force ngl>0.
+    posts = {"n": 0}
 
-    def flaky_load(url, mid):
-        calls.append(mid)
-        if len(calls) < 3:
-            raise RuntimeError("CUDA error: out of memory")
+    def count_load(url, mid):
+        posts["n"] += 1  # each POST /models/load (async accept)
 
-    svc = _service_for(tmp_path, router_load=flaky_load)
+    def failed_until_third(url):
+        # The confirm poll reads this AFTER the POST bumps the counter: fail loads #1 and #2
+        # (→ shed 20→16→12), then report loaded on #3.
+        value = "loaded" if posts["n"] >= 3 else "failed"
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": value}}]}
+
+    def oom_router(*a, **k):
+        # The shed only fires on an OOM-looking spawn log — write one to the log the service
+        # tails. _spawn_router passes the per-spawn log_path here (a fresh one per bounce).
+        lp = k.get("log_path")
+        if lp:
+            Path(lp).parent.mkdir(parents=True, exist_ok=True)
+            Path(lp).write_text("CUDA error: out of memory")
+        return _fake_router()
+
+    svc = _service_for(tmp_path, start_router=oom_router,
+                       router_load=count_load, router_models=failed_until_third)
     svc.load(_TEST_MODEL.id, overrides=Overrides(n_gpu_layers=20))
     svc._thread.join(timeout=5)
     assert svc.status()["status"] == "running"
-    assert len(calls) == 3                     # failed twice (shed twice), third succeeds
-    assert "n-gpu-layers = 12" in _ini(svc)    # 20 → 16 → 12 (step 4)
+    assert posts["n"] == 3                      # POSTed 3× (failed twice → shed twice, third loads)
+    assert "n-gpu-layers = 12" in _ini(svc)     # 20 → 16 → 12 (step 4)
+
+
+def test_non_oom_failure_does_not_shed_or_bounce(tmp_path):
+    # A `failed` with NO OOM in the spawn log (a bad flag / corrupt GGUF) must fail FAST:
+    # shedding can't fix it and a bounce would knock down healthy co-resident models. So the
+    # router spawns exactly once (no bounce), ngl is NOT shed, and the load ends in error.
+    spawns = {"n": 0}
+
+    def count_spawn(*a, **k):
+        spawns["n"] += 1
+        return _fake_router()  # NO oom log written → _looks_like_oom(tail) is False
+
+    def always_failed(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "failed"}}]}
+
+    svc = _service_for(tmp_path, start_router=count_spawn, router_models=always_failed)
+    svc.load(_TEST_MODEL.id, overrides=Overrides(n_gpu_layers=20))  # ngl>0, but no OOM signal
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "error"
+    assert spawns["n"] == 1                      # spawned once, NO bounce on a non-OOM failure
+    assert "n-gpu-layers = 20" in _ini(svc)      # ngl NOT shed (stays 20)
+
+
+def test_router_sync_reject_errors_without_shed(tmp_path):
+    # A SYNCHRONOUS 4xx from POST /models/load (unknown id / at models-max) is a real reject,
+    # NOT an OOM — the raise propagates as a load error with no shed/bounce, even at ngl>0.
+    spawns = {"n": 0}
+
+    def count_spawn(*a, **k):
+        spawns["n"] += 1
+        return _fake_router()
+
+    def reject_load(url, mid):
+        raise RuntimeError("/models/load failed [400]: at capacity")
+
+    svc = _service_for(tmp_path, start_router=count_spawn, router_load=reject_load)
+    svc.load(_TEST_MODEL.id, overrides=Overrides(n_gpu_layers=20))
+    svc._thread.join(timeout=5)
+    st = svc.status()
+    assert st["status"] == "error"
+    assert "at capacity" in st["error"]         # the 4xx body propagates verbatim
+    assert spawns["n"] == 1                      # no bounce/re-spawn on a sync reject
+
+
+# ── P1f: async load-confirmation poll (POST accepts; GET /models confirms) ────
+
+def test_parse_router_models_reads_nested_status():
+    # Box-verified b9644: status is NESTED at data[].status.value (not flat); meta only on a
+    # loaded child; a flat-string status is tolerated; an id-less entry is skipped.
+    from llm_runner.runner.lifecycle import _parse_router_models
+
+    payload = {"object": "list", "data": [
+        {"id": "chat", "status": {"value": "loaded", "args": [], "preset": "..."},
+         "meta": {"n_params": 7, "size": 9, "n_ctx": 4096}},
+        {"id": "embed", "status": {"value": "unloaded"}},
+        {"id": "flat", "status": "loading"},          # a hypothetical flat-string build
+        {"status": {"value": "x"}},                    # no id → dropped
+    ]}
+    out = _parse_router_models(payload)
+    assert out["chat"]["value"] == "loaded"
+    assert out["chat"]["meta"]["n_params"] == 7
+    assert out["embed"]["value"] == "unloaded"
+    assert "meta" not in out["embed"]                  # unloaded → no meta block
+    assert out["flat"]["value"] == "loading"           # flat string tolerated
+    assert len(out) == 3                               # the id-less entry dropped
+
+
+def test_load_polls_until_loaded(tmp_path):
+    # The POST only ACCEPTS (async); the model reaches 'running' ONLY after GET /models
+    # confirms status.value == 'loaded'. Poll through two 'loading' reads first.
+    seq = ["loading", "loading", "loaded"]
+    idx = {"i": 0}
+
+    def models(url):
+        i = min(idx["i"], len(seq) - 1)
+        idx["i"] += 1
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": seq[i]}}]}
+
+    sleeps = {"n": 0}
+    svc = _service_for(tmp_path, router_models=models,
+                       sleep=lambda s: sleeps.__setitem__("n", sleeps["n"] + 1))
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert sleeps["n"] >= 2                     # slept between the two 'loading' polls
+
+
+def test_load_errors_on_failed_status(tmp_path):
+    # A child that reports 'failed' with no GPU layers left to shed (ngl 0) → immediate
+    # error, no back-off. Proves the error path keys off status, not an HTTP raise.
+    def failed(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "failed"}}]}
+
+    svc = _service_for(tmp_path, router_models=failed)
+    svc.load(_TEST_MODEL.id, overrides=Overrides(n_gpu_layers=0))
+    svc._thread.join(timeout=5)
+    st = svc.status()
+    assert st["status"] == "error"
+    assert "failed to load" in st["error"]
+
+
+def test_confirm_load_times_out(tmp_path):
+    # A child stuck 'loading' past the deadline → timeout → error (ngl 0 → no back-off).
+    # An injected fast clock blows past the 300s deadline in a few reads; sleep is a no-op.
+    def always_loading(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loading"}}]}
+
+    clock = {"t": 0.0}
+
+    def fast_clock():
+        clock["t"] += 120.0
+        return clock["t"]
+
+    svc = _service_for(tmp_path, router_models=always_loading, now=fast_clock, sleep=lambda s: None)
+    svc.load(_TEST_MODEL.id, overrides=Overrides(n_gpu_layers=0))
+    svc._thread.join(timeout=5)
+    st = svc.status()
+    assert st["status"] == "error"
+    assert "status=timeout" in st["error"]
+
+
+# ── P1f: resident set (live GET /models view for /v1/llm-runner/resident) ─────
+
+def test_resident_reports_live_set(tmp_path):
+    # /resident reads the router's live GET /models incl. the meta footprint of a loaded child.
+    def models(url):
+        return {"object": "list", "data": [{
+            "id": _TEST_MODEL.id, "status": {"value": "loaded"},
+            "meta": {"n_params": 35_000_000_000, "size": 22_000_000_000, "n_ctx": 4096},
+        }]}
+
+    svc = _service_for(tmp_path, router_models=models)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    res = svc.resident()
+    assert res["router"] is True
+    assert res["models_max"] == 2 and res["sleep_idle_seconds"] == 900
+    row = next(m for m in res["models"] if m["id"] == _TEST_MODEL.id)
+    assert row["status"] == "loaded"
+    assert row["n_params"] == 35_000_000_000
+    assert row["size_bytes"] == 22_000_000_000
+    assert row["n_ctx"] == 4096
+
+
+def test_resident_router_down_is_empty(tmp_path):
+    svc = _service_for(tmp_path)  # never loaded → no router
+    res = svc.resident()
+    assert res["router"] is False
+    assert res["models"] == []
+    assert res["models_max"] == 2
+
+
+def test_resident_shows_in_flight_download(tmp_path):
+    # A load still mid-download (not yet a router section) is surfaced as 'downloading' so the
+    # UI shows progress before the child appears in GET /models. Router down → in-flight only.
+    svc = _service_for(tmp_path)
+    svc._resident[_TEST_MODEL.id] = {"status": "downloading", "modelId": _TEST_MODEL.id}
+    res = svc.resident()
+    row = next(m for m in res["models"] if m["id"] == _TEST_MODEL.id)
+    assert row["status"] == "downloading"
+
+
+def test_resident_surfaces_load_error(tmp_path):
+    # A load that ERRORED before the router spawned (engine-not-installed) must still surface as
+    # 'error' via resident() — the router's GET /models can never report it (no router), so the
+    # in-flight overlay carries it, else the catalog would show it as available and the UI would
+    # lose the failure + the install-engine CTA.
+    svc = _service_for(tmp_path)
+    svc._acquired_exe = lambda *a, **k: None  # engine missing → _run_load errors, no router spawns
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "error"
+    res = svc.resident()
+    assert res["router"] is False
+    row = next(m for m in res["models"] if m["id"] == _TEST_MODEL.id)
+    assert row["status"] == "error"
+
+
+def test_stop_during_confirm_poll_is_clean(tmp_path):
+    # A stop() issued while a load is in its confirm poll (holding _router_lock) serializes
+    # behind the load, then unloads — no ghost, no leak. Deterministic via a gate on the poll.
+    entered = threading.Event()
+    gate = threading.Event()
+    unloaded = []
+
+    def gated_models(url):
+        entered.set()          # signal: the load thread is now in the confirm poll (holds the lock)
+        gate.wait(timeout=5)   # ...hold it there until the test releases
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loaded"}}]}
+
+    svc = _service_for(tmp_path, router_models=gated_models,
+                       router_unload=lambda url, mid: unloaded.append(mid))
+    svc.load(_TEST_MODEL.id)
+    assert entered.wait(timeout=5)                       # load is mid-poll, holding _router_lock
+    stopper = threading.Thread(target=lambda: svc.stop(_TEST_MODEL.id))
+    stopper.start()                                      # stop() blocks on _router_lock
+    gate.set()                                           # release the poll → load finishes → lock frees
+    svc._thread.join(timeout=5)
+    stopper.join(timeout=5)
+    assert unloaded == [_TEST_MODEL.id]                  # stop unloaded it once the load completed
+    assert _TEST_MODEL.id not in svc._resident           # clean: no ghost resident entry
 
 
 # ── measure / tokenize (re-homed onto the router, routed by model id) ─────────

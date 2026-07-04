@@ -43,6 +43,14 @@ from .process import (
 )
 from .schema import ModelEntry
 
+# Load-confirmation poll (P1f). POST /models/load is ASYNCHRONOUS on b9644 (box-verified
+# 2026-07-04): a 2xx only ACCEPTS the request — the child loads in the background — so the
+# 200 is NOT a load confirmation. A load is confirmed by polling GET /models until the
+# child reports `loaded`. Generous timeout: a large model cold-loads in ~19–21 s (measured
+# on the RTX 2070 SUPER), a 70B on a slow disk longer.
+_LOAD_POLL_TIMEOUT = 300.0   # seconds before a still-`loading` child is declared failed
+_LOAD_POLL_INTERVAL = 1.0    # seconds between GET /models polls
+
 
 def _default_catalog_fn() -> list[ModelEntry]:
     """Standalone default: no host store wired → empty catalog. Hosts override
@@ -106,10 +114,11 @@ def _default_tokenize_probe(url: str, text: str, model_id: str = "") -> int:
 
 
 def _default_router_load(url: str, model_id: str) -> None:
-    """POST {url}/models/load {"model": id} — make a model resident in the router (it
-    then routes requests for that id to the freshly-spawned child). Blocks until the
-    child is loaded or the router returns an error; raises WITH the response body on
-    failure (so the caller can sniff a CUDA-OOM abort). Injected in tests."""
+    """POST {url}/models/load {"model": id} — ACCEPT a model into the router (it then routes
+    requests for that id to the child it spawns). ASYNC on b9644: a 2xx returns BEFORE the
+    child is loaded (fire-and-forget), so this signals acceptance only — load success/failure
+    is confirmed separately by polling GET /models (`_confirm_load`). Raises on a SYNCHRONOUS
+    4xx (unknown id / at `models-max`), which is a real reject, not an OOM. Injected in tests."""
     resp = requests.post(url.rstrip("/") + "/models/load", json={"model": model_id}, timeout=600)
     if resp.status_code >= 400:
         raise RuntimeError(f"/models/load {model_id!r} failed [{resp.status_code}]: {resp.text[:800]}")
@@ -121,6 +130,39 @@ def _default_router_unload(url: str, model_id: str) -> None:
     resp = requests.post(url.rstrip("/") + "/models/unload", json={"model": model_id}, timeout=120)
     if resp.status_code >= 400:
         raise RuntimeError(f"/models/unload {model_id!r} failed [{resp.status_code}]: {resp.text[:800]}")
+
+
+def _default_router_models(url: str) -> dict:
+    """GET {url}/models → the router's resident-set status (OpenAI-list shape:
+    `{"object":"list","data":[{"id":…,"status":{"value":…},"meta":{…}}]}`). Used to CONFIRM
+    an async load (POST /models/load returns 200 BEFORE the child is loaded on b9644) and to
+    report the live resident set to `/v1/llm-runner/resident`. Injected in tests."""
+    resp = requests.get(url.rstrip("/") + "/models", timeout=30)
+    resp.raise_for_status()
+    return resp.json() or {}
+
+
+def _parse_router_models(payload: dict) -> dict[str, dict]:
+    """Map the router's `GET /models` response to `{model_id: {"value": status[, "meta": {…}]}}`.
+    Status is NESTED at `data[].status.value` on b9644 (box-verified 2026-07-04, NOT a flat
+    string); a flat `status` string is tolerated too for a hypothetical other build. `meta`
+    (n_params / size / n_ctx / …) is present only on a LOADED child — the real resident
+    footprint. A malformed / missing entry is skipped, never a crash."""
+    out: dict[str, dict] = {}
+    for entry in (payload or {}).get("data") or []:
+        if not isinstance(entry, dict):
+            continue
+        mid = entry.get("id")
+        if not mid:
+            continue
+        s = entry.get("status")
+        value = s.get("value") if isinstance(s, dict) else (s if isinstance(s, str) else "")
+        row: dict = {"value": value or ""}
+        meta = entry.get("meta")
+        if isinstance(meta, dict) and meta:
+            row["meta"] = meta
+        out[mid] = row
+    return out
 
 
 # Set of `Overrides` field names — used to validate switch keys at apply time
@@ -243,6 +285,9 @@ class RunnerService:
         start_router=_start_router,
         router_load=_default_router_load,
         router_unload=_default_router_unload,
+        router_models=_default_router_models,
+        now=time.monotonic,
+        sleep=time.sleep,
     ):
         self._cache_root = Path(cache_root)
         self._config_fn = config_fn
@@ -258,6 +303,11 @@ class RunnerService:
         self._start_router = start_router
         self._router_load = router_load
         self._router_unload = router_unload
+        self._router_models = router_models
+        self._now = now
+        self._sleep = sleep
+        self._load_poll_timeout = _LOAD_POLL_TIMEOUT
+        self._load_poll_interval = _LOAD_POLL_INTERVAL
         # Router + resident set (replaces the single `_runner` + `_state`).
         self._router: RouterHandle | None = None
         self._resident: dict[str, dict] = {}   # model_id → back-compat state dict
@@ -464,6 +514,54 @@ class RunnerService:
         except Exception as exc:  # noqa: BLE001 — surface the probe error, don't crash
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "count": int(count)}
+
+    def resident(self) -> dict:
+        """The LIVE resident set for `GET /v1/llm-runner/resident`: the router's own
+        `GET /models` view (per-model status + the `meta` footprint of a LOADED child), the
+        two operator knobs that bound it (`models_max` / `sleep_idle_seconds`), and any
+        in-flight load not yet visible to the router. Read-only, safe to poll. Snake_case
+        keys matching `RunnerResidentResponse` (FastAPI emits camelCase). Router down (the
+        lazy-spawn common case) → `router: False`, empty set. The per-model VRAM budget lands
+        here in P2 (the arbiter)."""
+        cfg = self._config_fn()
+        out = {
+            "router": False,
+            "models_max": cfg.models_max,
+            "sleep_idle_seconds": cfg.sleep_idle_seconds,
+            "models": [],
+        }
+        router = self._router
+        live: dict[str, dict] = {}
+        if router is not None and router.is_alive():
+            out["router"] = True
+            try:
+                live = _parse_router_models(self._router_models(router.url))
+            except Exception:  # noqa: BLE001 — a GET failure just yields an empty live set
+                log.warning("GET /models failed while reading the resident set", exc_info=True)
+        models: list[dict] = []
+        seen: set[str] = set()
+        for mid, info in live.items():
+            meta = info.get("meta") or {}
+            models.append({
+                "id": mid,
+                "status": info.get("value") or "unloaded",
+                "n_params": meta.get("n_params"),
+                "size_bytes": meta.get("size"),
+                "n_ctx": meta.get("n_ctx"),
+            })
+            seen.add(mid)
+        # A load still downloading/starting — or one that ERRORED before the router saw it (e.g.
+        # engine-not-installed → the router never spawned, so GET /models can't report it) — is
+        # not a router section; surface it too so the catalog shows progress / the failure (and
+        # its install-engine CTA) that would otherwise be lost when reading only the router.
+        for mid, st in self._resident.items():
+            if mid in seen:
+                continue
+            s = st.get("status")
+            if s in ("downloading", "starting", "error"):
+                models.append({"id": mid, "status": s})
+        out["models"] = models
+        return out
 
     # ── internals ─────────────────────────────────────────────────────────
 
@@ -699,33 +797,75 @@ class RunnerService:
             self._bounce_router(server_exe, config)
         self._router_load_with_backoff(entry, fit, server_exe, config)
 
+    def _confirm_load(self, model_id: str) -> str:
+        """Poll `GET /models` until the child for `model_id` resolves. POST /models/load is
+        ASYNC on b9644 (a 2xx only ACCEPTS; the child loads in the background — box-verified),
+        so the 200 is NOT a load confirmation. Returns 'loaded' (status.value loaded|sleeping),
+        'failed' (value failed, or the router process itself died), or 'timeout' (still loading
+        past the deadline). Caller holds `_router_lock`. `_now`/`_sleep`/`_router_models` are
+        injected in tests so this polls deterministically offline."""
+        deadline = self._now() + self._load_poll_timeout
+        while True:
+            router = self._router
+            if router is None or not router.is_alive():
+                return "failed"  # the router itself is gone → nothing to load into
+            try:
+                live = _parse_router_models(self._router_models(router.url))
+            except Exception:  # noqa: BLE001 — a transient GET failure ≠ a load failure; keep polling
+                live = {}
+            value = (live.get(model_id) or {}).get("value") or ""
+            if value in ("loaded", "sleeping"):
+                return "loaded"
+            if value == "failed":
+                return "failed"
+            if self._now() >= deadline:
+                return "timeout"
+            self._sleep(self._load_poll_interval)
+
     def _router_load_with_backoff(self, entry: ModelIniEntry, fit, server_exe, config) -> None:
-        """`POST /models/load` the model; on a child failure that looks like CUDA-OOM,
-        re-emit that model's section at a lower `ngl` (+ derived `n_cpu_moe` for a MoE) and
-        reload — a router-level mirror of `start_runner`'s ngl-shed back-off, which the
-        router bypasses (a too-high emitted `ngl` would otherwise abort the child with no
-        recovery — design §5b, the ngl=999 abort)."""
+        """`POST /models/load` the model, then CONFIRM it went resident by polling `GET /models`
+        (the POST is async — a 2xx only accepts). On a child that fails to load AND the spawn log
+        looks like CUDA-OOM, re-emit that model's section at a lower `ngl` (+ derived `n_cpu_moe`
+        for a MoE) and reload — a router-level mirror of `start_runner`'s ngl-shed back-off, which
+        the router bypasses (design §5b, the ngl=999 over-fit).
+
+        The OOM gate matters: a NON-OOM failure (a bad `extra_flags` passthrough, a corrupt or
+        mismatched GGUF, a flag the engine rejects) re-emits the SAME overrides, so shedding
+        cannot fix it — and each `_bounce_router` knocks down + reloads EVERY healthy co-resident
+        model. So a non-OOM failure fails FAST, no shed, no bounce. b9644 auto-offloads an over-fit
+        (loads, not fails), so the OOM path rarely fires; whether a router CHILD's OOM text reaches
+        the router spawn log is a P1g box-check — if it doesn't, we fail fast (acceptable: the
+        emitter never emits ngl=999 and P2's arbiter pre-checks fit). A SYNCHRONOUS reject from the
+        POST itself (a 4xx: unknown id / at `models-max`) is NOT an OOM — it propagates out of here
+        as the load error. Caller holds `_router_lock`."""
         ngl = fit.n_gpu_layers
         while True:
-            try:
-                self._router_load(self._router.url, entry.model_id)
+            # POST accepts (2xx) or raises on a synchronous 4xx (bad id / at capacity) — the
+            # latter is a real error, not OOM, so it propagates (→ _run_load sets error state).
+            self._router_load(self._router.url, entry.model_id)
+            outcome = self._confirm_load(entry.model_id)
+            if outcome == "loaded":
                 return
-            except Exception as exc:  # noqa: BLE001 — inspect for OOM, else re-raise
-                tail = _tail_file(self._last_log_path) if self._last_log_path else ""
-                if ngl > 0 and (_looks_like_oom(str(exc)) or _looks_like_oom(tail)):
-                    ngl = max(0, ngl - _BACKOFF_STEP)
-                    n_cpu_moe = max(0, fit.block_count - ngl) if fit.is_moe else entry.n_cpu_moe
-                    log.warning("router child OOM for %s — re-emit at ngl=%d + reload", entry.model_id, ngl)
-                    entry = ModelIniEntry(
-                        model_id=entry.model_id, gguf_path=entry.gguf_path, n_gpu_layers=ngl,
-                        n_cpu_moe=n_cpu_moe, ctx_len=entry.ctx_len, overrides=entry.overrides,
-                        embeddings=entry.embeddings, pooling=entry.pooling,
-                        load_on_startup=entry.load_on_startup,
-                    )
-                    self._emit_ini(override=entry)
-                    self._bounce_router(server_exe, config)
-                    continue
-                raise
+            # failed / timeout: shed GPU layers ONLY on a genuine CUDA-OOM in the spawn log —
+            # never on a non-OOM failure (shedding can't fix it and a bounce disrupts residents).
+            tail = _tail_file(self._last_log_path) if self._last_log_path else ""
+            if ngl > 0 and _looks_like_oom(tail):
+                ngl = max(0, ngl - _BACKOFF_STEP)
+                n_cpu_moe = max(0, fit.block_count - ngl) if fit.is_moe else entry.n_cpu_moe
+                log.warning("router child %s OOM (%s) — re-emit at ngl=%d + reload",
+                            entry.model_id, outcome, ngl)
+                entry = ModelIniEntry(
+                    model_id=entry.model_id, gguf_path=entry.gguf_path, n_gpu_layers=ngl,
+                    n_cpu_moe=n_cpu_moe, ctx_len=entry.ctx_len, overrides=entry.overrides,
+                    embeddings=entry.embeddings, pooling=entry.pooling,
+                    load_on_startup=entry.load_on_startup,
+                )
+                self._emit_ini(override=entry)
+                self._bounce_router(server_exe, config)
+                continue
+            raise RuntimeError(
+                f"model {entry.model_id!r} failed to load (status={outcome}, ngl={ngl}): {tail[-600:]}"
+            )
 
     def _run_download(self, model_id: str) -> None:
         """Download-only worker (OWN channel): fetch the weights + ground the catalog

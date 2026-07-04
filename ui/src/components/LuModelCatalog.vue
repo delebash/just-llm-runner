@@ -28,7 +28,7 @@ import { confirmDialog } from "../common/services/dialog.js";
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
 const {
   models, vramMb, loading, error, downloaded, total, loadErr, loadingId,
-  needsEngine, progressLabel, fmtBytes, FIT_LABEL, refresh, load, unload,
+  needsEngine, progressLabel, fmtBytes, FIT_LABEL, refresh, load, unload, download,
 } = useRunnerModels();
 
 // Installed-first framing: "Your models" = anything downloaded / loaded / in-flight /
@@ -250,9 +250,12 @@ loadCatalogMeta();
                 :loading="loadingId === m.id" @click="load(m.id)">Retry</UiButton>
               <UiButton v-else-if="m.status === 'disk'" intent="primary" size="small"
                 :loading="loadingId === m.id" @click="load(m.id)">Load</UiButton>
-              <UiButton v-else-if="m.fit === 'no'" intent="secondary" size="small" :disabled="true">Too large</UiButton>
+              <UiButton v-else-if="m.fit === 'no'" intent="secondary" size="small"
+                :loading="loadingId === m.id"
+                title="Estimated too large for your hardware — may fail to load, or run slowly via CPU offload"
+                @click="download(m.id)">Download anyway</UiButton>
               <UiButton v-else intent="primary" size="small"
-                :loading="loadingId === m.id" @click="load(m.id)">Download &amp; load</UiButton>
+                :loading="loadingId === m.id" @click="download(m.id)">Download</UiButton>
             </td>
           </tr>
         </tbody>

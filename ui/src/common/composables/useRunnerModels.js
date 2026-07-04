@@ -116,6 +116,20 @@ export async function unload() {
   }
 }
 
+// Download the weights ONLY (no spawn) — the catalog's "Download" action, distinct
+// from load(). The model then reports as on-disk ('disk'); loading it is a separate step.
+export async function download(modelId) {
+  loadingId.value = modelId;
+  try {
+    await request("/v1/llm-runner/download", { method: "POST", body: { modelId } });
+    await refresh();
+  } catch (e) {
+    error.value = e.message || "Download failed.";
+  } finally {
+    loadingId.value = "";
+  }
+}
+
 let kicked = false;
 
 /** The shared runner-models state. Every consumer gets the SAME refs; the first
@@ -128,6 +142,6 @@ export function useRunnerModels() {
   return {
     models, vramMb, loading, error, detail, downloaded, total, loadErr, loadingId,
     anyLoading, anyError, needsEngine, progressLabel, fmtBytes, FIT_LABEL,
-    refresh, load, unload,
+    refresh, load, unload, download,
   };
 }

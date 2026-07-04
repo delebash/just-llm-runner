@@ -206,6 +206,56 @@ def test_dead_process_flips_to_error(tmp_path):
     assert svc.status()["status"] == "error"
 
 
+# ── download-only (fetch weights, no spawn) — separate from load ───────────────
+
+def test_download_only_fetches_no_spawn(tmp_path):
+    # download() fetches the weights but does NOT spawn llama-server: status
+    # returns to idle, no runner, and `start` is never called.
+    started = {"hit": False}
+
+    def spy_start(*a, **k):
+        started["hit"] = True
+        return _fake_runner()
+
+    svc = _service_for(tmp_path, start=spy_start)
+    svc.download(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "idle"   # back to idle — nothing running
+    assert svc._runner is None
+    assert started["hit"] is False            # NO spawn
+
+
+def test_download_needs_no_engine(tmp_path):
+    # Unlike load(), download() does NOT require the engine installed — it only
+    # fetches weights. No engine present → it still succeeds.
+    svc = _service_for(tmp_path)
+    svc._acquired_exe = lambda *a, **k: None  # engine not installed
+    svc.download(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    st = svc.status()
+    assert st["status"] == "idle"
+    assert st["error"] == ""
+
+
+def test_download_grounds_type_via_identify(tmp_path):
+    # download() still grounds the catalog type from the file (like load).
+    seen = []
+    svc = _service_for(tmp_path, identify_fn=lambda mid, path: seen.append(mid))
+    svc.download(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "idle"
+    assert seen == [_TEST_MODEL.id]
+
+
+def test_download_unknown_model_errors(tmp_path):
+    svc = _service_for(tmp_path)
+    svc.download("does-not-exist")
+    svc._thread.join(timeout=5)
+    st = svc.status()
+    assert st["status"] == "error"
+    assert "unknown model" in st["error"]
+
+
 # ── engine install as its own step, separate from a model load ─────────────────
 
 def test_load_without_engine_errors(tmp_path):

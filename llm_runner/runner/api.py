@@ -159,6 +159,16 @@ async def load_model(body: LoadRequest) -> dict:
     )
 
 
+@router.post("/v1/llm-runner/download", summary="Download a model's GGUF to the cache (no spawn)")
+async def download_model(body: LoadRequest) -> dict:
+    """Fetch a model's weights into the local cache WITHOUT loading it — the catalog's
+    'Download' action, separate from 'Load'. Does not require the engine installed; the
+    model then reports as on-disk via /models. Any overrides in the body are ignored."""
+    if not body.model_id:
+        raise HTTPException(status_code=400, detail="modelId required")
+    return get_service().download(body.model_id)
+
+
 @router.get("/v1/llm-runner/status", summary="Current load/run status")
 async def runner_status() -> dict:
     return get_service().status()

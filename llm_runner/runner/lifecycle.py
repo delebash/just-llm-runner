@@ -297,6 +297,20 @@ class RunnerService:
             self._thread.start()
         return dict(self._state)
 
+    def download(self, model_id: str) -> dict:
+        """Download a model's GGUF into the cache WITHOUT spawning it — the catalog's
+        'Download' action, separate from 'Load'. Does NOT require the engine installed
+        (that is only needed to spawn). On success the model reports as on-disk via
+        /models, and the user can 'Load' it as a distinct step."""
+        with self._lock:
+            if self._state["status"] in ("downloading", "starting"):
+                return dict(self._state)  # a load/download is already in flight
+            self._state = {"status": "downloading", "modelId": model_id, "url": "", "detail": "queued",
+                           "error": "", "downloaded": 0, "total": 0}
+            self._thread = threading.Thread(target=self._run_download, args=(model_id,), daemon=True)
+            self._thread.start()
+        return dict(self._state)
+
     def stop(self) -> dict:
         with self._lock:
             if self._runner is not None:
@@ -450,6 +464,35 @@ class RunnerService:
             self._state.update(status="running", url=runner.url, detail="", downloaded=0, total=0)
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
             log.exception("runner load failed")
+            self._state.update(status="error", detail="", error=str(exc), downloaded=0, total=0)
+
+    def _run_download(self, model_id: str) -> None:
+        """Download-only worker: fetch the weights, ground the catalog `type` from the
+        file, then return to idle WITHOUT spawning llama-server. (The engine is not
+        required to download — only to load.)"""
+        try:
+            model = next((m for m in self.catalog() if m.id == model_id), None)
+            if model is None:
+                raise ValueError(f"unknown model {model_id!r}")
+
+            def _progress(downloaded: int, total: int | None) -> None:
+                self._state["downloaded"] = downloaded
+                self._state["total"] = total or 0
+
+            self._state.update(detail="model weights", downloaded=0, total=0)
+            snapshot = self._acquire_model(
+                model.hf_repo, model.quant, model.mmproj, cache_root=self._cache_root / "hf",
+                on_progress=_progress,
+            )
+            # Best-effort: ground the catalog `type` (moe|dense) from the downloaded
+            # GGUF, same as a full load. Never fail the download on this.
+            try:
+                self._identify_fn(model_id, self._main_gguf(snapshot, model.quant))
+            except Exception:  # noqa: BLE001 — identification is advisory only
+                log.warning("model type auto-detect failed for %s", model_id, exc_info=True)
+            self._state = _idle()  # downloaded; /models now reports it on-disk. No spawn.
+        except Exception as exc:  # noqa: BLE001 — any failure becomes error state
+            log.exception("runner download failed")
             self._state.update(status="error", detail="", error=str(exc), downloaded=0, total=0)
 
 

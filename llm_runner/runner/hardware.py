@@ -23,6 +23,13 @@ from .schema import GpuInfo, HardwareInfo
 log = logging.getLogger(__name__)
 
 
+def max_vram_mb(hw: HardwareInfo) -> int:
+    """The largest single-GPU VRAM (MiB) in `hw`, or 0 if no GPU — the ONE reduction the Fit math
+    (`process.compute_fit`) and the VRAM arbiter both use, so "max detected VRAM" has a single
+    source (matching the arbiter's 'one VRAM authority' principle) with no per-call-site drift."""
+    return max((g.vram_mb or 0 for g in hw.gpus), default=0)
+
+
 def platform_key() -> str:
     sysname = platform.system().lower()
     if sysname.startswith("win"):

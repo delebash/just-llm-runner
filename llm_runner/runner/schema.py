@@ -174,15 +174,21 @@ class ResidentModel(CamelModel):
     n_params: int | None = None      # meta.n_params (real param count once loaded)
     size_bytes: int | None = None    # meta.size (resident weight bytes)
     n_ctx: int | None = None         # meta.n_ctx (the child's context window)
+    vram_mb: int | None = None       # GPU-resident VRAM the arbiter reserved for this model (P2)
 
 
 class RunnerResidentResponse(CamelModel):
-    """The live resident set + the two operator knobs that bound it. `router` is
-    whether the long-lived router process is up (it spawns lazily on the first load)."""
+    """The live resident set + the two operator knobs that bound it + the arbiter's VRAM budget.
+    `router` is whether the long-lived router process is up (it spawns lazily on the first load).
+    The VRAM fields are the in-process arbiter's ledger (P2): committed = Σ reserved, remaining =
+    detected − committed (0 on a CPU-only box)."""
 
     router: bool = False
     models_max: int = 2
     sleep_idle_seconds: int = 900
+    vram_total_mb: int = 0
+    committed_mb: int = 0
+    remaining_mb: int = 0
     models: list[ResidentModel] = []
 
 

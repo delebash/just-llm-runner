@@ -29,6 +29,7 @@ import requests
 from . import fit
 from .config import DEFAULT_SAFETY_MARGIN_MB
 from .gguf import GgufMeta
+from .hardware import max_vram_mb
 from .schema import HardwareInfo
 
 log = logging.getLogger(__name__)
@@ -92,10 +93,7 @@ class FitPlan:
     ctx_len: int
     block_count: int  # carried so back-off can recompute n_cpu_moe as layers shed
     is_moe: bool
-
-
-def _max_vram_mb(hw: HardwareInfo) -> int:
-    return max((g.vram_mb or 0 for g in hw.gpus), default=0)
+    vram_mb: int = 0  # estimated GPU-RESIDENT VRAM for n_gpu_layers (the VRAM arbiter reserves this, P2)
 
 
 # Overrides field → its llama-server VALUE flag (presence + spec handled separately).
@@ -290,16 +288,16 @@ def compute_fit(
     ov = overrides or Overrides()
     ctx_len = ov.ctx_len or DEFAULT_CTX
     n_layers = max(1, meta.block_count)
+    cache_type = fit.cache_type_bits(ov.cache_type_k or "q8_0")
+    # head_count_kv is absent in some GGUF headers — fall back to MHA
+    # (≈ hidden_dim / 128, a typical head_dim) so KV isn't under-counted.
+    n_kv_heads = meta.n_kv_heads or max(1, meta.embedding_length // 128)
 
     if ov.n_gpu_layers is not None:
         n_gpu = max(0, min(n_layers, ov.n_gpu_layers))
     else:
-        vram_mb = _max_vram_mb(hardware)
-        budget_mb = max(0, vram_mb - safety_margin_mb)
-        cache_type = fit.cache_type_bits(ov.cache_type_k or "q8_0")
-        # head_count_kv is absent in some GGUF headers — fall back to MHA
-        # (≈ hidden_dim / 128, a typical head_dim) so KV isn't under-counted.
-        n_kv_heads = meta.n_kv_heads or max(1, meta.embedding_length // 128)
+        total_vram_mb = max_vram_mb(hardware)
+        budget_mb = max(0, total_vram_mb - safety_margin_mb)
         # oobabooga's fitted GGUF VRAM formula → the most GPU layers that fit.
         n_gpu = fit.max_gpu_layers(
             size_mb=total_weight_bytes / 1e6,
@@ -316,9 +314,18 @@ def compute_fit(
     else:
         n_cpu_moe = max(0, n_layers - n_gpu) if meta.is_moe else 0
 
+    # GPU-resident VRAM for the chosen split — the SAME fitted formula run forward (cost of n_gpu)
+    # rather than inverse (max layers for a budget). The VRAM arbiter reserves this (P2). A
+    # fully-CPU load (n_gpu == 0) touches no GPU (no CUDA context), so it reserves 0 — NOT the
+    # formula's ~1.5 GB base offset, which represents an in-use GPU.
+    vram_mb = int(fit.estimate_vram_mb(
+        size_mb=total_weight_bytes / 1e6, n_layers=n_layers, n_kv_heads=n_kv_heads,
+        embedding_dim=meta.embedding_length, ctx_size=ctx_len, cache_type=cache_type, gpu_layers=n_gpu,
+    )) if n_gpu > 0 else 0
+
     return FitPlan(
         n_gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe, ctx_len=ctx_len,
-        block_count=n_layers, is_moe=meta.is_moe,
+        block_count=n_layers, is_moe=meta.is_moe, vram_mb=vram_mb,
     )
 
 

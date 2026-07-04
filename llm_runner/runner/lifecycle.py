@@ -22,11 +22,12 @@ import requests
 
 from dataclasses import fields as _dc_fields
 
+from .arbiter import get_arbiter as _get_arbiter
 from .binary import acquire_binary as _acquire_binary
 from .binary import acquired_server_exe, binary_dir, select_binary
 from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
-from .hardware import detect as _detect
+from .hardware import detect as _detect, max_vram_mb as _hw_max_vram
 from .models import acquire_model as _acquire_model, cached_gguf_path
 from .process import (
     DEFAULT_HOST,
@@ -95,7 +96,7 @@ def _default_measure_sample() -> dict:
     VRAM/RAM is a GPU-box refinement — inject a richer sampler there."""
     hw = _detect()
     return {
-        "vramTotalMb": max((g.vram_mb or 0 for g in hw.gpus), default=0),
+        "vramTotalMb": _hw_max_vram(hw),
         "ramTotalMb": hw.ram_mb,
     }
 
@@ -288,6 +289,7 @@ class RunnerService:
         router_models=_default_router_models,
         now=time.monotonic,
         sleep=time.sleep,
+        arbiter=None,
     ):
         self._cache_root = Path(cache_root)
         self._config_fn = config_fn
@@ -308,6 +310,8 @@ class RunnerService:
         self._sleep = sleep
         self._load_poll_timeout = _LOAD_POLL_TIMEOUT
         self._load_poll_interval = _LOAD_POLL_INTERVAL
+        # The VRAM-budget arbiter (P2): the shared per-app singleton unless a test injects one.
+        self._arbiter = arbiter if arbiter is not None else _get_arbiter()
         # Router + resident set (replaces the single `_runner` + `_state`).
         self._router: RouterHandle | None = None
         self._resident: dict[str, dict] = {}   # model_id → back-compat state dict
@@ -413,6 +417,24 @@ class RunnerService:
             cur = self._resident.get(model_id)
             if cur is not None and cur.get("status") in ("downloading", "starting"):
                 return dict(cur)  # THIS model's load is already in flight
+            # A plain re-load of an already-running model (no tuning) is idempotent — keep it warm
+            # (touch the LRU) rather than re-POST /models/load and get a 400 "already loaded" from
+            # the router, which would then error + RELEASE the reservation while the child is still
+            # resident (a VRAM-ledger drift). A Lab re-tune (real overrides/switches/job) still
+            # re-loads to apply the ephemeral .ini section. NB: the HTTP path (api.load_model) always
+            # passes an Overrides() — empty when the body carries no tuning — so "no overrides" must
+            # compare EQUAL to the default, not `is None` (which is only ever true for internal callers).
+            # The router-liveness gate is essential: `_resident[id]=="running"` can be STALE after a
+            # router crash (status() only reconciles the _last_id primary, not a co-resident like the
+            # pinned embed), and swallowing a re-load then would never respawn the dead router — so a
+            # re-load when the router is down MUST fall through to _run_load's recovery spawn.
+            router = self._router
+            no_tuning = (overrides is None or overrides == Overrides()) and not switches and not job_id
+            if (cur is not None and cur.get("status") == "running" and no_tuning
+                    and router is not None and router.is_alive()):
+                self._last_id = model_id  # a re-load promotes to primary, as the non-guard path does
+                self._arbiter.touch(model_id)
+                return dict(cur)
             self._resident[model_id] = {"status": "downloading", "modelId": model_id, "url": "",
                                         "detail": "queued", "error": "", "downloaded": 0, "total": 0}
             self._last_id = model_id
@@ -458,6 +480,7 @@ class RunnerService:
                     except Exception:  # noqa: BLE001 — best-effort
                         log.warning("router unload %s failed", model_id, exc_info=True)
                 self._resident.pop(model_id, None)
+                self._arbiter.release(model_id)  # free its VRAM reservation
                 if self._last_id == model_id:
                     self._last_id = next(iter(self._resident), "")
             else:
@@ -468,6 +491,7 @@ class RunnerService:
                         pass
                 self._router = None
                 self._resident.clear()
+                self._arbiter.clear()  # full teardown → drop the whole VRAM ledger
                 self._last_ini_text = ""
                 self._last_id = ""
         return self.status()
@@ -493,6 +517,7 @@ class RunnerService:
         except Exception as exc:  # noqa: BLE001 — surface the probe error, don't crash
             return {"ok": False, "error": str(exc)}
         tps = round(ct / (ms / 1000), 1) if ms > 0 and ct else 0.0
+        self._arbiter.touch(mid)  # a measure is a use — keep it warm in the LRU
         return {
             "ok": True, "modelId": mid,
             "tokensPerSec": tps, "completionTokens": ct, "ms": round(ms, 1), **sample(),
@@ -513,9 +538,10 @@ class RunnerService:
             count = probe(router.url, text, model_id=mid)
         except Exception as exc:  # noqa: BLE001 — surface the probe error, don't crash
             return {"ok": False, "error": str(exc)}
+        self._arbiter.touch(mid)  # a tokenize is a use — keep it warm in the LRU
         return {"ok": True, "count": int(count)}
 
-    def resident(self) -> dict:
+    def resident(self, hw=None) -> dict:
         """The LIVE resident set for `GET /v1/llm-runner/resident`: the router's own
         `GET /models` view (per-model status + the `meta` footprint of a LOADED child), the
         two operator knobs that bound it (`models_max` / `sleep_idle_seconds`), and any
@@ -524,10 +550,14 @@ class RunnerService:
         lazy-spawn common case) → `router: False`, empty set. The per-model VRAM budget lands
         here in P2 (the arbiter)."""
         cfg = self._config_fn()
+        snap = self._arbiter.snapshot(hw)  # committed/remaining/total VRAM (hw passed → no re-detect)
         out = {
             "router": False,
             "models_max": cfg.models_max,
             "sleep_idle_seconds": cfg.sleep_idle_seconds,
+            "vram_total_mb": snap["vram_total_mb"],
+            "committed_mb": snap["committed_mb"],
+            "remaining_mb": snap["remaining_mb"],
             "models": [],
         }
         router = self._router
@@ -548,20 +578,30 @@ class RunnerService:
                 "n_params": meta.get("n_params"),
                 "size_bytes": meta.get("size"),
                 "n_ctx": meta.get("n_ctx"),
+                "vram_mb": self._arbiter.reserved_mb(mid),  # GPU-resident VRAM the arbiter reserved
             })
             seen.add(mid)
         # A load still downloading/starting — or one that ERRORED before the router saw it (e.g.
         # engine-not-installed → the router never spawned, so GET /models can't report it) — is
         # not a router section; surface it too so the catalog shows progress / the failure (and
         # its install-engine CTA) that would otherwise be lost when reading only the router.
-        for mid, st in self._resident.items():
+        # Snapshot to a list: `_evict_resident` pops `_resident` from the load thread under
+        # `_router_lock`, so iterating the live dict here (the API thread) could raise "dict changed
+        # size"; `list(...)` is atomic under the GIL, giving a stable view without a shared lock.
+        for mid, st in list(self._resident.items()):
             if mid in seen:
                 continue
             s = st.get("status")
             if s in ("downloading", "starting", "error"):
-                models.append({"id": mid, "status": s})
+                models.append({"id": mid, "status": s, "vram_mb": self._arbiter.reserved_mb(mid)})
         out["models"] = models
         return out
+
+    def remaining_vram_mb(self, hw=None) -> int:
+        """VRAM left after the committed-resident set — the budget-aware VRAM `api.py get_models`
+        feeds `coarse_fit` (design §5c). Delegates to the arbiter (the `fit.py` math is unchanged;
+        only the VRAM fed in shrinks by what's already resident)."""
+        return self._arbiter.remaining_mb(hw)
 
     # ── internals ─────────────────────────────────────────────────────────
 
@@ -690,15 +730,67 @@ class RunnerService:
                 # leak that status() would report as idle).
                 if model_id not in self._resident:
                     return
+                # Arbiter admission (P2): evict the LRU non-pinned resident(s) until this model
+                # fits the VRAM budget within models_max, THEN load. Under _router_lock so the
+                # eviction serializes with other loads/stops. The reservation is recorded only
+                # AFTER a confirmed load (below), so the ledger never holds a non-resident model.
+                self._admit(model_id, fit.vram_mb, config.models_max, hardware)
                 self._resident[model_id].update(status="starting", detail="loading into VRAM",
                                                 downloaded=0, total=0)
                 self._load_via_router(entry, fit, server_exe, config)
+                self._arbiter.reserve(model_id, fit.vram_mb, pinned=False)
                 self._resident[model_id].update(status="running", url=self._router.url,
                                                 detail="", error="", downloaded=0, total=0)
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
             log.exception("runner load failed")
             # A concurrent stop() may have cancelled + removed the model — don't resurrect it.
             self._touch(model_id, status="error", detail="", error=str(exc), downloaded=0, total=0)
+            self._arbiter.release(model_id)  # never leak a reservation on a failed/cancelled load
+
+    # ── Arbiter admission (P2): co-reside if it fits, else evict the LRU ───────
+    #    Called from _run_load under `_router_lock`.
+
+    def _admit(self, model_id: str, vram_mb: int, models_max: int, hardware) -> None:
+        """Make room for a load: evict the LRU non-pinned resident(s) until `model_id` fits the VRAM
+        budget AND the child count is under `models_max`. Accounts for `model_id`'s OWN prior
+        reservation (a re-tune replaces it, doesn't add) and never evicts `model_id`. If nothing is
+        evictable (only pinned models, or only `model_id` remains) it PROCEEDS anyway — the spawn OOM
+        back-off + the build's CPU auto-offload are the final safety nets. Caller holds `_router_lock`;
+        `hardware` is passed in (already detected) so the arbiter doesn't re-run nvidia-smi per loop."""
+        arb = self._arbiter
+        own = arb.reserved_mb(model_id) or 0  # freeing our own reservation adds this back to the budget
+        while True:
+            fits = vram_mb <= arb.remaining_mb(hw=hardware) + own
+            n_others = arb.count() - (1 if arb.is_reserved(model_id) else 0)
+            if fits and n_others < models_max:
+                return
+            victim = arb.pick_evict(exclude=model_id)
+            if victim is None:
+                return  # only pinned / just this model → proceed; the safety nets handle over-fit
+            log.info("arbiter: evict LRU %s to make room for %s (needs %d MB)", victim, model_id, vram_mb)
+            self._evict_resident(victim)
+
+    def _evict_resident(self, model_id: str) -> None:
+        """Unload one co-resident model to free its VRAM for an incoming load: POST /models/unload,
+        drop it from `_resident`, release its arbiter reservation, and re-home `_last_id` if it was
+        the primary. Caller holds `_router_lock`.
+
+        DECISION — release the reservation on the unload ATTEMPT, not only on a confirmed unload:
+        (1) it guarantees `_admit`'s loop terminates (an un-released victim would keep coming back
+        from `pick_evict`), and (2) a failed unload almost always means the child is ALREADY gone (a
+        4xx "not loaded" or a router that's down), so releasing is correct. The rare "unload failed
+        but the child is still resident" case under-counts committed VRAM → a possible OOM on the
+        next co-resident load, which the spawn OOM back-off + the build's CPU auto-offload catch."""
+        router = self._router
+        if router is not None and router.is_alive():
+            try:
+                self._router_unload(router.url, model_id)
+            except Exception:  # noqa: BLE001 — best-effort; reservation freed on attempt (see docstring)
+                log.warning("arbiter evict: unload %s failed", model_id, exc_info=True)
+        self._resident.pop(model_id, None)
+        self._arbiter.release(model_id)
+        if self._last_id == model_id:
+            self._last_id = next(iter(self._resident), "")
 
     # ── Router: emit the .ini from the DB → spawn/bounce → load a model by id ──
     #    All of these assume the caller holds `_router_lock` (they mutate `_router`).

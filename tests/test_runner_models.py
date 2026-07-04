@@ -48,19 +48,27 @@ def _model(mid, min_vram_mb, *, min_ram_mb=None, total_params="14B"):
 
 
 class _FakeService:
-    def __init__(self, models, *, resident=None, status=None):
+    def __init__(self, models, *, resident=None, status=None, remaining_mb=None):
         self._models = list(models or [])
         # get_models reads the resident set (P1f) for per-model status; router-down/empty
         # by default → every model falls through to disk/available.
         self._resident = resident or {"router": False, "modelsMax": 2, "sleepIdleSeconds": 900, "models": []}
         self._status = status or {"status": "idle", "modelId": "", "url": "", "detail": "", "error": ""}
+        # Budget-aware fit (P2): the VRAM left after the committed-resident set. None → the whole
+        # detected VRAM (the pre-P2 behaviour), so the existing Fit-band tests are unchanged.
+        self._remaining_mb = remaining_mb
         self.cache_root = Path("/nonexistent-cache-root")
 
     def status(self):
         return self._status
 
-    def resident(self):
+    def resident(self, hw=None):
         return self._resident
+
+    def remaining_vram_mb(self, hw=None):
+        if self._remaining_mb is not None:
+            return self._remaining_mb
+        return max((g.vram_mb or 0 for g in (hw.gpus if hw else [])), default=0)
 
     def catalog(self):
         return self._models
@@ -120,6 +128,23 @@ def test_cpu_only_machine(monkeypatch):
     _patch(monkeypatch, hardware=hw, models=models)  # no resident → fit bands only
     fit = {m["id"]: m["fit"] for m in _client().get("/v1/llm-runner/models").json()["models"]}
     assert fit == {"fits-ram": "cpu", "too-big-ram": "no"}
+
+
+def test_budget_aware_fit_uses_remaining(monkeypatch):
+    # P2 (design §5c): when the VRAM isn't card-overridden, Fit scores against the budget LEFT
+    # after the committed-resident set (the arbiter's remaining_mb), not the whole GPU — so a
+    # model that was 'tight' on the empty card can drop to 'no' once another model is resident.
+    hw = HardwareInfo(os="Linux", platform="linux", cpu_cores=8, ram_mb=32000,
+                      gpus=[GpuInfo(vendor="nvidia", name="RTX 4070", vram_mb=12288)])
+    models = [_model("mid", 14000)]  # whole card: 14000/(12288-1024)=1.24 → tight
+    svc = _FakeService(models, remaining_mb=4288)  # after ~8 GB committed: 14000/(4288-1024)=4.3 → no
+    monkeypatch.setattr(api, "detect", lambda: hw)
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    monkeypatch.setattr(api, "is_cached", lambda *a, **k: False)
+    assert _client().get("/v1/llm-runner/models").json()["models"][0]["fit"] == "no"
+    # A card-chooser override (the vram_mb query param) is a hypothetical fresh card → it bypasses
+    # the arbiter budget and scores against the given VRAM as-is.
+    assert _client().get("/v1/llm-runner/models?vram_mb=12288").json()["models"][0]["fit"] == "tight"
 
 
 def test_status_reflects_loaded_model(monkeypatch):
@@ -202,16 +227,20 @@ def test_resident_endpoint_camelcase(monkeypatch):
     hw = HardwareInfo(os="Linux", platform="linux", cpu_cores=8, ram_mb=32000, gpus=[])
     svc = _FakeService([], resident={
         "router": True, "models_max": 3, "sleep_idle_seconds": 600,
-        "models": [{"id": "chat", "status": "loaded", "n_params": 7, "size_bytes": 9, "n_ctx": 4096}],
+        "vram_total_mb": 8000, "committed_mb": 5000, "remaining_mb": 3000,
+        "models": [{"id": "chat", "status": "loaded", "n_params": 7, "size_bytes": 9,
+                    "n_ctx": 4096, "vram_mb": 5000}],
     })
     monkeypatch.setattr(api, "detect", lambda: hw)
     monkeypatch.setattr(api, "get_service", lambda: svc)
     body = _client().get("/v1/llm-runner/resident").json()
     assert body["router"] is True
     assert body["modelsMax"] == 3 and body["sleepIdleSeconds"] == 600
+    assert body["vramTotalMb"] == 8000 and body["committedMb"] == 5000 and body["remainingMb"] == 3000
     row = body["models"][0]
     assert row["id"] == "chat" and row["status"] == "loaded"
     assert row["nParams"] == 7 and row["sizeBytes"] == 9 and row["nCtx"] == 4096
+    assert row["vramMb"] == 5000
 
 
 def test_resident_endpoint_router_down(monkeypatch):

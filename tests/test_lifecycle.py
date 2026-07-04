@@ -8,9 +8,16 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 
+from llm_runner.runner.arbiter import VramArbiter
 from llm_runner.runner.lifecycle import RunnerService
-from llm_runner.runner.process import Overrides
-from llm_runner.runner.schema import ModelEntry
+from llm_runner.runner.process import FitPlan, Overrides
+from llm_runner.runner.schema import GpuInfo, HardwareInfo, ModelEntry
+
+
+def _fake_hw(vram_mb):
+    """A HardwareInfo with one GPU of `vram_mb` — for a deterministic arbiter VRAM budget."""
+    return HardwareInfo(os="Linux", platform="linux", cpu_cores=8, ram_mb=32000,
+                        gpus=[GpuInfo(vendor="nvidia", name="Test", vram_mb=vram_mb)])
 
 # Catalog lives in the host DB now (there is no runner manifest); tests feed in
 # their own test models via the `catalog_fn` injection.
@@ -24,7 +31,7 @@ def _fake_router(url="http://127.0.0.1:8080", alive=True):
 
 def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
                  router_unload=None, router_models=None, now=None, sleep=None,
-                 identify_fn=None, switches_fn=None, profile_switches_fn=None):
+                 identify_fn=None, switches_fn=None, profile_switches_fn=None, arbiter=None):
     """A RunnerService with the router + download IO injected. Every catalog model is
     seeded into a fake HF cache (`<root>/hf/models--<repo>/snapshots/sha/<file>.gguf`)
     so both `cached_gguf_path` (the .ini emitter) and the injected `acquire_model`
@@ -68,6 +75,9 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         router_load=router_load or (lambda *a, **k: None),
         router_unload=router_unload or (lambda *a, **k: None),
         router_models=router_models or _all_loaded,
+        # A FRESH arbiter per service isolates each test's ledger (the default is the shared
+        # process singleton, which would leak reservations between tests).
+        arbiter=arbiter if arbiter is not None else VramArbiter(),
         **kw,
     )
 
@@ -501,6 +511,244 @@ def test_stop_during_confirm_poll_is_clean(tmp_path):
     stopper.join(timeout=5)
     assert unloaded == [_TEST_MODEL.id]                  # stop unloaded it once the load completed
     assert _TEST_MODEL.id not in svc._resident           # clean: no ghost resident entry
+
+
+# ── P2: VRAM arbiter integration (reserve on load, release on stop, evict LRU) ─
+
+def test_load_reserves_and_stop_releases(tmp_path):
+    # A successful load records a VRAM reservation; stop(id) frees it (no leaked budget).
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc._arbiter.is_reserved(_TEST_MODEL.id)
+    svc.stop(_TEST_MODEL.id)
+    assert not svc._arbiter.is_reserved(_TEST_MODEL.id)
+
+
+def test_stop_all_clears_arbiter(tmp_path):
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    svc.stop()  # full teardown
+    assert svc._arbiter.committed_mb() == 0 and svc._arbiter.count() == 0
+
+
+def test_failed_load_leaves_no_reservation(tmp_path):
+    # A load that errors (unknown model) must not leave a phantom reservation.
+    svc = _service_for(tmp_path)
+    svc.load("does-not-exist")
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "error"
+    assert not svc._arbiter.is_reserved("does-not-exist")
+
+
+def test_admit_evicts_lru_when_over_budget(tmp_path):
+    # An 800 MB load onto a 1000 MB card with A(200, LRU) + B(100) resident evicts the LRU (A) to
+    # make room; B (more recent) stays. _admit is exercised directly with an explicit budget.
+    unloaded = []
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(1000))
+    arb.reserve("A", 200)   # older → the LRU
+    arb.reserve("B", 100)
+    svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._resident = {"A": {"status": "running"}, "B": {"status": "running"}}
+    svc._admit("C", 800, models_max=5, hardware=_fake_hw(1000))
+    assert unloaded == ["A"]                 # only the LRU evicted (200 freed → 900 ≥ 800)
+    assert not arb.is_reserved("A") and arb.is_reserved("B")
+
+
+def test_admit_respects_pinned(tmp_path):
+    # A pinned (embed) reservation is never evicted; the evictable chat goes first.
+    unloaded = []
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(1000))
+    arb.reserve("embed", 200, pinned=True)   # older but PINNED
+    arb.reserve("chat", 700)
+    svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._resident = {"embed": {"status": "running"}, "chat": {"status": "running"}}
+    svc._admit("big", 900, models_max=5, hardware=_fake_hw(1000))
+    assert unloaded == ["chat"] and arb.is_reserved("embed")
+
+
+def test_admit_count_cap_evicts_even_when_vram_fits(tmp_path):
+    # models_max caps the child COUNT: 2 tiny models resident + models_max=2 → a 3rd load evicts
+    # the LRU even though VRAM has plenty of room.
+    unloaded = []
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(8000))
+    arb.reserve("A", 10)   # LRU
+    arb.reserve("B", 10)
+    svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._resident = {"A": {"status": "running"}, "B": {"status": "running"}}
+    svc._admit("C", 10, models_max=2, hardware=_fake_hw(8000))
+    assert unloaded == ["A"]                  # count 2 == cap → evict LRU so the 3rd fits under the cap
+
+
+def test_admit_proceeds_when_only_pinned_and_over_budget(tmp_path):
+    # Everything resident is pinned and it still doesn't fit → proceed anyway (no eviction); the
+    # spawn OOM back-off + the build's CPU auto-offload are the final safety nets.
+    unloaded = []
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(1000))
+    arb.reserve("embed", 900, pinned=True)
+    svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._resident = {"embed": {"status": "running"}}
+    svc._admit("big", 900, models_max=5, hardware=_fake_hw(1000))
+    assert unloaded == [] and arb.is_reserved("embed")
+
+
+def test_load_idempotent_when_running_does_not_respawn(tmp_path):
+    # A plain re-load of a running model is a no-op (no re-POST → no 400, no ledger churn) — it just
+    # touches the LRU. The HTTP path (api.load_model) ALWAYS passes an empty Overrides(), so the
+    # guard must treat Overrides()==default as "no tuning" (not `is None`, which is dead for HTTP).
+    spawns = {"n": 0}
+
+    def count_spawn(*a, **k):
+        spawns["n"] += 1
+        return _fake_router()
+
+    svc = _service_for(tmp_path, start_router=count_spawn)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert spawns["n"] == 1
+    st = svc.load(_TEST_MODEL.id, overrides=Overrides())   # the EXACT shape every HTTP load sends
+    assert st["status"] == "running" and spawns["n"] == 1  # guard fired → NOT respawned/reloaded
+
+
+def test_load_retune_while_running_does_reload(tmp_path):
+    # A Lab re-tune (real overrides) of a running model must NOT be swallowed by the idempotent
+    # guard — the .ini changes (ctx 4096→16384) → the router bounces and reloads with the new args.
+    spawns = {"n": 0}
+
+    def count_spawn(*a, **k):
+        spawns["n"] += 1
+        return _fake_router()
+
+    svc = _service_for(tmp_path, start_router=count_spawn)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert spawns["n"] == 1
+    svc.load(_TEST_MODEL.id, overrides=Overrides(ctx_len=16384))  # real tuning → re-load
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert spawns["n"] == 2                    # bounced (respawned) to apply the re-tuned .ini
+    assert "ctx-size = 16384" in _ini(svc)
+
+
+def test_resident_reports_vram_budget(tmp_path):
+    # /resident carries the arbiter's committed/remaining VRAM (here another 3000 MB model is
+    # already resident) + each model's reserved vram_mb.
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(8000))
+    arb.reserve("other", 3000)
+
+    def models(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loaded"}}]}
+
+    svc = _service_for(tmp_path, arbiter=arb, router_models=models)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    res = svc.resident()
+    assert res["vram_total_mb"] == 8000
+    assert res["committed_mb"] == arb.committed_mb()
+    assert res["remaining_mb"] == 8000 - arb.committed_mb()
+    row = next(m for m in res["models"] if m["id"] == _TEST_MODEL.id)
+    assert "vram_mb" in row
+
+
+def test_admit_retune_excludes_own_reservation(tmp_path):
+    # Re-admitting a model that is ALREADY reserved must (a) not evict itself and (b) count its own
+    # reservation as freeable (a re-tune replaces, not adds) — PROVEN by a second co-resident that
+    # WOULD be spuriously evicted if `own` weren't added back to the budget.
+    unloaded = []
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(1000))
+    arb.reserve("chat", 800)    # the model being re-tuned
+    arb.reserve("other", 100)   # a co-resident that must NOT be evicted
+    svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._resident = {"chat": {"status": "running"}, "other": {"status": "running"}}
+    # remaining is 100; re-admit chat at 900 — fits ONLY because chat's own 800 frees back (→ 900).
+    svc._admit("chat", 900, models_max=5, hardware=_fake_hw(1000))
+    assert unloaded == []       # neither chat (self-exclude) nor other (own add-back avoids the spurious evict)
+
+
+def test_evict_rehomes_last_id(tmp_path):
+    # Evicting the primary (_last_id) re-homes it to another resident.
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(8000))
+    arb.reserve("A", 100)
+    arb.reserve("B", 100)
+    svc = _service_for(tmp_path, arbiter=arb)
+    svc._router = _fake_router()
+    svc._resident = {"A": {"status": "running"}, "B": {"status": "running"}}
+    svc._last_id = "A"
+    svc._evict_resident("A")
+    assert svc._last_id == "B" and "A" not in svc._resident
+
+
+def test_load_evicts_then_reserves_on_success(tmp_path, monkeypatch):
+    # A load that needs more than the remaining budget evicts the LRU first, then reserves. A forced
+    # fit.vram_mb exercises the evict path via a REAL load (compute_fit → ~0 on a GPU-less CI box).
+    unloaded = []
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(1000))
+    arb.reserve("old", 900)   # near-full → the LRU
+    svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._resident["old"] = {"status": "running"}
+    svc._hardware_fn = lambda: _fake_hw(1000)   # _admit's budget = 1000
+    monkeypatch.setattr("llm_runner.runner.lifecycle.compute_fit",
+                        lambda *a, **k: FitPlan(10, 0, 4096, 24, False, vram_mb=800))
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert unloaded == ["old"]                          # LRU evicted to make room for the 800 MB load
+    assert svc._arbiter.reserved_mb(_TEST_MODEL.id) == 800
+
+
+def test_load_evicts_then_fails_releases(tmp_path, monkeypatch):
+    # If a load evicts a victim to make room but then FAILS, the incoming model leaves NO reservation
+    # (released on error) — no ledger drift; the victim stays evicted (an accepted, flagged cost).
+    unloaded = []
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(1000))
+    arb.reserve("old", 900)
+
+    def boom(url, mid):
+        raise RuntimeError("/models/load failed [400]")
+
+    svc = _service_for(tmp_path, arbiter=arb, router_load=boom,
+                       router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._resident["old"] = {"status": "running"}
+    svc._hardware_fn = lambda: _fake_hw(1000)
+    monkeypatch.setattr("llm_runner.runner.lifecycle.compute_fit",
+                        lambda *a, **k: FitPlan(10, 0, 4096, 24, False, vram_mb=800))
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "error"
+    assert unloaded == ["old"]                          # victim evicted before the (failing) load attempt
+    assert not svc._arbiter.is_reserved(_TEST_MODEL.id)  # incoming released on failure — no ledger drift
+
+
+def test_reload_respawns_dead_router(tmp_path):
+    # If the router crashed, a plain re-load of a stale-'running' model must NOT be swallowed by the
+    # idempotent guard — it must fall through and RESPAWN the router (recovery). Guards the exact
+    # regression the guard's router-liveness check prevents.
+    spawns = {"n": 0}
+    routers = []
+
+    def spy_start(*a, **k):
+        spawns["n"] += 1
+        r = SimpleNamespace(url="http://127.0.0.1:8080", is_alive=lambda: True, stop=lambda: None)
+        routers.append(r)
+        return r
+
+    svc = _service_for(tmp_path, start_router=spy_start)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert spawns["n"] == 1 and svc.status()["status"] == "running"
+    routers[0].is_alive = lambda: False        # the router process dies; the resident entry stays 'running'
+    svc.load(_TEST_MODEL.id)                    # plain re-load (no tuning) → must fall through, not swallow
+    svc._thread.join(timeout=5)
+    assert spawns["n"] == 2                      # respawned (the router-liveness gate let it fall through)
+    assert svc.status()["status"] == "running"
 
 
 # ── measure / tokenize (re-homed onto the router, routed by model id) ─────────

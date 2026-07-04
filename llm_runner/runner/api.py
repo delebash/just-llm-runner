@@ -86,7 +86,11 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     hardware = detect()
     service = get_service()
 
-    gpu_vram = vram_mb if vram_mb is not None else max((g.vram_mb or 0 for g in hardware.gpus), default=0)
+    # Budget-aware fit (P2, design §5c): when VRAM isn't card-overridden, score against what's LEFT
+    # after the committed-resident set (the arbiter's remaining_mb), not the whole GPU — so a
+    # co-resident model shrinks the badge budget. A card-chooser override (vram_mb passed) is a
+    # hypothetical fresh card, used as-is. `coarse_fit` math is unchanged; only the VRAM fed in shrinks.
+    gpu_vram = vram_mb if vram_mb is not None else service.remaining_vram_mb(hardware)
     margin = service.config().safety_margin_mb
     hf_cache = service.cache_root / "hf"
 
@@ -95,7 +99,7 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     # status() — multiple models can be loaded independently. Router down (lazy-spawn common
     # case) → empty set → every model falls through to disk/available. The download-only
     # channel still overlays independently (it can run while a model is resident).
-    live = {m["id"]: m.get("status") for m in service.resident().get("models", [])}
+    live = {m["id"]: m.get("status") for m in service.resident(hardware).get("models", [])}
     dl = service.download_status()
     dl_id = dl.get("modelId") or ""
     dl_state = dl.get("status") or "idle"

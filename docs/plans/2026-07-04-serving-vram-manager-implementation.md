@@ -460,6 +460,74 @@ resident size/params vs the pre-download catalog estimate).
 
 **NEXT — P4** (resident-set + TTL UI, shared kit — surface the co-resident embed + chat, `models_max`/TTL knobs, reading `/v1/llm-runner/resident`; needs a fresh "go"). **P3 §3d end-to-end box verify** (RAG Build-index + Chat-with-book with the chat model also resident, on the user's Windows box) + **P1g** router-flag box-verify both await the user's box; neither blocks P4.
 
+## BOX-TESTED FINDINGS (2026-07-04, user's own box, Gemini-assisted) — model picks + the chat/extraction insight + P4/P5 follow-ups
+
+The user ran real model tests on their box and shared a working router `.ini` + findings. Recorded here in FULL (they FEED the DB — our emitter GENERATES the `.ini`, so the hand-tuned file is the TARGET OUTPUT our DB→`.ini` should produce, not a file we keep by hand). NONE of this is built — it is the P4/P5 backlog + two small fixes + one USER decision, all pending a fresh "go".
+
+**The user's tested `.ini` (verbatim):**
+```ini
+[*]
+models-max = 2
+models-autoload = 1
+flash-attn = on
+mlock = true
+
+[speaker-extract]
+model = ./data/models/gemma-4-12b-it-Q4_K_M.gguf
+ctx-size = 16000
+n-gpu-layers = -1
+reasoning-budget = 0
+
+[book-chat]
+model = ./data/models/gemma-4-12b-it-Q4_K_M.gguf
+ctx-size = 16000
+n-gpu-layers = -1
+
+[book-index]
+model = ./data/models/qwen3-embedding-0.6b.gguf
+ctx-size = 2048
+n-gpu-layers = -1
+embedding = true
+```
+
+**MODEL PICKS (verified against §8.2b; feed the seed catalog #104/#105):**
+- **Dense `gemma-4-12b-it` (Q4_K_M) for BOTH chat + extraction; the MoE is "slow".** CONFIRMS the §8.2b measured nuance — prompt-heavy / short-output work (speaker extraction, RAG, a 16k context) favours a dense model fully on GPU for time-to-first-token; the A3B MoE only wins for long-output prose. `n-gpu-layers = -1` = all layers on GPU (fits their card, or b9644 auto-offloads the remainder); ctx 16000.
+- **`qwen3-embedding-0.6b` for the embed** (over P3's seeded nomic) — stronger on MTEB, still tiny (~0.6B); ctx 2048. → make it the seed embed default over nomic (a model-surface #104/#105 curation flip).
+- **Global switches `flash-attn = on`, `mlock = true`** (in `[*]`) — these are our Plane-1 switches; they belong in the DB `switch_presets` base, not hand-edited. The emitter renders them per-model.
+
+**THE CHAT-vs-EXTRACTION INSIGHT (the most load-bearing) — "one model, toggle thinking, NO reload" is RIGHT, but the tested `.ini` doesn't implement it yet; it needs ONE small adapter fix.** Gemini told the user chat + extraction use the SAME model so there is no reload — just turn thinking on/off. Correct in principle, and it VALIDATES the taskKind/preset model (chat + extraction = the SAME engine preset, differing ONLY in the per-action `think` flag). But:
+- The tested `.ini` has TWO sections (`speaker-extract`, `book-chat`) BOTH loading gemma-4-12b. In router mode a section = a SEPARATE child server keyed by section id. Two ~7.8 GB gemma entries CANNOT co-reside on a tight card (8–16 GB) alongside the embed. The user reports the 8 GB config VERIFIED-working (2026-07-04) — consistent with EITHER (a) the router SHARING one child across two sections that point at the IDENTICAL model file (a box-verify: does the router dedupe same-`model` sections?), OR (b) extract↔chat SWAPPING gemma (evict + reload, softened by `mlock` keeping the weights in RAM). Either way the two-section shape is redundant, and on the tight tiers a swap is exactly the reload cost we want gone. The user REAFFIRMED the target (2026-07-04): "think ON for chat, OFF for extraction, no reload/thrash if same model" — which is PRECISELY the one-entry refinement below: ONE gemma entry, thinking toggled per-request, nothing to swap.
+- **Verified upstream (llama.cpp server README + Discussions #20408/#21445):** `--reasoning-budget 0` in the `.ini` is a SERVER-LEVEL HARD OFF — a per-request budget only applies "as long as you haven't specified a budget on the command-line," so a `reasoning-budget = 0` section can NOT be re-enabled per-request (it FORCES two entries). The per-request lever is `chat_template_kwargs: {"enable_thinking": true|false}` (and `reasoning_effort` via the same kwargs) — no reload, one resident model.
+- **Our adapter ALMOST does it (`openai_compat.py:108-116` `_apply_reasoning`):** for the local runner it sends `chat_template_kwargs.enable_thinking = true` when thinking is ON — but when thinking is OFF it sends NOTHING and relies on the model's default (which for a thinking model is ON). THAT is why the user needed `reasoning-budget = 0` as a workaround. **THE FIX (one line):** for the local runner, send `enable_thinking: false` when `think` is off. Then ONE gemma entry serves both — extraction sends thinking-off, chat sends thinking-on, ZERO reloads, fits `models-max = 2` alongside the embed. **Consequence for the DB→`.ini` emission:** emit ONE section per resident MODEL, NOT one per taskKind — taskKinds that share a model share the entry + toggle thinking per-request. (Risk to weigh: unconditionally sending `enable_thinking: false` to a NON-thinking model whose template lacks the key — templates ignore unknown kwargs, so low-risk, but confirm on the box.)
+
+**LATENT BUG the config caught — embedding POOLING (P5-adjacent fix):** the P3 emitter HARDCODES `pooling = mean` (`_resolve_ini_entries` post-pass → `emit_models_ini`). Correct for nomic (mean-pooling) but **Qwen3-Embedding is trained for LAST-token pooling** — forcing `mean` would quietly DEGRADE it. The user's tested `.ini` correctly OMITS `pooling`, letting llama.cpp read `pooling_type` from the GGUF. **Fix:** don't hardcode `mean` — omit it (let the file's `pooling_type` decide) or make it a per-model switch. (Confirm Qwen3-Embedding's exact pooling before flipping the default embed.) The `embedding` vs `embeddings` key is a NON-issue: both are accepted aliases (`--embedding, --embeddings`); our plural `embeddings = true` is box-confirmed working (the §8.1 nomic test); the user's singular `embedding = true` is equally valid.
+
+**PIN RECONSIDERATION (the P3 deviation, now a USER DECISION — do NOT decide unilaterally, rule #6):** the user leans toward "leave the embed IN the `.ini`" rather than P3's lazy `ensure_embedding`. Grounding: `models-autoload` DEFAULTS to enabled — the router auto-loads a model when a request for it arrives, so "embed in the `.ini`, loads when needed" works ONCE THE ROUTER IS UP. The two things the bare-`.ini` approach loses vs P3-lazy: (1) something must still SPAWN the router if RAG runs before any chat (a `.ini` alone doesn't self-start); (2) an auto-loaded embed is INVISIBLE to the arbiter's VRAM ledger (the exact "unreserved resident" hole that made P3 drop `load-on-startup`). **The clean reconciliation IF the user chooses eager:** mark the embed section `load-on-startup = true` AND have the runner RESERVE it pinned when it SPAWNS the router (closes the unreserved-resident hole) — keep a thin ensure only to spawn-the-router-if-down for the RAG-first case. That gives the user's "it's just in the ini, always resident" mental model WITH correct VRAM accounting. **DECISION PENDING (user):** eager (`load-on-startup` + reserve-at-spawn) vs keep P3-lazy.
+
+**Sources (web-verified 2026-07-04):** llama.cpp server README (`--embedding/--embeddings`, `--reasoning-budget`, `--reasoning-format`, `chat_template_kwargs.enable_thinking`, `models-max`/`models-autoload`/`load-on-startup`/`--sleep-idle-seconds`) · Discussions #20408 (per-request reasoning_effort) + #21445 (dynamic reasoning-budget per request) · the llama-server `models.ini` gist (embedding/pooling/reranking keys).
+
+**FOLLOW-UP (tasks added; NONE built — pending a "go"):** (a) adapter — send `enable_thinking:false` when think off for the local runner → one-model chat+extraction, no reload; (b) emitter — stop hardcoding `pooling=mean` (omit / per-model) → fixes qwen3-embedding; (c) catalog/seed — add gemma-4-12b (dense) + qwen3-embedding-0.6b, make qwen3-embedding the embed default, capture flash-attn/mlock/ctx as switches (feeds #104/#105); (d) USER DECISION — pin eager vs lazy.
+
+## TIER LADDER — box-informed hardware → model recommendations (2026-07-04, Gemini-assisted; the curation DATA for model-surface #104)
+
+The user provided a full hardware-tier ladder of router `.ini` configs (a monolingual set + a multilingual set), SAME structure across all (the `[*]` header `models-max=2` / `models-autoload=1` / `flash-attn=on` / `mlock=true`; every entry `n-gpu-layers=-1`; extract adds `reasoning-budget=0` [→ should become the per-request `enable_thinking:false`, see above]; embed adds `embedding=true`). Only the MODEL, QUANT, and CTX vary per tier; the multilingual set raises ctx + adds `pooling=cls` to the embed. Captured in FULL (this is the seed-catalog ladder for #104; the 8 GB monolingual `.ini` is quoted verbatim above):
+
+| Tier (VRAM) | Chat + Extract model | Quant | ~size | ctx | Embed model | Embed ctx | Multilingual Δ (ctx / embed ctx / pooling) |
+|---|---|---|---|---|---|---|---|
+| **8 GB — VERIFIED on box** | gemma-4-12b-it | Q4_K_M | ~7.8 GB | 16000 | qwen3-embedding-0.6b | 2048 | 20000 / 8192 / `cls` |
+| 12 GB | gemma-4-12b-it | Q4_K_M | ~7.8 GB | 16000 | qwen3-embedding-0.6b | 2048 | 20000 / 8192 / `cls` |
+| 16 GB | gemma-4-12b-it | Q8_0 | ~12.6 GB | 24000 | qwen3-embedding-0.6b | 4096 | 30000 / 8192 / `cls` |
+| 24 GB | Qwen3-32B-Instruct | Q4_K_M | ~19.5 GB | 24000 | qwen3-embedding-0.6b | 4096 | 30000 / 8192 / `cls` |
+| 32 GB | Meta-Llama-3.1-70B-Instruct | Q3_K_M | ~28.5 GB | 32000 | qwen3-embedding-0.6b | 8192 | 40000 / 8192 / `cls` |
+| 64 GB | Meta-Llama-3.1-70B-Instruct (or Qwen3-72B-Instruct) | Q6_K | ~58.5 GB | 64000 | qwen3-embedding-0.6b | 16384 | 80000 / 16384 / `cls` |
+
+**How it maps to our stack (feeds #104/#105 + the emitter):**
+- **The embed is qwen3-embedding-0.6b at EVERY tier** (tiny, fits any card) → reinforces making it the seed embed default over nomic.
+- **`pooling = cls` for multilingual** (cross-lingual search) → CONFIRMS pooling must be a CONFIGURABLE per-model/per-mode switch (our P3 hardcoded `mean` is wrong for this). ⚠ Qwen3-Embedding is trained for LAST-token pooling, so `cls` (Gemini's rec) may be sub-optimal for it — CONFIRM the right pooling for qwen3-embedding on the box before adopting `cls`; regardless, the emitter must LET it be set, never hardcode.
+- **The `.ini` ctx values ARE our per-model fit `ctx-size`** → they become the DB catalog per-tier ctx the emitter sets; the tiers double as the Fit bands (8/12/16/24/32/64 GB) the model-surface §10 speed-floor auto-pick already reasons about.
+- **This is a RECOMMENDATION ladder, not a config we keep by hand** — the DB holds the models/quants/ctx/switches; the emitter GENERATES the tier-appropriate `.ini`; the arbiter/Fit picks the tier from detected VRAM.
+- **`n-gpu-layers = -1` (all on GPU) at every tier** — on the tightest tiers (8 GB gemma-Q4 ~7.8 GB) this relies on b9644's graceful CPU auto-offload of the overflow (the "verified 8 GB" result); `compute_fit` should target a fitting ngl and let the build auto-offload the tail.
+
 ## Panel review (2026-07-04) — findings folded (transparency)
 A 3-checker rules panel (architecture-fit · reuse · grounding) reviewed the first draft. **Grounding: PASS** —
 all 30+ file:line citations verified accurate, zero drift (author's prior-plan-doc errors did NOT recur; the

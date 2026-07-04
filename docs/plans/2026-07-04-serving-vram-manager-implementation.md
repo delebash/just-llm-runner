@@ -302,6 +302,18 @@ accept**, `_run_load` POLLS `GET /models` (`data[]` where `id==model_id`) until 
 vs `unloaded`) is a 1-curl confirm during P1f dev — the poll handles both. Unknown #1 (`.ini` hot-read) is also a P1f-dev
 curl (re-emit a new section, load its id → 404 = needs the `_bounce_router` path, load-OK = hot-read).
 
+**BOX SURPRISE (2026-07-04) — b9644 AUTO-OFFLOADS at ngl=999; the "guaranteed abort" premise is softer than design §5b.**
+`chatmoetoobig` (35B-A3B, `n-gpu-layers = 999`, NO `--n-cpu-moe`) loaded to **`status.value:"loaded"`** on the 8 GB card
+(real `--port 60364`), NOT `failed` — b9644 gracefully offloads what doesn't fit to CPU RAM instead of the
+`common_fit_params … abort` design §5b saw earlier (a different build/scenario). IMPACT: (a) the router OOM back-off
+(`_router_load_with_backoff`) stays as the net for a genuine over-fit but will RARELY fire — and is moot in practice since
+the emitter already sets a FITTING ngl from `compute_fit`, never 999; (b) a `failed` example could not be forced, so P1f
+polls for `loaded` (success) and treats `failed` OR a no-progress timeout as the error path (robust to the exact word).
+Also seen: an already-loaded / at-capacity load returns a **non-2xx (400)** — P1f treats ANY non-2xx POST as a failure.
+BONUS: a LOADED model's `GET /models` entry carries a **`meta` block** — `{n_params, size, n_ctx, n_ctx_train, n_embd,
+n_vocab}` (chatmoetoobig: n_params 35 505 251 456, size 22 842 671 616 B) — useful for the P1f `/resident` view (actual
+resident size/params vs the pre-download catalog estimate).
+
 **AS-BUILT DEVIATIONS from the spec above (folded from the rules-checker, 2026-07-04 — recorded so spec≠code drift is not silent):**
 - **`GET /models` reconciliation DEFERRED to P1f** → rows 4 & 18 are PARTIAL. The spec's `_default_router_models` client +
   the `status()`/`_run_load` `/models` polling are NOT in P1d — the exact `GET /models` JSON shape is a box-unknown (rule

@@ -9,7 +9,9 @@
 > 1a–1c DONE + tested — shared `overrides_to_pairs`/`render_argv`/`render_ini` (`compose_flags` refactored onto
 > it, behavior-preserving), `emit_models_ini` (+ `ModelIniEntry`), `compose_router_argv`; ruff + 230 pytest green
 > (rules-checker flagged a T5 coverage gap on the context_shift/spec/extra-flag branches → tests added + the
-> `extra_flags` negative-value edge fixed; re-checked PASS). NEXT: 1d (RunnerService→router).**
+> `extra_flags` negative-value edge fixed; re-checked PASS). **1d/1e IN PROGRESS** — the per-method strict-diff (panel T5
+> artifact) is written below (§"P1d/P1e build spec") and committed; implementing the `RunnerService`→router refactor
+> + the two `RunnerConfig` knobs next.**
 > **Hardened by a 3-checker rules panel 2026-07-04** (architecture-fit · reuse · grounding) — grounding PASS (all
 > citations verified accurate), the two FAIL findings folded in full (see "Panel review" §). The approach (router
 > mode + thin arbiter + DB→`.ini`) is unchanged and design-approved; the panel fixed the plan's *specification*.
@@ -168,6 +170,102 @@ SHARED kit component both apps consume** → P5 adds a JV UI smoke, not just imp
   live curl + user-box runtime (router flags on b9644, embed routing, swap speed). **rules-checker on the diff
   before each commit.** Update the design doc (incl. the §7.2 correction), `MORNING_RECAP.md`, this plan's live
   status. Commit per-repo on `claude/admiring-galileo-il3q0o`, push `-u`. No PR unless asked.
+
+## P1d/P1e build spec — `RunnerService`→router per-method strict-diff (the panel's T5 artifact; verified first-hand 2026-07-04 against the code cited)
+
+**Approach.** The bundled runner stops owning ONE `llama-server` and starts owning a LONG-LIVED router (`llama-server`
+launched via `compose_router_argv`, no `-m`, on the same `127.0.0.1:8080` the `local-llamacpp` adapter already targets
+— `openai_compat.py:44`), spawned **LAZILY on the first `load()`** (nothing at boot; both apps still mount the router
+inertly). Models go resident/unloaded BY ID through the router's `/models/{load,unload}`; per-model launch flags live in
+the emitted `.ini` — **one section per ON-DISK catalog model, each fitted by `compute_fit`** (so any downloaded model is
+loadable by id without a re-emit; that is what avoids a bounce on the common co-residence path). Runtime stays green
+because `status()` keeps a BACK-COMPAT single-model shape (the full resident-set `/status` + `/resident` is P1f).
+
+**New module-level pieces (`process.py`):**
+- `RouterHandle(process, url)` + `is_alive()/health()/stop()` — the router process handle (distinct concept from the
+  per-model `Runner`; a clean small dataclass, not a copy — T3).
+- `start_router(server_exe, *, models_dir, models_preset, models_max, sleep_idle_seconds, host, port, log_path, _popen,
+  _health, _sleep, _now) -> RouterHandle` — `compose_router_argv` (P1c) + `Popen` + `_wait_until_healthy` (REUSED). **NO
+  OOM back-off** (the router doesn't OOM; its CHILDREN do — handled at the service level, row 18).
+
+**New module-level router-control client (`lifecycle.py`, injectable like `_default_measure_probe`):**
+`_default_router_models(url) -> dict` = `GET {url}/models` (resident-set status map) · `_default_router_load(url,
+model_id)` = `POST {url}/models/load {"model": id}` · `_default_router_unload(url, model_id)` = `POST {url}/models/unload
+{"model": id}`.
+
+**Reuse add (`models.py`, next to `is_cached` — one source):** `cached_gguf_path(repo, quant, *, cache_root,
+mmproj=None) -> Path | None` — mirrors `is_cached` (:118-130) but RETURNS the path, so `_emit_ini` resolves an on-disk
+model's GGUF WITHOUT downloading.
+
+**State (`__init__` :202-222):**
+| Today | → Router mode |
+|---|---|
+| `_runner = None` (:216) | REMOVED → `_router: RouterHandle\|None = None` (long-lived) |
+| — | NEW `_resident: dict[str,dict] = {}` — model_id → `{status,modelId,url,detail,error,downloaded,total}`; status ∈ downloading\|loading\|loaded\|error |
+| — | NEW `_last_id: str = ""` — most-recent load, for the back-compat `status()` primary view |
+| — | NEW `_ini_ids: set[str] = set()` — ids currently in the running `.ini` (re-emit only when a load's id is absent) |
+| `_state = _idle()` (:214) | REMOVED as a stored field → `status()` DERIVES the primary dict from `_resident.get(_last_id)` or `_idle()` |
+| `_start = start` (:213) | KEPT (standalone/tests only, per Option A). NEW injected `_start_router`, `_router_models`, `_router_load`, `_router_unload` (test seams) |
+| all others | UNCHANGED (`_download_*`, `_engine_*`, `_switches_fn` [now ALSO feeds `_emit_ini`], `_last_log_path`) |
+
+**Per-member strict-diff (EVERY member — nothing silently dropped):**
+1. `cache_root` property (:224) — UNCHANGED.
+2. `catalog()` (:231) — UNCHANGED; now ALSO iterated by `_emit_ini`.
+3. `config()` (:237) — UNCHANGED; P1e adds `models_max`/`sleep_idle_seconds`, read here.
+4. `status()` (:242-246) — CHANGED. If `_router` alive, refresh `_resident` from `_router_models(url)`; RETURN a
+   back-compat single-model dict from `_resident[_last_id]` (so `api.py._status_for` + `/status` are UNBROKEN). Router
+   dead while a model was loaded → primary `error`.
+5. `engine_status()` (:250) — UNCHANGED.
+6. `install_engine()` (:272) — UNCHANGED.
+7. `engine_log()` (:287) — UNCHANGED (tails `_last_log_path` — now the router or last-child spawn log).
+8. `load(model_id, overrides, job_id, switches)` (:295-308) — CHANGED. In-flight guard becomes PER-MODEL
+   (`_resident[id].status in (downloading,loading)` → return that; a DIFFERENT model proceeds → co-residence). Set
+   `_resident[id]=downloading`, `_last_id=id`; thread → `_run_load` (SAME signature).
+9. `download(model_id)` (:310) — UNCHANGED (own channel).
+10. `download_status()` (:326) — UNCHANGED.
+11. `stop(model_id=None)` (:331-340) — CHANGED. `stop(id)` → `_router_unload(url,id)` + drop `_resident[id]`. `stop(None)`
+    → unload ALL resident (back-compat "stop the running model"). Does NOT kill the router (stays lazy-warm; children
+    sleep via TTL). api `/stop` (no arg) → stop-all.
+12. `measure(*, prompt, max_tokens, probe, sample, model_id=None)` (:342-363) — CHANGED. `model_id` defaults to
+    `_last_id`; requires that id resident (`_resident[id].status=='loaded'`). Probe the ROUTER url with `"model": id` in
+    the body (`_default_measure_probe` gains the model field — today model-less :64).
+13. `tokenize(*, text, probe, model_id=None)` (:365-378) — CHANGED. Same: `model_id` default `_last_id`;
+    `_default_tokenize_probe` body gains `"model": id` (today :87 model-less); requires resident.
+14. `_main_gguf` (:382) — UNCHANGED (post-download resolve in `_run_load`).
+15. `_runner_log_path` (:390) — UNCHANGED; NEW sibling `_router_log_path()` for the router spawn log.
+16. `_run_install` (:397) — UNCHANGED.
+17. `_acquire_and_identify` (:418) — UNCHANGED (shared load+download IO).
+18. `_run_load` (:441-490) — MAJOR CHANGE. Steps 1-5 UNCHANGED (resolve base/user/ad-hoc switches → `ov`;
+    engine-present fail-fast gate :469-473; `_acquire_and_identify` fetch; `_read_meta`; `compute_fit`). THEN, instead of
+    `self._start(...)`: build a `ModelIniEntry` (id, gguf, fit knobs, `ov`, embeddings=False for P1d) → `_ensure_router()`
+    → if `id` not in `_ini_ids`, `_emit_ini()` re-emit + (hot-read else `_bounce_router()` preserving residents) →
+    `_router_load(url,id)` → poll `_router_models` until `id` is loaded|failed → **router OOM back-off:** a child that
+    fails looking like OOM (status `failed` / `_looks_like_oom`) → re-emit that section at `ngl - _BACKOFF_STEP` + reload
+    (mirrors `start_runner` :486-489, which the router bypasses) → set `_resident[id]=loaded, url=_router.url`. Exception
+    → `_resident[id]=error` (same terminal shape as :488-490).
+19. `_run_download` (:492) — UNCHANGED.
+20. NEW `_ensure_router()` — lazy: if `_router` None/dead → `_emit_ini()` → `start_router(...)` (models_max/sleep_idle
+    from `config()`) → set `_router`. Idempotent; engine-present already checked by `_run_load`.
+21. NEW `_emit_ini() -> Path` — for each ON-DISK catalog model (`is_cached`): `cached_gguf_path` + `_read_meta` +
+    `compute_fit`(switches_fn→`ov`) → `ModelIniEntry`; write `emit_models_ini(entries)` to
+    `<cache_root>/llamacpp/models.ini`; set `_ini_ids`; return the path. (The DB→`.ini` last mile; generated, never read back.)
+22. NEW `_bounce_router()` — capture resident ids → stop router → `_ensure_router()` (fresh `.ini`) → reload the captured
+    ids. ONLY when a re-emitted `.ini` isn't hot-read (the runtime unknown below); the common co-residence path never bounces.
+23. `configure_service`/`get_service` (:514/:546) — UNCHANGED.
+
+**PRESERVED-behavior checklist (the T5 anti-drop ledger):** OOM recovery (→ row 18, router-level) · measure/tokenize
+#20/b1 (→ rows 12/13, re-homed onto router+id) · `status()` API shape (→ row 4, back-compat) · Lab per-load
+overrides/switches (→ row 18, `ov` folds into the entry = Option A ephemeral section) · download-only channel (rows
+9/10/19 untouched) · engine-install channel (rows 5/6/16) · engine-not-installed fail-fast (row 18).
+
+**P1e (folded in — `_ensure_router` READS these, so they land together):** add `models_max: int = 2`,
+`sleep_idle_seconds: int = 900` to `RunnerConfig` (`schema.py:115-121`); seed (`seed.py:201-204`); read in
+`build_runner_config` (`stores.py:916-945`). Ownership: DB = the CAP; the arbiter (P2) works WITHIN it.
+
+**THE P1d runtime unknown (cannot run the router in-container — GitHub egress blocked):** does the router HOT-READ a
+re-emitted `.ini` on `/models/load` (a new/changed section), or need a restart? Design §8.2: "design for re-emit +
+reload regardless." Implemented as re-emit+reload with a `_bounce_router()` fallback on unknown-model. Also to confirm on
+the box: `/tokenize` + `/v1/chat/completions` honour the body `"model"` field in router mode. → **user's-box verify (P1g).**
 
 ## Panel review (2026-07-04) — findings folded (transparency)
 A 3-checker rules panel (architecture-fit · reuse · grounding) reviewed the first draft. **Grounding: PASS** —

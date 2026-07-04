@@ -92,6 +92,9 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     st = service.status()
     cur_id = st.get("modelId") or ""
     cur_state = st.get("status") or "idle"
+    dl = service.download_status()
+    dl_id = dl.get("modelId") or ""
+    dl_state = dl.get("status") or "idle"
 
     def _status_for(model_id: str, downloaded: bool) -> str:
         if model_id == cur_id:
@@ -100,6 +103,12 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
             if cur_state in ("downloading", "starting"):
                 return "loading"
             if cur_state == "error":
+                return "error"
+        # A download-only op runs on its OWN channel (it can overlap a loaded model).
+        if model_id == dl_id:
+            if dl_state == "downloading":
+                return "loading"
+            if dl_state == "error":
                 return "error"
         return "disk" if downloaded else "available"
 
@@ -167,6 +176,11 @@ async def download_model(body: LoadRequest) -> dict:
     if not body.model_id:
         raise HTTPException(status_code=400, detail="modelId required")
     return get_service().download(body.model_id)
+
+
+@router.get("/v1/llm-runner/download/status", summary="Progress of an in-flight download-only op")
+async def download_status() -> dict:
+    return get_service().download_status()
 
 
 @router.get("/v1/llm-runner/status", summary="Current load/run status")

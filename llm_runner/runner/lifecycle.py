@@ -169,6 +169,14 @@ def _engine_idle() -> dict:
     return {"status": "idle", "detail": "", "error": "", "downloaded": 0, "total": 0}
 
 
+def _download_idle() -> dict:
+    # Its OWN channel too: a download is a file fetch that must NOT clobber a running
+    # model's run-state (same isolation reason as _engine_state), so a download can run
+    # concurrently with a loaded model. status ∈ idle | downloading | error.
+    return {"status": "idle", "modelId": "", "detail": "", "error": "",
+            "downloaded": 0, "total": 0}
+
+
 class RunnerService:
     """Owns the single live llama-server + its load state.
 
@@ -209,6 +217,8 @@ class RunnerService:
         self._lock = threading.Lock()
         self._thread = None
         self._engine_thread = None
+        self._download_state = _download_idle()
+        self._download_thread = None
         self._last_log_path = None
 
     @property
@@ -299,17 +309,24 @@ class RunnerService:
 
     def download(self, model_id: str) -> dict:
         """Download a model's GGUF into the cache WITHOUT spawning it — the catalog's
-        'Download' action, separate from 'Load'. Does NOT require the engine installed
+        'Download' action, separate from 'Load'. Runs on its OWN state channel + thread
+        (like engine-install) so it NEVER touches the running model's state: a download
+        can proceed while another model is loaded. Does NOT require the engine installed
         (that is only needed to spawn). On success the model reports as on-disk via
-        /models, and the user can 'Load' it as a distinct step."""
+        /models; loading it is a distinct step."""
         with self._lock:
-            if self._state["status"] in ("downloading", "starting"):
-                return dict(self._state)  # a load/download is already in flight
-            self._state = {"status": "downloading", "modelId": model_id, "url": "", "detail": "queued",
-                           "error": "", "downloaded": 0, "total": 0}
-            self._thread = threading.Thread(target=self._run_download, args=(model_id,), daemon=True)
-            self._thread.start()
-        return dict(self._state)
+            if self._download_state["status"] == "downloading":
+                return dict(self._download_state)  # a download is already in flight
+            self._download_state = {"status": "downloading", "modelId": model_id, "detail": "queued",
+                                    "error": "", "downloaded": 0, "total": 0}
+            self._download_thread = threading.Thread(target=self._run_download, args=(model_id,), daemon=True)
+            self._download_thread.start()
+        return dict(self._download_state)
+
+    def download_status(self) -> dict:
+        """Progress/terminal state of an in-flight download-only op — its own channel,
+        separate from the model run-state (status()) and engine install."""
+        return dict(self._download_state)
 
     def stop(self) -> dict:
         with self._lock:
@@ -398,6 +415,29 @@ class RunnerService:
             self._engine_state = {"status": "error", "detail": "", "error": str(exc),
                                   "downloaded": 0, "total": 0}
 
+    def _acquire_and_identify(self, model_id: str, on_progress):
+        """Shared download IO for load + download (ONE source): resolve the catalog
+        model, fetch its GGUF into the cache, and ground the catalog `type` (moe|dense)
+        from the file. Returns (model, gguf_path); raises ValueError for an unknown
+        model. `on_progress(downloaded, total)` reports bytes to the CALLER's channel."""
+        # The downloadable catalog is HOST-OWNED (DB-backed via .catalog()).
+        model = next((m for m in self.catalog() if m.id == model_id), None)
+        if model is None:
+            raise ValueError(f"unknown model {model_id!r}")
+        snapshot = self._acquire_model(
+            model.hf_repo, model.quant, model.mmproj, cache_root=self._cache_root / "hf",
+            on_progress=on_progress,
+        )
+        gguf = self._main_gguf(snapshot, model.quant)
+        # Best-effort: auto-detect the catalog `type` (moe|dense) from the downloaded
+        # GGUF so a user-added model's switch presets are grounded in the file, not a
+        # hand-typed guess. Never fail the caller on this.
+        try:
+            self._identify_fn(model_id, gguf)
+        except Exception:  # noqa: BLE001 — identification is advisory only
+            log.warning("model type auto-detect failed for %s", model_id, exc_info=True)
+        return model, gguf
+
     def _run_load(
         self, model_id: str, overrides: Overrides | None = None,
         job_id: str | None = None, switches: dict[str, str] | None = None,
@@ -405,23 +445,17 @@ class RunnerService:
         try:
             config = self._config_fn()
             hardware = self._hardware_fn()
-            # The downloadable catalog is HOST-OWNED (DB-backed via .catalog()).
-            model = next((m for m in self.catalog() if m.id == model_id), None)
-            if model is None:
-                raise ValueError(f"unknown model {model_id!r}")
 
-            # Switch base, UNDER user-supplied overrides (user wins per-field).
-            # An optional legacy `job_id` override hook (unused by JustWrite) can
-            # REPLACE the base wholesale; normally there is no job → the model's
-            # own base/type (moe|dense) presets (resolve_model_switches).
+            # Switch base, UNDER user-supplied overrides (user wins per-field). An
+            # optional legacy `job_id` hook can REPLACE the base wholesale; normally
+            # there is no job → the model's own base/type (moe|dense) presets.
             base_switches = self._profile_switches_fn(job_id) if job_id else {}
             if not base_switches:
                 base_switches = self._switches_fn(model_id) or {}
             base_ov = _switches_to_overrides(base_switches)
             ov = _merge_overrides(base_ov, overrides)
-            # Ad-hoc #20 "Tune & measure" switches win last (over named-field
-            # overrides AND the model/profile base) — the same converter, so an
-            # unknown key still routes to extra_flags.
+            # Ad-hoc #20 "Tune & measure" switches win last (an unknown key routes to
+            # extra_flags via the same converter).
             if switches:
                 ov = _merge_overrides(ov, _switches_to_overrides(switches))
 
@@ -430,8 +464,8 @@ class RunnerService:
                 self._state["downloaded"] = downloaded
                 self._state["total"] = total or 0
 
-            # Engine install is its OWN step now (POST /engine/install); a model
-            # load REQUIRES it already present and never silently downloads it.
+            # Engine install is its OWN step (POST /engine/install); a model load
+            # REQUIRES it present — fail fast BEFORE the multi-GB download.
             server_exe = self._acquired_exe(self._cache_root, config, hardware)
             if server_exe is None:
                 self._state.update(status="error", detail="Install the engine first",
@@ -439,19 +473,8 @@ class RunnerService:
                 return
 
             self._state.update(detail="model weights", downloaded=0, total=0)
-            snapshot = self._acquire_model(
-                model.hf_repo, model.quant, model.mmproj, cache_root=self._cache_root / "hf",
-                on_progress=_progress,
-            )
-            gguf = self._main_gguf(snapshot, model.quant)
+            _model, gguf = self._acquire_and_identify(model_id, _progress)
             meta = self._read_meta(gguf)
-            # Best-effort: auto-detect the catalog `type` (moe|dense) from the
-            # downloaded GGUF so a user-added model's switch presets are grounded
-            # in the file, not a hand-typed guess. Never fail the load on this.
-            try:
-                self._identify_fn(model_id, gguf)
-            except Exception:  # noqa: BLE001 — identification is advisory only
-                log.warning("model type auto-detect failed for %s", model_id, exc_info=True)
             fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
                               safety_margin_mb=config.safety_margin_mb)
 
@@ -467,33 +490,22 @@ class RunnerService:
             self._state.update(status="error", detail="", error=str(exc), downloaded=0, total=0)
 
     def _run_download(self, model_id: str) -> None:
-        """Download-only worker: fetch the weights, ground the catalog `type` from the
-        file, then return to idle WITHOUT spawning llama-server. (The engine is not
-        required to download — only to load.)"""
+        """Download-only worker (OWN channel): fetch the weights + ground the catalog
+        type from the file, then mark the download idle. It NEVER touches the model
+        run-state (_state/_runner), so a running model is undisturbed. The engine is
+        not required to download — only to load."""
         try:
-            model = next((m for m in self.catalog() if m.id == model_id), None)
-            if model is None:
-                raise ValueError(f"unknown model {model_id!r}")
-
             def _progress(downloaded: int, total: int | None) -> None:
-                self._state["downloaded"] = downloaded
-                self._state["total"] = total or 0
+                self._download_state["downloaded"] = downloaded
+                self._download_state["total"] = total or 0
 
-            self._state.update(detail="model weights", downloaded=0, total=0)
-            snapshot = self._acquire_model(
-                model.hf_repo, model.quant, model.mmproj, cache_root=self._cache_root / "hf",
-                on_progress=_progress,
-            )
-            # Best-effort: ground the catalog `type` (moe|dense) from the downloaded
-            # GGUF, same as a full load. Never fail the download on this.
-            try:
-                self._identify_fn(model_id, self._main_gguf(snapshot, model.quant))
-            except Exception:  # noqa: BLE001 — identification is advisory only
-                log.warning("model type auto-detect failed for %s", model_id, exc_info=True)
-            self._state = _idle()  # downloaded; /models now reports it on-disk. No spawn.
+            self._download_state.update(detail="model weights", downloaded=0, total=0)
+            self._acquire_and_identify(model_id, _progress)  # raises ValueError for unknown model
+            self._download_state = _download_idle()  # done; /models reports it on-disk. No spawn.
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
             log.exception("runner download failed")
-            self._state.update(status="error", detail="", error=str(exc), downloaded=0, total=0)
+            self._download_state = {"status": "error", "modelId": model_id, "detail": "",
+                                    "error": str(exc), "downloaded": 0, "total": 0}
 
 
 _service: RunnerService | None = None

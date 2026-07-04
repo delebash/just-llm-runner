@@ -206,10 +206,10 @@ def test_dead_process_flips_to_error(tmp_path):
     assert svc.status()["status"] == "error"
 
 
-# ── download-only (fetch weights, no spawn) — separate from load ───────────────
+# ── download-only (fetch weights, no spawn) — its OWN channel, separate from load ─
 
 def test_download_only_fetches_no_spawn(tmp_path):
-    # download() fetches the weights but does NOT spawn llama-server: status
+    # download() fetches the weights but does NOT spawn llama-server: its channel
     # returns to idle, no runner, and `start` is never called.
     started = {"hit": False}
 
@@ -219,10 +219,25 @@ def test_download_only_fetches_no_spawn(tmp_path):
 
     svc = _service_for(tmp_path, start=spy_start)
     svc.download(_TEST_MODEL.id)
-    svc._thread.join(timeout=5)
-    assert svc.status()["status"] == "idle"   # back to idle — nothing running
+    svc._download_thread.join(timeout=5)
+    assert svc.download_status()["status"] == "idle"   # download channel done
+    assert svc.status()["status"] == "idle"            # run-state untouched
     assert svc._runner is None
-    assert started["hit"] is False            # NO spawn
+    assert started["hit"] is False                     # NO spawn
+
+
+def test_download_does_not_clobber_running_model(tmp_path):
+    # T1 regression: downloading while another model is LOADED must not touch the
+    # run-state — the loaded server stays alive on its own channel.
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    svc.download(_TEST_MODEL.id)
+    svc._download_thread.join(timeout=5)
+    assert svc.status()["status"] == "running"          # run-state UNTOUCHED
+    assert svc._runner is not None                      # loaded server still alive
+    assert svc.download_status()["status"] == "idle"    # download finished separately
 
 
 def test_download_needs_no_engine(tmp_path):
@@ -231,10 +246,10 @@ def test_download_needs_no_engine(tmp_path):
     svc = _service_for(tmp_path)
     svc._acquired_exe = lambda *a, **k: None  # engine not installed
     svc.download(_TEST_MODEL.id)
-    svc._thread.join(timeout=5)
-    st = svc.status()
-    assert st["status"] == "idle"
-    assert st["error"] == ""
+    svc._download_thread.join(timeout=5)
+    ds = svc.download_status()
+    assert ds["status"] == "idle"
+    assert ds["error"] == ""
 
 
 def test_download_grounds_type_via_identify(tmp_path):
@@ -242,18 +257,18 @@ def test_download_grounds_type_via_identify(tmp_path):
     seen = []
     svc = _service_for(tmp_path, identify_fn=lambda mid, path: seen.append(mid))
     svc.download(_TEST_MODEL.id)
-    svc._thread.join(timeout=5)
-    assert svc.status()["status"] == "idle"
+    svc._download_thread.join(timeout=5)
+    assert svc.download_status()["status"] == "idle"
     assert seen == [_TEST_MODEL.id]
 
 
 def test_download_unknown_model_errors(tmp_path):
     svc = _service_for(tmp_path)
     svc.download("does-not-exist")
-    svc._thread.join(timeout=5)
-    st = svc.status()
-    assert st["status"] == "error"
-    assert "unknown model" in st["error"]
+    svc._download_thread.join(timeout=5)
+    ds = svc.download_status()
+    assert ds["status"] == "error"
+    assert "unknown model" in ds["error"]
 
 
 # ── engine install as its own step, separate from a model load ─────────────────

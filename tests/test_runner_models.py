@@ -62,6 +62,9 @@ class _FakeService:
     def config(self):
         return _TEST_CONFIG  # safety_margin_mb=1024
 
+    def download_status(self):
+        return {"status": "idle", "modelId": "", "detail": "", "error": "", "downloaded": 0, "total": 0}
+
 
 def _patch(monkeypatch, *, hardware, models, status):
     monkeypatch.setattr(api, "detect", lambda: hardware)

@@ -68,11 +68,17 @@ export async function refresh() {
     // surface the real error, not a bare "failed").
     if (anyLoading.value || anyError.value) {
       try {
-        const st = await request("/v1/llm-runner/status");
-        detail.value = st.detail || (st.status === "downloading" ? "downloading…" : "starting…");
-        downloaded.value = Number(st.downloaded) || 0;
-        total.value = Number(st.total) || 0;
-        loadErr.value = st.error || "";
+        // A download runs on its OWN channel (can overlap a load); poll both and let
+        // the active download's progress win so the bar shows download bytes too.
+        const [st, dl] = await Promise.all([
+          request("/v1/llm-runner/status"),
+          request("/v1/llm-runner/download/status").catch(() => ({ status: "idle" })),
+        ]);
+        const active = dl.status === "downloading" ? dl : st;
+        detail.value = active.detail || (active.status === "downloading" ? "downloading…" : "starting…");
+        downloaded.value = Number(active.downloaded) || 0;
+        total.value = Number(active.total) || 0;
+        loadErr.value = st.error || dl.error || "";
       } catch {
         detail.value = "";
       }

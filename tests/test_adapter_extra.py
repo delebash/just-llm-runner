@@ -102,5 +102,16 @@ def test_openai_compat_reasoning_cloud_vs_local():
     local = OpenAICompatAdapter("p", "local-llamacpp", api_key="")
     b = {}
     local._apply_reasoning(b, True, "high")
-    assert b["chat_template_kwargs"] == {"enable_thinking": True}  # local → enable_thinking
+    assert b["chat_template_kwargs"] == {"enable_thinking": True}  # local on → enable_thinking
     assert "reasoning_effort" not in b            # not the cloud param
+    b = {}
+    local._apply_reasoning(b, False, "high")
+    assert b["chat_template_kwargs"] == {"enable_thinking": False}  # local OFF → false (#118: one model, no reload)
+    # generic openai-compat: conservative — on → enable_thinking, off → nothing (we don't own its template)
+    compat = OpenAICompatAdapter("p", "openai-compat", api_key="")
+    b = {}
+    compat._apply_reasoning(b, True, "high")
+    assert b["chat_template_kwargs"] == {"enable_thinking": True}   # compat on → enable_thinking
+    b = {}
+    compat._apply_reasoning(b, False, "high")
+    assert b == {}                                # compat off → nothing (NOT false)

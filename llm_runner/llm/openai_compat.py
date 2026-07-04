@@ -100,17 +100,21 @@ class OpenAICompatAdapter:
             out.append({"role": m.role, "content": m.content})
         return out
 
-    # Servers that take HF-style per-request `chat_template_kwargs.enable_thinking`
-    # (local llama.cpp + generic compat) vs OpenAI-family clouds that take the
-    # `reasoning_effort` body param. Verified 2026-06-28.
-    _LOCAL_TYPES = {"local-llamacpp", "openai-compat"}
-
     def _apply_reasoning(self, body: dict, think: bool, effort: str) -> None:
-        """Map reasoning to this server's native control (a1/E2). think off →
-        nothing (the model's default)."""
+        """Map reasoning to this server's native control (a1/E2). The bundled local
+        llama.cpp runner gets the explicit `chat_template_kwargs.enable_thinking` toggle
+        BOTH ways, so ONE resident model serves thinking-on (chat) AND thinking-off
+        (extraction) per-request with NO reload / section-swap (box-verified 2026-07-04;
+        a per-request toggle works only when no hard `reasoning-budget` is on the CLI —
+        we emit none). A generic `openai-compat` server keeps the conservative
+        on→enable_thinking / off→nothing: we don't own its chat template, so we don't
+        force `false` on it. OpenAI-family clouds take the `reasoning_effort` body param."""
+        if self.provider_type == "local-llamacpp":
+            body.setdefault("chat_template_kwargs", {})["enable_thinking"] = think
+            return
         if not think:
             return
-        if self.provider_type in self._LOCAL_TYPES:
+        if self.provider_type == "openai-compat":
             body.setdefault("chat_template_kwargs", {})["enable_thinking"] = True
         else:
             body["reasoning_effort"] = effort or "medium"

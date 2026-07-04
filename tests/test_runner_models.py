@@ -121,6 +121,26 @@ def test_status_reflects_loaded_model(monkeypatch):
     assert status == {"running-one": "loaded", "other": "available"}
 
 
+def test_status_reflects_download_channel(monkeypatch):
+    # A download-only op runs on its OWN channel — the downloading model shows
+    # "loading" via _status_for even though the run-state (status()) is idle.
+    hw = HardwareInfo(
+        os="Linux", platform="linux", cpu_cores=8, ram_mb=32000,
+        gpus=[GpuInfo(vendor="nvidia", name="RTX 4070", vram_mb=12288)],
+    )
+    models = [_model("dl-one", 6000), _model("other", 6000)]
+    svc = _FakeService({"status": "idle", "modelId": "", "url": "", "detail": "", "error": ""}, models)
+    svc.download_status = lambda: {
+        "status": "downloading", "modelId": "dl-one", "detail": "", "error": "",
+        "downloaded": 0, "total": 0,
+    }
+    monkeypatch.setattr(api, "detect", lambda: hw)
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    monkeypatch.setattr(api, "is_cached", lambda *a, **k: False)
+    status = {m["id"]: m["status"] for m in _client().get("/v1/llm-runner/models").json()["models"]}
+    assert status == {"dl-one": "loading", "other": "available"}
+
+
 def test_models_endpoint_real_camelcase():
     # No per-call patching — exercise the real endpoint with a clean default-backed
     # service (empty standalone catalog), confirming the camelCase contract.

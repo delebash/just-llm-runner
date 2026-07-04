@@ -26,13 +26,18 @@
 > per-model status + `meta` sizes) + the `RunnerResidentResponse`/`ResidentModel` schema. `/status` STAYS single-model (3 UI
 > consumers read it that way: `useRunnerModels`/`QuickSetup`/`TuneMeasureModal`) — supersedes the plan §1f "`/status` reads
 > GET /models". KNOWN limitation deferred to P2: `_router_lock` is held across the ≤300s confirm poll (no correctness bug —
-> checker-confirmed no ghost/leak; P2's arbiter restructures this path). **P2 IN PROGRESS (user "go" 2026-07-04):** the thin
-> VRAM arbiter — `runner/arbiter.py` (in-process ledger: reserve/release/committed_mb/remaining_mb/can_coreside/pick_evict-LRU,
-> per-app singleton) + budget-aware fit (`api.py get_models` feeds `remaining_mb()` when VRAM isn't card-overridden;
-> `fit.py` math UNCHANGED) + `_run_load` admit→evict-LRU→reserve (release on stop/error). Policy per design §7.1: pin the tiny
-> embed (P3), TTL-warm the active chat, co-reside if the remaining budget holds within `models_max` else evict the LRU. A
-> reservation = the GPU-resident VRAM (`fit.estimate_vram_mb` at the chosen ngl), NOT the full weight size (a MoE offloads
-> experts to CPU RAM). P1g's box-verify is deferred to the user's box (doesn't block P2). See §Phase 2 + the incoming §"P2 AS-BUILT".**
+> checker-confirmed no ghost/leak; P2's arbiter restructures this path). **P2 DONE + SHIPPED (runner `6644d35`; user "go"
+> 2026-07-04):** the thin VRAM arbiter — `runner/arbiter.py` (in-process ledger: reserve/release/touch/committed_mb/
+> remaining_mb/can_coreside/count/pick_evict(exclude)/snapshot/reserved_mb/clear, per-app singleton) + budget-aware fit
+> (`api.py get_models` feeds `remaining_vram_mb()` when VRAM isn't card-overridden; `fit.py` math UNCHANGED) + `_run_load`
+> admit→evict-LRU→reserve (release on stop/error); a plain re-load of a LIVE running model is idempotent (guarded on
+> `overrides==Overrides()` AND `router.is_alive()`). Policy §7.1: pin the tiny embed (wired in P3), TTL-warm the active chat,
+> co-reside if the remaining budget holds within `models_max` else evict the LRU. A reservation = the GPU-resident VRAM
+> (`FitPlan.vram_mb`, `n_gpu==0`→0), NOT the full weight size (a MoE offloads experts to CPU RAM). Rules-checker
+> FAIL(1+4)→fold→FAIL(dead-router)→fold→**PASS**; ruff clean, 282 pytest. FULL detail + all decisions/limitations + the
+> pre-existing QuickSetup `?vramMb` no-op (flag for #107) in §"P2 AS-BUILT". **NEXT — P3** (co-resident embeddings: pin the
+> embed + auto-download nomic + point RAG at the bundled runner → first user-verifiable ship; needs a fresh "go"); P1g
+> box-verify still awaits the user's box (doesn't block P3).**
 > **Hardened by a 3-checker rules panel 2026-07-04** (architecture-fit · reuse · grounding) — grounding PASS (all
 > citations verified accurate), the two FAIL findings folded in full (see "Panel review" §). The approach (router
 > mode + thin arbiter + DB→`.ini`) is unchanged and design-approved; the panel fixed the plan's *specification*.

@@ -20,7 +20,7 @@ from pathlib import Path
 
 import requests
 
-from dataclasses import fields as _dc_fields
+from dataclasses import fields as _dc_fields, replace as _dc_replace
 
 from .arbiter import get_arbiter as _get_arbiter
 from .binary import acquire_binary as _acquire_binary
@@ -67,6 +67,15 @@ def _default_switches_fn(model_id: str) -> dict[str, str]:  # noqa: ARG001
 def _default_identify_fn(model_id: str, gguf_path) -> None:  # noqa: ARG001
     """Standalone default: no host store wired → no catalog type auto-detect."""
     return None
+
+
+def _default_embedding_ids_fn() -> set[str]:
+    """Standalone default: no host store wired → no local embedding model configured.
+    Hosts override via `RunnerService(embedding_ids_fn=...)` (JustWrite wires it from the
+    routing default when the embedding provider points at the bundled runner) so the runner
+    knows which catalog id is the co-resident embed — the `.ini` section that gets
+    `embeddings = true` + a PINNED reservation so it is never the eviction victim (P3)."""
+    return set()
 
 
 def _default_profile_switches_fn(job_id: str) -> dict[str, str]:  # noqa: ARG001
@@ -279,6 +288,7 @@ class RunnerService:
         switches_fn=_default_switches_fn,
         profile_switches_fn=_default_profile_switches_fn,
         identify_fn=_default_identify_fn,
+        embedding_ids_fn=_default_embedding_ids_fn,
         acquire_binary=_acquire_binary,
         acquired_exe=acquired_server_exe,
         acquire_model=_acquire_model,
@@ -298,6 +308,7 @@ class RunnerService:
         self._switches_fn = switches_fn
         self._profile_switches_fn = profile_switches_fn
         self._identify_fn = identify_fn
+        self._embedding_ids_fn = embedding_ids_fn
         self._acquire_binary = acquire_binary
         self._acquired_exe = acquired_exe
         self._acquire_model = acquire_model
@@ -603,6 +614,24 @@ class RunnerService:
         only the VRAM fed in shrinks by what's already resident)."""
         return self._arbiter.remaining_mb(hw)
 
+    def ensure_embedding(self) -> dict:
+        """Make the configured local embedding model resident + PINNED, downloading its GGUF first if
+        needed — the LAZY trigger the host (JustWrite RAG "Build index" / Chat-with-book) calls before
+        it uses local embeddings. The embed request path hits the router directly (the OpenAI-compat
+        adapter → :8080/v1/embeddings), so the embed must already be resident; this is what makes it
+        so. No local embed configured (routing points at Ollama/cloud, or none set) → `{"ok": False}`
+        and the caller falls back to that provider unchanged (JV, which uses no embeddings, never calls
+        this). Delegates to `load()` (download-if-needed + lazy-spawn the router + reserve PINNED via
+        `_run_load`); idempotent + cheap when the embed is already resident. Returns IMMEDIATELY (the
+        load runs on a background thread): the caller polls `GET /v1/llm-runner/resident` for the
+        returned `modelId` until it reads loaded|sleeping before embedding."""
+        embed_ids = self._embedding_ids_fn()
+        if not embed_ids:
+            return {"ok": False, "detail": "no local embedding model configured"}
+        embed_id = next(iter(embed_ids))
+        state = self.load(embed_id)
+        return {"ok": True, "modelId": embed_id, **state}
+
     # ── internals ─────────────────────────────────────────────────────────
 
     def _main_gguf(self, snapshot_dir, quant: str) -> Path:
@@ -687,6 +716,7 @@ class RunnerService:
         try:
             config = self._config_fn()
             hardware = self._hardware_fn()
+            embed_ids = self._embedding_ids_fn()  # the configured local embed(s) → reserve them PINNED (P3)
 
             # Switch base, UNDER user-supplied overrides (user wins per-field). An
             # optional legacy `job_id` hook can REPLACE the base wholesale; normally
@@ -738,7 +768,9 @@ class RunnerService:
                 self._resident[model_id].update(status="starting", detail="loading into VRAM",
                                                 downloaded=0, total=0)
                 self._load_via_router(entry, fit, server_exe, config)
-                self._arbiter.reserve(model_id, fit.vram_mb, pinned=False)
+                # Pin the configured embed so it is NEVER the LRU eviction victim (P3): a chat co-load
+                # evicts another chat, never the embed RAG depends on. A chat model reserves unpinned.
+                self._arbiter.reserve(model_id, fit.vram_mb, pinned=model_id in embed_ids)
                 self._resident[model_id].update(status="running", url=self._router.url,
                                                 detail="", error="", downloaded=0, total=0)
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
@@ -826,6 +858,23 @@ class RunnerService:
         # An override for a model NOT in the catalog still gets its own section.
         if override is not None and not any(e.model_id == override.model_id for e in entries):
             entries.insert(0, override)
+        # Mark the embedding section(s) — the ONE authority for embed-ness in the .ini, applied BY ID
+        # in a single post-pass so EVERY emit path gets it (the override slot, a DB-resolved section,
+        # AND the not-in-catalog insert above — a per-branch patch would miss one and emit the embed as
+        # a plain chat child, so /v1/embeddings would mis-route). A `[<embed>]` section needs
+        # `embeddings = true` (+ pooling) for llama-server to expose /v1/embeddings on that child; the
+        # section id = the model id clients request (P3). We deliberately do NOT set `load-on-startup`:
+        # the embed is loaded EXPLICITLY via ensure_embedding()/load() (which reserves it PINNED). A
+        # router-side auto-load would be invisible to `_resident`, so a later ensure would re-POST
+        # /models/load for an already-loaded id (→ 400 → error + release, reporting the working embed as
+        # failed) or flip the emitted .ini text into a spurious _bounce_router that thrashes the resident
+        # chat (~20 s). The "pin" IS the arbiter reservation; load-on-startup adds only that failure mode.
+        embed_ids = self._embedding_ids_fn()
+        if embed_ids:
+            entries = [
+                _dc_replace(e, embeddings=True, pooling="mean") if e.model_id in embed_ids else e
+                for e in entries
+            ]
         return entries
 
     def _emit_ini(self, override: ModelIniEntry | None = None) -> tuple[Path, bool]:
@@ -987,6 +1036,7 @@ def configure_service(
     switches_fn=None,
     profile_switches_fn=None,
     identify_fn=None,
+    embedding_ids_fn=None,
     config_fn=None,
     hardware_fn=None,
     cache_root: str | None = None,
@@ -1005,6 +1055,8 @@ def configure_service(
         kwargs["profile_switches_fn"] = profile_switches_fn
     if identify_fn is not None:
         kwargs["identify_fn"] = identify_fn
+    if embedding_ids_fn is not None:
+        kwargs["embedding_ids_fn"] = embedding_ids_fn
     if config_fn is not None:
         kwargs["config_fn"] = config_fn
     if hardware_fn is not None:

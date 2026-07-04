@@ -79,6 +79,10 @@ class _FakeService:
     def download_status(self):
         return {"status": "idle", "modelId": "", "detail": "", "error": "", "downloaded": 0, "total": 0}
 
+    def ensure_embedding(self):
+        # Tests set `_ensure` to the configured shape; default is the no-local-embed case.
+        return getattr(self, "_ensure", {"ok": False, "detail": "no local embedding model configured"})
+
 
 def _resident(*ids_and_statuses):
     """Build a resident-set dict (router up) from (id, status) pairs — what service.resident()
@@ -252,3 +256,20 @@ def test_resident_endpoint_router_down(monkeypatch):
     assert body["router"] is False
     assert body["models"] == []
     assert body["modelsMax"] == 2 and body["sleepIdleSeconds"] == 900
+
+
+def test_ensure_embedding_endpoint_configured(monkeypatch):
+    # P3 lazy prep: a configured local embed → ok:true + the modelId the client polls /resident for.
+    svc = _FakeService([])
+    svc._ensure = {"ok": True, "modelId": "nomic-embed-text", "status": "starting"}
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    body = _client().post("/v1/llm-runner/ensure-embedding").json()
+    assert body["ok"] is True
+    assert body["modelId"] == "nomic-embed-text"
+
+
+def test_ensure_embedding_endpoint_not_configured(monkeypatch):
+    # No local embed configured (routing points at Ollama/cloud) → ok:false; the caller falls back.
+    monkeypatch.setattr(api, "get_service", lambda: _FakeService([]))
+    body = _client().post("/v1/llm-runner/ensure-embedding").json()
+    assert body["ok"] is False

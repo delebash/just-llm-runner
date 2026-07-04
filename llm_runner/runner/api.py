@@ -213,6 +213,19 @@ async def runner_resident() -> RunnerResidentResponse:
     return get_service().resident()
 
 
+@router.post(
+    "/v1/llm-runner/ensure-embedding",
+    summary="Ensure the configured local embedding model is resident + pinned (lazy RAG prep)",
+)
+async def ensure_embedding() -> dict:
+    """LAZY embed prep (P3): download-if-needed + load + PIN the embedding model the routing default
+    points at the bundled runner, so local RAG works out of the box. `{"ok": false}` when no local
+    embed is configured (the embedding provider is Ollama/cloud, or none set) — the caller then uses
+    that provider unchanged. The load is ASYNC: poll `GET /v1/llm-runner/resident` for the returned
+    `modelId` until it reads loaded|sleeping before embedding."""
+    return get_service().ensure_embedding()
+
+
 @router.post("/v1/llm-runner/stop", summary="Stop the running model")
 async def stop_model() -> dict:
     return get_service().stop()

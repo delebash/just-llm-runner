@@ -31,7 +31,8 @@ def _fake_router(url="http://127.0.0.1:8080", alive=True):
 
 def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
                  router_unload=None, router_models=None, now=None, sleep=None,
-                 identify_fn=None, switches_fn=None, profile_switches_fn=None, arbiter=None):
+                 identify_fn=None, switches_fn=None, profile_switches_fn=None,
+                 embedding_ids_fn=None, arbiter=None):
     """A RunnerService with the router + download IO injected. Every catalog model is
     seeded into a fake HF cache (`<root>/hf/models--<repo>/snapshots/sha/<file>.gguf`)
     so both `cached_gguf_path` (the .ini emitter) and the injected `acquire_model`
@@ -60,6 +61,8 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         kw["switches_fn"] = switches_fn
     if profile_switches_fn is not None:
         kw["profile_switches_fn"] = profile_switches_fn
+    if embedding_ids_fn is not None:
+        kw["embedding_ids_fn"] = embedding_ids_fn
     if now is not None:
         kw["now"] = now
     if sleep is not None:
@@ -915,3 +918,87 @@ def test_engine_log_empty_then_tails(tmp_path):
     out = svc.engine_log(tail=2)
     assert out["text"] == "b\nc"
     assert out["path"] == str(p)
+
+
+# ── P3: co-resident embeddings — ensure_embedding + pinned + the .ini embed section ──
+
+_EMBED = ModelEntry(id="nomic-embed-text", name="Nomic Embed", tier="cpu",
+                    hf_repo="org/embed-GGUF", quant="Q4_K_M")
+
+
+def test_ensure_embedding_no_config_is_noop(tmp_path):
+    # No local embed configured (routing points at Ollama/cloud) → ok:false, no load kicked off.
+    svc = _service_for(tmp_path)  # default embedding_ids_fn → empty
+    res = svc.ensure_embedding()
+    assert res["ok"] is False
+    assert svc._thread is None  # no background load started
+
+
+def test_ensure_embedding_loads_and_pins(tmp_path):
+    # The lazy trigger: ensure_embedding downloads-if-needed + loads + reserves the embed PINNED.
+    svc = _service_for(tmp_path, catalog=[_EMBED], embedding_ids_fn=lambda: {_EMBED.id})
+    res = svc.ensure_embedding()
+    assert res["ok"] is True
+    assert res["modelId"] == _EMBED.id
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    # reserved AND pinned → never the eviction victim
+    assert svc._arbiter.is_reserved(_EMBED.id)
+    row = next(r for r in svc._arbiter.snapshot()["reservations"] if r["key"] == _EMBED.id)
+    assert row["pinned"] is True
+    assert svc._arbiter.pick_evict() is None  # only a pinned reservation → nothing evictable
+
+
+def test_embed_own_load_emits_embeddings_section(tmp_path):
+    # PRIMARY P3 path (embed-first RAG): the embed is loaded as the OVERRIDE, so its emitted
+    # section MUST carry embeddings=true + pooling (else /v1/embeddings would serve it as a chat
+    # model). This exercises the override branch of _resolve_ini_entries, not the DB-resolved one.
+    svc = _service_for(tmp_path, catalog=[_EMBED], embedding_ids_fn=lambda: {_EMBED.id})
+    svc.load(_EMBED.id)
+    svc._thread.join(timeout=5)
+    ini = _ini(svc)
+    assert f"[{_EMBED.id}]" in ini
+    assert "embeddings = true" in ini
+    assert "pooling = mean" in ini
+    assert "load-on-startup" not in ini  # deliberately NOT set — pin is the arbiter reservation
+
+
+def test_chat_load_emits_ondisk_embed_section(tmp_path):
+    # DB-resolved path: a CHAT load re-emits the .ini for ALL on-disk models, so the embed's own
+    # section (it is on disk) also carries embeddings=true — keeping it a valid embed child.
+    svc = _service_for(tmp_path, catalog=[_TEST_MODEL, _EMBED], embedding_ids_fn=lambda: {_EMBED.id})
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    ini = _ini(svc)
+    assert f"[{_TEST_MODEL.id}]" in ini and f"[{_EMBED.id}]" in ini
+    embed_section = ini.split(f"[{_EMBED.id}]", 1)[1]
+    assert "embeddings = true" in embed_section
+    # the chat model's section is NOT marked as an embed
+    chat_section = ini.split(f"[{_TEST_MODEL.id}]", 1)[1].split("[", 1)[0]
+    assert "embeddings = true" not in chat_section
+
+
+def test_pinned_embed_survives_chat_coresidence(tmp_path):
+    # models_max=2: embed(pinned) + chat1 resident → loading chat2 evicts the LRU NON-pinned
+    # (chat1), never the pinned embed the RAG index depends on.
+    svc = _service_for(tmp_path, catalog=[_EMBED, _TEST_MODEL, _MODEL_B],
+                       embedding_ids_fn=lambda: {_EMBED.id})
+    svc.ensure_embedding()
+    svc._thread.join(timeout=5)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    svc.load(_MODEL_B.id)
+    svc._thread.join(timeout=5)
+    assert svc._arbiter.is_reserved(_EMBED.id)          # embed never evicted (pinned)
+    assert not svc._arbiter.is_reserved(_TEST_MODEL.id)  # chat1 was the LRU eviction victim
+    assert svc._arbiter.is_reserved(_MODEL_B.id)         # chat2 is now resident
+
+
+def test_non_embed_model_reserves_unpinned(tmp_path):
+    # A chat model (not the configured embed) reserves UNPINNED — it can be evicted.
+    svc = _service_for(tmp_path, catalog=[_TEST_MODEL, _EMBED], embedding_ids_fn=lambda: {_EMBED.id})
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    row = next(r for r in svc._arbiter.snapshot()["reservations"] if r["key"] == _TEST_MODEL.id)
+    assert row["pinned"] is False
+    assert svc._arbiter.pick_evict() == _TEST_MODEL.id

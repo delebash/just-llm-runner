@@ -608,12 +608,18 @@ def seed_default_knobs(s) -> int:
 
 
 def seed_default_routing(s) -> bool:
-    """Seed the live routing row (id='active') if missing — default LLM + embedding
-    point at the local OpenAI-compatible provider (free local inference)."""
+    """Seed the live routing row (id='active') if missing. The default EMBEDDING points at the bundled
+    llama.cpp runner (`local-llamacpp`) + the co-resident nomic embed (P3) so local RAG works out of
+    the box — the runner pins that model resident and serves /v1/embeddings for it by id. The default
+    LLM stays the local OpenAI-compatible provider (Ollama); repointing the LLM default at the bundled
+    runner is model-surface #107's QuickSetup scope, not P3. Idempotent (fresh installs only — an
+    existing user's routing choice is never overwritten)."""
     if s.get(db.RoutingConfigRow, "active") is not None:
         return False
     s.add(db.RoutingConfigRow(id="active", is_active=True, position=0,
-                              default_llm_id="openai-compat-local", default_embedding_id="openai-compat-local"))
+                              default_llm_id="openai-compat-local",
+                              default_embedding_id="local-llamacpp",
+                              default_embedding_model="nomic-embed-text"))
     return True
 
 

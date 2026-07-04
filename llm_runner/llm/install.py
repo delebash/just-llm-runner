@@ -146,6 +146,19 @@ def _wire_runner_catalog(data_dir=None) -> None:
             for r in stores.get_model_catalog_store().list()
         ]
 
+    def embedding_ids_fn() -> set[str]:
+        # The catalog id the routing default points at the bundled runner as the embedding provider
+        # — the runner marks that `.ini` section `embeddings = true` (so llama-server exposes
+        # /v1/embeddings on that child) and PINS it resident (P3, the co-resident embed). Empty when
+        # the embedding provider is Ollama/cloud (default_embedding_id != "local-llamacpp") or none is
+        # set → the runner keeps no embed pinned. The id == the catalog id == the `.ini` section id
+        # clients request — this equality is what routes the embed; the future embed picker
+        # (#107/#108) must preserve it.
+        d = stores.get_routing_store().get_routing().default
+        if d.embeddingId == "local-llamacpp" and d.embeddingModel:
+            return {d.embeddingModel}
+        return set()
+
     def switches_fn(model_id: str):
         # Layered model-level resolution (base preset → type(moe|dense) → per-hardware),
         # returned as a flag→value dict that flows through the runner's existing Override
@@ -171,6 +184,7 @@ def _wire_runner_catalog(data_dir=None) -> None:
 
     configure_service(
         catalog_fn=catalog_fn, switches_fn=switches_fn,
-        identify_fn=identify_fn, config_fn=stores.build_runner_config,
+        identify_fn=identify_fn, embedding_ids_fn=embedding_ids_fn,
+        config_fn=stores.build_runner_config,
         cache_root=(str(Path(data_dir) / "ai-cache") if data_dir else None),
     )

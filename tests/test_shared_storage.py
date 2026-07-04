@@ -45,6 +45,16 @@ def test_seed_populates_shared_and_app_data(wired):
     assert len(stores.get_model_catalog_store().list()) == len(seed.DEFAULT_CATALOG)
 
 
+def test_seed_routing_points_embedding_at_bundled_runner(wired):
+    # P3: fresh installs default local embeddings to the bundled llama.cpp runner + the co-resident
+    # nomic embed, so RAG "Build index" works out of the box (the runner pins + serves it by id). The
+    # LLM default is untouched — repointing it at the runner is model-surface #107's QuickSetup scope.
+    d = stores.get_routing_store().get_routing().default
+    assert d.embeddingId == "local-llamacpp"
+    assert d.embeddingModel == "nomic-embed-text"
+    assert d.llmId == "openai-compat-local"
+
+
 def test_routing_roundtrip_default_and_pins(wired):
     rs = stores.get_routing_store()
     rs.set_routing(RoutingConfig(

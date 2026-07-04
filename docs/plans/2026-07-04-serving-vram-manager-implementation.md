@@ -277,6 +277,16 @@ overrides/switches (→ row 18, `ov` folds into the entry = Option A ephemeral s
    deferred `_router_models`, see AS-BUILT) in P1f to confirm `loaded` / detect `failed`.
 3. `/tokenize` + `/v1/chat/completions` honour the body `"model"` field in router mode.
 
+**BOX-VERIFIED (2026-07-04, b9644) — the `GET /models` schema (unblocks P1f's resident-set read):** the response is
+OpenAI-list-shaped — `{"object":"list","data":[{…}]}` — one entry per `.ini` section with `id` = the section/alias name
+(what clients request), and `status` an OBJECT: `{"value":"unloaded"|"loading"|"loaded"|"sleeping"|"failed", "args":[…child
+argv…], "preset":"…the emitted .ini section text…"}`, plus `need_download:bool` / `owned_by` / `created` / `architecture`
+(`input_modalities`/`output_modalities`). **So status is NESTED at `data[].status.value`, NOT a flat `data[].status`** — the
+earlier tolerant-parse guess would have been WRONG (vindicates deferring it, rule #7). P1f's `_router_models`/`_status_for`
+read `data[].id` + `data[].status.value` (map `loaded`/`sleeping`→resident, `loading`→loading, `failed`→error). Each child
+spawns on `--port 0` (random) under `--alias <id>`, router-proxied. Unknowns #1 (`.ini` hot-read) + #2 (`POST /models/load`
+sync-vs-async + OOM HTTP code) STILL pending the load-timing + OOM-status probes.
+
 **AS-BUILT DEVIATIONS from the spec above (folded from the rules-checker, 2026-07-04 — recorded so spec≠code drift is not silent):**
 - **`GET /models` reconciliation DEFERRED to P1f** → rows 4 & 18 are PARTIAL. The spec's `_default_router_models` client +
   the `status()`/`_run_load` `/models` polling are NOT in P1d — the exact `GET /models` JSON shape is a box-unknown (rule

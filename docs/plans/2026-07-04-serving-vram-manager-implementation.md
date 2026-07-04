@@ -284,8 +284,19 @@ argv…], "preset":"…the emitted .ini section text…"}`, plus `need_download:
 (`input_modalities`/`output_modalities`). **So status is NESTED at `data[].status.value`, NOT a flat `data[].status`** — the
 earlier tolerant-parse guess would have been WRONG (vindicates deferring it, rule #7). P1f's `_router_models`/`_status_for`
 read `data[].id` + `data[].status.value` (map `loaded`/`sleeping`→resident, `loading`→loading, `failed`→error). Each child
-spawns on `--port 0` (random) under `--alias <id>`, router-proxied. Unknowns #1 (`.ini` hot-read) + #2 (`POST /models/load`
-sync-vs-async + OOM HTTP code) STILL pending the load-timing + OOM-status probes.
+spawns on `--port 0` (random) under `--alias <id>`, router-proxied.
+
+**⛔ UNKNOWN #2 RESOLVED — `POST /models/load` is ASYNCHRONOUS (2026-07-04, b9644):** `POST /models/load {"model":"chatmoe"}`
+(a 35B) returned **HTTP 200 in 4 ms** — it cannot have loaded that fast, so the POST is fire-and-forget: it ACCEPTS the
+request and the child loads in the background. (An UNKNOWN id returns **404 synchronously**, so the router does use real HTTP
+codes — but a VALID id is accepted `200` BEFORE it's loaded.) **CONSEQUENCE — P1d's synchronous assumption is WRONG for this
+build → P1f MUST, after `POST /models/load`, POLL `GET /models` until `data[].status.value` is `loaded` (success) or `failed`
+(the OOM / fit-abort surfaces HERE, not in the POST's HTTP code); the router OOM back-off (`_router_load_with_backoff`) must
+key off `status==failed`, NOT the raise.** As-built P1d sets `running` immediately on the 200 and would never fire the
+back-off on an async OOM — the flagged risk, now confirmed (not a crash: `status()` is just optimistic for the ~load-time
+window until P1f adds the poll). Still to eyeball on the box (refines the poll, doesn't change the async verdict):
+`chatmoetoobig` (35B @ ngl 999) → 200 then `status.value==failed`; `chatmoe` → `loading`→`loaded`. Unknown #1 (`.ini`
+hot-read) still pending.
 
 **AS-BUILT DEVIATIONS from the spec above (folded from the rules-checker, 2026-07-04 — recorded so spec≠code drift is not silent):**
 - **`GET /models` reconciliation DEFERRED to P1f** → rows 4 & 18 are PARTIAL. The spec's `_default_router_models` client +

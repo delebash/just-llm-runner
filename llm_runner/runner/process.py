@@ -17,6 +17,7 @@ probe) so it runs in JustWrite's sidecar with no app coupling.
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -97,38 +98,6 @@ def _max_vram_mb(hw: HardwareInfo) -> int:
     return max((g.vram_mb or 0 for g in hw.gpus), default=0)
 
 
-def _strip_flag(flags: Sequence[str], name: str) -> list[str]:
-    """Drop `name` and its single following value from a flag list."""
-    out: list[str] = []
-    skip = False
-    for f in flags:
-        if skip:
-            skip = False
-            continue
-        if f == name:
-            skip = True
-            continue
-        out.append(f)
-    return out
-
-
-def _set_flag(flags: list[str], name: str, value: object) -> list[str]:
-    """Set a VALUE flag (e.g. --cache-type-k q8_0): drop any existing instance, then
-    append name + value. REPLACE semantics so an override beats the base preset
-    instead of duplicating the flag (llama-server would otherwise carry two)."""
-    return _strip_flag(list(flags), name) + [name, str(value)]
-
-
-def _set_presence(flags: list[str], name: str, present: bool) -> list[str]:
-    """Set a PRESENCE flag (no value — e.g. --mlock / --no-mmap): ensure it appears
-    exactly once when present, removed when not. (Can't use _strip_flag here — it
-    eats the FOLLOWING token, which for a valueless flag is the next flag.)"""
-    out = [f for f in flags if f != name]
-    if present:
-        out.append(name)
-    return out
-
-
 # Overrides field → its llama-server VALUE flag (presence + spec handled separately).
 _VALUE_FLAGS = (
     ("cache_type_k", "--cache-type-k"),
@@ -143,43 +112,160 @@ _VALUE_FLAGS = (
 )
 
 
-def _apply_engine_overrides(flags: list[str], ov: Overrides) -> list[str]:
-    """Layer an operator's engine overrides onto the preset flags (None = leave the
-    preset alone). Value flags replace; presence flags add/remove; spec flags are
-    handled together so spec_type='none' fully clears them (the default when MTP is off)."""
-    out = list(flags)
+# Keys that use a SHORT argv form (`-ngl` for n-gpu-layers); everything else is `--{key}`.
+_ARGV_SHORT = {"n-gpu-layers": "-ngl"}
+
+
+def overrides_to_pairs(
+    ov: Overrides, *, n_gpu_layers: int, n_cpu_moe: int, ctx_len: int
+) -> list[tuple[str, str | None]]:
+    """The ONE normalized (flag, value) list for a model's launch config — the single
+    source BOTH renderers consume, so the spawn argv (`render_argv`) and the router
+    `.ini` section (`render_ini`) can never drift (the "a copy drifts" rule). `value`
+    is a string for a value flag, or `None` for a presence flag (a bare `--flag` in
+    argv; `key = true` in the ini). Keys are canonical, WITHOUT leading dashes.
+
+    Covers the fit knobs (n-gpu-layers / n-cpu-moe / ctx) + the engine `Overrides`:
+    value flags (`_VALUE_FLAGS`), presence flags (mlock / no-mmap / no-kv-offload, with
+    the cont-batching + context-shift INVERSIONS preserved), and the spec-decode branch.
+    `extra_flags` is NOT here — it is a raw passthrough the caller renders verbatim
+    (argv) or parses (ini). The merged `Overrides` already resolved the base preset, so
+    there is nothing to strip; the list is built fresh.
+    """
+    pairs: list[tuple[str, str | None]] = [("n-gpu-layers", str(n_gpu_layers))]
+    if n_cpu_moe > 0:
+        pairs.append(("n-cpu-moe", str(n_cpu_moe)))
+    pairs.append(("ctx-size", str(ctx_len)))
     for attr, flag in _VALUE_FLAGS:
         val = getattr(ov, attr)
         if val is not None:
-            out = _set_flag(out, flag, val)
-    if ov.mlock is not None:
-        out = _set_presence(out, "--mlock", ov.mlock)
-    if ov.no_mmap is not None:
-        out = _set_presence(out, "--no-mmap", ov.no_mmap)
-    if ov.no_kv_offload is not None:
-        out = _set_presence(out, "--no-kv-offload", ov.no_kv_offload)
-    if ov.cont_batching is not None:
+            pairs.append((flag.lstrip("-"), str(val)))
+    if ov.mlock:
+        pairs.append(("mlock", None))
+    if ov.no_mmap:
+        pairs.append(("no-mmap", None))
+    if ov.no_kv_offload:
+        pairs.append(("no-kv-offload", None))
+    if ov.cont_batching is False:
         # Continuous batching is ON upstream by default — only the OFF switch exists.
-        out = _set_presence(out, "--no-cont-batching", not ov.cont_batching)
+        pairs.append(("no-cont-batching", None))
     if ov.context_shift is not None:
         # Context shift is OFF upstream by default — emit the explicit flag either way.
-        # (llama.cpp auto-disables it for sliding-window models, e.g. Gemma, with a warning.)
-        out = _set_presence(out, "--context-shift", ov.context_shift)
-        out = _set_presence(out, "--no-context-shift", not ov.context_shift)
-    if ov.spec_type is not None:
-        for f in ("--spec-type", "--spec-draft-n-max", "--spec-ngram-mod-n-max"):
-            out = _strip_flag(out, f)
-        if ov.spec_type != "none":
-            out += ["--spec-type", ov.spec_type]
-            if ov.spec_n_max is not None:
-                nmax = "--spec-ngram-mod-n-max" if "ngram" in ov.spec_type else "--spec-draft-n-max"
-                out += [nmax, str(ov.spec_n_max)]
-    # Raw passthrough flags (the "new llama.cpp flag, no code" escape) — appended
-    # verbatim so a switch the typed Overrides set doesn't know still reaches the
-    # server. _switches_to_overrides routes any non-field switch row here.
-    if ov.extra_flags:
-        out += list(ov.extra_flags)
+        pairs.append(("context-shift" if ov.context_shift else "no-context-shift", None))
+    if ov.spec_type is not None and ov.spec_type != "none":
+        pairs.append(("spec-type", ov.spec_type))
+        if ov.spec_n_max is not None:
+            key = "spec-ngram-mod-n-max" if "ngram" in ov.spec_type else "spec-draft-n-max"
+            pairs.append((key, str(ov.spec_n_max)))
+    return pairs
+
+
+def render_argv(pairs: list[tuple[str, str | None]]) -> list[str]:
+    """Render normalized pairs as llama-server CLI argv tokens (`--flag value` /
+    `--flag` presence / the short `-ngl`)."""
+    out: list[str] = []
+    for key, val in pairs:
+        out.append(_ARGV_SHORT.get(key, f"--{key}"))
+        if val is not None:
+            out.append(str(val))
     return out
+
+
+def render_ini(pairs: list[tuple[str, str | None]]) -> str:
+    """Render normalized pairs as router `.ini` preset lines (`key = value` /
+    `key = true`; the dashless canonical keys llama.cpp's preset parser accepts)."""
+    return "\n".join(f"{key} = {'true' if val is None else val}" for key, val in pairs)
+
+
+def _extra_flags_to_ini_pairs(tokens: Sequence[str]) -> list[tuple[str, str | None]]:
+    """Parse raw passthrough argv tokens (e.g. ['--top-n-sigma', '0.05', '--some-flag'])
+    into (key, value|None) `.ini` pairs. Rule: a flag key starts with '-' and is not a
+    number; the NEXT token is that flag's value unless it too is a flag (then the flag is
+    a bare toggle → value None). Numeric values, incl. negatives like '-0.5', are
+    consumed as values, not mistaken for flags."""
+    def _is_flag(tok: str) -> bool:
+        return tok.startswith("-") and re.match(r"-?\d", tok) is None
+
+    toks = list(tokens or [])
+    pairs: list[tuple[str, str | None]] = []
+    i = 0
+    while i < len(toks):
+        key = toks[i].lstrip("-")
+        if i + 1 < len(toks) and not _is_flag(toks[i + 1]):
+            pairs.append((key, toks[i + 1]))
+            i += 2
+        else:
+            pairs.append((key, None))
+            i += 1
+    return pairs
+
+
+@dataclass
+class ModelIniEntry:
+    """One resident model's resolved launch config for the router `--models-preset`
+    `.ini`. `model_id` is the section name = the id clients request. The fit knobs +
+    `overrides` render to per-model `.ini` lines via the SAME `overrides_to_pairs` the
+    spawn argv uses (no drift). An embed entry sets `embeddings` (+ `pooling`); the
+    arbiter pins a model with `load_on_startup`."""
+
+    model_id: str
+    gguf_path: str
+    n_gpu_layers: int
+    n_cpu_moe: int
+    ctx_len: int
+    overrides: Overrides = field(default_factory=Overrides)
+    embeddings: bool = False
+    pooling: str = "mean"
+    load_on_startup: bool = False
+
+
+def emit_models_ini(entries: Sequence[ModelIniEntry]) -> str:
+    """Render the router `--models-preset` `.ini` from resolved per-model entries. The
+    DB is the source of truth; this `.ini` is a GENERATED artifact — written from the DB
+    when the router (re)starts or the resident set changes, never hand-edited or read
+    back. One `[<model_id>]` section per entry; per-model flags come from the shared
+    `overrides_to_pairs` (so the `.ini` can't drift from the spawn argv)."""
+    blocks: list[str] = []
+    for e in entries:
+        pairs = overrides_to_pairs(
+            e.overrides, n_gpu_layers=e.n_gpu_layers, n_cpu_moe=e.n_cpu_moe, ctx_len=e.ctx_len
+        )
+        pairs += _extra_flags_to_ini_pairs(e.overrides.extra_flags)
+        section = [f"[{e.model_id}]", f"model = {e.gguf_path}", render_ini(pairs)]
+        if e.embeddings:
+            section.append("embeddings = true")
+            if e.pooling:
+                section.append(f"pooling = {e.pooling}")
+        if e.load_on_startup:
+            section.append("load-on-startup = true")
+        blocks.append("\n".join(s for s in section if s))
+    return ("\n\n".join(blocks) + "\n") if blocks else ""
+
+
+def compose_router_argv(
+    *,
+    models_dir: Path | str,
+    models_preset: Path | str,
+    models_max: int = 2,
+    sleep_idle_seconds: int | None = None,
+    host: str = DEFAULT_HOST,
+    port: int = DEFAULT_PORT,
+    extra: Sequence[str] = (),
+) -> list[str]:
+    """Build the llama-server ROUTER-mode argv (NO `-m`): the router loads models by id
+    from the emitted `--models-preset` `.ini`. `--models-max` caps the co-resident count
+    (the arbiter works within it); `--sleep-idle-seconds` (when > 0) is the native
+    idle-unload TTL. Per-model launch flags live in the `.ini`, not here."""
+    argv = [
+        "--models-dir", str(models_dir),
+        "--models-preset", str(models_preset),
+        "--models-max", str(models_max),
+        "--host", host, "--port", str(port),
+    ]
+    if sleep_idle_seconds is not None and sleep_idle_seconds > 0:
+        argv += ["--sleep-idle-seconds", str(sleep_idle_seconds)]
+    argv += list(extra)
+    return argv
 
 
 def compute_fit(
@@ -246,18 +332,17 @@ def compose_flags(
     extra: Sequence[str] = (),
     overrides: Overrides | None = None,
 ) -> list[str]:
-    """Build the llama-server argv (after the exe) from the resolved engine
-    overrides. The base + type (moe|dense) flag defaults (flash-attn, KV cache type, mlock,
-    spec-decode, …) arrive in `overrides` already — resolved from the DB
-    `switch_presets` by the runner's switches_fn — so there is no manifest preset
-    to merge here; we just render the overrides + the computed fit knobs."""
-    flags: list[str] = []
-    if overrides is not None:
-        flags = _apply_engine_overrides(flags, overrides)
-    flags += ["-ngl", str(n_gpu_layers)]
-    if n_cpu_moe > 0:
-        flags += ["--n-cpu-moe", str(n_cpu_moe)]
-    flags += ["-m", str(gguf_path), "--ctx-size", str(ctx_len), "--host", host, "--port", str(port)]
+    """Build the llama-server argv (after the exe) from the resolved engine overrides.
+    The base + type (moe|dense) flag defaults (flash-attn, KV cache type, mlock,
+    spec-decode, …) arrive in `overrides` already — resolved from the DB `switch_presets`
+    by the runner's switches_fn — so there is no manifest preset to merge here. We render
+    the overrides + fit knobs via the shared `overrides_to_pairs`→`render_argv`, the SAME
+    normalized pairs the router `.ini` emitter renders (via `render_ini`), so the spawn
+    argv and the `.ini` section can never drift."""
+    ov = overrides or Overrides()
+    flags = render_argv(overrides_to_pairs(ov, n_gpu_layers=n_gpu_layers, n_cpu_moe=n_cpu_moe, ctx_len=ctx_len))
+    flags += ["-m", str(gguf_path), "--host", host, "--port", str(port)]
+    flags += list(ov.extra_flags)  # raw passthrough (the "new flag, no code" escape), verbatim
     flags += list(extra)
     return flags
 

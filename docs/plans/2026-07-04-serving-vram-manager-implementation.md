@@ -5,7 +5,11 @@
 > phase shipping+verifying on its own. **The JV shared-LLM convergence is a SEPARATE plan** (captured at the end,
 > NOT built here). Design source of truth: `just-llm-runner/docs/plans/2026-07-04-serving-vram-manager.md`. THIS
 > file is the executable task plan + live tracker. **⛔ LIVE STATUS: APPROVED + IN BUILD (user "go" 2026-07-04;
-> Lab per-load-tuning = Option A ephemeral-section re-emit, locked). Phase 1 in progress; tasks #113–117.**
+> Lab per-load-tuning = Option A ephemeral-section re-emit, locked). Phase 1 IN PROGRESS (tasks #113–117):
+> 1a–1c DONE + tested — shared `overrides_to_pairs`/`render_argv`/`render_ini` (`compose_flags` refactored onto
+> it, behavior-preserving), `emit_models_ini` (+ `ModelIniEntry`), `compose_router_argv`; ruff + 230 pytest green
+> (rules-checker flagged a T5 coverage gap on the context_shift/spec/extra-flag branches → tests added + the
+> `extra_flags` negative-value edge fixed; re-checked PASS). NEXT: 1d (RunnerService→router).**
 > **Hardened by a 3-checker rules panel 2026-07-04** (architecture-fit · reuse · grounding) — grounding PASS (all
 > citations verified accurate), the two FAIL findings folded in full (see "Panel review" §). The approach (router
 > mode + thin arbiter + DB→`.ini`) is unchanged and design-approved; the panel fixed the plan's *specification*.

@@ -14,13 +14,21 @@ import pytest
 
 from llm_runner.runner.gguf import GgufMeta
 from llm_runner.runner.process import (
+    DEFAULT_HOST,
+    DEFAULT_PORT,
     FitPlan,
+    ModelIniEntry,
     Overrides,
     Runner,
     RunnerStartError,
     _tail_file,
     compose_flags,
+    compose_router_argv,
     compute_fit,
+    emit_models_ini,
+    overrides_to_pairs,
+    render_argv,
+    render_ini,
     start_runner,
 )
 from llm_runner.runner.schema import GpuInfo, HardwareInfo
@@ -184,6 +192,130 @@ def test_compose_flags_extra_flags_passthrough(tmp_path):
         overrides=Overrides(extra_flags=["--top-n-sigma", "0.05"]),
     )
     assert flags[flags.index("--top-n-sigma") + 1] == "0.05"
+
+
+# ── the shared flag intermediate (overrides_to_pairs → render_argv / render_ini) ──
+# One normalized (flag, value) list feeds BOTH the spawn argv and the router .ini, so
+# they can never drift. These pin: the fit knobs + engine flags + presence + inversions;
+# that render_argv of the pairs is exactly the argv prefix compose_flags emits; and the
+# ini rendering (`key = value` / `key = true`).
+
+def test_overrides_to_pairs_fit_engine_presence_and_inversions():
+    ov = Overrides(
+        flash_attn="on", threads=8, mlock=True, no_mmap=True,
+        cont_batching=False, context_shift=True, spec_type="draft-mtp", spec_n_max=3,
+    )
+    d = dict(overrides_to_pairs(ov, n_gpu_layers=20, n_cpu_moe=4, ctx_len=4096))
+    assert d["n-gpu-layers"] == "20" and d["n-cpu-moe"] == "4" and d["ctx-size"] == "4096"
+    assert d["flash-attn"] == "on" and d["threads"] == "8"
+    assert d["mlock"] is None and d["no-mmap"] is None      # presence flags
+    assert d["no-cont-batching"] is None                    # cont_batching=False → the OFF switch
+    assert d["context-shift"] is None and "no-context-shift" not in d  # context_shift=True → the ON flag
+    assert d["spec-type"] == "draft-mtp" and d["spec-draft-n-max"] == "3"
+
+
+def test_overrides_to_pairs_omits_moe_when_zero_and_spec_none_clears():
+    d = dict(overrides_to_pairs(Overrides(spec_type="none"), n_gpu_layers=0, n_cpu_moe=0, ctx_len=2048))
+    assert "n-cpu-moe" not in d          # 0 → omitted
+    assert "spec-type" not in d          # "none" → cleared
+    assert d["n-gpu-layers"] == "0"
+
+
+def test_render_argv_is_exact_argv_prefix_of_compose_flags(tmp_path):
+    # The .ini path and the spawn path share ONE renderer: render_argv(pairs) must be
+    # exactly the leading argv compose_flags emits for the same overrides + fit.
+    ov = Overrides(flash_attn="on", cache_type_k="q8_0", mlock=True, cont_batching=False)
+    argv = render_argv(overrides_to_pairs(ov, n_gpu_layers=10, n_cpu_moe=2, ctx_len=4096))
+    composed = compose_flags(tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=2, ctx_len=4096, overrides=ov)
+    assert composed[: len(argv)] == argv                    # render_argv output IS the prefix
+    assert composed[len(argv):] == ["-m", str(tmp_path / "m.gguf"),
+                                    "--host", DEFAULT_HOST, "--port", str(DEFAULT_PORT)]
+
+
+def test_render_ini_emits_key_value_and_bare_true():
+    ov = Overrides(flash_attn="on", mlock=True, cont_batching=False)
+    lines = set(render_ini(overrides_to_pairs(ov, n_gpu_layers=20, n_cpu_moe=0, ctx_len=4096)).splitlines())
+    assert {"n-gpu-layers = 20", "ctx-size = 4096", "flash-attn = on"} <= lines
+    assert "mlock = true" in lines and "no-cont-batching = true" in lines  # presence → `= true`
+    assert not any(line.startswith("n-cpu-moe") for line in lines)          # omitted when 0
+
+
+# ── router mode: emit_models_ini + compose_router_argv ─────────────────────────
+
+def test_emit_models_ini_chat_and_embed_sections():
+    ini = emit_models_ini([
+        ModelIniEntry("chat", "/m/chat.gguf", n_gpu_layers=20, n_cpu_moe=4, ctx_len=4096,
+                      overrides=Overrides(flash_attn="on", mlock=True)),
+        ModelIniEntry("embed", "/m/embed.gguf", n_gpu_layers=99, n_cpu_moe=0, ctx_len=2048,
+                      embeddings=True, load_on_startup=True),
+    ])
+    assert "[chat]" in ini and "[embed]" in ini
+    assert "model = /m/chat.gguf" in ini
+    assert "n-gpu-layers = 20" in ini and "n-cpu-moe = 4" in ini
+    assert "flash-attn = on" in ini and "mlock = true" in ini
+    embed_block = ini.split("[embed]")[1]
+    assert "embeddings = true" in embed_block and "pooling = mean" in embed_block
+    assert "load-on-startup = true" in embed_block
+    chat_block = ini.split("[chat]")[1].split("[embed]")[0]
+    assert "embeddings = true" not in chat_block and "load-on-startup" not in chat_block
+
+
+def test_emit_models_ini_renders_extra_flags():
+    ini = emit_models_ini([
+        ModelIniEntry("m", "/m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=2048,
+                      overrides=Overrides(extra_flags=["--top-n-sigma", "0.05", "--some-toggle"])),
+    ])
+    assert "top-n-sigma = 0.05" in ini      # value flag parsed
+    assert "some-toggle = true" in ini      # bare toggle → = true
+
+
+def test_emit_models_ini_empty_is_empty_string():
+    assert emit_models_ini([]) == ""
+
+
+def test_compose_router_argv_no_model_flag():
+    argv = compose_router_argv(models_dir="/hf", models_preset="/x/models.ini",
+                               models_max=2, sleep_idle_seconds=900, port=8080)
+    assert "-m" not in argv                 # ROUTER mode: no single model
+    assert argv[argv.index("--models-preset") + 1] == "/x/models.ini"
+    assert argv[argv.index("--models-max") + 1] == "2"
+    assert argv[argv.index("--sleep-idle-seconds") + 1] == "900"
+    assert argv[argv.index("--models-dir") + 1] == "/hf"
+
+
+def test_compose_router_argv_omits_ttl_when_unset():
+    argv = compose_router_argv(models_dir="/hf", models_preset="/x.ini")
+    assert "--sleep-idle-seconds" not in argv   # None → omitted (upstream default -1 = off)
+
+
+def test_overrides_to_pairs_context_shift_false_and_none():
+    # The old dual-flag emitted exactly ONE of --context-shift / --no-context-shift when
+    # set, and NEITHER when None. Pin both to lock the refactor's equivalence.
+    false_pairs = overrides_to_pairs(Overrides(context_shift=False), n_gpu_layers=1, n_cpu_moe=0, ctx_len=2048)
+    d_false = dict(false_pairs)
+    assert d_false["no-context-shift"] is None and "context-shift" not in d_false
+    argv_false = render_argv(false_pairs)
+    assert "--no-context-shift" in argv_false and "--context-shift" not in argv_false
+    assert "no-context-shift = true" in render_ini(false_pairs)
+    d_none = dict(overrides_to_pairs(Overrides(), n_gpu_layers=1, n_cpu_moe=0, ctx_len=2048))
+    assert "context-shift" not in d_none and "no-context-shift" not in d_none  # None → NEITHER
+
+
+def test_overrides_to_pairs_spec_type_without_n_max():
+    d = dict(overrides_to_pairs(Overrides(spec_type="draft-mtp"), n_gpu_layers=1, n_cpu_moe=0, ctx_len=2048))
+    assert d["spec-type"] == "draft-mtp"
+    assert "spec-draft-n-max" not in d and "spec-ngram-mod-n-max" not in d
+
+
+def test_emit_models_ini_extra_flag_negative_value():
+    # A negative-number VALUE must be consumed as the flag's value, not split as a flag.
+    ini = emit_models_ini([
+        ModelIniEntry("m", "/m.gguf", n_gpu_layers=1, n_cpu_moe=0, ctx_len=2048,
+                      overrides=Overrides(extra_flags=["--dry-multiplier", "-0.5", "--bare"])),
+    ])
+    assert "dry-multiplier = -0.5" in ini    # negative value kept with its flag
+    assert "bare = true" in ini              # trailing bare toggle
+    assert "-0.5 = true" not in ini          # NOT misparsed as its own flag
 
 
 # ── start_runner (probe + OOM back-off; subprocess injected) ───────────────────

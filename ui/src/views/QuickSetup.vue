@@ -223,7 +223,7 @@ async function apply() {
     //    the shared modelApply service — the SAME implementation the catalog's Set-as-default /
     //    Set-as-embedding use, so the two surfaces never drift. The embedding keeps the user's
     //    saved provider (pick.embeddingId), not a hardcoded local one.
-    await setAsDefault(target);
+    await setAsDefault(LOCAL_RUNNER_ID, target);
     await setAsEmbedding(pick.value.embeddingId, pick.value.embeddingModel);
 
     // 3. Download (if needed) + load the chosen model as the active one, polling status

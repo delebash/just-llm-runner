@@ -37,11 +37,12 @@ function dominantOf(assignments, presets) {
   const counts = {};
   for (const p of taskPresets) counts[p.model] = (counts[p.model] || 0) + 1;
   let dominant = "";
+  let dominantProviderId = ""; // the provider the dominant model's presets point at (for the badge gate)
   let best = -1;
   for (const p of taskPresets) {
-    if (counts[p.model] > best) { best = counts[p.model]; dominant = p.model; }
+    if (counts[p.model] > best) { best = counts[p.model]; dominant = p.model; dominantProviderId = p.providerId || ""; }
   }
-  return { dominant, taskPresets };
+  return { dominant, dominantProviderId, taskPresets };
 }
 
 // (Re)load the current default + embedding into the shared refs (badges). Call on open + after
@@ -54,7 +55,10 @@ export async function refreshApplied() {
       request("/v1/ai/engine-presets"),
       request("/v1/ai/routing"),
     ]);
-    defaultModelId.value = dominantOf(asg, pr.presets || []).dominant || "";
+    const dom = dominantOf(asg, pr.presets || []);
+    // Default badge only for a LOCAL dominant — an external default must not false-match a
+    // same-id local catalog row (mirrors the embedding-badge gate below).
+    defaultModelId.value = dom.dominantProviderId === LOCAL_RUNNER_ID ? (dom.dominant || "") : "";
     embeddingModelId.value = r.default?.embeddingId === LOCAL_RUNNER_ID ? (r.default?.embeddingModel || "") : "";
   } catch {
     defaultModelId.value = "";
@@ -62,18 +66,22 @@ export async function refreshApplied() {
   }
 }
 
-// Write `modelId` onto every task preset that still shares the PREVIOUS dominant model
-// (non-clobber: a preset the user re-pointed keeps its own model). Each preset keeps ALL its
-// per-task settings — the PUT sends `{...p, model}`, so only `.model` changes.
-export async function setAsDefault(modelId) {
+// Set `providerId`/`modelId` as the default on every task preset that still shares the PREVIOUS
+// dominant model (non-clobber: a preset the user re-pointed keeps its own model). Each preset
+// keeps ALL its per-task settings — the PUT sends `{...p, providerId, model}`, so only the
+// routing changes. The catalog + the local QuickSetup path pass LOCAL_RUNNER_ID (a no-op on
+// providerId — presets already point at the bundled runner); the QuickSetup other-provider path
+// passes the connected provider's id, so a task's routing flips to it.
+export async function setAsDefault(providerId, modelId) {
   const [asg, pr] = await Promise.all([
     request("/v1/ai/preset-assignments"),
     request("/v1/ai/engine-presets"),
   ]);
   const { dominant, taskPresets } = dominantOf(asg, pr.presets || []);
   for (const p of taskPresets) {
-    if (p.model !== dominant || p.model === modelId) continue; // overridden by the user, or already set
-    await request(`/v1/ai/engine-presets/${p.id}`, { method: "PUT", body: { ...p, model: modelId } });
+    if (p.model !== dominant) continue; // overridden by the user — non-clobber
+    if (p.providerId === providerId && p.model === modelId) continue; // already the target
+    await request(`/v1/ai/engine-presets/${p.id}`, { method: "PUT", body: { ...p, providerId, model: modelId } });
   }
   await refreshApplied();
 }

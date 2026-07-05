@@ -87,7 +87,7 @@ const { currentDefaultId, currentEmbeddingId, refreshApplied, setAsDefault, setA
 const applyingId = ref(""); // model id whose Set-as-default / Set-as-embedding write is in flight
 async function makeDefault(m) {
   applyingId.value = m.id;
-  try { await setAsDefault(m.id); } catch (e) { error.value = e.message || "Couldn't set the default."; }
+  try { await setAsDefault(LOCAL_RUNNER_ID, m.id); } catch (e) { error.value = e.message || "Couldn't set the default."; }
   finally { applyingId.value = ""; }
 }
 async function makeEmbedding(m) {

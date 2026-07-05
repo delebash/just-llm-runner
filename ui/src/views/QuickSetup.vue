@@ -19,13 +19,13 @@
 // samplers); only `.model` changes. The embedding is set via /v1/ai/routing (pins kept);
 // then the chosen model is downloaded (if needed) + loaded as the active one.
 //
-// Both apps mount it (exported from the kit). It replaces the old jobs-based wiring
-// (/v1/ai/jobs + a routing `jobs` map — both retired with the taskKind refactor).
+// JustWrite mounts this kit view; JustVoice has its own (TTS) setup wizard. It replaces the
+// old jobs-based wiring (/v1/ai/jobs + a routing `jobs` map — both retired with taskKinds).
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
 import { useCatalogMeta } from "../common/composables/useCatalogMeta.js";
-import { pickBestModel, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
+import { pickBestModel, pickLowestQuality, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
 import { setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../common/services/modelApply.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
@@ -54,6 +54,9 @@ const CARD_OPTIONS = [
   { value: "12288", label: "12 GB card" },
   { value: "16384", label: "16 GB card" },
   { value: "24576", label: "24 GB card" },
+  { value: "32768", label: "32 GB card" },
+  { value: "49152", label: "48 GB card" },
+  { value: "65536", label: "64 GB card" },
 ];
 
 // Editable pick: the one good LLM (`default`) + the embedding provider/model.
@@ -97,6 +100,15 @@ const modelOptions = computed(() =>
       label: `${m.name} · ${FIT_LABEL[m.fit] || "—"}${m.params ? ` · ${m.params}` : ""}`,
     })),
 );
+// Only the FITTING embed models — the editable embedding dropdown (design §3). Best-fit
+// default = lowest quality_rank (the §10 embedding pick, via the shared comparator).
+const fittingEmbeds = computed(() => models.value.filter((m) => isEmbed(m) && FIT_RUNNABLE.has(m.fit)));
+const embedOptions = computed(() =>
+  fittingEmbeds.value.map((m) => ({ value: m.id, label: `${m.name}${m.params ? ` · ${m.params}` : ""}` })),
+);
+function bestEmbedId() { return pickLowestQuality(fittingEmbeds.value, { qualityOf }); }
+function onEmbedChange() { pick.value.embeddingId = LOCAL_RUNNER_ID; } // all embed options are local
+
 const embedName = computed(() => {
   const e = models.value.find((m) => m.id === pick.value.embeddingModel);
   return e?.name || pick.value.embeddingModel || "";
@@ -157,10 +169,10 @@ async function loadAll() {
 function prefillPick() {
   if (!pick.value.default) pick.value.default = bestFittingId();
   if (!pick.value.embeddingModel) {
-    const e = models.value.find((m) => isEmbed(m));
-    if (e) {
+    const best = bestEmbedId();
+    if (best) {
       pick.value.embeddingId = LOCAL_RUNNER_ID;
-      pick.value.embeddingModel = e.id;
+      pick.value.embeddingModel = best;
     }
   }
 }
@@ -173,7 +185,7 @@ async function loadRouting() {
     if (r.default?.embeddingId) pick.value.embeddingId = r.default.embeddingId;
     if (r.default?.embeddingModel) pick.value.embeddingModel = r.default.embeddingModel;
   } catch {
-    /* routing may be empty on a fresh install — keep the pre-filled nomic default */
+    /* routing may be empty on a fresh install — keep the pre-filled best-fit embed default */
   }
 }
 
@@ -303,10 +315,11 @@ defineExpose({ openWizard });
             </p>
           </section>
 
-          <!-- The embedding — a fixed always-on utility, not a per-task choice. -->
-          <section v-if="pick.embeddingModel" class="lu-qs-sec">
+          <!-- The embedding — an editable pick of the embed models that fit this box. -->
+          <section v-if="embedOptions.length" class="lu-qs-sec">
             <div class="lu-qs-k">Embedding</div>
-            <div class="lu-qs-detected"><b>{{ embedName }}</b> <span class="lu-muted">— powers semantic search + grounded chat. Always on, runs on CPU.</span></div>
+            <UiSelect v-model="pick.embeddingModel" :options="embedOptions" @update:model-value="onEmbedChange" />
+            <p class="lu-muted lu-qs-hint">Powers semantic search + grounded chat. Runs alongside your chat model; a smaller embed is fine.</p>
           </section>
 
           <!-- What will happen on Apply. -->

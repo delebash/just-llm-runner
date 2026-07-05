@@ -5,7 +5,7 @@
 // Phase 3, so a card-override probe can't construct the two side-by-side deterministically.
 // This does, purely and re-runnably.
 //   Run:  node scripts/verify-model-pick.mjs      (exit 0 = all pass, 1 = any fail)
-import { pickBestModel } from "../ui/src/common/services/modelPick.js";
+import { pickBestModel, pickLowestQuality } from "../ui/src/common/services/modelPick.js";
 
 // A tiny test model. fit ∈ ok|tight|cpu|no|unknown; type ∈ dense|moe.
 const M = (id, fit, type, quality, extra = {}) =>
@@ -87,6 +87,13 @@ check("empty input → empty", pick([]), "");
 //     wrongly counts a MoE runnable-but-not-on-GPU as fast-enough.
 check("moe+cpu (better quality) loses to dense+ok",
   pick([M("m-cpu", "cpu", "moe", 5), M("d-ok", "ok", "dense", 30)]), "d-ok");
+
+// ── Direct pickLowestQuality checks — the shared comparator QuickSetup's bestEmbedId reuses
+//    for the embedding pick (lowest quality_rank, tie-break to the better fit). ──
+const lq = (list) => pickLowestQuality(list, { qualityOf: (m) => m.quality });
+check("lowestQuality: lowest rank wins", lq([M("a", "ok", "dense", 30), M("b", "ok", "dense", 10), M("c", "ok", "dense", 20)]), "b");
+check("lowestQuality: tie → better fit", lq([M("t", "tight", "dense", 20), M("o", "ok", "dense", 20)]), "o");
+check("lowestQuality: empty → ''", lq([]), "");
 
 console.log(`\n§10 truth-table: ${pass} passed, ${fail} failed.`);
 process.exit(fail ? 1 : 0);

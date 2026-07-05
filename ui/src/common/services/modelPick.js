@@ -53,16 +53,25 @@ export function pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited
     (m) => FIT_RUNNABLE.has(m.fit) && !isEmbed(m) && !isUseLimited(m),
   );
   if (!runnable.length) return "";
-
-  // Lower quality_rank = more capable; ties break to the better fit.
-  const byQuality = (a, b) => {
-    const qa = qualityOf(a);
-    const qb = qualityOf(b);
-    if (qa !== qb) return qa - qb;
-    return (FIT_RANK[a.fit] ?? 9) - (FIT_RANK[b.fit] ?? 9);
-  };
-
   const fastEnough = runnable.filter((m) => isFastEnough(m, typeOf(m)));
   const pool = fastEnough.length ? fastEnough : runnable; // §10 fallback: best runnable
-  return [...pool].sort(byQuality)[0].id;
+  return pickLowestQuality(pool, { qualityOf });
+}
+
+/**
+ * Pick the lowest-quality_rank model (most capable) from a list, tie-breaking to the better
+ * fit. SHARED by the §10 LLM pick above AND QuickSetup's embedding pick — both rank their
+ * fitting candidates by the curated quality order, so the comparator lives ONCE.
+ * @param {Array}  models  the candidate list ([{id, fit, …}])
+ * @param {Object} accessors  { qualityOf(m) → number, LOWER = better }
+ * @returns {string} the chosen model's id, or "" if the list is empty.
+ */
+export function pickLowestQuality(models, { qualityOf }) {
+  if (!models || !models.length) return "";
+  return [...models].sort((a, b) => {
+    const qa = qualityOf(a);
+    const qb = qualityOf(b);
+    if (qa !== qb) return qa - qb; // lower quality_rank = more capable
+    return (FIT_RANK[a.fit] ?? 9) - (FIT_RANK[b.fit] ?? 9); // tie-break: better fit
+  })[0].id;
 }

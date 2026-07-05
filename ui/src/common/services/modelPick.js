@@ -27,6 +27,8 @@
 export const FIT_RUNNABLE = new Set(["ok", "tight", "cpu"]);
 // Tie-break when quality_rank is equal: prefer the better fit (lower = better).
 export const FIT_RANK = { ok: 0, tight: 1, cpu: 2, no: 3, unknown: 4 };
+// The fit-band display vocabulary — ONE source (was duplicated in useRunnerModels + QuickSetup).
+export const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fit", unknown: "—" };
 
 // §10 "fast enough": a dense model only clears the floor fully on the GPU (fit==ok); a MoE
 // clears it at ok OR tight (its expert-offload streams because only ~3B is active per token).

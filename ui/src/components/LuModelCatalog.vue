@@ -15,12 +15,16 @@ import { computed, ref } from "vue";
 import { request } from "../client.js";
 import { useRunnerModels } from "../common/composables/useRunnerModels.js";
 import { useCatalogMeta } from "../common/composables/useCatalogMeta.js";
+import { useModelApply } from "../common/services/modelApply.js";
+import { FIT_RUNNABLE } from "../common/services/modelPick.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
+import UiSelect from "../common/components/UiSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
+import UiTag from "../common/components/UiTag.vue";
 import UiProgress from "../common/components/UiProgress.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 
@@ -28,16 +32,69 @@ import { confirmDialog } from "../common/services/dialog.js";
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
 const {
   models, vramMb, loading, error, downloaded, total, loadErr, loadingId,
-  needsEngine, progressLabel, fmtBytes, FIT_LABEL, refresh, load, unload, download,
+  needsEngine, progressLabel, fmtBytes, FIT_LABEL, refresh, download,
 } = useRunnerModels();
 
-// Installed-first framing: "Your models" = anything downloaded / loaded / in-flight /
-// errored; the rest of the seeded catalog is available to download behind "Browse catalog".
-// A fresh install has zero installed → the Your-models list is empty (browse to add one).
-const browseOpen = ref(false);
-const yourModels = computed(() => models.value.filter((m) => m.status !== "available"));
-const availableModels = computed(() => models.value.filter((m) => m.status === "available"));
-const shownModels = computed(() => (browseOpen.value ? [...yourModels.value, ...availableModels.value] : yourModels.value));
+// Search + sort + fit-grouping (design §4): ONE visible list — models that FIT the machine
+// grouped first, the rest below — with a search box and a sort control (replaces the old
+// installed-first "Your models / Browse catalog" toggle).
+const query = ref("");
+const sortBy = ref("quality");
+const SORT_OPTIONS = [
+  { value: "quality", label: "Sort: Quality" },
+  { value: "name", label: "Sort: Name" },
+  { value: "size", label: "Sort: Size" },
+];
+function paramsNum(p) {
+  const n = Number.parseFloat(String(p || "").replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) ? n : 999;
+}
+function matchesQuery(m) {
+  const q = query.value.trim().toLowerCase();
+  if (!q) return true;
+  return (m.name || "").toLowerCase().includes(q) || (m.id || "").toLowerCase().includes(q);
+}
+function sortModels(list) {
+  const by = sortBy.value;
+  return [...list].sort((a, b) => {
+    if (by === "name") return (a.name || "").localeCompare(b.name || "");
+    if (by === "size") return paramsNum(b.params) - paramsNum(a.params); // largest first
+    const qa = qualityOf(a); // quality (default): lower quality_rank = better, first
+    const qb = qualityOf(b);
+    if (qa !== qb) return qa - qb;
+    return (a.name || "").localeCompare(b.name || "");
+  });
+}
+const filtered = computed(() => models.value.filter(matchesQuery));
+const fittingModels = computed(() => sortModels(filtered.value.filter((m) => FIT_RUNNABLE.has(m.fit))));
+const nonFittingModels = computed(() => sortModels(filtered.value.filter((m) => !FIT_RUNNABLE.has(m.fit))));
+const hasAny = computed(() => filtered.value.length > 0);
+// One render list: fitting rows, a divider sentinel (only when BOTH groups are non-empty), then
+// non-fitting rows — so the row markup is written ONCE (no per-group duplication).
+const groupedRows = computed(() => {
+  const rows = [...fittingModels.value];
+  if (nonFittingModels.value.length) {
+    if (fittingModels.value.length) rows.push({ __divider: true, count: nonFittingModels.value.length });
+    rows.push(...nonFittingModels.value);
+  }
+  return rows;
+});
+
+// Applied state (Default / Embedding badges) + the Set-as-default / Set-as-embedding writers —
+// the shared modelApply service (also used by QuickSetup, so a badge tracks a QuickSetup Apply
+// without a re-fetch).
+const { currentDefaultId, currentEmbeddingId, refreshApplied, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } = useModelApply();
+const applyingId = ref(""); // model id whose Set-as-default / Set-as-embedding write is in flight
+async function makeDefault(m) {
+  applyingId.value = m.id;
+  try { await setAsDefault(m.id); } catch (e) { error.value = e.message || "Couldn't set the default."; }
+  finally { applyingId.value = ""; }
+}
+async function makeEmbedding(m) {
+  applyingId.value = m.id;
+  try { await setAsEmbedding(LOCAL_RUNNER_ID, m.id); } catch (e) { error.value = e.message || "Couldn't set the embedding."; }
+  finally { applyingId.value = ""; }
+}
 
 const busy = ref(""); // CATALOG-op id in flight (delete) — distinct from the shared loadingId
 
@@ -61,19 +118,18 @@ function sizeLabel(m) {
 // Model catalog meta (license / use-limited / description — the fit-shaped /models view
 // doesn't carry them). Shared with QuickSetup through the useCatalogMeta singleton (one
 // source, no drift); loadCatalogMeta (its refresh) re-pulls after a catalog edit.
-const { licenseById, useLimitedById, descriptionById, poolingById, refresh: loadCatalogMeta } = useCatalogMeta();
+const { qualityById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, refresh: loadCatalogMeta } = useCatalogMeta();
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
 function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
 function poolingOf(m) { return poolingById.value[m.id] || ""; }
+function qualityOf(m) { return qualityById.value[m.id] ?? 100; }
+function embeddingOf(m) { return embeddingById.value[m.id] === true; }
 function licenseTitle(m) {
   const lic = licenseOf(m);
   return useLimitedOf(m)
     ? `${lic || "license"} — use-limited: not free for unrestricted/commercial use, never a default. The catalog only lists it; the weights download on your machine.`
     : (lic ? `${lic} — permissive (free to use).` : "license unknown");
-}
-async function unloadModel() {
-  await unload();
 }
 
 // ── Tune & measure (#20) — the modal is shared (TuneMeasureModal), opened per model ─
@@ -128,7 +184,7 @@ async function inspectLink() {
 function blankModel() {
   return { id: "", name: "", hfRepo: "", quant: "", type: "dense", totalParams: "",
     activeParams: "", mtp: false, trainedCtx: null, samplers: {}, minVramMb: null, minRamMb: null,
-    tier: "mid", license: "", useLimited: false, description: "", qualityRank: 100, position: 0 };
+    tier: "mid", license: "", useLimited: false, embedding: false, description: "", qualityRank: 100, position: 0 };
 }
 function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; }
 async function startEdit(m) {
@@ -192,22 +248,24 @@ async function resetCatalog() {
 }
 
 loadCatalogMeta();
+refreshApplied();
 </script>
 
 <template>
   <div class="lu-mcat">
-    <div class="lu-mcat-head lu-mcat-bar">
-      <span><b>Your models</b> — downloaded &amp; ready · <b>Fit</b> shows how each runs on your GPU</span>
+    <div class="lu-mcat-bar">
+      <UiInput v-model="query" class="lu-mcat-search" placeholder="Search models…" />
+      <UiSelect v-model="sortBy" :options="SORT_OPTIONS" class="lu-mcat-sort" />
       <span class="lu-mcat-spacer" />
-      <UiButton intent="ghost" size="small" @click="browseOpen = !browseOpen">{{ browseOpen ? "Hide catalog" : `Browse catalog (${availableModels.length})` }}</UiButton>
       <UiButton intent="secondary" size="small" @click="resetCatalog">Reset catalog</UiButton>
       <UiButton intent="primary" size="small" @click="startAdd"><template #icon>＋</template>Add model</UiButton>
     </div>
 
     <div v-if="error" class="lu-error lu-mcat-err">{{ error }}</div>
     <div v-else-if="loading" class="lu-mcat-empty">Loading catalog…</div>
-    <div v-else-if="!shownModels.length" class="lu-mcat-empty">
-      No models downloaded yet — <b>Browse catalog</b> above to download one, or run <b>Quick Setup</b> to pick the best fit for your hardware.
+    <div v-else-if="!hasAny" class="lu-mcat-empty">
+      <template v-if="query.trim()">No models match “{{ query }}”.</template>
+      <template v-else>No models in the catalog — <b>Add model</b> to add your own, or <b>Reset catalog</b> to restore the built-ins.</template>
     </div>
 
     <div v-else class="lu-mcat-wrap">
@@ -216,49 +274,58 @@ loadCatalogMeta();
           <tr><th>Model</th><th>Params</th><th>License</th><th>Fit</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          <tr v-for="m in shownModels" :key="m.id">
-            <td class="lu-mn">{{ m.name }}<div class="lu-mid">{{ m.id }}</div><div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div></td>
-            <td class="lu-mm">{{ sizeLabel(m) }}</td>
-            <td>
-              <span v-if="licenseOf(m)" class="lu-lic" :class="{ 'lu-lic--warn': useLimitedOf(m) }" :title="licenseTitle(m)">
-                <template v-if="useLimitedOf(m)">⚠ </template>{{ licenseOf(m) }}
-              </span>
-              <span v-else class="lu-muted">—</span>
-            </td>
-            <td>
-              <span class="lu-fit" :class="`lu-fit--${m.fit}`" :title="fitTitle(m)">{{ fitLabel(m) }}</span>
-            </td>
-            <td>
-              <span v-if="m.status === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
-              <UiProgress v-else-if="m.status === 'loading'" class="lu-mprog"
-                :value="downloaded" :max="total" :label="progressLabel" />
-              <span v-else-if="m.status === 'error'" class="lu-mstat lu-mstat--err"
-                :title="needsEngine ? 'Install the engine first — see Local engine above' : (loadErr || 'Load failed')">
-                {{ needsEngine ? "install engine ↑" : (loadErr || "failed") }}
-              </span>
-              <span v-else-if="m.status === 'disk'" class="lu-pill lu-pill--disk">on disk</span>
-              <span v-else class="lu-mstat">not downloaded</span>
-            </td>
-            <td class="lu-mact">
-              <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
-              <UiButton intent="ghost" size="small" title="Remove from catalog" :loading="busy === 'del:' + m.id" @click="deleteModel(m)">Delete</UiButton>
-              <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
-                title="Tune engine flags &amp; measure decode speed" @click="tuning = m">Tune</UiButton>
-              <UiButton v-if="m.status === 'loaded'" intent="secondary" size="small"
-                :loading="loadingId === 'stop'" @click="unloadModel">Unload</UiButton>
-              <span v-else-if="m.status === 'loading'" class="lu-muted lu-mwait">working…</span>
-              <UiButton v-else-if="m.status === 'error'" intent="secondary" size="small"
-                :loading="loadingId === m.id" @click="load(m.id)">Retry</UiButton>
-              <UiButton v-else-if="m.status === 'disk'" intent="primary" size="small"
-                :loading="loadingId === m.id" @click="load(m.id)">Load</UiButton>
-              <UiButton v-else-if="m.fit === 'no'" intent="secondary" size="small"
-                :loading="loadingId === m.id"
-                title="Estimated too large for your hardware — may fail to load, or run slowly via CPU offload"
-                @click="download(m.id)">Download anyway</UiButton>
-              <UiButton v-else intent="primary" size="small"
-                :loading="loadingId === m.id" @click="download(m.id)">Download</UiButton>
-            </td>
-          </tr>
+          <template v-for="m in groupedRows" :key="m.__divider ? 'divider' : m.id">
+            <tr v-if="m.__divider" class="lu-mgroup"><td colspan="6">Doesn't fit this machine — {{ m.count }} more</td></tr>
+            <tr v-else>
+              <td class="lu-mn">
+                <span class="lu-mn-name">{{ m.name }}</span>
+                <UiTag v-if="m.id === currentDefaultId" intent="success" class="lu-mbadge">Default</UiTag>
+                <UiTag v-else-if="m.id === currentEmbeddingId" intent="info" class="lu-mbadge">Embedding</UiTag>
+                <div class="lu-mid">{{ m.id }}</div>
+                <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
+              </td>
+              <td class="lu-mm">{{ sizeLabel(m) }}</td>
+              <td>
+                <span v-if="licenseOf(m)" class="lu-lic" :class="{ 'lu-lic--warn': useLimitedOf(m) }" :title="licenseTitle(m)">
+                  <template v-if="useLimitedOf(m)">⚠ </template>{{ licenseOf(m) }}
+                </span>
+                <span v-else class="lu-muted">—</span>
+              </td>
+              <td>
+                <span class="lu-fit" :class="`lu-fit--${m.fit}`" :title="fitTitle(m)">{{ fitLabel(m) }}</span>
+              </td>
+              <td>
+                <span v-if="m.status === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
+                <UiProgress v-else-if="m.status === 'loading'" class="lu-mprog"
+                  :value="downloaded" :max="total" :label="progressLabel" />
+                <span v-else-if="m.status === 'error'" class="lu-mstat lu-mstat--err"
+                  :title="needsEngine ? 'Install the engine first — see Local engine above' : (loadErr || 'Load failed')">
+                  {{ needsEngine ? "install engine ↑" : (loadErr || "failed") }}
+                </span>
+                <span v-else-if="m.status === 'disk'" class="lu-pill lu-pill--disk">Downloaded</span>
+                <span v-else class="lu-mstat">Not downloaded</span>
+              </td>
+              <td class="lu-mact">
+                <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
+                <UiButton intent="ghost" size="small" title="Remove from catalog" :loading="busy === 'del:' + m.id" @click="deleteModel(m)">Delete</UiButton>
+                <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
+                  title="Tune engine flags &amp; measure decode speed" @click="tuning = m">Tune</UiButton>
+                <span v-if="m.status === 'loading'" class="lu-muted lu-mwait">working…</span>
+                <UiButton v-else-if="m.status === 'available'" intent="primary" size="small"
+                  :loading="loadingId === m.id" @click="download(m.id)">Download</UiButton>
+                <UiButton v-else-if="embeddingOf(m)" intent="secondary" size="small"
+                  :disabled="m.id === currentEmbeddingId" :loading="applyingId === m.id"
+                  title="Use this as the embedding model (semantic search + grounded chat)" @click="makeEmbedding(m)">
+                  {{ m.id === currentEmbeddingId ? "Embedding ✓" : "Set as embedding" }}
+                </UiButton>
+                <UiButton v-else intent="primary" size="small"
+                  :disabled="m.id === currentDefaultId" :loading="applyingId === m.id"
+                  title="Make this the model every task uses by default" @click="makeDefault(m)">
+                  {{ m.id === currentDefaultId ? "Default ✓" : "Set as default" }}
+                </UiButton>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -266,7 +333,7 @@ loadCatalogMeta();
     <div class="lu-muted lu-mcat-foot">
       Models download from
       <a class="lu-mlink" href="https://huggingface.co/models?library=gguf" target="_blank" rel="noopener">Hugging Face ↗</a>
-      — the open model hub. One model loads at a time; loading a new one replaces the running one.
+      — the open model hub. Models load automatically when a task uses them; your chat default and the embedding can run together.
     </div>
 
     <!-- Add / edit a catalog model. Switch editing lives in the Lab (per-Task presets),
@@ -309,6 +376,7 @@ loadCatalogMeta();
 
         <label class="lu-mm-l">License <span class="lu-muted">— SPDX id (Apache-2.0 · MIT · Llama-Community · …)</span><UiInput v-model="editing.license" placeholder="Apache-2.0" /></label>
         <div class="lu-mm-l"><UiCheckbox v-model="editing.useLimited"><span>Use-limited license <span class="lu-muted">— not free for unrestricted/commercial use; shows the ⚠ badge</span></span></UiCheckbox></div>
+        <div class="lu-mm-l"><UiCheckbox v-model="editing.embedding"><span>Embedding model <span class="lu-muted">— an embedding / RAG model, not a chat LLM; appears under “Set as embedding” and is excluded from the chat auto-pick</span></span></UiCheckbox></div>
 
         <div class="lu-mm-note"><b>Curation</b> <span class="lu-muted">— editable "what this is" + the quality order QuickSetup uses to pick the best model that fits your box.</span></div>
         <label class="lu-mm-l">Description<UiTextarea v-model="editing.description" placeholder="Plain-language 'what this model is' — e.g. fast 9B for quick chat and drafts" /></label>
@@ -346,6 +414,9 @@ loadCatalogMeta();
 .lu-mn { font-weight: 600; color: var(--ink); min-width: 150px; }
 .lu-mid { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px; }
 .lu-mdesc { font-size: 11px; color: var(--ink-2); font-weight: 400; margin-top: 3px; max-width: 46ch; line-height: 1.4; }
+/* Default / Embedding badges sit inline after the model name; the fit-group divider row. */
+.lu-mbadge { margin-left: 6px; vertical-align: middle; }
+.lu-mgroup td { background: var(--surface-2); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; padding: 5px 11px; }
 .lu-mm { color: var(--ink-2); white-space: nowrap; }
 .lu-mact { text-align: right; white-space: nowrap; }
 .lu-mwait { font-size: 11px; }
@@ -363,9 +434,10 @@ loadCatalogMeta();
 .lu-mcat-foot { font-size: 11px; margin-top: 7px; }
 .lu-mlink { color: var(--accent-ink, var(--accent)); }
 
-/* Manager: header bar + the add/edit modal form (#30). */
-.lu-mcat-bar { display: flex; align-items: center; gap: 8px; }
-.lu-mcat-bar > span:first-child { flex: 0 1 auto; }
+/* Manager: header bar (search → sort → spacer → actions) + the add/edit modal form (#30). */
+.lu-mcat-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.lu-mcat-search { flex: 0 1 220px; }
+.lu-mcat-sort { flex: 0 0 auto; }
 .lu-mcat-spacer { flex: 1; }
 .lu-mm-form { display: flex; flex-direction: column; gap: 12px; }
 .lu-mm-l { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--ink-2); font-weight: 600; }

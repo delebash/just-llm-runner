@@ -3,10 +3,15 @@
 // pins) load/save/mutations, so the routing surfaces don't each re-implement it
 // (RULE #7: extract, don't copy). Each consumer calls useRouting() and gets its
 // own instance; reload-on-mount is correct. Mutations persist immediately via
-// PUT /v1/ai/routing.
+// PUT /v1/ai/routing; the setters RETURN the save promise so a caller that needs
+// the write to land before continuing (e.g. modelApply.setAsEmbedding) can await it.
+//
+// Lives in common/composables/ (beside useRunnerModels/useCatalogMeta) so the shared
+// common/ layer — e.g. common/services/modelApply.js — can build on it without
+// importing "up" into the app-level composables/ tree.
 import { computed, ref } from "vue";
 
-import { request } from "../client.js";
+import { request } from "../../client.js";
 
 export function useRouting() {
   const routing = ref(null);     // {default, features:[…], pins:{key→{providerId,model}}}
@@ -38,12 +43,12 @@ export function useRouting() {
   function setDefaultLlm(val) {
     routing.value.default.llmId = val?.providerId || "";
     routing.value.default.model = val?.model || "";
-    saveRouting();
+    return saveRouting();
   }
   function setDefaultEmbedding(val) {
     routing.value.default.embeddingId = val?.providerId || "";
     routing.value.default.embeddingModel = val?.model || "";
-    saveRouting();
+    return saveRouting();
   }
   // A per-feature/action explicit pin. Empty → no override (falls through to the
   // feature's preset, then the global default).
@@ -51,7 +56,7 @@ export function useRouting() {
     const pins = routing.value.pins || (routing.value.pins = {});
     if (!val || !val.providerId) delete pins[key];
     else pins[key] = { providerId: val.providerId, model: val.model || "" };
-    saveRouting();
+    return saveRouting();
   }
 
   return {

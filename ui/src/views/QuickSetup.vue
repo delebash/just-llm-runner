@@ -25,16 +25,16 @@ import { computed, ref } from "vue";
 
 import { request } from "../client.js";
 import { useCatalogMeta } from "../common/composables/useCatalogMeta.js";
-import { pickBestModel, FIT_RUNNABLE } from "../common/services/modelPick.js";
+import { pickBestModel, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
+import { setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../common/services/modelApply.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import AppModal from "../common/components/AppModal.vue";
 
 const emit = defineEmits(["changed"]);
 
-const LOCAL_RUNNER_ID = "local-llamacpp";
-// FIT_RUNNABLE (the runnable set) + FIT_RANK live in modelPick.js — ONE source, no drift.
-const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fit", unknown: "—" };
+// LOCAL_RUNNER_ID (modelApply) + FIT_LABEL / FIT_RUNNABLE (modelPick) come from the shared kit
+// — ONE source, no drift.
 
 // ── modal + wizard state ────────────────────────────────────────────────────
 const open = ref(false);
@@ -205,54 +205,14 @@ async function apply() {
   try {
     const target = pick.value.default;
 
-    // 1. Write the chosen model onto every TASK PRESET that still points at the
-    //    PREVIOUS shared default (the model the most task presets have in common) —
-    //    never a task whose preset the user re-pointed themselves (non-clobber). Each
-    //    preset keeps its per-task settings; only `.model` changes.
-    const [asg, pr] = await Promise.all([
-      request("/v1/ai/preset-assignments"),
-      request("/v1/ai/engine-presets"),
-    ]);
-    const byId = Object.fromEntries((pr.presets || []).map((p) => [p.id, p]));
-    const ids = new Set(Object.values(asg.taskKinds || {}).filter(Boolean));
-    if (asg.defaultPresetId) ids.add(asg.defaultPresetId);
-    const taskPresets = [...ids]
-      .map((id) => byId[id])
-      .filter(Boolean)
-      .sort((a, b) => (a.position - b.position) || (a.id < b.id ? -1 : 1)); // stable order
-    // Dominant model = the most common `.model` across the task presets = the previous
-    // default. Iterating in stable order makes ties deterministic (first-seen wins).
-    const counts = {};
-    for (const p of taskPresets) counts[p.model] = (counts[p.model] || 0) + 1;
-    let dominant = "";
-    let bestCount = -1;
-    for (const p of taskPresets) {
-      if (counts[p.model] > bestCount) {
-        bestCount = counts[p.model];
-        dominant = p.model;
-      }
-    }
-    for (const p of taskPresets) {
-      if (p.model !== dominant || p.model === target) continue; // overridden or already set
-      await request(`/v1/ai/engine-presets/${p.id}`, { method: "PUT", body: { ...p, model: target } });
-    }
-
-    // 2. Set the embedding + keep the per-feature pins. Preserve the existing default
-    //    llmId/model (the deep fallback) — the model now lives in the presets, so this
-    //    write no longer carries it (and the dead `jobs` map is gone).
-    const r = await request("/v1/ai/routing");
-    await request("/v1/ai/routing", {
-      method: "PUT",
-      body: {
-        default: {
-          llmId: r.default?.llmId || LOCAL_RUNNER_ID,
-          model: r.default?.model || "",
-          embeddingId: pick.value.embeddingId || "",
-          embeddingModel: pick.value.embeddingModel || "",
-        },
-        pins: r.pins || {},
-      },
-    });
+    // 1. Write the chosen model onto every task preset that still shares the previous default
+    //    (non-clobber; each preset keeps its per-task settings — only `.model` changes). 2. Set
+    //    the embedding, preserving the default llm + the per-feature pins. BOTH writes go through
+    //    the shared modelApply service — the SAME implementation the catalog's Set-as-default /
+    //    Set-as-embedding use, so the two surfaces never drift. The embedding keeps the user's
+    //    saved provider (pick.embeddingId), not a hardcoded local one.
+    await setAsDefault(target);
+    await setAsEmbedding(pick.value.embeddingId, pick.value.embeddingModel);
 
     // 3. Download (if needed) + load the chosen model as the active one, polling status
     //    so the user sees progress. The embedding downloads on first search/index.

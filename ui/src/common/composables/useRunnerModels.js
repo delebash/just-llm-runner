@@ -12,6 +12,7 @@
 import { computed, ref } from "vue";
 
 import { request } from "../../client.js";
+import { FIT_LABEL } from "../services/modelPick.js";
 
 const data = ref(null); // the raw /v1/llm-runner/models response
 const loading = ref(true); // first-load spinner
@@ -46,8 +47,9 @@ export const progressLabel = computed(() => {
   return phase;
 });
 
-// Coarse Fit label text (the badge tint is the shared .lu-fit--* CSS).
-export const FIT_LABEL = { ok: "Fits", tight: "Tight", no: "Won't fit", cpu: "CPU", unknown: "—" };
+// Coarse Fit label text (FIT_LABEL) is imported from modelPick.js — ONE source (the fit
+// vocabulary lives beside FIT_RUNNABLE/FIT_RANK); re-exposed via useRunnerModels() below so
+// its consumers (LuModelCatalog) are unchanged. The badge tint is the shared .lu-fit--* CSS.
 
 let timer = null;
 function _startPoll() {

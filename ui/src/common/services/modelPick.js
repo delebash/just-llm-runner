@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// The §10 speed-floor auto-pick — "the most capable model that still streams faster than
+// you read" (design 2026-07-03 §10, LOCKED; refined 2026-07-04 §15). PURE logic, NO Vue
+// imports, so the kit's has-no-JS-test-runner gap is covered by a Node truth-table
+// (scripts/verify-model-pick.mjs). This module is the ONE source of the runnable-set + the
+// fit-rank + the pick; QuickSetup imports them (never redefines) so "runnable" can't drift.
+// The only auto-picker is QuickSetup; the per-task LuModelPicker is a manual override and
+// does not use this.
+//
+// THE RULE (verbatim §10):
+//   candidates = RUNNABLE (fit ∈ {ok,tight,cpu}) AND NOT the embedding model AND NOT
+//   use-limited. (use-limited-KEEP is a DELIBERATE augmentation of §10's candidate set,
+//   carried from the prior pick — a use-limited license, e.g. Llama-Community, is "never an
+//   auto-default" per seed.py:103-104 + the Llama-3.3-70B row; do NOT "correct" it back to
+//   §10-literal, which would silently auto-set Llama-3.3-70B as the default on a ≥48 GB box.)
+//   FAST-ENOUGH = (type==dense AND fit==ok, fully on GPU) OR (type==moe AND fit ∈ {ok,tight},
+//   A3B-style offload usable because only the active path runs per token). The slow
+//   dense-partial-offload (type==dense AND fit==tight — a real `tight` where the dense pays
+//   full CPU compute on the spilled layers every token) is EXCLUDED.
+//   If FAST-ENOUGH is non-empty → pick the lowest quality_rank among it (tie-break: the
+//   better fit). FALLBACK (so the pick is never empty when something runs) → if FAST-ENOUGH
+//   is empty, pick the lowest quality_rank among ALL runnable (a `tight` dense, or a `cpu`
+//   model on a CPU-only box).
+
+// Fit bands a model can run under (from /v1/llm-runner/models; runner/fit.py). The picker's
+// single source — QuickSetup imports this for its `fitting` list too.
+export const FIT_RUNNABLE = new Set(["ok", "tight", "cpu"]);
+// Tie-break when quality_rank is equal: prefer the better fit (lower = better).
+export const FIT_RANK = { ok: 0, tight: 1, cpu: 2, no: 3, unknown: 4 };
+
+// §10 "fast enough": a dense model only clears the floor fully on the GPU (fit==ok); a MoE
+// clears it at ok OR tight (its expert-offload streams because only ~3B is active per token).
+function isFastEnough(model, type) {
+  if (type === "moe") return model.fit === "ok" || model.fit === "tight";
+  return model.fit === "ok"; // dense: exclude dense+tight (the slow partial-offload trap)
+}
+
+/**
+ * The §10 speed-floor auto-pick. Returns the chosen model's `id`, or "" if nothing runs.
+ *
+ * @param {Array}  models  the fit-annotated list from /v1/llm-runner/models: [{id, fit, …}]
+ * @param {Object} accessors  each `(model) => value`, bound by the caller to the catalog-join
+ *   maps + guards so this stays pure/testable:
+ *     - typeOf(m)       → "dense" | "moe"   (from useCatalogMeta.typeById; CatalogRow.type)
+ *     - qualityOf(m)    → number            (from useCatalogMeta.qualityById; LOWER = better)
+ *     - isEmbed(m)      → boolean           (the embedding model — excluded from LLM picks)
+ *     - isUseLimited(m) → boolean           (use-limited license — never an auto-default)
+ */
+export function pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited }) {
+  const runnable = (models || []).filter(
+    (m) => FIT_RUNNABLE.has(m.fit) && !isEmbed(m) && !isUseLimited(m),
+  );
+  if (!runnable.length) return "";
+
+  // Lower quality_rank = more capable; ties break to the better fit.
+  const byQuality = (a, b) => {
+    const qa = qualityOf(a);
+    const qb = qualityOf(b);
+    if (qa !== qb) return qa - qb;
+    return (FIT_RANK[a.fit] ?? 9) - (FIT_RANK[b.fit] ?? 9);
+  };
+
+  const fastEnough = runnable.filter((m) => isFastEnough(m, typeOf(m)));
+  const pool = fastEnough.length ? fastEnough : runnable; // §10 fallback: best runnable
+  return [...pool].sort(byQuality)[0].id;
+}

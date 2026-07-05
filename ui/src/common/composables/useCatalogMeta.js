@@ -17,6 +17,19 @@ export const catalogRows = rows;
 export const qualityById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, r.qualityRank ?? 100])),
 );
+// dense | moe — the fit-shaped /v1/llm-runner/models view does NOT carry `type`, but the
+// §10 speed-floor pick needs it (a usable MoE and a slow dense both read `tight`, so the
+// band alone can't tell them apart). CatalogRow.type defaults "dense" (model_catalog_api.py:42).
+export const typeById = computed(() =>
+  Object.fromEntries(rows.value.map((r) => [r.id, r.type || "dense"])),
+);
+// Is this an EMBEDDING model (RAG index), not a chat LLM? The explicit editable catalog flag
+// (CatalogRow.embedding, model_catalog_api.py:50 "replaces the /embed/i guess") — REQUIRED
+// because bge-m3 has no "embed" in its id/name, so the name regex alone would leak it into
+// the §10 LLM candidate pool and let Quick Setup pick an embed as the chat default.
+export const embeddingById = computed(() =>
+  Object.fromEntries(rows.value.map((r) => [r.id, !!r.embedding])),
+);
 export const licenseById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, r.license || ""])),
 );
@@ -43,5 +56,5 @@ export async function refresh() {
 /** Shared model-catalog meta. Every consumer gets the SAME refs; call refresh() on open
  *  or after a catalog edit to (re)populate the one shared source. */
 export function useCatalogMeta() {
-  return { catalogRows, qualityById, licenseById, useLimitedById, descriptionById, poolingById, refresh };
+  return { catalogRows, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, refresh };
 }

@@ -4,11 +4,13 @@
 // (detect → confirm → apply → done) that picks ONE good model that fits your box and
 // wires it as the shared default across every task, plus the always-on embedding.
 //
-// How the pick works: it joins the runner's live Fit (/v1/llm-runner/models — VRAM/RAM
-// gated, re-scorable for another card) with the catalog's editable quality order
-// (/v1/ai/model-catalog `qualityRank`, LOWER = better) and takes the highest-quality
-// model that RUNS on this box — excluding the embedding model and use-limited licenses.
-// The embedding is the catalog's embed model (nomic); it rides routing.default.
+// How the pick works (the §10 speed-floor rule — modelPick.js): it joins the runner's live
+// Fit (/v1/llm-runner/models — VRAM/RAM gated, re-scorable for another card) with the
+// catalog's `type` (dense|moe) + quality order (/v1/ai/model-catalog, qualityRank LOWER =
+// better) and takes the most capable model that still streams faster than you read — a dense
+// model fully on the GPU, or a usable A3B-MoE offload — excluding the slow dense-partial-
+// offload, the embedding model (by the catalog `embedding` flag), and use-limited licenses.
+// The embedding is the catalog's embed model; it rides routing.default.
 //
 // Apply (the "task owns the preset" model — 2026-07-02 Plan A): the chosen model is
 // written onto every TASK PRESET (/v1/ai/engine-presets) that still points at the
@@ -23,6 +25,7 @@ import { computed, ref } from "vue";
 
 import { request } from "../client.js";
 import { useCatalogMeta } from "../common/composables/useCatalogMeta.js";
+import { pickBestModel, FIT_RUNNABLE } from "../common/services/modelPick.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import AppModal from "../common/components/AppModal.vue";
@@ -30,10 +33,8 @@ import AppModal from "../common/components/AppModal.vue";
 const emit = defineEmits(["changed"]);
 
 const LOCAL_RUNNER_ID = "local-llamacpp";
-const FIT_RUNNABLE = new Set(["ok", "tight", "cpu"]);
+// FIT_RUNNABLE (the runnable set) + FIT_RANK live in modelPick.js — ONE source, no drift.
 const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fit", unknown: "—" };
-const FIT_RANK = { ok: 0, tight: 1, cpu: 2, no: 3, unknown: 4 }; // tie-break: prefer the better fit
-const isEmbed = (m) => /embed/i.test(m.id || "") || /embed/i.test(m.name || "");
 
 // ── modal + wizard state ────────────────────────────────────────────────────
 const open = ref(false);
@@ -59,14 +60,21 @@ const CARD_OPTIONS = [
 // Pre-filled from Fit × quality, the default is overridable in the confirm step.
 const pick = ref({ default: "", embeddingId: "", embeddingModel: "" });
 
-// ── catalog meta (by id) — quality order + use-limited + description ──────────
-// The /v1/llm-runner/models view is fit-shaped and carries none of these; the catalog
-// does. Shared with LuModelCatalog through the useCatalogMeta singleton (one source, no
-// drift — the useRunnerModels precedent).
-const { qualityById, useLimitedById, descriptionById, refresh: refreshCatalogMeta } = useCatalogMeta();
+// ── catalog meta (by id) — quality order + type + embedding + use-limited + description ──
+// The /v1/llm-runner/models view is fit-shaped and carries none of these; the catalog does.
+// `type` (dense|moe) + `embedding` drive the §10 speed-floor pick. Shared with LuModelCatalog
+// through the useCatalogMeta singleton (one source, no drift — the useRunnerModels precedent).
+const { qualityById, typeById, embeddingById, useLimitedById, descriptionById, refresh: refreshCatalogMeta } = useCatalogMeta();
 function qualityOf(m) { return qualityById.value[m.id] ?? 100; }
+function typeOf(m) { return typeById.value[m.id] || "dense"; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
 function descriptionOf(id) { return descriptionById.value[id] || ""; }
+// Embedding models are excluded from the LLM auto-pick + the model dropdown. The explicit
+// catalog `embedding` flag is authoritative (bge-m3 has no "embed" in its name); the name
+// regex stays as a fallback for a user-added embed not yet flagged.
+function isEmbed(m) {
+  return embeddingById.value[m.id] === true || /embed/i.test(m.id || "") || /embed/i.test(m.name || "");
+}
 
 // ── derived ─────────────────────────────────────────────────────────────────
 function paramsNum(p) {
@@ -107,21 +115,19 @@ function fitOf(id) {
   return modelById.value[id]?.fit || "unknown";
 }
 
-// The one good LLM: the highest-quality model that RUNS on this box, excluding the
-// embedding model + use-limited licenses (never a default). Lower qualityRank wins;
-// ties break to the better Fit.
+// The one good LLM — the §10 speed-floor pick ("most capable that still streams faster than
+// you read"): among the runnable, non-embedding, non-use-limited models, prefer the ones
+// fast enough (a dense model fully on GPU, or a usable A3B-MoE offload), excluding the slow
+// dense-partial-offload, and rank by quality_rank; fall back to best-runnable if none clear
+// the floor. The pure rule lives in modelPick.js (Node-verifiable); here we bind the
+// catalog-join accessors (type / quality / embedding / use-limited).
 function bestFittingId() {
-  const candidates = models.value.filter(
-    (m) => FIT_RUNNABLE.has(m.fit) && !isEmbed(m) && !useLimitedOf(m),
-  );
-  if (!candidates.length) return "";
-  candidates.sort((a, b) => {
-    const qa = qualityOf(a);
-    const qb = qualityOf(b);
-    if (qa !== qb) return qa - qb;
-    return (FIT_RANK[a.fit] ?? 9) - (FIT_RANK[b.fit] ?? 9);
+  return pickBestModel(models.value, {
+    typeOf,
+    qualityOf,
+    isEmbed,
+    isUseLimited: useLimitedOf,
   });
-  return candidates[0].id;
 }
 
 // ── load hardware + catalog (optionally for an overridden card) ──────────────
@@ -146,7 +152,7 @@ async function loadAll() {
   }
 }
 
-// Pre-fill the default (best-quality-that-fits) + the embedding (the catalog's embed
+// Pre-fill the default (the §10 speed-floor pick) + the embedding (the catalog's embed
 // model). Never overwrites a value already set (a user pick, or a saved embedding).
 function prefillPick() {
   if (!pick.value.default) pick.value.default = bestFittingId();

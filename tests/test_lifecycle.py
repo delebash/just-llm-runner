@@ -1003,3 +1003,104 @@ def test_non_embed_model_reserves_unpinned(tmp_path):
     row = next(r for r in svc._arbiter.snapshot()["reservations"] if r["key"] == _TEST_MODEL.id)
     assert row["pinned"] is False
     assert svc._arbiter.pick_evict() == _TEST_MODEL.id
+
+
+def test_switch_rows_type_new_flags(tmp_path):  # noqa: ARG001 — matches file convention
+    # Stored switch ROWS for the 3 new flags land on the TYPED Overrides fields
+    # (never extra_flags): reasoning_budget is in _parse_switch's int_fields
+    # (Plan B D6, wiring point 4), the other two stay strings.
+    from llm_runner.runner.lifecycle import _switches_to_overrides
+
+    ov = _switches_to_overrides({
+        "reasoning_budget": "1024",
+        "reasoning_budget_message": "wrap it up",
+        "model_draft": "/d/MTP/g-Q4_0-MTP.gguf",
+    })
+    assert ov.reasoning_budget == 1024                       # int-typed, not "1024"
+    assert ov.reasoning_budget_message == "wrap it up"
+    assert ov.model_draft == "/d/MTP/g-Q4_0-MTP.gguf"
+    assert ov.extra_flags == []                              # no passthrough leak
+
+
+# ── Gemma-style external MTP draft (Plan B, D7) ──────────────────────────────
+
+_DRAFT_MODEL = ModelEntry(
+    id="draft-model", name="Draft", tier="mid", hf_repo="org/draft-GGUF", quant="Q4_K_M",
+    mtp=True, mtp_draft_repo="", mtp_draft_file="MTP/d-Q4_0-MTP.gguf", mtp_draft_quant="Q4_0",
+)
+
+
+def test_load_acquires_declared_draft_and_emits_model_draft(tmp_path):
+    # A model declaring a separate MTP draft file + a resolved spec_type=draft-mtp
+    # → the draft is acquired via the SAME acquire path (exact path as selector)
+    # and the emitted .ini section carries model-draft = <snapshot path>.
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL])
+    snap = tmp_path / "hf" / "models--org--draft-GGUF" / "snapshots" / "sha"
+    (snap / "MTP").mkdir(parents=True, exist_ok=True)
+    (snap / "MTP" / "d-Q4_0-MTP.gguf").write_bytes(b"g" * 64)
+    svc.load(_DRAFT_MODEL.id, switches={"spec_type": "draft-mtp"})
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    ini = _ini(svc)
+    assert "spec-type = draft-mtp" in ini
+    assert f"model-draft = {snap / 'MTP' / 'd-Q4_0-MTP.gguf'}" in ini
+
+
+def test_load_fails_loud_when_declared_draft_missing(tmp_path):
+    # The user asked for MTP (spec_type=draft-mtp) but the declared draft file is
+    # absent after acquire → the LOAD fails with the real reason; never a silent
+    # no-MTP fallback.
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL])  # draft file NOT created
+    svc.load(_DRAFT_MODEL.id, switches={"spec_type": "draft-mtp"})
+    svc._thread.join(timeout=5)
+    st = svc.status()
+    assert st["status"] == "error"
+    assert "MTP draft" in st["error"]
+
+
+def test_load_skips_draft_when_spec_off(tmp_path):
+    # Same model, but the user turned MTP OFF (spec none) → no draft acquire, no
+    # model-draft in the ini, load succeeds on the main weights alone.
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL])
+    svc.load(_DRAFT_MODEL.id)  # no spec switch → knob default none
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert "model-draft" not in _ini(svc)
+
+
+def test_passive_section_carries_cached_draft(tmp_path):
+    # Diff-checker fold (Plan B D7): the auto-mtp layer can set draft-mtp on a
+    # PASSIVE co-resident section. When the draft IS cached, the section must
+    # carry model-draft (else a router bounce hands llama-server a broken preset).
+    def auto_mtp_switches(mid):
+        return {"spec_type": "draft-mtp"} if mid == _DRAFT_MODEL.id else {}
+
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL, _TEST_MODEL],
+                       switches_fn=auto_mtp_switches)
+    snap = tmp_path / "hf" / "models--org--draft-GGUF" / "snapshots" / "sha"
+    (snap / "MTP").mkdir(parents=True, exist_ok=True)
+    (snap / "MTP" / "d-Q4_0-MTP.gguf").write_bytes(b"g" * 64)
+    svc.load(_TEST_MODEL.id)  # the OTHER model loads → draft-model emits PASSIVELY
+    svc._thread.join(timeout=5)
+    ini = _ini(svc)
+    passive = ini.split(f"[{_DRAFT_MODEL.id}]", 1)[1].split("[", 1)[0]
+    assert "spec-type = draft-mtp" in passive
+    assert f"model-draft = {snap / 'MTP' / 'd-Q4_0-MTP.gguf'}" in passive
+
+
+def test_passive_section_strips_spec_when_draft_not_cached(tmp_path):
+    # …and when the draft was NEVER downloaded, the passive section STRIPS spec
+    # instead of emitting draft-mtp with no draft file (no network in the ini
+    # emitter; the first ACTIVE load acquires it fail-loud and re-emits).
+    def auto_mtp_switches(mid):
+        return {"spec_type": "draft-mtp", "spec_n_max": "2"} if mid == _DRAFT_MODEL.id else {}
+
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL, _TEST_MODEL],
+                       switches_fn=auto_mtp_switches)  # draft file NOT created
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    ini = _ini(svc)
+    passive = ini.split(f"[{_DRAFT_MODEL.id}]", 1)[1].split("[", 1)[0]
+    assert "spec-type" not in passive
+    assert "spec-draft-n-max" not in passive
+    assert "model-draft" not in passive

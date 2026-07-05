@@ -83,6 +83,16 @@ class Overrides:
     cache_reuse: int | None = None       # reuse a prompt prefix's KV across calls
     spec_type: str | None = None         # "none"|"draft-mtp"|"ngram-mod"|… (dense)
     spec_n_max: int | None = None        # drafted tokens / ngram max, per spec_type
+    # Separate draft-model GGUF path (--model-draft, alias of --spec-draft-model) for
+    # Gemma-style external-MTP models. Normally filled by LIFECYCLE from the catalog's
+    # mtp_draft_* facts after acquiring the draft file — not hand-typed (a raw switch
+    # row CAN set it; power-user escape). Verified against llama.cpp b9644.
+    model_draft: str | None = None
+    # Thinking budget (--reasoning-budget): -1 unlimited (llama default) | 0 = no
+    # thinking | N>0 caps the thinking tokens, then --reasoning-budget-message is
+    # injected before the end-of-thinking tag. Verified against llama.cpp b9644.
+    reasoning_budget: int | None = None
+    reasoning_budget_message: str | None = None
     extra_flags: list[str] = field(default_factory=list)
 
 
@@ -107,6 +117,13 @@ _VALUE_FLAGS = (
     ("threads_batch", "--threads-batch"),
     ("parallel", "--parallel"),
     ("cache_reuse", "--cache-reuse"),
+    ("model_draft", "--model-draft"),
+    ("reasoning_budget", "--reasoning-budget"),
+    # Free text with spaces is fine in BOTH renderers: argv passes it as one list
+    # token; the router .ini parser takes everything after "= " to end-of-line
+    # UNQUOTED (llama.cpp b9644 common/preset.cpp — quotes would be literal).
+    # Edge: a "#" inside the value starts an .ini comment — avoid it in messages.
+    ("reasoning_budget_message", "--reasoning-budget-message"),
 )
 
 

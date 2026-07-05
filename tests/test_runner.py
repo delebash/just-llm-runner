@@ -240,6 +240,36 @@ def test_render_ini_emits_key_value_and_bare_true():
     assert not any(line.startswith("n-cpu-moe") for line in lines)          # omitted when 0
 
 
+def test_overrides_to_pairs_new_flags_render_in_both_paths():
+    # model-draft (Gemma-style external MTP) + the two reasoning-budget flags
+    # (all three verified against llama.cpp b9644) ride the ONE shared pairs
+    # list, so the spawn argv and the router .ini get them from the same source.
+    msg = "Taking user constraints into account, I will now output the solution."
+    ov = Overrides(
+        spec_type="draft-mtp", spec_n_max=2, model_draft="/models/MTP/g-Q4_0-MTP.gguf",
+        reasoning_budget=1024, reasoning_budget_message=msg,
+    )
+    pairs = overrides_to_pairs(ov, n_gpu_layers=99, n_cpu_moe=37, ctx_len=32768)
+    d = dict(pairs)
+    assert d["model-draft"] == "/models/MTP/g-Q4_0-MTP.gguf"
+    assert d["reasoning-budget"] == "1024"
+    assert d["spec-type"] == "draft-mtp" and d["spec-draft-n-max"] == "2"
+    # argv: the spaced message is ONE token after its flag (no shell splitting).
+    argv = render_argv(pairs)
+    assert argv[argv.index("--reasoning-budget-message") + 1] == msg
+    assert argv[argv.index("--model-draft") + 1] == "/models/MTP/g-Q4_0-MTP.gguf"
+    # ini: one UNQUOTED line, spaces preserved (b9644 preset.cpp reads to EOL).
+    ini_lines = render_ini(pairs).splitlines()
+    assert f"reasoning-budget-message = {msg}" in ini_lines
+    assert "reasoning-budget = 1024" in ini_lines
+
+
+def test_new_flags_absent_when_unset():
+    d = dict(overrides_to_pairs(Overrides(), n_gpu_layers=1, n_cpu_moe=0, ctx_len=2048))
+    assert "model-draft" not in d
+    assert "reasoning-budget" not in d and "reasoning-budget-message" not in d
+
+
 # ── router mode: emit_models_ini + compose_router_argv ─────────────────────────
 
 def test_emit_models_ini_chat_and_embed_sections():

@@ -81,6 +81,15 @@ class ModelCatalog(LlmBase):
     total_params = Column(String, nullable=False, default="")
     active_params = Column(String, nullable=False, default="")
     mtp = Column(Boolean, nullable=False, default=False)
+    # Gemma-style SEPARATE MTP draft file (an external speculative-decode model at
+    # its own quant; Qwen-style MTP is built into the main file and needs none of
+    # these). FACTS about the model (which file), not tune — the per-box
+    # allocations live in `model_tunes`. `mtp_draft_repo` "" = the draft lives in
+    # the SAME repo as `hf_repo`; `mtp_draft_file` "" = no external draft
+    # configured. Feeds the runner's `--model-draft` at load (Plan B, D7).
+    mtp_draft_repo = Column(String, nullable=False, default="")
+    mtp_draft_file = Column(String, nullable=False, default="")
+    mtp_draft_quant = Column(String, nullable=False, default="")
     # Editable capability type (dense | moe). Drives which `switch_presets` row
     # applies (the `moe` preset's spec:none/no_mmap lives ONCE here, not copied
     # per MoE model). Seeded from arch; `mtp` stays its own bool. (design §6.5)
@@ -158,11 +167,13 @@ class ModelPricing(LlmBase):
 #    hardcoded runner-manifest `flagPresets`) — design §6.5 ──────────────────────
 class SwitchPreset(LlmBase):
     """A capability/type switch bundle (`base` / `moe` / `dense` / …). `applies_to`
-    is the trigger matched against a model: `all` (every model) or `moe`/`dense`
-    (matches `model_catalog.type`). The flag rows live in the `preset_switches`
-    child. Seeded + user-editable; replaces `runner-manifest.json` `flagPresets`.
-    (An `mtp` applies-to existed pre-2026-07-03 but was dropped in Phase 3 — MTP is
-    opt-in/measurable via the `spec_type` knob, never an auto-applied preset.)"""
+    is the trigger matched against a model: `all` (every model), `moe`/`dense`
+    (matches `model_catalog.type`), or `mtp` (the GATED auto-enable layer —
+    applied only to a model that is built-in-MTP-capable or has an external
+    draft configured; re-added 2026-07-05 Plan B, reversing the Phase-3 "never
+    auto-applied" — the user's auto-enable-with-visible-off decision). The flag
+    rows live in the `preset_switches` child. Seeded + user-editable; replaces
+    `runner-manifest.json` `flagPresets`."""
 
     __tablename__ = "switch_presets"
 
@@ -224,9 +235,11 @@ class RoutingPin(LlmBase):
 # The persistent per-machine switch tune, merged after the base→type presets
 # in `switch_resolve.py` and applied via the runner's existing `_merge_overrides`.
 class HardwareSwitch(LlmBase):
-    """A per-machine spawn-flag override keyed by GPU (`hw_key`) — the persistent
-    form of #20 tuning (auto-fit finds *a* working value; this saves the *fast*
-    one). No FK: `hw_key` is a free-form hardware identifier."""
+    """A per-machine spawn-flag override keyed by the MACHINE (`hw_key` =
+    `hardware.machine_key()` — gpu|vram|cores|ramGB; whole machine, not GPU-only,
+    since threads/batch are CPU/RAM-bound — Plan B D2) — the persistent form of
+    #20 tuning that applies to ALL models on this machine. No FK: `hw_key` is a
+    derived hardware identifier."""
 
     __tablename__ = "hardware_switches"
 
@@ -234,6 +247,28 @@ class HardwareSwitch(LlmBase):
     flag_name = Column(String, primary_key=True)
     flag_value = Column(Text, nullable=False, default="")
     built_in = Column(Boolean, nullable=False, default=False)
+
+
+class ModelTune(LlmBase):
+    """One flag of a user's MEASURED per-(model, MACHINE) tune — the Plan-B layer
+    (2026-07-05), the persistence behind Quick tune's Save. NEVER seeded (no
+    DEFAULT_*, deliberately no `built_in` column): user-written only, so
+    re-seeds / re-inspects can never clobber it (the facts-vs-tune split —
+    `model_catalog`/`model_samplers` are what the FILE says; this is what YOUR
+    measurement found on YOUR box). Applied LAST by `switch_resolve` (wins over
+    base/type/mtp/hardware) — including the MTP opt-OUT (`spec_type=none`) when
+    the user unchecks the auto-enabled default. NOT the dropped `model_switches`
+    table (that seeded per-model COPIES of type rules — a one-source violation);
+    the composite (model_id, hw_key) key + never-seeded lifecycle make the
+    difference structural. No FKs: soft refs, matching ModelSampler/
+    HardwareSwitch."""
+
+    __tablename__ = "model_tunes"
+
+    model_id = Column(String, primary_key=True)
+    hw_key = Column(String, primary_key=True)
+    flag_name = Column(String, primary_key=True)
+    flag_value = Column(Text, nullable=False, default="")
 
 
 # ── runner config (was runner-manifest.json — now DB, seeded built_in) ────────

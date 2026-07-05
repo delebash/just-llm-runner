@@ -19,6 +19,7 @@ from . import db
 from .feature_presets_api import FeaturePreset
 from .feature_samplers_api import FeatureSamplerRow
 from .model_catalog_api import CatalogRow
+from .model_tunes_api import ModelTuneFlag
 from .pricing_api import PricingRow
 from .runner_config_api import EngineConfig, RunnerBinaryRow
 from .prompts import FeaturePromptRow
@@ -287,6 +288,7 @@ def _catalog_to_wire(r: db.ModelCatalog, samplers: dict[str, str] | None = None)
     return CatalogRow(
         id=r.id, name=r.name, hfRepo=r.hf_repo, quant=r.quant, mmproj=r.mmproj,
         totalParams=r.total_params, activeParams=r.active_params, mtp=r.mtp, type=r.type,
+        mtpDraftRepo=r.mtp_draft_repo, mtpDraftFile=r.mtp_draft_file, mtpDraftQuant=r.mtp_draft_quant,
         trainedCtx=r.trained_ctx, samplers=dict(samplers or {}),
         minVramMb=r.min_vram_mb, minRamMb=r.min_ram_mb, tier=r.tier, license=r.license,
         useLimited=r.use_limited, embedding=r.embedding, pooling=r.pooling, qualityRank=r.quality_rank, description=r.description,
@@ -323,6 +325,9 @@ class ModelCatalogStore:
             existing.active_params = row.activeParams
             existing.mtp = row.mtp
             existing.type = row.type or "dense"
+            existing.mtp_draft_repo = row.mtpDraftRepo or ""
+            existing.mtp_draft_file = row.mtpDraftFile or ""
+            existing.mtp_draft_quant = row.mtpDraftQuant or ""
             existing.trained_ctx = row.trainedCtx
             existing.min_vram_mb = row.minVramMb
             existing.min_ram_mb = row.minRamMb
@@ -890,6 +895,53 @@ _task_kind = TaskKindStore()
 _feature_task_kind = FeatureTaskKindStore()
 
 
+class ModelTuneStore:
+    """The per-(model, machine) MEASURED tune rows (Plan B) — Quick tune's Save.
+    Never seeded; user data only. `replace` swaps the (model, hw) set wholesale
+    (the verbatim-snapshot semantics, D5); empty flag names are dropped."""
+
+    def get(self, model_id: str, hw_key: str) -> list[ModelTuneFlag]:
+        s = db.session()
+        try:
+            rows = s.query(db.ModelTune).filter(
+                db.ModelTune.model_id == model_id, db.ModelTune.hw_key == hw_key
+            ).order_by(db.ModelTune.flag_name).all()
+            return [ModelTuneFlag(flagName=r.flag_name, flagValue=r.flag_value) for r in rows]
+        finally:
+            s.close()
+
+    def replace(self, model_id: str, hw_key: str, rows: list[ModelTuneFlag]) -> None:
+        s = db.session()
+        try:
+            s.query(db.ModelTune).filter(
+                db.ModelTune.model_id == model_id, db.ModelTune.hw_key == hw_key
+            ).delete()
+            seen: set[str] = set()
+            for r in rows:
+                name = (r.flagName or "").strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                s.add(db.ModelTune(model_id=model_id, hw_key=hw_key,
+                                   flag_name=name, flag_value=r.flagValue or ""))
+            s.commit()
+        finally:
+            s.close()
+
+    def delete(self, model_id: str, hw_key: str) -> None:
+        s = db.session()
+        try:
+            s.query(db.ModelTune).filter(
+                db.ModelTune.model_id == model_id, db.ModelTune.hw_key == hw_key
+            ).delete()
+            s.commit()
+        finally:
+            s.close()
+
+
+_model_tune = ModelTuneStore()
+
+
 def get_provider_store() -> ProviderStore: return _provider
 def get_routing_store() -> RoutingStore: return _routing
 def get_feature_preset_store() -> FeaturePresetStore: return _feature_preset
@@ -903,6 +955,7 @@ def get_engine_preset_store() -> EnginePresetStore: return _engine_preset
 def get_task_kind_preset_store() -> TaskKindPresetStore: return _task_kind_preset
 def get_task_kind_store() -> TaskKindStore: return _task_kind
 def get_feature_task_kind_store() -> FeatureTaskKindStore: return _feature_task_kind
+def get_model_tune_store() -> ModelTuneStore: return _model_tune
 
 
 def list_knob_catalog() -> list[dict]:

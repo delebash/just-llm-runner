@@ -5,10 +5,11 @@ user-editable + reset-to-factory, exactly like the model catalog. A preset is a
 row (id / label / appliesTo) plus its flag rows (`preset_switches`); the PUT
 replaces a preset's WHOLE flag set (the editor sends the full preset).
 
-`appliesTo`: `all` (every model) · `moe`/`dense` (matches `model_catalog.type`).
-(An `mtp` applies-to existed pre-2026-07-03 but was dropped in Phase 3 — MTP is
-opt-in/measurable, not an auto-applied preset.) The host implements the Protocol
-over its DB; the shared store does (JustWrite + JustVoice at adoption).
+`appliesTo`: `all` (every model) · `moe`/`dense` (matches `model_catalog.type`) ·
+`mtp` (the GATED auto-enable layer, re-added 2026-07-05 Plan B — applied only to
+a model with built-in MTP or a configured external draft file; an opt-out saves
+`spec_type=none` into `model_tunes`, which wins). The host implements the
+Protocol over its DB; the shared store does (JustWrite + JustVoice at adoption).
 """
 
 from __future__ import annotations

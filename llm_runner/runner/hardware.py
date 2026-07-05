@@ -17,6 +17,7 @@ import os
 import platform
 import shutil
 import subprocess
+from functools import cache
 
 from .schema import GpuInfo, HardwareInfo
 
@@ -37,6 +38,29 @@ def platform_key() -> str:
     if sysname == "darwin":
         return "macos"
     return "linux"
+
+
+def machine_key(hw: HardwareInfo) -> str:
+    """The per-MACHINE tuning key the `hardware_switches` + `model_tunes` layers
+    are stored under — `gpu|vram|cores|ramGB` (or `cpu|cores|ramGB` with no GPU).
+    WHOLE machine, not GPU-only (Plan B, D2): `threads` is CPU-core-driven and
+    `batch`/`ubatch` are RAM/bandwidth-bound, so two boxes sharing a GPU model
+    must not collide. RAM rounds to whole GB (absorbs MB-level reporting jitter);
+    the driver version is deliberately EXCLUDED — a driver update would orphan
+    every saved tune. ONE source, beside `max_vram_mb` (same principle)."""
+    ram_gb = (hw.ram_mb or 0) // 1024
+    gpu = max(hw.gpus, key=lambda g: g.vram_mb or 0) if hw.gpus else None
+    if gpu is None:
+        return f"cpu|{hw.cpu_cores}c|{ram_gb}g"
+    return f"{gpu.name}|{gpu.vram_mb or 0}|{hw.cpu_cores}c|{ram_gb}g"
+
+
+@cache
+def current_machine_key() -> str:
+    """`machine_key(detect())`, memoized — hardware doesn't change within a
+    process, so the per-load switches wire and the model-tunes API never pay a
+    second `nvidia-smi` round-trip."""
+    return machine_key(detect())
 
 
 def _nvidia_query(fields: str) -> str | None:

@@ -100,6 +100,12 @@ class ModelEntry(CamelModel):
     active_params: str | None = None
     mtp: bool = False
     pooling: str = ""               # embedding pooling ("" | mean | cls | last | rank) — emitted onto the embed `.ini` section (#119)
+    # Gemma-style SEPARATE MTP draft file (external speculative-decode model at its
+    # own quant). "" everywhere = no external draft (Qwen-style built-in MTP needs
+    # none). `mtp_draft_repo` "" = the draft lives in the SAME repo as `hf_repo`.
+    mtp_draft_repo: str = ""
+    mtp_draft_file: str = ""        # exact path within the repo (e.g. "MTP/…-Q4_0-MTP.gguf")
+    mtp_draft_quant: str = ""       # display/selection metadata; the file path is authoritative
     min_ram_mb: int | None = None
     recommended_for: RecommendedFor = RecommendedFor()
 
@@ -230,6 +236,9 @@ class LoadRequest(CamelModel):
     cache_reuse: int | None = None
     spec_type: str | None = None
     spec_n_max: int | None = None
+    model_draft: str | None = None
+    reasoning_budget: int | None = None
+    reasoning_budget_message: str | None = None
     extra_flags: list[str] = []
     # Ad-hoc Plane-1 switches for #20 "Tune & measure" (the model-card KnobGrid):
     # a {flag_name: value} map converted server-side by the SAME

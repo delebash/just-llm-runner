@@ -1,12 +1,15 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Tune & measure (#20), extracted from LuModelCatalog so the model catalog opens the
-// SAME modal from its per-row Tune action. Loads the model with ad-hoc Plane-1 engine
-// flags + probes decode tok/s on this box. It pre-fills from
-// the model's RESOLVED switch defaults (show the truth) and tweaks flow through
-// POST /load { switches } → the same server-side converter stored switches use.
-// Measure-only: to persist a config, tune it in the Lab and Save it as a preset for a
-// Task — there is no per-model save here. Self-contained (loads its own knob catalog);
+// Quick tune (#20 → Plan B 2026-07-05), extracted from LuModelCatalog so the model
+// catalog opens the SAME modal from its per-row Tune action. Loads the model with
+// ad-hoc Plane-1 engine flags + probes decode tok/s on this box. Pre-fills from the
+// model's RESOLVED defaults (base → type → auto-mtp → hardware → saved tune — show
+// the truth); tweaks flow through POST /load { switches } → the same server-side
+// converter stored switches use. **Save tune** persists the grid VERBATIM as this
+// model's tune FOR THIS MACHINE (PUT /v1/ai/model-tunes; the server derives the
+// machine key) — every later load of this model here uses it automatically. "Remove
+// saved tune" (DELETE) returns the model to the layered defaults. Send-to-Tasks-Lab
+// stays the separate per-TASK depth. Self-contained (loads its own knob catalog);
 // mount behind v-if with a :model and listen for @close.
 import { computed, onMounted, ref } from "vue";
 
@@ -16,6 +19,7 @@ import { sendToTasksLab } from "../common/services/labHandoff.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
 import UiButton from "../common/components/UiButton.vue";
+import UiTag from "../common/components/UiTag.vue";
 
 const props = defineProps({
   model: { type: Object, required: true }, // { id, name } — the model being tuned
@@ -49,13 +53,75 @@ const tuneErr = ref("");
 const tuneMtpCapable = ref(false); // the tuned model's GGUF supports MTP → surface the spec_type hint
 const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value === "measuring");
 
+// ── the saved per-(model, machine) tune (Plan B) ─────────────────────────────
+const savedTune = ref(null); // { hwKey, rows } | null — this machine's saved tune
+const saveState = ref(""); // "" | saving | removing
+const saveErr = ref("");
+
+// Rows whose BARE name matches no plane-1 knob — likely a mistyped or since-
+// DROPPED typed field that would render mis-spelled and fail the spawn (the D5
+// degradation fold: visible badge, not a mystery load failure). A deliberate raw
+// passthrough flag starts with "--" and is NOT badged.
+const knownFlagNames = computed(
+  () => new Set(knobCatalog.value.filter((k) => k.plane === 1).map((k) => k.flagName)),
+);
+const unknownNames = computed(() => {
+  if (!knobCatalog.value.length) return new Set(); // catalog unavailable → don't badge
+  const out = new Set();
+  for (const r of tuneRows.value) {
+    const n = (r.name || "").trim();
+    if (n && !n.startsWith("--") && !knownFlagNames.value.has(n)) out.add(n);
+  }
+  return out;
+});
+
+async function loadSavedTune() {
+  try {
+    const res = await request(`/v1/ai/model-tunes?modelId=${encodeURIComponent(props.model.id)}`);
+    savedTune.value = res.rows?.length ? res : null;
+  } catch {
+    savedTune.value = null; // saved-state is an enrichment; tuning still works
+  }
+}
+async function saveTune() {
+  saveErr.value = "";
+  saveState.value = "saving";
+  try {
+    const switches = tuneRows.value
+      .filter((r) => (r.name || "").trim())
+      .map((r) => ({ flagName: r.name.trim(), flagValue: r.value ?? "" }));
+    const res = await request("/v1/ai/model-tunes", {
+      method: "PUT",
+      body: { modelId: props.model.id, switches },
+    });
+    savedTune.value = res.rows?.length ? res : null;
+  } catch (e) {
+    saveErr.value = e.message || "Couldn't save the tune.";
+  } finally {
+    saveState.value = "";
+  }
+}
+async function removeTune() {
+  saveErr.value = "";
+  saveState.value = "removing";
+  try {
+    await request(`/v1/ai/model-tunes?modelId=${encodeURIComponent(props.model.id)}`, { method: "DELETE" });
+    savedTune.value = null;
+    await startTune(); // the grid returns to the layered defaults
+  } catch (e) {
+    saveErr.value = e.message || "Couldn't remove the saved tune.";
+  } finally {
+    saveState.value = "";
+  }
+}
+
 async function fetchResolved(id) {
   return resolveModelDefaults(id); // {switches, samplers, mtpCapable} — shared w/ ConfigColumn (one source)
 }
 
 // Hand this tuned model + switches (incl. custom rows) to the Tasks Lab as a new Compare
-// column — the only way to KEEP a config (there is no per-model save here). providerId is
-// left blank: the Lab (which holds the providers list) resolves the bundled-runner provider.
+// column — the per-TASK depth (a task's exact preset). The per-MODEL keep-path is Save
+// tune above. providerId is left blank: the Lab resolves the bundled-runner provider.
 function sendToLab() {
   sendToTasksLab({ providerId: "", model: props.model.id, switches: tuneRows.value });
   emit("close");
@@ -130,6 +196,7 @@ async function runMeasure() {
 onMounted(() => {
   loadKnobCatalog();
   startTune();
+  loadSavedTune();
 });
 </script>
 
@@ -138,18 +205,35 @@ onMounted(() => {
     <div class="lu-tune">
       <p class="lu-muted lu-tune-lede">
         Load this model with custom engine flags and measure decode speed on your hardware.
-        Flags are pre-filled from the model's defaults — tweak, then measure.
+        Flags are pre-filled from the model's defaults<template v-if="savedTune"> — including
+        your saved tune</template> — tweak, measure, then <b>Save tune</b> to keep the
+        config for this model on this machine.
       </p>
-      <p v-if="tuneMtpCapable" class="lu-muted lu-tune-lede">This model supports <b>MTP</b> — set
-        <b>Speculative decode</b> to “MTP draft” and measure; gains are machine-dependent.</p>
+      <p v-if="tuneMtpCapable" class="lu-muted lu-tune-lede">This model supports <b>MTP</b> —
+        <b>Speculative decode</b> is on by default (“MTP draft”); gains are machine-dependent, so
+        measure. To turn it off here, set it to “Off” and Save.</p>
+
+      <div v-if="savedTune" class="lu-tune-saved">
+        <UiTag intent="success">Tuned for this machine ✓</UiTag>
+        <UiButton intent="ghost" size="small" :loading="saveState === 'removing'"
+          title="Delete this machine's saved tune — the model returns to its defaults"
+          @click="removeTune">Remove saved tune</UiButton>
+      </div>
 
       <KnobGrid v-model="tuneRows" :catalog="switchCatalog" />
+      <div v-if="unknownNames.size" class="lu-tune-unk lu-muted">
+        <UiTag intent="danger">unrecognized</UiTag>
+        <span>{{ [...unknownNames].join(", ") }} — not a known engine flag (mistyped, or dropped
+          by an engine update). Remove or fix it, or prefix with “--” for a raw flag.</span>
+      </div>
       <UiButton intent="ghost" size="small" @click="resetTuneSwitches">Reset to model default</UiButton>
 
       <div class="lu-tune-note lu-muted">
-        <span>Measuring only. To <b>keep</b> this tuned config, send it to a <b>Task</b> — it opens as a new column in that Task's Lab, where you Save it as a preset.</span>
+        <span>Want a per-<b>Task</b> setup instead? Send this config to a Task — it opens as a new
+          column in that Task's Lab, where you save it as the Task's preset.</span>
         <UiButton intent="secondary" size="small" class="lu-tune-send" @click="sendToLab">Send to Tasks Lab →</UiButton>
       </div>
+      <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
 
       <div v-if="tunePhase === 'loading'" class="lu-tune-status">Loading… {{ tuneDetail }}</div>
       <div v-else-if="tunePhase === 'measuring'" class="lu-tune-status">Measuring decode speed…</div>
@@ -169,6 +253,9 @@ onMounted(() => {
     <template #footer>
       <UiButton intent="ghost" @click="emit('close')">Close</UiButton>
       <span class="lu-tmm-spacer" />
+      <UiButton intent="success" :loading="saveState === 'saving'"
+        title="Keep this config for this model on this machine — every load here uses it"
+        @click="saveTune">Save tune</UiButton>
       <UiButton intent="primary" :loading="tuneBusy" @click="runMeasure">
         {{ tuneResult ? "Measure again" : "Load & measure" }}
       </UiButton>
@@ -179,6 +266,8 @@ onMounted(() => {
 <style scoped>
 .lu-tune { display: flex; flex-direction: column; gap: 12px; }
 .lu-tune-lede { font-size: 12px; margin: 0; }
+.lu-tune-saved { display: flex; align-items: center; gap: 10px; }
+.lu-tune-unk { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
 .lu-tune-note { font-size: 11px; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .lu-tune-status { font-size: 12.5px; color: var(--ink-2); }
 .lu-tune-result { padding: 12px 14px; background: var(--accent-soft); border: 1px solid var(--accent-line, var(--accent)); border-radius: var(--r-sm, 8px); }

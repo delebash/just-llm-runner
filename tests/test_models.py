@@ -119,3 +119,48 @@ def test_acquire_model_idempotent(monkeypatch, tmp_path):
     monkeypatch.setattr(models, "stream_download", _boom)
     snap = models.acquire_model("owner/repo", "UD-Q4_K_XL", cache_root=tmp_path)
     assert snap.exists()
+
+
+# ── classify_gguf_entries — the quant dropdown + MTP-draft detection (Plan B D9) ──
+
+# The user's real gemma-4-26B repo shape, verbatim conventions: a QAT main model
+# at a UD- dynamic quant + a SEPARATE draft at its own quant in an MTP/ subfolder.
+GEMMA_TREE = [
+    {"type": "file", "path": "gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 14 * 1024 * 1024 * 1024}},
+    {"type": "file", "path": "gemma-4-26B-A4B-it-qat-Q8_0-00001-of-00002.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 12 * 1024 * 1024 * 1024}},
+    {"type": "file", "path": "gemma-4-26B-A4B-it-qat-Q8_0-00002-of-00002.gguf", "oid": "c", "lfs": {"oid": "l3", "size": 12 * 1024 * 1024 * 1024}},
+    {"type": "file", "path": "gemma-4-26B-A4B-it-qat-IQ4_XS.gguf", "oid": "d", "lfs": {"oid": "l4", "size": 13 * 1024 * 1024 * 1024}},
+    {"type": "file", "path": "MTP/gemma-4-26B-A4B-it-Q4_0-MTP.gguf", "oid": "e", "lfs": {"oid": "l5", "size": 700 * 1024 * 1024}},
+    {"type": "file", "path": "mmproj-F16.gguf", "oid": "f", "lfs": {"oid": "l6", "size": 500 * 1024 * 1024}},
+    {"type": "file", "path": "README.md", "oid": "g", "size": 20},
+]
+
+
+def test_classify_gemma_repo_quants_and_draft():
+    out = models.classify_gguf_entries(GEMMA_TREE)
+    by_quant = {q["quant"]: q for q in out["quants"]}
+    # UD- dynamic quant recognized whole + flagged QAT (from the filename)
+    assert by_quant["UD-Q4_K_XL"]["kind"] == "Q" and by_quant["UD-Q4_K_XL"]["qat"] is True
+    # shards SUMMED into one row
+    assert by_quant["Q8_0"]["files"] == 2
+    assert by_quant["Q8_0"]["sizeMb"] == 2 * 12 * 1024
+    # IQ family labeled IQ
+    assert by_quant["IQ4_XS"]["kind"] == "IQ"
+    # the draft is DETECTED (MTP/ dir + -MTP.gguf), carries its own quant, and is
+    # NOT in the quants list; mmproj + README are skipped entirely
+    assert len(out["drafts"]) == 1
+    d = out["drafts"][0]
+    assert d["path"] == "MTP/gemma-4-26B-A4B-it-Q4_0-MTP.gguf" and d["quant"] == "Q4_0"
+    assert "Q4_0" not in by_quant
+    assert not any("mmproj" in q["quant"].lower() for q in out["quants"])
+    # sorted by size ascending
+    sizes = [q["sizeMb"] for q in out["quants"]]
+    assert sizes == sorted(sizes)
+
+
+def test_classify_plain_repo_no_drafts():
+    out = models.classify_gguf_entries(TREE)
+    assert out["drafts"] == []
+    by_quant = {q["quant"]: q for q in out["quants"]}
+    assert by_quant["UD-Q4_K_XL"]["files"] == 2 and by_quant["UD-Q4_K_XL"]["qat"] is False
+    assert "UD-Q8_0" in by_quant

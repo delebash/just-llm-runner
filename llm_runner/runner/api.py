@@ -169,6 +169,8 @@ async def load_model(body: LoadRequest) -> dict:
         threads=body.threads, threads_batch=body.threads_batch, parallel=body.parallel,
         cont_batching=body.cont_batching, context_shift=body.context_shift, cache_reuse=body.cache_reuse,
         spec_type=body.spec_type, spec_n_max=body.spec_n_max,
+        model_draft=body.model_draft, reasoning_budget=body.reasoning_budget,
+        reasoning_budget_message=body.reasoning_budget_message,
         extra_flags=list(body.extra_flags or []),
     )
     return get_service().load(

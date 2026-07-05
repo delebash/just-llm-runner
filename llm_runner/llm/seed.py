@@ -159,15 +159,18 @@ DEFAULT_CATALOG: list[dict] = [
      "quality_rank": 50, "description": "Qwen3 Embedding 8B — the #1 multilingual MTEB embed (~4.7 GB, ~7 GB VRAM) for a big card; last-token pooling."},
 ]
 
-# (Per-model switch overrides — the `model_switches` table — were DROPPED: the
-# dense/moe TYPE rules live ONCE on the type presets below. MTP is NOT a preset — it
-# is an opt-in/measurable `spec_type` knob since Phase 3, never auto-applied.)
+# (Historical: an old per-model `model_switches` table was DROPPED — it seeded
+# per-model COPIES of the dense/moe TYPE rules (a one-source violation). The NEW
+# `model_tunes` table (Plan B, 2026-07-05) is a DIFFERENT thing: user-MEASURED
+# per-(model, machine) tunes, never seeded — no overlap with these presets.)
 
-# Capability/type switch presets — the switch BASE layer (design §6.5), the
-# seeded-editable replacement for the hardcoded runner-manifest `flagPresets`,
+# Capability/type switch presets — the switch BASE layer (design §6.5 + Plan B),
+# the seeded-editable replacement for the hardcoded runner-manifest `flagPresets`,
 # translated into `Overrides` field names. `applies_to`: `all` (every model) |
-# `moe`/`dense` (matches `model_catalog.type`). (The `mtp` applies-to + preset were
-# dropped 2026-07-03 Phase 3 — MTP is opt-in/measurable, not auto-applied.)
+# `moe`/`dense` (matches `model_catalog.type`) | `mtp` (GATED auto-enable — only
+# a model with built-in MTP or a configured external draft file; user decision
+# 2026-07-05, reversing the Phase-3 never-auto rule: auto-on, visible, and
+# uncheckable — an opt-out persists in `model_tunes` and wins).
 # Resolved + layered by `switch_resolve.resolve_model_switches`. (`-ngl` is NOT
 # here — it's a computed fit knob, not a constant.)
 DEFAULT_SWITCH_PRESETS: list[dict] = [
@@ -178,9 +181,11 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
      # ONLY no_mmap is genuinely MoE-specific; the spec_type default (none) lives ONCE in
      # knob_catalog — no duplicate here (the phase's own "one source" rule, 2026-07-03 Phase 3).
      "switches": {"no_mmap": "true"}},
-    # (No "mtp" switch-preset — removed 2026-07-03 Phase 3. MTP is opt-in/measurable,
-    # never auto-applied; when the user enables it, spec_type=draft-mtp + spec_n_max=3
-    # come from the knob_catalog defaults, so those values live in ONE place, not here.)
+    {"id": "mtp", "label": "MTP (multi-token prediction)", "applies_to": "mtp", "position": 2,
+     # spec_n_max=2 is the USER-MEASURED sweet spot (2026-07-05, gemma-4-26B) and
+     # DIFFERS from the knob default (3) — a value equal to the knob default must
+     # NOT be seeded here (it would duplicate the one-source knob default).
+     "switches": {"spec_type": "draft-mtp", "spec_n_max": "2"}},
 ]
 
 # The nine canonical LLM-work TASKS — the seed defaults for the user-editable
@@ -264,6 +269,10 @@ DEFAULT_KNOBS: list[dict] = [
      "options": [{"value": "none", "label": "Off"}, {"value": "draft-mtp", "label": "MTP draft"}, {"value": "ngram-mod", "label": "N-gram"}]},
     {"flag_name": "spec_n_max", "label": "Spec draft tokens", "kind": "int", "plane": 1, "default_value": "3", "tier": "advanced",
      "help": "How many tokens the draft proposes per step."},
+    {"flag_name": "reasoning_budget", "label": "Thinking budget", "kind": "int", "plane": 1, "default_value": "-1", "tier": "advanced",
+     "help": "Token budget for the model's thinking phase: -1 = unlimited, 0 = no thinking, a positive number caps it (the budget message is injected when it runs out)."},
+    {"flag_name": "reasoning_budget_message", "label": "Budget-exhausted message", "kind": "string", "plane": 1, "default_value": "", "tier": "advanced",
+     "help": "Text injected before the end-of-thinking tag when the thinking budget runs out. Avoid '#' — it starts a comment in the engine preset file."},
     # ── Plane 2 — per-request samplers: COMMON ──
     # temperature + top_p stay in the catalog but are edited in the per-call params
     # row (excluded from the checklist by ConfigColumn) — tier is harmless here.
@@ -385,7 +394,7 @@ def seed_default_pricing(s) -> int:
 
 
 def seed_default_switch_presets(s) -> int:
-    """Seed the capability/type switch presets (base + moe) + their flag rows.
+    """Seed the capability/type switch presets (base + moe + the gated mtp) + their flag rows.
     Flushes each preset before its FK child rows (host session is autoflush=False
     with FK enforcement on — see the routing FK gotcha)."""
     existing = {r.id for r in s.query(db.SwitchPreset.id).all()}

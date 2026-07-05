@@ -25,12 +25,17 @@ def configured():
 def test_list_seeded(configured):
     rows = stores.get_switch_preset_store().list()
     ids = {r.id for r in rows}
-    assert {"base", "moe"} <= ids
-    assert "mtp" not in ids   # the mtp switch-preset was dropped 2026-07-03 Phase 3
+    assert {"base", "moe", "mtp"} <= ids  # mtp re-seeded 2026-07-05 (Plan B — gated auto-enable)
     moe = next(r for r in rows if r.id == "moe")
     sw = {s.flagName: s.flagValue for s in moe.switches}
     assert sw == {"no_mmap": "true"}   # only no_mmap is MoE-specific; spec_type default lives in knob_catalog
     assert moe.appliesTo == "moe"
+    mtp = next(r for r in rows if r.id == "mtp")
+    msw = {s.flagName: s.flagValue for s in mtp.switches}
+    # spec_n_max=2 is the user-MEASURED value and ≠ the knob default (3) — a value
+    # equal to the knob default must never be seeded here (one-source guardrail).
+    assert msw == {"spec_type": "draft-mtp", "spec_n_max": "2"}
+    assert mtp.appliesTo == "mtp"
 
 
 def test_upsert_replaces_switches(configured):

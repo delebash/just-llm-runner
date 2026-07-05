@@ -191,6 +191,7 @@ def _parse_switch(name: str, value: str):
     int_fields = {
         "n_gpu_layers", "n_cpu_moe", "ctx_len", "batch_size", "ubatch_size",
         "threads", "threads_batch", "parallel", "cache_reuse", "spec_n_max",
+        "reasoning_budget",
     }
     if name in bool_fields:
         return value.strip().lower() in ("true", "1", "yes", "on")
@@ -642,6 +643,22 @@ class RunnerService:
             raise FileNotFoundError(f"no .gguf for quant {quant!r} in {snapshot_dir}")
         return cands[0]  # first shard of a split model loads the rest
 
+    @staticmethod
+    def _cached_draft_path(model, hf_cache: Path) -> Path | None:
+        """The on-disk path of a model's declared MTP draft file, or None when not
+        downloaded — the acquire-free sibling of the `_run_load` draft acquire
+        (the snapshot preserves the draft's relative path, so an exact join per
+        snapshot dir suffices; no name matching)."""
+        repo = getattr(model, "mtp_draft_repo", "") or model.hf_repo
+        snaps = hf_cache / ("models--" + repo.replace("/", "--")) / "snapshots"
+        if not snaps.is_dir():
+            return None
+        for snap in sorted(snaps.iterdir()):
+            p = snap / model.mtp_draft_file
+            if p.exists():
+                return p
+        return None
+
     def _runner_log_path(self, model_id: str) -> Path:
         """Per-load log file — real `start_runner` creates the dir + redirects the
         merged stdout/stderr here (tailed on failure + by `engine_log`)."""
@@ -744,6 +761,29 @@ class RunnerService:
 
             self._touch(model_id, detail="model weights", downloaded=0, total=0)
             _model, gguf = self._acquire_and_identify(model_id, _progress)
+
+            # Gemma-style external MTP: the model declares a SEPARATE draft GGUF
+            # (catalog mtp_draft_* facts). When the resolved config wants draft-mtp
+            # and nothing set model_draft explicitly, acquire the draft next to the
+            # main weights — REUSING the same acquire path (the exact file path is
+            # its own selector: select_files matches path-substrings and the
+            # snapshot preserves relative paths) — then point --model-draft at it.
+            # A draft failure fails the LOAD with the real reason (the user asked
+            # for MTP; never silently drop to no-MTP). (Plan B, D7)
+            if ov.spec_type == "draft-mtp" and not ov.model_draft and getattr(_model, "mtp_draft_file", ""):
+                self._touch(model_id, detail="MTP draft model", downloaded=0, total=0)
+                draft_repo = _model.mtp_draft_repo or _model.hf_repo
+                draft_snapshot = self._acquire_model(
+                    draft_repo, _model.mtp_draft_file, None,
+                    cache_root=self._cache_root / "hf", on_progress=_progress,
+                )
+                draft_path = Path(draft_snapshot) / _model.mtp_draft_file
+                if not draft_path.exists():
+                    raise FileNotFoundError(
+                        f"MTP draft downloaded but not found in the snapshot: {_model.mtp_draft_file!r}"
+                    )
+                ov.model_draft = str(draft_path)
+
             meta = self._read_meta(gguf)
             fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
                               safety_margin_mb=config.safety_margin_mb)
@@ -848,6 +888,20 @@ class RunnerService:
                 continue  # not on disk → no section (a section needs the file for compute_fit)
             try:
                 ov = _switches_to_overrides(self._switches_fn(m.id) or {})
+                # Plan B D7 (diff-checker fold): the auto-mtp layer can put
+                # `draft-mtp` on a PASSIVE co-resident section too. Point it at the
+                # CACHED draft when present; if the draft was never downloaded,
+                # STRIP spec for this section — no network in the ini emitter, and
+                # `spec-type = draft-mtp` without a `model-draft` line would hand
+                # llama-server a broken preset on a router bounce. The first ACTIVE
+                # load of that model acquires the draft (fail-loud) + re-emits.
+                if ov.spec_type == "draft-mtp" and not ov.model_draft and getattr(m, "mtp_draft_file", ""):
+                    cached_draft = self._cached_draft_path(m, hf_cache)
+                    if cached_draft is not None:
+                        ov.model_draft = str(cached_draft)
+                    else:
+                        ov.spec_type = None
+                        ov.spec_n_max = None
                 meta = self._read_meta(gguf)
                 fit = compute_fit(meta, gguf.stat().st_size, hardware, ov, safety_margin_mb=margin)
                 entries.append(ModelIniEntry(

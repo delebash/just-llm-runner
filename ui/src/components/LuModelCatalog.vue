@@ -110,15 +110,15 @@ function fitTitle(m) {
   const have = vramMb.value ? ` · you have ${gb(vramMb.value)} GB` : "";
   return `needs ~${gb(m.minVramMb)} GB VRAM${have}`;
 }
-function sizeLabel(m) {
-  if (!m.params) return "—";
-  return m.activeParams ? `${m.params} · ${m.activeParams} active` : m.params;
-}
+// Grid TYPE tags (Plan B — the Params column is REPLACED: the params count already
+// rides the name/description, the user wants the space for architecture/role).
+function typeOf(m) { return typeById.value[m.id] || "dense"; }
+function mtpOf(m) { return mtpById.value[m.id] === true; }
 
 // Model catalog meta (license / use-limited / description — the fit-shaped /models view
 // doesn't carry them). Shared with QuickSetup through the useCatalogMeta singleton (one
 // source, no drift); loadCatalogMeta (its refresh) re-pulls after a catalog edit.
-const { qualityById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, refresh: loadCatalogMeta } = useCatalogMeta();
+const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, refresh: loadCatalogMeta } = useCatalogMeta();
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
 function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
@@ -156,11 +156,75 @@ const samplersLabel = computed(() => {
   return entries.length ? entries.map(([k, v]) => `${k} ${v}`).join(" · ") : "—";
 });
 
+// ── repo file listing (Plan B D9): the quant dropdown + MTP-draft detection ──
+const listing = ref(null); // null | { quants, drafts } for editing.hfRepo
+const listingErr = ref("");
+const quantCustom = ref(false); // "Custom…" picked → free-type quant input
+
+const quantOptions = computed(() => {
+  const qs = listing.value?.quants || [];
+  const opts = qs.map((q) => ({
+    value: q.quant,
+    label: `${q.quant} · ${gb(q.sizeMb)} GB${q.qat ? " · QAT" : ""}${q.kind === "IQ" ? " · IQ" : q.kind === "special" ? " · special" : ""}`,
+  }));
+  return [...opts, { value: "__custom", label: "Custom…" }];
+});
+const draftOptions = computed(() => [
+  { value: "", label: "None" },
+  ...(listing.value?.drafts || []).map((d) => ({
+    value: d.path,
+    label: `${d.path}${d.quant ? ` · ${d.quant}` : ""}${d.sizeMb ? ` · ${gb(d.sizeMb)} GB` : ""}`,
+  })),
+]);
+async function loadRepoFiles() {
+  const e = editing.value;
+  if (!e?.hfRepo?.trim()) return;
+  listingErr.value = "";
+  try {
+    const params = new URLSearchParams({ repo: e.hfRepo.trim() });
+    const r = await request(`/v1/ai/model-catalog/list-files?${params}`, { method: "POST" });
+    listing.value = r;
+    // free-typed quant not in the listing → stay in custom mode
+    quantCustom.value = !!(e.quant && !r.quants.some((q) => q.quant === e.quant));
+    // recommended-for-box default when no quant chosen yet (v1 heuristic: the
+    // largest quant whose file size fits the detected VRAM; else the smallest —
+    // size ≠ VRAM exactly, but it's an honest pre-pick the user can change).
+    if (!e.quant && r.quants.length) {
+      const fitting = vramMb.value ? r.quants.filter((q) => q.sizeMb <= vramMb.value) : [];
+      e.quant = (fitting.length ? fitting[fitting.length - 1] : r.quants[0]).quant;
+    }
+    // detect pre-select (D9): a repo shipping an MTP draft pre-picks the SMALLEST
+    // one when the model has none configured — a draft should be small/fast (the
+    // user's measured gemma pick, Q4_0 @ 240MB, IS the smallest). "None" stays.
+    if (r.drafts.length && !e.mtpDraftFile) {
+      onDraftPick([...r.drafts].sort((a, b) => (a.sizeMb || 0) - (b.sizeMb || 0))[0].path);
+    }
+  } catch (err) {
+    listing.value = null;
+    listingErr.value = err.message || "Couldn't list the repo's files.";
+  }
+}
+function onQuantPick(v) {
+  if (v === "__custom") { quantCustom.value = true; return; }
+  quantCustom.value = false;
+  editing.value.quant = v;
+}
+function onDraftPick(path) {
+  const e = editing.value;
+  e.mtpDraftFile = path || "";
+  const d = (listing.value?.drafts || []).find((x) => x.path === path);
+  e.mtpDraftQuant = d?.quant || "";
+}
+
 async function inspectLink() {
   const e = editing.value;
   if (!e?.hfRepo?.trim()) { inspectErr.value = "Enter the Hugging Face repo first."; return; }
   inspecting.value = true; inspectErr.value = ""; inspected.value = null;
   try {
+    // ONE click fills everything: the repo listing (quant options + draft
+    // detect + a recommended quant when blank) THEN the header inspect, which
+    // needs the chosen quant. Listing failure is non-fatal (free-type remains).
+    await loadRepoFiles();
     const params = new URLSearchParams({ repo: e.hfRepo.trim(), quant: e.quant || "" });
     const r = await request(`/v1/ai/model-catalog/inspect?${params}`, { method: "POST" });
     // File-derived scalar facts flow into the draft (persisted by the Save PUT);
@@ -183,12 +247,14 @@ async function inspectLink() {
 
 function blankModel() {
   return { id: "", name: "", hfRepo: "", quant: "", type: "dense", totalParams: "",
-    activeParams: "", mtp: false, trainedCtx: null, samplers: {}, minVramMb: null, minRamMb: null,
+    activeParams: "", mtp: false, mtpDraftRepo: "", mtpDraftFile: "", mtpDraftQuant: "",
+    trainedCtx: null, samplers: {}, minVramMb: null, minRamMb: null,
     tier: "mid", license: "", useLimited: false, embedding: false, description: "", qualityRank: 100, position: 0 };
 }
-function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; }
+function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; listing.value = null; listingErr.value = ""; quantCustom.value = false; }
 async function startEdit(m) {
   saveErr.value = ""; inspected.value = null; inspectErr.value = "";
+  listing.value = null; listingErr.value = ""; quantCustom.value = false;
   try {
     const cat = await request("/v1/ai/model-catalog");
     const row = (cat.rows || []).find((r) => r.id === m.id) || { ...blankModel(), id: m.id, name: m.name };
@@ -199,7 +265,7 @@ async function startEdit(m) {
     editing.value = { ...blankModel(), id: m.id, name: m.name }; editingNew.value = false;
   }
 }
-function cancelEdit() { editing.value = null; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; }
+function cancelEdit() { editing.value = null; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; listing.value = null; listingErr.value = ""; quantCustom.value = false; }
 
 function slugFromName(name) {
   return (name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -271,7 +337,7 @@ refreshApplied();
     <div v-else class="lu-mcat-wrap">
       <table class="lu-mgrid">
         <thead>
-          <tr><th>Model</th><th>Params</th><th>License</th><th>Fit</th><th>Status</th><th /></tr>
+          <tr><th>Model</th><th>Type</th><th>License</th><th>Fit</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
           <template v-for="m in groupedRows" :key="m.__divider ? 'divider' : m.id">
@@ -284,7 +350,13 @@ refreshApplied();
                 <div class="lu-mid">{{ m.id }}</div>
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
               </td>
-              <td class="lu-mm">{{ sizeLabel(m) }}</td>
+              <td class="lu-mm lu-mtype">
+                <!-- Params column REPLACED (Plan B — the count already rides name/description).
+                     Architecture + capabilities: Dense/MoE is the type; MTP/Embed are flags. -->
+                <UiTag intent="secondary" class="lu-typetag">{{ typeOf(m) === "moe" ? "MoE" : "Dense" }}</UiTag>
+                <UiTag v-if="mtpOf(m)" intent="info" class="lu-typetag" title="Multi-token prediction — speculative decode enables by default">MTP</UiTag>
+                <UiTag v-if="embeddingOf(m)" intent="accent2" class="lu-typetag" title="Embedding model — powers semantic search + grounded chat">Embed</UiTag>
+              </td>
               <td>
                 <span v-if="licenseOf(m)" class="lu-lic" :class="{ 'lu-lic--warn': useLimitedOf(m) }" :title="licenseTitle(m)">
                   <template v-if="useLimitedOf(m)">⚠ </template>{{ licenseOf(m) }}
@@ -346,23 +418,64 @@ refreshApplied();
 
         <div class="lu-mm-note"><b>Download source</b> — where the GGUF is pulled from. The one thing you must set; the rest is read from the model itself.</div>
         <label class="lu-mm-l">Hugging Face repo<UiInput v-model="editing.hfRepo" placeholder="unsloth/Qwen3-14B-GGUF" /></label>
-        <label class="lu-mm-l">Quant<UiInput v-model="editing.quant" placeholder="Q4_K_M" /></label>
+        <label class="lu-mm-l">Quant
+          <template v-if="quantOptions.length > 1 && !quantCustom">
+            <UiSelect :model-value="editing.quant" :options="quantOptions"
+              placeholder="pick a quant" @update:model-value="onQuantPick" />
+          </template>
+          <span v-else class="lu-mm-qrow">
+            <UiInput v-model="editing.quant" placeholder="Q4_K_M" />
+            <UiButton v-if="quantOptions.length > 1" intent="ghost" size="small"
+              @click="quantCustom = false">choose from list</UiButton>
+          </span>
+        </label>
         <div class="lu-mm-inspect">
           <UiButton intent="secondary" size="small" :loading="inspecting" @click="inspectLink">Read from link</UiButton>
-          <span class="lu-muted">reads the GGUF header over the link — no download</span>
+          <span class="lu-muted">lists the repo's quants (sizes · QAT/IQ) + reads the GGUF header — no download</span>
         </div>
         <div v-if="inspectErr" class="lu-error">{{ inspectErr }}</div>
+        <div v-if="listingErr" class="lu-error">{{ listingErr }}</div>
 
-        <div class="lu-mm-note"><b>Auto-detected from the file</b> <span class="lu-muted">— read from the GGUF header (Read from link, or confirmed at download); not hand-edited</span></div>
+        <template v-if="listing?.drafts?.length || editing.mtpDraftFile">
+          <div class="lu-mm-note"><b>MTP draft model</b> <span class="lu-muted">— this repo ships a
+            SEPARATE speculative-decode file at its own quant (Gemma-style; auto-detected from the
+            <code>MTP/</code> folder). Setting it feeds <code>--model-draft</code> and auto-enables MTP —
+            uncheck MTP below or turn it off in Quick tune if you don't want it.</span></div>
+          <label class="lu-mm-l">Draft file
+            <UiSelect v-if="listing?.drafts?.length" :model-value="editing.mtpDraftFile"
+              :options="draftOptions" @update:model-value="onDraftPick" />
+            <UiInput v-else v-model="editing.mtpDraftFile" placeholder="MTP/…-Q4_0-MTP.gguf" />
+          </label>
+          <label class="lu-mm-l">Draft repo <span class="lu-muted">optional — blank = the same repo</span>
+            <UiInput v-model="editing.mtpDraftRepo" placeholder="" /></label>
+        </template>
+
+        <div class="lu-mm-note"><b>Auto-detected from the file</b> <span class="lu-muted">— read from the GGUF header (Read from link, or confirmed at download)</span></div>
         <div class="lu-mm-auto">
-          <div class="lu-mm-auto-row"><span class="lu-muted">Type</span><span>{{ editing.type || "dense" }}<template v-if="inspected"> · {{ inspected.architecture }}<template v-if="inspected.experts"> · {{ inspected.experts }} experts</template></template></span></div>
+          <div v-if="inspected" class="lu-mm-auto-row"><span class="lu-muted">Architecture</span><span>{{ inspected.architecture || "—" }}<template v-if="inspected.experts"> · {{ inspected.experts }} experts</template></span></div>
           <div v-if="inspected?.sizeLabel" class="lu-mm-auto-row"><span class="lu-muted">Size (file)</span><span>{{ inspected.sizeLabel }}</span></div>
-          <div class="lu-mm-auto-row"><span class="lu-muted">Speculative decode (MTP)</span><span>{{ editing.mtp ? "supported" : "no" }} <span class="lu-muted">— from the header (nextn_predict_layers)</span></span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Trained context</span><span>{{ editing.trainedCtx ? `${editing.trainedCtx.toLocaleString()} tokens` : "—" }}</span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Recommended samplers</span><span>{{ samplersLabel }}</span></div>
           <div v-if="inspected?.sizeBytes" class="lu-mm-auto-row"><span class="lu-muted">Download size</span><span>{{ fmtBytes(inspected.sizeBytes) }}<template v-if="inspected.estVramMb"> · ≈ {{ inspected.estVramMb.toLocaleString() }} MB VRAM (full GPU · 8K ctx)</template></span></div>
         </div>
         <div v-if="poolingOf(editing)" class="lu-mm-note"><b>Embedding pooling: {{ poolingOf(editing) }}</b> <span class="lu-muted">— how the model's token vectors are combined into one embedding (mean · cls · last). Curated per embedding model; read-only here because the wrong pooling degrades search quality.</span></div>
+
+        <!-- Capability checkboxes (Plan B — replace the read-only Type/MTP rows; the user's
+             editable-over-auto rule: auto-detected, override if you know better). MoE ⇄ the
+             exclusive `type`; MTP + Embedding are independent flags. -->
+        <div class="lu-mm-note"><b>What this model is</b> <span class="lu-muted">— auto-detected from the file; override if you know better.</span></div>
+        <div class="lu-mm-caps">
+          <UiCheckbox :model-value="editing.type === 'moe'"
+            @update:model-value="editing.type = $event ? 'moe' : 'dense'">
+            <span>MoE <span class="lu-muted">— mixture-of-experts (offloads experts to RAM)</span></span>
+          </UiCheckbox>
+          <UiCheckbox v-model="editing.mtp">
+            <span>MTP <span class="lu-muted">— multi-token prediction; speculative decode auto-enables</span></span>
+          </UiCheckbox>
+          <UiCheckbox v-model="editing.embedding">
+            <span>Embedding <span class="lu-muted">— a RAG/search model, not a chat LLM</span></span>
+          </UiCheckbox>
+        </div>
 
         <div class="lu-mm-note"><b>Fit estimate</b> — a pre-download guess so the list can show “will it fit?”; once downloaded the GGUF sets the real fit.</div>
         <div class="lu-mm-row">
@@ -376,7 +489,6 @@ refreshApplied();
 
         <label class="lu-mm-l">License <span class="lu-muted">— SPDX id (Apache-2.0 · MIT · Llama-Community · …)</span><UiInput v-model="editing.license" placeholder="Apache-2.0" /></label>
         <div class="lu-mm-l"><UiCheckbox v-model="editing.useLimited"><span>Use-limited license <span class="lu-muted">— not free for unrestricted/commercial use; shows the ⚠ badge</span></span></UiCheckbox></div>
-        <div class="lu-mm-l"><UiCheckbox v-model="editing.embedding"><span>Embedding model <span class="lu-muted">— an embedding / RAG model, not a chat LLM; appears under “Set as embedding” and is excluded from the chat auto-pick</span></span></UiCheckbox></div>
 
         <div class="lu-mm-note"><b>Curation</b> <span class="lu-muted">— editable "what this is" + the quality order QuickSetup uses to pick the best model that fits your box.</span></div>
         <label class="lu-mm-l">Description<UiTextarea v-model="editing.description" placeholder="Plain-language 'what this model is' — e.g. fast 9B for quick chat and drafts" /></label>
@@ -450,4 +562,8 @@ refreshApplied();
 .lu-mm-auto-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; align-items: baseline; }
 .lu-mm-auto-row > .lu-muted:first-child { flex: 0 0 auto; }
 .lu-mm-spacer { flex: 1; }
+.lu-mm-caps { display: flex; flex-direction: column; gap: 6px; }
+.lu-mm-qrow { display: flex; align-items: center; gap: 8px; }
+.lu-mtype { white-space: nowrap; }
+.lu-typetag { margin-right: 4px; }
 </style>

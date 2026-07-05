@@ -42,6 +42,12 @@ export const descriptionById = computed(() =>
 export const poolingById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, r.pooling || ""])),
 );
+// MTP-CAPABLE (Plan B): built-in MTP (the header-derived `mtp` flag) OR a configured
+// external draft file (Gemma-style `mtpDraftFile`) — the same OR-gate the resolver's
+// auto-mtp layer uses, so the grid's MTP tag shows exactly what auto-enables.
+export const mtpById = computed(() =>
+  Object.fromEntries(rows.value.map((r) => [r.id, !!(r.mtp || r.mtpDraftFile)])),
+);
 
 /** (Re)fetch the catalog rows into the shared state. Enrichment — on failure the maps
  *  fall back to empty (the fit-shaped list / the pick still work without the badges). */
@@ -56,5 +62,5 @@ export async function refresh() {
 /** Shared model-catalog meta. Every consumer gets the SAME refs; call refresh() on open
  *  or after a catalog edit to (re)populate the one shared source. */
 export function useCatalogMeta() {
-  return { catalogRows, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, refresh };
+  return { catalogRows, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, refresh };
 }

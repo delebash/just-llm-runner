@@ -40,6 +40,11 @@ class CatalogRow(BaseModel):
     activeParams: str = ""
     mtp: bool = False
     type: str = "dense"  # dense | moe — drives which switch preset applies (§6.5)
+    # Gemma-style SEPARATE MTP draft file — facts about the model, feeds --model-draft
+    # at load (Plan B, D7). "" everywhere = no external draft (Qwen builds MTP in).
+    mtpDraftRepo: str = ""   # "" = the draft lives in the SAME repo as hfRepo
+    mtpDraftFile: str = ""   # exact path within the repo (e.g. "MTP/…-Q4_0-MTP.gguf")
+    mtpDraftQuant: str = ""  # display/selection metadata; the file path is authoritative
     trainedCtx: int | None = None  # GGUF `<arch>.context_length`, file-derived (null until read)
     samplers: dict[str, str] = Field(default_factory=dict)  # file-derived recommended samplers (read-only)
     minVramMb: int | None = None
@@ -75,6 +80,34 @@ class InspectResponse(BaseModel):
     samplers: dict[str, str] = Field(default_factory=dict)  # recommended samplers (read-only fact)
     sizeBytes: int = 0          # real total weight size (summed shards) — the download size
     estVramMb: int | None = None  # est. VRAM to fully offload at 8K ctx (real header + size)
+
+
+class RepoQuantRow(BaseModel):
+    """One quant available in an HF repo (shards summed) — the quant DROPDOWN row.
+    `kind` labels the family (Q | IQ | special); `qat` flags quantization-aware-
+    trained weights, detected from the file PATH (filename or folder — QAT is a
+    training property with no GGUF header key; the user's explicit label ask)."""
+
+    quant: str
+    sizeMb: int = 0
+    files: int = 1
+    kind: str = ""
+    qat: bool = False
+
+
+class RepoDraftRow(BaseModel):
+    """One detected MTP draft file in the repo (`MTP/` dir / `-MTP.gguf`) — picked
+    by exact path; its quant + size ride along for the label."""
+
+    path: str
+    quant: str = ""
+    sizeMb: int = 0
+    qat: bool = False
+
+
+class ListFilesResponse(BaseModel):
+    quants: list[RepoQuantRow]
+    drafts: list[RepoDraftRow]
 
 
 class ResolvedFlag(BaseModel):
@@ -117,6 +150,7 @@ def make_catalog_router(
     *,
     resolve_switches: Callable[[str], dict[str, str]] | None = None,
     inspect_fn: Callable[[str, str, str], dict] | None = None,
+    list_files_fn: Callable[[str, str], dict] | None = None,
 ) -> APIRouter:
     """CRUD + reset for the per-model llama.cpp catalog. When
     `resolve_switches(model_id) -> {flag_name: value}` is given, also expose
@@ -163,10 +197,28 @@ def make_catalog_router(
             row = next((r for r in get_store().list() if r.id == modelId), None)
             samplers = (row.samplers if row else None) or {}
             return ResolvedModelDefaultsResponse(
-                modelId=modelId, mtpCapable=bool(row and row.mtp),
+                # mtpCapable = the SAME OR-gate as the resolver's auto-mtp layer
+                # (built-in header mtp OR a configured external draft) — so the
+                # Tune modal's hint fires for draft-style Gemma models too, in
+                # lockstep with the grid Type tag (final-checker fold, 2026-07-05).
+                modelId=modelId, mtpCapable=bool(row and (row.mtp or row.mtpDraftFile)),
                 switches=[ResolvedFlag(flagName=k, flagValue=str(v)) for k, v in merged.items()],
                 samplers=[ResolvedFlag(flagName=k, flagValue=str(v)) for k, v in samplers.items()],
             )
+
+    if list_files_fn is not None:
+        @router.post("/model-catalog/list-files", response_model=ListFilesResponse)
+        async def list_files(repo: str, revision: str = "main") -> ListFilesResponse:
+            """ONE HF tree call → the repo's quant dropdown rows (shards summed,
+            Q/IQ/QAT labels) + detected MTP draft files (Plan B D9). Powers the
+            Add/Edit form's quant + draft pickers."""
+            if not repo.strip():
+                raise HTTPException(status_code=400, detail="repo is required")
+            try:
+                data = list_files_fn(repo.strip(), (revision or "main").strip())
+            except Exception as e:  # noqa: BLE001 — network/bad-repo → a clean 502
+                raise HTTPException(status_code=502, detail=f"couldn't list {repo}: {e}") from e
+            return ListFilesResponse(**data)
 
     if inspect_fn is not None:
         @router.post("/model-catalog/inspect", response_model=InspectResponse)

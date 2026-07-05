@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Callable
@@ -113,6 +114,59 @@ def select_files(
     if not selected:
         raise FileNotFoundError(f"no .gguf matching quant {quant!r} in {repo}@{revision}")
     return commit_sha, selected
+
+
+# Quant token in a GGUF filename: Q4_K_M / IQ4_XS / UD-Q4_K_XL / Q4_0 / BF16 / F16…
+_QUANT_RE = re.compile(r"(?:UD-)?(?:I?Q\d[A-Za-z0-9_]*|BF16|F16|F32)")
+
+
+def classify_gguf_entries(entries: list[dict]) -> dict:
+    """PURE classification of an HF tree listing for the Add/Edit form (Plan B D9):
+    the quant dropdown + MTP-draft detection, one `_tree` call parsed two ways.
+
+    Returns {"quants": [...], "drafts": [...]}:
+      * quants — ONE row per quant token, shards SUMMED ({quant, sizeMb, files,
+        kind, qat}); `kind` = "Q" | "IQ" | "special" (BF16/F16/…); `qat` = the
+        filename/path carries a QAT marker (a TRAINING property with no GGUF
+        header key — it lives in the name, e.g. `…-qat-…`; the user's explicit
+        label ask). mmproj sidecars and files with NO recognizable quant token
+        are skipped (rare; the form's free-type covers them).
+      * drafts — MTP draft files (`MTP/` dir or `-MTP.gguf`, the observed
+        convention), each its own row ({path, quant, sizeMb, qat}) since a draft
+        is picked by exact path (its quant rides along).
+    """
+    quants: dict[str, dict] = {}
+    drafts: list[dict] = []
+    for e in entries:
+        path = e.get("path", "")
+        low = path.lower()
+        if not low.endswith(".gguf") or "mmproj" in low:
+            continue
+        size_mb = int(_entry_size(e) / (1024 * 1024)) if _entry_size(e) else 0
+        # Search the WHOLE path (not just the basename): split models often carry
+        # the quant in a per-quant FOLDER (`UD-Q4_K_XL/model-00001-of-…`), the
+        # same convention `select_files`' path-substring match relies on.
+        m = _QUANT_RE.search(path)
+        quant = m.group(0) if m else ""
+        qat = "qat" in low
+        is_draft = low.endswith("-mtp.gguf") or "/mtp/" in low or low.startswith("mtp/")
+        if is_draft:
+            drafts.append({"path": path, "quant": quant, "sizeMb": size_mb, "qat": qat})
+            continue
+        if not quant:
+            continue  # no recognizable token → free-type territory, not a dropdown row
+        q = quant.upper()
+        kind = "IQ" if q.removeprefix("UD-").startswith("IQ") else ("Q" if "Q" in q else "special")
+        row = quants.setdefault(quant, {"quant": quant, "sizeMb": 0, "files": 0, "kind": kind, "qat": qat})
+        row["sizeMb"] += size_mb
+        row["files"] += 1
+    return {"quants": sorted(quants.values(), key=lambda r: r["sizeMb"]), "drafts": drafts}
+
+
+def list_repo_ggufs(repo: str, revision: str = "main") -> dict:
+    """ONE `_tree` call → the classified quant/draft listing (the network thin
+    wrapper over `classify_gguf_entries`). Raises requests errors on a bad repo."""
+    return classify_gguf_entries(_tree(repo, revision))
 
 
 def is_cached(repo: str, quant: str, *, cache_root: Path, mmproj: str | None = None) -> bool:

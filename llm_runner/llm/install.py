@@ -24,6 +24,7 @@ from .feature_samplers_api import make_feature_samplers_router
 from .presets_api import make_presets_router
 from .knob_catalog_api import make_knob_catalog_router
 from .model_catalog_api import make_catalog_router
+from .model_tunes_api import make_model_tunes_router
 from .pricing_api import make_pricing_router
 from .runner_config_api import make_runner_config_router
 from .prompts import make_feature_router, make_prompt_router
@@ -33,6 +34,15 @@ from .switch_presets_api import make_switch_presets_router
 from .task_kinds_api import make_task_kinds_router
 from .usage import set_ledger
 from .usage_sink import DbUsageSink
+
+
+def _current_hw_key() -> str:
+    """The memoized whole-machine tuning key (gpu|vram|cores|ramGB) the
+    `hardware_switches` + `model_tunes` layers are stored under (Plan B, D2).
+    Lazy import — hardware detection lives runner-side."""
+    from ..runner.hardware import current_machine_key
+
+    return current_machine_key()
 
 
 def install_llm(
@@ -114,13 +124,26 @@ def install_llm(
 
         return inspect_model_from_link(repo, quant, revision)
 
+    def _list_repo_files(repo: str, revision: str = "main") -> dict:
+        # The Add/Edit form's quant dropdown + MTP-draft detection: ONE HF tree
+        # call, classified runner-side (Plan B D9). Lazy import, same pattern.
+        from ..runner.models import list_repo_ggufs
+
+        return list_repo_ggufs(repo, revision)
+
     app.include_router(make_catalog_router(
-        stores.get_model_catalog_store, resolve_switches=switch_resolve.resolve_model_switches,
+        stores.get_model_catalog_store,
+        # Keyed to THIS machine so resolved-defaults (what the Tune modal + Lab
+        # pre-fill from) shows the SAME truth the load path uses — including the
+        # hardware + per-(model, machine) tune layers (Plan B, D4; seen = run).
+        resolve_switches=lambda mid: switch_resolve.resolve_model_switches(mid, _current_hw_key()),
         inspect_fn=_inspect_model_from_link,
+        list_files_fn=_list_repo_files,
     ))
     app.include_router(make_pricing_router(stores.get_pricing_store))
     app.include_router(make_runner_config_router(stores.get_runner_config_store))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
+    app.include_router(make_model_tunes_router(stores.get_model_tune_store, _current_hw_key))
     app.include_router(make_feature_samplers_router(stores.get_feature_sampler_store))
     # 6. point the bundled runner's catalog/switches at the shared DB.
     if runner_catalog:
@@ -141,6 +164,7 @@ def _wire_runner_catalog(data_dir=None) -> None:
             ModelEntry(
                 id=r.id, name=r.name, tier=r.tier, hf_repo=r.hfRepo, quant=r.quant, mmproj=r.mmproj,
                 total_params=r.totalParams or None, active_params=r.activeParams or None, mtp=r.mtp,
+                mtp_draft_repo=r.mtpDraftRepo, mtp_draft_file=r.mtpDraftFile, mtp_draft_quant=r.mtpDraftQuant,
                 pooling=r.pooling, min_ram_mb=r.minRamMb, recommended_for=RecommendedFor(min_vram_mb=r.minVramMb),
             )
             for r in stores.get_model_catalog_store().list()
@@ -160,13 +184,14 @@ def _wire_runner_catalog(data_dir=None) -> None:
         return set()
 
     def switches_fn(model_id: str):
-        # Layered model-level resolution (base preset → type(moe|dense) → per-hardware),
-        # returned as a flag→value dict that flows through the runner's existing Override
-        # path. The MoE/dense rules come from the type presets, not per-model copies. No
-        # auto-mtp layer — MTP is opt-in/measurable (Phase 3).
+        # Layered model-level resolution (base → type(moe|dense) → gated auto-mtp →
+        # per-hardware → per-(model, machine) tune), keyed to THIS machine — the
+        # Plan-B wire (D4) that also activates the formerly-DORMANT hardware layer
+        # (hw_key was never passed before 2026-07-05). Returned as a flag→value
+        # dict that flows through the runner's existing Override path.
         from .switch_resolve import resolve_model_switches
 
-        return resolve_model_switches(model_id)
+        return resolve_model_switches(model_id, _current_hw_key())
 
     def identify_fn(model_id: str, gguf_path):
         # After a model downloads, read its GGUF header → set model_catalog

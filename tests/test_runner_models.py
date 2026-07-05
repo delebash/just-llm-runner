@@ -258,6 +258,29 @@ def test_resident_endpoint_router_down(monkeypatch):
     assert body["modelsMax"] == 2 and body["sleepIdleSeconds"] == 900
 
 
+def test_load_carries_new_flags_into_overrides(monkeypatch):
+    # POST /load: the EXPLICIT field-by-field LoadRequest → Overrides constructor
+    # must carry model_draft + reasoning_budget(+message) — LoadRequest fields
+    # without this wiring would be silently dead (Plan B D6, wiring point 3).
+    captured = {}
+
+    class _Svc:
+        def load(self, model_id, overrides=None, job_id=None, switches=None):
+            captured["ov"] = overrides
+            return {"status": "loading"}
+
+    monkeypatch.setattr(api, "get_service", lambda: _Svc())
+    r = _client().post("/v1/llm-runner/load", json={
+        "modelId": "m1", "modelDraft": "/d/MTP/g-Q4_0-MTP.gguf",
+        "reasoningBudget": 1024, "reasoningBudgetMessage": "wrap up now",
+    })
+    assert r.status_code == 200
+    ov = captured["ov"]
+    assert ov.model_draft == "/d/MTP/g-Q4_0-MTP.gguf"
+    assert ov.reasoning_budget == 1024
+    assert ov.reasoning_budget_message == "wrap up now"
+
+
 def test_ensure_embedding_endpoint_configured(monkeypatch):
     # P3 lazy prep: a configured local embed → ok:true + the modelId the client polls /resident for.
     svc = _FakeService([])

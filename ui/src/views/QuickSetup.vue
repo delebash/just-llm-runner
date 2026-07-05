@@ -25,10 +25,13 @@ import { computed, ref } from "vue";
 
 import { request } from "../client.js";
 import { useCatalogMeta } from "../common/composables/useCatalogMeta.js";
+import { detectLocal, createProvider, listModels, PROVIDER_PRESETS } from "../common/composables/useProviderConnect.js";
 import { pickBestModel, pickLowestQuality, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
 import { setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../common/services/modelApply.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
+import UiInput from "../common/components/UiInput.vue";
+import UiChip from "../common/components/UiChip.vue";
 import AppModal from "../common/components/AppModal.vue";
 
 const emit = defineEmits(["changed"]);
@@ -62,6 +65,25 @@ const CARD_OPTIONS = [
 // Editable pick: the one good LLM (`default`) + the embedding provider/model.
 // Pre-filled from Fit × quality, the default is overridable in the confirm step.
 const pick = ref({ default: "", embeddingId: "", embeddingModel: "" });
+
+// ── "Run models with": the bundled runner (local) OR a connected provider (Ollama / LM
+// Studio / cloud). Default = the bundled runner (LOCAL_RUNNER_ID). When an external provider
+// is chosen, its model list comes from GET /v1/llm-providers/{id}/models (the registered
+// adapter's STORED key, via listModels — probeModels can't see a saved cloud key), Apply
+// flips the presets to (providerId, model), and the runner download/load is skipped (the
+// provider serves itself).
+const runWith = ref(LOCAL_RUNNER_ID);
+const providers = ref([]);            // all registered providers (GET /v1/llm-providers)
+const providerModels = ref([]);       // the chosen external provider's model ids
+const providerModel = ref("");        // the chosen external model
+const providerModelsError = ref("");  // a failed /models listing (bad key / provider down) — surfaced, never silent
+// Connect-a-provider flow (the in-wizard front door — detected-local one-click + cloud key).
+const connectOpen = ref(false);
+const detected = ref([]);             // detectLocal() → local servers found on this box
+const cloudChip = ref(null);          // the picked cloud PROVIDER_PRESETS row awaiting a key
+const cloudKey = ref("");
+const connecting = ref(false);
+const connectError = ref("");
 
 // ── catalog meta (by id) — quality order + type + embedding + use-limited + description ──
 // The /v1/llm-runner/models view is fit-shaped and carries none of these; the catalog does.
@@ -142,6 +164,30 @@ function bestFittingId() {
   });
 }
 
+// ── "Run models with" derived ────────────────────────────────────────────────
+const isBundled = computed(() => runWith.value === LOCAL_RUNNER_ID);
+const selectedProvider = computed(() => providers.value.find((p) => p.id === runWith.value) || null);
+// Reachable = registered AND (local OR has a key). A keyless cloud provider is hidden (it
+// would 501 on use / 404 on /models); the bundled runner is excluded — it's the "Bundled
+// runner" option itself.
+const reachableProviders = computed(() =>
+  providers.value.filter((p) => p.id !== LOCAL_RUNNER_ID && p.registered && (p.local || p.hasApiKey)),
+);
+const runWithOptions = computed(() => [
+  { value: LOCAL_RUNNER_ID, label: "Bundled runner (recommended)" },
+  ...reachableProviders.value.map((p) => ({ value: p.id, label: p.name })),
+]);
+const providerModelOptions = computed(() => providerModels.value.map((m) => ({ value: m, label: m })));
+// Cloud presets (PROVIDER_PRESETS rows are [label, url, type, isLocal]) → the connect chips.
+const cloudPresets = computed(() => PROVIDER_PRESETS.filter((p) => p[3] === false));
+const detectedUnregistered = computed(() => detected.value.filter((d) => !d.alreadyRegistered));
+// Apply is enabled once there's something to set: a fitting local pick (bundled) or a chosen
+// external model. A bundled box with nothing that fits stays disabled; an external one never
+// depends on local Fit.
+const applyDisabled = computed(() =>
+  isBundled.value ? !fitting.value.length || !pick.value.default : !providerModel.value,
+);
+
 // ── load hardware + catalog (optionally for an overridden card) ──────────────
 async function loadAll() {
   loading.value = true;
@@ -189,12 +235,106 @@ async function loadRouting() {
   }
 }
 
+// ── providers + connect ──────────────────────────────────────────────────────
+async function loadProviders() {
+  try {
+    providers.value = (await request("/v1/llm-providers")).providers || [];
+  } catch {
+    providers.value = [];
+  }
+}
+// List the chosen external provider's models (registered adapter, stored key). SURFACES a
+// listing error (bad key / provider down) instead of a silent blank dropdown, and defaults
+// the model to the provider's saved defaultModel when present, else the first listed.
+async function loadProviderModels(id) {
+  providerModelsError.value = "";
+  providerModels.value = [];
+  providerModel.value = "";
+  try {
+    const r = await listModels(id);
+    providerModels.value = r.models || [];
+    providerModelsError.value = r.error || "";
+    const def = selectedProvider.value?.defaultModel || "";
+    providerModel.value = def && providerModels.value.includes(def) ? def : providerModels.value[0] || "";
+  } catch (e) {
+    providerModelsError.value = e.message || "Couldn't list this provider's models.";
+  }
+}
+function onRunWithChange() {
+  if (isBundled.value) {
+    providerModels.value = [];
+    providerModel.value = "";
+    providerModelsError.value = "";
+  } else {
+    loadProviderModels(runWith.value);
+  }
+}
+async function openConnect() {
+  connectOpen.value = true;
+  connectError.value = "";
+  cloudChip.value = null;
+  cloudKey.value = "";
+  detected.value = await detectLocal();
+}
+function pickCloudChip(p) {
+  cloudChip.value = p;
+  cloudKey.value = "";
+  connectError.value = "";
+}
+// Register a provider, then point "Run models with" at it + list its models. A create OR
+// listing failure surfaces in connectError (T5 — never a silent no-op). Shared by the
+// detected-local (no key) and cloud (with key) connect paths.
+async function connectProvider(body) {
+  connecting.value = true;
+  connectError.value = "";
+  try {
+    const created = await createProvider(body);
+    await loadProviders();
+    runWith.value = created.id;
+    connectOpen.value = false;
+    cloudChip.value = null;
+    cloudKey.value = "";
+    await loadProviderModels(created.id);
+  } catch (e) {
+    connectError.value = e.message || "Couldn't connect that provider.";
+  } finally {
+    connecting.value = false;
+  }
+}
+function connectDetected(d) {
+  return connectProvider({
+    name: d.name,
+    providerType: d.providerType,
+    baseUrl: d.baseUrl,
+    local: true,
+    defaultModel: (d.models && d.models[0]) || "",
+  });
+}
+function connectCloud() {
+  if (!cloudChip.value) return;
+  const p = cloudChip.value; // [label, url, type, isLocal]
+  return connectProvider({ name: p[0], providerType: p[2], baseUrl: p[1], local: false, apiKey: cloudKey.value || null });
+}
+
 // ── open / close ────────────────────────────────────────────────────────────
 async function openWizard() {
   open.value = true;
   step.value = "detect";
   pick.value = { default: "", embeddingId: "", embeddingModel: "" };
-  await Promise.all([loadAll(), loadRouting()]);
+  // Reset "Run models with" + connect state so a reopen after an external Apply doesn't
+  // strand a stale provider selection with an empty model list (verify-gate T5).
+  runWith.value = LOCAL_RUNNER_ID;
+  providerModels.value = [];
+  providerModel.value = "";
+  providerModelsError.value = "";
+  connectOpen.value = false;
+  detected.value = [];
+  cloudChip.value = null;
+  cloudKey.value = "";
+  connectError.value = "";
+  // Providers are card-independent — loaded ONCE here, not in loadAll (which re-runs on a
+  // card change).
+  await Promise.all([loadAll(), loadRouting(), loadProviders()]);
   step.value = "confirm"; // confirm renders the empty-state when nothing fits
 }
 function onModalClose() {
@@ -215,22 +355,28 @@ async function apply() {
   error.value = "";
   step.value = "apply";
   try {
-    const target = pick.value.default;
-
-    // 1. Write the chosen model onto every task preset that still shares the previous default
-    //    (non-clobber; each preset keeps its per-task settings — only `.model` changes). 2. Set
-    //    the embedding, preserving the default llm + the per-feature pins. BOTH writes go through
-    //    the shared modelApply service — the SAME implementation the catalog's Set-as-default /
-    //    Set-as-embedding use, so the two surfaces never drift. The embedding keeps the user's
-    //    saved provider (pick.embeddingId), not a hardcoded local one.
-    await setAsDefault(LOCAL_RUNNER_ID, target);
-    await setAsEmbedding(pick.value.embeddingId, pick.value.embeddingModel);
-
-    // 3. Download (if needed) + load the chosen model as the active one, polling status
-    //    so the user sees progress. The embedding downloads on first search/index.
-    if (target) {
-      await request("/v1/llm-runner/load", { method: "POST", body: { modelId: target } });
-      await pollLoad();
+    // The chosen chat default: the bundled runner's LOCAL model, or the EXTERNAL provider's
+    // model. BOTH go through the shared modelApply.setAsDefault (provider-aware, 3b-ii-a) —
+    // the SAME writer the catalog's Set-as-default uses, so the surfaces never drift: it
+    // writes `{...p, providerId, model}` onto every task preset that still shares the previous
+    // default (non-clobber; each preset keeps its per-task settings). The embedding stays a
+    // LOCAL runner concern (the RAG index), keeping the user's saved provider — only written
+    // when one is chosen (no clobber of a saved embed with a blank).
+    if (isBundled.value) {
+      const target = pick.value.default;
+      await setAsDefault(LOCAL_RUNNER_ID, target);
+      if (pick.value.embeddingModel) await setAsEmbedding(pick.value.embeddingId, pick.value.embeddingModel);
+      // Download (if needed) + load the chosen model as the active one, polling status so the
+      // user sees progress. The embedding downloads on first search/index.
+      if (target) {
+        await request("/v1/llm-runner/load", { method: "POST", body: { modelId: target } });
+        await pollLoad();
+      }
+    } else {
+      // External provider: flip every shared-default preset to (providerId, model). No runner
+      // download/load — the provider serves the model itself.
+      await setAsDefault(runWith.value, providerModel.value);
+      if (pick.value.embeddingModel) await setAsEmbedding(pick.value.embeddingId, pick.value.embeddingModel);
     }
     step.value = "done";
     emit("changed");
@@ -294,53 +440,101 @@ defineExpose({ openWizard });
           <div class="lu-qs-detected"><b>{{ hwLine }}</b></div>
         </section>
 
+        <!-- Run models with: the bundled runner, or a connected provider (Ollama / LM Studio / cloud). -->
         <section class="lu-qs-sec">
-          <div class="lu-qs-k">Plan for card</div>
-          <UiSelect v-model="cardOverride" :options="CARD_OPTIONS" @update:model-value="onCardChange" />
-          <p class="lu-muted lu-qs-hint">Re-scores Fit for another card — plan ahead, or force CPU-only.</p>
+          <div class="lu-qs-k">Run models with</div>
+          <UiSelect v-model="runWith" :options="runWithOptions" @update:model-value="onRunWithChange" />
+          <p class="lu-muted lu-qs-hint">Run models on this machine with the bundled runner, or point every task at a provider you connect — Ollama, LM Studio, or a cloud API.</p>
+          <div class="lu-qs-connect">
+            <UiButton v-if="!connectOpen" intent="ghost" size="small" @click="openConnect">+ Connect a provider</UiButton>
+            <div v-else class="lu-qs-connectbox">
+              <template v-if="detectedUnregistered.length">
+                <div class="lu-qs-subk">Detected on this machine</div>
+                <div v-for="d in detectedUnregistered" :key="d.baseUrl" class="lu-qs-drow">
+                  <span><b>{{ d.name }}</b> <span class="lu-muted">{{ d.baseUrl }}</span></span>
+                  <UiButton intent="secondary" size="small" :loading="connecting" @click="connectDetected(d)">Connect</UiButton>
+                </div>
+              </template>
+              <div class="lu-qs-subk">Connect a cloud provider</div>
+              <div class="lu-qs-chips">
+                <UiChip v-for="p in cloudPresets" :key="p[0]" :selected="cloudChip?.[0] === p[0]" @click="pickCloudChip(p)">{{ p[0] }}</UiChip>
+              </div>
+              <div v-if="cloudChip" class="lu-qs-cloudkey">
+                <UiInput v-model="cloudKey" type="password" :placeholder="`${cloudChip[0]} API key`" />
+                <UiButton intent="primary" size="small" :loading="connecting" :disabled="!cloudKey" @click="connectCloud">Connect</UiButton>
+              </div>
+              <div v-if="connectError" class="lu-error">{{ connectError }}</div>
+              <div><UiButton intent="ghost" size="small" @click="connectOpen = false">Done</UiButton></div>
+            </div>
+          </div>
         </section>
 
-        <div v-if="loading" class="lu-muted">Re-scoring…</div>
-        <template v-else-if="fitting.length">
-          <!-- The one good model — a single editable pick that runs every task. -->
+        <!-- BUNDLED runner: plan-for-card + the local default model (Fit-gated). -->
+        <template v-if="isBundled">
           <section class="lu-qs-sec">
-            <div class="lu-qs-k">
-              Default model
-              <span class="lu-fit lu-qs-fit" :class="`lu-fit--${fitOf(pick.default)}`">{{ FIT_LABEL[fitOf(pick.default)] }}</span>
-            </div>
-            <UiSelect v-model="pick.default" :options="modelOptions" />
-            <p class="lu-muted lu-qs-hint">One good model runs every task — writing, chat, extraction, judgment. Per-task overrides live on the Tasks tab; this sets the shared default.</p>
-            <p v-if="descriptionOf(pick.default)" class="lu-qs-why">
-              <b>About this model:</b> {{ descriptionOf(pick.default) }}
-            </p>
+            <div class="lu-qs-k">Plan for card</div>
+            <UiSelect v-model="cardOverride" :options="CARD_OPTIONS" @update:model-value="onCardChange" />
+            <p class="lu-muted lu-qs-hint">Re-scores Fit for another card — plan ahead, or force CPU-only.</p>
           </section>
 
-          <!-- The embedding — an editable pick of the embed models that fit this box. -->
-          <section v-if="embedOptions.length" class="lu-qs-sec">
-            <div class="lu-qs-k">Embedding</div>
-            <UiSelect v-model="pick.embeddingModel" :options="embedOptions" @update:model-value="onEmbedChange" />
-            <p class="lu-muted lu-qs-hint">Powers semantic search + grounded chat. Runs alongside your chat model; a smaller embed is fine.</p>
-          </section>
-
-          <!-- What will happen on Apply. -->
-          <section class="lu-qs-sec lu-qs-routing">
-            <div class="lu-qs-k">What happens when you click Apply</div>
-            <ul class="lu-qs-rlist">
-              <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— becomes the model for every task, except any you've changed yourself on the Tasks tab.</span></li>
-              <li>It <b>downloads now</b> if it isn't already on disk, then loads as the active model.</li>
-              <li v-if="pick.embeddingModel">Embedding set to <code>{{ embedName }}</code> — downloads on first search/index.</li>
-              <li>Per-feature pins you've set stay as they are.</li>
-            </ul>
-          </section>
+          <div v-if="loading" class="lu-muted">Re-scoring…</div>
+          <template v-else-if="fitting.length">
+            <!-- The one good model — a single editable pick that runs every task. -->
+            <section class="lu-qs-sec">
+              <div class="lu-qs-k">
+                Default model
+                <span class="lu-fit lu-qs-fit" :class="`lu-fit--${fitOf(pick.default)}`">{{ FIT_LABEL[fitOf(pick.default)] }}</span>
+              </div>
+              <UiSelect v-model="pick.default" :options="modelOptions" />
+              <p class="lu-muted lu-qs-hint">One good model runs every task — writing, chat, extraction, judgment. Per-task overrides live on the Tasks tab; this sets the shared default.</p>
+              <p v-if="descriptionOf(pick.default)" class="lu-qs-why">
+                <b>About this model:</b> {{ descriptionOf(pick.default) }}
+              </p>
+            </section>
+          </template>
+          <div v-else class="lu-muted lu-qs-empty">
+            No catalog models fit this card. Pick a larger card above, add a smaller model, or connect a provider above.
+          </div>
         </template>
-        <div v-else class="lu-muted lu-qs-empty">
-          No catalog models fit this card. Pick a larger card above, add a smaller model, or connect a cloud provider in Providers.
-        </div>
+
+        <!-- EXTERNAL provider: pick the model it will serve. -->
+        <section v-else class="lu-qs-sec">
+          <div class="lu-qs-k">Model</div>
+          <UiSelect v-if="providerModelOptions.length" v-model="providerModel" :options="providerModelOptions" />
+          <p v-if="providerModelsError" class="lu-error">{{ providerModelsError }}</p>
+          <p v-else-if="!providerModelOptions.length" class="lu-muted lu-qs-hint">No models found for this provider.</p>
+          <p class="lu-muted lu-qs-hint">{{ selectedProvider ? selectedProvider.name : "This provider" }} serves the model — the bundled runner won't download anything.</p>
+        </section>
+
+        <!-- The embedding — always LOCAL (the RAG index); shown for both the bundled + external paths. -->
+        <section v-if="embedOptions.length" class="lu-qs-sec">
+          <div class="lu-qs-k">Embedding</div>
+          <UiSelect v-model="pick.embeddingModel" :options="embedOptions" @update:model-value="onEmbedChange" />
+          <p class="lu-muted lu-qs-hint">Powers semantic search + grounded chat. Runs on the bundled runner<template v-if="isBundled"> alongside your chat model</template>; a smaller embed is fine.</p>
+        </section>
+
+        <!-- What will happen on Apply (branches bundled vs external). -->
+        <section class="lu-qs-sec lu-qs-routing">
+          <div class="lu-qs-k">What happens when you click Apply</div>
+          <ul class="lu-qs-rlist">
+            <template v-if="isBundled">
+              <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— becomes the model for every task, except any you've changed yourself on the Tasks tab.</span></li>
+              <li v-if="pick.default">It <b>downloads now</b> if it isn't already on disk, then loads as the active model.</li>
+            </template>
+            <template v-else>
+              <li v-if="providerModel"><b>{{ selectedProvider ? selectedProvider.name : runWith }} · {{ providerModel }}</b> <span class="lu-muted">— becomes the model for every task, except any you've changed yourself on the Tasks tab.</span></li>
+              <li>The provider serves it — <b>nothing downloads</b> to this machine.</li>
+            </template>
+            <li v-if="pick.embeddingModel">Embedding set to <code>{{ embedName }}</code> — runs on the bundled runner, downloads on first search/index.</li>
+            <li>Per-feature pins you've set stay as they are.</li>
+          </ul>
+        </section>
       </template>
 
       <!-- APPLY -->
       <template v-else-if="step === 'apply'">
-        <p class="lu-qs-applying">Setting your default model and loading <b>{{ modelById[pick.default]?.name || pick.default }}</b>…</p>
+        <p v-if="isBundled" class="lu-qs-applying">Setting your default model and loading <b>{{ modelById[pick.default]?.name || pick.default }}</b>…</p>
+        <p v-else class="lu-qs-applying">Setting <b>{{ (selectedProvider ? selectedProvider.name : runWith) }} · {{ providerModel }}</b> as your default…</p>
         <p class="lu-muted">{{ applyDetail || "working…" }}</p>
       </template>
 
@@ -348,7 +542,8 @@ defineExpose({ openWizard });
       <template v-else-if="step === 'done'">
         <p><b>Setup applied.</b></p>
         <ul class="lu-qs-summary">
-          <li>Default model · <code>{{ modelById[pick.default]?.name || pick.default }}</code></li>
+          <li v-if="isBundled">Default model · <code>{{ modelById[pick.default]?.name || pick.default }}</code></li>
+          <li v-else>Default · <code>{{ (selectedProvider ? selectedProvider.name : runWith) }} · {{ providerModel }}</code></li>
           <li v-if="pick.embeddingModel">Embedding · <code>{{ embedName }}</code></li>
         </ul>
         <p class="lu-muted">Change the model for any single task on the Tasks tab.</p>
@@ -358,7 +553,7 @@ defineExpose({ openWizard });
         <template v-if="step === 'confirm'">
           <UiButton intent="ghost" @click="onModalClose">Cancel</UiButton>
           <span class="lu-qs-spacer" />
-          <UiButton intent="primary" :disabled="!fitting.length || !pick.default" :loading="applying" @click="apply">
+          <UiButton intent="primary" :disabled="applyDisabled" :loading="applying" @click="apply">
             Apply setup
           </UiButton>
         </template>
@@ -399,6 +594,14 @@ defineExpose({ openWizard });
 .lu-qs-rlist li::before { content: "•"; position: absolute; left: 0; color: var(--muted); }
 .lu-qs-rlist code { font-family: var(--font-mono, monospace); font-size: 11.5px; }
 .lu-qs-empty { font-size: 12.5px; padding: 8px 0; }
+/* Connect-a-provider flow (in-wizard) */
+.lu-qs-connect { margin-top: 8px; }
+.lu-qs-connectbox { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; margin-top: 6px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; }
+.lu-qs-subk { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.lu-qs-drow { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12.5px; }
+.lu-qs-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.lu-qs-cloudkey { display: flex; gap: 8px; align-items: center; }
+.lu-qs-cloudkey > :first-child { flex: 1; min-width: 0; }
 .lu-qs-applying { font-size: 13px; }
 .lu-qs-summary { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
 .lu-qs-spacer { flex: 1; }

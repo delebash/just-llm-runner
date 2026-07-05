@@ -49,7 +49,17 @@ export async function createProvider(body) {
   return request("/v1/llm-providers", { method: "POST", body });
 }
 
+// List a SAVED/registered provider's models — uses the adapter's STORED key server-side
+// (GET /v1/llm-providers/{id}/models → { models: string[], error?: string }; the error is
+// returned as DATA, not raised, so callers must surface it). Unlike probeModels (the pre-save
+// DRAFT probe, which needs a client-supplied key), this serves an already-persisted provider
+// whose key is write-only — so a consumer can list a connected cloud provider's models
+// without holding its key.
+export async function listModels(providerId) {
+  return request(`/v1/llm-providers/${encodeURIComponent(providerId)}/models`);
+}
+
 /** The shared provider-connect surface. Every consumer gets the SAME presets + endpoints. */
 export function useProviderConnect() {
-  return { PROVIDER_PRESETS, detectLocal, probeModels, createProvider };
+  return { PROVIDER_PRESETS, detectLocal, probeModels, createProvider, listModels };
 }

@@ -1,63 +1,201 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Shared server-logs viewer — tail the in-memory ring (/v1/logs/tail), copy it,
-// or download the full ring (/v1/logs/download). Same panel in every same-stack
-// app (the host mounts make_logs_router + installs the ring).
-import { onMounted, ref } from "vue";
+// Shared server-logs viewer (Logs phase, 2026-07-05 — "easier to read + clear/
+// delete + per-day + delete-all"). Live mode tails the in-memory ring
+// (/v1/logs/tail); the day picker reads a stored day's FILE (/v1/logs/day,
+// fuller than the ring). Lines are level-COLORED and filterable (group-aware:
+// a traceback's continuation lines stay with the error line that started them).
+// Clear empties the on-screen tail (the ring); Delete day / Delete all logs
+// remove stored files (kit confirmDialog — never native). Same panel in every
+// same-stack app; the host mounts make_logs_router + installs ring + file log.
+import { computed, onMounted, ref } from "vue";
 import { request, llmUiUrl } from "../client.js";
 import UiButton from "../common/components/UiButton.vue";
+import UiSelect from "../common/components/UiSelect.vue";
+import { confirmDialog } from "../common/services/dialog.js";
 
+const LIVE = "__live";
 const text = ref("");
 const loading = ref(false);
 const copied = ref(false);
+const busy = ref(""); // "" | clear | delete | deleteAll
+const err = ref("");
+const days = ref([]); // [{day, sizeKb, live}]
+const selected = ref(LIVE);
+const level = ref("all"); // all | warn | error
 
+const dayOptions = computed(() => [
+  { value: LIVE, label: "Live tail" },
+  ...days.value.map((d) => ({
+    value: d.day,
+    label: `${d.day}${d.live ? " (today)" : ""} · ${d.sizeKb} KB`,
+  })),
+]);
+const LEVEL_OPTIONS = [
+  { value: "all", label: "All levels" },
+  { value: "warn", label: "Warnings & errors" },
+  { value: "error", label: "Errors only" },
+];
+
+const LEVEL_RE = /\[(CRITICAL|ERROR|WARNING|INFO|DEBUG)\]/;
+function levelOf(line) {
+  const m = LEVEL_RE.exec(line);
+  return m ? m[1] : "";
+}
+// Group-aware rows: a line WITH a level token starts a group; continuation
+// lines (tracebacks, wrapped messages) inherit the group's level — so filtering
+// to "Errors only" keeps the whole traceback, not just its first line.
+const rows = computed(() => {
+  const out = [];
+  let current = "INFO";
+  for (const line of (text.value || "").split("\n")) {
+    const lv = levelOf(line);
+    if (lv) current = lv;
+    out.push({ line, level: current });
+  }
+  const min = level.value;
+  if (min === "all") return out;
+  const keep = min === "error" ? new Set(["ERROR", "CRITICAL"]) : new Set(["WARNING", "ERROR", "CRITICAL"]);
+  return out.filter((r) => keep.has(r.level));
+});
+function rowClass(r) {
+  if (r.level === "ERROR" || r.level === "CRITICAL") return "lu-logline--err";
+  if (r.level === "WARNING") return "lu-logline--warn";
+  if (r.level === "DEBUG") return "lu-logline--dim";
+  return "";
+}
+
+async function loadDays() {
+  try {
+    days.value = (await request("/v1/logs/days")).days || [];
+  } catch {
+    days.value = []; // day storage unavailable (ring-only host) — live tail still works
+  }
+}
 async function refresh() {
   loading.value = true;
+  err.value = "";
   try {
-    const r = await request("/v1/logs/tail?lines=200");
-    text.value = r.text || "";
+    if (selected.value === LIVE) {
+      const r = await request("/v1/logs/tail?lines=200");
+      text.value = r.text || "";
+    } else {
+      const r = await request(`/v1/logs/day?date=${encodeURIComponent(selected.value)}&lines=2000`);
+      text.value = r.text || "";
+    }
   } catch (e) {
-    text.value = `Couldn't load logs: ${e.message}`;
+    text.value = "";
+    err.value = `Couldn't load logs: ${e.message}`;
   } finally {
     loading.value = false;
   }
 }
+function onPickDay(v) {
+  selected.value = v;
+  refresh();
+}
 async function copyLogs() {
   try {
-    await navigator.clipboard.writeText(text.value);
+    await navigator.clipboard.writeText(rows.value.map((r) => r.line).join("\n"));
     copied.value = true;
     setTimeout(() => { copied.value = false; }, 1500);
   } catch { /* clipboard blocked — ignore */ }
 }
+async function clearTail() {
+  busy.value = "clear";
+  try {
+    await request("/v1/logs/clear", { method: "POST" });
+    await refresh();
+  } catch (e) { err.value = e.message || "Couldn't clear."; }
+  finally { busy.value = ""; }
+}
+async function deleteDay() {
+  const day = selected.value === LIVE ? days.value.find((d) => d.live)?.day : selected.value;
+  if (!day) return;
+  const ok = await confirmDialog({
+    title: "Delete this day's log?",
+    message: `The stored log for ${day} will be removed from disk. This can't be undone.`,
+    confirmLabel: "Delete day",
+    danger: true,
+  });
+  if (!ok) return;
+  busy.value = "delete";
+  try {
+    const r = await request(`/v1/logs/day?date=${encodeURIComponent(day)}`, { method: "DELETE" });
+    days.value = r.days || [];
+    if (selected.value !== LIVE && !days.value.some((d) => d.day === selected.value)) selected.value = LIVE;
+    await refresh();
+  } catch (e) { err.value = e.message || "Couldn't delete the day."; }
+  finally { busy.value = ""; }
+}
+async function deleteAll() {
+  const ok = await confirmDialog({
+    title: "Delete ALL logs?",
+    message: "Every stored day is removed from disk and the live tail is cleared. This can't be undone.",
+    confirmLabel: "Delete all logs",
+    danger: true,
+  });
+  if (!ok) return;
+  busy.value = "deleteAll";
+  try {
+    const r = await request("/v1/logs/all", { method: "DELETE" });
+    days.value = r.days || [];
+    selected.value = LIVE;
+    await refresh();
+  } catch (e) { err.value = e.message || "Couldn't delete the logs."; }
+  finally { busy.value = ""; }
+}
 
-onMounted(refresh);
+onMounted(() => {
+  loadDays();
+  refresh();
+});
 </script>
 
 <template>
   <div class="lu-logs">
     <div class="lu-logs-head">
       <span class="lu-pcard-title">Server logs</span>
-      <span class="lu-muted lu-logs-sub">Recent log lines — useful for diagnosing errors, model-load failures, and boot issues.</span>
+      <span class="lu-muted lu-logs-sub">Stored one file per day — pick a day, or watch the live tail.</span>
       <span class="lu-logs-spacer" />
+      <UiSelect :model-value="selected" :options="dayOptions" @update:model-value="onPickDay" />
+      <UiSelect v-model="level" :options="LEVEL_OPTIONS" />
       <UiButton intent="secondary" size="small" :loading="loading" @click="refresh">↻ Refresh</UiButton>
-      <UiButton intent="ghost" size="small" @click="copyLogs">{{ copied ? "Copied" : "Copy" }}</UiButton>
-      <a class="lu-logs-dl" :href="llmUiUrl('/v1/logs/download')" download>Download</a>
     </div>
-    <pre class="lu-logs-pre">{{ text || "No log lines yet." }}</pre>
+    <div class="lu-logs-head lu-logs-actions">
+      <span class="lu-muted lu-logs-sub"><b>Clear</b> empties the on-screen tail; <b>Delete</b> removes stored files.</span>
+      <span class="lu-logs-spacer" />
+      <UiButton intent="ghost" size="small" @click="copyLogs">{{ copied ? "Copied" : "Copy" }}</UiButton>
+      <a v-if="selected === LIVE" class="lu-logs-dl" :href="llmUiUrl('/v1/logs/download')" download>Download</a>
+      <UiButton v-if="selected === LIVE" intent="ghost" size="small" :loading="busy === 'clear'" @click="clearTail">Clear</UiButton>
+      <UiButton intent="danger" size="small" :loading="busy === 'delete'" title="Remove this day's stored log file" @click="deleteDay">Delete day</UiButton>
+      <UiButton intent="danger" size="small" :loading="busy === 'deleteAll'" title="Remove every stored log file + clear the tail" @click="deleteAll">Delete all logs</UiButton>
+    </div>
+    <div v-if="err" class="lu-error">{{ err }}</div>
+    <div class="lu-logs-pre" role="log">
+      <template v-if="rows.length && text">
+        <div v-for="(r, i) in rows" :key="i" class="lu-logline" :class="rowClass(r)">{{ r.line }}</div>
+      </template>
+      <div v-else class="lu-muted">{{ text ? "No lines match this filter." : "No log lines yet." }}</div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .lu-logs { display: flex; flex-direction: column; gap: 10px; }
-.lu-logs-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.lu-logs-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lu-logs-actions { margin-top: -4px; }
 .lu-logs-sub { font-size: 11.5px; }
 .lu-logs-spacer { flex: 1; }
 .lu-logs-dl { font-size: 12px; font-weight: 600; color: var(--accent-ink, var(--accent)); text-decoration: none; padding: 4px 6px; }
 .lu-logs-dl:hover { text-decoration: underline; }
 .lu-logs-pre {
-  margin: 0; white-space: pre-wrap; word-break: break-word;
-  font-family: var(--font-mono, monospace); font-size: 11.5px; line-height: 1.5;
+  margin: 0; font-family: var(--font-mono, monospace); font-size: 11.5px; line-height: 1.55;
   max-height: 460px; overflow: auto; background: var(--surface);
   border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--ink-2);
 }
+.lu-logline { white-space: pre-wrap; word-break: break-word; }
+.lu-logline--err { color: var(--danger-ink, #b42318); }
+.lu-logline--warn { color: var(--warning-ink, #b54708); }
+.lu-logline--dim { opacity: 0.6; }
 </style>

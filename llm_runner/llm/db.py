@@ -100,6 +100,11 @@ class ModelCatalog(LlmBase):
     # it is editable per-model; seeded from `license` at seed time (no hardcoded
     # runtime license rule — the keyword match is a one-time seed helper).
     use_limited = Column(Boolean, nullable=False, default=False)
+    # Is this an EMBEDDING model (builds the RAG / semantic-search index), not a chat LLM?
+    # Explicit editable flag — replaces the fragile `/embed/i` name guess (bge-m3 has no
+    # "embed" in its id). Drives the catalog Embedding badge + Set-as-embedding action + the
+    # QuickSetup embed picker; a user can mark their own added embed model. (model-surface)
+    embedding = Column(Boolean, nullable=False, default=False)
     # Embedding pooling type ("" | mean | cls | last | rank) — INTRINSIC per-model
     # (nomic=mean, qwen3-embedding=last). DB-stored per-model because a switch CANNOT do
     # per-model (switch_resolve layers only all/type/hardware); "" = let llama.cpp read the

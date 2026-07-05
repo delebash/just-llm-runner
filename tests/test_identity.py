@@ -49,7 +49,7 @@ def test_type_from_meta():
 
 
 def test_detect_flips_type_to_moe_and_keeps_built_in(configured):
-    mid = "qwen3.5-9b-q4_k_m"  # seeded type=dense, built_in=True
+    mid = "qwen3-14b-q4_k_m"  # seeded type=dense, built_in=True
     assert _row(mid).type == "dense"
     assert _row(mid).builtIn is True
     out = identity.detect_and_store_model_type(mid, "x.gguf", read_meta=lambda _p: _meta(128))
@@ -60,7 +60,7 @@ def test_detect_flips_type_to_moe_and_keeps_built_in(configured):
 
 
 def test_detect_dense_is_noop_when_already_dense(configured):
-    mid = "qwen3.5-9b-q4_k_m"
+    mid = "qwen3-14b-q4_k_m"
     out = identity.detect_and_store_model_type(mid, "x.gguf", read_meta=lambda _p: _meta(0))
     assert out == "dense"
     assert _row(mid).type == "dense"
@@ -94,7 +94,7 @@ def test_derived_total_params_from_size_label():
 
 
 def test_detect_writes_total_params_for_dense_only(configured):
-    mid = "qwen3.5-9b-q4_k_m"   # seeded total_params "9B"
+    mid = "qwen3-14b-q4_k_m"   # seeded total_params "14B"
     identity.detect_and_store_model_type(mid, "x.gguf", read_meta=lambda _p: _meta_full(size_label="27B"))
     assert _row(mid).totalParams == "27B"   # dense size_label overwrote the seed
     # a MoE-style label must NOT clobber the stored value (size_label isn't the total)
@@ -104,7 +104,7 @@ def test_detect_writes_total_params_for_dense_only(configured):
 
 
 def test_detect_stores_mtp_ctx_and_samplers(configured):
-    mid = "qwen3.5-9b-q4_k_m"  # seeded dense / built_in, no mtp / ctx / samplers
+    mid = "qwen3-14b-q4_k_m"  # seeded dense / built_in, no mtp / ctx / samplers
     out = identity.detect_and_store_model_type(
         mid, "x.gguf",
         read_meta=lambda _p: _meta_full(nextn=1, ctx=262144, sampling={"temp": 1.0, "top_k": 20}),
@@ -117,7 +117,7 @@ def test_detect_stores_mtp_ctx_and_samplers(configured):
 
 
 def test_detect_replaces_samplers_and_uses_fallback(configured):
-    mid = "qwen3.5-9b-q4_k_m"
+    mid = "qwen3-14b-q4_k_m"
     # 1) header ships samplers -> stored (canonicalized: temp→temperature)
     identity.detect_and_store_model_type(
         mid, "x.gguf", read_meta=lambda _p: _meta_full(sampling={"temp": 0.7}))
@@ -131,6 +131,19 @@ def test_detect_replaces_samplers_and_uses_fallback(configured):
     identity.detect_and_store_model_type(
         mid, "x.gguf", read_meta=lambda _p: _meta_full(sampling={}))
     assert _row(mid).samplers == {}
+
+
+def test_embedding_flag_seeded_on_embeds_not_llms(configured):
+    # model-surface: the catalog `embedding` flag is seeded True on every embed model and
+    # False on chat LLMs, and it threads through the store wire (_catalog_to_wire). The UI
+    # reads it for the Set-as-embedding action + the QuickSetup embed picker — replacing the
+    # fragile /embed/i name guess (bge-m3's id has no "embed" substring).
+    by_id = {r.id: r for r in stores.get_model_catalog_store().list()}
+    for embed in ("nomic-embed-text", "qwen3-embedding-0.6b", "bge-m3", "qwen3-embedding-8b"):
+        assert by_id[embed].embedding is True, embed
+    for llm in ("qwen3-8b-q4_k_m", "qwen3-32b-q4_k_m", "qwen3.6-35b-a3b-mtp", "glm-4.5-air"):
+        assert by_id[llm].embedding is False, llm
+    assert "embed" not in "bge-m3"  # classified by the flag, not the name regex
 
 
 def test_inspect_model_from_link(monkeypatch):

@@ -38,10 +38,11 @@ def test_moe_model_gets_moe_preset_not_auto_mtp(configured):
     assert sw["cache_type_k"] == "q8_0"
 
 
-def test_dense_mtp_model_no_longer_auto_drafts(configured):
-    # 27B-MTP is dense + mtp; after Phase 3 the auto-mtp layer is gone → NO spec flags in
-    # the resolved baseline (MTP is opt-in/measurable, default OFF via the knob).
-    sw = switch_resolve.resolve_model_switches("qwen3.6-27b-mtp-q4_k_m")
+def test_mtp_model_no_longer_auto_drafts(configured):
+    # 35B-A3B is mtp=True; after Phase 3 the auto-mtp layer is gone → NO spec flags in the
+    # resolved BASELINE (MTP is opt-in/measurable, default OFF via the knob; the hardware
+    # opt-in path is covered by test_moe_can_opt_into_draft_mtp_via_hardware below).
+    sw = switch_resolve.resolve_model_switches("qwen3.6-35b-a3b-mtp")
     assert "spec_type" not in sw
     assert "spec_n_max" not in sw
     assert sw["flash_attn"] == "on"        # base flags still apply
@@ -60,8 +61,8 @@ def test_moe_can_opt_into_draft_mtp_via_hardware(configured):
 
 
 def test_plain_dense_model_base_only(configured):
-    # 9B dense, no mtp → base preset only, no spec flags.
-    sw = switch_resolve.resolve_model_switches("qwen3.5-9b-q4_k_m")
+    # 8B dense, no mtp → base preset only, no spec flags.
+    sw = switch_resolve.resolve_model_switches("qwen3-8b-q4_k_m")
     assert sw["flash_attn"] == "on"
     assert sw["mlock"] == "true"
     assert "spec_type" not in sw

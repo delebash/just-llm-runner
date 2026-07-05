@@ -38,7 +38,7 @@ def _pid(resp, name):
 
 def test_preset_crud_roundtrip(client):
     r = client.post("/v1/ai/engine-presets", json={
-        "name": "Prose · Qwen-27B", "providerId": "llamacpp", "model": "qwen3.6-27b",
+        "name": "Prose · Qwen-14B", "providerId": "llamacpp", "model": "qwen3-14b-q4_k_m",
         "temperature": 0.9, "maxTokens": 2048, "nCpuMoeOverride": 28,
         "switches": [{"flagName": "flash_attn", "flagValue": "on"}],
         "samplers": [{"flagName": "top_k", "flagValue": "40"}],
@@ -47,7 +47,7 @@ def test_preset_crud_roundtrip(client):
     presets = r.json()["presets"]
     assert len(presets) == 1
     p = presets[0]
-    assert p["id"] and p["model"] == "qwen3.6-27b" and p["temperature"] == 0.9
+    assert p["id"] and p["model"] == "qwen3-14b-q4_k_m" and p["temperature"] == 0.9
     assert p["nCpuMoeOverride"] == 28 and p["nglOverride"] is None  # set wins, unset stays auto (null)
     assert p["switches"][0]["flagName"] == "flash_attn"
     assert p["samplers"][0]["flagName"] == "top_k"
@@ -55,7 +55,7 @@ def test_preset_crud_roundtrip(client):
 
     # update replaces the children (frozen switches + sampler tail)
     r = client.put(f"/v1/ai/engine-presets/{pid}", json={
-        "name": "Prose · Qwen-27B", "providerId": "llamacpp", "model": "qwen3.6-27b",
+        "name": "Prose · Qwen-14B", "providerId": "llamacpp", "model": "qwen3-14b-q4_k_m",
         "temperature": 0.8, "switches": [], "samplers": [{"flagName": "min_p", "flagValue": "0.05"}],
     })
     p = r.json()["presets"][0]

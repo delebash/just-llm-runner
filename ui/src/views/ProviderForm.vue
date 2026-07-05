@@ -16,6 +16,7 @@ import LuRunnerEngine from "../components/LuRunnerEngine.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
 import { request } from "../client.js";
+import { PROVIDER_PRESETS, probeModels, createProvider } from "../common/composables/useProviderConnect.js";
 
 const props = defineProps({
   provider: { type: Object, default: null }, // null = adding new
@@ -51,16 +52,9 @@ const PROVIDER_TYPES = [
 ];
 const WHERE = [{ value: true, label: "Local · free" }, { value: false, label: "Online · metered" }];
 
-// presets — fill URL + type + where-it-runs from a known provider
-const PRESETS = [
-  ["Local engine", "http://localhost:8080/v1", "openai-compat", true],
-  ["Ollama", "http://localhost:11434", "ollama", true],
-  ["LM Studio", "http://localhost:1234/v1", "openai-compat", true],
-  ["OpenAI", "https://api.openai.com/v1", "openai", false],
-  ["Anthropic", "https://api.anthropic.com", "anthropic", false],
-  ["Gemini", "https://generativelanguage.googleapis.com", "gemini", false],
-  ["OpenRouter", "https://openrouter.ai/api/v1", "openai-compat", false],
-];
+// presets — fill URL + type + where-it-runs from a known provider (shared with QuickSetup
+// via useProviderConnect — one source, no drift).
+const PRESETS = PROVIDER_PRESETS;
 function applyPreset([name, url, type, isLocal]) {
   if (!draft.name) draft.name = name;
   draft.baseUrl = url;
@@ -80,15 +74,7 @@ async function fetchModels() {
   fetching.value = true;
   probeMsg.value = "";
   try {
-    const r = await request("/v1/llm-providers/probe-models", {
-      method: "POST",
-      body: {
-        providerType: draft.providerType,
-        baseUrl: draft.baseUrl,
-        apiKey: draft.apiKey || null,
-        defaultModel: draft.defaultModel,
-      },
-    });
+    const r = await probeModels({ providerType: draft.providerType, baseUrl: draft.baseUrl, apiKey: draft.apiKey, defaultModel: draft.defaultModel });
     fetched.value = r.models || [];
     if (!fetched.value.length) probeMsg.value = r.error || "No models returned — check the URL / key / that a model is loaded.";
   } catch (e) {
@@ -102,10 +88,7 @@ const testMsg = ref("");
 async function testConnection() {
   testMsg.value = "Testing…";
   try {
-    const r = await request("/v1/llm-providers/probe-models", {
-      method: "POST",
-      body: { providerType: draft.providerType, baseUrl: draft.baseUrl, apiKey: draft.apiKey || null },
-    });
+    const r = await probeModels({ providerType: draft.providerType, baseUrl: draft.baseUrl, apiKey: draft.apiKey });
     testMsg.value = (r.models && r.models.length)
       ? `✓ connected — ${r.models.length} models`
       : `✗ ${r.error || "reachable, but no models listed"}`;
@@ -130,7 +113,7 @@ async function save() {
     apiKey: local.value ? null : (draft.apiKey || (isNew.value ? null : "")),
   };
   try {
-    if (isNew.value) await request("/v1/llm-providers", { method: "POST", body });
+    if (isNew.value) await createProvider(body);
     else await request(`/v1/llm-providers/${encodeURIComponent(props.provider.id)}`, { method: "PATCH", body });
     emit("saved");
   } catch (e) {

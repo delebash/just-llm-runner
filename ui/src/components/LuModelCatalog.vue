@@ -1,11 +1,11 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The bundled-runner model catalog — mounted under Providers → Built-in (next to the
-// Local engine panel). INSTALLED-FIRST: "Your models" lists what's downloaded (empty on
-// a fresh install); "Browse catalog" reveals the rest of the seeded set to download +
-// Add-your-own-GGUF. Each row shows a hardware Fit estimate + on-disk/loaded status,
-// loads/unloads, and manages catalog rows (Add · Edit · Delete · Reset). The live model
-// state + load/download + the Tune modal are SHARED (useRunnerModels / TuneMeasureModal).
+// Local engine panel). ONE fit-grouped list (fitting → divider → non-fitting) with
+// search + sort + Add-your-own-GGUF. Each row shows a hardware Fit estimate +
+// on-disk/loaded status with Download / Set-as-default / Set-as-embedding actions, and
+// manages catalog rows (Add · Edit · Delete · Reset). The live model state + download
+// progress are SHARED (useRunnerModels); per-model tuning is TuneMeasureModal.
 //
 // Scope: this catalog backs the BUNDLED runner only — the one provider with a manifest +
 // VRAM-fit + HF-GGUF download/spawn lifecycle (/v1/llm-runner/*). Ollama / LM Studio

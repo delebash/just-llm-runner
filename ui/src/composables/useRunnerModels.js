@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Shared runner-models state: ONE source of the /v1/llm-runner/models catalog list + its
-// LIVE load/download status, consumed by the model catalog + the Tune modal so there is
+// LIVE load/download status, consumed by the model catalog so there is
 // ONE poller and ONE status truth (no
 // double-fetch, no drift). A module singleton — the modelDefaults.js / dialog.js
 // precedent — NOT a per-component ref.
@@ -21,7 +21,7 @@ const detail = ref(""); // live status phase while a model is loading
 const downloaded = ref(0); // live bytes of the in-flight load (progress bar)
 const total = ref(0); // total bytes of the current phase (0 = unknown → indeterminate)
 const loadErr = ref(""); // the actual server error message when a load fails
-const loadingId = ref(""); // model id whose load/unload is in flight (button feedback)
+const loadingId = ref(""); // model id whose download is in flight (button feedback)
 
 export const models = computed(() => data.value?.models || []);
 export const vramMb = computed(() => data.value?.vramMb || 0);
@@ -100,32 +100,10 @@ export async function refresh() {
   }
 }
 
-export async function load(modelId) {
-  loadingId.value = modelId;
-  try {
-    await request("/v1/llm-runner/load", { method: "POST", body: { modelId } });
-    await refresh();
-  } catch (e) {
-    error.value = e.message || "Load failed.";
-  } finally {
-    loadingId.value = "";
-  }
-}
-
-export async function unload() {
-  loadingId.value = "stop";
-  try {
-    await request("/v1/llm-runner/stop", { method: "POST" });
-    await refresh();
-  } catch (e) {
-    error.value = e.message || "Unload failed.";
-  } finally {
-    loadingId.value = "";
-  }
-}
-
-// Download the weights ONLY (no spawn) — the catalog's "Download" action, distinct
-// from load(). The model then reports as on-disk ('disk'); loading it is a separate step.
+// Download the weights ONLY (no spawn) — the catalog's "Download" action. The model then
+// reports as on-disk ('disk'); loading happens on use (a feature run, or QuickSetup's
+// apply driving /v1/llm-runner/load itself), never from the catalog. The catalog's old
+// load()/unload() exports died with their buttons (model-surface Phase 2; pruned at C7).
 export async function download(modelId) {
   loadingId.value = modelId;
   try {
@@ -141,7 +119,7 @@ export async function download(modelId) {
 let kicked = false;
 
 /** The shared runner-models state. Every consumer gets the SAME refs; the first
- *  consumer kicks the initial fetch. `refresh`/`load`/`unload` mutate the shared state. */
+ *  consumer kicks the initial fetch. `refresh`/`download` mutate the shared state. */
 export function useRunnerModels() {
   if (!kicked) {
     kicked = true;
@@ -150,6 +128,6 @@ export function useRunnerModels() {
   return {
     models, vramMb, loading, error, detail, downloaded, total, loadErr, loadingId,
     anyLoading, anyError, needsEngine, progressLabel, fmtBytes, FIT_LABEL,
-    refresh, load, unload, download,
+    refresh, download,
   };
 }

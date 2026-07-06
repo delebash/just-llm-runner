@@ -341,7 +341,7 @@ GGUF plan's cross-reference. Commit per-repo on `claude/admiring-galileo-il3q0o`
 - **#9 freshness** — seed-only now; remote curated manifest is a later product decision.
 - **Phase D → option D** — evolve to "model lives once + per-task presets inherit" (noted in Phase D);
   a future refactor, not this build.
-- **Phase D → toggle** — optional QuickSetup "also use the fast 9B for quick tasks"; agent lean = skip.
+- **Phase D → toggle** — optional QuickSetup "also use the fast 9B for quick tasks"; agent lean = skip. **✅ DECIDED NO (user, 2026-07-06: "no 9b quick setup") — dropped, do not build; the 2026-07-06 design-doc audit surfaced this as never-user-decided and the user closed it.**
 - **Re-confirm #7** — collapse vs keep-per-task, if "go" was meant only as "save the ledger."
 
 ## Out of scope

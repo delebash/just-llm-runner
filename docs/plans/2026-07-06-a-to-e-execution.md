@@ -1207,3 +1207,64 @@ behavior change.
 
 **Consequence recorded at C5 now real:** `useProviderModels.js` → `listModels` is a clean llm→llm
 edge (`./useProviderConnect.js`); the C5 honesty note is retired in the file itself.
+
+## C7 — prune the dead useRunnerModels.load()/unload() exports (filed by the design-doc audit; user's go: 2026-07-06, "do c7")
+
+**STATUS: ✅ SHIPPED + VERIFIED (2026-07-06; implemented exactly as the design below).**
+
+### C7 design + grounding
+
+The ledger C7 entry carries the full case (dead since model-surface Phase 2 removed the catalog
+Load/Unload buttons; the recap's deferred-prune condition — "until the residency/4b surface is
+finalized" — was fulfilled when §H6 closed-dropped 4b; verified dead again this session). Fresh
+grounding for the cut itself:
+- `LuModelCatalog.vue:34-36` destructures `models, vramMb, loading, error, downloaded, total,
+  loadErr, loadingId, needsEngine, progressLabel, fmtBytes, FIT_LABEL, refresh, download` — NOT
+  `load`/`unload` — so no consumer edit is needed beyond comments.
+- `TuneMeasureModal.vue` does not import `useRunnerModels` AT ALL (grep — its imports are
+  labHandoff/AppModal/UiButton/UiTag) — the "consumed by the model catalog + the Tune modal" claim
+  in `useRunnerModels.js:3-4` is comment drift; fixed to truth in the same cut.
+- The cut: delete `load()` (:103-113) + `unload()` (:115-125) + both names from the return object +
+  the `refresh`/`load`/`unload` JSDoc line; retarget the `loadingId` comment (only `download()` sets
+  it now) and the `download()` header comment ("distinct from load()" — loading now happens on use:
+  a feature run or QuickSetup's apply at `QuickSetup.vue:372`, never from the catalog). KEEPS:
+  `loadErr`/`needsEngine` (fed by the status poll in `refresh()`, they back the catalog's
+  install-engine CTA at `LuModelCatalog.vue:398-399`) and the poller/download machinery untouched.
+- `LuModelCatalog.vue:3-8` header rewritten to the shipped truth: the INSTALLED-FIRST/"Browse
+  catalog" framing died in model-surface Phase 2 (one fit-grouped list + search/sort now) and
+  "loads/unloads" describes the removed buttons — both stale in one paragraph, both fixed.
+- Bundled into the same series at the user's word ("no 9b quick setup"): the never-decided
+  fast-9B QuickSetup optional is now **DECIDED NO** — annotated where it lives
+  (`2026-07-03-model-setup-simplification.md` §Open items) so it cannot resurface as open.
+
+**Verify plan:** build:vite · vitest (29/29 expected — no test touches these) · the FULL headless
+smoke (renderer-gate rule for any kit change) · greps: no `\bload\(`/`\bunload\(` references to the
+composable's exports anywhere (the other `load(` hits are unrelated local helpers, listed in the
+audit) · diff rules-checker → commit + push → flip the ledger C7 line + recap clause.
+
+### C7 implementation + verification record (2026-07-06)
+
+Implemented exactly as designed: `load()` + `unload()` deleted from
+`ui/src/composables/useRunnerModels.js` along with their return-object entries and the
+`refresh`/`load`/`unload` JSDoc line (now `refresh`/`download`); the `loadingId` comment retargeted
+to download-only; the `download()` header comment now records where loading actually happens (a
+feature run, or QuickSetup's own `/v1/llm-runner/load` call) and why the exports died; the stale
+"consumed by … + the Tune modal" header claim fixed (TuneMeasureModal verified non-importing). The
+`loadErr`/`needsEngine`/poller/download machinery is untouched — a strict-diff of the file shows
+only the two function deletions + the return-list line + four comment lines. `LuModelCatalog.vue`'s
+header rewritten to the shipped truth (fit-grouped list + Download / Set-as-default /
+Set-as-embedding; the INSTALLED-FIRST/"Browse catalog"/loads-unloads prose all described the
+pre-Phase-2 UI); its destructure needed no change (it never pulled `load`/`unload` — grounded
+pre-cut at :34-36). Bundled decision record: the fast-9B QuickSetup optional is **DECIDED NO**
+(user, "no 9b quick setup") — annotated on its own open-item line in
+`2026-07-03-model-setup-simplification.md:344` so it can never resurface as open.
+
+**Verified (all green):** `npm run build:vite` clean · vitest **29/29** · the FULL headless smoke —
+ALL routes + AI sub-tabs, ZERO JS errors, `provider-form` probe green (it mounts LuModelCatalog,
+the touched consumer) · residual grep: zero references to the deleted exports anywhere in `ui/src`
+(the only remaining `useRunnerModels()` call is LuModelCatalog's destructure, which never named
+them) · the served-module check (the running Vite dev transform contains the C7 marker and no
+`export async function load(`) proved the smoke exercised the pruned code. Harness note: the smoke
+reused the still-running Vite instance from the C6 round (an earlier pkill pattern missed it; the
+new spawn exited on the taken port) — safe because Vite dev serves watcher-fresh source from disk,
+and the served-module check above proved it.

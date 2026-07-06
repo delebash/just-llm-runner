@@ -21,7 +21,7 @@
 //
 // JustWrite mounts this kit view; JustVoice has its own (TTS) setup wizard. It replaces the
 // old jobs-based wiring (/v1/ai/jobs + a routing `jobs` map — both retired with taskKinds).
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 
 import { request } from "../client.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
@@ -406,6 +406,45 @@ async function pollLoad() {
   }
 }
 
+// ── Optimize for this PC (2026-07-06): the fire-and-forget consumer of the
+// auto-tune job. Same server-side sweep the Tune modal drives, but with
+// save:true — the winner is persisted as this machine's tune automatically
+// (the QuickSetup audience won't open the Tune modal to review knobs; the
+// measured delta is what turns "runs" into "runs fast": 8.6× TTFT on the
+// reference box). Optional + skippable: it monopolizes the GPU for ~3–5 min;
+// the job keeps running server-side if the wizard closes.
+const optState = ref(null); // null (not started) | the GET payload
+let optTimer = null;
+const optRunning = computed(() => optState.value?.status === "running");
+
+function stopOptPoll() {
+  if (optTimer) { clearInterval(optTimer); optTimer = null; }
+}
+async function pollOptimize() {
+  try {
+    const st = await request("/v1/llm-runner/auto-tune");
+    optState.value = st;
+    if (st.status !== "running") stopOptPoll();
+  } catch {
+    stopOptPoll(); // transient — the block's retry button re-arms
+  }
+}
+async function startOptimize() {
+  try {
+    const st = await request("/v1/llm-runner/auto-tune", {
+      method: "POST",
+      body: { modelId: pick.value.default, save: true },
+    });
+    if (st.ok === false) throw new Error(st.error || "Auto-tune is busy.");
+    optState.value = st;
+    stopOptPoll();
+    optTimer = setInterval(pollOptimize, 2000);
+  } catch (e) {
+    optState.value = { status: "error", error: e.message || "Couldn't start optimizing." };
+  }
+}
+onBeforeUnmount(stopOptPoll);
+
 defineExpose({ openWizard });
 </script>
 
@@ -546,6 +585,33 @@ defineExpose({ openWizard });
           <li v-else>Default · <code>{{ (selectedProvider ? selectedProvider.name : runWith) }} · {{ providerModel }}</code></li>
           <li v-if="pick.embeddingModel">Embedding · <code>{{ embedName }}</code></li>
         </ul>
+
+        <div v-if="isBundled && pick.default" class="lu-qs-opt">
+          <template v-if="!optState">
+            <UiButton intent="secondary" size="small" @click="startOptimize">Optimize for this PC (~4 min)</UiButton>
+            <span class="lu-muted">Optional: runs a short measured sweep and saves the fastest
+              launch settings for this machine — often several times faster to first token.</span>
+          </template>
+          <template v-else-if="optRunning">
+            <span class="lu-qs-opt-status">Optimizing — {{ optState.detail || "measuring…" }}
+              <template v-if="optState.trials?.length"> ({{ optState.trials.length }} trial{{ optState.trials.length === 1 ? "" : "s" }} done)</template>
+            </span>
+            <span class="lu-muted">You can close this — it finishes in the background.</span>
+          </template>
+          <template v-else-if="optState.status === 'done' && optState.best">
+            <span class="lu-qs-opt-ok">Optimized ✓ {{ optState.best.tokensPerSec }} tok/s —
+              {{ optState.saved ? "saved for this machine." : "save failed — open Tune & measure to save it." }}</span>
+          </template>
+          <template v-else-if="optState.status === 'cancelled'">
+            <span class="lu-muted">Optimize cancelled.</span>
+            <UiButton intent="ghost" size="small" @click="startOptimize">Try again</UiButton>
+          </template>
+          <template v-else>
+            <span class="lu-error">{{ optState.error || "Optimize failed." }}</span>
+            <UiButton intent="ghost" size="small" @click="startOptimize">Try again</UiButton>
+          </template>
+        </div>
+
         <p class="lu-muted">Change the model for any single task on the Tasks tab.</p>
       </template>
 
@@ -604,6 +670,9 @@ defineExpose({ openWizard });
 .lu-qs-cloudkey > :first-child { flex: 1; min-width: 0; }
 .lu-qs-applying { font-size: 13px; }
 .lu-qs-summary { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
+.lu-qs-opt { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin: 10px 0; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); font-size: 12px; }
+.lu-qs-opt-status { font-size: 12.5px; color: var(--ink-2); }
+.lu-qs-opt-ok { font-size: 12.5px; color: var(--accent-ink, var(--accent)); font-weight: 600; }
 .lu-qs-spacer { flex: 1; }
 .lu-fit { display: inline-flex; align-items: center; border-radius: 999px; padding: 1px 8px; font-size: 10.5px; font-weight: 700; border: 1px solid var(--border-strong); color: var(--ink-2); flex: none; }
 .lu-fit--ok { background: var(--accent-soft); border-color: var(--accent-line, var(--accent)); color: var(--accent-ink, var(--accent)); }

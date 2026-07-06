@@ -11,7 +11,7 @@
 // saved tune" (DELETE) returns the model to the layered defaults. Send-to-Tasks-Lab
 // stays the separate per-TASK depth. Self-contained (loads its own knob catalog);
 // mount behind v-if with a :model and listen for @close.
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { request } from "../client.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
@@ -193,11 +193,75 @@ async function runMeasure() {
   }
 }
 
+// ── Auto-tune (2026-07-06): the server-side measured sweep — a short sequence of
+// real load→measure trials (batch 512/512 vs baseline, then n-cpu-moe around the
+// anchor) run as ONE job (POST /v1/llm-runner/auto-tune; embed co-resident so the
+// floor is production-true). The modal POLLS the job, narrates each trial, and on
+// completion FILLS THE GRID with the winner — nothing auto-saves here: review,
+// tweak if you like, then Save tune (the human stays in the loop; QuickSetup's
+// save-on-done variant passes save:true instead).
+const autoState = ref(null); // the GET payload: {status, detail, trials, best, error}
+let autoTimer = null;
+const autoRunning = computed(() => autoState.value?.status === "running");
+const autoTrials = computed(() => autoState.value?.trials || []);
+
+function stopAutoPoll() {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+}
+function switchesToRows(switches) {
+  return Object.entries(switches || {}).map(([name, value]) => ({ name, value: String(value ?? "") }));
+}
+async function pollAutoTune() {
+  try {
+    const st = await request("/v1/llm-runner/auto-tune");
+    autoState.value = st;
+    if (st.status === "running") return;
+    stopAutoPoll();
+    if (st.status === "done" && st.best) {
+      tuneRows.value = switchesToRows(st.best.switches);
+      tuneResult.value = {
+        tokensPerSec: st.best.tokensPerSec, completionTokens: null, ms: null,
+        vramTotalMb: st.best.vramTotalMb, ramTotalMb: null,
+      };
+      tunePhase.value = "done";
+    } else if (st.status === "error") {
+      tuneErr.value = st.error || "Auto-tune failed.";
+      tunePhase.value = "error";
+    }
+  } catch (e) {
+    stopAutoPoll();
+    autoState.value = null;
+    tuneErr.value = e.message || "Auto-tune polling failed.";
+  }
+}
+async function runAutoTune() {
+  tuneErr.value = "";
+  tuneResult.value = null;
+  try {
+    const st = await request("/v1/llm-runner/auto-tune", {
+      method: "POST",
+      body: { modelId: props.model.id },
+    });
+    if (st.ok === false) throw new Error(st.error || "Auto-tune is busy.");
+    autoState.value = st;
+    stopAutoPoll();
+    autoTimer = setInterval(pollAutoTune, 2000);
+  } catch (e) {
+    tuneErr.value = e.message || "Couldn't start auto-tune.";
+  }
+}
+async function cancelAutoTune() {
+  try {
+    await request("/v1/llm-runner/auto-tune/cancel", { method: "POST" });
+  } catch { /* the poll surfaces the final state either way */ }
+}
+
 onMounted(() => {
   loadKnobCatalog();
   startTune();
   loadSavedTune();
 });
+onBeforeUnmount(stopAutoPoll);
 </script>
 
 <template>
@@ -238,6 +302,20 @@ onMounted(() => {
       <div v-if="tunePhase === 'loading'" class="lu-tune-status">Loading… {{ tuneDetail }}</div>
       <div v-else-if="tunePhase === 'measuring'" class="lu-tune-status">Measuring decode speed…</div>
 
+      <div v-if="autoRunning || (autoTrials.length && autoState?.status !== 'done')" class="lu-tune-status">
+        Auto-tuning — {{ autoState?.detail || "working…" }}
+      </div>
+      <div v-if="autoTrials.length" class="lu-tune-trials lu-muted">
+        <span v-for="t in autoTrials" :key="t.label" class="lu-tune-trial"
+          :class="{ 'lu-tune-trial-bad': !t.ok }"
+          :title="t.ok ? `${t.tokensPerSec} tok/s` : t.error">
+          {{ t.label }}: {{ t.ok ? `${t.tokensPerSec} tok/s` : "✗" }}
+        </span>
+        <span v-if="autoState?.status === 'done' && autoState?.best" class="lu-tune-trial lu-tune-trial-win">
+          winner → grid (review, then Save tune)
+        </span>
+      </div>
+
       <div v-if="tuneResult" class="lu-tune-result">
         <div class="lu-tune-tps"><b>{{ tuneResult.tokensPerSec }}</b> tok/s</div>
         <div class="lu-tune-meta">
@@ -253,10 +331,16 @@ onMounted(() => {
     <template #footer>
       <UiButton intent="ghost" @click="emit('close')">Close</UiButton>
       <span class="lu-tmm-spacer" />
-      <UiButton intent="success" :loading="saveState === 'saving'"
+      <UiButton v-if="!autoRunning" intent="secondary" :disabled="tuneBusy"
+        title="Run a short measured sweep (batch + expert-offload candidates, ~3–5 min) and fill the grid with the fastest config — review, then Save tune"
+        @click="runAutoTune">Auto-tune</UiButton>
+      <UiButton v-else intent="danger"
+        title="Stop after the current trial finishes"
+        @click="cancelAutoTune">Cancel auto-tune</UiButton>
+      <UiButton intent="success" :loading="saveState === 'saving'" :disabled="autoRunning"
         title="Keep this config for this model on this machine — every load here uses it"
         @click="saveTune">Save tune</UiButton>
-      <UiButton intent="primary" :loading="tuneBusy" @click="runMeasure">
+      <UiButton intent="primary" :loading="tuneBusy" :disabled="autoRunning" @click="runMeasure">
         {{ tuneResult ? "Measure again" : "Load & measure" }}
       </UiButton>
     </template>
@@ -275,5 +359,9 @@ onMounted(() => {
 .lu-tune-tps b { font-size: 22px; color: var(--accent-ink, var(--accent)); font-weight: 800; }
 .lu-tune-meta { font-size: 11.5px; color: var(--ink-2); margin-top: 3px; }
 .lu-tune-cpu { font-size: 11px; margin-top: 3px; }
+.lu-tune-trials { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; }
+.lu-tune-trial { padding: 2px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; }
+.lu-tune-trial-bad { opacity: 0.6; text-decoration: line-through; }
+.lu-tune-trial-win { border-color: var(--accent-line, var(--accent)); background: var(--accent-soft); color: var(--accent-ink, var(--accent)); }
 .lu-tmm-spacer { flex: 1; }
 </style>

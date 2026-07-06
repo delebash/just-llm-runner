@@ -517,6 +517,28 @@ class RunnerService:
                 self._last_id = ""
         return self.status()
 
+    def preview_fit(self, model_id: str, switches: dict[str, str] | None = None) -> dict:
+        """Pure fit PREVIEW for a CACHED model: block count / MoE-ness + the computed
+        layer split for the given switches — no download, no spawn. The auto-tune
+        sweep anchors its n-cpu-moe candidates on this (falling back to it when no
+        tune pins the value). Errors soft: unknown / not-downloaded → ok:False."""
+        model = next((m for m in self.catalog() if m.id == model_id), None)
+        if model is None:
+            return {"ok": False, "error": f"unknown model: {model_id}"}
+        gguf = cached_gguf_path(model.hf_repo, model.quant,
+                                cache_root=self._cache_root / "hf", mmproj=model.mmproj)
+        if gguf is None:
+            return {"ok": False, "error": "model not downloaded"}
+        try:
+            ov = _switches_to_overrides(dict(switches) if switches else (self._switches_fn(model_id) or {}))
+            meta = self._read_meta(gguf)
+            f = compute_fit(meta, gguf.stat().st_size, self._hardware_fn(), ov,
+                            safety_margin_mb=self._config_fn().safety_margin_mb)
+        except Exception as exc:  # noqa: BLE001 — a preview must never raise into the sweep
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "blockCount": f.block_count, "isMoe": f.is_moe,
+                "nGpuLayers": f.n_gpu_layers, "nCpuMoe": f.n_cpu_moe, "ctxLen": f.ctx_len}
+
     def measure(
         self, *, prompt: str = "Write one vivid paragraph about the sea.",
         max_tokens: int = 128, probe=None, sample=None, model_id: str | None = None,

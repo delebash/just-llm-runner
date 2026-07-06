@@ -162,6 +162,24 @@ def install_llm(
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
     app.include_router(make_model_tunes_router(stores.get_model_tune_store, _current_hw_key))
     app.include_router(make_feature_samplers_router(stores.get_feature_sampler_store))
+
+    # Auto-tune (2026-07-06): the runner drives the measured sweep; the llm layer
+    # supplies switch resolution + tune persistence via the same DI seam as the
+    # catalog router. `save_tune` writes the winner VERBATIM as this machine's
+    # tune (identical semantics to the Tune modal's Save — the QuickSetup
+    # save-on-done path rides it).
+    def _save_tune(model_id: str, switches: dict) -> None:
+        from .model_tunes_api import ModelTuneFlag
+
+        rows = [ModelTuneFlag(flagName=k, flagValue=str(v)) for k, v in sorted(switches.items())]
+        stores.get_model_tune_store().replace(model_id, _current_hw_key(), rows)
+
+    from ..runner.autotune import make_autotune_router
+
+    app.include_router(make_autotune_router(
+        lambda mid: switch_resolve.resolve_model_switches(mid, _current_hw_key()),
+        _save_tune,
+    ))
     # 6. point the bundled runner's catalog/switches at the shared DB.
     if runner_catalog:
         _wire_runner_catalog(data_dir)

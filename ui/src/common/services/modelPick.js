@@ -91,3 +91,23 @@ export function pickLowestQuality(models, { qualityOf }) {
     return (FIT_RANK[a.fit] ?? 9) - (FIT_RANK[b.fit] ?? 9); // tie-break: better fit
   })[0].id;
 }
+
+/**
+ * The ONE composed auto-pick rule — QuickSetup's pick AND the catalog's
+ * "Recommended for this PC" badge call THIS (one source, no drift; extracted
+ * 2026-07-06, providers-surface redesign item 2): the class→model map is
+ * consulted FIRST (largest minVramMb <= this box's VRAM whose model exists +
+ * fits), no matching row → the §10 speed-floor rule (pickBestModel).
+ * @param {Array}  models  catalog rows ([{id, fit, …}])
+ * @param {Object} opts    { classPicks, vramMb, byId: {id → row},
+ *                           typeOf, qualityOf, isEmbed, isUseLimited }
+ * @returns {string} the recommended model's id, or "" when nothing fits.
+ */
+export function recommendedModelId(models, { classPicks, vramMb, byId, typeOf, qualityOf, isEmbed, isUseLimited }) {
+  const mapped = pickByClassMap(classPicks || [], vramMb || 0, {
+    exists: (id) => !!byId[id],
+    fits: (id) => FIT_RUNNABLE.has(byId[id]?.fit),
+  });
+  if (mapped) return mapped;
+  return pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited });
+}

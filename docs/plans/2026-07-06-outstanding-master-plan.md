@@ -73,21 +73,18 @@
   writing-use-case candidates. THE CANDIDATE LIST so far:
   1. **Gryphe/Gemma-4-26B-A4B-StyleTune-V2** (carried from the 2026-07-06 five-model scoring — the
      one credible candidate; maker-reputation + license + EQ-Bench-creative + Lab A/B).
-  2. **unsloth/gemma-4-31B-it-qat-GGUF** — Gemma 4 **31B DENSE** QAT (user: "if the 31b fits ok we
-     should add it"). Facts seen on the TurboLLM/HF surfaces, RE-VERIFY via the HF API at research:
-     31B dense · 262144 ctx · Q4_K_M ≈ 18.7 GB · vision mmproj · an MTP draft exists for the family
-     (the HauhauCS cards credit Unsloth's `mtp-gemma-4-31B-it.gguf`, ≈ 280 MB). FIT REALITY,
-     answering the user's conditional: ~19 GB of DENSE weights does NOT meaningfully fit an 8 GB
-     card (no expert-offload trick — dense spill is the slow case the §10 pick rule excludes); this
-     is 24 GB-class (16 GB tight) map content — exactly what the class→model map exists to express.
-  3. **HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP** +
-     **HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP** — refusal-ablated builds the user
-     wants evaluated **for fiction writers** (stock refusal behavior blocking dark/violent/romance
-     prose is a real writing-app failure). Card facts to re-verify per-repo: QAT Q4_K_M only
-     (16.8 / 18.7 GB), in-repo MTP drafts (252 / 280 MB; claimed ~35% / ~53% faster with identical
-     output), vision mmproj, maker-recommended sampling (temp 0.6 · top_k 64 · top_p 0.9 ·
-     min_p 0.05 · repeat_penalty 1.1 — seedable `model_samplers` rows if adopted), author-claimed
-     clean refusal benchmarks (updated Jun 24 2026; 55.3K / 46.4K downloads).
+  2. **HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP** — the refusal-ablated
+     26B-A4B build the user wants evaluated **for fiction writers** (stock refusal behavior
+     blocking dark/violent/romance prose is a real writing-app failure). Card facts to re-verify
+     per-repo at research: QAT Q4_K_M ≈ 16.8 GB, in-repo MTP draft (252 MB; claimed ~35% faster
+     with identical output), vision mmproj, maker-recommended sampling (temp 0.6 · top_k 64 ·
+     top_p 0.9 · min_p 0.05 · repeat_penalty 1.1 — seedable `model_samplers` rows if adopted),
+     author-claimed clean refusal benchmarks (updated Jun 24 2026; 55.3K downloads).
+  **TRIMMED 2026-07-06 (user: "keep gryphe and abliterateed huahau 27b")** — the list is now the
+  two candidates above; **DROPPED**: unsloth/gemma-4-31B-it-qat-GGUF (31B dense, 24 GB-class) and
+  HauhauCS/Gemma4-31B-QAT-Uncensored (its ablated sibling). ⚠ Interpretation note: the user wrote
+  "huahau 27b" — no 27B exists in the set; read as the **26B-A4B** ablated build (the user calls
+  their 26B-A4B daily driver "27b"). If the 31B was meant instead, say so and this flips.
   GUARDRAILS (the recorded pushback stands): community fine-tunes/ablations NEVER seed as DEFAULTS
   without maker-reputation + first-party-verified license + an instrument or Lab win; catalog
   INCLUSION and default-ELIGIBILITY are separate calls; the license of every candidate is checked

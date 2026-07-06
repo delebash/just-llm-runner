@@ -16,7 +16,7 @@ import { request } from "../client.js";
 import { useRunnerModels } from "../composables/useRunnerModels.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { useModelApply } from "../services/modelApply.js";
-import { FIT_RUNNABLE } from "../common/services/modelPick.js";
+import { FIT_RUNNABLE, recommendedModelId } from "../common/services/modelPick.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -40,8 +40,11 @@ const {
 // installed-first "Your models / Browse catalog" toggle).
 const query = ref("");
 const sortBy = ref("quality");
+// "Benchmark score", not "Quality" (user, 2026-07-06): quality_rank orders by PUBLISHED
+// GENERAL-purpose benchmarks — it measures neither creative writing nor this machine.
+// The honest per-box answer is the "Recommended for this PC" badge below.
 const SORT_OPTIONS = [
-  { value: "quality", label: "Sort: Quality" },
+  { value: "quality", label: "Sort: Benchmark score" },
   { value: "name", label: "Sort: Name" },
   { value: "size", label: "Sort: Size" },
 ];
@@ -66,16 +69,33 @@ function sortModels(list) {
   });
 }
 const filtered = computed(() => models.value.filter(matchesQuery));
-const fittingModels = computed(() => sortModels(filtered.value.filter((m) => FIT_RUNNABLE.has(m.fit))));
-const nonFittingModels = computed(() => sortModels(filtered.value.filter((m) => !FIT_RUNNABLE.has(m.fit))));
 const hasAny = computed(() => filtered.value.length > 0);
-// One render list: fitting rows, a divider sentinel (only when BOTH groups are non-empty), then
-// non-fitting rows — so the row markup is written ONCE (no per-group duplication).
+// One render list, TWO sections (option C, user 2026-07-06): "Chat & writing models" then
+// "Embedding models" — the app needs ONE of each, and embeds no longer interleave with chat
+// models in the benchmark sort. Section-header + doesn't-fit-divider sentinels ride the same
+// list so the row markup stays written ONCE; every sentinel carries a unique __key (two
+// sections would otherwise collide on the old 'divider' key).
+function fitSplit(list, section) {
+  const fit = sortModels(list.filter((m) => FIT_RUNNABLE.has(m.fit)));
+  const rest = sortModels(list.filter((m) => !FIT_RUNNABLE.has(m.fit)));
+  const rows = [...fit];
+  if (rest.length) {
+    if (fit.length) rows.push({ __divider: true, count: rest.length, __key: `divider-${section}` });
+    rows.push(...rest);
+  }
+  return rows;
+}
+const chatRows = computed(() => filtered.value.filter((m) => !embeddingOf(m)));
+const embedRows = computed(() => filtered.value.filter((m) => embeddingOf(m)));
 const groupedRows = computed(() => {
-  const rows = [...fittingModels.value];
-  if (nonFittingModels.value.length) {
-    if (fittingModels.value.length) rows.push({ __divider: true, count: nonFittingModels.value.length });
-    rows.push(...nonFittingModels.value);
+  const rows = [];
+  if (chatRows.value.length) {
+    rows.push({ __section: "Chat & writing models", hint: "write prose, chat, extract — pick one as your General model", __key: "sec-chat" });
+    rows.push(...fitSplit(chatRows.value, "chat"));
+  }
+  if (embedRows.value.length) {
+    rows.push({ __section: "Embedding models", hint: "power semantic search + grounded chat — pick one as your Embedding model", __key: "sec-embed" });
+    rows.push(...fitSplit(embedRows.value, "embed"));
   }
   return rows;
 });
@@ -118,13 +138,41 @@ function mtpOf(m) { return mtpById.value[m.id] === true; }
 // Model catalog meta (license / use-limited / description — the fit-shaped /models view
 // doesn't carry them). Shared with QuickSetup through the useCatalogMeta singleton (one
 // source, no drift); loadCatalogMeta (its refresh) re-pulls after a catalog edit.
-const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, refresh: loadCatalogMeta } = useCatalogMeta();
+const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, classPicks, refresh: loadCatalogMeta } = useCatalogMeta();
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
 function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
 function poolingOf(m) { return poolingById.value[m.id] || ""; }
 function qualityOf(m) { return qualityById.value[m.id] ?? 100; }
 function embeddingOf(m) { return embeddingById.value[m.id] === true; }
+
+// ── The "Your setup" strip (option C) + the "Recommended for this PC" badge ──
+// The strip states the two-slot requirement (one General model + one Embedding model)
+// off the SAME shared applied state the row badges use (modelApply); the badge calls
+// the SAME composed rule as QuickSetup (recommendedModelId, modelPick.js) — one source,
+// so the wizard and the badge can never disagree about "best for this machine".
+const modelById = computed(() => Object.fromEntries(models.value.map((m) => [m.id, m])));
+function nameOf(id) { const m = modelById.value[id]; return m ? m.name || m.id : id; }
+const defaultName = computed(() => (currentDefaultId.value ? nameOf(currentDefaultId.value) : ""));
+const embeddingName = computed(() => (currentEmbeddingId.value ? nameOf(currentEmbeddingId.value) : ""));
+// TOTAL card VRAM — the SAME input QuickSetup feeds the shared rule. The checker
+// caught the original version feeding useRunnerModels' vramMb, which is the
+// budget-aware REMAINING VRAM (the /models endpoint subtracts the resident set) —
+// with a model loaded, the badge could mark a SMALLER class than the wizard picks.
+// One rule needs one input: both call sites read gpus[0].vramMb from /hardware.
+const totalVramMb = ref(0);
+request("/v1/llm-runner/hardware")
+  .then((h) => { totalVramMb.value = (h?.gpus && h.gpus[0]?.vramMb) || 0; })
+  .catch(() => {}); // no hardware read → 0 → the map yields "" and §10 decides
+const recommendedId = computed(() => recommendedModelId(models.value, {
+  classPicks: classPicks.value,
+  vramMb: totalVramMb.value,
+  byId: modelById.value,
+  typeOf,
+  qualityOf,
+  isEmbed: embeddingOf,
+  isUseLimited: useLimitedOf,
+}));
 function licenseTitle(m) {
   const lic = licenseOf(m);
   return useLimitedOf(m)
@@ -343,9 +391,33 @@ refreshApplied();
 
 <template>
   <div class="lu-mcat">
+    <!-- "Your setup" — the app needs BOTH slots filled: one General model + one Embedding
+         model (Quick Setup fills both automatically; this states it for the manual path). -->
+    <div class="lu-setup">
+      <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !defaultName }">
+        <div class="lu-setup-role">General model</div>
+        <div class="lu-setup-val">{{ defaultName || "Not set" }}</div>
+        <div class="lu-setup-hint">
+          {{ defaultName
+            ? "Writes prose, chats, extracts — every task uses it unless you override a task."
+            : "Pick one under Chat & writing models below — “Set as default”." }}
+        </div>
+      </div>
+      <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !embeddingName }">
+        <div class="lu-setup-role">Embedding model</div>
+        <div class="lu-setup-val">{{ embeddingName || "Not set" }}</div>
+        <div class="lu-setup-hint">
+          {{ embeddingName
+            ? "Powers semantic search + grounded chat, alongside your general model."
+            : "Pick one under Embedding models below — “Set as embedding”." }}
+        </div>
+      </div>
+    </div>
+
     <div class="lu-mcat-bar">
       <UiInput v-model="query" class="lu-mcat-search" placeholder="Search models…" />
-      <UiSelect v-model="sortBy" :options="SORT_OPTIONS" class="lu-mcat-sort" />
+      <UiSelect v-model="sortBy" :options="SORT_OPTIONS" class="lu-mcat-sort"
+        title="Benchmark score = published general-purpose benchmark order — not writing-specific, and it doesn't know your hardware. The “Recommended for this PC” badge is the per-machine answer." />
       <span class="lu-mcat-spacer" />
       <UiButton intent="secondary" size="small" @click="resetCatalog">Reset catalog</UiButton>
       <UiButton intent="primary" size="small" @click="startAdd"><template #icon>＋</template>Add model</UiButton>
@@ -364,13 +436,17 @@ refreshApplied();
           <tr><th>Model</th><th>Type</th><th>License</th><th>Fit</th><th>Status</th><th /></tr>
         </thead>
         <tbody>
-          <template v-for="m in groupedRows" :key="m.__divider ? 'divider' : m.id">
-            <tr v-if="m.__divider" class="lu-mgroup"><td colspan="6">Doesn't fit this machine — {{ m.count }} more</td></tr>
+          <template v-for="m in groupedRows" :key="m.__key || m.id">
+            <tr v-if="m.__section" class="lu-msection"><td colspan="6"><b>{{ m.__section }}</b><span class="lu-muted"> — {{ m.hint }}</span></td></tr>
+            <tr v-else-if="m.__divider" class="lu-mgroup"><td colspan="6">Doesn't fit this machine — {{ m.count }} more</td></tr>
             <tr v-else>
               <td class="lu-mn">
                 <span class="lu-mn-name">{{ m.name }}</span>
                 <UiTag v-if="m.id === currentDefaultId" intent="success" class="lu-mbadge">Default</UiTag>
                 <UiTag v-else-if="m.id === currentEmbeddingId" intent="info" class="lu-mbadge">Embedding</UiTag>
+                <UiTag v-if="m.id === recommendedId" intent="accent2" class="lu-mbadge"
+                  title="What Quick Setup would pick for this machine — the curated hardware-class map first, then the speed-floor rule">
+                  Recommended for this PC</UiTag>
                 <div class="lu-mid">{{ m.id }}</div>
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
               </td>
@@ -516,7 +592,7 @@ refreshApplied();
 
         <div class="lu-mm-note"><b>Curation</b> <span class="lu-muted">— editable "what this is" + the quality order QuickSetup uses to pick the best model that fits your box.</span></div>
         <label class="lu-mm-l">Description<UiTextarea v-model="editing.description" placeholder="Plain-language 'what this model is' — e.g. fast 9B for quick chat and drafts" /></label>
-        <label class="lu-mm-l">Quality rank <span class="lu-muted">— lower = better; 100 = unranked (sorts last)</span><UiInput v-model.number="editing.qualityRank" type="number" placeholder="100" /></label>
+        <label class="lu-mm-l">Benchmark rank <span class="lu-muted">— published general-benchmark order; lower = better; 100 = unranked (sorts last)</span><UiInput v-model.number="editing.qualityRank" type="number" placeholder="100" /></label>
 
         <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
       </div>
@@ -569,6 +645,40 @@ refreshApplied();
 
 .lu-mcat-foot { font-size: 11px; margin-top: 7px; }
 .lu-mlink { color: var(--accent-ink, var(--accent)); }
+
+/* "Your setup" strip — the two required slots (General + Embedding), status-only cards. */
+.lu-setup {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.lu-setup-card {
+  border: 1px solid var(--lu-border, var(--border, #e2e2e2));
+  border-radius: 10px;
+  background: var(--lu-surface, var(--surface, #fff));
+  padding: 10px 14px;
+}
+.lu-setup-card--empty {
+  border-style: dashed;
+  background: var(--lu-surface-2, var(--surface-2, #fafafa));
+}
+.lu-setup-role {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--lu-ink-2, var(--ink-2, #666));
+}
+.lu-setup-val { font-weight: 600; font-size: 13.5px; margin-top: 2px; }
+.lu-setup-card--empty .lu-setup-val { color: var(--lu-warn, #b45309); }
+.lu-setup-hint { font-size: 11.5px; color: var(--lu-ink-2, var(--ink-2, #666)); margin-top: 2px; line-height: 1.4; }
+
+/* Section-header rows (Chat & writing / Embedding) inside the one table. */
+.lu-msection td {
+  padding: 14px 8px 6px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--lu-border, var(--border, #e2e2e2));
+}
 
 /* Manager: header bar (search → sort → spacer → actions) + the add/edit modal form (#30). */
 .lu-mcat-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }

@@ -165,20 +165,27 @@ async function remove() {
         <option v-for="t in PROVIDER_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
       </select>
 
-      <span class="lu-fl">Default chat model</span>
-      <div>
-        <LuCombobox v-model="draft.defaultModel" :items="chatModels" :loading="fetching"
-          placeholder="Fetch or type a model id" @fetch="fetchModels" />
-        <div v-if="probeMsg" class="lu-fh lu-fh-warn">{{ probeMsg }}</div>
-        <div class="lu-fh">The provider's default — switch it per feature in Features.</div>
-      </div>
+      <!-- Model slots are REMOTE-provider-only (user, 2026-07-06: "no default chat model
+           like gpt-4o-mini, we pull model from provider once connected"). The local
+           runner's General/Embedding slots live on the catalog below (the "Your setup"
+           strip + Set-as-default / Set-as-embedding), so these fields never render for it.
+           No hardcoded model ids anywhere — Fetch pulls the connected provider's list. -->
+      <template v-if="!isBuiltin">
+        <span class="lu-fl">Default chat model</span>
+        <div>
+          <LuCombobox v-model="draft.defaultModel" :items="chatModels" :loading="fetching"
+            placeholder="Fetch or type a model id" @fetch="fetchModels" />
+          <div v-if="probeMsg" class="lu-fh lu-fh-warn">{{ probeMsg }}</div>
+          <div class="lu-fh">Fetched from the provider once connected — switch it per feature in Features.</div>
+        </div>
 
-      <span class="lu-fl">Embedding model <span class="lu-muted">optional</span></span>
-      <div>
-        <LuCombobox v-model="draft.embeddingModel" :items="embedModels" :loading="fetching"
-          placeholder="leave blank if not used" @fetch="fetchModels" />
-        <div class="lu-fh">Fills the RAG / semantic-search index. OpenAI: text-embedding-3-small · Ollama: nomic-embed-text.</div>
-      </div>
+        <span class="lu-fl">Embedding model <span class="lu-muted">optional</span></span>
+        <div>
+          <LuCombobox v-model="draft.embeddingModel" :items="embedModels" :loading="fetching"
+            placeholder="leave blank if not used" @fetch="fetchModels" />
+          <div class="lu-fh">Fills the RAG / semantic-search index — fetch the provider's list and pick its embedding model.</div>
+        </div>
+      </template>
     </div>
 
     <LuRunnerEngine v-if="isBuiltin" />

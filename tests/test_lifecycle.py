@@ -1349,3 +1349,40 @@ def test_fit_placed_failure_falls_back_then_fails_fast_on_non_oom(tmp_path):
     svc._thread.join(timeout=5)
     assert svc.status()["status"] == "error"
     assert spawns["n"] == 2   # the initial spawn + the ONE explicit-retry bounce, no more
+
+
+def test_engine_uninstall_removes_build_dir(tmp_path):
+    # Providers-surface redesign item 3 (2026-07-06): uninstall deletes the pinned
+    # build's binary dir (every per-GPU variant) and resets the engine state; the
+    # HF model cache is untouched.
+    from llm_runner import default_config
+    from llm_runner.runner.binary import binary_dir
+
+    svc = _service_for(tmp_path)
+    d = binary_dir(svc.cache_root, default_config().llamacpp.pinned_build)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "llama-server").write_bytes(b"x")
+    model_cache = svc.cache_root / "hf"
+    assert model_cache.exists()
+
+    out = svc.uninstall_engine()
+
+    assert not d.exists()
+    assert model_cache.exists()  # models are kept
+    assert out["status"] == "idle"
+
+
+def test_engine_uninstall_refused_while_installing(tmp_path):
+    from llm_runner import default_config
+    from llm_runner.runner.binary import binary_dir
+
+    svc = _service_for(tmp_path)
+    d = binary_dir(svc.cache_root, default_config().llamacpp.pinned_build)
+    d.mkdir(parents=True, exist_ok=True)
+    svc._engine_state = {"status": "installing", "detail": "llama.cpp engine",
+                         "error": "", "downloaded": 0, "total": 0}
+
+    out = svc.uninstall_engine()
+
+    assert "install in progress" in out["error"]
+    assert d.exists()  # nothing deleted while the installer thread owns the dir

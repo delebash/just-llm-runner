@@ -5,7 +5,7 @@
 // Phase 3, so a card-override probe can't construct the two side-by-side deterministically.
 // This does, purely and re-runnably.
 //   Run:  node scripts/verify-model-pick.mjs      (exit 0 = all pass, 1 = any fail)
-import { pickByClassMap, pickBestModel, pickLowestQuality } from "../ui/src/common/services/modelPick.js";
+import { pickByClassMap, pickBestModel, pickLowestQuality, recommendedModelId } from "../ui/src/common/services/modelPick.js";
 
 // A tiny test model. fit ∈ ok|tight|cpu|no|unknown; type ∈ dense|moe.
 const M = (id, fit, type, quality, extra = {}) =>
@@ -111,6 +111,24 @@ check("classMap: below-ladder → '' (the §10 fallback)", pickByClassMap(picks,
 check("classMap: nothing fits → ''", pickByClassMap(picks, 8192, world([])), "");
 check("classMap: empty map → ''", pickByClassMap([], 8192, world(["map-6gb"])), "");
 
-console.log(`\n§10 + class-map truth-table: ${pass} passed, ${fail} failed.`);
+// The composed rule (recommendedModelId): a class-map hit wins; an empty/over-VRAM/unfitting
+// map falls through to the §10 pick. Providers-surface redesign item 2 (2026-07-06) —
+// QuickSetup's pick AND the catalog's "Recommended for this PC" badge both call THIS.
+{
+  const models = [M("champ", "ok", "dense", 10), M("mapped", "tight", "moe", 20)];
+  const byId = Object.fromEntries(models.map((m) => [m.id, m]));
+  const acc = {
+    typeOf: (m) => m.type, qualityOf: (m) => m.quality,
+    isEmbed: (m) => m.embed, isUseLimited: (m) => m.useLimited,
+  };
+  check("recommended: class-map hit wins over §10",
+    recommendedModelId(models, { classPicks: [{ minVramMb: 6000, modelId: "mapped" }], vramMb: 8192, byId, ...acc }), "mapped");
+  check("recommended: empty map → the §10 pick",
+    recommendedModelId(models, { classPicks: [], vramMb: 8192, byId, ...acc }), "champ");
+  check("recommended: map row above this VRAM → the §10 pick",
+    recommendedModelId(models, { classPicks: [{ minVramMb: 99999, modelId: "mapped" }], vramMb: 8192, byId, ...acc }), "champ");
+}
+
+console.log(`\n§10 + class-map + composed-pick truth-table: ${pass} passed, ${fail} failed.`);
 process.exit(fail ? 1 : 0);
 

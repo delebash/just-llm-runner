@@ -25,7 +25,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 
 import { request } from "../client.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
-import { pickByClassMap, pickBestModel, pickLowestQuality, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
+import { recommendedModelId, pickLowestQuality, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
 import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import UiButton from "../common/components/UiButton.vue";
@@ -130,17 +130,14 @@ function fitOf(id) {
 // the floor. The pure rule lives in modelPick.js (Node-verifiable); here we bind the
 // catalog-join accessors (type / quality / embedding / use-limited).
 function bestFittingId() {
-  // Phase 3: the class→model map is consulted FIRST — the seeded expression point
-  // the model research (C9) refills with evidence-backed per-hardware-class picks.
-  // The row with the largest minVramMb <= this box's detected VRAM whose model
-  // exists + fits wins; no matching row → the §10 speed-floor rule (unchanged).
+  // Delegates to the ONE composed rule in modelPick.js (class map first, §10
+  // speed-floor fallback) — the catalog's "Recommended for this PC" badge calls
+  // the same function, so the wizard and the badge can never disagree.
   const vramMb = (hw.value?.gpus && hw.value.gpus[0]?.vramMb) || 0;
-  const mapped = pickByClassMap(classPicks.value, vramMb, {
-    exists: (id) => !!modelById.value[id],
-    fits: (id) => FIT_RUNNABLE.has(modelById.value[id]?.fit),
-  });
-  if (mapped) return mapped;
-  return pickBestModel(models.value, {
+  return recommendedModelId(models.value, {
+    classPicks: classPicks.value,
+    vramMb,
+    byId: modelById.value,
     typeOf,
     qualityOf,
     isEmbed,

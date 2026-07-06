@@ -85,24 +85,26 @@ def app_feature_task_kinds() -> dict:
 
 
 # ── SHARED seed data ──────────────────────────────────────────────────────────
+# NO seeded default_model on any provider (user, 2026-07-06: "no default chat model
+# like gpt-4o-mini, we pull model from provider once connected" — providers-surface
+# redesign item 5). The rows are connect-ready endpoints only; the user fetches the
+# provider's LIVE model list (probe-models / {id}/models) and picks after connecting.
+# Dispatch's `adapter.default_model` fallback stays — it now simply stays empty until
+# the user's pick writes it.
 DEFAULT_PROVIDERS: list[dict] = [
     {"id": "local-llamacpp", "name": "Built-in (llama.cpp)",
      "provider_type": "local-llamacpp", "base_url": "http://127.0.0.1:8080/v1", "local": True},
     {"id": "openai-compat-local", "name": "OpenAI-compatible (local)",
      "provider_type": "openai-compat", "base_url": "http://localhost:11434/v1", "local": True},
     {"id": "openai", "name": "OpenAI",
-     "provider_type": "openai", "base_url": "https://api.openai.com/v1",
-     "default_model": "gpt-4o-mini", "local": False},
+     "provider_type": "openai", "base_url": "https://api.openai.com/v1", "local": False},
     {"id": "claude", "name": "Claude (Anthropic)",
-     "provider_type": "openai-compat", "base_url": "https://api.anthropic.com/v1",
-     "default_model": "claude-haiku-4-5", "local": False},
+     "provider_type": "openai-compat", "base_url": "https://api.anthropic.com/v1", "local": False},
     {"id": "gemini", "name": "Gemini (Google)",
      "provider_type": "openai-compat",
-     "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-     "default_model": "gemini-2.5-flash", "local": False},
+     "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "local": False},
     {"id": "deepseek", "name": "DeepSeek",
-     "provider_type": "deepseek", "base_url": "https://api.deepseek.com/v1",
-     "default_model": "deepseek-chat", "local": False},
+     "provider_type": "deepseek", "base_url": "https://api.deepseek.com/v1", "local": False},
     {"id": "openrouter", "name": "OpenRouter (aggregator)",
      "provider_type": "openrouter", "base_url": "https://openrouter.ai/api/v1", "local": False},
 ]

@@ -17,6 +17,7 @@ import UiInput from "../common/components/UiInput.vue";
 import UiProgress from "../common/components/UiProgress.vue";
 import LuRunnerBinaries from "./LuRunnerBinaries.vue";
 import { request } from "../client.js";
+import { confirmDialog } from "../common/services/dialog.js";
 import { usePoll } from "../common/composables/usePoll.js";
 
 const st = ref(null); // engine_status() payload
@@ -24,6 +25,11 @@ const error = ref("");
 const busy = ref(false); // an install POST is in flight
 const showLog = ref(false);
 const logText = ref("");
+// Collapsed by default (user, 2026-07-06: "collapse the engine panel … install uninstall,
+// update, click to expand collapse for details"). Install progress + errors render OUTSIDE
+// the collapse — an in-flight install or a failure must never hide. The B1 decision (knobs
+// editable BEFORE install) survives: Details opens regardless of install state.
+const showDetails = ref(false);
 const { start: startPoll, stop: stopPoll } = usePoll(refresh, 800);
 
 const installed = computed(() => !!st.value?.installed);
@@ -83,6 +89,27 @@ async function install(force) {
     startPoll();
   } catch (e) {
     error.value = e.message || "Install failed.";
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function uninstall() {
+  const ok = await confirmDialog({
+    title: "Remove the engine?",
+    message: "Deletes the installed llama.cpp binaries. Your downloaded models are kept — reinstall the engine any time to use them again.",
+    confirmLabel: "Uninstall",
+  });
+  if (!ok) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    const r = await request("/v1/llm-runner/engine/uninstall", { method: "POST" });
+    if (r?.error) error.value = r.error;
+    await refresh();
+    await refreshResident();
+  } catch (e) {
+    error.value = e.message || "Uninstall failed.";
   } finally {
     busy.value = false;
   }
@@ -156,57 +183,72 @@ onMounted(() => {
       <div class="lu-eng-actions">
         <UiButton v-if="!installed" intent="primary" size="small"
           :loading="busy || installing" @click="install(false)">Install engine</UiButton>
-        <UiButton v-else intent="secondary" size="small"
-          :loading="busy || installing" @click="install(true)">Update</UiButton>
-        <UiButton intent="ghost" size="small" @click="toggleLog">{{ showLog ? "Hide log" : "View log" }}</UiButton>
+        <template v-else>
+          <UiButton intent="secondary" size="small"
+            :loading="busy || installing" @click="install(true)">Update</UiButton>
+          <UiButton intent="ghost" size="small" :loading="busy" title="Delete the engine binaries — models are kept"
+            @click="uninstall">Uninstall</UiButton>
+        </template>
+        <UiButton intent="ghost" size="small" @click="showDetails = !showDetails">
+          {{ showDetails ? "Hide details ▴" : "Details ▾" }}
+        </UiButton>
       </div>
     </div>
 
+    <!-- Progress + errors live OUTSIDE the collapse: an in-flight install or a failure
+         must stay visible while the panel is folded (user, 2026-07-06). -->
     <UiProgress v-if="installing" class="lu-eng-prog"
       :value="st.total ? st.downloaded : undefined" :max="st.total || undefined"
       :label="st.total ? `${fmtBytes(st.downloaded)} / ${fmtBytes(st.total)}` : 'Downloading…'" />
 
     <p v-if="error" class="lu-eng-err">{{ error }}</p>
-    <pre v-if="showLog" class="lu-eng-log">{{ logText }}</pre>
 
-    <!-- Resident set + the two residency knobs (4a). The RUNTIME half (loaded list + VRAM
-         budget) needs an installed engine; the two knobs are persisted config (engine-config)
-         and stay visible/editable BEFORE install (ledger B1 — the user's "C" pick). -->
-    <div class="lu-eng-res">
-      <template v-if="installed">
-        <div class="lu-eng-res-head">
-          <span class="lu-eng-res-title">Loaded models</span>
-          <span v-if="vramBudget" class="lu-eng-res-vram">{{ vramBudget }}</span>
-        </div>
-
-        <ul v-if="residentModels.length" class="lu-eng-res-list">
-          <li v-for="m in residentModels" :key="m.id" class="lu-eng-res-item">
-            <span class="lu-eng-res-id">{{ m.id }}</span>
-            <span class="lu-eng-res-status" :class="statusClass(m.status)">{{ m.status }}</span>
-            <span v-if="m.nCtx" class="lu-eng-res-meta">ctx {{ m.nCtx.toLocaleString() }}</span>
-            <span v-if="m.vramMb" class="lu-eng-res-meta">{{ m.vramMb }} MB</span>
-          </li>
-        </ul>
-        <p v-else class="lu-eng-res-empty">
-          {{ resident?.router ? "No models loaded right now." : "The engine loads models on first use — nothing loaded yet." }}
-        </p>
-      </template>
-
-      <div class="lu-eng-knobs">
-        <label class="lu-eng-knob">
-          <span class="lu-eng-knob-cap">Models kept loaded at once</span>
-          <UiInput v-model="modelsMax" type="number" width="token" />
-        </label>
-        <label class="lu-eng-knob">
-          <span class="lu-eng-knob-cap">Unload an idle model after (seconds · 0 = never)</span>
-          <UiInput v-model="sleepIdleSeconds" type="number" width="token" />
-        </label>
-        <UiButton intent="primary" size="small" :loading="savingKnobs" @click="saveKnobs">Save</UiButton>
+    <template v-if="showDetails">
+      <div class="lu-eng-logrow">
+        <UiButton intent="ghost" size="small" @click="toggleLog">{{ showLog ? "Hide log" : "View log" }}</UiButton>
       </div>
-      <p v-if="knobErr" class="lu-eng-err">{{ knobErr }}</p>
-    </div>
+      <pre v-if="showLog" class="lu-eng-log">{{ logText }}</pre>
 
-    <LuRunnerBinaries />
+      <!-- Resident set + the two residency knobs (4a). The RUNTIME half (loaded list + VRAM
+           budget) needs an installed engine; the two knobs are persisted config (engine-config)
+           and stay editable BEFORE install (ledger B1 — the user's "C" pick; the collapse gates
+           on a click, never on install state). -->
+      <div class="lu-eng-res">
+        <template v-if="installed">
+          <div class="lu-eng-res-head">
+            <span class="lu-eng-res-title">Loaded models</span>
+            <span v-if="vramBudget" class="lu-eng-res-vram">{{ vramBudget }}</span>
+          </div>
+
+          <ul v-if="residentModels.length" class="lu-eng-res-list">
+            <li v-for="m in residentModels" :key="m.id" class="lu-eng-res-item">
+              <span class="lu-eng-res-id">{{ m.id }}</span>
+              <span class="lu-eng-res-status" :class="statusClass(m.status)">{{ m.status }}</span>
+              <span v-if="m.nCtx" class="lu-eng-res-meta">ctx {{ m.nCtx.toLocaleString() }}</span>
+              <span v-if="m.vramMb" class="lu-eng-res-meta">{{ m.vramMb }} MB</span>
+            </li>
+          </ul>
+          <p v-else class="lu-eng-res-empty">
+            {{ resident?.router ? "No models loaded right now." : "The engine loads models on first use — nothing loaded yet." }}
+          </p>
+        </template>
+
+        <div class="lu-eng-knobs">
+          <label class="lu-eng-knob">
+            <span class="lu-eng-knob-cap">Models kept loaded at once</span>
+            <UiInput v-model="modelsMax" type="number" width="token" />
+          </label>
+          <label class="lu-eng-knob">
+            <span class="lu-eng-knob-cap">Unload an idle model after (seconds · 0 = never)</span>
+            <UiInput v-model="sleepIdleSeconds" type="number" width="token" />
+          </label>
+          <UiButton intent="primary" size="small" :loading="savingKnobs" @click="saveKnobs">Save</UiButton>
+        </div>
+        <p v-if="knobErr" class="lu-eng-err">{{ knobErr }}</p>
+      </div>
+
+      <LuRunnerBinaries />
+    </template>
   </div>
 </template>
 

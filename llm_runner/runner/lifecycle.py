@@ -425,6 +425,23 @@ class RunnerService:
             return {"path": "", "text": ""}
         return {"path": str(path), "text": _tail_file(path, tail)}
 
+    def uninstall_engine(self) -> dict:
+        """Remove the installed llama.cpp engine binaries for the pinned build
+        (the whole build dir — every per-GPU variant incl. the A3 fallback
+        chain IS the engine). Models in the HF cache are untouched. Stops any
+        running model first: a live llama-server holds its exe open, and
+        Windows cannot delete an open exe. Refused while an install is in
+        flight (the installer thread is writing into the very dir)."""
+        with self._lock:
+            if self._engine_state["status"] == "installing":
+                return {**self._engine_state, "error": "install in progress — wait for it to finish"}
+        self.stop()
+        config = self._config_fn()
+        shutil.rmtree(binary_dir(self.cache_root, config.llamacpp.pinned_build), ignore_errors=True)
+        with self._lock:
+            self._engine_state = _engine_idle()
+        return self.engine_status()
+
     def load(
         self, model_id: str, overrides: Overrides | None = None,
         job_id: str | None = None, switches: dict[str, str] | None = None,

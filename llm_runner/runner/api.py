@@ -253,6 +253,11 @@ async def engine_log(tail: int = 200) -> dict:
     return get_service().engine_log(tail=tail)
 
 
+@router.post("/v1/llm-runner/engine/uninstall", summary="Remove the installed llama.cpp engine binaries (models are kept)")
+async def engine_uninstall() -> dict:
+    return get_service().uninstall_engine()
+
+
 @router.post("/v1/llm-runner/measure", summary="Probe the running model → decode tok/s + resource context")
 async def measure_model(prompt: str = "Write one vivid paragraph about the sea.", max_tokens: int = 128) -> dict:
     """#20 'Tune & measure': run a fixed probe against the loaded model and return

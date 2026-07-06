@@ -170,6 +170,13 @@ def audit_row(source: str, row: dict, net: Net) -> dict:
     if not license_ok(res["seeded"], res["hf"]):
         res["problems"].append(f"license: seeded {res['seeded']!r} vs HF {res['hf']!r}")
 
+    # A row may carry `license_reviewed` — a human-recorded note that the repo's own
+    # license tag genuinely differs from its base's (e.g. a repackager declaring
+    # gemma-terms over an apache-2.0 base). The seeded license must STILL match the
+    # repo's own tag; only the base-hop mismatch downgrades from FAIL to a printed
+    # note (the discrepancy stays visible, it just stops re-flagging what a human
+    # already ruled on).
+    reviewed = str(row.get("license_reviewed") or "")
     for base in declared_bases(info):
         bstatus, binfo = net.model_info(base)
         if bstatus != 200 or binfo is None:
@@ -178,9 +185,12 @@ def audit_row(source: str, row: dict, net: Net) -> dict:
         blic = hf_license(binfo)
         res["bases"].append(f"{base}={blic}")
         if not license_ok(res["seeded"], blic):
-            res["problems"].append(
-                f"base {base}: license {blic!r} vs seeded {res['seeded']!r}"
-            )
+            if reviewed:
+                res["bases"].append(f"(base differs — reviewed: {reviewed})")
+            else:
+                res["problems"].append(
+                    f"base {base}: license {blic!r} vs seeded {res['seeded']!r}"
+                )
 
     siblings = [str(s.get("rfilename") or "") for s in info.get("siblings") or []]
     if res["quant"] and not any(res["quant"].lower() in f.lower() for f in siblings):

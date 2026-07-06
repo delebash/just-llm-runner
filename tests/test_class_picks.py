@@ -28,7 +28,7 @@ def configured():
 
 def test_seeded_map_row_and_reader_shape(configured):
     picks = stores.list_class_picks()
-    assert picks == [{"minVramMb": 6000, "modelId": "qwen3.6-35b-a3b-mtp"}]
+    assert picks == [{"minVramMb": 6000, "modelId": "gemma-4-26b-a4b-qat"}]
 
 
 def test_seed_never_clobbers_a_user_edit(configured):
@@ -47,4 +47,4 @@ def test_seed_never_clobbers_a_user_edit(configured):
 def test_catalog_response_carries_class_picks(configured):
     from llm_runner.llm.model_catalog_api import CatalogResponse, ClassPickRow
     resp = CatalogResponse(rows=[], classPicks=[ClassPickRow(**r) for r in stores.list_class_picks()])
-    assert resp.classPicks[0].minVramMb == 6000 and resp.classPicks[0].modelId == "qwen3.6-35b-a3b-mtp"
+    assert resp.classPicks[0].minVramMb == 6000 and resp.classPicks[0].modelId == "gemma-4-26b-a4b-qat"

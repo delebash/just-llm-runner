@@ -118,33 +118,38 @@ DEFAULT_PROVIDERS: list[dict] = [
 # (a use-limited model — e.g. the Llama Community license — is carried as a FLAG, never an
 # auto-default). `embedding` marks an embed model; `pooling` is intrinsic per embed model.
 DEFAULT_CATALOG: list[dict] = [
-    # ── Curated hardware ladder (model-surface build 2026-07-05) — a SMALL verified set; the
-    # Smart Add flow lets a user add ANY HF GGUF repo, so this is a starting ladder, not a lock.
-    # Every repo + quant + license web-verified via the HF API 2026-07-05 (upstream-audit rule).
+    # ── Curated hardware ladder — GEMMA-FIRST for writing (user decision 2026-07-06 night:
+    # "make the gemma lineup instead of qwen" + "add gryphe and ye" + "add auhauCS/Gemma4-26B",
+    # research + decision trail in docs/plans/2026-07-06-providers-surface-redesign.md).
+    # Basis: the user's MEASURED on-box result (Gemma 4 better prose in the actual app at the
+    # same speed class) outranks a 0.4-point published tie; Qwen3.6-35B-A3B stays as the one
+    # alternative MoE. A SMALL verified set — the Smart Add flow lets a user add ANY HF GGUF
+    # repo, so this is a starting ladder, not a lock. Every repo + quant + license re-verified
+    # via the HF API 2026-07-06 (the seed-facts audit runs on every seed change).
     # Dense (VRAM, fully on GPU) → MoE (system RAM, expert offload) → embeddings. use_limited is
-    # auto-derived from `license`; pooling is intrinsic per embed; quality_rank LOWER = better.
+    # auto-derived from `license`; pooling is intrinsic per embed; quality_rank LOWER = better
+    # (curated-for-writing order, owner-tested basis — community tunes deliberately rank BELOW
+    # the trusted auto-pick set until a Lab A/B earns them a real rank).
     # ── Dense (runs fully on the GPU — fast) ──────────────────────────────────────────────
-    {"id": "qwen3-8b-q4_k_m", "name": "Qwen3 8B · Q4_K_M",
-     "hf_repo": "unsloth/Qwen3-8B-GGUF", "quant": "Q4_K_M", "total_params": "8B",
-     "min_ram_mb": 10000, "min_vram_mb": 7000, "tier": "mid", "license": "Apache-2.0", "position": 0,
-     "quality_rank": 30, "description": "Qwen3 8B dense — fast, re-askable chat and quick drafts that run fully on an ~8 GB GPU."},
-    {"id": "qwen3-14b-q4_k_m", "name": "Qwen3 14B · Q4_K_M",
-     "hf_repo": "unsloth/Qwen3-14B-GGUF", "quant": "Q4_K_M", "total_params": "14B",
-     "min_ram_mb": 14000, "min_vram_mb": 11500, "tier": "mid", "license": "Apache-2.0", "position": 1,
-     "quality_rank": 25, "description": "Qwen3 14B dense — reliable general + structured work, fully on a 12-16 GB GPU."},
-    {"id": "qwen3-32b-q4_k_m", "name": "Qwen3 32B · Q4_K_M",
-     "hf_repo": "Qwen/Qwen3-32B-GGUF", "quant": "Q4_K_M", "total_params": "32B",
-     "min_ram_mb": 24000, "min_vram_mb": 22000, "tier": "high", "license": "Apache-2.0", "position": 2,
-     "quality_rank": 14, "description": "Qwen3 32B dense — strong reasoning + prose fully on a ~24 GB GPU; the 2026 narrative-writing pick for a 24 GB rig."},
+    {"id": "gemma-4-12b-qat", "name": "Gemma 4 12B (QAT)",
+     "hf_repo": "unsloth/gemma-4-12B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "12B",
+     "mtp": True, "mtp_draft_file": "MTP/gemma-4-12B-it-Q4_0-MTP.gguf", "mtp_draft_quant": "Q4_0",
+     "min_ram_mb": 12000, "min_vram_mb": 8500, "tier": "mid", "license": "Apache-2.0", "position": 0,
+     "quality_rank": 22, "description": "Gemma 4 12B dense QAT — the small-card rung of the writing-first ladder; runs fully on a 10-12 GB GPU (tight on 8), with an MTP draft for speculative decode."},
+    {"id": "gemma-4-31b-qat", "name": "Gemma 4 31B (QAT)",
+     "hf_repo": "unsloth/gemma-4-31B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "31B",
+     "mtp": True, "mtp_draft_file": "MTP/gemma-4-31B-it-Q4_0-MTP.gguf", "mtp_draft_quant": "Q4_0",
+     "min_ram_mb": 24000, "min_vram_mb": 20000, "tier": "high", "license": "Apache-2.0", "position": 1,
+     "quality_rank": 7, "description": "Gemma 4 31B dense QAT — the 24 GB-card rung; the family's strongest, with vision and an MTP draft. Writing rank pending a Lab A/B against the 26B-A4B."},
     {"id": "llama-3.3-70b-q4_k_m", "name": "Llama 3.3 70B Instruct · Q4_K_M",
      "hf_repo": "unsloth/Llama-3.3-70B-Instruct-GGUF", "quant": "Q4_K_M", "total_params": "70B",
-     "min_ram_mb": 48000, "min_vram_mb": 46000, "tier": "high-ram", "license": "Llama-Community", "position": 3,
+     "min_ram_mb": 48000, "min_vram_mb": 46000, "tier": "high-ram", "license": "Llama-Community", "position": 2,
      "quality_rank": 11, "description": "Llama 3.3 70B dense (Q4_K_M ~42 GB, split GGUF) — the best all-round local creative-writing model for a ~48 GB rig; use-limited Llama license (never an auto-default)."},
     # ── MoE (experts offload to system RAM — higher quality, slower, needs RAM) ────────────
     {"id": "qwen3.6-35b-a3b-mtp", "name": "Qwen3.6 35B-A3B (MTP)",
      "hf_repo": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF", "quant": "UD-Q4_K_XL",
      "total_params": "35B", "active_params": "3.6B", "mtp": True, "type": "moe",
-     "min_vram_mb": 6000, "min_ram_mb": 32000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 4,
+     "min_vram_mb": 6000, "min_ram_mb": 32000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 3,
      "quality_rank": 8, "description": "Qwen3.6 35B-A3B MoE — ~32B-class quality on a small GPU + system RAM via CPU expert offload; the smart all-round default."},
     # quality_rank swap (2026-07-06 benchmark re-grounding, C2): Qwen3.6-35B-A3B
     # publishes higher scores than GLM-4.5-Air on every shared instrument
@@ -155,27 +160,46 @@ DEFAULT_CATALOG: list[dict] = [
     {"id": "glm-4.5-air", "name": "GLM-4.5-Air (106B-A12B MoE)",
      "hf_repo": "unsloth/GLM-4.5-Air-GGUF", "quant": "UD-Q4_K_XL",
      "total_params": "106B", "active_params": "12B", "type": "moe",
-     "min_vram_mb": 12000, "min_ram_mb": 64000, "tier": "high-ram", "license": "MIT", "position": 5,
+     "min_vram_mb": 12000, "min_ram_mb": 64000, "tier": "high-ram", "license": "MIT", "position": 4,
      "quality_rank": 10, "description": "GLM-4.5-Air (106B-A12B MoE) — heavyweight structured extraction + reasoning on a high-RAM rig (64 GB+ RAM); published evals now trail Qwen3.6-35B-A3B."},
+    # ── Community writing tunes (user-added 2026-07-06; NEVER auto-picked — ranked below the
+    # trusted set until a Lab A/B; each row license-verified through its base_model chain) ──
+    {"id": "gryphe-styletune-v2", "name": "Gemma 4 26B-A4B StyleTune V2 (Gryphe)",
+     "hf_repo": "mradermacher/Gemma-4-26B-A4B-StyleTune-V2-GGUF", "quant": "Q4_K_M",
+     "total_params": "26B", "active_params": "4B", "type": "moe",
+     "min_vram_mb": 4000, "min_ram_mb": 24000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 5,
+     "quality_rank": 12, "description": "Gryphe's prose style-tune of Gemma 4 26B-A4B — same hardware class as the default. Community tune (reputable maker), quantized by mradermacher; no MTP draft in the quant repo. Pick it deliberately; a Lab A/B decides its real rank."},
+    # The user's use-policy word, verbatim (2026-07-06): "i want uncensored as option for
+    # fiction i dont want writers blocked when they have gory or fantasy sex scenes" — an
+    # OPTION, chosen deliberately; never a default. The repo declares license:gemma while its
+    # Google base is apache-2.0 — the repackager's own terms are honored (use-limited flag),
+    # and `license_reviewed` records the ruled-on discrepancy for the seed-facts audit.
+    {"id": "gemma-4-26b-a4b-uncensored", "name": "Gemma 4 26B-A4B Uncensored (HauhauCS)",
+     "hf_repo": "HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP", "quant": "Q4_K_M",
+     "total_params": "26B", "active_params": "4B", "type": "moe",
+     "mtp": True, "mtp_draft_file": "mtp-gemma-4-26B-A4B-it.gguf",
+     "min_vram_mb": 4000, "min_ram_mb": 24000, "tier": "low-vram-moe", "license": "Gemma", "position": 6,
+     "license_reviewed": "repo declares license:gemma over an apache-2.0 Google base — checked 2026-07-06; the repackager's own terms are honored (use-limited)",
+     "quality_rank": 13, "description": "Refusal-ablated Gemma 4 26B-A4B QAT — the option for fiction whose dark, gory, or adult scenes hit stock refusals. Never auto-picked; you choose it. Carries the repo's own Gemma-terms tag (its Google base is Apache-2.0)."},
     # ── Embeddings (build the RAG / semantic-search index — CPU-fine) ──────────────────────
     {"id": "nomic-embed-text", "name": "Nomic Embed Text v1.5",
      "hf_repo": "nomic-ai/nomic-embed-text-v1.5-GGUF", "quant": "Q4_K_M", "total_params": "137M",
-     "min_vram_mb": 1000, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 6,
+     "min_vram_mb": 1000, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 7,
      "embedding": True, "pooling": "mean",
      "quality_rank": 70, "description": "Nomic Embed Text v1.5 (~137M) — the English CPU embedding floor; mean pooling."},
     {"id": "qwen3-embedding-0.6b", "name": "Qwen3 Embedding 0.6B",
      "hf_repo": "Qwen/Qwen3-Embedding-0.6B-GGUF", "quant": "Q8_0", "total_params": "0.6B",
-     "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 7,
+     "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 8,
      "embedding": True, "pooling": "last",
      "quality_rank": 65, "description": "Qwen3 Embedding 0.6B — the default local embed (stronger multilingual / MTEB than nomic, still tiny ~0.6 GB); last-token pooling."},
     {"id": "bge-m3", "name": "BGE-M3 (multilingual)",
      "hf_repo": "gpustack/bge-m3-GGUF", "quant": "Q4_K_M", "total_params": "568M",
-     "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "MIT", "position": 8,
+     "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "MIT", "position": 9,
      "embedding": True, "pooling": "cls",
      "quality_rank": 60, "description": "BGE-M3 (~568M) — multilingual embeddings across 100+ languages; CLS pooling; CPU-fine."},
     {"id": "qwen3-embedding-8b", "name": "Qwen3 Embedding 8B",
      "hf_repo": "Qwen/Qwen3-Embedding-8B-GGUF", "quant": "Q4_K_M", "total_params": "8B",
-     "min_vram_mb": 7000, "min_ram_mb": 10000, "tier": "high", "license": "Apache-2.0", "position": 9,
+     "min_vram_mb": 7000, "min_ram_mb": 10000, "tier": "high", "license": "Apache-2.0", "position": 10,
      "embedding": True, "pooling": "last",
      "quality_rank": 50, "description": "Qwen3 Embedding 8B — the #1 multilingual MTEB embed (~4.7 GB, ~7 GB VRAM) for a big card; last-token pooling."},
 ]
@@ -226,7 +250,11 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
 # the EXPRESSION POINT the model research (ledger C9) refills with evidence-backed
 # per-class picks — rows are data, never code.
 DEFAULT_MODEL_CLASS_PICKS: list[dict] = [
-    {"min_vram_mb": 6000, "model_id": "qwen3.6-35b-a3b-mtp"},
+    # 2026-07-06 lineup decision: the ≥6 GB pick = the user-tested Gemma 26B-A4B
+    # (JustWrite seeds that row as its app extra; a host WITHOUT it — JustVoice —
+    # fails pickByClassMap's exists() check and falls through to the §10 rule,
+    # which lands on qwen3.6-35b-a3b-mtp there. Graceful by construction.)
+    {"min_vram_mb": 6000, "model_id": "gemma-4-26b-a4b-qat"},
 ]
 
 

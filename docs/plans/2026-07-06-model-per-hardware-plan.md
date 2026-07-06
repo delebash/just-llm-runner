@@ -1,9 +1,13 @@
 # Model-per-hardware plan — one profile, honest seeds, protected QuickSetup, measured everywhere (2026-07-06)
 
-> **STATUS: APPROVED DIRECTION ("i will take your recommendations go") — per-phase execution with the
-> standing discipline (design→build→verify→diff-checker→commit per phase). LIVE tracker: per-phase
-> records appended below as phases ship.** Born from the 2026-07-06 model-per-hardware discussion; the
-> measured basis is `justwrite-app/docs/plans/2026-07-06-onbox-profile-ab-test.md` (RESULTS, bc614c6).
+> **STATUS: EXECUTION IN PROGRESS (the go re-confirmed post-compact 2026-07-06: "fold them in …
+> you have a go with your plan lets move forward") — per-phase execution with the standing
+> discipline (design→build→verify→diff-checker→commit per phase). LIVE tracker: per-phase records
+> appended below as phases ship.** The post-compact question round added amendments **A6–A10**
+> (§USER-ROUND AMENDMENTS below): A6/A7/A9 modify Phase 1's seed + derivation work, A8 modifies
+> Phase 2's protection/sweep UX, A10 is research-before-build for the sweep and runs FIRST. Born
+> from the 2026-07-06 model-per-hardware discussion; the measured basis is
+> `justwrite-app/docs/plans/2026-07-06-onbox-profile-ab-test.md` (RESULTS, bc614c6).
 
 ## Context — the decisions this plan executes (all user-made, all recorded)
 
@@ -199,17 +203,106 @@ self-confirming.
 **A5 (grounding checker) — line-ref drift fixed inline** (Phase 2 now cites the re-grounded
 QuickSetup locations) and the Phase-5 symbol corrected to `DEFAULT_MODEL_CATALOG_EXTRA`.
 
+## USER-ROUND AMENDMENTS A6–A10 (2026-07-06 post-compact — the seeding/auto-tune question round; folded on the user's "fold them in … you have a go with your plan lets move forward")
+
+The post-compact question round ("I have a question before you start coding") re-examined the
+seed-vs-tune story and produced five further amendments. The user's driving points, verbatim: *"so
+we have a special seed just for me? my point is that a user with 8gb vram 32gb ram wouldnt they
+have same settings"* · *"it took a while to fine tune this model i dont thinkt the quick tune will
+get good values versus what i had to test"* · *"my tunes being seed data does not make sense, in
+development fine, but in production it will be an install file i wont have my default in
+produciton"* · *"On precfigure box we my want a notfication that you have an exisintg config doe
+you want to overwrite with this tune data"* · *"so you are saying that if i have a 32gb vram these
+would stay the same … that alos does not make sense beside threads"* · *"also maybe research if
+other llms do auto tunning like this, doeas ollama, lm studio, if so how"*.
+
+**A6 (Phase 1) — personal tune rows are NOT product data; staged retirement from the seed.** The
+grounding fact (`llm_runner/runner/hardware.py:56-68`): `machine_key` = `gpu.name|vram|cores|ramGB`
+— the seeded 2070S rows match ONLY a literal "RTX 2070 SUPER|8192|<cores>c|32g" box, so in a
+production installer they are inert fingerprint rows shipped to every user; they are NOT "defaults
+for 8 GB boxes" (a 3060 8GB/32GB user inherits nothing from them — different key). Tunes are USER
+data (written to the user's DB by the Tune-modal Save and by the sweep), not product data. AMENDED
+Phase 1: the consolidated `model_tunes_seed` rows (ncmoe 21 · batch 512 · ubatch 512 · threads 8 ·
+ctx_len 32768 per A2 · the CPU-embed row) are KEPT for now as DEV-ONLY convenience with a loud
+comment stating exactly that, plus the recorded RETIREMENT CONDITION: they are deleted the moment
+the A7 box-checks pass (the derivation + fixed sweep reproduce them from scratch on the user's
+box) — and production packaging never ships them regardless. The user accepted this staged shape
+(the replacement gets proven before the safety net is removed — the same pattern as A2's ctx-tune
+gate). Open sub-decision AT BUILD, record here when decided: where the embed-on-CPU truth (embed
+ngl 0 — frees 684 MB on an 8 GB card, query latency unchanged at 46 ms) lives for OTHER boxes —
+candidate: a policy default for embed-role models on VRAM-constrained boxes vs staying per-box
+measured.
+
+**A7 (Phase 1/2 — the user's sweep skepticism, verified CORRECT and worse than stated) — the
+derivation and the sweep get fixed as GENERAL logic; the user's machine is the TEST ORACLE, never
+the target.** Verified: the sweep anchors at the existing tune or the COMPUTED value
+(`autotune.py:121-123`) and tries the fixed deltas +2/−1/−2 (`autotune.py:124`) — it refines a good
+anchor and can NEVER escape a bad one (the user's manual journey was ncmoe 37→21; from anchor 37
+the ladder explores 35–39 and crowns ~35). The computed anchor is `n_cpu_moe = max(0, n_layers -
+n_gpu)` (`process.py:329-332`) and nobody has verified what it produces on an 8 GB box. AMENDED:
+(a) audit + fix the computed-ncmoe formula (the fit math's per-layer/expert/KV accounting) so it
+lands NEAR the measured floor from hardware numbers alone — a model/box-generic math fix; (b) make
+the ladder ADAPTIVE — keep walking in the improving direction until tok/s stops improving
+(bounded), instead of the fixed ±2 window; (c) box-checks (the user's box, recorded not claimed):
+computed ncmoe ≈ 21 (32k ctx, CPU embed co-resident) · computed ctx == 32768 (A2's check) · a sweep
+FROM SCRATCH lands within the tie-band of the hand-tuned values. The literal 21 appears in no code
+— it is the known optimum the general algorithm must reproduce to be believed (the user's framing
+question answered explicitly: NOT "fix autotune to match my machine" — fix the general math,
+validate it on the one box where the true optimum is known).
+
+**A8 (Phase 2) — overwrite consent on tuned boxes + the detection-signal fix.** (a) The D4-1
+"configured box" detection must query tunes for the CURRENTLY-POINTED preset models (dominantOf of
+the existing presets), NOT the wizard's new pick — on the user's box the pick would be Qwen (rank
+8) with zero Qwen tunes, so the original "?modelId=<pick>" wording would read the box as fresh and
+skip the changelist entirely. (b) Since the sweep's save REPLACES the (model, machine) rows, the
+"Re-optimize" button on a box with existing tune rows gets an explicit kit `confirmDialog` first —
+"This machine already has a tuned config for this model (…the current values…) — overwrite it with
+the new sweep results?" — per the user's verbatim ask. Auto-start still never fires on a tuned box
+(unchanged from the base Phase-2 design).
+
+**A9 (Phase 1 — the 32-GB challenge) — the layering principle sharpened: bundles carry ONLY
+semantic policy + model mechanics; budget-shaped optima live in the computed layer; the sweep
+covers what math can't predict.** The user's catch: q8_0 KV and spec-n-max 2 were 8GB-born
+compromises about to ship as universal constants. Resolution per knob: `reasoning-budget 1024`
+stays base (a semantic safety cap, hardware-independent — the user's own decree; a 32 GB card
+thinks the same tokens, just faster). `spec-type draft-mtp` + the draft file stay MTP-bundle (model
+mechanics), but `spec-draft-n-max` optimality is hardware-conditioned (the draft/target speed
+ratio changes completely when the target runs fully on-GPU) → **spec-n joins the sweep's candidate
+set** (MTP models only; the seeded 2 remains the starting default). `cache-type-k/v q8_0`: the
+"near-lossless" claim gets WEB-VERIFIED at build (upstream evidence, cited URLs + date) — if it
+holds, q8_0 stays universal BY EVIDENCE as deliberate policy ("spend VRAM on context, not KV
+precision" — coherent at every card size); if it does not hold, KV type moves to the COMPUTED
+layer (f16 when affordable at the target ctx, q8_0 when needed to afford it). `mlock` stays base
+(helps offload boxes, harmless otherwise — recorded as defensible-not-sacred). ngl/ncmoe/ctx are
+already computed — hardware-ADAPTIVE by construction (a 32 GB box gets ngl=all, ncmoe=0, ctx=the
+full trained window; "computed" means adaptive, the opposite of stays-the-same).
+
+**A10 (research-before-build — the user's ask) — competitive auto-tune survey.** Before building
+A7's sweep/derivation changes: research how the other local-LLM runtimes adapt engine config to
+hardware — **Ollama, LM Studio**, and the llama.cpp ecosystem itself (+ neighbors like koboldcpp
+where informative): do they COMPUTE (estimate from VRAM/model geometry), MEASURE (benchmark trials
+like our sweep), or leave it MANUAL; what exactly do they auto-set (offload layers, ctx, KV type,
+batch); and how do they handle being wrong (overrides, env vars, fallbacks). Findings recorded
+HERE with cited URLs + retrieval date (the upstream hard rule), feeding A7's design (T4
+adopt-before-build — if someone already solved adaptive tuning well, adopt the shape; if nobody
+measures, that is a recorded differentiator, not a reason to skip the fix).
+
+### A10 RESEARCH RECORD — filled at execution (see below, appended when the survey runs)
+
 ## STOPPING POINT (2026-07-06, pre-compact — user: "we need to compact soon…update docs and everything needed in detail") — READ THIS FIRST ON RESUME
 
 **State: the plan is PANEL-CHECKED with all findings folded (this section + the amendments above);
-EXECUTION HAS NOT STARTED — zero code written for any phase.** The pickup:
+EXECUTION HAS NOT STARTED — zero code written for any phase.** *(SUPERSEDED 2026-07-06 post-compact:
+the question round added amendments A6–A10 and the user re-confirmed the go — "fold them in … you
+have a go with your plan lets move forward" — execution began the same day: A10 research first,
+then Phase 1 WITH A1/A2/A4/A6/A7/A9. Per-phase records appended below as they ship.)* The pickup:
 1. Restart drill as always: fetch → compare → `--ff-only` pull on all three repos (origin is the
    truth); re-read the global rules + the JW recap header + THIS PLAN IN FULL (incl. the amendments).
 2. The go is STANDING ("i will take your recommendations go") — begin at **Phase 1** (the
-   consolidation + seed truth, WITH amendments A1/A2/A4), then Phases 2→5 in order, Phase 6
-   continuous. Per-phase discipline unchanged: build → verify (ruff+pytest · build:vite+vitest+full
-   smoke+wizard probe · live round-trips) → diff rules-checker → commit+push → append the phase
-   record HERE + ledger/recap updates.
+   consolidation + seed truth, WITH amendments A1/A2/A4/A6/A7/A9; A10 research runs first), then
+   Phases 2→5 in order, Phase 6 continuous. Per-phase discipline unchanged: build → verify
+   (ruff+pytest · build:vite+vitest+full smoke+wizard probe · live round-trips) → diff
+   rules-checker → commit+push → append the phase record HERE + ledger/recap updates.
 3. Dev-DB note: Phase 1 changes seeds → the one-time `POST /v1/data/reset` on any dev DB (and the
    user's box after pulling — their tunes are seed data and re-seed).
 4. Open ledger beyond this plan: F1–F5 (JustVoice) · §G box checks (+ the new ones this plan adds:

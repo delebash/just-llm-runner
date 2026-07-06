@@ -26,6 +26,17 @@ export { default as DataManagement } from "./components/DataManagement.vue";
 export { default as LogsPanel } from "./components/LogsPanel.vue";
 export { default as UpdatesPanel } from "./components/UpdatesPanel.vue";
 
+// the shared AI task queue (Decision 22) — the global in-flight registry
+// (Pinia; the host provides the active Pinia — `pinia` is a peer dep), the
+// run/stream feature wrappers over the kit client, the provider-error
+// humanizer, and the strip / panel / header-chip surfaces.
+export { useAiTasksStore } from "./stores/aiTasks.js";
+export { runAiFeature, runAiFeatureStream } from "./services/aiFeature.js";
+export { friendlyAiError } from "./services/aiErrors.js";
+export { default as AiTaskStrip } from "./components/AiTaskStrip.vue";
+export { default as AiStatusPanel } from "./components/AiStatusPanel.vue";
+export { default as AiStatusButton } from "./components/AiStatusButton.vue";
+
 // views
 export { default as PromptLab } from "./views/PromptLab.vue";
 export { default as ProviderForm } from "./views/ProviderForm.vue";

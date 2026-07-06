@@ -45,6 +45,8 @@ own pushed commit(s): runner `2a22bda`(B1+B2) `5ff4a05`(A1+A2) `f69c2b2`(A3) `29
 JW `7606ec6`(probes) `999138c`(E1) `7e8176d`(C1 seed) `7a42b11`(E2).
 
 **REMAINING (4 of 13), for the post-compact session, in this order:**
+> *(Post-compact update, 2026-07-06: item 1 below — C3 — is now ✅ SHIPPED; see its LIVE PROGRESS entry
+> and the grounded amendments section. Remaining: C4 → C2 → E3, i.e. 10 of 13 shipped.)*
 1. **C3 — shared AI task queue → kit.** FULLY DESIGNED below (§"C3 design" — it IS the recorded Decision 22,
    steps 1–3; step 4 = JV adoption stays excluded → F1). Scoped this session: move JW's five files
    (`stores/aiTasks.js` 231 ln · `components/AiTaskStrip.vue` 151 · `services/aiFeature.js` 150 ·
@@ -465,7 +467,55 @@ boolean mode; the SHAPE is feature-intrinsic, a preset must stay reusable across
   `services/__tests__/modelMeta.test.js` (9 tests over parseQuant/entryLabel/getModelTier/TIERS).
   Verified: `npx vitest run` → **2 files, 20 tests, all passed** (288 ms). JW `CLAUDE.md`'s tooling
   paragraph gains the vitest line (docs ship with the harness).
-- **C3 — shared AI task queue → kit: DESIGNED (below), implementing after C1 commits.**
+- **C3 — shared AI task queue → kit: ✅ SHIPPED + VERIFIED (2026-07-06, post-compact; design + grounded
+  amendments below, implemented as amended).** What shipped — kit side: the six files moved into their
+  llm-layer homes — `ui/src/stores/aiTasks.js` (the Decision-22 store verbatim; `pushToast` now the
+  kit-internal relative import), `ui/src/services/aiFeature.js` (CONSOLIDATED onto the kit client:
+  `request` for `/v1/ai/run`, `requestStream` for `/v1/ai/stream` — the old inline SSE loop is gone, one
+  SSE reader in the kit, exactly the plan-checker's T3 watch-item), `ui/src/services/aiErrors.js`
+  (verbatim), and `ui/src/components/AiTaskStrip.vue` + `AiStatusPanel.vue` + `AiStatusButton.vue`
+  (kit-relative imports per the recorded idiom; the fidelity fixes as recorded — the dead
+  `:deep(.jw-btn--ghost)` rule now targets `.sts .ui-btn--ghost` so the Details-button accent tint is
+  BACK, panel h2 → `var(--font-display, inherit)`, `--shadow-window`/`--font-mono` literal fallbacks,
+  the JW-only `.t-eyebrow`/`.t-muted` spots became self-contained scoped styles, SPDX headers).
+  `client.js`: `request()` + `requestStream()` gained optional `{signal}` and requestStream's usage
+  return is null-until-a-done-frame (zero prior callers, re-verified pre-change). `index.js` exports the
+  store + wrappers + `friendlyAiError` + the three components; kit `package.json` gains `pinia: ^3.0`
+  (both hosts run `^3.0.4`, verified). Two copy generalizations recorded honestly: the strip's slot-doc
+  comment and the panel's empty-state line had named app-specific features ("Start a critique,
+  smart-cast, or any AI feature…" — smart-cast doesn't even exist in JW); kit copy is app-neutral
+  ("Start any AI feature and you'll see it here with live status."). JW side: all 43 consumers swept
+  (66 import lines rewritten to `@delebash/llm-ui`; duplicate kit-import lines merged to one per file
+  across 25 files), the six locals DELETED with no shims, `CLAUDE.md` §AI-providers rewritten (aiFeature
+  → the kit wrappers; the section's stale E1 "three stale comments" parenthetical — left behind when E1
+  shipped — dropped too) + the kit list gains the queue bullet (incl. the host-owned-titlebar-chrome
+  note), and the runner `README.md`'s stale "the shared Vue GUI will live here once built" line is
+  rewritten to the present truth (the kit + its new public queue surface + peer deps). New unit
+  coverage (the plan-checker's T5/T7 recommendation): `services/__tests__/aiFeature.test.js` — 8 tests
+  driving the REAL kit modules through the source alias (subpath imports so the node env never parses
+  .vue; toastBridge + global fetch mocked; fresh Pinia per test): usage NULL without a done frame ·
+  zeros-object (truthy) on a countless done frame · real counts pass through · `(delta,
+  accumulatedContent)` onDelta contract · task finish → history entry + completion toast · error frame
+  → friendly wrap + error archived · non-stream happy path body/URL · HTTP 429 → the "Rate-limited"
+  hint. VERIFIED: `npm run build:vite` clean (4.0s) · vitest **28/28** (the 20 E2 tests untouched) ·
+  full headless smoke **PASSED, zero JS errors on every route** (the queue renders from the kit
+  app-wide via TitleBar) · residual-reference grep **ZERO** old-path matches · Biome: exactly the 2
+  pre-existing warnings (stash-compared against HEAD — untouched files embedApi.js/routingBackend.js) ·
+  strict-diff proof: `git diff -U0` over the swept consumers shows **0 changed lines that are not
+  import lines**. JV: untouched (mandate); it merely inherits the additive index.js exports and
+  resolves `pinia` from its own node_modules; the JV adoption half (delete `renderTasks.js`/
+  `TaskStrip.vue` fork, adopt the shared queue, add its own CLAUDE.md kit-note) is RECORDED under
+  F1/F4 per Decision 22 step 4 — including the plan-checker's JV-doc suggestion, deliberately NOT done
+  here. Plan-grain checker verdict was FAIL on T11 alone (consumer-facing docs) — resolved by the
+  CLAUDE.md/README updates in this same series. Diff-grain checker verdict: **PASS, zero failures**
+  (independent reads of every moved file + configs + consumers; behavior spot-checks held — usage
+  null-until-done at `client.js:97/117`, the `(delta, content)` contract, abort passthrough at
+  `aiErrors.js:48`, the cancel/fail double-path safety, all 8 icon names exist in the kit `Icon.vue`,
+  and `.sts .ui-btn--ghost` targets a real `UiButton.vue` class; its one out-of-scope catch — the
+  master-plan §E1 line still saying the comments "await a code-touching session" — fixed in this same
+  commit; its noted non-fail coverage gap, the untested caller-signal→cancel bridge, is recorded here
+  honestly: implemented at `aiFeature.js:35-38/72-75`, covered by build+smoke, unit test left to a
+  future pass).
 
 ### C3 design (written before implementation — it IS the recorded Decision 22, executed steps 1–3)
 

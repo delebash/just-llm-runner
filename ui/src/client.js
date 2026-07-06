@@ -25,8 +25,9 @@ export function llmUiUrl(path) {
   return `${llmUiBase()}${path}`;
 }
 
-export async function request(path, { method = "GET", body, headers } = {}) {
+export async function request(path, { method = "GET", body, headers, signal } = {}) {
   const opts = { method, headers: { ...(headers || {}) } };
+  if (signal) opts.signal = signal;
   if (body !== undefined) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
@@ -73,15 +74,19 @@ export async function postForm(path, formData) {
  * then `data: [DONE]`; errors as `data: {"error": "..."}`).
  *
  * Calls onDelta(text) per chunk and resolves with the final
- * { promptTokens, completionTokens } when [DONE] arrives. Throws on an error
- * frame.
+ * { promptTokens, completionTokens } from the done frame — or null when the
+ * stream ended without one (callers surface usage to the UI and must be able
+ * to tell "not reported" from a real zero count). Throws on an error frame.
+ * Pass { signal } to make the stream abortable (the AI task queue's cancel).
  */
-export async function requestStream(path, body, onDelta) {
-  const res = await fetch(llmUiUrl(path), {
+export async function requestStream(path, body, onDelta, { signal } = {}) {
+  const opts = {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  };
+  if (signal) opts.signal = signal;
+  const res = await fetch(llmUiUrl(path), opts);
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => "");
     throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
@@ -89,7 +94,7 @@ export async function requestStream(path, body, onDelta) {
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let usage = { promptTokens: 0, completionTokens: 0 };
+  let usage = null;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;

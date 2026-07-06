@@ -208,18 +208,22 @@ onMounted(() => {
               </div>
             </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
-            <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
-            <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
-            <template v-if="p.providerType === 'local-llamacpp'">
-              <UiButton v-if="!engInstalled" intent="primary" size="small"
-                :loading="engBusy || engInstalling" @click="engInstall(false)">Install engine</UiButton>
-              <template v-else>
-                <UiButton intent="secondary" size="small"
-                  :loading="engBusy || engInstalling" @click="engInstall(true)">Update</UiButton>
-                <UiButton intent="ghost" size="small" :loading="engBusy"
-                  title="Delete the engine binaries — models are kept" @click="engUninstall">Uninstall</UiButton>
+            <!-- ONE actions cell (the row is a grid — loose buttons would wrap to a new
+                 grid row, which is exactly the misplacement the user screenshotted). -->
+            <div class="lu-prow-actions">
+              <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
+              <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
+              <template v-if="p.providerType === 'local-llamacpp'">
+                <UiButton v-if="!engInstalled" intent="primary" size="small"
+                  :loading="engBusy || engInstalling" @click="engInstall(false)">Install engine</UiButton>
+                <template v-else>
+                  <UiButton intent="secondary" size="small"
+                    :loading="engBusy || engInstalling" @click="engInstall(true)">Update</UiButton>
+                  <UiButton intent="ghost" size="small" :loading="engBusy"
+                    title="Delete the engine binaries — models are kept" @click="engUninstall">Uninstall</UiButton>
+                </template>
               </template>
-            </template>
+            </div>
           </div>
         </template>
         <div v-if="!loading && !localProviders.length" class="lu-pempty">No local providers yet. Click “Add provider” and point at <span class="lu-mono">http://localhost:…</span></div>
@@ -244,8 +248,10 @@ onMounted(() => {
               </div>
             </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
-            <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
-            <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
+            <div class="lu-prow-actions">
+              <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
+              <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
+            </div>
           </div>
         </template>
         <div v-if="!loading && !cloudProviders.length" class="lu-pempty">No cloud providers. Click “Add provider” and paste a key from OpenAI / Anthropic / OpenRouter.</div>
@@ -355,9 +361,12 @@ onMounted(() => {
 .lu-eyebrow-sub { font-size: 11.5px; }
 
 .lu-prow {
-  display: grid; grid-template-columns: auto minmax(0,1fr) auto auto auto; gap: 14px; align-items: center;
+  /* 4 columns: icon · info · status · the ONE actions cell (Test/Edit + the Built-in
+     row's engine buttons live INSIDE it — loose grid children wrapped to a new row). */
+  display: grid; grid-template-columns: auto minmax(0,1fr) auto auto; gap: 14px; align-items: center;
   padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-top: 8px;
 }
+.lu-prow-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .lu-prow-ic { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-3); color: var(--ink-2); display: grid; place-items: center; }
 .lu-prow-ic svg { width: 17px; height: 17px; }
 .lu-prow-info { min-width: 0; }

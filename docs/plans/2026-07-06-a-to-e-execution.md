@@ -29,6 +29,47 @@
 
 ---
 
+## ⛔⛔ STOPPING POINT (2026-07-06, pre-compact — user: "we need to compact soon so find a good stopping point") — READ THIS FIRST ON RESUME
+
+**State at the stop: 9 of 13 items SHIPPED + VERIFIED + PUSHED; every repo clean and equal to origin.**
+Heads at the stop: runner **`6e52f49`** · justwrite-app **`7a42b11`** · JustVoice **`453462c`** (untouched, as
+mandated). Shipped this batch, in order: **B1** (knobs before install) · **B2** (auto-composed description) ·
+**E1** (stale-comment cleanup) · **A1** (AMD/Intel GPU rows + VRAM) · **A2** (Arc→Vulkan) · **A3** (spawn
+fallback chain + per-variant layout + install plants fallbacks) · **A4** (RESOLVED-RESCOPED — Linux+NVIDIA
+now gets the pinned Vulkan build; the docker container path is impossible pin-faithfully today, seam +
+digest-capture procedure recorded; the re-scope is SURFACED to the user in the batch report) · **C1**
+(json_schema structured output end-to-end + two found-and-fixed #18 bugs: the anthropic response_format leak
+and the prompts-PUT wipe) · **E2** (vitest harness, 20 tests). Every shipped item has a full-detail entry
+below, a rules-checker verdict (every one ultimately PASS; A4 took one FAIL→fix→re-verify round), and its
+own pushed commit(s): runner `2a22bda`(B1+B2) `5ff4a05`(A1+A2) `f69c2b2`(A3) `297e861`(A4) `6e52f49`(C1) ·
+JW `7606ec6`(probes) `999138c`(E1) `7e8176d`(C1 seed) `7a42b11`(E2).
+
+**REMAINING (4 of 13), for the post-compact session, in this order:**
+1. **C3 — shared AI task queue → kit.** FULLY DESIGNED below (§"C3 design" — it IS the recorded Decision 22,
+   steps 1–3; step 4 = JV adoption stays excluded → F1). Scoped this session: move JW's five files
+   (`stores/aiTasks.js` 231 ln · `components/AiTaskStrip.vue` 151 · `services/aiFeature.js` 150 ·
+   `components/AiStatusPanel.vue` 410 · `components/AiStatusButton.vue` 69) into the kit, adapt transport to
+   the kit client (`request`/`requestStream`/`llmUiUrl` — `ui/src/client.js:28/79/24`), sweep the measured
+   **47 consumer files**, DELETE the JW locals (no shims). Start here on resume.
+2. **C4 — the everything-LLM-shared audit** (task #32/#92): runs after C3 so it audits the end state; T6
+   strict-diff per unit; JV findings RECORDED under F1, not fixed.
+3. **C2 — benchmark re-grounding research** (task #28): web-grounded published-benchmark pass over the
+   quality ranks + optionally a bench-harness the user runs on-box; no local GPU measuring in-container.
+4. **E3 — ODT import lists** (task #108): GROUNDED this session — `services/import/odt.js` DOM-parses
+   content.xml and today just counts+warns on `text:list` (:112-114, the "N lists dropped" warning at
+   :127-129). The fix shape: a recursive `renderList()` — `<text:list>`→`<text:list-item>`→`<text:p>`(+nested
+   lists) emitted as `<ul>/<ol>` + `<li><p>…</p></li>` (TipTap-friendly); ordered-vs-bullet from the
+   content.xml automatic styles (`text:list-style` containing `text:list-level-style-number` → `<ol>`, else
+   `<ul>`); drop the warning arm. VERIFY question left open: vitest's node env has no DOMParser — either add
+   jsdom + a per-file `@vitest-environment` pragma for a parseOdt unit test, or extend `scripts/book-smoke.mjs`
+   (checked: it smokes the book BACKEND round-trip, it does NOT exercise the import pipeline today) — decide
+   at implementation; the honest minimum is a unit test with a real ODT-shaped fixture zip (jszip is a dep).
+
+**Resume recipe (the standing drill):** fetch + compare + `--ff-only` pull all three repos (origin is the
+truth) → re-read the global rules + the JW recap header + THIS section → continue at C3 (the batch mandate
+"do a-e do not do just voice go" still stands; nothing else needs a new go). Dev-harness note: a stale dev DB
+500s on the NEW `feature_prompts.json_schema` column — one-time `POST /v1/data/reset` (same drill as Plan B).
+
 ## Batch interruption record (2026-07-06) — stopped, then RESUMED (cross-session confusion, not a real stop)
 
 Mid-batch the user typed "stop" and then "this is an old session dont code anything" — work halted

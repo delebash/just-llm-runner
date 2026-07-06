@@ -403,6 +403,72 @@ then Phase 1 WITH A1/A2/A4/A6/A7/A9. Per-phase records appended below as they sh
    orphan-child kill-on-death, computed-ctx==32768, consolidated first load, opt-out sweep UX) ·
    the model-quality research (map contents; Gryphe StyleTune-V2 the credible candidate) · D5 parked.
 
+## PHASE 1b DESIGN — adopt upstream `--fit` (DECIDED 2026-07-06: "il take your rec to adopt dont duplicate" + "go"; written before code)
+
+**The division of labor (the design's one sentence): ctx POLICY stays ours; tensor PLACEMENT
+becomes upstream's.** Rationale for the split — upstream fit's documented order (PR #16653:
+"first reduces context size … if that is still not enough, it starts moving tensors") sacrifices
+CONTEXT before offloading experts, which is the wrong preference for a writing app where context
+is a product feature; but its dense-priority MoE tensor placement is exactly the allocator
+knowledge our naive `max(0, n_layers - n_gpu)` lacks. So: we always EMIT `ctx-size` (tune wins;
+else computed `min(trained_ctx, kv_affordable)` — the plan's original computed-ctx bullet, now
+unified with the adopt decision), and for an UNTUNED model we OMIT `n-gpu-layers`/`n-cpu-moe` so
+the server's default `--fit on` (in-pin since 2025-12-15 ≪ b9870) places tensors at our chosen
+ctx. Explicit values (tunes, preset switches, request overrides) emit exactly as today — which
+legitimately disables upstream fit for those args (upstream's own user-set-wins semantics). The
+layering doctrine becomes: measured (tunes) > user-set (presets/request) > upstream-fit
+(placement, via omission) > our estimate (ADMISSION ONLY — never emitted when not explicit).
+**Safety property: boxes WITH tunes (the user's box, the seeded dev container) see ZERO launch
+change from 1b — every knob is tune-explicit there; the fit path activates only on fresh boxes
+(and after A6's future tune retirement).**
+
+**Grounded seams + the changes, file by file:**
+1. `runner/process.py:134-153 overrides_to_pairs` — today unconditionally emits `n-gpu-layers` +
+   `ctx-size` (ncmoe when >0). CHANGE: `n_gpu_layers`/`n_cpu_moe` params become `int | None`;
+   a `None` OMITS the pair (both renderers — argv and `.ini` — consume the same pairs list, so
+   one change covers the spawn and router paths with no drift). `ctx_len` stays required
+   (always emitted, per the division above).
+2. `runner/process.py:306-344 compute_fit` — UNCHANGED as the estimator (its `vram_mb` keeps
+   feeding the arbiter reservation + Fit badges). NEW: `FitPlan` records WHICH knobs were
+   explicit (`ov.n_gpu_layers`/`ov.n_cpu_moe` is not None) so the emission layer can decide
+   emit-vs-omit; and the ctx leg gains `kv_affordable` — ctx = `ov.ctx_len` if explicit, else
+   `min(meta.trained_ctx or DEFAULT_CTX, kv_affordable(...))` where `kv_affordable` is a small
+   pure function in `runner/fit.py` derived from the SAME KV bytes/token math `max_gpu_layers`
+   already uses (this is ctx POLICY, deliberately ours — not a duplication of upstream's
+   allocator).
+3. `runner/lifecycle.py:837-842` (active load) + `:989-994` (passive ini): build `ModelIniEntry`
+   with `None` ngl/ncmoe when the plan says non-explicit (`ModelIniEntry` fields
+   `process.py:~100-104` go `int | None`); tuned models produce byte-identical sections to
+   today.
+4. **Spawn-failure fallback (the barely-fits caveat, #18066):** if an UNTUNED fit-placed spawn
+   fails to reach running, retry ONCE with the explicit computed values (today's exact path),
+   then surface the error as today. Bounded, honest, and never worse than the status quo.
+5. **`--fit-margin`:** v1 emits nothing (upstream default = 1024 MiB free headroom; a resident
+   embed is already subtracted from free VRAM at fit time). A `fit_margin` knob_catalog row is
+   recorded as a future knob, not built.
+6. **The sweep — A7b adaptive walk + A9 spec-n (`runner/autotune.py`):** `_candidates`' static
+   `(+2, −1, −2)` list becomes a bounded WALK — start at the anchor (tune else computed preview,
+   as today `:121-123`), measure, keep stepping ±2 in the improving direction while decode tok/s
+   improves (cap ~6 steps, `0 ≤ n ≤ block_count`, batch pinned 512/512 as today); the run loop
+   goes from for-static-list to generate-next-from-results. NEW candidates for MTP models:
+   `spec_n_max` ∈ {2, 3} \ {current} (1–2 cheap trials, only when the MTP gate fired). Baseline
+   trial unchanged (on an untuned box it measures the fit-placed launch). Winner/tie-band/save
+   semantics unchanged (REPLACE under the machine key). The anchor needs NO log parsing in v1 —
+   launch quality comes from upstream fit; the walk covers anchor imprecision by construction
+   (a log-parse anchor refinement is recorded as a later option, not built).
+7. **Tests:** overrides_to_pairs None-omission (argv + ini) · FitPlan explicit-flags ·
+   lifecycle ini generation (untuned MoE → section WITHOUT ngl/ncmoe WITH computed ctx; tuned →
+   byte-identical to today) · kv_affordable unit cases · the spawn-fallback (mock child fails
+   once → explicit retry) · walk tests over simulated tok/s curves (monotone-improving, peaked,
+   noisy-tie) assert stop conditions + bounds + spec-n trials fire only for MTP.
+8. **Box checks appended to §G:** fresh-box-style load (tunes absent) boots via fit and serves ·
+   computed ctx == 32768 on the 2070S (A2's gate — validates OUR kv_affordable) · sweep-from-
+   scratch lands within the tie-band of the hand values (A7) · whether `llama-fit-params` ships
+   in the b9870 win-cuda zip (container egress to ggml-org is blocked — the tool target EXISTS
+   upstream, `tools/CMakeLists.txt` `add_subdirectory(fit-params)`, verified 2026-07-06; archive
+   packaging is a one-command box answer; the tool is an optional preview nicety, NOT load-
+   bearing — the design uses the server's own default fit).
+
 ## PHASE 1a RECORD — SHIPPED 2026-07-06 (the seed-truth half of Phase 1; runner `4faa39c` · JW `f6f8167`)
 
 **What shipped (all live-verified on a fresh dev DB the same hour):**

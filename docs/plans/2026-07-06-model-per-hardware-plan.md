@@ -469,6 +469,57 @@ change from 1b — every knob is tune-explicit there; the fit path activates onl
    packaging is a one-command box answer; the tool is an optional preview nicety, NOT load-
    bearing — the design uses the server's own default fit).
 
+### 1b DESIGN AMENDMENTS (2026-07-06 — pre-build checker verdict FAIL(4); every finding real, ALL folded here; the design above is read WITH these)
+
+**1b-F1 (T2 keystone — VERIFIED at the pin's own tag, 2026-07-06):** the ctx-ours/placement-upstream
+division rests on user-set `ctx-size` NOT disabling fit. Confirmed from b9870's OWN tree (not
+master, not inference): `docs/multi-gpu.md@b9870` — "`--fit` … on by default … **Auto-fit unset
+args to device memory**" (a set ctx is not an unset arg; fit adjusts only unset ones), and the
+same doc's troubleshooting explicitly describes the COEXISTENCE pattern — "**You may need to
+manually set the `--ctx-size` to make the model fit**" (user-set ctx alongside active fit is the
+documented remedy, only `tensor`-split mode disables fit entirely). `tools/fit-params/README.md@
+b9870` exists in-tag (closing the b9870-ancestry inference rider too) and shows the respect
+behavior: when args already align, "no changes needed"; it fits `-c`/`-ngl`/`-ot`. The #18049
+full-disable set (`-ngl`/`--tensor-split`/`--override-tensor`) remains the record for which args
+suppress placement fitting when user-set — exactly the args we omit for untuned models.
+**1b-F2 (T2 citation fix):** `ModelIniEntry` fields are `process.py:226-230` — THOSE go
+`int | None`. `FitPlan` (`process.py:99-106`) **stays `int`** — the arbiter (`fit.vram_mb`),
+`preview_fit` (`lifecycle.py:540`), and the OOM recovery (`lifecycle.py:1170`) all read concrete
+values; the emission layer consults FitPlan's NEW explicit-flags to decide emit-vs-omit.
+**1b-F3 (T3 single source):** `kv_affordable` does NOT re-derive the KV term — extract ONE
+`kv_bytes_per_token(n_kv_heads, cache_type_bits)` helper from the `_C1 * n_kv_heads * cache_type`
+term inside `_slope_offset` (`fit.py:137`); `_slope_offset` AND `kv_affordable` both call it, and
+a drift test pins their equality.
+**1b-F4 (the fallback made concrete):** `_router_load_with_backoff` (`lifecycle.py:1154-1197`) is
+OOM-text-gated and fails fast on non-OOM failures — the barely-fits case (#18066) can present
+non-OOM. NEW gate AHEAD of the existing logic: if the entry was FIT-PLACED (ngl omitted) and the
+confirmed outcome is ANY failure, re-emit ONCE with the explicit computed values (FitPlan's
+concrete ints) and reload; only then the existing OOM-shed / fail-fast applies (now on an explicit
+entry, semantics unchanged). Never worse than today's path.
+**1b-F5 (the sweep redesign — the checker's sharpest catch):** under adopt, the BASELINE trial is
+redefined (tuned box = the tune's launch; untuned box = the FIT-PLACED launch), and the old
+tie-break (`_pick_winner` prefers higher explicit ncmoe; baseline reads as −1) would let an
+explicit trial that merely TIES the fit baseline get SAVED — permanently disabling upstream fit
+over an equal-or-better placement, a regression machine. FIXED SAVE RULE: a tune is saved ONLY
+when the best explicit trial beats the baseline STRICTLY beyond the tie band (> the 5% band on
+decode tok/s); any tie → the baseline stands and NOTHING is saved (fit keeps governing untuned
+boxes; an existing tune keeps governing tuned ones). The higher-ncmoe tie preference survives only
+AMONG explicit candidates, never versus baseline. The walk: anchor = tune else computed estimate,
+±2 while decode improves, step budget raised to 12 (a 37→21 journey is coverable when each step
+improves), abort on plateau; QuickSetup's duration label becomes honest ("a few minutes"). And
+the A7 box-check is REFRAMED to performance-equivalence: a from-scratch sweep must land within
+the tie band of the hand-tuned config's MEASURED tok/s — the hand values were always a proxy for
+performance; if the fit baseline already performs there and nothing gets saved, that is a PASS.
+**1b-F6 (T11 named docs + the riders):** docs landing WITH 1b: the runner `README.md` gains a
+"how launch config derives" section (the 4-tier doctrine: measured > user-set > upstream-fit-by-
+omission > estimate-for-admission-only) · JW `docs/models.md` gets the one-line truth (untuned
+models launch with the engine's automatic memory fitting until a tune is saved) · this plan's
+phase record. Riders acknowledged in-design: the arbiter keeps reserving OUR estimate for
+fit-placed loads (the used-VRAM true-up corrects it on nvidia-smi boxes; on non-measurable boxes
+the estimate stays conservatively in force — accepted drift, recorded); `start_runner`'s
+single-model path keeps explicit values (an asymmetry, fine — production is router-only, noted
+in the code comment).
+
 ## PHASE 1a RECORD — SHIPPED 2026-07-06 (the seed-truth half of Phase 1; runner `4faa39c` · JW `f6f8167`)
 
 **What shipped (all live-verified on a fresh dev DB the same hour):**

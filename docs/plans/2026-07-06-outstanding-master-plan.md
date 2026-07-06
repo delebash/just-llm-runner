@@ -23,6 +23,26 @@
 - **A3 — Spawn-time backend retry chain (ROCm → Vulkan → CPU) — ✅ SHIPPED 2026-07-06 (the A–E batch; full design incl. the per-variant binary layout + install-content consequence in `2026-07-06-a-to-e-execution.md` §A3).** A `RunnerStartError` at router spawn now chains across builds ALREADY on disk (never downloads at load — decision A preserved): per-variant dirs (`<build>/<gpu>/`, legacy root still honored for the selected asset), the engine install plants the safety net (selected + cpu, + vulkan on a rocm pick, best-effort), the proven exe is remembered so bounces never re-try a broken build, and an all-fail aggregates every backend's exit-code+tail reason. 9 new tests, suite 340. On-device rescue = a G3 companion check.
 - **A4 — Linux CUDA engine install (the docker route) — ✅ RESOLVED-RESCOPED 2026-07-06 (the A–E batch; full upstream evidence + design in `2026-07-06-a-to-e-execution.md` §A4; the re-scope is surfaced to the user, not silently decided).** The wiring-as-recorded turned out to be IMPOSSIBLE pin-faithfully: upstream discontinued per-build container tags (b47xx-era only; every b96xx probe 404s on ghcr; only rolling `server-cuda*` tags remain, which track master) — and our config's `server-cuda12-b9644` image tag never existed. Shipped instead: Linux+NVIDIA boxes stop dead-ending — `detect()` records the vulkan fact there, `select_binary` never auto-picks docker rows, so those boxes get the REAL pinned `linux/vulkan` b9644 archive (+ cpu chain via A3's install extras); the docker row stays as the future seam with the digest-capture procedure for the next pin bump recorded. The full container spawn builds THEN, pin-faithfully — not now against a rolling tag.
 
+- **A5 — engine update surface (pinned-build bump UX) — NOT BUILT (user-filed 2026-07-06: "add to
+  todo, nice engine update feature", from a TurboLLM screenshot of its Engines page).** What exists
+  today: the pin is a `runner_setting` row (`pinned_build`, seeded from `runner/config.py`
+  `DEFAULT_PINNED_BUILD` = b9870) and the engine-config endpoint + `LuRunnerBinaries` editor let a
+  user hand-edit the pin/URLs — but nothing DETECTS that upstream has newer builds, offers a
+  one-click update, or carries an update policy. The reference UX (TurboLLM v1.7.3, the user's
+  screenshot): an "Update available · b9608 → b9888" line on the engine row plus a menu — **Update
+  now / Disable / AUTO-UPDATE: Off · Notify · Auto**. Shape when built: (a) an update CHECK against
+  the ggml-org/llama.cpp releases API (latest bNNNN vs the pinned build), surfaced on the Built-in
+  provider's engine section; (b) **Update now** = re-run the existing acquire path for the new
+  build (per-variant dirs already exist via A3), verify the release's asset names (the pin-bump
+  discipline that caught the b9644→b9870 rename risks), write the new `pinned_build` setting,
+  respawn; (c) a policy setting **Off / Notify / Auto with NOTIFY as the default and Auto shipped
+  disabled-or-absent initially** — our pin is a VERIFIED pin (flag semantics move between builds:
+  reasoning-budget, the ini fields, and now the PR#16653 `--fit` behavior were each verified AT a
+  specific pin), so silent auto-bumps conflict with the verification discipline; Notify preserves
+  it (surface, then a deliberate click); (d) the A4 digest-capture procedure rides every bump.
+  Box observation from the screenshot: the user's TurboLLM runs llama.cpp b9608 < our pin b9870 <
+  upstream b9888 (2026-07-06) — an update check would have surfaced exactly this skew.
+
 ## B. Model-surface — the two remainders
 
 - **B1 — Show the engine knobs before the engine is installed — ✅ SHIPPED 2026-07-06 (the A–E batch; full detail in `2026-07-06-a-to-e-execution.md` §B1).** The `v-if="installed"` that gated the whole resident block now wraps ONLY the runtime half (the "Loaded models" list + VRAM line); the two knobs render/seed/save before install (seeding safe pre-install: `GET /v1/llm-runner/resident` works router-down, `runner/api.py:204-215`). Verified: extended `resident-panel-probe.mjs` 13/13 incl. the new not-installed scenario + full smoke zero errors.

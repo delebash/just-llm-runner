@@ -181,6 +181,14 @@ DEFAULT_CATALOG: list[dict] = [
      "min_vram_mb": 4000, "min_ram_mb": 24000, "tier": "low-vram-moe", "license": "Gemma", "position": 6,
      "license_reviewed": "repo declares license:gemma over an apache-2.0 Google base — checked 2026-07-06; the repackager's own terms are honored (use-limited)",
      "quality_rank": 13, "description": "Refusal-ablated Gemma 4 26B-A4B QAT — the option for fiction whose dark, gory, or adult scenes hit stock refusals. Never auto-picked; you choose it. Carries the repo's own Gemma-terms tag (its Google base is Apache-2.0)."},
+    # ── The CPU test model (user, 2026-07-06: "have a cpu test model you can load") —
+    # a tiny chat model that loads ANYWHERE, incl. GPU-less dev containers/CI, so the
+    # download→spawn→generate pipeline is exercisable for real. rank 99 + the FIT_GPU
+    # chat-pick gate mean it is NEVER auto-picked; it exists to be loaded deliberately. ──
+    {"id": "qwen3-0.6b-test", "name": "Qwen3 0.6B — pipeline test model (CPU)",
+     "hf_repo": "unsloth/Qwen3-0.6B-GGUF", "quant": "Q4_K_M", "total_params": "0.6B",
+     "min_ram_mb": 2000, "min_vram_mb": 0, "tier": "cpu", "license": "Apache-2.0", "position": 11,
+     "quality_rank": 99, "description": "A tiny model for testing the pipeline — downloads fast and loads even without a GPU. Not for writing; never auto-picked."},
     # ── Embeddings (build the RAG / semantic-search index — CPU-fine) ──────────────────────
     {"id": "nomic-embed-text", "name": "Nomic Embed Text v1.5",
      "hf_repo": "nomic-ai/nomic-embed-text-v1.5-GGUF", "quant": "Q4_K_M", "total_params": "137M",

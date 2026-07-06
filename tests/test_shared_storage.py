@@ -40,23 +40,23 @@ def wired():
 def test_seed_populates_shared_and_app_data(wired):
     providers = {p.id for p in stores.get_provider_store().list()}
     assert {"local-llamacpp", "openai", "claude", "openrouter"} <= providers  # shared seed
-    assert stores.get_routing_store().get_routing().default.llmId == "openai-compat-local"
+    # Catalog-full / selections-empty (user, 2026-07-06): the routing row exists but
+    # carries NO choices — Quick Setup or a manual pick fills them.
+    assert stores.get_routing_store().get_routing().default.llmId == ""
     assert stores.get_prompt_store().get("critique") is not None  # per-app prompt seed
     assert len(stores.get_model_catalog_store().list()) == len(seed.DEFAULT_CATALOG)
 
 
-def test_seed_routing_points_embedding_at_bundled_runner(wired):
-    # #120: fresh installs default local embeddings to the bundled llama.cpp runner + the co-resident
-    # qwen3-embedding-0.6b (P3 pinned it; #120 made it the default over nomic), so RAG "Build index"
-    # works out of the box (the runner serves it by id). The LLM default is untouched — repointing it
-    # at the runner is model-surface #107's QuickSetup scope.
+def test_seed_routing_ships_no_selections(wired):
+    # Catalog-full / selections-empty (user decision 2026-07-06, supersedes #120's
+    # seeded embed default: "no model is automatically set as default, honestly not
+    # even embed should be set, this is all quick setup or manual"). The routing row
+    # exists (idempotence anchor) but every choice is empty until the wizard or a
+    # manual Set-as-default / Set-as-embedding writes it.
     d = stores.get_routing_store().get_routing().default
-    assert d.embeddingId == "local-llamacpp"
-    assert d.embeddingModel == "qwen3-embedding-0.6b"
-    assert d.llmId == "openai-compat-local"
-    # the default embed is a real catalog row carrying LAST-token pooling (#119 per-model pooling)
-    embed = next(r for r in stores.get_model_catalog_store().list() if r.id == d.embeddingModel)
-    assert embed.pooling == "last"
+    assert d.embeddingId == ""
+    assert d.embeddingModel == ""
+    assert d.llmId == ""
 
 
 def test_routing_roundtrip_default_and_pins(wired):

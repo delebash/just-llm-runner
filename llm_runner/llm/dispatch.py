@@ -181,6 +181,14 @@ def chat(
         # even when the pin's default model is Guided-class).
         model = model_override
         tier_override = None
+    if not (model or "").strip():
+        # Catalog-full / selections-empty factory state (user, 2026-07-06): nothing
+        # is chosen by the seed, so a fresh box reaching an AI feature before setup
+        # gets guidance, not a raw provider error.
+        raise LLMNotConfiguredError(
+            "No model is set. Run Quick Setup (Settings → AI) to pick one for this "
+            "machine, or choose a model in the catalog (Set as default)."
+        )
     tier = spec_for(model, tier_override)
 
     started = time.monotonic()
@@ -246,6 +254,14 @@ def stream_chat(
     if model_override:
         model = model_override
         tier_override = None
+    if not (model or "").strip():
+        # Catalog-full / selections-empty factory state (user, 2026-07-06): nothing
+        # is chosen by the seed, so a fresh box reaching an AI feature before setup
+        # gets guidance, not a raw provider error.
+        raise LLMNotConfiguredError(
+            "No model is set. Run Quick Setup (Settings → AI) to pick one for this "
+            "machine, or choose a model in the catalog (Set as default)."
+        )
     tier = spec_for(model, tier_override)
 
     started = time.monotonic()

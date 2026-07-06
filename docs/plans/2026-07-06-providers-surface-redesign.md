@@ -385,3 +385,49 @@ changes firt"*.
    doubts the sweep will match — that doubt IS the test.
 4. Gates: ruff · switch_resolve 7/7 (base-set assertion updated) · JW server 76 pytest · the
    live reset/restore cycle. NOT built (awaits its own go): the empty-model factory seed.
+
+## ROUND 6 — SHIPPED 2026-07-06 (catalog-full / selections-empty: the factory state)
+
+**The user's definition, verbatim (correcting the agent's "empty-model seed" label):** *"we are
+shipping with models, just no model is automatically set as default, honestly not even embed
+should be set, this is all quick setup or manual"* → go given ("go"), with the standing
+save-and-compact directive ("we need to save everything and compact when you get to stopping
+point").
+
+**What shipped:**
+1. **JW task presets ship with EMPTY model slots** (seed_presets.py — all 8; every per-task
+   SETTING still seeds: temps, samplers, json, think). The catalog itself stays FULL (the
+   Gemma-first lineup + Qwen alternative + embeds, all downloadable).
+2. **The routing row seeds with NO choices** (runner seed.py `seed_default_routing`): llmId,
+   embeddingId, embeddingModel all empty — supersedes #120's seeded embed default AND the old
+   `openai-compat-local` LLM default. The row itself still seeds (the idempotence anchor).
+3. **Dispatch guards the pre-setup state** (dispatch.py, BOTH the run and stream finalization
+   points): a resolved empty model now raises "No model is set. Run Quick Setup (Settings → AI)
+   to pick one for this machine, or choose a model in the catalog (Set as default)." — guidance,
+   never a raw provider error.
+4. **Tests re-seated to the new truth**: test_shared_storage's routing assertions → empty
+   selections (the #120 test renamed `test_seed_routing_ships_no_selections` with the decision
+   quoted); suite 384 green + ruff clean + JW server 76 green.
+5. **Live-proven on the wire** (post-restart + reset): preset models all "", factoryModels "",
+   routing llm/embed all "" — then build clean · FULL smoke zero-JS · wizard probe PASS
+   (scenario 1 = the fresh box: the wizard preselects via the RECOMMENDATION (map → Gemma) since
+   nothing is applied; no changelist — honestly nothing to change; Apply makes Gemma dominant,
+   which is exactly what scenario 2's configured-box assertions then exercise).
+
+**The fresh-install/reset experience now:** strip shows General: Not set · Embedding: Not set →
+Run Quick Setup (one click fills both + offers the sweep) or manual Set-as-default /
+Set-as-embedding per row. Nothing is ever chosen by the seed.
+
+**Adjacent decisions this round (all shipped earlier tonight, recorded here for the compact):**
+reasoning_budget out of the base bundle (a per-taste bound on think-enabled tasks, not a rule;
+knob stays in knob_catalog) · tune rows out of the product seed (measurements, owned by the
+(model, machine) pair) · `scripts/dev-seed-tunes.py` KEPT as a MANUAL-ONLY tool (user: "keep it
+in seed i can run manually" after first rejecting hidden automation — it never runs
+automatically) · the tiny CPU test model lives ONLY in `scripts/dev-seed-test-model.py`.
+
+**THE PARITY EXPERIMENT (user's box, next):** pull both repos → restart → reset → Run Quick
+Setup on the Gemma → the sweep AUTO-STARTS (no seeded tunes) → compare its saved values + tok/s
+against the hand-tune (ngl 99 · ncmoe 21 · ctx 32768 · batch 512/512). Parity → the
+hardware-class-seed question dissolves; miss → class starting values return WITH evidence (the
+user's Qwen-32B-MoE transferability observation is on record). To restore the hand values
+afterward: run scripts/dev-seed-tunes.py manually, or re-enter in the Tune modal.

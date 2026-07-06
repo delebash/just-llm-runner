@@ -814,11 +814,20 @@ class RunnerConfigStore:
 
     def get_config(self) -> EngineConfig:
         cfg = build_runner_config()
+        # update_policy is API-surface-only config (A5) — not part of the runner's
+        # RunnerConfig; read the setting row directly (absent → the notify default).
+        s = db.session()
+        try:
+            row = s.get(db.RunnerSetting, "update_policy")
+            policy = (row.value if row else "") or "notify"
+        finally:
+            s.close()
         return EngineConfig(
             pinnedBuild=cfg.llamacpp.pinned_build,
             safetyMarginMb=cfg.safety_margin_mb,
             modelsMax=cfg.models_max,
             sleepIdleSeconds=cfg.sleep_idle_seconds,
+            updatePolicy=policy,
             binaries=[_runner_binary_to_row(b) for b in cfg.llamacpp.binaries],
         )
 

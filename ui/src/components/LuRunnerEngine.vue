@@ -15,6 +15,7 @@ import { computed, onMounted, ref } from "vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiProgress from "../common/components/UiProgress.vue";
+import UiSelect from "../common/components/UiSelect.vue";
 import LuRunnerBinaries from "./LuRunnerBinaries.vue";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
@@ -26,7 +27,7 @@ import { usePoll } from "../common/composables/usePoll.js";
 // right of edit"); this panel keeps the status line, install progress/errors,
 // and the Details drawer. Install POLLING also lives in the composable, so
 // progress keeps flowing whichever surface started it and whichever is mounted.
-const { engineState: st, error, installed, installing, progressLabel, refreshEngine } = useEngine();
+const { engineState: st, error, installed, installing, progressLabel, updateInfo, updatePolicy, setUpdatePolicy, refreshEngine } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
 // Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
@@ -123,6 +124,7 @@ onMounted(() => {
           <template v-else-if="installed">
             Installed<span v-if="st.build"> · {{ st.build }}</span><span v-if="st.gpu"> · {{ st.gpu }}</span>
             <span v-if="cudaRuntimeMissing" class="lu-eng-warn"> · CUDA runtime DLLs missing</span>
+            <span v-if="updateInfo?.updateAvailable" class="lu-eng-upd"> · update available → {{ updateInfo.latest }} (the Update button is on the provider row)</span>
           </template>
           <template v-else>Not installed — install it before you load a model.</template>
         </div>
@@ -185,6 +187,12 @@ onMounted(() => {
             <UiInput v-model="sleepIdleSeconds" type="number" width="token" />
           </label>
           <UiButton intent="primary" size="small" :loading="savingKnobs" @click="saveKnobs">Save</UiButton>
+        <label class="lu-eng-knob">
+          <span class="lu-eng-knob-cap">Engine updates</span>
+          <UiSelect :model-value="updatePolicy" width="token"
+            :options="[{ value: 'notify', label: 'Notify' }, { value: 'off', label: 'Off' }]"
+            @update:model-value="setUpdatePolicy" />
+        </label>
         </div>
         <p v-if="knobErr" class="lu-eng-err">{{ knobErr }}</p>
       </div>
@@ -219,6 +227,7 @@ onMounted(() => {
   line-height: 1.4;
 }
 .lu-eng-warn { color: var(--lu-warn, #b45309); }
+.lu-eng-upd { color: var(--lu-warn, #8a6d1f); font-weight: 600; }
 .lu-eng-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .lu-eng-err { margin: 0; font-size: 12.5px; color: var(--lu-danger, var(--danger, #b91c1c)); }
 .lu-eng-log {

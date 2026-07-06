@@ -15,8 +15,8 @@ import { computed, ref } from "vue";
 import { request } from "../client.js";
 import { useRunnerModels } from "../composables/useRunnerModels.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
-import { useModelApply } from "../services/modelApply.js";
-import { FIT_RUNNABLE, recommendedModelId } from "../common/services/modelPick.js";
+import { applyPreview, useModelApply } from "../services/modelApply.js";
+import { FIT_RUNNABLE, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -370,17 +370,77 @@ async function saveModel() {
   }
 }
 async function deleteModel(m) {
+  // Delete policy (a) — BLOCK-WITH-REPOINT (user, 2026-07-06). References are checked
+  // live (task presets by model + the embedding slot). With a replacement available,
+  // one click re-points and deletes. With NONE (the user's empty-case question):
+  // presets have NO "none" state (their catch), so "Delete anyway" keeps the dead id
+  // and the validate-at-read layer labels it "removed from the catalog" everywhere.
+  let used = [];
+  let fullRows = [];
+  try {
+    const [prev, pr] = await Promise.all([applyPreview(), request("/v1/ai/engine-presets")]);
+    fullRows = pr.presets || [];
+    used = (prev.presets || []).filter((p) => p.model === m.id);
+  } catch { /* references unreadable → fall through to the plain confirm below */ }
+  const embedRef = m.id === currentEmbeddingId.value;
+
+  if (!used.length && !embedRef) {
+    const ok = await confirmDialog({
+      title: `Remove "${m.name || m.id}" from the catalog?`,
+      message: "Removes the catalog entry (downloaded files on disk are not deleted). Reset restores built-ins.",
+      danger: true,
+    });
+    if (!ok) return;
+    return _doDelete(m);
+  }
+
+  // A replacement of the SAME kind that fits this machine — the shared quality order picks.
+  const kind = embeddingOf(m);
+  const cands = models.value.filter((x) => x.id !== m.id && embeddingOf(x) === kind && FIT_RUNNABLE.has(x.fit));
+  const repl = cands.some((c) => c.id === recommendedId.value) && !kind
+    ? recommendedId.value
+    : pickLowestQuality(cands, { qualityOf }) || "";
+  const usedBits = [
+    used.length ? `${used.length} task preset${used.length > 1 ? "s" : ""}` : "",
+    embedRef ? "the embedding slot" : "",
+  ].filter(Boolean).join(" and ");
   const ok = await confirmDialog({
-    title: `Remove "${m.name || m.id}" from the catalog?`,
-    message: "Removes the catalog entry (downloaded files on disk are not deleted). Reset restores built-ins.",
+    title: `Delete ${m.name || m.id}?`,
+    message: repl
+      ? `It's in use by ${usedBits}. They'll be re-pointed to ${nameOf(repl)}, then the entry is removed (downloaded files stay on disk).`
+      : `It's in use by ${usedBits}, and no other ${kind ? "embedding" : "chat"} model is available to re-point to. Delete anyway and everything pointing at it will show "removed from the catalog" until you pick a replacement.`,
+    confirmLabel: repl ? "Re-point & delete" : "Delete anyway",
     danger: true,
   });
   if (!ok) return;
+  busy.value = `del:${m.id}`;
+  try {
+    if (repl) {
+      for (const u of used) {
+        const row = fullRows.find((r) => r.id === u.id);
+        if (row) {
+          await request(`/v1/ai/engine-presets/${encodeURIComponent(row.id)}`, {
+            method: "PUT", body: { ...row, providerId: LOCAL_RUNNER_ID, model: repl },
+          });
+        }
+      }
+      if (embedRef) await setAsEmbedding(LOCAL_RUNNER_ID, repl);
+    }
+  } catch (e) {
+    error.value = e.message || "Couldn't re-point the references — nothing was deleted.";
+    busy.value = "";
+    return;
+  }
+  return _doDelete(m);
+}
+
+async function _doDelete(m) {
   busy.value = `del:${m.id}`; // namespaced so Delete's spinner ≠ the row's load/download spinner
   try {
     await request(`/v1/ai/model-catalog?modelId=${encodeURIComponent(m.id)}`, { method: "DELETE" });
     await refresh();
     loadCatalogMeta(); // keep the shared catalog-meta map in sync (like save/reset do)
+    refreshApplied(); // the strip + badges re-read the (possibly re-pointed) applied state
   } catch (e) { error.value = e.message || "Delete failed."; } finally { busy.value = ""; }
 }
 async function resetCatalog() {

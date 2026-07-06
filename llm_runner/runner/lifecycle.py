@@ -251,6 +251,24 @@ def _idle() -> dict:
             "downloaded": 0, "total": 0}
 
 
+def _fetch_latest_llamacpp_tag() -> str:
+    """The latest upstream llama.cpp release tag (e.g. "b9888") via the GitHub
+    releases API. Used by `update_check` (A5) — injectable in tests and, in the
+    dev container, unreachable through the egress proxy (ggml-org is out of
+    scope there); the user's box calls it directly."""
+    r = requests.get(
+        "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest",
+        headers={"User-Agent": "just-llm-runner"}, timeout=15,
+    )
+    r.raise_for_status()
+    return str(r.json().get("tag_name") or "")
+
+
+def _build_num(tag: str) -> int:
+    digits = "".join(ch for ch in str(tag) if ch.isdigit())
+    return int(digits) if digits else -1
+
+
 def _engine_idle() -> dict:
     # Separate channel from the model-load state (a model load must not clobber
     # engine-install progress, and vice-versa). status ∈ idle|installing|installed|error.
@@ -304,6 +322,7 @@ class RunnerService:
         now=time.monotonic,
         sleep=time.sleep,
         arbiter=None,
+        latest_build_fn=None,
     ):
         self._cache_root = Path(cache_root)
         self._config_fn = config_fn
@@ -317,6 +336,7 @@ class RunnerService:
         self._acquired_exe = acquired_exe
         self._acquired_exes = acquired_exes
         self._acquire_model = acquire_model
+        self._latest_build_fn = latest_build_fn or _fetch_latest_llamacpp_tag
         self._read_meta = read_meta
         self._start_router = start_router
         self._router_load = router_load
@@ -441,6 +461,25 @@ class RunnerService:
         with self._lock:
             self._engine_state = _engine_idle()
         return self.engine_status()
+
+    def update_check(self) -> dict:
+        """A5 (user "do", 2026-07-06): the latest upstream llama.cpp release vs the
+        pinned build. NEVER auto-applies — the pin is a VERIFIED pin (flag semantics
+        move between builds: reasoning-budget, the ini fields, the PR#16653 --fit
+        behavior were each verified AT a pin), so the surface is notify-then-
+        deliberate-click. A network failure reports as an `error`, never as
+        updateAvailable."""
+        current = self._config_fn().llamacpp.pinned_build
+        try:
+            latest = self._latest_build_fn()
+        except Exception as exc:  # noqa: BLE001 — any fetch failure = the same honest answer
+            return {"current": current, "latest": "", "updateAvailable": False, "error": str(exc)}
+        return {
+            "current": current,
+            "latest": latest,
+            "updateAvailable": _build_num(latest) > _build_num(current),
+            "error": "",
+        }
 
     def load(
         self, model_id: str, overrides: Overrides | None = None,

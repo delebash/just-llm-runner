@@ -288,3 +288,41 @@ fantasy sex scenes"* → *"just go code it do it now"* + *"go"*.
   registered seed library by preset id); the wizard's configured-detection gains the third leg
   (any preset.model ≠ its factoryModel counts as configured).
 - **8 (Lab A/Bs) + 9 (D6 Discover/TurboLLM) — PARKED** (ledger stays the record).
+
+## ROUND 3 — SHIPPED 2026-07-06 late (delete-guard (a) · A5 update check · D4-1 leg 3 · fixes)
+
+Built on the user's dispositions ("1. a …, 6 do, 7 do, 8 park, 9 park") plus two live catches:
+
+- **Install-progress consistency (user: "no progress bar on install engine please be
+  consistant"):** polling moved INTO useEngine (module interval while installing, self-starting
+  when any refresh finds one) and the Built-in LIST ROW renders the same UiProgress + error the
+  panel does — one shared state, both surfaces. En route, a REAL runtime break shipped-and-fixed:
+  the usePoll import was dropped while the resident poller still used it (user-reported
+  ReferenceError) — restored in `999ab48`; **the smoke now runs on every UI change regardless of
+  the verification waiver** (the compile gate cannot catch runtime references).
+- **Delete policy (a) — BLOCK-WITH-REPOINT:** deleting a referenced model now checks live
+  references (task presets by model + the embedding slot). Replacement available → ONE dialog
+  ("in use by N task presets and the embedding slot — they'll be re-pointed to <best same-kind
+  fitting model>") → re-point (full-row PUTs, settings preserved) → delete. NO replacement →
+  "Delete anyway" keeps the references (**presets have no "none" state — the user's catch**;
+  the validate-at-read layer labels the dead id "removed from the catalog"); only the embedding
+  slot can ever truly clear to Not set.
+- **A5 — engine update detection:** `GET /v1/llm-runner/engine/update-check` (latest ggml-org
+  release tag vs the pinned build; the fetch is injectable — the dev container's proxy 403s
+  ggml-org, verified live, and the endpoint reports that as `error`, never as a false
+  updateAvailable) · `updatePolicy` ("off"|"notify", default notify) on engine-config
+  (runner_setting-backed) · the panel status line gains "update available → bNNNN" · the
+  Built-in row's Update button becomes **"Update to bNNNN"** (accent2) when one exists — the
+  deliberate click PUTs the new pin then force-reinstalls (the acquire path verifies asset
+  names; the A4 digest-capture rides container bumps later) · an "Engine updates" Off/Notify
+  select in the panel Details. NEVER auto-applies (the verified-pin discipline). +2 tests → 384.
+- **D4-1 leg 3 CLOSED:** engine-presets rows carry read-only `factoryModel` (joined from the
+  app's registered seed library by id at list time); applyPreview's configured-detection gains
+  the third leg (any preset.model ≠ its factoryModel) — the uniformly-re-pointed-untuned box no
+  longer reads as fresh. The Phase-2 honest-omission comment replaced by the working code.
+- **The wizard probe REWORKED to the new truths** (it FAILED honestly first): scenario 1 asserts
+  the preselected APPLIED model (Gemma) and NO changelist when the pick IS the applied model;
+  the changelist assertions moved to the TUNED (= configured) scenario via a real Reka-select
+  pick switch to the Qwen alternative; the tunes stub now serves empty rows in the untuned
+  scenario (the preselect change made the live gemma tunes suppress auto-start by design).
+  Round-3 gates: ruff · **384 pytest** · build · FULL smoke zero-JS · **probe PASS**.

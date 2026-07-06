@@ -91,19 +91,20 @@ export async function applyPreview() {
     request("/v1/ai/engine-presets"),
   ]);
   const { dominant, taskPresets } = dominantOf(asg, pr.presets || []);
-  const presets = taskPresets.map((p) => ({ id: p.id, name: p.name || p.id, model: p.model || "" }));
+  const presets = taskPresets.map((p) => ({
+    id: p.id, name: p.name || p.id, model: p.model || "", factoryModel: p.factoryModel || "",
+  }));
   const currentModels = [...new Set(presets.map((p) => p.model).filter(Boolean))];
   let tunedCurrent = false;
   for (const id of currentModels) {
     if (await modelHasTunes(id)) { tunedCurrent = true; break; }
   }
-  // HONEST OMISSION (recorded in the plan's Phase-2 record): the plan's third detection
-  // leg — "any preset model ≠ the factory seed default" — is NOT implemented; no
-  // client-readable factory-model source exists yet (the factory library lives server-
-  // side in configure_app_seed). The uncovered case: ALL presets uniformly re-pointed to
-  // one un-tuned non-factory model (itself the product of a prior one-click Apply) reads
-  // as fresh. Follow-up filed: expose the factory preset models, wire leg 3 here.
-  return { configured: currentModels.length > 1 || tunedCurrent, dominant, presets };
+  // Leg 3 (D4-1, closed 2026-07-06): a preset whose model differs from its FACTORY
+  // seed model counts as configured — covers the case where ALL presets were uniformly
+  // re-pointed to one un-tuned non-factory model (a prior one-click Apply), which the
+  // mixed/tuned legs alone read as fresh. factoryModel rides the engine-presets rows.
+  const factoryDiff = presets.some((p) => p.factoryModel && p.model && p.model !== p.factoryModel);
+  return { configured: currentModels.length > 1 || tunedCurrent || factoryDiff, dominant, presets };
 }
 
 // Set `providerId`/`modelId` as the default on every task preset that still shares the PREVIOUS

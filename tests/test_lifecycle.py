@@ -1386,3 +1386,25 @@ def test_engine_uninstall_refused_while_installing(tmp_path):
 
     assert "install in progress" in out["error"]
     assert d.exists()  # nothing deleted while the installer thread owns the dir
+
+
+def test_update_check_reports_newer_build(tmp_path):
+    # A5: newer upstream tag → updateAvailable; the fetch is injected (the container
+    # proxy can't reach ggml-org; the user's box calls the releases API directly).
+    svc = _service_for(tmp_path)
+    svc._latest_build_fn = lambda: "b99999"
+    out = svc.update_check()
+    assert out["updateAvailable"] is True and out["latest"] == "b99999" and out["error"] == ""
+
+
+def test_update_check_same_and_error_paths(tmp_path):
+    svc = _service_for(tmp_path)
+    svc._latest_build_fn = lambda: svc._config_fn().llamacpp.pinned_build
+    assert svc.update_check()["updateAvailable"] is False
+
+    def boom():
+        raise RuntimeError("offline")
+
+    svc._latest_build_fn = boom
+    out = svc.update_check()
+    assert out["updateAvailable"] is False and "offline" in out["error"]

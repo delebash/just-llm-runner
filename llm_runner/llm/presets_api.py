@@ -22,6 +22,8 @@ from typing import Callable, Protocol
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from .seed import app_engine_presets
+
 
 class PresetFlagRow(BaseModel):
     """One flag/sampler key-value in a preset (a frozen switch, or a long-tail
@@ -53,6 +55,10 @@ class EnginePresetRow(BaseModel):
     samplers: list[PresetFlagRow] = []  # long-tail Plane-2 samplers
     builtIn: bool = False
     position: int = 0
+    # READ-ONLY, filled at list time (D4-1 leg 3, 2026-07-06): the model this preset's
+    # FACTORY seed points at (the app's registered library, by id; "" for user-created
+    # presets). Clients use it to tell "differs from factory" honestly — writes ignore it.
+    factoryModel: str = ""
 
 
 class TaskKindAssignment(BaseModel):
@@ -99,7 +105,14 @@ def make_presets_router(
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     def _presets() -> PresetsResponse:
-        return PresetsResponse(presets=get_presets().list())
+        rows = get_presets().list()
+        # D4-1 leg 3: annotate each row with its factory model (the app's registered
+        # seed library, joined by preset id) so the wizard can detect "differs from
+        # factory" without a second endpoint.
+        factory = {str(p.get("id") or ""): str(p.get("model") or "") for p in app_engine_presets()}
+        for r in rows:
+            r.factoryModel = factory.get(r.id, "")
+        return PresetsResponse(presets=rows)
 
     def _assignments() -> AssignmentsResponse:
         return AssignmentsResponse(

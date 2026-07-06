@@ -85,6 +85,60 @@ async function uninstall() {
   }
 }
 
+// ── A5: update detection (user "do", 2026-07-06) — notify-only, never auto-applied.
+// The pin is a VERIFIED pin (flag semantics move between llama.cpp builds), so the
+// surface is a line + a deliberate click; policy Off silences the check entirely.
+const updateInfo = ref(null); // {current, latest, updateAvailable, error} | null
+const updatePolicy = ref("notify");
+
+async function checkForUpdate() {
+  try {
+    const cfg = await request("/v1/ai/engine-config");
+    updatePolicy.value = cfg?.updatePolicy || "notify";
+    if (updatePolicy.value === "off") {
+      updateInfo.value = null;
+      return;
+    }
+    updateInfo.value = await request("/v1/llm-runner/engine/update-check");
+  } catch {
+    updateInfo.value = null; // an unreachable check is silence, never a false "update available"
+  }
+}
+
+async function setUpdatePolicy(v) {
+  updatePolicy.value = v;
+  try {
+    await request("/v1/ai/engine-config", { method: "PUT", body: { updatePolicy: v } });
+  } catch (e) {
+    error.value = e.message || "Couldn't save the update policy.";
+  }
+  if (v === "off") updateInfo.value = null;
+  else checkForUpdate();
+}
+
+async function updateToLatest() {
+  const latest = updateInfo.value?.latest;
+  if (!latest) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    // The deliberate click: write the new pin, then force-reinstall for it. The
+    // acquire path verifies the release's asset names (the pin-bump discipline).
+    await request("/v1/ai/engine-config", { method: "PUT", body: { pinnedBuild: latest } });
+    await request("/v1/llm-runner/engine/install", { method: "POST", body: { force: true } });
+    updateInfo.value = null;
+    await refreshEngine();
+  } catch (e) {
+    error.value = e.message || "Update failed.";
+  } finally {
+    busy.value = false;
+  }
+}
+
 export function useEngine() {
-  return { engineState: st, busy, error, installed, installing, progressLabel, refreshEngine, install, uninstall };
+  return {
+    engineState: st, busy, error, installed, installing, progressLabel,
+    updateInfo, updatePolicy, checkForUpdate, setUpdatePolicy, updateToLatest,
+    refreshEngine, install, uninstall,
+  };
 }

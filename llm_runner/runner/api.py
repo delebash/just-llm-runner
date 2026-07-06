@@ -261,6 +261,11 @@ async def engine_uninstall() -> dict:
     return get_service().uninstall_engine()
 
 
+@router.get("/v1/llm-runner/engine/update-check", summary="Latest upstream llama.cpp build vs the pinned one (never auto-applies)")
+async def engine_update_check() -> dict:
+    return get_service().update_check()
+
+
 @router.post("/v1/llm-runner/measure", summary="Probe the running model → decode tok/s + resource context")
 async def measure_model(prompt: str = "Write one vivid paragraph about the sea.", max_tokens: int = 128) -> dict:
     """#20 'Tune & measure': run a fixed probe against the loaded model and return

@@ -34,11 +34,16 @@ class EngineConfig(BaseModel):
     safetyMarginMb: int
     modelsMax: int          # router: how many models may stay co-resident (>= 1)
     sleepIdleSeconds: int   # router: idle-unload TTL in seconds (0 = never)
+    # A5 (user "do", 2026-07-06): "off" | "notify". Notify = the UI surfaces "update
+    # available" and the bump is a deliberate click; NEVER auto-applied — the pin is a
+    # VERIFIED pin (flag semantics move between llama.cpp builds).
+    updatePolicy: str = "notify"
     binaries: list[RunnerBinaryRow]
 
 
 class EngineConfigUpdate(BaseModel):
     pinnedBuild: str | None = None
+    updatePolicy: str | None = None     # "off" | "notify"
     safetyMarginMb: int | None = None
     modelsMax: int | None = None
     sleepIdleSeconds: int | None = None
@@ -69,6 +74,11 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             if not pb:
                 raise HTTPException(status_code=400, detail="pinnedBuild cannot be blank")
             store.set_setting("pinned_build", pb)
+        if body.updatePolicy is not None:
+            up = body.updatePolicy.strip().lower()
+            if up not in ("off", "notify"):
+                raise HTTPException(status_code=400, detail="updatePolicy must be 'off' or 'notify'")
+            store.set_setting("update_policy", up)
         if body.safetyMarginMb is not None:
             store.set_setting("safety_margin_mb", str(int(body.safetyMarginMb)))
         if body.modelsMax is not None:

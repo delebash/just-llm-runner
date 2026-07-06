@@ -24,7 +24,7 @@ import { useEngine } from "../composables/useEngine.js";
 // Engine actions live HERE on the Built-in row (user, 2026-07-06: "move the install
 // unistall update button to right of edit") — the same shared useEngine state the
 // Local-engine panel reads, so the row and the panel can never disagree.
-const { engineState: engState, busy: engBusy, error: engError, installed: engInstalled, installing: engInstalling, progressLabel: engProgressLabel, refreshEngine, install: engInstall, uninstall: engUninstall } = useEngine();
+const { engineState: engState, busy: engBusy, error: engError, installed: engInstalled, installing: engInstalling, progressLabel: engProgressLabel, updateInfo: engUpdate, checkForUpdate, refreshEngine, install: engInstall, uninstall: engUninstall, updateToLatest } = useEngine();
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
 // own AI-domain settings (e.g. JustWrite's "Writing AI" — voice canon, RAG
@@ -149,6 +149,7 @@ function onSaved() { editingId.value = null; loadProviders(); }
 onMounted(() => {
   loadAll();
   refreshEngine(); // the Built-in row's Install/Update/Uninstall state
+  checkForUpdate(); // A5 — policy-gated (Off = silent); notify surfaces a line, never auto-applies
 });
 </script>
 
@@ -218,7 +219,11 @@ onMounted(() => {
                 <UiButton v-if="!engInstalled" intent="primary" size="small"
                   :loading="engBusy || engInstalling" @click="engInstall(false)">Install engine</UiButton>
                 <template v-else>
-                  <UiButton intent="secondary" size="small"
+                  <UiButton v-if="engUpdate?.updateAvailable" intent="accent2" size="small"
+                    :loading="engBusy || engInstalling"
+                    :title="`A newer engine build is available (you have ${engUpdate.current})`"
+                    @click="updateToLatest">Update to {{ engUpdate.latest }}</UiButton>
+                  <UiButton v-else intent="secondary" size="small"
                     :loading="engBusy || engInstalling" @click="engInstall(true)">Update</UiButton>
                   <UiButton intent="ghost" size="small" :loading="engBusy"
                     title="Delete the engine binaries — models are kept" @click="engUninstall">Uninstall</UiButton>

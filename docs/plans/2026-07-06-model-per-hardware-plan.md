@@ -527,6 +527,44 @@ the estimate stays conservatively in force — accepted drift, recorded); `start
 single-model path keeps explicit values (an asymmetry, fine — production is router-only, noted
 in the code comment).
 
+## PHASE 2 RECORD — SHIPPED 2026-07-06 (runner `39fb9da` · JW `86d881e`). QuickSetup protection + opt-out sweep.
+
+**Built to §Phase 2 + amendment A8; the diff checker returned FAIL(3) and every finding was folded
+before commit** (T3: the tune-read predicate extracted as `modelApply.modelHasTunes` — one source
+beside `dominantOf`; T5b: the dangling "pick a larger card above" empty-state copy fixed; T11:
+`models.md` updated in-series — the Plan-for-card sentence deleted, the changelist + sweep flow
+documented). **What shipped:** (1) the Plan-for-card what-if selector REMOVED (decision #7; zero
+references remain; the server's vram_mb param survives for the catalog view); (2) **D4-1 (a)+(c)**
+— `applyPreview()` in `modelApply.js` computes the change preview from the SAME `dominantOf` the
+Apply writer uses; a CONFIGURED box (mixed task models OR tune rows for a currently-pointed model —
+the A8 signal, never the new pick) sees exactly which presets re-point and which are kept, plus the
+"your saved machine tunes are never touched" truth, before Apply; fresh boxes stay one-click.
+**HONEST OMISSION recorded (the checker's T5a):** the plan's third detection leg (any preset ≠ the
+factory seed default) is NOT implemented — no client-readable factory-model source exists; the
+uncovered case is ALL presets uniformly on one un-tuned non-factory model (itself only reachable by
+a prior one-click Apply or a deliberate all-8 hand re-point). FOLLOW-UP: expose the factory preset
+models (the server has them in `configure_app_seed`) + wire leg 3 — a small bounded item, filed
+here in the plan.
+(3) **The opt-out sweep** — Apply checks `modelHasTunes(pick)`: untuned → the sweep AUTO-STARTS
+(save:true) and the done step renders it running with **Skip** (the between-trials cancel endpoint,
+which the wizard never called before); tuned → NO auto-start, **Re-optimize** behind an explicit
+`confirmDialog` (the user's verbatim overwrite-consent ask; with 1b's strict-beat rule the save
+only actually replaces rows on a strictly faster measure); a busy `ok:false` ADOPTS the already-
+running shared job; the done copy handles the strict-beat "nothing needed saving" outcome honestly.
+(4) **FOUND-AND-FIXED (exposed by the probe's reset-first determinism):** `POST /v1/data/reset`
+silently LOST the per-app extra catalog rows + tune seeds — install-time-only seeding meant the
+reset's `seed_llm` path never saw them, leaving presets pointing at a vanished catalog id (the
+"reset-proof seed data" promise held only for fresh-DB boots, since the 2026-07-06 seeding
+session). Fix at the root: `configure_app_seed` registers `model_catalog_extra`/`model_tunes_seed`/
+`hw_key_fn` and `seed_llm` — the ONE reseed entrypoint for boot AND reset — seeds them (checker T1
+PASS on the shape; the install-time seeding is retained for boot order and calls the same seeders).
+**Verified:** runner ruff + 374 pytest · JW build:vite + vitest 29/29 + FULL headless smoke zero JS
+errors + the rewritten wizard probe **18/18 PASS** (scenario 1: configured-box changelist renders +
+names re-points, untuned pick auto-starts, Skip cancels; scenario 2: tuned pick never auto-starts,
+Re-optimize renders and asks the A8 confirm) · JW server 76 pytest · live reset round-trip (post-
+reset: the gemma extra row present + 6 tune rows under the machine key). **NEXT: Phase 3** (the
+class→model map) — then 4 (the Windows Job Object) and 5 (the seed-facts audit script).
+
 ## PHASE 1b RECORD — SHIPPED 2026-07-06 (the derivation half; runner `9b65ebb` + `16a4747` · JW `4685939`). PHASE 1 IS COMPLETE.
 
 **Built exactly to the locked design + amendments 1b-F1..F6 (pre-build checker FAIL(4) → all

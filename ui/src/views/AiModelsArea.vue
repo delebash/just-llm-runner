@@ -208,12 +208,6 @@ onMounted(() => {
                 {{ p.hasApiKey ? "API key set" : "no key" }}
               </div>
             </div>
-            <!-- Quick Setup: JUST the button, centered on the card level with the /v1
-                 line (user, 2026-07-06: "put it in center on same line as /v1 … just the
-                 button … it pops out at you"). Absolute overlay — the row grid untouched. -->
-            <div v-if="p.providerType === 'local-llamacpp'" class="lu-prow-qsbtn">
-              <QuickSetup button-only @changed="loadProviders" />
-            </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
             <!-- ONE actions cell (the row is a grid — loose buttons would wrap to a new
                  grid row, which is exactly the misplacement the user screenshotted). -->
@@ -234,6 +228,13 @@ onMounted(() => {
                     title="Delete the engine binaries — models are kept" @click="engUninstall">Uninstall</UiButton>
                 </template>
               </template>
+            </div>
+            <!-- Quick Setup: JUST the button, on its OWN centered row of the card
+                 (user, 2026-07-06: "you need model on seperate row or css change" —
+                 the absolute overlay shifted the row on the user's box; a spanning
+                 grid row is stable at any width/build). -->
+            <div v-if="p.providerType === 'local-llamacpp'" class="lu-prow-qsbtn">
+              <QuickSetup button-only @changed="loadProviders" />
             </div>
           </div>
           <!-- Same progress bar as the engine panel — the install runs from THIS row, so
@@ -387,10 +388,9 @@ onMounted(() => {
 .lu-prow-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .lu-prow-prog { margin-top: 6px; }
 .lu-prow-err { margin: 6px 0 0; font-size: 12.5px; }
-/* Quick Setup — just the button, dead-center on the Built-in card (level with the /v1
-   line): an absolute overlay so the row grid + its wrap behavior stay untouched. */
-.lu-prow { position: relative; }
-.lu-prow-qsbtn { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+/* Quick Setup — just the button, on its OWN centered row spanning the Built-in card
+   (no absolute positioning: the overlay variant shifted the grid on the user's box). */
+.lu-prow-qsbtn { grid-column: 1 / -1; justify-self: center; padding-top: 2px; }
 .lu-prow-ic { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-3); color: var(--ink-2); display: grid; place-items: center; }
 .lu-prow-ic svg { width: 17px; height: 17px; }
 .lu-prow-info { min-width: 0; }

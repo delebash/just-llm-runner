@@ -32,7 +32,8 @@ def _fake_router(url="http://127.0.0.1:8080", alive=True):
 def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
                  router_unload=None, router_models=None, now=None, sleep=None,
                  identify_fn=None, switches_fn=None, profile_switches_fn=None,
-                 embedding_ids_fn=None, arbiter=None, acquired_exes=None):
+                 embedding_ids_fn=None, arbiter=None, acquired_exes=None,
+                 used_vram_fn=None, hardware_fn=None):
     """A RunnerService with the router + download IO injected. Every catalog model is
     seeded into a fake HF cache (`<root>/hf/models--<repo>/snapshots/sha/<file>.gguf`)
     so both `cached_gguf_path` (the .ini emitter) and the injected `acquire_model`
@@ -42,7 +43,13 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
     load's confirmation poll (`_confirm_load`, P1f) resolves on the first GET /models and
     the load reaches `running` without touching a real socket. A test that needs a
     `loading` / `failed` / timeout path injects its own `router_models` (+ `now`/`sleep`
-    to drive the clock deterministically)."""
+    to drive the clock deterministically).
+
+    `used_vram_fn` defaults to `lambda: None` (unmeasurable) so the post-load VRAM
+    true-up keeps the fit estimate — deterministic reservations regardless of the
+    box the suite runs on (the REAL probe would read this machine's live nvidia-smi
+    and make exact `reserved_mb` assertions flaky). A test exercising the true-up
+    injects its own reading sequence."""
     models = list(catalog or [_TEST_MODEL])
     snaps = {}
     for m in models:
@@ -55,6 +62,8 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         return {"object": "list", "data": [{"id": m.id, "status": {"value": "loaded"}} for m in models]}
 
     kw = {}
+    if hardware_fn is not None:
+        kw["hardware_fn"] = hardware_fn
     if acquired_exes is not None:
         kw["acquired_exes"] = acquired_exes
     if identify_fn is not None:
@@ -80,6 +89,7 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         router_load=router_load or (lambda *a, **k: None),
         router_unload=router_unload or (lambda *a, **k: None),
         router_models=router_models or _all_loaded,
+        used_vram_fn=used_vram_fn or (lambda: None),
         # A FRESH arbiter per service isolates each test's ledger (the default is the shared
         # process singleton, which would leak reservations between tests).
         arbiter=arbiter if arbiter is not None else VramArbiter(),
@@ -111,6 +121,38 @@ def test_load_emits_ini_section(tmp_path):
     ini = _ini(svc)
     assert f"[{_TEST_MODEL.id}]" in ini
     assert "model = " in ini and "model-Q4_K_M.gguf" in ini
+
+
+def test_reserve_trues_up_with_measured_vram_delta(tmp_path):
+    # Measure-don't-assume (2026-07-06): a CPU-only fit (no GPU → n_gpu_layers 0) books a
+    # 0 MB estimate, but a CUDA-build child still holds real VRAM (driver context —
+    # box-measured ~549 MB for an ngl-0 embed child on a 2070 SUPER). The post-confirm
+    # true-up must reserve the MEASURED used-VRAM growth, not the assumed 0, or every
+    # CPU-offloaded co-resident inflates the budget the arbiter hands the next load.
+    readings = iter([1000, 1549])  # before-load → after-confirm: the child grew 549 MB
+    arb = VramArbiter()
+    no_gpu = HardwareInfo(os="Linux", platform="linux", cpu_cores=8, ram_mb=32000, gpus=[])
+    svc = _service_for(tmp_path, arbiter=arb, hardware_fn=lambda: no_gpu,
+                       used_vram_fn=lambda: next(readings))
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert arb.reserved_mb(_TEST_MODEL.id) == 549
+
+
+def test_reserve_floors_at_estimate_when_delta_undercounts(tmp_path):
+    # The delta can UNDER-count (an evicted victim still draining at the `before`
+    # snapshot, a co-resident idle-sleeping mid-load) — the true-up must floor at the
+    # fit estimate, never book less. GPU hardware → a real (non-zero) estimate; a
+    # 1 MB measured delta must NOT shrink the reservation to 1.
+    readings = iter([5000, 5001])
+    arb = VramArbiter()
+    svc = _service_for(tmp_path, arbiter=arb, hardware_fn=lambda: _fake_hw(8192),
+                       used_vram_fn=lambda: next(readings))
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert arb.reserved_mb(_TEST_MODEL.id) > 1  # floored at the formula estimate
 
 
 def test_unknown_model_errors(tmp_path):

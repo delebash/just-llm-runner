@@ -22,7 +22,14 @@ from __future__ import annotations
 from .schema import BinaryAsset, LlamacppSpec, RunnerConfig
 
 # EXACT llama.cpp release tag (never "latest" — reproducible spawns).
-DEFAULT_PINNED_BUILD = "b9644"
+# b9644 → b9870 (2026-07-06): Gemma 4 MoE (26B-A4B) + its external MTP draft need the
+# newer build; b9870's full asset list was verified against the GitHub release API the
+# same day — all 11 filenames below exist under the identical naming scheme, so only
+# the tag changes. NOTE: seeding is insert-if-missing (`seed_default_runner_settings`),
+# so an EXISTING DB keeps its old `pinned_build` row — bump it in the UI (Settings → AI
+# → engine Binaries panel) or the row directly; this constant fixes fresh installs and
+# the panel's "reset to defaults".
+DEFAULT_PINNED_BUILD = "b9870"
 
 # Reserve this much VRAM headroom when computing the GPU layer split.
 DEFAULT_SAFETY_MARGIN_MB = 1024

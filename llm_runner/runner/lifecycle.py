@@ -27,7 +27,7 @@ from .binary import acquire_binary as _acquire_binary
 from .binary import acquired_server_exe, acquired_server_exes, binary_dir, select_binary
 from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
-from .hardware import detect as _detect, max_vram_mb as _hw_max_vram
+from .hardware import detect as _detect, max_vram_mb as _hw_max_vram, used_vram_mb as _hw_used_vram
 from .models import acquire_model as _acquire_model, cached_gguf_path
 from .process import (
     DEFAULT_HOST,
@@ -300,6 +300,7 @@ class RunnerService:
         router_load=_default_router_load,
         router_unload=_default_router_unload,
         router_models=_default_router_models,
+        used_vram_fn=_hw_used_vram,
         now=time.monotonic,
         sleep=time.sleep,
         arbiter=None,
@@ -321,6 +322,7 @@ class RunnerService:
         self._router_load = router_load
         self._router_unload = router_unload
         self._router_models = router_models
+        self._used_vram_fn = used_vram_fn
         self._now = now
         self._sleep = sleep
         self._load_poll_timeout = _LOAD_POLL_TIMEOUT
@@ -828,14 +830,18 @@ class RunnerService:
                 # Arbiter admission (P2): evict the LRU non-pinned resident(s) until this model
                 # fits the VRAM budget within models_max, THEN load. Under _router_lock so the
                 # eviction serializes with other loads/stops. The reservation is recorded only
-                # AFTER a confirmed load (below), so the ledger never holds a non-resident model.
+                # AFTER a confirmed load (below), so the ledger never holds a non-resident model —
+                # and it is TRUED-UP against the measured used-VRAM delta across the load
+                # (measure-don't-assume; see _trued_up_vram_mb).
                 self._admit(model_id, fit.vram_mb, config.models_max, hardware)
                 self._resident[model_id].update(status="starting", detail="loading into VRAM",
                                                 downloaded=0, total=0)
+                vram_before = self._probe_used_vram()
                 self._load_via_router(entry, fit, server_exe, config)
                 # Pin the configured embed so it is NEVER the LRU eviction victim (P3): a chat co-load
                 # evicts another chat, never the embed RAG depends on. A chat model reserves unpinned.
-                self._arbiter.reserve(model_id, fit.vram_mb, pinned=model_id in embed_ids)
+                self._arbiter.reserve(model_id, self._trued_up_vram_mb(fit.vram_mb, vram_before),
+                                      pinned=model_id in embed_ids)
                 self._resident[model_id].update(status="running", url=self._router.url,
                                                 detail="", error="", downloaded=0, total=0)
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
@@ -846,6 +852,37 @@ class RunnerService:
 
     # ── Arbiter admission (P2): co-reside if it fits, else evict the LRU ───────
     #    Called from _run_load under `_router_lock`.
+
+    def _probe_used_vram(self) -> int | None:
+        """Snapshot of total used VRAM (MiB) via the injected probe (`used_vram_fn`,
+        default `hardware.used_vram_mb`); None when unmeasurable (no nvidia-smi —
+        AMD/Metal/CPU boxes) or when the probe itself raises — a probe failure must
+        never fail a load."""
+        try:
+            return self._used_vram_fn()
+        except Exception:  # noqa: BLE001 — measurement is best-effort, never load-fatal
+            return None
+
+    def _trued_up_vram_mb(self, estimate_mb: int, before: int | None) -> int:
+        """The VRAM (MiB) to RESERVE for a just-CONFIRMED load: `max(fit estimate,
+        measured used-VRAM growth across the load)` — measure-don't-assume (2026-07-06).
+
+        WHY: the fit formula books an `n-gpu-layers = 0` child as 0 MB, but a
+        CUDA-build child still holds ~0.5 GB of driver context (box-measured 549 MB);
+        booking 0 over-reports the remaining budget for every CPU-offloaded
+        co-resident (e.g. the pinned RAG embed), and the fitted estimate for GPU
+        loads can drift from reality too. Loads serialize under `_router_lock`, so
+        the growth between the two snapshots is attributable to THIS load.
+
+        FLOOR at the estimate, never below: the delta can UNDER-count (an evicted
+        victim's child still draining VRAM at the `before` snapshot, or a co-resident
+        going to idle-sleep mid-load, both shrink it) and a shrunken measurement must
+        not let the ledger book less than the formula's own floor. Unmeasurable
+        (None either side) → keep the estimate unchanged."""
+        after = self._probe_used_vram()
+        if before is None or after is None:
+            return estimate_mb
+        return max(estimate_mb, after - before)
 
     def _admit(self, model_id: str, vram_mb: int, models_max: int, hardware) -> None:
         """Make room for a load: evict the LRU non-pinned resident(s) until `model_id` fits the VRAM

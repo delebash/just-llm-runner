@@ -76,6 +76,31 @@ def current_machine_key() -> str:
     return machine_key(detect())
 
 
+def used_vram_mb() -> int | None:
+    """Total CURRENTLY-used VRAM across NVIDIA GPUs (MiB), or None when it cannot be
+    measured (no nvidia-smi — AMD / Metal / CPU-only boxes; a probe failure).
+
+    WHY this exists (measure-don't-assume, box-verified 2026-07-06): the lifecycle
+    trues-up an arbiter reservation with the load's REAL footprint right after the
+    load confirms. The fit formula books an `n-gpu-layers = 0` child as 0 MB, but a
+    CUDA-build llama-server child still initializes a CUDA context and holds ~0.5 GB
+    (measured 549 MB for the Qwen3-Embedding-0.6B child on an RTX 2070 SUPER) — an
+    assumed 0 would over-report the remaining budget by that much for every
+    CPU-offloaded co-resident (e.g. the pinned RAG embed), and the fitted estimate
+    for GPU loads can drift from reality too. The measured number comes from the
+    machine, not from a constant."""
+    out = _nvidia_query("memory.used")
+    if out is None:
+        return None
+    total, seen = 0, False
+    for line in out.splitlines():
+        tok = line.strip().split(",")[0].strip()
+        if tok.isdigit():
+            total += int(tok)
+            seen = True
+    return total if seen else None
+
+
 def _nvidia_query(fields: str) -> str | None:
     """Run one `nvidia-smi --query-gpu` call; None on any failure (never raises)."""
     try:

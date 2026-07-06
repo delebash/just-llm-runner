@@ -6,6 +6,11 @@ model-id approach. Lifted verbatim from JustVoice
 `server/justvoice/engines/llm/tiers.py` into the shared `llm_runner`
 package (2026-06-21 AI-stack convergence).
 
+THIS is the canonical tier table (the server dispatch classifies with it).
+JustWrite's renderer keeps a synchronous DOCUMENTED MIRROR for boot-time UI
+badges (`src/renderer/src/services/modelMeta.js` — recorded by the 2026-07-06
+shared-stack audit): change the heuristic HERE first, then mirror it there.
+
 Each tier carries:
   - system_key: which prompt body the extraction backend should send.
   - think: whether to enable Ollama's reasoning blocks (only meaningful

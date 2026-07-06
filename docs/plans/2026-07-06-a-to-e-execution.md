@@ -607,7 +607,54 @@ implementation-grain findings the design's own "follow the kit's existing preced
 7. **JV safety (F1 untouched):** all index.js changes are additive exports; JV resolves `pinia`
    from its own node_modules; JV's `renderTasks.js`/`TaskStrip.vue` fork stays as-is — its deletion
    + adoption is F1/F4 exactly as Decision 22 step 4 records.
-- **C4 — everything-LLM-shared audit:** NOT STARTED.
+- **C4 — everything-LLM-shared audit: IN PROGRESS (2026-07-06; design + unit list below, verdicts being
+  filled).**
+
+### C4 design (written before executing the verdicts — the T6 strict-diff method for this audit)
+
+**The principle under audit (recorded, tasks #32/#92):** ALL LLM GUI + backend live in the shared stack
+(`just-llm-runner` + `@delebash/llm-ui`); only feature SEEDS (and app feature code that merely CALLS the
+stack) are per-app. Scope per the batch mandate: JW + kit + runner units get verdicts AND in-scope fixes;
+JV units get verdicts RECORDED under F1, never edits. Audit unit = a file; verdict per unit is one of
+**SHARED-OK** (lives in the stack, no app leak) · **APP-OK** (legitimately per-app: a seed, a thin host
+mount, or app feature code calling the shared wrappers) · **VIOLATION** (LLM-stack logic/UI living
+app-side, or app-specific logic inside the shared stack) — each with file:line evidence. Fix policy for
+JW/kit violations found: small removals/redirects fix in-batch; anything C3-sized (a multi-file kit
+promotion) gets filed as its own ledger item rather than half-done here.
+
+**Enumeration method (run 2026-07-06, all four greps recorded):** (1) JW files with RAW `/v1/ai/` /
+`/v1/llm-` endpoint strings (each must justify not riding a kit service) — 8 files, 2 of them the
+transport-mocking unit tests; (2) kit files naming an app (`justwrite|justvoice|jw|jv`) — 16 files,
+**every hit a comment/provenance note, zero logic leaks** (first-hit-per-file classification recorded in
+the session log; e.g. `client.js:5` names the apps only to describe who configures the base URL);
+(3) runner python naming an app — 29 files, **every hit a lift-provenance docstring or host-mount
+example, zero app-coupled logic** (e.g. `runner/binary.py:5` "no app coupling"); (4) JV renderer LLM
+surface (read-only) — the LLM-domain files among the broad kit-import matches: `services/llmBackend.js`,
+`components/ProviderForm.vue`, `components/QuickSetup.vue`, `components/RecommendCard.vue`, plus the
+feature callers (`SpeakerLabView.vue`, `GenerateView.vue`, `stores/api.js` LLM slices).
+
+**The JW unit table to fill (LLM-domain units; broad `@delebash/llm-ui`-import matches that are mere
+Ui-primitive consumers are NOT units — using the shared kit is the point, not a finding):**
+| # | Unit | Suspicion going in |
+|---|------|--------------------|
+| 1 | `services/providerBackend.js` | provider CRUD vs the kit views' own provider CRUD — duplicate? |
+| 2 | `services/routingBackend.js` | vs kit `common/composables/useRouting.js` — duplicate? |
+| 3 | `services/embedApi.js` | generic embedding transport — kit-promotion candidate? |
+| 4 | `services/modelMeta.js` | vs kit `useCatalogMeta`/`modelDefaults` AND runner `llm/tiers.py` (its own docstring: "Ported from JustWrite's modelMeta.js") — triple source? |
+| 5 | `composables/useModelList.js` | vs kit `useRunnerModels` / `LuModelPicker` internals |
+| 6 | `components/ModelPicker.vue` | vs kit `LuModelPicker.vue` |
+| 7 | `components/Combobox.vue` | vs kit `LuCombobox.vue` (kit header: "mirrors JustWrite's Combobox") |
+| 8 | `components/WritingAiSettings.vue` | writing-AI settings — app config UI or stack UI? |
+| 9 | `components/AiFeatureChip.vue` | per-feature AI affordance — app or stack? |
+| 10 | `stores/ai.js` | the JW provider-registry store vs kit provider handling |
+| 11 | `services/writerAI.js` | app feature glue over the kit stream wrapper — expect APP-OK |
+| 12 | `services/chatApi.js` | unknown — classify |
+| 13 | `views/AiView.vue` | thin host mount of kit `AiModelsArea` — expect APP-OK |
+| 14 | feature callers: `services/analysis/*` (12) · `services/rag/*` (3+vectorStore) · `resumeBriefing/sensoryResearch/sessionRecap/stuckDiagnostic` | app features calling kit wrappers — expect APP-OK as a class, spot-verified |
+| 15 | JW server: `seed_feature_prompts.py` · `seed_presets.py` · `app.py` install_llm wiring | the sanctioned per-app seeds — expect APP-OK |
+
+Verdicts land in the table below as each unit is read; violations get their evidence + the fix-or-file
+decision inline.
 - **C2 — measured/benchmark re-grounding research:** NOT STARTED.
 - **E3 — ODT import: lists:** NOT STARTED.
 

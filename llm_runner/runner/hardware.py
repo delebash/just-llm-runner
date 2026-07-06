@@ -3,11 +3,22 @@
 
 Drives binary + model selection. No CUDA toolkit is ever required — we only
 DETECT what the user has (platform, GPU vendor, NVIDIA compute capability +
-driver, AMD/ROCm, Vulkan) and pick the matching prebuilt build. For NVIDIA the
-`compute_cap` chooses the CUDA build (Blackwell needs 13.x, older cards 12.x);
-for AMD/Intel we prefer ROCm/HIP when its runtime is present, else Vulkan
-(user decision 2026-07-01). The only prerequisite is the GPU's own driver,
-which the user already has if the GPU works.
+driver, AMD/ROCm, Intel Arc, Vulkan) and pick the matching prebuilt build. For
+NVIDIA the `compute_cap` chooses the CUDA build (Blackwell needs 13.x, older
+cards 12.x); for AMD we prefer ROCm/HIP when its runtime is present, else
+Vulkan (user decision 2026-07-01); Intel ARC discrete GPUs route to the Vulkan
+build (iGPU-only Intel boxes stay CPU). The only prerequisite is the GPU's own
+driver, which the user already has if the GPU works.
+
+AMD/Intel rows come from a per-platform scan (only run when no NVIDIA GPU was
+found, so the NVIDIA fast-path pays nothing): on Linux the kernel's own sysfs
+(`/sys/class/drm/cardN/device/vendor`, and for amdgpu the byte-exact
+`mem_info_vram_total` — kernel-documented ABI); on Windows the display-class
+registry (`DriverDesc` + `HardwareInformation.qwMemorySize` — the 64-bit value;
+`Win32_VideoController.AdapterRAM` is uint32 and caps at 4 GB, so it is never
+used). Intel-on-Linux VRAM stays None: there is no stable merged sysfs ABI for
+discrete-Intel local memory (`lmem_total_bytes` never left RFC), so the row
+exists (vendor/name/routing work) and Fit honestly reads unknown.
 """
 
 from __future__ import annotations
@@ -15,9 +26,11 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import re
 import shutil
 import subprocess
 from functools import cache
+from pathlib import Path
 
 from .schema import GpuInfo, HardwareInfo
 
@@ -106,6 +119,154 @@ def _nvidia_gpus() -> list[GpuInfo]:
     return gpus
 
 
+# PCI vendor ids we build rows for. NVIDIA (0x10de) is deliberately absent —
+# nvidia-smi stays the single NVIDIA authority (no smi = no usable CUDA anyway).
+_PCI_VENDOR_TO_NAME = {"0x1002": "AMD", "0x8086": "Intel"}
+
+# Intel DISCRETE detection by adapter name: "Arc" (A- and B-series retail names,
+# Windows DriverDesc "Intel(R) Arc(TM) …", Linux lspci "… [Arc A770]") plus the
+# DG1/DG2/Battlemage silicon names some lspci databases use instead.
+_INTEL_ARC_RE = re.compile(r"\barc\b|dg1|dg2|battlemage", re.IGNORECASE)
+
+
+def _lspci_names() -> dict[str, str]:
+    """One `lspci -mm` pass → {pci address (no domain): device name}; {} when
+    lspci is unavailable. Only used to give scanned rows their marketing name —
+    a miss falls back to a generic vendor label, never an error."""
+    if not shutil.which("lspci"):
+        return {}
+    try:
+        out = subprocess.run(
+            ["lspci", "-mm"], capture_output=True, text=True, timeout=5,
+        ).stdout
+    except Exception as e:  # noqa: BLE001 — detection must never raise
+        log.debug("lspci -mm failed: %s", e)
+        return {}
+    names: dict[str, str] = {}
+    for line in out.splitlines():
+        # `03:00.0 "VGA compatible controller" "<vendor>" "<device name>" …`
+        m = re.match(r'^(\S+)\s+"[^"]*"\s+"[^"]*"\s+"([^"]*)"', line)
+        if m:
+            names[m.group(1)] = m.group(2)
+    return names
+
+
+def _pci_gpus_linux(root: Path = Path("/sys/class/drm")) -> list[GpuInfo]:
+    """AMD/Intel GPU rows from the kernel's sysfs (Linux). Never raises.
+
+    Top-level `cardN` entries only (connector nodes like `card0-DP-1` and
+    `renderD*` are skipped); vendor from the standard PCI `device/vendor`
+    attribute. AMD VRAM from amdgpu's `mem_info_vram_total` (bytes →  MiB,
+    kernel-documented sysfs ABI); Intel VRAM stays None (no stable merged ABI
+    for discrete local memory — the lmem sysfs never left RFC)."""
+    try:
+        cards = sorted(p for p in root.iterdir() if re.fullmatch(r"card\d+", p.name))
+    except OSError:
+        return []
+    names = _lspci_names()
+    gpus: list[GpuInfo] = []
+    for card in cards:
+        dev = card / "device"
+        try:
+            vendor_id = (dev / "vendor").read_text().strip().lower()
+        except OSError:
+            continue
+        vendor = _PCI_VENDOR_TO_NAME.get(vendor_id)
+        if vendor is None:
+            continue
+        vram_mb: int | None = None
+        if vendor == "AMD":
+            try:
+                vram_mb = int((dev / "mem_info_vram_total").read_text().strip()) // (1024 * 1024)
+            except (OSError, ValueError):
+                vram_mb = None
+        try:
+            pci_addr = dev.resolve().name  # the device symlink target, e.g. 0000:03:00.0
+        except OSError:
+            pci_addr = ""
+        short = re.sub(r"^[0-9a-fA-F]{4}:", "", pci_addr)  # lspci prints no domain
+        name = names.get(short) or names.get(pci_addr) or f"{vendor} GPU"
+        gpus.append(GpuInfo(vendor=vendor, name=name, vram_mb=vram_mb, driver=None, compute_cap=None))
+    return gpus
+
+
+def _qw_to_mb(value: object) -> int | None:
+    """Decode a registry `HardwareInformation.qwMemorySize` value → MiB.
+    Accepts REG_QWORD (int) or REG_BINARY (8 bytes little-endian); None on junk."""
+    try:
+        if isinstance(value, bytes):
+            value = int.from_bytes(value[:8], "little")
+        n = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return n // (1024 * 1024) if n > 0 else None
+
+
+_WIN_DISPLAY_CLASS = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+
+
+def _registry_gpus_windows() -> list[GpuInfo]:
+    """AMD/Intel GPU rows from the Windows display-class registry. Never raises.
+
+    `DriverDesc` = adapter name; `HardwareInformation.qwMemorySize` = the 64-bit
+    VRAM byte count (`Win32_VideoController.AdapterRAM` is uint32 → caps at
+    4 GB, so it is NOT used). Stdlib `winreg`, no subprocess, no deprecated wmic."""
+    if platform_key() != "windows":
+        return []
+    try:
+        import winreg
+    except ImportError:  # pragma: no cover — windows stdlib module
+        return []
+    gpus: list[GpuInfo] = []
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _WIN_DISPLAY_CLASS) as cls:
+            i = 0
+            while True:
+                try:
+                    sub = winreg.EnumKey(cls, i)
+                except OSError:
+                    break
+                i += 1
+                if not re.fullmatch(r"\d{4}", sub):
+                    continue
+                try:
+                    with winreg.OpenKey(cls, sub) as k:
+                        name = str(winreg.QueryValueEx(k, "DriverDesc")[0])
+                        low = name.lower()
+                        if "nvidia" in low or "geforce" in low:
+                            continue  # nvidia-smi stays the NVIDIA authority
+                        if "amd" in low or "radeon" in low:
+                            vendor = "AMD"
+                        elif "intel" in low:
+                            vendor = "Intel"
+                        else:
+                            continue
+                        try:
+                            raw = winreg.QueryValueEx(k, "HardwareInformation.qwMemorySize")[0]
+                            vram_mb = _qw_to_mb(raw)
+                        except OSError:
+                            vram_mb = None
+                        gpus.append(GpuInfo(
+                            vendor=vendor, name=name, vram_mb=vram_mb,
+                            driver=None, compute_cap=None,
+                        ))
+                except OSError:
+                    continue
+    except OSError as e:
+        log.debug("display-class registry scan failed: %s", e)
+    return gpus
+
+
+def _gpu_scan() -> list[GpuInfo]:
+    """AMD/Intel rows for this platform — only called when no NVIDIA GPU was found."""
+    plat = platform_key()
+    if plat == "linux":
+        return _pci_gpus_linux()
+    if plat == "windows":
+        return _registry_gpus_windows()
+    return []
+
+
 def _amd_gpu_present() -> bool:
     """Best-effort: is an AMD/Radeon GPU present? Never raises. Only probed when
     no NVIDIA GPU was found, so the NVIDIA fast-path pays nothing."""
@@ -172,13 +333,27 @@ def detect() -> HardwareInfo:
     runtimes: dict[str, bool] = {}
     if gpus and shutil.which("nvidia-smi"):
         runtimes["cuda"] = True
-    elif plat in ("windows", "linux") and _amd_gpu_present():
-        # ROCm/HIP first (best perf when its runtime is installed), else Vulkan
-        # as the universal GPU fallback (user decision 2026-07-01).
-        if _rocm_available():
-            runtimes["rocm"] = True
-        elif _vulkan_available():
-            runtimes["vulkan"] = True
+    elif plat in ("windows", "linux"):
+        # No NVIDIA → scan for AMD/Intel rows (A1: real name + VRAM where the
+        # platform exposes it, so Fit and machine_key work on those boxes).
+        scanned = _gpu_scan()
+        gpus = scanned
+        amd = [g for g in scanned if g.vendor == "AMD"]
+        intel = [g for g in scanned if g.vendor == "Intel"]
+        if amd or (not scanned and _amd_gpu_present()):
+            # ROCm/HIP first (best perf when its runtime is installed), else Vulkan
+            # as the universal GPU fallback (user decision 2026-07-01). The empty-scan
+            # arm keeps the legacy name-sniff as a last resort (runtime-only, no row)
+            # so no environment detects LESS than before the scan existed.
+            if _rocm_available():
+                runtimes["rocm"] = True
+            elif _vulkan_available():
+                runtimes["vulkan"] = True
+        elif any(_INTEL_ARC_RE.search(g.name or "") for g in intel):
+            # A2: Intel ARC discrete GPUs auto-route to the Vulkan build. iGPU-only
+            # Intel boxes deliberately stay CPU (the recorded scope is Arc discrete).
+            if _vulkan_available():
+                runtimes["vulkan"] = True
     if plat == "macos":
         runtimes["metal"] = True
     return HardwareInfo(

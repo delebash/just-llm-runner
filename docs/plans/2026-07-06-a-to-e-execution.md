@@ -860,3 +860,76 @@ untouched. Plus the standing gates: build:vite + vitest suite + full headless sm
 
 Per-item design + evidence + verification is appended below as each item starts; the master-plan ledger line is
 updated as each item ships.
+
+---
+
+## C5 — the JW model-picker family → kit (user's go: 2026-07-06, "go" on the C4-filed finding)
+
+### C5 design (written before implementation; grounded line-by-line this session)
+
+**Grounding (all read IN FULL this turn):** JW `components/ModelPicker.vue` (55 ln — single-provider model
+dropdown: "(provider default — <model> · <quant>)" lead option from `ai.providerById(...)?.defaultModel`,
+quant badges via `modelMeta.parseQuant`, refresh button; ONE mount: `ChatPanel.vue`), JW
+`composables/useModelList.js` (64 ln — MODULE-SCOPED shared per-provider cache over
+`/v1/llm-providers/{id}/models`, raw `fetch`+JW `serverUrl`; consumers: ModelPicker + AiFeatureChip +
+ChatPanel), JW `components/AiFeatureChip.vue` (310 ln — chip + popover pin editor; SEVEN JW-`ai`-store
+accessors (`llmProvider`, `readyLlmProviders`, `providerById`, `providerForFeature`, `modelForFeature`,
+`featurePins`, `setFeaturePin`); **~20 consumers** — every AI modal + Brainstorm/ReaderKnowledge/Home/
+Analysis/Chapters views; footer router-link to `/settings/audio` — a suspect target for a WRITING app,
+fixed below), JW `services/embedApi.js` (119 ln — ensure-embedding + poll + `/v1/ai/embeddings`; kit
+`get/post` transport; consumers: `rag/{indexer,chat,characterChat}.js` + its 11-test suite), and kit
+`LuModelPicker.vue` (131 ln — the provider+model PIN picker; "the host owns persistence"; its OWN
+per-instance `modelsCache` over the SAME endpoint) + `LuCombobox.vue` (pick-or-type).
+
+**The three design cruxes and their calls:**
+1. **The chip cannot move verbatim** — a kit component may not import the JW `ai` store, and the store's
+   resolution layer is load-bearing app state (~17 files read `featurePins`/`providerForFeature`/
+   `modelForFeature` directly; C4 already ruled `stores/ai.js` APP-OK in exactly this role). The correct
+   split is the kit's OWN recorded pattern (LuModelPicker: "the host owns persistence"): the kit gains
+   **presentational `LuFeatureChip.vue`** (the chip + popover + backdrop + styles + a11y — ALL the GUI)
+   driven by props (`feature`, `label`, `compact`, `resolvedProviderName`, `resolvedModel`, `pinned`
+   `{providerId,model}|null`, `providerOptions`, `modelOptions`) + emits (`pin`, `refresh-models`) + a
+   `#foot` slot for the host's manage-link; JW's `components/AiFeatureChip.vue` becomes the THIN
+   STORE-BINDING (same name + props, so the ~20 consumers stay UNTOUCHED) — a host-state adapter like
+   `AiView`/`WritingAiSettings`, not a forbidden fork/shim (the GUI lives once, in the kit).
+2. **ONE model-list cache, kit-wide.** Today there are TWO caches over the same endpoint (JW
+   `useModelList`'s module-scoped one; LuModelPicker's per-instance `modelsCache`) — the T3 violation at
+   the heart of the filing. New kit **`ui/src/composables/useProviderModels.js`** (llm layer — it needs
+   `client.js`; NOTE the kit's existing `common/composables/useRouting.js` + `useRunnerModels.js` import
+   `../../client.js` IN VIOLATION of `common/index.js:6`'s own no-llm-imports rule — a pre-existing kit
+   layering violation C4's app-name grep could not see; FILED as a ledger item below, NOT silently fixed
+   here): module-scoped `reactive` cache, `modelsFor`/`ensureModels`/`refreshModels`, plain `string[]`
+   ids (the enriched entry fields in JW's cache are ALWAYS null today by its own comment — dropped, and
+   quant badges derive from the id at render). **LuModelPicker adopts it** (its `modelsCache`/
+   `fetchModels` deleted — the actual convergence the filing named; behavior strictly improves: shared
+   across picker instances), keeping its kind-filtering downstream.
+3. **`LuModelSelect.vue` is a NEW kit control, not a LuModelPicker mode** — the single-provider model
+   dropdown (quant badge + provider-default lead + refresh) and the two-field pin picker are different
+   controls for different jobs (compared in full this turn); forcing one into the other would bloat both.
+   LuModelSelect = the moved ModelPicker riding `useProviderModels`, with the provider's saved default
+   INJECTED as a `defaultModel` prop (host state, per the same philosophy). ChatPanel swaps to it.
+
+**The rest of the moves:** `embedApi.js` → kit `ui/src/services/embedApi.js` (beside aiFeature; transport
+`get/post` → the llm-layer `client.request` with `{signal}` — the C3 precedent; exports incl.
+`_resetEnsureCache` ride `index.js`); `parseQuant`/`entryLabel` → kit `ui/src/services/modelLabels.js`
+(presentation helpers the kit controls need; JW's `modelMeta.js` SHRINKS to the tiers mirror —
+`getModelTier`/`TIERS` stay JW-local per the C4 documented-mirror record, its header updated); JW deletes
+`ModelPicker.vue` + `useModelList.js` + old `embedApi.js` (no shims); the chip's dead-looking
+`/settings/audio` footer link is replaced by the host-provided manage-link to `#/ai` in JW's binding
+(found-fix, verified against `router/index.js` — settings sections are app-tab territory now).
+Tests: `embedApi.test.js` re-targets the kit module via alias subpath (mocking the kit `client.js`
+`request` instead of `get/post`) — all 11 behaviors preserved; `modelMeta.test.js` splits (parseQuant/
+entryLabel tests → point at kit `modelLabels`; tier tests stay on JW modelMeta); vitest total stays green.
+
+**Kit exports added:** `LuFeatureChip`, `LuModelSelect`, `useProviderModels`, `parseQuant`, `entryLabel`,
+`ensureEmbeddingReady`, `embedTexts`, `_resetEnsureCache`.
+
+**FILED (not done here): kit-internal layering violation** — `common/composables/useRouting.js` and
+`useRunnerModels.js` (llm-endpoint composables) live in the common layer and import `../../client.js`
+against `common/index.js:6`'s rule; the fix (move them to the llm layer + sweep their importers) is its
+own small item for the ledger.
+
+**Verify:** `build:vite` · vitest (embedApi 11 re-targeted + modelLabels/modelMeta split + suite green) ·
+full headless smoke (ChatPanel + the chip surfaces render; zero JS errors) · residual-reference greps
+(zero imports of the three deleted JW files) · JV-safety (additive exports only; JV untouched — its
+adoption is F1).

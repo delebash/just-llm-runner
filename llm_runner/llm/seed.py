@@ -130,12 +130,18 @@ DEFAULT_CATALOG: list[dict] = [
      "hf_repo": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF", "quant": "UD-Q4_K_XL",
      "total_params": "35B", "active_params": "3.6B", "mtp": True, "type": "moe",
      "min_vram_mb": 6000, "min_ram_mb": 32000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 4,
-     "quality_rank": 10, "description": "Qwen3.6 35B-A3B MoE — ~32B-class quality on a small GPU + system RAM via CPU expert offload; the smart all-round default."},
+     "quality_rank": 8, "description": "Qwen3.6 35B-A3B MoE — ~32B-class quality on a small GPU + system RAM via CPU expert offload; the smart all-round default."},
+    # quality_rank swap (2026-07-06 benchmark re-grounding, C2): Qwen3.6-35B-A3B
+    # publishes higher scores than GLM-4.5-Air on every shared instrument
+    # (MMLU-Pro 85.2 vs 81.4, IFEval 88.2 vs 86.3 — each vendor's own card) and
+    # the INDEPENDENT Artificial Analysis harness agrees (GPQA-Diamond 84.1 vs
+    # 73.3), so the ladder now puts Qwen3.6 (8) above GLM-4.5-Air (10).
+    # Evidence table + URLs: docs/plans/2026-07-06-a-to-e-execution.md §C2.
     {"id": "glm-4.5-air", "name": "GLM-4.5-Air (106B-A12B MoE)",
      "hf_repo": "unsloth/GLM-4.5-Air-GGUF", "quant": "UD-Q4_K_XL",
      "total_params": "106B", "active_params": "12B", "type": "moe",
      "min_vram_mb": 12000, "min_ram_mb": 64000, "tier": "high-ram", "license": "MIT", "position": 5,
-     "quality_rank": 8, "description": "GLM-4.5-Air (106B-A12B MoE) — top structured extraction + reasoning on a high-RAM rig (64 GB+ RAM)."},
+     "quality_rank": 10, "description": "GLM-4.5-Air (106B-A12B MoE) — heavyweight structured extraction + reasoning on a high-RAM rig (64 GB+ RAM); published evals now trail Qwen3.6-35B-A3B."},
     # ── Embeddings (build the RAG / semantic-search index — CPU-fine) ──────────────────────
     {"id": "nomic-embed-text", "name": "Nomic Embed Text v1.5",
      "hf_repo": "nomic-ai/nomic-embed-text-v1.5-GGUF", "quant": "Q4_K_M", "total_params": "137M",

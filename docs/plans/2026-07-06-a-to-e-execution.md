@@ -45,10 +45,12 @@ own pushed commit(s): runner `2a22bda`(B1+B2) `5ff4a05`(A1+A2) `f69c2b2`(A3) `29
 JW `7606ec6`(probes) `999138c`(E1) `7e8176d`(C1 seed) `7a42b11`(E2).
 
 **REMAINING (4 of 13), for the post-compact session, in this order:**
-> *(Post-compact update, 2026-07-06: items 1, 2 AND 4 below — C3, C4 and E3 — are now ✅ SHIPPED/DONE;
-> see their LIVE PROGRESS entries (C3's move · C4's full verdict table with five in-batch fixes, the
-> filed C5 finding and the JV F1 records · E3's list import with its 5-test jsdom suite). E3 ran before
-> C2 by the recorded order adjustment. Remaining: **C2 only** — 12 of 13 done.)*
+> *(Post-compact update, 2026-07-06: **THE BATCH IS COMPLETE — 13 of 13.** C3, C4, E3 AND C2 all
+> shipped post-compact; see their LIVE PROGRESS entries (C3's kit move · C4's full audit verdict table
+> with five in-batch fixes, the filed C5 finding and the JV F1 records · E3's spec-grounded list import
+> with its 6-test jsdom suite · C2's evidence table with the Qwen3.6⇄GLM rank swap). Nothing from the
+> A–E mandate remains; the open ledger items are now C5 (filed by C4, needs a go), F1–F5 (JustVoice,
+> excluded by mandate), and the §G box checks.)*
 1. **C3 — shared AI task queue → kit.** FULLY DESIGNED below (§"C3 design" — it IS the recorded Decision 22,
    steps 1–3; step 4 = JV adoption stays excluded → F1). Scoped this session: move JW's five files
    (`stores/aiTasks.js` 231 ln · `components/AiTaskStrip.vue` 151 · `services/aiFeature.js` 150 ·
@@ -689,9 +691,18 @@ decision inline.
   research-days-sized (the ledger's own sizing) while E3 is a small bounded build — finishing E3 first
   puts the batch at 12-of-13 BUILT with only the research tail open, which survives a session boundary
   far better than a half-started research pass plus an unbuilt code item.
-- **C2 — measured/benchmark re-grounding research: IN PROGRESS (design + method below; findings land
-  incrementally in the evidence table as each model is swept — every increment committed so a session
-  boundary loses nothing).**
+- **C2 — measured/benchmark re-grounding research: ✅ PASS-1 DONE (2026-07-06; design + the full
+  evidence table + verdicts below). All five designed deliverables shipped: the URL-cited evidence
+  table over all 10 catalog models · adjacent-pair verdicts (ONE contradiction found and FIXED — the
+  `seed.py` rank swap putting Qwen3.6-35B-A3B (→8) above GLM-4.5-Air (→10), forced by both vendors'
+  cards AND the independent Artificial-Analysis GPQA-Diamond gap 84.1-vs-73.3; one honest
+  instrument-not-found verdict — the Llama-70B-vs-Qwen3-32B PROSE ordering has no published instrument,
+  EQ-Bench v3's own data checked, so it stands on its recorded reasoned basis; the rest supported) ·
+  per-task-kind recommendation lines · the §G on-box `llama-bench` note · the honesty boundary restated
+  (published fp16 evals re-ground ORDERING; measurement stays a box activity). Verified: ruff clean +
+  **350 pytest** with the seed change. By nature this research REOPENS as new instruments publish
+  (EQ-Bench coverage of our mid-size models, a LiveBench head-to-head) — that's a future pass, not an
+  unfinished deliverable.**
 
 ### C2 design (written before the research; the method IS the deliverable's spine)
 
@@ -720,7 +731,48 @@ description adjustments ONLY where evidence clearly contradicts the current orde
 code change through the standing gates); (4) per-task-kind recommendation lines (narrative prose ·
 structured extraction · chat · reasoning) usable by the docs/UI later; (5) the §G on-box-bench note.
 
-**EVIDENCE TABLE (filled as swept; source URL per row):** *(empty at design time)*
+**EVIDENCE TABLE (pass 1, swept 2026-07-06; source per row):**
+
+| Model (rank going in) | Published evidence | Source |
+|---|---|---|
+| `glm-4.5-air` (8) | MMLU-Pro **81.4** · IFEval **86.3** (own tech report, thinking); AA-GPQA-Diamond **73.3** (independent) | https://arxiv.org/pdf/2508.06471 · https://huggingface.co/zai-org/GLM-4.5-Air · the Artificial-Analysis rows embedded at https://benchlm.ai/compare/glm-4-5-air-vs-qwen3-6-35b-a3b (curled in-session) |
+| `qwen3.6-35b-a3b` (10) | MMLU-Pro **85.2** · GPQA-D **86.0** · IFEval **88.2** · Creative Writing v3 **85.7** (own card, 2026-04 release); AA-GPQA-Diamond **84.1** (independent, same harness as GLM's 73.3) | https://huggingface.co/Qwen/Qwen3.6-35B-A3B · https://qwen.ai/blog?id=qwen3.6-35b-a3b · the same benchlm/AA rows |
+| `llama-3.3-70b` (11) vs `qwen3-32b` (14) | **No published instrument found for the pair's PROSE ordering this pass**: EQ-Bench Creative-v3's own chart data (curled) lists neither mid-size model (only GLM-4.5-full and Qwen3-235B appear); the general-benchmark direction (Qwen3-32B's reasoning-era numbers beat Llama-3.3's late-2024 card) does NOT measure narrative prose, which is rank 11's recorded basis | https://eqbench.com/creative_writing.html (+ its `creative_writing_chartdata.js`, checked in-session) |
+| Qwen3 dense family 32B(14) > 14B(25) > 8B(30) | same-family monotonic scaling per the official Qwen3 technical report — uncontroversial, no per-pair sweep spent | https://arxiv.org/pdf/2505.09388 |
+| `qwen3-embedding-8b` (50, best embedder) | MTEB multilingual ≈ **70.58**, #1-class as of its release window | https://milvus.io/blog/choose-embedding-model-rag-2026.md (+ the MTEB-sourced roundups in the same sweep) |
+| `bge-m3` (60) | MTEB retrieval ≈ **63.0**; 100+-language dense+sparse+multi-vector niche | same sweep sources |
+| `qwen3-embedding-0.6b` (65) · `nomic-embed-text` (70) | 0.6B sits under its 8B sibling on every roundup; nomic's niche is exactly the catalog's description (English CPU floor, 8k context) — "beaten by newer models on MTEB retrieval" | same sweep sources |
+
+**Verdicts (adjacent-pair, per the deliverable):**
+- **CONTRADICTED → FIXED: `glm-4.5-air`(8) vs `qwen3.6-35b-a3b`(10).** Every shared instrument favors
+  Qwen3.6 — both vendors' own cards (MMLU-Pro +3.8, IFEval +1.9) AND the independent Artificial-Analysis
+  harness (GPQA-Diamond 84.1 vs 73.3, an 10.8-point gap on the SAME harness — the neutral cross-check
+  the method demanded). The ranks are SWAPPED in `seed.py` (Qwen3.6 → 8, GLM-4.5-Air → 10, with the
+  evidence comment inline) and GLM's description drops the now-unsupported "top" claim. Ladder sanity
+  preserved: GLM (10) stays above `llama-3.3-70b` (11), which its card numbers still clearly beat.
+- **INSTRUMENT-NOT-FOUND (stands as reasoned): `llama-3.3-70b`(11) vs `qwen3-32b`(14).** Rank 11's
+  recorded basis is narrative-prose quality; no published prose instrument covers the pair (EQ-Bench v3
+  checked — neither model listed), and general benchmarks don't measure prose. The ordering STANDS on
+  its reasoned basis, now with the honest "no instrument" annotation instead of a false certainty.
+- **SUPPORTED: the Qwen3 dense family ordering** (same-family scaling, official report) and **the
+  embedder ladder** (8B #1-class on MTEB; bge-m3's multilingual niche above the 0.6B is a niche-encoding
+  call the evidence doesn't contradict; nomic floor confirmed).
+
+**Per-task-kind recommendation lines (deliverable 4, current catalog):** narrative prose → `llama-3.3-70b`
+where it fits (48 GB), else `qwen3-32b` (24 GB), else `qwen3.6-35b-a3b`; structured extraction / JSON →
+`qwen3.6-35b-a3b` first (IFEval 88.2 + the C1 grammar enforcement makes shape a non-issue; `glm-4.5-air`
+remains the high-RAM alternative); chat + quick drafts → `qwen3.6-35b-a3b` (the default) or `qwen3-8b`
+on small boxes; reasoning-heavy analysis → `qwen3.6-35b-a3b` (AA-GPQA-D 84.1) with `qwen3-32b` the dense
+fallback; embeddings → `qwen3-embedding-8b` when it fits, `nomic-embed-text` as the CPU floor,
+`bge-m3` when multilingual matters.
+
+**§G on-box note (deliverable 5):** TRUE measured numbers need the user's machine — llama.cpp's own
+`llama-bench` (ships in the same release archives our engine install already downloads) measures
+tokens/s per model/quant/offload on the real box; quality remains human judgment on real manuscripts.
+Recorded as an optional box activity, not a container claim.
+
+**HONESTY BOUNDARY (restated at the verdicts):** every number above is a published fp16/bf16 eval —
+NOT our Q4 GGUFs on consumer hardware; this pass re-grounds ORDERING only, exactly as designed.
 - **E3 — ODT import: lists: ✅ SHIPPED + VERIFIED (2026-07-06; design below, implemented as designed).**
   `parseOdt` now IMPORTS lists instead of counting-and-warning: the `text:list` walker arm calls the new
   recursive `renderList` (TipTap-canonical `<ul>/<ol>` → `<li><p>…</p></li>`, multi-paragraph items,

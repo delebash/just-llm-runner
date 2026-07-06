@@ -356,3 +356,32 @@ embeding"*.
 - Probe: GPU-shaped hardware/models stubs (the container has no GPU and chat picks now require
   one — the page sees a probe 8 GB card; expectations updated). Gates: build · smoke zero-JS ·
   probe PASS.
+
+## ROUND 5 — SHIPPED 2026-07-06 (measurements out of the seed; the sweep-parity experiment armed)
+
+The design conversation (user, verbatim anchors): *"dont let me push you in a direction, think
+about how it worsk and what it should be"* → the principle: **the seed ships facts and rules;
+the machine supplies measurements; the pair (model × machine) owns the numbers** → *"one is a
+cap not dont think at all"* (reasoning-budget ≠ the think toggle — a per-taste bound on
+think-enabled tasks, not a rule) → *"i agree it should not be a defualt seed for everyone …
+let me test the tunning with that model and see what happens, go ahead and make your code
+changes firt"*.
+
+1. **Tune rows OUT of the product seed** (JW seed_presets/app.py, commit `8ed7481`): tunes are
+   measurements — never seeded. The discovery that forced it: the seeder stamped rows with
+   WHATEVER machine ran the seeding, so "inert on other boxes" was false. The author-box values
+   move to `scripts/dev-seed-tunes.py` (PUTs via the Tune-modal endpoint; the SERVER stamps the
+   running box's fingerprint). Live-proven: reset → 0 gemma tune rows → script → 6 flags under
+   the running machine's key.
+2. **reasoning_budget OUT of the base bundle** (runner seed.py, commit `81694b6`): a per-taste
+   bound on think-enabled tasks (the per-request toggle is the on/off mechanism — a different
+   thing, the user's point); the 1024 was the author's own latency preference, not a rule. The
+   knob stays in knob_catalog (default -1) for per-model use.
+3. **THE EXPERIMENT (user's box, next):** pull + reset → run Quick Setup on the Gemma → with no
+   seeded tunes the sweep AUTO-STARTS → compare its saved values + tok/s against the hand-tune
+   (ngl 99 · ncmoe 21 · ctx 32768 · batch 512/512). Parity → the class-seed question dissolves;
+   miss → hardware-class starting values return WITH evidence (the user's observation that the
+   values also held on the Qwen 32B MoE is recorded as transferability evidence). The user
+   doubts the sweep will match — that doubt IS the test.
+4. Gates: ruff · switch_resolve 7/7 (base-set assertion updated) · JW server 76 pytest · the
+   live reset/restore cycle. NOT built (awaits its own go): the empty-model factory seed.

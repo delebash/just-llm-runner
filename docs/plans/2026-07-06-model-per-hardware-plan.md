@@ -139,7 +139,9 @@
   real load (reset → one Gemma → writer TTFT sanity) · the opt-out sweep UX end-to-end.
 
 ## Out of scope (recorded)
-The model-quality research (leaderboards → Lab; Gryphe evaluation) — refills the map + ranks later ·
+The model-quality research (leaderboards → Lab; Gryphe evaluation) — refills the map + ranks later;
+**the candidate list + guardrails now live as ledger C9** (user-filed 2026-07-06: + the 31B dense
+QAT for bigger cards, + the two HauhauCS refusal-ablated builds for fiction writers) ·
 D5 (parked) · JustVoice (F-items) · quant-ladder seeding (superseded by the map + research) ·
 profiles UI (died with profiles).
 

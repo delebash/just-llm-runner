@@ -59,6 +59,39 @@
 - **C8 — QuickSetup back to LOCAL-ONLY — ✅ SHIPPED 2026-07-06 (user directive: "quick setup is for local only… remove the connect provider… we dont need a drop down for providers"; full design + record in `2026-07-06-a-to-e-execution.md` §C8).** A USER REVERSAL of the 2026-07-05 Option-2 other-provider decision (the one actor allowed): the "Run models with" selector, the in-wizard connect flow (detected-local rows + the hardcoded PROVIDER_PRESETS cloud chips + key input), and the external apply path are REMOVED from `QuickSetup.vue` — the wizard configures the bundled runner only; external providers connect on the provider list (ProviderForm, which keeps the shared `useProviderConnect` presets/probe/create). Adjacencies: `detectLocal` pruned (the cut removed its only consumer; the server endpoint remains) and the committed wizard probe got a found-and-fixed (its hardcoded "Nomic" embed assertion was stale vs the evolved ladder + seeded routing — now data-driven, + two local-only negative assertions); `qs-otherprovider-probe.mjs` deleted (its subject is gone); `models.md` §Quick Setup rewritten local-only. Verified: build clean · vitest 29/29 · full smoke zero JS errors · the fixed probe 9/9 (open → confirm → stubbed Apply → done, 0 page errors). The user's item 3 ("changing default model doesn't actually do anything") was WITHDRAWN by the user ("dont worry about 3").
 - **C7 — prune the dead `useRunnerModels.load()`/`unload()` exports — ✅ SHIPPED 2026-07-06 (user's go "do c7", same day it was filed; implementation record in `2026-07-06-a-to-e-execution.md` §C7).** The two functions + their return-object entries are deleted; the stale comments fixed both sides (`useRunnerModels.js` header/`loadingId`/`download()` notes; `LuModelCatalog.vue`'s pre-Phase-2 header rewritten to the fit-grouped-list + Download/Set-as-default/Set-as-embedding truth); `loadErr`/`needsEngine`/poller/download machinery untouched. Verified: build clean · vitest 29/29 · full headless smoke zero JS errors with the provider-form probe green · zero residual references · the served-module check proved the smoke ran the pruned code. Bundled: the fast-9B QuickSetup optional **DECIDED NO** (user, "no 9b quick setup") — annotated at `2026-07-03-model-setup-simplification.md:344`. The original filing record follows for history: The audit finding, code-verified: `ui/src/composables/useRunnerModels.js` still defines `load()` (:103) and `unload()` (:115) and returns both from `useRunnerModels()` (:153), but their ONLY consumer — LuModelCatalog's Load/Unload buttons — was removed in the model-surface Phase 2 redesign (catalog actions became Download / Set-as-default / Set-as-embedding). The recap deliberately deferred the prune "until the residency/4b surface is finalized … to avoid speculative churn on the shared singleton" — and §H6 then CLOSED-DROPPED 4b (the user's recorded call: no per-model residency controls), which fulfilled the prune condition, but nobody filed the prune. Verified dead 2026-07-06: `LuModelCatalog.vue` calls only `download()` (:411); `QuickSetup.vue` drives the runner directly (`request("/v1/llm-runner/load")` at :372 with its own status poll at :395); JW and JV have zero references (symbol greps both apps). Scope when built: delete the two functions + their return-object entries + fix LuModelCatalog's stale header comment (its ":7 …loads/unloads" line still describes the removed buttons); the `needsEngine`/`loadErr` machinery STAYS — it feeds the catalog's engine-not-installed CTA off the status poll, not off `load()`. Size: tiny, mechanical. (Paths reflect the post-C6 locations.)
 
+- **C9 — the model-quality research: class→model map contents + rank re-grounding + the candidate
+  evaluations — RESEARCH, NOT STARTED (user-filed 2026-07-06: "add todo for model research", from
+  TurboLLM Discover screenshots; consolidates the follow-up recorded in the model-per-hardware
+  plan §Out-of-scope).** PURPOSE: fill the Phase-3 `model_class_picks` map with evidence, re-ground
+  Gemma's quality_rank 9 (currently annotated reasoned-not-instrument-cited), and evaluate the
+  writing-use-case candidates. THE CANDIDATE LIST so far:
+  1. **Gryphe/Gemma-4-26B-A4B-StyleTune-V2** (carried from the 2026-07-06 five-model scoring — the
+     one credible candidate; maker-reputation + license + EQ-Bench-creative + Lab A/B).
+  2. **unsloth/gemma-4-31B-it-qat-GGUF** — Gemma 4 **31B DENSE** QAT (user: "if the 31b fits ok we
+     should add it"). Facts seen on the TurboLLM/HF surfaces, RE-VERIFY via the HF API at research:
+     31B dense · 262144 ctx · Q4_K_M ≈ 18.7 GB · vision mmproj · an MTP draft exists for the family
+     (the HauhauCS cards credit Unsloth's `mtp-gemma-4-31B-it.gguf`, ≈ 280 MB). FIT REALITY,
+     answering the user's conditional: ~19 GB of DENSE weights does NOT meaningfully fit an 8 GB
+     card (no expert-offload trick — dense spill is the slow case the §10 pick rule excludes); this
+     is 24 GB-class (16 GB tight) map content — exactly what the class→model map exists to express.
+  3. **HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP** +
+     **HauhauCS/Gemma4-31B-QAT-Uncensored-HauhauCS-Balanced-MTP** — refusal-ablated builds the user
+     wants evaluated **for fiction writers** (stock refusal behavior blocking dark/violent/romance
+     prose is a real writing-app failure). Card facts to re-verify per-repo: QAT Q4_K_M only
+     (16.8 / 18.7 GB), in-repo MTP drafts (252 / 280 MB; claimed ~35% / ~53% faster with identical
+     output), vision mmproj, maker-recommended sampling (temp 0.6 · top_k 64 · top_p 0.9 ·
+     min_p 0.05 · repeat_penalty 1.1 — seedable `model_samplers` rows if adopted), author-claimed
+     clean refusal benchmarks (updated Jun 24 2026; 55.3K / 46.4K downloads).
+  GUARDRAILS (the recorded pushback stands): community fine-tunes/ablations NEVER seed as DEFAULTS
+  without maker-reputation + first-party-verified license + an instrument or Lab win; catalog
+  INCLUSION and default-ELIGIBILITY are separate calls; the license of every candidate is checked
+  via the HF API including the `base_model` chain (the Phase-5 de-circularized method — derivatives
+  of Gemma 4 should inherit Apache-2.0, but each repo's actual tag gets verified, never assumed);
+  the "uncensored" positioning additionally needs the user's explicit use-policy word before any of
+  them becomes a default anywhere. METHOD: HF-API facts + license per candidate → leaderboards /
+  EQ-Bench-creative where listed → Lab A/B on the user's box → map rows + rank updates land as
+  SEED DATA through Phase 3's expression point.
+
 ## D. Decisions only the user can make (nothing buildable until then)
 
 > **SECTION CLOSED 2026-07-06 — no open decisions remain.** D1 and D3 were both decided by the user on 2026-07-06 ("i take your rec on d1 and d3, go" — the user took the agent's recommendation on each); D2 had already been refuted/moved to F4 by pass 2. The decided records are kept below in full so the reasoning and evidence survive. **REOPENED later 2026-07-06: D4 (below) was FILED at the user's request — the tuning-session follow-ups, headlined by the QuickSetup-overwrite concern, are an OPEN discussion item — and D5 was FILED the same day on the user's "add 1 and 2" after the design-doc audit; D1–D3 remain closed.**

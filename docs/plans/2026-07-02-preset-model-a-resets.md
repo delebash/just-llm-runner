@@ -104,7 +104,7 @@ Grounding (line-by-line + panel-verified): JV **zero** references to any touched
 - Live: 2-tier resolution; global reset **restores** presets + labels + assignments (custom kept — verify the flush); per-task reset (built-in ok, custom 400, missing-factory-preset guarded); edit-in-place no-rename; preset delete leaves no orphan children.
 
 ## Out of scope
-- QuickSetup `/v1/ai/jobs` repoint (#100). (Copy sweep still relabels its user-facing "task kind".)
+- QuickSetup `/v1/ai/jobs` repoint (#100). (Copy sweep still relabels its user-facing "task kind".) — **CLOSED 2026-07-06 (user decision, took the recommendation — outstanding-master-plan D1):** QuickSetup keeps writing the picked model onto the EXISTING task presets (the non-clobber `modelApply.js:75-87` PUT; skips user-re-pointed presets); it does NOT generate a preset per task. Zero code; #100 closed.
 - JustVoice adoption of the Tasks page (deferred).
 - json_schema / GBNF (#77).
 - New sampler numbers (grounding pass already done).

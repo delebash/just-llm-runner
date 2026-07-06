@@ -169,24 +169,28 @@ onMounted(() => {
     <p v-if="error" class="lu-eng-err">{{ error }}</p>
     <pre v-if="showLog" class="lu-eng-log">{{ logText }}</pre>
 
-    <!-- Resident set + the two residency knobs (4a). Shown once the engine is installed. -->
-    <div v-if="installed" class="lu-eng-res">
-      <div class="lu-eng-res-head">
-        <span class="lu-eng-res-title">Loaded models</span>
-        <span v-if="vramBudget" class="lu-eng-res-vram">{{ vramBudget }}</span>
-      </div>
+    <!-- Resident set + the two residency knobs (4a). The RUNTIME half (loaded list + VRAM
+         budget) needs an installed engine; the two knobs are persisted config (engine-config)
+         and stay visible/editable BEFORE install (ledger B1 — the user's "C" pick). -->
+    <div class="lu-eng-res">
+      <template v-if="installed">
+        <div class="lu-eng-res-head">
+          <span class="lu-eng-res-title">Loaded models</span>
+          <span v-if="vramBudget" class="lu-eng-res-vram">{{ vramBudget }}</span>
+        </div>
 
-      <ul v-if="residentModels.length" class="lu-eng-res-list">
-        <li v-for="m in residentModels" :key="m.id" class="lu-eng-res-item">
-          <span class="lu-eng-res-id">{{ m.id }}</span>
-          <span class="lu-eng-res-status" :class="statusClass(m.status)">{{ m.status }}</span>
-          <span v-if="m.nCtx" class="lu-eng-res-meta">ctx {{ m.nCtx.toLocaleString() }}</span>
-          <span v-if="m.vramMb" class="lu-eng-res-meta">{{ m.vramMb }} MB</span>
-        </li>
-      </ul>
-      <p v-else class="lu-eng-res-empty">
-        {{ resident?.router ? "No models loaded right now." : "The engine loads models on first use — nothing loaded yet." }}
-      </p>
+        <ul v-if="residentModels.length" class="lu-eng-res-list">
+          <li v-for="m in residentModels" :key="m.id" class="lu-eng-res-item">
+            <span class="lu-eng-res-id">{{ m.id }}</span>
+            <span class="lu-eng-res-status" :class="statusClass(m.status)">{{ m.status }}</span>
+            <span v-if="m.nCtx" class="lu-eng-res-meta">ctx {{ m.nCtx.toLocaleString() }}</span>
+            <span v-if="m.vramMb" class="lu-eng-res-meta">{{ m.vramMb }} MB</span>
+          </li>
+        </ul>
+        <p v-else class="lu-eng-res-empty">
+          {{ resident?.router ? "No models loaded right now." : "The engine loads models on first use — nothing loaded yet." }}
+        </p>
+      </template>
 
       <div class="lu-eng-knobs">
         <label class="lu-eng-knob">

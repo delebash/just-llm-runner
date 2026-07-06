@@ -238,11 +238,35 @@ async function inspectLink() {
       architecture: r.architecture || "", experts: r.experts || 0, sizeLabel: r.sizeLabel || "",
       samplers: r.samplers || {}, sizeBytes: r.sizeBytes || 0, estVramMb: r.estVramMb ?? null,
     };
+    // B2 (Smart-Add remainder): auto-compose a plain-language description from the
+    // just-read facts — ONLY into an EMPTY field. A hand-typed or previously saved
+    // description is never clobbered, and the field stays fully editable after.
+    if (!e.description?.trim()) e.description = composedDescription();
   } catch (err) {
     inspectErr.value = err.message || "Couldn't read the model from the link.";
   } finally {
     inspecting.value = false;
   }
+}
+
+// The composed description mirrors the field's own placeholder register ("fast 9B for
+// quick chat and drafts"): short " · "-joined facts, no sentence padding. Sources are
+// the same facts inspectLink just wrote (params/type/ctx/MTP) + the listing's quant row
+// (for QAT + file size); anything missing is simply skipped.
+function composedDescription() {
+  const e = editing.value;
+  const bits = [];
+  const params = (e.totalParams || inspected.value?.sizeLabel || "").toString().trim();
+  const kind = e.embedding ? "embedding model" : e.type === "moe" ? "mixture-of-experts model" : "model";
+  bits.push(params ? `${params} ${kind}` : kind);
+  if (e.trainedCtx) bits.push(`${Math.round(e.trainedCtx / 1024)}k context`);
+  if (e.mtp || e.mtpDraftFile) bits.push("MTP draft for faster generation");
+  if (e.quant) {
+    const q = (listing.value?.quants || []).find((x) => x.quant === e.quant);
+    bits.push(`${e.quant}${q?.qat ? " (QAT)" : ""}`);
+    if (q?.sizeMb) bits.push(`${gb(q.sizeMb)} GB`);
+  }
+  return bits.join(" · ");
 }
 
 function blankModel() {

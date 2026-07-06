@@ -155,6 +155,14 @@ const modelById = computed(() => Object.fromEntries(models.value.map((m) => [m.i
 function nameOf(id) { const m = modelById.value[id]; return m ? m.name || m.id : id; }
 const defaultName = computed(() => (currentDefaultId.value ? nameOf(currentDefaultId.value) : ""));
 const embeddingName = computed(() => (currentEmbeddingId.value ? nameOf(currentEmbeddingId.value) : ""));
+// Dead-reference honesty (round-2 item 3, validate-at-read): the applied id can point
+// at a model that was DELETED from the catalog — say so instead of rendering the dead
+// id as if it were fine (the user's repro: deleted all models, the UI still claimed a
+// working setup). Loading (models empty) must not flash the warning.
+const defaultGone = computed(() =>
+  !loading.value && !!currentDefaultId.value && !modelById.value[currentDefaultId.value]);
+const embeddingGone = computed(() =>
+  !loading.value && !!currentEmbeddingId.value && !modelById.value[currentEmbeddingId.value]);
 // TOTAL card VRAM — the SAME input QuickSetup feeds the shared rule. The checker
 // caught the original version feeding useRunnerModels' vramMb, which is the
 // budget-aware REMAINING VRAM (the /models endpoint subtracts the resident set) —
@@ -394,22 +402,26 @@ refreshApplied();
     <!-- "Your setup" — the app needs BOTH slots filled: one General model + one Embedding
          model (Quick Setup fills both automatically; this states it for the manual path). -->
     <div class="lu-setup">
-      <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !defaultName }">
+      <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !defaultName || defaultGone }">
         <div class="lu-setup-role">General model</div>
-        <div class="lu-setup-val">{{ defaultName || "Not set" }}</div>
+        <div class="lu-setup-val">{{ defaultGone ? `${currentDefaultId} — removed from the catalog` : (defaultName || "Not set") }}</div>
         <div class="lu-setup-hint">
-          {{ defaultName
-            ? "Writes prose, chats, extracts — every task uses it unless you override a task."
-            : "Pick one under Chat & writing models below — “Set as default”." }}
+          {{ defaultGone
+            ? "Your tasks still point at it, but it's gone — pick a new one below (“Set as default”)."
+            : defaultName
+              ? "Writes prose, chats, extracts — every task uses it unless you override a task."
+              : "Pick one under Chat & writing models below — “Set as default”." }}
         </div>
       </div>
-      <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !embeddingName }">
+      <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !embeddingName || embeddingGone }">
         <div class="lu-setup-role">Embedding model</div>
-        <div class="lu-setup-val">{{ embeddingName || "Not set" }}</div>
+        <div class="lu-setup-val">{{ embeddingGone ? `${currentEmbeddingId} — removed from the catalog` : (embeddingName || "Not set") }}</div>
         <div class="lu-setup-hint">
-          {{ embeddingName
-            ? "Powers semantic search + grounded chat, alongside your general model."
-            : "Pick one under Embedding models below — “Set as embedding”." }}
+          {{ embeddingGone
+            ? "Search still points at it, but it's gone — pick a new one below (“Set as embedding”)."
+            : embeddingName
+              ? "Powers semantic search + grounded chat, alongside your general model."
+              : "Pick one under Embedding models below — “Set as embedding”." }}
         </div>
       </div>
     </div>

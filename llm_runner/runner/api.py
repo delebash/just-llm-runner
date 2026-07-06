@@ -15,7 +15,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from . import fit
-from .hardware import detect
+from .hardware import detect, max_vram_mb
 from .lifecycle import get_service
 from .models import is_cached
 from .process import Overrides
@@ -86,11 +86,14 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     hardware = detect()
     service = get_service()
 
-    # Budget-aware fit (P2, design §5c): when VRAM isn't card-overridden, score against what's LEFT
-    # after the committed-resident set (the arbiter's remaining_mb), not the whole GPU — so a
-    # co-resident model shrinks the badge budget. A card-chooser override (vram_mb passed) is a
-    # hypothetical fresh card, used as-is. `coarse_fit` math is unchanged; only the VRAM fed in shrinks.
-    gpu_vram = vram_mb if vram_mb is not None else service.remaining_vram_mb(hardware)
+    # Fit answers "how does this model run on THIS MACHINE'S CARD" — scored against the
+    # card's TOTAL VRAM. (User decree 2026-07-06 "fix it": the former P2 §5c budget-aware
+    # scoring fed the VRAM *remaining* after the resident set, so a sleeping model on an
+    # 8 GB box flipped EVERY row to "CPU" while the same screen's header showed the card —
+    # two truths on one screen. Reverted: the load-moment budget belongs to the arbiter,
+    # which evicts/swaps at load; the live remaining number stays on the engine panel's
+    # VRAM line.) A card-chooser override (vram_mb passed) is used as-is (0 = CPU-only).
+    gpu_vram = vram_mb if vram_mb is not None else max_vram_mb(hardware)
     margin = service.config().safety_margin_mb
     hf_cache = service.cache_root / "hf"
 

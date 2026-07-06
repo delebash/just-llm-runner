@@ -48,15 +48,13 @@ def _model(mid, min_vram_mb, *, min_ram_mb=None, total_params="14B"):
 
 
 class _FakeService:
-    def __init__(self, models, *, resident=None, status=None, remaining_mb=None):
+    def __init__(self, models, *, resident=None, status=None):
         self._models = list(models or [])
         # get_models reads the resident set (P1f) for per-model status; router-down/empty
-        # by default → every model falls through to disk/available.
+        # by default → every model falls through to disk/available. (Fit no longer reads
+        # anything off the service — it scores the DETECTED card, user decree 2026-07-06.)
         self._resident = resident or {"router": False, "modelsMax": 2, "sleepIdleSeconds": 900, "models": []}
         self._status = status or {"status": "idle", "modelId": "", "url": "", "detail": "", "error": ""}
-        # Budget-aware fit (P2): the VRAM left after the committed-resident set. None → the whole
-        # detected VRAM (the pre-P2 behaviour), so the existing Fit-band tests are unchanged.
-        self._remaining_mb = remaining_mb
         self.cache_root = Path("/nonexistent-cache-root")
 
     def status(self):
@@ -64,11 +62,6 @@ class _FakeService:
 
     def resident(self, hw=None):
         return self._resident
-
-    def remaining_vram_mb(self, hw=None):
-        if self._remaining_mb is not None:
-            return self._remaining_mb
-        return max((g.vram_mb or 0 for g in (hw.gpus if hw else [])), default=0)
 
     def catalog(self):
         return self._models
@@ -134,20 +127,25 @@ def test_cpu_only_machine(monkeypatch):
     assert fit == {"fits-ram": "cpu", "too-big-ram": "no"}
 
 
-def test_budget_aware_fit_uses_remaining(monkeypatch):
-    # P2 (design §5c): when the VRAM isn't card-overridden, Fit scores against the budget LEFT
-    # after the committed-resident set (the arbiter's remaining_mb), not the whole GPU — so a
-    # model that was 'tight' on the empty card can drop to 'no' once another model is resident.
+def test_fit_scores_total_card_even_with_models_resident(monkeypatch):
+    # User decree 2026-07-06 ("fix it"): Fit answers "how does this model run on this
+    # CARD", never "what fits this instant". The former P2 §5c budget-aware scoring fed
+    # the VRAM remaining after the resident set — on an 8 GB box a SLEEPING model flipped
+    # every catalog row to "CPU" while the same screen's header showed the card. A
+    # resident model must not change Fit; the load-moment budget is the arbiter's job.
     hw = HardwareInfo(os="Linux", platform="linux", cpu_cores=8, ram_mb=32000,
                       gpus=[GpuInfo(vendor="nvidia", name="RTX 4070", vram_mb=12288)])
     models = [_model("mid", 14000)]  # whole card: 14000/(12288-1024)=1.24 → tight
-    svc = _FakeService(models, remaining_mb=4288)  # after ~8 GB committed: 14000/(4288-1024)=4.3 → no
+    # A resident model is committed (would have shrunk the old budget to 4288 → 'no'):
+    svc = _FakeService(models, resident=_resident(("mid", "sleeping")))
     monkeypatch.setattr(api, "detect", lambda: hw)
     monkeypatch.setattr(api, "get_service", lambda: svc)
     monkeypatch.setattr(api, "is_cached", lambda *a, **k: False)
-    assert _client().get("/v1/llm-runner/models").json()["models"][0]["fit"] == "no"
-    # A card-chooser override (the vram_mb query param) is a hypothetical fresh card → it bypasses
-    # the arbiter budget and scores against the given VRAM as-is.
+    body = _client().get("/v1/llm-runner/models").json()
+    assert body["models"][0]["fit"] == "tight"  # the card's answer, resident or not
+    assert body["vramMb"] == 12288  # the response reports the card, matching the labels
+    # The card-chooser override (the vram_mb query param) stays: score the given VRAM
+    # as-is (a hypothetical card; 0 = CPU-only).
     assert _client().get("/v1/llm-runner/models?vram_mb=12288").json()["models"][0]["fit"] == "tight"
 
 

@@ -18,6 +18,12 @@ import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
 import { activeAiTab } from "../common/services/labHandoff.js";
 import { request } from "../client.js";
+import { useEngine } from "../composables/useEngine.js";
+
+// Engine actions live HERE on the Built-in row (user, 2026-07-06: "move the install
+// unistall update button to right of edit") — the same shared useEngine state the
+// Local-engine panel reads, so the row and the panel can never disagree.
+const { busy: engBusy, installed: engInstalled, installing: engInstalling, refreshEngine, install: engInstall, uninstall: engUninstall } = useEngine();
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
 // own AI-domain settings (e.g. JustWrite's "Writing AI" — voice canon, RAG
@@ -53,7 +59,18 @@ const hwLabel = computed(() => {
   const h = hardware.value;
   if (!h) return null;
   const gpu = h.gpus && h.gpus[0];
-  const accel = Object.entries(h.runtimes || {}).filter(([, v]) => v).map(([k]) => k.toUpperCase()).join(" / ");
+  // Every detected runtime, with the one the engine actually uses marked (priority =
+  // select_binary's pick order: cuda → rocm → vulkan → cpu). A bare "CUDA / VULKAN"
+  // read as a question (user, 2026-07-06) — both APIs ship with the ONE GPU driver;
+  // nothing extra is installed.
+  const order = ["cuda", "rocm", "vulkan", "cpu"];
+  const rank = (k) => (order.indexOf(k) < 0 ? 99 : order.indexOf(k));
+  const rts = Object.entries(h.runtimes || {}).filter(([, v]) => v).map(([k]) => k)
+    .sort((a, b) => rank(a) - rank(b));
+  const active = rts[0] || "";
+  const accel = rts
+    .map((k) => (k === active ? `${k.toUpperCase()} (in use)` : `${k.toUpperCase()} available`))
+    .join(" · ");
   return {
     os: h.os || "—",
     cpu: h.cpuCores ? `${h.cpuCores} threads` : "—",
@@ -128,7 +145,10 @@ const statusColor = (id) => STATUS_COLOR[status.value[id]] || "var(--border-stro
 
 function onSaved() { editingId.value = null; loadProviders(); }
 
-onMounted(loadAll);
+onMounted(() => {
+  loadAll();
+  refreshEngine(); // the Built-in row's Install/Update/Uninstall state
+});
 </script>
 
 <template>
@@ -190,6 +210,16 @@ onMounted(loadAll);
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
             <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
             <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
+            <template v-if="p.providerType === 'local-llamacpp'">
+              <UiButton v-if="!engInstalled" intent="primary" size="small"
+                :loading="engBusy || engInstalling" @click="engInstall(false)">Install engine</UiButton>
+              <template v-else>
+                <UiButton intent="secondary" size="small"
+                  :loading="engBusy || engInstalling" @click="engInstall(true)">Update</UiButton>
+                <UiButton intent="ghost" size="small" :loading="engBusy"
+                  title="Delete the engine binaries — models are kept" @click="engUninstall">Uninstall</UiButton>
+              </template>
+            </template>
           </div>
         </template>
         <div v-if="!loading && !localProviders.length" class="lu-pempty">No local providers yet. Click “Add provider” and point at <span class="lu-mono">http://localhost:…</span></div>

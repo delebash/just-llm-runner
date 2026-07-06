@@ -156,7 +156,15 @@ async function remove() {
 
       <template v-if="!local">
         <span class="lu-fl">API key</span>
-        <UiInput v-model="draft.apiKey" type="password" :placeholder="isNew ? 'sk-…' : 'leave blank to keep current'" />
+        <div>
+          <UiInput v-model="draft.apiKey" type="password"
+            :placeholder="!isNew && provider?.hasApiKey ? '••••••••  (a key is saved)' : 'sk-…'" />
+          <!-- The key is write-only server-side, so the form can never re-display it — a
+               blank field on edit read as "no key saved" (user, 2026-07-06). State it. -->
+          <div v-if="!isNew && provider?.hasApiKey && !draft.apiKey" class="lu-fh">
+            🔒 An API key is saved (never shown). Leave blank to keep it — typing replaces it.
+          </div>
+        </div>
       </template>
 
       <span class="lu-fl">Provider type</span>

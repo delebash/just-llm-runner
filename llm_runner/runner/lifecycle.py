@@ -657,12 +657,6 @@ class RunnerService:
         out["models"] = models
         return out
 
-    def remaining_vram_mb(self, hw=None) -> int:
-        """VRAM left after the committed-resident set — the budget-aware VRAM `api.py get_models`
-        feeds `coarse_fit` (design §5c). Delegates to the arbiter (the `fit.py` math is unchanged;
-        only the VRAM fed in shrinks by what's already resident)."""
-        return self._arbiter.remaining_mb(hw)
-
     def ensure_embedding(self) -> dict:
         """Make the configured local embedding model resident + PINNED, downloading its GGUF first if
         needed — the LAZY trigger the host (JustWrite RAG "Build index" / Chat-with-book) calls before

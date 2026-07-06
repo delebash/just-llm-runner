@@ -209,6 +209,25 @@ async function openWizard() {
     // writer uses (modelApply.applyPreview), so the changelist can never drift.
     applyPreview().then((p) => { previewState.value = p; }).catch(() => { previewState.value = null; }),
   ]);
+  // Reconcile AFTER all three resolve (order-safe — the catalog is loaded here):
+  // 1. The wizard opens ON the applied setup (user, 2026-07-06: "if model is already
+  //    applied then drop down should select that model") — the dropdown starts at the
+  //    CURRENT default when it still exists in the catalog, so re-opening the wizard
+  //    proposes NO change; the recommendation is only the fresh-box/fallback pick.
+  // 2. Dead references never preselect (a deleted model must not be silently kept —
+  //    the round-2 dangling-refs honesty): a routing embed pointing at a model no
+  //    longer in the catalog falls back to the best fitting embed, or none.
+  const dom = previewState.value?.dominant;
+  if (dom && modelById.value[dom]) pick.value.default = dom;
+  if (pick.value.embeddingModel && !modelById.value[pick.value.embeddingModel]) {
+    pick.value.embeddingId = "";
+    pick.value.embeddingModel = "";
+    const best = bestEmbedId();
+    if (best) {
+      pick.value.embeddingId = LOCAL_RUNNER_ID;
+      pick.value.embeddingModel = best;
+    }
+  }
   step.value = "confirm"; // confirm renders the empty-state when nothing fits
 }
 function onModalClose() {

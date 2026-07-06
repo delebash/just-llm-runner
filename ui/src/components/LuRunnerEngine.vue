@@ -10,30 +10,31 @@
 // binaries" editor (LuRunnerBinaries) as its own drawer at the panel
 // bottom — the binary download URLs belong to the engine you install, so they
 // live UNDER this panel (user, 2026-07-02), not as a separate card by the catalog.
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiProgress from "../common/components/UiProgress.vue";
 import LuRunnerBinaries from "./LuRunnerBinaries.vue";
 import { request } from "../client.js";
-import { confirmDialog } from "../common/services/dialog.js";
+import { useEngine } from "../composables/useEngine.js";
 import { usePoll } from "../common/composables/usePoll.js";
 
-const st = ref(null); // engine_status() payload
-const error = ref("");
-const busy = ref(false); // an install POST is in flight
+// Engine state comes from the ONE shared composable (useEngine) — the Install /
+// Update / Uninstall ACTIONS moved to the Built-in provider's LIST ROW
+// (AiModelsArea, user 2026-07-06: "move the install unistall update button to
+// right of edit"); this panel keeps the status line, install progress/errors,
+// and the Details drawer.
+const { engineState: st, error, installed, installing, refreshEngine } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
-// Collapsed by default (user, 2026-07-06: "collapse the engine panel … install uninstall,
-// update, click to expand collapse for details"). Install progress + errors render OUTSIDE
-// the collapse — an in-flight install or a failure must never hide. The B1 decision (knobs
-// editable BEFORE install) survives: Details opens regardless of install state.
+// Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
+// expand collapse for details"). Install progress + errors render OUTSIDE the
+// collapse — an in-flight install or a failure must never hide. The B1 decision
+// (knobs editable BEFORE install) survives: Details opens regardless of install state.
 const showDetails = ref(false);
-const { start: startPoll, stop: stopPoll } = usePoll(refresh, 800);
-
-const installed = computed(() => !!st.value?.installed);
-const installing = computed(() => st.value?.status === "installing");
+const { start: startPoll, stop: stopPoll } = usePoll(refreshEngine, 800);
+watch(installing, (v) => (v ? startPoll() : stopPoll()));
 const cudaRuntimeMissing = computed(
   () => installed.value && st.value?.gpu?.startsWith("cuda") && st.value?.hasRuntime === false,
 );
@@ -66,53 +67,6 @@ function fmtBytes(n) {
   if (!n) return "";
   const mb = n / (1024 * 1024);
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
-}
-
-async function refresh() {
-  try {
-    st.value = await request("/v1/llm-runner/engine/status");
-    error.value = st.value?.status === "error" ? st.value?.error || "" : "";
-    if (st.value?.status === "installing") startPoll();
-    else stopPoll();
-  } catch (e) {
-    error.value = e.message || "Couldn't read engine status.";
-    stopPoll();
-  }
-}
-
-async function install(force) {
-  busy.value = true;
-  error.value = "";
-  try {
-    await request("/v1/llm-runner/engine/install", { method: "POST", body: { force: !!force } });
-    await refresh();
-    startPoll();
-  } catch (e) {
-    error.value = e.message || "Install failed.";
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function uninstall() {
-  const ok = await confirmDialog({
-    title: "Remove the engine?",
-    message: "Deletes the installed llama.cpp binaries. Your downloaded models are kept — reinstall the engine any time to use them again.",
-    confirmLabel: "Uninstall",
-  });
-  if (!ok) return;
-  busy.value = true;
-  error.value = "";
-  try {
-    const r = await request("/v1/llm-runner/engine/uninstall", { method: "POST" });
-    if (r?.error) error.value = r.error;
-    await refresh();
-    await refreshResident();
-  } catch (e) {
-    error.value = e.message || "Uninstall failed.";
-  } finally {
-    busy.value = false;
-  }
 }
 
 async function toggleLog() {
@@ -160,7 +114,7 @@ async function saveKnobs() {
 }
 
 onMounted(() => {
-  refresh();
+  refreshEngine();
   refreshResident();
   startResPoll();
 });
@@ -181,14 +135,9 @@ onMounted(() => {
         </div>
       </div>
       <div class="lu-eng-actions">
-        <UiButton v-if="!installed" intent="primary" size="small"
-          :loading="busy || installing" @click="install(false)">Install engine</UiButton>
-        <template v-else>
-          <UiButton intent="secondary" size="small"
-            :loading="busy || installing" @click="install(true)">Update</UiButton>
-          <UiButton intent="ghost" size="small" :loading="busy" title="Delete the engine binaries — models are kept"
-            @click="uninstall">Uninstall</UiButton>
-        </template>
+        <!-- Install / Update / Uninstall live on the Built-in provider's list row
+             (AiModelsArea) — same shared useEngine state, so this status line and
+             those buttons can never disagree. -->
         <UiButton intent="ghost" size="small" @click="showDetails = !showDetails">
           {{ showDetails ? "Hide details ▴" : "Details ▾" }}
         </UiButton>

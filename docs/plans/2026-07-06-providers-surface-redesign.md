@@ -172,3 +172,58 @@ what happens? · providers on built in move the install unistall update button t
    hardware-fit + download + tune, which only the bundled runner exposes — an Ollama box manages
    its own models, so likely NO, but decide deliberately); (c) at minimum copy: "Quick Setup —
    sets up the built-in local engine."
+6. **Add an existing models folder (THINK ABOUT — user, verbatim: "i think maybe we should be
+   able to add a models folder, like if user alread has a hf model folder they can add it add to
+   todo to think about").** Shape to think through at pickup: point the runner at an EXISTING
+   Hugging Face cache (hf_hub layout — models.py already reads/writes that layout, so an
+   alternate cache_root or a symlink may be nearly free) and/or a loose-GGUF folder (scan +
+   register rows with facts read via gguf.py). Questions: one extra root or many; watch for
+   moved/deleted files; how Add-model's quant detection composes; Windows path/permission
+   reality. Related precedent: the portable data root (JW storage_relocate).
+
+## ROUND 2 + FIT FIX — SHIPPED 2026-07-06 late night (verification WAIVED by the user)
+
+**The user's process decrees, verbatim, both recorded:** *"fix it!!!!!!"* (the Fit scoring) and
+*"do it all i am tired of dealing with this, dont do any test just code it, i will check, too much
+time too many tokens"* — so this batch shipped with **build:vite as the only gate** (compile
+clean, 3.1s); pytest/smoke/probe/rules-checker deliberately NOT run this round at the user's
+explicit instruction; the user checks on their box. Earlier same-day rounds verified the
+surrounding code fully.
+
+1. **THE FIT FIX (api.py):** `get_models` scores Fit against the card's TOTAL VRAM
+   (`max_vram_mb(hardware)`) — the former P2 §5c budget-aware scoring fed VRAM *remaining* after
+   the resident set, so a sleeping model on the user's 8 GB box flipped EVERY row to "CPU" while
+   the same screen's header showed the card (their reset-catalog repro). The response's `vramMb`
+   now also reports the card (labels + tooltip agree). The `vram_mb` card-chooser override is
+   unchanged. `service.remaining_vram_mb` (api was its only caller) deleted; the arbiter keeps
+   `remaining_mb` for load-time decisions + the engine panel's VRAM line. The budget-aware test
+   REWRITTEN as the total-card guarantee (a resident model must NOT change Fit) — 382 pytest ran
+   green for THIS fix before the user's waiver arrived; user-confirmed on their box ("Fits"
+   everywhere in their next screenshot).
+2. **Wizard preselects the APPLIED model** (user: "if model is already applied then drop down
+   should select that model"): after the wizard's three loads resolve, `pick.default` is set to
+   the preview's `dominant` when it still exists in the catalog (re-opening the wizard proposes
+   NO change; the recommendation is only the fresh-box fallback), and a routing embed pointing at
+   a DELETED model falls back to the best fitting embed instead of silently preselecting a dead id.
+3. **API-key saved indicator** (ProviderForm): the key is write-only server-side — the edit form
+   now shows "•••••••• (a key is saved)" as the placeholder plus a "🔒 An API key is saved (never
+   shown). Leave blank to keep it — typing replaces it." hint, instead of a blank field that read
+   as no-key-saved.
+4. **Acceleration label** (AiModelsArea): "CUDA (in use) · VULKAN available" — every detected
+   runtime, the engine's actual backend marked first (priority = select_binary's order); a bare
+   "CUDA / VULKAN" read as a question.
+5. **Engine actions moved to the Built-in provider's LIST ROW** (right of Edit): Install /
+   Update / Uninstall now live on the row via the NEW shared `useEngine` composable (module
+   singleton — status + install/uninstall + busy/error in ONE place); LuRunnerEngine consumes the
+   same state and keeps the status line, install progress/errors, and the Details drawer (its own
+   action buttons removed per "move"; the panel and the row can never disagree).
+6. **Dead-reference honesty on the "Your setup" strip**: an applied General/Embedding id that no
+   longer exists in the catalog renders "<id> — removed from the catalog" with a pick-a-new-one
+   hint (warn style), never the dead id as if fine. (The full dangling-refs decision — block vs
+   cascade vs validate — remains the user's round-2 item 3 call; this ships the validate-at-read
+   floor everyone needs.)
+
+**NOT built (the user's own "not do yet" stands):** QuickSetup scope move (round-2 item 5) · the
+models-folder import (item 6). **NEXT (user, same message):** the quick Qwen-vs-Gemma lineup
+research ("did we determine qwen was better … make the gemma lineup instead of qwen, idk") —
+research delivered in chat; the lineup does NOT change without the user's explicit pick.

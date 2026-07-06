@@ -9,8 +9,8 @@
 //
 // v-model is the pin object (or null = inherit the empty fallback). The host
 // owns persistence (writes the routing pin and saves).
-import { computed, reactive, watch } from "vue";
-import { request } from "../client.js";
+import { computed, watch } from "vue";
+import { useProviderModels } from "../composables/useProviderModels.js";
 import LuCombobox from "./LuCombobox.vue";
 
 const props = defineProps({
@@ -39,21 +39,14 @@ const byId = computed(() => Object.fromEntries(props.providers.map((p) => [p.id,
 const pin = computed(() => props.modelValue || { providerId: "", model: "" });
 const route = computed(() => pin.value.providerId || "");
 
-// Fetched model lists per provider (id → string[]). Populated lazily when a
-// provider is picked, via the same endpoint the provider form's "Fetch models"
-// uses. A provider with no key / unreachable just yields an empty list (the
-// dropdown falls back to "(provider default)" + the saved default).
-const modelsCache = reactive({});
-async function fetchModels(pid) {
-  if (!pid || pid in modelsCache) return;
-  modelsCache[pid] = []; // mark in-flight so we don't refetch
-  try {
-    const r = await request(`/v1/llm-providers/${encodeURIComponent(pid)}/models`);
-    modelsCache[pid] = (r.models || r || []).map((m) => (typeof m === "string" ? m : m?.id)).filter(Boolean);
-  } catch { /* leave empty — fall back to the saved default */ }
-}
+// Model lists come from THE shared per-provider cache (useProviderModels —
+// one cache + one endpoint accessor kit-wide, C5); previously this component
+// kept its own per-instance cache over the same endpoint. A provider with no
+// key / unreachable just yields an empty list (the dropdown falls back to
+// "(provider default)" + the saved default).
+const { modelsFor, ensureModels } = useProviderModels();
 // Fetch the pinned provider's models on mount + whenever it changes.
-watch(() => pin.value.providerId, (pid) => { if (pid) fetchModels(pid); }, { immediate: true });
+watch(() => pin.value.providerId, (pid) => { if (pid) ensureModels(pid); }, { immediate: true });
 
 // Fetched models for a provider, filtered by kind so a chat picker doesn't
 // suggest embedding models (and vice-versa) — same /embed/i split the provider
@@ -61,7 +54,7 @@ watch(() => pin.value.providerId, (pid) => { if (pid) fetchModels(pid); }, { imm
 // the suggestion list, never restricts what can be entered.
 const EMBED_RX = /embed/i;
 function filteredModels(pid) {
-  const all = modelsCache[pid] || [];
+  const all = modelsFor(pid);
   return props.kind === "embedding" ? all.filter((m) => EMBED_RX.test(m)) : all.filter((m) => !EMBED_RX.test(m));
 }
 

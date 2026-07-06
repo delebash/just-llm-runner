@@ -37,6 +37,15 @@ export { default as AiTaskStrip } from "./components/AiTaskStrip.vue";
 export { default as AiStatusPanel } from "./components/AiStatusPanel.vue";
 export { default as AiStatusButton } from "./components/AiStatusButton.vue";
 
+// the model-picker family (C5) — THE shared per-provider model-list cache
+// (one cache + one endpoint accessor kit-wide; LuModelPicker rides it too),
+// the presentational per-feature routing chip (host owns state via
+// props/events + the #foot slot), and the embeddings client (ensure-resident
+// for the bundled runner + POST /v1/ai/embeddings).
+export { useProviderModels } from "./composables/useProviderModels.js";
+export { default as LuFeatureChip } from "./components/LuFeatureChip.vue";
+export { ensureEmbeddingReady, embedTexts, _resetEnsureCache } from "./services/embedApi.js";
+
 // views
 export { default as PromptLab } from "./views/PromptLab.vue";
 export { default as ProviderForm } from "./views/ProviderForm.vue";

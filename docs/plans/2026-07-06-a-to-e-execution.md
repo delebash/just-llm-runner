@@ -49,8 +49,17 @@ JW `7606ec6`(probes) `999138c`(E1) `7e8176d`(C1 seed) `7a42b11`(E2).
 > shipped post-compact; see their LIVE PROGRESS entries (C3's kit move · C4's full audit verdict table
 > with five in-batch fixes, the filed C5 finding and the JV F1 records · E3's spec-grounded list import
 > with its 6-test jsdom suite · C2's evidence table with the Qwen3.6⇄GLM rank swap). Nothing from the
-> A–E mandate remains; the open ledger items are now C5 (filed by C4, needs a go), F1–F5 (JustVoice,
-> excluded by mandate), and the §G box checks.)*
+> A–E mandate remains.)*
+>
+> *(Second post-compact update, 2026-07-06, PRE-COMPACT STOP #2: **C5 IS ALSO SHIPPED** — the user
+> gave its go after the batch report ("go" on the C4-filed finding), the design survived a full
+> 3-checker PANEL round (which caught a false grounding claim of mine — ModelPicker.vue was DEAD, not
+> ChatPanel-mounted — and reshaped the design) plus a v2 re-check, and the implementation + docs are
+> in §C5 below. The open ledger items are now **C6** (the kit-internal layering violation FILED by the
+> C5 rounds — five common-layer files importing the llm client, needs a go) · F1–F5 (JustVoice,
+> excluded by the batch mandate) · the §G box checks. Resume drill unchanged: fetch → compare →
+> `--ff-only` pull on all three repos, re-read the global rules + the JW recap header + THIS section;
+> nothing is in flight.)*
 1. **C3 — shared AI task queue → kit.** FULLY DESIGNED below (§"C3 design" — it IS the recorded Decision 22,
    steps 1–3; step 4 = JV adoption stays excluded → F1). Scoped this session: move JW's five files
    (`stores/aiTasks.js` 231 ln · `components/AiTaskStrip.vue` 151 · `services/aiFeature.js` 150 ·
@@ -864,6 +873,58 @@ updated as each item ships.
 ---
 
 ## C5 — the JW model-picker family → kit (user's go: 2026-07-06, "go" on the C4-filed finding)
+
+**STATUS: ✅ SHIPPED + VERIFIED (2026-07-06; implemented exactly as design v2 below — the
+panel-corrected shape).** What shipped — kit side: `ui/src/composables/useProviderModels.js` (THE
+shared per-provider model-list cache: module-scoped, plain `string[]` ids, an in-flight set coalescing
+concurrent ensures/refreshes, built on the ONE endpoint accessor `useProviderConnect.listModels`, with
+the layering caveat recorded in its header); `ui/src/components/LuFeatureChip.vue` (ALL the chip +
+popover + backdrop GUI moved from JW's AiFeatureChip, presentational — props/events + the `#foot`
+slot, host owns state per the LuModelPicker philosophy); `ui/src/services/embedApi.js` (moved onto the
+llm-layer `client.request` transport with `{signal}`, behavior byte-preserved); `LuModelPicker.vue`
+dropped its per-instance `modelsCache`/`fetchModels` and rides the shared composable; `index.js`
+exports the three new pieces + the embed functions. JW side: NEW `composables/useFeaturePin.js` — the
+ONE store binding (inherit sentinel, option building, `setFeaturePin` writes, refresh) that BOTH
+surfaces ride; `components/AiFeatureChip.vue` REWRITTEN as the thin binding over `LuFeatureChip`
+(same name + props, so its ~20 consumers stay untouched; ZERO chip/popover/backdrop markup left —
+the v2 acceptance line holds; the foot link now goes to `#/ai`, killing the dead `/settings/audio`
+route); `ChatPanel.vue`'s inline picker rides the same `useFeaturePin` bound to the ACTIVE feature —
+**fixing the found bug where it edited the `chat` pin even in character mode** (the run routes on
+`characterChat`) — with the tiny recorded copy convergence (its inherit/default labels now match the
+chip's canonical wording); DELETED: `components/ModelPicker.vue` (the panel-proven dead orphan),
+`composables/useModelList.js`, `services/embedApi.js`; `services/modelMeta.js` shrank to the tiers
+documented-mirror (header rewritten; `parseQuant`/`entryLabel`/`TIER_IDS`/`getModelTierObject` died
+with their only consumer — grep-verified before deletion, live tier consumers = the ai store only).
+Tests: `embedApi.test.js` re-targeted to the REAL kit module via the alias subpath (mocking the kit
+`client.js` `request` by URL routing) — all ten original behaviors preserved; `modelMeta.test.js`
+keeps the five tier tests, the dead-helper tests removed with their subjects. Docs shipped in the
+same series (the panel's T11 fix): JW `CLAUDE.md` kit inventory gains the model-picker-family bullet +
+the AI-providers section now names the kit embed functions and the read-only roles of both boot
+caches; the runner README's kit paragraph gains the same surface. VERIFIED: `build:vite` clean
+(3.7s) · vitest **29/29** (aiFeature 8 + embedApi 10 + modelMeta 5 + odt 6; the count honestly SHRANK
+from 34 — four dead-helper tests died with parseQuant/entryLabel, and the earlier "11 tests" phrasing
+for embedApi was an off-by-one, the file always had ten) · full headless smoke **zero JS errors on
+every route** (the chip live on the five routed views; the ~14 modal consumers mount the same single
+component through the same single binding — the recorded coverage note) · residual greps ZERO
+(useModelList / components/ModelPicker / services/embedApi / parseQuant / entryLabel / TIER_IDS /
+getModelTierObject) · JV untouched (additive exports only). **Diff-checker round 1: FAIL — and it
+caught a REAL ReferenceError I introduced:** a `watch` further down ChatPanel (`:139-143`, a region
+the refactor never read) still called the now-undefined `ensureChatModels` AND still hardcoded the
+`chat` pin (the same character-mode disease the refactor fixed twelve lines up). Fixed: the
+destructure now pulls `ensureModels: ensureChatModels` from `useFeaturePin`, and the watch observes
+`[open, chatProviderId]` (the ACTIVE feature's pin, INHERIT-guarded) instead of
+`ai.featurePins?.chat`. Re-verified after the fix: a stale-symbol sweep of ChatPanel (zero
+`chatProviderValue`/`chatModelValue`/`chatModelsFor`/`featurePins?.chat` remnants; 16 uses of the new
+binding symbols) · build clean · vitest 29/29 · full smoke zero JS errors. HONEST COVERAGE NOTE the
+checker demanded, recorded rather than half-fixed at a compact boundary: ChatPanel is a slide-in
+OVERLAY, not a hash route — the headless smoke never opens it, which is exactly why this
+ReferenceError survived a "zero JS errors" run (it only fires when the panel opens WITH an existing
+pin); a panel-open probe (open ChatPanel with a seeded chat pin, assert no page errors + the model
+list populates) is FILED as the next probe-harness addition. **Diff-checker round 2: PASS** — the fix
+verified at source across all three files (the destructure → the composable's return → the kit
+`ensureModels(providerId)` signature; the INHERIT guard sound because the sentinel replaces the old
+undefined; the stale-symbol sweep independently re-run clean), and the honest filed-probe disclosure
+judged the correct T7 handling for this commit.
 
 ### C5 design (written before implementation; grounded line-by-line this session)
 

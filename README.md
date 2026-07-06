@@ -45,6 +45,10 @@ models / prompts / usage), the `Ui*` primitive + shell layer (`ui/src/common/`),
 and the shared AI task queue — the `useAiTasksStore` in-flight registry (Pinia),
 the `runAiFeature`/`runAiFeatureStream` wrappers over `/v1/ai/run`+`/v1/ai/stream`,
 `friendlyAiError`, and the `AiTaskStrip`/`AiStatusPanel`/`AiStatusButton` surfaces.
+The model-picker family (C5) adds `useProviderModels` (THE per-provider model-list
+cache — one cache + one endpoint accessor kit-wide), the presentational
+`LuFeatureChip` routing chip (host owns state), and the embeddings client
+`embedTexts`/`ensureEmbeddingReady`.
 
 ## Consume it
 ```toml

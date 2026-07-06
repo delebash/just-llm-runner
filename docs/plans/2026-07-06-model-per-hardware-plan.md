@@ -527,6 +527,44 @@ the estimate stays conservatively in force — accepted drift, recorded); `start
 single-model path keeps explicit values (an asymmetry, fine — production is router-only, noted
 in the code comment).
 
+## PHASE 1b RECORD — SHIPPED 2026-07-06 (the derivation half; runner `9b65ebb` + `16a4747` · JW `4685939`). PHASE 1 IS COMPLETE.
+
+**Built exactly to the locked design + amendments 1b-F1..F6 (pre-build checker FAIL(4) → all
+folded → re-check PASS; both code commits rode genuine agent PASS verdicts):**
+1. **fit.py** — `kv_bytes_per_token` extracted as the ONE KV-term source (`_slope_offset`
+   consumes it; a drift test pins the equality, 1b-F3) + `kv_affordable` (ladder ctx
+   4096…262144 bounded by `_KV_CTX_SHARE`=0.5 of the VRAM budget — explicitly BOX-GATED: the §G
+   "computed ctx == 32768 on the 2070S" check calibrates the share before any tune retirement).
+2. **process.py** — FitPlan stays int + gains `ngl_explicit`/`ncmoe_explicit`/`ctx_explicit`
+   (1b-F2); compute_fit's ctx = explicit override else `min(trained_ctx, kv_affordable)`;
+   `overrides_to_pairs` omits None placement knobs (ctx-size ALWAYS renders); `ModelIniEntry`
+   ngl/ncmoe went Optional (`:226-230`, the corrected citation).
+3. **lifecycle.py** — both emission sites emit only EXPLICIT placement knobs: tuned boxes render
+   byte-identically (the user's box unchanged); untuned sections omit ngl/ncmoe so the child's
+   default `--fit` (verified at the b9870 tag, 1b-F1) places tensors at our pinned ctx. 1b-F4:
+   a fit-placed entry failing for ANY reason (incl. non-OOM barely-fits) retries ONCE with the
+   explicit computed placement, then the pre-existing OOM-shed/fail-fast governs.
+4. **autotune.py** — the static ladder became the bounded WALK (probe the anchor when the
+   baseline didn't measure it + ±2, step while decode improves, budget 12) + the STRICT-BEAT
+   save rule (an explicit candidate wins only beyond the 5% tie band; a tie keeps the baseline
+   and saves NOTHING — the checker's regression-by-tie catch, 1b-F5; ties among explicit still
+   prefer higher ncmoe) + ONE spec-n alternative trial for draft-mtp bases (A9).
+5. **Docs (1b-F6):** runner README "How a model's launch config derives" (the 4-tier doctrine) ·
+   JW models.md untuned-launch line · QuickSetup's duration label honest ("a few minutes").
+
+**Verified:** runner ruff + **374 pytest** (361→371 emission half→374 sweep half; 14 new tests:
+pairs omission/explicit-zero · explicit flags · trained-ctx cap · kv_affordable bounds/monotone ·
+KV drift pin · untuned-omits/tuned-renders ini · F4 retry-once + then-fail-fast · walk-improving
+strict-beat · tie-keeps-baseline-saves-nothing · untuned anchor probe · spec-n gate · walk stops
+at failure) · JW build:vite + vitest 29/29 + FULL headless smoke zero JS errors + wizard probe
+PASS (the label change verified in-flow). **Box checks appended to §G (recorded, not claimed):**
+untuned fit-placed load boots + serves · computed ctx == 32768 on the 2070S (calibrates
+`_KV_CTX_SHARE`) · sweep-from-scratch lands within the tie band of the hand-tuned config's
+MEASURED tok/s (the performance-equivalence reframe) · whether `llama-fit-params` ships in the
+b9870 win zip (optional tool; egress-blocked in-container). **NEXT: Phase 2** (QuickSetup D4-1
+(a)+(c) protection with A8, card-dropdown removal, opt-out sweep — whose backend semantics now
+include the strict-beat rule this phase shipped).
+
 ## PHASE 1a RECORD — SHIPPED 2026-07-06 (the seed-truth half of Phase 1; runner `4faa39c` · JW `f6f8167`)
 
 **What shipped (all live-verified on a fresh dev DB the same hour):**

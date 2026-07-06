@@ -366,7 +366,7 @@ onMounted(() => {
   display: grid; grid-template-columns: auto minmax(0,1fr) auto auto; gap: 14px; align-items: center;
   padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-top: 8px;
 }
-.lu-prow-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.lu-prow-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .lu-prow-ic { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-3); color: var(--ink-2); display: grid; place-items: center; }
 .lu-prow-ic svg { width: 17px; height: 17px; }
 .lu-prow-info { min-width: 0; }

@@ -57,10 +57,17 @@ def test_select_macos_metal():
     assert a and a.gpu == "metal" and a.server_exe == "llama-server"
 
 
-def test_select_linux_cuda_docker():
+def test_select_linux_cuda_never_picks_docker():
+    # A4 (re-scoped): no pin-faithful container exists upstream, so the docker row
+    # is never auto-selected. With the vulkan fact recorded (detect() does this on
+    # NVIDIA boxes with a loader) selection lands on the REAL pinned vulkan
+    # archive; without it, cpu. The docker row stays in config as the future seam.
     m = default_config()
+    a = select_binary(m, _hw("linux", {"cuda": True, "vulkan": True}))
+    assert a and a.source == "github" and a.gpu == "vulkan"
     a = select_binary(m, _hw("linux", {"cuda": True}))
-    assert a and a.source == "docker" and a.image
+    assert a and a.source == "github" and a.gpu == "cpu"
+    assert any(b.source == "docker" for b in m.llamacpp.binaries)  # seam kept
 
 
 def test_select_cross_platform_rows():
@@ -135,9 +142,12 @@ def test_acquire_tar_gz_macos(monkeypatch, tmp_path):
 
 
 def test_acquire_docker_raises(tmp_path):
+    # Auto-selection never lands on docker anymore (A4) — FORCING the variant via
+    # gpu= still explains itself with the truthful pin story. Auto-select on a
+    # plain linux+cuda box now resolves the cpu github asset instead of raising.
     m = default_config()
-    with pytest.raises(NotImplementedError):
-        binmod.acquire_binary(tmp_path, m, _hw("linux", {"cuda": True}))
+    with pytest.raises(NotImplementedError, match="pin-faithful"):
+        binmod.acquire_binary(tmp_path, m, _hw("linux", {"cuda": True}), gpu="cuda12")
 
 
 # ── A3: per-variant layout + the installed-builds probe ───────────────────────

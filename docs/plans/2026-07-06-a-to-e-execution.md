@@ -259,9 +259,21 @@ insertion point is the INITIAL router spawn, not the backoff.
 remembered exe is B, and a subsequent ini-change bounce uses B), all-candidates-fail aggregates per-backend
 reasons into the error state, single-candidate behavior identical to today; install — `_run_install` call
 list = selected(+vulkan when rocm)+cpu with extras best-effort (a failing extra leaves status installed).
-- **A4 — Linux CUDA engine install (docker route): DESIGNED (below) — with a load-bearing upstream
-  discovery that RE-SCOPES it; implementing the re-scoped form; the scope change is SURFACED to the user
-  in the batch report (rule: never silently override a recorded item).**
+- **A4 — Linux CUDA engine install (docker route): ✅ SHIPPED IN THE RE-SCOPED FORM (2026-07-06; design
+  + the upstream evidence below; the re-scope is SURFACED to the user in the batch report).** What
+  shipped: `detect()` records the Vulkan capability fact on NVIDIA boxes with a loader (gpu-gated, same
+  principle as the AMD arm); `select_binary` NEVER auto-selects `source="docker"` rows (with the full
+  reasoning in its docstring), so a Linux+NVIDIA box now selects the REAL pinned `linux/vulkan` b9644
+  archive (cpu below it) instead of dead-ending on `NotImplementedError`; the docker raise (reachable
+  only by forcing `gpu=`) now tells the truthful pin story; the config row keeps the seam with the
+  corrected ROLLING image name (`server-cuda` — the old `server-cuda12-<build>` tag NEVER existed) and
+  the digest-capture procedure for the next pin bump written above it. The A3 install extras compose:
+  Linux-NVIDIA installs vulkan+cpu, giving that box a real chain. Verified: ruff clean · rewritten
+  `test_select_linux_cuda_never_picks_docker` + `test_acquire_docker_raises` (forced-variant, message
+  match) + new `test_detect_nvidia_records_vulkan_fact` · full suite **341 passed**. The FULL container
+  wiring is deliberately NOT built now — building it against a rolling tag would break the b9644 pin
+  that grounds every switch/tune fact; it returns when a digest-pinned image is captured at a pin bump
+  (procedure recorded in `config.py` + here).
 
 ### A4 design (written before implementation)
 

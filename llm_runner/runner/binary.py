@@ -62,8 +62,22 @@ def _gpu_preference(hardware: HardwareInfo) -> list[str]:
 
 
 def select_binary(config: RunnerConfig, hardware: HardwareInfo) -> BinaryAsset | None:
-    """Pick the best binary asset for (platform, gpu); None if none match."""
-    by_gpu = {b.gpu: b for b in config.llamacpp.binaries if b.platform == hardware.platform}
+    """Pick the best binary asset for (platform, gpu); None if none match.
+
+    `source="docker"` rows are NEVER auto-selected (A4, re-scoped 2026-07-06):
+    upstream discontinued per-build image tags (only rolling `server-cuda*`
+    remain — verified against ghcr manifests), so no PIN-FAITHFUL container
+    exists for the pinned build; auto-selecting one would hand out an engine
+    that silently tracks master, breaking the b-pin every switch/tune fact is
+    grounded on. A Linux+NVIDIA box therefore falls to the real pinned vulkan
+    archive (the vulkan runtime fact is recorded by detect()), else cpu. The
+    row stays in config as the future seam — a digest-pinned image captured at
+    the next pin bump re-enables it."""
+    by_gpu = {
+        b.gpu: b
+        for b in config.llamacpp.binaries
+        if b.platform == hardware.platform and b.source != "docker"
+    }
     for gpu in _gpu_preference(hardware):
         if gpu in by_gpu:
             return by_gpu[gpu]
@@ -183,8 +197,10 @@ def acquire_binary(
     SELECTED asset); if the asset declares a `runtime_url` companion (the Windows
     CUDA cudart DLLs) it is fetched + unpacked into the SAME dir so the exe can
     launch. `gpu` overrides selection to install a SPECIFIC variant (the engine
-    install uses it to plant the CPU/Vulkan fallbacks). Docker sources raise
-    (Linux CUDA via docker is a later item).
+    install uses it to plant the CPU/Vulkan fallbacks). Docker sources raise —
+    they are never auto-selected (see `select_binary`), and forcing one via
+    `gpu=` explains the pin story (no pin-faithful image exists for the pinned
+    build; the route returns when a digest is captured at a pin bump).
     """
     if gpu is None:
         asset = select_binary(config, hardware)
@@ -211,9 +227,12 @@ def acquire_binary(
 
     if asset.source == "docker" or not asset.asset_url:
         raise NotImplementedError(
-            f"binary source {asset.source!r} for {asset.platform}/{asset.gpu} not wired "
-            "yet (Linux CUDA via docker is a later item); use a github asset or an "
-            "external llama-server"
+            f"binary source {asset.source!r} for {asset.platform}/{asset.gpu} is not "
+            "installable: upstream publishes no pin-faithful container image for the "
+            "pinned build (rolling tags only — they track master and would break the "
+            "build pin). Linux NVIDIA boxes use the pinned Vulkan build automatically; "
+            "the container route returns when a digest-pinned image is captured at a "
+            "pin bump."
         )
 
     dest.mkdir(parents=True, exist_ok=True)

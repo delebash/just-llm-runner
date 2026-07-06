@@ -333,6 +333,13 @@ def detect() -> HardwareInfo:
     runtimes: dict[str, bool] = {}
     if gpus and shutil.which("nvidia-smi"):
         runtimes["cuda"] = True
+        # Record the Vulkan capability FACT too (gpu-gated, like the AMD arm):
+        # on Linux the pinned build has no installable CUDA archive (docker-only,
+        # and no pin-faithful image exists upstream — A4), so selection falls to
+        # the REAL pinned vulkan build there; on Windows cuda archives exist and
+        # stay preferred — the extra fact only widens the A3 chain.
+        if _vulkan_available():
+            runtimes["vulkan"] = True
     elif plat in ("windows", "linux"):
         # No NVIDIA → scan for AMD/Intel rows (A1: real name + VRAM where the
         # platform exposes it, so Fit and machine_key work on those boxes).

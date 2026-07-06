@@ -20,9 +20,14 @@ JustVoice repo for the full architecture + decision history.
   presets, VRAM-fit recipe.
 - `schema.py` — camelCase pydantic contract (`RunnerManifest`, `HardwareInfo`).
 - `hardware.py` — self-contained detection (platform, NVIDIA GPU+driver+VRAM,
-  RAM, runtimes). No CUDA toolkit needed — detection only.
+  AMD/Intel rows via sysfs/registry, RAM, runtimes). No CUDA toolkit needed —
+  detection only.
 - `binary.py` — select + download + unpack the llama.cpp binary for the
-  detected hardware (github-zip wired; Linux-CUDA docker is a later item).
+  detected hardware (github archives, per-variant dirs + spawn fallback chain).
+  Docker rows are never auto-selected: no pin-faithful container exists for the
+  pinned build (upstream ships rolling tags only), so Linux+NVIDIA uses the
+  pinned Vulkan build; the container route returns when a digest-pinned image
+  is captured at a pin bump.
 - `download.py` — streaming download (progress + cancel).
 - `models.py` — GGUF acquisition: resolve real filenames from the HF tree by
   `quant` (+ `mmproj` sidecar), stream into the HF cache layout llama.cpp
@@ -46,9 +51,9 @@ pip install -e ../just-llm-runner
 ```
 
 ## Status
-P1.1 (manifest + schema + endpoint), P1.2 (binary acquisition), P1.3 (GGUF
-model download — `select_files`/`acquire_model`), and P1.4 (VRAM-fit + spawn
-`llama-server` with probe-and-back-off) done; 28 tests pass.
-Next: P1.5 provider registration (`local-llamacpp`), P1.6 benchmark.
+The shared stack is live in both apps (JustWrite fully; JustVoice pending
+convergence). Current state + open work: the outstanding master plan in
+`docs/plans/` (kept twice-verified). The test suite runs with
+`python -m pytest` — several hundred tests, all green at every commit.
 
 SPDX-License-Identifier: GPL-3.0-or-later

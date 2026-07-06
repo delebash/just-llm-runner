@@ -78,8 +78,16 @@ DEFAULT_BINARIES: list[dict] = [
     {"platform": "linux", "gpu": "vulkan", "source": "github",
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-ubuntu-vulkan-x64.tar.gz",
      "server_exe": "llama-server"},
+    # Linux CUDA: docker-only upstream, and NO pin-faithful image exists — per-build
+    # image tags were discontinued (server-cuda-b47xx era only; every b96xx probe
+    # 404s on ghcr; verified 2026-07-06), leaving rolling tags that track master.
+    # The row stays as the FUTURE seam (never auto-selected — see
+    # binary.select_binary); at the next pin bump, capture the digest
+    # (`server-cuda@sha256:…`) while the rolling tag still points at that build,
+    # put it here, then wire the container spawn. Until then Linux+NVIDIA selects
+    # the pinned vulkan archive.
     {"platform": "linux", "gpu": "cuda12", "source": "docker",
-     "image": f"ghcr.io/ggml-org/llama.cpp:server-cuda12-{DEFAULT_PINNED_BUILD}",
+     "image": "ghcr.io/ggml-org/llama.cpp:server-cuda",
      "server_exe": "llama-server"},
 ]
 

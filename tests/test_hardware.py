@@ -172,6 +172,20 @@ def test_detect_intel_igpu_stays_cpu(monkeypatch):
     assert info.gpus == [row]  # the row still exists (name in the UI, key in tunes)
 
 
+def test_detect_nvidia_records_vulkan_fact(monkeypatch):
+    # A4: on an NVIDIA box with a Vulkan loader, BOTH facts are recorded — on
+    # Linux the pinned build has no installable CUDA archive, so selection falls
+    # to the real pinned vulkan build (docker rows are never auto-selected).
+    monkeypatch.setattr(hw, "_nvidia_gpus",
+                        lambda: [GpuInfo(vendor="NVIDIA", name="RTX 4090", vram_mb=24564)])
+    monkeypatch.setattr(hw.shutil, "which", lambda c: "/x/nvidia-smi" if c == "nvidia-smi" else None)
+    monkeypatch.setattr(hw, "platform_key", lambda: "linux")
+    monkeypatch.setattr(hw, "_vulkan_available", lambda: True)
+    info = hw.detect()
+    assert info.runtimes.get("cuda") is True
+    assert info.runtimes.get("vulkan") is True
+
+
 def test_detect_amd_wins_over_intel_arc(monkeypatch):
     from llm_runner.runner.binary import _gpu_preference
 

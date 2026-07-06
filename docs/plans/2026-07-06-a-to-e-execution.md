@@ -1268,3 +1268,118 @@ them) · the served-module check (the running Vite dev transform contains the C7
 reused the still-running Vite instance from the C6 round (an earlier pkill pattern missed it; the
 new spawn exited on the taken port) — safe because Vite dev serves watcher-fresh source from disk,
 and the served-module check above proved it.
+
+## C8 — QuickSetup back to LOCAL-ONLY (user directive 2026-07-06: "quick setup is for local only… remove the connect provider… we dont need a drop down for providers, qs is only for built in llama server")
+
+**STATUS: ✅ SHIPPED + VERIFIED (2026-07-06; implemented exactly as the design below + the two disclosed adjacencies in the record).**
+
+### C8 design + the decision reversal record
+
+**The user's decision (recorded verbatim above) REVERSES the 2026-07-05 Option-2 choice** that built
+the other-provider path (3b-ii-b — "Run models with" + in-wizard connect; its shipped record stays
+in `2026-07-05-model-surface-build.md` §3b-ii-b as history). The user is the one actor who may
+override a recorded design decision; the new product truth: **QuickSetup = the bundled local runner
+ONLY** (the modal's own eyebrow says "Local LLM", `QuickSetup.vue:425`); external providers are set
+up on the provider list (ProviderForm), never in the wizard. The user also called out the hardcoded
+surface: the `PROVIDER_PRESETS` cloud-chip row (OpenAI/Anthropic/Gemini/OpenRouter + their URLs,
+`useProviderConnect.js:11-19`) rendered in the wizard (`QuickSetup.vue:459-461`) — it leaves
+QuickSetup with this cut; the shared preset list itself STAYS in `useProviderConnect.js` for
+ProviderForm's start-from-a-preset chips (that surface is explicitly where the user says provider
+setup belongs). Item 3 of the user's message ("changing default model doesn't actually do
+anything") was WITHDRAWN by the user ("dont worry about 3") — not investigated, not built.
+
+**The cut (all in `ui/src/views/QuickSetup.vue`, grounded by a full read this session):**
+- Imports: the whole `useProviderConnect` line (:28 — `detectLocal`/`createProvider`/`listModels`/
+  `PROVIDER_PRESETS` all lose their uses) + `UiChip` (:34, cloud chips only) + `UiInput` (:33,
+  cloud-key only).
+- State: `runWith`/`providers`/`providerModels`/`providerModel`/`providerModelsError` (:75-79) +
+  the connect-flow block `connectOpen`/`detected`/`cloudChip`/`cloudKey`/`connecting`/
+  `connectError` (:81-86) + the "Run models with" comment block (:69-74).
+- Derived: `isBundled`/`selectedProvider`/`reachableProviders`/`runWithOptions`/
+  `providerModelOptions`/`cloudPresets`/`detectedUnregistered` (:168-183); `applyDisabled`
+  (:187-189) simplifies to the local form (`!fitting.length || !pick.default`).
+- Functions: `loadProviders`/`loadProviderModels`/`onRunWithChange`/`openConnect`/`pickCloudChip`/
+  `connectProvider`/`connectDetected`/`connectCloud` (:239-317); `openWizard`'s
+  reset-connect-state block (:324-334) and its `loadProviders()` leg (:337 → `Promise.all([
+  loadAll(), loadRouting()])`); `apply()`'s external branch (:375-380) — the bundled body unwraps.
+- Template: the "Run models with" + connect section (:443-470); the `v-if="isBundled"` wrapper
+  unwraps (:473); the external Model section (:500-507); the external arms of the Apply-preview
+  (:524-527), the applying line (:537), and the done summary (:546); the embed hint's
+  `<template v-if="isBundled">` (:513) becomes unconditional text; the empty-state copy (:496)
+  drops "or connect a provider above".
+- Styles: `.lu-qs-connect`/`.lu-qs-connectbox`/`.lu-qs-subk`/`.lu-qs-drow`/`.lu-qs-chips`/
+  `.lu-qs-cloudkey` (:597-604).
+
+**KEEPS (explicitly not touched):** `setAsDefault(LOCAL_RUNNER_ID, …)` + `setAsEmbedding` (the
+shared modelApply writers — their provider-aware signature is shared surface used by the catalog
+too; narrowing it would be scope creep and is NOT asked); the §10 speed-floor pick + Plan-for-card
++ Default-model + Embedding dropdowns (model/card dropdowns are not the "providers dropdown" the
+user removed); the D4-1 overwrite discussion (unchanged by this cut, still open);
+`useProviderConnect.js` itself (ProviderForm consumes `PROVIDER_PRESETS`/`probeModels`/
+`createProvider`; `listModels` is consumed by `useProviderModels`).
+
+**Companion artifacts:** DELETE `justwrite-app/scripts/qs-otherprovider-probe.mjs` (its 12
+assertions all drive the removed UI — reachable-filter, bundled↔external swap, connect chips,
+key-input reveal; QuickSetup rendering stays covered by the full smoke); UPDATE
+`justwrite-app/docs/models.md` §Quick Setup (it documents the other-provider path — rewrite to
+local-only); ledger C8 line + recap 6h in the same series.
+
+**Verify plan:** build:vite · vitest · the FULL headless smoke (zero JS errors; QuickSetup mounts
+on the Providers tab) · a residual grep (no `runWith`/`connectProvider`/`cloudChip`/
+`providerModel` references left in the kit; `PROVIDER_PRESETS` consumers = ProviderForm only) ·
+diff rules-checker → commit + push.
+
+### C8 implementation + verification record (2026-07-06)
+
+Implemented exactly as designed: the whole "Run models with" section, the in-wizard connect flow
+(detected-local rows · the PROVIDER_PRESETS cloud chips · the API-key input), the external model
+select, the external arms of the apply/preview/done steps, all their state/derived/functions, the
+`useProviderConnect` + `UiChip` + `UiInput` imports, and the six connect CSS classes are GONE from
+`QuickSetup.vue`; `applyDisabled` simplified to the local form; `openWizard` lost the connect-state
+reset + the `loadProviders()` leg; `apply()` is the single bundled path (the shared
+`setAsDefault(LOCAL_RUNNER_ID, …)` writer + embed + download/load, unchanged semantics). A
+header comment records the decision + where providers now connect (ProviderForm).
+
+**Two disclosed adjacencies (both the direct consequence of the cut, both in-scope):**
+1. **`detectLocal` pruned from `useProviderConnect.js`** — the cut removed its ONLY consumer
+   (grep: zero references kit-wide + both apps; JV's `llmBackend.js detectLocal()` is its own
+   local function), so leaving it would create instant new dead code (the exact C7 class). The
+   function + its `useProviderConnect()` return entry are gone; the header comment records the
+   prune + that the server's `/v1/llm-providers/detect-local` endpoint remains for a future
+   ProviderForm affordance. `PROVIDER_PRESETS`/`probeModels`/`createProvider` stay (ProviderForm),
+   `listModels` stays (useProviderModels).
+2. **The committed wizard probe was STALE and got a found-and-fixed** (the C1-bugs precedent):
+   re-running `justwrite-app/scripts/phaseD-quicksetup-probe.mjs` as the modal-open verification
+   FAILED on two assertions that hardcoded the OLD embed prefill ("Nomic Embed Text") — stale
+   since the embed quality ladder + the seeded routing default evolved (live data: routing default
+   = `qwen3-embedding-0.6b`; best-ranked fitting embed = `qwen3-embedding-8b` rank 50; nomic is
+   now rank 70, the WORST). NOT a C8 regression — the C8 diff touches zero embed-logic lines. The
+   probe is now DATA-DRIVEN, mirroring the component's real precedence (routing.default
+   .embeddingModel wins, else lowest-rank fitting embed), and gained the two C8 negative
+   assertions (no "Run models with", no "Connect a provider").
+
+**Companions:** `scripts/qs-otherprovider-probe.mjs` DELETED (all 12 assertions drove the removed
+UI); `docs/models.md` §Quick Setup rewritten to local-only (the "Run models with" subsection is
+gone — external providers connect on the provider list).
+
+**Verified (all green):** build:vite clean · vitest **29/29** · the FULL headless smoke ALL routes
+ZERO JS errors · the FIXED committed probe **9/9** (wizard open → confirm → stubbed Apply → done;
+the data-driven embed check "Qwen3 Embedding 0.6B"; both local-only negatives) with 0 page errors
++ 0 non-benign failed requests · residual greps: `runWith`/`isBundled`/`cloudChip`/
+`connectProvider`/`detectLocal` = zero code references kit-wide (one provenance comment remains by
+design).
+
+**C8 SYNC/INTEGRATION ADDENDUM (2026-07-06, same turn):** while C8 awaited its diff-checker the
+PARALLEL session pushed the auto-tune feature (runner `1984d92`: `runner/autotune.py` + lifecycle
+job + Tune-modal consumer + a QuickSetup "Optimize for this PC" block in the DONE step). The rebase
+of C8 onto it completed WITHOUT textual conflict — which was the dangerous case: their block's
+guard `v-if="isBundled && pick.default"` referenced the `isBundled` computed C8 deletes, and in a
+script-setup template an unknown identifier resolves silently FALSY — their feature would have
+never rendered (a silent kill, no error for any smoke to catch). Fixed in the integration (folded
+into the C8 commit): the guard is now `v-if="pick.default"` with a comment recording why, and the
+wizard probe gained a tenth assertion — "done offers 'Optimize for this PC'" — so the block's
+rendering is pinned. The MERGED tree re-verified end to end: runner ruff clean + **361 pytest**
+(their autotune tests included) · build:vite clean · vitest 29/29 · full headless smoke zero JS
+errors · the wizard probe **10/10** with 0 page errors. (Their auto-tune consumes the wizard's
+`pick.default` + the `/v1/llm-runner/auto-tune` job — fully compatible with the local-only shape;
+QuickSetup remains provider-free.)

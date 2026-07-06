@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Shared provider-connect — the ONE source of the known-provider PRESETS + the connect
-// endpoints (detect-local · probe-models · create), consumed by BOTH ProviderForm (add/edit
-// a provider) AND QuickSetup (the other-provider step). RULE #7: extract, don't copy — a
-// hand-rolled probe/create in each surface would drift (ProviderForm's own probe already
-// diverged internally: fetchModels sent `defaultModel`, testConnection didn't). Lives in
-// the kit's llm layer composables/ (moved at C6, 2026-07-06 — llm-endpoint code; the
-// common/ charter bans upward imports).
+// endpoints (probe-models · create · list-models), consumed by ProviderForm (add/edit a
+// provider — the one place providers are set up; QuickSetup is LOCAL-ONLY per the 2026-07-06
+// user decision and no longer connects providers) and by useProviderModels (listModels).
+// RULE #7: extract, don't copy — a hand-rolled probe/create would drift (ProviderForm's own
+// probe already diverged internally once). Lives in the kit's llm layer composables/ (moved
+// at C6, 2026-07-06 — llm-endpoint code; the common/ charter bans upward imports).
+// (detectLocal — the well-known-local-servers probe over /v1/llm-providers/detect-local —
+// was pruned 2026-07-06 when the QuickSetup connect flow, its only consumer, was removed;
+// the server endpoint remains for a future ProviderForm affordance.)
 import { request } from "../client.js";
 
 // Known providers, as start-from-a-preset chips: [label, baseUrl, providerType, isLocal].
@@ -18,17 +21,6 @@ export const PROVIDER_PRESETS = [
   ["Gemini", "https://generativelanguage.googleapis.com", "gemini", false],
   ["OpenRouter", "https://openrouter.ai/api/v1", "openai-compat", false],
 ];
-
-// Probe the well-known LOCAL LLM servers (Ollama :11434, LM Studio :1234) → the "detected →
-// Connect" rows. Returns [{providerType, name, baseUrl, models[], alreadyRegistered}]; [] on
-// failure (a down probe is just "not detected").
-export async function detectLocal() {
-  try {
-    return (await request("/v1/llm-providers/detect-local")).detected || [];
-  } catch {
-    return [];
-  }
-}
 
 // List a (draft) provider's models BEFORE it's saved — the shared draft-probe. Returns
 // { models: string[], error?: string }. `apiKey` empty → null (a local provider needs none).
@@ -62,5 +54,5 @@ export async function listModels(providerId) {
 
 /** The shared provider-connect surface. Every consumer gets the SAME presets + endpoints. */
 export function useProviderConnect() {
-  return { PROVIDER_PRESETS, detectLocal, probeModels, createProvider, listModels };
+  return { PROVIDER_PRESETS, probeModels, createProvider, listModels };
 }

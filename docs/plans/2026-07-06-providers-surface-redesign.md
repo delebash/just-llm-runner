@@ -263,3 +263,28 @@ fantasy sex scenes"* → *"just go code it do it now"* + *"go"*.
   the remaining dense no-MTP row, llama-70b; 14/14 green) · audit **12 rows, 12 OK, exit 0,
   live** · ruff clean. Full suites remain user-waived this round ("dont do any test just code
   it"); the audit IS the license/facts gate and ran.
+
+## ROUND 3 — the user's disposition of the outstanding list (2026-07-06, verbatim: "1. a but if
+## no models avalable does it default to start fresh, 4 what do you think 5 what do you think.
+## 6 do, 7 do,8 park,9 park")
+
+- **Delete policy = (a) BLOCK-WITH-REPOINT** + the user's empty-case rule: deleting a referenced
+  model shows what uses it and offers a repoint; when NO eligible replacement exists it offers
+  "Delete and clear" → references clear and the slots return to **Not set** (the fresh state).
+  BUILD (this round).
+- **4 (QuickSetup scope)** — recommendation delivered in chat: keep the wizard strip where it is
+  (the first-run front door must not bury inside a provider card); add the scope words to its
+  copy ("sets up the built-in local engine"). Await the user's reaction.
+- **5 (models-folder import)** — recommendation delivered in chat: worth building as an
+  Add-model "Import from folder" (scan loose GGUFs, read facts via gguf.py) — NOT cache-root
+  swapping; park behind this round.
+- **6 (A5, engine update detection) — DO:** GET /v1/llm-runner/engine/update-check (latest
+  llama.cpp release tag vs the pinned build; fetch injectable — the container proxy blocks
+  ggml-org, the user's box fetches direct), a Notify-default policy (off|notify, engine-config),
+  the panel line "Update available · b9870 → bNNNN" + one-click bump (PUT pinnedBuild + force
+  install). The pin-bump discipline note stands (asset names verified at install; A4's
+  digest-capture rides any container bump later).
+- **7 (D4-1 leg 3) — DO:** engine-presets rows gain `factoryModel` (joined from the app's
+  registered seed library by preset id); the wizard's configured-detection gains the third leg
+  (any preset.model ≠ its factoryModel counts as configured).
+- **8 (Lab A/Bs) + 9 (D6 Discover/TurboLLM) — PARKED** (ledger stays the record).

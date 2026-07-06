@@ -10,7 +10,7 @@
 // binaries" editor (LuRunnerBinaries) as its own drawer at the panel
 // bottom — the binary download URLs belong to the engine you install, so they
 // live UNDER this panel (user, 2026-07-02), not as a separate card by the catalog.
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
@@ -18,14 +18,14 @@ import UiProgress from "../common/components/UiProgress.vue";
 import LuRunnerBinaries from "./LuRunnerBinaries.vue";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
-import { usePoll } from "../common/composables/usePoll.js";
 
 // Engine state comes from the ONE shared composable (useEngine) — the Install /
 // Update / Uninstall ACTIONS moved to the Built-in provider's LIST ROW
 // (AiModelsArea, user 2026-07-06: "move the install unistall update button to
 // right of edit"); this panel keeps the status line, install progress/errors,
-// and the Details drawer.
-const { engineState: st, error, installed, installing, refreshEngine } = useEngine();
+// and the Details drawer. Install POLLING also lives in the composable, so
+// progress keeps flowing whichever surface started it and whichever is mounted.
+const { engineState: st, error, installed, installing, progressLabel, refreshEngine } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
 // Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
@@ -33,8 +33,6 @@ const logText = ref("");
 // collapse — an in-flight install or a failure must never hide. The B1 decision
 // (knobs editable BEFORE install) survives: Details opens regardless of install state.
 const showDetails = ref(false);
-const { start: startPoll, stop: stopPoll } = usePoll(refreshEngine, 800);
-watch(installing, (v) => (v ? startPoll() : stopPoll()));
 const cudaRuntimeMissing = computed(
   () => installed.value && st.value?.gpu?.startsWith("cuda") && st.value?.hasRuntime === false,
 );
@@ -61,12 +59,6 @@ function statusClass(s) {
   if (s === "error" || s === "failed") return "is-err";
   if (s === "sleeping" || s === "unloaded") return "is-idle";
   return "is-busy"; // loading | starting | downloading | anything else
-}
-
-function fmtBytes(n) {
-  if (!n) return "";
-  const mb = n / (1024 * 1024);
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 }
 
 async function toggleLog() {
@@ -148,7 +140,7 @@ onMounted(() => {
          must stay visible while the panel is folded (user, 2026-07-06). -->
     <UiProgress v-if="installing" class="lu-eng-prog"
       :value="st.total ? st.downloaded : undefined" :max="st.total || undefined"
-      :label="st.total ? `${fmtBytes(st.downloaded)} / ${fmtBytes(st.total)}` : 'Downloading…'" />
+      :label="progressLabel" />
 
     <p v-if="error" class="lu-eng-err">{{ error }}</p>
 

@@ -11,6 +11,7 @@
 import { computed, onMounted, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
+import UiProgress from "../common/components/UiProgress.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
 import TaskKinds from "./TaskKinds.vue";
 import ProviderForm from "./ProviderForm.vue";
@@ -23,7 +24,7 @@ import { useEngine } from "../composables/useEngine.js";
 // Engine actions live HERE on the Built-in row (user, 2026-07-06: "move the install
 // unistall update button to right of edit") — the same shared useEngine state the
 // Local-engine panel reads, so the row and the panel can never disagree.
-const { busy: engBusy, installed: engInstalled, installing: engInstalling, refreshEngine, install: engInstall, uninstall: engUninstall } = useEngine();
+const { engineState: engState, busy: engBusy, error: engError, installed: engInstalled, installing: engInstalling, progressLabel: engProgressLabel, refreshEngine, install: engInstall, uninstall: engUninstall } = useEngine();
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
 // own AI-domain settings (e.g. JustWrite's "Writing AI" — voice canon, RAG
@@ -225,6 +226,12 @@ onMounted(() => {
               </template>
             </div>
           </div>
+          <!-- Same progress bar as the engine panel — the install runs from THIS row, so
+               its progress renders here too (shared useEngine state; the composable polls). -->
+          <UiProgress v-if="p.providerType === 'local-llamacpp' && engInstalling" class="lu-prow-prog"
+            :value="engState?.total ? engState.downloaded : undefined" :max="engState?.total || undefined"
+            :label="engProgressLabel" />
+          <p v-if="p.providerType === 'local-llamacpp' && engError" class="lu-error lu-prow-err">{{ engError }}</p>
         </template>
         <div v-if="!loading && !localProviders.length" class="lu-pempty">No local providers yet. Click “Add provider” and point at <span class="lu-mono">http://localhost:…</span></div>
 
@@ -367,6 +374,8 @@ onMounted(() => {
   padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-top: 8px;
 }
 .lu-prow-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.lu-prow-prog { margin-top: 6px; }
+.lu-prow-err { margin: 6px 0 0; font-size: 12.5px; }
 .lu-prow-ic { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-3); color: var(--ink-2); display: grid; place-items: center; }
 .lu-prow-ic svg { width: 17px; height: 17px; }
 .lu-prow-info { min-width: 0; }

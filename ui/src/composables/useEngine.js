@@ -4,6 +4,11 @@
 // (LuRunnerEngine), so the row buttons and the panel can never disagree (user,
 // 2026-07-06: "providers on built in move the install unistall update button to right
 // of edit" — the actions MOVED to the row; the panel keeps status + Details).
+//
+// POLLING IS OWNED HERE, not by a component: an install started from the list row must
+// keep reporting progress even when the panel is unmounted, and both surfaces render
+// the SAME progress state (user, 2026-07-06: "no progress bar on install engine please
+// be consistant").
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
@@ -12,9 +17,29 @@ import { confirmDialog } from "../common/services/dialog.js";
 const st = ref(null); // engine_status() payload
 const busy = ref(false); // an install/uninstall POST in flight
 const error = ref("");
+let pollTimer = null;
 
 const installed = computed(() => !!st.value?.installed);
 const installing = computed(() => st.value?.status === "installing");
+const progressLabel = computed(() => {
+  const s = st.value || {};
+  return s.total ? `${fmtBytes(s.downloaded)} / ${fmtBytes(s.total)}` : "Downloading…";
+});
+
+function fmtBytes(n) {
+  if (!n) return "";
+  const mb = n / (1024 * 1024);
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+
+function _syncPoll() {
+  if (st.value?.status === "installing") {
+    if (!pollTimer) pollTimer = setInterval(refreshEngine, 800);
+  } else if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
 
 async function refreshEngine() {
   try {
@@ -22,6 +47,8 @@ async function refreshEngine() {
     error.value = st.value?.status === "error" ? st.value?.error || "" : "";
   } catch (e) {
     error.value = e.message || "Couldn't read engine status.";
+  } finally {
+    _syncPoll(); // starts the poll when a load finds an install in flight; stops it when done
   }
 }
 
@@ -59,5 +86,5 @@ async function uninstall() {
 }
 
 export function useEngine() {
-  return { engineState: st, busy, error, installed, installing, refreshEngine, install, uninstall };
+  return { engineState: st, busy, error, installed, installing, progressLabel, refreshEngine, install, uninstall };
 }

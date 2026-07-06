@@ -13,6 +13,28 @@ user never installs it: it's frozen into each app's bundle (PyInstaller →
 Tauri sidecar). See `docs/plans/2026-06-16-builtin-llm-runner.md` in the
 JustVoice repo for the full architecture + decision history.
 
+## How a model's launch config derives (the 4-tier doctrine, 2026-07-06)
+
+Every local llama-server launch resolves its flags in four tiers, strongest last:
+
+1. **Our estimate — admission only, never emitted.** `compute_fit` projects VRAM for the
+   arbiter's reservation and the Fit badges; when a placement knob is not explicit, the
+   estimate is NOT written into the launch (see tier 3).
+2. **Upstream engine fit — placement by omission.** An UNTUNED model's section/argv omits
+   `n-gpu-layers`/`n-cpu-moe`, so llama-server's own `--fit` (default-on at the pinned
+   build) places tensors dense-priority at our pinned context. `ctx-size` is ALWAYS
+   emitted — context is a product decision (`min(trained ctx, kv_affordable)` when no one
+   set it): the engine's fit would reduce context before offloading experts, the wrong
+   preference for a writing app.
+3. **User-set values — presets / per-request overrides.** Anything set explicitly renders
+   exactly, which per upstream semantics disables engine fitting for that arg.
+4. **Measured tunes — per (model, machine), always win.** Saved by the Tune modal or the
+   auto-tune sweep. The sweep compares explicit candidates against the model's CURRENT
+   launch (baseline) and saves only a STRICT winner beyond the 5% tie band — a tie never
+   overwrites the baseline, so an untuned box keeps the engine's fit and a tuned box
+   keeps its tune. If a fit-placed launch fails for any reason, the runner retries once
+   with the explicit computed placement before the ordinary failure handling.
+
 ## What's here (Python core)
 - `llm_runner.router` — mountable FastAPI router (both apps `include_router`).
 - `runner-manifest.json` (camelCase) — the shared, drift-prone data: pinned

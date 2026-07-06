@@ -402,7 +402,7 @@ defineExpose({ openWizard });
              the optimize offer needs only a picked model. -->
         <div v-if="pick.default" class="lu-qs-opt">
           <template v-if="!optState">
-            <UiButton intent="secondary" size="small" @click="startOptimize">Optimize for this PC (~4 min)</UiButton>
+            <UiButton intent="secondary" size="small" @click="startOptimize">Optimize for this PC (a few minutes)</UiButton>
             <span class="lu-muted">Optional: runs a short measured sweep and saves the fastest
               launch settings for this machine — often several times faster to first token.</span>
           </template>

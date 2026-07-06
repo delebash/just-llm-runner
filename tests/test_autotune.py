@@ -68,26 +68,63 @@ def _tuner(svc):
 BASE = {"n_cpu_moe": "21", "batch_size": "512", "ubatch_size": "512", "threads": "8"}
 
 
-def test_winner_is_best_measured_tps():
-    # anchor 21 → candidates: baseline(21), 23, 20, 19. 20 measures fastest → wins.
-    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 25.0, "20": 33.0, "19": 31.0})
+def test_walk_steps_while_improving_and_strict_beats_baseline():
+    # Tuned anchor 21 (in BASE → the baseline already measures it): probes 23 and 19;
+    # 19 improves on 23 → walk continues DOWN while improving (17 better, 15 worse →
+    # stop). Winner = 17 (strictly beats the 30.0 baseline beyond the 5% band).
+    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 28.0, "19": 33.0, "17": 36.0, "15": 35.0})
     st = _run_to_end(_tuner(svc), "m", BASE)
     assert st["status"] == "done"
-    assert [t["label"] for t in st["trials"]] == ["baseline", "n-cpu-moe 23", "n-cpu-moe 20", "n-cpu-moe 19"]
-    assert st["best"]["switches"]["n_cpu_moe"] == "20"
-    assert st["best"]["tokensPerSec"] == 33.0
+    assert [t["label"] for t in st["trials"]] == [
+        "baseline", "n-cpu-moe 23", "n-cpu-moe 19", "n-cpu-moe 17", "n-cpu-moe 15"]
+    assert st["best"]["switches"]["n_cpu_moe"] == "17"
+    assert st["best"]["tokensPerSec"] == 36.0
     # every trial ran with the embed ensured + a clean stop first (production-true floor)
     assert svc.embeds == len(st["trials"]) and svc.stops == len(st["trials"])
 
 
-def test_failed_trial_is_recorded_and_skipped():
-    # 19 OOMs at load — its trial records the error, the sweep continues, 21 wins.
-    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 22.0, "20": 25.0}, fail=("19",))
+def test_strict_beat_a_tying_explicit_never_overwrites_baseline():
+    # 1b-F5: 19 TIES the baseline within the 5% band (30.9 vs 30.0) — the baseline
+    # stands, and NOTHING is saved (a tying explicit value would permanently disable
+    # the engine's fit / clobber the existing tune for zero measured gain).
+    saves = []
+    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 25.0, "19": 30.9, "17": 30.0})
+    st = _run_to_end(_tuner(svc), "m", BASE, save_fn=lambda mid, sw: saves.append(sw), save=True)
+    assert st["status"] == "done"
+    assert st["best"]["label"] == "baseline"
+    assert st["saved"] is False and saves == []
+    assert "nothing saved" in st["detail"]
+
+
+def test_untuned_base_probes_the_computed_anchor_explicitly():
+    # Untuned base (no n_cpu_moe): the baseline is the FIT-placed launch, so the
+    # computed anchor (preview nCpuMoe=30) is untried → probed explicitly first.
+    svc = FakeService(tps_by_ncmoe={"base": 20.0, "30": 21.0, "28": 22.0, "26": 21.0})
+    st = _run_to_end(_tuner(svc), "m", {"batch_size": "512", "ubatch_size": "512"})
+    labels = [t["label"] for t in st["trials"]]
+    assert labels[0] == "baseline" and labels[1] == "n-cpu-moe 30"
+
+
+def test_spec_n_alternative_tried_for_mtp_base_only():
+    # A9: an MTP base (spec_type=draft-mtp, spec_n 2) gets ONE spec-n 3 trial; the
+    # winner still obeys strict-beat. A non-MTP base gets no spec-n trial (covered
+    # by the label sweep in the other tests).
+    base = dict(BASE, spec_type="draft-mtp", spec_n_max="2")
+    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 20.0, "19": 20.0})
+    st = _run_to_end(_tuner(svc), "m", base)
+    labels = [t["label"] for t in st["trials"]]
+    assert "spec-n 3" in labels
+
+
+def test_failed_trial_is_recorded_and_baseline_wins():
+    # 19 OOMs at load — its trial records the error (tok/s 0 ends that direction),
+    # no explicit candidate strictly beats the baseline → the baseline wins.
+    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 22.0}, fail=("19",))
     st = _run_to_end(_tuner(svc), "m", BASE)
     assert st["status"] == "done"
     failed = [t for t in st["trials"] if not t["ok"]]
     assert len(failed) == 1 and "19" in failed[0]["error"]
-    assert st["best"]["switches"]["n_cpu_moe"] == "21"
+    assert st["best"]["label"] == "baseline"
 
 
 def test_batch_variant_added_when_baseline_differs():
@@ -133,26 +170,29 @@ def test_save_on_done_writes_winner_verbatim():
     assert saved["m"]["n_cpu_moe"] == "23"
 
 
-def test_tie_band_prefers_higher_ncmoe_headroom():
-    # 20 measures nominally fastest (30.5) but 23 sits within the 5% tie band (29.5)
-    # — single measures carry ±10% MTP noise, so the tie resolves to the HIGHER
-    # n-cpu-moe (more VRAM headroom at indistinguishable speed).
-    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 29.5, "20": 30.5, "19": 10.0})
+def test_tie_band_prefers_higher_ncmoe_headroom_among_explicit():
+    # 19 measures nominally fastest (36.0) but 23 sits within the 5% tie band (34.5)
+    # — single measures carry ±10% MTP noise, so the tie AMONG EXPLICIT candidates
+    # resolves to the HIGHER n-cpu-moe (more VRAM headroom at indistinguishable
+    # speed). Both strictly beat the 25.0 baseline, so the save proceeds.
+    svc = FakeService(tps_by_ncmoe={"21": 25.0, "23": 34.5, "19": 36.0, "17": 30.0})
     st = _run_to_end(_tuner(svc), "m", BASE)
     assert st["status"] == "done"
     assert st["best"]["switches"]["n_cpu_moe"] == "23"
 
 
-def test_prunes_below_a_failed_ncmoe():
-    # MoE VRAM need is monotonic: once 20 fails, 19 is SKIPPED (never loaded) —
-    # the pruning avoids the slowest failure mode (the service's OOM-backoff churn,
-    # live-observed 2026-07-06: ~5 min of 14-GB reload cycles before timing out).
-    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 25.0}, fail=("20",))
+def test_walk_stops_at_a_failed_ncmoe_never_below():
+    # MoE VRAM need is monotonic: 19 fails → the down-walk STOPS — nothing below 19
+    # is ever loaded (the walk breaks on failure; the `_try` prune remains a
+    # defensive backstop for any future multi-direction candidates).
+    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 25.0}, fail=("19",))
     st = _run_to_end(_tuner(svc), "m", BASE)
     assert st["status"] == "done"
-    skipped = [t for t in st["trials"] if "skipped" in (t.get("error") or "")]
-    assert len(skipped) == 1 and skipped[0]["label"] == "n-cpu-moe 19"
-    assert len(svc.loads) == 3  # baseline + 23 + the failed 20; 19 never loaded
+    tried = [t["label"] for t in st["trials"]]
+    assert "n-cpu-moe 17" not in tried and "n-cpu-moe 15" not in tried
+    # down probe failed (0.0) → the walk goes UP instead (25, worse → stop):
+    # baseline + 23 + the failed 19 + 25 — and never anything below the failure.
+    assert len(svc.loads) == 4
 
 
 def test_busy_guard_rejects_second_start():

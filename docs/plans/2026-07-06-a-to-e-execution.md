@@ -689,7 +689,38 @@ decision inline.
   research-days-sized (the ledger's own sizing) while E3 is a small bounded build — finishing E3 first
   puts the batch at 12-of-13 BUILT with only the research tail open, which survives a session boundary
   far better than a half-started research pass plus an unbuilt code item.
-- **C2 — measured/benchmark re-grounding research:** NOT STARTED (runs after E3 per the adjustment).
+- **C2 — measured/benchmark re-grounding research: IN PROGRESS (design + method below; findings land
+  incrementally in the evidence table as each model is swept — every increment committed so a session
+  boundary loses nothing).**
+
+### C2 design (written before the research; the method IS the deliverable's spine)
+
+**What is being re-grounded (read from `llm_runner/llm/seed.py` this session):** the catalog's
+`quality_rank` values (LOWER = better) are REASONED, never measured — 6 LLMs: `qwen3-8b` (30) ·
+`qwen3-14b` (25) · `qwen3-32b` (14) · `llama-3.3-70b` (11) · `qwen3.6-35b-a3b` MoE (10) ·
+`glm-4.5-air` 106B-A12B MoE (8); 4 embedders: `nomic-embed-text` (70) · `qwen3-embedding-0.6b` (65) ·
+`bge-m3` (60) · `qwen3-embedding-8b` (50). The ranks drive the Fast/Balanced/Best dial and the
+default pick, so mis-ordering has direct product consequences.
+
+**Method (per the upstream hard rule — every number carries a URL; nothing from recall):** per model,
+gather PUBLISHED evaluations from (a) the official model card / tech report, (b) cross-model
+leaderboards (LMArena text Elo; LiveBench; EQ-Bench's creative-writing/longform tracks — the most
+JW-relevant published signal for narrative prose), (c) task-family proxies mapped to our task kinds
+(creative prose → EQ-Bench creative; structured extraction/JSON discipline → IFEval-class
+instruction-following; reasoning → GPQA/MMLU-Pro class; chat → Arena Elo). Embedders → MTEB
+(English retrieval average; multilingual for BGE-M3). The HONESTY BOUNDARY stated up front: published
+numbers are fp16/bf16 server evals — NOT our Q4_K_M GGUFs on consumer hardware — so this pass
+re-grounds the ORDERING (is A plausibly better than B for task T?), never claims measurement; true
+measured numbers need the user's box, hence the optional on-box harness note for §G
+(llama.cpp's own `llama-bench` for speed; quality spot-checks remain human).
+
+**Deliverable:** (1) the per-model EVIDENCE TABLE below (model → source → number → URL); (2) a
+verdict per adjacent rank pair (evidence supports / contradicts / silent); (3) `quality_rank` and/or
+description adjustments ONLY where evidence clearly contradicts the current ordering (each a normal
+code change through the standing gates); (4) per-task-kind recommendation lines (narrative prose ·
+structured extraction · chat · reasoning) usable by the docs/UI later; (5) the §G on-box-bench note.
+
+**EVIDENCE TABLE (filled as swept; source URL per row):** *(empty at design time)*
 - **E3 — ODT import: lists: ✅ SHIPPED + VERIFIED (2026-07-06; design below, implemented as designed).**
   `parseOdt` now IMPORTS lists instead of counting-and-warning: the `text:list` walker arm calls the new
   recursive `renderList` (TipTap-canonical `<ul>/<ol>` → `<li><p>…</p></li>`, multi-paragraph items,

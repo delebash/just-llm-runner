@@ -66,6 +66,12 @@ Every local llama-server launch resolves its flags in four tiers, strongest last
 - `runner.py` — VRAM-fit (`-ngl` / `--n-cpu-moe` from detected VRAM), flag
   composition from the manifest presets, and `llama-server` spawn with
   probe-and-back-off on CUDA OOM (lifecycle: start/stop/health/url).
+- `scripts/seed-facts-audit.py` — standalone stdlib tripwire for the seeded
+  model catalogs (runner `DEFAULT_CATALOG` + JustWrite's extra rows): per row
+  the HF repo must exist, the seeded license must match the repo's tag AND its
+  declared `base_model`'s tag (de-circularized — a repackager mislabel flags
+  instead of self-confirming), and the quant / MTP-draft files must be in the
+  tree. Network — run it at any seed change and in sessions; not CI-gated.
 
 The shared Vue GUI lives here too: **`ui/` (`@delebash/llm-ui`)** — plain-JS Vue
 SFCs both apps consume via a Vite source alias (peer deps: vue, pinia, reka-ui,

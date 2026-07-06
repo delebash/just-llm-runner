@@ -1,9 +1,14 @@
 # Model-per-hardware plan — one profile, honest seeds, protected QuickSetup, measured everywhere (2026-07-06)
 
-> **STATUS: EXECUTION IN PROGRESS (the go re-confirmed post-compact 2026-07-06: "fold them in …
-> you have a go with your plan lets move forward") — per-phase execution with the standing
-> discipline (design→build→verify→diff-checker→commit per phase). LIVE tracker: per-phase records
-> appended below as phases ship.** The post-compact question round added amendments **A6–A10**
+> **STATUS: PHASES 1a · 1b · 2 · 3 · 4 · 5 SHIPPED (per-phase records below, newest first) —
+> PHASE 6 (final verify + closure) IN PROGRESS.** Discipline change (user, 2026-07-06, "do b"
+> from the cost-lever menu): the per-phase PRE-BUILD rules-check is DROPPED — the pre-commit
+> DIFF check remains the one agent-verdict gate per code commit (the already-launched Phase-5
+> design check was stopped mid-run on the same word; grounding + an inline T1–T12 citation
+> replace the pre-build agent). Go trail: execution started on the post-compact go ("fold them
+> in … you have a go with your plan lets move forward"), then "go ahead and code i will be back
+> later just keep coding" + "dont stop coding just comtinue through all phases and turns" — the
+> go is STANDING. The post-compact question round added amendments **A6–A10**
 > (§USER-ROUND AMENDMENTS below): A6/A7/A9 modify Phase 1's seed + derivation work, A8 modifies
 > Phase 2's protection/sweep UX, A10 is research-before-build for the sweep and runs FIRST. Born
 > from the 2026-07-06 model-per-hardware discussion; the measured basis is
@@ -527,7 +532,81 @@ the estimate stays conservatively in force — accepted drift, recorded); `start
 single-model path keeps explicit values (an asymmetry, fine — production is router-only, noted
 in the code comment).
 
-## PHASE 4 RECORD — SHIPPED 2026-07-06 (runner, same commit as this record). The Windows orphan-child fix. **PHASE 5 (the seed-facts audit script) IS NEXT — not started.**
+## PHASE 5 RECORD — SHIPPED 2026-07-06 (runner, same commit as this record). The seed-facts audit script. **PHASE 6 (final verify + closure) runs in the same session — see the STATUS header.**
+
+**What shipped.** `scripts/seed-facts-audit.py` — the standalone stdlib tripwire that verifies the
+seeded model catalogs against live Hugging Face facts, exactly per §Phase 5 + amendment A4. Per row
+it checks: (1) EXISTS — `hf_repo` resolves on the HF model API (HTTP 200); (2) LICENSE — the seeded
+`license` matches the repo's `license:` tag, case/SPDX-normalized (lowercase, `[^a-z0-9.]+`→`-`),
+with ONE sanctioned fan-out: the seed's display label "Llama-Community" accepts Meta's per-version
+community tags {llama2, llama3, llama3.1, llama3.2, llama3.3, llama4} (`LICENSE_ALIASES` — the
+table prints both raw values so the fan-out stays inspectable); (3) BASE — the A4
+de-circularization: every `base_model` the repo declares (cardData string-or-list plus
+`base_model:*` tags, relation namespaces like `quantized:` stripped) is fetched and the seeded
+license must match the BASE repo's tag too, one hop per the amendment's letter — a repackager
+mislabel now FLAGS instead of self-confirming; (4) QUANT — the row's `quant` appears
+case-insensitively in the repo tree (siblings), and when the row carries `mtp_draft_file` that
+exact rfilename must be present as well. Output: a per-row table with honesty markers
+("base (none declared — the A4 hop has nothing to check)" when a repo declares no base;
+"+mtp-draft" when that check ran) plus per-problem ✗ lines. Exit codes: 0 all-pass · 1 any FACTS
+mismatch · 2 network failure (the run ABORTS — a red network run is never a facts verdict). NOT
+CI-gated (network); run at any seed change and in sessions (`python3 scripts/seed-facts-audit.py`;
+dev container: `SSL_CERT_FILE=/root/.ccr/ca-bundle.crt`).
+
+**Sources + the no-import decision.** Both seed symbols are extracted by AST literal parse
+(`load_literal`) — runner `DEFAULT_CATALOG` from `llm_runner/llm/seed.py` (path derived from the
+script's own location) and JW `DEFAULT_MODEL_CATALOG_EXTRA` via `--jw-seed` / `JW_SEED_PRESETS` /
+the sibling-checkout default (`../justwrite-app/server/justwrite_server/seed_presets.py` — the
+layout JW's own Vite kit alias guarantees). Both symbols were verified pure literals before the
+build (seed.py:118-179; seed_presets.py:94-106), and `load_literal` fails with a clean message if
+a future edit breaks that. No `llm_runner` import and no cross-repo import: the auditor runs with
+bare python3 anywhere and must not depend on the package whose seed data it audits. The T3 reuse
+question was checked line-by-line, not waved off: `llm_runner/runner/models.py` DOES carry HF
+code — but it is the **requests** dep against the *revision/tree* endpoints (models.py:36,60,65)
+with no license/`base_model` fetch anywhere, and importing it executes `llm_runner/__init__.py`
+which imports the FastAPI router (`__init__.py:12`). The diff checker independently verified both
+cites and judged the standalone shape FOLLOWS the codebase's own precedent (models.py's docstring:
+"self-contained … without importing the library").
+
+**The in-phase run (the plan's own requirement).** 11 rows audited live (10 runner + 1 JW):
+**11 OK / 0 FAIL, exit 0** — on the Phase-1a-corrected seeds, as the plan demanded. Load-bearing
+rows: `Llama-Community→llama3.3` with base `meta-llama/Llama-3.3-70B-Instruct=llama3.3`
+(gated-repo metadata publicly readable — the alias and the base hop both proven live); the Gemma
+row `Apache-2.0→apache-2.0` with base
+`google/gemma-4-26B-A4B-it-qat-q4_0-unquantized=apache-2.0` — the audit now automates the exact
+non-circular license check that caught the original `license:"Gemma"` seed error ("would have
+caught the Gemma error the day it was written" — now it exists and runs). `bge-m3` (gpustack) is
+the one row declaring NO base — printed honestly; the A4 hop has nothing to check there. Every
+other row's declared base license matched the seed.
+
+**Verification.** Runner: ruff clean (the repo-root walk covers the script; len-100 conforms) ·
+pytest 380 (the script imports nothing from the package — suite unchanged). The script ran green
+three times during the phase (initial 11/11 · after the honesty-marker tweaks 11/11 · after the
+advisory hardening 11/11). SPDX header per repo convention. One ops note: the wrong-cwd
+chained-`cd` footgun struck a FOURTH time (the gate commands briefly ran inside justwrite-app —
+caught because "83 passed" is not this repo's count; re-run from the runner root, all green).
+
+**The diff checker (the ONE per-phase check under the user's "do b").** VERDICT: PASS — T1–T8 and
+T11 PASS, T9/T10/T12 NA. Three non-blocking advisories, two folded immediately: `load_literal` now
+raises a clean SystemExit message when a seed symbol stops being a pure literal (instead of a bare
+traceback), and `print_table` guards the empty-results case; the third (the phase record + recap
+must land in the same series) is THIS record. Discipline note, recorded in the STATUS header too:
+per the user's 2026-07-06 "do b" from the checker-cost lever menu, the per-phase PRE-BUILD agent
+check is dropped — grounding + an inline T1–T12 citation precede the build, and the pre-commit
+DIFF check remains the one genuine agent verdict per code commit. The already-running Phase-5
+design checker was stopped mid-run on the same word.
+
+**Honest limits (recorded, accepted).** The audit attests the MOMENT's HF state — repos and
+license tags can change after a green run; that is exactly why it exists as a re-runnable tripwire
+rather than CI. The base hop is one level (A4's letter). The quant check is a filename substring —
+a rename that keeps the quant token would still pass; acceptable for a tripwire whose FAIL side
+(a missing file) is the side that matters.
+
+**Docs.** README "What's here (Python core)" gained the script bullet (same commit); this record +
+the STATUS header update (same commit); the JW recap header updates in the same series (JW doc
+commit).
+
+## PHASE 4 RECORD — SHIPPED 2026-07-06 (runner, same commit as this record). The Windows orphan-child fix.
 
 **The incident + the fix:** stopping the JW server ORPHANED its llama-server child on Windows
 (on-box incident 2 — :8080 survived serving a stale generated ini; the user's "restarted with the

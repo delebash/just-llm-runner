@@ -471,6 +471,13 @@ change from 1b — every knob is tune-explicit there; the fit path activates onl
 
 ### 1b DESIGN AMENDMENTS (2026-07-06 — pre-build checker verdict FAIL(4); every finding real, ALL folded here; the design above is read WITH these)
 
+**RE-CHECK 2026-07-06: PASS — all five findings independently verified RESOLVED** (the re-check
+re-derived every code-side citation: FitPlan :99-106 int + its three concrete readers, ModelIniEntry
+:226-230, the `_slope_offset:137` KV term, the OOM gate :1181/:1195, the tie-break :153 + band :42;
+and confirmed the step-budget math — 37→21 needs 8 steps ≤ 12 — and that the performance-equivalence
+reframe is sound, not a dodge). The design is LOCKED; build proceeds (user: "go ahead and code i
+will be back later just keep coding").
+
 **1b-F1 (T2 keystone — VERIFIED at the pin's own tag, 2026-07-06):** the ctx-ours/placement-upstream
 division rests on user-set `ctx-size` NOT disabling fit. Confirmed from b9870's OWN tree (not
 master, not inference): `docs/multi-gpu.md@b9870` — "`--fit` … on by default … **Auto-fit unset

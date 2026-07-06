@@ -363,25 +363,76 @@ def _use_limited(license_id: str) -> bool:
     return any(t in lic for t in _USE_LIMITED_TERMS)
 
 
+def _catalog_row(c: dict, *, built_in: bool) -> "db.ModelCatalog":
+    """One catalog seed dict → a ModelCatalog row. Shared by the built-in seed and
+    the per-APP extra rows (`seed_extra_catalog`) so the field mapping — including
+    the Gemma-style external MTP draft facts — has a single source."""
+    return db.ModelCatalog(
+        id=c["id"], name=str(c.get("name") or ""), hf_repo=str(c.get("hf_repo") or ""),
+        quant=str(c.get("quant") or ""), mmproj=c.get("mmproj"),
+        total_params=str(c.get("total_params") or ""), active_params=str(c.get("active_params") or ""),
+        mtp=bool(c.get("mtp") or False), type=str(c.get("type") or "dense"),
+        mtp_draft_repo=str(c.get("mtp_draft_repo") or ""),
+        mtp_draft_file=str(c.get("mtp_draft_file") or ""),
+        mtp_draft_quant=str(c.get("mtp_draft_quant") or ""),
+        trained_ctx=c.get("trained_ctx"),
+        min_vram_mb=c.get("min_vram_mb"), min_ram_mb=c.get("min_ram_mb"),
+        tier=str(c.get("tier") or "mid"), license=str(c.get("license") or ""),
+        use_limited=_use_limited(str(c.get("license") or "")), embedding=bool(c.get("embedding") or False),
+        pooling=str(c.get("pooling") or ""),
+        quality_rank=int(c.get("quality_rank") or 100), description=str(c.get("description") or ""),
+        built_in=built_in, position=int(c.get("position") or 0),
+    )
+
+
 def seed_default_catalog(s) -> int:
     existing = {r.id for r in s.query(db.ModelCatalog.id).all()}
     added = 0
     for c in DEFAULT_CATALOG:
         if c["id"] in existing:
             continue
-        s.add(db.ModelCatalog(
-            id=c["id"], name=str(c.get("name") or ""), hf_repo=str(c.get("hf_repo") or ""),
-            quant=str(c.get("quant") or ""), mmproj=c.get("mmproj"),
-            total_params=str(c.get("total_params") or ""), active_params=str(c.get("active_params") or ""),
-            mtp=bool(c.get("mtp") or False), type=str(c.get("type") or "dense"),
-            min_vram_mb=c.get("min_vram_mb"), min_ram_mb=c.get("min_ram_mb"),
-            tier=str(c.get("tier") or "mid"), license=str(c.get("license") or ""),
-            use_limited=_use_limited(str(c.get("license") or "")), embedding=bool(c.get("embedding") or False),
-            pooling=str(c.get("pooling") or ""),
-            quality_rank=int(c.get("quality_rank") or 100), description=str(c.get("description") or ""),
-            built_in=True, position=int(c.get("position") or 0),
-        ))
+        s.add(_catalog_row(c, built_in=True))
         added += 1
+    return added
+
+
+def seed_extra_catalog(s, rows) -> int:
+    """Per-APP extra model-catalog rows (host input via `install_llm`, e.g. JW's
+    tuned Gemma daily drivers). Insert-if-missing by id — a reset re-creates them,
+    a user edit is never clobbered. Seeded `built_in=False`: they are the app's
+    seed data, not the shared stack's, so the catalog UI treats them as user rows."""
+    existing = {r.id for r in s.query(db.ModelCatalog.id).all()}
+    added = 0
+    for c in rows or ():
+        if c["id"] in existing:
+            continue
+        s.add(_catalog_row(c, built_in=False))
+        added += 1
+    return added
+
+
+def seed_model_tunes_if_missing(s, hw_key: str, entries) -> int:
+    """Per-APP tune seed for THIS machine (host input via `install_llm`): entries =
+    [{"model_id": id, "flags": {flag_name: value}}], keyed under the CURRENT box's
+    `hw_key`. The model_tunes design decree ("user-written only, never seeded")
+    survives in spirit: strictly insert-if-missing per (model, hw, flag), so a
+    user's Quick-tune Save is NEVER clobbered — this only re-creates the app's
+    known-good starting tune after a dev-DB reset (pre-production, resets are the
+    schema-upgrade path; without this the tuned values would vanish on every reset)."""
+    if not hw_key:
+        return 0
+    existing = {
+        (r.model_id, r.flag_name)
+        for r in s.query(db.ModelTune).filter(db.ModelTune.hw_key == hw_key).all()
+    }
+    added = 0
+    for e in entries or ():
+        mid = e.get("model_id") or ""
+        for fname, fval in (e.get("flags") or {}).items():
+            if not mid or (mid, fname) in existing:
+                continue
+            s.add(db.ModelTune(model_id=mid, hw_key=hw_key, flag_name=fname, flag_value=str(fval)))
+            added += 1
     return added
 
 

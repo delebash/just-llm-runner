@@ -55,6 +55,8 @@ def install_llm(
     engine_presets=None,
     taskkind_presets=None,
     feature_task_kinds=None,
+    model_catalog_extra=None,
+    model_tunes_seed=None,
     prefer_local_features: Iterable[str] | None = None,
     runner_catalog: bool = True,
     data_dir=None,
@@ -72,6 +74,21 @@ def install_llm(
         engine_presets=engine_presets, taskkind_presets=taskkind_presets,
         feature_task_kinds=feature_task_kinds,
     )
+    # 2b. per-APP extra model-catalog rows + this box's tune seed (both optional;
+    # e.g. JW's tuned Gemma daily drivers, 2026-07-06). Insert-if-missing only —
+    # a dev-DB reset re-creates them; a user's own edit / Quick-tune Save is
+    # never clobbered. Seeded here (not deferred) so the rows exist the moment
+    # the routers mount — resolve/tune endpoints see them on first request.
+    if model_catalog_extra or model_tunes_seed:
+        _s = session_factory()
+        try:
+            if model_catalog_extra:
+                seed.seed_extra_catalog(_s, model_catalog_extra)
+            if model_tunes_seed:
+                seed.seed_model_tunes_if_missing(_s, _current_hw_key(), model_tunes_seed)
+            _s.commit()
+        finally:
+            _s.close()
     # 3. DB-backed usage ledger (survives restarts).
     set_ledger(DbUsageSink())
     # 4. the dispatch-config builder for the feature-execution router.

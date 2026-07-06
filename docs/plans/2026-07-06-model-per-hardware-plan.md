@@ -1,0 +1,140 @@
+# Model-per-hardware plan — one profile, honest seeds, protected QuickSetup, measured everywhere (2026-07-06)
+
+> **STATUS: APPROVED DIRECTION ("i will take your recommendations go") — per-phase execution with the
+> standing discipline (design→build→verify→diff-checker→commit per phase). LIVE tracker: per-phase
+> records appended below as phases ship.** Born from the 2026-07-06 model-per-hardware discussion; the
+> measured basis is `justwrite-app/docs/plans/2026-07-06-onbox-profile-ab-test.md` (RESULTS, bc614c6).
+
+## Context — the decisions this plan executes (all user-made, all recorded)
+
+1. **ONE launch profile per model** (user: "lock 1 profile"; measured: per-request
+   `chat_template_kwargs.enable_thinking=false` fully suppresses Gemma 4 reasoning; the 32k/ncmoe21/
+   rb1024 section serves writer traffic at writer speed — B TTFT 1.52s vs A 1.68s cache-busted).
+   The writer-vs-chat difference lives at the REQUEST layer (per-task think flags), not in launch
+   identities. D4 secondary item (1) is DECIDED on this evidence (ledger updated, runner 973faa0).
+2. **Models = a facts list; switches = layered derivation** (user question answered 2026-07-06):
+   catalog rows carry NO launch switches; launch config = base bundle → type bundle → mtp bundle →
+   COMPUTED knobs (ngl/ncmoe from fit) → MEASURED per-(model, machine) tunes (win). The consolidation
+   closes the fresh-box gap: rb 1024 → the BASE bundle (the user's universal anti-loop safety cap);
+   ctx → a COMPUTED knob (min(trained_ctx, KV-budget-affordable), tune-overridable).
+3. **Optimize sweep = OPT-OUT with skip** in QuickSetup (user: "opt out with skip is fine");
+   auto-start FIRST-TIME-ONLY (no tune rows for (model, machine)); Skip = the existing cancel
+   endpoint; "Re-optimize" button when already tuned.
+4. **The user's 2070S tunes stay machine-keyed** — never universal defaults (8GB-floor numbers are
+   wrong elsewhere; other boxes compute + measure their own).
+5. **Gemma 4 is Apache-2.0** (HF-API verified; tag + cardData on unsloth/gemma-4-26B-A4B-it-qat-GGUF)
+   — the seeded `license:"Gemma"`/use_limited=1 is a DATA ERROR to fix. Gemma quality_rank 9 stays but
+   gets an honesty annotation (reasoned, not instrument-cited — pending the model research).
+6. **D4-1 QuickSetup overwrite protection = (a)+(c)** (user took the rec): detect an
+   already-configured box + a confirm listing exactly which presets change; fresh box stays one-click.
+7. **The "Plan for card" dropdown: REMOVE** (user took the rec; wire verified correct but the wizard
+   scores the real machine — the what-if planner confused more than it helped).
+8. **Class→model map = tiny curated seed data, no GUI** (user: "i meant 2 tiny curated list") —
+   mechanism now, contents refreshed by the later model research (leaderboards → Lab; Gryphe
+   StyleTune-V2 the one credible candidate so far). Community fine-tunes never seed as defaults
+   without maker-reputation + verified license + an instrument or Lab win (my recorded pushback).
+9. **Windows orphan router child = a real bug to fix** (on-box incident 2): stopping the JW server
+   leaves llama-server holding :8080 serving the stale generated ini.
+10. **Sleeping-child VRAM + bench cache-busting** (incidents 1+3): document — the arbiter path is
+    immune, direct-to-router clients are not; verbatim-repeat prompts hit the llama prompt cache.
+
+## Phase 1 — the one-profile consolidation + seed truth (JW server seeds + runner base bundle)
+
+- `justwrite-app/server/justwrite_server/seed_presets.py`: the TWO Gemma entries
+  (`writing-assistant-gemma-moe-mtp` + `book-chat-gemma-moe-mtp`, :85-101) collapse into ONE —
+  id `gemma-4-26b-a4b-qat`, name "Gemma 4 26B-A4B (QAT)", same repo/quant/MTP-draft facts,
+  `license: "Apache-2.0"` (fix), quality_rank 9 + a seed comment recording rank-not-instrument-cited,
+  description rewritten (one model, both uses; keeps the measured numbers + the tuning-doc pointer).
+- `model_tunes_seed` (same file, :111+): re-key this box's rows to the one id — ncmoe **21**, batch
+  512, ubatch 512, threads 8 (the 32k-config values; the @8k ncmoe-20 row dies with the writer
+  entry); keep the CPU-embed tune. NO ctx/rb tune rows — they move to the derivation (next bullets).
+- Runner `llm_runner/llm/seed.py` base bundle: add `reasoning_budget = "1024"` to the `base`
+  switch preset rows (+ its `reasoning_budget_message` if the flag exists in the Overrides surface —
+  verify at build; Plan B added both to the wiring). Universal safety cap; harmless where unsupported.
+- Runner ctx-as-computed: `fit`/`lifecycle` gain the computed ctx knob — `ctx = min(trained_ctx or
+  DEFAULT_CTX_CAP, kv_affordable(vram, model))` emitted like ngl/ncmoe when no tune/preset override
+  exists; `kv_affordable` from the existing fit math (KV bytes/token at q8_0 × headroom). Grounding at
+  build: where ngl/ncmoe are computed + emitted (lifecycle/process); the same seam carries ctx.
+  Tune-overridable (a ctx tune row wins, as any tune does).
+- The 8 engine presets (:44-77): all point at the one id; per-task think flags verified at the
+  FEATURE layer (feature_prompts.think — writer/autocomplete/expansion/dialogue think=false,
+  book-chat/research think=true) — read the seed + fix any wrong think values; VERIFY the dispatch
+  think-off path SENDS `enable_thinking: false` to the builtin runner (openai_compat.py:105-118 —
+  the comment says "off→nothing" while :113 sets `= think`; the box proof used explicit false; adjust
+  if the off-branch omits).
+- Dev-DB story: `POST /v1/data/reset` (pre-production decree); the user's box likewise (their tunes
+  ARE seed data, so reset restores them — recorded in the ship notes).
+- Docs in-phase: `justwrite-app/docs/models.md` (one Gemma), the tuning doc gains a
+  consolidation-record note, ledger D4 secondary item (1) already flipped.
+
+## Phase 2 — QuickSetup: dropdown removal + D4-1 protection + opt-out sweep (kit)
+
+- REMOVE Plan-for-card: `CARD_OPTIONS`/`cardOverride`/`onCardChange` + the `vram_mb` query leg in
+  `loadAll` (QuickSetup.vue:49-63, 196, 343-348 at current HEAD); the API param STAYS (harmless
+  surface; the catalog page is the power-user fit view).
+- D4-1 (a)+(c): on wizard open, detect configured = (task presets NOT all one model) OR
+  (`GET /v1/ai/model-tunes?modelId=<pick>` rows non-empty) OR (any preset model ≠ the factory seed
+  default — grounding at build against dominantOf); the confirm step then renders a "What Apply will
+  change" panel listing EXACTLY the presets that would re-point (the dominantOf set) and the ones
+  kept; Apply proceeds only from that informed state. Fresh box (all presets on one model, no tunes)
+  = today's one-click.
+- Opt-out sweep: after `pollLoad` confirms running → `GET /v1/ai/model-tunes?modelId=` → rows empty →
+  auto `startOptimize()` (save:true, as shipped); the done step shows the running sweep + a **Skip**
+  button → `POST /v1/llm-runner/auto-tune/cancel` (endpoint exists; QuickSetup never called it);
+  busy-guard rejection (`ok:false already running`) ADOPTS the shared job (render running state, no
+  error); rows present → the button relabeled "Re-optimize (~4 min)". Close-while-running stays legal
+  (job continues server-side; onBeforeUnmount stops only the poll).
+- Wizard probe (`phaseD-quicksetup-probe.mjs`): stub `/v1/llm-runner/auto-tune` GET/POST + cancel +
+  `/v1/ai/model-tunes`; assert — no card selector · the D4-1 change-list renders on a configured box ·
+  auto-start fires when untuned (stubbed running state + Skip visible) · Re-optimize shows when tuned.
+
+## Phase 3 — the class→model map (runner + kit; mechanism now, research fills later)
+
+- New table `model_class_picks(min_vram_mb INTEGER PK, model_id TEXT)` (+ store + seed): consulted
+  by QuickSetup's pick — the row with the largest `min_vram_mb <= detected/overridden VRAM` whose
+  model exists + fits wins; NO row → the §10 speed-floor rule (unchanged fallback). Wire: extend the
+  `/v1/ai/model-catalog` response with `classPicks` (one fetch, no new endpoint — grounding at build:
+  stores.py wire + useCatalogMeta maps).
+- SEED: rows mirroring current evidence ONLY — `{6000: qwen3.6-35b-a3b-mtp}` (the C2-cited global
+  best; below 6GB the fallback picks 14b/8b by fit) — explicitly commented as
+  placeholder-equal-to-§10 until the model research lands (the map is the EXPRESSION POINT; contents
+  are replaceable data).
+- Kit: `modelPick.js` gains `pickByClassMap(picks, vramMb, {exists, fits})` (pure, truth-table-
+  testable); QuickSetup consults it before `pickBestModel`. `verify-model-pick.mjs` gains the map
+  cases (map hit · map miss → fallback · map row not fitting → fallback).
+
+## Phase 4 — the Windows orphan-child fix (runner)
+
+- `runner/process.py` spawn: on Windows, create the llama-server child inside a **Job Object** with
+  `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (ctypes, stdlib-only — CreateJobObjectW +
+  SetInformationJobObject + AssignProcessToJobObject; the job handle owned by the service so
+  parent death → OS kills the child). Non-Windows unchanged (process-group semantics already fine).
+- Tests: mock/ctypes-guard unit tests (job created on win32 path, handle retained, close-on-stop);
+  the REAL kill-on-parent-death is a box check (G-item, recorded).
+- Docs: the incident + fix in this plan's record; the SVM plan gains the sleeping-child caution note
+  (incident 1: direct-to-router clients bypass the arbiter — manual-router users beware); the bench
+  cache-busting note lands in the on-box test doc (already) + the autotune module docstring.
+
+## Phase 5 — the seed-facts audit (runner script)
+
+- `scripts/seed-facts-audit.py` (runner repo, stdlib urllib): walks runner `DEFAULT_CATALOG` + JW's
+  `GEMMA_CATALOG_EXTRA` (import via path arg or env — no hard cross-repo import), and for each row
+  queries the HF API: repo EXISTS + `license` tag matches the seeded license (case/spdx-normalized) +
+  (where cheap) the quant file appears in the tree listing. Exit non-zero on mismatch; prints a
+  per-row table. NOT CI-gated (network); run at any seed change + in sessions. Run it NOW in-phase —
+  it must pass on the corrected seeds (and would have caught the Gemma error the day it was written).
+
+## Phase 6 — verify + ship (continuous; per-phase commits)
+
+- Per phase: runner ruff + pytest · JW build:vite + vitest + FULL headless smoke + the wizard probe ·
+  live API round-trips on :17495 where touched (reset → seeded one-Gemma catalog · presets all on the
+  one id · think flags per task · classPicks on the wire) · residual greps · diff rules-checker →
+  commit + push (runner + JW as touched).
+- Ledger/tracker/recap updates per phase; models.md + kit README where surfaces changed.
+- Box checks recorded (not claimed): the orphan-child kill-on-death · the consolidated config's first
+  real load (reset → one Gemma → writer TTFT sanity) · the opt-out sweep UX end-to-end.
+
+## Out of scope (recorded)
+The model-quality research (leaderboards → Lab; Gryphe evaluation) — refills the map + ranks later ·
+D5 (parked) · JustVoice (F-items) · quant-ladder seeding (superseded by the map + research) ·
+profiles UI (died with profiles).

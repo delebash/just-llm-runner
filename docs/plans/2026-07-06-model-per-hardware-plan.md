@@ -363,6 +363,9 @@ sweep remains the measured layer on top; TurboLLM adds a study reference for the
 structure, and the combination (estimate anchor + measured walk + per-machine persisted tunes)
 still exists nowhere mainstream.
 
+**✅ DECIDED 2026-07-06 (user: "il take your rec to adopt dont duplicate"): ADOPT — the design
+consequence below is the operative Phase-1b direction; the hand-fix alternative is dead.**
+
 **Design consequence for A7 (the anchor fix) — T4 adopt-don't-duplicate:** hand-fixing our
 `max(0, n_layers - n_gpu)` formula to encode expert-vs-dense placement would DUPLICATE the
 allocator knowledge upstream now maintains (and ours would drift with every engine release). The
@@ -474,13 +477,11 @@ chat: FSL code cannot be vendored into GPL/MIT trees, study-and-reimplement is t
 path); ledger **A5 filed** (the engine-update surface — Update-now + Off/Notify/Auto policy,
 Notify default — from the user's TurboLLM screenshot).
 
-**PHASE 1b — NOT BUILT, awaiting the user's word (the surfaced load-bearing decision):** the
-derivation half — computed ctx + the sweep-anchor fix (A7) — hinges on **adopt-vs-hand-fix**:
-A10 found upstream llama.cpp (in our pinned b9870) ships `--fit`/`llama-fit-params`
-(estimate-based, MoE-aware dense-priority placement) and our launch path currently SUPPRESSES it
-by always emitting computed `-ngl`/`--n-cpu-moe`. RECOMMENDATION on record (A10): obtain the
-no-tune anchor FROM the upstream fitter (fit once, cache as a provenance-marked row; tunes still
-win and legitimately disable fit), keep our sweep as the measured layer on top with the adaptive
-walk; verify at build whether `llama-fit-params` ships in the b9870 release assets. Phase 2
-(QuickSetup protection + opt-out sweep, with A8) does not depend on the 1b choice and can proceed
-next either way.
+**PHASE 1b — ✅ DECIDED 2026-07-06: ADOPT (user: "il take your rec to adopt dont duplicate" +
+"go").** The derivation half — computed ctx + the sweep-anchor fix (A7) — builds on the adopt
+shape: obtain the no-tune anchor FROM the upstream fitter (fit once per (model, machine, build),
+cache it; tunes still win and legitimately disable fit), keep our sweep as the measured layer on
+top with the adaptive walk. The build design + at-build verifications (llama-fit-params in the
+b9870 assets · how fitted values are read · the cache table · --fit-margin composition with the
+arbiter · the barely-fits fallback) are recorded in the §PHASE 1b DESIGN section appended below
+as execution proceeds.

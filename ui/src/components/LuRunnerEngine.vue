@@ -18,6 +18,7 @@ import UiProgress from "../common/components/UiProgress.vue";
 import LuRunnerBinaries from "./LuRunnerBinaries.vue";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
+import { usePoll } from "../common/composables/usePoll.js";
 
 // Engine state comes from the ONE shared composable (useEngine) — the Install /
 // Update / Uninstall ACTIONS moved to the Built-in provider's LIST ROW

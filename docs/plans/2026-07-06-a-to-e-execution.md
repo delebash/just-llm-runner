@@ -1067,3 +1067,143 @@ the chip renders LIVE on five ROUTED views (Home/Analysis/Brainstorm/ReaderKnowl
 lines don't change), so component-grain coverage is the routed views + the vitest layer, and no
 per-modal probe is claimed · residual greps: zero references to ModelPicker.vue / useModelList /
 JW embedApi / parseQuant / entryLabel · JV-safety (additive exports; JV untouched).
+
+## C6 — the kit-internal layering fix (filed by the C5 panel rounds; user's go: 2026-07-06, "do c6")
+
+**STATUS: ✅ SHIPPED + VERIFIED (2026-07-06; implemented exactly as the design below — the pre-build
+rules-checker returned PASS with ZERO failures, every load-bearing claim independently re-verified;
+the implementation + verification record is at the end of this section).**
+
+### C6 design (written before implementation; every edge grounded line-by-line this session)
+
+**Goal.** Restore the common-layer charter. `ui/src/common/index.js:2-6` declares common/ the future
+`@delebash/ui` — "general, app-agnostic UI primitives shared by ALL Vue apps … when this graduates to
+its own repo, this folder moves out wholesale and llm-ui imports it as a dependency — **nothing here
+may import from ../ (the llm layer)**." Five files in common/ violate that by importing the llm-layer
+HTTP client. C6 moves them into the llm layer so every kit edge points downward (llm → common) only.
+No behavior change anywhere — a file-location + import-path refactor.
+
+**Verified current state (all re-verified this session, post-pull at runner `1a20943`):**
+- The violator set is EXACTLY five — the full upward-import sweep of common/ (grep `from "../../`
+  across `ui/src/common/`) returns exactly these and nothing else: `common/composables/useRouting.js:14`,
+  `useRunnerModels.js:14`, `useProviderConnect.js:8`, `useCatalogMeta.js:12`,
+  `common/services/modelApply.js:15` — each `import { request } from "../../client.js"`.
+- **Neither index exports any of the five.** `common/index.js` (read in full) exports the Ui*
+  primitives, shells, dialog/help/toast/appearance/serverApi/locale services, and
+  `useRovingTabindex` — none of the five. The main `ui/src/index.js` (read in full) exports the
+  client config, `export * from common`, the LLM components/views, the C3 queue, and the C5
+  picker family — none of the five. They are kit-INTERNAL modules; consequence: ZERO public-surface
+  change, and the kit index needs NO edit.
+- **Zero app-side references.** JW repo-wide grep for every exported symbol of the five
+  (useRouting/useRunnerModels/useCatalogMeta/useProviderConnect/useModelApply/setAsDefault/
+  setAsEmbedding/LOCAL_RUNNER_ID/refreshApplied/currentDefaultId/currentEmbeddingId/
+  PROVIDER_PRESETS/detectLocal/probeModels/createProvider/listModels) → only `detectLocale`
+  i18n false-positives (`i18n/index.js:23`, `main.js:25,93,97`). JV grep → only JV's OWN local
+  functions (`llmBackend.js:77 detectLocal()` on its legacy adapter; `SettingsView.vue:219
+  probeModels` a local ref). Neither app imports the five by subpath either (both greps zero).
+  No app file changes in C6.
+- **The complete kit-internal importer set** (files_with_matches, all read): `components/
+  LuModelCatalog.vue:16-18` (useRunnerModels · useCatalogMeta · modelApply) · `views/
+  QuickSetup.vue:27,28,30` (useCatalogMeta · useProviderConnect · modelApply) · `views/
+  ProviderForm.vue:19` (useProviderConnect) · `composables/useProviderModels.js:22` (listModels
+  from useProviderConnect; plus its :15-18 NOTE comment recording the C5 layering caveat) ·
+  and among the five themselves, `modelApply.js:16` imports `../composables/useRouting.js`.
+  `common/services/modelPick.js` mentions two of the five in COMMENTS only (:30,:46-47 — no
+  paths, no imports; no edit needed).
+- **Destinations exist, no collisions:** `ui/src/composables/` holds only `useProviderModels.js`;
+  `ui/src/services/` holds `aiErrors.js`/`aiFeature.js`/`embedApi.js`.
+- **Stays put, recorded rationale:** `common/services/modelPick.js` is PURE (no client import —
+  absent from the violator sweep), so it does not breach the charter; after C6 its consumers are
+  llm-layer only, which the charter permits (the rule constrains IMPORT direction inside common/,
+  not who consumes it). `common/composables/usePoll.js` + `useRovingTabindex.js` are clean and stay.
+
+**The moves (git mv, five files):**
+1. `ui/src/common/composables/useRouting.js`      → `ui/src/composables/useRouting.js`
+2. `ui/src/common/composables/useRunnerModels.js` → `ui/src/composables/useRunnerModels.js`
+3. `ui/src/common/composables/useProviderConnect.js` → `ui/src/composables/useProviderConnect.js`
+4. `ui/src/common/composables/useCatalogMeta.js`  → `ui/src/composables/useCatalogMeta.js`
+5. `ui/src/common/services/modelApply.js`         → `ui/src/services/modelApply.js`
+
+**Fixes inside the moved files:**
+- All five: `../../client.js` → `../client.js`.
+- `useRunnerModels.js:15`: `../services/modelPick.js` → `../common/services/modelPick.js`
+  (llm→common — the allowed direction).
+- `modelApply.js:16` `../composables/useRouting.js` — UNCHANGED: from the new `services/` home the
+  same relative path resolves to the moved `composables/useRouting.js`.
+- `useRouting.js:8-11` header rationale ("Lives in common/composables/ … so the shared common/
+  layer … can build on it without importing 'up'") is now FALSE → rewritten: lives in the llm
+  layer beside its endpoint siblings; moved at C6 because it is llm-endpoint code and the common
+  charter bans upward imports.
+- `useProviderConnect.js:7` "Lives in common/composables/ (beside …)" → the llm `composables/`.
+- `useProviderModels.js:15-18` NOTE (the C5 honesty record: "listModels currently lives in
+  common/…, one of the five filed…") → rewritten to record the C6 resolution — the import is now
+  the clean llm→llm edge C5 anticipated; `:22` → `./useProviderConnect.js`.
+
+**Importer path fixes (three SFCs, import lines only):** `LuModelCatalog.vue:16-18` →
+`../composables/useRunnerModels.js` · `../composables/useCatalogMeta.js` ·
+`../services/modelApply.js`; `QuickSetup.vue:27,28,30` → `../composables/useCatalogMeta.js` ·
+`../composables/useProviderConnect.js` · `../services/modelApply.js`; `ProviderForm.vue:19` →
+`../composables/useProviderConnect.js`.
+
+**Explicitly NOT in scope:** no new index exports (the five stay kit-internal — adding public
+surface nobody consumes would be speculative); no behavior change; `modelPick.js` stays in common
+(rationale above; revisit only if common/ graduates); historical plan docs keep their old-path
+mentions (map-not-log — this tracker + the ledger record the new truth).
+
+**Verify plan:** `npm run build:vite` (JW compiles the kit through the alias) · `npm run test:unit`
+(29/29 expected — no test imports the five, proven by grep, but the suite guards the kit modules the
+five sit beside) · the FULL headless smoke (server :17495 + `npm run dev:vite` + `node
+scripts/headless-smoke.mjs`, ZERO JS errors — ProviderForm/QuickSetup/LuModelCatalog all mount on
+the AI routes it drives) · residual greps: (a) `common/composables/use(Routing|RunnerModels|
+ProviderConnect|CatalogMeta)|common/services/modelApply` → zero outside docs, (b) the upward-import
+sweep of `ui/src/common/` → ZERO (the charter-clean proof), (c) JV symbol grep unchanged-zero ·
+JV safety = the unchanged-surface argument (kit index untouched; JV has zero refs to the five).
+Then the diff rules-checker → commit + push → flip the ledger C6 line to SHIPPED (new paths) +
+recap 6g.
+
+### C6 implementation + verification record (2026-07-06)
+
+**Pre-build rules-checker: PASS, zero failures** — it independently re-ran the violator sweep (exactly
+five, no dynamic/alias upward imports), read both indexes in full (no public-surface change), confirmed
+the importer set complete across kit + both apps + tests, verified every differential path claim
+(client.js `../../`→`../` because client stays; modelPick `../services/`→`../common/services/` because
+modelPick stays; modelApply→useRouting unchanged because both move in parallel), and confirmed no
+app-config change is needed (the JW/JV Vite + vitest aliases target the `ui/src` ROOT — JW
+`vite.config.js:31` / `vitest.config.js:14` / JV `vite.config.js:20` — so an internal move is
+transparent). Two non-blocking notes, both handled: the live vitest baseline was to be confirmed at
+run time (it ran 29/29 — the C5 checkpoint count; the ledger E3 entry's 33/33 predates C5's honest
+shrink), and one cosmetic heading placement in the design (useProviderModels listed under "moved
+files" though it is an importer — noted, content correct).
+
+**Implemented exactly as designed.** The five `git mv`s (git recorded all five as renames); the
+`../../client.js` → `../client.js` fix in all five; `useRunnerModels`'s modelPick import →
+`../common/services/modelPick.js`; `modelApply`'s useRouting import untouched (re-resolves correctly);
+the three stale layer-rationale headers rewritten to the llm-layer truth (`useRouting.js`,
+`useProviderConnect.js`) and `useProviderModels.js`'s C5 NOTE rewritten to record the executed
+resolution with the import now `./useProviderConnect.js`; importer paths swapped in
+`LuModelCatalog.vue:16-18`, `QuickSetup.vue:27,28,30`, `ProviderForm.vue:19`. `modelPick.js` stayed in
+common/ (pure, charter-clean) per the design's recorded rationale. No index edits, no app edits, no
+behavior change.
+
+**Verified (all green, this container, 2026-07-06):**
+- `npm run build:vite` clean (compiles the kit through the alias — every moved import resolved).
+- `npm run test:unit` **29/29** (the checker's baseline question answered: 29 is the live count;
+  no test imports the five, so C6 changes nothing there).
+- The FULL headless smoke — `justwrite-server` :17495 + `npm run dev:vite` :1420 + `node
+  scripts/headless-smoke.mjs`: **ALL routes + all five AI sub-tabs rendered, ZERO JS errors**, and the
+  `provider-form` probe (engine=true · catalog=true · search=true · no-pointer=true · add-modal=true ·
+  errors=0) exercised three of the moved files LIVE (ProviderForm → useProviderConnect; LuModelCatalog
+  → useRunnerModels + useCatalogMeta + modelApply). Harness note: the fresh container's dev DB predated
+  the Plan-B schema columns (`no such column: model_catalog.mtp_draft_repo` at seed) — the documented
+  pre-production remedy applied (drop the dev DB; the server reseeded it fresh, catalog serving with the
+  two Gemma rows); NOT a C6 issue. Second harness note: a `pkill -f justwrite_server` self-matched the
+  invoking shell (the pattern appears in the command line) and killed it — re-run with the
+  `justwrite_serve[r]` bracket pattern; recorded so the next session doesn't repeat it.
+- Residual greps: old `common/composables/use…`/`common/services/modelApply` paths → **zero** in
+  `ui/`; the upward-import sweep of `ui/src/common/` (`from "../../`) → **ZERO — the common charter
+  is clean for the first time**; `common/composables/` retains only `usePoll.js` + `useRovingTabindex.js`.
+- JV safety: the kit index is untouched (no public-surface change) and JV has zero references to the
+  five (symbol + subpath greps) — the unchanged-surface argument holds.
+
+**Consequence recorded at C5 now real:** `useProviderModels.js` → `listModels` is a clean llm→llm
+edge (`./useProviderConnect.js`); the C5 honesty note is retired in the file itself.

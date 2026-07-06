@@ -9,7 +9,7 @@
 // needs current data (QuickSetup on open).
 import { computed, ref } from "vue";
 
-import { request } from "../../client.js";
+import { request } from "../client.js";
 
 const rows = ref([]); // raw /v1/ai/model-catalog rows
 

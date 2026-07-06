@@ -6,12 +6,12 @@
 // PUT /v1/ai/routing; the setters RETURN the save promise so a caller that needs
 // the write to land before continuing (e.g. modelApply.setAsEmbedding) can await it.
 //
-// Lives in common/composables/ (beside useRunnerModels/useCatalogMeta) so the shared
-// common/ layer — e.g. common/services/modelApply.js — can build on it without
-// importing "up" into the app-level composables/ tree.
+// Lives in the kit's llm layer (composables/, beside its endpoint siblings) — moved
+// here at C6 (2026-07-06): this is llm-endpoint code (GET/PUT /v1/ai/routing), and the
+// common/ charter (common/index.js) forbids common files importing the llm layer.
 import { computed, ref } from "vue";
 
-import { request } from "../../client.js";
+import { request } from "../client.js";
 
 export function useRouting() {
   const routing = ref(null);     // {default, features:[…], pins:{key→{providerId,model}}}

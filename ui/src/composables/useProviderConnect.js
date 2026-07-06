@@ -4,8 +4,9 @@
 // a provider) AND QuickSetup (the other-provider step). RULE #7: extract, don't copy — a
 // hand-rolled probe/create in each surface would drift (ProviderForm's own probe already
 // diverged internally: fetchModels sent `defaultModel`, testConnection didn't). Lives in
-// common/composables/ (beside useRouting/useRunnerModels/useCatalogMeta).
-import { request } from "../../client.js";
+// the kit's llm layer composables/ (moved at C6, 2026-07-06 — llm-endpoint code; the
+// common/ charter bans upward imports).
+import { request } from "../client.js";
 
 // Known providers, as start-from-a-preset chips: [label, baseUrl, providerType, isLocal].
 export const PROVIDER_PRESETS = [

@@ -12,14 +12,13 @@
 // a re-fetchable list); an in-flight set coalesces concurrent ensures/
 // refreshes of the same provider so a burst of pickers costs one request.
 //
-// NOTE (recorded in the C5 design): listModels currently lives in
-// common/composables/useProviderConnect.js, which is one of the five filed
-// common-layer files importing the llm client; when that filed item executes
-// and listModels moves to the llm layer, this import becomes the clean
-// llm→llm edge.
+// NOTE: C5 recorded this import as an llm→common edge pending the filed
+// layering fix; C6 (2026-07-06) executed it — useProviderConnect now lives in
+// this same llm-layer composables/ directory, so this is the clean llm→llm
+// edge C5 anticipated.
 import { reactive } from "vue";
 
-import { listModels } from "../common/composables/useProviderConnect.js";
+import { listModels } from "./useProviderConnect.js";
 
 // providerId → string[] of model ids. Module-scoped: shared across every
 // consumer in the app for the whole session.

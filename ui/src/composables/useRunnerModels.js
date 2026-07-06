@@ -11,8 +11,8 @@
 // so it never leaks and needs no component lifecycle to own it.
 import { computed, ref } from "vue";
 
-import { request } from "../../client.js";
-import { FIT_LABEL } from "../services/modelPick.js";
+import { request } from "../client.js";
+import { FIT_LABEL } from "../common/services/modelPick.js";
 
 const data = ref(null); // the raw /v1/llm-runner/models response
 const loading = ref(true); // first-load spinner

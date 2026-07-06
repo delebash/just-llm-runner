@@ -16,7 +16,7 @@ import LuRunnerEngine from "../components/LuRunnerEngine.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
 import { request } from "../client.js";
-import { PROVIDER_PRESETS, probeModels, createProvider } from "../common/composables/useProviderConnect.js";
+import { PROVIDER_PRESETS, probeModels, createProvider } from "../composables/useProviderConnect.js";
 
 const props = defineProps({
   provider: { type: Object, default: null }, // null = adding new

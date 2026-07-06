@@ -24,10 +24,10 @@
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
-import { useCatalogMeta } from "../common/composables/useCatalogMeta.js";
-import { detectLocal, createProvider, listModels, PROVIDER_PRESETS } from "../common/composables/useProviderConnect.js";
+import { useCatalogMeta } from "../composables/useCatalogMeta.js";
+import { detectLocal, createProvider, listModels, PROVIDER_PRESETS } from "../composables/useProviderConnect.js";
 import { pickBestModel, pickLowestQuality, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
-import { setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../common/services/modelApply.js";
+import { setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiInput from "../common/components/UiInput.vue";

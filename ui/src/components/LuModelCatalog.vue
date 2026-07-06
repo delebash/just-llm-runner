@@ -13,9 +13,9 @@
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
-import { useRunnerModels } from "../common/composables/useRunnerModels.js";
-import { useCatalogMeta } from "../common/composables/useCatalogMeta.js";
-import { useModelApply } from "../common/services/modelApply.js";
+import { useRunnerModels } from "../composables/useRunnerModels.js";
+import { useCatalogMeta } from "../composables/useCatalogMeta.js";
+import { useModelApply } from "../services/modelApply.js";
 import { FIT_RUNNABLE } from "../common/services/modelPick.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";

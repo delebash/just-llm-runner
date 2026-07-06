@@ -12,7 +12,7 @@
 // lifted verbatim from QuickSetup's Apply so the two surfaces share one implementation.
 import { computed, ref } from "vue";
 
-import { request } from "../../client.js";
+import { request } from "../client.js";
 import { useRouting } from "../composables/useRouting.js";
 
 export const LOCAL_RUNNER_ID = "local-llamacpp";

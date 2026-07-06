@@ -70,7 +70,7 @@
 ## Phase 2 — QuickSetup: dropdown removal + D4-1 protection + opt-out sweep (kit)
 
 - REMOVE Plan-for-card: `CARD_OPTIONS`/`cardOverride`/`onCardChange` + the `vram_mb` query leg in
-  `loadAll` (QuickSetup.vue:49-63, 196, 343-348 at current HEAD); the API param STAYS (harmless
+  `loadAll` (QuickSetup.vue: CARD_OPTIONS :50-60, the vram_mb query leg in loadAll :158, onCardChange :211 — re-grounded by the panel); the API param STAYS (harmless
   surface; the catalog page is the power-user fit view).
 - D4-1 (a)+(c): on wizard open, detect configured = (task presets NOT all one model) OR
   (`GET /v1/ai/model-tunes?modelId=<pick>` rows non-empty) OR (any preset model ≠ the factory seed
@@ -118,7 +118,7 @@
 ## Phase 5 — the seed-facts audit (runner script)
 
 - `scripts/seed-facts-audit.py` (runner repo, stdlib urllib): walks runner `DEFAULT_CATALOG` + JW's
-  `GEMMA_CATALOG_EXTRA` (import via path arg or env — no hard cross-repo import), and for each row
+  `DEFAULT_MODEL_CATALOG_EXTRA` (seed_presets.py:84) (import via path arg or env — no hard cross-repo import), and for each row
   queries the HF API: repo EXISTS + `license` tag matches the seeded license (case/spdx-normalized) +
   (where cheap) the quant file appears in the tree listing. Exit non-zero on mismatch; prints a
   per-row table. NOT CI-gated (network); run at any seed change + in sessions. Run it NOW in-phase —
@@ -138,3 +138,80 @@
 The model-quality research (leaderboards → Lab; Gryphe evaluation) — refills the map + ranks later ·
 D5 (parked) · JustVoice (F-items) · quant-ladder seeding (superseded by the map + research) ·
 profiles UI (died with profiles).
+
+
+## PANEL RECORD + FOLDED AMENDMENTS (2026-07-06 — three checkers, lenses: architecture-fit · reuse/convergence · grounding)
+
+**Verdicts: FAIL(1) · FAIL(2) · FAIL(1) — every finding real; ALL folded below. The convergent
+catch (two of three checkers independently): the rb-in-base move collided with a box-verified code
+comment the plan never engaged. The panel also confirmed the load-bearing feasibility facts:
+`reasoning_budget` is fully wired (Overrides field process.py:94, argv map :121, ini int_fields
+lifecycle.py:195, knob_catalog seed seed.py:278 — knob default is -1, so seeding 1024 respects the
+Plan-B never-seed-the-default guardrail); the computed-ctx seam exists exactly where planned
+(compute_fit process.py:306 `ov.ctx_len or DEFAULT_CTX` → FitPlan.ctx_len → BOTH the active load
+lifecycle.py:837-842 AND the passive ini emission :989-994; ctx_len in int_fields :194 so a tune
+wins); the think-off dispatch ALREADY sends explicit `enable_thinking=false` for local-llamacpp
+(openai_compat.py:112-114 — the "off→nothing" comment governs only the generic openai-compat branch)
+so Phase 1's "adjust if the off-branch omits" resolves to NO code change; and ctx/rb DO ride tune
+rows today (seed_presets.py:112-119), confirming the plan's structural premise.**
+
+**A1 (Phase 1, the convergent T2) — the rb-vs-toggle reconciliation.** `openai_compat.py:106-109`
+carries a 2026-07-04 box-verified comment: the per-request toggle "works only when no hard
+`reasoning-budget` is on the CLI — we emit none." The 2026-07-06 on-box A/B (bc614c6) measured the
+OPPOSITE combination working: the book-chat section launches WITH `reasoning-budget 1024` and
+per-request `enable_thinking:false` fully suppressed reasoning (598ch→0, wall 15.9s→3.9s) at writer
+speed. The newer measurement (newer llama.cpp pin b9870, Gemma template) SUPERSEDES the comment.
+Phase 1 therefore ALSO: updates the `openai_compat.py:106-109` comment to the 07-06 truth (cite the
+results doc + commit), and records the composition-safety argument — on any model whose template
+ignores the toggle, the base rb=1024 still CAPS runaway reasoning, which is exactly the safety
+behavior the cap exists for; the layers compose safely in both cases.
+
+**A2 (Phase 1, arch checker) — ctx-tune removal gets a validation gate.** The plan originally
+dropped the proven `ctx_len=32768` tune row in favor of computed ctx with no derivation shown.
+AMENDED: the consolidation KEEPS the `ctx_len 32768` tune row for this box in `model_tunes_seed`
+(tunes win — consistent layering, zero risk); computed-ctx ships for boxes with NO tune (the
+fresh-box gap it closes); the §Phase-6 box checks gain "computed ctx on the 2070S == 32768" and only
+a LATER pass may retire the tune row once that check passes. The rb tune rows DO drop (the base
+bundle carries 1024; the A/B validated the on-CLI form).
+
+**A3 (Phase 4, reuse checker's sharp catch) — the single spawn seam does not exist yet; build it
+first.** `runner/process.py` spawns at FOUR `subprocess.Popen` sites (start_runner :515/:517,
+start_router :582/:584) with no shared helper, and `RouterHandle` (:445-451) carries no job handle —
+so the Job Object would either be a drifting copy across sites or wrap one branch and still orphan;
+worse, `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` kills the child the moment the handle is GC'd if nobody
+retains it. AMENDED Phase 4: FIRST extract ONE `_spawn_child(argv, log_path, _popen)` helper that
+all four sites call; wrap CreateJobObjectW + SetInformationJobObject(KILL_ON_JOB_CLOSE) +
+AssignProcessToJobObject there ONCE (win32 only, ctypes/stdlib); `RouterHandle` gains a
+`job_handle` field retained by the service (`lifecycle._spawn_router` ~:1040-1055) until `stop()`.
+
+**A4 (Phase 1+5, grounding checker's load-bearing find) — license provenance made first-party +
+the audit de-circularized.** The Apache-2.0 flip clears the never-a-default gate (db.py:105), so the
+evidence must be better than the repackager's declared tag. CLOSED 2026-07-06 the same hour: the HF
+API confirms `license:apache-2.0` on GOOGLE'S OWN repos — `google/gemma-4-26B-A4B-it`,
+`google/gemma-4-26B-A4B-it-qat-q4_0-unquantized` (the unsloth GGUF's declared base_model), and the
+whole google/gemma-4 family (31B-it, 12B-it, E4B-it, E2B-it-qat) — not just
+`unsloth/gemma-4-26B-A4B-it-qat-GGUF`. Google moved Gemma to Apache-2.0 at Gemma 4; the user was
+right. Phase 1's seed comment carries BOTH URLs + the 2026-07-06 retrieval date. Phase 5's audit is
+AMENDED to be non-circular for licenses: for each row it checks the GGUF repo's tag AND, when the
+repo declares a `base_model`, the BASE repo's tag — a repackager mislabel now flags instead of
+self-confirming.
+
+**A5 (grounding checker) — line-ref drift fixed inline** (Phase 2 now cites the re-grounded
+QuickSetup locations) and the Phase-5 symbol corrected to `DEFAULT_MODEL_CATALOG_EXTRA`.
+
+## STOPPING POINT (2026-07-06, pre-compact — user: "we need to compact soon…update docs and everything needed in detail") — READ THIS FIRST ON RESUME
+
+**State: the plan is PANEL-CHECKED with all findings folded (this section + the amendments above);
+EXECUTION HAS NOT STARTED — zero code written for any phase.** The pickup:
+1. Restart drill as always: fetch → compare → `--ff-only` pull on all three repos (origin is the
+   truth); re-read the global rules + the JW recap header + THIS PLAN IN FULL (incl. the amendments).
+2. The go is STANDING ("i will take your recommendations go") — begin at **Phase 1** (the
+   consolidation + seed truth, WITH amendments A1/A2/A4), then Phases 2→5 in order, Phase 6
+   continuous. Per-phase discipline unchanged: build → verify (ruff+pytest · build:vite+vitest+full
+   smoke+wizard probe · live round-trips) → diff rules-checker → commit+push → append the phase
+   record HERE + ledger/recap updates.
+3. Dev-DB note: Phase 1 changes seeds → the one-time `POST /v1/data/reset` on any dev DB (and the
+   user's box after pulling — their tunes are seed data and re-seed).
+4. Open ledger beyond this plan: F1–F5 (JustVoice) · §G box checks (+ the new ones this plan adds:
+   orphan-child kill-on-death, computed-ctx==32768, consolidated first load, opt-out sweep UX) ·
+   the model-quality research (map contents; Gryphe StyleTune-V2 the credible candidate) · D5 parked.

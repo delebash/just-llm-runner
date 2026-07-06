@@ -397,3 +397,88 @@ then Phase 1 WITH A1/A2/A4/A6/A7/A9. Per-phase records appended below as they sh
 4. Open ledger beyond this plan: F1–F5 (JustVoice) · §G box checks (+ the new ones this plan adds:
    orphan-child kill-on-death, computed-ctx==32768, consolidated first load, opt-out sweep UX) ·
    the model-quality research (map contents; Gryphe StyleTune-V2 the credible candidate) · D5 parked.
+
+## PHASE 1a RECORD — SHIPPED 2026-07-06 (the seed-truth half of Phase 1; runner `4faa39c` · JW `f6f8167`)
+
+**What shipped (all live-verified on a fresh dev DB the same hour):**
+1. **One Gemma catalog row** — `justwrite-app/server/justwrite_server/seed_presets.py`: the
+   `writing-assistant-gemma-moe-mtp` / `book-chat-gemma-moe-mtp` pair collapsed into
+   `gemma-4-26b-a4b-qat` ("Gemma 4 26B-A4B (QAT)"), same verified facts (unsloth GGUF repo, quant
+   UD-Q4_K_XL, MTP draft file, trained_ctx 262144, min 4 GB VRAM / 24 GB RAM, tier low-vram-moe),
+   **license "Gemma" → "Apache-2.0"** with the full first-party provenance comment (A4), rank 9
+   kept with the reasoned-not-instrument-cited annotation, description rewritten one-model-both-uses
+   with the measured numbers + tuning-doc pointer. The file's header comment now records the
+   one-profile truth and its measured basis. `use_limited` clears deterministically
+   (`"Apache-2.0"` matches no `_USE_LIMITED_TERMS` keyword) — the never-a-default gate opens;
+   the keyword list itself is UNTOUCHED (older Gemma-Terms models must stay flagged).
+2. **All 8 engine presets re-pointed** to the one id (`DEFAULT_ENGINE_PRESETS`) — samplers,
+   top_p, json_mode, positions all unchanged.
+3. **Tunes re-keyed + honest** (`DEFAULT_MODEL_TUNES`): the writer row died with its identity; the
+   one row carries ngl 99 · ncmoe 21 · **ctx_len 32768 (KEPT per A2** until computed-ctx is
+   box-validated) · batch/ubatch 512/512 · threads 8; the CPU-embed row stays; the
+   reasoning-budget flags LEFT the tunes (now bundle policy). The comment block is the A6 record:
+   DEV-ONLY convenience, machine-key inertness (`gpu.name|vram|cores|ramGB` — the user's real key
+   is `NVIDIA GeForce RTX 2070 SUPER|8192|16c|31g`), the retirement condition (A7 box-checks pass),
+   and production-never-ships-them.
+4. **Per-task think flags** (`seed_feature_prompts.py`): grounded reality was ALL 26 prompts
+   think:False — the app path never thought anywhere. Per the approved Phase-1 mapping, `chat`
+   (grounded book-chat) flipped to **think: True** — the ONE thinking task, capped engine-side;
+   `characterChat` stays False (dialogue), `briefing` stays False (digest), every json_mode task is
+   B3-gated regardless. ⚠ USER-VISIBLE BEHAVIOR CHANGE, surfaced in the ship report: grounded chat
+   now reasons before answering on the app path (deeper, slower — bounded by rb 1024 ≈ ~30 s
+   worst-case think at 32 t/s); a one-line revert if unwanted.
+5. **rb → the base switch bundle** (`llm_runner/llm/seed.py:183-195`): `reasoning_budget "1024"` +
+   `reasoning_budget_message` seeded in `base` for EVERY local model (A9: semantic policy belongs
+   in bundles). Both values differ from the knob defaults (-1 / "") per the file's one-source rule.
+   The measured-composition rationale comment cites the A/B (A1).
+6. **The stale toggle comment fixed** (`llm_runner/llm/openai_compat.py:104-116`, A1): the
+   2026-07-04 "works only when no hard reasoning-budget is on the CLI — we emit none" claim is
+   superseded by the 2026-07-06 measurement (toggle fully works WITH rb 1024 on CLI at b9870); the
+   composition-safety argument is recorded in the docstring.
+7. **Test updated**: `tests/test_switch_resolve.py::test_unknown_model_empty` — the exact base-set
+   assertion gains the two new keys (the only such assertion, checker-confirmed).
+8. **Docs in-series**: the tuning doc gained the CONSOLIDATED-TO-ONE-PROFILE banner (the two-entry
+   seeding paragraph marked HISTORY; the hand `models.ini` explicitly untouched — it remains the
+   user's manual-router instrument). `docs/models.md` REVIEWED with the verdict **no substantive 1a
+   change** (it enumerates no per-row Gemma content; its Plan-for-card sentence is Phase 2's
+   removal) — recorded per the pre-build checker's T5 catch instead of silently dropped. Old-id
+   references now exist ONLY in history docs (this plan's context, the tuning doc's history
+   paragraphs, the ab-test doc, recap history) — deliberate, they are the record.
+
+**Verification (all green):** runner ruff + **361 pytest** · JW server ruff + **76 pytest** (count
+unchanged vs HEAD — stash-proven) · live fresh-DB on :17495: catalog = ONE gemma row
+(`Apache-2.0`, useLimited false, rank 9, old ids ABSENT, 11 rows total) · 8/8 presets on the one
+id · model-tunes = exactly the 6 flags under the container key `cpu|4c|15g`, NO rb rows · the
+resolved base bundle carries rb 1024 + message · think flags = exactly `{chat: True}` of 37 ·
+JW build:vite clean · vitest **29/29** · FULL headless smoke ZERO JS errors · wizard probe
+**10/10** · **the one-row license audit pulled forward from Phase 5 and RUN LIVE** (the pre-build
+checker's rider): `google/gemma-4-26B-A4B-it`, `google/gemma-4-26B-A4B-it-qat-q4_0-unquantized`,
+`unsloth/gemma-4-26B-A4B-it-qat-GGUF` — all three `license:apache-2.0` (tags + cardData), the
+base_model chain intact · **trained_ctx first-party confirmed** (the diff checker's residual):
+Google's own `config.json` says `max_position_embeddings: 262144`, `num_hidden_layers: 30`,
+128 experts — the seeded facts match exactly.
+
+**Checker trail:** pre-build checker **FAIL(1)** — T5, the models.md bullet silently dropped +
+the doc-coverage table demand + the pull-the-audit-forward recommendation — ALL folded (see item
+8 + the audit above). Diff checker on the final diff: **PASS, zero FAILs** (independently
+re-verified the rb single-source, the zero orphan code references to the deleted ids, the lone
+base-set test assertion, and the `_use_limited` derivation).
+
+**Mid-execution user round (same hour, all recorded where they belong):** the three
+user-submitted links researched into the A10 addendum (autotunellm = Ollama request-layer wrapper;
+LLM-guided-HPO = training methodology; **TurboLLM = the real measured-benchmark comparable**,
+FSL-licensed study-only — and the license-mixing analysis the user asked for is in the session
+chat: FSL code cannot be vendored into GPL/MIT trees, study-and-reimplement is the sanctioned
+path); ledger **A5 filed** (the engine-update surface — Update-now + Off/Notify/Auto policy,
+Notify default — from the user's TurboLLM screenshot).
+
+**PHASE 1b — NOT BUILT, awaiting the user's word (the surfaced load-bearing decision):** the
+derivation half — computed ctx + the sweep-anchor fix (A7) — hinges on **adopt-vs-hand-fix**:
+A10 found upstream llama.cpp (in our pinned b9870) ships `--fit`/`llama-fit-params`
+(estimate-based, MoE-aware dense-priority placement) and our launch path currently SUPPRESSES it
+by always emitting computed `-ngl`/`--n-cpu-moe`. RECOMMENDATION on record (A10): obtain the
+no-tune anchor FROM the upstream fitter (fit once, cache as a provenance-marked row; tunes still
+win and legitimately disable fit), keep our sweep as the measured layer on top with the adaptive
+walk; verify at build whether `llama-fit-params` ships in the b9870 release assets. Phase 2
+(QuickSetup protection + opt-out sweep, with A8) does not depend on the 1b choice and can proceed
+next either way.

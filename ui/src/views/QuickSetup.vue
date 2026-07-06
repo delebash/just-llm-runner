@@ -25,7 +25,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 
 import { request } from "../client.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
-import { recommendedModelId, pickLowestQuality, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
+import { recommendedModelId, pickLowestQuality, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
 import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import UiButton from "../common/components/UiButton.vue";
@@ -33,6 +33,11 @@ import UiSelect from "../common/components/UiSelect.vue";
 import AppModal from "../common/components/AppModal.vue";
 
 const emit = defineEmits(["changed"]);
+// buttonOnly (user, 2026-07-06: "remove the text Qucik Setup and just ave the button …
+// it pops out at you"): render ONLY the Run button — the host places it (JW: centered
+// on the Built-in server card, level with the /v1 URL line). Default keeps the strip
+// for other mounts.
+const props = defineProps({ buttonOnly: { type: Boolean, default: false } });
 
 // LOCAL_RUNNER_ID (modelApply) + FIT_LABEL / FIT_RUNNABLE (modelPick) come from the shared kit
 // — ONE source, no drift.
@@ -80,9 +85,11 @@ function paramsNum(p) {
   const n = Number.parseFloat(String(p || "").replace(/[^0-9.]/g, ""));
   return Number.isFinite(n) ? n : 999;
 }
+// CHAT candidates need a GPU (user, 2026-07-06 — CPU prose is too slow to support);
+// embeds keep the CPU band (fittingEmbeds below, "yes on embeding").
 const fitting = computed(() =>
   models.value
-    .filter((m) => FIT_RUNNABLE.has(m.fit))
+    .filter((m) => !isEmbed(m) && FIT_GPU.has(m.fit))
     .sort((a, b) => paramsNum(a.params) - paramsNum(b.params)),
 );
 const modelById = computed(() => Object.fromEntries(models.value.map((m) => [m.id, m])));
@@ -134,7 +141,7 @@ function bestFittingId() {
   // speed-floor fallback) — the catalog's "Recommended for this PC" badge calls
   // the same function, so the wizard and the badge can never disagree.
   const vramMb = (hw.value?.gpus && hw.value.gpus[0]?.vramMb) || 0;
-  return recommendedModelId(models.value, {
+  return recommendedModelId(fitting.value, {
     classPicks: classPicks.value,
     vramMb,
     byId: modelById.value,
@@ -142,6 +149,7 @@ function bestFittingId() {
     qualityOf,
     isEmbed,
     isUseLimited: useLimitedOf,
+    runnable: FIT_GPU, // chat picks never land on a CPU-spill model (user decision)
   });
 }
 
@@ -379,9 +387,10 @@ defineExpose({ openWizard });
 </script>
 
 <template>
-  <div class="lu-qs">
+  <div class="lu-qs" :class="{ 'lu-qs--bare': props.buttonOnly }">
     <!-- Trigger (replaces the old inline card; opens the wizard) -->
-    <div class="lu-qs-head">
+    <UiButton v-if="props.buttonOnly" intent="primary" @click="openWizard">Run Quick Setup</UiButton>
+    <div v-else class="lu-qs-head">
       <div>
         <b class="lu-qs-title">Quick Setup</b>
         <span class="lu-muted lu-qs-sub">Detect your hardware, pick the best free local model that fits, and set it as your default — all editable.</span>
@@ -391,8 +400,7 @@ defineExpose({ openWizard });
 
     <AppModal
       v-if="open"
-      eyebrow="Local LLM"
-      :title="step === 'detect' ? 'Probing your hardware…' : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : 'Recommended setup'"
+      :title="step === 'detect' ? 'Probing your hardware…' : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : 'Recommended setup — for local built-in server only'"
       :max-width="'640px'"
       :closable="step !== 'apply'"
       @close="onModalClose"
@@ -403,6 +411,8 @@ defineExpose({ openWizard });
       <!-- CONFIRM (editable) -->
       <template v-else-if="step === 'confirm'">
         <div v-if="error" class="lu-error">{{ error }}</div>
+
+        <p class="lu-muted lu-qs-req">Requirements: a video card with at least 8 GB VRAM and 32 GB of system RAM.</p>
 
         <section class="lu-qs-sec">
           <div class="lu-qs-k">Detected</div>
@@ -425,7 +435,7 @@ defineExpose({ openWizard });
           </section>
         </template>
         <div v-else class="lu-muted lu-qs-empty">
-          No catalog models fit this machine. Add a smaller model to the catalog (any Hugging Face GGUF repo works), or run JustWrite on a machine with more memory.
+          No chat model can run well on this machine — writing needs a video card with at least 8 GB VRAM and 32 GB of system RAM (CPU-only generation is too slow to support).
         </div>
 
         <!-- The embedding — always LOCAL (the RAG index). -->
@@ -540,6 +550,7 @@ defineExpose({ openWizard });
 
 <style scoped>
 .lu-qs { border: 1px solid var(--border); border-radius: var(--r-md, 10px); background: var(--surface); padding: 12px 16px; }
+.lu-qs--bare { border: none; border-radius: 0; background: transparent; padding: 0; display: inline-flex; }
 .lu-qs-head { display: flex; align-items: center; gap: 12px; }
 .lu-qs-head > div { flex: 1; min-width: 0; }
 .lu-qs-title { font-size: 14px; color: var(--ink); }
@@ -566,6 +577,7 @@ defineExpose({ openWizard });
 .lu-qs-rlist li::before { content: "•"; position: absolute; left: 0; color: var(--muted); }
 .lu-qs-rlist code { font-family: var(--font-mono, monospace); font-size: 11.5px; }
 .lu-qs-empty { font-size: 12.5px; padding: 8px 0; }
+.lu-qs-req { font-size: 12px; margin: 0 0 12px; }
 .lu-qs-applying { font-size: 13px; }
 .lu-qs-summary { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
 .lu-qs-opt { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin: 10px 0; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); font-size: 12px; }

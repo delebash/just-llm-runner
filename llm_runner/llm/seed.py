@@ -92,7 +92,7 @@ def app_feature_task_kinds() -> dict:
 # Dispatch's `adapter.default_model` fallback stays — it now simply stays empty until
 # the user's pick writes it.
 DEFAULT_PROVIDERS: list[dict] = [
-    {"id": "local-llamacpp", "name": "Built-in (llama.cpp)",
+    {"id": "local-llamacpp", "name": "Built-in server — llama.cpp",
      "provider_type": "local-llamacpp", "base_url": "http://127.0.0.1:8080/v1", "local": True},
     {"id": "openai-compat-local", "name": "OpenAI-compatible (local)",
      "provider_type": "openai-compat", "base_url": "http://localhost:11434/v1", "local": True},

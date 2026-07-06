@@ -326,3 +326,33 @@ Built on the user's dispositions ("1. a …, 6 do, 7 do, 8 park, 9 park") plus t
   pick switch to the Qwen alternative; the tunes stub now serves empty rows in the untuned
   scenario (the preselect change made the live gemma tunes suppress auto-start by design).
   Round-3 gates: ruff · **384 pytest** · build · FULL smoke zero-JS · **probe PASS**.
+
+## ROUND 4 — SHIPPED 2026-07-06 (the Built-in card polish + the GPU requirement)
+
+User directives, verbatim: *"put it in center on same line as /v1 remove the text Qucik Setup and
+just ave the button with text to the right it pops out at you, change Built-in (llama.cpp) to
+Built-in server -- llama.cpp, in quick setup popup change Recommended setup to Recommended setup
+-- for local built in server only, Below that line put Requirements: Video card with at least 8GB
+VRAM and 32GB of System RAM, personally even though some models technically can run on cpu, for
+our use case i dont think we should support it it would be to slow, do you agree? Remove header
+Local LLM"* + *"remove (docs/plans/2026-07-06-llamacpp-config-tuning-2070s.md)."* + *"yes on
+embeding"*.
+
+- **Run Quick Setup = just the button, centered on the Built-in card** level with the /v1 line
+  (QuickSetup gains a `buttonOnly` prop — bare regular-size primary; the strip stays the default
+  for other mounts; an absolute overlay so the row grid is untouched).
+- **Provider renamed** in the seed: "Built-in server — llama.cpp" (existing DBs keep their name
+  until a reset — merge-by-key never clobbers).
+- **Wizard modal**: the "Local LLM" eyebrow REMOVED; title → "Recommended setup — for local
+  built-in server only"; a requirements line above Detected: "Requirements: a video card with at
+  least 8 GB VRAM and 32 GB of system RAM."
+- **CPU-only chat UNSUPPORTED (agreed, with the user's "yes on embeding" nuance):** chat-model
+  picking now uses FIT_GPU = {ok, tight} — the wizard's candidates, its auto-pick, the class-map
+  fits() and the catalog's Recommended badge can never land on a CPU-spill model; the wizard's
+  empty state states the requirement; EMBEDDINGS keep the CPU band (fittingEmbeds — tiny models,
+  deliberately CPU on the user's own box). The catalog still LISTS everything with honest Fit
+  labels; only auto-pick/support changed.
+- **Gemma catalog description**: the internal doc path dropped from the user-facing copy.
+- Probe: GPU-shaped hardware/models stubs (the container has no GPU and chat picks now require
+  one — the page sees a probe 8 GB card; expectations updated). Gates: build · smoke zero-JS ·
+  probe PASS.

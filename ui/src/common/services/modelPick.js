@@ -25,6 +25,10 @@
 // Fit bands a model can run under (from /v1/llm-runner/models; runner/fit.py). The picker's
 // single source — QuickSetup imports this for its `fitting` list too.
 export const FIT_RUNNABLE = new Set(["ok", "tight", "cpu"]);
+// CHAT models require a GPU (user decision 2026-07-06: CPU-only prose is too slow for
+// the writing use case — "i dont think we should support it"; embeddings stay CPU-fine,
+// "yes on embeding"). The wizard + the Recommended badge pick chat models from THIS set.
+export const FIT_GPU = new Set(["ok", "tight"]);
 // Tie-break when quality_rank is equal: prefer the better fit (lower = better).
 export const FIT_RANK = { ok: 0, tight: 1, cpu: 2, no: 3, unknown: 4 };
 // The fit-band display vocabulary — ONE source (was duplicated in useRunnerModels + QuickSetup).
@@ -103,10 +107,11 @@ export function pickLowestQuality(models, { qualityOf }) {
  *                           typeOf, qualityOf, isEmbed, isUseLimited }
  * @returns {string} the recommended model's id, or "" when nothing fits.
  */
-export function recommendedModelId(models, { classPicks, vramMb, byId, typeOf, qualityOf, isEmbed, isUseLimited }) {
+export function recommendedModelId(models, { classPicks, vramMb, byId, typeOf, qualityOf, isEmbed, isUseLimited, runnable }) {
+  const fitSet = runnable || FIT_RUNNABLE;
   const mapped = pickByClassMap(classPicks || [], vramMb || 0, {
     exists: (id) => !!byId[id],
-    fits: (id) => FIT_RUNNABLE.has(byId[id]?.fit),
+    fits: (id) => fitSet.has(byId[id]?.fit),
   });
   if (mapped) return mapped;
   return pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited });

@@ -208,6 +208,12 @@ onMounted(() => {
                 {{ p.hasApiKey ? "API key set" : "no key" }}
               </div>
             </div>
+            <!-- Quick Setup: JUST the button, centered on the card level with the /v1
+                 line (user, 2026-07-06: "put it in center on same line as /v1 … just the
+                 button … it pops out at you"). Absolute overlay — the row grid untouched. -->
+            <div v-if="p.providerType === 'local-llamacpp'" class="lu-prow-qsbtn">
+              <QuickSetup button-only @changed="loadProviders" />
+            </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
             <!-- ONE actions cell (the row is a grid — loose buttons would wrap to a new
                  grid row, which is exactly the misplacement the user screenshotted). -->
@@ -236,12 +242,7 @@ onMounted(() => {
             :value="engState?.total ? engState.downloaded : undefined" :max="engState?.total || undefined"
             :label="engProgressLabel" />
           <p v-if="p.providerType === 'local-llamacpp' && engError" class="lu-error lu-prow-err">{{ engError }}</p>
-          <!-- Quick Setup lives ON the llama.cpp card (user, 2026-07-06: "move it to the
-               llama cpp … so it is linked visually") — it configures THIS provider only
-               (C8 local-only), so it sits fused under the row, next to Install. -->
-          <div v-if="p.providerType === 'local-llamacpp'" class="lu-prow-qs">
-            <QuickSetup @changed="loadProviders" />
-          </div>
+
         </template>
         <div v-if="!loading && !localProviders.length" class="lu-pempty">No local providers yet. Click “Add provider” and point at <span class="lu-mono">http://localhost:…</span></div>
 
@@ -386,17 +387,10 @@ onMounted(() => {
 .lu-prow-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .lu-prow-prog { margin-top: 6px; }
 .lu-prow-err { margin: 6px 0 0; font-size: 12.5px; }
-/* Quick Setup fused under the Built-in card — no gap, shared side borders, the card's
-   bottom rounding moves down onto this strip so the two read as ONE unit. */
-.lu-prow-qs {
-  margin-top: -9px;
-  border: 1px solid var(--border);
-  border-top: 1px dashed var(--border);
-  border-radius: 0 0 10px 10px;
-  background: var(--surface);
-  padding: 10px 14px;
-}
-.lu-prow-qs :deep(.lu-qs) { border: none; padding: 0; background: transparent; box-shadow: none; }
+/* Quick Setup — just the button, dead-center on the Built-in card (level with the /v1
+   line): an absolute overlay so the row grid + its wrap behavior stay untouched. */
+.lu-prow { position: relative; }
+.lu-prow-qsbtn { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .lu-prow-ic { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-3); color: var(--ink-2); display: grid; place-items: center; }
 .lu-prow-ic svg { width: 17px; height: 17px; }
 .lu-prow-info { min-width: 0; }

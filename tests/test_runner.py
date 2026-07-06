@@ -517,3 +517,61 @@ def test_start_runner_backs_off_on_oom_via_log(tmp_path):
                      _popen=popen, _health=lambda u: state["n"] >= 2, _sleep=lambda s: None)
     assert state["n"] == 2           # spawned twice: the log-tail OOM drove the retry
     assert r.n_gpu_layers == 16      # 20 − 4
+
+
+# ── 1b fit-by-omission: None fit knobs render nothing; ctx policy stays ours ──
+
+def test_overrides_to_pairs_omits_none_fit_knobs():
+    # An untuned model emits NO placement flags — the engine's default `--fit`
+    # (in-pin since b9870) places tensors; ctx-size is ALWAYS ours to pin.
+    d = dict(overrides_to_pairs(Overrides(), n_gpu_layers=None, n_cpu_moe=None, ctx_len=8192))
+    assert "n-gpu-layers" not in d and "n-cpu-moe" not in d
+    assert d["ctx-size"] == "8192"
+
+
+def test_overrides_to_pairs_explicit_zero_ngl_still_renders():
+    # ngl=0 (explicit CPU-only) is a VALUE, not an omission.
+    d = dict(overrides_to_pairs(Overrides(), n_gpu_layers=0, n_cpu_moe=None, ctx_len=4096))
+    assert d["n-gpu-layers"] == "0"
+
+
+def test_compute_fit_explicit_flags_follow_overrides():
+    explicit = compute_fit(
+        _meta(block_count=30, expert_count=128), _TEN_GB, _hw(vram_mb=8192),
+        Overrides(n_gpu_layers=99, n_cpu_moe=21, ctx_len=32768),
+    )
+    assert explicit.ngl_explicit and explicit.ncmoe_explicit and explicit.ctx_explicit
+    assert explicit.ctx_len == 32768
+    computed = compute_fit(_meta(block_count=30, expert_count=128), _TEN_GB, _hw(vram_mb=8192))
+    assert not computed.ngl_explicit and not computed.ncmoe_explicit and not computed.ctx_explicit
+
+
+def test_computed_ctx_caps_at_trained_window():
+    # A huge card cannot push ctx past the model's trained window.
+    meta = _meta(block_count=10)
+    meta.context_length = 8192
+    plan = compute_fit(meta, _TEN_GB, _hw(vram_mb=96000))
+    assert plan.ctx_len <= 8192
+
+
+def test_kv_affordable_bounds_and_monotonic():
+    from llm_runner.runner import fit as fitmod
+    floor = fitmod.kv_affordable(vram_budget_mb=0, n_layers=30, n_kv_heads=8, cache_type=8)
+    roof = fitmod.kv_affordable(vram_budget_mb=1e9, n_layers=30, n_kv_heads=8, cache_type=8)
+    assert floor == 4096 and roof == 262144
+    prev = 0
+    for budget in (0, 1000, 4000, 16000, 64000):
+        ctx = fitmod.kv_affordable(vram_budget_mb=budget, n_layers=30, n_kv_heads=8, cache_type=8)
+        assert ctx >= prev
+        prev = ctx
+
+
+def test_kv_term_single_source_no_drift():
+    # 1b-F3: `_slope_offset`'s KV term must BE `_C1 × kv_bytes_per_token × ctx` — the
+    # slope delta across two ctx values equals the helper-derived delta exactly, pinning
+    # both consumers to the ONE extracted factor.
+    from llm_runner.runner import fit as fitmod
+    a1 = fitmod._slope_offset(1000, 10, 8, 2048, 4096, 8)[0]
+    a2 = fitmod._slope_offset(1000, 10, 8, 2048, 8192, 8)[0]
+    expected = fitmod._C1 * fitmod.kv_bytes_per_token(8, 8) * (8192 - 4096)
+    assert abs((a2 - a1) - expected) < 1e-9

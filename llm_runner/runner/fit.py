@@ -127,6 +127,15 @@ _C4 = 9.987899908205632
 _C5 = 1516.522943869404
 
 
+def kv_bytes_per_token(n_kv_heads: int, cache_type: int) -> float:
+    """The regression's per-layer, per-context-token KV factor (`n_kv_heads × cache-type
+    bit-width`) — the ONE source of the KV term (model-per-hardware plan, 1b-F3).
+    `_slope_offset` consumes it inside the fitted slope (× `_C1` × ctx, per layer) and
+    `kv_affordable` consumes it to bound the computed ctx; extracting it keeps the two
+    from ever drifting (a drift test pins the equality)."""
+    return float(max(1, n_kv_heads) * max(1, cache_type))
+
+
 def _slope_offset(
     size_mb: float, n_layers: int, n_kv_heads: int, embedding_dim: int, ctx_size: int, cache_type: int
 ) -> tuple[float, float, float]:
@@ -134,11 +143,39 @@ def _slope_offset(
     n_layers = max(1, n_layers)
     ctx_size = max(1, ctx_size)
     size_per_layer = size_mb / n_layers
-    kv_cache_factor = n_kv_heads * cache_type * ctx_size
+    kv_cache_factor = kv_bytes_per_token(n_kv_heads, cache_type) * ctx_size
     embedding_per_context = embedding_dim / ctx_size
     a = size_per_layer - _C0 + _C1 * kv_cache_factor
     b = max(_C2, cache_type - (math.floor(_C3 * embedding_per_context) + _C4))
     return a, b, _C5
+
+
+# The ladder the computed-ctx knob walks — power-of-two context sizes models actually
+# train/serve at; the smallest rung is the floor every model is granted.
+_CTX_LADDER = (4096, 8192, 16384, 32768, 65536, 131072, 262144)
+# Share of the VRAM budget the KV cache may claim when WE pick the context for an
+# UNTUNED model (the rest stays for weights + compute). A first-principles split that is
+# deliberately BOX-GATED before it retires anything: the §G check "computed ctx == 32768
+# on the 2070S" calibrates it against the one machine with a measured optimum
+# (model-per-hardware plan, A2 + 1b); a tune's explicit ctx always wins over this.
+_KV_CTX_SHARE = 0.5
+
+
+def kv_affordable(*, vram_budget_mb: float, n_layers: int, n_kv_heads: int, cache_type: int) -> int:
+    """Largest ladder ctx whose PROJECTED whole-model KV cost fits `_KV_CTX_SHARE` of the
+    VRAM budget — the ctx-POLICY half of the 1b division (we pick ctx as a product
+    decision; upstream `--fit` places tensors at it). The KV projection reuses the
+    regression's own term via `kv_bytes_per_token` (single source): per-ctx-token MB
+    ≈ `_C1 × factor × n_layers`. A zero/CPU budget returns the ladder floor."""
+    budget = max(0.0, vram_budget_mb) * _KV_CTX_SHARE
+    per_ctx_mb = _C1 * kv_bytes_per_token(n_kv_heads, cache_type) * max(1, n_layers)
+    best = _CTX_LADDER[0]
+    for ctx in _CTX_LADDER:
+        if per_ctx_mb * ctx <= budget:
+            best = ctx
+        else:
+            break
+    return best
 
 
 def estimate_vram_mb(

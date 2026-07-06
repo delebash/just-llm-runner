@@ -98,12 +98,20 @@ class Overrides:
 
 @dataclass
 class FitPlan:
+    # The three values stay CONCRETE ints — the arbiter (vram_mb), preview_fit, and the
+    # OOM back-off all read them as numbers even when the launch omits the flags (1b-F2).
     n_gpu_layers: int
     n_cpu_moe: int
     ctx_len: int
     block_count: int  # carried so back-off can recompute n_cpu_moe as layers shed
     is_moe: bool
     vram_mb: int = 0  # estimated GPU-RESIDENT VRAM for n_gpu_layers (the VRAM arbiter reserves this, P2)
+    # WHICH knobs were user/tune-EXPLICIT (from Overrides) vs computed here. The emission
+    # layer omits non-explicit ngl/ncmoe so the engine's own `--fit` (default-on at the
+    # b9870 pin) places tensors; ctx is ALWAYS emitted — ctx policy is ours (1b design).
+    ngl_explicit: bool = False
+    ncmoe_explicit: bool = False
+    ctx_explicit: bool = False
 
 
 # Overrides field → its llama-server VALUE flag (presence + spec handled separately).
@@ -132,7 +140,7 @@ _ARGV_SHORT = {"n-gpu-layers": "-ngl"}
 
 
 def overrides_to_pairs(
-    ov: Overrides, *, n_gpu_layers: int, n_cpu_moe: int, ctx_len: int
+    ov: Overrides, *, n_gpu_layers: int | None, n_cpu_moe: int | None, ctx_len: int
 ) -> list[tuple[str, str | None]]:
     """The ONE normalized (flag, value) list for a model's launch config — the single
     source BOTH renderers consume, so the spawn argv (`render_argv`) and the router
@@ -147,8 +155,14 @@ def overrides_to_pairs(
     (argv) or parses (ini). The merged `Overrides` already resolved the base preset, so
     there is nothing to strip; the list is built fresh.
     """
-    pairs: list[tuple[str, str | None]] = [("n-gpu-layers", str(n_gpu_layers))]
-    if n_cpu_moe > 0:
+    # 1b fit-by-omission: a None fit knob is NOT rendered, so the engine's own default
+    # `--fit` places tensors (untuned models); explicit values render as ever and
+    # legitimately disable upstream fitting for that arg. ctx-size is ALWAYS rendered
+    # (ctx policy is ours — computed or explicit, never delegated).
+    pairs: list[tuple[str, str | None]] = []
+    if n_gpu_layers is not None:
+        pairs.append(("n-gpu-layers", str(n_gpu_layers)))
+    if n_cpu_moe is not None and n_cpu_moe > 0:
         pairs.append(("n-cpu-moe", str(n_cpu_moe)))
     pairs.append(("ctx-size", str(ctx_len)))
     for attr, flag in _VALUE_FLAGS:
@@ -225,8 +239,10 @@ class ModelIniEntry:
 
     model_id: str
     gguf_path: str
-    n_gpu_layers: int
-    n_cpu_moe: int
+    # None = OMIT the flag from this section — the child's default `--fit` places
+    # tensors (the 1b untuned path); an int renders as ever. ctx_len stays required.
+    n_gpu_layers: int | None
+    n_cpu_moe: int | None
     ctx_len: int
     overrides: Overrides = field(default_factory=Overrides)
     embeddings: bool = False
@@ -303,18 +319,32 @@ def compute_fit(
     `base` preset sets q8_0) so it isn't under-counted.
     """
     ov = overrides or Overrides()
-    ctx_len = ov.ctx_len or DEFAULT_CTX
     n_layers = max(1, meta.block_count)
     cache_type = fit.cache_type_bits(ov.cache_type_k or "q8_0")
     # head_count_kv is absent in some GGUF headers — fall back to MHA
     # (≈ hidden_dim / 128, a typical head_dim) so KV isn't under-counted.
     n_kv_heads = meta.n_kv_heads or max(1, meta.embedding_length // 128)
+    budget_mb = max(0, max_vram_mb(hardware) - safety_margin_mb)
+
+    # ctx POLICY is ours (1b): an explicit override (tune/preset/request) wins; else the
+    # computed knob — the trained window capped by what the KV budget affords on this box
+    # (kv_affordable walks the ctx ladder on the regression's own KV term). DEFAULT_CTX
+    # remains the floor for headerless files (context_length=0 → min() picks the ladder
+    # floor anyway; keep the `or` so a zero trained-ctx never wins the min).
+    if ov.ctx_len:
+        ctx_len = ov.ctx_len
+        ctx_explicit = True
+    else:
+        ctx_len = min(
+            getattr(meta, "context_length", 0) or DEFAULT_CTX,
+            fit.kv_affordable(vram_budget_mb=budget_mb, n_layers=n_layers,
+                              n_kv_heads=n_kv_heads, cache_type=cache_type),
+        )
+        ctx_explicit = False
 
     if ov.n_gpu_layers is not None:
         n_gpu = max(0, min(n_layers, ov.n_gpu_layers))
     else:
-        total_vram_mb = max_vram_mb(hardware)
-        budget_mb = max(0, total_vram_mb - safety_margin_mb)
         # oobabooga's fitted GGUF VRAM formula → the most GPU layers that fit.
         n_gpu = fit.max_gpu_layers(
             size_mb=total_weight_bytes / 1e6,
@@ -343,6 +373,9 @@ def compute_fit(
     return FitPlan(
         n_gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe, ctx_len=ctx_len,
         block_count=n_layers, is_moe=meta.is_moe, vram_mb=vram_mb,
+        ngl_explicit=ov.n_gpu_layers is not None,
+        ncmoe_explicit=ov.n_cpu_moe is not None,
+        ctx_explicit=ctx_explicit,
     )
 
 

@@ -836,9 +836,15 @@ class RunnerService:
             meta = self._read_meta(gguf)
             fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
                               safety_margin_mb=config.safety_margin_mb)
+            # 1b fit-by-omission: only tune/preset/request-EXPLICIT placement knobs are
+            # emitted; a non-explicit knob is omitted so the child's default `--fit`
+            # places tensors at our always-emitted ctx. Tuned boxes render identically
+            # to before (every knob explicit there).
             entry = ModelIniEntry(
-                model_id=model_id, gguf_path=str(gguf), n_gpu_layers=fit.n_gpu_layers,
-                n_cpu_moe=fit.n_cpu_moe, ctx_len=fit.ctx_len, overrides=ov,
+                model_id=model_id, gguf_path=str(gguf),
+                n_gpu_layers=fit.n_gpu_layers if fit.ngl_explicit else None,
+                n_cpu_moe=fit.n_cpu_moe if fit.ncmoe_explicit else None,
+                ctx_len=fit.ctx_len, overrides=ov,
             )
 
             with self._router_lock:
@@ -988,9 +994,12 @@ class RunnerService:
                         ov.spec_n_max = None
                 meta = self._read_meta(gguf)
                 fit = compute_fit(meta, gguf.stat().st_size, hardware, ov, safety_margin_mb=margin)
+                # Same 1b fit-by-omission rule as the active-load path above.
                 entries.append(ModelIniEntry(
-                    model_id=m.id, gguf_path=str(gguf), n_gpu_layers=fit.n_gpu_layers,
-                    n_cpu_moe=fit.n_cpu_moe, ctx_len=fit.ctx_len, overrides=ov,
+                    model_id=m.id, gguf_path=str(gguf),
+                    n_gpu_layers=fit.n_gpu_layers if fit.ngl_explicit else None,
+                    n_cpu_moe=fit.n_cpu_moe if fit.ncmoe_explicit else None,
+                    ctx_len=fit.ctx_len, overrides=ov,
                 ))
             except Exception:  # noqa: BLE001 — skip one model, keep the rest of the .ini
                 log.warning("skipping .ini section for %s (meta/fit failed)", m.id, exc_info=True)
@@ -1175,6 +1184,25 @@ class RunnerService:
             outcome = self._confirm_load(entry.model_id)
             if outcome == "loaded":
                 return
+            # 1b-F4: a FIT-PLACED entry (ngl omitted → the child's own `--fit` placed
+            # tensors) that fails for ANY reason — the barely-fits fit bugs present as
+            # non-OOM exits (#18066) — retries ONCE with the explicit computed values
+            # (today's exact path); the ordinary OOM-shed/fail-fast below then governs
+            # the now-explicit entry. Never worse than the pre-1b behavior.
+            if entry.n_gpu_layers is None:
+                log.warning("router child %s failed under engine fit (%s) — retrying with "
+                            "explicit computed placement ngl=%d ncmoe=%d",
+                            entry.model_id, outcome, fit.n_gpu_layers, fit.n_cpu_moe)
+                entry = ModelIniEntry(
+                    model_id=entry.model_id, gguf_path=entry.gguf_path,
+                    n_gpu_layers=fit.n_gpu_layers, n_cpu_moe=fit.n_cpu_moe,
+                    ctx_len=entry.ctx_len, overrides=entry.overrides,
+                    embeddings=entry.embeddings, pooling=entry.pooling,
+                    load_on_startup=entry.load_on_startup,
+                )
+                self._emit_ini(override=entry)
+                self._bounce_router(server_exe, config)
+                continue
             # failed / timeout: shed GPU layers ONLY on a genuine CUDA-OOM in the spawn log —
             # never on a non-OOM failure (shedding can't fix it and a bounce disrupts residents).
             tail = _tail_file(self._last_log_path) if self._last_log_path else ""

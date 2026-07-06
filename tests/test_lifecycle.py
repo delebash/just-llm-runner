@@ -1277,3 +1277,75 @@ def test_run_install_extra_failure_is_best_effort(tmp_path):
     svc._engine_thread.join(timeout=5)
     assert calls == [None, "cpu"]  # NVIDIA pick → cpu is the only extra
     assert svc._engine_state["status"] == "installed"
+
+
+# ── 1b fit-by-omission: untuned sections omit placement; F4 any-failure fallback ──
+
+def test_untuned_model_ini_omits_placement_knobs(tmp_path):
+    # No tune/preset switches → the section omits n-gpu-layers/n-cpu-moe (the child's
+    # default `--fit` places tensors) and still pins ctx-size (ctx policy is ours).
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    ini = _ini(svc)
+    assert "n-gpu-layers" not in ini and "n-cpu-moe" not in ini
+    assert "ctx-size = " in ini
+
+
+def test_tuned_model_ini_renders_explicit_knobs(tmp_path):
+    # A tune (or preset/request) value renders exactly as pre-1b — explicit flags
+    # legitimately disable the engine's fit for those args (tuned boxes unchanged).
+    svc = _service_for(
+        tmp_path,
+        switches_fn=lambda mid: {"n_gpu_layers": "99", "n_cpu_moe": "21", "ctx_len": "32768"},
+    )
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    ini = _ini(svc)
+    # ngl renders EXPLICITLY (the whole point) — clamped to the model's real layer
+    # count (24 in this harness), the pre-existing compute_fit clamp for ngl-99 tunes.
+    assert "n-gpu-layers = 24" in ini
+    assert "n-cpu-moe = 21" in ini
+    assert "ctx-size = 32768" in ini
+
+
+def test_fit_placed_failure_retries_explicit_once(tmp_path):
+    # 1b-F4: a FIT-PLACED entry (no explicit knobs) that fails for ANY reason — even a
+    # non-OOM exit (#18066's barely-fits presentation) — retries ONCE with the explicit
+    # computed placement, then loads. The ini must end up carrying the explicit values.
+    posts = {"n": 0}
+
+    def count_load(url, model_id):
+        posts["n"] += 1
+
+    def fail_then_load(url):
+        value = "loaded" if posts["n"] >= 2 else "failed"
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": value}}]}
+
+    svc = _service_for(tmp_path, router_load=count_load, router_models=fail_then_load)
+    svc.load(_TEST_MODEL.id)  # no overrides → fit-placed entry (ngl omitted)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert posts["n"] == 2                      # failed once → explicit retry loaded
+    ini = _ini(svc)
+    assert "n-gpu-layers = " in ini             # the retry re-emitted explicit placement
+
+
+def test_fit_placed_failure_falls_back_then_fails_fast_on_non_oom(tmp_path):
+    # After the ONE explicit retry, a still-failing non-OOM load fails fast exactly as
+    # pre-1b (no shed without an OOM signal, no endless bouncing).
+    spawns = {"n": 0}
+
+    def count_spawn(*a, **k):
+        spawns["n"] += 1
+        return _fake_router()
+
+    def always_failed(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "failed"}}]}
+
+    svc = _service_for(tmp_path, start_router=count_spawn, router_models=always_failed)
+    svc.load(_TEST_MODEL.id)  # fit-placed
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "error"
+    assert spawns["n"] == 2   # the initial spawn + the ONE explicit-retry bounce, no more

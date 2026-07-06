@@ -97,12 +97,17 @@ class AnthropicAdapter:
     @staticmethod
     def _map_extra(extra: dict | None) -> dict | None:
         """Anthropic uses `stop_sequences` (array), not the OpenAI `stop`; rename so
-        the shared per-feature stop-sequence list reaches Claude. Other keys pass
-        through unchanged."""
-        if not extra or "stop" not in extra:
+        the shared per-feature stop-sequence list reaches Claude. `response_format`
+        is STRIPPED — the Messages API has no such parameter (the prompt describes
+        the JSON shape; enforcement is a llama.cpp/OpenAI/Ollama/Gemini capability);
+        forwarding it was a latent #18 leak, fixed with C1. Other keys pass through
+        unchanged."""
+        if not extra:
             return extra
         out = dict(extra)
-        out["stop_sequences"] = out.pop("stop")
+        if "stop" in out:
+            out["stop_sequences"] = out.pop("stop")
+        out.pop("response_format", None)
         return out
 
     def chat(

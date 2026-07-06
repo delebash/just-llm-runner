@@ -22,6 +22,7 @@ both apps run the SAME code instead of per-app duplicates.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, replace
 from typing import Callable, Protocol
@@ -35,6 +36,9 @@ from .dispatch import LLMNotConfiguredError, chat, stream_chat
 from .preset_resolve import resolve_task_preset
 from .pricing import cost_for
 from .schema import LLMConfig
+
+
+log = logging.getLogger(__name__)
 
 
 # ── prompt row + store boundary ─────────────────────────────────────────────
@@ -56,6 +60,7 @@ class FeaturePromptRow:
     built_in: bool
     max_tokens: int = 0  # 0 → no cap (the model's own default)
     json_mode: bool = False  # response_format=json_object (#18)
+    json_schema: str = ""  # C1: optional JSON Schema text — with json_mode on, upgrades to schema-enforced output
     top_p: float | None = None  # nucleus sampling (#22); None → provider default
     reasoning_effort: str = ""  # "" | low | medium | high (a1/E2); the level when think is on
     label: str = ""
@@ -104,6 +109,7 @@ class PromptOut(BaseModel):
     builtIn: bool
     maxTokens: int = 0
     jsonMode: bool = False
+    jsonSchema: str = ""
     topP: float | None = None
     reasoningEffort: str = ""
     label: str = ""
@@ -125,10 +131,15 @@ class PromptUpdate(BaseModel):
     userTemplate: str = ""
     temperature: float = 0.7
     think: bool = False
-    maxTokens: int = 0
-    jsonMode: bool = False
+    # Plane-2 fields are PRESERVE-ON-OMIT (None = keep the stored value): the
+    # prompt editor sends only the fields it shows, and rebuilding the row from
+    # bare defaults silently WIPED the seeded json_mode/max_tokens/top_p/
+    # reasoning_effort on every text edit (latent #18 bug, found + fixed with C1).
+    maxTokens: int | None = None
+    jsonMode: bool | None = None
+    jsonSchema: str | None = None
     topP: float | None = None
-    reasoningEffort: str = ""
+    reasoningEffort: str | None = None
     label: str = ""
     description: str = ""
     group: str = ""
@@ -145,6 +156,7 @@ def _out(r: FeaturePromptRow) -> PromptOut:
         builtIn=r.built_in,
         maxTokens=r.max_tokens,
         jsonMode=r.json_mode,
+        jsonSchema=r.json_schema,
         topP=r.top_p,
         reasoningEffort=r.reasoning_effort,
         label=r.label,
@@ -186,6 +198,9 @@ def make_prompt_router(
         label = body.label or (str(default.get("label") or "") if default else "")
         description = body.description or (str(default.get("description") or "") if default else "")
         group = body.group or (str(default.get("group") or "") if default else "")
+        # Preserve-on-omit for the Plane-2 fields (None = the editor didn't show
+        # it): keep the STORED value so a prompt-text edit never wipes them.
+        prev = get_store().get(key)
         get_store().upsert(FeaturePromptRow(
             key=key,
             feature=feature,
@@ -194,10 +209,11 @@ def make_prompt_router(
             temperature=body.temperature,
             think=body.think,
             built_in=built_in,
-            max_tokens=body.maxTokens,
-            json_mode=body.jsonMode,
-            top_p=body.topP,
-            reasoning_effort=body.reasoningEffort,
+            max_tokens=body.maxTokens if body.maxTokens is not None else (prev.max_tokens if prev else 0),
+            json_mode=body.jsonMode if body.jsonMode is not None else (prev.json_mode if prev else False),
+            json_schema=body.jsonSchema if body.jsonSchema is not None else (prev.json_schema if prev else ""),
+            top_p=body.topP if body.topP is not None else (prev.top_p if prev else None),
+            reasoning_effort=body.reasoningEffort if body.reasoningEffort is not None else (prev.reasoning_effort if prev else ""),
             label=label,
             description=description,
             group=group,
@@ -220,6 +236,7 @@ def make_prompt_router(
             built_in=True,
             max_tokens=int(default.get("max_tokens", 0) or 0),
             json_mode=bool(default.get("json_mode", False)),
+            json_schema=str(default.get("json_schema") or ""),
             top_p=default.get("top_p"),
             reasoning_effort=str(default.get("reasoning_effort") or ""),
             label=str(default.get("label") or ""),
@@ -300,6 +317,32 @@ def _parse_sampler_value(v: str):
     return s
 
 
+def _response_format(spec: FeaturePromptRow, action: str) -> dict:
+    """The response_format for a JSON action (#18 → C1). A stored schema that
+    parses as a non-empty JSON OBJECT upgrades the weak json_object to
+    schema-ENFORCED output, emitted in the OpenAI-standard NESTED form — each
+    adapter translates to its backend (the builtin runner flattens to the
+    b9644-documented {"type":"json_schema","schema":…}; Ollama format=<schema>;
+    Gemini responseSchema; Anthropic strips — no such param). The schema is NOT
+    injected into the prompt (recorded design: the prompt still describes the
+    shape). No/invalid schema → json_object as before; an invalid one logs a
+    warning and DEGRADES rather than failing the run."""
+    raw = (spec.json_schema or "").strip()
+    if raw:
+        try:
+            obj = json.loads(raw)
+        except ValueError:
+            obj = None
+        if isinstance(obj, dict) and obj:
+            # OpenAI constrains the name to ^[A-Za-z0-9_-]+$ — slugify the action
+            # id (dots etc. → _) so a cloud pass-through never 400s on the name.
+            name = re.sub(r"[^A-Za-z0-9_-]", "_", action or "") or "response"
+            return {"type": "json_schema",
+                    "json_schema": {"name": name, "schema": obj, "strict": True}}
+        log.warning("action %s has an invalid json_schema — falling back to json_object", action)
+    return {"type": "json_object"}
+
+
 def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict | None:
     """Per-request `extra` from the action's Plane-2 params — json_mode/top_p PLUS
     its long-tail sampler knobs, each overridable by the request. Precedence
@@ -312,7 +355,7 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict
     extra: dict = {}
     json_mode = spec.json_mode if body.jsonMode is None else body.jsonMode
     if json_mode:
-        extra["response_format"] = {"type": "json_object"}
+        extra["response_format"] = _response_format(spec, body.action)
     top_p = spec.top_p if body.topP is None else body.topP
     if top_p is not None:
         extra["top_p"] = top_p

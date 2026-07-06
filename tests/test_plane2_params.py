@@ -83,3 +83,76 @@ def test_anthropic_renames_stop_to_stop_sequences():
     assert AnthropicAdapter._map_extra({"stop": ["END"], "top_p": 0.9}) == {"stop_sequences": ["END"], "top_p": 0.9}
     assert AnthropicAdapter._map_extra(None) is None
     assert AnthropicAdapter._map_extra({"top_p": 0.9}) == {"top_p": 0.9}
+
+
+# ── C1: json_schema — schema-ENFORCED output where the backend supports it ────
+
+def test_json_schema_emits_nested_openai_form():
+    schema = '{"type":"object","properties":{"names":{"type":"array"}}}'
+    e = _plane2_extra(_spec(json_mode=True, json_schema=schema), RunRequest(action="entity.sweep"))
+    # the name is SLUGIFIED (OpenAI's ^[A-Za-z0-9_-]+$) — dots become underscores
+    assert e == {"response_format": {"type": "json_schema", "json_schema": {
+        "name": "entity_sweep",
+        "schema": {"type": "object", "properties": {"names": {"type": "array"}}},
+        "strict": True}}}
+
+
+def test_json_schema_invalid_degrades_to_json_object():
+    # An invalid stored schema must NEVER fail the run — degrade to json_object.
+    e = _plane2_extra(_spec(json_mode=True, json_schema="{not json"), RunRequest(action="k"))
+    assert e == {"response_format": {"type": "json_object"}}
+    e = _plane2_extra(_spec(json_mode=True, json_schema="[1, 2]"), RunRequest(action="k"))
+    assert e == {"response_format": {"type": "json_object"}}  # non-object schema
+
+
+def test_json_schema_inert_when_json_mode_off():
+    e = _plane2_extra(_spec(json_mode=False, json_schema='{"type":"object"}'), RunRequest(action="k"))
+    assert e is None
+
+
+def test_think_stays_forced_off_with_schema():
+    from llm_runner.llm.prompts import _effective_think
+    spec = _spec(think=True, json_mode=True, json_schema='{"type":"object"}')
+    assert _effective_think(spec, RunRequest(action="k")) is False
+
+
+def test_prompt_store_roundtrips_json_schema(configured):
+    from llm_runner.llm import stores
+    st = stores.get_prompt_store()
+    st.upsert(FeaturePromptRow(key="y", feature="y", system="", user_template="",
+                               temperature=0.5, think=False, built_in=False,
+                               json_mode=True, json_schema='{"type":"object"}'))
+    assert st.get("y").json_schema == '{"type":"object"}'
+
+
+def test_anthropic_strips_response_format():
+    # The Messages API has no response_format — never forward it (latent #18 leak).
+    from llm_runner.llm.anthropic import AnthropicAdapter
+    out = AnthropicAdapter._map_extra({"response_format": {"type": "json_object"}, "top_p": 0.9})
+    assert out == {"top_p": 0.9}
+
+
+def test_openai_compat_flattens_schema_for_builtin_only():
+    # The pinned llama-server documents the FLAT {"type":"json_schema","schema":…}
+    # form; cloud openai-compat keeps the OpenAI-standard nested form.
+    from llm_runner.llm.openai_compat import OpenAICompatAdapter
+    nested = {"response_format": {"type": "json_schema", "json_schema": {
+        "name": "k", "schema": {"type": "object"}, "strict": True}}}
+
+    a = OpenAICompatAdapter.__new__(OpenAICompatAdapter)
+    a.provider_type = "local-llamacpp"
+    body = dict(nested)
+    a._adapt_response_format(body)
+    assert body["response_format"] == {"type": "json_schema", "schema": {"type": "object"}}
+
+    b = OpenAICompatAdapter.__new__(OpenAICompatAdapter)
+    b.provider_type = "openai-compat"
+    body = dict(nested)
+    b._adapt_response_format(body)
+    assert body == nested  # untouched
+
+    c = OpenAICompatAdapter.__new__(OpenAICompatAdapter)
+    c.provider_type = "local-llamacpp"
+    body = {"response_format": {"type": "json_object"}}
+    c._adapt_response_format(body)
+    assert body == {"response_format": {"type": "json_object"}}  # json_object untouched

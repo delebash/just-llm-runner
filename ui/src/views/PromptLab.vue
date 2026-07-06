@@ -34,7 +34,21 @@ const dirty = computed(() => {
   const b = selected.value;
   if (!a || !b) return false;
   return a.system !== b.system || a.userTemplate !== b.userTemplate
-    || Number(a.temperature) !== Number(b.temperature) || a.think !== b.think;
+    || Number(a.temperature) !== Number(b.temperature) || a.think !== b.think
+    || !!a.jsonMode !== !!b.jsonMode || (a.jsonSchema || "") !== (b.jsonSchema || "");
+});
+// C1: the optional JSON Schema (shown when JSON output is on). Invalid JSON
+// marks the box and blocks Save — the server would degrade to plain json_object
+// anyway, but silently saving a broken schema helps no one.
+const schemaInvalid = computed(() => {
+  const raw = (draft.value?.jsonSchema || "").trim();
+  if (!raw) return false;
+  try {
+    const obj = JSON.parse(raw);
+    return typeof obj !== "object" || obj === null || Array.isArray(obj);
+  } catch {
+    return true;
+  }
 });
 
 async function load() {
@@ -77,6 +91,10 @@ async function save() {
         userTemplate: draft.value.userTemplate,
         temperature: Number(draft.value.temperature),
         think: !!draft.value.think,
+        // The fields this editor SHOWS are sent explicitly; everything else is
+        // omitted and the server PRESERVES the stored value (never wiped).
+        jsonMode: !!draft.value.jsonMode,
+        jsonSchema: draft.value.jsonSchema || "",
       },
     });
     _upsertLocal(updated);
@@ -157,13 +175,24 @@ onMounted(load);
             <UiCheckbox v-model="draft.think" />
             <span class="lu-muted">Reasoning (think)</span>
           </label>
+          <label class="lu-pl-think">
+            <UiCheckbox v-model="draft.jsonMode" />
+            <span class="lu-muted">JSON output</span>
+          </label>
+        </div>
+
+        <div v-if="draft.jsonMode" class="lu-field">
+          <label>JSON schema <span class="lu-pl-hint">(optional — enforces the exact output shape; leave empty for plain JSON mode)</span></label>
+          <UiTextarea v-model="draft.jsonSchema" auto-resize :rows="6" :invalid="schemaInvalid"
+            placeholder='{"type":"object","properties":{…},"required":[…]}' />
+          <div v-if="schemaInvalid" class="lu-error">Not a valid JSON object — fix it or clear the box.</div>
         </div>
 
         <div class="lu-pl-actions">
           <UiButton v-if="draft.builtIn" intent="ghost" :disabled="saving" @click="resetToDefault">Reset to default</UiButton>
           <span class="lu-pl-spacer" />
           <span v-if="message" class="lu-pl-msg lu-muted">{{ message }}</span>
-          <UiButton intent="primary" :disabled="saving || !dirty" @click="save">{{ saving ? "Saving…" : "Save" }}</UiButton>
+          <UiButton intent="primary" :disabled="saving || !dirty || schemaInvalid" @click="save">{{ saving ? "Saving…" : "Save" }}</UiButton>
         </div>
       </section>
       <section v-else class="lu-pl-editor lu-pl-empty lu-muted">Select a feature to edit its prompt.</section>

@@ -116,8 +116,13 @@ class GeminiAdapter:
         for k, v in extra.items():
             if k == "response_format":
                 fmt = v.get("type") if isinstance(v, dict) else v
-                if fmt in ("json_object", "json"):
+                # C1: a schema rides as generationConfig.responseSchema alongside
+                # the JSON mime; plain JSON mode sets the mime only, as before.
+                schema = (v.get("json_schema") or {}).get("schema") if isinstance(v, dict) else None
+                if fmt in ("json_object", "json", "json_schema"):
                     gc["responseMimeType"] = "application/json"
+                if fmt == "json_schema" and isinstance(schema, dict):
+                    gc["responseSchema"] = schema
             elif k in cls._GEN_KEYS:
                 gc[cls._GEN_KEYS[k]] = v
 

@@ -119,6 +119,20 @@ class OpenAICompatAdapter:
         else:
             body["reasoning_effort"] = effort or "medium"
 
+    def _adapt_response_format(self, body: dict) -> None:
+        """C1: the pinned llama-server documents the FLAT schema form
+        ({"type":"json_schema","schema":…} — tools/server README at the pin);
+        the OpenAI-standard NESTED json_schema form is what the dispatch emits.
+        Flatten for the builtin runner; every other openai-compat provider gets
+        the standard nested form untouched."""
+        if self.provider_type != "local-llamacpp":
+            return
+        rf = body.get("response_format")
+        if isinstance(rf, dict) and rf.get("type") == "json_schema":
+            schema = (rf.get("json_schema") or {}).get("schema")
+            if isinstance(schema, dict):
+                body["response_format"] = {"type": "json_schema", "schema": schema}
+
     def chat(
         self,
         messages: list[LLMMessage],
@@ -140,6 +154,7 @@ class OpenAICompatAdapter:
         extra, effort = pop_reasoning_effort(extra)
         if extra:
             body.update(extra)
+        self._adapt_response_format(body)
         self._apply_reasoning(body, think, effort)
 
         url = f"{self._base_url}/chat/completions"
@@ -192,6 +207,7 @@ class OpenAICompatAdapter:
         extra, effort = pop_reasoning_effort(extra)
         if extra:
             body.update(extra)
+        self._adapt_response_format(body)
         self._apply_reasoning(body, think, effort)
 
         url = f"{self._base_url}/chat/completions"

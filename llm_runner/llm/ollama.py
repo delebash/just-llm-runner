@@ -77,7 +77,12 @@ class OllamaAdapter:
         for k, v in extra.items():
             if k == "response_format":
                 fmt = v.get("type") if isinstance(v, dict) else v
-                if fmt in ("json_object", "json"):
+                # C1: Ollama's structured outputs take a JSON Schema OBJECT in
+                # `format`; plain JSON mode stays the "json" string.
+                schema = (v.get("json_schema") or {}).get("schema") if isinstance(v, dict) else None
+                if fmt == "json_schema" and isinstance(schema, dict):
+                    body["format"] = schema
+                elif fmt in ("json_object", "json", "json_schema"):
                     body["format"] = "json"
             else:
                 opts[k] = v

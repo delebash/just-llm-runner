@@ -115,3 +115,31 @@ def test_openai_compat_reasoning_cloud_vs_local():
     b = {}
     compat._apply_reasoning(b, False, "high")
     assert b == {}                                # compat off → nothing (NOT false)
+
+
+def test_ollama_schema_rides_format():
+    # C1: a json_schema response_format puts the SCHEMA OBJECT in Ollama's
+    # `format` (structured outputs); plain json stays the "json" string.
+    from llm_runner.llm.ollama import OllamaAdapter
+    body = {}
+    OllamaAdapter._apply_extra(body, {"response_format": {"type": "json_schema", "json_schema": {
+        "name": "k", "schema": {"type": "object"}, "strict": True}}})
+    assert body["format"] == {"type": "object"}
+    body = {}
+    OllamaAdapter._apply_extra(body, {"response_format": {"type": "json_object"}})
+    assert body["format"] == "json"
+
+
+def test_gemini_schema_rides_response_schema():
+    # C1: a json_schema response_format sets generationConfig.responseSchema
+    # alongside the JSON mime; plain json sets the mime only.
+    from llm_runner.llm.gemini import GeminiAdapter
+    payload = {}
+    GeminiAdapter._apply_extra(payload, {"response_format": {"type": "json_schema", "json_schema": {
+        "name": "k", "schema": {"type": "object"}, "strict": True}}})
+    gc = payload["generationConfig"]
+    assert gc["responseMimeType"] == "application/json"
+    assert gc["responseSchema"] == {"type": "object"}
+    payload = {}
+    GeminiAdapter._apply_extra(payload, {"response_format": {"type": "json_object"}})
+    assert payload["generationConfig"] == {"responseMimeType": "application/json"}

@@ -326,9 +326,133 @@ container path is IMPOSSIBLE for the current pin, not merely unbuilt.
 **Tests:** linux+NVIDIA(+vulkan loader) detect fact; selection lands on `linux/vulkan` (docker row
 skipped) and on `cpu` when no vulkan loader; the docker raise still fires with the new message when a
 docker asset is FORCED (gpu override); Windows selection unchanged.
-- **C1 — json_schema / GBNF structured output:** NOT STARTED.
-- **E2 — vitest harness:** NOT STARTED.
-- **C3 — shared AI task queue → kit:** NOT STARTED.
+- **C1 — json_schema / GBNF structured output: ✅ SHIPPED + VERIFIED (2026-07-06; design below,
+  implemented as designed + two ADJACENT #18 bugs found-and-fixed while grounding).** What shipped:
+  `json_schema` TEXT on `feature_prompts` (action grain; presets stay shape-free by design) → the row/
+  wire/store/seed ride exactly like `json_mode`; `_response_format()` in `prompts.py` emits the
+  OpenAI-standard NESTED `json_schema` form when the effective json_mode is on and the stored schema
+  parses as a non-empty JSON object (invalid → warn + degrade to `json_object`, never a 500); adapter
+  translations — the builtin runner (`local-llamacpp`) FLATTENS to the b9644-documented
+  `{"type":"json_schema","schema":…}` in chat+stream, Ollama puts the schema OBJECT in `format`,
+  Gemini sets `generationConfig.responseSchema` + the JSON mime, Anthropic now STRIPS
+  `response_format` entirely (**found bug #1**: `_map_extra` passed unknown keys through, so #18's
+  json_object leaked to an API with no such parameter); the shared `PromptLab.vue` gains the
+  "JSON output" checkbox + the schema textarea (invalid JSON marks the box + blocks Save); JW seeds
+  ONE real end-to-end example — `entitySweep`'s documented three-array shape as `_ENTITY_SCHEMA`.
+  **Found bug #2 (the wipe):** the prompts PUT rebuilt the row from bare defaults, so a PromptLab
+  text edit silently WIPED the seeded `json_mode`/`max_tokens`/`top_p`/`reasoning_effort` (and would
+  have wiped schemas) — the PUT's Plane-2 fields are now PRESERVE-ON-OMIT (None = keep stored;
+  PromptLab is the only writer, verified by grep). The think×JSON guardrail (think forced off under
+  json_mode) covers the schema path unchanged. Verified: runner ruff + **350 pytest** (9 new: nested
+  emission · invalid-degrade · inert-when-mode-off · think-off-with-schema · store round-trip ·
+  anthropic strip · builtin-only flatten ·  ollama format=schema · gemini responseSchema) · JW server
+  ruff + 77 pytest + the seeded schema validated at import · LIVE on :17495 after `/v1/data/reset`:
+  GET `entitySweep` returns the seeded schema; PUT stores a schema; a text-only PUT (the pre-C1
+  editor shape) PRESERVES it — the wipe proven dead · `build:vite` + full headless smoke zero JS
+  errors. NOTE the runtime semantics (per `_effective_spec`): the MODE can come from the resolved
+  preset (preset.jsonMode replaces the action's), while the SHAPE always comes from the action row —
+  dataclasses.replace keeps `json_schema` through the overlay; mode-from-preset + shape-from-action
+  is the intended split.
+
+### C1 design (written before implementation)
+
+**Recorded intent honored (the "plan ready" of task #77):** the 2026-06-28 MASTER-PLAN §8 —
+*"llama.cpp takes both `grammar` (GBNF) and `json_schema`; cloud takes `response_format`. Our #18
+`json_mode` is only the weak `json_object` form — upgrade to `json_schema`/`grammar` where the backend
+supports it… Structured-output is a sampler-surface member"* — plus its CLI-matrix note that the schema
+CONSTRAINS output but is NOT injected into the prompt (the prompt still describes the shape).
+
+**Grounding — our side (read line-by-line):** `json_mode` rides the ACTION grain: `FeaturePromptRow`
+(`prompts.py:41-63`) ↔ the `feature_prompts` table (`db.py` :381-region) ↔ the variant table
+(`db.py` :361-region, action/name/is_active) ↔ the wire models `PromptOut`/`PromptUpdate` + `_out`
+(`prompts.py:97-153`), and `FeaturePreset` + `FeatureSamplerParam` also carry the BOOLEAN (mode) —
+`_plane2_extra` (`prompts.py:303-315`) emits `extra["response_format"] = {"type": "json_object"}`; the
+openai-compat adapter merges `extra` verbatim into the body (`openai_compat.py:141`) and knows the
+builtin runner as `provider_type == "local-llamacpp"` (`:112`); ollama maps response_format→`format`
+(`ollama.py:78-80`), gemini maps it similarly (`gemini.py:117-119`); the anthropic adapter's
+`_map_extra` (`anthropic.py:97-106`) passes UNKNOWN keys through — meaning today's `response_format`
+LEAKS to an API that has no such parameter (a latent #18 gap on anthropic providers, found while
+grounding; fixed here by stripping it there). The think×json interaction is already handled: think is
+FORCED off under json_mode (`prompts.py:348/:375`) — the schema path rides the same gate.
+
+**Grounding — upstream (web-verified):** llama-server at the PINNED b9644 documents `response_format`
+accepting `{"type":"json_object"}`, `{"type":"json_object","schema":{…}}` and
+`{"type":"json_schema","schema":{…}}` on the OpenAI-compat endpoint (tools/server README at the tag —
+the FLAT `schema` key is the documented contract; the OpenAI-cloud NESTED
+`json_schema:{name,schema,strict}` form is NOT documented there), with schemas converted internally to
+grammar. So the emission is standard-nested from the dispatch, and the ADAPTER translates: builtin
+(`local-llamacpp`) flattens to the pin-documented form; other openai-compat providers get the OpenAI
+standard form untouched.
+
+**Design (mirrors `json_mode`'s exact ride, ACTION grain only — presets/sampler-params keep only the
+boolean mode; the SHAPE is feature-intrinsic, a preset must stay reusable across shapes):**
+1. DB: `json_schema` TEXT ("" = none) on the `feature_prompts` + prompt-variant tables (the two
+   action-grain json_mode carriers). Pre-production → drop-and-reseed via `/v1/data/reset`, no
+   migration.
+2. Row/wire: `FeaturePromptRow.json_schema: str = ""` + `PromptOut/PromptUpdate.jsonSchema` + `_out` +
+   upsert + the JW store mappers.
+3. `_plane2_extra`: when the effective json_mode is ON — schema present AND parses as a JSON object →
+   `extra["response_format"] = {"type":"json_schema","json_schema":{"name":<action>,"schema":<obj>,
+   "strict":true}}`; schema absent/invalid → today's `{"type":"json_object"}` (an invalid stored schema
+   logs a warning and degrades, NEVER 500s a run).
+4. Adapters: openai-compat — builtin(`local-llamacpp`) rewrites nested→flat
+   (`{"type":"json_schema","schema":<obj>}`, the b9644-documented shape) in chat+stream; other
+   openai-compat providers pass through. ollama — `format = <schema object>` when a schema rides
+   (Ollama's structured outputs accept a schema in `format`), else `format="json"` as today. gemini —
+   `responseSchema` + JSON mime when a schema rides, else today's json mapping. anthropic —
+   `_map_extra` now STRIPS `response_format` entirely (no such API param; the prompt carries the shape;
+   also fixes the latent #18 leak).
+5. UI (SHIPPED in the kit `PromptLab.vue` — the ACTION editor; the design first named ConfigColumn, but that is the LAB per-run column, wrong grain — corrected at implementation): a "JSON schema
+   (optional)" `UiTextarea` shown when jsonMode is on; invalid JSON marks `:invalid` and blocks save
+   with the standard error line; empty stays empty (json_object mode). The Lab/compare surfaces
+   inherit by running the action — no separate schema UI there.
+6. Seed (JW): ONE real end-to-end example — the entity-extraction action's documented JSON shape
+   seeded as its `json_schema` (the shape the prompt already describes), proving the whole path.
+7. Tests: `_plane2_extra` nested emission + invalid-schema degrade; the builtin flatten; ollama/gemini
+   schema mapping; anthropic strip; prompt API round-trip (PATCH jsonSchema → GET); think stays forced
+   off with a schema. Live: `/v1/data/reset` → PATCH an action with a schema via curl → GET shows it →
+   headless smoke + a probe assertion on the ConfigColumn schema box.
+- **E2 — vitest harness: ✅ SHIPPED + VERIFIED (2026-07-06).** JW now has a JS unit harness: `vitest`
+  (dev-dep, v4.1.9) + root `vitest.config.js` (node environment — the renderer gate REMAINS the
+  Playwright headless smoke; this covers logic the smoke can't reach deterministically; aliases mirror
+  `vite.config.js` for `@renderer` + the kit) + `npm run test:unit`. First REAL tests target exactly the
+  ledger's named seam: `services/__tests__/embedApi.test.js` (11 tests over the lazy-P3 ensure cache —
+  `_resetEnsureCache` the recorded seam; kit transport `vi.mock`ed; covers: cloud no-op · ensure-once
+  caching · sleeping accepted · ok:false skips polling · load-failure message + self-heal re-ensure ·
+  scalar→array + junk-row filtering · empty-input short-circuit · required-arg errors · REAL-failure
+  drops the cache and the next call re-ensures · ABORT does NOT drop it) and
+  `services/__tests__/modelMeta.test.js` (9 tests over parseQuant/entryLabel/getModelTier/TIERS).
+  Verified: `npx vitest run` → **2 files, 20 tests, all passed** (288 ms). JW `CLAUDE.md`'s tooling
+  paragraph gains the vitest line (docs ship with the harness).
+- **C3 — shared AI task queue → kit: DESIGNED (below), implementing after C1 commits.**
+
+### C3 design (written before implementation — it IS the recorded Decision 22, executed steps 1–3)
+
+**The recorded design (2026-06-28 MASTER-PLAN §Decision 22, read in full this session):** the AI
+progress+queue is SHARED ("it's the same thing" — user, 2026-06-24): move JW's `stores/aiTasks.js`
+(231 ln) + `components/AiTaskStrip.vue` (151) + `services/aiFeature.js` (150) into `@delebash/llm-ui`
+(verbatim → adapt imports to the kit client), ALSO share `AiStatusPanel.vue` (410) +
+`AiStatusButton.vue` (69); sweep JW's consumers (measured this session: **47 files** reference the
+five); DELETE the JW locals (no re-export shims — RULE #8). Step (4) — JV deleting its
+`renderTasks.js`/`TaskStrip.vue` copy-paste fork and adopting the shared system — is EXCLUDED by this
+batch's no-JustVoice mandate and is exactly F1/F4 territory; recorded there, not silently dropped
+(Decision 22 itself notes TTS-render tasks MAY stay JV-local if their shape genuinely diverges — that
+call happens at F1 with JV in scope).
+
+**Adaptation points (grounded):** the kit client already has `request`/`requestStream`/`llmUiUrl`
+(`ui/src/client.js:28/79/24`) — `aiFeature.js`'s raw-fetch SSE streaming adapts onto the kit transport
+per the decision's own note ("adapt JW's `serverUrl` → the kit's `llmUiUrl`/`requestStream`"); the
+store stays a Pinia `defineStore` moved verbatim (both apps provide the active Pinia — the kit already
+ships Pinia-consuming pieces); the components' JW-local imports (primitives, toasts) swap to their kit
+equivalents, which all exist. New kit homes: `ui/src/stores/aiTasks.js` (or `common/` if the kit's
+layout keeps stores there — follow the kit's existing store precedent), `ui/src/components/
+AiTaskStrip.vue` + `AiStatusPanel.vue` + `AiStatusButton.vue`, `ui/src/common/services/aiFeature.js`
+beside the other kit services. JW then imports everything from `@delebash/llm-ui`.
+
+**Verify:** `build:vite` + full headless smoke (the strip/panel render on their routes) + the vitest
+suite still green + a grep proving ZERO remaining `@renderer`-local references to the five moved
+files + the E2 unit tests (embedApi) untouched. The 47-file sweep is mechanical import rewriting —
+each file's diff is import-lines only.
 - **C4 — everything-LLM-shared audit:** NOT STARTED.
 - **C2 — measured/benchmark re-grounding research:** NOT STARTED.
 - **E3 — ODT import: lists:** NOT STARTED.

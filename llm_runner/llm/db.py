@@ -379,6 +379,12 @@ class FeaturePrompt(LlmBase):
     max_tokens = Column(Integer, nullable=False, default=0)  # 0 → no cap
     # Plane-2 per-request params (sent in the chat call, no model reload):
     json_mode = Column(Boolean, nullable=False, default=False)  # response_format=json_object (#18)
+    # C1: optional JSON Schema (text; "" = none). With json_mode on, a valid schema
+    # upgrades the weak json_object to schema-ENFORCED output (llama.cpp converts it
+    # to grammar; OpenAI json_schema; Ollama format=<schema>; Gemini responseSchema).
+    # Action-grain by design: the SHAPE is the feature's contract — presets stay
+    # shape-free so they remain reusable across actions.
+    json_schema = Column(Text, nullable=False, default="")
     top_p = Column(Float, nullable=True)  # nucleus sampling (#22); null → provider default
     reasoning_effort = Column(String, nullable=False, default="")  # "" | low | medium | high (a1/E2)
     built_in = Column(Boolean, nullable=False, default=True)

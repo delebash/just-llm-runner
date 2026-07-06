@@ -231,8 +231,8 @@ def _prompt_to_row(r: db.FeaturePrompt) -> FeaturePromptRow:
     return FeaturePromptRow(
         key=r.key, feature=r.feature, system=r.system, user_template=r.user_template,
         temperature=r.temperature, think=r.think, built_in=r.built_in,
-        max_tokens=r.max_tokens, json_mode=r.json_mode, top_p=r.top_p,
-        reasoning_effort=r.reasoning_effort,
+        max_tokens=r.max_tokens, json_mode=r.json_mode, json_schema=r.json_schema,
+        top_p=r.top_p, reasoning_effort=r.reasoning_effort,
         label=r.label, description=r.description, group=r.subgroup,
     )
 
@@ -261,7 +261,8 @@ class PromptStore:
                 s.add(db.FeaturePrompt(
                     key=row.key, feature=row.feature, system=row.system, user_template=row.user_template,
                     temperature=row.temperature, think=row.think, built_in=row.built_in,
-                    max_tokens=row.max_tokens, json_mode=row.json_mode, top_p=row.top_p,
+                    max_tokens=row.max_tokens, json_mode=row.json_mode,
+                    json_schema=row.json_schema, top_p=row.top_p,
                     reasoning_effort=row.reasoning_effort,
                     label=row.label, description=row.description, subgroup=row.group,
                 ))
@@ -273,6 +274,7 @@ class PromptStore:
                 existing.think = row.think
                 existing.max_tokens = row.max_tokens
                 existing.json_mode = row.json_mode
+                existing.json_schema = row.json_schema
                 existing.top_p = row.top_p
                 existing.reasoning_effort = row.reasoning_effort
                 existing.label = row.label

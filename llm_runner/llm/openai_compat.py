@@ -104,11 +104,16 @@ class OpenAICompatAdapter:
         """Map reasoning to this server's native control (a1/E2). The bundled local
         llama.cpp runner gets the explicit `chat_template_kwargs.enable_thinking` toggle
         BOTH ways, so ONE resident model serves thinking-on (chat) AND thinking-off
-        (extraction) per-request with NO reload / section-swap (box-verified 2026-07-04;
-        a per-request toggle works only when no hard `reasoning-budget` is on the CLI —
-        we emit none). A generic `openai-compat` server keeps the conservative
-        on→enable_thinking / off→nothing: we don't own its chat template, so we don't
-        force `false` on it. OpenAI-family clouds take the `reasoning_effort` body param."""
+        (extraction) per-request with NO reload / section-swap. Box-verified 2026-07-06
+        at pin b9870 (justwrite-app/docs/plans/2026-07-06-onbox-profile-ab-test.md
+        RESULTS): the toggle fully suppresses Gemma 4 reasoning EVEN WITH a hard
+        `--reasoning-budget 1024` on the CLI — superseding the 2026-07-04 note that it
+        worked only without one. We now deliberately EMIT that cap for every local model
+        (the base switch bundle): if a template ignores the toggle, the cap still bounds
+        runaway thinking — the layers compose safely both ways. A generic
+        `openai-compat` server keeps the conservative on→enable_thinking / off→nothing:
+        we don't own its chat template, so we don't force `false` on it. OpenAI-family
+        clouds take the `reasoning_effort` body param."""
         if self.provider_type == "local-llamacpp":
             body.setdefault("chat_template_kwargs", {})["enable_thinking"] = think
             return

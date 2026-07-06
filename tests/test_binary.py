@@ -138,3 +138,56 @@ def test_acquire_docker_raises(tmp_path):
     m = default_config()
     with pytest.raises(NotImplementedError):
         binmod.acquire_binary(tmp_path, m, _hw("linux", {"cuda": True}))
+
+
+# ── A3: per-variant layout + the installed-builds probe ───────────────────────
+
+def test_acquire_unpacks_into_variant_dir(monkeypatch, tmp_path):
+    # New installs land in <build>/<gpu>/ so variants coexist for the spawn chain.
+    m = default_config()
+    hw = _hw("windows", {"cuda": True})
+    monkeypatch.setattr(binmod, "stream_download", _make_stream([], "llama-server.exe"))
+    exe = binmod.acquire_binary(tmp_path, m, hw)
+    assert exe.is_relative_to(binmod.variant_dir(tmp_path, m.llamacpp.pinned_build, "cuda12"))
+
+
+def test_acquire_gpu_override_installs_specific_variant(monkeypatch, tmp_path):
+    # The engine install plants fallbacks via gpu=...; each lands in ITS OWN dir.
+    m = default_config()
+    hw = _hw("windows", {"cuda": True})
+    monkeypatch.setattr(binmod, "stream_download", _make_stream([], "llama-server.exe"))
+    exe = binmod.acquire_binary(tmp_path, m, hw, gpu="cpu")
+    assert exe.is_relative_to(binmod.variant_dir(tmp_path, m.llamacpp.pinned_build, "cpu"))
+    # and the selected build's probe still reports nothing (cpu ≠ selected cuda12)
+    assert binmod.acquired_server_exe(tmp_path, m, hw) is None
+
+
+def test_acquired_server_exes_orders_and_single_attributes(tmp_path):
+    # Legacy pre-variant install at the BUILD ROOT counts ONLY for the selected
+    # asset; variant dirs count for their own gpu key; order = _gpu_preference.
+    m = default_config()
+    hw = _hw("windows", {"cuda": True, "vulkan": True})
+    build = m.llamacpp.pinned_build
+    root = binmod.binary_dir(tmp_path, build)
+    root.mkdir(parents=True)
+    (root / "llama-server.exe").write_bytes(b"MZ legacy")          # legacy root install
+    for gpu in ("vulkan", "cpu"):
+        d = binmod.variant_dir(tmp_path, build, gpu)
+        d.mkdir(parents=True)
+        (d / "llama-server.exe").write_bytes(b"MZ " + gpu.encode())
+    got = binmod.acquired_server_exes(tmp_path, m, hw)
+    assert [g for g, _ in got] == ["cuda12", "vulkan", "cpu"]      # preference order
+    assert got[0][1] == root / "llama-server.exe"                  # legacy → selected only
+    assert got[1][1] == binmod.variant_dir(tmp_path, build, "vulkan") / "llama-server.exe"
+
+
+def test_legacy_root_not_attributed_to_unselected_variants(tmp_path):
+    # ONE legacy exe must not satisfy every variant — else the chain would "retry"
+    # the same broken binary under three names.
+    m = default_config()
+    hw = _hw("windows", {"cuda": True, "vulkan": True})
+    root = binmod.binary_dir(tmp_path, m.llamacpp.pinned_build)
+    root.mkdir(parents=True)
+    (root / "llama-server.exe").write_bytes(b"MZ legacy")
+    got = binmod.acquired_server_exes(tmp_path, m, hw)
+    assert [g for g, _ in got] == ["cuda12"]

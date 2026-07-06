@@ -175,10 +175,13 @@ one of them.
   deliberately not auto-routed to Vulkan (an iGPU is usually slower than CPU for LLM inference,
   and Arc-discrete vs iGPU is hard to tell apart). An Intel Arc user picks the Vulkan build in
   the editable panel; a future `_intel_dgpu_present()` could auto-route Arc.
-- **Spawn-time backend retry chain.** "ROCm first, Vulkan fallback" is delivered at *detection*
+- **Spawn-time backend retry chain.** ~~"ROCm first, Vulkan fallback" is delivered at *detection*
   time (don't pick ROCm unless its runtime is present); there is no runtime retry if the chosen
   build fails to *spawn*. A spawn-fail → next-candidate loop in `lifecycle._run_load` would
-  harden the tail.
+  harden the tail.~~ **✅ SHIPPED 2026-07-06 (ledger A3, the A–E batch)** — per-variant binary
+  layout + install plants the fallback builds (selected + cpu, + vulkan on a rocm pick) +
+  `_spawn_router_with_fallback` walks installed candidates on a launch failure. Full design:
+  `2026-07-06-a-to-e-execution.md` §A3.
 - **Linux CUDA has no prebuilt archive.** llama.cpp ships Linux CUDA only as a container image,
   so `linux/cuda` stays a `source="docker"` row and `acquire_binary` raises a clear
   NotImplementedError. Wiring the container path is a separate feature.

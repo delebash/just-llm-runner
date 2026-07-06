@@ -24,7 +24,7 @@ from dataclasses import fields as _dc_fields, replace as _dc_replace
 
 from .arbiter import get_arbiter as _get_arbiter
 from .binary import acquire_binary as _acquire_binary
-from .binary import acquired_server_exe, binary_dir, select_binary
+from .binary import acquired_server_exe, acquired_server_exes, binary_dir, select_binary
 from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect, max_vram_mb as _hw_max_vram
@@ -35,6 +35,7 @@ from .process import (
     ModelIniEntry,
     Overrides,
     RouterHandle,
+    RunnerStartError,
     _BACKOFF_STEP,
     _looks_like_oom,
     _tail_file,
@@ -292,6 +293,7 @@ class RunnerService:
         embedding_ids_fn=_default_embedding_ids_fn,
         acquire_binary=_acquire_binary,
         acquired_exe=acquired_server_exe,
+        acquired_exes=acquired_server_exes,
         acquire_model=_acquire_model,
         read_meta=_read_gguf_metadata,
         start_router=_start_router,
@@ -312,6 +314,7 @@ class RunnerService:
         self._embedding_ids_fn = embedding_ids_fn
         self._acquire_binary = acquire_binary
         self._acquired_exe = acquired_exe
+        self._acquired_exes = acquired_exes
         self._acquire_model = acquire_model
         self._read_meta = read_meta
         self._start_router = start_router
@@ -337,6 +340,10 @@ class RunnerService:
         self._download_state = _download_idle()
         self._download_thread = None
         self._last_log_path = None
+        # A3: the binary the CURRENT router actually launched with. A fallback
+        # spawn may differ from the preferred build; bounces must reuse the
+        # PROVEN exe, never re-try the broken preferred one mid-session.
+        self._active_server_exe = None
 
     @property
     def cache_root(self) -> Path:
@@ -686,6 +693,24 @@ class RunnerService:
                 self._engine_state["total"] = total or 0
 
             self._acquire_binary(self.cache_root, config, hardware, on_progress=_progress)
+            # A3: plant the spawn-fallback safety net. The CPU build is the universal
+            # last resort; on a ROCm pick, Vulkan too (the recorded rocm→vulkan→cpu
+            # chain). BEST-EFFORT: a failed extra never fails the install — the
+            # selected build above is the one that gates "installed".
+            selected = select_binary(config, hardware)
+            extras: list[str] = []
+            if selected is not None and selected.gpu != "cpu":
+                if selected.gpu == "rocm":
+                    extras.append("vulkan")
+                extras.append("cpu")
+            for gpu in extras:
+                try:
+                    self._engine_state["detail"] = f"fallback build ({gpu})"
+                    self._acquire_binary(self.cache_root, config, hardware,
+                                         on_progress=_progress, gpu=gpu)
+                except Exception:  # noqa: BLE001 — the net is a bonus, never a blocker
+                    log.warning("fallback build %s failed to install (spawn chain will "
+                                "have fewer candidates)", gpu, exc_info=True)
             self._engine_state = {"status": "installed", "detail": "", "error": "",
                                   "downloaded": 0, "total": 0}
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
@@ -955,7 +980,9 @@ class RunnerService:
 
     def _spawn_router(self, server_exe, config) -> None:
         """Spawn the long-lived router from the just-emitted `.ini` (models_max + idle-TTL
-        from the DB config). Caller holds `_router_lock` and has emitted the `.ini`."""
+        from the DB config). Caller holds `_router_lock` and has emitted the `.ini`.
+        On success the exe becomes the session's PROVEN binary (`_active_server_exe`) —
+        bounces reuse it rather than re-trying a preferred build that failed to launch."""
         log_path = self._router_log_path()
         self._last_log_path = log_path
         self._router = self._start_router(
@@ -965,6 +992,42 @@ class RunnerService:
             models_max=config.models_max,
             sleep_idle_seconds=config.sleep_idle_seconds,
             host=DEFAULT_HOST, port=DEFAULT_PORT, log_path=log_path,
+        )
+        self._active_server_exe = server_exe
+
+    def _spawn_router_with_fallback(self, server_exe, config):
+        """A3: spawn the router, chaining across INSTALLED builds when the preferred
+        binary fails to LAUNCH (bad driver/runtime → `RunnerStartError`, e.g. a CUDA
+        build on a box whose CUDA runtime is broken). Candidates come from
+        `acquired_server_exes` — builds ALREADY on disk in preference order (rocm →
+        vulkan → cpu after the CUDA keys); a load NEVER downloads an engine
+        (decision A, the 2026-07-02 install/load split). Returns the exe that
+        actually launched. All candidates failing raises ONE `RunnerStartError`
+        aggregating each backend's own reason (each already carries its exit code +
+        log tail from the spawn diagnostics). Caller holds `_router_lock`."""
+        candidates: list[tuple[str, object]] = [("preferred", server_exe)]
+        try:
+            installed = self._acquired_exes(self._cache_root, self._config_fn(), self._hardware_fn())
+        except Exception:  # noqa: BLE001 — the probe must never kill the load path
+            installed = []
+        for gpu, exe in installed:
+            if str(exe) != str(server_exe):
+                candidates.append((gpu, exe))
+        errors: list[str] = []
+        for idx, (gpu, exe) in enumerate(candidates):
+            try:
+                self._spawn_router(exe, config)
+            except RunnerStartError as e:
+                errors.append(f"[{gpu}] {e}")
+                log.warning("router spawn failed on %s build (%s) — trying next installed backend",
+                            gpu, exe)
+                continue
+            if idx > 0:
+                log.warning("router running on FALLBACK backend %s (%s); the preferred build "
+                            "failed to launch — see the engine log", gpu, exe)
+            return exe
+        raise RunnerStartError(
+            "the engine failed to launch on every installed backend:\n" + "\n".join(errors)
         )
 
     def _bounce_router(self, server_exe, config) -> None:
@@ -990,13 +1053,18 @@ class RunnerService:
 
     def _load_via_router(self, entry: ModelIniEntry, fit, server_exe, config) -> None:
         """Ensure the router is up with `entry`'s section present, then load the model by
-        id with a router-level OOM back-off. Caller holds `_router_lock`."""
+        id with a router-level OOM back-off. Caller holds `_router_lock`. A fresh spawn
+        goes through the A3 fallback chain; once ANY binary is proven (this spawn or an
+        earlier one), that exe is what bounces/backoffs reuse — a broken preferred build
+        is never re-tried mid-session (it would knock down every healthy resident)."""
         router_up = self._router is not None and self._router.is_alive()
         _, changed = self._emit_ini(override=entry)
         if not router_up:
-            self._spawn_router(server_exe, config)
-        elif changed:
-            self._bounce_router(server_exe, config)
+            server_exe = self._spawn_router_with_fallback(server_exe, config)
+        else:
+            server_exe = self._active_server_exe or server_exe
+            if changed:
+                self._bounce_router(server_exe, config)
         self._router_load_with_backoff(entry, fit, server_exe, config)
 
     def _confirm_load(self, model_id: str) -> str:

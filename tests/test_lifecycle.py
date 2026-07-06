@@ -32,7 +32,7 @@ def _fake_router(url="http://127.0.0.1:8080", alive=True):
 def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
                  router_unload=None, router_models=None, now=None, sleep=None,
                  identify_fn=None, switches_fn=None, profile_switches_fn=None,
-                 embedding_ids_fn=None, arbiter=None):
+                 embedding_ids_fn=None, arbiter=None, acquired_exes=None):
     """A RunnerService with the router + download IO injected. Every catalog model is
     seeded into a fake HF cache (`<root>/hf/models--<repo>/snapshots/sha/<file>.gguf`)
     so both `cached_gguf_path` (the .ini emitter) and the injected `acquire_model`
@@ -55,6 +55,8 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         return {"object": "list", "data": [{"id": m.id, "status": {"value": "loaded"}} for m in models]}
 
     kw = {}
+    if acquired_exes is not None:
+        kw["acquired_exes"] = acquired_exes
     if identify_fn is not None:
         kw["identify_fn"] = identify_fn
     if switches_fn is not None:
@@ -128,6 +130,91 @@ def test_start_failure_surfaces_as_error(tmp_path):
     svc.load(_TEST_MODEL.id)
     svc._thread.join(timeout=5)
     assert svc.status()["status"] == "error"
+
+
+# ── A3: spawn-time backend fallback chain ─────────────────────────────────────
+
+def _chain_fixture(tmp_path, *, fail_exes, exes, catalog=None):
+    """A service whose preferred binary(s) raise RunnerStartError at spawn while
+    the rest launch. `exes` = [(gpu, Path)] the installed-builds probe reports;
+    the default `acquired_exe` (tmp_path/'llama-server') is the PREFERRED one."""
+    from llm_runner.runner.process import RunnerStartError
+
+    attempts = []
+
+    def start(exe, **k):
+        attempts.append(str(exe))
+        if str(exe) in {str(x) for x in fail_exes}:
+            raise RunnerStartError(f"failed to become healthy (exit=3221225781): {exe}")
+        return _fake_router()
+
+    svc = _service_for(tmp_path, start_router=start, catalog=catalog,
+                       acquired_exes=lambda *a, **k: list(exes))
+    return svc, attempts
+
+
+def test_spawn_fallback_takes_next_installed_backend(tmp_path):
+    preferred = tmp_path / "llama-server"                    # what acquired_exe returns
+    cpu_exe = tmp_path / "llamacpp" / "b" / "cpu" / "llama-server"
+    svc, attempts = _chain_fixture(
+        tmp_path, fail_exes=[preferred],
+        exes=[("cuda12", preferred), ("cpu", cpu_exe)],
+    )
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"               # rescued by the chain
+    assert attempts == [str(preferred), str(cpu_exe)]        # preferred first, then fallback
+    assert str(svc._active_server_exe) == str(cpu_exe)       # the PROVEN exe is remembered
+
+
+def test_spawn_fallback_all_fail_aggregates_reasons(tmp_path):
+    preferred = tmp_path / "llama-server"
+    cpu_exe = tmp_path / "llamacpp" / "b" / "cpu" / "llama-server"
+    svc, attempts = _chain_fixture(
+        tmp_path, fail_exes=[preferred, cpu_exe],
+        exes=[("cuda12", preferred), ("cpu", cpu_exe)],
+    )
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    st = svc.status()
+    assert st["status"] == "error"
+    assert "every installed backend" in st["error"]
+    assert "[preferred]" in st["error"] and "[cpu]" in st["error"]
+    assert attempts == [str(preferred), str(cpu_exe)]
+
+
+def test_bounce_after_fallback_reuses_proven_exe(tmp_path):
+    # After a fallback spawn, an .ini-changing second load bounces the router —
+    # with the PROVEN exe, never re-trying the broken preferred build (which
+    # would knock down every healthy resident just to fail again).
+    import shutil as _sh
+
+    second = ModelEntry(id="second-model", name="second", tier="mid",
+                        hf_repo="org/second", quant="Q4_K_M")
+    preferred = tmp_path / "llama-server"
+    cpu_exe = tmp_path / "llamacpp" / "b" / "cpu" / "llama-server"
+    svc, attempts = _chain_fixture(
+        tmp_path, fail_exes=[preferred],
+        exes=[("cuda12", preferred), ("cpu", cpu_exe)],
+        catalog=[_TEST_MODEL, second],
+    )
+    # Hide the second model's weights for load #1 so its .ini section doesn't
+    # exist yet — load #2 then CHANGES the .ini and takes the bounce path.
+    second_snap = tmp_path / "hf" / "models--org--second" / "snapshots" / "sha"
+    _sh.rmtree(second_snap.parent.parent)
+
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+
+    second_snap.mkdir(parents=True)
+    (second_snap / "model-Q4_K_M.gguf").write_bytes(b"x" * 1024)
+    svc.load(second.id)
+    svc._thread.join(timeout=5)
+    assert svc._resident[second.id]["status"] == "running"
+    assert str(preferred) not in attempts[2:], f"broken preferred exe re-tried: {attempts}"
+    assert len(attempts) == 3, f"expected a bounce respawn: {attempts}"
+    assert attempts[-1] == str(cpu_exe)  # the bounce respawned with the proven exe
 
 
 def test_load_without_engine_errors(tmp_path):
@@ -1104,3 +1191,47 @@ def test_passive_section_strips_spec_when_draft_not_cached(tmp_path):
     assert "spec-type" not in passive
     assert "spec-draft-n-max" not in passive
     assert "model-draft" not in passive
+
+
+def test_run_install_plants_fallback_builds(tmp_path):
+    # A3: the engine install plants the spawn-chain safety net — selected build
+    # first (gpu=None), then vulkan (because the pick is rocm), then cpu.
+    from llm_runner import default_config
+
+    calls = []
+
+    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None):
+        calls.append(gpu)
+        return tmp_path / "x"
+
+    hw_rocm = HardwareInfo(os="linux", platform="linux", cpu_cores=8, ram_mb=32000,
+                           gpus=[], runtimes={"rocm": True, "vulkan": True})
+    svc = RunnerService(tmp_path, config_fn=default_config, hardware_fn=lambda: hw_rocm,
+                        acquire_binary=spy, arbiter=VramArbiter())
+    svc.install_engine()
+    svc._engine_thread.join(timeout=5)
+    assert calls == [None, "vulkan", "cpu"]
+    assert svc._engine_state["status"] == "installed"
+
+
+def test_run_install_extra_failure_is_best_effort(tmp_path):
+    # A failed EXTRA never fails the install — the selected build gates "installed".
+    from llm_runner import default_config
+
+    calls = []
+
+    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None):
+        calls.append(gpu)
+        if gpu == "cpu":
+            raise RuntimeError("mirror down")
+        return tmp_path / "x"
+
+    hw_cuda = HardwareInfo(os="windows", platform="windows", cpu_cores=8, ram_mb=32000,
+                           gpus=[GpuInfo(vendor="NVIDIA", name="RTX 2070 SUPER", vram_mb=8192)],
+                           runtimes={"cuda": True})
+    svc = RunnerService(tmp_path, config_fn=default_config, hardware_fn=lambda: hw_cuda,
+                        acquire_binary=spy, arbiter=VramArbiter())
+    svc.install_engine()
+    svc._engine_thread.join(timeout=5)
+    assert calls == [None, "cpu"]  # NVIDIA pick → cpu is the only extra
+    assert svc._engine_state["status"] == "installed"

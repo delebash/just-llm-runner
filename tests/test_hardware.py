@@ -48,15 +48,20 @@ def _no_nvidia(monkeypatch, plat="linux", scan=None):
 
 
 def test_detect_amd_rocm_first(monkeypatch):
-    # Legacy presence-sniff arm (empty scan): behavior identical to pre-scan code.
+    # Legacy presence-sniff arm (empty scan). Both capability FACTS are recorded
+    # (the A3 chain needs the truthful vulkan candidate); SELECTION still prefers
+    # rocm — _gpu_preference orders it first (the 2026-07-01 preference decision).
+    from llm_runner.runner.binary import _gpu_preference
+
     _no_nvidia(monkeypatch)
     monkeypatch.setattr(hw, "_amd_gpu_present", lambda: True)
     monkeypatch.setattr(hw, "_rocm_available", lambda: True)
     monkeypatch.setattr(hw, "_vulkan_available", lambda: True)
     info = hw.detect()
     assert info.runtimes.get("rocm") is True
-    assert "vulkan" not in info.runtimes  # ROCm wins when present
+    assert info.runtimes.get("vulkan") is True  # a fact of the box, not a selection
     assert "cuda" not in info.runtimes
+    assert _gpu_preference(info) == ["rocm", "vulkan", "cpu"]  # ROCm still wins selection
 
 
 def test_detect_amd_vulkan_fallback(monkeypatch):
@@ -168,6 +173,8 @@ def test_detect_intel_igpu_stays_cpu(monkeypatch):
 
 
 def test_detect_amd_wins_over_intel_arc(monkeypatch):
+    from llm_runner.runner.binary import _gpu_preference
+
     rows = [
         GpuInfo(vendor="AMD", name="Radeon RX 7800 XT", vram_mb=16384),
         GpuInfo(vendor="Intel", name="Intel(R) Arc(TM) B580 Graphics", vram_mb=12288),
@@ -176,5 +183,9 @@ def test_detect_amd_wins_over_intel_arc(monkeypatch):
     monkeypatch.setattr(hw, "_rocm_available", lambda: True)
     monkeypatch.setattr(hw, "_vulkan_available", lambda: True)
     info = hw.detect()
-    assert info.runtimes.get("rocm") is True  # AMD branch keeps precedence (elif chain)
-    assert "vulkan" not in info.runtimes
+    # The AMD branch keeps precedence (elif chain): rocm recorded, vulkan too (both
+    # are FACTS of the box — the A3 chain needs the truthful vulkan candidate) — and
+    # SELECTION still puts rocm first.
+    assert info.runtimes.get("rocm") is True
+    assert info.runtimes.get("vulkan") is True
+    assert _gpu_preference(info)[0] == "rocm"

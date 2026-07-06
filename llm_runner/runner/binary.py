@@ -71,8 +71,16 @@ def select_binary(config: RunnerConfig, hardware: HardwareInfo) -> BinaryAsset |
 
 
 def binary_dir(cache_root: Path, build: str) -> Path:
-    """Where an unpacked build lives (caller supplies the cache root)."""
+    """Where a build's unpacked variants live (caller supplies the cache root)."""
     return cache_root / "llamacpp" / build
+
+
+def variant_dir(cache_root: Path, build: str, gpu: str) -> Path:
+    """Where ONE gpu-variant of a build unpacks (A3): `<build>/<gpu>/`. Multiple
+    variants coexist so the spawn fallback chain has something to chain TO.
+    Installs made before this layout landed live at the BUILD root — probes treat
+    a root-level exe as the SELECTED asset's (legacy back-compat, never removed)."""
+    return binary_dir(cache_root, build) / gpu
 
 
 def _find_server_exe(root: Path, exe_name: str) -> Path | None:
@@ -85,13 +93,61 @@ def _find_server_exe(root: Path, exe_name: str) -> Path | None:
     return None
 
 
+def _find_variant_exe(
+    cache_root: Path, config: RunnerConfig, asset: BinaryAsset, *, legacy_root: bool
+) -> Path | None:
+    """An asset's installed exe: its variant dir first; optionally the legacy build
+    root (pre-variant-layout installs — attributed ONLY to the selected asset, so
+    one legacy exe never counts as every variant)."""
+    build = config.llamacpp.pinned_build
+    exe = _find_server_exe(variant_dir(cache_root, build, asset.gpu), asset.server_exe)
+    if exe is None and legacy_root:
+        root = binary_dir(cache_root, build)
+        direct = root / asset.server_exe
+        if direct.is_file():
+            exe = direct
+        else:
+            # root-level legacy install: search WITHOUT descending into variant dirs
+            # (a variant exe belongs to its own gpu key, not the legacy slot).
+            variants = {b.gpu for b in config.llamacpp.binaries}
+            for found in root.rglob(asset.server_exe):
+                if found.is_file() and not any(part in variants for part in found.relative_to(root).parts[:1]):
+                    exe = found
+                    break
+    return exe
+
+
 def acquired_server_exe(
     cache_root: Path, config: RunnerConfig, hardware: HardwareInfo
 ) -> Path | None:
     asset = select_binary(config, hardware)
     if asset is None:
         return None
-    return _find_server_exe(binary_dir(cache_root, config.llamacpp.pinned_build), asset.server_exe)
+    return _find_variant_exe(cache_root, config, asset, legacy_root=True)
+
+
+def acquired_server_exes(
+    cache_root: Path, config: RunnerConfig, hardware: HardwareInfo
+) -> list[tuple[str, Path]]:
+    """Every INSTALLED build variant as (gpu_key, exe), in `_gpu_preference` order —
+    the spawn fallback chain (A3) walks this list. It only ever REPORTS what is on
+    disk; it never downloads (a load must not install — the engine-install split,
+    decision A of the 2026-07-02 plan). The legacy build-root exe counts only for
+    the SELECTED asset (single attribution)."""
+    selected = select_binary(config, hardware)
+    by_gpu = {b.gpu: b for b in config.llamacpp.binaries if b.platform == hardware.platform}
+    out: list[tuple[str, Path]] = []
+    for gpu in _gpu_preference(hardware):
+        asset = by_gpu.get(gpu)
+        if asset is None:
+            continue
+        exe = _find_variant_exe(
+            cache_root, config, asset,
+            legacy_root=selected is not None and asset.gpu == selected.gpu,
+        )
+        if exe is not None:
+            out.append((gpu, exe))
+    return out
 
 
 def _unpack(archive: Path, dest: Path) -> None:
@@ -117,22 +173,41 @@ def acquire_binary(
     hardware: HardwareInfo,
     on_progress: Callable[[int, int | None], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    gpu: str | None = None,
 ) -> Path:
     """Ensure llama-server is on disk for the detected hardware; return path.
 
-    Idempotent. Downloads + unpacks the github asset (`.zip` or `.tar.gz`); if
-    the asset declares a `runtime_url` companion (the Windows CUDA cudart DLLs)
-    it is fetched + unpacked into the SAME dir so the exe can launch. Docker
-    sources raise (Linux CUDA via docker is a later item).
+    Idempotent. Downloads + unpacks the github asset (`.zip` or `.tar.gz`) into
+    the asset's VARIANT dir (`<build>/<gpu>/` — variants coexist for the A3 spawn
+    fallback chain; a pre-variant install at the build root still satisfies the
+    SELECTED asset); if the asset declares a `runtime_url` companion (the Windows
+    CUDA cudart DLLs) it is fetched + unpacked into the SAME dir so the exe can
+    launch. `gpu` overrides selection to install a SPECIFIC variant (the engine
+    install uses it to plant the CPU/Vulkan fallbacks). Docker sources raise
+    (Linux CUDA via docker is a later item).
     """
-    asset = select_binary(config, hardware)
+    if gpu is None:
+        asset = select_binary(config, hardware)
+    else:
+        asset = next(
+            (b for b in config.llamacpp.binaries
+             if b.platform == hardware.platform and b.gpu == gpu),
+            None,
+        )
     if asset is None:
-        raise RuntimeError(f"no llama.cpp binary configured for platform={hardware.platform}")
+        raise RuntimeError(
+            f"no llama.cpp binary configured for platform={hardware.platform}"
+            + (f" gpu={gpu}" if gpu else "")
+        )
 
-    dest = binary_dir(cache_root, config.llamacpp.pinned_build)
-    existing = _find_server_exe(dest, asset.server_exe)
+    selected = select_binary(config, hardware)
+    existing = _find_variant_exe(
+        cache_root, config, asset,
+        legacy_root=selected is not None and asset.gpu == selected.gpu,
+    )
     if existing is not None:
         return existing
+    dest = variant_dir(cache_root, config.llamacpp.pinned_build, asset.gpu)
 
     if asset.source == "docker" or not asset.asset_url:
         raise NotImplementedError(

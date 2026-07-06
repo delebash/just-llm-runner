@@ -175,7 +175,22 @@ detect() monkeypatched matrix — AMD scan row → rocm-else-vulkan; Arc row →
 name) → NO gpu runtime; AMD+Arc together → AMD branch wins (elif chain, unchanged precedence); empty scan +
 legacy `_amd_gpu_present()` True → today's runtime-only behavior; NVIDIA fast-path untouched (existing tests
 keep passing); machine_key over a scanned AMD row.
-- **A3 — spawn-time backend retry chain: DESIGNED (below), implementing.**
+- **A3 — spawn-time backend retry chain: ✅ SHIPPED + VERIFIED (2026-07-06; design below including the
+  mid-implementation runtimes amendment, implemented as designed).** What shipped: per-variant binary
+  layout (`variant_dir` `<build>/<gpu>/`; legacy build-root installs still found, attributed ONLY to the
+  selected asset — the user's existing RTX 2070 install keeps working untouched);
+  `acquire_binary(gpu=…)` variant override; `acquired_server_exes` (installed builds in preference
+  order); the engine install plants the safety net (selected + cpu, + vulkan when the pick is rocm —
+  extras BEST-EFFORT, never fail the install); `_spawn_router_with_fallback` walks installed candidates
+  on `RunnerStartError`, remembers the PROVEN exe (`_active_server_exe`), and aggregates every backend's
+  reason (each already carrying exit code + log tail from the P1 spawn diagnostics) when all fail;
+  bounces/backoffs reuse the proven exe so a broken preferred build is never re-tried mid-session; the
+  AMD detect arm now records BOTH rocm+vulkan capability facts (selection unchanged — see the amendment).
+  Verified: ruff clean · 9 new tests (4 binary layout/probe + 3 chain incl. the bounce-reuses-proven-exe
+  and all-fail-aggregation paths + 2 install-extras incl. best-effort failure) · full suite 331 → **340
+  passed** · all 77 pre-existing lifecycle/binary tests untouched and green (back-compat held). The
+  chain's REAL rescue on a broken-CUDA box is a your-box check (G3 companion — the next failing load
+  self-reports AND, after a re-install plants the cpu fallback, auto-rescues to CPU).
 
 ### A3 design (written before implementation)
 
@@ -227,6 +242,16 @@ insertion point is the INITIAL router spawn, not the backoff.
   a failure there is a different disease and must surface, not be masked by a backend switch).
 - Engine status is UNCHANGED (installed = the selected build present — the extras are a bonus, their
   absence never flips the panel).
+- **Mid-implementation design amendment (recorded 2026-07-06, found by walking the chain end-to-end):**
+  `detect()`'s AMD arm used to set `rocm` OR `vulkan` EXCLUSIVELY — but `_gpu_preference` is
+  runtime-gated, so on a ROCm box the chain would never list an installed Vulkan build (the literal
+  rocm→vulkan→cpu chain could not exist). Fix: the AMD arm now records BOTH capability facts
+  (`rocm` and `vulkan`, each when actually present) — `runtimes` is a statement of what the box can do,
+  not a selection. SELECTION is untouched: `_gpu_preference` orders rocm before vulkan, so the chosen
+  build on a ROCm box is identical to before — the recorded 2026-07-01 "prefer ROCm/HIP when present,
+  else Vulkan" decision is a PREFERENCE and stays honored; only the fallback chain gains the truthful
+  vulkan candidate. (`test_detect_amd_rocm_first` updates from "vulkan absent" to "selection still
+  prefers rocm" — the old assertion pinned exclusivity, which was never the decision's meaning.)
 
 **Tests:** binary — `acquired_server_exes` ordering + variant dirs + legacy-root single-attribution +
 `acquire_binary(gpu=…)` unpacking into the variant dir; lifecycle — chain success on the second candidate
@@ -234,7 +259,61 @@ insertion point is the INITIAL router spawn, not the backoff.
 remembered exe is B, and a subsequent ini-change bounce uses B), all-candidates-fail aggregates per-backend
 reasons into the error state, single-candidate behavior identical to today; install — `_run_install` call
 list = selected(+vulkan when rocm)+cpu with extras best-effort (a failing extra leaves status installed).
-- **A4 — Linux CUDA engine install (docker route):** NOT STARTED.
+- **A4 — Linux CUDA engine install (docker route): DESIGNED (below) — with a load-bearing upstream
+  discovery that RE-SCOPES it; implementing the re-scoped form; the scope change is SURFACED to the user
+  in the batch report (rule: never silently override a recorded item).**
+
+### A4 design (written before implementation)
+
+**Grounding — our side:** the linux/cuda12 config row is `source: "docker"` with
+`image: ghcr.io/ggml-org/llama.cpp:server-cuda12-<build>` (`config.py:81-84`); `acquire_binary` refuses
+docker sources with `NotImplementedError` (`binary.py`, corroborated by the test asserting the raise).
+TODAY'S REAL FAILURE: a Linux + NVIDIA box selects that docker row (preference `cuda12` first) → install
+raises → the box gets NO engine at all — not even the CPU build — because the selected build gates the
+install. The user's own boxes are Windows; this path serves future Linux users.
+
+**Grounding — upstream (web-verified live this session, registry probes through the proxy):**
+1. The official docs (`docs/docker.md`, master) list SERVER images `ghcr.io/ggml-org/llama.cpp:server-cuda`
+   and `:server-cuda13` (+ vulkan/intel/musa/rocm variants), `--gpus all`, nvidia-container-toolkit
+   required, entrypoint = llama-server (args append).
+2. ghcr manifest probes (anonymous pull token): the ROLLING tags exist (`server-cuda` → 200,
+   `server-cuda13` → 200); the per-build tag scheme that USED to exist (`server-cuda-b4721`,
+   `server-cuda-b4726`, `server-cuda-b4729` — visible in the registry's own tags/list) was DISCONTINUED:
+   every probe across the pinned build's range 404s (`server-cuda-b9600`/`-b9643`/`-b9644`/`-b9645`/
+   `-b9650`/`-b9700`, plus `server-cuda12-b9644` and `server-cuda13-b9644`). **There is NO pin-faithful
+   b9644 container image, and our config's `server-cuda12-b9644` tag NEVER existed** (the 2026-07-01
+   config verification covered release ASSETS, not ghcr tags — this row's tag was never checked until
+   now).
+
+**The consequence (why the item re-scopes):** the b9644 PIN is a central recorded decision — every
+switch/preset/tune fact is grounded against that exact build (the `.ini` parser semantics were verified
+at b9644 source). Wiring the docker route on a ROLLING tag would hand Linux-CUDA users an engine that
+silently tracks master — the exact drift this project's pin exists to prevent. Pinning by DIGEST is the
+correct container mechanism, but no b9644 digest is discoverable today (the rolling tag points at
+current master; the b9644-era digest is not enumerable without its deleted tag). So the pin-faithful
+container path is IMPOSSIBLE for the current pin, not merely unbuilt.
+
+**Re-scoped A4 (what ships now):**
+1. `detect()` also records the `vulkan` capability fact on Linux NVIDIA boxes (same facts-not-selection
+   principle as the AMD amendment) so the preference chain there reads cuda → vulkan → cpu.
+2. `select_binary` skips assets whose source is not installable today (`source == "docker"`) — a Linux +
+   NVIDIA box now selects the REAL, PINNED `linux/vulkan` b9644 archive (Vulkan runs on NVIDIA drivers)
+   with cpu below it, instead of dead-ending. Windows/macOS selection is untouched (all their rows are
+   github assets).
+3. The docker arm's `NotImplementedError` message becomes the truthful current state (no pin-faithful
+   image published for this build; Linux NVIDIA uses the Vulkan build; the container route returns when
+   a digest-pinned image can be captured).
+4. The config row STAYS as the future seam but its fabricated tag is corrected to the rolling name with
+   a comment carrying this evidence (an editable-panel user can see what it would be).
+5. **Recorded procedure for the NEXT pin bump (the future A4-full):** at bump time, while the rolling
+   tag still points at the new pin's build, resolve + record `server-cuda@sha256:<digest>` into the
+   config row — THEN the container spawn path (docker run --rm --gpus all --network host, same-path
+   volume mount of the cache root so `.ini` paths stay valid, argv-prefix spawn through the same
+   start_router seam) becomes buildable pin-faithfully. That build happens then, not now.
+
+**Tests:** linux+NVIDIA(+vulkan loader) detect fact; selection lands on `linux/vulkan` (docker row
+skipped) and on `cpu` when no vulkan loader; the docker raise still fires with the new message when a
+docker asset is FORCED (gpu override); Windows selection unchanged.
 - **C1 — json_schema / GBNF structured output:** NOT STARTED.
 - **E2 — vitest harness:** NOT STARTED.
 - **C3 — shared AI task queue → kit:** NOT STARTED.

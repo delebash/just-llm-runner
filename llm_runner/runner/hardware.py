@@ -341,13 +341,16 @@ def detect() -> HardwareInfo:
         amd = [g for g in scanned if g.vendor == "AMD"]
         intel = [g for g in scanned if g.vendor == "Intel"]
         if amd or (not scanned and _amd_gpu_present()):
-            # ROCm/HIP first (best perf when its runtime is installed), else Vulkan
-            # as the universal GPU fallback (user decision 2026-07-01). The empty-scan
-            # arm keeps the legacy name-sniff as a last resort (runtime-only, no row)
-            # so no environment detects LESS than before the scan existed.
+            # Record BOTH capability facts when present — `runtimes` states what the
+            # box can do; SELECTION prefers ROCm via `_gpu_preference` order (the
+            # 2026-07-01 "ROCm first, else Vulkan" decision — a preference, honored
+            # there). Both facts must exist so the A3 spawn chain can fall from a
+            # broken rocm build to an installed vulkan one. The empty-scan arm keeps
+            # the legacy name-sniff as a last resort (runtime-only, no row) so no
+            # environment detects LESS than before the scan existed.
             if _rocm_available():
                 runtimes["rocm"] = True
-            elif _vulkan_available():
+            if _vulkan_available():
                 runtimes["vulkan"] = True
         elif any(_INTEL_ARC_RE.search(g.name or "") for g in intel):
             # A2: Intel ARC discrete GPUs auto-route to the Vulkan build. iGPU-only

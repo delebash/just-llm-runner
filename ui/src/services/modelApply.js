@@ -66,6 +66,46 @@ export async function refreshApplied() {
   }
 }
 
+// D4-1 (a)+(c) preview (model-per-hardware plan Phase 2 + amendment A8) — the EXACT sets
+// `setAsDefault` will write, computed from the SAME `dominantOf`, so the wizard's confirm
+// changelist can never drift from the writer. `configured` = the box is NOT fresh: the task
+// presets are not all on one model, OR this machine has measured tune rows for a CURRENTLY-
+// POINTED model (A8: the current models, never the wizard's new pick — a box tuned for model
+// A with zero tunes for pick B must NOT read as fresh). The caller re-derives repointed/kept
+// against its live pick from `presets` + `dominant` (reactive), so this fetches once per open.
+// The ONE tune-awareness predicate (this module owns tune-adjacent reads the way it owns
+// dominantOf): does (modelId, THIS machine) have measured tune rows? Unreachable reads
+// count as "not tuned" — worst case is an extra sweep offer, never a blocked wizard.
+export async function modelHasTunes(modelId) {
+  try {
+    const t = await request(`/v1/ai/model-tunes?modelId=${encodeURIComponent(modelId)}`);
+    return (t.rows || []).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function applyPreview() {
+  const [asg, pr] = await Promise.all([
+    request("/v1/ai/preset-assignments"),
+    request("/v1/ai/engine-presets"),
+  ]);
+  const { dominant, taskPresets } = dominantOf(asg, pr.presets || []);
+  const presets = taskPresets.map((p) => ({ id: p.id, name: p.name || p.id, model: p.model || "" }));
+  const currentModels = [...new Set(presets.map((p) => p.model).filter(Boolean))];
+  let tunedCurrent = false;
+  for (const id of currentModels) {
+    if (await modelHasTunes(id)) { tunedCurrent = true; break; }
+  }
+  // HONEST OMISSION (recorded in the plan's Phase-2 record): the plan's third detection
+  // leg — "any preset model ≠ the factory seed default" — is NOT implemented; no
+  // client-readable factory-model source exists yet (the factory library lives server-
+  // side in configure_app_seed). The uncovered case: ALL presets uniformly re-pointed to
+  // one un-tuned non-factory model (itself the product of a prior one-click Apply) reads
+  // as fresh. Follow-up filed: expose the factory preset models, wire leg 3 here.
+  return { configured: currentModels.length > 1 || tunedCurrent, dominant, presets };
+}
+
 // Set `providerId`/`modelId` as the default on every task preset that still shares the PREVIOUS
 // dominant model (non-clobber: a preset the user re-pointed keeps its own model). Each preset
 // keeps ALL its per-task settings — the PUT sends `{...p, providerId, model}`, so only the

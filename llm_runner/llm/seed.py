@@ -28,7 +28,8 @@ _APP: dict = {"feature_catalog": [], "feature_prompts": {},
 
 def configure_app_seed(*, feature_catalog=None, feature_prompts=None,
                        engine_presets=None, taskkind_presets=None,
-                       feature_task_kinds=None) -> None:
+                       feature_task_kinds=None, model_catalog_extra=None,
+                       model_tunes_seed=None, hw_key_fn=None) -> None:
     """The host registers its feature DATA once at boot (install_llm does this):
     `feature_catalog` (list of FeatureCatalogEntry), `feature_prompts` (dict
     key→spec), and the ROUTING seed — `engine_presets` (the built-in preset library),
@@ -45,6 +46,18 @@ def configure_app_seed(*, feature_catalog=None, feature_prompts=None,
         _APP["taskkind_presets"] = list(taskkind_presets)
     if feature_task_kinds is not None:
         _APP["feature_task_kinds"] = dict(feature_task_kinds)
+    # Per-app extra catalog rows + the box tune seed are REGISTERED (not one-shot
+    # seeded) so `seed_llm` carries them on BOTH paths — boot AND the data-reset
+    # endpoint. (Found 2026-07-06: the old install-time-only seeding meant a
+    # POST /v1/data/reset silently LOST the app's extra rows + tunes while the
+    # presets kept pointing at the vanished ids — the "reset-proof seed data"
+    # promise only held for fresh-DB boots.)
+    if model_catalog_extra is not None:
+        _APP["model_catalog_extra"] = list(model_catalog_extra)
+    if model_tunes_seed is not None:
+        _APP["model_tunes_seed"] = list(model_tunes_seed)
+    if hw_key_fn is not None:
+        _APP["hw_key_fn"] = hw_key_fn
 
 
 def app_feature_catalog() -> list:
@@ -743,6 +756,12 @@ def seed_llm(s=None) -> None:
         seed_default_runner_settings(s)
         seed_default_knobs(s)
         seed_default_feature_prompts(s)
+        # The registered per-app extras (see configure_app_seed) — insert-if-missing,
+        # so user edits / Quick-tune saves are never clobbered by a reseed.
+        if _APP.get("model_catalog_extra"):
+            seed_extra_catalog(s, _APP["model_catalog_extra"])
+        if _APP.get("model_tunes_seed") and _APP.get("hw_key_fn"):
+            seed_model_tunes_if_missing(s, _APP["hw_key_fn"](), _APP["model_tunes_seed"])
         s.commit()
     finally:
         if own:

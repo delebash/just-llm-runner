@@ -26,7 +26,8 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import { request } from "../client.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { pickBestModel, pickLowestQuality, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
-import { setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
+import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
+import { confirmDialog } from "../common/services/dialog.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import AppModal from "../common/components/AppModal.vue";
@@ -44,20 +45,11 @@ const error = ref("");
 
 const hw = ref(null);
 const models = ref([]);
-const detectedVramMb = ref(0);
-// Card/VRAM override — re-scores Fit for a card other than this machine's.
-const cardOverride = ref("auto");
-const CARD_OPTIONS = [
-  { value: "auto", label: "This machine" },
-  { value: "0", label: "CPU only (no GPU)" },
-  { value: "8192", label: "8 GB card" },
-  { value: "12288", label: "12 GB card" },
-  { value: "16384", label: "16 GB card" },
-  { value: "24576", label: "24 GB card" },
-  { value: "32768", label: "32 GB card" },
-  { value: "49152", label: "48 GB card" },
-  { value: "65536", label: "64 GB card" },
-];
+// The "Plan for card" what-if selector was REMOVED (model-per-hardware plan Phase 2,
+// user decision #7): the wizard configures THIS machine — Apply always lands on the real
+// box, so a config planned for a hypothetical card never matched where it ran. The
+// hardware-class question moved to data (the class→model map); the server's vram_mb
+// query param survives for the power-user catalog view.
 
 // Editable pick: the one good LLM (`default`) + the embedding provider/model.
 // Pre-filled from Fit × quality, the default is overridable in the confirm step.
@@ -155,15 +147,13 @@ async function loadAll() {
   loading.value = true;
   error.value = "";
   try {
-    const vramQ = cardOverride.value === "auto" ? "" : `?vram_mb=${cardOverride.value}`;
     const [h, m] = await Promise.all([
       request("/v1/llm-runner/hardware"),
-      request(`/v1/llm-runner/models${vramQ}`),
+      request("/v1/llm-runner/models"),
       refreshCatalogMeta(), // shared catalog-meta maps (quality / use-limited / description)
     ]);
     hw.value = h;
     models.value = m.models || [];
-    detectedVramMb.value = (h.gpus && h.gpus[0]?.vramMb) || 0;
     prefillPick();
   } catch (e) {
     error.value = `Couldn't read hardware / catalog: ${e.message}`;
@@ -202,18 +192,34 @@ async function openWizard() {
   open.value = true;
   step.value = "detect";
   pick.value = { default: "", embeddingId: "", embeddingModel: "" };
-  await Promise.all([loadAll(), loadRouting()]);
+  previewState.value = null;
+  optState.value = null;
+  tunedAlready.value = false;
+  await Promise.all([
+    loadAll(),
+    loadRouting(),
+    // D4-1 (a)+(c): the change preview — computed by the SAME dominantOf the Apply
+    // writer uses (modelApply.applyPreview), so the changelist can never drift.
+    applyPreview().then((p) => { previewState.value = p; }).catch(() => { previewState.value = null; }),
+  ]);
   step.value = "confirm"; // confirm renders the empty-state when nothing fits
 }
 function onModalClose() {
   open.value = false;
 }
-async function onCardChange() {
-  // Re-score Fit for the chosen card, then re-pick the default (clear it so prefill
-  // runs; keep the embedding, which is card-independent).
-  pick.value = { default: "", embeddingId: pick.value.embeddingId, embeddingModel: pick.value.embeddingModel };
-  await loadAll();
-}
+
+// ── D4-1 (a)+(c) changelist (reactive against the live pick) ────────────────
+const previewState = ref(null);
+const repointedPresets = computed(() => {
+  const st = previewState.value;
+  if (!st || !pick.value.default) return [];
+  return st.presets.filter((p) => p.model === st.dominant && p.model !== pick.value.default);
+});
+const keptPresets = computed(() => {
+  const st = previewState.value;
+  if (!st) return [];
+  return st.presets.filter((p) => p.model !== st.dominant);
+});
 
 // ── apply: one model → every task preset (non-clobber) + embedding + download/load ──
 const applying = ref(false);
@@ -238,8 +244,14 @@ async function apply() {
       await request("/v1/llm-runner/load", { method: "POST", body: { modelId: target } });
       await pollLoad();
     }
+    // Opt-out sweep (plan Phase 2 + A8): FIRST-TIME-ONLY auto-start — no tune rows for
+    // (pick, this machine) → the sweep starts on its own; the done step renders it
+    // running with a Skip button. A tuned machine never auto-runs (Re-optimize + an
+    // explicit overwrite confirm instead — the user's verbatim ask).
+    tunedAlready.value = target ? await modelHasTunes(target) : false;
     step.value = "done";
     emit("changed");
+    if (target && !tunedAlready.value) startOptimize();
   } catch (e) {
     error.value = `Apply failed: ${e.message}`;
     step.value = "confirm";
@@ -274,6 +286,7 @@ async function pollLoad() {
 // reference box). Optional + skippable: it monopolizes the GPU for ~3–5 min;
 // the job keeps running server-side if the wizard closes.
 const optState = ref(null); // null (not started) | the GET payload
+const tunedAlready = ref(false); // (model, THIS machine) already has measured tune rows
 let optTimer = null;
 const optRunning = computed(() => optState.value?.status === "running");
 
@@ -295,13 +308,44 @@ async function startOptimize() {
       method: "POST",
       body: { modelId: pick.value.default, save: true },
     });
-    if (st.ok === false) throw new Error(st.error || "Auto-tune is busy.");
+    if (st.ok === false) {
+      // Busy guard: a sweep is already running (the Tune modal / another window) —
+      // ADOPT the shared job instead of erroring (plan Phase 2): render its live
+      // state and poll it to completion like our own.
+      const cur = await request("/v1/llm-runner/auto-tune").catch(() => null);
+      if (cur?.status === "running") {
+        optState.value = cur;
+        stopOptPoll();
+        optTimer = setInterval(pollOptimize, 2000);
+        return;
+      }
+      throw new Error(st.error || "Couldn't start optimizing.");
+    }
     optState.value = st;
     stopOptPoll();
     optTimer = setInterval(pollOptimize, 2000);
   } catch (e) {
     optState.value = { status: "error", error: e.message || "Couldn't start optimizing." };
   }
+}
+// Skip = the shared job's between-trials cancel (the endpoint existed; the wizard
+// never called it before Phase 2). The job stops after the trial in flight.
+async function skipOptimize() {
+  try {
+    await request("/v1/llm-runner/auto-tune/cancel", { method: "POST" });
+  } catch { /* already finished — the next poll shows the terminal state */ }
+  await pollOptimize();
+}
+// Re-optimize (tuned machines only): explicit overwrite consent first (amendment A8 —
+// the sweep's save REPLACES this machine's rows; with the 1b strict-beat rule it only
+// actually replaces them when a strictly faster config is measured).
+async function reOptimize() {
+  const ok = await confirmDialog({
+    title: "Overwrite this machine's tuned settings?",
+    message: "This machine already has a measured launch config for this model. Re-optimizing runs a new sweep and replaces the saved settings only if a strictly faster configuration is found.",
+    confirmLabel: "Re-optimize",
+  });
+  if (ok) startOptimize();
 }
 onBeforeUnmount(stopOptPoll);
 
@@ -339,14 +383,7 @@ defineExpose({ openWizard });
           <div class="lu-qs-detected"><b>{{ hwLine }}</b></div>
         </section>
 
-        <!-- The bundled runner: plan-for-card + the local default model (Fit-gated). -->
-        <section class="lu-qs-sec">
-          <div class="lu-qs-k">Plan for card</div>
-          <UiSelect v-model="cardOverride" :options="CARD_OPTIONS" @update:model-value="onCardChange" />
-          <p class="lu-muted lu-qs-hint">Re-scores Fit for another card — plan ahead, or force CPU-only.</p>
-        </section>
-
-        <div v-if="loading" class="lu-muted">Re-scoring…</div>
+        <div v-if="loading" class="lu-muted">Reading the catalog…</div>
         <template v-else-if="fitting.length">
           <!-- The one good model — a single editable pick that runs every task. -->
           <section class="lu-qs-sec">
@@ -362,7 +399,7 @@ defineExpose({ openWizard });
           </section>
         </template>
         <div v-else class="lu-muted lu-qs-empty">
-          No catalog models fit this card. Pick a larger card above, or add a smaller model to the catalog.
+          No catalog models fit this machine. Add a smaller model to the catalog (any Hugging Face GGUF repo works), or run JustWrite on a machine with more memory.
         </div>
 
         <!-- The embedding — always LOCAL (the RAG index). -->
@@ -382,6 +419,26 @@ defineExpose({ openWizard });
             <li>Per-feature pins you've set stay as they are.</li>
           </ul>
         </section>
+
+        <!-- D4-1 (a)+(c): a box that's already configured (mixed task models, or measured
+             tunes for a current model) sees EXACTLY which tasks Apply will change before
+             anything writes — the lists come from the SAME dominant-model logic the Apply
+             writer uses. A fresh box renders nothing here and stays one-click. -->
+        <section v-if="previewState?.configured" class="lu-qs-sec lu-qs-changes">
+          <div class="lu-qs-k">This machine is already set up — what Apply will change</div>
+          <template v-if="repointedPresets.length">
+            <ul class="lu-qs-rlist">
+              <li v-for="p in repointedPresets" :key="p.id">
+                <b>{{ p.name }}</b> <span class="lu-muted">re-points from <code>{{ p.model }}</code> to <code>{{ pick.default }}</code></span>
+              </li>
+            </ul>
+          </template>
+          <p v-else class="lu-muted">All tasks already use this model — Apply changes no task routing.</p>
+          <p v-if="keptPresets.length" class="lu-muted lu-qs-hint">
+            Kept as you set them: {{ keptPresets.map((p) => p.name).join(", ") }}.
+          </p>
+          <p class="lu-muted lu-qs-hint">Your saved machine tunes are never touched by Apply.</p>
+        </section>
       </template>
 
       <!-- APPLY -->
@@ -399,22 +456,31 @@ defineExpose({ openWizard });
         </ul>
 
         <!-- C8 integration: the wizard is local-only, so the old `isBundled` guard is gone —
-             the optimize offer needs only a picked model. -->
+             the optimize offer needs only a picked model. Phase 2 (opt-out sweep): an
+             UNTUNED machine auto-starts the sweep on Apply (Skip cancels between trials);
+             a tuned machine gets Re-optimize behind an explicit overwrite confirm. -->
         <div v-if="pick.default" class="lu-qs-opt">
           <template v-if="!optState">
-            <UiButton intent="secondary" size="small" @click="startOptimize">Optimize for this PC (a few minutes)</UiButton>
-            <span class="lu-muted">Optional: runs a short measured sweep and saves the fastest
-              launch settings for this machine — often several times faster to first token.</span>
+            <UiButton v-if="tunedAlready" intent="secondary" size="small" @click="reOptimize">Re-optimize (a few minutes)</UiButton>
+            <UiButton v-else intent="secondary" size="small" @click="startOptimize">Optimize for this PC (a few minutes)</UiButton>
+            <span class="lu-muted">{{ tunedAlready
+              ? "This machine already has measured launch settings for this model — re-run the sweep only if your hardware changed."
+              : "Optional: runs a short measured sweep and saves the fastest launch settings for this machine — often several times faster to first token." }}</span>
           </template>
           <template v-else-if="optRunning">
             <span class="lu-qs-opt-status">Optimizing — {{ optState.detail || "measuring…" }}
               <template v-if="optState.trials?.length"> ({{ optState.trials.length }} trial{{ optState.trials.length === 1 ? "" : "s" }} done)</template>
             </span>
-            <span class="lu-muted">You can close this — it finishes in the background.</span>
+            <UiButton intent="ghost" size="small" @click="skipOptimize">Skip</UiButton>
+            <span class="lu-muted">Skipping keeps everything set up — you can optimize later from the model's Tune dialog. You can also close this; it finishes in the background.</span>
           </template>
           <template v-else-if="optState.status === 'done' && optState.best">
             <span class="lu-qs-opt-ok">Optimized ✓ {{ optState.best.tokensPerSec }} tok/s —
-              {{ optState.saved ? "saved for this machine." : "save failed — open Tune & measure to save it." }}</span>
+              {{ optState.saved
+                ? "saved for this machine."
+                : (optState.best.label === "baseline"
+                    ? "your current launch is already the fastest — nothing needed saving."
+                    : "save failed — open Tune & measure to save it.") }}</span>
           </template>
           <template v-else-if="optState.status === 'cancelled'">
             <span class="lu-muted">Optimize cancelled.</span>

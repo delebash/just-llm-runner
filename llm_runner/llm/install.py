@@ -73,12 +73,15 @@ def install_llm(
         feature_catalog=feature_catalog, feature_prompts=feature_prompts,
         engine_presets=engine_presets, taskkind_presets=taskkind_presets,
         feature_task_kinds=feature_task_kinds,
+        model_catalog_extra=model_catalog_extra,
+        model_tunes_seed=model_tunes_seed,
+        hw_key_fn=_current_hw_key,
     )
-    # 2b. per-APP extra model-catalog rows + this box's tune seed (both optional;
-    # e.g. JW's tuned Gemma daily drivers, 2026-07-06). Insert-if-missing only —
-    # a dev-DB reset re-creates them; a user's own edit / Quick-tune Save is
-    # never clobbered. Seeded here (not deferred) so the rows exist the moment
-    # the routers mount — resolve/tune endpoints see them on first request.
+    # 2b. per-APP extra model-catalog rows + this box's tune seed now ride the
+    # configure_app_seed REGISTRATION above: `seed_llm` seeds them on BOTH paths
+    # (boot AND the data-reset endpoint) — the one reseed entrypoint, no drift.
+    # The immediate seeding below keeps the boot-order guarantee (rows exist the
+    # moment the routers mount, before the host's own seed_llm call runs).
     if model_catalog_extra or model_tunes_seed:
         _s = session_factory()
         try:

@@ -45,9 +45,10 @@ own pushed commit(s): runner `2a22bda`(B1+B2) `5ff4a05`(A1+A2) `f69c2b2`(A3) `29
 JW `7606ec6`(probes) `999138c`(E1) `7e8176d`(C1 seed) `7a42b11`(E2).
 
 **REMAINING (4 of 13), for the post-compact session, in this order:**
-> *(Post-compact update, 2026-07-06: items 1 AND 2 below — C3 and C4 — are now ✅ SHIPPED/DONE; see
-> their LIVE PROGRESS entries (C3's move + C4's full verdict table with five in-batch fixes, the filed
-> C5 finding, and the JV F1 records). Remaining: C2 → E3, i.e. 11 of 13 done.)*
+> *(Post-compact update, 2026-07-06: items 1, 2 AND 4 below — C3, C4 and E3 — are now ✅ SHIPPED/DONE;
+> see their LIVE PROGRESS entries (C3's move · C4's full verdict table with five in-batch fixes, the
+> filed C5 finding and the JV F1 records · E3's list import with its 5-test jsdom suite). E3 ran before
+> C2 by the recorded order adjustment. Remaining: **C2 only** — 12 of 13 done.)*
 1. **C3 — shared AI task queue → kit.** FULLY DESIGNED below (§"C3 design" — it IS the recorded Decision 22,
    steps 1–3; step 4 = JV adoption stays excluded → F1). Scoped this session: move JW's five files
    (`stores/aiTasks.js` 231 ln · `components/AiTaskStrip.vue` 151 · `services/aiFeature.js` 150 ·
@@ -683,8 +684,96 @@ Ui-primitive consumers are NOT units — using the shared kit is the point, not 
 
 Verdicts land in the table below as each unit is read; violations get their evidence + the fix-or-file
 decision inline.
-- **C2 — measured/benchmark re-grounding research:** NOT STARTED.
-- **E3 — ODT import: lists:** NOT STARTED.
+- **ORDER ADJUSTMENT (recorded 2026-07-06, my own tracker-order call, reason on the record):** E3 runs
+  BEFORE C2. The original order put C2 ahead only because it was "bounded last among the C's"; C2 is
+  research-days-sized (the ledger's own sizing) while E3 is a small bounded build — finishing E3 first
+  puts the batch at 12-of-13 BUILT with only the research tail open, which survives a session boundary
+  far better than a half-started research pass plus an unbuilt code item.
+- **C2 — measured/benchmark re-grounding research:** NOT STARTED (runs after E3 per the adjustment).
+- **E3 — ODT import: lists: ✅ SHIPPED + VERIFIED (2026-07-06; design below, implemented as designed).**
+  `parseOdt` now IMPORTS lists instead of counting-and-warning: the `text:list` walker arm calls the new
+  recursive `renderList` (TipTap-canonical `<ul>/<ol>` → `<li><p>…</p></li>`, multi-paragraph items,
+  nested lists recursing inside the parent `<li>`, `text:list-header` treated as an item), with
+  ordered-vs-bullet decided PER NESTING LEVEL from the effective list style via the new
+  `buildListStyleMap` (parses `text:list-style` from BOTH content.xml's automatic styles and styles.xml's
+  named styles — the styles.xml half is the recorded design amendment that makes the stock "List Number"
+  style detect as ordered; content.xml wins name collisions; nested lists inherit the outermost style per
+  ODF). The `listCount` counter + the ":127-129 'N lists dropped'" warning arm are GONE (grep confirms no
+  orphaned UI copy referenced that warning string). Verify decision executed as recorded: `jsdom` devDep
+  + the per-file `@vitest-environment jsdom` pragma; `services/import/__tests__/odt.test.js` builds a
+  REAL ODT-shaped zip with jszip (the production dep) and drives the real `parseOdt` — 5 tests: the
+  bullet list with a nested per-level-ORDERED sublist (automatic style, level-1 bullet + level-2 number)
+  · the styles.xml NAMED ordered style with a multi-paragraph item · the §16.30 next-lower-level rule
+  (below) · document-order preservation around the existing h/p behavior · the no-styles.xml fallback
+  (unknown style → bullet; the automatic style still resolves) · never-emits-the-old-warning.
+  **T2 remediation round (the diff checker FAILED the first cut for exactly the right reason — the ODF
+  semantics were written from recall with zero citations, against the upstream hard rule — and the
+  remediation found a REAL bug):** the OASIS ODF 1.2 spec was downloaded and the operative sections
+  extracted (https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html — §16.30
+  `<text:list-style>`: one list-level-style-{number|bullet|image} child per level, and list styles may
+  occur in BOTH `office:automatic-styles` AND `office:styles`; §5.3.2: a nested list "defaults to the
+  style of the surrounding list"; §5.3.3 `<text:list-header>`). §16.30 also says a level WITHOUT its
+  own specification uses "the list level style of the NEXT LOWER level" — the first implementation
+  wrongly defaulted undefined levels to bullet; `renderList` now walks down to the nearest defined
+  level (the new 6th test pins this and fails against the old code). REAL-FILE evidence: a genuine
+  LibreOffice-produced document (`sw/qa/extras/odfexport/data/listformat.odt` from the LibreOffice core
+  corpus, downloaded in-session) was inspected — its markup confirms the outer `text:list` carries the
+  automatic style (`L1`), nested `text:list` elements carry NO style-name (inheritance is real), nested
+  lists sit inside `text:list-item` after the `<text:p>`, and its styles.xml holds ZERO list styles —
+  so the styles.xml source is honestly relabeled: LibreOffice mainline emits automatic styles; that arm
+  is SPEC-LEGAL coverage (§16.30 allows office:styles) for other producers, not an observed-LO path.
+  `parseOdt` was LIVE-RUN over that real file: one chapter, zero warnings, and byte-exact
+  `<ol><li><p>&gt;1&lt;</p><ol>…<ol>…` three-deep nesting — the parser handles genuine LO output.
+  (In-container LibreOffice exists but its headless convert is broken — "source file could not be
+  loaded" on every input incl. its own odt — so self-generated fixtures were impossible; the downloaded
+  real file is inspection+live-run evidence only, NOT committed — no license entanglement — and the
+  committed fixtures mirror its verified structure.) One more recorded simplification from the checker's
+  notes: IMPLICIT lists (paragraphs whose paragraph style references a list style, with no `<text:list>`
+  wrapper) render as plain `<p>` — rare in user-authored ODTs, recorded not silently dropped.
+  Verified after remediation: vitest **34/34** (28 pre-existing + 6 new) · `build:vite` clean · Biome
+  the same 2 pre-existing warnings · full headless smoke zero JS errors. Session side-note recorded
+  honestly: the first `npm install -D jsdom` ran from a drifted cwd and npm auto-created
+  `package.json`/`package-lock.json`/`node_modules` at the RUNNER repo root — caught immediately
+  (nothing committed), the three untracked artifacts deleted, jsdom installed in justwrite-app
+  properly.
+
+### E3 design (written before implementation)
+
+**Grounding (odt.js read in full this session, 149 lines):** the walker treats `text:list` as a counter
+only (`local === 'list'` → `listCount++`, `:112-113`) and emits the "N lists dropped — not yet supported
+in import" warning (`:127-129`); everything else in the file (h/p/frame handling, image byte extraction,
+chapter flush) is orthogonal. The parser runs in the RENDERER (browser `DOMParser` on `content.xml`,
+JSZip already a dep).
+
+**The fix:**
+1. A recursive `renderList(listEl, depth, styleName)` replacing the counter arm: `<text:list>` →
+   `<text:list-item>` (and the rare `<text:list-header>`, treated like an item — text fidelity beats
+   numbering purity in an import) → each item's `<text:p>` children become `<li><p>…</p></li>` (multiple
+   paragraphs per item = multiple `<p>` in one `<li>`), nested `<text:list>` recurses INSIDE the parent
+   `<li>` (TipTap-canonical: ListItem content is paragraph-then-blocks). Item text via the existing
+   `getTextContent` (text-only items — inline frames inside list items are out of scope for a manuscript
+   import; recorded simplification).
+2. **Ordered-vs-bullet is decided PER NESTING LEVEL from the list style** (ODF: a `text:list-style`
+   carries up to ten `text:list-level-style-{number|bullet|image}` children, one per `text:level`): build
+   ONE map `styleName → (level → isNumbered)` by parsing `text:list-style` elements from content.xml's
+   `office:automatic-styles` (the toolbar-made lists) **and styles.xml when present** (a design
+   amendment beyond the stopping-point note, recorded here: the stock NAMED "List Number" style lives in
+   styles.xml — without it the most common named ordered style would silently render as a bullet list;
+   same parse, merged map, strictly better). A nested `text:list` without its own `text:style-name`
+   inherits the outermost list's style (ODF semantics) — the recursion threads the effective style name.
+   Level `d` numbered → `<ol>`, else `<ul>` (absent level definitions default bullet).
+   `text:continue-numbering`/start values are ignored (TipTap normalizes numbering on import) — recorded.
+3. The `listCount`/warning arm is REMOVED (lists now import).
+
+**Verify (the stopping point's open decision, decided now):** the honest minimum it named — a REAL unit
+test over `parseOdt` with an in-memory ODT-shaped zip. vitest's node env has no `DOMParser`, so the test
+file carries the per-file `// @vitest-environment jsdom` pragma with `jsdom` as a devDependency (option
+(a); `@xmldom/xmldom` is out — the parser uses `querySelector`; extending book-smoke is out — it does not
+exercise the import pipeline at all today and building that is new scope). Fixture: JSZip-built ODT with
+content.xml carrying an h1 + p + a bullet list with a NESTED ordered sublist (automatic style, per-level
+number/bullet mix) + a list using a styles.xml-named ordered style; assertions: `<ul>`/`<ol>` per level,
+`<li><p>` shape, multi-paragraph items, no "lists dropped" warning, and the existing h/p behavior
+untouched. Plus the standing gates: build:vite + vitest suite + full headless smoke.
 
 Per-item design + evidence + verification is appended below as each item starts; the master-plan ledger line is
 updated as each item ships.

@@ -4,13 +4,19 @@
 >
 > **How to read STATUS:** `NOT BUILT` = the feature/change does not exist in code (evidence cited) · `DECISION` = nothing to build until the user decides · `BOX` = built, but only verifiable on the user's Windows machine · `RESEARCH` = a reading/benchmarking deliverable, not code.
 >
-> **⛔ THE ACTIVE EXECUTION VEHICLE (2026-07-06 evening): `2026-07-06-model-per-hardware-plan.md`** —
-> the panel-checked six-phase plan the user approved ("i will take your recommendations go"),
-> consuming this ledger's D4 (fully decided) and adding: the one-profile consolidation + seed truth
-> (Gemma Apache-2.0 fix, rb→base, ctx→computed), QuickSetup protection + card-dropdown removal +
-> the opt-out optimize sweep, the class→model map mechanism, the Windows orphan-child fix, and the
-> seed-facts audit. **Execution NOT started at the pre-compact stop — resume at its STOPPING POINT
-> section.**
+> **✅ THE EXECUTION VEHICLE CLOSED (2026-07-06 night): `2026-07-06-model-per-hardware-plan.md` —
+> ALL SIX PHASES EXECUTED** (per-phase records + the final gate tally in that plan's PHASE 1a–6
+> RECORDS; closure commits: runner `4faa39c`/`9b65ebb`+`16a4747`/`39fb9da`+`38d63ee`/`dc97798`/
+> `7fcac3f`/`0f3edac` + JW `f6f8167`/`4685939`/`86d881e`). It consumed this ledger's D4 (fully
+> decided) and shipped: the one-profile consolidation + seed truth (ONE Gemma row Apache-2.0,
+> rb→base bundle, ctx→computed), fit-by-omission + the strict-beat adaptive sweep, QuickSetup
+> protection (changelist + card-dropdown removal + the opt-out sweep) + the reset-loses-extras
+> found-and-fix, the class→model map mechanism, the Windows orphan-child Job-Object fix, and the
+> seed-facts audit script (11/11 live). **Still open FROM that work: the §G box checks on the
+> user's Windows machine (the orphan kill-on-death proof · computed ctx == 32768 · sweep parity ·
+> untuned fit-placed boot · the opt-out sweep UX · llama-fit-params in the win zip) and the
+> ledger items A5 · C9 · D6 + the D4-1 leg-3 factory-default follow-up (filed in that plan's
+> Phase 2 record).**
 >
 > Supersedes, as the outstanding-work view only: the open-item scatter across `2026-06-28-MASTER-PLAN.md` (the roadmap archive), `2026-06-28-ai-state-grid.md` (whose two ⚠ forks are now: per-model-tune-save → RESOLVED by Plan B; json-grammar → item C1 here), and the per-plan LIVE trackers (which stay authoritative for their own shipped history).
 

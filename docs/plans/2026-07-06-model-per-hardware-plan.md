@@ -1,7 +1,12 @@
 # Model-per-hardware plan — one profile, honest seeds, protected QuickSetup, measured everywhere (2026-07-06)
 
-> **STATUS: PHASES 1a · 1b · 2 · 3 · 4 · 5 SHIPPED (per-phase records below, newest first) —
-> PHASE 6 (final verify + closure) IN PROGRESS.** Discipline change (user, 2026-07-06, "do b"
+> **STATUS: EXECUTED — ALL SIX PHASES SHIPPED, THE PLAN IS CLOSED (2026-07-06; per-phase records
+> below, newest first — the PHASE 6 RECORD carries the final gate tally and the closure
+> commit list). What the plan leaves behind is RECORDED, not claimed: the §G box checks on the
+> user's Windows machine (orphan kill-on-death · computed ctx == 32768 · sweep-from-scratch
+> parity · untuned fit-placed boot · the opt-out sweep UX · llama-fit-params in the win zip) +
+> the ledger follow-ups (A5 engine-update surface · C9 model research · D6 Discover/TurboLLM
+> study · the D4-1 leg-3 factory-default exposure).** Discipline change (user, 2026-07-06, "do b"
 > from the cost-lever menu): the per-phase PRE-BUILD rules-check is DROPPED — the pre-commit
 > DIFF check remains the one agent-verdict gate per code commit (the already-launched Phase-5
 > design check was stopped mid-run on the same word; grounding + an inline T1–T12 citation
@@ -531,6 +536,40 @@ fit-placed loads (the used-VRAM true-up corrects it on nvidia-smi boxes; on non-
 the estimate stays conservatively in force — accepted drift, recorded); `start_runner`'s
 single-model path keeps explicit values (an asymmetry, fine — production is router-only, noted
 in the code comment).
+
+## PHASE 6 RECORD — EXECUTED 2026-07-06 (runner doc commit, same as this record). Final verify — THE PLAN CLOSES HERE.
+
+**The final gate tally (everything re-run at closure, from the correct repo roots).** Runner:
+ruff clean · pytest **380** · the seed-facts audit **11/11 OK, exit 0**. JustWrite: `build:vite`
+clean · vitest **29/29** · the FULL headless smoke over every hash route with **zero JS errors** ·
+the Phase-D QuickSetup wizard probe **PASS** (Skip cancels the sweep · a tuned pick does NOT
+auto-start · a tuned pick offers "Re-optimize" · Re-optimize asks the A8 overwrite confirm first;
+0 page errors, 0 non-benign failed requests) · server ruff clean · server pytest **83**.
+
+**The live API round-trips on :17495 (plan §Phase 6's list, verified ATOMICALLY after a clean
+`POST /v1/data/reset`).** Catalog: 11 rows with exactly ONE Gemma row (`gemma-4-26b-a4b-qat`) ·
+`classPicks` on the wire: `[{minVramMb: 6000, modelId: "qwen3.6-35b-a3b-mtp"}]` · the dev tunes
+re-seed after reset (6 rows for the Gemma id — the Phase 2 reset-loses-extras fix holding) ·
+engine-presets: 8 rows, ALL on the one Gemma id · prompts: 37 rows with `think=True` exactly
+`["chat"]` · preset-assignments: all 9 taskKinds mapped to their seeded `p_*` presets, empty
+global default. One verification lesson recorded: an earlier engine-presets read showed
+`qwen3-14b-q4_k_m` on all 8 — NOT a seed bug but the wizard probe's leftover (the probe runs its
+own reset-then-Apply of a 14b pick, and my first round-trip interleaved with it); the atomic
+re-run after a quiet reset shows the true seeded state. Round-trip checks must not share the DB
+with a running probe.
+
+**Closure.** All six phases executed on branch `claude/admiring-galileo-il3q0o`: Phase 1a (runner
+`4faa39c` + JW `f6f8167`) · Phase 1b (runner `9b65ebb`+`16a4747` + JW `4685939`) · Phase 2 (runner
+`39fb9da`+`38d63ee` + JW `86d881e`) · Phase 3 (runner `dc97798`) · Phase 4 (runner `7fcac3f`) ·
+Phase 5 (runner `0f3edac`) · Phase 6 (this doc commit + the JW recap commit). JustVoice untouched
+throughout (the standing read-only mandate). The outstanding-ledger banner flips in this same
+commit; the JW recap header closes the session state in the same series. **Recorded, NOT
+claimed** (they need the user's Windows box): the §G checks — kill the JW server → the
+llama-server child must die (the SOLE runtime proof of the Phase 4 orphan fix) · computed ctx ==
+32768 on the 2070S (calibrates `_KV_CTX_SHARE`, gates the A2 ctx-tune retirement) ·
+sweep-from-scratch lands within the tie band of the hand-tuned config (gates the A6 tune-row
+retirement) · an untuned fit-placed load boots and serves · whether `llama-fit-params` ships in
+the b9870 win zip · the opt-out sweep UX end-to-end.
 
 ## PHASE 5 RECORD — SHIPPED 2026-07-06 (runner, same commit as this record). The seed-facts audit script. **PHASE 6 (final verify + closure) runs in the same session — see the STATUS header.**
 

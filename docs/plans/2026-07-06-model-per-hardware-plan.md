@@ -332,6 +332,35 @@ Per-runtime findings:
    for best results" (https://github.com/LostRuins/koboldcpp/wiki,
    https://github.com/LostRuins/koboldcpp/issues/390) — i.e. it documents the gap our sweep fills.
 
+**USER-SUBMITTED ADDENDUM (2026-07-06, mid-execution — "just found this maybe something better
+already built you should research"):** three links checked the same hour. (1)
+**autotune / autotunellm.com** (https://www.autotunellm.com/, pip `llm-autotune`) — a drop-in
+wrapper for OLLAMA doing PER-REQUEST memory right-sizing: measures the real token count and tells
+Ollama the exact minimum KV allocation with headroom, buckets buffer sizes (512/768/1024…) to
+avoid Metal-buffer reallocation, and reads OS RAM pressure before every request to step ctx + KV
+precision across four tiers. A REQUEST-layer optimizer for a different engine — llama-server's ctx
+is launch-fixed (verified upstream earlier), so this layer does not exist for our runner; the
+pressure-tier idea rhymes with our arbiter's admission logic, nothing to adopt directly. (2) the
+**Medium "LLM-guided HPO/auto-tune"** piece (better-ml, Jaideep Ray) — using an LLM to plan/prune
+hyperparameter SEARCH SPACES (training-style HPO methodology, in the same family as
+openshift-psap/auto-tuning-vllm = vllm+guidellm+Optuna for datacenter serving). Methodology, not a
+local-runtime tool; our sweep's space (batch × ncmoe × spec-n) is small enough for a deterministic
+walk — an optimizer/LLM-planner layer is overkill at our scale, recorded not adopted. (3)
+**TurboLLM** (https://github.com/mohitsoni48/TurboLLM, 159★, v1.7.3 released 2026-07-06, active) —
+the REAL comparable and a correction to this record's headline: a local-LLM manager that
+"auto-benchmarks on load" to derive "fast defaults for your exact GPU" ("real measured tokens/sec
+… never a synthetic estimate"), tuning the same knob family we do (ngl, MoE CPU-offload, KV-cache
+quant type, threads, flash attention, speculative decoding, ctx). So "nobody measures" becomes "no
+MAINSTREAM runtime measures — one small active project does, and it independently validates the
+measured-sweep bet." Its README does not document the trial structure; ACTION AT A7 BUILD: read
+its source for the benchmark/trial design (what it varies, time budget, per-machine caching) as
+comparative input. LICENSE GUARD: FSL-1.1 (Apache-2.0 grant only in the future) — free to study,
+**code may NOT be lifted** into our GPL/MIT codebase; ideas only, cite what we learn. Net effect
+on the design consequence below: UNCHANGED — upstream `--fit` remains the anchor adoption, our
+sweep remains the measured layer on top; TurboLLM adds a study reference for the sweep's trial
+structure, and the combination (estimate anchor + measured walk + per-machine persisted tunes)
+still exists nowhere mainstream.
+
 **Design consequence for A7 (the anchor fix) — T4 adopt-don't-duplicate:** hand-fixing our
 `max(0, n_layers - n_gpu)` formula to encode expert-vs-dense placement would DUPLICATE the
 allocator knowledge upstream now maintains (and ours would drift with every engine release). The

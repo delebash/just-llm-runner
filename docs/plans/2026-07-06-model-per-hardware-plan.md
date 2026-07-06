@@ -527,6 +527,29 @@ the estimate stays conservatively in force — accepted drift, recorded); `start
 single-model path keeps explicit values (an asymmetry, fine — production is router-only, noted
 in the code comment).
 
+## PHASE 3 RECORD — SHIPPED 2026-07-06 (runner, same commit as this record). The class→model map.
+
+**Built to §Phase 3; the diff checker returned FAIL(2) — both findings were THIS record + the
+README/recap notes, folded into the same commit series (every code finding passed: the down-ladder
+reading of "largest row whose model exists+fits" judged faithful and tested; the placeholder-
+equals-§10 claim substantiated against the C2 evidence — qwen3.6-35b-a3b rank 8 is what §10 picks
+at ≥6 GB).** What shipped: `db.ModelClassPick` (`min_vram_mb` PK · `model_id` · `built_in`);
+`DEFAULT_MODEL_CLASS_PICKS = [{6000: qwen3.6-35b-a3b-mtp}]` — explicitly commented placeholder-
+equal-to-§10 until the C9 research refills the rows; `seed_default_class_picks` (merge-by-key,
+user edits never clobbered — pinned by test) wired into `seed_llm` so BOOT and RESET both carry it
+(the Phase-2 lesson applied); `stores.list_class_picks()`; `CatalogResponse.classPicks` via the
+`class_picks_fn` DI seam (the resolve_switches pattern; one fetch, no new endpoint);
+kit `pickByClassMap(picks, vramMb, {exists, fits})` in `modelPick.js` (pure, truth-table-tested:
+map hit · ladder climb · unfitting-row down-ladder · below-ladder miss · nothing-fits ·
+empty-map); `useCatalogMeta` exposes `classPicks` off the same response; QuickSetup's
+`bestFittingId()` consults the map FIRST and falls back to `pickBestModel` unchanged. **Verified:**
+runner ruff + **377 pytest** (3 new) · `verify-model-pick.mjs` **24/24** (6 new map cases) ·
+fresh-DB live wire (`classPicks: [{minVramMb: 6000, modelId: qwen3.6-35b-a3b-mtp}]`) · JW
+build:vite + vitest 29/29 + wizard probe 18/18 (the CPU container maps to VRAM 0 → miss → the §10
+fallback keeps the 14b pick — probe stable by construction) + full headless smoke zero JS errors ·
+runner README notes map-first-then-§10. **NEXT: Phase 4** (the Windows orphan-child Job Object,
+with the A3 `_spawn_child` seam extraction) — then Phase 5 (the seed-facts audit script).
+
 ## PHASE 2 RECORD — SHIPPED 2026-07-06 (runner `39fb9da` · JW `86d881e`). QuickSetup protection + opt-out sweep.
 
 **Built to §Phase 2 + amendment A8; the diff checker returned FAIL(3) and every finding was folded

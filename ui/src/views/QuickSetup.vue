@@ -25,7 +25,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 
 import { request } from "../client.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
-import { pickBestModel, pickLowestQuality, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
+import { pickByClassMap, pickBestModel, pickLowestQuality, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
 import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import UiButton from "../common/components/UiButton.vue";
@@ -63,7 +63,7 @@ const pick = ref({ default: "", embeddingId: "", embeddingModel: "" });
 // The /v1/llm-runner/models view is fit-shaped and carries none of these; the catalog does.
 // `type` (dense|moe) + `embedding` drive the §10 speed-floor pick. Shared with LuModelCatalog
 // through the useCatalogMeta singleton (one source, no drift — the useRunnerModels precedent).
-const { qualityById, typeById, embeddingById, useLimitedById, descriptionById, refresh: refreshCatalogMeta } = useCatalogMeta();
+const { classPicks, qualityById, typeById, embeddingById, useLimitedById, descriptionById, refresh: refreshCatalogMeta } = useCatalogMeta();
 function qualityOf(m) { return qualityById.value[m.id] ?? 100; }
 function typeOf(m) { return typeById.value[m.id] || "dense"; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
@@ -130,6 +130,16 @@ function fitOf(id) {
 // the floor. The pure rule lives in modelPick.js (Node-verifiable); here we bind the
 // catalog-join accessors (type / quality / embedding / use-limited).
 function bestFittingId() {
+  // Phase 3: the class→model map is consulted FIRST — the seeded expression point
+  // the model research (C9) refills with evidence-backed per-hardware-class picks.
+  // The row with the largest minVramMb <= this box's detected VRAM whose model
+  // exists + fits wins; no matching row → the §10 speed-floor rule (unchanged).
+  const vramMb = (hw.value?.gpus && hw.value.gpus[0]?.vramMb) || 0;
+  const mapped = pickByClassMap(classPicks.value, vramMb, {
+    exists: (id) => !!modelById.value[id],
+    fits: (id) => FIT_RUNNABLE.has(modelById.value[id]?.fit),
+  });
+  if (mapped) return mapped;
   return pickBestModel(models.value, {
     typeOf,
     qualityOf,

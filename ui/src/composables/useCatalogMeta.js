@@ -12,6 +12,7 @@ import { computed, ref } from "vue";
 import { request } from "../client.js";
 
 const rows = ref([]); // raw /v1/ai/model-catalog rows
+const classPicksRef = ref([]); // the class→model map rows riding the same response (Phase 3)
 
 export const catalogRows = rows;
 export const qualityById = computed(() =>
@@ -53,14 +54,17 @@ export const mtpById = computed(() =>
  *  fall back to empty (the fit-shaped list / the pick still work without the badges). */
 export async function refresh() {
   try {
-    rows.value = (await request("/v1/ai/model-catalog")).rows || [];
+    const d = await request("/v1/ai/model-catalog");
+    rows.value = d.rows || [];
+    classPicksRef.value = d.classPicks || []; // the class→model map (Phase 3)
   } catch {
     rows.value = [];
+    classPicksRef.value = [];
   }
 }
 
 /** Shared model-catalog meta. Every consumer gets the SAME refs; call refresh() on open
  *  or after a catalog edit to (re)populate the one shared source. */
 export function useCatalogMeta() {
-  return { catalogRows, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, refresh };
+  return { catalogRows, classPicks: classPicksRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, refresh };
 }

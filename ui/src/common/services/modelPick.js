@@ -66,6 +66,22 @@ export function pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited
  * @param {Object} accessors  { qualityOf(m) → number, LOWER = better }
  * @returns {string} the chosen model's id, or "" if the list is empty.
  */
+// The class→model map (model-per-hardware plan Phase 3): `picks` = the seeded
+// [{minVramMb, modelId}] rows off the catalog response. The row with the LARGEST
+// minVramMb <= vramMb whose model EXISTS in the catalog AND FITS this box wins;
+// no matching row → "" (the caller falls back to the §10 speed-floor rule below).
+// Pure + truth-table-testable (verify-model-pick.mjs); contents are research-
+// refreshed seed DATA (ledger C9), never logic.
+export function pickByClassMap(picks, vramMb, { exists, fits }) {
+  const eligible = (picks || [])
+    .filter((p) => Number(p.minVramMb) <= Number(vramMb || 0))
+    .sort((a, b) => Number(b.minVramMb) - Number(a.minVramMb));
+  for (const p of eligible) {
+    if (exists(p.modelId) && fits(p.modelId)) return p.modelId;
+  }
+  return "";
+}
+
 export function pickLowestQuality(models, { qualityOf }) {
   if (!models || !models.length) return "";
   return [...models].sort((a, b) => {

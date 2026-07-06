@@ -153,6 +153,7 @@ def install_llm(
 
     app.include_router(make_catalog_router(
         stores.get_model_catalog_store,
+        class_picks_fn=stores.list_class_picks,
         # Keyed to THIS machine so resolved-defaults (what the Tune modal + Lab
         # pre-fill from) shows the SAME truth the load path uses — including the
         # hardware + per-(model, machine) tune layers (Plan B, D4; seen = run).

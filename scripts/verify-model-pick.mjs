@@ -5,7 +5,7 @@
 // Phase 3, so a card-override probe can't construct the two side-by-side deterministically.
 // This does, purely and re-runnably.
 //   Run:  node scripts/verify-model-pick.mjs      (exit 0 = all pass, 1 = any fail)
-import { pickBestModel, pickLowestQuality } from "../ui/src/common/services/modelPick.js";
+import { pickByClassMap, pickBestModel, pickLowestQuality } from "../ui/src/common/services/modelPick.js";
 
 // A tiny test model. fit ∈ ok|tight|cpu|no|unknown; type ∈ dense|moe.
 const M = (id, fit, type, quality, extra = {}) =>
@@ -95,5 +95,22 @@ check("lowestQuality: lowest rank wins", lq([M("a", "ok", "dense", 30), M("b", "
 check("lowestQuality: tie → better fit", lq([M("t", "tight", "dense", 20), M("o", "ok", "dense", 20)]), "o");
 check("lowestQuality: empty → ''", lq([]), "");
 
-console.log(`\n§10 truth-table: ${pass} passed, ${fail} failed.`);
+// ── Phase 3: pickByClassMap (the class→model map, consulted before the §10 rule) ──
+const picks = [
+  { minVramMb: 6000, modelId: "map-6gb" },
+  { minVramMb: 24000, modelId: "map-24gb" },
+];
+const world = (fitting) => ({
+  exists: (id) => id.startsWith("map-"),
+  fits: (id) => fitting.includes(id),
+});
+check("classMap: hit at 8GB (largest eligible row)", pickByClassMap(picks, 8192, world(["map-6gb", "map-24gb"])), "map-6gb");
+check("classMap: bigger card climbs the ladder", pickByClassMap(picks, 24576, world(["map-6gb", "map-24gb"])), "map-24gb");
+check("classMap: unfitting row falls down-ladder", pickByClassMap(picks, 24576, world(["map-6gb"])), "map-6gb");
+check("classMap: below-ladder → '' (the §10 fallback)", pickByClassMap(picks, 4096, world(["map-6gb"])), "");
+check("classMap: nothing fits → ''", pickByClassMap(picks, 8192, world([])), "");
+check("classMap: empty map → ''", pickByClassMap([], 8192, world(["map-6gb"])), "");
+
+console.log(`\n§10 + class-map truth-table: ${pass} passed, ${fail} failed.`);
 process.exit(fail ? 1 : 0);
+

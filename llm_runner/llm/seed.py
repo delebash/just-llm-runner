@@ -217,6 +217,30 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
      "switches": {"spec_type": "draft-mtp", "spec_n_max": "2"}},
 ]
 
+# The class→model map (model-per-hardware plan Phase 3) — the row with the largest
+# `min_vram_mb <= detected VRAM` whose model exists + fits wins QuickSetup's pick;
+# no matching row → the §10 speed-floor rule. PLACEHOLDER CONTENTS, deliberately
+# EQUAL to what §10 already picks (the C2-cited global best at ≥6 GB): the map is
+# the EXPRESSION POINT the model research (ledger C9) refills with evidence-backed
+# per-class picks — rows are data, never code.
+DEFAULT_MODEL_CLASS_PICKS: list[dict] = [
+    {"min_vram_mb": 6000, "model_id": "qwen3.6-35b-a3b-mtp"},
+]
+
+
+def seed_default_class_picks(s) -> int:
+    """Seed the class→model map rows (merge-by-key; a user-edited row is never clobbered)."""
+    existing = {r.min_vram_mb for r in s.query(db.ModelClassPick.min_vram_mb).all()}
+    added = 0
+    for row in DEFAULT_MODEL_CLASS_PICKS:
+        if int(row["min_vram_mb"]) in existing:
+            continue
+        s.add(db.ModelClassPick(min_vram_mb=int(row["min_vram_mb"]),
+                                model_id=str(row["model_id"]), built_in=True))
+        added += 1
+    return added
+
+
 # The nine canonical LLM-work TASKS — the seed defaults for the user-editable
 # `task_kinds` table. App-agnostic (both apps share the same nine), so they live here
 # in the SHARED block, NOT in per-app seed data (moved out of task_kinds_api.TASK_KINDS,
@@ -755,6 +779,7 @@ def seed_llm(s=None) -> None:
         seed_default_runner_binaries(s)
         seed_default_runner_settings(s)
         seed_default_knobs(s)
+        seed_default_class_picks(s)
         seed_default_feature_prompts(s)
         # The registered per-app extras (see configure_app_seed) — insert-if-missing,
         # so user edits / Quick-tune saves are never clobbered by a reseed.

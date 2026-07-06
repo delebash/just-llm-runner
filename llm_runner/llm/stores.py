@@ -949,6 +949,17 @@ def get_routing_store() -> RoutingStore: return _routing
 def get_feature_preset_store() -> FeaturePresetStore: return _feature_preset
 def get_prompt_store() -> PromptStore: return _prompt
 def get_model_catalog_store() -> ModelCatalogStore: return _model_catalog
+
+
+def list_class_picks() -> list[dict]:
+    """The class→model map rows (Phase 3), ascending min_vram_mb — served on the
+    catalog response (one fetch, no extra endpoint; useCatalogMeta maps them)."""
+    s = db.session()
+    try:
+        rows = s.query(db.ModelClassPick).order_by(db.ModelClassPick.min_vram_mb).all()
+        return [{"minVramMb": int(r.min_vram_mb), "modelId": r.model_id} for r in rows]
+    finally:
+        s.close()
 def get_pricing_store() -> PricingStore: return _pricing
 def get_runner_config_store() -> RunnerConfigStore: return _runner_config
 def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset

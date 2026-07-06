@@ -249,6 +249,20 @@ class HardwareSwitch(LlmBase):
     built_in = Column(Boolean, nullable=False, default=False)
 
 
+class ModelClassPick(LlmBase):
+    """One hardware-class row of the class→model map (model-per-hardware plan Phase 3):
+    QuickSetup's pick consults the row with the LARGEST `min_vram_mb <= detected VRAM`
+    whose model exists + fits; no matching row → the §10 speed-floor rule (the
+    unchanged fallback). SEED DATA (the expression point) — the map's CONTENTS are
+    replaceable rows refreshed by the model research (ledger C9), never a GUI."""
+
+    __tablename__ = "model_class_picks"
+
+    min_vram_mb = Column(Integer, primary_key=True)
+    model_id = Column(String, nullable=False)
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
 class ModelTune(LlmBase):
     """One flag of a user's MEASURED per-(model, MACHINE) tune — the Plan-B layer
     (2026-07-05), the persistence behind Quick tune's Save. NEVER seeded (no

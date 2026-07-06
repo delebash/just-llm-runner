@@ -60,8 +60,17 @@ class CatalogRow(BaseModel):
     builtIn: bool = False
 
 
+class ClassPickRow(BaseModel):
+    """One class→model map row (Phase 3): the largest minVramMb <= detected VRAM whose
+    model exists + fits wins QuickSetup's pick; no match → the §10 fallback."""
+    minVramMb: int
+    modelId: str
+
+
 class CatalogResponse(BaseModel):
     rows: list[CatalogRow]
+    # The class→model map rides the catalog response (one fetch, no extra endpoint).
+    classPicks: list[ClassPickRow] = []
 
 
 class InspectResponse(BaseModel):
@@ -151,6 +160,7 @@ def make_catalog_router(
     resolve_switches: Callable[[str], dict[str, str]] | None = None,
     inspect_fn: Callable[[str, str, str], dict] | None = None,
     list_files_fn: Callable[[str, str], dict] | None = None,
+    class_picks_fn: Callable[[], list[dict]] | None = None,
 ) -> APIRouter:
     """CRUD + reset for the per-model llama.cpp catalog. When
     `resolve_switches(model_id) -> {flag_name: value}` is given, also expose
@@ -161,7 +171,8 @@ def make_catalog_router(
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     def _list() -> CatalogResponse:
-        return CatalogResponse(rows=get_store().list())
+        picks = [ClassPickRow(**r) for r in (class_picks_fn() if class_picks_fn else [])]
+        return CatalogResponse(rows=get_store().list(), classPicks=picks)
 
     @router.get("/model-catalog", response_model=CatalogResponse)
     async def list_catalog() -> CatalogResponse:

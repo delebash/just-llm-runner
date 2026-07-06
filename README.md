@@ -15,6 +15,13 @@ JustVoice repo for the full architecture + decision history.
 
 ## How a model's launch config derives (the 4-tier doctrine, 2026-07-06)
 
+**Which model QuickSetup picks (Phase 3):** the wizard first consults the seeded
+**class→model map** (`model_class_picks`, served as `classPicks` on
+`GET /v1/ai/model-catalog`) — the row with the largest `min_vram_mb ≤` the detected
+VRAM whose model exists and fits wins; with no matching row it falls back to the §10
+speed-floor rule (most capable model that still streams fast). The map's contents are
+research-refreshed seed data (ledger C9), never logic.
+
 Every local llama-server launch resolves its flags in four tiers, strongest last:
 
 1. **Our estimate — admission only, never emitted.** `compute_fit` projects VRAM for the

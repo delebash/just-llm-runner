@@ -494,6 +494,69 @@ beside the other kit services. JW then imports everything from `@delebash/llm-ui
 suite still green + a grep proving ZERO remaining `@renderer`-local references to the five moved
 files + the E2 unit tests (embedApi) untouched. The 47-file sweep is mechanical import rewriting —
 each file's diff is import-lines only.
+
+### C3 grounded amendments (recorded 2026-07-06 post-compact, BEFORE implementation — every point
+verified in code this session; the Decision-22 architecture itself is unchanged, these are the
+implementation-grain findings the design's own "follow the kit's existing precedent" clause calls for)
+
+1. **The consumer measurement is 49 files, not 47.** A repo-wide loose-name grep
+   (`aiTasks|aiFeature|AiTaskStrip|AiStatusPanel|AiStatusButton|aiErrors|friendlyAiError`, excluding
+   node_modules/dist) matches 49 files = the 6 source files themselves (the five + `aiErrors.js`,
+   below) + **43 true consumer files**. The earlier "47" and a first narrow re-measure of 36 both
+   missed that `services/analysis/*.js` import via the RELATIVE `"../aiFeature.js"` (no
+   `services/` in the string) — the loose pattern is the operative sweep list; each consumer's diff
+   stays import-lines only.
+2. **`services/aiErrors.js` is a sixth moved file — a discovered hard dependency.**
+   `aiFeature.js:15` imports `friendlyAiError` from it; a kit module cannot import from JW, and the
+   kit has NO equivalent to converge onto (verified: `useProviderConnect.js` and the whole kit carry
+   no provider-error-hint logic). It is pure LLM-domain error humanizing with zero JW-specific
+   imports, so per the everything-LLM-shared principle (task #92) it moves to the kit as the one
+   source; its 4 external JW consumers (`CritiqueModal.vue`, `rag/chat.js`, `rag/characterChat.js`,
+   `rag/indexer.js`) join the sweep and the JW local is deleted like the other five.
+3. **Layering correction — the design's proposed `common/services/aiFeature.js` home would break the
+   kit's own rule.** `common/index.js:6` records "nothing here may import from ../ (the llm layer)",
+   and aiFeature must import the llm-layer `client.js`. So the llm layer gains the two parallel dirs
+   the common layer already models: **`ui/src/stores/aiTasks.js`** and **`ui/src/services/aiFeature.js`
+   + `aiErrors.js`**; the three components land beside the other llm-layer components
+   (`ui/src/components/Ai*.vue`). Kit-internal imports stay RELATIVE (the recorded kit precedent —
+   ten components already import `../client.js` relatively); the public surface is `index.js`
+   exports: the three components + `useAiTasksStore` + `runAiFeature`/`runAiFeatureStream` +
+   `friendlyAiError`.
+4. **Pinia correction: this is the kit's FIRST Pinia piece.** The design line "the kit already ships
+   Pinia-consuming pieces" was wrong — a kit-wide grep finds zero `pinia` references today. The store
+   still moves verbatim as a `defineStore` exactly as Decision 22 records (both hosts create Pinia
+   before mount — JW `main.js:117`; the store function is only invoked at component/service runtime,
+   never at module import time, so no boot-order hazard). `pinia` is added to the kit
+   `package.json` peerDependencies for honesty (source-alias consumption resolves it from each
+   host's node_modules; both hosts have it — JV's per-domain stores are the app standard).
+5. **Transport adaptation, exactly scoped:** `client.js` `request()` gains an optional `signal`
+   option and `requestStream(path, body, onDelta, { signal } = {})` gains signal support + its
+   `usage` return switches to **null-until-a-done-frame** (was a zeros-object initialization).
+   Contract-change safety verified: `requestStream` has ZERO callers today and is NOT exported from
+   `index.js` (its first caller is the moved aiFeature); the null-vs-zeros distinction is
+   load-bearing because `runAiFeatureStream` RETURNS `usage` to callers and `rag/chat.js:203`
+   forwards it to the UI — the moved wrapper keeps JW's exact semantics (null when no done frame
+   arrived; a zeros-object when a done frame arrives without counts). The wrapper accumulates
+   `content` itself and forwards `(delta, content)` to both the task handle and the caller's
+   `onDelta`, preserving the public aiFeature contract byte-for-byte.
+6. **Kit-fidelity fixes riding the move (each restores intent or kit convention, none changes JW's
+   rendered look):** (a) `AiTaskStrip.vue`'s closing style rule `:deep(.jw-btn--ghost)` is DEAD
+   CSS twice over — the button family has been `ui-btn--*` since the 2026-06-24 convergence, and
+   `:deep()` is a scoped-CSS feature inert in this non-scoped block — so the documented "tint the
+   inline ghost Details button" intent has been silently broken in JW; the rule becomes
+   `.sts .ui-btn--ghost { … }` (the tint comes back — the one visible pixel change, and it's the
+   component's own recorded intent). (b) The panel h2's `--font-serif` becomes the kit heading
+   convention `var(--font-display, inherit)` (kit precedent: AppModal/HelpDrawer/EmptyState;
+   pixel-identical in JW where `tokens.css:72` maps `--font-display: var(--font-serif)`); the
+   streaming-preview `pre` keeps serif via `var(--font-serif, Georgia, serif)` — legitimate in a
+   kit file because the SHARED appearance engine itself owns that property (`appearance.js:246`).
+   (c) `--shadow-window` has zero kit uses → gains a literal fallback per the kit's
+   every-token-has-a-fallback idiom. (d) `.t-eyebrow`/`.t-muted` are JW `styles.css` utilities with
+   zero kit uses → the two spots using them become self-contained scoped styles so the components
+   render correctly in any host. (e) Moved files gain the kit's standard SPDX header.
+7. **JV safety (F1 untouched):** all index.js changes are additive exports; JV resolves `pinia`
+   from its own node_modules; JV's `renderTasks.js`/`TaskStrip.vue` fork stays as-is — its deletion
+   + adoption is F1/F4 exactly as Decision 22 step 4 records.
 - **C4 — everything-LLM-shared audit:** NOT STARTED.
 - **C2 — measured/benchmark re-grounding research:** NOT STARTED.
 - **E3 — ODT import: lists:** NOT STARTED.

@@ -924,12 +924,85 @@ entryLabel tests → point at kit `modelLabels`; tier tests stay on JW modelMeta
 **Kit exports added:** `LuFeatureChip`, `LuModelSelect`, `useProviderModels`, `parseQuant`, `entryLabel`,
 `ensureEmbeddingReady`, `embedTexts`, `_resetEnsureCache`.
 
-**FILED (not done here): kit-internal layering violation** — `common/composables/useRouting.js` and
-`useRunnerModels.js` (llm-endpoint composables) live in the common layer and import `../../client.js`
-against `common/index.js:6`'s rule; the fix (move them to the llm layer + sweep their importers) is its
-own small item for the ledger.
+**FILED (not done here): kit-internal layering violation** — FIVE common-layer files import the
+llm-layer `client.js` against `common/index.js:6`'s own rule (the v2 re-check corrected the first
+filing, which had named only two): `common/composables/useRouting.js:14`, `useRunnerModels.js:14`,
+`useProviderConnect.js:8`, `useCatalogMeta.js:12`, and `common/services/modelApply.js:15`. The fix
+(move the llm-endpoint composables/services to the llm layer + sweep their importers) is its own
+ledger item; note that executing it moves `listModels` to the llm layer, which is what makes C5's
+`useProviderModels → listModels` import a clean llm→llm edge.
 
 **Verify:** `build:vite` · vitest (embedApi 11 re-targeted + modelLabels/modelMeta split + suite green) ·
 full headless smoke (ChatPanel + the chip surfaces render; zero JS errors) · residual-reference greps
 (zero imports of the three deleted JW files) · JV-safety (additive exports only; JV untouched — its
 adoption is F1).
+
+### C5 design v2 — the PANEL round (3 checkers, lenses: architecture-fit · reuse/convergence ·
+grounding) returned FAIL ×3 on the SAME core facts; v1's crux 3 is SUPERSEDED as follows
+
+**What the panel caught (unanimous, each verifying independently at file:line):** v1's load-bearing
+claim "ModelPicker.vue — ONE mount: ChatPanel.vue" is **FALSE** — `ModelPicker.vue` has ZERO importers
+anywhere in JW (the consumer grep had matched ChatPanel's unrelated local boolean `showModelPicker`,
+and the design was written without verifying an actual import line — a T2 failure of mine, caught
+exactly as the panel exists to catch). ChatPanel's REAL picker is its own INLINE provider+model widget
+(`ChatPanel.vue:74-118` bindings + `:471-488` template, kit `UiSelect`-based, writing
+`ai.featurePins.chat`), which duplicates the chip-popover's binding logic nearly line-for-line — and
+ChatPanel ALREADY mounts `AiFeatureChip` in its header. Panel B additionally found a THIRD live fetch
+of the same endpoint (`useProviderConnect.listModels`, used by QuickSetup) that v1 neither converged
+nor filed; all three failed T11 (the JW CLAUDE.md kit inventory + kit README updates weren't in-plan).
+Panel-CONFIRMED strengths retained from v1: the presentational-LuFeatureChip + thin-JW-binding split
+(a legitimate host-state adapter, NOT a shim), the plain-`string[]` cache simplification (enriched
+fields verified hardcoded-null), the filed layering violation, the `/settings/audio`→`#/ai` fix, and
+embedApi's kit placement.
+
+**The v2 shape (supersedes v1's cruxes 2-3):**
+1. **`ModelPicker.vue` is DELETED as dead code — nothing moves.** With it die `parseQuant`/`entryLabel`
+   (panel-verified: their ONLY live consumer was the dead component + its tests) — `modelMeta.js`
+   shrinks to the tiers documented-mirror (`getModelTier`/`TIERS`, header updated) and
+   `modelMeta.test.js` keeps only the tier tests. **LuModelSelect and kit `modelLabels.js` are DROPPED
+   from the design** (v1 was about to promote dead code into the kit — the panel's exact words:
+   "least-disturbance relocation of essentially-dead code dressed as convergence").
+2. **ONE endpoint accessor + ONE cache.** The kit's single accessor for
+   `/v1/llm-providers/{id}/models` is the EXISTING `useProviderConnect.listModels` (error-as-data
+   contract, QuickSetup keeps calling it directly for its one-shot list — different job, same
+   accessor). The NEW llm-layer composable `ui/src/composables/useProviderModels.js` builds the shared
+   module-scoped cache ON TOP of `listModels` — honestly noted (the v2 re-check's catch):
+   `useProviderConnect.js` itself sits in the common layer and imports the llm client, i.e. it is one
+   of the FIVE filed layering violators, so today this edge is llm→common-that-reaches-back; when the
+   filed item executes and `listModels` moves to the llm layer, it becomes the clean llm→llm import:
+   `modelsFor`/`ensureModels`/`refreshModels`, plain `string[]`, WITH an in-flight guard (panel watch
+   item: LuModelPicker's `pid in modelsCache` in-flight dedup must not regress — the composable keeps
+   an in-flight set so concurrent ensures/refreshes of one provider coalesce). `LuModelPicker` adopts
+   it (its per-instance `modelsCache`/`fetchModels` deleted); JW's `useModelList.js` is deleted.
+3. **The REAL ChatPanel convergence — one JW binding composable, not a new kit control.** The
+   duplicated ~40 lines of store-binding logic (INHERIT sentinel, provider/model options building,
+   `setFeaturePin` writes, refresh) converge into ONE new JW composable
+   `composables/useFeaturePin.js` (app-state binding — the layer C4 ruled APP-OK), consumed by BOTH
+   the AiFeatureChip binding and ChatPanel's inline row. ChatPanel's inline row STAYS a tiny host
+   composition of kit primitives (two `UiSelect` + refresh — the app standard's hosts-compose-
+   primitives pattern; no fourth picker control is invented). **Found-bug fixed by the convergence:**
+   the inline row is hard-bound to the `chat` pin even in character mode, where the run uses
+   `characterChat` (`ChatPanel.vue:86-99` vs the header chip switching per mode) — `useFeaturePin`
+   takes the ACTIVE feature (computed `chat`|`characterChat`), so the inline row edits the pin that
+   actually routes the run.
+4. **`LuFeatureChip` (kit, presentational)** as v1 recorded, now with the explicit acceptance line the
+   panel asked for: after the change, JW's `AiFeatureChip.vue` contains ZERO chip/popover/backdrop
+   markup — it is `useFeaturePin` + `<LuFeatureChip>` + the `#foot` manage-link to `#/ai` (the
+   `/settings/audio` dead link dies). The ~20 consumers stay untouched (same name + props).
+5. **embedApi move** as v1 (kit `ui/src/services/embedApi.js`, `client.request` transport with
+   `{signal}`); the panel watch-item is CHECKED: no rag consumer matches transport-error text (grep
+   clean), and the 11-test suite re-targets via the alias-subpath precedent, mocking the kit client.
+6. **T11 in-plan:** JW `CLAUDE.md` — the kit inventory gains `LuFeatureChip` + `useProviderModels` +
+   the embed functions, the AI-providers section notes embedApi now rides the kit, and the
+   AiFeatureChip line describes the binding pattern; the kit README's `ui/` paragraph gains the same;
+   both land in the same commit series.
+7. **Kit exports:** `LuFeatureChip`, `useProviderModels`, `ensureEmbeddingReady`, `embedTexts`,
+   `_resetEnsureCache` (no LuModelSelect, no modelLabels).
+
+**Verify (v2):** `build:vite` · vitest (embedApi 11 re-targeted; modelMeta tier tests kept, dead-code
+tests removed; suite green) · full headless smoke — with the honest coverage note the panel demanded:
+the chip renders LIVE on five ROUTED views (Home/Analysis/Brainstorm/ReaderKnowledge/Chapters); the
+~14 modal consumers mount the SAME single component through the SAME single binding (their import
+lines don't change), so component-grain coverage is the routed views + the vitest layer, and no
+per-modal probe is claimed · residual greps: zero references to ModelPicker.vue / useModelList /
+JW embedApi / parseQuant / entryLabel · JV-safety (additive exports; JV untouched).

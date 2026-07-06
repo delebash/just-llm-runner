@@ -287,7 +287,67 @@ HERE with cited URLs + retrieval date (the upstream hard rule), feeding A7's des
 adopt-before-build — if someone already solved adaptive tuning well, adopt the shape; if nobody
 measures, that is a recorded differentiator, not a reason to skip the fix).
 
-### A10 RESEARCH RECORD — filled at execution (see below, appended when the survey runs)
+### A10 RESEARCH RECORD (survey run 2026-07-06; all URLs retrieved that day)
+
+**The headline: EVERY runtime in the field COMPUTES (estimates); NOBODY MEASURES. Our sweep —
+real load→measure trials picking a winner by observed tok/s — has no equivalent in Ollama, LM
+Studio, koboldcpp, or llama.cpp itself. The measured layer is a genuine differentiator and stays.
+The compute-anchor problem, however, is SOLVED UPSTREAM, in the engine we already ship.**
+
+Per-runtime findings:
+
+1. **llama.cpp itself (the engine our runner spawns)** — PR #16653 "llama: automatically set
+   parameters not set by the user in such a way that maximizes GPU utilization", MERGED 2025-12-15
+   (https://github.com/ggml-org/llama.cpp/pull/16653) — seven months before our b9870 pin, so THE
+   PINNED BUILD CARRIES IT. It adds: `--fit on|off` (ON BY DEFAULT in llama-server), `--fit-ctx`
+   (minimum acceptable ctx, default 4096), `--fit-margin` (free-VRAM margin to leave, default
+   1024 MiB), the `llama_params_fit` C API, and a standalone `llama-fit-params` binary that "does
+   the fit and prints the resulting CLI arguments to stdout". Algorithm (PR + discussion
+   https://github.com/ggml-org/llama.cpp/discussions/18049): ESTIMATION via iterative VIRTUAL
+   ALLOCATIONS (dummy models/contexts with `no_alloc`, the same accounting as the memory-breakdown
+   feature) — first check as-is, then REDUCE CTX, then move weights to RAM **prioritizing dense
+   tensors on GPU for MoE models** ("dense tensors are prioritized for better MoE performance" —
+   exactly the expert-offload geometry our naive `max(0, n_layers - n_gpu)` anchor lacks). CRITICAL
+   INTERACTION: **auto-fit DISABLES ITSELF when the caller sets `--n-gpu-layers`/`--tensor-split`/
+   `--override-tensor`** — and our launch path always emits computed `-ngl`/`--n-cpu-moe`, so today
+   we actively SUPPRESS the upstream fitter and substitute our weaker math. Known caveats to
+   respect at build: fitting takes seconds per load (4–20 s reported on multi-GPU; the docs' table
+   documents `--fit` default-on, https://github.com/ggml-org/llama.cpp/blob/master/docs/multi-gpu.md);
+   unreliable/racy edges when a model only barely fits (issues #18066, #18085); some models'
+   context memory mis-accounted (#19980 mmproj, Qwen3-Next reports in #18049).
+2. **Ollama** — pure computation, no measurement: estimates per-layer weight+cache needs against
+   detected free VRAM in estimation→allocation→commitment phases (new-engine memory management,
+   https://deepwiki.com/ollama/ollama/5.4-memory-management-and-gpu-allocation); known to misjudge
+   near the boundary and on MoE multi-GPU (https://github.com/ollama/ollama/issues/14351); the
+   escape hatch is the manual `num_gpu` Modelfile parameter. KV-cache type is a GLOBAL env opt-in
+   (`OLLAMA_KV_CACHE_TYPE`), not hardware-derived. No per-machine persistence of good values.
+3. **LM Studio** — a conservative built-in ESTIMATOR ("auto… usually a few layers under what your
+   card could actually handle"; beta memory estimator that under-accounts KV growth), manual
+   offload slider as the override; and — the strongest signal — LM Studio has an OPEN FEATURE
+   REQUEST to adopt llama.cpp's `llama_params_fit`
+   (https://github.com/lmstudio-ai/lmstudio-bug-tracker/issues/1673): the field is converging on
+   the upstream fitter we already ship.
+4. **koboldcpp** — `--autofit` / `--gpulayers -1`: estimation of layers + MoE tensor overrides +
+   tensor splits; its own wiki recommends "determine the optimal layer fit through trial and error
+   for best results" (https://github.com/LostRuins/koboldcpp/wiki,
+   https://github.com/LostRuins/koboldcpp/issues/390) — i.e. it documents the gap our sweep fills.
+
+**Design consequence for A7 (the anchor fix) — T4 adopt-don't-duplicate:** hand-fixing our
+`max(0, n_layers - n_gpu)` formula to encode expert-vs-dense placement would DUPLICATE the
+allocator knowledge upstream now maintains (and ours would drift with every engine release). The
+adopt-shaped fix: for the NO-TUNE case, obtain the anchor FROM the upstream fitter — either by
+omitting `-ngl`/`--n-cpu-moe` and letting the server's default `--fit` place tensors (with
+`--fit-margin` covering embed co-residency headroom), or by running `llama-fit-params` once and
+CACHING its printed values — then the sweep walks from that anchor and the saved tune (explicit
+flags) governs every later load, which cleanly disables upstream fit exactly when we know better
+(measured > estimated > none — the layering already expresses this). Fit-cost note: delegating on
+EVERY load would add the fitter's seconds to every model switch, so the anchor should be computed
+once and cached (tune-row-with-provenance or equivalent), not re-fit per load. OPEN AT BUILD
+(verify before designing the seam): whether `llama-fit-params` ships in the b9870 release-asset
+zips we download; how the chosen path reports the fitted values (stdout parse vs server log vs
+`/props`); and the barely-fits reliability caveats above. **This adopt-vs-hand-fix choice is
+load-bearing and is SURFACED to the user with a recommendation before the derivation half of
+Phase 1 builds (rule 6); the seed-truth half of Phase 1 is independent of it and proceeds.**
 
 ## STOPPING POINT (2026-07-06, pre-compact — user: "we need to compact soon…update docs and everything needed in detail") — READ THIS FIRST ON RESUME
 

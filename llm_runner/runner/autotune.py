@@ -14,9 +14,16 @@ measuring without it finds configs that OOM in production.
 
 WHAT it does NOT do: hunt the absolute OOM floor (the load path's own OOM
 back-off would silently shed layers and corrupt the reading — a trial that
-back-offs simply measures slower and loses), sweep threads/spec (measured flat
-on the reference box), or auto-save (the caller decides: the Tune modal fills
-the grid for review; QuickSetup passes save=True).
+back-offs simply measures slower and loses), sweep threads (measured flat on
+the reference box), or auto-save (the caller decides: the Tune modal fills
+the grid for review; QuickSetup passes save=True). MTP bases DO get one spec-n
+alternative trial (A9, 2026-07-06).
+
+BENCH-METHOD CAVEAT (on-box incident 3, 2026-07-06): a verbatim-repeated prompt
+hits llama's prompt cache and TTFT collapses to decode-only — `measure` reads
+DECODE tok/s (cache-insensitive), which is why the sweep compares decode rates;
+any future TTFT-shaped trial must cache-bust its prompt head per run (see the
+ab-test doc's cache-busted variant).
 
 Layering: this module owns the MECHANICS (service-driving sweep + job state).
 The ROUTER FACTORY takes the llm-layer's `resolve_switches` + `save_tune`

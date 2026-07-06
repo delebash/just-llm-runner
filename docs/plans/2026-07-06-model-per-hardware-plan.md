@@ -527,6 +527,52 @@ the estimate stays conservatively in force — accepted drift, recorded); `start
 single-model path keeps explicit values (an asymmetry, fine — production is router-only, noted
 in the code comment).
 
+## PHASE 4 RECORD — SHIPPED 2026-07-06 (runner, same commit as this record). The Windows orphan-child fix. **PHASE 5 (the seed-facts audit script) IS NEXT — not started.**
+
+**The incident + the fix:** stopping the JW server ORPHANED its llama-server child on Windows
+(on-box incident 2 — :8080 survived serving a stale generated ini; the user's "restarted with the
+correct ini" confusion). Fix: every spawned llama-server child is enclosed in a Windows **Job
+Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`** — the OS kills the child when the last job
+handle closes, which includes the parent dying. **As built (per A3):** ONE `_spawn_child(popen,
+argv, logf)` seam extracted FIRST — both former ad-hoc Popen sites (start_runner's backoff loop +
+start_router) route through it (grep-verified the only spawn path; hardware.py's subprocess.run
+GPU probes are not spawns); `_win_job_for_child` creates/configures/assigns the job and returns
+None off-Windows or on ANY failure (a safety net must never block a spawn); the handle rides
+`_ServerHandle.job_handle` (kw_only field) — RETENTION NEEDED NO LIFECYCLE EDIT: the service
+already holds the whole handle object on `self._router` until `stop()`, and `stop()` now closes
+the job via `_close_job` (guaranteeing the child tree dies); both failed-spawn paths close their
+job right after `_kill`.
+
+**The checker trail (a worker restart interrupted the first diff-check; re-spawned):** verdict
+FAIL(1) — T2: the Win32 constants/struct layouts/`proc._handle` were from RECALL with no citations,
+and a wrong value silently no-ops the safety net (the fabricated-enum failure class the upstream
+hard rule exists for); plus the concrete catch that no `restype`/`argtypes` were set, so
+`CreateJobObjectW`'s HANDLE return would truncate through the ctypes default c_int on Win64.
+**REMEDIATED, all five facts web-verified 2026-07-06 (the citations live in the
+`_win_job_for_child` docstring):** `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000` and
+`JobObjectExtendedLimitInformation = 9` verbatim in golang/sys `windows/types_windows.go`
+(SDK-generated) + the kill-on-last-handle-close semantics via Microsoft Learn;
+`JOBOBJECT_EXTENDED_LIMIT_INFORMATION` = Basic + **inline `IO_COUNTERS IoInfo`** + 4×SIZE_T and
+`IO_COUNTERS` = 6×ULONGLONG, verbatim golang/sys — the verification also REFUTED two
+doc-extraction paraphrases encountered en route (an "IoInfo is PVOID" and a "time limits are
+DWORD" claim — both wrong vs the SDK-generated sources; paraphrases are not citations);
+`JOBOBJECT_BASIC_LIMIT_INFORMATION` = LARGE_INTEGER×2 · DWORD · SIZE_T×2 · DWORD · ULONG_PTR ·
+DWORD×2 per Microsoft's own windows-rs bindings (i64,i64,u32,usize,usize,u32,usize,u32,u32) +
+the Learn-indexed verbatim head; `proc._handle` per CPython Lib/subprocess.py (`self._handle =
+Handle(hp)`, Handle subclasses int). Hardening applied: explicit `restype`/`argtypes` on
+CreateJobObjectW / SetInformationJobObject / AssignProcessToJobObject / CloseHandle (HANDLE =
+pointer-width `c_void_p`).
+
+**Honest test scope:** +3 unit tests (the seam's wiring contract — argv/stdout/text, job None
+off-win32 · fake-win32 graceful degradation, no windll → None and the spawn proceeds · stop()
+closes the retained handle) — the POSITIVE Windows path is un-unit-testable off-Windows by
+construction, so **the §G box check (kill the JW server → the llama-server child must die with
+it) is the sole runtime proof of the orphan fix and must be run + recorded before "fixed" is
+claimed on the box.** Doc notes shipped in-diff per the Phase-4 bullet: the SVM plan's
+sleeping-child caution (incident 1: direct-to-router clients bypass the arbiter) + the autotune
+docstring's bench cache-busting caveat (incident 3) and spec-n note. **Verified:** runner ruff
+clean + **380 pytest** (377→380).
+
 ## PHASE 3 RECORD — SHIPPED 2026-07-06 (runner, same commit as this record). The class→model map.
 
 **Built to §Phase 3; the diff checker returned FAIL(2) — both findings were THIS record + the

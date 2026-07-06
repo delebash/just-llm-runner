@@ -575,3 +575,61 @@ def test_kv_term_single_source_no_drift():
     a2 = fitmod._slope_offset(1000, 10, 8, 2048, 8192, 8)[0]
     expected = fitmod._C1 * fitmod.kv_bytes_per_token(8, 8) * (8192 - 4096)
     assert abs((a2 - a1) - expected) < 1e-9
+
+
+# ── Phase 4: the ONE spawn seam + the Windows kill-on-close Job Object (A3) ──
+
+def test_spawn_child_seam_wiring_and_no_job_off_windows():
+    # The seam builds the Popen with the shared stdout/stderr wiring; off-Windows
+    # the job handle is None (the orphan fix is win32-only by construction).
+    import subprocess as sp
+    from llm_runner.runner.process import _spawn_child
+
+    calls = {}
+
+    def fake_popen(argv, **kw):
+        calls["argv"] = argv
+        calls["kw"] = kw
+        return object()
+
+    proc, job = _spawn_child(fake_popen, ["exe", "--flag"], None)
+    assert job is None
+    assert calls["argv"] == ["exe", "--flag"]
+    assert calls["kw"]["stdout"] is sp.PIPE and calls["kw"]["text"] is True
+
+    logf = object()
+    _spawn_child(fake_popen, ["exe"], logf)
+    assert calls["kw"]["stdout"] is logf and "text" not in calls["kw"]
+
+
+def test_win_job_degrades_gracefully_without_windll(monkeypatch):
+    # The job is a SAFETY NET: on a (faked) win32 platform where the ctypes calls
+    # fail (no windll on Linux), the spawn must still succeed with job=None —
+    # never block a spawn. The real kill-on-parent-death is a §G box check.
+    from llm_runner.runner import process as proc_mod
+
+    monkeypatch.setattr(proc_mod.sys, "platform", "win32")
+    fake = type("P", (), {"_handle": 123})()
+    assert proc_mod._win_job_for_child(fake) is None
+
+
+def test_stop_closes_the_retained_job_handle(monkeypatch):
+    # stop() must close the retained handle (under KILL_ON_JOB_CLOSE that is what
+    # guarantees the child tree dies with us) — recorded via a patched closer.
+    from llm_runner.runner import process as proc_mod
+
+    closed = []
+    monkeypatch.setattr(proc_mod, "_close_job", lambda j: closed.append(j))
+
+    class FakeProc:
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+    sentinel = object()
+    h = proc_mod.Runner(process=FakeProc(), url="http://x", n_gpu_layers=1, n_cpu_moe=0,
+                        job_handle=sentinel)
+    h.stop()
+    assert closed == [sentinel]

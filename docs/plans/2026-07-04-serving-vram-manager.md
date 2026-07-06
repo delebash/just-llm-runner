@@ -1,5 +1,13 @@
 # Plan — Serving / VRAM manager (router mode + a thin budget arbiter)
 
+> **⚠ SLEEPING-CHILD CAUTION (on-box incident 1, 2026-07-06 — recorded per the model-per-hardware
+> plan Phase 4):** a SLEEPING router child is NOT VRAM-free — on the 2070S a sleeping qwen3.6 child
+> held enough CUDA footprint to OOM a book-chat load twice. IN-APP the arbiter's `_admit` evicts
+> first, so the service path is immune — but DIRECT-to-router clients (any external tool pointed at
+> :8080, incl. manual curls and the on-box test harness) BYPASS the arbiter: on an 8 GB card a
+> sleeping third model can push a maxed profile over the OOM edge. Mitigations for manual use:
+> `POST /models/unload` first, or wait out `sleep-idle-seconds`.
+
 > ⛔ **LIVE STATUS: DESIGN APPROVED + IN BUILD — P1 + P2 + P3 SHIPPED (2026-07-04); P4 (resident-set + TTL UI) NEXT (needs a fresh "go").** This is the DESIGN REFERENCE; the executable task plan + AS-BUILT tracker (current state, per-phase deviations, verification) is **`2026-07-04-serving-vram-manager-implementation.md`** — read THAT for where the build stands. Shipped so far (runner `just-llm-runner`, JW `justwrite-app`, branch `claude/admiring-galileo-il3q0o`): P1 router mode + DB→`.ini` emission; P2 the thin VRAM arbiter (`runner/arbiter.py`) + budget-aware fit; **P3 co-resident embeddings — the first user-verifiable ship: local RAG works out of the box on the bundled runner (pinned nomic, lazy on first RAG use)**, closing the §12 embedding gap this doc's §5e/§8.1 designed. Two runtime checks await the user's Windows box (neither blocks P4): P3 §3d end-to-end + P1g router-flag confirm. **Model-surface #104–112 UNBLOCKS now.** Original decision (2026-07-04): **(b) design this manager FIRST — the model-surface build (`2026-07-03-model-setup-simplification.md`, #104–112) waits/couples to it**; **adopt llama.cpp router mode**; **DB stays the source of truth, the `.ini` is a generated artifact written only when needed.** Anchor task: **#29**.
 
 ---

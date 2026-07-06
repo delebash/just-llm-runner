@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -443,6 +444,123 @@ def _kill(proc) -> None:
             pass
 
 
+# ── The Windows orphan-child fix (model-per-hardware plan Phase 4 + amendment A3) ──
+# On-box incident (2026-07-06): stopping the JW server ORPHANED its llama-server child
+# on Windows — :8080 survived, serving a stale generated ini. A Job Object with
+# JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE ties the child's lifetime to the job HANDLE: when
+# the parent dies (or stop() closes the handle), the OS kills the child. The handle is
+# RETAINED on the returned _ServerHandle — dropping it early would kill the child
+# immediately, which is why every spawn goes through the ONE `_spawn_child` seam below
+# (A3: four ad-hoc Popen sites would each need this wiring and would drift).
+_KILL_ON_JOB_CLOSE = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+_JOB_EXTENDED_INFO_CLASS = 9  # JobObjectExtendedLimitInformation
+
+
+def _win_job_for_child(proc):
+    """Enclose a freshly-spawned child in a kill-on-close Job Object (win32 only).
+    Returns the job handle to retain, or None (off-Windows, or on ANY failure —
+    the job is a safety net; it must never block a spawn). Real kill-on-parent-
+    death behavior is a box check (§G) — this seam is unit-tested for the
+    degrade-gracefully contract only.
+
+    Win32 facts WEB-VERIFIED 2026-07-06 (the upstream hard rule — none of this is
+    from recall): JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000 and
+    JobObjectExtendedLimitInformation = 9, both verbatim in golang/sys
+    (raw.githubusercontent.com/golang/sys/master/windows/types_windows.go, the
+    SDK-generated Go bindings) with the kill-on-last-handle-close semantics per
+    Microsoft Learn (winnt.h JOBOBJECT_BASIC_LIMIT_INFORMATION — "requires
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION"). The EXTENDED layout (Basic +
+    IO_COUNTERS IoInfo + 4×SIZE_T) and IO_COUNTERS (6×ULONGLONG) are verbatim in
+    golang/sys — IoInfo IS an inline IO_COUNTERS, not a pointer. The BASIC layout
+    (LARGE_INTEGER×2 · DWORD LimitFlags · SIZE_T×2 · DWORD · ULONG_PTR Affinity ·
+    DWORD×2) matches Microsoft's own windows-rs bindings
+    (microsoft.github.io/windows-docs-rs …JobObjects/struct.JOBOBJECT_BASIC_
+    LIMIT_INFORMATION: i64,i64,u32,usize,usize,u32,usize,u32,u32). `proc._handle`
+    is CPython's Windows Popen process handle (Lib/subprocess.py: `self._handle =
+    Handle(hp)`; Handle subclasses int). restype/argtypes are set explicitly —
+    HANDLE is pointer-width, and the ctypes default c_int return would truncate
+    handles on Win64 (the checker's catch)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+
+        k32 = ctypes.windll.kernel32
+        k32.CreateJobObjectW.restype = ctypes.c_void_p
+        k32.CreateJobObjectW.argtypes = (ctypes.c_void_p, ctypes.c_wchar_p)
+        k32.SetInformationJobObject.restype = ctypes.c_int
+        k32.SetInformationJobObject.argtypes = (
+            ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32)
+        k32.AssignProcessToJobObject.restype = ctypes.c_int
+        k32.AssignProcessToJobObject.argtypes = (ctypes.c_void_p, ctypes.c_void_p)
+        job = k32.CreateJobObjectW(None, None)
+        if not job:
+            return None
+
+        class _IoCounters(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_uint64) for n in (
+                "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+                "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+        class _BasicLimits(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                        ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", ctypes.c_uint32),
+                        ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t),
+                        ("ActiveProcessLimit", ctypes.c_uint32),
+                        ("Affinity", ctypes.c_size_t),
+                        ("PriorityClass", ctypes.c_uint32),
+                        ("SchedulingClass", ctypes.c_uint32)]
+
+        class _ExtendedLimits(ctypes.Structure):
+            _fields_ = [("BasicLimitInformation", _BasicLimits),
+                        ("IoInfo", _IoCounters),
+                        ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t),
+                        ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        info = _ExtendedLimits()
+        info.BasicLimitInformation.LimitFlags = _KILL_ON_JOB_CLOSE
+        if not k32.SetInformationJobObject(job, _JOB_EXTENDED_INFO_CLASS,
+                                           ctypes.byref(info), ctypes.sizeof(info)):
+            k32.CloseHandle(job)
+            return None
+        if not k32.AssignProcessToJobObject(job, ctypes.c_void_p(int(proc._handle))):
+            k32.CloseHandle(job)
+            return None
+        return job
+    except Exception:  # noqa: BLE001 — a safety net must never block a spawn
+        return None
+
+
+def _close_job(job) -> None:
+    """Close a retained job handle (kills the enclosed child under KILL_ON_JOB_CLOSE).
+    No-op off-Windows / on None / on any failure."""
+    if job is None or sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        k32 = ctypes.windll.kernel32
+        k32.CloseHandle.argtypes = (ctypes.c_void_p,)  # HANDLE is pointer-width
+        k32.CloseHandle(job)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _spawn_child(popen, argv, logf):
+    """The ONE spawn seam every llama-server child goes through (A3): the shared
+    stdout/stderr wiring + the Windows Job Object enclosure. Returns
+    `(proc, job_handle)` — the caller stores the handle on its _ServerHandle."""
+    if logf is not None:
+        proc = popen(argv, stdout=logf, stderr=subprocess.STDOUT)
+    else:
+        proc = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    return proc, _win_job_for_child(proc)
+
+
 @dataclass
 class _ServerHandle:
     """A live llama-server process (OpenAI-compatible at `url`) — the ONE
@@ -452,6 +570,9 @@ class _ServerHandle:
 
     process: object
     url: str
+    # The retained Windows Job Object handle (None off-win32) — see _spawn_child.
+    # kw_only so subclass non-default fields stay legal after this defaulted one.
+    job_handle: object = field(default=None, kw_only=True)
 
     def is_alive(self) -> bool:
         return self.process.poll() is None
@@ -464,6 +585,8 @@ class _ServerHandle:
             self.process.terminate()
         except Exception:  # noqa: BLE001
             pass
+        # Closing the job (win32) guarantees the whole child tree dies with us.
+        _close_job(self.job_handle)
 
 
 @dataclass
@@ -544,21 +667,17 @@ def start_runner(
                 overrides=overrides,
             )
             log.info("spawning llama-server: ngl=%d n_cpu_moe=%d ctx=%d", n_gpu, n_cpu_moe, fit.ctx_len)
-            if logf is not None:
-                proc = popen([str(server_exe), *flags], stdout=logf, stderr=subprocess.STDOUT)
-            else:
-                proc = popen(
-                    [str(server_exe), *flags],
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                )
+            proc, job = _spawn_child(popen, [str(server_exe), *flags], logf)
             if _wait_until_healthy(proc, url, probe_timeout, health, _sleep, _now):
-                return Runner(process=proc, url=url, n_gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe)
+                return Runner(process=proc, url=url, n_gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe,
+                              job_handle=job)
 
             # Capture WHY before killing: poll() is None for a hang (still alive at
             # the deadline) or the self-exit code if it died on its own.
             rc = proc.poll()
             output = _tail_file(log_path) if log_path else _drain(proc)
             _kill(proc)
+            _close_job(job)  # a failed spawn's job dies with its child
             if n_gpu > 0 and _looks_like_oom(output):
                 n_gpu = max(0, n_gpu - backoff_step)
                 log.warning("llama-server OOM — backing off to ngl=%d", n_gpu)
@@ -611,18 +730,13 @@ def start_router(
     logf = open(log_path, "wb") if log_path else None
     try:
         log.info("spawning llama-server router: models_max=%d sleep_idle=%s", models_max, sleep_idle_seconds)
-        if logf is not None:
-            proc = popen([str(server_exe), *argv], stdout=logf, stderr=subprocess.STDOUT)
-        else:
-            proc = popen(
-                [str(server_exe), *argv],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-            )
+        proc, job = _spawn_child(popen, [str(server_exe), *argv], logf)
         if _wait_until_healthy(proc, url, probe_timeout, health, _sleep, _now):
-            return RouterHandle(process=proc, url=url)
+            return RouterHandle(process=proc, url=url, job_handle=job)
         rc = proc.poll()
         output = _tail_file(log_path) if log_path else _drain(proc)
         _kill(proc)
+        _close_job(job)  # a failed spawn's job dies with its child
         status = "still running, killed on timeout" if rc is None else f"exit {rc}"
         where = f"  [log: {log_path}]" if log_path else ""
         raise RunnerStartError(

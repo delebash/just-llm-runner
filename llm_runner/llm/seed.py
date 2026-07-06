@@ -223,18 +223,16 @@ DEFAULT_CATALOG: list[dict] = [
 # here — it's a computed fit knob, not a constant.)
 DEFAULT_SWITCH_PRESETS: list[dict] = [
     {"id": "base", "label": "Base (every model)", "applies_to": "all", "position": 0,
-     # reasoning_budget 1024 (+ its exhausted-message) = the UNIVERSAL anti-runaway cap
-     # (user decree 2026-07-06; hardware-independent SEMANTICS, so it belongs in a
-     # bundle, not the computed/measured layers — model-per-hardware plan, A9).
-     # Measured composition (on-box A/B 2026-07-06, the ab-test doc, pin b9870):
-     # per-request enable_thinking=false fully suppresses thinking WITH this cap on
-     # the CLI; where a chat template ignores the toggle, the cap still bounds the
-     # loop — the layers compose safely both ways. Both values differ from the knob
-     # defaults (-1 / ""), per the one-source rule below.
+     # reasoning_budget was REMOVED from this bundle (user, 2026-07-06 after the full
+     # walk-through: it is a per-taste bound on thinking-ENABLED tasks, not a rule —
+     # thinking on/off is the per-request toggle our dispatch already sends per task,
+     # a different mechanism entirely; the 1024 originated as the author's own
+     # box/latency preference and the mainstream pattern ships no launch budget). The
+     # knob stays in knob_catalog (default -1 = unlimited) — set it per-model in the
+     # switches editor if a model's template ignores the toggle or you want capped
+     # deep-think chat.
      "switches": {"flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true",
-                  "context_shift": "true", "cache_reuse": "256",
-                  "reasoning_budget": "1024",
-                  "reasoning_budget_message": "Taking user constraints into account, I will now output the solution."}},
+                  "context_shift": "true", "cache_reuse": "256"}},
     {"id": "moe", "label": "MoE (mixture-of-experts)", "applies_to": "moe", "position": 1,
      # ONLY no_mmap is genuinely MoE-specific; the spec_type default (none) lives ONCE in
      # knob_catalog — no duplicate here (the phase's own "one source" rule, 2026-07-03 Phase 3).

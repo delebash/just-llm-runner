@@ -113,8 +113,7 @@ def test_unknown_model_empty(configured):
     assert switch_resolve.resolve_model_switches("does-not-exist") == {
         "flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true",
         "context_shift": "true", "cache_reuse": "256",
-        # The universal anti-runaway reasoning cap (2026-07-06, model-per-hardware
-        # plan Phase 1) rides the base bundle, so even an unknown model gets it.
-        "reasoning_budget": "1024",
-        "reasoning_budget_message": "Taking user constraints into account, I will now output the solution.",
+        # reasoning_budget deliberately ABSENT (user, 2026-07-06): thinking on/off is
+        # the per-request toggle; a budget is a per-taste knob set per-model, never a
+        # shipped base value.
     }  # unknown model → treated as dense, base preset only (no mtp gate w/o a row)

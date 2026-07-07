@@ -849,12 +849,12 @@ class RunnerService:
             # Drop error-status entries now: they were attempts under a missing/old
             # engine; the next use retries fresh.
             with self._router_lock:
-                stale = [m for m, st in self._resident.items() if st.get("status") == "error"]
-                for mid in stale:
+                stale_errors = [m for m, st in self._resident.items() if st.get("status") == "error"]
+                for mid in stale_errors:
                     self._resident.pop(mid, None)
                     self._arbiter.release(mid)
-            if stale:
-                log.info("engine install: cleared %d stale model error state(s)", len(stale))
+            if stale_errors:
+                log.info("engine install: cleared %d stale model error state(s)", len(stale_errors))
             self._engine_state = {"status": "installed", "detail": "", "error": "",
                                   "downloaded": 0, "total": 0}
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state

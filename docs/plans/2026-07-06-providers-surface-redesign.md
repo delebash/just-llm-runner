@@ -1575,3 +1575,93 @@ standing pre-production reset story).
 
 #114 (now also owed: the smoke over tonight's huge UI surface + the probe rework + curls)
 · the #142 dispositions above · the parked ledger items.
+
+## ROUND 18 — THE VERIFIED ROUND (#114, user: "do 114") — SHIPPED 2026-07-07
+
+**STATUS: the deferred-verification debt of ROUNDs 9–17, PAID. The "dont run tests"
+posture lifted on the user's explicit "do 114". Environment: the dev container (no GPU,
+no engine, JW server :17495 + vite :1420, dev DB reset once for the new columns). A
+session resume struck mid-round (memory re-verified against origin before continuing:
+runner 768c65a · JW a4a9bab, clean); the chained-cd cwd footgun struck twice more (a vite
+launched from the runner repo; a pytest aimed at a nonexistent path) — both caught from
+output and re-run correctly.**
+
+### What ran, and what it proved
+
+**1. Live curl battery (all on the wire, reset DB):** `/v1/llm-runner/hardware` serves
+`machineKey` (`cpu|4c|15g`) + `classKey` (`cpu|ram16`) — the container's real identities.
+`/v1/ai/class-tunes` round-trips: GET lists the seeded built-in gemma@vram8|ram32 config;
+PUT adds a second class; DELETE removes it. `ackHwFingerprint` PUT→GET persists.
+`resolved-defaults` serves the merged switches WITH the origins map — live provenance:
+cache_type_k/v · flash_attn · mlock = `base`, no_mmap = `type` (the provenance system's
+first teaching: no_mmap rides the MoE type bundle, not base — the ROUND-17 help copy
+saying "the base bundle (… no_mmap)" was a one-word imprecision the wire corrected),
+spec_type/spec_n_max = `mtp`; `computed` correctly empty (model not on disk here). The
+catalog wire shows 12 rows with the migrated seeds (gemma: notes=True · architecture
+gemma4 · experts 128 · the composed description). Built-in ping + probe-models return the
+COMPOSED health — on this engineless box: ok=false + "engine not installed — install it on
+the Built-in server row · 12 models in the catalog · models load on first use" (the
+user-box variant reads ✓ installed · b9899 · cuda12). `budgetSeconds:120` rides the
+auto-tune POST and its status. **The ROUND-9 prompt-cancel verified LIVE**: cancel →
+"stopping…" immediately → terminal `cancelled` in seconds; the trials record the honest
+story (baseline + batch fail fast `engine-not-installed`; spec-n cancelled mid-flight);
+the download channel stayed idle throughout (the engine gate fires before any model
+fetch). `stop {modelId}` accepts the body (200). Switch-presets round-trips: base(4
+switches) · moe(1) · mtp(2) — NO dense bundle exists in the seed (dense needs nothing
+beyond base), so the Global-defaults drawer truthfully shows three sections, not four
+(the ROUND-17 record's "four bundles" corrected to "the seeded bundles").
+
+**2. The wizard-probe REWORK (scripts/phaseD-quicksetup-probe.mjs) — PASS 22/22, zero
+page errors, zero non-benign requests.** The stale scenario-1 ("untuned pick AUTO-STARTS
+the sweep" — retired in ROUND 9) became the ROUND-14 truth ladder: untuned+unclassed →
+NO self-started sweep + "No measured settings for this PC yet" + BOTH "Quick optimize
+(~2 min)" and "Full optimize" + the Tune-dialog pointer; an explicit Quick-optimize click
+renders its own running title ("Quick optimize — measuring…") + the time-boxed copy +
+Skip → "Optimize cancelled." Scenario 2 (tuned) unchanged in spirit (no auto-start ·
+Re-optimize behind the A8 overwrite confirm) with the absence checks re-pointed at the
+CURRENT running titles. FOUND-AND-FIXED during the rework: the probe's old blanket
+auto-tune stub answered apply()'s ROUND-9 sweep-guard GET with "running", which opened
+the real "Stop it and apply?" dialog and blocked — i.e. the guard FIRED exactly as
+designed against a fake running sweep; the stub is now an idle→running-on-POST→cancelled
+state machine (and echoes budgetSeconds).
+
+**3. The full headless smoke — PASS**: every hash route + all five AI tabs + the
+provider-form scenario (engine/catalog/search/add-modal) + the sampler-order scenario,
+zero JS errors, running the new columns + migrated seeds end to end.
+
+**4. Record pytest runs**: runner **402/402** · JW server **76/76** (both re-run in this
+round for the record on top of the earlier runs).
+
+**5. The rules-checker diff pass**: ONE genuine agent verdict over the day's cumulative
+runner diff (b5abb91..768c65a — 36 files, +3276/−274, the ROUND 9–17 span) against
+T1–T12, with the tracker's ROUND records as the claims. VERDICT: appended below when the
+agent completes (in flight at this commit; the round does not close without it).
+
+### Residue
+
+The container cannot exercise GPU-dependent behavior — real loads, the measured sweep,
+co-resident VRAM, the update-replaces-folder path stay the user's box checks (ROUNDs
+9–17 lists). Everything else that was owed is now RUN.
+
+### The rules-checker verdict (appended on completion — the round's closing gate)
+
+The agent scored the day's cumulative diff (b5abb91..768c65a) against T1–T12:
+**T1–T6, T8, T9, T11, T12 PASS · T10 NA (no subagent decisions in the diff) · T7 FAIL.**
+The T7 failure, verbatim in substance: the mandated renderer gate (the headless smoke) was
+never run across ROUNDs 9–17's UI surface and the wizard probe was known-broken — both
+deferred to #114, contradicting the ROUND-3 standing amendment ("the smoke now runs on
+every UI change regardless of the waiver"). **RESOLVED BY THIS ROUND**: the verdict was
+issued against the diff as shipped; ROUND 18 ran the full smoke (PASS, all routes, zero JS
+errors) and reworked + ran the probe (PASS 22/22) — the checker's own prescribed fix,
+executed. The honest residue stands: rounds 9–17 shipped UI under the user's explicit
+"dont run tests" waiver with the debt tracked, and the ROUND-3 amendment is hereby
+RE-AFFIRMED as binding over any future waiver — the smoke is cheap and the waiver never
+meant to cover it.
+
+Checker watch items (recorded): (1) lifecycle `_run_install` reused the name `stale` for
+two different lists — RENAMED to `stale_errors` in this commit (the one code change of the
+round); (2) AiModelsArea binds the QuickSetup ref inside the providers loop — it resolves
+only because exactly ONE local-llamacpp provider exists (the seed guarantees it today; if
+multi-instance ever lands, the hardware-toast handoff needs a keyed ref); (3) the b9899
+non-cuda assets remain pattern-verified until a real install on a non-NVIDIA box (the
+Binaries panel is the escape hatch). Verdict + fixes recorded; #114 CLOSED.

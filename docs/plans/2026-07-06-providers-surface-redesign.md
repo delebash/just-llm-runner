@@ -1008,3 +1008,21 @@ vanishing silently. The lifecycle test gained the sweep + logs-survive assertion
 cpu rows. (b) Click Reinstall: the stranded b9870 folder disappears (the generalized sweep),
 leaving b9892 + logs + the sibling models.ini. (c) Update-while-a-model-is-loaded: the model
 unloads, the old folder deletes, the next use respawns the router on the new build.
+
+## ROUND 13 — SHIPPED 2026-07-07 (#121: the Built-in Edit view spacing batch)
+
+**STATUS: SHIPPED (this commit), on the user's "go" for task #121. Two spacing tweaks, both
+placed by the user's exact words after a first-message ambiguity was corrected (the user:
+"the padding was suppose to be between search models and just above box general model i think
+you padded local engine" — nothing had in fact been padded; #121 was still queued):**
+
+1. **`.lu-mcat-bar` gains `margin-top: 14px`** (LuModelCatalog) — the gap between the "Your
+   setup" GENERAL/EMBEDDING strip cards and the "Search models… · Sort · Reset catalog · +
+   Add model" row.
+2. **The Local engine panel mount gains `.lu-pf-eng { margin-top: 14px }`** (ProviderForm —
+   the class falls through to LuRunnerEngine's root) — the user's follow-up: "also space
+   between provider type and local engine".
+
+14 px matches the file's own `.lu-pf-foot` margin idiom. Gates: build:vite clean (CSS-only;
+no Python — no ruff needed). Box check: open Edit on the Built-in server — clear air between
+Provider type and Local engine, and between the model-slot cards and the search row.

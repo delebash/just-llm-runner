@@ -196,7 +196,8 @@ async function remove() {
       </template>
     </div>
 
-    <LuRunnerEngine v-if="isBuiltin" />
+    <!-- lu-pf-eng: space between the Provider type row and this panel (user, 2026-07-07). -->
+    <LuRunnerEngine v-if="isBuiltin" class="lu-pf-eng" />
     <LuModelCatalog v-if="isBuiltin" />
 
     <div v-if="saveErr" class="lu-error lu-pf-err">{{ saveErr }}</div>
@@ -227,6 +228,9 @@ async function remove() {
 .lu-fh { font-size: 11px; color: var(--muted); margin-top: 3px; }
 .lu-fh-warn { color: var(--danger); }
 .lu-pf-err { margin-top: 10px; }
+/* Space between the form grid (Provider type is its last built-in row) and the Local
+   engine panel (user, 2026-07-07: "space between provider type and local engine"). */
+.lu-pf-eng { margin-top: 14px; }
 .lu-pf-foot { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
 .lu-pf-spacer { flex: 1; }
 .lu-pf-test { font-size: 11.5px; }

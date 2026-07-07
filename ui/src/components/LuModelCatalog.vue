@@ -774,8 +774,11 @@ refreshApplied();
   border-bottom: 1px solid var(--lu-border, var(--border, #e2e2e2));
 }
 
-/* Manager: header bar (search → sort → spacer → actions) + the add/edit modal form (#30). */
-.lu-mcat-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+/* Manager: header bar (search → sort → spacer → actions) + the add/edit modal form (#30).
+   margin-top (user, 2026-07-07): breathing room between the "Your setup" strip cards and
+   this search row — "the padding was suppose to be between search models and just above
+   box general model". */
+.lu-mcat-bar { display: flex; align-items: center; gap: 8px; margin-top: 14px; margin-bottom: 8px; }
 .lu-mcat-search { flex: 0 1 220px; }
 .lu-mcat-sort { flex: 0 0 auto; }
 .lu-mcat-spacer { flex: 1; }

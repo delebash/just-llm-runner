@@ -1,47 +1,70 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The editable hardware-class tune library for ONE model (ROUND 8 Task C) — a
-// collapsed drawer inside the Tune modal (the sweep's home), mirroring the
-// LuRunnerBinaries `<details>` editor. Each row is a launch config for a PC
-// class (VRAM · RAM): the seeded starting points plus anything saved via "Save
-// for hardware class" or added/imported here. Edit opens the config in a
-// KnobGrid; Delete is offered on user rows only (a deleted BUILT-IN config
-// re-seeds on the next server start — built-ins are edited, not deleted; an
-// edit takes ownership and survives every reseed). Copy/Import move a config
-// between users as one small JSON blob.
+// The editable hardware-class tune library (ROUND 8 Task C + the ROUND 15
+// cross-model view) — a collapsed drawer mirroring the LuRunnerBinaries
+// `<details>` editor, in TWO modes over the same table/editor (no fork):
+//   • PER-MODEL (`modelId` set) — inside a model's Tune modal (the sweep's
+//     home): that model's class configs; imports target the open model.
+//   • GLOBAL (`modelId` empty) — the cross-model audit view on the Built-in
+//     server's Edit view: every (model × class) config with a Model column,
+//     Add picks the model from the catalog, Import honors the blob's own
+//     modelId. Knob labels self-load when no `catalog` prop is given.
+// Each row is a launch config for a PC class (VRAM · RAM): the seeded starting
+// points plus anything saved via "Save for hardware class" or added/imported
+// here. Delete is offered on user rows only (a deleted BUILT-IN config re-seeds
+// on the next server start — built-ins are edited, not deleted; an edit takes
+// ownership and survives every reseed). Copy/Import move a config between users
+// as one small JSON blob.
 import { computed, ref } from "vue";
 
 import KnobGrid from "./KnobGrid.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
+import UiSelect from "../common/components/UiSelect.vue";
 import UiTag from "../common/components/UiTag.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { confirmDialog } from "../common/services/dialog.js";
+import { request } from "../client.js";
 import { classKeyLabel, deleteClassTune, listClassTunes, putClassTune } from "../classTunes.js";
+import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
 
 const props = defineProps({
-  modelId: { type: String, required: true },
-  // name -> { label, help, options } — the Tune modal's Plane-1 switch catalog,
-  // so the editor grid renders the same labels/inputs as the tune grid above it.
+  // "" = GLOBAL mode (every model); set = that model's configs only.
+  modelId: { type: String, default: "" },
+  // name -> { label, help, options } — the host's Plane-1 switch catalog (the
+  // Tune modal passes its own). Empty → self-loaded on first open (global mount).
   catalog: { type: Object, default: () => ({}) },
 });
+const globalMode = computed(() => !props.modelId);
 
 const loaded = ref(false);
 const loading = ref(false);
 const error = ref("");
 const myClassKey = ref(""); // the CURRENT box's class (server-derived)
-const tunes = ref([]);      // this model's configs only
+const tunes = ref([]);      // this mode's configs (all, or one model's)
+const models = ref([]);     // catalog rows (global mode: names + the Add picker)
+const ownCatalog = ref({}); // self-loaded knob labels when no `catalog` prop
+const catalogMap = computed(() =>
+  Object.keys(props.catalog).length ? props.catalog : ownCatalog.value,
+);
+const modelName = (id) => models.value.find((m) => m.id === id)?.name || id;
+const modelOptions = computed(() =>
+  models.value.map((m) => ({ label: m.name || m.id, value: m.id })),
+);
 
-// Editor state — one at a time: null | { classKey, keyLocked, rows: [{name,value}] }
+// Editor state — one at a time:
+// null | { modelId, classKey, keyLocked, rows: [{name,value}] }
 const editing = ref(null);
 const saving = ref(false);
 const showImport = ref(false);
 const importText = ref("");
 const copiedKey = ref(""); // transient "Copied ✓" feedback per row
 
+const rowId = (t) => `${t.modelId}|${t.classKey}`;
+
 function _apply(res) {
   myClassKey.value = res.classKey || "";
-  tunes.value = (res.tunes || []).filter((t) => t.modelId === props.modelId);
+  tunes.value = (res.tunes || []).filter((t) => !props.modelId || t.modelId === props.modelId);
 }
 
 async function reload() {
@@ -49,6 +72,15 @@ async function reload() {
   error.value = "";
   try {
     _apply(await listClassTunes());
+    if (globalMode.value && !models.value.length) {
+      // Model names + the Add picker; a failure just leaves raw ids (enrichment).
+      try {
+        models.value = (await request("/v1/ai/model-catalog")).rows || [];
+      } catch { /* ids render verbatim */ }
+    }
+    if (!Object.keys(props.catalog).length && !Object.keys(ownCatalog.value).length) {
+      ownCatalog.value = plane1SwitchCatalog(await fetchKnobCatalog());
+    }
     loaded.value = true;
   } catch (e) {
     error.value = e.message || "Couldn't load the class library.";
@@ -66,22 +98,33 @@ const summaryOf = (t) => t.rows.map((r) => `${r.flagName}=${r.flagValue}`).join(
 function startEdit(t) {
   showImport.value = false;
   editing.value = {
+    modelId: t.modelId,
     classKey: t.classKey,
-    keyLocked: true, // the class IS the row's identity — a new class = Add
+    keyLocked: true, // (model, class) IS the row's identity — a new pair = Add
     rows: t.rows.map((r) => ({ name: r.flagName, value: r.flagValue })),
   };
 }
 function startAdd() {
   showImport.value = false;
-  editing.value = { classKey: myClassKey.value, keyLocked: false, rows: [] };
+  editing.value = {
+    modelId: props.modelId || "",
+    classKey: myClassKey.value,
+    keyLocked: false,
+    rows: [],
+  };
 }
 async function saveEdit() {
   const e = editing.value;
   if (!e) return;
+  const mid = (e.modelId || "").trim();
   const key = (e.classKey || "").trim();
   const switches = Object.fromEntries(
     e.rows.filter((r) => (r.name || "").trim()).map((r) => [r.name.trim(), r.value ?? ""]),
   );
+  if (!mid) {
+    error.value = "Pick the model this config is for.";
+    return;
+  }
   if (!key || !Object.keys(switches).length) {
     error.value = "A class key and at least one switch are required.";
     return;
@@ -89,7 +132,7 @@ async function saveEdit() {
   saving.value = true;
   error.value = "";
   try {
-    _apply(await putClassTune(props.modelId, switches, key));
+    _apply(await putClassTune(mid, switches, key));
     editing.value = null;
   } catch (err) {
     error.value = err.message || "Couldn't save the class config.";
@@ -106,7 +149,7 @@ async function removeTune(t) {
   if (!ok) return;
   error.value = "";
   try {
-    _apply(await deleteClassTune(props.modelId, t.classKey));
+    _apply(await deleteClassTune(t.modelId, t.classKey));
   } catch (e) {
     error.value = e.message || "Couldn't delete the class config.";
   }
@@ -121,7 +164,7 @@ async function copyTune(t) {
   }, null, 2);
   try {
     await navigator.clipboard.writeText(blob);
-    copiedKey.value = t.classKey;
+    copiedKey.value = rowId(t);
     setTimeout(() => { copiedKey.value = ""; }, 1500);
   } catch {
     // clipboard blocked (permissions) — show the blob for hand-copy instead
@@ -144,11 +187,16 @@ async function runImport() {
     error.value = 'The config needs a "classKey" and a non-empty "switches" object.';
     return;
   }
+  // Per-model mount: imports target the OPEN model deliberately (same-family
+  // sharing). Global mount: the blob says which model it belongs to.
+  const mid = props.modelId || (parsed?.modelId || "").trim();
+  if (!mid) {
+    error.value = 'The config needs a "modelId" here — this panel spans every model.';
+    return;
+  }
   saving.value = true;
   try {
-    // Imports always target THIS model — the panel is model-scoped; a blob copied
-    // from another model still imports here deliberately (same-family sharing).
-    _apply(await putClassTune(props.modelId, switches, key));
+    _apply(await putClassTune(mid, switches, key));
     showImport.value = false;
     importText.value = "";
   } catch (e) {
@@ -164,7 +212,7 @@ const hasRows = computed(() => tunes.value.length > 0);
 <template>
   <details class="lu-ct" @toggle="onToggle">
     <summary class="lu-ct-summary">
-      <span class="lu-ct-title">Hardware-class defaults</span>
+      <span class="lu-ct-title">Hardware-class defaults{{ globalMode ? " — all models" : "" }}</span>
       <span class="lu-muted">shared starting points by PC class (video memory · RAM)</span>
     </summary>
 
@@ -181,10 +229,11 @@ const hasRows = computed(() => tunes.value.length > 0);
       <template v-else-if="loaded">
         <table v-if="hasRows" class="lu-ct-tbl">
           <thead>
-            <tr><th>PC class</th><th>Settings</th><th /></tr>
+            <tr><th v-if="globalMode">Model</th><th>PC class</th><th>Settings</th><th /></tr>
           </thead>
           <tbody>
-            <tr v-for="t in tunes" :key="t.classKey">
+            <tr v-for="t in tunes" :key="rowId(t)">
+              <td v-if="globalMode" class="lu-ct-model">{{ modelName(t.modelId) }}</td>
               <td class="lu-ct-k">
                 {{ classKeyLabel(t.classKey) }}
                 <UiTag v-if="t.classKey === myClassKey" intent="success">this PC</UiTag>
@@ -194,7 +243,7 @@ const hasRows = computed(() => tunes.value.length > 0);
               <td class="lu-ct-act">
                 <UiButton intent="ghost" size="small" @click="startEdit(t)">Edit</UiButton>
                 <UiButton intent="ghost" size="small" @click="copyTune(t)">
-                  {{ copiedKey === t.classKey ? "Copied ✓" : "Copy" }}
+                  {{ copiedKey === rowId(t) ? "Copied ✓" : "Copy" }}
                 </UiButton>
                 <UiButton v-if="!t.builtIn" intent="ghost" size="small" @click="removeTune(t)">Delete</UiButton>
               </td>
@@ -202,8 +251,9 @@ const hasRows = computed(() => tunes.value.length > 0);
           </tbody>
         </table>
         <p v-else class="lu-muted lu-ct-empty">
-          No class configs for this model yet — measure a config above and use
-          “Save for hardware class”, or add one here.
+          {{ globalMode
+            ? "No class configs saved yet — measure a config in a model's Tune dialog and use “Save for hardware class”, or add one here."
+            : "No class configs for this model yet — measure a config above and use “Save for hardware class”, or add one here." }}
         </p>
 
         <div class="lu-ct-bar">
@@ -213,7 +263,9 @@ const hasRows = computed(() => tunes.value.length > 0);
 
         <div v-if="showImport" class="lu-ct-editor">
           <UiTextarea v-model="importText" :rows="5"
-            placeholder='Paste a config copied from this panel — {"classKey": "vram8|ram32", "switches": {…}}' />
+            :placeholder="globalMode
+              ? 'Paste a config copied from this panel — {&quot;modelId&quot;: …, &quot;classKey&quot;: &quot;vram8|ram32&quot;, &quot;switches&quot;: {…}}'
+              : 'Paste a config copied from this panel — {&quot;classKey&quot;: &quot;vram8|ram32&quot;, &quot;switches&quot;: {…}}'" />
           <div class="lu-ct-edact">
             <UiButton intent="ghost" size="small" @click="showImport = false">Cancel</UiButton>
             <UiButton intent="primary" size="small" :loading="saving" @click="runImport">Import</UiButton>
@@ -221,11 +273,16 @@ const hasRows = computed(() => tunes.value.length > 0);
         </div>
 
         <div v-if="editing" class="lu-ct-editor">
+          <label v-if="globalMode" class="lu-ct-field">
+            <span class="lu-ct-cap">Model</span>
+            <span v-if="editing.keyLocked" class="lu-ct-fixed">{{ modelName(editing.modelId) }}</span>
+            <UiSelect v-else v-model="editing.modelId" :options="modelOptions" width="name" />
+          </label>
           <label class="lu-ct-field">
             <span class="lu-ct-cap">Class key <span class="lu-muted">(vram&lt;GB&gt;|ram&lt;GB&gt; — this PC is {{ myClassKey }})</span></span>
             <UiInput v-model="editing.classKey" :disabled="editing.keyLocked" width="token" />
           </label>
-          <KnobGrid v-model="editing.rows" :catalog="catalog" />
+          <KnobGrid v-model="editing.rows" :catalog="catalogMap" />
           <div class="lu-ct-edact">
             <UiButton intent="ghost" size="small" @click="editing = null">Cancel</UiButton>
             <UiButton intent="primary" size="small" :loading="saving" @click="saveEdit">Save class config</UiButton>
@@ -245,6 +302,7 @@ const hasRows = computed(() => tunes.value.length > 0);
 .lu-ct-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
 .lu-ct-tbl th { text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 3px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .lu-ct-tbl td { padding: 5px 6px; border-bottom: 1px solid var(--border-soft, var(--border)); vertical-align: top; }
+.lu-ct-model { color: var(--ink); }
 .lu-ct-k { white-space: nowrap; color: var(--ink); display: flex; align-items: center; gap: 6px; }
 .lu-ct-sum { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--ink-2); word-break: break-word; }
 .lu-ct-act { white-space: nowrap; text-align: right; }
@@ -253,5 +311,6 @@ const hasRows = computed(() => tunes.value.length > 0);
 .lu-ct-editor { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--r-sm, 8px); background: var(--surface-2); }
 .lu-ct-field { display: flex; flex-direction: column; gap: 3px; }
 .lu-ct-cap { font-size: 11px; color: var(--muted); }
+.lu-ct-fixed { font-size: 12px; color: var(--ink-2); }
 .lu-ct-edact { display: flex; justify-content: flex-end; gap: 8px; }
 </style>

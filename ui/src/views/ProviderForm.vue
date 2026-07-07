@@ -12,6 +12,7 @@ import { computed, reactive, ref } from "vue";
 import UiButton from "../common/components/UiButton.vue";
 import LuCombobox from "../components/LuCombobox.vue";
 import UiInput from "../common/components/UiInput.vue";
+import LuClassTunes from "../components/LuClassTunes.vue";
 import LuRunnerEngine from "../components/LuRunnerEngine.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
@@ -199,6 +200,10 @@ async function remove() {
     <!-- lu-pf-eng: space between the Provider type row and this panel (user, 2026-07-07). -->
     <LuRunnerEngine v-if="isBuiltin" class="lu-pf-eng" />
     <LuModelCatalog v-if="isBuiltin" />
+    <!-- The CROSS-MODEL class-tune library (ROUND 15, user go): the same drawer each
+         Tune dialog carries per model, in GLOBAL mode — every (model × class) launch
+         config in one audit table, under the catalog as the everything-at-once view. -->
+    <LuClassTunes v-if="isBuiltin" class="lu-pf-ct" />
 
     <div v-if="saveErr" class="lu-error lu-pf-err">{{ saveErr }}</div>
 
@@ -231,6 +236,8 @@ async function remove() {
 /* Space between the form grid (Provider type is its last built-in row) and the Local
    engine panel (user, 2026-07-07: "space between provider type and local engine"). */
 .lu-pf-eng { margin-top: 14px; }
+/* The global class-tune library drawer under the catalog — same 14px rhythm. */
+.lu-pf-ct { margin-top: 14px; }
 .lu-pf-foot { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
 .lu-pf-spacer { flex: 1; }
 .lu-pf-test { font-size: 11.5px; }

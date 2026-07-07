@@ -1,15 +1,15 @@
 # Providers-surface redesign — five user decisions (2026-07-06 night)
 
-> **STATUS: LIVE TRACKER — ROUNDS 1–14 SHIPPED (2026-07-06 → 2026-07-07). Each `## ROUND N`
+> **STATUS: LIVE TRACKER — ROUNDS 1–15 SHIPPED (2026-07-06 → 2026-07-07). Each `## ROUND N`
 > section below is the full record of its go; a later round supersedes an earlier round's
 > "queued/deferred" claims (the chronology IS the tracker).** Born from the post-plan-closure
 > design round on the Providers & models screen (the user's live-app screenshot). Discipline:
-> the "do b" checker rule (2026-07-06) for verified rounds; the 2026-07-07 rounds (9–14) ran
+> the "do b" checker rule (2026-07-06) for verified rounds; the 2026-07-07 rounds (9–15) ran
 > under the user's explicit "dont run tests" posture — each round's own verification record
-> states exactly what gates ran and what the box checks are. After ROUND 14 the ROUND-8 queue
-> is EMPTY: the genuinely open items are Fix 2's LAST sliver being none (shipped in 14), the
-> wizard-probe rework + all deferred verification (harness task #114), and the two
-> user-deferred notification follow-ups (the App-Settings toggle · a second toast button).
+> states exactly what gates ran and what the box checks are. After ROUND 15 this surface's
+> open list is exactly ONE item: the wizard-probe rework + all deferred verification (harness
+> task #114). The two notification follow-ups are CLOSED as **NOT DOING** (user decision,
+> ROUND 15) and the cross-model library view is SHIPPED (ROUND 15).
 
 ## The decisions, verbatim (the user's words are the spec)
 
@@ -954,7 +954,11 @@ stored display decision → stays queued, not silently dropped.**
   exposes a single action, and the Tune dialog lives inside the Built-in provider's Edit
   view, so a direct-open needs a cross-component handoff (the labHandoff precedent). If the
   user wants the second button, that handoff is the follow-up; the enable/disable setting
-  stays the deferred App-Settings todo either way.
+  stays the deferred App-Settings todo either way. **[RESOLVED 2026-07-07, ROUND 15 — user,
+  verbatim: "2 leave as is remove second toast are mark it as not doing, same with app
+  settings mark not doing": the toast stays exactly as shipped (one button + guidance text);
+  BOTH follow-ups (the second toast button AND the App-Settings toggle) are CLOSED as NOT
+  DOING.]**
 
 ### Box checks
 
@@ -1237,3 +1241,79 @@ The wizard-probe rework + every deferred verification (#114) · Task C's OPTIONA
 library mount (only if the user wants a global table view — flagged interpretation above) ·
 the two user-deferred notification follow-ups (App-Settings toggle · the second toast
 button) · the ledger's parked items (Lab A/Bs · D6 · models-folder import).
+
+**[RESOLVED same day — ROUND 15 below: the cross-model mount SHIPPED on the user's go; both
+notification follow-ups CLOSED as NOT DOING (user decision). What remains open from this
+surface: #114 only, plus the parked ledger items.]**
+
+## ROUND 15 — SHIPPED 2026-07-07 (two NOT-DOING decisions recorded + the cross-model class-tune library view)
+
+**STATUS: SHIPPED (this commit). The user's dispositions, verbatim: "2 leave as is remove
+second toast are mark it as not doing, same with app settings mark not doing, go ahead and
+do cross model library view" — read as three decisions: (1) the hardware-change toast STAYS
+AS SHIPPED (one "Run Quick Setup" action + the re-tune guidance as text) and the
+second-toast-button follow-up is CLOSED, NOT DOING; (2) the App-Settings enable/disable
+toggle for the notification is CLOSED, NOT DOING (this retires the user's own ROUND-7 "add
+this to todo for later" item — retired by the same authority that filed it); (3) a literal
+go for the cross-model library view flagged as the ROUND-14 interpretation note.
+Verification posture unchanged ("dont run tests"): JW `npm run build:vite` clean (2.6s — the
+kit compiles through the alias; no Python touched this round, so no ruff needed — the
+ROUND-13 CSS-only precedent); behaviors read-verified; box checks below.**
+
+### The two NOT-DOING decisions (recorded so no future session re-opens them)
+
+The hardware-change notification is FINAL in its shipped form: fingerprint = gpu-name|vramMb,
+first sight seeds silently, a change acknowledges first (fires exactly once, restart-proof),
+one dismissible 30 s info toast with a single **Run Quick Setup** action and the re-tune
+choice as guidance text, NO user-facing off-switch. Neither the second toast button (the
+labHandoff-style Tune-dialog direct-open) nor the App-Settings toggle will be built. ROUND
+11's divergence note and ROUND 14's Still-open list both carry matching [RESOLVED] markers.
+
+### What shipped — the cross-model library view (ONE component, two modes — no fork)
+
+`LuClassTunes.vue`'s `modelId` prop became OPTIONAL; empty = **GLOBAL mode**, and the same
+drawer/table/editor serves both vantage points:
+
+- **Global table**: every (model × class) config in one audit table — a new **Model** column
+  (names resolved from ONE lazy `/v1/ai/model-catalog` read; raw ids render if that
+  enrichment fails), then the same PC-class label + "this PC"/"built-in" tags, the `k=v`
+  settings summary, and Edit / Copy / Delete-on-user-rows actions. Row identity (and the
+  Copied-✓ flash) keys on (model | class) so two models' rows for the same class never
+  collide.
+- **Add** in global mode picks the model from a catalog `UiSelect` (select-only, no free-typed
+  ids — a config for a nonexistent model would be dead data); editing an existing row locks
+  BOTH model and class (the pair IS the identity; a new pair = Add). Per-model mode is
+  unchanged (the model is implicit).
+- **Import** in global mode honors the pasted blob's own `modelId` (required — the clear
+  error says this panel spans every model); the per-model mount keeps deliberately targeting
+  the OPEN model (the ROUND-14 recorded behavior). Copy already carried modelId in the blob,
+  so configs shared from either mount import correctly here.
+- **Knob labels self-load** when no `catalog` prop is passed (the global mount): the fetch +
+  Plane-1 map moved to a tiny shared module `ui/src/knobCatalog.js`
+  (`fetchKnobCatalog`/`plane1SwitchCatalog` — the modelDefaults.js one-source precedent), and
+  `TuneMeasureModal` was refactored onto the SAME helpers (identical behavior, one map
+  builder kit-wide).
+- **Mounted** collapsed at the BOTTOM of the Built-in server's Edit view (`ProviderForm`,
+  `isBuiltin`, after `LuModelCatalog`, `.lu-pf-ct { margin-top: 14px }` — the view's own 14px
+  rhythm): the audit vantage point sits under the catalog it audits; each model's Tune
+  dialog keeps its scoped drawer. A fix that fell out of the two-mode work: the per-model
+  DELETE now uses the ROW's modelId rather than the prop (same value in that mount, but
+  correct by construction in both).
+
+### Box checks (this round)
+
+(a) Open Edit on the Built-in server and scroll below the catalog: a collapsed
+"Hardware-class defaults — all models" drawer; open it — the seeded Gemma row shows with its
+MODEL name + "8 GB VRAM · 32 GB RAM · this PC · built-in". (b) ＋ Add class config here: a
+Model dropdown (catalog names) + class key + the knob grid with proper labels (the
+self-loaded catalog). (c) Copy a row here, Import it in the same panel after tweaking a
+value — round-trips; Import a blob with NO modelId — the clear error. (d) Open a model's
+Tune dialog: its per-model drawer is unchanged (no Model column, imports land on that
+model). (e) The hardware-change toast still behaves exactly as before — nothing about it
+changed.
+
+### Still open after this round
+
+The wizard-probe rework + every deferred verification (#114 — this round adds: the global
+drawer's render + add/import paths ride the same unrun smoke) · the ledger's parked items
+(Lab A/Bs · D6 · models-folder import). Nothing else on this surface.

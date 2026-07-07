@@ -15,6 +15,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { request } from "../client.js";
 import { classKeyLabel, listClassTunes, putClassTune } from "../classTunes.js";
+import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { sendToTasksLab } from "../common/services/labHandoff.js";
 import AppModal from "../common/components/AppModal.vue";
@@ -31,20 +32,12 @@ const emit = defineEmits(["close"]);
 const gb = (mb) => (mb >= 10240 ? `${Math.round(mb / 1024)}` : `${(mb / 1024).toFixed(1)}`);
 
 // Knob-catalog metadata (C1) — labels/typed inputs for the Plane-1 switch grid.
+// Fetch + map come from the shared knobCatalog.js (one source with LuClassTunes'
+// global mount); the raw list stays local for the unknown-flag badge below.
 const knobCatalog = ref([]);
-const switchCatalog = computed(() =>
-  Object.fromEntries(
-    knobCatalog.value
-      .filter((k) => k.plane === 1)
-      .map((k) => [k.flagName, { label: k.label, help: k.help, options: k.options?.length ? k.options : undefined }]),
-  ),
-);
+const switchCatalog = computed(() => plane1SwitchCatalog(knobCatalog.value));
 async function loadKnobCatalog() {
-  try {
-    knobCatalog.value = (await request("/v1/ai/knob-catalog")).knobs || [];
-  } catch {
-    knobCatalog.value = []; // enrichment only — raw rows still work
-  }
+  knobCatalog.value = await fetchKnobCatalog(); // [] on failure — enrichment only
 }
 
 const tuneRows = ref([]); // KnobGrid rows [{ name, value }]

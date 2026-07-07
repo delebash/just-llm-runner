@@ -1323,6 +1323,19 @@ def test_run_install_replace_build_carries_ini_and_deletes_old(tmp_path):
     svc._engine_thread.join(timeout=5)
     assert new_dir.exists()
 
+    # Generalized sweep (2026-07-07, after the user's box stranded a folder): ANY
+    # stale build dir goes on the next successful install — a DB reset can re-pin
+    # an older build and strand the newer folder — while "logs" and the pinned
+    # build survive. (The stop-first exe-lock handling is Windows-runtime behavior;
+    # here stop() is exercised offline.)
+    stale2 = tmp_path / "llamacpp" / "b0002"
+    stale2.mkdir(parents=True)
+    logs = tmp_path / "llamacpp" / "logs"
+    logs.mkdir(exist_ok=True)
+    svc.install_engine()
+    svc._engine_thread.join(timeout=5)
+    assert not stale2.exists() and logs.exists() and new_dir.exists()
+
 
 # ── 1b fit-by-omission: untuned sections omit placement; F4 any-failure fallback ──
 

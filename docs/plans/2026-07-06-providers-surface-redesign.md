@@ -950,3 +950,61 @@ now carries `ackHwFingerprint`.
 ### Filed this round (its own go)
 
 #121 (user): top padding on the catalog's "Search models" toolbar row.
+
+## ROUND 12 — SHIPPED 2026-07-07 (cpu rows retired everywhere + the update-cleanup exe-lock hardening)
+
+**STATUS: SHIPPED (this commit). Two threads from the user's live box testing of ROUND 10.
+Verification posture unchanged ("dont run tests"): ruff clean; no renderer code changed this
+round (the binaries table just renders fewer rows from the API), so no build gate was needed;
+the six touched tests were re-seated by reading.**
+
+### The evidence trail (how the user's two reports resolved)
+
+The user reported *"#120 not fixed still download cpu version"* and later *"after update folder
+not deleted"*, with two screenshots. The FOLDER-DATES screenshot decided both: `b9870` and
+`b9892` were created 7/6 at 10:38/10:43 PM — the night BEFORE the fixes shipped — so both
+observations came from installs run under the OLD code still loaded in the server process
+(the editable install needs a server RESTART after a pull). The user then confirmed:
+*"restart fixed"* — after restarting, the update deleted the old folder correctly. The same
+screenshot also explained the pin confusion: the box updated to b9892 the night before, but
+the day's DB reset re-seeded `pinned_build` back to b9870, stranding the b9892 folder and
+re-offering "update available → b9892".
+
+### 1. The cpu rows are RETIRED everywhere (user, verbatim: "deleet — a machine with cpu wont
+### be able to run local llm with any speed", scope: "not cpu version for any of them,
+### nobody said dont download vulkon")
+
+`DEFAULT_BINARIES` drops `windows/cpu` and `linux/cpu` (the vulkan + rocm + cuda + metal rows
+all stay). Consequences, all deliberate: a box with NO usable GPU now resolves to NO engine
+(`select_binary` → None; the install reports "no llama.cpp binary configured") instead of a
+uselessly slow one — which also means no LOCAL embeddings on such a box (Ollama/cloud embeds
+remain); a leftover on-disk cpu variant from a pre-retirement install is no longer offered to
+the A3 spawn chain (its row is gone). `seed_default_runner_binaries` now PRUNES retired
+built-in rows — a `built_in` row whose (platform, gpu) left the defaults is deleted at seed
+time, so the user's existing DB drops its cpu rows on the next server start with no reset;
+user-ADDED rows (`built_in=False`) are never touched. Tests re-seated (read-verified):
+windows-no-GPU → None (was cpu); linux cuda-no-vulkan → None (was cpu); the cross-platform
+case list drops linux/cpu; the gpu-override acquire test re-seated on vulkan; the chain-order
+test now asserts an on-disk cpu variant is EXCLUDED.
+
+### 2. The update-cleanup hardening (proactive — the Windows exe lock)
+
+ROUND 10's cleanup called `shutil.rmtree(ignore_errors=True)` on the old build dir WITHOUT
+stopping the engine — but `uninstall_engine`'s own docstring records the hazard: "a live
+llama-server holds its exe open, and Windows cannot delete an open exe". An update clicked
+while a model is loaded (the common case) would fail the delete SILENTLY. The cleanup now
+STOPS the engine first (the uninstall precedent; an engine swap wants the router respawned on
+the NEW build anyway — it respawns lazily at the next load), and is GENERALIZED: after ANY
+successful install, every build dir except the pinned one and `logs/` is swept (a DB reset
+can re-pin an older build and strand folders — exactly the user's b9870/b9892 state; the next
+Reinstall now self-heals it). The models.ini carry-over runs before the sweep, with
+`replace_build` (the update's superseded pin) holding carry priority and the newest stale
+build as fallback; a dir that survives rmtree logs a "files in use?" warning instead of
+vanishing silently. The lifecycle test gained the sweep + logs-survive assertions.
+
+### Box checks
+
+(a) After a server restart (the seed prune runs at boot): the Engine binaries table shows NO
+cpu rows. (b) Click Reinstall: the stranded b9870 folder disappears (the generalized sweep),
+leaving b9892 + logs + the sibling models.ini. (c) Update-while-a-model-is-loaded: the model
+unloads, the old folder deletes, the next use respawns the router on the new build.

@@ -70,14 +70,13 @@ DEFAULT_BINARIES: list[dict] = [
     {"platform": "windows", "gpu": "vulkan", "source": "github",
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-vulkan-x64.zip",
      "server_exe": "llama-server.exe"},
-    {"platform": "windows", "gpu": "cpu", "source": "github",
-     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-cpu-x64.zip",
-     "server_exe": "llama-server.exe"},
+    # The cpu rows are RETIRED (user, 2026-07-07: "deleet" — a CPU-only machine
+    # can't run local LLMs at usable speed, so no cpu build is offered or ever
+    # downloaded, on any platform). A box with no usable GPU resolves to NO
+    # engine (select_binary → None) instead of a uselessly slow one; the seeder
+    # prunes the previously seeded built-in cpu rows from existing DBs.
     {"platform": "macos", "gpu": "metal", "source": "github",
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-macos-arm64.tar.gz",
-     "server_exe": "llama-server"},
-    {"platform": "linux", "gpu": "cpu", "source": "github",
-     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-ubuntu-x64.tar.gz",
      "server_exe": "llama-server"},
     {"platform": "linux", "gpu": "rocm", "source": "github",
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-ubuntu-rocm-7.2-x64.tar.gz",

@@ -45,10 +45,12 @@ def test_select_cuda_by_chip():
     assert select_binary(m, _hw("windows", {"cuda": True}, cap(None))).gpu == "cuda12"
 
 
-def test_select_windows_cpu_fallback():
+def test_select_windows_no_gpu_selects_nothing():
+    # The cpu rows are RETIRED (user, 2026-07-07: "deleet" — a CPU-only box can't
+    # run local LLMs at usable speed): no GPU runtime → NO engine offered (None),
+    # never the uselessly slow cpu build.
     m = default_config()
-    a = select_binary(m, _hw("windows", {}))
-    assert a and a.gpu == "cpu"
+    assert select_binary(m, _hw("windows", {})) is None
 
 
 def test_select_macos_metal():
@@ -61,12 +63,12 @@ def test_select_linux_cuda_never_picks_docker():
     # A4 (re-scoped): no pin-faithful container exists upstream, so the docker row
     # is never auto-selected. With the vulkan fact recorded (detect() does this on
     # NVIDIA boxes with a loader) selection lands on the REAL pinned vulkan
-    # archive; without it, cpu. The docker row stays in config as the future seam.
+    # archive; without it, NOTHING (the cpu fallback row is retired — user,
+    # 2026-07-07). The docker row stays in config as the future seam.
     m = default_config()
     a = select_binary(m, _hw("linux", {"cuda": True, "vulkan": True}))
     assert a and a.source == "github" and a.gpu == "vulkan"
-    a = select_binary(m, _hw("linux", {"cuda": True}))
-    assert a and a.source == "github" and a.gpu == "cpu"
+    assert select_binary(m, _hw("linux", {"cuda": True})) is None
     assert any(b.source == "docker" for b in m.llamacpp.binaries)  # seam kept
 
 
@@ -77,7 +79,7 @@ def test_select_cross_platform_rows():
     cases = [
         ("windows", {"rocm": True}, "rocm"),
         ("windows", {"vulkan": True}, "vulkan"),
-        ("linux", {}, "cpu"),           # linux CPU had no row before the fix
+        # ("linux", {}, cpu) RETIRED (user, 2026-07-07): no-GPU boxes get no engine.
         ("linux", {"rocm": True}, "rocm"),
         ("linux", {"vulkan": True}, "vulkan"),
     ]
@@ -163,18 +165,21 @@ def test_acquire_unpacks_into_variant_dir(monkeypatch, tmp_path):
 
 def test_acquire_gpu_override_installs_specific_variant(monkeypatch, tmp_path):
     # The engine install plants fallbacks via gpu=...; each lands in ITS OWN dir.
+    # (Re-seated on vulkan — the cpu row is retired, user 2026-07-07.)
     m = default_config()
     hw = _hw("windows", {"cuda": True})
     monkeypatch.setattr(binmod, "stream_download", _make_stream([], "llama-server.exe"))
-    exe = binmod.acquire_binary(tmp_path, m, hw, gpu="cpu")
-    assert exe.is_relative_to(binmod.variant_dir(tmp_path, m.llamacpp.pinned_build, "cpu"))
-    # and the selected build's probe still reports nothing (cpu ≠ selected cuda12)
+    exe = binmod.acquire_binary(tmp_path, m, hw, gpu="vulkan")
+    assert exe.is_relative_to(binmod.variant_dir(tmp_path, m.llamacpp.pinned_build, "vulkan"))
+    # and the selected build's probe still reports nothing (vulkan ≠ selected cuda12)
     assert binmod.acquired_server_exe(tmp_path, m, hw) is None
 
 
 def test_acquired_server_exes_orders_and_single_attributes(tmp_path):
     # Legacy pre-variant install at the BUILD ROOT counts ONLY for the selected
     # asset; variant dirs count for their own gpu key; order = _gpu_preference.
+    # A leftover on-disk cpu variant (pre-retirement installs planted one) is NOT
+    # offered to the chain — its config row is gone (user, 2026-07-07).
     m = default_config()
     hw = _hw("windows", {"cuda": True, "vulkan": True})
     build = m.llamacpp.pinned_build
@@ -186,7 +191,7 @@ def test_acquired_server_exes_orders_and_single_attributes(tmp_path):
         d.mkdir(parents=True)
         (d / "llama-server.exe").write_bytes(b"MZ " + gpu.encode())
     got = binmod.acquired_server_exes(tmp_path, m, hw)
-    assert [g for g, _ in got] == ["cuda12", "vulkan", "cpu"]      # preference order
+    assert [g for g, _ in got] == ["cuda12", "vulkan"]             # preference order; no cpu
     assert got[0][1] == root / "llama-server.exe"                  # legacy → selected only
     assert got[1][1] == binmod.variant_dir(tmp_path, build, "vulkan") / "llama-server.exe"
 

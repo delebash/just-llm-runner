@@ -427,9 +427,9 @@ class RunnerService:
         folded into a model load). Idempotent unless `force`. Runs on a dedicated
         thread so it can't clobber an in-flight model load. `replace_build` (user,
         2026-07-07: "the engine update should delete the old folder"): the OLD
-        pinned build this install SUPERSEDES — after the new build installs, the
-        old build dir is deleted, carrying over a hand-maintained models.ini found
-        inside it first; "" = a plain install/reinstall, nothing to clean."""
+        pinned build this install SUPERSEDES — it gets models.ini carry PRIORITY.
+        After ANY successful install, every stale build dir is swept (stop-first
+        for the Windows exe lock; see _run_install's cleanup block)."""
         with self._lock:
             if self._engine_state["status"] == "installing":
                 return dict(self._engine_state)
@@ -791,26 +791,48 @@ class RunnerService:
                 except Exception:  # noqa: BLE001 — the net is a bonus, never a blocker
                     log.warning("fallback build %s failed to install (spawn chain will "
                                 "have fewer candidates)", gpu, exc_info=True)
-            # An UPDATE replaces the old build (user, 2026-07-07): once the new build is
-            # fully in place, carry over a hand-maintained models.ini living INSIDE the
-            # old build dir (the manual-router layout; the app's OWN ini is the sibling
-            # llamacpp/models.ini, regenerated from the DB, untouched by this), then
-            # delete the old folder so superseded builds stop accumulating. BEST-EFFORT:
-            # cleanup never fails a completed install. The != guard keeps a plain
-            # reinstall (same pin) from deleting what it just installed.
-            if replace_build and replace_build != config.llamacpp.pinned_build:
+            # An UPDATE replaces the old build (user, 2026-07-07) — generalized to EVERY
+            # stale build dir (a DB reset can re-pin an older build and strand folders):
+            # after the new build is fully in place, every OTHER build dir under
+            # llamacpp/ is removed ("logs" and loose files — the app's generated
+            # models.ini sibling — are never touched). A hand-maintained models.ini
+            # living INSIDE a removed build dir (the manual-router layout) is carried
+            # into the new build dir first; `replace_build` (the update's superseded
+            # pin) has carry priority. STOP-FIRST (the uninstall precedent: "a live
+            # llama-server holds its exe open, and Windows cannot delete an open exe"):
+            # a router still running an old build's exe would make the delete fail
+            # SILENTLY on Windows, so the engine stops before the sweep — an engine
+            # swap wants the router respawned on the NEW build anyway (it respawns
+            # lazily at the next load). BEST-EFFORT: cleanup never fails a completed
+            # install.
+            root = self.cache_root / "llamacpp"
+            keep = {config.llamacpp.pinned_build, "logs"}
+            stale = [d for d in root.iterdir() if d.is_dir() and d.name not in keep] if root.is_dir() else []
+            if stale:
                 try:
-                    old_dir = binary_dir(self.cache_root, replace_build)
+                    self._engine_state["detail"] = "removing old builds"
+                    self.stop()  # free exe locks; the router respawns on the new build at the next load
                     new_dir = binary_dir(self.cache_root, config.llamacpp.pinned_build)
-                    old_ini = old_dir / "models.ini"
-                    if old_ini.is_file():
-                        self._engine_state["detail"] = "carrying models.ini over"
-                        shutil.copy2(old_ini, new_dir / "models.ini")
-                    if old_dir.exists():
-                        self._engine_state["detail"] = f"removing old build {replace_build}"
-                        shutil.rmtree(old_dir, ignore_errors=True)
+                    if not (new_dir / "models.ini").is_file():
+                        candidates = sorted(stale, reverse=True)  # newest build name first
+                        if replace_build:
+                            pref = binary_dir(self.cache_root, replace_build)
+                            if pref in candidates:
+                                candidates.remove(pref)
+                                candidates.insert(0, pref)
+                        for d in candidates:
+                            ini = d / "models.ini"
+                            if ini.is_file():
+                                self._engine_state["detail"] = "carrying models.ini over"
+                                shutil.copy2(ini, new_dir / "models.ini")
+                                break
+                    for d in stale:
+                        self._engine_state["detail"] = f"removing old build {d.name}"
+                        shutil.rmtree(d, ignore_errors=True)
+                        if d.exists():
+                            log.warning("old engine build %s still present after cleanup (files in use?)", d.name)
                 except Exception:  # noqa: BLE001 — cleanup is best-effort, never install-fatal
-                    log.warning("old engine build %s cleanup failed", replace_build, exc_info=True)
+                    log.warning("old engine build cleanup failed", exc_info=True)
             self._engine_state = {"status": "installed", "detail": "", "error": "",
                                   "downloaded": 0, "total": 0}
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state

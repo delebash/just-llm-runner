@@ -753,6 +753,15 @@ def reset_task_to_factory(task_id: str) -> None:
 
 
 def seed_default_runner_binaries(s) -> int:
+    # RETIRED built-ins are PRUNED (user, 2026-07-07: "deleet" the cpu rows — a
+    # CPU-only box can't run local LLMs at usable speed, so the cpu variants left
+    # DEFAULT_BINARIES entirely): a built_in row whose (platform, gpu) no longer
+    # exists in the defaults is removed at seed time, so existing DBs converge on
+    # boot; user-ADDED rows (built_in=False) are never touched.
+    wanted = {(b["platform"], b["gpu"]) for b in DEFAULT_BINARIES}
+    for r in s.query(db.RunnerBinary).filter(db.RunnerBinary.built_in.is_(True)).all():
+        if (r.platform, r.gpu) not in wanted:
+            s.delete(r)
     existing = {(r.platform, r.gpu) for r in s.query(db.RunnerBinary.platform, db.RunnerBinary.gpu).all()}
     added = 0
     for i, b in enumerate(DEFAULT_BINARIES):

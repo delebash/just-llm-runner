@@ -38,12 +38,18 @@ class EngineConfig(BaseModel):
     # available" and the bump is a deliberate click; NEVER auto-applied — the pin is a
     # VERIFIED pin (flag semantics move between llama.cpp builds).
     updatePolicy: str = "notify"
+    # Task E (user, 2026-07-06/07): the last "gpu-name|vramMb" fingerprint the UI
+    # acknowledged — the hardware-change toast fires ONCE per real gpu/vram change
+    # ("counts as changed just gpu vram" · "appears dismissinle toast"). "" = never
+    # seen; the UI seeds it silently on first sight (a fresh install is not a change).
+    ackHwFingerprint: str = ""
     binaries: list[RunnerBinaryRow]
 
 
 class EngineConfigUpdate(BaseModel):
     pinnedBuild: str | None = None
     updatePolicy: str | None = None     # "off" | "notify"
+    ackHwFingerprint: str | None = None  # the acknowledged gpu|vram fingerprint (Task E)
     safetyMarginMb: int | None = None
     modelsMax: int | None = None
     sleepIdleSeconds: int | None = None
@@ -79,6 +85,8 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             if up not in ("off", "notify"):
                 raise HTTPException(status_code=400, detail="updatePolicy must be 'off' or 'notify'")
             store.set_setting("update_policy", up)
+        if body.ackHwFingerprint is not None:
+            store.set_setting("ack_hw_fingerprint", body.ackHwFingerprint.strip())
         if body.safetyMarginMb is not None:
             store.set_setting("safety_margin_mb", str(int(body.safetyMarginMb)))
         if body.modelsMax is not None:

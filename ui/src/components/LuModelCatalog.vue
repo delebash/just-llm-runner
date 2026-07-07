@@ -107,8 +107,26 @@ const { currentDefaultId, currentEmbeddingId, refreshApplied, setAsDefault, setA
 const applyingId = ref(""); // model id whose Set-as-default / Set-as-embedding write is in flight
 async function makeDefault(m) {
   applyingId.value = m.id;
-  try { await setAsDefault(LOCAL_RUNNER_ID, m.id); } catch (e) { error.value = e.message || "Couldn't set the default."; }
+  try {
+    await setAsDefault(LOCAL_RUNNER_ID, m.id);
+    // "LOAD as default" (user, 2026-07-07): the button loads the model too — before
+    // the rename it only re-pointed the task presets and nothing entered VRAM until
+    // first use. Fire-and-forget: the shared poller renders the row's loading→loaded.
+    await request("/v1/llm-runner/load", { method: "POST", body: { modelId: m.id } });
+    refresh();
+  } catch (e) { error.value = e.message || "Couldn't set the default."; }
   finally { applyingId.value = ""; }
+}
+// Unload (user, 2026-07-07: "no way to unload"): free a resident model's VRAM without
+// loading something else. The router stays up; the model loads again on Load-as-default
+// or on the next request that needs it.
+async function unloadModel(m) {
+  busy.value = `unload:${m.id}`;
+  try {
+    await request("/v1/llm-runner/stop", { method: "POST", body: { modelId: m.id } });
+    await refresh();
+  } catch (e) { error.value = e.message || "Couldn't unload."; }
+  finally { busy.value = ""; }
 }
 async function makeEmbedding(m) {
   applyingId.value = m.id;
@@ -467,10 +485,10 @@ refreshApplied();
         <div class="lu-setup-val">{{ defaultGone ? `${currentDefaultId} — removed from the catalog` : (defaultName || "Not set") }}</div>
         <div class="lu-setup-hint">
           {{ defaultGone
-            ? "Your tasks still point at it, but it's gone — pick a new one below (“Set as default”)."
+            ? "Your tasks still point at it, but it's gone — pick a new one below (“Load as default”)."
             : defaultName
               ? "Writes prose, chats, extracts — every task uses it unless you override a task."
-              : "Pick one under Chat & writing models below — “Set as default”." }}
+              : "Pick one under Chat & writing models below — “Load as default”." }}
         </div>
       </div>
       <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !embeddingName || embeddingGone }">
@@ -554,6 +572,10 @@ refreshApplied();
                 <UiButton intent="ghost" size="small" title="Remove from catalog" :loading="busy === 'del:' + m.id" @click="deleteModel(m)">Delete</UiButton>
                 <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
                   title="Tune engine flags &amp; measure decode speed" @click="tuning = m">Tune</UiButton>
+                <UiButton v-if="m.status === 'loaded'" intent="ghost" size="small"
+                  :loading="busy === 'unload:' + m.id"
+                  title="Unload from memory — frees VRAM; it loads again on Load as default or next use"
+                  @click="unloadModel(m)">Unload</UiButton>
                 <span v-if="m.status === 'loading'" class="lu-muted lu-mwait">working…</span>
                 <UiButton v-else-if="m.status === 'available'" intent="primary" size="small"
                   :loading="loadingId === m.id" @click="download(m.id)">Download</UiButton>
@@ -564,8 +586,8 @@ refreshApplied();
                 </UiButton>
                 <UiButton v-else intent="primary" size="small"
                   :disabled="m.id === currentDefaultId" :loading="applyingId === m.id"
-                  title="Make this the model every task uses by default" @click="makeDefault(m)">
-                  {{ m.id === currentDefaultId ? "Default ✓" : "Set as default" }}
+                  title="Make this the default model for every task and load it now" @click="makeDefault(m)">
+                  {{ m.id === currentDefaultId ? "Default ✓" : "Load as default" }}
                 </UiButton>
               </td>
             </tr>

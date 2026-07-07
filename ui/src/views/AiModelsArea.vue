@@ -18,6 +18,7 @@ import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
 import { activeAiTab } from "../common/services/labHandoff.js";
+import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
 
@@ -148,10 +149,42 @@ const statusColor = (id) => STATUS_COLOR[status.value[id]] || "var(--border-stro
 
 function onSaved() { editingId.value = null; loadProviders(); }
 
+// ── Task E — the hardware-change notification (user, 2026-07-06/07 dispositions:
+// "counts as changed just gpu vram" · "appears dismissinle toast" · fires ONCE per
+// change via a persisted acknowledged fingerprint; the enable/disable toggle is a
+// deferred App-Settings todo). The fingerprint is gpu-name|vramMb — cores/RAM
+// deliberately excluded. First sight of a box seeds the baseline SILENTLY (a fresh
+// install is not a change). The acknowledgment is written BEFORE the toast shows so
+// the notice fires once even across restarts/dismissals. The toast's button opens
+// Quick Setup (a better model may now fit); re-tuning the current model stays a
+// pointer in the message (the Tune dialog lives inside the Built-in provider's Edit
+// view — a direct-open handoff is a possible follow-up).
+const qsRef = ref(null); // the inline QuickSetup mount (exposes openWizard)
+async function checkHardwareChange() {
+  try {
+    const h = await request("/v1/llm-runner/hardware");
+    const g = (h?.gpus && h.gpus[0]) || null;
+    const fp = g ? `${g.name}|${g.vramMb || 0}` : "cpu|0";
+    const cfg = await request("/v1/ai/engine-config");
+    const stored = (cfg?.ackHwFingerprint || "").trim();
+    if (stored === fp) return;
+    await request("/v1/ai/engine-config", { method: "PUT", body: { ackHwFingerprint: fp } });
+    if (!stored) return; // baseline seeded — never toast a first sight
+    pushToast({
+      title: "Your graphics hardware changed",
+      message: "A different model may now fit this PC — run Quick Setup to re-check, or re-tune your current model from its Tune dialog (Edit the built-in server).",
+      kind: "info",
+      duration: 30000,
+      action: { label: "Run Quick Setup", fn: () => qsRef.value?.openWizard?.() },
+    });
+  } catch { /* detection is best-effort — never block the page */ }
+}
+
 onMounted(() => {
   loadAll();
   refreshEngine(); // the Built-in row's Install/Update/Uninstall state
   checkForUpdate(); // A5 — policy-gated (Off = silent); notify surfaces a line, never auto-applies
+  checkHardwareChange(); // Task E — gpu/vram change → one dismissible toast
 });
 </script>
 
@@ -251,7 +284,7 @@ onMounted(() => {
                  the absolute overlay shifted the row on the user's box; a spanning
                  grid row is stable at any width/build). -->
             <div v-if="p.providerType === 'local-llamacpp'" class="lu-prow-qsbtn">
-              <QuickSetup inline @changed="loadProviders" />
+              <QuickSetup ref="qsRef" inline @changed="loadProviders" />
             </div>
           </div>
           <!-- Same progress bar as the engine panel — the install runs from THIS row, so

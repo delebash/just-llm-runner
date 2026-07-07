@@ -814,12 +814,16 @@ class RunnerConfigStore:
 
     def get_config(self) -> EngineConfig:
         cfg = build_runner_config()
-        # update_policy is API-surface-only config (A5) — not part of the runner's
-        # RunnerConfig; read the setting row directly (absent → the notify default).
+        # update_policy + ack_hw_fingerprint are API-surface-only config — not part of
+        # the runner's RunnerConfig; read the setting rows directly (absent → defaults).
+        # ack_hw_fingerprint (Task E, user 2026-07-06/07): the last "gpu-name|vramMb"
+        # the user's UI acknowledged — the hardware-change toast fires once per change.
         s = db.session()
         try:
             row = s.get(db.RunnerSetting, "update_policy")
             policy = (row.value if row else "") or "notify"
+            ack_row = s.get(db.RunnerSetting, "ack_hw_fingerprint")
+            ack_fp = ack_row.value if ack_row else ""
         finally:
             s.close()
         return EngineConfig(
@@ -828,6 +832,7 @@ class RunnerConfigStore:
             modelsMax=cfg.models_max,
             sleepIdleSeconds=cfg.sleep_idle_seconds,
             updatePolicy=policy,
+            ackHwFingerprint=ack_fp,
             binaries=[_runner_binary_to_row(b) for b in cfg.llamacpp.binaries],
         )
 

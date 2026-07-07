@@ -884,3 +884,69 @@ downloads the CUDA build ONLY — watch the detail line: no "fallback build (cpu
 
 #117 ("Load as default" + Unload) · #113 (hardware-change notification) · Fix 2 (Tune-grid
 resolved knobs) · Tasks B-remainder/C/E (ROUND 8) · the wizard-probe rework (ROUND 9).
+
+## ROUND 11 — SHIPPED 2026-07-07 (Load as default + Unload (#117) · the hardware-change toast (Task E / #113))
+
+**STATUS: SHIPPED (this commit), on the user's bare "go" against the queued list. Verification
+posture unchanged ("dont run tests"): ruff clean + build:vite clean; behaviors read-verified;
+box checks below. Scope note recorded honestly: of the four queued items, the WIZARD-PROBE
+REWORK stays blocked (it cannot be reworked honestly without RUNNING the probe — a test) and
+FIX 2 was SCOPE-CHECKED rather than built: the user's own Tune screenshot this morning showed
+the class-tune knobs (ctx/n_cpu_moe/n_gpu_layers/batch/ubatch/threads/reasoning_budget) already
+rendering in the grid — the class-tune layer feeds them through the resolved switches — so Fix
+2's remaining gap is only the FIT-COMPUTED values on a box/model with NO tune of any kind
+(computed at load, never stored); surfacing those needs a preview_fit merge + a computed-vs-
+stored display decision → stays queued, not silently dropped.**
+
+### #117 — "Load as default" + Unload (user, verbatim: "no way to unload lets change set as
+### default to Load as default and have Unload button")
+
+- **The rename means the ACTION, not just the label** (verified before building: the row's
+  `makeDefault` only re-pointed the task presets via the shared `modelApply.setAsDefault` —
+  nothing entered VRAM until first use). "Load as default" now ALSO fires
+  `POST /v1/llm-runner/load` for the model and kicks the shared poller, so the row renders
+  loading→● loaded. The active-state label stays "Default ✓"; the dead-reference strip hints
+  (:470/:473) updated to the new name.
+- **Unload**: a new ghost row action, visible only on a LOADED row, calling the stop route
+  with the model id — frees that model's VRAM while the router stays up for the others; the
+  model loads again on Load-as-default or on the next request that needs it (the router's
+  sleeping-model semantics). Backend: `POST /v1/llm-runner/stop` now accepts an optional
+  `modelId` (`service.stop(model_id)` existed — per-model unload + arbiter release — but the
+  HTTP route only did the full teardown); no body keeps the original stop-everything
+  semantics, so every existing caller is unchanged.
+
+### #113 / Task E — the hardware-change notification (the ROUND-7 dispositions, verbatim:
+### "counts as changed just gpu vram" · "appears dismissinle toast" · "4 yes" fire-once ·
+### settings toggle "add this to todo for later")
+
+- **Backend**: `ack_hw_fingerprint` joins the runner settings through the EXISTING
+  engine-config surface (the update_policy pattern — stores.RunnerConfigStore.get_config
+  reads it, the PUT accepts `ackHwFingerprint`; a generic RunnerSetting row, no new table,
+  no new endpoint).
+- **Kit (AiModelsArea)**: on mount, the current fingerprint = `gpu-name|vramMb` (cores/RAM
+  deliberately excluded per the disposition) is compared to the stored acknowledgment. First
+  sight of a box SEEDS the baseline silently (a fresh install is not a "change"). A real
+  change writes the new acknowledgment FIRST — so the notice fires exactly once per change,
+  even across restarts or an ignored toast — then shows a dismissible info toast (30 s):
+  "Your graphics hardware changed — a different model may now fit this PC…" with a **Run
+  Quick Setup** action button (opens the wizard via the inline mount's exposed `openWizard`).
+- **ONE recorded divergence, flagged for the user**: the second choice ("re-tune the current
+  model") ships as GUIDANCE TEXT in the toast, not a second button — the kit toast bridge
+  exposes a single action, and the Tune dialog lives inside the Built-in provider's Edit
+  view, so a direct-open needs a cross-component handoff (the labHandoff precedent). If the
+  user wants the second button, that handoff is the follow-up; the enable/disable setting
+  stays the deferred App-Settings todo either way.
+
+### Box checks
+
+(a) Catalog: a chat row's primary button reads "Load as default" and clicking it both
+re-points the tasks AND loads the model (row → loading → ● loaded); the loaded row shows
+"Unload", which frees VRAM (watch the engine panel's VRAM line) and leaves the router up.
+(b) The toast: with the app already run once (baseline seeded), change the fingerprint to
+simulate — or on a real GPU/VRAM change — ONE info toast appears on the AI page with "Run
+Quick Setup"; it never re-appears after dismissal or restart. (c) `GET /v1/ai/engine-config`
+now carries `ackHwFingerprint`.
+
+### Filed this round (its own go)
+
+#121 (user): top padding on the catalog's "Search models" toolbar row.

@@ -231,9 +231,13 @@ async def ensure_embedding() -> dict:
     return get_service().ensure_embedding()
 
 
-@router.post("/v1/llm-runner/stop", summary="Stop the running model")
-async def stop_model() -> dict:
-    return get_service().stop()
+@router.post("/v1/llm-runner/stop", summary="Stop one resident model (modelId) or everything (no body)")
+async def stop_model(body: dict | None = None) -> dict:
+    # With a modelId this unloads ONE resident model and frees its VRAM (the router
+    # stays up for the others) — the catalog row's Unload button (user, 2026-07-07:
+    # "no way to unload"). No body keeps the original full-teardown semantics.
+    model_id = str((body or {}).get("modelId") or "")
+    return get_service().stop(model_id or None)
 
 
 # ── Engine (the llama.cpp binary): install as its OWN step, separate from

@@ -53,8 +53,48 @@ async def classify_model_tier(body: TierClassifyRequest) -> TierClassifyResponse
     )
 
 
+def _builtin_provider_health() -> dict:
+    """The BUILT-IN provider's honest health (#139, the user's "✗ reachable, but no
+    models listed" screenshot, 2026-07-07): the generic OpenAI-style probe asks the
+    LAZY router for /v1/models before anything ever loads, so a perfectly configured
+    box reads as broken. The built-in's real health = engine installed + a catalog
+    to load from; models load on first use BY DESIGN. Composed HERE (one source) so
+    the form's Test connection AND the list row's ping can never disagree. Lazy
+    imports — this router is charter-storage-free, but every install_llm app wires
+    storage + the runner before serving; the built-in branch is the recorded
+    exception (it IS the storage-backed provider)."""
+    from ..runner.lifecycle import get_service
+    from . import stores
+
+    st = get_service().engine_status()
+    rows = stores.get_model_catalog_store().list()
+    installed = bool(st.get("installed"))
+    bits = []
+    if installed:
+        build = st.get("build") or ""
+        gpu = st.get("gpu") or ""
+        bits.append("engine installed" + (f" · {build}" if build else "") + (f" · {gpu}" if gpu else ""))
+    else:
+        bits.append("engine not installed — install it on the Built-in server row")
+    bits.append(f"{len(rows)} model{'s' if len(rows) != 1 else ''} in the catalog")
+    bits.append("models load on first use")
+    return {
+        "ok": installed and bool(rows), "builtin": True,
+        "detail": " · ".join(bits),
+        "models": [r.id for r in rows],
+    }
+
+
 @router.post("/v1/llm-providers/{provider_id}/ping")
 async def ping_llm_provider(provider_id: str) -> dict:
+    # The built-in engine's health is composed, never probed over its lazy router
+    # (#139) — the id is the seeded constant.
+    if provider_id == "local-llamacpp":
+        try:
+            h = _builtin_provider_health()
+            return {"ok": h["ok"], "detail": h["detail"], "builtin": True}
+        except Exception as e:  # noqa: BLE001 — surface as data, like every ping
+            return {"ok": False, "error": str(e)}
     adapter = get_llm_registry().get(provider_id)
     if adapter is None:
         raise HTTPException(status_code=404, detail=f"LLM provider {provider_id} (not registered)")
@@ -89,6 +129,17 @@ async def probe_provider_models(body: ProbeModelsRequest) -> dict:
     """List a provider's models from an UNSAVED draft — the Add/Edit form's
     "Fetch models" before the provider is persisted/registered. Builds a
     temporary adapter (never registered) and calls .models()."""
+    # The built-in engine never probes its lazy router (#139): its models are the
+    # CATALOG, and its health line explains the load-on-first-use design.
+    if body.providerType == "local-llamacpp":
+        try:
+            h = _builtin_provider_health()
+            out = {"models": h["models"], "detail": h["detail"]}
+            if not h["ok"]:
+                out["error"] = h["detail"]
+            return out
+        except Exception as e:  # noqa: BLE001 — surface as data, like every probe
+            return {"models": [], "error": str(e)}
     try:
         adapter = construct(LLMProviderConfig(
             id="__probe__",

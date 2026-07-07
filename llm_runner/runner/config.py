@@ -24,12 +24,19 @@ from .schema import BinaryAsset, LlamacppSpec, RunnerConfig
 # EXACT llama.cpp release tag (never "latest" — reproducible spawns).
 # b9644 → b9870 (2026-07-06): Gemma 4 MoE (26B-A4B) + its external MTP draft need the
 # newer build; b9870's full asset list was verified against the GitHub release API the
-# same day — all 11 filenames below exist under the identical naming scheme, so only
-# the tag changes. NOTE: seeding is insert-if-missing (`seed_default_runner_settings`),
-# so an EXISTING DB keeps its old `pinned_build` row — bump it in the UI (Settings → AI
-# → engine Binaries panel) or the row directly; this constant fixes fresh installs and
-# the panel's "reset to defaults".
-DEFAULT_PINNED_BUILD = "b9870"
+# same day. b9870 → b9899 (2026-07-07, user: "update seeded engine version to latest
+# b9899"): VERIFICATION RECORD — the win/cuda-12.4 build + its cudart companion are
+# LIVE-VERIFIED (the user's box installed b9899 through the app's own update path,
+# which rewrites these exact filenames to the offered tag: "Installed · b9899 ·
+# cuda12"); the remaining assets are PATTERN-verified only — the dev container's
+# GitHub egress is session-scoped, so the release API could not be re-queried
+# (recorded in the design doc ROUND 17). If an asset was renamed upstream, the
+# editable Binaries panel is the user-side fix (the #91 lesson — that's why it
+# exists). NOTE: seeding is insert-if-missing (`seed_default_runner_settings`),
+# so an EXISTING DB keeps its old `pinned_build` row — bump it in the UI (Settings
+# → AI → engine Binaries panel) or the row directly; this constant fixes fresh
+# installs and the panel's "reset to defaults".
+DEFAULT_PINNED_BUILD = "b9899"
 
 # Reserve this much VRAM headroom when computing the GPU layer split.
 DEFAULT_SAFETY_MARGIN_MB = 1024

@@ -62,7 +62,7 @@ async def get_config() -> RunnerConfig:
 
 class HardwareWithKeys(HardwareInfo):
     """HardwareInfo + the two DERIVED tuning identities (2026-07-07, the debug ask):
-    `machineKey` is what `hardware_switches`/`model_tunes` are stored under and
+    `machineKey` is what `model_tunes` (the machine's own tunes) are stored under and
     `classKey` is what the seeded/editable `class_tunes` layer matches on — served
     here so a debug surface can explain exactly which tune layers apply to this box."""
 

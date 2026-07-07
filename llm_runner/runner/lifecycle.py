@@ -842,6 +842,19 @@ class RunnerService:
                             log.warning("old engine build %s still present after cleanup (files in use?)", d.name)
                 except Exception:  # noqa: BLE001 — cleanup is best-effort, never install-fatal
                     log.warning("old engine build cleanup failed", exc_info=True)
+            # #138 (user screenshot, 2026-07-07): a load attempted BEFORE the engine
+            # existed parks that model at status=error ("Install the engine first"),
+            # and nothing cleared it when the install completed — the grid kept the
+            # red "install engine ↑" (and hid the row's Unload) on a working box.
+            # Drop error-status entries now: they were attempts under a missing/old
+            # engine; the next use retries fresh.
+            with self._router_lock:
+                stale = [m for m, st in self._resident.items() if st.get("status") == "error"]
+                for mid in stale:
+                    self._resident.pop(mid, None)
+                    self._arbiter.release(mid)
+            if stale:
+                log.info("engine install: cleared %d stale model error state(s)", len(stale))
             self._engine_state = {"status": "installed", "detail": "", "error": "",
                                   "downloaded": 0, "total": 0}
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state

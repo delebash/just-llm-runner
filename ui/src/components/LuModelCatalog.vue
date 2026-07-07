@@ -178,9 +178,22 @@ function mtpOf(m) { return mtpById.value[m.id] === true; }
 // Model catalog meta (license / use-limited / description — the fit-shaped /models view
 // doesn't carry them). Shared with QuickSetup through the useCatalogMeta singleton (one
 // source, no drift); loadCatalogMeta (its refresh) re-pulls after a catalog edit.
-const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, hfRepoById, classPicks, refresh: loadCatalogMeta } = useCatalogMeta();
+const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, hfRepoById, notesById, sizeBytesById, classPicks, refresh: loadCatalogMeta } = useCatalogMeta();
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
 function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
+function notesOf(m) { return notesById.value[m.id] || ""; }
+// The sort fields, VISIBLE on the rows (#146 — sorting by an invisible column is
+// opaque): the benchmark rank (100 = unranked) + the size (file size when known,
+// else the params label riding the fit view).
+function rowMeta(m) {
+  const bits = [];
+  const q = qualityOf(m);
+  bits.push(q >= 100 ? "unranked" : `rank ${q}`);
+  const sz = sizeBytesById.value[m.id];
+  if (sz) bits.push(fmtBytes(sz));
+  else if (m.params) bits.push(m.params);
+  return bits.join(" · ");
+}
 // The model's Hugging Face card URL (user, 2026-07-07: "open full detail in there web
 // browser") — huggingface.co/<repo>; "" (no repo → no link) for hand-added local rows.
 function cardUrlOf(m) { const repo = hfRepoById.value[m.id] || ""; return repo ? `https://huggingface.co/${repo}` : ""; }
@@ -266,7 +279,15 @@ const inspected = ref(null);
 
 const samplersLabel = computed(() => {
   const s = inspected.value?.samplers || editing.value?.samplers || {};
-  const entries = Object.entries(s);
+  // STABLE display order (#141 — inspect vs DB row rendered the same set in two
+  // different orders): canonical-first, then alphabetical for the rest.
+  const canon = ["temperature", "top_k", "top_p", "min_p"];
+  const entries = Object.entries(s).sort(([a], [b]) => {
+    const ia = canon.indexOf(a);
+    const ib = canon.indexOf(b);
+    if (ia >= 0 || ib >= 0) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    return a.localeCompare(b);
+  });
   return entries.length ? entries.map(([k, v]) => `${k} ${v}`).join(" · ") : "—";
 });
 
@@ -326,6 +347,9 @@ function onQuantPick(v) {
   if (v === "__custom") { quantCustom.value = true; return; }
   quantCustom.value = false;
   editing.value.quant = v;
+  // The stored download size is QUANT-SPECIFIC (#141): a different quant makes it
+  // stale — clear it; Read from link (or the next download) refreshes it live.
+  editing.value.sizeBytes = null;
 }
 function onDraftPick(path) {
   const e = editing.value;
@@ -360,15 +384,21 @@ async function inspectLink() {
     e.trainedCtx = r.trainedCtx ?? null;
     if (r.totalParams) e.totalParams = r.totalParams; // file-derived (dense); MoE stays curated
     if (!e.minVramMb && r.estVramMb) e.minVramMb = r.estVramMb;
+    // Identity facts persist on the row (#141 — Edit-open == Read-from-link):
+    e.architecture = r.architecture || "";
+    e.experts = r.experts || 0;
+    e.sizeLabel = r.sizeLabel || "";
+    e.sizeBytes = r.sizeBytes || null;
     inspected.value = {
       architecture: r.architecture || "", experts: r.experts || 0, sizeLabel: r.sizeLabel || "",
       samplers: r.samplers || {}, sizeBytes: r.sizeBytes || 0, estVramMb: r.estVramMb ?? null,
       headerMtp: !!r.mtp, // the raw header truth — onDraftPick falls back to it on clear
     };
-    // B2 (Smart-Add remainder): auto-compose a plain-language description from the
-    // just-read facts — ONLY into an EMPTY field. A hand-typed or previously saved
-    // description is never clobbered, and the field stays fully editable after.
-    if (!e.description?.trim()) e.description = composedDescription();
+    // Description is FILE/LINK-OWNED (#143, user decree: "if user clicks read from
+    // file all fields should be updated"): an explicit Read from link REGENERATES
+    // it from the just-read facts. Personal text belongs in Notes below, which
+    // this never touches.
+    e.description = composedDescription();
   } catch (err) {
     inspectErr.value = err.message || "Couldn't read the model from the link.";
   } finally {
@@ -383,15 +413,18 @@ async function inspectLink() {
 function composedDescription() {
   const e = editing.value;
   const bits = [];
-  const params = (e.totalParams || inspected.value?.sizeLabel || "").toString().trim();
+  const params = (e.totalParams || e.sizeLabel || inspected.value?.sizeLabel || "").toString().trim();
   const kind = e.embedding ? "embedding model" : e.type === "moe" ? "mixture-of-experts model" : "model";
   bits.push(params ? `${params} ${kind}` : kind);
   if (e.trainedCtx) bits.push(`${Math.round(e.trainedCtx / 1024)}k context`);
-  if (e.mtp || e.mtpDraftFile) bits.push("MTP draft for faster generation");
+  // Honest MTP phrasing: an external draft file vs built-in prediction layers.
+  if (e.mtpDraftFile) bits.push("MTP draft for faster generation");
+  else if (e.mtp) bits.push("MTP for faster generation");
   if (e.quant) {
     const q = (listing.value?.quants || []).find((x) => x.quant === e.quant);
     bits.push(`${e.quant}${q?.qat ? " (QAT)" : ""}`);
     if (q?.sizeMb) bits.push(`${gb(q.sizeMb)} GB`);
+    else if (e.sizeBytes) bits.push(`${gb(e.sizeBytes / (1024 * 1024))} GB`);
   }
   return bits.join(" · ");
 }
@@ -400,7 +433,31 @@ function blankModel() {
   return { id: "", name: "", hfRepo: "", quant: "", type: "dense", totalParams: "",
     activeParams: "", mtp: false, mtpDraftRepo: "", mtpDraftFile: "", mtpDraftQuant: "",
     trainedCtx: null, samplers: {}, minVramMb: null, minRamMb: null,
-    tier: "mid", license: "", useLimited: false, embedding: false, description: "", qualityRank: 100, position: 0 };
+    tier: "mid", license: "", useLimited: false, embedding: false, description: "", notes: "",
+    architecture: "", experts: 0, sizeLabel: "", sizeBytes: null, qualityRank: 100, position: 0 };
+}
+
+// ── the empty slot cards' INLINE PICKERS (#144 — the old two-visible-dropdowns
+// affordance reborn: the Embedding section sits below the catalog's scroll fold,
+// so a manual user never discovers the second requirement; picking HERE assigns
+// through the SAME writers as the rows. Use-limited models are pickable (a manual
+// pick is deliberate, like the rows) but carry the ⚠ in their label). ──
+function slotOptions(kind /* false = chat, true = embed */) {
+  return models.value
+    .filter((m) => embeddingOf(m) === kind && FIT_RUNNABLE.has(m.fit))
+    .sort((a, b) => qualityOf(a) - qualityOf(b))
+    .map((m) => ({
+      value: m.id,
+      label: `${m.name || m.id}${useLimitedOf(m) ? " ⚠" : ""}${m.id === recommendedId.value ? " · Recommended" : ""}`,
+    }));
+}
+const chatSlotOptions = computed(() => slotOptions(false));
+const embedSlotOptions = computed(() => slotOptions(true));
+function pickSlot(id, isEmbed) {
+  const m = modelById.value[id];
+  if (!m) return;
+  if (isEmbed) makeEmbedding(m);
+  else makeDefault(m);
 }
 function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; listing.value = null; listingErr.value = ""; quantCustom.value = false; }
 async function startEdit(m) {
@@ -549,8 +606,11 @@ refreshApplied();
             ? "Your tasks still point at it, but it's gone — pick a new one below (“Load as default”)."
             : defaultName
               ? "Writes prose, chats, extracts — every task uses it unless you override a task."
-              : "Pick one under Chat & writing models below — “Load as default”." }}
+              : "Writes prose, chats, extracts — pick one to get started." }}
         </div>
+        <UiSelect v-if="!defaultName && !defaultGone && chatSlotOptions.length" class="lu-setup-pick"
+          :model-value="''" :options="chatSlotOptions" placeholder="Choose a model…"
+          @update:model-value="pickSlot($event, false)" />
         <div v-if="defaultModel && !defaultGone" class="lu-setup-live">
           <span v-if="slotState(defaultModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
           <span v-else-if="slotState(defaultModel) === 'working'" class="lu-muted">↓ working…</span>
@@ -575,8 +635,11 @@ refreshApplied();
             ? "Search still points at it, but it's gone — pick a new one below (“Load as default”)."
             : embeddingName
               ? "Powers semantic search + grounded chat, alongside your General model."
-              : "Pick one under Embedding models below — “Load as default”." }}
+              : "Powers semantic search + grounded chat — pick one to get started." }}
         </div>
+        <UiSelect v-if="!embeddingName && !embeddingGone && embedSlotOptions.length" class="lu-setup-pick"
+          :model-value="''" :options="embedSlotOptions" placeholder="Choose an embedding model…"
+          @update:model-value="pickSlot($event, true)" />
         <div v-if="embeddingModel && !embeddingGone" class="lu-setup-live">
           <span v-if="slotState(embeddingModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
           <span v-else-if="slotState(embeddingModel) === 'working'" class="lu-muted">↓ working…</span>
@@ -632,7 +695,10 @@ refreshApplied();
                   title="What Quick Setup would pick for this machine — the curated hardware-class map first, then the speed-floor rule">
                   Recommended for this PC</UiTag>
                 <div class="lu-mid">{{ m.id }}</div>
+                <!-- The sort fields, visible (#146): benchmark rank + size. -->
+                <div class="lu-mrowmeta lu-muted" title="Benchmark rank (lower = better; published general-purpose tests) · download size">{{ rowMeta(m) }}</div>
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
+                <div v-if="notesOf(m)" class="lu-mnotes">Your notes: {{ notesOf(m) }}</div>
                 <a v-if="cardUrlOf(m)" class="lu-mlink lu-mcardlink" :href="cardUrlOf(m)"
                   target="_blank" rel="noopener" title="Open the model's Hugging Face page — full details, files, license">Model card ↗</a>
               </td>
@@ -752,13 +818,16 @@ refreshApplied();
             <UiInput v-model="editing.mtpDraftRepo" placeholder="" /></label>
         </template>
 
+        <!-- #141: every row reads from the PERSISTED catalog facts (seeded, or written
+             at download / by the boot backfill), so Edit-open shows exactly what
+             Read-from-link shows; a fresh inspect overrides live. -->
         <div class="lu-mm-note"><b>Auto-detected from the file</b> <span class="lu-muted">— read from the GGUF header (Read from link, or confirmed at download)</span></div>
         <div class="lu-mm-auto">
-          <div v-if="inspected" class="lu-mm-auto-row"><span class="lu-muted">Architecture</span><span>{{ inspected.architecture || "—" }}<template v-if="inspected.experts"> · {{ inspected.experts }} experts</template></span></div>
-          <div v-if="inspected?.sizeLabel" class="lu-mm-auto-row"><span class="lu-muted">Size (file)</span><span>{{ inspected.sizeLabel }}</span></div>
+          <div class="lu-mm-auto-row"><span class="lu-muted">Architecture</span><span>{{ (inspected?.architecture || editing.architecture) || "—" }}<template v-if="inspected?.experts || editing.experts"> · {{ inspected?.experts || editing.experts }} experts</template></span></div>
+          <div class="lu-mm-auto-row"><span class="lu-muted">Size (file)</span><span>{{ (inspected?.sizeLabel || editing.sizeLabel) || "—" }}</span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Trained context</span><span>{{ editing.trainedCtx ? `${editing.trainedCtx.toLocaleString()} tokens` : "—" }}</span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Recommended samplers</span><span>{{ samplersLabel }}</span></div>
-          <div v-if="inspected?.sizeBytes" class="lu-mm-auto-row"><span class="lu-muted">Download size</span><span>{{ fmtBytes(inspected.sizeBytes) }}<template v-if="inspected.estVramMb"> · ≈ {{ inspected.estVramMb.toLocaleString() }} MB VRAM (full GPU · 8K ctx)</template></span></div>
+          <div class="lu-mm-auto-row"><span class="lu-muted">Download size</span><span>{{ (inspected?.sizeBytes || editing.sizeBytes) ? fmtBytes(inspected?.sizeBytes || editing.sizeBytes) : "—" }}<template v-if="inspected?.estVramMb"> · ≈ {{ inspected.estVramMb.toLocaleString() }} MB VRAM (full GPU · 8K ctx)</template></span></div>
         </div>
         <div v-if="poolingOf(editing)" class="lu-mm-note"><b>Embedding pooling: {{ poolingOf(editing) }}</b> <span class="lu-muted">— how the model's token vectors are combined into one embedding (mean · cls · last). Curated per embedding model; read-only here because the wrong pooling degrades search quality.</span></div>
 
@@ -792,8 +861,9 @@ refreshApplied();
         <label class="lu-mm-l">License <span class="lu-muted">— SPDX id (Apache-2.0 · MIT · Llama-Community · …)</span><UiInput v-model="editing.license" placeholder="Apache-2.0" /></label>
         <div class="lu-mm-l"><UiCheckbox v-model="editing.useLimited"><span>Use-limited license <span class="lu-muted">— not free for unrestricted/commercial use; shows the ⚠ badge</span></span></UiCheckbox></div>
 
-        <div class="lu-mm-note"><b>Curation</b> <span class="lu-muted">— editable "what this is" + the quality order QuickSetup uses to pick the best model that fits your box.</span></div>
-        <label class="lu-mm-l">Description<UiTextarea v-model="editing.description" placeholder="Plain-language 'what this model is' — e.g. fast 9B for quick chat and drafts" /></label>
+        <div class="lu-mm-note"><b>Description & your notes</b> <span class="lu-muted">— the description refreshes from the file facts on Read from link; Notes are yours alone and are never touched by reads, downloads, or resets.</span></div>
+        <label class="lu-mm-l">Description <span class="lu-muted">regenerated by Read from link</span><UiTextarea v-model="editing.description" placeholder="What this model is — refreshed from the file facts" /></label>
+        <label class="lu-mm-l">Notes <span class="lu-muted">yours — measurements, taste, use policy</span><UiTextarea v-model="editing.notes" placeholder="e.g. measured writer TTFT 1.6 s on my box; my go-to for dark scenes" /></label>
         <label class="lu-mm-l">Benchmark rank <span class="lu-muted">— published general-benchmark order; lower = better; 100 = unranked (sorts last)</span><UiInput v-model.number="editing.qualityRank" type="number" placeholder="100" /></label>
 
         <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
@@ -827,7 +897,10 @@ refreshApplied();
 .lu-mgrid tr:last-child td { border-bottom: 0; }
 .lu-mn { font-weight: 600; color: var(--ink); min-width: 150px; }
 .lu-mid { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px; }
+.lu-mrowmeta { font-size: 10.5px; font-weight: 400; margin-top: 1px; }
 .lu-mdesc { font-size: 11px; color: var(--ink-2); font-weight: 400; margin-top: 3px; max-width: 46ch; line-height: 1.4; }
+.lu-mnotes { font-size: 10.5px; color: var(--muted); font-weight: 400; font-style: italic; margin-top: 2px; max-width: 46ch; line-height: 1.4; }
+.lu-setup-pick { margin-top: 7px; }
 /* Default / Embedding badges sit inline after the model name; the fit-group divider row. */
 .lu-mbadge { margin-left: 6px; vertical-align: middle; }
 .lu-mgroup td { background: var(--surface-2); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; padding: 5px 11px; }

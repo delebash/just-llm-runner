@@ -55,7 +55,15 @@ class CatalogRow(BaseModel):
     embedding: bool = False   # is an embedding model (RAG index), not a chat LLM — explicit editable flag (replaces the /embed/i guess)
     pooling: str = ""   # embedding pooling: "" | mean | cls | last | rank (intrinsic per-model; read-only in the model form) (#119)
     qualityRank: int = 100    # curated overall-quality order (LOWER = better); QuickSetup picks best-that-fits. 100 = unranked.
-    description: str = ""      # plain-language "what this model is" (editable curation)
+    # FILE/LINK-OWNED since 2026-07-07 (user decree): Read-from-link regenerates it.
+    description: str = ""
+    # The user's OWN notes — persistent, never written by read/download/backfill/seed.
+    notes: str = ""
+    # File-derived identity facts (#141 — persisted so Edit-open == Read-from-link):
+    architecture: str = ""        # e.g. "gemma4"
+    experts: int = 0              # MoE expert count (0 = dense)
+    sizeLabel: str = ""           # e.g. "128x2.6B" / "27B"
+    sizeBytes: int | None = None  # the GGUF file size — QUANT-SPECIFIC (cleared on quant change)
     position: int = 0
     builtIn: bool = False
 
@@ -149,6 +157,11 @@ class ResolvedModelDefaultsResponse(BaseModel):
     # `switches`: merging them into the editable grid would let Save tune pin
     # today's fit as explicit values, which the strict-beat rule exists to prevent.
     computed: list[ResolvedFlag] = Field(default_factory=list)
+    # PROVENANCE (2026-07-07, the switch-provenance item): flagName -> the layer
+    # that last wrote it (base | type | mtp | class | tune) — the Tune grid's
+    # per-row origin tags ride this; fit-computed rows carry their own provenance
+    # by living in `computed`. Empty when the host wires no origins resolver.
+    origins: dict[str, str] = Field(default_factory=dict)
 
 
 class ModelCatalogStore(Protocol):
@@ -168,6 +181,7 @@ def make_catalog_router(
     list_files_fn: Callable[[str, str], dict] | None = None,
     class_picks_fn: Callable[[], list[dict]] | None = None,
     preview_fit_fn: Callable[[str], dict] | None = None,
+    resolve_origins: Callable[[str], tuple[dict[str, str], dict[str, str]]] | None = None,
 ) -> APIRouter:
     """CRUD + reset for the per-model llama.cpp catalog. When
     `resolve_switches(model_id) -> {flag_name: value}` is given, also expose
@@ -210,7 +224,15 @@ def make_catalog_router(
         async def resolved_defaults(modelId: str) -> ResolvedModelDefaultsResponse:
             if not modelId.strip():
                 raise HTTPException(status_code=400, detail="modelId is required")
-            merged = resolve_switches(modelId) or {}
+            # Provenance-aware resolve when wired (one call yields values + origins);
+            # the plain resolver stays the fallback so hosts without origins keep working.
+            if resolve_origins is not None:
+                merged, origins = resolve_origins(modelId)
+                merged = merged or {}
+                origins = origins or {}
+            else:
+                merged = resolve_switches(modelId) or {}
+                origins = {}
             # ONE store read serves BOTH the mtp flag and the model's recommended samplers.
             row = next((r for r in get_store().list() if r.id == modelId), None)
             samplers = (row.samplers if row else None) or {}
@@ -242,6 +264,7 @@ def make_catalog_router(
                 switches=[ResolvedFlag(flagName=k, flagValue=str(v)) for k, v in merged.items()],
                 samplers=[ResolvedFlag(flagName=k, flagValue=str(v)) for k, v in samplers.items()],
                 computed=computed,
+                origins=origins,
             )
 
     if list_files_fn is not None:

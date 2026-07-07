@@ -38,6 +38,13 @@ function _syncPoll() {
   } else if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
+    // The install just reached a terminal state (#138, 2026-07-07): the backend
+    // clears stale "Install the engine first" model errors on success — re-pull
+    // the models list so the grid drops its red "install engine ↑" rows without
+    // waiting for a manual refresh. Lazy import avoids a module cycle.
+    import("./useRunnerModels.js")
+      .then((m) => m.useRunnerModels().refresh())
+      .catch(() => {});
   }
 }
 

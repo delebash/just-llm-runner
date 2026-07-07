@@ -39,6 +39,10 @@ const props = defineProps({
   reservedKeys: { type: Array, default: () => [] },// names managed by another control → hidden from "Other keys" too
   scrollMax: { type: String, default: "260px" },   // fixed height before the grid scrolls (single-column only)
   columns: { type: Number, default: 1 },           // >1 → flat multi-column grid (no Common/Advanced split), no inner scroll
+  // Per-row PROVENANCE tags (2026-07-07, add-row mode): name -> a short display
+  // string ("all models" · "your PC class" · "saved tune" · …) rendered muted
+  // beside the row — the caller maps origin ids to user language. Empty = no tags.
+  origins: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits(["update:modelValue"]);
 
@@ -210,6 +214,7 @@ const displayRows = computed(() => {
         :placeholder="valuePlaceholder"
         @update:model-value="patch(i, 'value', $event)"
       />
+      <span v-if="origins[r.name]" class="ui-kg-origin" title="Where this value comes from">{{ origins[r.name] }}</span>
       <UiButton intent="ghost" size="small" title="Remove" @click="remove(i)">✕</UiButton>
     </div>
     <UiButton intent="ghost" size="small" @click="add">{{ addLabel }}</UiButton>
@@ -218,8 +223,10 @@ const displayRows = computed(() => {
 
 <style scoped>
 .ui-kg { display: flex; flex-direction: column; gap: 7px; }
-.ui-kg-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+.ui-kg-row { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; align-items: center; }
+.ui-kg-row:not(:has(.ui-kg-origin)) { grid-template-columns: 1fr 1fr auto; }
 .ui-kg-name :deep(input) { font-family: var(--font-mono, monospace); }
+.ui-kg-origin { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
 
 /* Checklist mode */
 .ui-kg-check { gap: 0; }

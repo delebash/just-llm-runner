@@ -41,7 +41,8 @@ from .usage_sink import DbUsageSink
 
 def _current_hw_key() -> str:
     """The memoized whole-machine tuning key (gpu|vram|cores|ramGB) the
-    `hardware_switches` + `model_tunes` layers are stored under (Plan B, D2).
+    `model_tunes` layer is stored under (Plan B, D2; the old `hardware_switches`
+    layer was retired 2026-07-07 — no writer/UI ever existed).
     Lazy import — hardware detection lives runner-side."""
     from ..runner.hardware import current_machine_key
 
@@ -181,6 +182,10 @@ def install_llm(
         inspect_fn=_inspect_model_from_link,
         list_files_fn=_list_repo_files,
         preview_fit_fn=_preview_fit,
+        # Provenance (2026-07-07): values + which-layer-wrote-each — the Tune
+        # grid's per-row origin tags.
+        resolve_origins=lambda mid: switch_resolve.resolve_model_switches_with_origins(
+            mid, _current_hw_key(), _current_class_key()),
     ))
     app.include_router(make_pricing_router(stores.get_pricing_store))
     app.include_router(make_runner_config_router(stores.get_runner_config_store))

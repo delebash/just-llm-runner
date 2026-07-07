@@ -66,11 +66,11 @@ def test_draft_file_alone_fires_the_gate(configured):
 
 
 def test_model_tune_wins_over_every_layer(configured):
-    # The per-(model, machine) MEASURED tune is LAST: it beats the hardware layer
-    # AND the auto-mtp layer for ITS model on ITS machine — including the MTP
-    # opt-OUT (uncheck → spec_type=none persisted in the tune).
+    # The per-(model, machine) MEASURED tune is LAST: it beats every bundle layer
+    # for ITS model on ITS machine — including the MTP opt-OUT (uncheck →
+    # spec_type=none persisted in the tune). (The old per-machine hardware layer
+    # was RETIRED 2026-07-07 — no writer/UI ever existed.)
     s = db.session()
-    s.add(db.HardwareSwitch(hw_key="k1", flag_name="threads", flag_value="6"))
     s.add(db.ModelTune(model_id="qwen3.6-35b-a3b-mtp", hw_key="k1",
                        flag_name="threads", flag_value="8"))
     s.add(db.ModelTune(model_id="qwen3.6-35b-a3b-mtp", hw_key="k1",
@@ -80,7 +80,7 @@ def test_model_tune_wins_over_every_layer(configured):
     s.commit()
     s.close()
     sw = switch_resolve.resolve_model_switches("qwen3.6-35b-a3b-mtp", hw_key="k1")
-    assert sw["threads"] == "8"             # tune beats hardware
+    assert sw["threads"] == "8"             # the tune's own value lands
     assert sw["spec_type"] == "none"        # the user's opt-out beats auto-mtp
     assert sw["n_cpu_moe"] == "37"          # the measured allocation rides along
 
@@ -98,15 +98,27 @@ def test_tune_is_scoped_to_its_model_and_machine(configured):
     assert switch_resolve.resolve_model_switches("qwen3.6-35b-a3b-mtp", hw_key="k1")["batch_size"] == "64"
 
 
-def test_hardware_layer_reachable_via_key(configured):
-    # The hardware layer (dormant pre-Plan-B: no caller passed hw_key) is live
-    # when the machine key is wired: a per-machine row applies to ALL models.
+def test_origins_track_the_writing_layer(configured):
+    # Provenance (2026-07-07): the with-origins resolver reports WHICH layer last
+    # wrote each key — base for the bundle rows, class for a class-tune row, tune
+    # for the machine's own saved value (later layers overwrite earlier origins).
     s = db.session()
-    s.add(db.HardwareSwitch(hw_key="k1", flag_name="ubatch_size", flag_value="32"))
+    s.add(db.ClassTune(model_id="qwen3.6-35b-a3b-mtp", class_key="vram8|ram32",
+                       flag_name="n_cpu_moe", flag_value="21", built_in=True))
+    s.add(db.ModelTune(model_id="qwen3.6-35b-a3b-mtp", hw_key="k1",
+                       flag_name="threads", flag_value="8"))
     s.commit()
     s.close()
-    assert switch_resolve.resolve_model_switches("qwen3-8b-q4_k_m", hw_key="k1")["ubatch_size"] == "32"
-    assert "ubatch_size" not in switch_resolve.resolve_model_switches("qwen3-8b-q4_k_m")
+    sw, origins = switch_resolve.resolve_model_switches_with_origins(
+        "qwen3.6-35b-a3b-mtp", hw_key="k1", class_key="vram8|ram32")
+    assert origins["flash_attn"] == "base"
+    assert origins["spec_type"] == "mtp"        # the gated auto-MTP layer
+    assert origins["n_cpu_moe"] == "class"
+    assert origins["threads"] == "tune"
+    assert sw["n_cpu_moe"] == "21" and sw["threads"] == "8"
+    # the plain resolver stays the values-only view of the same walk
+    assert switch_resolve.resolve_model_switches(
+        "qwen3.6-35b-a3b-mtp", hw_key="k1", class_key="vram8|ram32") == sw
 
 
 def test_unknown_model_empty(configured):

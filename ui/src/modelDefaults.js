@@ -23,6 +23,9 @@ export async function resolveModelDefaults(modelId) {
     switches: (r.switches || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue })),
     samplers: (r.samplers || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue })),
     computed: (r.computed || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue })),
+    // Provenance (2026-07-07): flagName -> the layer that last wrote it
+    // (base | type | mtp | class | tune) — the Tune grid's per-row origin tags.
+    origins: r.origins || {},
     mtpCapable: !!r.mtpCapable,
   };
 }

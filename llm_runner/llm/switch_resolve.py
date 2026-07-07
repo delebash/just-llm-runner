@@ -10,9 +10,19 @@ Layer order (later wins):
     base preset  →  the model's TYPE preset (moe | dense)  →  the gated auto-MTP
     preset (`mtp`)  →  the seeded/editable per-(model, hardware-CLASS) tune
     (`class_tunes`, 2026-07-07 — a config portable across boxes of the same class)
-    →  per-hardware (`hardware_switches`, per-machine, ALL models)  →  the
-    per-(model, machine) MEASURED tune (`model_tunes`, Plan B — Quick tune's Save;
-    always wins over the class default).
+    →  the per-(model, machine) MEASURED tune (`model_tunes`, Plan B — Quick
+    tune's Save; always wins over the class default).
+
+(The old per-machine `hardware_switches` layer was RETIRED 2026-07-07 — the
+user's switch-provenance review: it had no writer, no seeder, and no UI, so it
+existed only as mental-model weight; `class_tunes` (portable) + `model_tunes`
+(this machine) cover its use cases. The DB table is simply no longer read; the
+per-MACHINE `hw_key` itself lives on under `model_tunes`.)
+
+PROVENANCE (2026-07-07, the user's "what do we compute and auto set" question):
+`resolve_model_switches_with_origins` also returns WHICH layer last wrote each
+key — the UI's per-row provenance tags ride it. Origin ids are stable strings:
+`base` · `type` · `mtp` · `class` · `tune`.
 
 AUTO-MTP (user decision 2026-07-05, Plan B D3 — REVERSES Phase 3's "never
 auto-enabled"): the `mtp` preset applies when the model can actually RUN it —
@@ -41,9 +51,12 @@ def _preset_switches(s, preset_id: str) -> dict[str, str]:
     }
 
 
-def resolve_model_switches(model_id: str, hw_key: str = "", class_key: str = "") -> dict[str, str]:
-    """The merged model-level switch dict for `model_id` (and optionally the detected
-    machine `hw_key` + hardware `class_key`). Empty when nothing is configured."""
+def resolve_model_switches_with_origins(
+    model_id: str, hw_key: str = "", class_key: str = ""
+) -> tuple[dict[str, str], dict[str, str]]:
+    """The merged model-level switch dict for `model_id` PLUS the provenance map
+    (flag_name -> the layer that last wrote it: base|type|mtp|class|tune). Empty
+    when nothing is configured."""
     s = db.session()
     try:
         model = s.get(db.ModelCatalog, model_id)
@@ -55,13 +68,16 @@ def resolve_model_switches(model_id: str, hw_key: str = "", class_key: str = "")
             by_applies.setdefault(p.applies_to, []).append(p)
 
         merged: dict[str, str] = {}
+        origins: dict[str, str] = {}
 
-        def _apply(applies_to: str) -> None:
+        def _apply(applies_to: str, origin: str) -> None:
             for p in by_applies.get(applies_to, []):
-                merged.update(_preset_switches(s, p.id))
+                for k, v in _preset_switches(s, p.id).items():
+                    merged[k] = v
+                    origins[k] = origin
 
-        _apply("all")                      # base — every model
-        _apply(mtype)                      # the model's type preset (moe | dense)
+        _apply("all", "base")              # base — every model
+        _apply(mtype, "type")              # the model's type preset (moe | dense)
         # gated auto-MTP (Plan B D3): built-in capable OR external draft configured.
         # `model.mtp OR mtp_draft_file` — NOT `mtp AND …`: a Gemma-style model's
         # MAIN header has no MTP marker, so the draft arm must fire independently.
@@ -69,7 +85,7 @@ def resolve_model_switches(model_id: str, hw_key: str = "", class_key: str = "")
             getattr(model, "mtp", False) or getattr(model, "mtp_draft_file", "")
         ))
         if mtp_capable:
-            _apply("mtp")
+            _apply("mtp", "mtp")
         # seeded/editable per-(model, HARDWARE-CLASS) tune (2026-07-07): a config
         # measured on one box, portable to every box of the same class. Applies BELOW
         # the machine's own tune (more specific wins) and ABOVE base/type/mtp.
@@ -78,10 +94,8 @@ def resolve_model_switches(model_id: str, hw_key: str = "", class_key: str = "")
                 db.ClassTune.model_id == model_id, db.ClassTune.class_key == class_key
             ).all():
                 merged[r.flag_name] = r.flag_value
-        # per-hardware (per-machine, applies to ALL models on this machine)
+                origins[r.flag_name] = "class"
         if hw_key:
-            for r in s.query(db.HardwareSwitch).filter(db.HardwareSwitch.hw_key == hw_key).all():
-                merged[r.flag_name] = r.flag_value
             # per-(model, machine) MEASURED tune — LAST so the user's saved tune
             # (incl. an MTP opt-OUT of the auto layer) always wins (Plan B D1/D3).
             rows = s.query(db.ModelTune).filter(
@@ -89,6 +103,15 @@ def resolve_model_switches(model_id: str, hw_key: str = "", class_key: str = "")
             ).all()
             for r in rows:
                 merged[r.flag_name] = r.flag_value
-        return merged
+                origins[r.flag_name] = "tune"
+        return merged, origins
     finally:
         s.close()
+
+
+def resolve_model_switches(model_id: str, hw_key: str = "", class_key: str = "") -> dict[str, str]:
+    """The merged model-level switch dict for `model_id` (and optionally the detected
+    machine `hw_key` + hardware `class_key`). Empty when nothing is configured.
+    (The values-only view of `resolve_model_switches_with_origins` — every existing
+    caller keeps this shape.)"""
+    return resolve_model_switches_with_origins(model_id, hw_key, class_key)[0]

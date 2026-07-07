@@ -77,6 +77,8 @@ def derived_fields_from_meta(meta: GgufMeta) -> dict:
         "trained_ctx": meta.context_length or None,
         "total_params": total_params,
         "size_label": meta.size_label,
+        "architecture": meta.architecture or "",
+        "experts": int(meta.expert_count or 0),
         "samplers": canonicalize_sampler_names({k: str(v) for k, v in (meta.sampling or {}).items()}),
     }
 
@@ -102,10 +104,20 @@ def detect_and_store_model_type(
             )
         except Exception:  # noqa: BLE001 — the sampler fallback is advisory only
             fields["samplers"] = {}
+    # The quant-specific file size (#141): from the local file when it exists —
+    # best-effort (an injected fake path in tests simply yields None).
+    try:
+        from pathlib import Path
+
+        size_bytes = Path(gguf_path).stat().st_size
+    except OSError:
+        size_bytes = None
     (store or stores.get_model_catalog_store()).set_derived(
         model_id, model_type=fields["type"], mtp=fields["mtp"],
         trained_ctx=fields["trained_ctx"], total_params=fields["total_params"],
         samplers=fields["samplers"],
+        architecture=fields["architecture"], experts=fields["experts"],
+        size_label=fields["size_label"], size_bytes=size_bytes,
     )
     return fields["type"]
 
@@ -117,13 +129,16 @@ def backfill_derived_from_cache(rows, cached_path_fn, identify_one) -> int:
     was already on disk shows "Recommended samplers —" forever. For every row whose
     sampler set is EMPTY (the never-derived marker) and whose GGUF is cached, re-run
     identify from the local file. Pure loop — `rows` are catalog rows (`.id`,
-    `.samplers`), `cached_path_fn(id) -> path|None`, `identify_one(id, path)` does the
-    store write; install.py wires the real ones (on a daemon thread, local-file reads
-    only). A model whose file truly carries no samplers re-checks each boot — a local
-    header read, milliseconds, accepted over a staleness marker column."""
+    `.samplers`, `.architecture`), `cached_path_fn(id) -> path|None`,
+    `identify_one(id, path)` does the store write; install.py wires the real ones
+    (on a daemon thread, local-file reads only). Needs-backfill marker: samplers
+    empty OR architecture empty (#141 added the identity facts — a row seeded
+    before them lacks architecture even when its samplers landed). A model whose
+    file truly carries neither re-checks each boot — a local header read,
+    milliseconds, accepted over a staleness marker column."""
     done = 0
     for r in rows:
-        if getattr(r, "samplers", None):
+        if getattr(r, "samplers", None) and getattr(r, "architecture", ""):
             continue
         path = cached_path_fn(r.id)
         if not path:

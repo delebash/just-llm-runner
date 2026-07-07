@@ -13,6 +13,7 @@ import UiButton from "../common/components/UiButton.vue";
 import LuCombobox from "../components/LuCombobox.vue";
 import UiInput from "../common/components/UiInput.vue";
 import LuClassTunes from "../components/LuClassTunes.vue";
+import LuGlobalSwitches from "../components/LuGlobalSwitches.vue";
 import LuRunnerEngine from "../components/LuRunnerEngine.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
@@ -90,6 +91,13 @@ async function testConnection() {
   testMsg.value = "Testing…";
   try {
     const r = await probeModels({ providerType: draft.providerType, baseUrl: draft.baseUrl, apiKey: draft.apiKey });
+    // The built-in engine returns a composed health line (#139 — probing its lazy
+    // router read "reachable, but no models listed" on a perfectly configured box;
+    // models load on first use by design). Prefer it whenever the server sends one.
+    if (r.detail) {
+      testMsg.value = r.error ? `✗ ${r.detail}` : `✓ ${r.detail}`;
+      return;
+    }
     testMsg.value = (r.models && r.models.length)
       ? `✓ connected — ${r.models.length} models`
       : `✗ ${r.error || "reachable, but no models listed"}`;
@@ -204,6 +212,9 @@ async function remove() {
          Tune dialog carries per model, in GLOBAL mode — every (model × class) launch
          config in one audit table, under the catalog as the everything-at-once view. -->
     <LuClassTunes v-if="isBuiltin" class="lu-pf-ct" />
+    <!-- The GLOBAL LAUNCH DEFAULTS (#140, the switch-provenance go): the always-on
+         bundles under every tune, editable with reset — the launch-defaults corner. -->
+    <LuGlobalSwitches v-if="isBuiltin" class="lu-pf-ct" />
 
     <div v-if="saveErr" class="lu-error lu-pf-err">{{ saveErr }}</div>
 

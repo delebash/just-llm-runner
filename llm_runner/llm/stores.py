@@ -295,6 +295,8 @@ def _catalog_to_wire(r: db.ModelCatalog, samplers: dict[str, str] | None = None)
         trainedCtx=r.trained_ctx, samplers=dict(samplers or {}),
         minVramMb=r.min_vram_mb, minRamMb=r.min_ram_mb, tier=r.tier, license=r.license,
         useLimited=r.use_limited, embedding=r.embedding, pooling=r.pooling, qualityRank=r.quality_rank, description=r.description,
+        notes=r.notes, architecture=r.architecture, experts=r.experts,
+        sizeLabel=r.size_label, sizeBytes=r.size_bytes,
         position=r.position, builtIn=r.built_in,
     )
 
@@ -341,6 +343,11 @@ class ModelCatalogStore:
             existing.pooling = row.pooling or ""
             existing.quality_rank = row.qualityRank
             existing.description = row.description or ""
+            existing.notes = row.notes or ""
+            existing.architecture = row.architecture or ""
+            existing.experts = int(row.experts or 0)
+            existing.size_label = row.sizeLabel or ""
+            existing.size_bytes = row.sizeBytes
             existing.position = row.position
             existing.built_in = False
             s.commit()
@@ -393,17 +400,22 @@ class ModelCatalogStore:
 
     def set_derived(self, model_id: str, *, model_type: str, mtp: bool,
                     trained_ctx: int | None, total_params: str | None = None,
-                    samplers: dict[str, str] | None = None) -> bool:
+                    samplers: dict[str, str] | None = None,
+                    architecture: str | None = None, experts: int | None = None,
+                    size_label: str | None = None, size_bytes: int | None = None) -> bool:
         """Set the FILE-DERIVED catalog fields (`type`/`mtp`/`trained_ctx`, and
         `total_params` when the file gives one) AND replace the per-model recommended
         sampler rows for `model_id`, from a GGUF header read (the GGUF-grounded model
         layer, Phase 2). `total_params` is written only when not None — a dense model
         exposes it via `general.size_label` ("27B"), but a MoE expert-label ("128x9.4B")
-        does NOT decompose, so it stays None → the curated value is preserved. Preserves
-        every other field incl. `built_in` (unlike `upsert`, which marks the row
-        user-edited). The sampler set is always REPLACED with the given map (empty
-        clears it). Returns True if a `type`/`mtp`/`trained_ctx`/`total_params` value
-        changed; False when the model row is absent."""
+        does NOT decompose, so it stays None → the curated value is preserved. The
+        identity facts (`architecture`/`experts`/`size_label`/`size_bytes`, #141 —
+        the auto-detected-panel parity) write only when given (None = leave as is;
+        size_bytes is the QUANT-SPECIFIC file size). Preserves every other field
+        incl. `built_in` AND the user's `notes` (unlike `upsert`, which marks the
+        row user-edited). The sampler set is always REPLACED with the given map
+        (empty clears it). Returns True if a scalar value changed; False when the
+        model row is absent."""
         s = db.session()
         try:
             existing = s.get(db.ModelCatalog, model_id)
@@ -411,12 +423,24 @@ class ModelCatalogStore:
                 return False
             changed = (existing.type != model_type or bool(existing.mtp) != bool(mtp)
                        or existing.trained_ctx != trained_ctx
-                       or (total_params is not None and existing.total_params != total_params))
+                       or (total_params is not None and existing.total_params != total_params)
+                       or (architecture is not None and existing.architecture != architecture)
+                       or (experts is not None and existing.experts != experts)
+                       or (size_label is not None and existing.size_label != size_label)
+                       or (size_bytes is not None and existing.size_bytes != size_bytes))
             existing.type = model_type or "dense"
             existing.mtp = bool(mtp)
             existing.trained_ctx = trained_ctx
             if total_params is not None:
                 existing.total_params = total_params
+            if architecture is not None:
+                existing.architecture = architecture
+            if experts is not None:
+                existing.experts = int(experts)
+            if size_label is not None:
+                existing.size_label = size_label
+            if size_bytes is not None:
+                existing.size_bytes = int(size_bytes)
             s.query(db.ModelSampler).filter(db.ModelSampler.model_id == model_id).delete()
             for name, val in (samplers or {}).items():
                 nm = (name or "").strip()

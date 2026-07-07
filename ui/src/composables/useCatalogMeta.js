@@ -54,6 +54,14 @@ export const mtpById = computed(() =>
 export const hfRepoById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, r.hfRepo || ""])),
 );
+// The user's own notes (#143 — never auto-written) + the quant-specific download
+// size (#141/#146 — file-derived, shown with the sort fields on the rows).
+export const notesById = computed(() =>
+  Object.fromEntries(rows.value.map((r) => [r.id, r.notes || ""])),
+);
+export const sizeBytesById = computed(() =>
+  Object.fromEntries(rows.value.map((r) => [r.id, r.sizeBytes || 0])),
+);
 
 /** (Re)fetch the catalog rows into the shared state. Enrichment — on failure the maps
  *  fall back to empty (the fit-shaped list / the pick still work without the badges). */
@@ -71,5 +79,5 @@ export async function refresh() {
 /** Shared model-catalog meta. Every consumer gets the SAME refs; call refresh() on open
  *  or after a catalog edit to (re)populate the one shared source. */
 export function useCatalogMeta() {
-  return { catalogRows, classPicks: classPicksRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, hfRepoById, refresh };
+  return { catalogRows, classPicks: classPicksRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, hfRepoById, notesById, sizeBytesById, refresh };
 }

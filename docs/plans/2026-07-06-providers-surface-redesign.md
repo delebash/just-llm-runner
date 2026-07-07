@@ -1450,3 +1450,128 @@ for the built-in; it should report engine/catalog/default state instead) · #140
 switch provenance — the user's question "how does the user know the other switches are set
 from fit … cache-type-k q8_0 / no-mmap / mlock aren't visible anywhere"; the discussion
 options are in the task, decision his).
+
+## ROUND 17 — SHIPPED 2026-07-07 (the full-queue go: provenance + global defaults + hardware_switches retired · description/notes split · auto-detected facts persisted · pin b9899 · built-in Test health · stale-error clear · panel Install · card pickers · row sort fields · the persist-audit table)
+
+**STATUS: SHIPPED (this commit + the JW seed/docs commit). The user's bare "go" against the
+whole queue, my standing recommendations taken on the decide items: #145 KEEP click =
+assign+load (the lazy principle governs AUTOMATIC behavior — boot, task-driven, first-search
+loads — not explicit picks; an unused eager load is transient under pressure-evict) and #147
+KEEP the 900 s sleep-idle default (a 30 s TTL would bill every >30 s thinking pause the
+~10 s reload; the user's 30 belongs on their box via the existing knob) — both are now
+DECISION RECORDS, no code. VERIFICATION: runner ruff + FULL pytest 402/402 (run under rule-2
+professional diligence extending the day's granted precedent — this batch retired a DB layer
+and changed a store signature; shipping that read-verified-only would have been reckless;
+the user may object and the posture note stands) + JW server ruff + 76/76 + build:vite
+clean. Still owed to #114: smoke, probe rework, live curls.**
+
+### 1. Switch provenance + the global defaults (#140 — the revisited recommendation, built)
+
+`resolve_model_switches_with_origins` (switch_resolve.py) returns values + WHICH layer last
+wrote each key (`base|type|mtp|class|tune`); the plain resolver is now its values-only view
+(every existing caller unchanged). `resolved-defaults` carries the `origins` map
+(model_catalog_api + install wiring); the Tune grid renders per-row tags in user language
+("all models" · "model type" · "speculative decode" · "your PC class" · "saved tune" —
+KnobGrid gains an optional `origins` prop, add-row mode) plus the closing honesty line
+**"Anything not listed here uses the engine's own defaults."** — the answer to
+cont_batching, which lives in llama's own defaults by deliberate omission. **The
+`hardware_switches` layer is RETIRED** (the rethink's finding: no writer, no seeder, no UI
+— pure mental-model weight): dropped from the resolver + db.py (an existing dev DB keeps
+the orphaned empty table until its next reset; `hw_key` lives on under model_tunes); the
+two tests re-seated, one replaced by the origins test. **The "Global launch defaults"
+drawer** (new `LuGlobalSwitches.vue`, the LuClassTunes/LuRunnerBinaries pattern) mounts
+under the class library on the Built-in Edit view: the four bundles (All models · MoE ·
+Dense · Speculative decode) each edit in a KnobGrid over the EXISTING
+/v1/ai/switch-presets CRUD and save wholesale, with Reset-to-defaults — editable from day
+one (the revisited call: every sibling config table ships editable+reset).
+
+### 2. Description/notes split (#143) + persisted auto-detected facts (#141) + sort fields (#146)
+
+`model_catalog` gains **`notes`** (user-owned, NEVER written by read/download/backfill/
+seed) and the identity facts **`architecture` · `experts` · `size_label` · `size_bytes`**
+(BigInteger; quant-specific — cleared by the form when the quant changes, refreshed by
+Read-from-link/download). `set_derived` writes them (None = leave), the boot backfill's
+needs-marker extends to architecture-empty (rows seeded before #141 self-heal), the wire
+(CatalogRow) + store mapping + seeder carry them, and the Edit form's "Auto-detected"
+panel now reads every row from the PERSISTED facts with a live inspect overriding — open
+== Read-from-link at last. Sampler display order is stable (canonical-first). DESCRIPTION
+IS FILE/LINK-OWNED per the decree: Read-from-link REGENERATES it via the enriched compose
+(honest MTP phrasing: external draft vs built-in; size from the persisted bytes when the
+listing lacks it) — the empty-only guard is gone; Notes is the personal field beside it in
+the form, rendered italic-muted under the description on the rows. ALL 12 seed rows
+migrated: descriptions rewritten to the composed-facts form, the curated prose (the
+owner's measured numbers, use-policy words, ladder judgments) MOVED to seeded `notes`,
+architecture/experts seeded from the live reads. The rows also show the SORT FIELDS
+(#146): "rank N · size" under the id (rank 100 renders "unranked"; size = persisted file
+size, params-label fallback).
+
+### 3. The engine batch: pin b9899 (#136) · built-in Test health (#139) · stale-error clear (#138) · panel Install (#135)
+
+**Pin b9870 → b9899** with the honest verification record in the config comment: the
+win/cuda-12.4 build + cudart are LIVE-VERIFIED (the user's box installed b9899 through the
+app's own update path — "Installed · b9899 · cuda12"); the remaining seven assets are
+PATTERN-verified only — this container's GitHub egress is session-scoped (both the release
+API and a direct asset probe 403; the MCP release tool denied likewise), so the b9870-era
+API check could not be repeated; the editable Binaries panel remains the user-side fix if
+an upstream rename ever bites (the #91 lesson). **#139**: `_builtin_provider_health()`
+(llm/api.py) composes the truth — engine installed · build · gpu · N models in the catalog
+· "models load on first use" — and BOTH the ping route and probe-models special-case
+`local-llamacpp` onto it (the recorded charter exception: the built-in IS the
+storage-backed provider), so the form's Test connection and the list row's status dot can
+never disagree; ProviderForm prefers the server's `detail` line. **#138**: on a successful
+engine install, the lifecycle now DROPS resident entries stuck at status=error (the
+"Install the engine first" parks from pre-install load attempts — the user's red "install
+engine ↑" screenshot) and useEngine's poller, on reaching a terminal install state, kicks
+the shared models refresh so the grid heals without a manual reload. **#135**: the Local
+engine panel's not-installed state carries its own **Install engine** button (the shared
+useEngine install — the row's machinery, one more reach point), since that state literally
+tells the user to install.
+
+### 4. The card pickers (#144) + the VRAM-strip polish that rode along
+
+The EMPTY slot cards each carry an inline picker (UiSelect of the fitting models of their
+kind, best-first, "· Recommended" marked, use-limited pickable with the ⚠ — a manual pick
+is deliberate, matching the rows); picking assigns through the SAME writers
+(makeDefault/makeEmbedding), the card flips to the live-state view — the old form's
+two-visible-dropdowns virtue reborn on the cards, no scrolling to complete setup. The
+empty-state hints rewrote to match ("pick one to get started").
+
+### 5. The persist-everything AUDIT (#142 — the inventory for the user's dispositions)
+
+| # | temporary value | where it lives today | my classification |
+|---|---|---|---|
+| 1 | Read-from-link identity facts | ~~inspect-only ref~~ | **PERSISTED this round (#141)** |
+| 2 | model descriptions/notes | ~~compose-once~~ | **PERSISTED per the decree (#143)** |
+| 3 | repo quant/draft LISTINGS (the dropdowns) | fetched per Edit-open, discarded | should-persist (a `model_repo_files` cache keyed by repo, refreshed on Read-from-link) — MEDIUM value: saves a network call per open, enables offline dropdowns |
+| 4 | engine update-check result | useEngine ref | re-derivable-cheap (one API call, policy-gated) — my call: leave ephemeral, or persist last-seen `latest` for offline display |
+| 5 | Tune "Load & measure" results | modal ref, gone on close | **should-persist**: a `model_measurements` history (model · machine · switches-hash · tok/s · at) — pairs naturally with the class-tune library ("what did this config measure?") |
+| 6 | auto-tune TRIAL history | job state, reset on next start | **should-persist** into the same measurement history (every trial is a real measurement) |
+| 7 | QuickSetup optimize outcome | optState ref | covered by 5/6 once they persist |
+| 8 | the Copy-debug snapshot | clipboard only | legitimately ephemeral (it IS an export) |
+| 9 | drawer open/closed, spinners, toasts | component state | legitimately ephemeral (pure UI state) |
+| 10 | resident/VRAM ledger | server memory (rebuilt per boot) | re-derivable by design (live truth) — leave |
+
+Rows 3, 5+6 (one `model_measurements` table), and the row-4 choice await the user's
+dispositions; everything else is either done or ruled ephemeral above — say the word and
+the persisting go builds them.
+
+### Box checks (this round)
+
+(a) Tune grid rows carry muted origin tags; the "engine's own defaults" line sits under
+the grid. (b) The Built-in Edit view stacks THREE drawers under the catalog: Hardware-class
+defaults · Global launch defaults (the four bundles, editable, Reset works) — q8_0/mlock/
+no_mmap are finally visible + editable. (c) Edit the Gemma: Architecture/Size/Download
+size show ON OPEN (after one server restart re-derives from your cached file); Read from
+link REWRITES the description; your measured numbers now live in Notes (and render italic
+under the description on the row). (d) Rows show "rank N · size". (e) The empty setup
+cards offer dropdowns; picking assigns + loads. (f) Test connection on the Built-in reads
+"✓ engine installed · b9899 · cuda12 · 12 models in the catalog · models load on first
+use". (g) The red "install engine ↑" clears the moment an install completes. (h) The
+engine panel shows Install engine when not installed. (i) Reset your dev DB once to pick
+up the new columns + migrated seeds (create_all adds columns only on fresh tables — the
+standing pre-production reset story).
+
+### Still open
+
+#114 (now also owed: the smoke over tonight's huge UI surface + the probe rework + curls)
+· the #142 dispositions above · the parked ledger items.

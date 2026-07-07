@@ -14,6 +14,7 @@ cascade (`engine_presets`), overlaid at dispatch.
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     Float,
@@ -123,9 +124,25 @@ class ModelCatalog(LlmBase):
     # model that FITS the box; fit gates, this ranks. 100 = unranked (a user-added model
     # sorts last until edited). Editable per-model (curation, not file-derived).
     quality_rank = Column(Integer, nullable=False, default=100)
-    # Plain-language "what this model is" — shown in the catalog + surfaced by QuickSetup.
-    # Editable curation (distilled from the research; not file-derived).
+    # Plain-language "what this model is" — FILE/LINK-OWNED since 2026-07-07 (the
+    # user's decree: "if user clicks read from file all fields should be updated"):
+    # an explicit Read-from-link REGENERATES it from the file facts; personal /
+    # judgment text lives in `notes` below, which nothing automatic ever touches.
     description = Column(Text, nullable=False, default="")
+    # The user's OWN notes on the model (measured numbers, use policy, taste) —
+    # persistent and NEVER written by read/download/backfill/seed refresh (the
+    # 2026-07-07 decree's second half: "a seperate notes setion for personal note
+    # info that is not tied to read from link that persists").
+    notes = Column(Text, nullable=False, default="")
+    # ── file-derived identity facts (2026-07-07, the auto-detected-panel parity
+    #    item #141): persisted so Edit-open shows exactly what Read-from-link
+    #    shows. Written by identity detect (set_derived) at download, the boot
+    #    backfill, and the seed — like type/mtp/trained_ctx. size_bytes is the
+    #    QUANT-SPECIFIC download size (cleared when the quant changes). ──
+    architecture = Column(String, nullable=False, default="")   # e.g. "gemma4"
+    experts = Column(Integer, nullable=False, default=0)        # MoE expert count (0 = dense)
+    size_label = Column(String, nullable=False, default="")     # e.g. "128x2.6B" / "27B"
+    size_bytes = Column(BigInteger, nullable=True)              # the GGUF file size
     built_in = Column(Boolean, nullable=False, default=False)
     position = Column(Integer, nullable=False, default=0)
 
@@ -231,22 +248,12 @@ class RoutingPin(LlmBase):
     model = Column(String, nullable=False, default="")
 
 
-# ── per-hardware switch override layer (design §6.4) ──────────────────────────
-# The persistent per-machine switch tune, merged after the base→type presets
-# in `switch_resolve.py` and applied via the runner's existing `_merge_overrides`.
-class HardwareSwitch(LlmBase):
-    """A per-machine spawn-flag override keyed by the MACHINE (`hw_key` =
-    `hardware.machine_key()` — gpu|vram|cores|ramGB; whole machine, not GPU-only,
-    since threads/batch are CPU/RAM-bound — Plan B D2) — the persistent form of
-    #20 tuning that applies to ALL models on this machine. No FK: `hw_key` is a
-    derived hardware identifier."""
-
-    __tablename__ = "hardware_switches"
-
-    hw_key = Column(String, primary_key=True)
-    flag_name = Column(String, primary_key=True)
-    flag_value = Column(Text, nullable=False, default="")
-    built_in = Column(Boolean, nullable=False, default=False)
+# (The per-hardware `hardware_switches` layer/table was RETIRED 2026-07-07 — the
+# user's switch-provenance review: it had NO writer, NO seeder, and NO UI anywhere,
+# so it existed only as mental-model weight in the resolution ladder; `class_tunes`
+# (portable per-class) + `model_tunes` (this machine) cover its use cases. An
+# existing dev DB simply keeps the orphaned empty table until the next reset —
+# create_all never drops. The per-MACHINE `hw_key` lives on under `model_tunes`.)
 
 
 class ModelClassPick(LlmBase):
@@ -270,12 +277,11 @@ class ModelTune(LlmBase):
     re-seeds / re-inspects can never clobber it (the facts-vs-tune split —
     `model_catalog`/`model_samplers` are what the FILE says; this is what YOUR
     measurement found on YOUR box). Applied LAST by `switch_resolve` (wins over
-    base/type/mtp/hardware) — including the MTP opt-OUT (`spec_type=none`) when
+    base/type/mtp/class) — including the MTP opt-OUT (`spec_type=none`) when
     the user unchecks the auto-enabled default. NOT the dropped `model_switches`
     table (that seeded per-model COPIES of type rules — a one-source violation);
     the composite (model_id, hw_key) key + never-seeded lifecycle make the
-    difference structural. No FKs: soft refs, matching ModelSampler/
-    HardwareSwitch."""
+    difference structural. No FKs: soft refs, matching ModelSampler."""
 
     __tablename__ = "model_tunes"
 

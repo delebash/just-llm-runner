@@ -56,6 +56,18 @@ const tuneComputed = ref([]); // [{ name, value }] from resolved-defaults `compu
 const computedShown = computed(() =>
   tuneComputed.value.filter((c) => !tuneRows.value.some((r) => (r.name || "").trim() === c.name)),
 );
+// Per-row PROVENANCE (2026-07-07, the user's "what do we compute and auto set"
+// question): which layer wrote each pre-filled value, in user language. A row the
+// user edits keeps its source tag (the tag says where the value CAME from; Save
+// tune moves the whole grid into "saved tune" on the next open).
+const ORIGIN_LABELS = {
+  base: "all models", type: "model type", mtp: "speculative decode",
+  class: "your PC class", tune: "saved tune",
+};
+const tuneOrigins = ref({}); // flagName -> layer id, from resolved-defaults
+const tuneOriginTags = computed(() =>
+  Object.fromEntries(Object.entries(tuneOrigins.value).map(([k, v]) => [k, ORIGIN_LABELS[v] || v])),
+);
 const knobLabel = (name) => switchCatalog.value[name]?.label || name;
 function addComputedToGrid() {
   const extra = computedShown.value.map((c) => ({ name: c.name, value: String(c.value ?? "") }));
@@ -147,6 +159,7 @@ async function startTune() {
     const res = await fetchResolved(props.model.id);
     tuneRows.value = res.switches;
     tuneComputed.value = res.computed || [];
+    tuneOrigins.value = res.origins || {};
     tuneMtpCapable.value = res.mtpCapable;
   } catch {
     tuneRows.value = []; // pre-fill is an enrichment; tuning still works empty
@@ -157,6 +170,7 @@ async function resetTuneSwitches() {
     const res = await fetchResolved(props.model.id);
     tuneRows.value = res.switches;
     tuneComputed.value = res.computed || [];
+    tuneOrigins.value = res.origins || {};
     tuneMtpCapable.value = res.mtpCapable;
   } catch (e) {
     tuneErr.value = e.message || "Couldn't reset to defaults.";
@@ -330,7 +344,7 @@ onBeforeUnmount(stopAutoPoll);
           @click="removeTune">Remove saved tune</UiButton>
       </div>
 
-      <KnobGrid v-model="tuneRows" :catalog="switchCatalog" />
+      <KnobGrid v-model="tuneRows" :catalog="switchCatalog" :origins="tuneOriginTags" />
       <div v-if="unknownNames.size" class="lu-tune-unk lu-muted">
         <UiTag intent="danger">unrecognized</UiTag>
         <span>{{ [...unknownNames].join(", ") }} — not a known engine flag (mistyped, or dropped
@@ -344,6 +358,7 @@ onBeforeUnmount(stopAutoPoll);
           title="Copy these fit values into the grid as explicit switches — saving them then pins today's placement"
           @click="addComputedToGrid">Add to grid</UiButton>
       </div>
+      <p class="lu-tune-engdef lu-muted">Anything not listed here uses the engine's own defaults.</p>
       <UiButton intent="ghost" size="small" @click="resetTuneSwitches">Reset to model default</UiButton>
 
       <div class="lu-tune-note lu-muted">
@@ -429,6 +444,7 @@ onBeforeUnmount(stopAutoPoll);
 .lu-tune-tps b { font-size: 22px; color: var(--accent-ink, var(--accent)); font-weight: 800; }
 .lu-tune-meta { font-size: 11.5px; color: var(--ink-2); margin-top: 3px; }
 .lu-tune-cpu { font-size: 11px; margin-top: 3px; }
+.lu-tune-engdef { font-size: 10.5px; margin: 0; }
 .lu-tune-fit { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; line-height: 1.5; }
 .lu-tune-fit > span { flex: 1; min-width: 0; }
 .lu-tune-clsrow { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 11.5px; }

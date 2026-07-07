@@ -30,7 +30,7 @@ import { usePoll } from "../common/composables/usePoll.js";
 // progress/errors, and the Details drawer. Install POLLING also lives in the
 // composable, so progress keeps flowing whichever surface started it and
 // whichever is mounted.
-const { engineState: st, error, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, refreshEngine } = useEngine();
+const { engineState: st, error, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, refreshEngine, install: engInstall, busy: engBusy } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
 // Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
@@ -134,7 +134,12 @@ onMounted(() => {
       <div class="lu-eng-actions">
         <!-- Install / Update / Uninstall live on the Built-in provider's list row
              (AiModelsArea) — same shared useEngine state, so this status line and
-             those buttons can never disagree. -->
+             those buttons can never disagree. ONE exception (#135, user 2026-07-07:
+             "you should have install button here as well"): the NOT-INSTALLED state
+             tells you to install, so the button must be in reach right here. -->
+        <UiButton v-if="!installed && !installing" intent="primary" size="small"
+          :loading="engBusy" title="Download + install the llama.cpp engine for this machine"
+          @click="engInstall()">Install engine</UiButton>
         <UiButton intent="ghost" size="small" @click="showDetails = !showDetails">
           {{ showDetails ? "Hide details ▴" : "Details ▾" }}
         </UiButton>

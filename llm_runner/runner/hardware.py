@@ -54,7 +54,7 @@ def platform_key() -> str:
 
 
 def machine_key(hw: HardwareInfo) -> str:
-    """The per-MACHINE tuning key the `hardware_switches` + `model_tunes` layers
+    """The per-MACHINE tuning key the `model_tunes` layer
     are stored under — `gpu|vram|cores|ramGB` (or `cpu|cores|ramGB` with no GPU).
     WHOLE machine, not GPU-only (Plan B, D2): `threads` is CPU-core-driven and
     `batch`/`ubatch` are RAM/bandwidth-bound, so two boxes sharing a GPU model

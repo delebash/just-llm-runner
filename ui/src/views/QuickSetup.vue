@@ -281,8 +281,23 @@ const applyDetail = ref("");
 async function apply() {
   applying.value = true;
   error.value = "";
-  step.value = "apply";
   try {
+    // A sweep still running (this wizard, the Tune dialog, an earlier window) holds the
+    // GPU and its trial loop stop()s the router between trials — a load issued under it
+    // gets torn down and reads as a hang (the user's 2026-07-07 repro: cancel didn't
+    // take, re-ran Quick Setup, the VRAM load hung). Confirm, stop it, THEN load.
+    const tune = await request("/v1/llm-runner/auto-tune").catch(() => null);
+    if (tune?.status === "running") {
+      const ok = await confirmDialog({
+        title: "Optimization is still running",
+        message: "An optimize sweep is still measuring launch settings and holds the GPU. Applying now stops it — no tuned settings will be saved.",
+        confirmLabel: "Stop it and apply",
+        cancelLabel: "Keep optimizing",
+      });
+      if (!ok) return;
+      await request("/v1/llm-runner/auto-tune/cancel", { method: "POST" }).catch(() => {});
+    }
+    step.value = "apply";
     // The chosen chat default goes through the shared modelApply.setAsDefault — the SAME
     // writer the catalog's Set-as-default uses, so the surfaces never drift: it writes
     // `{...p, providerId, model}` onto every task preset that still shares the previous
@@ -298,14 +313,16 @@ async function apply() {
       await request("/v1/llm-runner/load", { method: "POST", body: { modelId: target } });
       await pollLoad();
     }
-    // Opt-out sweep (plan Phase 2 + A8): FIRST-TIME-ONLY auto-start — no tune rows for
-    // (pick, this machine) → the sweep starts on its own; the done step renders it
-    // running with a Skip button. A tuned machine never auto-runs (Re-optimize + an
-    // explicit overwrite confirm instead — the user's verbatim ask).
+    // NO auto-sweep on Apply (user, 2026-07-07: the measured sweep is too long for a
+    // "quick" setup — "6 trials 12 minutes … not acceptable especially for a quick
+    // setup"). Apply just loads the model; a matching hardware-class tune (the class-seed)
+    // is already in the resolved switches at load, so a known box is fast instantly with
+    // no sweep. Optimizing is now an explicit choice on the done step ("Optimize for this
+    // PC"); the long measured sweep otherwise lives in the Lab. `tunedAlready` still drives
+    // the done-step button label (Optimize vs Re-optimize).
     tunedAlready.value = target ? await modelHasTunes(target) : false;
     step.value = "done";
     emit("changed");
-    if (target && !tunedAlready.value) startOptimize();
   } catch (e) {
     error.value = `Apply failed: ${e.message}`;
     step.value = "confirm";
@@ -332,13 +349,16 @@ async function pollLoad() {
   }
 }
 
-// ── Optimize for this PC (2026-07-06): the fire-and-forget consumer of the
+// ── Optimize for this PC (2026-07-06, reshaped 2026-07-07): the consumer of the
 // auto-tune job. Same server-side sweep the Tune modal drives, but with
 // save:true — the winner is persisted as this machine's tune automatically
 // (the QuickSetup audience won't open the Tune modal to review knobs; the
 // measured delta is what turns "runs" into "runs fast": 8.6× TTFT on the
-// reference box). Optional + skippable: it monopolizes the GPU for ~3–5 min;
-// the job keeps running server-side if the wizard closes.
+// reference box). EXPLICIT-ONLY: Apply never auto-starts it (user, 2026-07-07 —
+// the adaptive walk runs 10+ minutes, too long for a "quick" setup; a known
+// hardware class gets the seeded class-tune at load instead), it monopolizes
+// the GPU while it runs, and closing the wizard mid-run confirm-stops it
+// (attemptClose).
 const optState = ref(null); // null (not started) | the GET payload
 const tunedAlready = ref(false); // (model, THIS machine) already has measured tune rows
 let optTimer = null;
@@ -410,11 +430,14 @@ async function startOptimize() {
     optState.value = { status: "error", error: e.message || "Couldn't start optimizing." };
   }
 }
-// Skip = the shared job's between-trials cancel (the endpoint existed; the wizard
-// never called it before Phase 2). The job stops after the trial in flight.
+// Skip = cancel, PROMPT (2026-07-07): the backend aborts the trial in flight (the
+// load-wait observes the flag), frees the GPU, and restores the applied model with
+// its resolved switches — no more waiting out a 240s trial load ("cant cance tune").
+// The cancel response IS the live status ("stopping…"), reflected immediately.
 async function skipOptimize() {
   try {
-    await request("/v1/llm-runner/auto-tune/cancel", { method: "POST" });
+    const st = await request("/v1/llm-runner/auto-tune/cancel", { method: "POST" });
+    if (st?.status) optState.value = st;
   } catch { /* already finished — the next poll shows the terminal state */ }
   await pollOptimize();
 }
@@ -545,16 +568,16 @@ defineExpose({ openWizard });
         </ul>
 
         <!-- C8 integration: the wizard is local-only, so the old `isBundled` guard is gone —
-             the optimize offer needs only a picked model. Phase 2 (opt-out sweep): an
-             UNTUNED machine auto-starts the sweep on Apply (Skip cancels between trials);
-             a tuned machine gets Re-optimize behind an explicit overwrite confirm. -->
+             the optimize offer needs only a picked model. EXPLICIT-ONLY (2026-07-07): Apply
+             never auto-starts the sweep; an untuned machine gets "Optimize for this PC", a
+             tuned machine gets Re-optimize behind an explicit overwrite confirm. -->
         <div v-if="pick.default" class="lu-qs-opt">
           <template v-if="!optState">
-            <UiButton v-if="tunedAlready" intent="secondary" size="small" @click="reOptimize">Re-optimize (a few minutes)</UiButton>
-            <UiButton v-else intent="secondary" size="small" @click="startOptimize">Optimize for this PC (a few minutes)</UiButton>
+            <UiButton v-if="tunedAlready" intent="secondary" size="small" @click="reOptimize">Re-optimize</UiButton>
+            <UiButton v-else intent="secondary" size="small" @click="startOptimize">Optimize for this PC</UiButton>
             <span class="lu-muted">{{ tunedAlready
               ? "This machine already has measured launch settings for this model — re-run the sweep only if your hardware changed."
-              : "Optional: runs a short measured sweep and saves the fastest launch settings for this machine — often several times faster to first token." }}</span>
+              : "Optional: measures and saves the fastest launch settings for this machine — often several times faster to first token. It can take 10 minutes or more; other AI features pause while it runs." }}</span>
           </template>
           <template v-else-if="optRunning">
             <div class="lu-qs-opt-run">

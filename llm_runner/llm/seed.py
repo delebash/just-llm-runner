@@ -365,6 +365,14 @@ DEFAULT_KNOBS: list[dict] = [
     {"flag_name": "n_cpu_moe", "label": "CPU MoE layers", "kind": "int", "plane": 1, "applies_to": "moe", "tier": "common",
      "help": "Expert layers to run on CPU — frees VRAM (MoE only). Auto-fit sets it; pin the fast value here."},
     # ── Plane 1 — load switches: ADVANCED ──
+    # n_gpu_layers ADDED 2026-07-07 (user bug report): it was always a valid Overrides
+    # field (lifecycle._parse_switch int_fields) but had no catalog row because fit
+    # normally derives it — then the class-tune seed started writing n_gpu_layers=99
+    # (the MoE pattern: all layers on GPU, offload via n_cpu_moe) and the Tune grid
+    # badged the resolved row "unrecognized". The knob row makes it a first-class,
+    # labelled switch; the seeder merges by flag_name so existing DBs gain it on boot.
+    {"flag_name": "n_gpu_layers", "label": "GPU layers", "kind": "int", "plane": 1, "tier": "advanced",
+     "help": "How many model layers run on the GPU (the rest run on CPU). Auto-fit sets it when unset; MoE tunes pin every layer on GPU (99) and free VRAM with CPU MoE layers instead."},
     {"flag_name": "mlock", "label": "Lock in RAM", "kind": "bool", "plane": 1, "default_value": "true", "tier": "advanced",
      "help": "Keep the model locked in RAM so the OS can't swap it out (steadier speed). Turn off if RAM is tight."},
     {"flag_name": "no_mmap", "label": "Load into RAM", "kind": "bool", "plane": 1, "applies_to": "moe", "tier": "advanced",

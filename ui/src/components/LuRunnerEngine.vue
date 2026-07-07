@@ -22,12 +22,15 @@ import { useEngine } from "../composables/useEngine.js";
 import { usePoll } from "../common/composables/usePoll.js";
 
 // Engine state comes from the ONE shared composable (useEngine) — the Install /
-// Update / Uninstall ACTIONS moved to the Built-in provider's LIST ROW
-// (AiModelsArea, user 2026-07-06: "move the install unistall update button to
-// right of edit"); this panel keeps the status line, install progress/errors,
-// and the Details drawer. Install POLLING also lives in the composable, so
-// progress keeps flowing whichever surface started it and whichever is mounted.
-const { engineState: st, error, installed, installing, progressLabel, updateInfo, updatePolicy, setUpdatePolicy, refreshEngine } = useEngine();
+// Update / Uninstall ACTIONS live on the Built-in provider's LIST ROW beside the
+// capability tags (AiModelsArea, user 2026-07-07); this panel keeps the status
+// line (llama.cpp installed build + acceleration, e.g. "Installed · b9870 ·
+// cuda12" — no update chatter here, the actionable button is on the row: user,
+// 2026-07-07 "remove this … you can leave Installed · b9870 · cuda12"), install
+// progress/errors, and the Details drawer. Install POLLING also lives in the
+// composable, so progress keeps flowing whichever surface started it and
+// whichever is mounted.
+const { engineState: st, error, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, refreshEngine } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
 // Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
@@ -124,7 +127,6 @@ onMounted(() => {
           <template v-else-if="installed">
             Installed<span v-if="st.build"> · {{ st.build }}</span><span v-if="st.gpu"> · {{ st.gpu }}</span>
             <span v-if="cudaRuntimeMissing" class="lu-eng-warn"> · CUDA runtime DLLs missing</span>
-            <span v-if="updateInfo?.updateAvailable" class="lu-eng-upd"> · update available → {{ updateInfo.latest }} (the Update button is on the provider row)</span>
           </template>
           <template v-else>Not installed — install it before you load a model.</template>
         </div>
@@ -227,7 +229,6 @@ onMounted(() => {
   line-height: 1.4;
 }
 .lu-eng-warn { color: var(--lu-warn, #b45309); }
-.lu-eng-upd { color: var(--lu-warn, #8a6d1f); font-weight: 600; }
 .lu-eng-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .lu-eng-err { margin: 0; font-size: 12.5px; color: var(--lu-danger, var(--danger, #b91c1c)); }
 .lu-eng-log {

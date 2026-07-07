@@ -21,9 +21,11 @@ import { activeAiTab } from "../common/services/labHandoff.js";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
 
-// Engine actions live HERE on the Built-in row (user, 2026-07-06: "move the install
-// unistall update button to right of edit") — the same shared useEngine state the
-// Local-engine panel reads, so the row and the panel can never disagree.
+// Engine actions live HERE on the Built-in row, LEFT beside the capability tags
+// (user, 2026-07-07: "move install uninstall next to lmm tag on left rename to
+// install engine uninstall engine" · "move update button next to uninstall change
+// name to Update available") — the same shared useEngine state the Local-engine
+// panel reads, so the row and the panel can never disagree.
 const { engineState: engState, busy: engBusy, error: engError, installed: engInstalled, installing: engInstalling, progressLabel: engProgressLabel, updateInfo: engUpdate, checkForUpdate, refreshEngine, install: engInstall, uninstall: engUninstall, updateToLatest } = useEngine();
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
@@ -200,7 +202,29 @@ onMounted(() => {
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.2" /><path d="M6.2 1.5v2.7M9.8 1.5v2.7M6.2 11.8v2.7M9.8 11.8v2.7M1.5 6.2h2.7M1.5 9.8h2.7M11.8 6.2h2.7M11.8 9.8h2.7" stroke-linecap="round" /></svg>
             </span>
             <div class="lu-prow-info">
-              <div class="lu-prow-name"><b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span></div>
+              <div class="lu-prow-name">
+                <b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span>
+                <!-- Engine actions sit LEFT, beside the tags (user, 2026-07-07): Install
+                     engine / Uninstall engine, and the update button next to Uninstall —
+                     "Update available" (info) when a newer build exists, plain Update
+                     (force-reinstall of the pinned build) otherwise. -->
+                <template v-if="p.providerType === 'local-llamacpp'">
+                  <UiButton v-if="!engInstalled" intent="primary" size="small"
+                    :loading="engBusy || engInstalling" @click="engInstall(false)">Install engine</UiButton>
+                  <template v-else>
+                    <UiButton intent="ghost" size="small" :loading="engBusy"
+                      title="Delete the engine binaries — models are kept" @click="engUninstall">Uninstall engine</UiButton>
+                    <UiButton v-if="engUpdate?.updateAvailable" intent="info" size="small"
+                      :loading="engBusy || engInstalling"
+                      :title="`Update the engine to ${engUpdate.latest} (you have ${engUpdate.current})`"
+                      @click="updateToLatest">Update available</UiButton>
+                    <UiButton v-else intent="secondary" size="small"
+                      :loading="engBusy || engInstalling"
+                      title="Re-download the pinned engine build"
+                      @click="engInstall(true)">Update</UiButton>
+                  </template>
+                </template>
+              </div>
               <div class="lu-prow-url">{{ p.baseUrl }}</div>
               <div class="lu-prow-meta">
                 <template v-if="p.defaultModel">chat: <b>{{ p.defaultModel }}</b> · </template>
@@ -214,20 +238,6 @@ onMounted(() => {
             <div class="lu-prow-actions">
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
-              <template v-if="p.providerType === 'local-llamacpp'">
-                <UiButton v-if="!engInstalled" intent="primary" size="small"
-                  :loading="engBusy || engInstalling" @click="engInstall(false)">Install engine</UiButton>
-                <template v-else>
-                  <UiButton v-if="engUpdate?.updateAvailable" intent="accent2" size="small"
-                    :loading="engBusy || engInstalling"
-                    :title="`A newer engine build is available (you have ${engUpdate.current})`"
-                    @click="updateToLatest">Update to {{ engUpdate.latest }}</UiButton>
-                  <UiButton v-else intent="secondary" size="small"
-                    :loading="engBusy || engInstalling" @click="engInstall(true)">Update</UiButton>
-                  <UiButton intent="ghost" size="small" :loading="engBusy"
-                    title="Delete the engine binaries — models are kept" @click="engUninstall">Uninstall</UiButton>
-                </template>
-              </template>
             </div>
             <!-- Quick Setup: JUST the button, on its OWN centered row of the card
                  (user, 2026-07-06: "you need model on seperate row or css change" —

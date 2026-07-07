@@ -89,7 +89,9 @@ class AutoTuner:
         with self._lock:
             if self._state["status"] == "running":
                 self._cancel = True
-                self._state["detail"] = "cancelling after the current trial…"
+                # Prompt now, not "after the current trial": _wait_running observes
+                # this flag and aborts the in-flight load wait (see _run/_wait_running).
+                self._state["detail"] = "stopping…"
         return self.status()
 
     def start(self, model_id: str, base_switches: dict, *, save_fn=None, save: bool = False) -> dict:
@@ -130,6 +132,12 @@ class AutoTuner:
     def _wait_running(self, svc, model_id: str) -> tuple[bool, str]:
         deadline = self._now() + _LOAD_TIMEOUT
         while self._now() < deadline:
+            # A cancel must ABORT the in-flight load wait, not run out the 240s cap.
+            # Without this the cancel only lands at the NEXT trial boundary, so a cancel
+            # while a trial is loading hangs the user for minutes (the reported "cant
+            # cance tune … it hangs"). Cheap, lock-free bool read (same as cancelled()).
+            if self._cancel:
+                return False, "cancelled"
             st = svc.status()
             if st.get("modelId") == model_id and st.get("status") == "running":
                 return True, ""
@@ -184,6 +192,8 @@ class AutoTuner:
             ok, err = self._wait_running(svc, model_id)
             if not ok:
                 trial["error"] = err
+            elif self._cancel:
+                trial["error"] = "cancelled"  # loaded, but a cancel landed — skip the measure
             else:
                 res = svc.measure(model_id=model_id, max_tokens=_MEASURE_TOKENS)
                 if not res.get("ok"):
@@ -194,7 +204,9 @@ class AutoTuner:
         except Exception as exc:  # noqa: BLE001 — a broken trial must not kill the sweep
             trial["error"] = str(exc)
         self._push_trial(trial)
-        if not trial["ok"] and cand_ncmoe is not None:
+        # A CANCELLED trial is NOT a fit failure — never let it poison the monotonic
+        # n-cpu-moe prune (below-a-failed-value skip); the sweep is stopping anyway.
+        if not trial["ok"] and cand_ncmoe is not None and not self._cancel:
             failed_ncmoe.append(cand_ncmoe)
         return trial
 
@@ -211,6 +223,23 @@ class AutoTuner:
         try:
             def cancelled() -> bool:
                 if self._cancel:
+                    # Free the VRAM the in-flight/last trial holds — otherwise the model
+                    # (+ the co-resident embed) stays resident under TRIAL switches and the
+                    # user's NEXT load (a fresh Quick Setup) contends on the router and
+                    # appears to hang (the reported "rerun … load model into vram it
+                    # hangs"). A cancel means "stop AND let go of the GPU", not just "stop
+                    # looping". Then RESTORE the applied model with its DB-resolved
+                    # switches (async load) — before this fix the last trial's model
+                    # happened to stay resident, so a plain teardown would regress the
+                    # skip-then-write path.
+                    try:
+                        svc.stop()
+                    except Exception:  # noqa: BLE001 — teardown is best-effort
+                        log.warning("auto-tune cancel: stop failed", exc_info=True)
+                    try:
+                        svc.load(model_id)
+                    except Exception:  # noqa: BLE001 — restore is best-effort
+                        log.warning("auto-tune cancel: restore load failed", exc_info=True)
                     self._set(status="cancelled", detail="cancelled")
                     return True
                 return False
@@ -326,7 +355,7 @@ def make_autotune_router(resolve_switches, save_tune, *, tuner_fn=get_tuner) -> 
     async def status() -> dict:
         return tuner_fn().status()
 
-    @r.post("/v1/llm-runner/auto-tune/cancel", summary="Cancel after the current trial")
+    @r.post("/v1/llm-runner/auto-tune/cancel", summary="Cancel the sweep — aborts the trial in flight")
     async def cancel() -> dict:
         return tuner_fn().cancel()
 

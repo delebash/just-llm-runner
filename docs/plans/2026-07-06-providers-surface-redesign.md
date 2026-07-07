@@ -669,3 +669,136 @@ surface `n_cpu_moe`/`ctx`/`batch`/`ubatch`/`threads` in the Tune grid; (3) the c
 QuickSetup progress-UI edits (Task D) commit in the same series. Task B (Quick Setup instant-apply /
 remove auto-start), Task C (Lab library UI), Task E (notification), and the Update-button relabel/move
 remain queued for a follow-up go.
+
+## ROUND 9 — SHIPPED 2026-07-07 (the on-box fallout go: prompt cancel · instant Apply · the engine-button cluster · the n_gpu_layers knob)
+
+**STATUS: SHIPPED (this commit). Born from the user running the b5abb91 build on their box the
+morning after ROUND 8: the auto-started sweep could not be cancelled, a re-run Quick Setup then
+hung loading into VRAM, and three UI decrees landed on the Built-in provider row. Verification
+posture this round (user, verbatim: "dont run tests"): ruff + build:vite as the compile/lint
+gates ONLY — pytest, the headless smoke, the wizard probe and the diff-checker were deliberately
+NOT run (the same recorded posture as the 2026-07-06 "dont do any test just code it" round), so
+every behavior below is code-verified by reading, NOT run-verified; the user checks on their box.
+Container note: this go executed across repeated worker restarts — the user twice saw "missing
+chat" (replies died with the restarts before the text flushed); the on-disk diff was re-read in
+full line-by-line after the restarts before committing.**
+
+### The decision trail, verbatim (the user's words are the spec)
+
+The bug report that opened the go: *"built in prover move install uninstall next to lmm tag on
+left rename to install engine uninstall engine, cant cance tune, then if you try to rerun quick
+setup adn load model into vram it hangs probably becasuse test was not cancled"* — then the
+literal *"go"*. Mid-build amendments, each queued per the user's own process note (*"you dont
+need to stop the main task these are just things to do after you finish what you are working on
+think of things i add as toodo"*): *"do this too move update button next to uninstall change
+name to Update available"* + *"the update engine button"* (which SUPERSEDES the ROUND-7/#112
+placement "next to the LLM tag" for the update button — it now sits next to Uninstall, which
+itself sits by the tag); *"when you click edit for the model you get this for engine Installed ·
+b9870 · cuda12 · update available → b9892 (the Update button is on the provider row)"* +
+*"remove this"* + *"you can leave Installed · b9870 · cuda12 · it should say llama.cpp Installed
+version and acceleration so b9870 · cuda12"*; *"no way to unload lets change set as default to
+Load as default and have Unload button add to todo"* (FILED as harness task #117 — its own go);
+and the screenshot report *"for the default loaded model when i click on tune there is an
+error"* (fixed this round, below). A hard *"stop stop stop"* paused the batch for a grounding
+re-read (the restarts had eaten the status replies); the re-read verified the full uncommitted
+diff line-by-line plus this doc's ROUND 8 + GO sections from disk; the user's second literal
+*"go"* resumed it.
+
+### The two root causes (both verified at file:line before building — no guessing)
+
+**Cancel didn't cancel.** `AutoTuner.cancel()` only set `self._cancel`; the flag was read at
+TRIAL BOUNDARIES (`cancelled()` in `_run`), but INSIDE a trial `_wait_running` polled the load
+for up to `_LOAD_TIMEOUT = 240 s` without ever reading it — so a cancel issued while a trial was
+loading (the common case: each trial is a full unload→reload) sat at "cancelling after the
+current trial…" for minutes. And on cancel `_run` returned WITHOUT freeing anything: the last
+trial's model + the co-resident embed stayed resident under TRIAL switches.
+
+**The re-run hang is the same bug's second face.** With the sweep still effectively running and
+holding VRAM, a fresh Quick Setup Apply issued `/v1/llm-runner/load` — which serializes against
+the sweep's own per-trial `svc.stop()`/`svc.load()` churn on the service's `_router_lock` and
+contends for the 8 GB card. The user's diagnosis ("probably becasuse test was not cancled") was
+exactly right.
+
+### What shipped (runner, this commit)
+
+1. **Prompt cancel (`autotune.py`).** `_wait_running` now aborts the in-flight load wait the
+   moment `_cancel` is set (returns "cancelled" instead of running out the 240 s cap); a trial
+   that had already loaded skips its measure; a cancelled trial is never appended to
+   `failed_ncmoe` (a cancel is not a fit failure — it must not poison the monotonic
+   below-a-failed-value prune); and `cancelled()` now does the actual letting-go: `svc.stop()`
+   (frees the trial model + embed VRAM) followed by a best-effort `svc.load(model_id)` so the
+   APPLIED model comes back resident with its DB-RESOLVED switches (class-tune included) — before
+   this, whatever trial config happened to be loaded just stayed, so a plain teardown without the
+   restore would have regressed the skip-then-write path. The cancel endpoint's detail is now the
+   honest "stopping…" and its OpenAPI summary reads "Cancel the sweep — aborts the trial in
+   flight". Offline-test compatibility was verified BY READING `tests/test_autotune.py` (not by
+   running it, per the posture): `test_cancel_stops_between_trials` asserts status + trial count
+   only, and the FakeService implements `stop()`/`load()`, so the added calls change no asserted
+   value; the sweep-shape tests never set `_cancel`, so the new branches stay dead there.
+
+2. **Quick Setup: instant Apply, no auto-sweep (Task B's core, `QuickSetup.vue`).** The
+   `if (target && !tunedAlready) startOptimize()` auto-start is REMOVED — Apply just loads the
+   model (a box matching a seeded class-tune is fast instantly through the resolver; that was
+   ROUND 8's point). Apply now also GUARDS the load: it reads `/v1/llm-runner/auto-tune` first
+   and, if a sweep is running (this wizard, the Tune dialog, an earlier window), asks
+   ("Optimization is still running … Applying now stops it — no tuned settings will be saved."
+   Stop it and apply / Keep optimizing) and cancels before loading — the user's exact repro
+   path, closed at the UI where the message can be honest. Skip reflects the cancel response
+   immediately ("stopping…"), the optimize offer's copy is honest about duration ("It can take
+   10 minutes or more; other AI features pause while it runs." — the "(a few minutes)" button
+   suffixes are gone), and the stale template comment claiming Apply auto-starts the sweep is
+   rewritten. NOT YET BUILT from Task B (still queued): the done-step "tuned settings for your
+   hardware were applied" class-match messaging and the optional ~2-min budget-capped quick
+   tune — both need backend support (a class-match signal on the wire; a `budget_seconds` cap).
+
+3. **The engine-button cluster (`AiModelsArea.vue`).** Install/Uninstall moved OUT of the
+   right-side actions cell INTO `.lu-prow-name`, LEFT beside the capability tags, renamed
+   **"Install engine"** / **"Uninstall engine"**; the update button sits next to Uninstall as
+   **"Update available"** with intent `info` (the ROUND-7 recommendation the user's "use our
+   style system" pointed at) and the builds in the hover title ("Update the engine to b9892
+   (you have b9870)"). The actions cell keeps Test + Edit only, uniform with every other row.
+   DELIBERATELY KEPT (flagged to the user, theirs to reverse): the plain secondary "Update"
+   (re-download the pinned build) still renders when NO update is available — the user renamed
+   only the update-available button, and silently deleting the repair affordance would have
+   been the agent's own decision (rule 9). No new CSS: the name row was already a wrapping
+   flex with an 8 px gap.
+
+4. **The engine panel line (`LuRunnerEngine.vue`).** The Edit-view panel's status line is now
+   exactly "Installed · b9870 · cuda12" (build + acceleration) — the "· update available →
+   b9892 (the Update button is on the provider row)" tail, its `.lu-eng-upd` CSS and the
+   component's now-unused `updateInfo` destructure are removed. The actionable update surface
+   is the row button alone (one source, no echo).
+
+5. **The Tune-modal "unrecognized n_gpu_layers" badge (the user's screenshot bug, task #116;
+   `seed.py`).** Root cause: `n_gpu_layers` was always a valid typed Overrides field
+   (`lifecycle.py` `_parse_switch` int_fields) but had NO `knob_catalog` row because fit
+   normally derives it — then the ROUND-8 class-tune seed started writing `n_gpu_layers=99`
+   (the user's hand-tune: all layers on GPU, offload via n_cpu_moe), and
+   `TuneMeasureModal.unknownNames` (which badges any plane-1 row name missing from the knob
+   catalog) flagged a perfectly valid, actually-applied switch as "not a known engine flag".
+   Fix: an `n_gpu_layers` knob row (label "GPU layers", int, plane 1, advanced, fit-derived
+   help text). `seed_default_knobs` merges by `flag_name`, so the user's EXISTING dev DB gains
+   the row on the next server start — no reset needed.
+
+### Verification record + the box checks
+
+Gates run: runner `ruff check .` — All checks passed; JW `npm run build:vite` — clean (12.8 s;
+the kit compiles through the alias). NOT run (user: "dont run tests"): pytest (388), the
+headless smoke, the wizard probe, the diff-checker. KNOWN CONSEQUENCE flagged honestly: the
+wizard probe still asserts the OLD auto-start behavior and WILL fail its sweep scenario when
+next run — rework it in the next verified round (not blind-edited here; it must be reworked
+against the running wizard). The user's box checks for this round: (a) start a sweep from the
+done step, click Skip mid-trial — it should flip to "stopping…" and reach "Optimize cancelled."
+within seconds, the GPU freeing and the applied model reloading itself; (b) re-run Quick Setup
+while a sweep runs — Apply should ASK, stop the sweep, and the load must complete (the hang
+gone); (c) the Built-in row shows Install engine / Uninstall engine by the LLM tag with "Update
+available" in blue next to Uninstall; (d) the Edit-view engine line reads "Installed · b9870 ·
+cuda12" with no update tail; (e) after a server restart, Tune for the Gemma shows "GPU layers ·
+99" with NO unrecognized badge.
+
+### Filed, not built (each needs its own go)
+
+Task #117 (user, verbatim): rename "Set as default" → "Load as default" + an Unload button (no
+way to free VRAM today short of loading something else). Task #113 (the hardware-change
+notification) still pending from ROUND 7/8. Fix 2 (surface the resolved-but-unsaved knobs in
+the Tune grid) and Tasks B-remainder/C/E per ROUND 8. The wizard-probe rework (above).

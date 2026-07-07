@@ -231,8 +231,12 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
      # knob stays in knob_catalog (default -1 = unlimited) — set it per-model in the
      # switches editor if a model's template ignores the toggle or you want capped
      # deep-think chat.
-     "switches": {"flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true",
-                  "context_shift": "true", "cache_reuse": "256"}},
+     # context_shift + cache_reuse REMOVED from the base (user, 2026-07-07, on-box tested):
+     # Gemma 4's iSWA context supports neither KV shifting nor prefix reuse (llama.cpp
+     # auto-disables both with a warning), and context_shift measured as a net loss; the Qwen
+     # config omits both too. Neither is a safe UNIVERSAL default → they stay per-model knobs
+     # in knob_catalog, enable per model where they actually help.
+     "switches": {"flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true"}},
     {"id": "moe", "label": "MoE (mixture-of-experts)", "applies_to": "moe", "position": 1,
      # ONLY no_mmap is genuinely MoE-specific; the spec_type default (none) lives ONCE in
      # knob_catalog — no duplicate here (the phase's own "one source" rule, 2026-07-03 Phase 3).
@@ -257,6 +261,41 @@ DEFAULT_MODEL_CLASS_PICKS: list[dict] = [
     # which lands on qwen3.6-35b-a3b-mtp there. Graceful by construction.)
     {"min_vram_mb": 6000, "model_id": "gemma-4-26b-a4b-qat"},
 ]
+
+# The seeded + EDITABLE hardware-CLASS tune library (2026-07-07) — a measured launch
+# config keyed by (model_id, class_key = `vram<GB>|ram<GB>`), portable to every box of
+# that class (the user's argument: re-tune is only needed on hardware change, so the
+# tune is a function of the hardware). Seeded rows carry the DELTA over the base/type/mtp
+# bundles — the fit + measured knobs the bundles don't provide (ngl / n_cpu_moe / ctx /
+# batch / threads / reasoning cap); the bundles still supply flash_attn / KV type / mlock /
+# no_mmap / spec_*. Row #1 = the author's on-box-measured Gemma 26B-A4B config for the
+# 8 GB / 32 GB class (n_cpu_moe 21 — the tested floor; 20 OOMs on a 2070S; the sweep's 23
+# is safer/slower). NO context_shift / cache_reuse (Gemma iSWA supports neither).
+DEFAULT_CLASS_TUNES: list[dict] = [
+    {"model_id": "gemma-4-26b-a4b-qat", "class_key": "vram8|ram32", "switches": {
+        "n_gpu_layers": "99", "n_cpu_moe": "21", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "threads": "8",
+        "reasoning_budget": "1024",  # cont_batching dropped: equals llama's default (on)
+    }},
+]
+
+
+def seed_default_class_tunes(s) -> int:
+    """Seed the built-in class-tune rows (merge-by-(model, class): a user-edited or
+    Lab-measured row for the same (model, class) is never clobbered — only a class
+    that has NO rows yet is inserted)."""
+    added = 0
+    for row in DEFAULT_CLASS_TUNES:
+        mid, ckey = row["model_id"], row["class_key"]
+        if s.query(db.ClassTune).filter(
+            db.ClassTune.model_id == mid, db.ClassTune.class_key == ckey
+        ).first():
+            continue
+        for fname, fval in row["switches"].items():
+            s.add(db.ClassTune(model_id=mid, class_key=ckey,
+                               flag_name=fname, flag_value=str(fval), built_in=True))
+        added += 1
+    return added
 
 
 def seed_default_class_picks(s) -> int:
@@ -811,6 +850,7 @@ def seed_llm(s=None) -> None:
         seed_default_runner_settings(s)
         seed_default_knobs(s)
         seed_default_class_picks(s)
+        seed_default_class_tunes(s)
         seed_default_feature_prompts(s)
         # The registered per-app extras (see configure_app_seed) — insert-if-missing,
         # so user edits / Quick-tune saves are never clobbered by a reseed.

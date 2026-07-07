@@ -8,9 +8,11 @@ spawn/`compose_flags` logic.
 
 Layer order (later wins):
     base preset  →  the model's TYPE preset (moe | dense)  →  the gated auto-MTP
-    preset (`mtp`)  →  per-hardware (`hardware_switches`, per-machine, ALL
-    models)  →  the per-(model, machine) MEASURED tune (`model_tunes`, Plan B —
-    Quick tune's Save; always wins).
+    preset (`mtp`)  →  the seeded/editable per-(model, hardware-CLASS) tune
+    (`class_tunes`, 2026-07-07 — a config portable across boxes of the same class)
+    →  per-hardware (`hardware_switches`, per-machine, ALL models)  →  the
+    per-(model, machine) MEASURED tune (`model_tunes`, Plan B — Quick tune's Save;
+    always wins over the class default).
 
 AUTO-MTP (user decision 2026-07-05, Plan B D3 — REVERSES Phase 3's "never
 auto-enabled"): the `mtp` preset applies when the model can actually RUN it —
@@ -39,9 +41,9 @@ def _preset_switches(s, preset_id: str) -> dict[str, str]:
     }
 
 
-def resolve_model_switches(model_id: str, hw_key: str = "") -> dict[str, str]:
-    """The merged model-level switch dict for `model_id` (and optionally the
-    detected machine `hw_key`). Empty when nothing is configured."""
+def resolve_model_switches(model_id: str, hw_key: str = "", class_key: str = "") -> dict[str, str]:
+    """The merged model-level switch dict for `model_id` (and optionally the detected
+    machine `hw_key` + hardware `class_key`). Empty when nothing is configured."""
     s = db.session()
     try:
         model = s.get(db.ModelCatalog, model_id)
@@ -68,6 +70,14 @@ def resolve_model_switches(model_id: str, hw_key: str = "") -> dict[str, str]:
         ))
         if mtp_capable:
             _apply("mtp")
+        # seeded/editable per-(model, HARDWARE-CLASS) tune (2026-07-07): a config
+        # measured on one box, portable to every box of the same class. Applies BELOW
+        # the machine's own tune (more specific wins) and ABOVE base/type/mtp.
+        if class_key:
+            for r in s.query(db.ClassTune).filter(
+                db.ClassTune.model_id == model_id, db.ClassTune.class_key == class_key
+            ).all():
+                merged[r.flag_name] = r.flag_value
         # per-hardware (per-machine, applies to ALL models on this machine)
         if hw_key:
             for r in s.query(db.HardwareSwitch).filter(db.HardwareSwitch.hw_key == hw_key).all():

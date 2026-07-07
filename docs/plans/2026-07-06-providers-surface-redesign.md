@@ -431,3 +431,241 @@ against the hand-tune (ngl 99 · ncmoe 21 · ctx 32768 · batch 512/512). Parity
 hardware-class-seed question dissolves; miss → class starting values return WITH evidence (the
 user's Qwen-32B-MoE transferability observation is on record). To restore the hand values
 afterward: run scripts/dev-seed-tunes.py manually, or re-enter in the Tune modal.
+
+## ROUND 7 — EXECUTING 2026-07-06 (Built-in card polish + optimize-progress clarity + the hardware-change notification)
+
+**STATUS: EXECUTING on the user's literal go — verbatim "plan and code it all" (2026-07-06),
+following a post-compact chat round where the user reviewed the live Providers screen and gave a
+batch of card + optimize-UX corrections plus a new notification design. LIVE tracker; the shipped
+records land at the bottom of this section as each of the two commits (card tweaks, then the
+notification) goes in. Checker discipline unchanged (the "do b" rule): no pre-build agent check —
+grounding + inline T1–T12 before building, ONE diff-checker verdict before each code commit.**
+Verification posture this round: the user said "no test for now" earlier and then "plan and code
+it all"; per the STANDING amendment (the usePoll runtime break) the headless smoke RUNS on every
+UI change regardless of any waiver, plus build:vite and a live curl of any new endpoint (the
+anti-stub floor the user's rules 4/7 demand). The heavier pytest/probe suites stay waived unless a
+change demands them.
+
+### The decisions, verbatim (the user's words are the spec)
+
+The correction thread opened with the Quick Setup button on the Built-in card. The user, verbatim
+across several messages: *"you dont listen I asked for the orginal text to be to th right of the
+button"* → *"quick setup button so people know what it does"* → *"leave out the all editable"*.
+Owned miss: in ROUND 4 the agent read the user's "just have the button with text to the right" as
+the button's own label and shipped `buttonOnly` as a bare button (QuickSetup.vue:392), deleting
+the description that still sits one branch down at QuickSetup.vue:396. The fix restores that
+description — "Detect your hardware, pick the best free local model that fits, and set it as your
+default." with the trailing "— all editable" clause removed per the user — placed to the RIGHT of
+the button.
+
+On the optimize/tune sweep the user asked, verbatim: *"so when if goes to tuning that needs to be
+obvious what it is doing Optimizing — trying n-cpu-moe 21… (2 trials done) is small the skip is
+small"* and *"Optimizing — trying baseline… is there any realisic way to give a time estimate to
+completion? if not a best guess to let user know just text may take 2-4 minutes depending on
+hardware"* and *"are at least something moving to show it is still working"*. Answer given in chat
+and recorded here: a reliable completion ETA is NOT possible (the sweep prunes weak configs and
+backs off on OOM, so the trial count flexes and a countdown would mislead) — so the sweep gets a
+STATIC hint "Typically 2–4 minutes, depending on your hardware", a live elapsed mm:ss timer
+counting up, the indeterminate UiProgress bar (always animating — the "something moving"), and the
+trial count it already reports. If the runner auto-tune status turns out to carry a planned trial
+total, the trial line upgrades to "trial N of ~M"; that is verified against the runner payload at
+build, not promised ahead of it. On the Skip/Cancel question the user asked *"if i choose skip does
+it cancel auto tune, what happens if it hit cancel? … we need a cancle for optimization process"*
+then, after learning Skip already IS the cancel (QuickSetup.vue:367-370 → POST
+/v1/llm-runner/auto-tune/cancel, stops after the trial in flight), decided verbatim *"2 dont
+rename … i think leave as is keep autotune running in background"* — so Skip keeps its name and
+its behavior, closing the wizard leaves the sweep running server-side, and the only change is to
+make the existing Skip prominent (it was a tiny ghost). Also verbatim: *"remove this Change the
+model for any single task on the Tasks tab."* — delete QuickSetup.vue:531.
+
+On the engine Update button the user, verbatim: *"that update button just say update avail change
+the button color not actually but use our style system, move the update button next to the llm
+icon"*. Read as: relabel the button to "Update available" (from "Update to bNNNN"), recolor it
+through a kit INTENT rather than a hardcoded color (currently accent2/gold; the recommendation
+taken to the user was `info`, the informational blue — awaiting no objection, applied as the
+default with the version number preserved in the hover title), and move it out of the right-side
+.lu-prow-actions cluster to sit next to the LLM capability tag in .lu-prow-name.
+
+The new feature — the hardware-change notification — was the user's own design for the re-tune
+discoverability gap the agent raised (there is no explicit "your hardware changed, re-optimize"
+affordance; re-tuning is only reachable by re-running Apply or opening the per-model Tune dialog).
+The user, verbatim: *"i think just a message pops up with choice rerun quick setup as new model
+may be availabke for your hardware or retune exisitng model for hardware preset changes, something
+like that and you can enable disable notification in settings"*, then the dispositions: *"counts
+as changed just gpu vram"* (the fingerprint compares GPU name + VRAM only, not cores/RAM),
+*"appears dismissinle toast"* (a dismissible toast, not a modal), *"4 yes"* (fire once per detected
+change, then stay quiet — persist an acknowledged fingerprint), and *"no notifications live in app
+settings add this to todo for later"* — READ AS: the enable/disable toggle for the notification
+belongs in App Settings and is DEFERRED to a later todo, so this round ships the toast + the
+detection now (fires once per real GPU/VRAM change, dismissible) and parks the on/off setting. The
+two toast choices are Re-run Quick Setup (a better-fitting model may now exist for the changed
+hardware) and Re-tune the current model (re-run the sweep for the new machine); both reuse existing
+flows (the wizard and the auto-tune sweep), so the only genuinely new machinery is: remember the
+last-acknowledged hardware fingerprint, compare it on load, and show the toast. The design
+consciously MIRRORS the existing engine-update off|notify policy (the A5 pattern) — the deferred
+settings toggle will be its sibling.
+
+### The plan (what each change touches — verified against the read files)
+
+Card tweaks (all in the shared kit, JW consumes via alias; JustVoice untouched by the standing
+mandate — the change is additive/cosmetic to a shared trigger):
+- QuickSetup.vue — import UiProgress; add an elapsed-timer (optElapsed ref + a 1s interval started
+  when the sweep begins running, cleared in stopOptPoll/onBeforeUnmount) and an optRunLabel
+  computed (detail + "trial N"); rewrite the optRunning block (:506-512) to the prominent moving
+  form (title + elapsed + indeterminate UiProgress + the 2–4 min hint + a prominent secondary
+  "Skip"); delete the trailing line (:531); rewrite the bare branch (:390-399) to button +
+  description-minus-"all editable"; rename the prop buttonOnly→inline (accuracy) and add the CSS
+  for the new blocks.
+- AiModelsArea.vue — the update button (:221-224): "Update available" label, intent info, build
+  number kept in the title; relocate it next to the LLM cap tag in .lu-prow-name (:203); update the
+  QuickSetup mount (:237) to the renamed `inline` prop.
+
+The hardware-change notification (kit + a small runner backend):
+- Runner backend — persist the acknowledged hardware fingerprint as a runner setting (reuse the
+  runner_config_api / RunnerSetting pattern that already backs update_policy + pinned_build); a
+  get/set path so the client can read the last-acknowledged key and write the current one on
+  dismiss/action. Confirm the /v1/ai/model-tunes endpoint scopes to the current machine (the
+  re-tune trigger relies on it) while in that code.
+- Kit frontend — on AiModelsArea mount, compute the current GPU+VRAM fingerprint from
+  /v1/llm-runner/hardware, compare to the stored acknowledged key; if different, push a dismissible
+  toast (the kit toast host) offering the two choices; on any choice or on dismiss, write the
+  current fingerprint as acknowledged so it fires once. The enable/disable App-Settings toggle is
+  the deferred todo.
+
+### Parked / deferred this round (recorded so it is not lost)
+
+The App-Settings enable/disable toggle for the hardware-change notification (user: "add this to
+todo for later"). It will sit beside the engine-update off|notify control and share that shape.
+
+## ROUND 8 — PLAN: the hardware-class tune library (autotune reframed) + the queued card tweaks
+
+**STATUS: PLAN, written for the user's go (2026-07-06). Nothing here is built yet EXCEPT the
+Round-7 QuickSetup progress-UI edits under Task D (compiling, uncommitted). Awaiting the literal
+"go" before any of A/B/C/E is built.**
+
+### Why this exists — the decision trail (verbatim anchors)
+
+Round 7 built a good progress UI for the autotune sweep, but running it on the user's box exposed
+the real problem [user, verbatim]: *"6 trials 12 minutes still going this is not acceptable
+esecially for a quick setup, maybe for the tune tab or lab, we need to find another way or better
+way to auto tune without the long wait for quick setup 2 mins is ok especially if we can really
+get a good performance boost"*. The sweep is inherently slow — each `n-cpu-moe` value is a launch
+flag, so every trial fully unloads/reloads the model (`autotune.py`: up to `_WALK_MAX_TRIALS = 12`
+trials, `_LOAD_TIMEOUT = 240s` each); there is no fast version of a *measured* MoE sweep.
+
+The user then closed a contradiction the design had carried [verbatim]: *"funny you mentions the
+only reason to run [re-tune] is if hardware change like vram or cpu or ram, yet you keep telling me
+my manual tunning for my 8gb card 32gb ram ryzen card wouldnt be good to have for other users with
+similar systems, you kept saying let autotune do it, but by your own comment similar systems
+should already have similiar defaults"*. This is correct: if re-tuning is only needed on hardware
+change, the tune is a FUNCTION of the hardware, so a measured tune for one box is valid for every
+box of the same class. Round 5's "never seed measurements" was an overcorrection to a MIS-KEYING
+bug (the seeder stamped rows with whatever machine ran it); correctly keyed by the hardware they
+were measured on, tunes ARE portable. Keystone then set [verbatim]: *"for now tune-only maybe
+enhancment later"* — the library holds the TUNE only; quant/draft stay on the catalog row; a
+unified {quant+draft+tune} row is a future enhancement — and the library is EDITABLE [verbatim]:
+*"maybe this should be editable you can add other hardware configs you get from other users, maybe
+or i guess or manually tune in lab"*.
+
+### The design — a class-tune resolution layer (reuses switch_resolve)
+
+The current `model_tunes` table (`db.py:280`) is keyed by the EXACT machine fingerprint `hw_key =
+gpu|vram|cores|ramGB` and resolves as the top layer in `switch_resolve.resolve_model_switches`
+(base bundle → type bundle → computed → HardwareSwitch → ModelTune wins). The class-tune library is
+a NEW layer that sits BELOW the exact-machine ModelTune and ABOVE computed:
+
+  base → type → computed(fit) → **class-tune (seeded + editable, keyed by VRAM+RAM class)** →
+  HardwareSwitch → exact-machine ModelTune (measured here) → wins
+
+So a box that matches a seeded class row gets the tuned config AUTOMATICALLY at model-load through
+the normal resolution — no sweep, instant. A box that has run its own sweep keeps its
+exact-machine tune (more specific, wins). A box with neither gets the computed fit config (runs,
+just unmeasured). **class_key** = a coarse bucket, VRAM band + RAM band (e.g. `vram8|ram32`),
+derived from `hardware` — the "similar systems" the user means; NOT the full fingerprint (GPU
+name/cores are excluded because placement is set by memory fit, which VRAM+RAM determine; GPU
+compute changes the tok/s achieved, not the optimal placement).
+
+### Tasks
+
+**A. Backend — the class-tune library layer.** New `class_tunes` table keyed by (model_id,
+class_key), rows mirroring `model_tunes`' flag rows (no FK on class_key — a free bucket string like
+hw_key). `hardware.class_key()` helper (VRAM band + RAM band). Insert the class-tune lookup into
+`resolve_model_switches` between computed and HardwareSwitch/ModelTune. Seed row #1 = the user's
+measured gemma tune (ngl 99 · ncmoe 21 · ctx 32768 · batch 512/512 · embed ngl 0) under
+{vram8|ram32} for gemma-4-26b-a4b-qat — CORRECT to ship this time because it's keyed by the class
+it was measured on and matched by class, not stamped by the seeder's machine (the Round-5 bug).
+CRUD `/v1/ai/class-tunes` for the editable library. Tests: resolution order (class-tune applies,
+exact ModelTune overrides it), class_key bucketing, seed present.
+
+**B. Quick Setup — instant apply, no auto-sweep.** Remove the auto-start in `QuickSetup.vue
+apply()` (the `if (target && !tunedAlready) startOptimize()` line). The class-tune, if the box
+matches, is already in the resolved switches at model-load — instant. Done step: if a class-tune
+matched, "Tuned settings for your hardware were applied"; if not, the computed-config state + an
+"Optimize in the Lab" pointer (the no-seed path — leaning Lab per "manually tune in lab"; a short
+capped ~2-min sweep here stays an option if the user prefers). The "Optimize for this PC" button
+stays as a DELIBERATE action.
+
+**C. Lab / Tune tab — the sweep's home + the editable library.** The full measured sweep (with the
+Round-7 progress UI) lives here as a power feature. "Save as hardware-class default" on a result →
+writes a class-tune row for the box's class. The editable class-tune library table (add/edit/delete
+rows; import a config from another user).
+
+**D. The card tweaks (Round-7 batch).** BUILT + compiling (uncommitted): QuickSetup progress UI
+(elapsed/trials/close-guard), bare mode (button + caption minus "all editable"), removed the
+Tasks-tab line, prop rename buttonOnly→inline. Still to build: Update button (`AiModelsArea.vue:221-224`)
+→ "Update available" label, intent accent2→`info`, build number in the title, moved next to the LLM
+cap tag in `.lu-prow-name`; MTP checkbox bug — `onDraftPick` (`LuModelCatalog.vue:268-273`) sets the
+draft file but never checks `mtp`, contradicting the "auto-enables MTP" note → set mtp=true on a
+non-empty draft pick + reflect on open; MTP-draft dropdown already works after Read-from-link (the
+repo's 4 MTP quants are detected — live-verified) → auto-load the listing on Edit-open (non-blocking)
+so Quant + Draft are pickers without the click.
+
+**E. The hardware-change notification.** gpu+vram fingerprint change vs a persisted acknowledged key
+(runner setting, reuse the update_policy pattern) → dismissible toast ("Re-run Quick Setup" /
+"Re-tune in the Lab"), fires once per change; its re-tune path writes a class-tune. Settings
+enable/disable toggle DEFERRED (App Settings todo).
+
+**F. Verify + docs + commit.** Per commit: build:vite + headless smoke (mandatory UI gate) + live
+curl the new class-tunes endpoint (anti-stub, rules 4/7). Ruff + the affected pytest for the
+backend. Update this doc + the JW recap in full detail. Diff-checker before each commit. Logical
+commits: (1) card tweaks + MTP fixes, (2) class-tune library backend + Quick Setup instant-apply,
+(3) Lab library UI + notification.
+
+### Open / deferred
+- Unified {quant+draft+tune} per-class config — future enhancement (user: "tune-only, maybe
+  enhancement later").
+- No-seed fallback in Quick Setup: BOTH — ship computed defaults + a Lab pointer AND an optional
+  time-boxed ~2-min quick tune (the same autotune sweep with a `budget_seconds` cap; self-diagnosing
+  — a null result routes to the Lab). User confirmed "both lab and 2 min sweep".
+
+### GO — EXECUTING (2026-07-07, user's literal "go")
+
+Decisions LOCKED from the on-box tune review (the user's real `.ini` configs are the source of
+truth — the recap summaries were shown unreliable this round):
+
+- **BOTH `context_shift` AND `cache_reuse` come out of the base bundle** (`seed.py:234-235`), not
+  just context_shift. The user's Gemma config documents it verbatim: *"context-shift / cache-reuse:
+  tested 2026-07-06 and NOT added — Gemma 4's iSWA context does not support KV shifting or prefix
+  reuse (llama.cpp auto-disables both with a warning)."* Their Qwen config omits both too. Neither
+  is a safe universal default → they stay per-model knobs in knob_catalog. Base bundle becomes
+  `{flash_attn=on, cache_type_k/v=q8_0, mlock=true}`.
+- **The class-seed for {gemma-4-26b-a4b-qat · VRAM 8 GB / RAM 32 GB} = the user's exact hand-tune,
+  n_cpu_moe = 21 (NOT the sweep's 23).** The sweep overshot to 23 (two more expert layers on CPU —
+  safer, slower); the user's comment: *"floor at 32k ctx w/ CPU embed; 20 OOMs."* Full row:
+  `spec_type=draft-mtp · spec_n_max=2 · n_gpu_layers=99 · n_cpu_moe=21 · ctx_len=32768 ·
+  cache_type_k/v=q8_0 · no_mmap=true · mlock=true · cont_batching=true · batch_size=512 ·
+  ubatch_size=512 · threads=8 · reasoning_budget=1024` (kept as the user's safety cap) — and NO
+  context_shift / cache_reuse.
+- **Why the sweep never fully reproduces the hand-config** (recorded for the design rationale):
+  `ngl` is fit-derived (MoE pattern = ngl-max + n_cpu_moe; only n_cpu_moe is the free dial),
+  `ctx` is a capacity choice not a speed knob (but it's coupled — the user's own note: ncmoe 20@8k /
+  21@32k, so the sweep must tune n_cpu_moe AT the target ctx), `threads` measured flat
+  (`autotune.py:18-19`). So the class-seed (the full 15-switch config) is the reliable path; the
+  sweep is optional polish.
+
+Building this go (fixes 1-3 of Task D + Task A): (1) drop both switches from the base bundle; (2)
+surface `n_cpu_moe`/`ctx`/`batch`/`ubatch`/`threads` in the Tune grid; (3) the class-tune library
+(new `class_tunes` table + `class_key()` + resolver layer + CRUD + the seed above). The already-built
+QuickSetup progress-UI edits (Task D) commit in the same series. Task B (Quick Setup instant-apply /
+remove auto-start), Task C (Lab library UI), Task E (notification), and the Update-button relabel/move
+remain queued for a follow-up go.

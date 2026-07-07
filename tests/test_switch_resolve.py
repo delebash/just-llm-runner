@@ -112,8 +112,75 @@ def test_hardware_layer_reachable_via_key(configured):
 def test_unknown_model_empty(configured):
     assert switch_resolve.resolve_model_switches("does-not-exist") == {
         "flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true",
-        "context_shift": "true", "cache_reuse": "256",
-        # reasoning_budget deliberately ABSENT (user, 2026-07-06): thinking on/off is
-        # the per-request toggle; a budget is a per-taste knob set per-model, never a
-        # shipped base value.
+        # context_shift + cache_reuse REMOVED from the base (user, 2026-07-07): Gemma 4's
+        # iSWA supports neither KV shift nor prefix reuse (llama.cpp auto-disables both) and
+        # context_shift measured a net loss — per-model knobs now, not a shipped base value.
+        # reasoning_budget likewise ABSENT (user, 2026-07-06): a per-taste knob, never base.
     }  # unknown model → treated as dense, base preset only (no mtp gate w/o a row)
+
+
+def test_class_tune_applies_on_matching_class(configured):
+    # The seeded/editable per-(model, hardware-CLASS) layer (2026-07-07): a config
+    # portable across boxes of the same class. Applies only when the box's class_key
+    # matches, and to its own model.
+    s = db.session()
+    s.add(db.ClassTune(model_id="qwen3.6-35b-a3b-mtp", class_key="vram8|ram32",
+                       flag_name="n_cpu_moe", flag_value="21"))
+    s.add(db.ClassTune(model_id="qwen3.6-35b-a3b-mtp", class_key="vram8|ram32",
+                       flag_name="ctx_len", flag_value="32768"))
+    s.commit()
+    s.close()
+    sw = switch_resolve.resolve_model_switches("qwen3.6-35b-a3b-mtp", class_key="vram8|ram32")
+    assert sw["n_cpu_moe"] == "21"
+    assert sw["ctx_len"] == "32768"
+    assert sw["flash_attn"] == "on"          # base still layers underneath
+    # a DIFFERENT class doesn't get it; no class_key passed → not applied
+    assert "n_cpu_moe" not in switch_resolve.resolve_model_switches("qwen3.6-35b-a3b-mtp", class_key="vram24|ram64")
+    assert "n_cpu_moe" not in switch_resolve.resolve_model_switches("qwen3.6-35b-a3b-mtp")
+
+
+def test_model_tune_overrides_class_tune(configured):
+    # A machine's OWN measured tune is MORE SPECIFIC than the class default → it wins
+    # (the class-seed is the start; a box that ran its own sweep keeps its value).
+    s = db.session()
+    s.add(db.ClassTune(model_id="qwen3.6-35b-a3b-mtp", class_key="vram8|ram32",
+                       flag_name="n_cpu_moe", flag_value="21"))
+    s.add(db.ModelTune(model_id="qwen3.6-35b-a3b-mtp", hw_key="k1",
+                       flag_name="n_cpu_moe", flag_value="23"))
+    s.commit()
+    s.close()
+    sw = switch_resolve.resolve_model_switches("qwen3.6-35b-a3b-mtp", hw_key="k1", class_key="vram8|ram32")
+    assert sw["n_cpu_moe"] == "23"
+
+
+def test_seed_default_class_tunes_seeds_the_gemma_row(configured):
+    s = db.session()
+    assert seed.seed_default_class_tunes(s) == 1
+    s.commit()
+    rows = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
+        db.ClassTune.model_id == "gemma-4-26b-a4b-qat", db.ClassTune.class_key == "vram8|ram32").all()}
+    s.close()
+    assert rows["n_cpu_moe"] == "21"          # the tested floor (20 OOMs), not the sweep's 23
+    assert rows["ctx_len"] == "32768"
+    assert rows["batch_size"] == "512"
+    assert rows["reasoning_budget"] == "1024"
+    assert "context_shift" not in rows and "cache_reuse" not in rows   # Gemma iSWA: never
+    # idempotent (merge-by-(model, class)) — a re-seed adds nothing
+    s = db.session()
+    assert seed.seed_default_class_tunes(s) == 0
+    s.close()
+
+
+def test_class_key_bands_to_gb():
+    from llm_runner.runner.hardware import class_key
+
+    class _G:
+        def __init__(self, vram_mb): self.vram_mb = vram_mb
+
+    class _H:
+        def __init__(self, ram_mb, gpus): self.ram_mb, self.gpus = ram_mb, gpus
+
+    # 2070 SUPER reports ~8188 MB (just under 8 GB) → the 8 GB class; RAM rounds to GB.
+    assert class_key(_H(32768, [_G(8188)])) == "vram8|ram32"
+    assert class_key(_H(32768, [_G(8192)])) == "vram8|ram32"
+    assert class_key(_H(16384, [])) == "cpu|ram16"          # no GPU

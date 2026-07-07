@@ -285,6 +285,27 @@ class ModelTune(LlmBase):
     flag_value = Column(Text, nullable=False, default="")
 
 
+class ClassTune(LlmBase):
+    """A seeded + EDITABLE per-(model, HARDWARE-CLASS) tune — the class-seed layer
+    (2026-07-07). Unlike ModelTune (a machine's OWN measured tune, never seeded),
+    this is keyed by a COARSE hardware CLASS (`class_key` = `vram<GB>|ram<GB>`) and IS
+    seeded: the optimal layer placement is a function of the hardware (VRAM/RAM fit),
+    so a config measured on one box is portable to every box of the same class — the
+    user's "similar systems should already have similar defaults". GPU name + core
+    count are EXCLUDED from the key (placement is memory-fit-bound, not compute-bound).
+    Resolved in `switch_resolve` BELOW a machine's own ModelTune (more specific wins)
+    and ABOVE base/type/mtp. `built_in` marks seeded rows so a reseed refreshes them
+    while user-added / Lab-measured rows are kept."""
+
+    __tablename__ = "class_tunes"
+
+    model_id = Column(String, primary_key=True)
+    class_key = Column(String, primary_key=True)
+    flag_name = Column(String, primary_key=True)
+    flag_value = Column(Text, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
 # ── runner config (was runner-manifest.json — now DB, seeded built_in) ────────
 class RunnerBinary(LlmBase):
     """One prebuilt llama-server distribution, selected by (platform, gpu).

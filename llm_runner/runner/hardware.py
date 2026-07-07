@@ -68,6 +68,27 @@ def machine_key(hw: HardwareInfo) -> str:
     return f"{gpu.name}|{gpu.vram_mb or 0}|{hw.cpu_cores}c|{ram_gb}g"
 
 
+def class_key(hw: HardwareInfo) -> str:
+    """The COARSE hardware-CLASS key the seeded/editable `class_tunes` layer is matched
+    on — `vram<GB>|ram<GB>` (VRAM band + RAM band), the "similar systems" bucket (user,
+    2026-07-07). Unlike `machine_key`, GPU NAME and CPU CORES are EXCLUDED: the optimal
+    layer placement is set by memory fit (VRAM + RAM), not GPU compute or core count, so
+    two 8 GB / 32 GB boxes want the same config even with different GPUs. VRAM + RAM round
+    to the NEAREST GB (absorbs the just-under a card reports, e.g. 8188 MB → the 8 GB
+    class). No GPU → `cpu|ram<GB>`."""
+    ram_gb = round((hw.ram_mb or 0) / 1024)
+    gpu = max(hw.gpus, key=lambda g: g.vram_mb or 0) if hw.gpus else None
+    if gpu is None or not (gpu.vram_mb or 0):
+        return f"cpu|ram{ram_gb}"
+    return f"vram{round((gpu.vram_mb or 0) / 1024)}|ram{ram_gb}"
+
+
+@cache
+def current_class_key() -> str:
+    """`class_key(detect())`, memoized (hardware is fixed within a process)."""
+    return class_key(detect())
+
+
 @cache
 def current_machine_key() -> str:
     """`machine_key(detect())`, memoized — hardware doesn't change within a

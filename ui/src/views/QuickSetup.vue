@@ -30,14 +30,16 @@ import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER
 import { confirmDialog } from "../common/services/dialog.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
+import UiProgress from "../common/components/UiProgress.vue";
 import AppModal from "../common/components/AppModal.vue";
 
 const emit = defineEmits(["changed"]);
-// buttonOnly (user, 2026-07-06: "remove the text Qucik Setup and just ave the button …
-// it pops out at you"): render ONLY the Run button — the host places it (JW: centered
-// on the Built-in server card, level with the /v1 URL line). Default keeps the strip
-// for other mounts.
-const props = defineProps({ buttonOnly: { type: Boolean, default: false } });
+// inline (user, 2026-07-06: "the orginal text to be to th right of the button" · "quick setup
+// button so people know what it does" · "leave out the all editable"): render the Run button
+// PLUS its one-line description to the right, bare (no card), for embedding on the Built-in
+// server card. ROUND 4 first shipped this as a button ONLY; the user restored the caption.
+// Default (unset) keeps the full titled strip for other mounts.
+const props = defineProps({ inline: { type: Boolean, default: false } });
 
 // LOCAL_RUNNER_ID (modelApply) + FIT_LABEL / FIT_RUNNABLE (modelPick) come from the shared kit
 // — ONE source, no drift.
@@ -241,6 +243,24 @@ async function openWizard() {
 function onModalClose() {
   open.value = false;
 }
+// Close guard (user, 2026-07-06 — reversing the earlier "leave it running in background": the
+// sweep pegs the GPU and PAUSES every other AI feature, so a headless background run is a trap
+// the user can't see). While a sweep runs, the modal's X + Esc are disabled (:closable below);
+// this footer Close asks first — OK stops the sweep and closes, Cancel returns to the tuning
+// screen.
+async function attemptClose() {
+  if (optRunning.value) {
+    const ok = await confirmDialog({
+      title: "Optimization is still running",
+      message: "Auto-tuning is still measuring the fastest launch settings for this machine, and it holds the GPU so other AI features are paused. Close now and stop it? No tuned settings will be saved.",
+      confirmLabel: "Close and stop",
+      cancelLabel: "Keep optimizing",
+    });
+    if (!ok) return;
+    await skipOptimize();
+  }
+  open.value = false;
+}
 
 // ── D4-1 (a)+(c) changelist (reactive against the live pick) ────────────────
 const previewState = ref(null);
@@ -323,9 +343,35 @@ const optState = ref(null); // null (not started) | the GET payload
 const tunedAlready = ref(false); // (model, THIS machine) already has measured tune rows
 let optTimer = null;
 const optRunning = computed(() => optState.value?.status === "running");
+// The finished trials so far (each a real load→measure result) — the honest "it's working"
+// signal on a LONG job: shown live with their tok/s so progress is visible without a fake ETA.
+const optTrialsDone = computed(() => optState.value?.trials || []);
+
+// Live progress affordances (user, 2026-07-06: "is small … something moving to show it is still
+// working" + "much longer than 2-4 mins … mine has been running for 4 mins already"). A reliable
+// completion ETA is IMPOSSIBLE — the sweep (autotune.py) is an adaptive n-cpu-moe walk with no
+// pre-known trial count, and each trial is a full unload→reload→measure (~2 min on the 2070S),
+// so it can run 10+ minutes. So: a ticking elapsed clock + the indeterminate bar + the live
+// trial list, never a countdown.
+const optElapsed = ref(0); // seconds since the sweep began (this window's view of it)
+let optStartedAt = 0;
+let optTickTimer = null;
+const optElapsedLabel = computed(() => {
+  const s = optElapsed.value;
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+});
+const optRunLabel = computed(() => optState.value?.detail || "measuring…");
+function startOptTick() {
+  optStartedAt = Date.now();
+  optElapsed.value = 0;
+  if (optTickTimer) clearInterval(optTickTimer);
+  optTickTimer = setInterval(() => { optElapsed.value = Math.floor((Date.now() - optStartedAt) / 1000); }, 1000);
+}
+function stopOptTick() { if (optTickTimer) { clearInterval(optTickTimer); optTickTimer = null; } }
 
 function stopOptPoll() {
   if (optTimer) { clearInterval(optTimer); optTimer = null; }
+  stopOptTick();
 }
 async function pollOptimize() {
   try {
@@ -351,6 +397,7 @@ async function startOptimize() {
         optState.value = cur;
         stopOptPoll();
         optTimer = setInterval(pollOptimize, 2000);
+        startOptTick();
         return;
       }
       throw new Error(st.error || "Couldn't start optimizing.");
@@ -358,6 +405,7 @@ async function startOptimize() {
     optState.value = st;
     stopOptPoll();
     optTimer = setInterval(pollOptimize, 2000);
+    startOptTick();
   } catch (e) {
     optState.value = { status: "error", error: e.message || "Couldn't start optimizing." };
   }
@@ -387,9 +435,14 @@ defineExpose({ openWizard });
 </script>
 
 <template>
-  <div class="lu-qs" :class="{ 'lu-qs--bare': props.buttonOnly }">
-    <!-- Trigger (replaces the old inline card; opens the wizard) -->
-    <UiButton v-if="props.buttonOnly" intent="primary" @click="openWizard">Run Quick Setup</UiButton>
+  <div class="lu-qs" :class="{ 'lu-qs--bare': props.inline }">
+    <!-- Trigger (replaces the old inline card; opens the wizard). inline = the button + its
+         one-line description to the right (user restored the caption "so people know what it
+         does"); the default is the full titled strip. -->
+    <template v-if="props.inline">
+      <UiButton intent="primary" @click="openWizard">Run Quick Setup</UiButton>
+      <span class="lu-muted lu-qs-baresub">Detect your hardware, pick the best free local model that fits, and set it as your default.</span>
+    </template>
     <div v-else class="lu-qs-head">
       <div>
         <b class="lu-qs-title">Quick Setup</b>
@@ -402,7 +455,7 @@ defineExpose({ openWizard });
       v-if="open"
       :title="step === 'detect' ? 'Probing your hardware…' : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : 'Recommended setup — for local built-in server only'"
       :max-width="'640px'"
-      :closable="step !== 'apply'"
+      :closable="step !== 'apply' && !optRunning"
       @close="onModalClose"
     >
       <!-- DETECT -->
@@ -504,11 +557,29 @@ defineExpose({ openWizard });
               : "Optional: runs a short measured sweep and saves the fastest launch settings for this machine — often several times faster to first token." }}</span>
           </template>
           <template v-else-if="optRunning">
-            <span class="lu-qs-opt-status">Optimizing — {{ optState.detail || "measuring…" }}
-              <template v-if="optState.trials?.length"> ({{ optState.trials.length }} trial{{ optState.trials.length === 1 ? "" : "s" }} done)</template>
-            </span>
-            <UiButton intent="ghost" size="small" @click="skipOptimize">Skip</UiButton>
-            <span class="lu-muted">Skipping keeps everything set up — you can optimize later from the model's Tune dialog. You can also close this; it finishes in the background.</span>
+            <div class="lu-qs-opt-run">
+              <div class="lu-qs-opt-line">
+                <b class="lu-qs-opt-title">Optimizing for this PC…</b>
+                <span class="lu-qs-opt-elapsed">{{ optElapsedLabel }} elapsed</span>
+              </div>
+              <UiProgress :label="optRunLabel" />
+              <p class="lu-muted lu-qs-opt-eta">
+                This runs a sequence of load-and-measure trials and can take 10 minutes or more —
+                longer for larger models. Your GPU is busy while it runs, so other AI features pause
+                until it finishes or you stop it.
+              </p>
+              <ul v-if="optTrialsDone.length" class="lu-qs-opt-trials">
+                <li v-for="(t, i) in optTrialsDone" :key="i" :class="{ 'is-fail': !t.ok }">
+                  <span class="lu-qs-opt-tl">{{ t.label }}</span>
+                  <span v-if="t.ok" class="lu-qs-opt-tv">{{ Math.round(t.tokensPerSec) }} tok/s</span>
+                  <span v-else class="lu-qs-opt-tx">{{ t.error && t.error.startsWith("skipped") ? "skipped" : "failed" }}</span>
+                </li>
+              </ul>
+              <div class="lu-qs-opt-act">
+                <UiButton intent="secondary" @click="skipOptimize">Skip</UiButton>
+                <span class="lu-muted lu-qs-opt-skiphint">Skipping keeps everything set up; you can optimize later from the model's Tune dialog.</span>
+              </div>
+            </div>
           </template>
           <template v-else-if="optState.status === 'done' && optState.best">
             <span class="lu-qs-opt-ok">Optimized ✓ {{ optState.best.tokensPerSec }} tok/s —
@@ -527,8 +598,6 @@ defineExpose({ openWizard });
             <UiButton intent="ghost" size="small" @click="startOptimize">Try again</UiButton>
           </template>
         </div>
-
-        <p class="lu-muted">Change the model for any single task on the Tasks tab.</p>
       </template>
 
       <template #footer>
@@ -541,7 +610,7 @@ defineExpose({ openWizard });
         </template>
         <template v-else-if="step === 'done'">
           <span class="lu-qs-spacer" />
-          <UiButton intent="primary" @click="onModalClose">Close</UiButton>
+          <UiButton intent="primary" @click="attemptClose">Close</UiButton>
         </template>
       </template>
     </AppModal>
@@ -550,7 +619,8 @@ defineExpose({ openWizard });
 
 <style scoped>
 .lu-qs { border: 1px solid var(--border); border-radius: var(--r-md, 10px); background: var(--surface); padding: 12px 16px; }
-.lu-qs--bare { border: none; border-radius: 0; background: transparent; padding: 0; display: inline-flex; }
+.lu-qs--bare { border: none; border-radius: 0; background: transparent; padding: 0; display: inline-flex; align-items: center; gap: 12px; }
+.lu-qs-baresub { font-size: 12px; line-height: 1.4; }
 .lu-qs-head { display: flex; align-items: center; gap: 12px; }
 .lu-qs-head > div { flex: 1; min-width: 0; }
 .lu-qs-title { font-size: 14px; color: var(--ink); }
@@ -581,7 +651,19 @@ defineExpose({ openWizard });
 .lu-qs-applying { font-size: 13px; }
 .lu-qs-summary { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
 .lu-qs-opt { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin: 10px 0; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); font-size: 12px; }
-.lu-qs-opt-status { font-size: 12.5px; color: var(--ink-2); }
+.lu-qs-opt-run { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.lu-qs-opt-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.lu-qs-opt-title { font-size: 13.5px; color: var(--ink); }
+.lu-qs-opt-elapsed { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lu-qs-opt-eta { font-size: 12px; margin: 0; line-height: 1.5; }
+.lu-qs-opt-trials { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; max-height: 132px; overflow-y: auto; }
+.lu-qs-opt-trials li { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.lu-qs-opt-trials li.is-fail { opacity: .6; }
+.lu-qs-opt-tl { flex: 1; min-width: 0; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lu-qs-opt-tv { font-variant-numeric: tabular-nums; color: var(--accent-ink, var(--accent)); font-weight: 600; }
+.lu-qs-opt-tx { font-size: 11px; color: var(--muted); }
+.lu-qs-opt-act { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.lu-qs-opt-skiphint { font-size: 11.5px; }
 .lu-qs-opt-ok { font-size: 12.5px; color: var(--accent-ink, var(--accent)); font-weight: 600; }
 .lu-qs-spacer { flex: 1; }
 .lu-fit { display: inline-flex; align-items: center; border-radius: 999px; padding: 1px 8px; font-size: 10.5px; font-weight: 700; border: 1px solid var(--border-strong); color: var(--ink-2); flex: none; }

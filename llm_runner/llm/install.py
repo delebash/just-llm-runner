@@ -45,6 +45,14 @@ def _current_hw_key() -> str:
     return current_machine_key()
 
 
+def _current_class_key() -> str:
+    """The memoized coarse hardware-CLASS key (`vram<GB>|ram<GB>`) the seeded/editable
+    `class_tunes` layer is matched on (2026-07-07). Lazy import, runner-side detect."""
+    from ..runner.hardware import current_class_key
+
+    return current_class_key()
+
+
 def install_llm(
     app,
     *,
@@ -157,7 +165,7 @@ def install_llm(
         # Keyed to THIS machine so resolved-defaults (what the Tune modal + Lab
         # pre-fill from) shows the SAME truth the load path uses — including the
         # hardware + per-(model, machine) tune layers (Plan B, D4; seen = run).
-        resolve_switches=lambda mid: switch_resolve.resolve_model_switches(mid, _current_hw_key()),
+        resolve_switches=lambda mid: switch_resolve.resolve_model_switches(mid, _current_hw_key(), _current_class_key()),
         inspect_fn=_inspect_model_from_link,
         list_files_fn=_list_repo_files,
     ))
@@ -181,7 +189,7 @@ def install_llm(
     from ..runner.autotune import make_autotune_router
 
     app.include_router(make_autotune_router(
-        lambda mid: switch_resolve.resolve_model_switches(mid, _current_hw_key()),
+        lambda mid: switch_resolve.resolve_model_switches(mid, _current_hw_key(), _current_class_key()),
         _save_tune,
     ))
     # 6. point the bundled runner's catalog/switches at the shared DB.
@@ -230,7 +238,7 @@ def _wire_runner_catalog(data_dir=None) -> None:
         # dict that flows through the runner's existing Override path.
         from .switch_resolve import resolve_model_switches
 
-        return resolve_model_switches(model_id, _current_hw_key())
+        return resolve_model_switches(model_id, _current_hw_key(), _current_class_key())
 
     def identify_fn(model_id: str, gguf_path):
         # After a model downloads, read its GGUF header → set model_catalog

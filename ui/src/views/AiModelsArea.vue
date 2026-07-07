@@ -234,7 +234,7 @@ onMounted(() => {
                  the absolute overlay shifted the row on the user's box; a spanning
                  grid row is stable at any width/build). -->
             <div v-if="p.providerType === 'local-llamacpp'" class="lu-prow-qsbtn">
-              <QuickSetup button-only @changed="loadProviders" />
+              <QuickSetup inline @changed="loadProviders" />
             </div>
           </div>
           <!-- Same progress bar as the engine panel — the install runs from THIS row, so

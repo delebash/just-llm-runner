@@ -1,15 +1,19 @@
 # Providers-surface redesign — five user decisions (2026-07-06 night)
 
-> **STATUS: LIVE TRACKER — ROUNDS 1–15 SHIPPED (2026-07-06 → 2026-07-07). Each `## ROUND N`
-> section below is the full record of its go; a later round supersedes an earlier round's
-> "queued/deferred" claims (the chronology IS the tracker).** Born from the post-plan-closure
-> design round on the Providers & models screen (the user's live-app screenshot). Discipline:
-> the "do b" checker rule (2026-07-06) for verified rounds; the 2026-07-07 rounds (9–15) ran
-> under the user's explicit "dont run tests" posture — each round's own verification record
-> states exactly what gates ran and what the box checks are. After ROUND 15 this surface's
-> open list is exactly ONE item: the wizard-probe rework + all deferred verification (harness
-> task #114). The two notification follow-ups are CLOSED as **NOT DOING** (user decision,
-> ROUND 15) and the cross-model library view is SHIPPED (ROUND 15).
+> **STATUS: LIVE TRACKER — ROUNDS 1–18 SHIPPED AND VERIFIED (2026-07-06 → 2026-07-07). Each
+> `## ROUND N` section below is the full record of its go; a later round supersedes an
+> earlier round's "queued/deferred" claims (the chronology IS the tracker).** Born from the
+> post-plan-closure design round on the Providers & models screen. The 2026-07-07 rounds
+> (9–17) ran under the user's explicit "dont run tests" posture with the debt tracked;
+> **ROUND 18 (the user's "do 114") PAID it in full** — live curls, the reworked wizard probe
+> (22/22), the full headless smoke, record pytest 402/402 + 76/76, and the rules-checker
+> verdict (11 PASS · T10 NA · T7 FAIL = exactly the debt that round paid; the "smoke on
+> every UI change" amendment re-affirmed as binding over any waiver). **NOTHING IS OPEN on
+> this surface**: the queue is empty; what remains is (a) the user's GPU-dependent box
+> checks (the per-round lists), (b) the #142 persist DISPOSITIONS awaiting the user's ruling
+> (repo-listing cache · a model_measurements history · update-check persistence — ROUND 17
+> §5), and (c) the parked ledger items (Lab A/Bs · D6 · models-folder import). The two
+> notification follow-ups stay CLOSED as NOT DOING (ROUND 15, user decision).
 
 ## The decisions, verbatim (the user's words are the spec)
 

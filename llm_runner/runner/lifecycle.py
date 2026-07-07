@@ -577,6 +577,16 @@ class RunnerService:
                 self._last_id = ""
         return self.status()
 
+    def cached_path(self, model_id: str):
+        """The model's on-disk GGUF path, or None (unknown id / not downloaded) — the
+        one catalog+cache lookup, shared by preview_fit and the boot derive-backfill
+        (identity.backfill_derived_from_cache, 2026-07-07)."""
+        model = next((m for m in self.catalog() if m.id == model_id), None)
+        if model is None:
+            return None
+        return cached_gguf_path(model.hf_repo, model.quant,
+                                cache_root=self._cache_root / "hf", mmproj=model.mmproj)
+
     def preview_fit(self, model_id: str, switches: dict[str, str] | None = None) -> dict:
         """Pure fit PREVIEW for a CACHED model: block count / MoE-ness + the computed
         layer split for the given switches — no download, no spawn. The auto-tune
@@ -585,8 +595,7 @@ class RunnerService:
         model = next((m for m in self.catalog() if m.id == model_id), None)
         if model is None:
             return {"ok": False, "error": f"unknown model: {model_id}"}
-        gguf = cached_gguf_path(model.hf_repo, model.quant,
-                                cache_root=self._cache_root / "hf", mmproj=model.mmproj)
+        gguf = self.cached_path(model_id)
         if gguf is None:
             return {"ok": False, "error": "model not downloaded"}
         try:

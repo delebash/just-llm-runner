@@ -13,6 +13,8 @@ only wires the runner's *catalog source* to the shared DB.
 
 from __future__ import annotations
 
+import logging
+import threading
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -210,6 +212,32 @@ def install_llm(
     # 6. point the bundled runner's catalog/switches at the shared DB.
     if runner_catalog:
         _wire_runner_catalog(data_dir)
+        # 6b. Seed-vs-file self-heal (2026-07-07): re-derive catalog facts from
+        # ALREADY-DOWNLOADED GGUFs whose rows never got the identify pass — a DB
+        # reset re-seeds rows without samplers/derived facts, and identify only
+        # runs at download time, so a cached model's "Recommended samplers" read
+        # "—" forever. Daemon thread (boot must never block on file reads); LOCAL
+        # header reads only — no generation_config network fallback here (a
+        # samplers-less file re-checks each boot: milliseconds, no staleness
+        # marker column needed).
+        def _backfill():
+            try:
+                from ..runner.lifecycle import get_service
+                from .identity import backfill_derived_from_cache, detect_and_store_model_type
+
+                svc = get_service()
+                n = backfill_derived_from_cache(
+                    stores.get_model_catalog_store().list(),
+                    svc.cached_path,
+                    lambda mid, path: detect_and_store_model_type(mid, path),
+                )
+                if n:
+                    logging.getLogger(__name__).info(
+                        "catalog derive-backfill: %d cached model(s) re-derived", n)
+            except Exception:  # noqa: BLE001 — a backfill failure must never hurt boot
+                logging.getLogger(__name__).warning("catalog derive-backfill failed", exc_info=True)
+
+        threading.Thread(target=_backfill, daemon=True, name="catalog-derive-backfill").start()
 
 
 def _wire_runner_catalog(data_dir=None) -> None:

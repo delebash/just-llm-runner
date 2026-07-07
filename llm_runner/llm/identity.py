@@ -35,10 +35,23 @@ _SAMPLER_FILE_TO_CATALOG = {
 }
 
 
+def _fmt_value(v) -> str:
+    """A file-derived sampler value as a CLEAN string: GGUF floats arrive as float32
+    artifacts ("0.949999988079071" for 0.95 — the user's Edit-form screenshot,
+    2026-07-07); round to 4 places and drop trailing zeros so what the form, the
+    seeds, and the Lab grid show is the number the file MEANS ("0.95", "1", "64").
+    Non-numeric values pass through verbatim."""
+    try:
+        return f"{round(float(v), 4):g}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
 def canonicalize_sampler_names(samplers: dict | None) -> dict:
     """Map a file-derived sampler dict from llama.cpp's param names to our knob-catalog
-    names, so stored + Lab-seeded samplers match the names the run path sends."""
-    return {_SAMPLER_FILE_TO_CATALOG.get(k, k): v for k, v in (samplers or {}).items()}
+    names (+ clean float32 noise), so stored + Lab-seeded samplers match the names AND
+    the numbers the run path sends. The ONE choke point every derive path flows through."""
+    return {_SAMPLER_FILE_TO_CATALOG.get(k, k): _fmt_value(v) for k, v in (samplers or {}).items()}
 
 
 def model_type_from_meta(meta: GgufMeta) -> str:
@@ -95,6 +108,32 @@ def detect_and_store_model_type(
         samplers=fields["samplers"],
     )
     return fields["type"]
+
+
+def backfill_derived_from_cache(rows, cached_path_fn, identify_one) -> int:
+    """The seed-vs-file self-heal (2026-07-07, the read-from-link parity item): a DB
+    reset re-seeds catalog rows WITHOUT their file-derived facts (samplers/type/mtp/
+    trained_ctx are written by identify at DOWNLOAD time only), so a model whose GGUF
+    was already on disk shows "Recommended samplers —" forever. For every row whose
+    sampler set is EMPTY (the never-derived marker) and whose GGUF is cached, re-run
+    identify from the local file. Pure loop — `rows` are catalog rows (`.id`,
+    `.samplers`), `cached_path_fn(id) -> path|None`, `identify_one(id, path)` does the
+    store write; install.py wires the real ones (on a daemon thread, local-file reads
+    only). A model whose file truly carries no samplers re-checks each boot — a local
+    header read, milliseconds, accepted over a staleness marker column."""
+    done = 0
+    for r in rows:
+        if getattr(r, "samplers", None):
+            continue
+        path = cached_path_fn(r.id)
+        if not path:
+            continue
+        try:
+            identify_one(r.id, path)
+            done += 1
+        except Exception:  # noqa: BLE001 — a broken file must not stop the sweep
+            continue
+    return done
 
 
 # ctx the pre-download VRAM estimate is quoted at — a realistic working window, not

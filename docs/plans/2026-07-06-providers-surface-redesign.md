@@ -1317,3 +1317,136 @@ changed.
 The wizard-probe rework + every deferred verification (#114 — this round adds: the global
 drawer's render + add/import paths ride the same unrun smoke) · the ledger's parked items
 (Lab A/Bs · D6 · models-folder import). Nothing else on this surface.
+
+## ROUND 16 — SHIPPED 2026-07-07 (the "i take your recommendations go" batch: VRAM+debug strip · catalog order · embed load parity · the setup-strip control panel · HF model-card links · READ-FROM-LINK PARITY with tests RUN)
+
+**STATUS: SHIPPED (this commit + the JW seed commit). The user's go ("i take your
+recommendations go") covered the four filed items + the two-model-clarity recommendation;
+FIVE more user messages landed mid-go and were filed as their own tasks (#135 panel Install
+button · #136 seed pin → b9899 · #138 the stale "install engine ↑" row state, screenshot ·
+#139 built-in Test-connection semantics, screenshot · #140 the switch-provenance DISCUSS) —
+each awaits its own go. One mid-go reversal honored: #137 ("shouldnt it be loaded default")
+was walked back by the user ("i forgot you have status of loaded … but we do need unload
+button") — the interim label experiment was reverted in-round; labels stay plain, the STATUS
+pill + the existing Unload (shipped #117) carry the load truth. VERIFICATION: the user
+granted tests FOR the read-from-link item ("you may run tests") — and the touched modules
+(identity/seed/install/lifecycle) span the suite, so the FULL runner pytest ran: 402/402
+green (this also pays the #114 pytest debt — the nine never-executed ROUND-14 tests, the
+budget tests, and the re-seated ROUND 9–12 tests all ran for the first time and passed),
+plus the seed-facts audit 12/12 OK, JW server ruff + 76/76 pytest, runner ruff, JW
+build:vite. NOT run (still owed to #114): the headless smoke + the wizard-probe rework +
+live curls.**
+
+### 1. VRAM + debug info on the AI settings strip (#129, the user's ask + my picks taken)
+
+`/v1/llm-runner/hardware` now returns `HardwareWithKeys` — HardwareInfo + the two DERIVED
+tuning identities (`machineKey` = the model_tunes/hardware_switches key · `classKey` = the
+class_tunes match), so a debug surface can explain exactly which tune layers apply to a box
+(api.py; a subclass, existing consumers unaffected). AiModelsArea polls `/resident` (the
+LuRunnerEngine poll precedent, 2.5 s) and the hardware strip gains a **VRAM used** stat —
+"3.1 / 8 GB · 4.9 free" from the measured ledger (hidden on a no-GPU box) — plus a **Copy
+debug info** ghost button (right-aligned) that puts the whole snapshot on the clipboard as
+one pasteable block: OS/CPU/RAM · GPU + driver · acceleration · engine build · the tuning
+keys · the VRAM ledger · the loaded-models list with per-model VRAM + ctx.
+
+### 2. Catalog order (#130, user: "the doesn't fit should be below the embed")
+
+`groupedRows` restructured: the Chat & writing and Embedding sections now show ONLY models
+that fit this machine; ALL non-fitting rows (both kinds) sink to ONE bottom group behind a
+single "Doesn't fit this machine — N more" divider, below the Embedding section. Recorded
+default (flagged): the embed section's own non-fit rows join the same bottom group.
+
+### 3. Embed rows: Load as default + Unload (#131) · the setup-strip control panel (#133)
+
+The embedding row's primary action is now **"Load as default"** (→ "Default ✓") and it
+LOADS: `makeEmbedding` = `setAsEmbedding` + `POST /v1/llm-runner/ensure-embedding` — the
+SANCTIONED co-resident path (download-if-needed + load + PIN alongside the chat model; a
+plain /load could contend for the primary slot; this endpoint exists for exactly this) +
+the shared poller. The ghost Unload already renders on any loaded row. **The "Your setup"
+strip became the pair's control panel** (the two-model-clarity recommendation, taken):
+each card shows its slot model's LIVE state (● loaded · ↓ working · ○ loads on first
+use/search · not downloaded · load failed) + its own **Load now** (disk: chat → /load,
+embed → ensure-embedding via `loadAssigned`) or **Unload** (same writers as the rows — no
+drift), and the strip gained the one-sentence caption: "The app runs these two side by
+side — the General model writes and chats; the Embedding model powers search. Each loads
+automatically the first time it's needed; Load now just skips that first wait." (App-
+neutral copy — the kit serves both apps.) The strip's stale "Set as embedding" hints
+renamed.
+
+### 4. HF model-card links (#134, user: "open full detail in there web browser")
+
+`useCatalogMeta` gains `hfRepoById`; every catalog row with a repo renders a **Model card ↗**
+link (https://huggingface.co/<repo>, target=_blank — the LuRunnerBinaries anchor precedent)
+under its description, and the Edit dialog's "Hugging Face repo" label carries the same
+link inline (reactive to the field as you type).
+
+### 5. READ-FROM-LINK PARITY (#132 — the tests-allowed item; the user's three screenshots)
+
+**The live strict-diff (12 seeded rows × real HF header/config reads; script:
+scratchpad seed_vs_inspect.py, full JSON in the run log):**
+
+| finding | rows | resolution |
+|---|---|---|
+| header mtp=false while the seed's DRAFT carries MTP (Gemma-style) | gemma-12b · gemma-31b · gemma-26 (JW) · uncensored | the OR-gate fixes (below); seed flags were already right |
+| **seed FACT ERROR: header mtp=true, seed said false** | glm-4.5-air | seed fixed → mtp True (comment cites the 2026-07-07 header read) |
+| trained_ctx missing from the seed | ALL 11 runner rows | seeded from the file: 262144 (gemmas ×4 + qwen35 + gryphe + uncensored) · 131072 (llama, glm) · 2048/32768/8192/40960 (embeds) |
+| samplers in the file but NOT seeded | gemmas + gryphe (top_k 64 · top_p 0.95 · temp 1) · qwen35 (top_k 20 · top_p 0.95 · temp 1) | seeded (below); llama/glm/embeds/uncensored carry none anywhere — legitimately empty |
+| params label off by the file | bge-m3 | 568M → 567M |
+
+**The fixes, all sides converging on the file (never hand-patching one side):**
+(a) **UI — the MTP OR-gate** (the screenshot bug at its root): `inspectLink` now sets
+`e.mtp = header-mtp OR draft-present` (the same rule `switch_resolve`'s auto-MTP layer and
+`mtpById` use), so Read-from-link can no longer uncheck MTP while the draft sits selected
+right above it; `inspected` records the raw `headerMtp`. (b) **UI — onDraftPick honors the
+form's own promise** ("Setting it … auto-enables MTP" — the ROUND-8 Task-D leftover the
+screenshots caught unbuilt): picking a draft checks MTP; clearing falls back to the header
+truth. (c) **UI — Edit-open auto-loads the repo listing** (the other Task-D leftover: the
+seeded form opened with plain text inputs where Read-from-link shows dropdowns) —
+fire-and-forget, and with `autopick:false`: the background load must never mutate the row
+(a deliberately-cleared draft would otherwise be silently re-picked on every reopen; only
+the explicit Read-from-link pre-picks). (d) **derive-boundary number cleanup**
+(`identity._fmt_value` inside `canonicalize_sampler_names`, the one choke point): GGUF
+float32 noise ("0.949999988079071") renders as the number the file means ("0.95", "1") —
+in the form, the seeds, and the Lab grid alike. (e) **the boot derive-backfill**
+(`identity.backfill_derived_from_cache` + `lifecycle.cached_path` + a daemon thread in
+`install_llm`): a DB reset re-seeds rows without their file-derived facts and identify only
+ran at download time, so an already-on-disk model showed "Recommended samplers —" forever
+(the user's exact screenshot state) — now every cached, sampler-less row re-derives from
+the LOCAL header at boot (no network fallback at boot; a truly sampler-less file re-checks
+each start — milliseconds, no staleness column). (f) **seeds = the file** (the table above):
+runner seed.py + JW seed_presets.py rows updated; `_seed_samplers` writes the recommended-
+sampler rows on NEW catalog inserts, `built_in=False` — byte-identical with what the
+download-time identify produces (seed == file, one shape); both seeders wired. RESIDUAL,
+flagged: curated DESCRIPTIONS stay (they carry the user's own measured numbers + use-policy
+words no file provides — the parity principle is applied to FACTS; `composedDescription`
+still only fills empty fields). Tests: 3 new (float-cleanup · backfill loop · seeded
+samplers + the GLM fix) + 3 re-seated to the number-cleanup — all RUN, 402/402.
+
+### Box checks (this round)
+
+(a) The strip shows "VRAM used 0.x / 8 GB · … free" live, and Copy debug info pastes the
+full block incl. `machine …|8192|16c|32g` + `class vram8|ram32`. (b) The catalog: both
+sections show only fitting models; one "Doesn't fit" group sits below Embedding models.
+(c) An embed row's button reads "Load as default" and loads it CO-RESIDENT (the chat
+default stays loaded); Unload appears on it when loaded. (d) The two setup cards show live
+state + Load now/Unload; the caption reads under them. (e) Every built-in row shows "Model
+card ↗" and it opens the HF page; the Edit dialog's repo label carries the same link.
+(f) Edit the Gemma: Quant + Draft render as DROPDOWNS on open (no Read-from-link click),
+MTP stays CHECKED after Read from link, and after one server restart the "Auto-detected"
+panel shows the real samplers (top_k 64 · top_p 0.95 · temperature 1) instead of "—" (the
+boot backfill; your box has the file cached). (g) After a reset, a fresh catalog shows
+GLM's MTP tag and trained-context values everywhere.
+
+### Filed this round, each awaiting its own go
+
+#135 (Install button on the Edit view's engine panel — its "Not installed — install it
+before you load a model" line has no button in reach) · #136 (seed pin → b9899; the box
+already runs b9899 via Update, the SEED still says b9870) · #138 (BUG, screenshot: engine
+installed but the model grid still shows the red "install engine ↑" — a stale server-side
+error state from a pre-install load attempt; it also hid the row's Unload from the user) ·
+#139 (screenshot: the built-in provider's Test connection reads "✗ reachable, but no models
+listed" — the generic OpenAI-style probe against the lazy router is the wrong health check
+for the built-in; it should report engine/catalog/default state instead) · #140 (DISCUSS:
+switch provenance — the user's question "how does the user know the other switches are set
+from fit … cache-type-k q8_0 / no-mmap / mlock aren't visible anywhere"; the discussion
+options are in the task, decision his).

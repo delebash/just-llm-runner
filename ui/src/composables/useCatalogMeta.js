@@ -49,6 +49,11 @@ export const poolingById = computed(() =>
 export const mtpById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, !!(r.mtp || r.mtpDraftFile)])),
 );
+// The HF repo per model — the "Model card ↗" link (user, 2026-07-07: open the full
+// details in the browser) builds https://huggingface.co/<repo> from it.
+export const hfRepoById = computed(() =>
+  Object.fromEntries(rows.value.map((r) => [r.id, r.hfRepo || ""])),
+);
 
 /** (Re)fetch the catalog rows into the shared state. Enrichment — on failure the maps
  *  fall back to empty (the fit-shaped list / the pick still work without the badges). */
@@ -66,5 +71,5 @@ export async function refresh() {
 /** Shared model-catalog meta. Every consumer gets the SAME refs; call refresh() on open
  *  or after a catalog edit to (re)populate the one shared source. */
 export function useCatalogMeta() {
-  return { catalogRows, classPicks: classPicksRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, refresh };
+  return { catalogRows, classPicks: classPicksRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, hfRepoById, refresh };
 }

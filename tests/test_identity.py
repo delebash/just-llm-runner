@@ -72,8 +72,9 @@ def test_derived_fields_from_meta():
     )
     assert f["type"] == "dense" and f["mtp"] is True and f["trained_ctx"] == 262144
     # samplers are canonicalized to OUR catalog namespace (temp→temperature,
-    # penalty_repeat→repeat_penalty); unchanged keys (top_k) pass through, values → str.
-    assert f["samplers"] == {"temperature": "1.0", "top_k": "20", "repeat_penalty": "1.05"}
+    # penalty_repeat→repeat_penalty); unchanged keys (top_k) pass through, and values
+    # render as the number the file MEANS (float32-noise cleanup: 1.0 → "1").
+    assert f["samplers"] == {"temperature": "1", "top_k": "20", "repeat_penalty": "1.05"}
     # dense / no-mtp / no-ctx / no-sampling -> falsy fields (None trained_ctx, {} samplers)
     g = identity.derived_fields_from_meta(_meta_full())
     assert g["type"] == "dense" and g["mtp"] is False
@@ -112,7 +113,7 @@ def test_detect_stores_mtp_ctx_and_samplers(configured):
     assert out == "dense"
     row = _row(mid)
     assert row.mtp is True and row.trainedCtx == 262144
-    assert row.samplers == {"temperature": "1.0", "top_k": "20"}  # canonicalized (temp→temperature)
+    assert row.samplers == {"temperature": "1", "top_k": "20"}  # canonicalized + number-cleaned
     assert row.builtIn is True  # set_derived preserves built_in (unlike upsert)
 
 
@@ -155,7 +156,7 @@ def test_inspect_model_from_link(monkeypatch):
     assert out["type"] == "dense" and out["mtp"] is True and out["trainedCtx"] == 262144
     assert out["experts"] == 0 and out["architecture"] == "qwen35"
     assert out["sizeLabel"] == "27B" and out["totalParams"] == "27B"  # dense param count from size_label
-    assert out["samplers"] == {"temperature": "1.0", "top_k": "20"}  # canonicalized
+    assert out["samplers"] == {"temperature": "1", "top_k": "20"}  # canonicalized + number-cleaned
     assert out["sizeBytes"] == 17_000_000_000
     assert out["estVramMb"] and out["estVramMb"] > 0  # estimate_vram_mb fed the REAL header + size
 
@@ -171,3 +172,47 @@ def test_inspect_uses_generation_config_fallback(monkeypatch):
     assert out["type"] == "moe" and out["experts"] == 128 and out["mtp"] is True
     # from generation_config.json fallback, canonicalized (temp→temperature)
     assert out["samplers"] == {"temperature": "0.6", "top_p": "0.95"}
+
+
+# ── the derive-boundary number cleanup + the boot backfill (2026-07-07, the
+# read-from-link parity item — the user's screenshots + live strict-diff) ──
+
+def test_canonicalize_cleans_float32_noise():
+    # GGUF floats arrive as float32 artifacts — the user's Edit form showed
+    # "top_p 0.949999988079071"; the derive boundary renders the number the file
+    # MEANS. Ints and non-numerics pass through.
+    out = identity.canonicalize_sampler_names(
+        {"top_p": "0.949999988079071", "temp": "1.0", "top_k": "64", "note": "abc"})
+    assert out == {"top_p": "0.95", "temperature": "1", "top_k": "64", "note": "abc"}
+
+
+class _R:
+    def __init__(self, rid, samplers):
+        self.id = rid
+        self.samplers = samplers
+
+
+def test_backfill_rederives_only_cached_samplerless_rows():
+    # rows: a (no samplers, cached) → derived; b (has samplers) → skipped;
+    # c (no samplers, NOT cached) → skipped; d (derive raises) → skipped, loop survives.
+    rows = [_R("a", {}), _R("b", {"top_k": "64"}), _R("c", {}), _R("d", {})]
+    cached = {"a": "/x/a.gguf", "d": "/x/d.gguf"}
+    derived = []
+
+    def identify_one(mid, path):
+        if mid == "d":
+            raise RuntimeError("broken file")
+        derived.append((mid, path))
+
+    n = identity.backfill_derived_from_cache(rows, lambda mid: cached.get(mid), identify_one)
+    assert n == 1
+    assert derived == [("a", "/x/a.gguf")]
+
+
+def test_seeded_samplers_ride_the_catalog_seed(configured):
+    # The parity principle: the seed ships the FILE's recommended samplers (the
+    # 2026-07-07 live reads) — the Gemma rows carry the file's set out of the box.
+    row = _row("gemma-4-12b-qat")
+    assert row.samplers == {"top_k": "64", "top_p": "0.95", "temperature": "1"}
+    # and the diff-found fact fix: GLM's header carries built-in MTP.
+    assert _row("glm-4.5-air").mtp is True

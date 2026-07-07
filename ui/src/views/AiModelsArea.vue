@@ -21,6 +21,7 @@ import { activeAiTab } from "../common/services/labHandoff.js";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
+import { usePoll } from "../common/composables/usePoll.js";
 
 // Engine actions live HERE on the Built-in row, LEFT beside the capability tags
 // (user, 2026-07-07: "move install uninstall next to lmm tag on left rename to
@@ -84,6 +85,57 @@ const hwLabel = computed(() => {
     accel: accel || "—",
   };
 });
+
+// ── Live VRAM + debug info on the strip (user, 2026-07-07) ───────────────────
+// GET /resident is read-only + safe to poll (never spawns the router — the
+// LuRunnerEngine precedent); it carries the measured VRAM ledger (total /
+// committed / free) + the loaded-models list the debug snapshot includes.
+const resident = ref(null);
+const { start: startResPoll } = usePoll(async () => {
+  try { resident.value = await request("/v1/llm-runner/resident"); } catch { /* keep last */ }
+}, 2500);
+const gb1 = (mb) => (mb / 1024).toFixed(1);
+const vramLine = computed(() => {
+  const r = resident.value;
+  if (!r?.vramTotalMb) return ""; // no detectable GPU VRAM → no stat block
+  return `${gb1(r.committedMb || 0)} / ${gb1(r.vramTotalMb)} GB · ${gb1(r.remainingMb || 0)} free`;
+});
+
+// "Copy debug info" — the whole box picture as ONE pasteable text block (hardware +
+// tuning keys + engine build + the live resident set). Beats more UI: a bug report
+// or a support chat gets the machine's true state in one paste.
+const debugCopied = ref(false);
+function debugInfoText() {
+  const h = hardware.value || {};
+  const gpu = h.gpus?.[0];
+  const st = engState.value || {};
+  const r = resident.value;
+  const lines = [
+    `OS: ${h.os || "?"} (${h.platform || "?"}) · CPU ${h.cpuCores ?? "?"} threads · RAM ${h.ramMb ? gb1(h.ramMb) : "?"} GB`,
+    `GPU: ${gpu ? `${gpu.name} · ${gpu.vramMb ? gb1(gpu.vramMb) : "?"} GB VRAM · driver ${gpu.driver || "?"}` : "none detected"}`,
+    `Acceleration: ${hwLabel.value?.accel || "—"}`,
+    `Engine: ${st.installed ? `installed · ${st.build || "?"} · ${st.gpu || "?"}` : "not installed"}`,
+    `Tuning keys: machine ${h.machineKey || "?"} · class ${h.classKey || "?"}`,
+    r?.vramTotalMb
+      ? `VRAM: ${r.committedMb || 0} / ${r.vramTotalMb} MB committed · ${r.remainingMb || 0} MB free`
+      : "VRAM: n/a",
+    `Loaded models: ${
+      r?.models?.length
+        ? r.models.map((m) => `${m.id} (${m.status}${m.vramMb ? ` · ${m.vramMb} MB` : ""}${m.nCtx ? ` · ctx ${m.nCtx}` : ""})`).join(", ")
+        : "none"
+    }`,
+  ];
+  return lines.join("\n");
+}
+async function copyDebugInfo() {
+  try {
+    await navigator.clipboard.writeText(debugInfoText());
+    debugCopied.value = true;
+    setTimeout(() => { debugCopied.value = false; }, 1500);
+  } catch {
+    pushToast({ message: "Couldn't reach the clipboard — select and copy from the console instead.", kind: "error" });
+  }
+}
 
 const fmtUsd = (n) => (n ? `$${Number(n).toFixed(n < 1 ? 4 : 2)}` : "$0");
 // The full ledger view (rollup + by-feature + by-provider) from /v1/ai-usage —
@@ -182,6 +234,7 @@ async function checkHardwareChange() {
 
 onMounted(() => {
   loadAll();
+  startResPoll(); // the strip's live VRAM stat + the debug snapshot's resident set
   refreshEngine(); // the Built-in row's Install/Update/Uninstall state
   checkForUpdate(); // A5 — policy-gated (Off = silent); notify surfaces a line, never auto-applies
   checkHardwareChange(); // Task E — gpu/vram change → one dismissible toast
@@ -199,6 +252,13 @@ onMounted(() => {
       <div class="lu-hwstat"><span class="lu-hwstat-k">Memory</span><span class="lu-hwstat-v">{{ hwLabel.ram }}</span></div>
       <div class="lu-hwstat"><span class="lu-hwstat-k">GPU</span><span class="lu-hwstat-v">{{ hwLabel.gpu }}<span v-if="hwLabel.vram" class="lu-hwstat-sub"> · {{ hwLabel.vram }} VRAM</span></span></div>
       <div class="lu-hwstat"><span class="lu-hwstat-k">Acceleration</span><span class="lu-hwstat-v">{{ hwLabel.accel }}</span></div>
+      <!-- Live measured VRAM (user, 2026-07-07) — the resident ledger, polled; hidden on
+           a no-GPU box. The Copy button snapshots the whole picture (hardware · tuning
+           keys · engine build · loaded models) as one pasteable debug block. -->
+      <div v-if="vramLine" class="lu-hwstat"><span class="lu-hwstat-k">VRAM used</span><span class="lu-hwstat-v">{{ vramLine }}</span></div>
+      <UiButton intent="ghost" size="small" class="lu-hwcopy"
+        title="Copy this machine's AI state — hardware, driver, engine build, tuning keys, VRAM, loaded models — for a bug report"
+        @click="copyDebugInfo">{{ debugCopied ? "Copied ✓" : "Copy debug info" }}</UiButton>
     </div>
 
     <nav class="lu-subnav">
@@ -395,6 +455,7 @@ onMounted(() => {
 /* One-line hardware strip — labelled stat blocks (OS · CPU · Memory · GPU · Accel),
    stacked label-over-value, in a wrapping row (matches JV's settings strip). */
 .lu-hwstrip { display: flex; flex-wrap: wrap; gap: 8px 40px; align-items: baseline; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; margin-top: 12px; }
+.lu-hwcopy { margin-left: auto; align-self: center; }
 .lu-hwstat { display: flex; flex-direction: column; gap: 2px; }
 .lu-hwstat-k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
 .lu-hwstat-v { font-size: 13.5px; font-weight: 600; color: var(--ink); }

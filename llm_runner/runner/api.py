@@ -15,7 +15,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from . import fit
-from .hardware import detect, max_vram_mb
+from .hardware import class_key, detect, machine_key, max_vram_mb
 from .lifecycle import get_service
 from .models import is_cached
 from .process import Overrides
@@ -60,14 +60,25 @@ async def get_config() -> RunnerConfig:
     return get_service().config()
 
 
+class HardwareWithKeys(HardwareInfo):
+    """HardwareInfo + the two DERIVED tuning identities (2026-07-07, the debug ask):
+    `machineKey` is what `hardware_switches`/`model_tunes` are stored under and
+    `classKey` is what the seeded/editable `class_tunes` layer matches on — served
+    here so a debug surface can explain exactly which tune layers apply to this box."""
+
+    machine_key: str = ""
+    class_key: str = ""
+
+
 @router.get(
     "/v1/llm-runner/hardware",
-    response_model=HardwareInfo,
+    response_model=HardwareWithKeys,
     response_model_by_alias=True,
-    summary="Detected hardware (platform, GPU, driver, RAM, runtimes)",
+    summary="Detected hardware (platform, GPU, driver, RAM, runtimes) + the tuning keys",
 )
-async def get_hardware() -> HardwareInfo:
-    return detect()
+async def get_hardware() -> HardwareWithKeys:
+    hw = detect()
+    return HardwareWithKeys(**hw.model_dump(), machine_key=machine_key(hw), class_key=class_key(hw))
 
 
 @router.get(

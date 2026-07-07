@@ -73,29 +73,30 @@ const hasAny = computed(() => filtered.value.length > 0);
 // One render list, TWO sections (option C, user 2026-07-06): "Chat & writing models" then
 // "Embedding models" — the app needs ONE of each, and embeds no longer interleave with chat
 // models in the benchmark sort. Section-header + doesn't-fit-divider sentinels ride the same
-// list so the row markup stays written ONCE; every sentinel carries a unique __key (two
-// sections would otherwise collide on the old 'divider' key).
-function fitSplit(list, section) {
-  const fit = sortModels(list.filter((m) => FIT_RUNNABLE.has(m.fit)));
-  const rest = sortModels(list.filter((m) => !FIT_RUNNABLE.has(m.fit)));
-  const rows = [...fit];
-  if (rest.length) {
-    if (fit.length) rows.push({ __divider: true, count: rest.length, __key: `divider-${section}` });
-    rows.push(...rest);
-  }
-  return rows;
-}
+// list so the row markup stays written ONCE. Non-fit placement (user, 2026-07-07: "the
+// doesn't fit should be below the embed"): BOTH kinds' non-fitting models sink to ONE
+// group at the very bottom, under the Embedding section, behind a single divider — the
+// sections above show only what this machine can actually run.
 const chatRows = computed(() => filtered.value.filter((m) => !embeddingOf(m)));
 const embedRows = computed(() => filtered.value.filter((m) => embeddingOf(m)));
 const groupedRows = computed(() => {
+  const fits = (list) => sortModels(list.filter((m) => FIT_RUNNABLE.has(m.fit)));
+  const rest = (list) => sortModels(list.filter((m) => !FIT_RUNNABLE.has(m.fit)));
   const rows = [];
-  if (chatRows.value.length) {
+  const chatFit = fits(chatRows.value);
+  const embedFit = fits(embedRows.value);
+  if (chatFit.length) {
     rows.push({ __section: "Chat & writing models", hint: "write prose, chat, extract — pick one as your General model", __key: "sec-chat" });
-    rows.push(...fitSplit(chatRows.value, "chat"));
+    rows.push(...chatFit);
   }
-  if (embedRows.value.length) {
+  if (embedFit.length) {
     rows.push({ __section: "Embedding models", hint: "power semantic search + grounded chat — pick one as your Embedding model", __key: "sec-embed" });
-    rows.push(...fitSplit(embedRows.value, "embed"));
+    rows.push(...embedFit);
+  }
+  const noFit = [...rest(chatRows.value), ...rest(embedRows.value)]; // chat first, then embeds
+  if (noFit.length) {
+    rows.push({ __divider: true, count: noFit.length, __key: "divider-nofit" });
+    rows.push(...noFit);
   }
   return rows;
 });
@@ -130,7 +131,28 @@ async function unloadModel(m) {
 }
 async function makeEmbedding(m) {
   applyingId.value = m.id;
-  try { await setAsEmbedding(LOCAL_RUNNER_ID, m.id); } catch (e) { error.value = e.message || "Couldn't set the embedding."; }
+  try {
+    await setAsEmbedding(LOCAL_RUNNER_ID, m.id);
+    // "Load as default" parity for embeds (user, 2026-07-07: "the embed … should have
+    // same as regular model Load as default and unload"): loading rides the SANCTIONED
+    // co-resident path — ensure-embedding downloads-if-needed + loads + PINS the embed
+    // we just configured, alongside the chat model (a plain /load could contend with
+    // the chat default for the primary slot; this endpoint exists for exactly this).
+    await request("/v1/llm-runner/ensure-embedding", { method: "POST" });
+    refresh();
+  } catch (e) { error.value = e.message || "Couldn't set the embedding."; }
+  finally { applyingId.value = ""; }
+}
+// The strip cards' Load — warm a model that's already the assigned default/embedding
+// without re-writing the assignment (the row buttons assign AND load; a card with the
+// slot already set only needs the load half). Same writers, same poller.
+async function loadAssigned(m, isEmbed) {
+  applyingId.value = m.id;
+  try {
+    if (isEmbed) await request("/v1/llm-runner/ensure-embedding", { method: "POST" });
+    else await request("/v1/llm-runner/load", { method: "POST", body: { modelId: m.id } });
+    refresh();
+  } catch (e) { error.value = e.message || "Couldn't load."; }
   finally { applyingId.value = ""; }
 }
 
@@ -156,23 +178,41 @@ function mtpOf(m) { return mtpById.value[m.id] === true; }
 // Model catalog meta (license / use-limited / description — the fit-shaped /models view
 // doesn't carry them). Shared with QuickSetup through the useCatalogMeta singleton (one
 // source, no drift); loadCatalogMeta (its refresh) re-pulls after a catalog edit.
-const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, classPicks, refresh: loadCatalogMeta } = useCatalogMeta();
+const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, hfRepoById, classPicks, refresh: loadCatalogMeta } = useCatalogMeta();
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
 function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
+// The model's Hugging Face card URL (user, 2026-07-07: "open full detail in there web
+// browser") — huggingface.co/<repo>; "" (no repo → no link) for hand-added local rows.
+function cardUrlOf(m) { const repo = hfRepoById.value[m.id] || ""; return repo ? `https://huggingface.co/${repo}` : ""; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
 function poolingOf(m) { return poolingById.value[m.id] || ""; }
 function qualityOf(m) { return qualityById.value[m.id] ?? 100; }
 function embeddingOf(m) { return embeddingById.value[m.id] === true; }
 
-// ── The "Your setup" strip (option C) + the "Recommended for this PC" badge ──
+// ── The "Your setup" strip (option C → the PAIR'S CONTROL PANEL, 2026-07-07) ──
 // The strip states the two-slot requirement (one General model + one Embedding model)
 // off the SAME shared applied state the row badges use (modelApply); the badge calls
 // the SAME composed rule as QuickSetup (recommendedModelId, modelPick.js) — one source,
 // so the wizard and the badge can never disagree about "best for this machine".
+// 2026-07-07 (user took the recommendation): each card also shows the slot model's LIVE
+// load state + its own Load/Unload — the one place a manual user sees that the app runs
+// TWO models side by side and manages both. Same writers as the rows (no drift); the
+// idle state reads calm ("loads on first use") because loading is automatic on first use.
 const modelById = computed(() => Object.fromEntries(models.value.map((m) => [m.id, m])));
 function nameOf(id) { const m = modelById.value[id]; return m ? m.name || m.id : id; }
 const defaultName = computed(() => (currentDefaultId.value ? nameOf(currentDefaultId.value) : ""));
 const embeddingName = computed(() => (currentEmbeddingId.value ? nameOf(currentEmbeddingId.value) : ""));
+const defaultModel = computed(() => modelById.value[currentDefaultId.value] || null);
+const embeddingModel = computed(() => modelById.value[currentEmbeddingId.value] || null);
+// The slot's live state, folded to the card vocabulary. `null` = no model to show.
+function slotState(m) {
+  if (!m) return null;
+  if (m.status === "loaded") return "loaded";
+  if (m.status === "loading") return "working";
+  if (m.status === "error") return "error";
+  if (m.status === "disk") return "idle";       // downloaded — loads on first use
+  return "missing";                              // not downloaded yet
+}
 // Dead-reference honesty (round-2 item 3, validate-at-read): the applied id can point
 // at a model that was DELETED from the catalog — say so instead of rendering the dead
 // id as if it were fine (the user's repro: deleted all models, the UI still claimed a
@@ -250,7 +290,7 @@ const draftOptions = computed(() => [
     label: `${d.path}${d.quant ? ` · ${d.quant}` : ""}${d.sizeMb ? ` · ${gb(d.sizeMb)} GB` : ""}`,
   })),
 ]);
-async function loadRepoFiles() {
+async function loadRepoFiles({ autopick = true } = {}) {
   const e = editing.value;
   if (!e?.hfRepo?.trim()) return;
   listingErr.value = "";
@@ -260,6 +300,10 @@ async function loadRepoFiles() {
     listing.value = r;
     // free-typed quant not in the listing → stay in custom mode
     quantCustom.value = !!(e.quant && !r.quants.some((q) => q.quant === e.quant));
+    // The pre-picks run only on an EXPLICIT Read-from-link (autopick) — the Edit-open
+    // background listing must never mutate the draft: a user who deliberately cleared
+    // the draft and saved would get it silently re-picked on every reopen.
+    if (!autopick) return;
     // recommended-for-box default when no quant chosen yet (v1 heuristic: the
     // largest quant whose file size fits the detected VRAM; else the smallest —
     // size ≠ VRAM exactly, but it's an honest pre-pick the user can change).
@@ -288,6 +332,10 @@ function onDraftPick(path) {
   e.mtpDraftFile = path || "";
   const d = (listing.value?.drafts || []).find((x) => x.path === path);
   e.mtpDraftQuant = d?.quant || "";
+  // "Setting it … auto-enables MTP" (the form's own promise — a ROUND-8 Task-D
+  // leftover the user's screenshots caught unbuilt): a picked draft checks MTP;
+  // clearing falls back to the header truth from the last inspect (false if none).
+  e.mtp = path ? true : !!inspected.value?.headerMtp;
 }
 
 async function inspectLink() {
@@ -304,13 +352,18 @@ async function inspectLink() {
     // File-derived scalar facts flow into the draft (persisted by the Save PUT);
     // the sampler set persists from the local file at download (identify → set_derived).
     e.type = r.type || "dense";
-    e.mtp = !!r.mtp;
+    // The resolver's OR-gate (the user's screenshot bug, 2026-07-07): a Gemma-style
+    // model keeps MTP in an EXTERNAL draft file — its MAIN header has no MTP marker,
+    // so a bare `!!r.mtp` UNCHECKED the box while the draft stayed selected right
+    // above it. header-mtp OR draft-present, same rule switch_resolve applies.
+    e.mtp = !!r.mtp || !!e.mtpDraftFile;
     e.trainedCtx = r.trainedCtx ?? null;
     if (r.totalParams) e.totalParams = r.totalParams; // file-derived (dense); MoE stays curated
     if (!e.minVramMb && r.estVramMb) e.minVramMb = r.estVramMb;
     inspected.value = {
       architecture: r.architecture || "", experts: r.experts || 0, sizeLabel: r.sizeLabel || "",
       samplers: r.samplers || {}, sizeBytes: r.sizeBytes || 0, estVramMb: r.estVramMb ?? null,
+      headerMtp: !!r.mtp, // the raw header truth — onDraftPick falls back to it on clear
     };
     // B2 (Smart-Add remainder): auto-compose a plain-language description from the
     // just-read facts — ONLY into an EMPTY field. A hand-typed or previously saved
@@ -358,6 +411,13 @@ async function startEdit(m) {
     const row = (cat.rows || []).find((r) => r.id === m.id) || { ...blankModel(), id: m.id, name: m.name };
     editing.value = { ...blankModel(), ...row };
     editingNew.value = false;
+    // Auto-load the repo listing (ROUND-8 Task-D leftover, caught by the user's
+    // screenshots: the seeded form opened with PLAIN text inputs where Read-from-link
+    // shows dropdowns): fire-and-forget so Quant + Draft render as pickers with sizes
+    // on open — no click needed; a failure just leaves the free-type inputs. The
+    // pre-picks are disabled here (autopick:false) — the background load must never
+    // mutate the row; only an explicit Read-from-link pre-picks quant/draft.
+    loadRepoFiles({ autopick: false });
   } catch (e) {
     saveErr.value = e.message || "Couldn't load the model.";
     editing.value = { ...blankModel(), id: m.id, name: m.name }; editingNew.value = false;
@@ -477,8 +537,9 @@ refreshApplied();
 
 <template>
   <div class="lu-mcat">
-    <!-- "Your setup" — the app needs BOTH slots filled: one General model + one Embedding
-         model (Quick Setup fills both automatically; this states it for the manual path). -->
+    <!-- "Your setup" — the pair's CONTROL PANEL: the app runs BOTH slots side by side
+         (one General model + one Embedding model). Each card shows its model's live
+         load state + its own Load/Unload (the same writers as the rows below). -->
     <div class="lu-setup">
       <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !defaultName || defaultGone }">
         <div class="lu-setup-role">General model</div>
@@ -490,19 +551,52 @@ refreshApplied();
               ? "Writes prose, chats, extracts — every task uses it unless you override a task."
               : "Pick one under Chat & writing models below — “Load as default”." }}
         </div>
+        <div v-if="defaultModel && !defaultGone" class="lu-setup-live">
+          <span v-if="slotState(defaultModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
+          <span v-else-if="slotState(defaultModel) === 'working'" class="lu-muted">↓ working…</span>
+          <span v-else-if="slotState(defaultModel) === 'error'" class="lu-error-inline">load failed — see its row below</span>
+          <span v-else-if="slotState(defaultModel) === 'idle'" class="lu-muted">○ loads on first use</span>
+          <span v-else class="lu-muted">not downloaded — see its row below</span>
+          <UiButton v-if="slotState(defaultModel) === 'idle'" intent="secondary" size="small"
+            :loading="applyingId === defaultModel.id"
+            title="Load it into memory now so your first write doesn't pay the load wait"
+            @click="loadAssigned(defaultModel, false)">Load now</UiButton>
+          <UiButton v-else-if="slotState(defaultModel) === 'loaded'" intent="ghost" size="small"
+            :loading="busy === 'unload:' + defaultModel.id"
+            title="Unload from memory — frees VRAM; it loads again on next use"
+            @click="unloadModel(defaultModel)">Unload</UiButton>
+        </div>
       </div>
       <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !embeddingName || embeddingGone }">
         <div class="lu-setup-role">Embedding model</div>
         <div class="lu-setup-val">{{ embeddingGone ? `${currentEmbeddingId} — removed from the catalog` : (embeddingName || "Not set") }}</div>
         <div class="lu-setup-hint">
           {{ embeddingGone
-            ? "Search still points at it, but it's gone — pick a new one below (“Set as embedding”)."
+            ? "Search still points at it, but it's gone — pick a new one below (“Load as default”)."
             : embeddingName
-              ? "Powers semantic search + grounded chat, alongside your general model."
-              : "Pick one under Embedding models below — “Set as embedding”." }}
+              ? "Powers semantic search + grounded chat, alongside your General model."
+              : "Pick one under Embedding models below — “Load as default”." }}
+        </div>
+        <div v-if="embeddingModel && !embeddingGone" class="lu-setup-live">
+          <span v-if="slotState(embeddingModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
+          <span v-else-if="slotState(embeddingModel) === 'working'" class="lu-muted">↓ working…</span>
+          <span v-else-if="slotState(embeddingModel) === 'error'" class="lu-error-inline">load failed — see its row below</span>
+          <span v-else-if="slotState(embeddingModel) === 'idle'" class="lu-muted">○ loads on first search</span>
+          <span v-else class="lu-muted">not downloaded — see its row below</span>
+          <UiButton v-if="slotState(embeddingModel) === 'idle'" intent="secondary" size="small"
+            :loading="applyingId === embeddingModel.id"
+            title="Load it into memory now, alongside your chat model"
+            @click="loadAssigned(embeddingModel, true)">Load now</UiButton>
+          <UiButton v-else-if="slotState(embeddingModel) === 'loaded'" intent="ghost" size="small"
+            :loading="busy === 'unload:' + embeddingModel.id"
+            title="Unload from memory — frees VRAM; it loads again on the next search"
+            @click="unloadModel(embeddingModel)">Unload</UiButton>
         </div>
       </div>
     </div>
+    <p class="lu-setup-cap lu-muted">The app runs these two side by side — the General model
+      writes and chats; the Embedding model powers search. Each loads automatically the first
+      time it's needed; Load now just skips that first wait.</p>
 
     <div class="lu-mcat-bar">
       <UiInput v-model="query" class="lu-mcat-search" placeholder="Search models…" />
@@ -539,6 +633,8 @@ refreshApplied();
                   Recommended for this PC</UiTag>
                 <div class="lu-mid">{{ m.id }}</div>
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
+                <a v-if="cardUrlOf(m)" class="lu-mlink lu-mcardlink" :href="cardUrlOf(m)"
+                  target="_blank" rel="noopener" title="Open the model's Hugging Face page — full details, files, license">Model card ↗</a>
               </td>
               <td class="lu-mm lu-mtype">
                 <!-- Params column REPLACED (Plan B — the count already rides name/description).
@@ -579,10 +675,16 @@ refreshApplied();
                 <span v-if="m.status === 'loading'" class="lu-muted lu-mwait">working…</span>
                 <UiButton v-else-if="m.status === 'available'" intent="primary" size="small"
                   :loading="loadingId === m.id" @click="download(m.id)">Download</UiButton>
+                <!-- Load-state on the row stays with the STATUS column's "● loaded" pill +
+                     the ghost Unload above (user, 2026-07-07 follow-up: "i forgot you have
+                     status of loaded and button already says load as default, but we do
+                     need unload button" — the label stays plain; Unload renders on any
+                     loaded row, incl. the default). -->
                 <UiButton v-else-if="embeddingOf(m)" intent="secondary" size="small"
                   :disabled="m.id === currentEmbeddingId" :loading="applyingId === m.id"
-                  title="Use this as the embedding model (semantic search + grounded chat)" @click="makeEmbedding(m)">
-                  {{ m.id === currentEmbeddingId ? "Embedding ✓" : "Set as embedding" }}
+                  title="Make this the embedding model (semantic search + grounded chat) and load it now, alongside your chat model"
+                  @click="makeEmbedding(m)">
+                  {{ m.id === currentEmbeddingId ? "Default ✓" : "Load as default" }}
                 </UiButton>
                 <UiButton v-else intent="primary" size="small"
                   :disabled="m.id === currentDefaultId" :loading="applyingId === m.id"
@@ -611,7 +713,13 @@ refreshApplied();
         <label v-if="editingNew" class="lu-mm-l">Id <span class="lu-muted">blank → derived from name</span><UiInput v-model="editing.id" placeholder="qwen3-14b-q4_k_m" /></label>
 
         <div class="lu-mm-note"><b>Download source</b> — where the GGUF is pulled from. The one thing you must set; the rest is read from the model itself.</div>
-        <label class="lu-mm-l">Hugging Face repo<UiInput v-model="editing.hfRepo" placeholder="unsloth/Qwen3-14B-GGUF" /></label>
+        <label class="lu-mm-l">
+          <span class="lu-mm-lrow">Hugging Face repo
+            <a v-if="editing.hfRepo?.trim()" class="lu-mlink" :href="`https://huggingface.co/${editing.hfRepo.trim()}`"
+              target="_blank" rel="noopener" title="Open the model card in your browser — full details, files, license">model card ↗</a>
+          </span>
+          <UiInput v-model="editing.hfRepo" placeholder="unsloth/Qwen3-14B-GGUF" />
+        </label>
         <label class="lu-mm-l">Quant
           <template v-if="quantOptions.length > 1 && !quantCustom">
             <UiSelect :model-value="editing.quant" :options="quantOptions"
@@ -739,6 +847,14 @@ refreshApplied();
 
 .lu-mcat-foot { font-size: 11px; margin-top: 7px; }
 .lu-mlink { color: var(--accent-ink, var(--accent)); }
+.lu-mcardlink { display: inline-block; font-size: 10.5px; font-weight: 400; margin-top: 3px; }
+.lu-mm-lrow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.lu-mm-lrow .lu-mlink { font-weight: 400; font-size: 11px; }
+
+/* The strip cards' live state + Load/Unload row + the pair caption (2026-07-07). */
+.lu-setup-live { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 11.5px; }
+.lu-error-inline { color: var(--danger); font-size: 11px; }
+.lu-setup-cap { font-size: 11.5px; line-height: 1.5; margin: 8px 0 0; }
 
 /* "Your setup" strip — the two required slots (General + Embedding), status-only cards. */
 .lu-setup {

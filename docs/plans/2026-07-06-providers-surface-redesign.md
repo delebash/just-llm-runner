@@ -802,3 +802,85 @@ Task #117 (user, verbatim): rename "Set as default" → "Load as default" + an U
 way to free VRAM today short of loading something else). Task #113 (the hardware-change
 notification) still pending from ROUND 7/8. Fix 2 (surface the resolved-but-unsaved knobs in
 the Tune grid) and Tasks B-remainder/C/E per ROUND 8. The wizard-probe rework (above).
+
+## ROUND 10 — SHIPPED 2026-07-07 (the engine install/update batch: update replaces the old build · Reinstall ≠ Update available · one Installing… button · no CPU download)
+
+**STATUS: SHIPPED (this commit). The user's batch, verbatim (filed as harness tasks #118/#119/
+#120 on "add to tasks", then built on the literal "go"): "the engine update should delete the
+old folder and download the new, the update button should be reinstall this is different thena
+update avaible, before you delete old folder make sure you copy model.ini over to new install,
+when i install engine the update button has progress this is weierd it should be visible untill
+engine is installed, when you install a new engine for some reason you are downloading cpu
+version when i have nvidia card, we do not even use cpu version". Verification posture
+unchanged (user, standing this session: "dont run tests"): ruff clean + build:vite clean as the
+compile/lint gates; pytest NOT run — but the three tests that ENCODE the old behaviors were
+RE-SEATED to the new truths in the same change (read-verified), so the suite stays honest.
+Session note: the container/worker restarted repeatedly again mid-go — the harness's file
+read-tracking was cleared twice (edits refused until the regions were re-read), and the user
+paused once for a state confirmation ("stop confirm you are good with session") — state was
+verified against disk (HEADs + clean trees) before resuming.**
+
+### What shipped (runner, this commit)
+
+1. **An engine UPDATE now REPLACES the old build (#118 — `lifecycle.py`, `api.py`,
+   `useEngine.js`).** `install_engine`/`_run_install` gain `replace_build` — the build the
+   update SUPERSEDES. After the new build fully installs, the old build dir is deleted so
+   superseded builds stop accumulating (before this, `updateToLatest` PUT the new pin +
+   force-installed it and the old folder simply stayed — gigabytes per bump). BEFORE the
+   delete, a `models.ini` found INSIDE the old build dir is copied into the new one
+   (`shutil.copy2`) — that covers the user's hand-maintained manual-router layout
+   (`…/llamacpp/<build>/models.ini`); the APP's own ini was verified to live at the SIBLING
+   path `llamacpp/models.ini` (lifecycle `_emit_ini`, regenerated from the DB on every router
+   start), so the app flow never depended on the old folder either way. Cleanup is
+   best-effort (never fails a completed install) and guarded by `replace_build !=
+   pinned_build` so a plain reinstall can never delete what it just installed. The wire:
+   `POST /v1/llm-runner/engine/install` accepts `replaceBuild`; `useEngine.updateToLatest`
+   passes the pre-update build (`updateInfo.current`, falling back to the status build).
+   NEW TEST (read-verified only): `test_run_install_replace_build_carries_ini_and_deletes_old`
+   — ini carried, old dir gone, same-pin guard keeps the fresh install.
+
+2. **"Reinstall" ≠ "Update available" (#118 — `AiModelsArea.vue`).** The no-update-available
+   button (force re-download of the pinned build — the repair affordance) is relabeled
+   **"Reinstall"** per the user's words ("the update button should be reinstall this is
+   different thena update avaible"); "Update available" (info intent) keeps the update
+   semantics, its hover now also saying the old build folder is removed after the new one
+   installs. This resolves ROUND 9's flagged minimal-interpretation hold-over (the plain
+   button had kept the old "Update" name).
+
+3. **One "Installing…" button until the install completes (#119 — `AiModelsArea.vue`).**
+   Root cause verified: `engine_status().installed` = exe-present-on-disk, and the exe lands
+   EARLY in the install (zip unpacked) while `_engine_state.status` stays "installing"
+   through the cudart companion + fallback legs — so mid-install the cluster flipped from
+   "Install engine" to Uninstall + a SPINNING Update ("this is weierd"). Now: while
+   `engInstalling`, the cluster renders exactly one loading **"Installing…"** button (no
+   click target); "Install engine" shows only when not installed and idle; Uninstall/Update
+   appear only at the terminal state. The shared row progress bar continues to render below,
+   unchanged.
+
+4. **No CPU build download (#120 — `lifecycle.py`, A3-REVISED).** `_run_install` no longer
+   pre-downloads the CPU build as a "universal fallback" — on the user's NVIDIA box that was
+   a multi-hundred-MB download for a binary the spawn never uses ("we do not even use cpu
+   version"). The A3 spawn retry chain is UNCHANGED in code and simply degrades to fewer
+   local candidates (it already tolerated an absent extra — the failed-extra path logs
+   "spawn chain will have fewer candidates"). The ONE kept extra is Vulkan on a ROCm pick
+   (AMD's rocm→vulkan fallback is real and cheap). DECISION RECORD: this consciously reverses
+   the A3 "plant the CPU last resort" download decision (2026-07-05) at the user's direction;
+   if a broken CUDA spawn ever needs the CPU rung, it is one Reinstall away rather than
+   pre-planted. Tests re-seated: `test_run_install_plants_fallback_builds` now asserts
+   rocm → `[None, "vulkan"]` and cuda → `[None]` (no extras); the best-effort test re-seated
+   on the vulkan extra (cpu no longer exists to fail).
+
+### Box checks (the user's on-box verification for this round)
+
+(a) With b9870 installed and b9892 offered: click "Update available" — after it finishes,
+`…/llamacpp/` should contain ONLY the new build dir (+ `logs/` + the sibling `models.ini`),
+and a `models.ini` that lived inside the old build dir should now sit inside the new one.
+(b) Click Reinstall — it re-downloads the pinned build and deletes nothing else. (c) During
+any install, the row shows a single "Installing…" button + the progress bar until it
+finishes — no Uninstall/Update flicker mid-install. (d) A fresh engine install on the 2070S
+downloads the CUDA build ONLY — watch the detail line: no "fallback build (cpu)" phase.
+
+### Still filed, not built
+
+#117 ("Load as default" + Unload) · #113 (hardware-change notification) · Fix 2 (Tune-grid
+resolved knobs) · Tasks B-remainder/C/E (ROUND 8) · the wizard-probe rework (ROUND 9).

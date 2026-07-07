@@ -422,17 +422,21 @@ class RunnerService:
             **self._engine_state,
         }
 
-    def install_engine(self, force: bool = False) -> dict:
+    def install_engine(self, force: bool = False, replace_build: str = "") -> dict:
         """Download + unpack the llama.cpp engine for this box (its OWN step, not
         folded into a model load). Idempotent unless `force`. Runs on a dedicated
-        thread so it can't clobber an in-flight model load."""
+        thread so it can't clobber an in-flight model load. `replace_build` (user,
+        2026-07-07: "the engine update should delete the old folder"): the OLD
+        pinned build this install SUPERSEDES — after the new build installs, the
+        old build dir is deleted, carrying over a hand-maintained models.ini found
+        inside it first; "" = a plain install/reinstall, nothing to clean."""
         with self._lock:
             if self._engine_state["status"] == "installing":
                 return dict(self._engine_state)
             self._engine_state = {"status": "installing", "detail": "llama.cpp engine",
                                   "error": "", "downloaded": 0, "total": 0}
             self._engine_thread = threading.Thread(
-                target=self._run_install, args=(force,), daemon=True,
+                target=self._run_install, args=(force, replace_build), daemon=True,
             )
             self._engine_thread.start()
         return dict(self._engine_state)
@@ -753,7 +757,7 @@ class RunnerService:
         ts = time.strftime("%Y%m%d-%H%M%S")
         return self.cache_root / "llamacpp" / "logs" / f"router-{ts}.log"
 
-    def _run_install(self, force: bool) -> None:
+    def _run_install(self, force: bool, replace_build: str = "") -> None:
         try:
             config = self._config_fn()
             hardware = self._hardware_fn()
@@ -767,16 +771,18 @@ class RunnerService:
                 self._engine_state["total"] = total or 0
 
             self._acquire_binary(self.cache_root, config, hardware, on_progress=_progress)
-            # A3: plant the spawn-fallback safety net. The CPU build is the universal
-            # last resort; on a ROCm pick, Vulkan too (the recorded rocm→vulkan→cpu
-            # chain). BEST-EFFORT: a failed extra never fails the install — the
-            # selected build above is the one that gates "installed".
+            # A3-REVISED (user, 2026-07-07: "you are downloading cpu version when i have
+            # nvidia card, we do not even use cpu version"): the CPU build is NO LONGER
+            # pre-downloaded as a universal fallback — a multi-hundred-MB download the
+            # spawn never uses in practice. The A3 spawn retry chain simply degrades to
+            # fewer local candidates (it already tolerates an absent extra). The one
+            # KEPT extra is Vulkan on a ROCm pick (AMD's rocm→vulkan fallback is real).
+            # BEST-EFFORT: a failed extra never fails the install — the selected build
+            # above is the one that gates "installed".
             selected = select_binary(config, hardware)
             extras: list[str] = []
-            if selected is not None and selected.gpu != "cpu":
-                if selected.gpu == "rocm":
-                    extras.append("vulkan")
-                extras.append("cpu")
+            if selected is not None and selected.gpu == "rocm":
+                extras.append("vulkan")
             for gpu in extras:
                 try:
                     self._engine_state["detail"] = f"fallback build ({gpu})"
@@ -785,6 +791,26 @@ class RunnerService:
                 except Exception:  # noqa: BLE001 — the net is a bonus, never a blocker
                     log.warning("fallback build %s failed to install (spawn chain will "
                                 "have fewer candidates)", gpu, exc_info=True)
+            # An UPDATE replaces the old build (user, 2026-07-07): once the new build is
+            # fully in place, carry over a hand-maintained models.ini living INSIDE the
+            # old build dir (the manual-router layout; the app's OWN ini is the sibling
+            # llamacpp/models.ini, regenerated from the DB, untouched by this), then
+            # delete the old folder so superseded builds stop accumulating. BEST-EFFORT:
+            # cleanup never fails a completed install. The != guard keeps a plain
+            # reinstall (same pin) from deleting what it just installed.
+            if replace_build and replace_build != config.llamacpp.pinned_build:
+                try:
+                    old_dir = binary_dir(self.cache_root, replace_build)
+                    new_dir = binary_dir(self.cache_root, config.llamacpp.pinned_build)
+                    old_ini = old_dir / "models.ini"
+                    if old_ini.is_file():
+                        self._engine_state["detail"] = "carrying models.ini over"
+                        shutil.copy2(old_ini, new_dir / "models.ini")
+                    if old_dir.exists():
+                        self._engine_state["detail"] = f"removing old build {replace_build}"
+                        shutil.rmtree(old_dir, ignore_errors=True)
+                except Exception:  # noqa: BLE001 — cleanup is best-effort, never install-fatal
+                    log.warning("old engine build %s cleanup failed", replace_build, exc_info=True)
             self._engine_state = {"status": "installed", "detail": "", "error": "",
                                   "downloaded": 0, "total": 0}
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state

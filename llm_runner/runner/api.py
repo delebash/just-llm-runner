@@ -248,7 +248,11 @@ async def engine_status() -> dict:
 @router.post("/v1/llm-runner/engine/install", summary="Download + install the llama.cpp engine (its own step)")
 async def engine_install(body: dict | None = None) -> dict:
     force = bool((body or {}).get("force"))
-    return get_service().install_engine(force=force)
+    # An UPDATE passes the build it supersedes (user, 2026-07-07: "the engine update
+    # should delete the old folder") — the service removes that old build dir after
+    # the new one installs, carrying over a models.ini found inside it first.
+    replace_build = str((body or {}).get("replaceBuild") or "")
+    return get_service().install_engine(force=force, replace_build=replace_build)
 
 
 @router.get("/v1/llm-runner/engine/log", summary="Tail the most recent llama-server spawn log")

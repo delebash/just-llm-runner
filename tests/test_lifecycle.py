@@ -1236,8 +1236,9 @@ def test_passive_section_strips_spec_when_draft_not_cached(tmp_path):
 
 
 def test_run_install_plants_fallback_builds(tmp_path):
-    # A3: the engine install plants the spawn-chain safety net — selected build
-    # first (gpu=None), then vulkan (because the pick is rocm), then cpu.
+    # A3-REVISED (user, 2026-07-07: "we do not even use cpu version"): the CPU build
+    # is NO LONGER pre-downloaded. The one remaining extra is vulkan on a ROCm pick;
+    # a CUDA/NVIDIA pick downloads its selected build ONLY.
     from llm_runner import default_config
 
     calls = []
@@ -1252,31 +1253,75 @@ def test_run_install_plants_fallback_builds(tmp_path):
                         acquire_binary=spy, arbiter=VramArbiter())
     svc.install_engine()
     svc._engine_thread.join(timeout=5)
-    assert calls == [None, "vulkan", "cpu"]
+    assert calls == [None, "vulkan"]  # rocm→vulkan kept; NO cpu download
     assert svc._engine_state["status"] == "installed"
+
+    calls.clear()
+    hw_cuda = HardwareInfo(os="windows", platform="windows", cpu_cores=8, ram_mb=32000,
+                           gpus=[GpuInfo(vendor="NVIDIA", name="RTX 2070 SUPER", vram_mb=8192)],
+                           runtimes={"cuda": True})
+    svc2 = RunnerService(tmp_path, config_fn=default_config, hardware_fn=lambda: hw_cuda,
+                         acquire_binary=spy, arbiter=VramArbiter())
+    svc2.install_engine()
+    svc2._engine_thread.join(timeout=5)
+    assert calls == [None]  # NVIDIA: the selected build only — no extras at all
+    assert svc2._engine_state["status"] == "installed"
 
 
 def test_run_install_extra_failure_is_best_effort(tmp_path):
     # A failed EXTRA never fails the install — the selected build gates "installed".
+    # (Re-seated on the vulkan extra: cpu is no longer downloaded at all.)
     from llm_runner import default_config
 
     calls = []
 
     def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None):
         calls.append(gpu)
-        if gpu == "cpu":
+        if gpu == "vulkan":
             raise RuntimeError("mirror down")
         return tmp_path / "x"
+
+    hw_rocm = HardwareInfo(os="linux", platform="linux", cpu_cores=8, ram_mb=32000,
+                           gpus=[], runtimes={"rocm": True, "vulkan": True})
+    svc = RunnerService(tmp_path, config_fn=default_config, hardware_fn=lambda: hw_rocm,
+                        acquire_binary=spy, arbiter=VramArbiter())
+    svc.install_engine()
+    svc._engine_thread.join(timeout=5)
+    assert calls == [None, "vulkan"]  # the extra was attempted and failed
+    assert svc._engine_state["status"] == "installed"
+
+
+def test_run_install_replace_build_carries_ini_and_deletes_old(tmp_path):
+    # #118 (user, 2026-07-07): an UPDATE replaces the old build — a hand-maintained
+    # models.ini inside the old build dir is carried into the new one, then the old
+    # folder is deleted. A plain reinstall (replace_build == the pin) deletes nothing.
+    from llm_runner import default_config
+
+    cfg = default_config()
+    new_dir = tmp_path / "llamacpp" / cfg.llamacpp.pinned_build
+    old_dir = tmp_path / "llamacpp" / "b0001"
+    old_dir.mkdir(parents=True)
+    (old_dir / "models.ini").write_text("[hand-tuned]\nmodel = x.gguf\n")
+
+    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None):
+        new_dir.mkdir(parents=True, exist_ok=True)
+        return new_dir
 
     hw_cuda = HardwareInfo(os="windows", platform="windows", cpu_cores=8, ram_mb=32000,
                            gpus=[GpuInfo(vendor="NVIDIA", name="RTX 2070 SUPER", vram_mb=8192)],
                            runtimes={"cuda": True})
     svc = RunnerService(tmp_path, config_fn=default_config, hardware_fn=lambda: hw_cuda,
                         acquire_binary=spy, arbiter=VramArbiter())
-    svc.install_engine()
+    svc.install_engine(replace_build="b0001")
     svc._engine_thread.join(timeout=5)
-    assert calls == [None, "cpu"]  # NVIDIA pick → cpu is the only extra
     assert svc._engine_state["status"] == "installed"
+    assert not old_dir.exists()                                   # old folder gone
+    assert (new_dir / "models.ini").read_text().startswith("[hand-tuned]")  # ini carried
+
+    # Same-pin guard: a reinstall passing its own build never deletes the fresh install.
+    svc.install_engine(replace_build=cfg.llamacpp.pinned_build)
+    svc._engine_thread.join(timeout=5)
+    assert new_dir.exists()
 
 
 # ── 1b fit-by-omission: untuned sections omit placement; F4 any-failure fallback ──

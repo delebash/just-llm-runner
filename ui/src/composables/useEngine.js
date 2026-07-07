@@ -124,8 +124,15 @@ async function updateToLatest() {
   try {
     // The deliberate click: write the new pin, then force-reinstall for it. The
     // acquire path verifies the release's asset names (the pin-bump discipline).
+    // An update REPLACES (user, 2026-07-07: "the engine update should delete the
+    // old folder"): the superseded build rides along so the backend deletes its
+    // folder once the new install lands (a hand-maintained models.ini inside it
+    // is carried over first).
+    const previous = updateInfo.value?.current || st.value?.build || "";
     await request("/v1/ai/engine-config", { method: "PUT", body: { pinnedBuild: latest } });
-    await request("/v1/llm-runner/engine/install", { method: "POST", body: { force: true } });
+    await request("/v1/llm-runner/engine/install", {
+      method: "POST", body: { force: true, replaceBuild: previous },
+    });
     updateInfo.value = null;
     await refreshEngine();
   } catch (e) {

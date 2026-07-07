@@ -206,22 +206,29 @@ onMounted(() => {
                 <b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span>
                 <!-- Engine actions sit LEFT, beside the tags (user, 2026-07-07): Install
                      engine / Uninstall engine, and the update button next to Uninstall —
-                     "Update available" (info) when a newer build exists, plain Update
-                     (force-reinstall of the pinned build) otherwise. -->
+                     "Update available" (info) when a newer build exists, "Reinstall"
+                     (re-download the pinned build — a REPAIR, distinct from an update:
+                     the user's words) otherwise. While an install RUNS, one "Installing…"
+                     button holds the slot: the exe lands on disk early, so engInstalled
+                     flips true mid-install and the cluster used to jump to Uninstall +
+                     a spinning Update while the cudart/fallback legs still downloaded
+                     (user: "the update button has progress this is weierd it should be
+                     visible untill engine is installed"). -->
                 <template v-if="p.providerType === 'local-llamacpp'">
-                  <UiButton v-if="!engInstalled" intent="primary" size="small"
-                    :loading="engBusy || engInstalling" @click="engInstall(false)">Install engine</UiButton>
+                  <UiButton v-if="engInstalling" intent="primary" size="small" loading>Installing…</UiButton>
+                  <UiButton v-else-if="!engInstalled" intent="primary" size="small"
+                    :loading="engBusy" @click="engInstall(false)">Install engine</UiButton>
                   <template v-else>
                     <UiButton intent="ghost" size="small" :loading="engBusy"
                       title="Delete the engine binaries — models are kept" @click="engUninstall">Uninstall engine</UiButton>
                     <UiButton v-if="engUpdate?.updateAvailable" intent="info" size="small"
-                      :loading="engBusy || engInstalling"
-                      :title="`Update the engine to ${engUpdate.latest} (you have ${engUpdate.current})`"
+                      :loading="engBusy"
+                      :title="`Update the engine to ${engUpdate.latest} (you have ${engUpdate.current}) — the old build folder is removed after the new one installs`"
                       @click="updateToLatest">Update available</UiButton>
                     <UiButton v-else intent="secondary" size="small"
-                      :loading="engBusy || engInstalling"
+                      :loading="engBusy"
                       title="Re-download the pinned engine build"
-                      @click="engInstall(true)">Update</UiButton>
+                      @click="engInstall(true)">Reinstall</UiButton>
                   </template>
                 </template>
               </div>

@@ -24,6 +24,7 @@ from .feature_samplers_api import make_feature_samplers_router
 from .presets_api import make_presets_router
 from .knob_catalog_api import make_knob_catalog_router
 from .model_catalog_api import make_catalog_router
+from .class_tunes_api import make_class_tunes_router
 from .model_tunes_api import make_model_tunes_router
 from .pricing_api import make_pricing_router
 from .runner_config_api import make_runner_config_router
@@ -159,6 +160,15 @@ def install_llm(
 
         return list_repo_ggufs(repo, revision)
 
+    def _preview_fit(model_id: str) -> dict:
+        # Fix 2 (2026-07-07): the fit-COMPUTED launch values (ngl / n_cpu_moe / ctx)
+        # for a model the resolution layers don't pin — resolved-defaults surfaces
+        # them so the Tune grid never shows an empty box where the launch has a real
+        # value. Lazy import, runner-side service (same pattern as the inspect fn).
+        from ..runner.lifecycle import get_service
+
+        return get_service().preview_fit(model_id)
+
     app.include_router(make_catalog_router(
         stores.get_model_catalog_store,
         class_picks_fn=stores.list_class_picks,
@@ -168,11 +178,16 @@ def install_llm(
         resolve_switches=lambda mid: switch_resolve.resolve_model_switches(mid, _current_hw_key(), _current_class_key()),
         inspect_fn=_inspect_model_from_link,
         list_files_fn=_list_repo_files,
+        preview_fit_fn=_preview_fit,
     ))
     app.include_router(make_pricing_router(stores.get_pricing_store))
     app.include_router(make_runner_config_router(stores.get_runner_config_store))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
     app.include_router(make_model_tunes_router(stores.get_model_tune_store, _current_hw_key))
+    # The editable hardware-class tune library (ROUND 8 Task C, 2026-07-07) — the
+    # class-key twin of the model-tunes router; `_current_class_key` badges +
+    # defaults saves to THIS box's class.
+    app.include_router(make_class_tunes_router(stores.get_class_tune_store, _current_class_key))
     app.include_router(make_feature_samplers_router(stores.get_feature_sampler_store))
 
     # Auto-tune (2026-07-06): the runner drives the measured sweep; the llm layer

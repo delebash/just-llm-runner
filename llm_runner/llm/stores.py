@@ -16,6 +16,7 @@ import re
 import uuid
 
 from . import db
+from .class_tunes_api import ClassTuneConfig, ClassTuneFlag
 from .feature_presets_api import FeaturePreset
 from .feature_samplers_api import FeatureSamplerRow
 from .model_catalog_api import CatalogRow
@@ -958,6 +959,69 @@ class ModelTuneStore:
 _model_tune = ModelTuneStore()
 
 
+class ClassTuneStore:
+    """The seeded + editable per-(model, HARDWARE-CLASS) tune rows (ROUND 8 Task C)
+    — the class-tune library behind /v1/ai/class-tunes. Same verbatim-snapshot
+    semantics as ModelTuneStore (`replace` swaps the (model, class) set wholesale;
+    empty flag names dropped), but LIBRARY-shaped: `list_all` returns every config
+    grouped, `builtIn` = the whole group is untouched seed rows. `replace` writes
+    `built_in=False` — an edited config is the user's (the boot seeder inserts a
+    built-in config only when its (model, class) has NO rows, so it never clobbers
+    an edit; a fully deleted built-in config re-seeds on the next start)."""
+
+    def list_all(self) -> list[ClassTuneConfig]:
+        s = db.session()
+        try:
+            rows = s.query(db.ClassTune).order_by(
+                db.ClassTune.model_id, db.ClassTune.class_key, db.ClassTune.flag_name
+            ).all()
+            groups: dict[tuple[str, str], list[db.ClassTune]] = {}
+            for r in rows:
+                groups.setdefault((r.model_id, r.class_key), []).append(r)
+            return [
+                ClassTuneConfig(
+                    modelId=mid, classKey=ckey,
+                    builtIn=all(r.built_in for r in grp),
+                    rows=[ClassTuneFlag(flagName=r.flag_name, flagValue=r.flag_value) for r in grp],
+                )
+                for (mid, ckey), grp in groups.items()
+            ]
+        finally:
+            s.close()
+
+    def replace(self, model_id: str, class_key: str, rows: list[ClassTuneFlag]) -> None:
+        s = db.session()
+        try:
+            s.query(db.ClassTune).filter(
+                db.ClassTune.model_id == model_id, db.ClassTune.class_key == class_key
+            ).delete()
+            seen: set[str] = set()
+            for r in rows:
+                name = (r.flagName or "").strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                s.add(db.ClassTune(model_id=model_id, class_key=class_key,
+                                   flag_name=name, flag_value=r.flagValue or "",
+                                   built_in=False))
+            s.commit()
+        finally:
+            s.close()
+
+    def delete(self, model_id: str, class_key: str) -> None:
+        s = db.session()
+        try:
+            s.query(db.ClassTune).filter(
+                db.ClassTune.model_id == model_id, db.ClassTune.class_key == class_key
+            ).delete()
+            s.commit()
+        finally:
+            s.close()
+
+
+_class_tune = ClassTuneStore()
+
+
 def get_provider_store() -> ProviderStore: return _provider
 def get_routing_store() -> RoutingStore: return _routing
 def get_feature_preset_store() -> FeaturePresetStore: return _feature_preset
@@ -983,6 +1047,7 @@ def get_task_kind_preset_store() -> TaskKindPresetStore: return _task_kind_prese
 def get_task_kind_store() -> TaskKindStore: return _task_kind
 def get_feature_task_kind_store() -> FeatureTaskKindStore: return _feature_task_kind
 def get_model_tune_store() -> ModelTuneStore: return _model_tune
+def get_class_tune_store() -> ClassTuneStore: return _class_tune
 
 
 def list_knob_catalog() -> list[dict]:

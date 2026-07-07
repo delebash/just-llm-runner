@@ -76,8 +76,11 @@ class AutoTuner:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._cancel = False
+        self._budget_deadline: float | None = None  # optional time box (quick tune)
+        self._budget_hit = False                    # sticky: the cap tripped
+        self._budget_aborted_load = False           # the cap aborted a load IN FLIGHT
         self._state: dict = {"status": "idle", "modelId": "", "detail": "", "error": "",
-                             "trials": [], "best": None, "saved": False}
+                             "trials": [], "best": None, "saved": False, "budgetSeconds": 0}
 
     # ── public surface (endpoint-shaped) ─────────────────────────────────────
 
@@ -94,19 +97,38 @@ class AutoTuner:
                 self._state["detail"] = "stopping…"
         return self.status()
 
-    def start(self, model_id: str, base_switches: dict, *, save_fn=None, save: bool = False) -> dict:
+    def start(self, model_id: str, base_switches: dict, *, save_fn=None, save: bool = False,
+              budget_seconds: float = 0) -> dict:
         with self._lock:
             if self._state["status"] == "running":
                 return {**self._state, "ok": False, "error": "an auto-tune is already running"}
             self._cancel = False
+            # Optional time box (the QuickSetup "~2-min quick tune", 2026-07-07): once
+            # exhausted, the sweep stops scheduling trials and finishes with the best
+            # result so far — checked at the same seams as the cancel flag. 0 = uncapped.
+            budget = max(0.0, float(budget_seconds or 0))
+            self._budget_deadline = (self._now() + budget) if budget else None
+            self._budget_hit = False
+            self._budget_aborted_load = False
             self._state = {"status": "running", "modelId": model_id, "detail": "starting…",
-                           "error": "", "trials": [], "best": None, "saved": False}
+                           "error": "", "trials": [], "best": None, "saved": False,
+                           "budgetSeconds": budget}
             self._thread = threading.Thread(
                 target=self._run, args=(model_id, dict(base_switches or {}), save_fn, save),
                 daemon=True,
             )
             self._thread.start()
         return self.status()
+
+    def _budget_over(self) -> bool:
+        """True once the optional time budget is exhausted. Sticky — the first trip
+        latches `_budget_hit` so every later check (incl. the prune guard) agrees."""
+        if self._budget_hit:
+            return True
+        if self._budget_deadline is not None and self._now() >= self._budget_deadline:
+            self._budget_hit = True
+            return True
+        return False
 
     # ── the sweep ─────────────────────────────────────────────────────────────
 
@@ -138,6 +160,13 @@ class AutoTuner:
             # cance tune … it hangs"). Cheap, lock-free bool read (same as cancelled()).
             if self._cancel:
                 return False, "cancelled"
+            # The time box aborts an in-flight load the same way — otherwise a slow
+            # trial load could run a "~2-min" quick tune out to the 240s cap. The
+            # aborted-load flag tells the finish path to tear down + restore (the
+            # router would otherwise keep chewing the trial's switches after done).
+            if self._budget_over():
+                self._budget_aborted_load = True
+                return False, "time budget reached"
             st = svc.status()
             if st.get("modelId") == model_id and st.get("status") == "running":
                 return True, ""
@@ -204,9 +233,10 @@ class AutoTuner:
         except Exception as exc:  # noqa: BLE001 — a broken trial must not kill the sweep
             trial["error"] = str(exc)
         self._push_trial(trial)
-        # A CANCELLED trial is NOT a fit failure — never let it poison the monotonic
-        # n-cpu-moe prune (below-a-failed-value skip); the sweep is stopping anyway.
-        if not trial["ok"] and cand_ncmoe is not None and not self._cancel:
+        # A CANCELLED or BUDGET-STOPPED trial is NOT a fit failure — never let it
+        # poison the monotonic n-cpu-moe prune (below-a-failed-value skip); the
+        # sweep is stopping anyway.
+        if not trial["ok"] and cand_ncmoe is not None and not self._cancel and not self._budget_hit:
             failed_ncmoe.append(cand_ncmoe)
         return trial
 
@@ -221,6 +251,22 @@ class AutoTuner:
         svc = self._service_fn()
         failed_ncmoe: list[int] = []  # MoE VRAM need is monotonic: below a failed value never fits
         try:
+            def budget_restore() -> None:
+                # The time box aborted a trial load IN FLIGHT — the router is still
+                # chewing that trial's switches. Tear down + restore the applied model
+                # with its DB-resolved switches (the ROUND-9 cancel teardown) so a
+                # finished quick tune never leaves a dangling trial load serving. A cap
+                # that landed at a clean trial boundary skips this and leaves the last
+                # trial resident, exactly like an uncapped run's normal finish.
+                try:
+                    svc.stop()
+                except Exception:  # noqa: BLE001 — teardown is best-effort
+                    log.warning("auto-tune budget stop failed", exc_info=True)
+                try:
+                    svc.load(model_id)
+                except Exception:  # noqa: BLE001 — restore is best-effort
+                    log.warning("auto-tune budget restore load failed", exc_info=True)
+
             def cancelled() -> bool:
                 if self._cancel:
                     # Free the VRAM the in-flight/last trial holds — otherwise the model
@@ -248,13 +294,17 @@ class AutoTuner:
             self._try(svc, model_id, "baseline", _merged(base, {}), failed_ncmoe)
             if cancelled():
                 return
-            if _int_of(base, "batch_size") != 512 or _int_of(base, "ubatch_size") != 512:
+            # Every phase below gates on the time box: once it trips, no NEW trial is
+            # scheduled and the run falls through to the winner-pick with what it has.
+            if not self._budget_over() and (
+                _int_of(base, "batch_size") != 512 or _int_of(base, "ubatch_size") != 512
+            ):
                 self._try(svc, model_id, "batch 512/512", _merged(base, batch512), failed_ncmoe)
                 if cancelled():
                     return
 
             pv = svc.preview_fit(model_id, base)
-            if pv.get("ok") and pv.get("isMoe"):
+            if pv.get("ok") and pv.get("isMoe") and not self._budget_over():
                 block = int(pv.get("blockCount") or 0)
                 anchor = _int_of(base, "n_cpu_moe")
                 anchor_untried = anchor is None  # untuned: the baseline was FIT-placed, not the anchor
@@ -265,7 +315,7 @@ class AutoTuner:
 
                 def walk_try(n: int) -> bool:
                     nonlocal budget
-                    if budget <= 0 or n in results or not (0 <= n <= block):
+                    if budget <= 0 or self._budget_over() or n in results or not (0 <= n <= block):
                         return False
                     budget -= 1
                     t = self._try(svc, model_id, f"n-cpu-moe {n}",
@@ -297,7 +347,7 @@ class AutoTuner:
                     cur = nxt
 
             alt = self._spec_alt(base)
-            if alt is not None:
+            if alt is not None and not self._budget_over():
                 self._try(svc, model_id, f"spec-n {alt}",
                           _merged(base, {"spec_n_max": str(alt), **batch512}), failed_ncmoe)
                 if cancelled():
@@ -305,6 +355,10 @@ class AutoTuner:
 
             best = self._pick_winner(self.status()["trials"])
             if best is None:
+                # (the cap can trip before ANY trial succeeded — restore, then the
+                # honest error state)
+                if self._budget_aborted_load:
+                    budget_restore()
                 self._set(status="error", error="no trial succeeded", detail="")
                 return
             saved = False
@@ -319,6 +373,12 @@ class AutoTuner:
                 except Exception as exc:  # noqa: BLE001 — a save failure must not void the sweep
                     log.warning("auto-tune save failed", exc_info=True)
                     self._set(error=f"tuned OK but save failed: {exc}")
+            if self._budget_hit:
+                # Restore runs AFTER the save above, so a just-saved tune is already
+                # in the resolution the restore load resolves with.
+                if self._budget_aborted_load:
+                    budget_restore()
+                detail = f"time budget reached — {detail or 'kept the best result so far'}"
             self._set(status="done", detail=detail, best=best, saved=saved)
         except Exception as exc:  # noqa: BLE001 — job boundary
             log.exception("auto-tune failed")
@@ -348,8 +408,15 @@ def make_autotune_router(resolve_switches, save_tune, *, tuner_fn=get_tuner) -> 
         if not model_id:
             raise HTTPException(status_code=400, detail="modelId required")
         save = bool((body or {}).get("save") or False)
+        # Optional time box (seconds) — the QuickSetup quick tune passes ~120; the
+        # full sweep omits it. Bad input → uncapped (never a 400 for an enrichment).
+        try:
+            budget_seconds = float((body or {}).get("budgetSeconds") or 0)
+        except (TypeError, ValueError):
+            budget_seconds = 0
         base = resolve_switches(model_id) or {}
-        return tuner_fn().start(model_id, base, save_fn=save_tune, save=save)
+        return tuner_fn().start(model_id, base, save_fn=save_tune, save=save,
+                                budget_seconds=budget_seconds)
 
     @r.get("/v1/llm-runner/auto-tune", summary="Auto-tune job status + trials + winner")
     async def status() -> dict:

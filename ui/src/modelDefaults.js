@@ -11,14 +11,18 @@
 import { request } from "./client.js";
 
 // Full result: the baseline switch rows + the recommended sampler rows + `mtpCapable`
-// (the Phase-2 GGUF `mtp` flag → the Speculative-decode opt-in hint). ONE GET, ONE
-// source, no drift between the switch grid and the sampler grid.
+// (the Phase-2 GGUF `mtp` flag → the Speculative-decode opt-in hint) + `computed` —
+// the engine's fit-COMPUTED launch values (ngl / n_cpu_moe / ctx) for keys NO layer
+// pins on this box (Fix 2, 2026-07-07: shown as provenance, never silently merged
+// into the editable rows — saving them would pin today's fit). ONE GET, ONE source,
+// no drift between the switch grid and the sampler grid.
 export async function resolveModelDefaults(modelId) {
-  if (!modelId) return { switches: [], samplers: [], mtpCapable: false };
+  if (!modelId) return { switches: [], samplers: [], computed: [], mtpCapable: false };
   const r = await request(`/v1/ai/model-catalog/resolved-defaults?modelId=${encodeURIComponent(modelId)}`);
   return {
     switches: (r.switches || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue })),
     samplers: (r.samplers || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue })),
+    computed: (r.computed || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue })),
     mtpCapable: !!r.mtpCapable,
   };
 }

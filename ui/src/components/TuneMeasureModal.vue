@@ -14,10 +14,12 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { request } from "../client.js";
+import { classKeyLabel, listClassTunes, putClassTune } from "../classTunes.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { sendToTasksLab } from "../common/services/labHandoff.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
+import LuClassTunes from "./LuClassTunes.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiTag from "../common/components/UiTag.vue";
 
@@ -52,6 +54,20 @@ const tuneResult = ref(null); // { tokensPerSec, completionTokens, ms, vramTotal
 const tuneErr = ref("");
 const tuneMtpCapable = ref(false); // the tuned model's GGUF supports MTP → surface the spec_type hint
 const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value === "measuring");
+
+// Fix 2 (2026-07-07): the engine's fit-COMPUTED launch values for keys no layer
+// pins on this box — shown as PROVENANCE below the grid, never silently merged
+// into the editable rows (Save tune would pin today's fit, which the strict-beat
+// rule exists to prevent). "Add to grid" makes them explicit deliberately.
+const tuneComputed = ref([]); // [{ name, value }] from resolved-defaults `computed`
+const computedShown = computed(() =>
+  tuneComputed.value.filter((c) => !tuneRows.value.some((r) => (r.name || "").trim() === c.name)),
+);
+const knobLabel = (name) => switchCatalog.value[name]?.label || name;
+function addComputedToGrid() {
+  const extra = computedShown.value.map((c) => ({ name: c.name, value: String(c.value ?? "") }));
+  if (extra.length) tuneRows.value = [...tuneRows.value, ...extra];
+}
 
 // ── the saved per-(model, machine) tune (Plan B) ─────────────────────────────
 const savedTune = ref(null); // { hwKey, rows } | null — this machine's saved tune
@@ -128,6 +144,7 @@ function sendToLab() {
 }
 async function startTune() {
   tuneRows.value = [];
+  tuneComputed.value = [];
   tuneMtpCapable.value = false;
   tuneResult.value = null;
   tuneErr.value = "";
@@ -136,6 +153,7 @@ async function startTune() {
   try {
     const res = await fetchResolved(props.model.id);
     tuneRows.value = res.switches;
+    tuneComputed.value = res.computed || [];
     tuneMtpCapable.value = res.mtpCapable;
   } catch {
     tuneRows.value = []; // pre-fill is an enrichment; tuning still works empty
@@ -145,9 +163,41 @@ async function resetTuneSwitches() {
   try {
     const res = await fetchResolved(props.model.id);
     tuneRows.value = res.switches;
+    tuneComputed.value = res.computed || [];
     tuneMtpCapable.value = res.mtpCapable;
   } catch (e) {
     tuneErr.value = e.message || "Couldn't reset to defaults.";
+  }
+}
+
+// ── "Save for hardware class" (ROUND 8 Task C): keep a measured config as the
+// DEFAULT for every PC of this box's class — writes a class-tune row via the
+// shared library client (the server derives the class when omitted). Offered ON
+// a result (per the spec): you save what you just measured, not a blind grid.
+const myClassKey = ref("");
+const classSaveState = ref(""); // "" | saving | saved
+const classSaveErr = ref("");
+const classTunesRef = ref(null); // the library drawer — refresh after a save
+const myClassLabel = computed(() => classKeyLabel(myClassKey.value));
+async function loadMyClassKey() {
+  try {
+    myClassKey.value = (await listClassTunes()).classKey || "";
+  } catch {
+    myClassKey.value = ""; // enrichment — the button simply doesn't render
+  }
+}
+async function saveForClass() {
+  classSaveErr.value = "";
+  classSaveState.value = "saving";
+  try {
+    const switches = rowsToSwitches(tuneRows.value);
+    if (!Object.keys(switches).length) throw new Error("Add at least one switch first.");
+    await putClassTune(props.model.id, switches);
+    classSaveState.value = "saved";
+    classTunesRef.value?.reload?.();
+  } catch (e) {
+    classSaveErr.value = e.message || "Couldn't save the class config.";
+    classSaveState.value = "";
   }
 }
 function rowsToSwitches(rows) {
@@ -172,6 +222,8 @@ async function pollUntilSettled(maxMs = 180000) {
 async function runMeasure() {
   tuneErr.value = "";
   tuneResult.value = null;
+  classSaveState.value = ""; // a new measurement is a new candidate for the class save
+  classSaveErr.value = "";
   tunePhase.value = "loading";
   tuneDetail.value = "preparing";
   try {
@@ -260,6 +312,7 @@ onMounted(() => {
   loadKnobCatalog();
   startTune();
   loadSavedTune();
+  loadMyClassKey();
 });
 onBeforeUnmount(stopAutoPoll);
 </script>
@@ -290,6 +343,14 @@ onBeforeUnmount(stopAutoPoll);
         <span>{{ [...unknownNames].join(", ") }} — not a known engine flag (mistyped, or dropped
           by an engine update). Remove or fix it, or prefix with “--” for a raw flag.</span>
       </div>
+      <div v-if="computedShown.length" class="lu-tune-fit lu-muted">
+        <span>Set automatically for this PC (the engine's memory fit — used at launch unless
+          you set them above):
+          <template v-for="(c, i) in computedShown" :key="c.name"><template v-if="i"> · </template><b>{{ knobLabel(c.name) }}</b> {{ c.value }}</template></span>
+        <UiButton intent="ghost" size="small"
+          title="Copy these fit values into the grid as explicit switches — saving them then pins today's placement"
+          @click="addComputedToGrid">Add to grid</UiButton>
+      </div>
       <UiButton intent="ghost" size="small" @click="resetTuneSwitches">Reset to model default</UiButton>
 
       <div class="lu-tune-note lu-muted">
@@ -297,6 +358,7 @@ onBeforeUnmount(stopAutoPoll);
           column in that Task's Lab, where you save it as the Task's preset.</span>
         <UiButton intent="secondary" size="small" class="lu-tune-send" @click="sendToLab">Send to Tasks Lab →</UiButton>
       </div>
+      <LuClassTunes ref="classTunesRef" :model-id="model.id" :catalog="switchCatalog" />
       <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
 
       <div v-if="tunePhase === 'loading'" class="lu-tune-status">Loading… {{ tuneDetail }}</div>
@@ -324,6 +386,21 @@ onBeforeUnmount(stopAutoPoll);
             v-if="tuneResult.ramTotalMb"> · RAM {{ gb(tuneResult.ramTotalMb) }} GB</template>
         </div>
         <div v-if="!tuneResult.vramTotalMb" class="lu-muted lu-tune-cpu">No GPU detected — measured on CPU.</div>
+        <!-- Save-tune keeps this config for THIS machine; this keeps it as the shared
+             starting point for every PC of the same class (ROUND 8 Task C — "on a
+             result": you share what you measured, not a blind grid). -->
+        <div v-if="myClassKey" class="lu-tune-clsrow">
+          <template v-if="classSaveState === 'saved'">
+            <span class="lu-muted">Saved as the default for PCs like this one ({{ myClassLabel }}) ✓</span>
+          </template>
+          <template v-else>
+            <span class="lu-muted">Works well? Make it the starting point for every PC like
+              this one ({{ myClassLabel }}) — machines with their own saved tune keep it.</span>
+            <UiButton intent="secondary" size="small" :loading="classSaveState === 'saving'"
+              @click="saveForClass">Save for hardware class</UiButton>
+          </template>
+        </div>
+        <div v-if="classSaveErr" class="lu-error">{{ classSaveErr }}</div>
       </div>
 
       <div v-if="tuneErr" class="lu-error">{{ tuneErr }}</div>
@@ -359,6 +436,10 @@ onBeforeUnmount(stopAutoPoll);
 .lu-tune-tps b { font-size: 22px; color: var(--accent-ink, var(--accent)); font-weight: 800; }
 .lu-tune-meta { font-size: 11.5px; color: var(--ink-2); margin-top: 3px; }
 .lu-tune-cpu { font-size: 11px; margin-top: 3px; }
+.lu-tune-fit { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; line-height: 1.5; }
+.lu-tune-fit > span { flex: 1; min-width: 0; }
+.lu-tune-clsrow { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 11.5px; }
+.lu-tune-clsrow > span { flex: 1; min-width: 0; line-height: 1.45; }
 .lu-tune-trials { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; }
 .lu-tune-trial { padding: 2px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; }
 .lu-tune-trial-bad { opacity: 0.6; text-decoration: line-through; }

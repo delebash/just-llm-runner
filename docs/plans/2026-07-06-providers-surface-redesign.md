@@ -1,12 +1,15 @@
 # Providers-surface redesign — five user decisions (2026-07-06 night)
 
-> **STATUS: LIVE TRACKER — ROUNDS 1–13 SHIPPED (2026-07-06 → 2026-07-07). Each `## ROUND N`
+> **STATUS: LIVE TRACKER — ROUNDS 1–14 SHIPPED (2026-07-06 → 2026-07-07). Each `## ROUND N`
 > section below is the full record of its go; a later round supersedes an earlier round's
 > "queued/deferred" claims (the chronology IS the tracker).** Born from the post-plan-closure
 > design round on the Providers & models screen (the user's live-app screenshot). Discipline:
-> the "do b" checker rule (2026-07-06) for verified rounds; the 2026-07-07 rounds (9–13) ran
+> the "do b" checker rule (2026-07-06) for verified rounds; the 2026-07-07 rounds (9–14) ran
 > under the user's explicit "dont run tests" posture — each round's own verification record
-> states exactly what gates ran and what the box checks are.
+> states exactly what gates ran and what the box checks are. After ROUND 14 the ROUND-8 queue
+> is EMPTY: the genuinely open items are Fix 2's LAST sliver being none (shipped in 14), the
+> wizard-probe rework + all deferred verification (harness task #114), and the two
+> user-deferred notification follow-ups (the App-Settings toggle · a second toast button).
 
 ## The decisions, verbatim (the user's words are the spec)
 
@@ -550,7 +553,9 @@ in ROUND 11 (the class-tune knobs already render via resolved switches; only fit
 values on a wholly-untuned model remain — queued); Task B's CORE (no auto-sweep on Apply +
 the Apply-under-sweep guard) + the Update-button relabel/move SHIPPED in ROUND 9; Task E (the
 hardware-change toast) SHIPPED in ROUND 11; Task C (the class-tune CRUD + editable Lab
-library) and the optional ~2-min budget-capped quick tune REMAIN QUEUED.]**
+library) and the optional ~2-min budget-capped quick tune REMAIN QUEUED.]** **[UPDATE, same
+day, later: ROUND 14 shipped Task C + the ~2-min quick tune + Fix 2's fit-computed remainder
++ Task B's done-step messaging — every ROUND-8 task is now closed.]**
 
 ### Why this exists — the decision trail (verbatim anchors)
 
@@ -679,7 +684,10 @@ QuickSetup progress-UI edits (Task D) commit in the same series. Task B (Quick S
 remove auto-start), Task C (Lab library UI), Task E (notification), and the Update-button relabel/move
 remain queued for a follow-up go. **[Those follow-up goes happened SAME-DAY: ROUND 9 shipped Task
 B's core + the Update button; ROUND 11 shipped Task E; Task C + the ~2-min capped tune remain
-queued.]**
+queued.]** **[UPDATE, same day, later: ROUND 14 shipped Task C (the /v1/ai/class-tunes CRUD +
+the Save-for-hardware-class action + the LuClassTunes library drawer), the ~2-min capped quick
+tune (autotune `budget_seconds` + the QuickSetup done-step no-seed fallback), and Fix 2's
+fit-computed remainder — the ROUND-8 queue is now EMPTY.]**
 
 ## ROUND 9 — SHIPPED 2026-07-07 (the on-box fallout go: prompt cancel · instant Apply · the engine-button cluster · the n_gpu_layers knob)
 
@@ -1037,3 +1045,195 @@ you padded local engine" — nothing had in fact been padded; #121 was still que
 14 px matches the file's own `.lu-pf-foot` margin idiom. Gates: build:vite clean (CSS-only;
 no Python — no ruff needed). Box check: open Edit on the Built-in server — clear air between
 Provider type and Local engine, and between the model-slot cards and the search row.
+
+## ROUND 14 — SHIPPED 2026-07-07 (the ROUND-8 queue closed: Task C class-tune library CRUD + UI · the ~2-min quick tune · Fix 2's fit-computed remainder · Task B's done-step truth)
+
+**STATUS: SHIPPED (this commit). Built on the user's words: "lets code the rest go" — "the
+rest" resolved against this tracker's own queue statements (the ROUND-8 GO tail + the recap's
+DEFERRED supersede note): Task C (the class-tune CRUD API + the editable library UI +
+"Save as hardware-class default" on a Tune result), the ~2-min budget-capped quick tune with
+QuickSetup's no-seed done-step fallback (the user's earlier disposition, verbatim: "both lab
+and 2 min sweep"), and Fix 2's remaining sliver (fit-COMPUTED values visible on a
+wholly-untuned box/model). Deliberately NOT in this go (each is its own user-deferred todo,
+stated to the user up front): the App-Settings enable/disable toggle for the hardware-change
+notification and the second toast button ("Re-tune current model"). Verification posture
+unchanged (the standing "dont run tests"): runner `ruff check .` clean + a python import gate
+over the touched modules + JW `npm run build:vite` clean (the kit compiles through the alias;
+LuClassTunes/TuneMeasureModal/QuickSetup are all in the build graph) — pytest (incl. the SIX
+new tests written this round), the headless smoke, the wizard probe, live curls and the
+diff-checker were NOT run; every behavior below is code-verified by reading, and the
+deferred-verification ledger (harness task #114) gained this round's items. Session note: the
+chained-cd cwd footgun struck a SIXTH time this stretch — a `grep` + the runner ruff briefly
+ran in the wrong repo (caught both times by reading the output: a "No such file" and a
+JW-shaped ruff note); re-run with explicit absolute paths, both clean.**
+
+### What shipped — 1. The class-tune library CRUD (`/v1/ai/class-tunes`, Task C backend)
+
+New `llm_runner/llm/class_tunes_api.py` — the class-key twin of `model_tunes_api.py` (the
+same Protocol-store + router-factory seam; a new factory per table is the codebase idiom, not
+duplication): `GET /v1/ai/class-tunes` returns the WHOLE library (`tunes`: every
+(model × class) config grouped with its rows + a `builtIn` flag) plus `classKey` — the
+CURRENT box's class, server-derived via the injected `class_key_fn` (`install.py` passes the
+existing `_current_class_key`; one source, mirroring `hw_key_fn`). `PUT` replaces one
+(model, class) config's row set WHOLESALE (the verbatim-snapshot semantics of
+`ModelTuneStore.replace`) — `classKey` may be omitted and defaults to the box's own class
+(the Tune modal's "Save for hardware class" path); a PUT with no usable switch rows is a 400
+(a config with nothing in it is a mistake, not an empty save). `DELETE` removes one
+(model, class) config. PUT always writes `built_in=False` rows: an edited config is the
+user's now — the boot seeder (`seed_default_class_tunes`) inserts a built-in config only when
+its (model, class) has NO rows, so an edit survives every reseed; the documented flip side is
+that a fully DELETED built-in config re-seeds on the next server start, which is why the UI
+offers Edit (not Delete) on built-ins. Backing store: `ClassTuneStore` in `stores.py`
+(list_all grouped + replace + delete, mirroring `ModelTuneStore`), accessor
+`get_class_tune_store`. Mounted in `install_llm` right beside the model-tunes router. NEW
+TESTS (read-verified only, never executed — #114): `tests/test_class_tunes.py` — PUT
+defaults to the current class + round-trips; explicit-class PUT + wholesale replace; DELETE
+removes one config only; validation 400s; the builtIn flag reads seeded rows and an edit
+takes ownership; and the seeder-never-clobbers-an-edit guarantee exercised against the REAL
+`seed_default_class_tunes` on the seeded gemma row's own (model, class).
+
+### What shipped — 2. The library UI (Task C UI): "Save for hardware class" + the LuClassTunes drawer
+
+`ui/src/classTunes.js` (new, the `modelDefaults.js` precedent — one small shared client
+module instead of three fetch copies): `listClassTunes` / `putClassTune` / `deleteClassTune`
++ `classKeyLabel` (the user-facing name for a class — `vram8|ram32` → "8 GB VRAM · 32 GB
+RAM", `cpu|ram16` → "No GPU · 16 GB RAM"; no internal key syntax in copy). Consumed by all
+three surfaces below.
+
+**"Save for hardware class" — ON a result, per the ROUND-8 spec** ("'Save as hardware-class
+default' on a result → writes a class-tune row for the box's class"): the Tune modal's
+result panel (`TuneMeasureModal.vue`) gains a row under the tok/s readout — "Works well?
+Make it the starting point for every PC like this one (8 GB VRAM · 32 GB RAM) — machines
+with their own saved tune keep it." + a secondary **Save for hardware class** button →
+`putClassTune(model.id, rowsToSwitches(tuneRows))` with classKey omitted (the server derives
+the box's class). Success renders "Saved as the default for PCs like this one (…) ✓"; a new
+measurement resets the state (a new result is a new candidate). The box's class key loads
+once on mount via `listClassTunes` (an enrichment — no key, no button).
+
+**The editable library — `LuClassTunes.vue` (new kit component), mounted in the Tune modal**
+(the spec's "Lab / Tune tab — the sweep's home + the editable library"; the modal IS the
+sweep's home — Auto-tune lives there. INTERPRETATION NOTE, flagged: the spec's "library
+table" reads as one global table; this ships as a PER-MODEL drawer inside each model's Tune
+dialog — every capability (add/edit/delete/import, any class) is present, scoped to the
+model you're tuning. If a cross-model library view is wanted later it is a mount away, the
+component + endpoint already carry the whole set). The drawer mirrors the LuRunnerBinaries
+`<details>` editor precedent: collapsed summary ("Hardware-class defaults — shared starting
+points by PC class (video memory · RAM)"), lazy-loads on first open, table of this model's
+class configs — class label + a success-tag "this PC" on the matching class + an info-tag
+"built-in" on untouched seeds · a monospace `k=v` settings summary · actions. **Edit** (all
+rows) opens the config in a KnobGrid (add-row mode, fed the modal's own switch catalog so
+labels/inputs match the tune grid) with the class key LOCKED (the class is the row's
+identity; a new class = Add); **Delete** renders on user rows only (built-ins are edited,
+never deleted — the reseed flip side above, stated in the drawer's help line); **＋ Add class
+config** opens a blank editor with the class key prefilled to this box's class and editable;
+**Copy** puts the config on the clipboard as one small JSON blob
+(`{"modelId", "classKey", "switches": {…}}` — clipboard blocked → the blob lands in the
+import box for hand-copy); **Import…** is a textarea that parses the SAME shape and PUTs it
+(imports always target the open model — the panel is model-scoped; the delete confirm and
+all dialogs ride the kit `confirmDialog`). The modal exposes the drawer via a ref and
+refreshes it after a class save.
+
+### What shipped — 3. The ~2-min quick tune (autotune `budget_seconds` + the QuickSetup no-seed fallback)
+
+**Backend (`runner/autotune.py`):** `AutoTuner.start` gains keyword-only
+`budget_seconds: float = 0` (0 = uncapped; the state + status now carry `budgetSeconds` so
+another window adopting the shared job can render the right shape). The cap is checked at
+the SAME seams as the cancel flag: `_budget_over()` (sticky — the first trip latches
+`_budget_hit` so every later check agrees) gates each phase (batch settle · the n-cpu-moe
+walk via `walk_try` · the spec-n alternative) so no NEW trial is scheduled once tripped, and
+`_wait_running` aborts an IN-FLIGHT load on it (otherwise one slow trial load could run a
+"~2-min" pass out to the 240s cap) recording the trial as "time budget reached" and latching
+`_budget_aborted_load`. A budget-stopped trial NEVER poisons the monotonic n-cpu-moe prune
+(the same guard as cancel). The finish path falls through to the normal strict-beat
+winner-pick with the trials it has; when the cap aborted a load in flight, `budget_restore()`
+(the ROUND-9 cancel teardown: best-effort `svc.stop()` + a bare `svc.load(model_id)`) runs so
+"done" never leaves a dangling trial load serving — deliberately AFTER the save, so a
+just-saved tune is already in the resolution the restore reloads with; it also runs on the
+no-trial-succeeded error path (the cap can trip during the FIRST load). A cap landing at a
+clean trial boundary skips the restore and leaves the last trial resident, exactly like an
+uncapped run's normal finish. The POST endpoint reads `budgetSeconds` (bad input → uncapped,
+never a 400 for an enrichment). NEW TESTS (read-verified, never executed — #114): budget
+stops scheduling + keeps the best-so-far (fake clock advanced per measure) · an in-flight
+abort restores (stop ×2 + a bare load; the tuner's own sleep advances the clock) · the abort
+never poisons the prune (a spy on `_try` watches `failed_ncmoe` stay empty) · budget 0 =
+uncapped.
+
+**QuickSetup (`views/QuickSetup.vue`) — the done step now tells the truth ladder (Task B's
+remainder):** after Apply it resolves WHICH launch config this box got — its own measured
+tune (`tunedAlready`, unchanged: Re-optimize behind the overwrite confirm) → a matching
+hardware-class tune (`classTuned`, NEW: one `listClassTunes` read filters
+(model = target, class = this box, rows non-empty)) → neither. The class-matched branch
+renders "Tuned settings for your hardware were applied ✓" + honest sub-copy (PCs of this
+class come pre-measured, no sweep needed; the full sweep stays optional) + the full Optimize
+button. The wholly-untuned branch renders the computed-defaults truth ("No measured settings
+for this PC yet — it runs on the engine's automatic memory fitting, which works but may not
+be the fastest.") + BOTH offers ("both lab and 2 min sweep"): **Quick optimize (~2 min)** →
+`startOptimize(QUICK_TUNE_SECONDS = 120)` which posts `budgetSeconds`, and **Full optimize**
+→ the uncapped sweep — plus the Tune-dialog pointer in the caption (the deeper path; the
+guidance-text pattern recorded in ROUND 11). `startOptimize` gained the parameter, so every
+template binding became an explicit CALL (`@click="startOptimize()"` — a bare method binding
+would have passed the click EVENT as budgetSeconds; the two Try-again buttons were fixed
+too); `optQuick` drives the capped run's own copy (title "Quick optimize — measuring…", the
+time-boxed eta paragraph instead of the 10-minutes one) and is adopted from the shared job's
+`budgetSeconds` when another window started it. **Self-diagnosing null result** (the ROUND-8
+disposition: "self-diagnosing — a null result routes to the Lab"): a capped run that ends
+with the baseline winning renders "the quick pass found nothing faster — Full optimize or
+the model's Tune dialog can search deeper." instead of the uncapped run's "already the
+fastest" verdict — 2 minutes is a probe, not proof. `openWizard` resets the two new flags.
+
+### What shipped — 4. Fix 2's remainder: fit-COMPUTED values visible (the last ROUND-8 sliver)
+
+The gap (scope-checked in ROUND 11): on a wholly-untuned box/model, NO resolution layer pins
+`n_gpu_layers`/`n_cpu_moe`/`ctx_len` — the launch computes them via `compute_fit`, but the
+Tune grid showed nothing (the Speaker-Lab lesson: never an empty box where the launch has a
+real value). Now `GET /v1/ai/model-catalog/resolved-defaults` carries a `computed` list: the
+catalog router factory gains `preview_fit_fn` (install.py wires the runner's EXISTING
+`get_service().preview_fit` — the same pure fit preview the autotune sweep anchors on; lazy
+import, the `_inspect_model_from_link` pattern) and fills `computed` with the fit's
+`n_gpu_layers` + `ctx_len` (+ `n_cpu_moe` for MoE models) for keys NOT in the merged
+resolution; errors soft (model not downloaded → empty → the grid shows what it always
+showed). DELIBERATE DESIGN POINT (recorded in the response-model comment): `computed` stays
+SEPARATE from `switches` — merging fit values into the editable grid would let Save tune pin
+today's fit as explicit values, which the 1b-F5 strict-beat rule exists to prevent. The Tune
+modal renders them as a provenance line under the grid — "Set automatically for this PC (the
+engine's memory fit — used at launch unless you set them above): GPU layers 99 · Context
+8192 · Experts on CPU 24" (labels from the knob catalog) — with a ghost **Add to grid**
+action that copies them in as explicit editable rows DELIBERATELY (its hover states the
+pinning consequence); rows already in the grid drop out of the line reactively.
+`modelDefaults.js` maps the new field (ConfigColumn ignores it — harmless).
+
+### Verification record + the box checks
+
+Gates run: runner `ruff check .` — All checks passed (re-run with an explicit absolute cd
+after the chained-cd footgun put the first attempt in the JW repo); `python -c` import gate
+over install/class_tunes_api/stores/autotune — OK; JW `npm run build:vite` — clean (13.0s
+full, 2.7s after the final edit). NOT run (the standing posture): pytest — including the SIX
+new tests this round (test_class_tunes.py's five + test_autotune.py's four budget tests —
+six configs/behaviors, nine test functions total), the headless smoke, the wizard probe
+(STILL asserts the pre-ROUND-9 auto-start and will fail — the rework stays owed), live curls
+(`/v1/ai/class-tunes` CRUD round-trip on the wire · a `budgetSeconds` POST · the computed
+list on resolved-defaults), the diff-checker. All folded into harness task #114.
+
+The user's box checks for this round: (a) open Tune on the Gemma — the grid renders as
+before, and BELOW it a "Hardware-class defaults" drawer opens to ONE built-in row
+"8 GB VRAM · 32 GB RAM · this PC · built-in" with the seeded switches; Edit it, change a
+value, Save — the built-in tag drops off and a server restart does NOT undo the edit.
+(b) Load & measure any config → the result card offers "Save for hardware class" → after
+saving, the drawer shows the row as yours (no built-in tag). (c) Copy on a row puts JSON on
+the clipboard; Import… of that JSON (tweak a value) round-trips. (d) On a model with no
+saved tune and no class row (e.g. a fresh Add-model), the Tune grid shows the muted "Set
+automatically for this PC …" line with real numbers, and Add to grid copies them into rows.
+(e) Run Quick Setup → Apply on the class-covered Gemma: the done step says "Tuned settings
+for your hardware were applied ✓" with NO auto-sweep. (f) On an uncovered model, the done
+step offers Quick optimize (~2 min) + Full optimize; the quick pass shows its own time-boxed
+copy, ends within ~2–4 min (the cap can only overshoot by the trial in flight), and either
+saves a win or says the go-deeper line; Skip mid-quick-run still cancels promptly.
+(g) `GET /v1/ai/engine-config` unchanged; `GET /v1/ai/class-tunes` returns `classKey:
+"vram8|ram32"` on the 2070S.
+
+### Still open after this round
+
+The wizard-probe rework + every deferred verification (#114) · Task C's OPTIONAL cross-model
+library mount (only if the user wants a global table view — flagged interpretation above) ·
+the two user-deferred notification follow-ups (App-Settings toggle · the second toast
+button) · the ledger's parked items (Lab A/Bs · D6 · models-folder import).

@@ -212,3 +212,85 @@ def test_busy_guard_rejects_second_start():
     gate.set()
     tuner._thread.join(timeout=10)
     assert tuner.status()["status"] == "done"
+
+
+# ── the time box (budget_seconds — the QuickSetup ~2-min quick tune, 2026-07-07) ──
+
+def _clocked_tuner(svc, clock):
+    return AutoTuner(service_fn=lambda: svc, sleep=lambda s: None, now=lambda: clock["t"])
+
+
+def test_budget_stops_scheduling_and_keeps_best_so_far():
+    # Each measure "costs" 6s on the fake clock; a 10s budget lets baseline + ONE
+    # explicit trial run, then trips at the next walk_try — the run finishes DONE
+    # with the best of what completed (23 @ 40 beats the 30 baseline).
+    clock = {"t": 0.0}
+    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 40.0, "19": 45.0, "17": 50.0})
+    orig_measure = svc.measure
+
+    def timed_measure(**kw):
+        clock["t"] += 6.0
+        return orig_measure(**kw)
+
+    svc.measure = timed_measure
+    st = _run_to_end(_clocked_tuner(svc, clock), "m", BASE, budget_seconds=10)
+    assert st["status"] == "done" and st["budgetSeconds"] == 10
+    assert st["detail"].startswith("time budget reached")
+    # baseline + n-cpu-moe 23 only — 19/17 (faster in the script) were never tried
+    assert [t["label"] for t in st["trials"]] == ["baseline", "n-cpu-moe 23"]
+    assert st["best"]["switches"]["n_cpu_moe"] == "23"
+
+
+def test_budget_aborts_an_inflight_load_and_restores():
+    # The load never reaches running; the tuner's poll sleep advances the clock, so
+    # the 5s budget trips INSIDE _wait_running (not the 240s cap). No trial ever
+    # succeeded → the honest error state — and the dangling trial load is torn down
+    # + the applied model restored (stop + a bare load), the ROUND-9 teardown.
+    clock = {"t": 0.0}
+
+    class StuckService(FakeService):
+        def status(self):
+            return {"status": "starting"} if self._current else {"status": "idle"}
+
+    svc = StuckService()
+    tuner = AutoTuner(service_fn=lambda: svc, now=lambda: clock["t"],
+                      sleep=lambda s: clock.__setitem__("t", clock["t"] + 1.0))
+    st = _run_to_end(tuner, "m", BASE, budget_seconds=5)
+    assert st["status"] == "error" and st["error"] == "no trial succeeded"
+    assert st["trials"][0]["error"] == "time budget reached"
+    # trial stop + the budget teardown stop; the restore load carries NO switches
+    assert svc.stops == 2
+    assert svc.loads[-1] == {}
+
+
+def test_budget_abort_never_poisons_the_ncmoe_prune():
+    # A budget-aborted n-cpu-moe trial is NOT a fit failure: nothing lands in the
+    # monotonic prune list, so a later (uncapped) sweep may try lower values again.
+    clock = {"t": 0.0}
+    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 28.0})
+    orig_measure = svc.measure
+
+    def timed_measure(**kw):
+        clock["t"] += 6.0
+        return orig_measure(**kw)
+
+    svc.measure = timed_measure
+    tuner = _clocked_tuner(svc, clock)
+    failed_seen = []
+    orig_try = tuner._try
+
+    def spy_try(svc_, mid, label, switches, failed_ncmoe):
+        failed_seen.append(list(failed_ncmoe))
+        return orig_try(svc_, mid, label, switches, failed_ncmoe)
+
+    tuner._try = spy_try
+    st = _run_to_end(tuner, "m", BASE, budget_seconds=10)
+    assert st["status"] == "done"
+    assert all(f == [] for f in failed_seen)  # the prune list stayed empty throughout
+
+
+def test_budget_zero_means_uncapped():
+    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 25.0, "19": 25.0})
+    st = _run_to_end(_tuner(svc), "m", BASE, budget_seconds=0)
+    assert st["status"] == "done" and st["budgetSeconds"] == 0
+    assert "time budget" not in (st["detail"] or "")

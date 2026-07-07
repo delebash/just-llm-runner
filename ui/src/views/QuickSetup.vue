@@ -24,6 +24,7 @@
 import { computed, onBeforeUnmount, ref } from "vue";
 
 import { request } from "../client.js";
+import { listClassTunes } from "../classTunes.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { recommendedModelId, pickLowestQuality, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
 import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
@@ -212,6 +213,8 @@ async function openWizard() {
   previewState.value = null;
   optState.value = null;
   tunedAlready.value = false;
+  classTuned.value = false;
+  optQuick.value = false;
   await Promise.all([
     loadAll(),
     loadRouting(),
@@ -321,6 +324,18 @@ async function apply() {
     // PC"); the long measured sweep otherwise lives in the Lab. `tunedAlready` still drives
     // the done-step button label (Optimize vs Re-optimize).
     tunedAlready.value = target ? await modelHasTunes(target) : false;
+    // The done step tells the truth about WHICH launch config this box got (ROUND 8
+    // Task B remainder): its own measured tune > a matching hardware-class tune >
+    // the engine's computed fit (→ offer the ~2-min quick pass + the full sweep).
+    classTuned.value = false;
+    if (target && !tunedAlready.value) {
+      try {
+        const lib = await listClassTunes();
+        classTuned.value = (lib.tunes || []).some(
+          (t) => t.modelId === target && t.classKey === lib.classKey && t.rows?.length,
+        );
+      } catch { /* enrichment — the untuned copy still renders honestly */ }
+    }
     step.value = "done";
     emit("changed");
   } catch (e) {
@@ -361,6 +376,12 @@ async function pollLoad() {
 // (attemptClose).
 const optState = ref(null); // null (not started) | the GET payload
 const tunedAlready = ref(false); // (model, THIS machine) already has measured tune rows
+const classTuned = ref(false);   // a hardware-class tune matched this box + model at load
+// The ~2-min quick pass (user: "both lab and 2 min sweep") — the SAME sweep with a
+// server-side time box; the run stops with the best result so far. optQuick drives
+// the honest copy (a capped pass phrases its running/done text differently).
+const QUICK_TUNE_SECONDS = 120;
+const optQuick = ref(false);
 let optTimer = null;
 const optRunning = computed(() => optState.value?.status === "running");
 // The finished trials so far (each a real load→measure result) — the honest "it's working"
@@ -402,11 +423,13 @@ async function pollOptimize() {
     stopOptPoll(); // transient — the block's retry button re-arms
   }
 }
-async function startOptimize() {
+async function startOptimize(budgetSeconds = 0) {
+  optQuick.value = budgetSeconds > 0;
   try {
     const st = await request("/v1/llm-runner/auto-tune", {
       method: "POST",
-      body: { modelId: pick.value.default, save: true },
+      body: { modelId: pick.value.default, save: true,
+              ...(budgetSeconds > 0 ? { budgetSeconds } : {}) },
     });
     if (st.ok === false) {
       // Busy guard: a sweep is already running (the Tune modal / another window) —
@@ -415,6 +438,7 @@ async function startOptimize() {
       const cur = await request("/v1/llm-runner/auto-tune").catch(() => null);
       if (cur?.status === "running") {
         optState.value = cur;
+        optQuick.value = (cur.budgetSeconds || 0) > 0; // adopt the job's own shape
         stopOptPoll();
         optTimer = setInterval(pollOptimize, 2000);
         startOptTick();
@@ -572,24 +596,44 @@ defineExpose({ openWizard });
              never auto-starts the sweep; an untuned machine gets "Optimize for this PC", a
              tuned machine gets Re-optimize behind an explicit overwrite confirm. -->
         <div v-if="pick.default" class="lu-qs-opt">
+          <!-- The truth ladder (ROUND 8 Task B remainder): own measured tune >
+               a matching hardware-class tune > the engine's computed fit. The
+               wholly-untuned branch offers BOTH the ~2-min quick pass and the
+               full sweep (user: "both lab and 2 min sweep"); the deeper path is
+               the model's Tune dialog. -->
           <template v-if="!optState">
-            <UiButton v-if="tunedAlready" intent="secondary" size="small" @click="reOptimize">Re-optimize</UiButton>
-            <UiButton v-else intent="secondary" size="small" @click="startOptimize">Optimize for this PC</UiButton>
-            <span class="lu-muted">{{ tunedAlready
-              ? "This machine already has measured launch settings for this model — re-run the sweep only if your hardware changed."
-              : "Optional: measures and saves the fastest launch settings for this machine — often several times faster to first token. It can take 10 minutes or more; other AI features pause while it runs." }}</span>
+            <template v-if="tunedAlready">
+              <UiButton intent="secondary" size="small" @click="reOptimize">Re-optimize</UiButton>
+              <span class="lu-muted">This machine already has measured launch settings for this model — re-run the sweep only if your hardware changed.</span>
+            </template>
+            <template v-else-if="classTuned">
+              <span class="lu-qs-opt-ok">Tuned settings for your hardware were applied ✓</span>
+              <span class="lu-muted">PCs with this much video memory and RAM come pre-measured, so no sweep is needed. Optional: a full measured sweep can still fine-tune this exact machine — it can take 10 minutes or more; other AI features pause while it runs.</span>
+              <UiButton intent="secondary" size="small" @click="startOptimize()">Optimize for this PC</UiButton>
+            </template>
+            <template v-else>
+              <span class="lu-muted">No measured settings for this PC yet — it runs on the engine's automatic memory fitting, which works but may not be the fastest.</span>
+              <div class="lu-qs-opt-btns">
+                <UiButton intent="secondary" size="small" @click="startOptimize(QUICK_TUNE_SECONDS)">Quick optimize (~2 min)</UiButton>
+                <UiButton intent="secondary" size="small" @click="startOptimize()">Full optimize</UiButton>
+              </div>
+              <span class="lu-muted">Quick tries the most likely settings within about 2 minutes and keeps the best; Full keeps measuring (10 minutes or more) and is often several times faster to first token. Deeper control lives in the model's Tune dialog. Other AI features pause while a sweep runs.</span>
+            </template>
           </template>
           <template v-else-if="optRunning">
             <div class="lu-qs-opt-run">
               <div class="lu-qs-opt-line">
-                <b class="lu-qs-opt-title">Optimizing for this PC…</b>
+                <b class="lu-qs-opt-title">{{ optQuick ? "Quick optimize — measuring…" : "Optimizing for this PC…" }}</b>
                 <span class="lu-qs-opt-elapsed">{{ optElapsedLabel }} elapsed</span>
               </div>
               <UiProgress :label="optRunLabel" />
               <p class="lu-muted lu-qs-opt-eta">
-                This runs a sequence of load-and-measure trials and can take 10 minutes or more —
-                longer for larger models. Your GPU is busy while it runs, so other AI features pause
-                until it finishes or you stop it.
+                <template v-if="optQuick">This quick pass is time-boxed to about 2 minutes — it
+                  tries the most likely settings and keeps the best one found. Your GPU is busy
+                  while it runs, so other AI features pause until it finishes or you stop it.</template>
+                <template v-else>This runs a sequence of load-and-measure trials and can take 10
+                  minutes or more — longer for larger models. Your GPU is busy while it runs, so
+                  other AI features pause until it finishes or you stop it.</template>
               </p>
               <ul v-if="optTrialsDone.length" class="lu-qs-opt-trials">
                 <li v-for="(t, i) in optTrialsDone" :key="i" :class="{ 'is-fail': !t.ok }">
@@ -605,20 +649,25 @@ defineExpose({ openWizard });
             </div>
           </template>
           <template v-else-if="optState.status === 'done' && optState.best">
+            <!-- Self-diagnosing quick pass (ROUND 8): a capped run that saved nothing
+                 routes the user deeper (the full sweep / the Tune dialog) instead of
+                 reading like a verdict — 2 minutes is a probe, not proof. -->
             <span class="lu-qs-opt-ok">Optimized ✓ {{ optState.best.tokensPerSec }} tok/s —
               {{ optState.saved
                 ? "saved for this machine."
                 : (optState.best.label === "baseline"
-                    ? "your current launch is already the fastest — nothing needed saving."
+                    ? (optQuick
+                        ? "the quick pass found nothing faster — Full optimize or the model's Tune dialog can search deeper."
+                        : "your current launch is already the fastest — nothing needed saving.")
                     : "save failed — open Tune & measure to save it.") }}</span>
           </template>
           <template v-else-if="optState.status === 'cancelled'">
             <span class="lu-muted">Optimize cancelled.</span>
-            <UiButton intent="ghost" size="small" @click="startOptimize">Try again</UiButton>
+            <UiButton intent="ghost" size="small" @click="startOptimize()">Try again</UiButton>
           </template>
           <template v-else>
             <span class="lu-error">{{ optState.error || "Optimize failed." }}</span>
-            <UiButton intent="ghost" size="small" @click="startOptimize">Try again</UiButton>
+            <UiButton intent="ghost" size="small" @click="startOptimize()">Try again</UiButton>
           </template>
         </div>
       </template>
@@ -674,6 +723,7 @@ defineExpose({ openWizard });
 .lu-qs-applying { font-size: 13px; }
 .lu-qs-summary { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
 .lu-qs-opt { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin: 10px 0; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); font-size: 12px; }
+.lu-qs-opt-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .lu-qs-opt-run { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .lu-qs-opt-line { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .lu-qs-opt-title { font-size: 13.5px; color: var(--ink); }

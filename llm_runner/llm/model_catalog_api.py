@@ -143,6 +143,12 @@ class ResolvedModelDefaultsResponse(BaseModel):
     # the model's GGUF ships MTP draft layers (the Phase-2 `mtp` flag) → the UI surfaces
     # Speculative decode (spec_type) as a measurable opt-in (Phase 3), default off.
     mtpCapable: bool = False
+    # Fix 2 (2026-07-07): the engine's fit-COMPUTED launch values (n_gpu_layers /
+    # n_cpu_moe / ctx_len) for keys NO resolution layer pins on this box — what the
+    # launch actually uses on a wholly-untuned box/model. Kept SEPARATE from
+    # `switches`: merging them into the editable grid would let Save tune pin
+    # today's fit as explicit values, which the strict-beat rule exists to prevent.
+    computed: list[ResolvedFlag] = Field(default_factory=list)
 
 
 class ModelCatalogStore(Protocol):
@@ -161,6 +167,7 @@ def make_catalog_router(
     inspect_fn: Callable[[str, str, str], dict] | None = None,
     list_files_fn: Callable[[str, str], dict] | None = None,
     class_picks_fn: Callable[[], list[dict]] | None = None,
+    preview_fit_fn: Callable[[str], dict] | None = None,
 ) -> APIRouter:
     """CRUD + reset for the per-model llama.cpp catalog. When
     `resolve_switches(model_id) -> {flag_name: value}` is given, also expose
@@ -207,6 +214,25 @@ def make_catalog_router(
             # ONE store read serves BOTH the mtp flag and the model's recommended samplers.
             row = next((r for r in get_store().list() if r.id == modelId), None)
             samplers = (row.samplers if row else None) or {}
+            # Fix 2: the fit-COMPUTED launch values for keys no layer pins — read from
+            # the runner's pure fit preview (needs the GGUF on disk; errors soft →
+            # empty, the grid simply shows what it always showed). n_cpu_moe only
+            # means anything on a MoE model.
+            computed: list[ResolvedFlag] = []
+            if preview_fit_fn is not None:
+                try:
+                    pv = preview_fit_fn(modelId) or {}
+                except Exception:  # noqa: BLE001 — an enrichment must never break the grid seed
+                    pv = {}
+                if pv.get("ok"):
+                    fit_vals = {"n_gpu_layers": pv.get("nGpuLayers"), "ctx_len": pv.get("ctxLen")}
+                    if pv.get("isMoe"):
+                        fit_vals["n_cpu_moe"] = pv.get("nCpuMoe")
+                    computed = [
+                        ResolvedFlag(flagName=k, flagValue=str(v))
+                        for k, v in fit_vals.items()
+                        if v is not None and k not in merged
+                    ]
             return ResolvedModelDefaultsResponse(
                 # mtpCapable = the SAME OR-gate as the resolver's auto-mtp layer
                 # (built-in header mtp OR a configured external draft) — so the
@@ -215,6 +241,7 @@ def make_catalog_router(
                 modelId=modelId, mtpCapable=bool(row and (row.mtp or row.mtpDraftFile)),
                 switches=[ResolvedFlag(flagName=k, flagValue=str(v)) for k, v in merged.items()],
                 samplers=[ResolvedFlag(flagName=k, flagValue=str(v)) for k, v in samplers.items()],
+                computed=computed,
             )
 
     if list_files_fn is not None:

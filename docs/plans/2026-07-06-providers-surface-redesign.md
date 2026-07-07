@@ -1,11 +1,12 @@
 # Providers-surface redesign — five user decisions (2026-07-06 night)
 
-> **STATUS: EXECUTING (go given 2026-07-06: "stop it a wste of time, just remove them add it
-> tocurrent list, go ahead adn code go"). LIVE tracker — the per-item ✅ marks + the record at the
-> bottom update as items ship.** Born from the post-plan-closure design round on the Providers &
-> models screen (the user's live-app screenshot). Under the "do b" checker discipline: no
-> pre-build agent check (grounding + an inline T1–T12 citation instead); ONE diff-checker verdict
-> before the code commit.
+> **STATUS: LIVE TRACKER — ROUNDS 1–13 SHIPPED (2026-07-06 → 2026-07-07). Each `## ROUND N`
+> section below is the full record of its go; a later round supersedes an earlier round's
+> "queued/deferred" claims (the chronology IS the tracker).** Born from the post-plan-closure
+> design round on the Providers & models screen (the user's live-app screenshot). Discipline:
+> the "do b" checker rule (2026-07-06) for verified rounds; the 2026-07-07 rounds (9–13) ran
+> under the user's explicit "dont run tests" posture — each round's own verification record
+> states exactly what gates ran and what the box checks are.
 
 ## The decisions, verbatim (the user's words are the spec)
 
@@ -543,6 +544,14 @@ todo for later"). It will sit beside the engine-update off|notify control and sh
 Round-7 QuickSetup progress-UI edits under Task D (compiling, uncommitted). Awaiting the literal
 "go" before any of A/B/C/E is built.**
 
+**[UPDATE 2026-07-07 — where ROUND 8 actually landed: Task A (the class-tune library) + fixes
+1/3 SHIPPED in `b5abb91` (the GO section below); Fix 2's Tune-grid ask was later SCOPE-CHECKED
+in ROUND 11 (the class-tune knobs already render via resolved switches; only fit-COMPUTED
+values on a wholly-untuned model remain — queued); Task B's CORE (no auto-sweep on Apply +
+the Apply-under-sweep guard) + the Update-button relabel/move SHIPPED in ROUND 9; Task E (the
+hardware-change toast) SHIPPED in ROUND 11; Task C (the class-tune CRUD + editable Lab
+library) and the optional ~2-min budget-capped quick tune REMAIN QUEUED.]**
+
 ### Why this exists — the decision trail (verbatim anchors)
 
 Round 7 built a good progress UI for the autotune sweep, but running it on the user's box exposed
@@ -668,7 +677,9 @@ surface `n_cpu_moe`/`ctx`/`batch`/`ubatch`/`threads` in the Tune grid; (3) the c
 (new `class_tunes` table + `class_key()` + resolver layer + CRUD + the seed above). The already-built
 QuickSetup progress-UI edits (Task D) commit in the same series. Task B (Quick Setup instant-apply /
 remove auto-start), Task C (Lab library UI), Task E (notification), and the Update-button relabel/move
-remain queued for a follow-up go.
+remain queued for a follow-up go. **[Those follow-up goes happened SAME-DAY: ROUND 9 shipped Task
+B's core + the Update button; ROUND 11 shipped Task E; Task C + the ~2-min capped tune remain
+queued.]**
 
 ## ROUND 9 — SHIPPED 2026-07-07 (the on-box fallout go: prompt cancel · instant Apply · the engine-button cluster · the n_gpu_layers knob)
 

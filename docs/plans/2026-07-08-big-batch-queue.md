@@ -1815,3 +1815,51 @@ machinery** — no custom tasks, no Add/Move; the nine seeded tasks are fixed bu
 Tasks tab becomes: pick a task → its features (read-only list) → set its preset → test in
 the Lab (per-feature overrides then don't exist, matching QC-16 option (c)). The user's
 call; nothing builds until it + the go.
+
+**⛔ THE THIRD-COMPACT POINT (2026-07-08, user verbatim: "do A" → "go" → "stop lets save
+this we need to compact then you can go") — THE PICKUP INSTRUCTIONS:**
+
+**THE GO, armed for right after the compact, covers OPTION A ONLY — the QC-15+16
+Tasks-tab cluster.** Exact build scope (grounded in TaskKinds.vue read this stretch,
+functions :104-218, template :222-320):
+1. The **Default-preset fallback row is REMOVED** — the `.lu-tk-default` block
+   (TaskKinds.vue:236-243: the "Default preset (fallback for any task with none)" label +
+   select) and `setDefaultPreset` (:170-175) + its "Default preset set." message die; the
+   "↺ Reset all to defaults" button in that block SURVIVES (relocate it sensibly in the
+   aside — it is not the fallback). FLAGGED READING STANDS (unobjected): the BACKEND
+   fallback tier stays as silent crash-safety (a deleted preset can't strand a task); no
+   UI claims it exists.
+2. **"+ New task" opens the real form, no name popup** (newTask :117-127 promptDialog
+   dies): create-mode in the right pane — a plain name field + the preset select (empty)
+   + **Save disabled until BOTH name and preset are set** (the user's law); Save = POST
+   /v1/ai/task-kinds {label} then setTaskPreset(newId, presetId) (two existing calls, no
+   backend change); after Save the pane is the normal editor ("No features yet — move one
+   in above" empty copy, reworded from "add").
+3. **Rename = an inline name field, editable any time** (renameTask :129-138 + the header
+   "Rename" ghost button die): the selected task's header label becomes the editable name
+   field (PUT on change/blur via the existing :133-135 call). Built-ins ARE renameable
+   today (no builtIn guard in renameTask; per-task Reset restores names) — the field is
+   editable for all tasks, matching current behavior, no new decision.
+4. **Honest move affordances (QC-16 A):** the add-picker label "＋ Add a feature…" →
+   "Move a feature here…" with options labeled "<feature> — from <its current task>";
+   BOTH move directions (add-picker + row "Move to…") fire a kit `pushToast` saying what
+   changed ("<feature> now runs with <task>'s preset"); assignFeature unchanged
+   (:154-162 — the PUT is already the real write).
+5. **Consequence, FLAGGED one-line-changeable:** the per-task preset select loses its
+   "— inherit default —" option (:58-61) and the task cards' "inherits default" text
+   (:234) becomes an explicit no-preset warning — with the fallback concept removed from
+   the UI, "inherit WHAT default?" would dangle; a task always points at a preset.
+6. **Gates for the A ship:** JW vitest (48/48 must hold) · build:vite · FULL headless
+   smoke zero JS errors · the committed `scripts/b4-probe.mjs` EXTENDED with the A
+   acceptance checks (no `.lu-tk-default-k` row · "+ New task" opens the in-pane form and
+   NO prompt dialog appears · Save disabled until a preset is picked · create round-trip
+   selects the new task · inline rename round-trip · the honest picker label) · ONE
+   rules-checker verdict · commit/push both repos · this doc gets the A BUILD RECORD +
+   the recap pointer updates. Post-compact: RE-READ TaskKinds.vue IN FULL before the
+   first edit (this stretch read :40-320; the file is ~350 lines).
+
+**NOT covered by the armed go — decided but each needs its own word (ask ONE line at the
+A report):** the Tune-grid cluster QC-10 (grouping yes) + QC-11 (remove from catalog) +
+QC-12 (copy yes) + QC-17 (engine defaults removed, switches only) · QC-13 (Not-installed
+root-cause) · QC-14 (routing-by-feature wrap). Also still frozen: B2-9 · the DL-2 build ·
+Batches 5/6. The §9 QC queue stays LIVE (answer conversationally FIRST, always).

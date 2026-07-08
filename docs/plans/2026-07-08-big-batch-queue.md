@@ -1223,3 +1223,23 @@ build on the user's word — fold-in vs own-go asked once at the next report.
   Import REPLACES the table + bar with the editor (Cancel/Save returns to the list), which
   removes both duplications without losing any affordance. Same structure exists in
   LuGlobalSwitches' editor flow — check it for the same defect at build.
+- **QC-3 — Tune-modal header badge overstates + row names doubled (user verbatim, with a Tune
+  modal screenshot):** *"you original layout of this was correct you had it with all the names
+  with the catefory this just has one class defaults andt that is not true, it is all of them,
+  plus you doubled up on the names again, check your work."* Grounded against the shipped B3R
+  modal: (a) the header badge for an untuned model that has a class row reads **"Class default
+  for this PC"** — a SINGULAR claim about the whole config, but the grid itself shows the truth
+  is a MIX of layers (rows tagged ALL MODELS from the global bundles, YOUR PC CLASS from the
+  class row, computed, engine default) — "it is all of them"; the per-row origin tags (the
+  original layout the user calls correct) are the honest representation, and the one-word
+  header state must not contradict them. (b) Each checklist row now shows the name TWICE —
+  the friendly label ("Context size") plus the raw flag name ("ctx_len") stacked under it —
+  the doubling came free with KnobGrid's checklist anatomy (built for the sampler grid);
+  the pre-checklist add-grid showed ONE name per row (the flag name) with the origin
+  underneath. Fix reading (flag the final form at build): keep the per-row origin tags
+  exactly as the user endorses; ONE name per row (exact form — flag-name-only like the old
+  grid, or label-primary with the flag name relegated to the hover title — to settle when
+  building); reword or drop the header badge's class-default state so it can't claim the
+  whole config comes from one layer (the Auto-tuned/Hand-tuned/Untuned states stay — they
+  describe the APPLIED snapshot, which genuinely is one thing). Builds with QC-1 (same
+  wording surfaces).

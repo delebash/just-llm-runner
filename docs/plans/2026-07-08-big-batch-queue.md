@@ -1288,6 +1288,28 @@ segmented-download plan needs.
   **NOT covered by this go: B2-9** (the §7.2 set-as-default button — it lives in Batch 2, and
   the go names batches 4–6; §7.2 says it gets its own go) — ask the user ONE line at pickup
   whether to fold it in.
+**⛔ THE ROUND STATE AT THE SECOND COMPACT (2026-07-08, saved at the user's "when you get to a
+good stoping point we need to compact"):** shipped THIS round, in order — the **QC cluster
+QC-1..8** (checkpoint `1bea5f8` → user-ACCEPTED, see §9) · **DL-1** speed+ETA (runner
+`cf50ce8`, JW `4051979`) · the **DL-2 plan** (doc committed `70ec856` — STILL AWAITS the
+user's go before any build) · **BATCH 4 complete** (runner `7727a61`, JW `0c72483`; record
+above — three checker rounds: T5 Insert-from fix + record reconcile, final VERDICT: PASS).
+**REMAINING under the §8 standing go, resume here after the compact:** **BATCH 5** (B5-1
+picker removal per §7.2 · B5-2 stale-surface audit findings-first · B5-3 New chat + delete ·
+B5-4 nav prominence · B5-5 editor context menu · B5-6 strikethrough management · B5-7
+bottom-bar AI notice) then **BATCH 6** (B6-1 streaming per §7.4 · B6-2 return_progress).
+Still open beside the go: **B2-9** (the §7.2 set-as-default build — the one Batch-2 item
+never built; the go named 4/5/6, so it needs the user's word) · the **DL-2 build** (plan
+approval) · the **§9 QC queue stays LIVE** (the user QCs while I build; answer
+conversationally FIRST, then fix — the standing lesson). Two mid-round user questions were
+answered in-chat and their answers are also preserved here: (1) "is this what you coded?"
+on drift/Refresh — YES, refresh fills the GRID only, Apply is the sole commit, verified by
+the 14/14 B3R probe's live drift round-trip; (2) "why do you code something different after
+we confirm" — the owned mechanism (reuse importing undiscussed presentation + verification
+measuring works-as-built instead of matches-as-agreed) and the standing fix: every
+discussed surface gets an ACCEPTANCE-DIFF probe asserting the user's sentences (B4's probe
+did — and it caught two real defects before the user saw them).
+
 - **B1-2 CLOSED at pickup (the user's word 2026-07-08, verbatim):** *"B1-2 i think the deleting
   is fine, it is a disconnect between what db says and what is on user disk, example i installed
   engine, then reset the db, when i navigate back to ai settings it says install engine again,

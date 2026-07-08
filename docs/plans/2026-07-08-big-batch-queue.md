@@ -1465,6 +1465,34 @@ build on the user's word — fold-in vs own-go asked once at the next report.
   with boxes they can fill (e.g. single-var user_content analysis features). Small,
   contained change (FeatureLab picker v-if + the JW sources' provides lists + a vitest case
   + one probe assertion).
+
+  **QC-9 BUILD RECORD (2026-07-08, built first after the second compact — both timing
+  options offered pre-compact landed it ahead of Batch 5; the user's "continue" proceeded on
+  that, flagged one-word-changeable).** KIT: `testData.js` gained `sourceCanFill(source,
+  varNames)` NEXT TO `mergeVariables` so the filter and the fill share one module and can't
+  drift — exact-name intersection, else the same 1-incoming×1-var bridge the merge applies;
+  a source with NO `provides` list is always offered (undeclared hosts — JV later — keep the
+  old always-visible behavior). `FeatureLab.vue` renders the pickers from a new
+  `visibleSources` computed (`sources.filter(s => sourceCanFill(s, Object.keys(vars)))`) —
+  the v-for target changed, so an irrelevant picker is DOM-absent, not hidden. JW:
+  `labTestData.js` sources declare `provides` (chapters = passage/user_content/chapter_text/
+  chapter_label — kept in lockstep with fetch()'s emitted names; characters + locations =
+  user_content). Tests: 5 new vitest cases lock `sourceCanFill` (exact-match on multi-var ·
+  the QC-9 character-on-prose hide · single-single bridge · no multi-source bridge ·
+  undeclared-always-offered) — JW vitest **48/48**. The committed probe's old "3 pickers
+  render" check became the ACCEPTANCE PAIR, both observed live: on Generate prose
+  ({Passage, Voice canon}) exactly ONE picker ("Insert from chapter…"), none matching
+  character/location; on Structured extraction ({User content}) all THREE come back —
+  relevance filtering, not blanket hiding. Probe **7/7**, zero page errors; the
+  chapter-insert fill still passes with the filtered header. `build:vite` clean + the FULL
+  headless smoke zero JS errors. Also folded: `docs/models.md` gained a "Filling the Lab's
+  Test input" paragraph (Sample + Insert-from + the relevance rule) — an owned B4 doc gap:
+  the §7.3 build shipped with no models.md line (T11 miss at that ship), caught here.
+  Box note: kit/renderer UI only, NO reset; visible on the next desktop build.
+  Checker VERDICT: PASS (advisory recorded, not built under the hard stop: a
+  property test asserting each source's `provides` === Object.keys(fetch().variables)
+  would catch a future drift in a non-passage name; today all three are exact,
+  hand-verified + probe-covered on the passage path).
 - **QC-8 — the Advanced expander must go; the copy-from-Lab is the root failure (user
   verbatim):** *"you added avancded hidden under a expand, all you did was copy what was in
   lab and replace what was in the original tune, you did not think about what we where doing
@@ -1563,3 +1591,113 @@ carries the class fact) · per-model Import lives in the global library now.
 > replaces checkboxes · flag-name-primary · header class state removed · per-model Import in
 > the global library) are now user-accepted; the round continues (DL-2 plan → Batches 4/5/6)
 > with the user reviewing after this round's commits.
+
+### §9 ROUND 2 — QC-10..15 (2026-07-08, post-second-compact; arrived mid-QC-9-build; ANSWERED
+### conversationally first per the standing lesson, then recorded here; harness tasks #205–#210)
+
+The user's framing, verbatim: *"add as tasks, you are editing lab some you may want to do will
+you are editng same file"* — i.e. record them all, and the ones touching the files already in
+this round's working set (Tune modal / KnobGrid / TaskKinds / FeatureWorkbench) fold into the
+current stretch rather than waiting for a separate go.
+
+- **QC-10 — the Tune grid must GROUP by origin with one heading per section (user verbatim):**
+  *"what is engine default, we never discussed this,there is no where to edit this, list what
+  are engine default vs global default, and you dont even have them groupd together, or order,
+  why not just heading for each section instead explicitly saying each one is hardware."*
+  Answered in chat with the real lists (Global launch defaults: Base = flash_attn on ·
+  cache_type_k/v q8_0 · mlock on, seed.py:295; MoE = no_mmap on, :299; MTP = spec_type
+  draft-mtp · spec_n_max 2, :304. Hardware-class default for vram8|ram32 Gemma:
+  n_gpu_layers 99 · n_cpu_moe 21 · ctx_len 32768 · batch/ubatch 512 · threads 8 ·
+  reasoning_budget 1024, :331-335. Engine default = llama-server's own value when no layer
+  sets the flag — deliberately not editable anywhere in the app; values cited from the
+  llama.cpp server README per seed.py:407-408). The presentation defect is real and is my own
+  one-fact-once rule violated: the per-row origin tag repeats one fact N times. FIX: the
+  ledger renders SECTIONS with one heading each — Your applied config → Hardware-class
+  default → Global launch defaults → Computed for this PC → Engine defaults — rows ordered
+  within their group, per-row origin tags REMOVED. (Task #205.)
+- **QC-11 — context_shift + cache_reuse surfaced in the grid; the user rejected them
+  (verbatim):** *"what the hell where did context_shift and reuse come from we determined
+  they were not good defuatls, what the heel you change all the switches we original had when
+  you made this new master tune switch control it was correct before we just needed to turn
+  it into link and replace the lab with tune one but you just decided to add stuff we never
+  even tested, when did you decide this, and i dont care wshat you have to do to yourelf but
+  make sure you have something that always says never decide on your own not matter if it is
+  a new session or compact, got it."* The honest trace, answered in chat: the user's
+  2026-07-07 removal from the default bundles STANDS in code (seed.py:290-294 records it
+  verbatim — "context_shift measured as a net loss … neither is a safe UNIVERSAL default");
+  nothing sets or sends either flag. They remained rows of the knob CATALOG (the editor's
+  vocabulary, seeded in the 2026-06-29 catalog expansion; seed.py:450-452 with the note
+  "enable per model where they actually help"), and §7.6's "every catalog knob is a visible
+  row" surfaced the whole vocabulary — so two rejected flags appeared as unset rows with
+  engine-default placeholders and READ as endorsed. Not a re-add; a failure to check the
+  catalog's contents against the user's tuning decisions before making the catalog the
+  visible surface. FIX (FLAGGED rec, one word reverts): remove both from DEFAULT_KNOBS +
+  targeted delete of the seeded rows on existing DBs; both stay reachable through "Add a
+  custom switch" for per-model experiments. Alternative recorded: keep them, sitting under
+  the QC-10 "Engine defaults" heading. The DECREE half is recorded in the recap's ⛔ #1
+  block verbatim (the two always-read files carry it; Block 0 forces the re-read after every
+  compact — which is the mechanism that survives sessions). (Task #206.)
+- **QC-12 — Tune lede copy (user verbatim):** *"replace (how tasks ask the model —
+  temperature, tokens, thinking — stays on the Tasks tab). with new line below Apply,
+  Samplers like temperature are set on the Tasks or Routing by feature tabs"*. Concrete:
+  TuneMeasureModal.vue:503-504 drops the parenthetical; a muted line "Samplers like
+  temperature are set on the Tasks or Routing by feature tabs" renders below the Apply
+  action. (Task #207.)
+- **QC-13 — BUG: "Not installed — install it before you load a model." while the engine IS
+  installed (user verbatim):** *"Not installed — install it before you load a model. even
+  thought engine is installed"*. The string renders in exactly ONE place —
+  LuRunnerEngine.vue:131, the Local-engine panel's v-else of the installed check. Root-cause
+  at build, no guessing: render-before-status-fetch (transient flash needing a loading state)
+  vs the status endpoint reporting wrong (the #138 stale-state / B1-2 DB-reset class). If
+  code says impossible, ask the user for the Settings → Logs line. (Task #208.)
+- **QC-14 — Routing by feature: wrap the text (user verbatim):** *"you fixed the nav fitting,
+  but you should wrap the text better now the control are very wide"*. FeatureWorkbench row
+  text must wrap within available width; screenshot-verify. (Task #209.)
+- **QC-15 — kill the Default-preset fallback row + the naming-popup pattern (user verbatim):**
+  *"Default preset (fallback for any task with none) remove it, this is stupid, just make it
+  so you cant save it without a preset, the problem is you like to popup just a name box when
+  you create new things, stop that just open the add/edit form with the name place, you do
+  this all the time. then user cant actually save a new task with the save button unless
+  preset is assigned, it is not dififcult"* + the follow-up: *"same with the rename why do
+  you popu for names, just have the damn name in a field that you can edit any time no
+  special popup just plan easy form, make this a rule but write it in your own words no extra
+  popusp for nameing things, just go directly to add edit form with should have the name as a
+  field you just type in and save."* Grounded: the fallback row is TaskKinds.vue:237 (+ its
+  :173 saved-message); create = a name-only promptDialog (TaskKinds.vue:117-118), rename the
+  same (:130). BUILD: the row is removed; "+ New task" opens the task pane's add/edit form
+  directly with the name as an ordinary field; rename = the same always-editable field; Save
+  refuses until a preset is assigned. FLAGGED (one line changes it): the backend resolve
+  keeps its silent fallback tier as crash-safety (a deleted preset can't strand a task) —
+  no UI claims it exists. THE NEW STANDING RULE (ordered "write it in your own words",
+  recorded in the recap's STANDING RULES): creating or renaming a thing never goes through a
+  name-popup — every entity opens its one add/edit form directly, where the name is a plain
+  field editable at any time, and the form refuses to save until its required assignments
+  are set. (Task #210.)
+
+**⛔ THE HARD STOP (user verbatim, arrived right after QC-15):** *"dont code anyting on the
+tasks i am adding we need to discuss, do nothing until i say go!!!!"* — so QC-10..16 (and
+everything else: Batch 5/6 despite the earlier standing go, B2-9, the DL-2 build) are FROZEN
+until the user's go; the QC items are DISCUSSION items first. QC-9 alone was already built +
+gate-verified BEFORE this stop arrived (under the pre-compact offered timing) and only its
+bookkeeping (checker verdict → commit) completes; nothing else builds.
+
+- **QC-16 — the Tasks tab's add/move-feature affordances (user verbatim, a DISCUSSION item
+  under the hard stop):** *"tasks -- no way to remove an added feature in fact not sure why
+  we have it adding a feature does nothing because there is no real code behind it, what
+  would moving a feature actually do?"* Grounded answer (given in chat): every feature
+  belongs to exactly ONE task — the featureTaskKinds map; **"+ Add a feature…" is really
+  "move an existing feature here"** (TaskKinds.vue:71-77 — the picker lists features NOT in
+  this task; picking one calls assignFeature :154-157, a real PUT
+  `/v1/ai/task-kinds/feature` that repoints the feature), and the member rows' "Move to…"
+  is the SAME operation aimed the other way (:66-70). There is no remove BY DESIGN — a
+  feature always has a task, because the task's preset is what runs it (Plan A); features
+  are also not creatable/deletable here (the app's fixed action catalog). What moving DOES:
+  move "Continue writing" from Generate prose to Edit prose and the editor's Continue action
+  now runs under Edit prose's preset (model/samplers/thinking). The user's perception
+  ("adding does nothing / no real code") is a NAMING + feedback defect worth the discussion:
+  "Add" implies creating; nothing says "this moves it from <old task>". OPTIONS for the
+  discussion (user decides, nothing built): (a) the affordance says what it does — "Move a
+  feature here…" (+ a toast "moved from <task>"); (b) drop the add-picker entirely, keep
+  only the row-level "Move to…" (one verb, one direction); (c) the deeper question — should
+  users regroup features at all, or is the seeded grouping + per-task preset enough (the
+  surface then becomes read-only provenance)? (Task #211.)

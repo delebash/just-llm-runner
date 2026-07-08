@@ -16,6 +16,19 @@ export function testDataSources() {
   return _sources;
 }
 
+/** QC-9 (queue §9): can this source fill at least one of the open prompt's
+ *  variables? Sources declare `provides: [names]`; a picker renders only when
+ *  an exact-name fill exists, or the single-single bridge below would apply
+ *  (1 provided name × 1 prompt var). A source with NO provides list is always
+ *  offered — hosts that haven't declared stay on the old always-visible path. */
+export function sourceCanFill(source, varNames) {
+  const provides = source?.provides;
+  if (!Array.isArray(provides) || !provides.length) return true;
+  const names = (varNames || []).filter(Boolean);
+  if (names.some((n) => provides.includes(n))) return true;
+  return provides.length === 1 && names.length === 1;
+}
+
 /** Merge fetched sample/source variables into the Lab's vars object:
  *  exact-name matches win; and when the payload carries exactly ONE variable
  *  while the prompt exposes exactly ONE, the value bridges regardless of name

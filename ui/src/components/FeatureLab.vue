@@ -22,7 +22,7 @@ import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
-import { mergeVariables, testDataSources } from "../common/services/testData.js";
+import { mergeVariables, sourceCanFill, testDataSources } from "../common/services/testData.js";
 import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
@@ -112,6 +112,10 @@ const samples = ref([]);       // this taskKind's DB samples
 const sampleIx = ref(0);       // the next sample the button fills
 const sources = testDataSources();
 const sourceOptions = reactive({}); // source.id -> [{value,label}] (loaded once per mount)
+// QC-9: a picker renders only when its source can fill one of THIS prompt's
+// boxes (chapters carry {passage}; a character profile can't fill a prose
+// feature — the picker would only ever toast an error, a dead control).
+const visibleSources = computed(() => sources.filter((s) => sourceCanFill(s, Object.keys(vars))));
 
 watch(() => props.taskKind, async (kind) => {
   samples.value = [];
@@ -177,7 +181,7 @@ const columnConfig = computed(() => {
            the header line — fill affordances beside what they fill, no extra row. -->
       <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span>
         <span class="lu-fw-testin-spacer" />
-        <UiSelect v-for="src in sources" :key="src.id" v-show="(sourceOptions[src.id] || []).length > 1"
+        <UiSelect v-for="src in visibleSources" :key="src.id" v-show="(sourceOptions[src.id] || []).length > 1"
           class="lu-fw-testin-src" :model-value="''" :options="sourceOptions[src.id] || []" width="name"
           @update:model-value="(v) => insertFrom(src, v)" />
         <UiButton v-if="samples.length" intent="secondary" size="small"

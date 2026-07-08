@@ -1029,6 +1029,12 @@ the SAVE semantics, and the user decided it:
   picks it up. The real multi-model future work is VRAM arithmetic (fit must count residents) +
   eviction policy → the ledger IDEAS section, not a switches problem.
 
+> **Flagged-interpretations BLESSED (2026-07-08, after ship):** the user reviewed the four
+> flagged interpretation choices in this record (unchecked engine-default rows unsaved · Refresh
+> loads the full current baseline · drift ignores fit-computed values · untuned catalog rows
+> carry no badge) and approved them verbatim: *"your decisions are fine."* They are now
+> user-decided, not interpretations.
+
 **B3-REMAINDER BUILD RECORD (2026-07-08, the user's "i agree with your recommendations, go" —
 BUILT + VERIFIED same session).** Everything grounded before touching (TuneMeasureModal.vue +
 KnobGrid.vue + model_tunes_api.py + switch_resolve.py read in FULL; model_catalog_api.py:140-279,
@@ -1111,3 +1117,53 @@ fake GGUF deleted). Screenshots eyeballed + sent (the all-knobs grid, the drift 
 catalog badge). **Box notes: NO reset** — the baseline table is additive (create_all), the rest
 is kit UI; a tune applied BEFORE this build has no stored baseline, so no drift notice until its
 next Apply (recorded above); everything visible on the next desktop build.
+
+---
+
+## §8 — POST-B3 ADDITIONS + THE STANDING GO (2026-07-08, saved at the user's pre-compact stop — THE PICKUP POINT)
+
+The user's message, verbatim (sent, then interrupted by their own *"sorry lets compact first
+save what you need to so we can pickup here"* — so it is RECORDED here and EXECUTES at pickup,
+not before): *"i have highspeed 1gb connection sometimes download is fast sometimes very slow
+to lets do 1 and plan 2 and you have a go on Batches 4, 5, 6"*.
+
+Reading (flagged interpretation — "1" and "2" are the numbered items in my download answer
+they replied to): **1 = the download-speed display** · **2 = multithreaded/segmented
+downloading**.
+
+- **DL-1 — download speed + ETA on the progress bars: DECIDED + GO ("lets do 1").** Client-side
+  in the shared composables: speed = Δbytes/Δtime between the existing ~0.8 s status polls,
+  smoothed over the last few samples; ETA = remaining ÷ speed; shown beside the byte counts on
+  BOTH bars (engine install — `useEngine.js` `progressLabel`; model downloads — the
+  LuModelCatalog/useRunnerModels bar). One shared helper, no server change. Build at pickup
+  (natural fold: alongside Batch 4, or first as a small standalone unit).
+- **DL-2 — multithreaded (segmented / parallel-range) downloading: PLAN ONLY ("plan 2").**
+  The user's box evidence FOR it (verbatim above): a 1 Gbit line where downloads are
+  "sometimes fast sometimes very slow" — the single-connection cap/variance pattern. Today
+  both downloads are ONE `requests.get(stream=True)` connection (`runner/download.py:40`,
+  64 KB chunks, inline sha256). The plan to write at pickup (then the user approves before any
+  build): range-support probe → N workers fetching byte-ranges to offsets (preallocate+seek) →
+  per-segment retry → cancel across workers → sha256 moves to an after-assembly pass →
+  progress aggregation into the same on_progress seam; VERIFY the HF-CDN per-connection
+  behavior via web + a timed 1-vs-4-stream test (upstream facts never from memory); DL-1's
+  speed display supplies the box measurement.
+- **THE STANDING GO — Batches 4, 5, 6** ("you have a go on Batches 4, 5, 6"): execute at
+  pickup, batch by batch, full gates + checker + records per batch as established. Scope:
+  **B4** B4-1 (#28 Add-a-feature inline) · B4-2 (#29 two-column Lab layout) · B4-3 (#35 one
+  switches column) · B4-4 (#30/#44 the §7.3 test-data registry build) · B4-5 (#34 —
+  record-only: resolved by §7.1's deletion, see its queue entry). **B5** B5-1 (#38/#40 remove
+  per-surface pickers + provenance chip, per §7.2) · B5-2 (#39 JW stale-surface audit,
+  findings-first) · B5-3 (#46 New chat + delete-chat) · B5-4 (#47 nav prominence) · B5-5 (#41
+  editor context menu) · B5-6 (#42 strikethrough management) · B5-7 (#43 bottom-bar AI notice)
+  · B5-8 → already the ledger IDEAS §J1, not built. **B6** B6-1 (#49 streaming per §7.4) ·
+  B6-2 (#50 return_progress per §7.4) · B6-3 → DONE (the ledger §J section, this session).
+  **NOT covered by this go: B2-9** (the §7.2 set-as-default button — it lives in Batch 2, and
+  the go names batches 4–6; §7.2 says it gets its own go) — ask the user ONE line at pickup
+  whether to fold it in.
+- **Also live at pickup:** B1-2 — the user was TESTING the engine install on their box when
+  this session stopped (their polling question was answered: the 800 ms engine/status poll
+  during install is by design, `useEngine.js:35-49`, and MUST stop when the install ends —
+  a poller that keeps running after completion is a real bug to report). Still owed by the
+  user: the "old engine build" log line (Settings → Logs, or `<data root>\logs\justwrite.log`,
+  incl. rotated `.1`) + the `<data root>\ai-cache\llamacpp\` folder names after an
+  Update/Reinstall.

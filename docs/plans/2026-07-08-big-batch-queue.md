@@ -302,10 +302,11 @@ like docs/models.md. The "customizable editor/context menus" future item (#52a) 
 - B1-6 (#36) Lab runs register as tasks (progress bar + queue entry) — verify path at build (§1c).
 - B1-7 (#45) "Ask the manuscript" → "Ask the book" (3 spots, `ChatPanel.vue:250,341,344`). [JW]
 - B1-8 (#48) FeatureWorkbench nav de-duplication (group header vs per-action task tag) (§1c).
-- B1-9 (#9) CLARIFY with the user first — garbled: "model on change and if embed model has not
-  been loaded it says the same as it does not load on first search". Best guess: the embedding
-  model doesn't lazy-load on first search (Ask-the-Book/RAG ensureEmbeddingReady path?) and the
-  error after changing models is the same unhelpful one. Need surface + repro.
+- B1-9 (#9) RESOLVED by the user 2026-07-08 ("lazy load embed"): the embedding model must
+  LAZY-LOAD on first use — first search loads it instead of erroring, and changing the embed
+  model loads the new one on the next search the same way. Work item: the search path (RAG /
+  Ask-the-Book ensureEmbeddingReady chain) triggers the load + shows a loading state; the
+  unhelpful identical error goes away as a consequence.
 
 **Batch 2 — providers & catalog UI (kit):**
 - B2-1 (#3) rename seeded provider "Built-in server — llama.cpp" → "Built-in provider — llama.cpp"
@@ -349,9 +350,19 @@ like docs/models.md. The "customizable editor/context menus" future item (#52a) 
 - B4-3 (#35) no "Advanced" split — one column of the switches actually in use (post-A this is the
   sampler grid + the read-only launch panel).
 - B4-4 (#30/#44) test-data sources + Sample button — the discussion-C build.
-- B4-5 (#34) CLARIFY — the sentence ends mid-thought: "when i sent my config from measure and tune
-  to task". Suspected: the sent config didn't land/show as expected in the compare column. Need
-  the rest of the sentence.
+- B4-5 (#34) RESOLVED by the user 2026-07-08: "when i sent my config from measure to task, none
+  of the switches where set it had all defaults" — the Send-to-Lab handoff loses the switches.
+  Traced 2026-07-08: the modal DOES send them (`TuneMeasureModal.vue:149` → `labHandoff.js:21`)
+  and TaskKinds lands the payload on the FIRST task + arms `pendingHandoff`
+  (`TaskKinds.vue:125-131`; line 128 is also the #20 "first task" complaint) — the loss is in
+  FeatureLab/ConfigColumn's column seeding (the model-pick watcher re-seeds both grids from the
+  MODEL, `ConfigColumn.vue:96-110`, clobbering the handed rows). The user notes this is the same
+  syncing issue as discussion A — CORRECT, and stronger: even a successful carry would change
+  nothing, because the column's engine switches are never sent on Test
+  (`ConfigColumn.vue:292`) and never applied in production (the dead plane, §1a). Disposition:
+  dissolved by discussion A (launch switches leave the Lab; Send-to-Lab becomes "open the Lab on
+  this model for quality testing" and the launch config follows the model automatically). If the
+  user instead keeps launch switches in the Lab (A rejected), this becomes a carry-bug fix.
 
 **Batch 5 — JW app surfaces [JW]:**
 - B5-1 (#38/#40) remove per-surface model pickers (Ask the Book top+bottom, scene editor) →
@@ -386,5 +397,27 @@ like docs/models.md. The "customizable editor/context menus" future item (#52a) 
 ## §5 — Needs the user (can't proceed without)
 
 1. Discussions A–F above (A first — it unblocks batches 3+4 and dissolves four items).
-2. CLARIFY #9 (garbled) and #34 (truncated) — exact surface + the rest of the sentence.
+2. ~~CLARIFY #9 and #34~~ — both resolved by the user 2026-07-08 (see B1-9, B4-5).
 3. B1-2 needs the box's engine-log line for the leftover-build failure before any code.
+
+## §6 — Q&A record (2026-07-08, after the organization landed)
+
+**User:** "we have 2 places to set and save engine switches, how do you know which one is
+applied, it still seems confusing to me."
+
+**Answer (grounded):** only ONE of the two is ever applied. (1) Tune & measure → Save tune →
+`model_tunes` (this model + this machine): every load of that model — whichever task triggers
+it — resolves global bundles → class default → this saved tune and spawns llama-server with the
+result (`switch_resolve.py`, wired live `install.py:182-189`). (2) The Lab column's "Engine
+switches" saved into a preset: applied NEVER — not on the Lab's own Test
+(`ConfigColumn.vue:292` "Plane-1 switches are NOT sent") and not in production (nothing reads
+`EnginePresetSwitch`/`ngl_override` — grep proof, §1a). So today the honest answer to "which is
+applied?" is "always the Tune side; the task side is dead storage" — and the fact that the UI
+can't tell the user that IS the defect. The confusion is not a documentation gap to explain
+away; it's the dead plane, and discussion A's proposal deletes it so exactly one place exists.
+The design principle: engine switches are the flags the model's server PROCESS starts with; the
+process is shared by all tasks, so its launch config cannot belong to any one task (per-task
+launch flags would force a full unload/reload on every task switch — ~8-12 s on the 2070S — and
+"current config" would be whichever task ran last). What tasks legitimately own is everything
+that varies per REQUEST without a reload: samplers, max tokens, JSON, thinking — which presets
+already carry. The one-profile A/B (2026-07-06) is the measured proof this split works.

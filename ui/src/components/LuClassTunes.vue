@@ -34,6 +34,10 @@ const props = defineProps({
   // name -> { label, help, options } — the host's Plane-1 switch catalog (the
   // Tune modal passes its own). Empty → self-loaded on first open (global mount).
   catalog: { type: Object, default: () => ({}) },
+  // true = render the body directly (no collapsed <details>/summary) and load on
+  // mount — the POPUP mount (#6: the Edit view opens this in an AppModal, whose
+  // title already is the header). Default false = the classic drawer.
+  expanded: { type: Boolean, default: false },
 });
 const globalMode = computed(() => !props.modelId);
 
@@ -91,6 +95,7 @@ async function reload() {
 function onToggle(e) {
   if (e.target.open && !loaded.value) reload();
 }
+if (props.expanded) reload(); // the popup mount has no summary click to trigger it
 defineExpose({ reload: () => (loaded.value ? reload() : undefined) });
 
 const summaryOf = (t) => t.rows.map((r) => `${r.flagName}=${r.flagValue}`).join(" · ");
@@ -210,8 +215,8 @@ const hasRows = computed(() => tunes.value.length > 0);
 </script>
 
 <template>
-  <details class="lu-ct" @toggle="onToggle">
-    <summary class="lu-ct-summary">
+  <component :is="expanded ? 'div' : 'details'" class="lu-ct" :class="{ 'lu-ct--expanded': expanded }" @toggle="onToggle">
+    <summary v-if="!expanded" class="lu-ct-summary">
       <span class="lu-ct-title">Hardware-class defaults{{ globalMode ? " — all models" : "" }}</span>
       <span class="lu-muted">shared starting points by PC class (video memory · RAM)</span>
     </summary>
@@ -290,11 +295,14 @@ const hasRows = computed(() => tunes.value.length > 0);
         </div>
       </template>
     </div>
-  </details>
+  </component>
 </template>
 
 <style scoped>
 .lu-ct { border-top: 1px solid var(--border); padding-top: 10px; }
+/* Popup mount (#6): the AppModal title is the header — no drawer chrome. */
+.lu-ct--expanded { border-top: none; padding-top: 0; }
+.lu-ct--expanded .lu-ct-body { margin-top: 0; }
 .lu-ct-summary { cursor: pointer; display: flex; flex-direction: column; gap: 2px; user-select: none; }
 .lu-ct-title { font-weight: 700; font-size: 12.5px; color: var(--ink); }
 .lu-ct-body { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }

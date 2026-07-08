@@ -17,6 +17,13 @@ import { confirmDialog } from "../common/services/dialog.js";
 import { request } from "../client.js";
 import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
 
+const props = defineProps({
+  // true = render the body directly (no collapsed <details>/summary) and load on
+  // mount — the POPUP mount (#6: the Edit view opens this in an AppModal, whose
+  // title already is the header). Default false = the classic drawer.
+  expanded: { type: Boolean, default: false },
+});
+
 const APPLIES_LABELS = {
   all: "All models",
   moe: "MoE models",
@@ -59,6 +66,7 @@ async function reload() {
 function onToggle(e) {
   if (e.target.open && !loaded.value) reload();
 }
+if (props.expanded) reload(); // the popup mount has no summary click to trigger it
 
 async function savePreset(p) {
   busy.value = p.id;
@@ -104,8 +112,8 @@ const ordered = computed(() =>
 </script>
 
 <template>
-  <details class="lu-gsw" @toggle="onToggle">
-    <summary class="lu-gsw-summary">
+  <component :is="expanded ? 'div' : 'details'" class="lu-gsw" :class="{ 'lu-gsw--expanded': expanded }" @toggle="onToggle">
+    <summary v-if="!expanded" class="lu-gsw-summary">
       <span class="lu-gsw-title">Global launch defaults</span>
       <span class="lu-muted">the always-on switch bundles under every tune — all models · MoE · dense · speculative decode</span>
     </summary>
@@ -135,11 +143,14 @@ const ordered = computed(() =>
         </div>
       </template>
     </div>
-  </details>
+  </component>
 </template>
 
 <style scoped>
 .lu-gsw { border-top: 1px solid var(--border); padding-top: 10px; }
+/* Popup mount (#6): the AppModal title is the header — no drawer chrome. */
+.lu-gsw--expanded { border-top: none; padding-top: 0; }
+.lu-gsw--expanded .lu-gsw-body { margin-top: 0; }
 .lu-gsw-summary { cursor: pointer; display: flex; flex-direction: column; gap: 2px; user-select: none; }
 .lu-gsw-title { font-weight: 700; font-size: 12.5px; color: var(--ink); }
 .lu-gsw-body { margin-top: 10px; display: flex; flex-direction: column; gap: 14px; }

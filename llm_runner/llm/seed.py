@@ -92,7 +92,7 @@ def app_feature_task_kinds() -> dict:
 # Dispatch's `adapter.default_model` fallback stays — it now simply stays empty until
 # the user's pick writes it.
 DEFAULT_PROVIDERS: list[dict] = [
-    {"id": "local-llamacpp", "name": "Built-in server — llama.cpp",
+    {"id": "local-llamacpp", "name": "Built-in provider — llama.cpp",
      "provider_type": "local-llamacpp", "base_url": "http://127.0.0.1:8080/v1", "local": True},
     {"id": "openai-compat-local", "name": "OpenAI-compatible (local)",
      "provider_type": "openai-compat", "base_url": "http://localhost:11434/v1", "local": True},
@@ -508,13 +508,27 @@ DEFAULT_KNOBS: list[dict] = [
 ]
 
 
+# Prior seeded names, per provider id (#3, 2026-07-08 "Built-in server" →
+# "Built-in provider"): existing DBs keep their rows on reseed, so a pure rename in
+# DEFAULT_PROVIDERS never reaches them. The seeder refreshes a present row's name
+# ONLY while it still reads exactly one of these old seeded strings — a user's own
+# rename is a different fact and is never touched (the B1-4 fill-empty precedent,
+# applied to a rename).
+_RENAMED_PROVIDER_NAMES: dict[str, tuple[str, ...]] = {
+    "local-llamacpp": ("Built-in server — llama.cpp",),
+}
+
+
 # ── seeders (operate on a passed session, no commit) ──────────────────────────
 def seed_default_providers(s) -> int:
-    existing = {r.id for r in s.query(db.LlmProvider).all()}
-    pos = s.query(db.LlmProvider).count()
+    existing = {r.id: r for r in s.query(db.LlmProvider).all()}
+    pos = len(existing)
     added = 0
     for p in DEFAULT_PROVIDERS:
         if p["id"] in existing:
+            row = existing[p["id"]]
+            if row.name in _RENAMED_PROVIDER_NAMES.get(p["id"], ()):
+                row.name = str(p.get("name") or "")
             continue
         s.add(db.LlmProvider(
             id=p["id"], name=str(p.get("name") or ""), kind="llm", built_in=True, position=pos,

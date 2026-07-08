@@ -1,7 +1,8 @@
 # The 2026-07-08 big batch — organization of the user's 52-item list (discussion first, then gos)
 
-**STATUS: §7.1 DECIDED+BUILT · BATCH 1 BUILT (see the B1 BUILD RECORD in §3; B1-2 still waits on
-box evidence) · discussions B–F + batches 2–6 await their own gos.** The user dropped a 52-line
+**STATUS: §7.1 DECIDED+BUILT · BATCHES 1+2 BUILT (see the B1 + B2 BUILD RECORDS in §3; B1-2 still
+waits on box evidence; B2-9 waits on discussion B) · discussions B–F + batches 3–6 await their own
+gos.** The user dropped a 52-line
 list (verbatim below) with the
 instruction "take your time to think about each one, many or related, organize them int working
 items, we will need to discuss some in more detail". Rule #10 stands: no code until a per-batch
@@ -496,7 +497,8 @@ reset needed (the size facts fill empty fields at next boot); the model-card lin
 DESKTOP app to show the fix (the browser dev path always worked); an apiKey already wiped by
 the old bug must be re-entered once.
 
-**Batch 2 — providers & catalog UI (kit):**
+**Batch 2 — providers & catalog UI (kit) — BUILT 2026-07-08 except B2-9 (gated on discussion B);
+see the B2 BUILD RECORD below:**
 - B2-1 (#3) rename seeded provider "Built-in server — llama.cpp" → "Built-in provider — llama.cpp"
   (`seed.py:95` + `llm/api.py:78`); existing DBs: decide reseed vs targeted refresh of built_in
   provider names.
@@ -512,6 +514,84 @@ the old bug must be re-entered once.
 - B2-8 (#12c/d) Read-from-link: move above the quant dropdown, rename "Load model info from HF",
   distinct button color, drop the "— no download" tail (`LuModelCatalog.vue:801-802`).
 - B2-9 (#2/#37) "Set as default provider" — AFTER discussion B locks semantics.
+
+**B2 BUILD RECORD (2026-07-08, the user's bare "go" after the post-B1 compact — read as "the
+next buildable unit in the queue", which is this batch; B2-9 deliberately excluded, it stays
+gated on discussion B).** Everything grounded in current post-B1 code before touching it
+(ProviderForm.vue:224-227 · AiModelsArea.vue:343-345 · LuModelCatalog.vue:601-663/665-672/
+688/793-807 · LuRunnerEngine.vue:134-146 · useEngine.js:75-93 · seed.py:94-96/512-527 ·
+api.py:78 · lifecycle.py:452-467); inline T1–T12 citation preceded the first edit per the
+"do b" checker discipline; ONE consolidated gate pass at batch end per the no-tests posture.
+
+- **B2-1 built.** `DEFAULT_PROVIDERS` name → "Built-in provider — llama.cpp" (`seed.py`) and
+  the health string's "install it on the Built-in server row" → "Built-in provider row"
+  (`llm/api.py`) — the only two occurrences in either repo (grep-swept). Existing DBs:
+  `seed_default_providers` gained a NAME-REFRESH — a new `_RENAMED_PROVIDER_NAMES` map of
+  each id's PRIOR seeded names; a present row is renamed to the new seeded name ONLY while
+  its current name still equals one of the old seeded strings, so a user's own rename is a
+  different fact and is never touched (the B1-4 fill-empty precedent applied to a rename).
+  Locked by `tests/test_shared_storage.py::test_reseed_refreshes_old_seeded_provider_name_only`
+  (old name → refreshed; custom name → preserved). LIVE-verified in this container: the dev
+  DB predates the rename and the card read "Built-in provider — llama.cpp" after a plain
+  server boot — exactly the path the user's box takes, NO reset.
+- **B2-2 built (interpretation flagged).** The Run-Quick-Setup section (`.lu-prow-qsbtn`,
+  the QuickSetup inline mount) moved from the BOTTOM spanning row of the built-in card to
+  its FIRST grid row — the card now opens with the centered "Run Quick Setup" band, a
+  bottom border seating it as the card's header above the provider row (screenshot-verified;
+  the 2026-07-06 "own separate row" fix stands). The user's words were "align run quick
+  setup section to top" — read as move-to-top-of-card; one template block to move back if
+  a different alignment was meant.
+- **B2-3 built.** The "Your setup" slot cards' pickers render ALWAYS (the #144 empty-only
+  `v-if` is gone): the dropdown IS the card's value line, showing the current assignment;
+  changing it routes through the SAME assign+load writers as the rows (`makeDefault` /
+  `makeEmbedding` — the load swaps the resident model, the user's "it will just unload and
+  load"). The dead-pointer warning line stays for the GONE case only (the dropdown then
+  shows the placeholder). New `recommendedEmbedId` = QuickSetup's exact embed pick
+  (`pickLowestQuality` over the FITTING embeds — the shared modelPick comparator, one rule
+  both sides), tagged "· Recommended" in the embed dropdown (the chat dropdown already
+  tagged `recommendedId`) and NAMED in the empty card's hint ("we recommend <name> for this
+  PC") — surfaced, never auto-applied (the seed principle: the user picks). The assigned
+  model stays in its dropdown even if it no longer fits (a shrunk box must show the truth,
+  not a blank select). Container check: the embed card read "Qwen3 Embedding 8B ·
+  Recommended" as the selected value with the always-visible dropdown.
+- **B2-4 built.** The embedded `LuClassTunes` (global) + `LuGlobalSwitches` blocks on the
+  built-in Edit view became two BUTTONS ("Hardware-class defaults…" · "Global launch
+  defaults…", one caption line) opening AppModal popups hosting the SAME components — both
+  components gained an `expanded` prop (render the body directly with no `<details>`/summary
+  and load on mount; default false keeps every existing drawer mount unchanged, incl. the
+  Tune modal's per-model LuClassTunes). No fork — the two-mode precedent LuClassTunes
+  already set, extended by one presentation flag. Probe-verified: the popup opens expanded
+  with all 3 switch bundles editable. (B3-6 later points the Tune modal's embedded editors
+  at these same popups.)
+- **B2-5 built.** The Local-engine panel's actions gained "Uninstall engine" beside Details
+  when installed (v-if installed && !installing) — the SAME shared `useEngine.uninstall`
+  action the list-row cluster uses (it already confirms via dialog; models are kept), so the
+  row and panel can never disagree. The panel comment's "actions live on the row" note now
+  records TWO in-reach exceptions: Install when absent (#135) + Uninstall when installed
+  (#8). Not screenshot-verifiable in this container (engine not installed → the panel
+  correctly shows Install engine instead); the v-if mirrors #135's proven pattern.
+- **B2-6 + B2-7 built.** A "Model Catalog" heading row above the search bar (`.lu-mcat-title`,
+  the `.lu-pcard-title` type treatment; the 14px breathing-room margin moved onto it). The
+  Chat-&-writing / Embedding section rows inside the table got the pronounced treatment the
+  user pointed at ("like the doesn't fit header"): an `--accent-soft` band with a 3px accent
+  left border and full-ink section name — you can now tell at a glance which kind of model
+  the rows under it are. Screenshot-verified.
+- **B2-8 built.** The inspect block moved ABOVE the Quant label (it's what FILLS the quant
+  list — the flow now reads repo → load info → pick quant), the button renamed "Load model
+  info from HF" with `intent="info"` (solid blue — distinct from every neighboring button,
+  the user's "different color … more pronounced"), and the caption's "— no download" tail
+  dropped. Probe-verified: button present, above Quant in DOM order, tail gone.
+
+**B2 gates (one consolidated pass at batch end):** runner `ruff` clean + **412 pytest** (411 +
+the name-refresh regression) · JW vitest 30/30 · `build:vite` clean · the **FULL headless
+smoke: every route + all 5 AI sub-tabs + the provider-form and sampler probes, zero JS
+errors** · a dedicated **B2 Playwright probe observing every changed surface** (QS-row-first
+assertion · heading · section headers · slot cards · library buttons + an opened popup ·
+the renamed button above Quant — 9/9 pass, zero page errors) + 4 screenshots eyeballed ·
+rules-checker verdict before the code commits (sha in the git log). Box notes: NO reset
+needed — the provider rename reaches the existing DB at next boot via the name-refresh
+(container-proven); everything else is kit UI, visible on the next `npm run tauri dev`
+build; the engine-panel Uninstall shows only when the engine is installed.
 
 **Batch 3 — Tune & measure UX (kit; several depend on discussion A):**
 - B3-1 (#13) spec-decode switch right-edge overflow/indent — fix with a container-fit pass over

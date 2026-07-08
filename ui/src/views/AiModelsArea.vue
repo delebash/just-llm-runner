@@ -288,6 +288,14 @@ onMounted(() => {
         <template v-for="p in localProviders" :key="p.id">
           <ProviderForm v-if="editingId === p.id" :provider="p" @saved="onSaved" @deleted="onSaved" @cancel="editingId = null" />
           <div v-else class="lu-prow">
+            <!-- Quick Setup: its own full-width row at the TOP of the Built-in card
+                 (user #4, 2026-07-08: "align run quick setup section to top" — it was
+                 the card's bottom row; grid children place in template order, so first
+                 child + the 1/-1 span = the first row). Still its own spanning row —
+                 the 2026-07-06 "separate row" fix stands. -->
+            <div v-if="p.providerType === 'local-llamacpp'" class="lu-prow-qsbtn">
+              <QuickSetup ref="qsRef" inline @changed="loadProviders" />
+            </div>
             <span class="lu-prow-ic">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.2" /><path d="M6.2 1.5v2.7M9.8 1.5v2.7M6.2 11.8v2.7M9.8 11.8v2.7M1.5 6.2h2.7M1.5 9.8h2.7M11.8 6.2h2.7M11.8 9.8h2.7" stroke-linecap="round" /></svg>
             </span>
@@ -335,13 +343,6 @@ onMounted(() => {
             <div class="lu-prow-actions">
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
-            </div>
-            <!-- Quick Setup: JUST the button, on its OWN centered row of the card
-                 (user, 2026-07-06: "you need model on seperate row or css change" —
-                 the absolute overlay shifted the row on the user's box; a spanning
-                 grid row is stable at any width/build). -->
-            <div v-if="p.providerType === 'local-llamacpp'" class="lu-prow-qsbtn">
-              <QuickSetup ref="qsRef" inline @changed="loadProviders" />
             </div>
           </div>
           <!-- Same progress bar as the engine panel — the install runs from THIS row, so
@@ -497,9 +498,13 @@ onMounted(() => {
 .lu-prow-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .lu-prow-prog { margin-top: 6px; }
 .lu-prow-err { margin: 6px 0 0; font-size: 12.5px; }
-/* Quick Setup — just the button, on its OWN centered row spanning the Built-in card
-   (no absolute positioning: the overlay variant shifted the grid on the user's box). */
-.lu-prow-qsbtn { grid-column: 1 / -1; justify-self: center; padding-top: 2px; }
+/* Quick Setup — its own centered row spanning the TOP of the Built-in card (#4;
+   no absolute positioning: the overlay variant shifted the grid on the user's box).
+   The bottom border seats it as the card's header band above the provider row. */
+.lu-prow-qsbtn {
+  grid-column: 1 / -1; padding-bottom: 8px;
+  text-align: center; border-bottom: 1px solid var(--border);
+}
 .lu-prow-ic { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-3); color: var(--ink-2); display: grid; place-items: center; }
 .lu-prow-ic svg { width: 17px; height: 17px; }
 .lu-prow-info { min-width: 0; }

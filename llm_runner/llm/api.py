@@ -75,7 +75,7 @@ def _builtin_provider_health() -> dict:
         gpu = st.get("gpu") or ""
         bits.append("engine installed" + (f" · {build}" if build else "") + (f" · {gpu}" if gpu else ""))
     else:
-        bits.append("engine not installed — install it on the Built-in server row")
+        bits.append("engine not installed — install it on the Built-in provider row")
     bits.append(f"{len(rows)} model{'s' if len(rows) != 1 else ''} in the catalog")
     bits.append("models load on first use")
     return {

@@ -47,6 +47,32 @@ def test_seed_populates_shared_and_app_data(wired):
     assert len(stores.get_model_catalog_store().list()) == len(seed.DEFAULT_CATALOG)
 
 
+def test_reseed_refreshes_old_seeded_provider_name_only(wired):
+    """#3 (2026-07-08): "Built-in server — llama.cpp" → "Built-in provider — …".
+    Reseed skips existing rows, so the rename must reach existing DBs via the
+    name-refresh — but ONLY while the row still carries the old seeded string;
+    a user's own rename is never touched."""
+    session = wired()
+    try:
+        row = session.get(db.LlmProvider, "local-llamacpp")
+        assert row.name == "Built-in provider — llama.cpp"  # fresh seed = new name
+
+        row.name = "Built-in server — llama.cpp"  # a pre-rename DB
+        session.commit()
+        seed.seed_default_providers(session)
+        session.commit()
+        assert session.get(db.LlmProvider, "local-llamacpp").name == "Built-in provider — llama.cpp"
+
+        row = session.get(db.LlmProvider, "local-llamacpp")
+        row.name = "My box's engine"  # the user renamed it — a different fact
+        session.commit()
+        seed.seed_default_providers(session)
+        session.commit()
+        assert session.get(db.LlmProvider, "local-llamacpp").name == "My box's engine"
+    finally:
+        session.close()
+
+
 def test_seed_routing_ships_no_selections(wired):
     # Catalog-full / selections-empty (user decision 2026-07-06, supersedes #120's
     # seeded embed default: "no model is automatically set as default, honestly not

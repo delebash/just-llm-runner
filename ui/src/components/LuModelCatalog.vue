@@ -253,6 +253,13 @@ const recommendedId = computed(() => recommendedModelId(models.value, {
   isEmbed: embeddingOf,
   isUseLimited: useLimitedOf,
 }));
+// The recommended EMBEDDING (#5, 2026-07-08: "dont we recommend an embed model") —
+// QuickSetup's exact pick (its bestEmbedId): lowest quality-rank among the FITTING
+// embeds, through the same shared comparator, so the card and the wizard agree.
+const recommendedEmbedId = computed(() => pickLowestQuality(
+  models.value.filter((m) => embeddingOf(m) && FIT_RUNNABLE.has(m.fit)),
+  { qualityOf },
+));
 function licenseTitle(m) {
   const lic = licenseOf(m);
   return useLimitedOf(m)
@@ -438,22 +445,28 @@ function blankModel() {
     architecture: "", experts: 0, sizeLabel: "", sizeBytes: null, qualityRank: 100, position: 0 };
 }
 
-// ── the empty slot cards' INLINE PICKERS (#144 — the old two-visible-dropdowns
-// affordance reborn: the Embedding section sits below the catalog's scroll fold,
-// so a manual user never discovers the second requirement; picking HERE assigns
-// through the SAME writers as the rows. Use-limited models are pickable (a manual
-// pick is deliberate, like the rows) but carry the ⚠ in their label). ──
-function slotOptions(kind /* false = chat, true = embed */) {
-  return models.value
-    .filter((m) => embeddingOf(m) === kind && FIT_RUNNABLE.has(m.fit))
+// ── the slot cards' INLINE PICKERS (#144, extended by #5 2026-07-08: "leave the
+// drop downs visible so you can change it will just unload and load" — the picker
+// renders ALWAYS, showing the current assignment; changing it goes through the SAME
+// assign+load writers as the rows, which swap the resident model. Use-limited
+// models are pickable (a manual pick is deliberate, like the rows) but carry the
+// ⚠ in their label; the recommended pick of each kind is tagged). ──
+function slotOptions(kind /* false = chat, true = embed */, currentId) {
+  const rec = kind ? recommendedEmbedId.value : recommendedId.value;
+  const list = models.value.filter((m) => embeddingOf(m) === kind && FIT_RUNNABLE.has(m.fit));
+  // The assigned model stays pickable even if it no longer fits (a shrunk box must
+  // still SHOW the current assignment rather than a blank select).
+  const cur = modelById.value[currentId];
+  if (cur && !list.some((m) => m.id === cur.id) && embeddingOf(cur) === kind) list.push(cur);
+  return list
     .sort((a, b) => qualityOf(a) - qualityOf(b))
     .map((m) => ({
       value: m.id,
-      label: `${m.name || m.id}${useLimitedOf(m) ? " ⚠" : ""}${m.id === recommendedId.value ? " · Recommended" : ""}`,
+      label: `${m.name || m.id}${useLimitedOf(m) ? " ⚠" : ""}${m.id === rec ? " · Recommended" : ""}`,
     }));
 }
-const chatSlotOptions = computed(() => slotOptions(false));
-const embedSlotOptions = computed(() => slotOptions(true));
+const chatSlotOptions = computed(() => slotOptions(false, currentDefaultId.value));
+const embedSlotOptions = computed(() => slotOptions(true, currentEmbeddingId.value));
 function pickSlot(id, isEmbed) {
   const m = modelById.value[id];
   if (!m) return;
@@ -601,17 +614,23 @@ refreshApplied();
     <div class="lu-setup">
       <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !defaultName || defaultGone }">
         <div class="lu-setup-role">General model</div>
-        <div class="lu-setup-val">{{ defaultGone ? `${currentDefaultId} — removed from the catalog` : (defaultName || "Not set") }}</div>
+        <!-- The picker IS the card's value line and stays visible when set (#5:
+             "leave the drop downs visible so you can change it will just unload and
+             load") — changing it assigns + loads through the same writers as the
+             rows, swapping the resident model. -->
+        <div v-if="defaultGone" class="lu-setup-val">{{ currentDefaultId }} — removed from the catalog</div>
+        <UiSelect v-if="chatSlotOptions.length" class="lu-setup-pick"
+          :model-value="defaultGone ? '' : (currentDefaultId || '')" :options="chatSlotOptions"
+          placeholder="Choose a model…" @update:model-value="pickSlot($event, false)" />
         <div class="lu-setup-hint">
           {{ defaultGone
-            ? "Your tasks still point at it, but it's gone — pick a new one below (“Load as default”)."
+            ? "Your tasks still point at it, but it's gone — pick a replacement here."
             : defaultName
-              ? "Writes prose, chats, extracts — every task uses it unless you override a task."
-              : "Writes prose, chats, extracts — pick one to get started." }}
+              ? "Writes prose, chats, extracts — every task uses it unless you override a task. Changing it swaps the loaded model."
+              : recommendedId
+                ? `Writes prose, chats, extracts — we recommend ${nameOf(recommendedId)} for this PC.`
+                : "Writes prose, chats, extracts — pick one to get started." }}
         </div>
-        <UiSelect v-if="!defaultName && !defaultGone && chatSlotOptions.length" class="lu-setup-pick"
-          :model-value="''" :options="chatSlotOptions" placeholder="Choose a model…"
-          @update:model-value="pickSlot($event, false)" />
         <div v-if="defaultModel && !defaultGone" class="lu-setup-live">
           <span v-if="slotState(defaultModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
           <span v-else-if="slotState(defaultModel) === 'working'" class="lu-muted">↓ working…</span>
@@ -630,17 +649,19 @@ refreshApplied();
       </div>
       <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !embeddingName || embeddingGone }">
         <div class="lu-setup-role">Embedding model</div>
-        <div class="lu-setup-val">{{ embeddingGone ? `${currentEmbeddingId} — removed from the catalog` : (embeddingName || "Not set") }}</div>
+        <div v-if="embeddingGone" class="lu-setup-val">{{ currentEmbeddingId }} — removed from the catalog</div>
+        <UiSelect v-if="embedSlotOptions.length" class="lu-setup-pick"
+          :model-value="embeddingGone ? '' : (currentEmbeddingId || '')" :options="embedSlotOptions"
+          placeholder="Choose an embedding model…" @update:model-value="pickSlot($event, true)" />
         <div class="lu-setup-hint">
           {{ embeddingGone
-            ? "Search still points at it, but it's gone — pick a new one below (“Load as default”)."
+            ? "Search still points at it, but it's gone — pick a replacement here."
             : embeddingName
-              ? "Powers semantic search + grounded chat, alongside your General model."
-              : "Powers semantic search + grounded chat — pick one to get started." }}
+              ? "Powers semantic search + grounded chat, alongside your General model. Changing it swaps the loaded model."
+              : recommendedEmbedId
+                ? `Powers semantic search + grounded chat — we recommend ${nameOf(recommendedEmbedId)} for this PC.`
+                : "Powers semantic search + grounded chat — pick one to get started." }}
         </div>
-        <UiSelect v-if="!embeddingName && !embeddingGone && embedSlotOptions.length" class="lu-setup-pick"
-          :model-value="''" :options="embedSlotOptions" placeholder="Choose an embedding model…"
-          @update:model-value="pickSlot($event, true)" />
         <div v-if="embeddingModel && !embeddingGone" class="lu-setup-live">
           <span v-if="slotState(embeddingModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
           <span v-else-if="slotState(embeddingModel) === 'working'" class="lu-muted">↓ working…</span>
@@ -662,6 +683,8 @@ refreshApplied();
       writes and chats; the Embedding model powers search. Each loads automatically the first
       time it's needed; Load now just skips that first wait.</p>
 
+    <!-- #10 (user, 2026-07-08): a real section heading over the catalog. -->
+    <div class="lu-mcat-title">Model Catalog</div>
     <div class="lu-mcat-bar">
       <UiInput v-model="query" class="lu-mcat-search" placeholder="Search models…" />
       <UiSelect v-model="sortBy" :options="SORT_OPTIONS" class="lu-mcat-sort"
@@ -790,6 +813,15 @@ refreshApplied();
           </span>
           <UiInput v-model="editing.hfRepo" placeholder="unsloth/Qwen3-14B-GGUF" />
         </label>
+        <!-- #12c/d (user, 2026-07-08): the load-info action sits ABOVE the quant
+             dropdown (it's what FILLS the quant list), renamed to say where the
+             info comes from, in a stand-out color. -->
+        <div class="lu-mm-inspect">
+          <UiButton intent="info" size="small" :loading="inspecting" @click="inspectLink">Load model info from HF</UiButton>
+          <span class="lu-muted">lists the repo's quants (sizes · QAT/IQ) + reads the GGUF header</span>
+        </div>
+        <div v-if="inspectErr" class="lu-error">{{ inspectErr }}</div>
+        <div v-if="listingErr" class="lu-error">{{ listingErr }}</div>
         <label class="lu-mm-l">Quant
           <template v-if="quantOptions.length > 1 && !quantCustom">
             <UiSelect :model-value="editing.quant" :options="quantOptions"
@@ -801,12 +833,6 @@ refreshApplied();
               @click="quantCustom = false">choose from list</UiButton>
           </span>
         </label>
-        <div class="lu-mm-inspect">
-          <UiButton intent="secondary" size="small" :loading="inspecting" @click="inspectLink">Read from link</UiButton>
-          <span class="lu-muted">lists the repo's quants (sizes · QAT/IQ) + reads the GGUF header — no download</span>
-        </div>
-        <div v-if="inspectErr" class="lu-error">{{ inspectErr }}</div>
-        <div v-if="listingErr" class="lu-error">{{ listingErr }}</div>
 
         <template v-if="listing?.drafts?.length || editing.mtpDraftFile">
           <div class="lu-mm-note"><b>MTP draft model</b> <span class="lu-muted">— this repo ships a
@@ -960,18 +986,24 @@ refreshApplied();
 .lu-setup-card--empty .lu-setup-val { color: var(--lu-warn, #b45309); }
 .lu-setup-hint { font-size: 11.5px; color: var(--lu-ink-2, var(--ink-2, #666)); margin-top: 2px; line-height: 1.4; }
 
-/* Section-header rows (Chat & writing / Embedding) inside the one table. */
+/* Section-header rows (Chat & writing / Embedding) inside the one table — a
+   pronounced accent band (#11, user 2026-07-08: "make the chat embed headers more
+   pronounced maybe a highlight color … like the doesn't fit header") so you always
+   know which kind of model you're looking at. */
 .lu-msection td {
-  padding: 14px 8px 6px;
+  padding: 9px 11px 8px;
   font-size: 12.5px;
+  background: var(--accent-soft, var(--surface-2, #f0f4f0));
+  border-left: 3px solid var(--accent, #3a7d63);
   border-bottom: 1px solid var(--lu-border, var(--border, #e2e2e2));
 }
+.lu-msection b { color: var(--ink); }
 
-/* Manager: header bar (search → sort → spacer → actions) + the add/edit modal form (#30).
-   margin-top (user, 2026-07-07): breathing room between the "Your setup" strip cards and
-   this search row — "the padding was suppose to be between search models and just above
-   box general model". */
-.lu-mcat-bar { display: flex; align-items: center; gap: 8px; margin-top: 14px; margin-bottom: 8px; }
+/* Manager: heading (#10) + header bar (search → sort → spacer → actions) + the add/edit
+   modal form (#30). The heading's margin-top keeps the 2026-07-07 breathing room between
+   the "Your setup" strip cards and this block. */
+.lu-mcat-title { font-weight: 700; font-size: 14px; color: var(--ink); margin-top: 14px; }
+.lu-mcat-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; margin-bottom: 8px; }
 .lu-mcat-search { flex: 0 1 220px; }
 .lu-mcat-sort { flex: 0 0 auto; }
 .lu-mcat-spacer { flex: 1; }

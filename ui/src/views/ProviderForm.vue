@@ -9,6 +9,7 @@
 // provider also mounts the Local engine panel (which hosts the binaries editor) + model catalog.
 import { computed, reactive, ref } from "vue";
 
+import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import LuCombobox from "../components/LuCombobox.vue";
 import UiInput from "../common/components/UiInput.vue";
@@ -111,6 +112,13 @@ async function testConnection() {
     testMsg.value = `✗ ${e.message || "failed"}`;
   }
 }
+
+// The two launch-config LIBRARY editors open as POPUPS (#6, user 2026-07-08: "make
+// global launch and hardware class popup dialog edits instead of embeded") — the
+// SAME shared components, expanded inside an AppModal instead of collapsed drawers
+// stacked on the Edit view.
+const showClassTunes = ref(false);
+const showGlobalSwitches = ref(false);
 
 const saving = ref(false);
 const saveErr = ref("");
@@ -218,13 +226,22 @@ async function remove() {
     <!-- lu-pf-eng: space between the Provider type row and this panel (user, 2026-07-07). -->
     <LuRunnerEngine v-if="isBuiltin" class="lu-pf-eng" />
     <LuModelCatalog v-if="isBuiltin" />
-    <!-- The CROSS-MODEL class-tune library (ROUND 15, user go): the same drawer each
-         Tune dialog carries per model, in GLOBAL mode — every (model × class) launch
-         config in one audit table, under the catalog as the everything-at-once view. -->
-    <LuClassTunes v-if="isBuiltin" class="lu-pf-ct" />
-    <!-- The GLOBAL LAUNCH DEFAULTS (#140, the switch-provenance go): the always-on
-         bundles under every tune, editable with reset — the launch-defaults corner. -->
-    <LuGlobalSwitches v-if="isBuiltin" class="lu-pf-ct" />
+    <!-- The launch-config libraries — POPUP editors (#6): the cross-model class-tune
+         library (ROUND 15) and the global launch defaults (#140), each the SAME shared
+         component the drawers used, opened expanded in a dialog. -->
+    <div v-if="isBuiltin" class="lu-pf-libs">
+      <UiButton intent="secondary" size="small" @click="showClassTunes = true">Hardware-class defaults…</UiButton>
+      <UiButton intent="secondary" size="small" @click="showGlobalSwitches = true">Global launch defaults…</UiButton>
+      <span class="lu-muted lu-pf-libs-cap">the launch-config libraries — per-PC-class starting points, and the always-on switch bundles under every tune</span>
+    </div>
+    <AppModal v-if="showClassTunes" title="Hardware-class defaults — every model"
+      :max-width="'760px'" @close="showClassTunes = false">
+      <LuClassTunes expanded />
+    </AppModal>
+    <AppModal v-if="showGlobalSwitches" title="Global launch defaults"
+      :max-width="'760px'" @close="showGlobalSwitches = false">
+      <LuGlobalSwitches expanded />
+    </AppModal>
 
     <div v-if="saveErr" class="lu-error lu-pf-err">{{ saveErr }}</div>
 
@@ -257,8 +274,9 @@ async function remove() {
 /* Space between the form grid (Provider type is its last built-in row) and the Local
    engine panel (user, 2026-07-07: "space between provider type and local engine"). */
 .lu-pf-eng { margin-top: 14px; }
-/* The global class-tune library drawer under the catalog — same 14px rhythm. */
-.lu-pf-ct { margin-top: 14px; }
+/* The launch-config library buttons under the catalog — same 14px rhythm. */
+.lu-pf-libs { margin-top: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lu-pf-libs-cap { font-size: 11px; }
 .lu-pf-foot { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
 .lu-pf-spacer { flex: 1; }
 .lu-pf-test { font-size: 11.5px; }

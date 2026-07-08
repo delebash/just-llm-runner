@@ -1293,3 +1293,11 @@ build on the user's word — fold-in vs own-go asked once at the next report.
   IS the target (honest answer: no; it reads as documentation pasted into a dialog). THE
   ORDERED QC CLUSTER IS NOW QC-1+2+3+4+5+6 — one build, right after DL-1 finishes, before
   DL-2/B4.
+- **QC-7 — STANDING DESIGN DIRECTIVE, not a one-off (user verbatim):** *"you do this type of
+  thing everywhere you cram stuff together, you are supposed to be smart and a good gui
+  desinger."* The pattern behind QC-2/3/6: cramming — dense explainer blocks, doubled facts,
+  stacked affordances on one screen. Standing rule for every surface from here on (recorded
+  in the recap's STANDING RULES too): hierarchy + breathing room first; ONE short lede
+  sentence max on a working surface, detail behind the help affordance; one fact shown once;
+  one primary thing on screen per mode. Applies to the QC cluster build and every batch
+  after it.

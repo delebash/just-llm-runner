@@ -16,9 +16,12 @@ import { request } from "./client.js";
 // pins on this box (Fix 2, 2026-07-07: shown as provenance, never silently merged
 // into the editable rows — saving them would pin today's fit). ONE GET, ONE source,
 // no drift between the switch grid and the sampler grid.
-export async function resolveModelDefaults(modelId) {
+// `excludeTune` (§7.6, 2026-07-08): resolve the LAYER baseline — the machine's
+// applied tune skipped — i.e. what this model would run with no applied config.
+// The Tune modal's "Refresh from defaults" loads exactly this into the grid.
+export async function resolveModelDefaults(modelId, { excludeTune = false } = {}) {
   if (!modelId) return { switches: [], samplers: [], computed: [], mtpCapable: false };
-  const r = await request(`/v1/ai/model-catalog/resolved-defaults?modelId=${encodeURIComponent(modelId)}`);
+  const r = await request(`/v1/ai/model-catalog/resolved-defaults?modelId=${encodeURIComponent(modelId)}${excludeTune ? "&excludeTune=1" : ""}`);
   return {
     switches: (r.switches || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue })),
     samplers: (r.samplers || []).map((sw) => ({ name: sw.flagName, value: sw.flagValue })),

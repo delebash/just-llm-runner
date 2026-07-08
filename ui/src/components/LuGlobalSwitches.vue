@@ -124,6 +124,8 @@ const ordered = computed(() =>
         this machine's saved tune overrides them per value, and the engine computes anything
         no layer sets (GPU layers, context, expert offload). Anything not listed anywhere
         uses the engine's own defaults. The Tune dialog shows which layer won each value.
+        <b>Models with an applied config keep their saved values</b> — a change here reaches
+        them only when you refresh or remove their applied config in Tune &amp; measure.
       </p>
 
       <div v-if="error" class="lu-error">{{ error }}</div>

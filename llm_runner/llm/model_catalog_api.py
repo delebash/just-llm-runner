@@ -182,6 +182,10 @@ def make_catalog_router(
     class_picks_fn: Callable[[], list[dict]] | None = None,
     preview_fit_fn: Callable[[str], dict] | None = None,
     resolve_origins: Callable[[str], tuple[dict[str, str], dict[str, str]]] | None = None,
+    # §7.6 (2026-07-08): the LAYER baseline — the same resolve WITHOUT the machine
+    # tune. Serves resolved-defaults?excludeTune=1, which "Refresh from defaults"
+    # loads into the Tune grid (what the model would run with no applied config).
+    resolve_baseline_origins: Callable[[str], tuple[dict[str, str], dict[str, str]]] | None = None,
 ) -> APIRouter:
     """CRUD + reset for the per-model llama.cpp catalog. When
     `resolve_switches(model_id) -> {flag_name: value}` is given, also expose
@@ -221,12 +225,19 @@ def make_catalog_router(
 
     if resolve_switches is not None:
         @router.get("/model-catalog/resolved-defaults", response_model=ResolvedModelDefaultsResponse)
-        async def resolved_defaults(modelId: str) -> ResolvedModelDefaultsResponse:
+        async def resolved_defaults(modelId: str, excludeTune: bool = False) -> ResolvedModelDefaultsResponse:
             if not modelId.strip():
                 raise HTTPException(status_code=400, detail="modelId is required")
             # Provenance-aware resolve when wired (one call yields values + origins);
             # the plain resolver stays the fallback so hosts without origins keep working.
-            if resolve_origins is not None:
+            # excludeTune=1 (§7.6) answers with the LAYER baseline — the machine tune
+            # skipped — for the Tune modal's "Refresh from defaults"; when no baseline
+            # resolver is wired it falls through to the normal resolve (honest fallback).
+            if excludeTune and resolve_baseline_origins is not None:
+                merged, origins = resolve_baseline_origins(modelId)
+                merged = merged or {}
+                origins = origins or {}
+            elif resolve_origins is not None:
                 merged, origins = resolve_origins(modelId)
                 merged = merged or {}
                 origins = origins or {}

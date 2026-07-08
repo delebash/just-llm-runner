@@ -940,7 +940,12 @@ class ModelTuneStore:
         finally:
             s.close()
 
-    def replace(self, model_id: str, hw_key: str, rows: list[ModelTuneFlag]) -> None:
+    def replace(self, model_id: str, hw_key: str, rows: list[ModelTuneFlag],
+                baseline: dict[str, str] | None = None) -> None:
+        """Swap the (model, machine) tune wholesale. `baseline` = the LAYER-resolved
+        defaults standing at apply time (§7.6 drift detection) — stored in the same
+        transaction; None clears any stored baseline (a caller that can't resolve
+        one must not leave a stale one behind)."""
         s = db.session()
         try:
             s.query(db.ModelTune).filter(
@@ -954,7 +959,40 @@ class ModelTuneStore:
                 seen.add(name)
                 s.add(db.ModelTune(model_id=model_id, hw_key=hw_key,
                                    flag_name=name, flag_value=r.flagValue or ""))
+            s.query(db.ModelTuneBaseline).filter(
+                db.ModelTuneBaseline.model_id == model_id, db.ModelTuneBaseline.hw_key == hw_key
+            ).delete()
+            for name, value in (baseline or {}).items():
+                if (name or "").strip():
+                    s.add(db.ModelTuneBaseline(model_id=model_id, hw_key=hw_key,
+                                               flag_name=name.strip(), flag_value=str(value or "")))
             s.commit()
+        finally:
+            s.close()
+
+    def get_baseline(self, model_id: str, hw_key: str) -> dict[str, str] | None:
+        """The layer baseline stored when this tune was applied — None when the tune
+        predates baseline tracking (no drift claim possible for it)."""
+        s = db.session()
+        try:
+            rows = s.query(db.ModelTuneBaseline).filter(
+                db.ModelTuneBaseline.model_id == model_id, db.ModelTuneBaseline.hw_key == hw_key
+            ).all()
+            return {r.flag_name: r.flag_value for r in rows} if rows else None
+        finally:
+            s.close()
+
+    def list_for_machine(self, hw_key: str) -> dict[str, list[ModelTuneFlag]]:
+        """Every model tuned on THIS machine → its rows (the §7.6 badge state)."""
+        s = db.session()
+        try:
+            out: dict[str, list[ModelTuneFlag]] = {}
+            for r in s.query(db.ModelTune).filter(db.ModelTune.hw_key == hw_key).order_by(
+                db.ModelTune.model_id, db.ModelTune.flag_name
+            ).all():
+                out.setdefault(r.model_id, []).append(
+                    ModelTuneFlag(flagName=r.flag_name, flagValue=r.flag_value))
+            return out
         finally:
             s.close()
 
@@ -963,6 +1001,9 @@ class ModelTuneStore:
         try:
             s.query(db.ModelTune).filter(
                 db.ModelTune.model_id == model_id, db.ModelTune.hw_key == hw_key
+            ).delete()
+            s.query(db.ModelTuneBaseline).filter(
+                db.ModelTuneBaseline.model_id == model_id, db.ModelTuneBaseline.hw_key == hw_key
             ).delete()
             s.commit()
         finally:

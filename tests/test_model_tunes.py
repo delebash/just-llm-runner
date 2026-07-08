@@ -67,6 +67,96 @@ def test_missing_model_id_400(client):
     assert client.put("/v1/ai/model-tunes", json={"modelId": "", "switches": []}).status_code == 400
 
 
+# ── §7.6 (2026-07-08): baseline drift + provenance source + the /state summary ─
+
+def _client_with_deps(baseline_holder, measurements, class_configs):
+    """A router with every §7.6 dep injected. `baseline_holder` is a mutable
+    one-key dict {"now": {...}} so a test can move today's defaults AFTER an
+    apply — exactly the drift scenario."""
+    eng = sa.create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    db.create_all(eng)
+    db.configure_storage(sessionmaker(bind=eng, autoflush=False))
+    app = FastAPI()
+    app.include_router(make_model_tunes_router(
+        stores.get_model_tune_store, lambda: "test-key",
+        resolve_baseline=lambda _mid: dict(baseline_holder["now"]),
+        measurements_fn=lambda _mid: measurements,
+        class_key_fn=lambda: "vram8|ram32",
+        class_configs_fn=lambda: class_configs,
+    ))
+    return TestClient(app)
+
+
+def test_apply_stores_baseline_and_reports_drift():
+    from types import SimpleNamespace as NS
+
+    holder = {"now": {"ctx_len": "8192", "mlock": "true"}}
+    client = _client_with_deps(holder, [], [])
+    r = client.put("/v1/ai/model-tunes", json={"modelId": "m1", "switches": [
+        {"flagName": "ctx_len", "flagValue": "32768"}]}).json()
+    assert r["driftCount"] == 0  # today's defaults == the baseline stored at apply
+    # The defaults MOVE after the apply (a global/class edit): drift is per-key —
+    # one changed value + one new key = 2.
+    holder["now"] = {"ctx_len": "16384", "mlock": "true", "no_mmap": "true"}
+    g = client.get("/v1/ai/model-tunes", params={"modelId": "m1"}).json()
+    assert g["driftCount"] == 2
+    # Remove → back to no tune, no drift claim.
+    d = client.delete("/v1/ai/model-tunes", params={"modelId": "m1"}).json()
+    assert d["rows"] == [] and d["driftCount"] is None
+    _ = NS  # silence unused import in this test
+
+
+def test_pre_baseline_tune_reports_unknowable_drift():
+    holder = {"now": {"ctx_len": "8192"}}
+    client = _client_with_deps(holder, [], [])
+    from llm_runner.llm.model_tunes_api import ModelTuneFlag
+
+    # A tune written WITHOUT a baseline (the pre-§7.6 path / a legacy row).
+    stores.get_model_tune_store().replace(
+        "old", "test-key", [ModelTuneFlag(flagName="threads", flagValue="8")], baseline=None)
+    g = client.get("/v1/ai/model-tunes", params={"modelId": "old"}).json()
+    assert g["rows"] and g["driftCount"] is None
+
+
+def test_source_auto_when_rows_equal_an_autotune_trial_else_hand():
+    from types import SimpleNamespace as NS
+
+    trial = NS(source="autotune", switches=[NS(flagName="n_cpu_moe", flagValue="21")])
+    holder = {"now": {}}
+    client = _client_with_deps(holder, [trial], [])
+    # Applied == the trial verbatim → auto.
+    r = client.put("/v1/ai/model-tunes", json={"modelId": "m1", "switches": [
+        {"flagName": "n_cpu_moe", "flagValue": "21"}]}).json()
+    assert r["source"] == "auto"
+    # A hand tweak after the sweep → hand.
+    r2 = client.put("/v1/ai/model-tunes", json={"modelId": "m1", "switches": [
+        {"flagName": "n_cpu_moe", "flagValue": "20"}]}).json()
+    assert r2["source"] == "hand"
+
+
+def test_state_summarizes_tuned_and_class_default_models():
+    from types import SimpleNamespace as NS
+
+    trial = NS(source="autotune", switches=[NS(flagName="threads", flagValue="8")])
+    class_configs = [
+        NS(modelId="gemma", classKey="vram8|ram32", rows=[NS(flagName="ctx_len", flagValue="32768")]),
+        NS(modelId="qwen", classKey="vram24|ram64", rows=[NS(flagName="ctx_len", flagValue="65536")]),
+    ]
+    holder = {"now": {}}
+    client = _client_with_deps(holder, [trial], class_configs)
+    client.put("/v1/ai/model-tunes", json={"modelId": "m1", "switches": [
+        {"flagName": "threads", "flagValue": "8"}]})
+    client.put("/v1/ai/model-tunes", json={"modelId": "m2", "switches": [
+        {"flagName": "threads", "flagValue": "4"}]})
+    st = client.get("/v1/ai/model-tunes/state").json()
+    assert st["hwKey"] == "test-key" and st["classKey"] == "vram8|ram32"
+    assert st["tuned"] == {"m1": "auto", "m2": "hand"}
+    # Only the config matching THIS box's class counts; the vram24 row does not.
+    assert st["classDefault"] == ["gemma"]
+
+
 # ── machine_key (D2 — whole machine, not GPU-only) ───────────────────────────
 
 def test_machine_key_gpu_shape():

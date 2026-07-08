@@ -199,7 +199,8 @@ scope. **T50** measured benchmarks → **C2** (published re-grounding done) + **
 research half) + **§G** (true on-box measurement). **T20** QuickSetup enhancements → all four
 sub-items landed in evolved form under the user's later direction (RAM-gated fit · MoE-aware
 pick · the embedding dropdown; the "Test→Compare deep-link" belonged to the dead job-grain
-Compare design — today's path is Tune's "Send to Tasks Lab"). **T22** shared LLM-UI views →
+Compare design — and "Send to Tasks Lab" itself was deleted by the §7.1 lock 2026-07-08, see
+the big-batch queue doc). **T22** shared LLM-UI views →
 shipped in evolved shapes: the Usage tab (`ui/src/views/AiModelsArea.vue:141-171`, the full
 `/v1/ai-usage` rollup + clear — verified 2026-07-08), RunnerStatus = the Local-engine panel,
 DownloadStrip = the catalog/engine progress bars, ProviderSelect = the provider list +
@@ -245,3 +246,22 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   on F1** — all of it presupposes JV convergence onto the current shared stack; F1's own scope
   line ("full drift enumeration is part of the work") owns discovering the survivors. Recorded
   here so the names aren't lost; do not plan them separately before F1.
+
+## J. IDEAS — under consideration (not yet committed work)
+
+> Created 2026-07-08 per the discussion-F lock (big-batch queue doc §7.5): the user is holding
+> the user-facing `ROADMAP.md` until ship and wants ONE place for ideas being considered. One
+> line per idea; an idea gets **promoted** to a real lettered item (or a plan doc) when the user
+> decides it — never built from this list directly. This section is part of THE ledger on
+> purpose (the no-second-backlog rule).
+
+- **J1 — customizable editor/context menus** (the user's big-batch item #52a; queue B5-8): let
+  the user customize the scene editor's context menu + header AI menu contents/order.
+- **J2 — multi-model co-residency VRAM budgeting** (from the 2026-07-08 router discussion,
+  queue §7.6): for big-VRAM boxes running 2–3 resident models, the fit calculation must count
+  already-resident models before sizing a load, plus an eviction policy; per-section switches
+  already work — the gap is only the memory arithmetic. (The sleeping-child OOM incident on the
+  user's box is the motivating failure class.)
+- **J3 — "defaults drift" notice beyond the Tune modal** (optional follow-on to §7.6's
+  Refresh-from-defaults): a passive indicator on catalog rows whose applied config has drifted
+  from today's defaults. Only if the in-modal notice proves insufficient.

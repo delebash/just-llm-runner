@@ -1,9 +1,11 @@
 # The 2026-07-08 big batch — organization of the user's 52-item list (discussion first, then gos)
 
-**STATUS: §7.1 DECIDED+BUILT · BATCHES 1+2+3 BUILT (see the B1/B2/B3 BUILD RECORDS in §3; B1-2
-still waits on box evidence; B2-9 waits on discussion B; B3-4 waits on §7.1 sub-question (d);
-B3-10 flagged — needs the user's word, see the B3 record) · discussions B–F + batches 4–6 await
-their own gos.** The user dropped a 52-line
+**STATUS: §7.1 DECIDED+BUILT · BATCHES 1+2+3 BUILT · ALL DISCUSSIONS DECIDED 2026-07-08
+(B→§7.2 · C→§7.3 · D→§7.4 · F→§7.5 · E parked · the Batch-3 remainder B3-4+B3-10→§7.6, BUILT —
+see the B3-REMAINDER BUILD RECORD under §7.6) · B1-2 still waits on the box's engine-log line ·
+batches 4–6 await their own gos, every
+item now unblocked (B2-9+B5-1 by §7.2 · B4-4 by §7.3 · B6-1/2 by §7.4 · B6-3 folded into this
+go's docs).** The user dropped a 52-line
 list (verbatim below) with the
 instruction "take your time to think about each one, many or related, organize them int working
 items, we will need to discuss some in more detail". Rule #10 stands: no code until a per-batch
@@ -333,6 +335,7 @@ Current truth in §1a. My recommendation (pushback welcome):
    (`docs/models.md`) updated same change.
 
 **B. Provider default + killing per-surface model pickers (#2/#37/#38/#39/#40).**
+> ⛔ **DECIDED 2026-07-08 — read §7.2 for the lock; this block is the exploration trail only.**
 Current: no provider-level default exists; tasks own provider+model via presets; Ask-the-Book has
 pickers (top + bottom), the scene editor has one, mode-switch rebinds visibly (#39, by design).
 My recommendation: (a) **remove in-app per-surface model pickers** (Ask the Book, scene editor) —
@@ -350,6 +353,7 @@ embedding model? What happens to per-task models the user hand-picked (clobber-w
 skip-customized)? (The D4 QuickSetup-clobber discussion is precedent.)
 
 **C. Lab test data from the host app (#30/#44).**
+> ⛔ **DECIDED 2026-07-08 — read §7.3 for the lock; this block is the exploration trail only.**
 The labs are kit views; chapters/characters are JW domain (JV: game lines, podcast segments). The
 kit already takes host adapters (configureHelp precedent; feature catalog is host data by charter).
 Recommendation: a kit **test-data source registry** — the host registers named sources
@@ -360,6 +364,7 @@ JV later registers its own. Feasible, moderate size, no JV blocker (registry emp
 today's behavior).
 
 **D. Streaming as the default + progress (#49 + #50/#36).**
+> ⛔ **DECIDED 2026-07-08 — read §7.4 for the lock; this block is the exploration trail only.**
 Facts in §1d + the PR note in §1b. Recommendation: (a) add a per-task **stream** flag on presets
 (default ON for free-text tasks, ON-with-end-parse for JSON tasks — runAiFeatureStream already
 accumulates and returns the final text, so JSON parses at completion; deltas drive progress only);
@@ -375,7 +380,8 @@ after A the UI stops implying otherwise. Remaining follow-up worth its own small
 sampler-capability filtering (drop `mirostat`-class params the API would reject) — needs a
 per-provider capability audit before building. Park until A ships.
 
-**F. Roadmap refresh (#52b).** The outstanding ledger (sections A–I) is the accurate open-work
+**F. Roadmap refresh (#52b).**
+> ⛔ **DECIDED 2026-07-08 — read §7.5 for the lock; this block is the exploration trail only.** The outstanding ledger (sections A–I) is the accurate open-work
 list; the old roadmaps are bannered historical. Proposal: ONE user-facing `ROADMAP.md` (per repo or
 just JW?) distilled FROM the ledger: shipped (one line each) / next / later, updated at ship-time
 like docs/models.md. The "customizable editor/context menus" future item (#52a) becomes its first
@@ -748,9 +754,12 @@ every change is kit UI; visible on the next desktop build.
 
 ## §5 — Needs the user (can't proceed without)
 
-1. Discussions A–F above (A first — it unblocks batches 3+4 and dissolves four items).
+1. ~~Discussions A–F~~ — ALL DECIDED 2026-07-08: A→§7.1, B→§7.2, C→§7.3, D→§7.4, E parked
+   (per §2-E, until after A shipped — now a later small item), F→§7.5.
 2. ~~CLARIFY #9 and #34~~ — both resolved by the user 2026-07-08 (see B1-9, B4-5).
 3. B1-2 needs the box's engine-log line for the leftover-build failure before any code.
+4. §7.1's wording trivia (a) confirm-naming, (b) the literal "Apply" label, (c) the help-popover
+   copy — shipped-as-flagged; open only if the user ever objects.
 
 ## §6 — Q&A record (2026-07-08, after the organization landed)
 
@@ -912,3 +921,193 @@ Orphan note: existing DBs keep the inert `engine_preset_switches` table + overri
   `HelpTrigger`/`openHelp`). Verify build:vite + full headless smoke.
 - Docs: `docs/models.md` tuning section; this doc (mark items resolved); recap pointer.
 - rules-checker on the diff → PASS before the code commit(s).
+
+### §7.2 — Discussion B LOCKED (DECIDED 2026-07-08, post-compact session; supersedes the §2-B exploration)
+
+The user's decisions, verbatim where load-bearing:
+
+- **Set-as-default covers every role the provider can serve — same flow local and online.** The user:
+  *"shouldn't the model setting be the same flow for local and online, unless online does not have
+  embed"* — confirmed against code: routing's embedding default is provider-agnostic
+  (`routing_api.py:30-31`), online provider rows already carry an optional `embeddingModel`
+  (`schema.py:38`, `ProviderForm.vue:217-222`), and `/v1/ai/embeddings` dispatches through any
+  registered provider with `embed` — OpenAI/OpenRouter/DeepSeek/openai-compat/Ollama support it;
+  Anthropic/Gemini have none and 400 cleanly (`api.py:168-186`, `registry.py:87`). So "Set as
+  default provider" repoints chat/tasks always, and the embedding default too WHEN the row has an
+  embedding model; when it doesn't, the embedding routing stays put and **the confirm dialog says
+  so in one line** (small print confirmed by the user: "small print and confim your rec").
+- **The overwrite choice** (user verbatim): *"give users a choice on set as a default overwrite,
+  so they can choose to overwrite or set it for all but ones already set."* Mechanical definition
+  of "already set" (my rec, user-confirmed): a task whose preset provider/model **differs from the
+  current global default** — those are treated as hand-picked and skipped under the keep-my-
+  customized choice.
+- **Per-surface model pickers: REMOVE** (user: "discussion b remove" after "i am leaning towards
+  removing"). Ask the Book (top + bottom) and the scene editor dropdown go; surfaces get a
+  read-only "runs on: <task's model>" provenance chip linking to the Tasks tab. The Tasks tab +
+  Feature workbench remain the only editors. (#39 dissolves — the visible rebind noise WAS these
+  pickers.) Builds: B2-9 + B5-1, each on its own go.
+- Built-in half of #2 unchanged from the user's own list: built-in as default requires assigned
+  default models first, else offer "pick manually or run Quick Setup".
+
+### §7.3 — Discussion C LOCKED (user: "discussion c i agree with your rec")
+
+The kit **test-data source registry**: the host registers named sources
+(`{ id, label, kind, list(), fetch(id) → {variables} }`); the Lab input panel shows "Insert
+from <source>" pickers + a "Sample" button; canned per-taskKind samples ship **seeded in the DB**
+(editable). JW registers chapters/characters/locations; JV later registers game/podcast kinds; an
+empty registry = today's manual fill. Build: B4-4, on its own go.
+
+### §7.4 — Discussion D LOCKED (user: "yes wire return progress" + "streaming your rec")
+
+- **Streaming ON for everything, uniformly — no per-task flag, no seeded choices.** JSON tasks
+  stream too: the kit wrapper already accumulates deltas and parses the complete text at the end;
+  deltas drive progress only. The ~16 non-stream call-sites flip to the stream wrapper. The one
+  real failure mode (a provider endpoint that can't SSE) is handled by **automatic fallback**
+  (retry non-streaming on transport error), not a knob. If a manual override is ever wanted, the
+  right grain is per-provider — not built now.
+- **`return_progress` wired** for the built-in engine's streaming calls; `prompt_progress` frames
+  surface a real prompt-eval percent in AiTaskStrip/AiStatusPanel (the TTFT dead bar becomes a
+  real percentage). Cloud adapters skip the field. Builds: B6-1 + B6-2, on their own go.
+
+### §7.5 — Discussion F LOCKED (user: "hold for now … i want a place to keep ideas" + "discussion f your rec")
+
+The user-facing `ROADMAP.md` **waits until ship** (user verbatim: *"hold for now still building …
+products is still in early develempment once we ship we will move to one user facing roadmap"*).
+The ideas place = an **"IDEAS — under consideration" section inside the outstanding ledger**
+(`2026-07-06-outstanding-master-plan.md`) — one line per idea, promoted to a real item when
+decided; NOT a new file (the no-second-backlog rule). First rows: #52a customizable editor/context
+menus; multi-model VRAM budgeting (from the §7.6 router discussion). B6-3 re-scopes to exactly
+this section (done with this go's docs).
+
+### §7.6 — Batch-3 remainder LOCKED: B3-4 badges + B3-10 snapshot grid (DECIDED 2026-07-08, user: "i agree with your recommendations, go")
+
+**B3-4 (user: "d3-4 your rec"):** one badge family — **Class default / Auto-tuned / Hand-tuned /
+Untuned** — on the Tune modal header and the model catalog rows. Data grounded at build (applied
+tune exists + how it was created; class row matching this box's class; else untuned).
+
+**B3-10 — the road here (recorded because the framing went wrong twice):** the B3 build record
+flagged B3-10 as "the superseded A(3) proposal the §7.1 lock never adopted" — the user pushed
+back: *"b10 is not decided"* … *"the add to grid is just confusing and will mess people up, i did
+not know that we decided this"* … *"i thought we already decided that everything ulitmately is
+tied to model, and the other settings just prefilled when model did not have anything set"*. The
+trail supports the user: #26 asked for all-switches; A-REVISED carried "one resolved grid with
+origin tags" as standing; §7.1's lock text was merely silent. The one genuine open question was
+the SAVE semantics, and the user decided it:
+
+- **SNAPSHOT** (user: *"if i tune values for a model including global defaults i am not sure that
+  i want that model to inherit new global defaults"* → agreed to the recommendation): **Apply =
+  the model takes ownership of its entire launch config.** Once a model has an applied config, it
+  stops inheriting later global/class changes; "Remove applied config" returns it to live layered
+  defaults; untuned models always inherit live. (Reframe recorded: the verbatim save was never the
+  defect — the hiding was. Today's save already IS snapshot; B3-10 makes the screen show
+  everything it snapshots.)
+- **All-switches grid:** every catalog knob is a row, always visible, origin-tagged (global
+  default / MoE-dense bundle / class default / your tune / computed for this PC / engine default).
+  **"Add to grid" retires**; the "Anything not listed here uses the engine's own defaults" note
+  dies (nothing is unlisted).
+- **Save-set interpretation (flagged, one-line changeable):** Apply snapshots every row with a
+  KNOWN value — resolved-layer rows + fit-computed rows + user edits. PURE engine-default rows
+  (no known numeric value, set by no layer) stay implicit/unsaved — shown for visibility only;
+  freezing values we don't truly know would inject wrong explicit flags.
+- **Standing wording** (user offered "notification 1 time or wording"; wording chosen — a one-time
+  popup gets dismissed and forgotten) on BOTH defaults editors (Global launch defaults +
+  Hardware-class defaults): models with an applied tune keep their saved values; changes here
+  don't reach them until refreshed or removed.
+- **Mismatch notice + "Refresh from defaults"** (user: *"on tune if missmacth in model and default
+  have button that says update from defualts"*): when a model has an applied config and today's
+  baseline (global→type→mtp→class + computed, WITHOUT the machine tune) differs, the modal shows
+  "Defaults have changed since you applied this — N values differ" + a button that fills the
+  **grid** with today's baseline (never writes the DB); Apply commits. Applied config untouched
+  until Apply (flagged interpretation: refresh loads the full current baseline into the grid).
+- **Multi-model/router answer recorded** (user: *"will the router switching models works fine with
+  new switches that is part of the ini, so i guess max models = 2 or 3"*): YES by construction —
+  a router switch is stop-child/spawn-child and the new child starts with ITS section's flags;
+  per-section flags are our own daily reality (chat + pinned embed co-reside with different
+  configs; the user's hand ini ran two differently-flagged sections of the same Gemma; router
+  facts verified against official docs 2026-07-06). Apply rewrites the section + reloads
+  immediately (§7.1); recorded limit: a co-resident SECONDARY isn't force-respawned — next load
+  picks it up. The real multi-model future work is VRAM arithmetic (fit must count residents) +
+  eviction policy → the ledger IDEAS section, not a switches problem.
+
+**B3-REMAINDER BUILD RECORD (2026-07-08, the user's "i agree with your recommendations, go" —
+BUILT + VERIFIED same session).** Everything grounded before touching (TuneMeasureModal.vue +
+KnobGrid.vue + model_tunes_api.py + switch_resolve.py read in FULL; model_catalog_api.py:140-279,
+install.py:140-240, stores.py ModelTune/ClassTune/Measurement/list_knob_catalog, db.py tune-family
+tables, LuGlobalSwitches/LuClassTunes help areas, LuModelCatalog badge cluster :716-735 + modal
+mount :909, classTunes.js payload shape); inline T1–T12 citation preceded the first edit; ONE
+consolidated gate pass at the end.
+
+- **B3-10 built — the all-switches snapshot grid.** The load-bearing reuse discovery: KnobGrid
+  already HAD a checklist mode (built for the sampler grids — prefilled known knobs, enable
+  checkboxes, kind-aware inputs, Common/Advanced tiers, an "Other keys" catch-all), so the Tune
+  modal's grid became that checklist over the WHOLE plane-1 knob catalog instead of a new
+  presentation: every switch is a visible row; SET rows pre-fill from the resolve (now INCLUDING
+  the fit-computed values as ordinary rows tagged "computed for this PC"); UNSET rows show the
+  knob with the engine default in reach, tagged "engine default" (or the layer they'd inherit
+  from). KnobGrid changes: origin tags render in the checklist metacell (same class as add-row);
+  a SET advanced knob is PROMOTED out of the collapsed Advanced expander (a value in effect must
+  never hide — the user's "we keep hiding things" class); `scrollMax=""` disables the inner
+  scroll (the modal's `.lu-tune-scroll` stays THE one scroller); `showFooterReset=false` hides
+  the catalog-default reset (the modal keeps its differently-scoped "Reset to model default" —
+  two same-looking resets with different meanings would be new confusion). **"Add to grid" is
+  DELETED** (`addComputedToGrid` + the `.lu-tune-fit` chips row) and the "Anything not listed
+  here uses the engine's own defaults" note died with it — nothing is unlisted now; the lede
+  carries the truth instead. Apply semantics UNCHANGED in code (rows→PUT verbatim) — under the
+  checklist the checked set IS the §7.6 snapshot save-set by construction (resolved layers +
+  computed + user edits; unchecked engine-default rows aren't in the model, so they're neither
+  sent nor saved — the flagged save-set interpretation, landed). Load & measure likewise sends
+  exactly the checked rows.
+- **Drift detection built the honest way — a stored apply-time baseline.** A naive
+  applied-vs-today diff would flag EVERY tune forever (a tune deliberately differs from
+  defaults), so: new ADDITIVE table `model_tune_baselines` (db.py — same row shape as
+  model_tunes; create_all picks it up on existing DBs, NO reset); `ModelTuneStore.replace` gained
+  a `baseline=` kwarg written/cleared in the same transaction (+ `get_baseline`,
+  `list_for_machine`; `delete` clears both); the PUT route resolves the LAYER baseline
+  (base→type→mtp→class, hw_key EMPTY skips the tune; fit-computed EXCLUDED on purpose — fit
+  moves with free-VRAM/driver state, which is not "the defaults changed") via the new
+  `resolve_baseline` injection, and the autotune `_save_tune` seam does the same (QuickSetup
+  save-on-done covered). GET /model-tunes now returns `driftCount` (None for a tune that
+  predates baseline tracking — no honest claim possible; recorded limit for the box's existing
+  tunes: their first re-Apply starts tracking). The modal shows the amber notice "Defaults have
+  changed since you applied this config — N value(s) differ" + **"Refresh from defaults"**,
+  which loads today's baseline (+ its computed fit) into the GRID only (toast says so; Apply
+  commits) — served by `resolved-defaults?excludeTune=1` (new `resolve_baseline_origins`
+  injection on the catalog router).
+- **B3-4 built — the badge family, one source.** GET /model-tunes also returns `source`:
+  **"auto"** when the applied rows EXACTLY equal some autotune trial's recorded switches (the
+  measurement history already persists every trial verbatim — no schema change; an unedited
+  applied winner matches; any hand tweak breaks the match → **"hand"**), derived by ONE
+  module-level `derive_tune_source` also used by the new **GET /v1/ai/model-tunes/state**
+  summary ({hwKey, classKey, tuned: {modelId: auto|hand}, classDefault: [modelIds with a class
+  config for THIS box's class]}). Kit: new `tuneState.js` = the state fetch + the ONE
+  `TUNE_BADGES` wording map both surfaces read. The Tune modal header tag is now the full
+  family — "Auto-tuned on this PC ✓" / "Hand-tuned on this PC ✓" / "Class default for this PC" /
+  "Untuned — using the layered defaults" (renders always; the unset origins for a tuned model
+  come from a baseline fetch so unchecking a row shows what it would fall back to). The model
+  catalog rows render the badge beside Default/Recommended (Auto-tuned/Hand-tuned success ·
+  Class default secondary); UNTUNED CATALOG ROWS CARRY NO BADGE (flagged presentation choice:
+  absence reads untuned — a tag on every row is noise; the modal is the one-model surface that
+  says Untuned explicitly). The badge state refetches when the Tune modal closes. The sweep-fill
+  now tags its rows "auto-tune winner" until Apply/edit.
+- **The standing captions (the user's "wording" pick over a one-time notification):** both
+  library editors' help paragraphs gained "**Models with an applied config keep their saved
+  values** — a change here reaches them only when you refresh or remove their applied config in
+  Tune & measure" (LuGlobalSwitches + LuClassTunes; no internal jargon in the user-facing copy).
+- **Tests:** 4 new pytest cases in `tests/test_model_tunes.py` — apply-stores-baseline +
+  drift-counts-changed-keys + delete-clears; pre-baseline tune reports driftCount=None;
+  source auto-when-equal-a-trial / hand-when-tweaked; the /state summary (tuned map + the
+  class-default filter to THIS class).
+
+**Gates (one consolidated pass):** runner `ruff` clean + **416 pytest** (412 + the 4 new) · JW
+vitest **30/30** · `build:vite` clean · the **FULL headless smoke zero JS errors** · a dedicated
+**B3R Playwright probe (14/14, zero page errors)** against the fake-GGUF seam, observing every
+changed surface live: the all-knobs checklist (8 visible rows, 6 set, origins on all incl.
+"engine default" + layer tags) · Add-to-grid + the note gone · Untuned badge → Apply →
+"Hand-tuned on this PC ✓" + footer Remove · a REAL drift round-trip (moved the global `all`
+bundle over the API → reopened → notice "1 value differs" + Refresh set the new row in the
+grid) · both library captions · the catalog row's Hand-tuned badge · Remove → Untuned again ·
+the state endpoint empty at the end (DB left as found; the global bundle restored verbatim; the
+fake GGUF deleted). Screenshots eyeballed + sent (the all-knobs grid, the drift notice, the
+catalog badge). **Box notes: NO reset** — the baseline table is additive (create_all), the rest
+is kit UI; a tune applied BEFORE this build has no stored baseline, so no drift notice until its
+next Apply (recorded above); everything visible on the next desktop build.

@@ -291,6 +291,29 @@ class ModelTune(LlmBase):
     flag_value = Column(Text, nullable=False, default="")
 
 
+class ModelTuneBaseline(LlmBase):
+    """One flag of the LAYER-RESOLVED baseline (base→type→mtp→class, NO machine
+    tune, NO fit-computed values) captured AT THE MOMENT a tune was applied —
+    §7.6's drift detection (2026-07-08). The user's snapshot decision means an
+    applied config stops following defaults; this table is how the Tune modal
+    can honestly say "defaults have changed since you applied this" — comparing
+    TODAY's layer baseline against the one that stood at apply time. A naive
+    applied-vs-defaults diff can't work: every tune deliberately differs from
+    the defaults, so it would flag drift forever. Fit-computed values are
+    excluded on purpose — they move with free VRAM/driver state, which is not
+    "the defaults changed". Written/cleared by ModelTuneStore.replace/delete in
+    the same transaction as the tune rows; never seeded. Additive table: an
+    existing DB gains it via create_all with NO reset; tunes applied before it
+    existed simply have no baseline → no drift claim is made for them."""
+
+    __tablename__ = "model_tune_baselines"
+
+    model_id = Column(String, primary_key=True)
+    hw_key = Column(String, primary_key=True)
+    flag_name = Column(String, primary_key=True)
+    flag_value = Column(Text, nullable=False, default="")
+
+
 class ClassTune(LlmBase):
     """A seeded + EDITABLE per-(model, HARDWARE-CLASS) tune — the class-seed layer
     (2026-07-07). Unlike ModelTune (a machine's OWN measured tune, never seeded),

@@ -4,17 +4,26 @@
 // 2026-07-05), extracted from LuModelCatalog; opened from the model catalog's per-row
 // Tune action AND from a Lab column's "Engine switches ↗" link (launch config lives on
 // the MODEL — one editor, everywhere). Loads the model with ad-hoc Plane-1 engine
-// flags + probes decode tok/s on this box. Pre-fills from the model's RESOLVED
-// defaults (base → type → auto-mtp → class → applied tune — show the truth); tweaks
-// flow through POST /load { switches } → the same server-side converter stored
-// switches use. **Apply** (was "Save tune") persists the grid VERBATIM as this
-// model's config FOR THIS MACHINE (PUT /v1/ai/model-tunes; the server derives the
-// machine key) — every task that uses this model runs it — and, per the user's
-// apply-now decision, RELOADS the model immediately when it is currently running
-// (no stale window: applied == active). A blast-radius confirm names the affected
-// tasks first. "Remove applied config" (DELETE) returns the model to the layered
-// defaults, with the same reload-if-running. Self-contained (loads its own knob
-// catalog); mount behind v-if with a :model ({id, name}) and listen for @close.
+// flags + probes decode tok/s on this box.
+//
+// §7.6 (2026-07-08, the user's #26 "show all switches" + snapshot decision): the grid
+// is the KnobGrid CHECKLIST over the WHOLE plane-1 knob catalog — every switch is a
+// visible row, each labeled with where its value comes from (a global bundle · the
+// model type · your PC class · your applied config · computed for this PC · engine
+// default). Set rows pre-fill from the model's RESOLVED defaults INCLUDING the
+// fit-computed values ("Add to grid" is retired — computed values are ordinary rows
+// now); unchecked rows show the knob with the engine's own default in reach. **Apply**
+// is a SNAPSHOT: the model takes ownership of every set row (PUT /v1/ai/model-tunes;
+// the server derives the machine key and stores the layer BASELINE beside it) — once
+// applied, the model stops following later global/class changes (the user's decision:
+// "once you tune a model you no longer get live updates"). Drift is surfaced honestly:
+// when today's defaults differ from the baseline stored at apply time, a notice offers
+// "Refresh from defaults" — it fills the GRID only; Apply commits. Apply also RELOADS
+// the model immediately when it is currently running (no stale window: applied ==
+// active), behind a blast-radius confirm naming the affected tasks. "Remove applied
+// config" (DELETE) returns the model to the live layered defaults, same reload.
+// Self-contained (loads its own knob catalog); mount behind v-if with a :model
+// ({id, name}) and listen for @close.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { request } from "../client.js";
@@ -22,6 +31,7 @@ import { classKeyLabel, listClassTunes, putClassTune } from "../classTunes.js";
 import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
 import { recordMeasurement } from "../measurements.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
+import { TUNE_BADGES } from "../tuneState.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import { pushToast } from "../common/services/toastBridge.js";
 import AppModal from "../common/components/AppModal.vue";
@@ -41,14 +51,16 @@ const gb = (mb) => (mb >= 10240 ? `${Math.round(mb / 1024)}` : `${(mb / 1024).to
 
 // Knob-catalog metadata (C1) — labels/typed inputs for the Plane-1 switch grid.
 // Fetch + map come from the shared knobCatalog.js (one source with LuClassTunes'
-// global mount); the raw list stays local for the unknown-flag badge below.
+// global mount); the raw list feeds the checklist (§7.6: every knob is a row)
+// and the unknown-flag badge below.
 const knobCatalog = ref([]);
 const switchCatalog = computed(() => plane1SwitchCatalog(knobCatalog.value));
+const plane1List = computed(() => knobCatalog.value.filter((k) => k.plane === 1));
 async function loadKnobCatalog() {
   knobCatalog.value = await fetchKnobCatalog(); // [] on failure — enrichment only
 }
 
-const tuneRows = ref([]); // KnobGrid rows [{ name, value }]
+const tuneRows = ref([]); // KnobGrid rows [{ name, value }] — the SET switches
 const tunePhase = ref(""); // "" | loading | measuring | done | error
 const tuneDetail = ref(""); // live load detail
 const tuneResult = ref(null); // { tokensPerSec, completionTokens, ms, vramTotalMb, ramTotalMb }
@@ -56,37 +68,73 @@ const tuneErr = ref("");
 const tuneMtpCapable = ref(false); // the tuned model's GGUF supports MTP → surface the spec_type hint
 const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value === "measuring");
 
-// Fix 2 (2026-07-07): the engine's fit-COMPUTED launch values for keys no layer
-// pins on this box — shown as PROVENANCE below the grid, never silently merged
-// into the editable rows (Save tune would pin today's fit, which the strict-beat
-// rule exists to prevent). "Add to grid" makes them explicit deliberately.
-const tuneComputed = ref([]); // [{ name, value }] from resolved-defaults `computed`
-const computedShown = computed(() =>
-  tuneComputed.value.filter((c) => !tuneRows.value.some((r) => (r.name || "").trim() === c.name)),
-);
-// Per-row PROVENANCE (2026-07-07, the user's "what do we compute and auto set"
-// question): which layer wrote each pre-filled value, in user language. A row the
-// user edits keeps its source tag (the tag says where the value CAME from; Save
-// tune moves the whole grid into "saved tune" on the next open).
+// Per-row PROVENANCE (2026-07-07 origins; §7.6 makes them total): which layer
+// wrote each SET value, in user language — and for UNSET knobs, which layer the
+// value would come from if you left it unchecked (the inherited fallback: a
+// class/global value when one exists underneath, else the engine's own default).
+// Fit-computed values are ordinary rows tagged "computed for this PC" (2026-07-08:
+// "Add to grid" retired — the user's snapshot decision means Apply deliberately
+// takes ownership of them; "Refresh from defaults" re-derives them any time).
 const ORIGIN_LABELS = {
   base: "all models", type: "model type", mtp: "speculative decode",
-  class: "your PC class", tune: "saved tune",
+  class: "your PC class", tune: "your applied config",
+  computed: "computed for this PC", autotune: "auto-tune winner",
 };
-const tuneOrigins = ref({}); // flagName -> layer id, from resolved-defaults
-const tuneOriginTags = computed(() =>
-  Object.fromEntries(Object.entries(tuneOrigins.value).map(([k, v]) => [k, ORIGIN_LABELS[v] || v])),
-);
-const knobLabel = (name) => switchCatalog.value[name]?.label || name;
-function addComputedToGrid() {
-  const extra = computedShown.value.map((c) => ({ name: c.name, value: String(c.value ?? "") }));
-  if (extra.length) tuneRows.value = [...tuneRows.value, ...extra];
-}
+const tuneOrigins = ref({}); // flagName -> layer id, for the SET rows
+const inheritedOrigins = ref({}); // flagName -> layer id an UNSET knob falls to (baseline)
+const originTags = computed(() => {
+  const out = {};
+  for (const k of plane1List.value) out[k.flagName] = "engine default";
+  for (const [k, v] of Object.entries(inheritedOrigins.value)) out[k] = ORIGIN_LABELS[v] || v;
+  const set = new Set(tuneRows.value.map((r) => (r.name || "").trim()).filter(Boolean));
+  for (const [k, v] of Object.entries(tuneOrigins.value)) {
+    if (set.has(k)) out[k] = ORIGIN_LABELS[v] || v;
+  }
+  return out;
+});
 
 // ── the applied per-(model, machine) config (Plan B storage; §7.1 Apply semantics) ──
-const savedTune = ref(null); // { hwKey, rows } | null — this machine's applied config
+// { hwKey, rows, source, driftCount } | null — source ("auto" | "hand") and
+// driftCount (defaults changed since apply; null = unknowable, e.g. a tune applied
+// before baseline tracking) are server-derived (§7.6).
+const savedTune = ref(null);
 const saveState = ref(""); // "" | saving | removing
 const saveErr = ref("");
 const applyMsg = ref(""); // transient "Applied ✓ …" note after a completed Apply
+
+// ── the §7.6 header badge (B3-4, the user's "d3-4 your rec") — ONE badge family:
+// Auto-tuned / Hand-tuned (an applied config, by how it came to be) · Class default
+// (no applied config, but this box's class has a shared starting point) · Untuned.
+const headerBadge = computed(() => {
+  if (savedTune.value) {
+    const fam = TUNE_BADGES[savedTune.value.source] || null;
+    return {
+      intent: "success",
+      label: fam ? `${fam.label} on this PC ✓` : "Applied on this PC ✓",
+    };
+  }
+  if (hasClassDefault.value) {
+    return { intent: TUNE_BADGES.class.intent, label: "Class default for this PC" };
+  }
+  return { intent: TUNE_BADGES.untuned.intent, label: "Untuned — using the layered defaults" };
+});
+const driftCount = computed(() => savedTune.value?.driftCount || 0);
+
+// "Refresh from defaults" (§7.6, the user's "update from defaults" button): load
+// TODAY's layer baseline (+ its computed fit) into the GRID — never the DB; the
+// applied config stands until Apply commits what you see.
+async function refreshFromDefaults() {
+  tuneErr.value = "";
+  applyMsg.value = "";
+  try {
+    const res = await resolveModelDefaults(props.model.id, { excludeTune: true });
+    fillFromResolved(res);
+    inheritedOrigins.value = res.origins || {}; // the baseline IS the inherited truth
+    pushToast({ message: "Loaded today's defaults into the grid — review, then Apply to commit." });
+  } catch (e) {
+    tuneErr.value = e.message || "Couldn't load today's defaults.";
+  }
+}
 
 // Rows whose BARE name matches no plane-1 knob — likely a mistyped or since-
 // DROPPED typed field that would render mis-spelled and fail the spawn (the D5
@@ -109,6 +157,15 @@ async function loadSavedTune() {
   try {
     const res = await request(`/v1/ai/model-tunes?modelId=${encodeURIComponent(props.model.id)}`);
     savedTune.value = res.rows?.length ? res : null;
+    if (savedTune.value) {
+      // §7.6: with an applied config every SET row reads "your applied config" —
+      // the inherited tags for UNSET knobs must come from the layer BASELINE
+      // (what a knob falls back to if you uncheck it), not the tune-winning resolve.
+      try {
+        const base = await resolveModelDefaults(props.model.id, { excludeTune: true });
+        inheritedOrigins.value = base.origins || {};
+      } catch { /* enrichment — unset knobs just read "engine default" */ }
+    }
   } catch {
     savedTune.value = null; // saved-state is an enrichment; tuning still works
   }
@@ -219,31 +276,34 @@ async function fetchResolved(id) {
   return resolveModelDefaults(id); // {switches, samplers, mtpCapable} — shared w/ ConfigColumn (one source)
 }
 
+// Fill the grid from a resolve result — SET rows = the layered switches PLUS the
+// fit-computed values as ordinary rows (§7.6: the snapshot owns what you see;
+// "Add to grid" is retired). ONE filler for open/reset/refresh — no drift between them.
+function fillFromResolved(res) {
+  tuneRows.value = [...res.switches, ...(res.computed || [])];
+  tuneOrigins.value = {
+    ...(res.origins || {}),
+    ...Object.fromEntries((res.computed || []).map((c) => [c.name, "computed"])),
+  };
+  if (!savedTune.value) inheritedOrigins.value = res.origins || {};
+  tuneMtpCapable.value = res.mtpCapable;
+}
 async function startTune() {
   tuneRows.value = [];
-  tuneComputed.value = [];
   tuneMtpCapable.value = false;
   tuneResult.value = null;
   tuneErr.value = "";
   tunePhase.value = "";
   tuneDetail.value = "";
   try {
-    const res = await fetchResolved(props.model.id);
-    tuneRows.value = res.switches;
-    tuneComputed.value = res.computed || [];
-    tuneOrigins.value = res.origins || {};
-    tuneMtpCapable.value = res.mtpCapable;
+    fillFromResolved(await fetchResolved(props.model.id));
   } catch {
     tuneRows.value = []; // pre-fill is an enrichment; tuning still works empty
   }
 }
 async function resetTuneSwitches() {
   try {
-    const res = await fetchResolved(props.model.id);
-    tuneRows.value = res.switches;
-    tuneComputed.value = res.computed || [];
-    tuneOrigins.value = res.origins || {};
-    tuneMtpCapable.value = res.mtpCapable;
+    fillFromResolved(await fetchResolved(props.model.id));
   } catch (e) {
     tuneErr.value = e.message || "Couldn't reset to defaults.";
   }
@@ -264,11 +324,20 @@ const showClassLib = ref(false);
 const showGlobalLib = ref(false);
 const classTunesRef = ref(null);
 const myClassLabel = computed(() => classKeyLabel(myClassKey.value));
+// §7.6 badge input: does THIS model have a class config for THIS box's class?
+// Read from the SAME listClassTunes payload the class key comes from (one call).
+const classConfigs = ref([]);
+const hasClassDefault = computed(() =>
+  classConfigs.value.some((c) =>
+    c.modelId === props.model.id && c.classKey === myClassKey.value && c.rows?.length));
 async function loadMyClassKey() {
   try {
-    myClassKey.value = (await listClassTunes()).classKey || "";
+    const res = await listClassTunes();
+    myClassKey.value = res.classKey || "";
+    classConfigs.value = res.tunes || [];
   } catch {
     myClassKey.value = ""; // enrichment — the button simply doesn't render
+    classConfigs.value = [];
   }
 }
 async function saveForClass() {
@@ -372,6 +441,10 @@ async function pollAutoTune() {
     measureHistRef.value?.reload?.(); // the sweep recorded its trials server-side
     if (st.status === "done" && st.best) {
       tuneRows.value = switchesToRows(st.best.switches);
+      // §7.6 provenance: the sweep replaced the grid — every set row is the
+      // winner's value until the user edits or Applies (then it's their config).
+      tuneOrigins.value = Object.fromEntries(
+        Object.keys(st.best.switches || {}).map((k) => [k, "autotune"]));
       tuneResult.value = {
         tokensPerSec: st.best.tokensPerSec, completionTokens: null, ms: null,
         vramTotalMb: st.best.vramTotalMb, ramTotalMb: null,
@@ -429,9 +502,10 @@ onBeforeUnmount(stopAutoPoll);
   <AppModal :title="`Tune & measure — ${model.name || model.id}`" :max-width="'560px'" @close="emit('close')">
     <div class="lu-tune">
       <p class="lu-muted lu-tune-lede">
-        Load this model with custom engine flags and measure decode speed on your hardware.
-        Flags are pre-filled from the model's defaults<template v-if="savedTune"> — including
-        your applied config</template> — tweak, measure, then <b>Apply</b>. Engine switches
+        Every engine switch is listed below with where its value comes from — the set ones
+        pre-fill from this model's defaults<template v-if="savedTune"> and your applied
+        config</template>; unchecked ones use the engine's own defaults. Tweak, measure, then
+        <b>Apply</b> — the model takes ownership of exactly what you see. Engine switches
         belong to the <b>model</b>: every task that uses it on this PC shares them (a task
         decides only how it's <i>asked</i> — temperature, tokens, thinking — on the Tasks tab).
       </p>
@@ -439,30 +513,36 @@ onBeforeUnmount(stopAutoPoll);
         <b>Speculative decode</b> is on by default (“MTP draft”); gains are machine-dependent, so
         measure. To turn it off here, set it to “Off” and Apply.</p>
 
-      <!-- #16: the applied state reads BIG; its Remove action lives in the footer
-           beside Apply ("move it next to save button so you can see it"). -->
-      <div v-if="savedTune" class="lu-tune-saved">
-        <UiTag intent="success" class="lu-tune-savedtag">Applied on this PC ✓</UiTag>
+      <!-- #16 + B3-4: the tune state reads BIG — the §7.6 badge family (Auto-tuned /
+           Hand-tuned / Class default / Untuned); Remove lives in the footer beside
+           Apply ("move it next to save button so you can see it"). -->
+      <div class="lu-tune-saved">
+        <UiTag :intent="headerBadge.intent" class="lu-tune-savedtag">{{ headerBadge.label }}</UiTag>
+      </div>
+      <!-- §7.6 drift: defaults changed SINCE this config was applied (vs the baseline
+           stored at apply time) — refresh fills the GRID only; Apply commits. -->
+      <div v-if="driftCount > 0" class="lu-tune-drift">
+        <span>Defaults have changed since you applied this config —
+          {{ driftCount }} value{{ driftCount === 1 ? "" : "s" }} differ{{ driftCount === 1 ? "s" : "" }}.</span>
+        <UiButton intent="secondary" size="small"
+          title="Load today's defaults into the grid — your applied config stays until you hit Apply"
+          @click="refreshFromDefaults">Refresh from defaults</UiButton>
       </div>
 
       <!-- #21: ONLY the switch grid scrolls — everything after this block (status,
-           auto-tune narration, the result) stays in view without scrolling. -->
+           auto-tune narration, the result) stays in view without scrolling. §7.6:
+           the grid is the CHECKLIST over the whole plane-1 knob catalog (every
+           switch visible, origin-tagged; its own inner scroll is off — one
+           scroller per area) with the add-row grid as the no-catalog fallback. -->
       <div class="lu-tune-scroll">
-        <KnobGrid v-model="tuneRows" :catalog="switchCatalog" :origins="tuneOriginTags" />
+        <KnobGrid v-model="tuneRows" checklist :catalog-list="plane1List"
+          :catalog="switchCatalog" :origins="originTags" :scroll-max="''"
+          :show-footer-reset="false" add-label="＋ Add a custom switch" />
         <div v-if="unknownNames.size" class="lu-tune-unk lu-muted">
           <UiTag intent="danger">unrecognized</UiTag>
           <span>{{ [...unknownNames].join(", ") }} — not a known engine flag (mistyped, or dropped
             by an engine update). Remove or fix it, or prefix with “--” for a raw flag.</span>
         </div>
-        <div v-if="computedShown.length" class="lu-tune-fit lu-muted">
-          <span>Set automatically for this PC (the engine's memory fit — used at launch unless
-            you set them above):
-            <template v-for="(c, i) in computedShown" :key="c.name"><template v-if="i"> · </template><b>{{ knobLabel(c.name) }}</b> {{ c.value }}</template></span>
-          <UiButton intent="ghost" size="small"
-            title="Copy these fit values into the grid as explicit switches — saving them then pins today's placement"
-            @click="addComputedToGrid">Add to grid</UiButton>
-        </div>
-        <p class="lu-tune-engdef lu-muted">Anything not listed here uses the engine's own defaults.</p>
       </div>
 
       <!-- #19: the shared launch-config libraries open as popups — links, not
@@ -567,8 +647,16 @@ onBeforeUnmount(stopAutoPoll);
 .lu-tune { display: flex; flex-direction: column; gap: 12px; }
 .lu-tune-lede { font-size: 12px; margin: 0; }
 .lu-tune-saved { display: flex; align-items: center; gap: 10px; }
-/* #16: the applied state reads BIG — a full-size badge, not row-note fine print. */
+/* #16: the tune state reads BIG — a full-size badge, not row-note fine print. */
 .lu-tune-saved .lu-tune-savedtag { font-size: 13px; padding: 5px 14px; }
+/* §7.6 drift notice: one line + its action, quietly urgent (warn tint). */
+.lu-tune-drift {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 11.5px; line-height: 1.45; color: var(--ink-2);
+  padding: 7px 10px; border: 1px solid var(--warn-line, var(--border));
+  background: var(--warn-soft, var(--surface-2)); border-radius: var(--r-sm, 8px);
+}
+.lu-tune-drift > span { flex: 1; min-width: 200px; }
 /* #21: the switch grid scrolls in ITS OWN capped region so the load/measure status
    and the result below never fall out of view. scrollbar-gutter keeps a classic
    (space-taking) scrollbar from shifting rows when it appears. */
@@ -586,9 +674,6 @@ onBeforeUnmount(stopAutoPoll);
 .lu-tune-tps b { font-size: 22px; color: var(--accent-ink, var(--accent)); font-weight: 800; }
 .lu-tune-meta { font-size: 11.5px; color: var(--ink-2); margin-top: 3px; }
 .lu-tune-cpu { font-size: 11px; margin-top: 3px; }
-.lu-tune-engdef { font-size: 10.5px; margin: 0; }
-.lu-tune-fit { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; line-height: 1.5; }
-.lu-tune-fit > span { flex: 1; min-width: 0; }
 .lu-tune-clsrow { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 11.5px; }
 .lu-tune-clsrow > span { flex: 1; min-width: 0; line-height: 1.45; }
 .lu-tune-trials { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; }

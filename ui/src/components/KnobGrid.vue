@@ -37,11 +37,22 @@ const props = defineProps({
   catalogList: { type: Array, default: () => [] }, // ordered raw rows [{ flagName, label, kind, default, help, options }]
   exclude: { type: Array, default: () => [] },     // flag names to hide from the managed list (edited elsewhere)
   reservedKeys: { type: Array, default: () => [] },// names managed by another control → hidden from "Other keys" too
-  scrollMax: { type: String, default: "260px" },   // fixed height before the grid scrolls (single-column only)
+  // Fixed height before the grid scrolls (single-column only). Pass "" to disable
+  // the inner scroll entirely — for mounts that already live inside their own
+  // scroll region (§7.6 Tune modal: exactly one scroller per area).
+  scrollMax: { type: String, default: "260px" },
   columns: { type: Number, default: 1 },           // >1 → flat multi-column grid (no Common/Advanced split), no inner scroll
-  // Per-row PROVENANCE tags (2026-07-07, add-row mode): name -> a short display
-  // string ("all models" · "your PC class" · "saved tune" · …) rendered muted
-  // beside the row — the caller maps origin ids to user language. Empty = no tags.
+  // Hide the footer "Reset to defaults" (catalog-default reset) — for hosts that
+  // carry their own, differently-scoped reset (the Tune modal's "Reset to model
+  // default" re-fetches the RESOLVED baseline; two reset buttons with different
+  // meanings side-by-side is the confusion class the §7.6 rework removes).
+  showFooterReset: { type: Boolean, default: true },
+  // Per-row PROVENANCE tags (2026-07-07, both modes): name -> a short display
+  // string ("all models" · "your PC class" · "saved tune" · "engine default" · …)
+  // rendered muted under the row's name/label — the caller maps origin ids to
+  // user language. Empty = no tags. In checklist mode the tag renders in the
+  // metacell under the flag name (§7.6: every knob is visible, each labeled with
+  // where its value comes from).
   origins: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits(["update:modelValue"]);
@@ -117,8 +128,13 @@ const BOOL_OPTIONS = [{ value: "true", label: "On" }, { value: "false", label: "
 // row-major into the next column (user decision 2026-06-30: no Common/Advanced
 // split — anyone tuning these is already advanced). Single-column (switches) keeps
 // the anti-overwhelm tiered expander: common rows shown, advanced behind a toggle.
-const commonRows = computed(() => visibleCatalog.value.filter((k) => k.tier !== "advanced"));
-const advancedRows = computed(() => visibleCatalog.value.filter((k) => k.tier === "advanced"));
+// A SET advanced knob is promoted into the always-visible list (§7.6: a value in
+// effect must never hide behind the collapsed Advanced expander — "we keep hiding
+// things" was the defect class); only UNSET advanced knobs collapse.
+const commonRows = computed(() =>
+  visibleCatalog.value.filter((k) => k.tier !== "advanced" || isOn(k.flagName)));
+const advancedRows = computed(() =>
+  visibleCatalog.value.filter((k) => k.tier === "advanced" && !isOn(k.flagName)));
 const advancedOpen = ref(false);
 const displayRows = computed(() => {
   if (props.columns > 1) return visibleCatalog.value.map((m) => ({ m }));
@@ -132,7 +148,7 @@ const displayRows = computed(() => {
 <template>
   <!-- Checklist mode (opt-in): prefilled, enable/disable, kind-aware, scrollable. -->
   <div v-if="checklist && catalogList.length" class="ui-kg ui-kg-check" :class="{ 'is-cols': columns > 1 }" :style="columns > 1 ? { '--kg-cols': columns } : null">
-    <div class="ui-kg-scroll" :style="{ maxHeight: scrollMax }">
+    <div class="ui-kg-scroll" :style="scrollMax ? { maxHeight: scrollMax } : null">
       <template v-for="row in displayRows" :key="row.expander ? '__adv' : row.m.flagName">
         <button v-if="row.expander" type="button" class="ui-kg-advtoggle" @click="advancedOpen = !advancedOpen">
           {{ advancedOpen ? "▾" : "▸" }} Advanced <span class="ui-kg-advcount">({{ advancedRows.length }})</span>
@@ -142,6 +158,8 @@ const displayRows = computed(() => {
           <div class="ui-kg-metacell" :title="row.m.help || ''">
             <span class="ui-kg-label">{{ row.m.label || row.m.flagName }}</span>
             <code class="ui-kg-flag">{{ row.m.flagName }}</code>
+            <span v-if="origins[row.m.flagName]" class="ui-kg-origin"
+              title="Where this value comes from">{{ origins[row.m.flagName] }}</span>
           </div>
           <UiSelect
             v-if="row.m.kind === 'bool'"
@@ -188,7 +206,7 @@ const displayRows = computed(() => {
     <div class="ui-kg-foot">
       <UiButton intent="ghost" size="small" @click="add">{{ addLabel }}</UiButton>
       <span class="ui-kg-footspace" />
-      <UiButton intent="ghost" size="small" title="Reset the listed knobs to their defaults" @click="resetAll">Reset to defaults</UiButton>
+      <UiButton v-if="showFooterReset" intent="ghost" size="small" title="Reset the listed knobs to their defaults" @click="resetAll">Reset to defaults</UiButton>
     </div>
   </div>
 

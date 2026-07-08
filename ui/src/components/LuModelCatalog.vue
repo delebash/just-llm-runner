@@ -17,6 +17,7 @@ import { useRunnerModels } from "../composables/useRunnerModels.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { applyPreview, useModelApply } from "../services/modelApply.js";
 import { FIT_RUNNABLE, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
+import { TUNE_BADGES, fetchTuneState, tuneBadgeOf } from "../tuneState.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -269,6 +270,29 @@ function licenseTitle(m) {
 
 // ── Tune & measure (#20) — the modal is shared (TuneMeasureModal), opened per model ─
 const tuning = ref(null); // null | the model being tuned
+// §7.6 (B3-4): the per-machine tune-provenance badges — ONE server-derived state
+// (/v1/ai/model-tunes/state) + ONE shared wording map (tuneState.js) with the Tune
+// modal's header tag. Refetched when the Tune modal closes (an Apply/Remove in it
+// changes exactly this). Null = enrichment unavailable; rows render badge-less.
+const tuneState = ref(null);
+async function loadTuneState() {
+  tuneState.value = await fetchTuneState();
+}
+loadTuneState();
+function tuneBadge(m) {
+  const id = tuneBadgeOf(tuneState.value, m.id);
+  if (!id) return null; // untuned rows carry NO badge — absence reads untuned (flagged in the §7.6 record)
+  const titles = {
+    auto: "This PC runs your applied config — produced by the auto-tune sweep",
+    hand: "This PC runs your applied config — hand-set in Tune & measure",
+    class: "No applied config on this PC — it starts from your hardware class's shared config",
+  };
+  return { ...TUNE_BADGES[id], title: titles[id] };
+}
+function closeTuneModal() {
+  tuning.value = null;
+  loadTuneState();
+}
 
 // ── manager: add / edit / delete a catalog model (#30) ─
 // Backed by the EXISTING tested router /v1/ai/model-catalog (CRUD+reset). The catalog row
@@ -718,6 +742,10 @@ refreshApplied();
                 <UiTag v-if="m.id === recommendedId" intent="accent2" class="lu-mbadge"
                   title="What Quick Setup would pick for this machine — the curated hardware-class map first, then the speed-floor rule">
                   Recommended for this PC</UiTag>
+                <!-- §7.6 (B3-4): the tune-provenance badge — Auto-tuned / Hand-tuned /
+                     Class default; untuned rows carry none. -->
+                <UiTag v-if="tuneBadge(m)" :intent="tuneBadge(m).intent" class="lu-mbadge"
+                  :title="tuneBadge(m).title">{{ tuneBadge(m).label }}</UiTag>
                 <div class="lu-mid">{{ m.id }}</div>
                 <!-- The sort fields, visible (#146): benchmark rank + size. -->
                 <div class="lu-mrowmeta lu-muted" title="Benchmark rank (lower = better; published general-purpose tests) · download size">{{ rowMeta(m) }}</div>
@@ -905,8 +933,9 @@ refreshApplied();
       </template>
     </AppModal>
 
-    <!-- Tune & measure (#20) — shared modal, opened per model. -->
-    <TuneMeasureModal v-if="tuning" :model="tuning" @close="tuning = null" />
+    <!-- Tune & measure (#20) — shared modal, opened per model; closing refetches
+         the badge state (an Apply/Remove inside changes exactly that). -->
+    <TuneMeasureModal v-if="tuning" :model="tuning" @close="closeTuneModal" />
   </div>
 </template>
 

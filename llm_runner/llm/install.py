@@ -187,11 +187,26 @@ def install_llm(
         # grid's per-row origin tags.
         resolve_origins=lambda mid: switch_resolve.resolve_model_switches_with_origins(
             mid, _current_hw_key(), _current_class_key()),
+        # §7.6: the LAYER baseline (machine tune skipped — hw_key empty) for
+        # resolved-defaults?excludeTune=1 → the modal's "Refresh from defaults".
+        resolve_baseline_origins=lambda mid: switch_resolve.resolve_model_switches_with_origins(
+            mid, "", _current_class_key()),
     ))
     app.include_router(make_pricing_router(stores.get_pricing_store))
     app.include_router(make_runner_config_router(stores.get_runner_config_store))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
-    app.include_router(make_model_tunes_router(stores.get_model_tune_store, _current_hw_key))
+    app.include_router(make_model_tunes_router(
+        stores.get_model_tune_store, _current_hw_key,
+        # §7.6 drift + provenance wiring: the layer baseline stored at apply time
+        # (drift = today's baseline vs the stored one), the measurement history
+        # (an applied tune equal to an autotune trial = "auto"), and the class
+        # library + key (the catalog's Class-default badge).
+        resolve_baseline=lambda mid: switch_resolve.resolve_model_switches(
+            mid, "", _current_class_key()),
+        measurements_fn=lambda mid: stores.get_model_measurement_store().list(mid),
+        class_key_fn=_current_class_key,
+        class_configs_fn=lambda: stores.get_class_tune_store().list_all(),
+    ))
     # The editable hardware-class tune library (ROUND 8 Task C, 2026-07-07) — the
     # class-key twin of the model-tunes router; `_current_class_key` badges +
     # defaults saves to THIS box's class.
@@ -212,7 +227,13 @@ def install_llm(
         from .model_tunes_api import ModelTuneFlag
 
         rows = [ModelTuneFlag(flagName=k, flagValue=str(v)) for k, v in sorted(switches.items())]
-        stores.get_model_tune_store().replace(model_id, _current_hw_key(), rows)
+        # §7.6: capture the layer baseline beside the tune (same as the PUT route)
+        # so drift detection covers the QuickSetup save-on-done path too.
+        try:
+            baseline = switch_resolve.resolve_model_switches(model_id, "", _current_class_key())
+        except Exception:  # noqa: BLE001 — a baseline failure must not block the save
+            baseline = None
+        stores.get_model_tune_store().replace(model_id, _current_hw_key(), rows, baseline=baseline)
 
     # The measurement-history sink for the sweep (#142 rows 5+6): every OK trial
     # is a real measurement — persisted with the trial's own switches + label.

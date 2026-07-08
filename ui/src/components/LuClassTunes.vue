@@ -233,6 +233,8 @@ const hasRows = computed(() => tunes.value.length > 0);
         config<template v-if="globalMode"> (each row belongs to the model in its Model
         column; there is no single tune covering all models)</template>. Edit a built-in to
         change it (your edit sticks); Copy/Import moves a config between users as text.
+        <b>Models with an applied config keep their saved values</b> — a change here reaches
+        them only when you refresh or remove their applied config in Tune &amp; measure.
       </p>
 
       <div v-if="error" class="lu-error">{{ error }}</div>

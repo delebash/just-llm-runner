@@ -1750,9 +1750,11 @@ bookkeeping (checker verdict → commit) completes; nothing else builds.
   (value-carrying rows are the snapshot — the blessed §7.6 save-set). Consequences
   recorded on the sibling items: QC-10's heading list shrinks (Task #205 updated); QC-11
   narrows to whether context_shift/cache_reuse stay in the ADD list, since they no longer
-  render as rows either way (Task #206 updated). ONE FLAGGED SUB-QUESTION for the
-  discussion: `default_value` also feeds the Lab SAMPLER checklist's enable-prefill
-  (enabling e.g. mirostat_tau prefills 5.00) — "remove ALL" is read as removing the
-  concept everywhere (a newly-enabled sampler starts blank = the engine's own behavior),
-  confirm or scope it to the switch surfaces. NO CODE under the hard stop — this is the
-  recorded decision, built with the QC-10..17 cluster when the user says go.
+  render as rows either way (Task #206 updated). SCOPE SETTLED BY THE USER (verbatim,
+  2026-07-08): *"remove all no it doesnt remove all is just engine switches has nothing to
+  do with samplers, can you please really think, did we mention samplers are have we only
+  been dealing with switches"* — QC-17 is ENGINE SWITCHES (plane 1) ONLY; the Lab sampler
+  checklist (plane 2) and its enable-prefill are UNTOUCHED — samplers were never part of
+  this round, and the earlier "does remove-all cover samplers?" flag was scope creep I
+  invented, owned. NO CODE under the hard stop — this is the recorded decision, built
+  with the QC-10..17 cluster when the user says go.

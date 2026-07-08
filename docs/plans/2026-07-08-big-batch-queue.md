@@ -247,6 +247,57 @@ per-task "stream" flag — the caller picks the endpoint. Design in discussion D
 > Points 1, 4, 5 of the original recommendation below stand unchanged (one resolved grid with
 > origin tags in Tune & measure, provenance badges, two-owners answer).
 
+> ⛔ **A — THE FLOW, RETHOUGHT END-TO-END (2026-07-08, third round; the user's scenario
+> verbatim):** *"I use quicksetup it sets my provider and models for my tasks and features. I
+> then tune my default model and save. No i go look at task a, it has my provider and model set
+> per quick setup but what about the switches are they updated from the save on tune and
+> measure, how does the user know, i still see a big disconnect."*
+>
+> **The scenario traced through the real code:** (1) QuickSetup repoints every task preset's
+> `.model` to the pick (`QuickSetup.vue:19` — only `.model` changes) + sets routing default +
+> embedding. (2) Save tune writes `model_tunes` (model, THIS machine). (3) Task A RUNS: dispatch
+> resolves the preset → provider gemma + the model id; the runner load asks the ONE resolver
+> (`install.py:182-189` → `switch_resolve`) which includes the step-2 tune → the process spawns
+> with the tuned flags (`lifecycle.py:602`). **So the tune DOES reach task A — automatically,
+> because the preset stores a POINTER to the model and the model brings its launch config
+> wherever it's pointed. Nothing is copied into the task, so nothing can go stale in the task.**
+> The task page just never SHOWS this (and worse, shows the dead editable switches instead) —
+> the disconnect is real but it is a VISIBILITY defect, not a wiring defect.
+> **One honest wrinkle found while tracing (new):** an already-resident model is deliberately
+> NOT reloaded by a plain re-request (`lifecycle.py:501-504` — idempotent keep-warm), so a tune
+> saved while the model is loaded takes effect only at the NEXT load (idle-sleep ~30 s → next
+> use, or explicit unload). Proposal to close it: the ensure-load path compares the resolved
+> config against the flags the resident process was spawned with and respawns on mismatch
+> ("active = resolved, enforced"), plus the Save toast says "applies at the next load" either way.
+>
+> **The design law (one breath):** a TASK answers "which model, and how do I ask it" (preset:
+> model + samplers/max-tokens/JSON/thinking — per request, no reload). A MODEL × THIS MACHINE
+> answers "how do I launch" (global bundles → class default → your tune — resolved ONCE, at
+> load). The only moment launch switches become ACTIVE is a model load, and every load asks the
+> same resolver. The Lab is the bench where BOTH are exercised (live trial switches per column +
+> real prompts), and its saves route by kind: launch → the model's tune; ask-style → the task's
+> preset.
+>
+> **The visibility contract (the actual rethink — every surface shows the same resolved truth):**
+> - **Tasks tab (task A's page):** the dead switch grid is REPLACED by a live read-only "Runs
+>   on" panel: "gemma-x on Built-in — launches with: [resolved rows, origin-tagged global /
+>   class default / your tune / computed] — Tuned on this PC 2026-07-08 · Tune this model →".
+>   After the user's step 2, task A's page VISIBLY shows the tuned rows tagged "your tune" —
+>   the propagation the user asked about becomes something you can see.
+> - **Tune & measure:** header scope line "these launch settings apply to EVERY task that uses
+>   this model on this PC"; Save toast repeats it.
+> - **Lab column:** trial switches clearly labeled "this column's trial only — not saved", next
+>   to the same "Runs on" panel showing what production would use; two explicit save targets.
+> - **Global launch defaults / class library:** unchanged as editors; their values appear as
+>   the origin tags everywhere else, so the chain global → class → tune → running process is
+>   inspectable from any surface, always through the one resolver.
+> The flow table (SET where / SEEN where / ACTIVE when): global bundles — Global-defaults
+> editor / origin tags everywhere / at load, lowest layer. Class default — class library /
+> origin tags + Tune header badge / at load, middle. Your tune — Tune & measure or Lab-save /
+> origin tags + "Tuned" badges (grid, catalog, task panel) / at load, wins. Task preset — Tasks
+> tab + Lab save / the task page + feature chips / per request. Lab trial — the column / the
+> column only / during that test's load only.
+
 Current truth in §1a. My recommendation (pushback welcome):
 1. **Confirm the rule that already runs the system: launch config is owned by the MODEL tune
    stack (global bundles → class → this machine), full stop.** It matches the user's own priority

@@ -214,6 +214,12 @@ per-task "stream" flag — the caller picks the endpoint. Design in discussion D
 
 **A. THE tuning-flow consolidation (settles #14b/#15/#22/#23/#25/#26/#31/#32/#33/#35 + halves of #17/#24).**
 
+> ⛔⛔ **SUPERSEDED — this whole §2-A block (the original recommendation + A-REVISED + round-3
+> "flow rethought") is the EXPLORATION that led to the locked answer. It is now stale in places
+> (A-REVISED proposed making the Lab's switches LIVE; the DECISION went the other way — switches
+> come OUT of the Lab entirely). Read `§7.1 — the switches ⇄ params flow (LOCKED)` at the bottom
+> of this doc for what was actually decided 2026-07-08. Kept here for the reasoning trail only.**
+
 > ⛔ **A-REVISED (2026-07-08, after the user's pushback — supersedes points 2–3 below; kept for
 > the record).** The user, verbatim: *"i am confused so you are removing the setting engine
 > switches in the lab? that does not make sense, that is the whole point of the lab, to be able
@@ -529,3 +535,86 @@ user's own provenance review: anything memory-driven turns out to vary by model 
 layer had nothing unique to hold. If the model-first presentation is what makes it FEEL
 model-owned, the machine-first view already exists (the cross-model class library, #127) and
 can be made more prominent — presentation change, not a schema one.
+
+---
+
+## §7 — LOCKED DECISIONS (these OVERRIDE the §2 exploratory discussion; read THESE for what was decided)
+
+### §7.1 — The switches ⇄ params flow (DECIDED 2026-07-08, multi-round discussion; user "go" to record)
+
+**THE LAW — two owners, one store each:**
+- **Engine/launch switches belong to the MODEL × THIS MACHINE.** A loaded model is ONE llama-server
+  process with ONE set of launch flags; every task that uses that model shares them. Physical reason
+  the user REJECTED per-task switches (verbatim): *"no every task cannot have its own switches that
+  would be massive reload thrash"* — two configs of the same model can't be co-resident on 8 GB
+  (2× weights VRAM), so per-task launch switches = reload on every task switch.
+- **Request params belong to the TASK's preset** (Plan A, unchanged): provider · model · temperature ·
+  top_p · max_tokens · json_mode · reasoning/thinking · stop · long-tail samplers. Per request, no reload.
+
+**ONE store for switches; the dead duplicate is DELETED:**
+- LIVE store = the model-keyed resolve chain: global bundles (`all`/`moe`/`dense`/auto-MTP) → hardware
+  CLASS default (`class_tunes`, per `vram|ram` class) → THIS machine's tune (`model_tunes`), resolved
+  at load by `switch_resolve.resolve_model_switches(model, hw, class)`, wired into every production load
+  (`install.py:182-189`; `lifecycle.py:602` main load + `:1100` ini-emit). QuickSetup + catalog load pass
+  NO switches (`QuickSetup.vue:316`, `LuModelCatalog.vue:116,153`) → they get this resolve.
+- DELETE the DEAD second store (grep-verified: read by NOTHING at load across
+  lifecycle/dispatch/prompts/process/config; only WRITTEN by the preset form `stores.py:629-630` + seeded
+  `seed.py:665`): the `EnginePresetSwitch` table (`db.py:517-527`) and the `ngl_override` /
+  `n_cpu_moe_override` columns on `EnginePreset` (`db.py:511-512`). This dead duplicate was the ROOT of the
+  user's "which one is active / still disconnected"; removing it leaves provably ONE place switches live.
+
+**THE SURFACES — Tune & measure is THE only switch editor; the Lab LINKS to it (user's proposal, verbatim:**
+*"we a like to engine switches that open the same tune and measure that is associated with model, we
+reuse code and keep everything centrally located in mental model"*):
+- **Tune & measure** (`TuneMeasureModal.vue`, opened per-model via its `:model` prop — today from the
+  model card `LuModelCatalog.vue:879`) is the single switch editor, for every model.
+- **The Lab column** (`ConfigColumn.vue`) LOSES its "Engine switches" `<details>` grid
+  (`ConfigColumn.vue:422-435` — the block whose caption wrongly says "Save writes these into this Task's
+  preset"). It keeps ONLY the request params (→ the task preset). It GAINS a link **"Engine switches ↗"**
+  (muted caption "shared by every task using this model") that opens the SAME `TuneMeasureModal` for the
+  column's currently-selected model. REUSE — no new switch UI built.
+- The Lab's Test loads the model with its REAL applied switches (model-keyed resolve) + the task's params
+  → what you see in the Lab IS production ("seen = run"). Switch A/B lives in Tune & measure (grid +
+  measure + autotune); prompt/param/model-quality A/B lives in the Lab.
+
+**APPLY SEMANTICS (Tune & measure's commit) — DECIDED:** the commit **reloads the model IMMEDIATELY**, not
+"at next load" — the user rejected the wait, verbatim: *"if you save a user would expect that to apply now
+not wait 30 seconds for it to unload and load this is the type of thinking you should not have."* Progress
+shown during the reload. The Lab has NO switch commit anymore (it has no switches). "Save as hardware-class
+default" stays as a secondary library-write action, unchanged.
+
+**TWO CONSEQUENCES THE USER ACCEPTED (verbatim 2026-07-08 — "1 yes... 2. i also agree"):**
+1. Co-tuning switches+params is a modal round-trip (find a switch problem while quality-testing a task in
+   the Lab → "Engine switches ↗" → change + Apply in the modal, reloads → close → re-test). User: *"yes i
+   mean that was how the lab was originally supposed to work if you changes switches it would have to reload."*
+2. **"Send to Tasks Lab" (from Tune & measure) is REMOVED** — it existed only to carry switches into a Lab
+   column (the source of #20 "opens as the first task" + #34 "switches came as defaults"). Switches out of the
+   Lab ⇒ nothing to carry. Delete the button (`TuneMeasureModal.vue:148-151,385`) + the `labHandoff.js`
+   switch-carry channel + its consumer (`TaskKinds.vue` consumeHandoff/pendingHandoff/watch). Resolves #20 + #34
+   by deletion.
+
+**RESOLVES in the batch:** discussion A is DECIDED; queue items #14b, #22, #23, #25, #26, #31, #32, #33, #35
+(all the "which switch / how many places / disconnect" questions), #20 + #34 (send-to-lab, by removal), and
+#51's UI half (online providers show samplers only — not the built-in model, so no switch section).
+
+**STILL OPEN sub-questions (NOT part of this lock — do not treat as decided; need the user):**
+- (a) The Apply **blast-radius confirm** — whether it NAMES the affected tasks (capped, e.g. "Generate prose,
+  Chat, +N more") or says a generic "every task using this model". (My rec was to name-capped; user has NOT
+  answered.)
+- (b) Exact commit **verb/label** — the user's phrasing was "maybe we just have apply button"; behaviour
+  (reload-now) is locked, the literal label ("Apply" vs a reworded "Save") is a wording detail to confirm.
+- (c) The **help popover** exact copy (proposed: "The model decides how it runs — engine switches, one place:
+  Tune & measure, shared by every task that uses it, needs a reload. The task decides how it's asked —
+  temperature, tokens, thinking — per task, no reload.").
+- (d) Provenance **badges** (#15/#17/#24b): wording + which surfaces. Separate from this core.
+
+**BUILD SCOPE — NOT STARTED (needs its own build go; rule 10):**
+- Runner backend: delete `EnginePresetSwitch` + `ngl_override`/`n_cpu_moe_override` (`db.py`, `stores.py:572,629-630`,
+  `seed.py:665`, the `EnginePresetRow`/wire fields + presets_api); drop+reseed DB (pre-release policy — the
+  user's box needs a data reset). Verify ruff + pytest.
+- Kit UI: remove `ConfigColumn.vue:422-435`; add "Engine switches ↗" link → `TuneMeasureModal` for the column
+  model; `TuneMeasureModal` commit → reload-now + blast-radius confirm (kit `confirmDialog`); remove "Send to
+  Tasks Lab" + `labHandoff.js` switch channel + `TaskKinds.vue` handoff consumer; `?` help popover (kit
+  `HelpTrigger`/`openHelp`). Verify build:vite + full headless smoke.
+- Docs: `docs/models.md` tuning section; this doc (mark items resolved); recap pointer.
+- rules-checker on the diff → PASS before the code commit(s).

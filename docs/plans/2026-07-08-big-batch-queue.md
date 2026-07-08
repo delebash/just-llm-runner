@@ -1243,3 +1243,27 @@ build on the user's word — fold-in vs own-go asked once at the next report.
   whole config comes from one layer (the Auto-tuned/Hand-tuned/Untuned states stay — they
   describe the APPLIED snapshot, which genuinely is one thing). Builds with QC-1 (same
   wording surfaces).
+- **QC-4 — the per-row reset buttons were never discussed; bring back the discussed grid
+  (user verbatim, an ORDER with explicit timing):** *"this is not what we discussed on the
+  switches again, i want you to bring back what we discussed, you made your own decisions
+  again, you put litt reset buttons next to each text box, that is not what we discussed,
+  bring back what you discussed, do this after you finish your current run."* Honest owning:
+  the little ↺ reset-to-default buttons beside each numeric value box came EMBEDDED in
+  KnobGrid's reused checklist mode and shipped unflagged — an undiscussed presentation
+  element the B3R record never surfaced (the record flagged four interpretations; not this).
+  The DISCUSSED design (§7.6 lock text): every catalog knob a visible row, origin-tagged,
+  Add-to-grid retired, drift notice + ONE "Refresh from defaults", the modal's ONE
+  "Reset to model default" — no per-row resets anywhere in the discussion. THE FIX CLUSTER
+  (QC-1 + QC-3 + QC-4 — same surface, one go, ORDERED by the user "after you finish your
+  current run"): per-row ↺ resets REMOVED from the Tune grid; ONE name per row with the
+  origin/category stacked under it (the endorsed original row shape), no doubled
+  label+flagName; origin tags renamed to the real editor names (QC-1: Hardware-class
+  default / Global launch default (+bundle)); the header badge's class-default state
+  reworded/dropped so it can't claim the whole config is one layer (QC-3). NOT changed
+  (still the user's §7.6 decisions): all knobs visible, checked-set = the snapshot save-set,
+  Apply/Remove semantics, drift notice + Refresh, standing captions. Scope reading flagged:
+  "bring back what we discussed" read as fix-the-named-deviations, NOT as reverting the
+  all-switches grid itself (§7.6 is the user's own lock); QC-2 (the class-library popup
+  redundancy) is a different surface with no discussed prior — its fix shape still awaits
+  the user's word. SEQUENCING (the user's word): DL-1 finishes first → this QC cluster →
+  DL-2 plan → Batches 4/5/6.

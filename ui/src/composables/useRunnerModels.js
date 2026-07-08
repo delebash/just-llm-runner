@@ -12,6 +12,7 @@
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
+import { createRateTracker, fmtBytes, rateSuffix } from "../common/services/downloadRate.js";
 import { FIT_LABEL } from "../common/services/modelPick.js";
 
 const data = ref(null); // the raw /v1/llm-runner/models response
@@ -31,19 +32,21 @@ const anyError = computed(() => models.value.some((m) => m.status === "error"));
 // surface that as a CTA pointing at the Local engine panel, not a raw error code.
 export const needsEngine = computed(() => loadErr.value === "engine-not-installed");
 
-export function fmtBytes(n) {
-  if (!n) return "";
-  const mb = n / (1024 * 1024);
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
-}
+// fmtBytes now lives in downloadRate.js (it had an identical twin in useEngine);
+// re-exported so existing consumers (LuModelCatalog) keep their import surface.
+export { fmtBytes };
+
+// DL-1: speed + ETA from the byte deltas the poll already sees.
+const rate = createRateTracker();
+const rateText = ref("");
 
 // Phase + bytes caption shown above the download progress bar.
 export const progressLabel = computed(() => {
   const phase = detail.value || "loading…";
   const cur = fmtBytes(downloaded.value);
   const tot = fmtBytes(total.value);
-  if (cur && tot) return `${phase} · ${cur} / ${tot}`;
-  if (cur) return `${phase} · ${cur}`;
+  if (cur && tot) return `${phase} · ${cur} / ${tot}${rateText.value}`;
+  if (cur) return `${phase} · ${cur}${rateText.value}`;
   return phase;
 });
 
@@ -81,6 +84,7 @@ export async function refresh() {
         downloaded.value = Number(active.downloaded) || 0;
         total.value = Number(active.total) || 0;
         loadErr.value = st.error || dl.error || "";
+        rateText.value = rateSuffix(rate.update(downloaded.value), downloaded.value, total.value);
       } catch {
         detail.value = "";
       }
@@ -91,6 +95,8 @@ export async function refresh() {
       downloaded.value = 0;
       total.value = 0;
       loadErr.value = "";
+      rate.reset();
+      rateText.value = "";
       _stopPoll();
     }
   } catch (e) {

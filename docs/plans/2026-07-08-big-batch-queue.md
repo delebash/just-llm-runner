@@ -1150,7 +1150,41 @@ downloading**.
   per-segment retry → cancel across workers → sha256 moves to an after-assembly pass →
   progress aggregation into the same on_progress seam; VERIFY the HF-CDN per-connection
   behavior via web + a timed 1-vs-4-stream test (upstream facts never from memory); DL-1's
-  speed display supplies the box measurement.
+  speed display supplies the box measurement. USER REQUIREMENT added at pickup (verbatim:
+  *"did you add anysettings usually we have settings for this like number of threads ect"*):
+  the plan MUST carry DB-backed, user-editable settings per the nothing-hardcoded rule —
+  enable on/off · connection/segment count · minimum file size worth segmenting ·
+  per-segment retry count.
+
+**DL-1 BUILD RECORD (2026-07-08, built at pickup under the recorded go).** New kit service
+`ui/src/common/services/downloadRate.js` — a PURE sliding-window rate tracker
+(`createRateTracker`: samples {t, bytes} over a 6 s window; speed = window delta ÷ window
+time, which IS the smoothing; a byte REGRESSION resets the window because the engine install
+downloads several files back to back and a new file must not read as negative speed;
+injectable clock for tests) + the formatters `fmtSpeed` (KB/s / MB/s / GB/s with a 1 KB/s
+floor), `fmtEta` ("a few seconds left" / "~45s left" / "~2m left" / "~1.5h left"), and
+`rateSuffix` (the ONE " · 8.7 MB/s · ~85s left" suffix both labels append; ETA omitted when
+the total is unknown). `fmtBytes` MOVED into this module — `useEngine.js` and
+`useRunnerModels.js` carried two IDENTICAL copies (T3 kill; useRunnerModels re-exports it so
+LuModelCatalog's import surface is unchanged). Wiring: `useEngine.refreshEngine` feeds the
+tracker while status=installing and clears it at any terminal state; `useRunnerModels.refresh`
+feeds it from whichever channel is active (download status wins over load status, as before)
+and clears when idle. The labels appended `rateText` — NO template changes anywhere: all
+three mounts (provider-row bar `AiModelsArea.vue:350`, engine-panel bar
+`LuRunnerEngine.vue:157`, catalog-row bar `LuModelCatalog.vue:776`) got the feature through
+their existing `progressLabel` binding. No server change (the §8 decision: client-side
+Δbytes/Δt over the existing ~0.8 s / ~1.5 s polls). Tests: 8 new vitest cases
+(`downloadRate.test.js` in JW, the embedApi alias-import precedent) — window math, stale-
+sample drop, regression reset, reset(), all three formatters, suffix composition. GATES:
+runner ruff clean + 416 pytest · JW vitest 38/38 · build:vite clean · FULL headless smoke
+zero JS errors · a dedicated DL-1 probe (4/4, zero page errors) that intercepted the status
+polls with synthetic growing byte feeds and observed all three bars live — engine row
+"42 MB / 800 MB · 8.7 MB/s · ~85s left", engine panel "84 MB / 800 MB · 10.0 MB/s · ~70s
+left", catalog row "downloading gemma-4.gguf · 54 MB / 8.0 GB · 12 MB/s · ~11m left" —
+screenshots eyeballed + sent. docs/models.md notes the speed+time-remaining on every
+download bar. Box note: kit-only UI change, visible on the next desktop build; your 1 Gbit
+line's fast-vs-slow downloads are now MEASURABLE on screen — exactly the evidence DL-2's
+segmented-download plan needs.
 - **THE STANDING GO — Batches 4, 5, 6** ("you have a go on Batches 4, 5, 6"): execute at
   pickup, batch by batch, full gates + checker + records per batch as established. Scope:
   **B4** B4-1 (#28 Add-a-feature inline) · B4-2 (#29 two-column Lab layout) · B4-3 (#35 one
@@ -1295,7 +1329,10 @@ build on the user's word — fold-in vs own-go asked once at the next report.
   DL-2/B4.
 - **QC-7 — STANDING DESIGN DIRECTIVE, not a one-off (user verbatim):** *"you do this type of
   thing everywhere you cram stuff together, you are supposed to be smart and a good gui
-  desinger."* The pattern behind QC-2/3/6: cramming — dense explainer blocks, doubled facts,
+  desinger."* Reinforced during the same QC pass: *"i pay you to think i have you on max
+  settings to think not just copy but think so think think think about desing flow how it
+  looks, this is normal professional developer."* Design/flow/appearance thinking is part of
+  EVERY build, before code — the global rule 2 standard, applied to GUI work explicitly. The pattern behind QC-2/3/6: cramming — dense explainer blocks, doubled facts,
   stacked affordances on one screen. Standing rule for every surface from here on (recorded
   in the recap's STANDING RULES too): hierarchy + breathing room first; ONE short lede
   sentence max on a working surface, detail behind the help affordance; one fact shown once;

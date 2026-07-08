@@ -13,24 +13,24 @@ import { computed, ref } from "vue";
 
 import { request } from "../client.js";
 import { confirmDialog } from "../common/services/dialog.js";
+import { createRateTracker, fmtBytes, rateSuffix } from "../common/services/downloadRate.js";
 
 const st = ref(null); // engine_status() payload
 const busy = ref(false); // an install/uninstall POST in flight
 const error = ref("");
 let pollTimer = null;
 
+// DL-1: speed + ETA from the byte deltas the 800 ms poll already sees.
+const rate = createRateTracker();
+const rateText = ref("");
+
 const installed = computed(() => !!st.value?.installed);
 const installing = computed(() => st.value?.status === "installing");
 const progressLabel = computed(() => {
   const s = st.value || {};
-  return s.total ? `${fmtBytes(s.downloaded)} / ${fmtBytes(s.total)}` : "Downloading…";
+  if (!s.total) return `Downloading…${rateText.value}`;
+  return `${fmtBytes(s.downloaded)} / ${fmtBytes(s.total)}${rateText.value}`;
 });
-
-function fmtBytes(n) {
-  if (!n) return "";
-  const mb = n / (1024 * 1024);
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
-}
 
 function _syncPoll() {
   if (st.value?.status === "installing") {
@@ -52,6 +52,13 @@ async function refreshEngine() {
   try {
     st.value = await request("/v1/llm-runner/engine/status");
     error.value = st.value?.status === "error" ? st.value?.error || "" : "";
+    if (st.value?.status === "installing") {
+      const dl = Number(st.value.downloaded) || 0;
+      rateText.value = rateSuffix(rate.update(dl), dl, Number(st.value.total) || 0);
+    } else {
+      rate.reset();
+      rateText.value = "";
+    }
   } catch (e) {
     error.value = e.message || "Couldn't read engine status.";
   } finally {

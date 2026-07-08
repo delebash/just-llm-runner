@@ -29,7 +29,13 @@
 - **A3 — Spawn-time backend retry chain (ROCm → Vulkan → CPU) — ✅ SHIPPED 2026-07-06 (the A–E batch; full design incl. the per-variant binary layout + install-content consequence in `2026-07-06-a-to-e-execution.md` §A3).** A `RunnerStartError` at router spawn now chains across builds ALREADY on disk (never downloads at load — decision A preserved): per-variant dirs (`<build>/<gpu>/`, legacy root still honored for the selected asset), the engine install plants the safety net (selected + cpu, + vulkan on a rocm pick, best-effort), the proven exe is remembered so bounces never re-try a broken build, and an all-fail aggregates every backend's exit-code+tail reason. 9 new tests, suite 340. On-device rescue = a G3 companion check.
 - **A4 — Linux CUDA engine install (the docker route) — ✅ RESOLVED-RESCOPED 2026-07-06 (the A–E batch; full upstream evidence + design in `2026-07-06-a-to-e-execution.md` §A4; the re-scope is surfaced to the user, not silently decided).** The wiring-as-recorded turned out to be IMPOSSIBLE pin-faithfully: upstream discontinued per-build container tags (b47xx-era only; every b96xx probe 404s on ghcr; only rolling `server-cuda*` tags remain, which track master) — and our config's `server-cuda12-b9644` image tag never existed. Shipped instead: Linux+NVIDIA boxes stop dead-ending — `detect()` records the vulkan fact there, `select_binary` never auto-picks docker rows, so those boxes get the REAL pinned `linux/vulkan` b9644 archive (+ cpu chain via A3's install extras); the docker row stays as the future seam with the digest-capture procedure for the next pin bump recorded. The full container spawn builds THEN, pin-faithfully — not now against a rolling tag.
 
-- **A5 — engine update surface (pinned-build bump UX) — NOT BUILT (user-filed 2026-07-06: "add to
+- **A5 — engine update surface (pinned-build bump UX) — ✅ SHIPPED 2026-07-06/07 (this line was
+  stale, corrected 2026-07-07): the update CHECK + "Update available bNNNN" button + the
+  `updatePolicy off|notify` (default notify, no Auto — the verified-pin discipline) landed in the
+  providers-surface ROUND 3 (`2026-07-06-providers-surface-redesign.md` §ROUND 3), and the
+  update-REPLACES-old-folder + Reinstall semantics landed in its ROUND 10; the pin is b9899 since
+  ROUND 17 and the user's box took the update live.** The original filing record follows for
+  history — NOT BUILT (user-filed 2026-07-06: "add to
   todo, nice engine update feature", from a TurboLLM screenshot of its Engines page).** What exists
   today: the pin is a `runner_setting` row (`pinned_build`, seeded from `runner/config.py`
   `DEFAULT_PINNED_BUILD` = b9870) and the engine-config endpoint + `LuRunnerBinaries` editor let a

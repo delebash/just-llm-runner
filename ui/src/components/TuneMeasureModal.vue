@@ -16,11 +16,13 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { request } from "../client.js";
 import { classKeyLabel, listClassTunes, putClassTune } from "../classTunes.js";
 import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
+import { recordMeasurement } from "../measurements.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { sendToTasksLab } from "../common/services/labHandoff.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
 import LuClassTunes from "./LuClassTunes.vue";
+import LuMeasureHistory from "./LuMeasureHistory.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiTag from "../common/components/UiTag.vue";
 
@@ -226,6 +228,19 @@ async function pollUntilSettled(maxMs = 180000) {
     await new Promise((r) => setTimeout(r, 1200));
   }
 }
+// The measurement HISTORY (#142 rows 5+6): every real result persists — this
+// modal records its own "Load & measure" numbers (it is the one actor that
+// knows which switches it loaded; the auto-tune sweep records its trials
+// server-side). Fire-and-forget: a history-write failure never fails a measure.
+const measureHistRef = ref(null); // the drawer — refresh when a new row lands
+function recordTuneResult(res, switches) {
+  recordMeasurement(props.model.id, res.tokensPerSec, {
+    vramTotalMb: res.vramTotalMb || 0, switches, source: "tune",
+  })
+    .then(() => measureHistRef.value?.reload?.())
+    .catch(() => {});
+}
+
 async function runMeasure() {
   tuneErr.value = "";
   tuneResult.value = null;
@@ -236,9 +251,10 @@ async function runMeasure() {
   try {
     // Respawn cleanly with the requested flags (one model runs at a time).
     await request("/v1/llm-runner/stop", { method: "POST" }).catch(() => {});
+    const switches = rowsToSwitches(tuneRows.value);
     await request("/v1/llm-runner/load", {
       method: "POST",
-      body: { modelId: props.model.id, switches: rowsToSwitches(tuneRows.value) },
+      body: { modelId: props.model.id, switches },
     });
     await pollUntilSettled();
     tunePhase.value = "measuring";
@@ -246,6 +262,7 @@ async function runMeasure() {
     if (!res.ok) throw new Error(res.error || "Measurement failed.");
     tuneResult.value = res;
     tunePhase.value = "done";
+    recordTuneResult(res, switches);
   } catch (e) {
     tuneErr.value = e.message || "Measurement failed.";
     tunePhase.value = "error";
@@ -276,6 +293,7 @@ async function pollAutoTune() {
     autoState.value = st;
     if (st.status === "running") return;
     stopAutoPoll();
+    measureHistRef.value?.reload?.(); // the sweep recorded its trials server-side
     if (st.status === "done" && st.best) {
       tuneRows.value = switchesToRows(st.best.switches);
       tuneResult.value = {
@@ -367,6 +385,7 @@ onBeforeUnmount(stopAutoPoll);
         <UiButton intent="secondary" size="small" class="lu-tune-send" @click="sendToLab">Send to Tasks Lab →</UiButton>
       </div>
       <LuClassTunes ref="classTunesRef" :model-id="model.id" :catalog="switchCatalog" />
+      <LuMeasureHistory ref="measureHistRef" :model-id="model.id" />
       <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
 
       <div v-if="tunePhase === 'loading'" class="lu-tune-status">Loading… {{ tuneDetail }}</div>

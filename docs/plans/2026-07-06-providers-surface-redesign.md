@@ -1,6 +1,6 @@
 # Providers-surface redesign — five user decisions (2026-07-06 night)
 
-> **STATUS: LIVE TRACKER — ROUNDS 1–18 SHIPPED AND VERIFIED (2026-07-06 → 2026-07-07). Each
+> **STATUS: LIVE TRACKER — ROUNDS 1–19 SHIPPED AND VERIFIED (2026-07-06 → 2026-07-07). Each
 > `## ROUND N` section below is the full record of its go; a later round supersedes an
 > earlier round's "queued/deferred" claims (the chronology IS the tracker).** Born from the
 > post-plan-closure design round on the Providers & models screen. The 2026-07-07 rounds
@@ -8,12 +8,14 @@
 > **ROUND 18 (the user's "do 114") PAID it in full** — live curls, the reworked wizard probe
 > (22/22), the full headless smoke, record pytest 402/402 + 76/76, and the rules-checker
 > verdict (11 PASS · T10 NA · T7 FAIL = exactly the debt that round paid; the "smoke on
-> every UI change" amendment re-affirmed as binding over any waiver). **NOTHING IS OPEN on
-> this surface**: the queue is empty; what remains is (a) the user's GPU-dependent box
-> checks (the per-round lists), (b) the #142 persist DISPOSITIONS awaiting the user's ruling
-> (repo-listing cache · a model_measurements history · update-check persistence — ROUND 17
-> §5), and (c) the parked ledger items (Lab A/Bs · D6 · models-folder import). The two
-> notification follow-ups stay CLOSED as NOT DOING (ROUND 15, user decision).
+> every UI change" amendment re-affirmed as binding over any waiver). **ROUND 19 then closed
+> the #142 dispositions**: the model_measurements history + Clear button SHIPPED (verified —
+> pytest 409/409, live curls, full smoke, the rehabbed tune-save probe 17/17); the
+> repo-listing cache and the update-check persistence are NOT DOING (user decision).
+> **NOTHING IS OPEN on this surface**: the queue is empty; what remains is (a) the user's
+> GPU-dependent box checks (the per-round lists) and (b) the parked ledger items (Lab A/Bs ·
+> D6 · models-folder import). The two notification follow-ups stay CLOSED as NOT DOING
+> (ROUND 15, user decision).
 
 ## The decisions, verbatim (the user's words are the spec)
 
@@ -1546,18 +1548,20 @@ empty-state hints rewrote to match ("pick one to get started").
 |---|---|---|---|
 | 1 | Read-from-link identity facts | ~~inspect-only ref~~ | **PERSISTED this round (#141)** |
 | 2 | model descriptions/notes | ~~compose-once~~ | **PERSISTED per the decree (#143)** |
-| 3 | repo quant/draft LISTINGS (the dropdowns) | fetched per Edit-open, discarded | should-persist (a `model_repo_files` cache keyed by repo, refreshed on Read-from-link) — MEDIUM value: saves a network call per open, enables offline dropdowns |
-| 4 | engine update-check result | useEngine ref | re-derivable-cheap (one API call, policy-gated) — my call: leave ephemeral, or persist last-seen `latest` for offline display |
-| 5 | Tune "Load & measure" results | modal ref, gone on close | **should-persist**: a `model_measurements` history (model · machine · switches-hash · tok/s · at) — pairs naturally with the class-tune library ("what did this config measure?") |
-| 6 | auto-tune TRIAL history | job state, reset on next start | **should-persist** into the same measurement history (every trial is a real measurement) |
-| 7 | QuickSetup optimize outcome | optState ref | covered by 5/6 once they persist |
+| 3 | repo quant/draft LISTINGS (the dropdowns) | fetched per Edit-open, discarded | ~~should-persist~~ → **NOT DOING (user, 2026-07-07 — ROUND 19)**: stays fetch-fresh, no cache table |
+| 4 | engine update-check result | useEngine ref | ~~leave ephemeral, or persist~~ → **NOT DOING (user, 2026-07-07 — ROUND 19)**: stays ephemeral |
+| 5 | Tune "Load & measure" results | modal ref, gone on close | **SHIPPED (ROUND 19)**: the `model_measurements` history (full switches as child rows, not a hash — deviation recorded there) |
+| 6 | auto-tune TRIAL history | job state, reset on next start | **SHIPPED (ROUND 19)** into the same measurement history (every OK trial records as it lands) |
+| 7 | QuickSetup optimize outcome | optState ref | **covered by ROUND 19** (its sweeps run through the same tuner → the same history) |
 | 8 | the Copy-debug snapshot | clipboard only | legitimately ephemeral (it IS an export) |
 | 9 | drawer open/closed, spinners, toasts | component state | legitimately ephemeral (pure UI state) |
 | 10 | resident/VRAM ledger | server memory (rebuilt per boot) | re-derivable by design (live truth) — leave |
 
-Rows 3, 5+6 (one `model_measurements` table), and the row-4 choice await the user's
-dispositions; everything else is either done or ruled ephemeral above — say the word and
-the persisting go builds them.
+~~Rows 3, 5+6 (one `model_measurements` table), and the row-4 choice await the user's
+dispositions~~ — **ALL CLOSED 2026-07-07 (ROUND 19):** rows 5+6 built on the user's "do
+task model_measurements add a clear button"; rows 3 and 4 NOT DOING on the user's "mark
+model persist and egnine update check as not doing". The #142 decree's audit has no open
+rows.
 
 ### Box checks (this round)
 
@@ -1669,3 +1673,130 @@ only because exactly ONE local-llamacpp provider exists (the seed guarantees it 
 multi-instance ever lands, the hardware-toast handoff needs a keyed ref); (3) the b9899
 non-cuda assets remain pattern-verified until a real install on a non-NVIDIA box (the
 Binaries panel is the escape hatch). Verdict + fixes recorded; #114 CLOSED.
+
+## ROUND 19 — SHIPPED 2026-07-07 (the #142 dispositions closed: the model_measurements history + Clear button BUILT · repo-listing cache + update-check persistence NOT DOING)
+
+The user closed the last three open dispositions from the ROUND 17 §5 persist audit, in
+two messages. First, verbatim: *"what is epo-listing cache and update-check persistence,
+do task model_measurements add a clear button to clear history for these types of things"*
+— which is the go for rows 5+6 (the ONE `model_measurements` history table) plus a
+user-facing Clear affordance. Then, before the answer to the question landed, verbatim:
+*"mark model persist and egnine update check as not doing"* — read as rows 3 and 4, the
+two things the first message asked about ("model persist" = the row-3 `model_repo_files`
+listings cache; "engine update check" = the row-4 update-check persistence choice), since
+row 5+6 had just been ordered built. Mid-round the user also said *"forget answer just
+build code"* — the plan-doc inventory answer they had asked for earlier was dropped on
+their word; this record is the durable version of what mattered from it. **With this
+round, every #142 disposition is CLOSED** — the decree's audit table has no open rows.
+
+**TWO DECISIONS CLOSED, NOT DOING (never re-open without the user):** (row 3) the
+`model_repo_files` cache — the Hugging Face quant/draft listings the Add/Edit dialogs
+fetch per open stay fetch-fresh and in-memory; no persistence table will be built.
+(row 4) the engine update-check result stays ephemeral in the `useEngine` ref — the
+last-seen `latest` build is not persisted for offline display. Both were classified
+re-derivable/medium-value in the ROUND 17 audit; the user ruled them out.
+
+**SHIPPED — the measurement history (rows 5+6, ONE table, both producers):**
+
+1. **Schema (`llm_runner/llm/db.py`):** `ModelMeasurement` (autoincrement id ·
+   model_id · machine_key — the ModelTune hw_key identity · source `tune|autotune` ·
+   label · tokens_per_sec Float · vram_total_mb · `at` epoch-ms Integer, the LlmUsage
+   idiom) + the `MeasurementSwitch` child table (measurement_id · flag_name ·
+   flag_value — the switches that produced the number as RELATIONAL rows per the
+   no-JSON-blobs decree; soft refs like the tune family, children deleted explicitly
+   by the store). Never seeded. **Additive tables → `create_all` creates them on the
+   next boot; NO dev-DB reset needed** (live-proven: the dev server booted on the
+   existing DB and served the new endpoint immediately). A deliberate deviation from
+   the ROUND 17 sketch is recorded: the audit row said "switches-HASH"; the build
+   stores the FULL switches (child rows) because a hash can't answer the pairing
+   question the history exists for ("what did this config measure?") and the decree
+   says save the data, not a fingerprint of it.
+2. **Store (`stores.py` `ModelMeasurementStore`):** `record` (parent + de-duplicated
+   child rows in one transaction, returns the id), `list` (newest-first by `at` then
+   id, optional model filter, children joined in one query), `clear` (per-model or
+   everything; children deleted with parents). Singleton + getter beside the tune
+   stores.
+3. **API (`model_measurements_api.py`, mounted in `install.py`):**
+   `GET /v1/ai/model-measurements[?modelId]` → `{machineKey, measurements[]}` newest
+   first; `POST` records one — the SERVER stamps `machineKey` (the injected
+   `_current_hw_key`, the model-tunes seam) and `at` (server clock) so the client
+   never supplies identity or time; `DELETE[?modelId]` is the Clear button (per-model
+   with the param, the whole ledger without). The class-tunes Protocol-store +
+   router-factory pattern, verbatim.
+4. **The auto-tune seam (`runner/autotune.py` + `install.py`):**
+   `make_autotune_router` gains keyword-only `record_measurement`; `AutoTuner.start`
+   gains `record_fn`; `_try` records every **OK** trial as it lands (label + the
+   trial's own switches + tok/s + VRAM) — failed/skipped/cancelled trials measured
+   nothing and record nothing. Best-effort by construction: a raising recorder logs a
+   warning and the sweep continues unharmed (pinned by test). `install.py` supplies
+   `_record_measurement` (source `autotune`, server-stamped key/clock) — the same DI
+   seam as `save_tune`, so the runner still never imports llm stores. QuickSetup's
+   optimize outcome (audit row 7) is covered by this for free — its sweeps run
+   through the same tuner.
+5. **The Tune modal records its own measures (`TuneMeasureModal.vue` + the new shared
+   client `ui/src/measurements.js`):** after a successful "Load & measure",
+   `recordTuneResult` POSTs the result with the exact switches it loaded (the modal
+   is the ONE actor that knows them — the client-writes precedent is Save tune);
+   fire-and-forget, a history-write failure never fails a measure. The client module
+   (`listMeasurements`/`recordMeasurement`/`clearMeasurements`) follows
+   `classTunes.js` — one source for the endpoint paths.
+6. **The history drawer (`LuMeasureHistory.vue`, mounted in the Tune modal under the
+   class-tunes drawer):** a collapsed `<details>` (the LuClassTunes/LuRunnerBinaries
+   idiom) — per-model table When · Run (an `auto-tune` tag + the trial label, or
+   "measured") · Settings (mono `flag=value` summary; an empty set renders "engine
+   automatic settings") · tok/s · VRAM, newest first, lazy-loaded on first open.
+   **Clear history** (the user's ask) confirms via the kit dialog then DELETEs this
+   model's rows; the copy states honestly that saved tunes and class configs are
+   untouched. The modal refreshes an open drawer after its own record and when an
+   auto-tune leaves `running` (the sweep recorded server-side). INTERPRETATION
+   flagged: the user asked for "a clear button to clear history" — a clear button
+   needs a visible history, so the drawer ships with it (per-model, in the Tune
+   dialog where the measurements happen); a cross-model history view was deliberately
+   NOT built (the LuClassTunes global-mode precedent makes it one step away if asked).
+7. **Docs:** `justwrite-app/docs/models.md` Tune bullet gains the measurement-history
+   + Clear sentences (saved-for-good, what a clear does and doesn't touch).
+
+**The probe rehab (found-and-fixed, pre-existing):** `scripts/tune-save-probe.mjs`
+still drove the Plan-B era `qwen3-8b-q4_k_m` — a model the Gemma-first lineup REMOVED
+from the catalog, so the probe could no longer run at all (its stub/row lookup would
+fail; ROUND 18's #114 round ran the wizard probe + smoke but not this one, so the
+staleness surfaced only now). REHOMED to `gemma-4-12b-qat` (stub GGUF path
+`ai-cache/hf/models--unsloth--gemma-4-12B-it-qat-GGUF/snapshots/fake/…UD-Q4_K_XL.gguf`
+— any `*.gguf` whose name contains the quant, per `models.cached_gguf_path`) and
+EXTENDED with scenario (e): a pre-seeded measurement renders in the drawer (tok/s +
+settings), Clear history walks the real confirm dialog, the drawer shows the empty
+state, and the API confirms zero rows — the changed surface is OBSERVED, per the
+ROUND-3 "a green smoke is not proof" amendment.
+
+**VERIFICATION (all run, all green):** runner ruff clean + **pytest 409/409** (402 + 7
+new in `tests/test_measurements.py`: server-stamped POST/GET round-trip · newest-first
++ model filter · per-model clear then clear-all incl. child-row death · 400 on blank
+modelId · store de-dup/blank-name skip · auto-tune records every OK trial with its
+switches · failed-trial-skipped + broken-recorder-survives). JW `build:vite` clean.
+**Live curls on :17495:** GET (empty + machineKey `cpu|4c|15g`) → POST (row 1 with
+server-stamped key + epoch-ms `at` + child switches) → filtered GET → per-model
+DELETE (the other model's autotune row survives) → DELETE-all (0 rows) — the whole
+lifecycle on the wire, on the EXISTING dev DB (no reset — the tables are additive).
+**The full headless smoke: PASSED**, every route + provider-form + sampler-order,
+zero JS errors. **The rehabbed tune-save probe: PASS 17/17, zero page errors** — incl.
+all four original Plan-B scenarios (proving the rehab preserved them) and the new
+history scenario. The diff rules-checker verdict is recorded below the round records
+as always.
+
+**Box checks (this round):** (a) open a downloaded model's Tune dialog → the
+"Measurement history" drawer sits under Hardware-class defaults; (b) run "Load &
+measure" → the result appears in the drawer (and survives closing the dialog + an app
+restart); (c) run an Auto-tune / a QuickSetup Quick optimize → every successful trial
+appears with its `n-cpu-moe …` label and switches; (d) "Clear history" asks, then
+empties ONLY this model's history — the saved tune and the class configs stay.
+
+**ROUND 19 diff rules-checker verdict (independent agent, pre-commit): PASS — 10 PASS ·
+T6/T10 NA · zero failures.** Highlights from its file-verified scoring: T1 both feeders
+converge on ONE store path with each seam where the data lives; T3 sibling-PATTERN reuse
+confirmed, not logic copies (the drawer "does NOT fork the LuClassTunes editor"); T5 the
+whole ask delivered and "actually wired — not lifted-but-unwired"; T7 the artifacts match
+the claims (7 tests counted, the probe reuses findChrome). Two ADVISORIES recorded (not
+failures): (1) the switch-serialization idiom + scoped drawer CSS repeat across the
+tune-family files — "a shared helper would be the convergence target if this family grows
+further"; (2) deferring the recap GO paragraph to the JW commit is acceptable because this
+round record already carries the full detail.

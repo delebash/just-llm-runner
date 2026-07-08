@@ -20,6 +20,7 @@ from .class_tunes_api import ClassTuneConfig, ClassTuneFlag
 from .feature_presets_api import FeaturePreset
 from .feature_samplers_api import FeatureSamplerRow
 from .model_catalog_api import CatalogRow
+from .model_measurements_api import MeasurementFlag, MeasurementRow
 from .model_tunes_api import ModelTuneFlag
 from .pricing_api import PricingRow
 from .runner_config_api import EngineConfig, RunnerBinaryRow
@@ -1046,6 +1047,92 @@ class ClassTuneStore:
 _class_tune = ClassTuneStore()
 
 
+class ModelMeasurementStore:
+    """The persistent measurement history (#142 rows 5+6) — every real
+    decode-speed result from the Tune modal + the auto-tune sweep. Append-only
+    (`record`), newest-first reads (`list`), user-cleared (`clear` — the
+    Clear-history button; per-model or everything). Never seeded. The switches
+    that produced a number are child rows deleted explicitly with their parent
+    (soft refs, the tune-family convention)."""
+
+    def record(self, model_id: str, *, machine_key: str, source: str, label: str,
+               tokens_per_sec: float, vram_total_mb: int, at: int,
+               rows: list[MeasurementFlag]) -> int:
+        s = db.session()
+        try:
+            m = db.ModelMeasurement(
+                model_id=model_id, machine_key=machine_key or "",
+                source=source or "tune", label=label or "",
+                tokens_per_sec=float(tokens_per_sec or 0),
+                vram_total_mb=int(vram_total_mb or 0), at=int(at or 0),
+            )
+            s.add(m)
+            s.flush()  # assigns the autoincrement id the children key on
+            seen: set[str] = set()
+            for r in rows or []:
+                name = (r.flagName or "").strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                s.add(db.MeasurementSwitch(measurement_id=m.id, flag_name=name,
+                                           flag_value=r.flagValue or ""))
+            s.commit()
+            return int(m.id)
+        finally:
+            s.close()
+
+    def list(self, model_id: str | None = None) -> list[MeasurementRow]:
+        s = db.session()
+        try:
+            q = s.query(db.ModelMeasurement)
+            if model_id:
+                q = q.filter(db.ModelMeasurement.model_id == model_id)
+            ms = q.order_by(db.ModelMeasurement.at.desc(),
+                            db.ModelMeasurement.id.desc()).all()
+            ids = [m.id for m in ms]
+            flags: dict[int, list[MeasurementFlag]] = {}
+            if ids:
+                for f in s.query(db.MeasurementSwitch).filter(
+                    db.MeasurementSwitch.measurement_id.in_(ids)
+                ).order_by(db.MeasurementSwitch.flag_name).all():
+                    flags.setdefault(f.measurement_id, []).append(
+                        MeasurementFlag(flagName=f.flag_name, flagValue=f.flag_value))
+            return [
+                MeasurementRow(
+                    id=m.id, modelId=m.model_id, machineKey=m.machine_key,
+                    source=m.source, label=m.label, tokensPerSec=m.tokens_per_sec,
+                    vramTotalMb=m.vram_total_mb, at=m.at,
+                    switches=flags.get(m.id, []),
+                )
+                for m in ms
+            ]
+        finally:
+            s.close()
+
+    def clear(self, model_id: str | None = None) -> int:
+        s = db.session()
+        try:
+            q = s.query(db.ModelMeasurement)
+            if model_id:
+                q = q.filter(db.ModelMeasurement.model_id == model_id)
+            ids = [m.id for m in q.all()]
+            n = 0
+            if ids:
+                s.query(db.MeasurementSwitch).filter(
+                    db.MeasurementSwitch.measurement_id.in_(ids)
+                ).delete(synchronize_session=False)
+                n = s.query(db.ModelMeasurement).filter(
+                    db.ModelMeasurement.id.in_(ids)
+                ).delete(synchronize_session=False)
+            s.commit()
+            return int(n)
+        finally:
+            s.close()
+
+
+_model_measurement = ModelMeasurementStore()
+
+
 def get_provider_store() -> ProviderStore: return _provider
 def get_routing_store() -> RoutingStore: return _routing
 def get_feature_preset_store() -> FeaturePresetStore: return _feature_preset
@@ -1072,6 +1159,7 @@ def get_task_kind_store() -> TaskKindStore: return _task_kind
 def get_feature_task_kind_store() -> FeatureTaskKindStore: return _feature_task_kind
 def get_model_tune_store() -> ModelTuneStore: return _model_tune
 def get_class_tune_store() -> ClassTuneStore: return _class_tune
+def get_model_measurement_store() -> ModelMeasurementStore: return _model_measurement
 
 
 def list_knob_catalog() -> list[dict]:

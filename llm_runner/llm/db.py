@@ -312,6 +312,41 @@ class ClassTune(LlmBase):
     built_in = Column(Boolean, nullable=False, default=False)
 
 
+class ModelMeasurement(LlmBase):
+    """One MEASURED decode-speed result — the persistent measurement HISTORY
+    (#142 rows 5+6, 2026-07-07: 'save all data, nothing temporary'). ONE table
+    for both producers: the Tune modal's "Load & measure" (source='tune') and
+    every successful auto-tune trial (source='autotune'). Append-only from the
+    app's side; the user clears it via DELETE /v1/ai/model-measurements (the
+    Clear-history button). Never seeded; `machine_key` records WHICH box
+    measured (the ModelTune hw_key identity), `at` is epoch ms (the LlmUsage
+    idiom). The switches that produced the number are relational child rows
+    (MeasurementSwitch) — never a JSON blob."""
+
+    __tablename__ = "model_measurements"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    model_id = Column(String, nullable=False)
+    machine_key = Column(String, nullable=False, default="")
+    source = Column(String, nullable=False, default="tune")  # tune | autotune
+    label = Column(String, nullable=False, default="")       # e.g. "n-cpu-moe 21"
+    tokens_per_sec = Column(Float, nullable=False, default=0.0)
+    vram_total_mb = Column(Integer, nullable=False, default=0)
+    at = Column(Integer, nullable=False, default=0)          # epoch ms
+
+
+class MeasurementSwitch(LlmBase):
+    """One launch switch of a recorded measurement — variable-cardinality child,
+    PK (measurement_id, flag_name). Soft ref like the tune-family tables
+    (ModelTune/ClassTune); the store deletes children explicitly on clear."""
+
+    __tablename__ = "measurement_switches"
+
+    measurement_id = Column(Integer, primary_key=True)
+    flag_name = Column(String, primary_key=True)
+    flag_value = Column(Text, nullable=False, default="")
+
+
 # ── runner config (was runner-manifest.json — now DB, seeded built_in) ────────
 class RunnerBinary(LlmBase):
     """One prebuilt llama-server distribution, selected by (platform, gpu).

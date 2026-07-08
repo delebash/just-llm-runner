@@ -27,6 +27,7 @@ from .presets_api import make_presets_router
 from .knob_catalog_api import make_knob_catalog_router
 from .model_catalog_api import make_catalog_router
 from .class_tunes_api import make_class_tunes_router
+from .model_measurements_api import make_model_measurements_router
 from .model_tunes_api import make_model_tunes_router
 from .pricing_api import make_pricing_router
 from .runner_config_api import make_runner_config_router
@@ -195,6 +196,11 @@ def install_llm(
     # class-key twin of the model-tunes router; `_current_class_key` badges +
     # defaults saves to THIS box's class.
     app.include_router(make_class_tunes_router(stores.get_class_tune_store, _current_class_key))
+    # The persistent measurement history (#142 rows 5+6, 2026-07-07): the Tune
+    # modal POSTs its "Load & measure" results here; the auto-tune sink below
+    # writes every OK trial; DELETE is the Clear-history button.
+    app.include_router(make_model_measurements_router(
+        stores.get_model_measurement_store, _current_hw_key))
     app.include_router(make_feature_samplers_router(stores.get_feature_sampler_store))
 
     # Auto-tune (2026-07-06): the runner drives the measured sweep; the llm layer
@@ -208,11 +214,29 @@ def install_llm(
         rows = [ModelTuneFlag(flagName=k, flagValue=str(v)) for k, v in sorted(switches.items())]
         stores.get_model_tune_store().replace(model_id, _current_hw_key(), rows)
 
+    # The measurement-history sink for the sweep (#142 rows 5+6): every OK trial
+    # is a real measurement — persisted with the trial's own switches + label.
+    # Server-stamped identity/clock, matching the POST endpoint's semantics.
+    def _record_measurement(model_id: str, trial: dict) -> None:
+        import time as _time
+
+        from .model_measurements_api import MeasurementFlag
+
+        rows = [MeasurementFlag(flagName=k, flagValue=str(v))
+                for k, v in sorted((trial.get("switches") or {}).items())]
+        stores.get_model_measurement_store().record(
+            model_id, machine_key=_current_hw_key(), source="autotune",
+            label=str(trial.get("label") or ""),
+            tokens_per_sec=float(trial.get("tokensPerSec") or 0),
+            vram_total_mb=int(trial.get("vramTotalMb") or 0),
+            at=int(_time.time() * 1000), rows=rows)
+
     from ..runner.autotune import make_autotune_router
 
     app.include_router(make_autotune_router(
         lambda mid: switch_resolve.resolve_model_switches(mid, _current_hw_key(), _current_class_key()),
         _save_tune,
+        record_measurement=_record_measurement,
     ))
     # 6. point the bundled runner's catalog/switches at the shared DB.
     if runner_catalog:

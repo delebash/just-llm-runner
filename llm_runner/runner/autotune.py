@@ -79,6 +79,7 @@ class AutoTuner:
         self._budget_deadline: float | None = None  # optional time box (quick tune)
         self._budget_hit = False                    # sticky: the cap tripped
         self._budget_aborted_load = False           # the cap aborted a load IN FLIGHT
+        self._record_fn = None                      # optional measurement-history sink (llm layer, DI)
         self._state: dict = {"status": "idle", "modelId": "", "detail": "", "error": "",
                              "trials": [], "best": None, "saved": False, "budgetSeconds": 0}
 
@@ -98,11 +99,14 @@ class AutoTuner:
         return self.status()
 
     def start(self, model_id: str, base_switches: dict, *, save_fn=None, save: bool = False,
-              budget_seconds: float = 0) -> dict:
+              budget_seconds: float = 0, record_fn=None) -> dict:
         with self._lock:
             if self._state["status"] == "running":
                 return {**self._state, "ok": False, "error": "an auto-tune is already running"}
             self._cancel = False
+            # Measurement-history sink (#142 rows 5+6): every OK trial is a real
+            # measurement, recorded as it lands. Best-effort — see _try.
+            self._record_fn = record_fn
             # Optional time box (the QuickSetup "~2-min quick tune", 2026-07-07): once
             # exhausted, the sweep stops scheduling trials and finishes with the best
             # result so far — checked at the same seams as the cancel flag. 0 = uncapped.
@@ -233,6 +237,14 @@ class AutoTuner:
         except Exception as exc:  # noqa: BLE001 — a broken trial must not kill the sweep
             trial["error"] = str(exc)
         self._push_trial(trial)
+        # Persist the measurement (#142 rows 5+6): an OK trial is a real number —
+        # record it in the history as it lands. Best-effort: a history-write
+        # failure must never kill (or even mark) the sweep.
+        if trial["ok"] and self._record_fn is not None:
+            try:
+                self._record_fn(model_id, trial)
+            except Exception:  # noqa: BLE001 — history is an enrichment
+                log.warning("auto-tune measurement record failed", exc_info=True)
         # A CANCELLED or BUDGET-STOPPED trial is NOT a fit failure — never let it
         # poison the monotonic n-cpu-moe prune (below-a-failed-value skip); the
         # sweep is stopping anyway.
@@ -395,11 +407,14 @@ def get_tuner() -> AutoTuner:
     return _tuner
 
 
-def make_autotune_router(resolve_switches, save_tune, *, tuner_fn=get_tuner) -> APIRouter:
+def make_autotune_router(resolve_switches, save_tune, *,
+                         record_measurement=None, tuner_fn=get_tuner) -> APIRouter:
     """The auto-tune REST surface. `resolve_switches(model_id) -> dict` and
     `save_tune(model_id, switches: dict) -> None` come from the llm layer
     (install_llm) — the runner drives loads/measures, the host owns the switch
-    resolution + tune persistence (same DI seam as make_catalog_router)."""
+    resolution + tune persistence (same DI seam as make_catalog_router).
+    `record_measurement(model_id, trial: dict) -> None` (optional, same seam) is
+    the measurement-history sink — every OK trial persists (#142 rows 5+6)."""
     r = APIRouter(tags=["llm-runner"])
 
     @r.post("/v1/llm-runner/auto-tune", summary="Start a measured launch-config sweep for a model")
@@ -416,7 +431,8 @@ def make_autotune_router(resolve_switches, save_tune, *, tuner_fn=get_tuner) -> 
             budget_seconds = 0
         base = resolve_switches(model_id) or {}
         return tuner_fn().start(model_id, base, save_fn=save_tune, save=save,
-                                budget_seconds=budget_seconds)
+                                budget_seconds=budget_seconds,
+                                record_fn=record_measurement)
 
     @r.get("/v1/llm-runner/auto-tune", summary="Auto-tune job status + trials + winner")
     async def status() -> dict:

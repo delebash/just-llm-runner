@@ -1701,3 +1701,36 @@ bookkeeping (checker verdict → commit) completes; nothing else builds.
   only the row-level "Move to…" (one verb, one direction); (c) the deeper question — should
   users regroup features at all, or is the seeded grouping + per-task preset enough (the
   surface then becomes read-only provenance)? (Task #211.)
+
+- **QC-17 — the engine-default DATA is partly wrong (found 2026-07-08 answering the user's
+  "what are engine defaults, how did you decide them, when / where are they stored — we
+  never had engine defaults before").** The full answer, as given in chat: STORAGE =
+  `knob_catalog.default_value` (seeded from `DEFAULT_KNOBS`, seed.py:411-462; served by
+  `/v1/ai/knob-catalog`; not editable in the app; never sent to the engine — informational
+  only). The user is RIGHT that they never had engine defaults before: the column is old
+  (it invisibly fed the checklist's enable-seeds-default + the ↺ reset target), but
+  DISPLAYING it labeled "engine default: N" is new — it came with the QC-8 all-switches
+  ledger, and the label was applied WITHOUT auditing whether the stored values are actually
+  the engine's. The audit (llama.cpp `tools/server/README.md` re-fetched 2026-07-08):
+  **seven rows are NOT the engine's defaults** — ctx_len stored 4096 vs actual **0 = read
+  from the model** · flash_attn "on" vs **auto** · cache_type_k/v "q8_0" vs **f16** ·
+  mlock "true" vs **off** · context_shift "true" vs **disabled** · parallel "1" vs **-1 =
+  auto**. Correct rows: batch_size 2048 · ubatch_size 512 · cache_reuse 0 · spec_n_max 3 ·
+  cont_batching on · reasoning_budget -1 · kv-offload on. PROVENANCE of the wrong values
+  (the "how/when decided"): the 2026-06-24 switch research (user-reviewed) documented the
+  real upstream defaults in its own table (f16 / -fa auto / mlock off,
+  2026-06-24-llamacpp-switches.md:254-257) and chose q8_0 / mlock-on / flash-attn-on as
+  OUR base BUNDLE — correct there, still correctly tagged "Global launch default" when
+  set — but the era-1 catalog rows stored those same values in default_value; the
+  2026-06-29 expansion rows were genuinely README-quoted (that day's fetch), and
+  context_shift's "default on" claim has since been flipped upstream (today: disabled).
+  Also recorded for "when did you decide this": the 2026-06-29 "Part 2 — snappy-edit
+  defaults" (context_shift + cache_reuse ON in the base bundle,
+  2026-06-29-knob-catalog-expansion.md:286-299) shipped WITHOUT its own recorded user
+  confirmation — an own-decision, owned; the user reversed it on-box 2026-07-07 (the seed
+  comment records their removal) and the catalog rows lingering is QC-11. FIX
+  (discussion-gated, NO code under the hard stop): `default_value` gets ONE meaning — the
+  engine's own current documented default, every row re-cited from the current README with
+  a per-row citation in the seed; our recommendations live ONLY in the bundles; the
+  ctx_len placeholder says "read from the model". Coordinates with QC-10 (grouping) +
+  QC-11 (row removal). (Task #212.)

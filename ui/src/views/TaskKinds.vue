@@ -262,39 +262,51 @@ onMounted(load);
           </div>
           <div v-if="selected.description" class="lu-tk-desc">{{ selected.description }}</div>
 
-          <!-- Members (features assigned to this task) -->
-          <div class="lu-tk-sec">
-            <div class="lu-tk-sec-h"><b>Features in this task</b><span class="lu-muted">{{ selMembers.length }}</span></div>
-            <div v-if="selMembers.length" class="lu-tk-members">
-              <div v-for="k in selMembers" :key="k" class="lu-tk-member">
-                <span class="lu-tk-member-name">{{ actionLabel(k) }}</span>
-                <UiSelect class="lu-tk-move" :model-value="''" :options="moveOptions(selTask)" width="name"
-                  @update:model-value="(v) => v && assignFeature(k, v)" />
+          <!-- #28 + #29 (B4-1/B4-2, 2026-07-08): TWO columns — the task's features
+               on the left; Preset & test-against on the right; the Lab itself runs
+               full-width below (it is the workbench, not a column's detail). The
+               add-a-feature picker sits ON the Features heading line (#28). -->
+          <div class="lu-tk-cols">
+            <div class="lu-tk-sec">
+              <div class="lu-tk-sec-h"><b>Features in this task</b><span class="lu-muted">{{ selMembers.length }}</span>
+                <span class="lu-tk-sec-spacer" />
+                <UiSelect class="lu-tk-add" :model-value="''" :options="addOptions(selTask)" width="name"
+                  @update:model-value="(v) => v && assignFeature(v, selTask)" />
               </div>
+              <div v-if="selMembers.length" class="lu-tk-members">
+                <div v-for="k in selMembers" :key="k" class="lu-tk-member">
+                  <span class="lu-tk-member-name">{{ actionLabel(k) }}</span>
+                  <!-- token width: in the two-column layout a name-wide select
+                       squeezed the feature names to "Conti…" — the NAME is the
+                       row's point; the move control is the utility. -->
+                  <UiSelect class="lu-tk-move" :model-value="''" :options="moveOptions(selTask)" width="token"
+                    @update:model-value="(v) => v && assignFeature(k, v)" />
+                </div>
+              </div>
+              <div v-else class="lu-tk-empty lu-muted">No features yet — add one above to test this task.</div>
             </div>
-            <div v-else class="lu-tk-empty lu-muted">No features yet — add one below to test this task.</div>
-            <UiSelect class="lu-tk-add" :model-value="''" :options="addOptions(selTask)" width="name"
-              @update:model-value="(v) => v && assignFeature(v, selTask)" />
+
+            <div class="lu-tk-sec">
+              <div class="lu-tk-sec-h"><b>Preset &amp; test</b><span class="lu-muted">the model + samplers this task runs</span></div>
+              <div class="lu-tk-presetrow">
+                <span class="lu-tk-presetrow-k">Preset</span>
+                <UiSelect :model-value="taskPreset(selTask)" :options="presetOptions" width="name"
+                  @update:model-value="(v) => setTaskPreset(selTask, v)" />
+              </div>
+              <div v-if="selMembers.length" class="lu-tk-testrow">
+                <span class="lu-tk-presetrow-k">Test against</span>
+                <UiSelect :model-value="testAgainst" :options="memberOptions" width="name"
+                  @update:model-value="(v) => testAgainst = v" />
+                <span class="lu-muted lu-tk-testhint">run this task's preset on a member feature's prompt</span>
+              </div>
+              <div v-else class="lu-tk-empty lu-muted">Assign a feature to this task to test its preset.</div>
+            </div>
           </div>
 
-          <!-- Preset & test -->
           <div class="lu-tk-sec">
-            <div class="lu-tk-sec-h"><b>Preset &amp; test</b><span class="lu-muted">the model + samplers this task runs</span></div>
-            <div class="lu-tk-presetrow">
-              <span class="lu-tk-presetrow-k">Preset</span>
-              <UiSelect :model-value="taskPreset(selTask)" :options="presetOptions" width="name"
-                @update:model-value="(v) => setTaskPreset(selTask, v)" />
-            </div>
-            <div v-if="selMembers.length" class="lu-tk-testrow">
-              <span class="lu-tk-presetrow-k">Test against</span>
-              <UiSelect :model-value="testAgainst" :options="memberOptions" width="name"
-                @update:model-value="(v) => testAgainst = v" />
-              <span class="lu-muted lu-tk-testhint">run this task's preset on a member feature's prompt</span>
-            </div>
-            <div v-else class="lu-tk-empty lu-muted">Assign a feature to this task to test its preset.</div>
             <FeatureLab v-if="testPrompt" :key="testAgainst"
               :action="testAgainst" :prompt="testPrompt" :providers="providers" :presets="presets"
-              :sampler-catalog-list="samplerCatalogList"
+              :sampler-catalog-list="samplerCatalogList" :task-kind="selTask"
               :production-preset-id="taskPreset(selTask)" :pin="pin(testAgainst)"
               @use-production="onUseForTask" @presets-changed="onPresetsChanged" />
           </div>
@@ -313,11 +325,14 @@ onMounted(load);
 .lu-tk-default-k .lu-muted { font-weight: 600; letter-spacing: 0; text-transform: none; }
 .lu-tk-desc { font-size: 12.5px; color: var(--ink-2); }
 .lu-tk-sec { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); }
-.lu-tk-sec-h { display: flex; align-items: baseline; gap: 10px; } .lu-tk-sec-h b { font-size: 13px; color: var(--ink); } .lu-tk-sec-h .lu-muted { font-size: 11.5px; }
+/* #29: features | preset-&-test side by side; stacks on narrow panes. */
+.lu-tk-cols { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr); gap: 0 22px; align-items: start; }
+@media (max-width: 900px) { .lu-tk-cols { grid-template-columns: 1fr; } }
+.lu-tk-sec-h { display: flex; align-items: center; gap: 10px; } .lu-tk-sec-h b { font-size: 13px; color: var(--ink); } .lu-tk-sec-h .lu-muted { font-size: 11.5px; }
+.lu-tk-sec-spacer { flex: 1; }
 .lu-tk-members { display: flex; flex-direction: column; gap: 6px; }
 .lu-tk-member { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
 .lu-tk-member-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: var(--ink); }
-.lu-tk-add { align-self: flex-start; }
 .lu-tk-empty { font-size: 12px; padding: 8px 0; font-style: italic; }
 .lu-tk-presetrow, .lu-tk-testrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .lu-tk-presetrow-k { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }

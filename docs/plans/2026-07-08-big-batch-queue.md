@@ -725,6 +725,92 @@ every change is kit UI; visible on the next desktop build.
   this model for quality testing" and the launch config follows the model automatically). If the
   user instead keeps launch switches in the Lab (A rejected), this becomes a carry-bug fix.
 
+**B4 BUILD RECORD (2026-07-08, under the §8 standing go; built right after the QC cluster per
+the user's sequencing).** Every touched file read in full/at the touched regions first; the
+probe asserts the USER'S WORDS directly (the acceptance-diff discipline born from the QC
+round). Items:
+
+- **B4-1 (#28) built.** The "+ Add a feature…" picker moved ONTO the "Features in this task"
+  heading line (TaskKinds.vue — heading · count · spacer · picker); the stray picker below
+  the list is gone. Empty-state copy now says "add one above".
+- **B4-2 (#29) built.** The selected task's pane is TWO columns (`.lu-tk-cols`, stacking
+  under 900px): LEFT = the features list; RIGHT = "Preset & test" (Preset picker +
+  Test-against picker). The Lab itself (Tune presets + test input + compare columns) runs
+  FULL-WIDTH below the two columns — it is the workbench, not a column detail (flagged
+  reading of "move the Preset & test line, preset and test against items to the second
+  column": the named movers went right; the Lab body was not named and a half-width Lab
+  would wreck its compare columns). Post-screenshot fix in the same build: the member rows'
+  Move-to selects went `width="token"` — name-wide selects squeezed the feature names to
+  "Conti…" in the narrow column (the name is the row's point; the move control is the
+  utility).
+- **B4-3 (#35) built — with a grounded finding.** #35's "advance section in the switches"
+  targeted the Lab's old ENGINE-switches grid, which §7.1 already deleted — so the Advanced
+  half was resolved by deletion; the surviving half is "one column". KnobGrid gained a
+  `flat` prop (single-column checklist WITHOUT the Common/Advanced tier split — multi-column
+  was already flat) and ConfigColumn's sampler grid went `checklist flat` (was `columns=3`):
+  ONE flat column, every sampler visible, no Advanced section. Probe-verified: 21 rows, one
+  left edge, no `.ui-kg-advtoggle`, no `is-cols`.
+- **B4-4 (#30/#44, the §7.3 lock) built end to end.**
+  - RUNNER: two new ADDITIVE tables `test_samples` (id/task_kind/label/position) +
+    `test_sample_vars` (sample_id/name/value — relational, the no-JSON-blobs rule);
+    `TestSampleStore` (list_for_kind/upsert/delete + `seed_fill` fill-if-empty per
+    (task_kind, label)); new router `GET/PUT/DELETE /v1/ai/test-samples`
+    (test_samples_api.py — the class-tunes Protocol-store seam); `install_llm` +
+    `configure_app_seed` gained `test_samples=` and `seed_llm` seeds them on BOTH paths
+    (boot + data-reset), like every app seed. 3 new pytest cases (round trip + validation +
+    seed-fill honors edits): runner now **419 pytest**.
+  - KIT: new `common/services/testData.js` — `configureTestData({sources})` /
+    `testDataSources()` (the configureHelp/External boot-seam precedent) + ONE
+    `mergeVariables(vars, incoming)` (exact-name matches; plus the single-in→single-var
+    bridge) shared by both fill paths; exported via common/index.js. `FeatureLab` gained a
+    `taskKind` prop (passed by BOTH hosts — TaskKinds `selTask`, FeatureWorkbench
+    `featureTaskKinds[selAction]`), fetches `/v1/ai/test-samples?taskKind=` and renders a
+    **Sample** button ON the Test-input heading line (clicking cycles the kind's samples
+    into the {{variables}}) beside per-source **"Insert from <chapter/character/location>…"**
+    pickers fed by the host registry; a non-matching payload toasts instead of silently
+    doing nothing. Empty registry/no samples = the affordances simply don't render (today's
+    manual fill).
+  - JW: `services/labTestData.js` registers chapters (scene bodies HTML→text) + characters
+    (name/role/description) + locations against the live project store, wired by ONE
+    `configureTestData` call in main.js; `seed_presets.py` ships **6 synthesized samples**
+    (prose.generate · prose.edit · ideation · chat.grounded · extract.structured ·
+    judge.scored — never real manuscript text) and app.py passes them to install_llm.
+  - **The probe caught a REAL defect before the user could:** the first sample rows carried
+    only `{user_content}`, but writerAI.continue's template exposes `{passage, voiceCanon}` —
+    the merge correctly refused and the fill did nothing. Fixed by the samples carrying
+    EVERY variable their kind's features expose (passage/voiceCanon/direction/user_content —
+    the merge fills only what the open prompt has); the container DB's two stale rows were
+    refreshed through the PUT endpoint (the user's box seeds the corrected rows at first
+    boot — samples never shipped there before).
+  - **The rules-checker then caught the SAME bug class alive on the Insert-from path**
+    (round-1 VERDICT: FAIL, T5): the JW chapter adapter emitted only `user_content`, so
+    "Insert from chapter" would no-match-toast on every `{{passage}}` writing feature —
+    and my probe had only asserted the pickers RENDER. Fixed the same way (the chapter
+    adapter now emits `passage` + `user_content` + `chapter_text`/`chapter_label`; a second
+    adapter bug fixed en route — chapters are read via the store's `allChapters` getter,
+    project.js:498; there is no root `chapters` state), 5 new vitest cases lock
+    `mergeVariables`' contract (exact-match · single-single bridge · no multi-fan-out ·
+    registry round-trip), and the acceptance probe now INSERTS a real chapter into the
+    continue feature and asserts the passage textarea fills (observed: "What the door
+    remembers" → "The key turned, after some persuasion…"). Characters/locations stay
+    `user_content`-shaped by design (a profile is not a passage; the no-match toast is the
+    honest answer there). Probe: **6/6**; JW vitest now **43/43**.
+- **B4-5 (#34) record-only, as queued:** resolved by §7.1's Send-to-Lab deletion — nothing
+  to build; see its Batch-4 entry above.
+
+**Gates (one consolidated pass, final post-checker state):** runner `ruff` clean + **419
+pytest** · JW server `ruff` clean + **76 pytest** · JW vitest **43/43** (38 + the 5 new
+mergeVariables/registry cases) · `build:vite` clean · the **FULL headless smoke zero JS
+errors** · the **B4 acceptance probe 6/6, zero page errors** — each check asserts a user
+sentence (#28 picker-on-heading-line · #29 two columns side-by-side + Lab below · #30 Sample
+fills from the DB (the lighthouse text observed in the textarea) · §7.3 three Insert-from
+pickers · the checker-forced chapter-insert REALLY fills a {{passage}} feature · #35 one
+flat sampler column) + screenshots eyeballed (feature names read fully after the token-width
+fix). The probe is COMMITTED at `justwrite-app/scripts/b4-probe.mjs` (the checker's
+reproducibility note — parity with the other phase probes). **Box notes: NO reset** — the
+two tables are additive (create_all) and the samples fill-if-empty at next boot; everything
+else is kit/renderer UI.
+
 **Batch 5 — JW app surfaces [JW]:**
 - B5-1 (#38/#40) remove per-surface model pickers (Ask the Book top+bottom, scene editor) →
   provenance chip + Tasks-tab link — per discussion B.

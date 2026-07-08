@@ -297,7 +297,7 @@ onMounted(load);
           </div>
 
           <FeatureLab :action="selAction" :prompt="action" :providers="providers" :presets="enginePresets"
-            :sampler-catalog-list="samplerCatalogList"
+            :sampler-catalog-list="samplerCatalogList" :task-kind="featureTaskKinds[selAction] || ''"
             :production-preset-id="selTaskPreset" :pin="pin(selAction)"
             @use-production="onUseProduction" @presets-changed="onPresetsChanged" />
         </section>

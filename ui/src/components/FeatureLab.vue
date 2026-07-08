@@ -18,8 +18,12 @@
 import { computed, reactive, ref, watch } from "vue";
 
 import CompareStrip from "./CompareStrip.vue";
+import UiButton from "../common/components/UiButton.vue";
+import UiSelect from "../common/components/UiSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
+import { mergeVariables, testDataSources } from "../common/services/testData.js";
+import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
   action: { type: String, default: "" },
@@ -29,6 +33,7 @@ const props = defineProps({
   samplerCatalogList: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },
   pin: { type: Object, default: null },         // the action's routing pin (parent-owned)
+  taskKind: { type: String, default: "" },      // the action's task — keys the DB samples (§7.3)
 });
 const emit = defineEmits(["use-production", "presets-changed"]);
 
@@ -99,6 +104,54 @@ async function updatePreset(id, cfg) {
 watch(() => props.prompt, (p) => { draft.value = p ? { ...p } : null; buildVars(); }, { immediate: true });
 watch(() => props.action, (k) => { loadSamplers(k); }, { immediate: true });
 
+// ── §7.3 test data (2026-07-08): the DB Sample button + host Insert-from pickers ──
+// Samples are per-taskKind rows seeded in the DB (editable); clicking Sample
+// cycles them into the {{variables}}. Sources come from the host registry
+// (JW: chapters/characters/locations) — an empty registry = manual fill only.
+const samples = ref([]);       // this taskKind's DB samples
+const sampleIx = ref(0);       // the next sample the button fills
+const sources = testDataSources();
+const sourceOptions = reactive({}); // source.id -> [{value,label}] (loaded once per mount)
+
+watch(() => props.taskKind, async (kind) => {
+  samples.value = [];
+  sampleIx.value = 0;
+  if (!kind) return;
+  try {
+    samples.value = (await request(`/v1/ai/test-samples?taskKind=${encodeURIComponent(kind)}`)).rows || [];
+  } catch { /* the button simply doesn't render */ }
+}, { immediate: true });
+
+for (const src of sources) {
+  Promise.resolve()
+    .then(() => src.list())
+    .then((items) => {
+      sourceOptions[src.id] = [
+        { value: "", label: `Insert from ${src.label}…` },
+        ...(items || []).map((it) => ({ value: String(it.id), label: it.label })),
+      ];
+    })
+    .catch(() => { sourceOptions[src.id] = []; });
+}
+
+function fillSample() {
+  if (!samples.value.length) return;
+  const s = samples.value[sampleIx.value % samples.value.length];
+  sampleIx.value += 1;
+  const set = mergeVariables(vars, s.variables);
+  if (!set) pushToast({ message: "That sample's fields don't match this prompt's variables." });
+}
+async function insertFrom(src, id) {
+  if (!id) return;
+  try {
+    const payload = await src.fetch(id);
+    const set = mergeVariables(vars, payload?.variables || {});
+    if (!set) pushToast({ message: `That ${src.kind || "item"}'s fields don't match this prompt's variables.` });
+  } catch (e) {
+    pushToast({ message: e?.message || "Couldn't load that item." });
+  }
+}
+
 // The action's run-config SEED for <ConfigColumn>. Read-only: CompareStrip deep-clones
 // this into each column, so edits live on the column and reach us through the column's
 // save-as (not a write-back setter). `pin` is the feature's current routing pin, used
@@ -120,7 +173,17 @@ const columnConfig = computed(() => {
   <div class="lu-fw-tune">
     <div class="lu-fw-tune-h"><b>Tune presets</b><span class="lu-muted">run this feature's prompt on a test input · Save a column as a preset (it appears in the dropdowns)</span></div>
     <div class="lu-fw-testin">
-      <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
+      <!-- §7.3: Sample (DB rows for this task) + Insert-from (host sources) sit ON
+           the header line — fill affordances beside what they fill, no extra row. -->
+      <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span>
+        <span class="lu-fw-testin-spacer" />
+        <UiSelect v-for="src in sources" :key="src.id" v-show="(sourceOptions[src.id] || []).length > 1"
+          class="lu-fw-testin-src" :model-value="''" :options="sourceOptions[src.id] || []" width="name"
+          @update:model-value="(v) => insertFrom(src, v)" />
+        <UiButton v-if="samples.length" intent="secondary" size="small"
+          :title="samples.length > 1 ? 'Fill with a sample from the app — click again for the next one' : 'Fill with the app\'s sample data'"
+          @click="fillSample">Sample</UiButton>
+      </div>
       <div v-for="(_, k) in vars" :key="k" class="lu-field">
         <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
       </div>
@@ -142,7 +205,8 @@ const columnConfig = computed(() => {
 .lu-fw-tune-h b { font-size: 13px; color: var(--ink); }
 .lu-fw-tune-h .lu-muted { font-size: 11.5px; }
 .lu-fw-testin { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
-.lu-fw-testin-h { display: flex; align-items: baseline; gap: 10px; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
+.lu-fw-testin-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
+.lu-fw-testin-spacer { flex: 1; }
 .lu-field { display: flex; flex-direction: column; gap: 5px; }
 .lu-field > label { font-size: 12px; color: var(--muted); }
 </style>

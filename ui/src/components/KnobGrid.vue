@@ -51,6 +51,10 @@ const props = defineProps({
   // scroll region (§7.6 Tune modal: exactly one scroller per area).
   scrollMax: { type: String, default: "260px" },
   columns: { type: Number, default: 1 },           // >1 → flat multi-column grid (no Common/Advanced split), no inner scroll
+  // Single-column checklist WITHOUT the Common/Advanced tier split (queue #35 /
+  // B4-3, 2026-07-08: "don't make a specific advance section … one column") —
+  // the Lab's sampler grid wants one flat column; multi-column is already flat.
+  flat: { type: Boolean, default: false },
   // Hide the footer "Reset to defaults" (catalog-default reset) — for hosts that
   // carry their own, differently-scoped reset (the Tune modal's "Reset to model
   // default" re-fetches the RESOLVED baseline; two reset buttons with different
@@ -169,7 +173,7 @@ const advancedRows = computed(() =>
   visibleCatalog.value.filter((k) => k.tier === "advanced" && !isOn(k.flagName)));
 const advancedOpen = ref(false);
 const displayRows = computed(() => {
-  if (props.columns > 1) return visibleCatalog.value.map((m) => ({ m }));
+  if (props.columns > 1 || props.flat) return visibleCatalog.value.map((m) => ({ m }));
   const out = commonRows.value.map((m) => ({ m }));
   if (advancedRows.value.length) out.push({ expander: true });
   if (advancedOpen.value) out.push(...advancedRows.value.map((m) => ({ m })));

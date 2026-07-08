@@ -27,6 +27,7 @@ from .presets_api import make_presets_router
 from .knob_catalog_api import make_knob_catalog_router
 from .model_catalog_api import make_catalog_router
 from .class_tunes_api import make_class_tunes_router
+from .test_samples_api import make_test_samples_router
 from .model_measurements_api import make_model_measurements_router
 from .model_tunes_api import make_model_tunes_router
 from .pricing_api import make_pricing_router
@@ -70,6 +71,7 @@ def install_llm(
     feature_task_kinds=None,
     model_catalog_extra=None,
     model_tunes_seed=None,
+    test_samples=None,
     prefer_local_features: Iterable[str] | None = None,
     runner_catalog: bool = True,
     data_dir=None,
@@ -89,6 +91,7 @@ def install_llm(
         model_catalog_extra=model_catalog_extra,
         model_tunes_seed=model_tunes_seed,
         hw_key_fn=_current_hw_key,
+        test_samples=test_samples,
     )
     # 2b. per-APP extra model-catalog rows + this box's tune seed now ride the
     # configure_app_seed REGISTRATION above: `seed_llm` seeds them on BOTH paths
@@ -149,6 +152,7 @@ def install_llm(
         lambda pid: stores.get_task_kind_preset_store().set("", pid),
     ))
     app.include_router(make_knob_catalog_router(stores.list_knob_catalog))
+    app.include_router(make_test_samples_router(stores.get_test_sample_store))
 
     def _inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> dict:
         # Pre-download GGUF inspect for the Add-a-model form (reads the header over the

@@ -490,11 +490,12 @@ defineExpose({ run, cancel });
     </div>
 
     <!-- Plane-2 long-tail samplers (KnobGrid checklist). temperature + top_p are
-         excluded — they are edited in the per-call params row above. -->
+         excluded — they are edited in the per-call params row above. #35 (B4-3,
+         2026-07-08): ONE flat column — no multi-column spread, no Advanced section. -->
     <details class="cc-samplers">
       <summary class="cc-eyebrow">Samplers <span class="lu-muted">— top_k · min_p · penalties · mirostat … (mostly local)</span></summary>
       <div class="cc-samplers-body">
-        <KnobGrid checklist :columns="3" :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']" :reserved-keys="['samplers', 'stop']"
+        <KnobGrid checklist flat :catalog-list="samplerCatalogList" :exclude="['temperature', 'top_p']" :reserved-keys="['samplers', 'stop']"
           :model-value="modelValue?.samplers || []"
           add-label="＋ Add custom sampler" name-placeholder="sampler (e.g. top_k)"
           @update:model-value="onEditSamplers" />

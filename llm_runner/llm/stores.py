@@ -1076,6 +1076,90 @@ class ClassTuneStore:
 _class_tune = ClassTuneStore()
 
 
+class TestSampleStore:
+    """Canned Lab test samples (§7.3): list by taskKind (or all); upsert/delete
+    for editability; `seed_fill` inserts only where (task_kind, label) is absent
+    so edited/deleted-then-reseeded rows behave like every other seeder."""
+
+    def _vars_for(self, s, ids: list[int]) -> dict[int, dict[str, str]]:
+        out: dict[int, dict[str, str]] = {}
+        if ids:
+            for v in s.query(db.TestSampleVar).filter(db.TestSampleVar.sample_id.in_(ids)).all():
+                out.setdefault(v.sample_id, {})[v.name] = v.value
+        return out
+
+    def list_for_kind(self, task_kind: str = "") -> list[dict]:
+        s = db.session()
+        try:
+            q = s.query(db.TestSample)
+            if task_kind:
+                q = q.filter(db.TestSample.task_kind == task_kind)
+            samples = q.order_by(db.TestSample.position, db.TestSample.id).all()
+            vars_by = self._vars_for(s, [x.id for x in samples])
+            return [{"id": x.id, "taskKind": x.task_kind, "label": x.label,
+                     "variables": vars_by.get(x.id, {})} for x in samples]
+        finally:
+            s.close()
+
+    def upsert(self, task_kind: str, label: str, variables: dict[str, str],
+               sample_id: int | None = None) -> int:
+        s = db.session()
+        try:
+            row = s.get(db.TestSample, sample_id) if sample_id else None
+            if row is None:
+                row = db.TestSample(task_kind=task_kind, label=label)
+                s.add(row)
+                s.flush()
+            else:
+                row.task_kind = task_kind
+                row.label = label
+                s.query(db.TestSampleVar).filter(db.TestSampleVar.sample_id == row.id).delete()
+            for name, value in (variables or {}).items():
+                n = (name or "").strip()
+                if n:
+                    s.add(db.TestSampleVar(sample_id=row.id, name=n, value=value or ""))
+            s.commit()
+            return row.id
+        finally:
+            s.close()
+
+    def delete(self, sample_id: int) -> None:
+        s = db.session()
+        try:
+            s.query(db.TestSampleVar).filter(db.TestSampleVar.sample_id == sample_id).delete()
+            s.query(db.TestSample).filter(db.TestSample.id == sample_id).delete()
+            s.commit()
+        finally:
+            s.close()
+
+    def seed_fill(self, s, rows: list[dict]) -> int:
+        """Insert missing (task_kind, label) samples on the GIVEN session (the
+        seed_llm transaction); returns how many were added."""
+        added = 0
+        for i, r in enumerate(rows or []):
+            kind = (r.get("taskKind") or "").strip()
+            label = (r.get("label") or "").strip()
+            if not kind or not label:
+                continue
+            exists = s.query(db.TestSample).filter(
+                db.TestSample.task_kind == kind, db.TestSample.label == label
+            ).first()
+            if exists:
+                continue
+            row = db.TestSample(task_kind=kind, label=label, position=i)
+            s.add(row)
+            s.flush()
+            for name, value in (r.get("variables") or {}).items():
+                n = (name or "").strip()
+                if n:
+                    s.add(db.TestSampleVar(sample_id=row.id, name=n, value=value or ""))
+            added += 1
+        return added
+
+
+_test_sample = TestSampleStore()
+
+
 class ModelMeasurementStore:
     """The persistent measurement history (#142 rows 5+6) — every real
     decode-speed result from the Tune modal + the auto-tune sweep. Append-only
@@ -1189,6 +1273,7 @@ def get_feature_task_kind_store() -> FeatureTaskKindStore: return _feature_task_
 def get_model_tune_store() -> ModelTuneStore: return _model_tune
 def get_class_tune_store() -> ClassTuneStore: return _class_tune
 def get_model_measurement_store() -> ModelMeasurementStore: return _model_measurement
+def get_test_sample_store() -> TestSampleStore: return _test_sample
 
 
 def list_knob_catalog() -> list[dict]:

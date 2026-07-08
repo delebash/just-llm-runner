@@ -314,6 +314,33 @@ class ModelTuneBaseline(LlmBase):
     flag_value = Column(Text, nullable=False, default="")
 
 
+class TestSample(LlmBase):
+    """One canned Lab test sample (§7.3, 2026-07-08 — the user's #30 "sample
+    button with some sample data we have in database"): per-taskKind starting
+    material for the Lab's Test input. SEEDED by the host app (synthesized text,
+    never real user content — the test-data decision) via configure_app_seed,
+    fill-if-empty per (task_kind, label) so an edited row survives reseeds.
+    Variables live in TestSampleVar rows (relational — the no-JSON-blobs rule).
+    Additive table: create_all picks it up on existing DBs, NO reset."""
+
+    __tablename__ = "test_samples"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    task_kind = Column(String, nullable=False, default="")
+    label = Column(String, nullable=False, default="")
+    position = Column(Integer, nullable=False, default=0)
+
+
+class TestSampleVar(LlmBase):
+    """One {{variable}} of a test sample — the name → the text it fills."""
+
+    __tablename__ = "test_sample_vars"
+
+    sample_id = Column(Integer, primary_key=True)
+    name = Column(String, primary_key=True)
+    value = Column(Text, nullable=False, default="")
+
+
 class ClassTune(LlmBase):
     """A seeded + EDITABLE per-(model, HARDWARE-CLASS) tune — the class-seed layer
     (2026-07-07). Unlike ModelTune (a machine's OWN measured tune, never seeded),

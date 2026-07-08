@@ -41,6 +41,10 @@ export { pushToast, clearToasts } from "./services/toastBridge.js";
 // the host wires its shell bridge via configureExternal (Tauri swallows _blank)
 export { configureExternal, openExternal } from "./services/external.js";
 
+// the Lab test-data source registry (§7.3) — the host registers its own
+// material (JW: chapters/characters/locations) for the Lab's Insert pickers
+export { configureTestData, testDataSources, mergeVariables } from "./services/testData.js";
+
 // shared empty-state placeholder
 export { default as EmptyState } from "./components/EmptyState.vue";
 

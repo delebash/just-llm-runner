@@ -1734,3 +1734,25 @@ bookkeeping (checker verdict → commit) completes; nothing else builds.
   a per-row citation in the seed; our recommendations live ONLY in the bundles; the
   ctx_len placeholder says "read from the model". Coordinates with QC-10 (grouping) +
   QC-11 (row removal). (Task #212.)
+
+  **⛔ QC-17 USER-DECIDED (2026-07-08, verbatim — supersedes the re-cite proposal above):**
+  *"update qc-117 remove all engine defualts, user adds whatevcer swtiches they want in
+  hardware global or model to overrided defuatls"*. The app stops storing, claiming, or
+  displaying what the engine's own defaults are — the concept is REMOVED: no
+  "engine default: N" placeholders, no engine-default rows, no "engine default" option on
+  selects. The Tune grid shows ONLY switches that carry a value from a layer — grouped per
+  QC-10 as **Your applied config / Hardware-class default / Global launch defaults /
+  Computed for this PC** (the "Engine defaults" section dies with the concept) — and the
+  user ADDS any other switch they want ("+ Add a switch", catalog-fed name/kind/help) in
+  whichever editor: Global launch defaults, Hardware-class defaults, or the model's grid.
+  Unset knobs are simply ABSENT (the engine does its own thing; we don't claim to know
+  what). Clearing a row's value = removing the row. Apply/save-set semantics unchanged
+  (value-carrying rows are the snapshot — the blessed §7.6 save-set). Consequences
+  recorded on the sibling items: QC-10's heading list shrinks (Task #205 updated); QC-11
+  narrows to whether context_shift/cache_reuse stay in the ADD list, since they no longer
+  render as rows either way (Task #206 updated). ONE FLAGGED SUB-QUESTION for the
+  discussion: `default_value` also feeds the Lab SAMPLER checklist's enable-prefill
+  (enabling e.g. mirostat_tau prefills 5.00) — "remove ALL" is read as removing the
+  concept everywhere (a newly-enabled sampler starts blank = the engine's own behavior),
+  confirm or scope it to the switch surfaces. NO CODE under the hard stop — this is the
+  recorded decision, built with the QC-10..17 cluster when the user says go.

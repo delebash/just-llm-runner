@@ -1301,3 +1301,24 @@ build on the user's word — fold-in vs own-go asked once at the next report.
   sentence max on a working surface, detail behind the help affordance; one fact shown once;
   one primary thing on screen per mode. Applies to the QC cluster build and every batch
   after it.
+- **QC-8 — the Advanced expander must go; the copy-from-Lab is the root failure (user
+  verbatim):** *"you added avancded hidden under a expand, all you did was copy what was in
+  lab and replace what was in the original tune, you did not think about what we where doing
+  or how it should loook you just copied."* Correct on both counts. (a) The checklist mode's
+  Common/Advanced tier split hides UNSET advanced knobs under an expander — §7.6's words are
+  "every catalog knob is a row, ALWAYS VISIBLE"; an expander is exactly the "we keep hiding
+  things" class the lock killed (and the user already decreed no-Advanced-split for the Lab's
+  own grid in queue item #35/B4-3). Fix: ONE flat list of every catalog knob, no expander;
+  the modal's one scroller carries it. (b) The meta-failure, owned: reusing KnobGrid's
+  checklist LOGIC was right (T3), but I shipped its Lab-built PRESENTATION unexamined —
+  checkbox anatomy, doubled names, per-row resets, the expander — instead of parameterizing
+  the presentation to the discussed design. Reuse of logic must never mean copying a look
+  built for a different surface. CLUSTER DESIGN SYNTHESIS (each element from the user's own
+  words; the one synthesis point flagged): the Tune grid returns to the ENDORSED original row
+  anatomy (one name per row, origin/category stacked under — the B3-1 shape) extended to
+  every catalog knob: SET rows show their value; UNSET rows show the engine default as a
+  muted placeholder ("uses engine default: …"); typing into an unset row makes it set;
+  clearing a set row returns it to the muted default (replaces both the checkbox AND the ↺
+  buttons — flagged: the checkbox's set/unset role moves into the value itself; the blessed
+  save-set semantics are UNCHANGED — rows with a known value are what Apply snapshots).
+  Cluster = QC-1..8, one build, right after DL-1.

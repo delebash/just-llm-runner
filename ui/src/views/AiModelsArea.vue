@@ -17,7 +17,6 @@ import TaskKinds from "./TaskKinds.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
-import { activeAiTab } from "../common/services/labHandoff.js";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
@@ -41,12 +40,10 @@ const props = defineProps({
   runStream: { type: Function, default: null },
 });
 
-// The subnav tab is backed by the SHARED `activeAiTab` (labHandoff.js) so a Tune→Tasks
-// handoff fired from the Tune modal (opened from the built-in provider's model catalog on
-// the Providers tab) can switch us to "tasks". A computed
-// get/set (not the raw imported ref) so the template's `tab = 'x'` writes unambiguously
-// hit `.value`. Side effect (benign): the tab now persists across AiModelsArea remounts.
-const tab = computed({ get: () => activeAiTab.value, set: (v) => { activeAiTab.value = v; } });
+// The subnav tab. (Was the shared `activeAiTab` from labHandoff.js — that channel
+// existed only for the Tune→Tasks switch-carry handoff, removed with §7.1: engine
+// switches live on the model, so there is nothing to hand to the Lab anymore.)
+const tab = ref("providers");
 const providers = ref([]);
 const hardware = ref(null);
 const usage = ref(null);
@@ -393,7 +390,8 @@ onMounted(() => {
     </section>
 
     <!-- ── Routing by feature — the Feature Workbench: per-feature task + which
-         engine preset it runs (model/switches/params live in the preset). ── -->
+         engine preset it runs (model + ask-params/samplers live in the preset;
+         launch switches live on the MODEL — Tune & measure, §7.1). ── -->
     <section v-show="tab === 'features'" class="lu-tab lu-tab-fill">
       <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
     </section>

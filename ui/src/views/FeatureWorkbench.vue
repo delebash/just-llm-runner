@@ -39,10 +39,10 @@ const presetAssign = ref({ defaultPresetId: "", taskKinds: {} });
 const taskKinds = ref([]);        // task catalog [{id,label,description}] — the reassign dropdown
 const featureTaskKinds = ref({}); // action key → its resolved task (provenance + the dropdown)
 const knobCatalog = ref([]);      // knob_catalog metadata (C1)
-// Plane-2 samplers + Plane-1 switches as ORDERED raw catalog rows (common-first) →
-// FeatureLab's prefilled <KnobGrid> checklists. The raw rows carry `kind` + `default`.
+// Plane-2 samplers as ORDERED raw catalog rows (common-first) → FeatureLab's
+// prefilled <KnobGrid> checklist. The raw rows carry `kind` + `default`. (Launch
+// switches live on the MODEL — Tune & measure, §7.1 — not in the Lab.)
 const samplerCatalogList = computed(() => knobCatalog.value.filter((k) => k.plane === 2));
-const switchCatalogList = computed(() => knobCatalog.value.filter((k) => k.plane === 1));
 const loading = ref(true);
 const error = ref("");
 const message = ref("");
@@ -288,7 +288,7 @@ onMounted(load);
           </div>
 
           <FeatureLab :action="selAction" :prompt="action" :providers="providers" :presets="enginePresets"
-            :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
+            :sampler-catalog-list="samplerCatalogList"
             :production-preset-id="selTaskPreset" :pin="pin(selAction)"
             @use-production="onUseProduction" @presets-changed="onPresetsChanged" />
         </section>

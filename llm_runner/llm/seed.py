@@ -649,9 +649,10 @@ def seed_default_switch_presets(s) -> int:
 
 def seed_default_engine_presets(s) -> int:
     """Seed the host's built-in engine presets (the factory preset library, the
-    2026-06-29 lab+preset model) + their FK switch/sampler children. Flush each
-    parent before its children (host session: autoflush off + FK on — the
-    switch-preset seeder gotcha). Per-app data via `app_engine_presets()`."""
+    2026-06-29 lab+preset model — §7.1: request params + samplers only, NO launch
+    switches) + their FK sampler children. Flush each parent before its children
+    (host session: autoflush off + FK on — the switch-preset seeder gotcha).
+    Per-app data via `app_engine_presets()`."""
     existing = {r.id for r in s.query(db.EnginePreset.id).all()}
     added = 0
     for p in app_engine_presets():
@@ -662,11 +663,8 @@ def seed_default_engine_presets(s) -> int:
             model=str(p.get("model") or ""), temperature=p.get("temperature"), top_p=p.get("top_p"),
             max_tokens=int(p.get("max_tokens") or 0), json_mode=bool(p.get("json_mode") or False),
             reasoning_effort=str(p.get("reasoning_effort") or ""),
-            ngl_override=p.get("ngl_override"), n_cpu_moe_override=p.get("n_cpu_moe_override"),
             position=int(p.get("position") or 0), built_in=True))
         s.flush()  # parent in the DB before its FK children
-        for fname, fval in (p.get("switches") or {}).items():
-            s.add(db.EnginePresetSwitch(preset_id=p["id"], flag_name=fname, flag_value=str(fval)))
         for pname, pval in (p.get("samplers") or {}).items():
             s.add(db.EnginePresetSampler(preset_id=p["id"], param_name=pname, value=str(pval)))
         added += 1

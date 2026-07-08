@@ -39,8 +39,7 @@ def _pid(resp, name):
 def test_preset_crud_roundtrip(client):
     r = client.post("/v1/ai/engine-presets", json={
         "name": "Prose · Qwen-14B", "providerId": "llamacpp", "model": "qwen3-14b-q4_k_m",
-        "temperature": 0.9, "maxTokens": 2048, "nCpuMoeOverride": 28,
-        "switches": [{"flagName": "flash_attn", "flagValue": "on"}],
+        "temperature": 0.9, "maxTokens": 2048,
         "samplers": [{"flagName": "top_k", "flagValue": "40"}],
     })
     assert r.status_code == 200
@@ -48,18 +47,21 @@ def test_preset_crud_roundtrip(client):
     assert len(presets) == 1
     p = presets[0]
     assert p["id"] and p["model"] == "qwen3-14b-q4_k_m" and p["temperature"] == 0.9
-    assert p["nCpuMoeOverride"] == 28 and p["nglOverride"] is None  # set wins, unset stays auto (null)
-    assert p["switches"][0]["flagName"] == "flash_attn"
     assert p["samplers"][0]["flagName"] == "top_k"
+    # §7.1: presets carry NO launch switches — the wire row has no such field, and a
+    # stale client still sending one is ignored (pydantic drops unknown keys).
+    assert "switches" not in p and "nglOverride" not in p
     pid = p["id"]
 
-    # update replaces the children (frozen switches + sampler tail)
+    # update replaces the sampler-tail child; a stale `switches` key is ignored
     r = client.put(f"/v1/ai/engine-presets/{pid}", json={
         "name": "Prose · Qwen-14B", "providerId": "llamacpp", "model": "qwen3-14b-q4_k_m",
-        "temperature": 0.8, "switches": [], "samplers": [{"flagName": "min_p", "flagValue": "0.05"}],
+        "temperature": 0.8, "switches": [{"flagName": "flash_attn", "flagValue": "on"}],
+        "samplers": [{"flagName": "min_p", "flagValue": "0.05"}],
     })
     p = r.json()["presets"][0]
-    assert p["temperature"] == 0.8 and p["switches"] == [] and p["samplers"][0]["flagName"] == "min_p"
+    assert p["temperature"] == 0.8 and p["samplers"][0]["flagName"] == "min_p"
+    assert "switches" not in p
 
     assert client.delete(f"/v1/ai/engine-presets/{pid}").json()["presets"] == []
     assert client.put("/v1/ai/engine-presets/nope", json={"name": "x"}).status_code == 404

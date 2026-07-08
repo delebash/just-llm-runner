@@ -7,24 +7,24 @@
 // for the whole lifecycle — RULE #7.
 //
 // A column carries, stacked vertically (Decision 23 layout): a presets/Promote bar
-// → model → Plane-1 engine switches (the shared KnobGrid) → prompt (system + user)
-// → Plane-2 params + the long-tail sampler KnobGrid → prompt preview + token count
-// + a context-budget guard (b1) → Run + a result readout (output · words · tok/s ·
-// time · cost).
+// → model (+ the Engine-switches link) → prompt (system + user) → Plane-2 params +
+// the long-tail sampler KnobGrid → prompt preview + token count + a context-budget
+// guard (b1) → Run + a result readout (output · words · tok/s · time · cost).
 //
 // OWNERSHIP: the column is the editor UI + owns the run/preview/result. It does NOT
 // touch routing or call preset endpoints itself — it EMITS (`save-as`,
 // `apply-preset`, `use-production`, `delete-preset`) so the PARENT (Feature
-// Workbench ×1 or the Compare strip ×N) decides what a promote means (write the
-// action's routing pin + prompt + the preset's switches). That keeps routing
-// single-owned and lets Compare promote per-column. The config is a v-model.
+// Workbench ×1 or the Compare strip ×N) decides what a promote means. That keeps
+// routing single-owned and lets Compare promote per-column. The config is a v-model.
 //
-// SWITCHES NOTE: Plane-1 engine switches are LOAD-TIME — they take effect when the
-// local model (re)spawns with them, so the per-call /v1/ai/run test does NOT apply
-// them (it uses whatever model is loaded); their live tok/s effect + the
-// per-switch comparison are GPU-gated (router/residency #27/#29). The KnobGrid here
-// EDITS them (for Promote → the action's preset, and for the model-card load+measure
-// path); the column surfaces that so the readout isn't mistaken for a switch A/B.
+// SWITCHES NOTE (§7.1, locked 2026-07-08): the column edits NO launch switches — a
+// loaded model is one process with one set of launch flags shared by every task, so
+// launch config is owned by the MODEL (Tune & measure over the switch_resolve stack:
+// global bundles → class default → this machine's tune). The "Engine switches ↗"
+// link under the model picker opens THE one editor (TuneMeasureModal) for the
+// column's model; the column itself carries only what a TASK owns: samplers, tokens,
+// JSON, reasoning. The old per-column switch grid wrote preset rows that nothing
+// applied at load — deleted, not rebuilt.
 import { computed, onMounted, ref, watch } from "vue";
 
 import { request } from "../client.js";
@@ -32,6 +32,7 @@ import { resolveModelDefaults } from "../modelDefaults.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
 import KnobGrid from "./KnobGrid.vue";
 import LuModelPicker from "./LuModelPicker.vue";
+import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiInput from "../common/components/UiInput.vue";
@@ -50,12 +51,10 @@ const varHint = "{{variable}}"; // shown literally in the UI (avoids a nested {{
 const props = defineProps({
   action: { type: String, default: "" },
   providers: { type: Array, default: () => [] },
-  // Plane-2 (samplers) + Plane-1 (engine switches) knob-catalog rows, ordered
-  // common-first — drive the prefilled KnobGrid checklists. Raw catalog rows
-  // ({ flagName, label, kind, default, help, options }); unknown keys still edit
-  // raw under "Other keys".
+  // Plane-2 (samplers) knob-catalog rows, ordered common-first — drive the
+  // prefilled KnobGrid checklist. Raw catalog rows ({ flagName, label, kind,
+  // default, help, options }); unknown keys still edit raw under "Other keys".
   samplerCatalogList: { type: Array, default: () => [] },
-  switchCatalogList: { type: Array, default: () => [] },
   // The shared test input (parent-owned; ONE set across Compare's columns).
   vars: { type: Object, default: () => ({}) },
   // Host runner for live streaming (Cancel + token usage). Null → one-shot /run.
@@ -77,9 +76,8 @@ const props = defineProps({
   label: { type: String, default: "" },      // column title (Compare)
   removable: { type: Boolean, default: false }, // show the ✕ remove (Compare)
   busy: { type: Boolean, default: false },     // parent disables during Run-all
-  // v-model: { pin:{providerId,model}|null, switches:[{name,value}], system,
-  // userTemplate, temperature, topP, maxTokens, reasoningEffort, jsonMode,
-  // samplers:[{name,value}] }.
+  // v-model: { pin:{providerId,model}|null, system, userTemplate, temperature,
+  // topP, maxTokens, reasoningEffort, jsonMode, samplers:[{name,value}] }.
   modelValue: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
@@ -93,35 +91,34 @@ function patch(key, val) {
 }
 function patchPin(val) {
   const pin = val && val.providerId ? { providerId: val.providerId, model: val.model || "" } : null;
-  // A USER-driven provider/model pick re-opens the model seed for BOTH grids (switches
-  // AND samplers are model-specific — the new model's baseline should show). A PRESET
-  // load keeps its own 'preset' tags (it goes through CompareStrip.presetToConfig, not
+  // A USER-driven provider/model pick re-opens the model seed for the sampler grid
+  // (samplers are model-specific — the new model's baseline should show). A PRESET
+  // load keeps its own 'preset' tag (it goes through CompareStrip.presetToConfig, not
   // patchPin), so the seed never clobbers a freshly-loaded preset.
-  patchMany({ pin, switchesSource: "model", samplersSource: "model" });
+  patchMany({ pin, samplersSource: "model" });
 }
 function patchMany(obj) {
   emit("update:modelValue", { ...(props.modelValue || {}), ...obj });
 }
 
-// ── model -> baseline seed (connect model selection to BOTH grids) ────────────
-// When THIS column's model changes, pre-fill the Plane-1 switch grid AND the Plane-2
-// sampler grid with that model's RESOLVED baseline (the SAME `resolveModelDefaults`
-// source Tune & measure reads — ONE fetch), so picking a model shows its real launch
-// flags + recommended samplers instead of an empty/generic grid. `seedFields` is the
-// ONE provenance guard for both grids (`switchesSource`/`samplersSource` on the config):
-// never clobber a loaded PRESET (CompareStrip.presetToConfig tags 'preset') or a USER
-// edit (`onEdit*` tags 'user'); only (re)seed when a grid is empty or a prior model seed.
-// An async token + a post-await re-check make a late fetch safe against a preset-apply /
-// another model-change meanwhile.
+// ── model -> baseline seed (sampler grid + the model's real context window) ──
+// When THIS column's model changes, pre-fill the Plane-2 sampler grid with that
+// model's RESOLVED baseline (the SAME `resolveModelDefaults` source Tune & measure
+// reads — ONE fetch) and capture the model's resolved `-c` (ctx_len) for the budget
+// guard below (the launch config lives on the MODEL, §7.1 — the column only reads
+// it). `seedFields` is the provenance guard (`samplersSource` on the config): never
+// clobber a loaded PRESET (CompareStrip.presetToConfig tags 'preset') or a USER edit
+// (`onEditSamplers` tags 'user'); only (re)seed when the grid is empty or a prior
+// model seed. An async token + a post-await re-check make a late fetch safe against
+// a preset-apply / another model-change meanwhile.
 let seedToken = 0;
-// Does the pinned model's GGUF support MTP (the Phase-2 `mtp` flag)? Read-only display
-// flag that drives the Speculative-decode opt-in hint below — independent of the seeds.
-const mtpCapable = ref(false);
+// The pinned model's resolved ctx_len (its real launch window) — feeds the budget guard.
+const resolvedCtx = ref(0);
 function providerIsKnownCloud(providerId) {
   const p = props.providers.find((x) => x.id === providerId);
   return !!p && !p.local; // known cloud → skip (a local-engine concept); unknown → attempt
 }
-// ONE guarded-seed rule for a grid, shared by switches + samplers (RULE #3 — no copy).
+// The guarded-seed rule for a grid (kept generic — the guard shape predates §7.1).
 // Returns the {grid, source} fields to patch, or {} when the guard says keep the current.
 function seedFields(gridKey, srcKey, rows) {
   const mv = props.modelValue || {};
@@ -131,18 +128,20 @@ function seedFields(gridKey, srcKey, rows) {
   return { [gridKey]: rows, [srcKey]: "model" };
 }
 async function seedFromModel(modelId, providerId) {
-  if (!modelId || providerIsKnownCloud(providerId)) { mtpCapable.value = false; return; }
+  if (!modelId || providerIsKnownCloud(providerId)) { resolvedCtx.value = 0; return; }
   const my = ++seedToken;
   const res = await resolveModelDefaults(modelId);
   if (my !== seedToken) return;                          // superseded by a newer model change
   if (props.modelValue?.pin?.model !== modelId) return; // model changed mid-fetch
-  mtpCapable.value = res.mtpCapable;                     // display flag — independent of the seeds
+  // The model's REAL launch window (resolved ctx_len — same truth the load uses).
+  const ctxRow = (res.switches || []).find((r) => r.name === "ctx_len");
+  const ctxN = Number(ctxRow?.value);
+  resolvedCtx.value = Number.isFinite(ctxN) && ctxN > 0 ? ctxN : 0;
   // Samplers: the model fills the SECONDARY knobs the task leaves blank (§65). `temperature`
   // is task-owned (params row, excluded from the grid) → dropped; `top_p` is model-filled but
   // ALSO lives in the params row → routed to `topP` below, not into the grid.
   const gridSamplers = (res.samplers || []).filter((r) => r.name !== "temperature" && r.name !== "top_p");
   const patch = {
-    ...seedFields("switches", "switchesSource", res.switches),
     ...seedFields("samplers", "samplersSource", gridSamplers),
   };
   // top_p -> the params-row `topP`, only when the model recommends one, the column's topP
@@ -160,11 +159,26 @@ watch(
   (mid) => seedFromModel(mid, props.modelValue?.pin?.providerId),
   { immediate: true },
 );
-function onEditSwitches(rows) {
-  patchMany({ switches: rows, switchesSource: "user" });
-}
 function onEditSamplers(rows) {
   patchMany({ samplers: rows, samplersSource: "user" });
+}
+
+// ── Engine switches → THE one editor (§7.1): the link under the model picker opens
+// Tune & measure for the column's model. Shown only for a non-cloud pinned model
+// (cloud APIs have no launch switches — samplers only). On close, re-run the model
+// seed so the budget window (ctx) reflects a just-applied tune.
+const tuningModel = ref(null); // { id, name } | null — mounts TuneMeasureModal
+const canTuneModel = computed(() => {
+  const pin = props.modelValue?.pin;
+  return !!(pin?.model && !providerIsKnownCloud(pin.providerId));
+});
+function openTune() {
+  const pin = props.modelValue?.pin;
+  if (pin?.model) tuningModel.value = { id: pin.model, name: pin.model };
+}
+function onTuneClosed() {
+  tuningModel.value = null;
+  seedFromModel(props.modelValue?.pin?.model, props.modelValue?.pin?.providerId);
 }
 
 // ── sampler ORDER (the reserved `samplers` entry in the samplers array) ───────
@@ -247,21 +261,17 @@ async function countExact() {
   }
 }
 // Budget guard: prompt tokens + reserved output (maxTokens) vs the model's context
-// window. The window is the REAL launch value — the column's own `-c` (ctx_len)
-// switch — falling back to the parent's loaded-model ctx, then a LABELED "assumed"
-// default (never a silent guess). The user can still override the field. (#3)
+// window. The window is the REAL launch value — the pinned model's RESOLVED ctx_len
+// (the same truth the load uses, §7.1) — falling back to the parent's loaded-model
+// ctx, then a LABELED "assumed" default (never a silent guess). The user can still
+// override the field. (#3)
 const ASSUMED_WINDOW = 8192;
-const ctxFromSwitches = computed(() => {
-  const row = (props.modelValue?.switches || []).find((sw) => sw.name === "ctx_len");
-  const n = Number(row?.value);
-  return Number.isFinite(n) && n > 0 ? n : 0;
-});
 const winOverride = ref(null); // null = auto-derive; a number = the user's override
 const window = computed({
   get: () => {
     if (winOverride.value != null) return winOverride.value;
     if (props.contextWindow > 0) return props.contextWindow;
-    if (ctxFromSwitches.value > 0) return ctxFromSwitches.value;
+    if (resolvedCtx.value > 0) return resolvedCtx.value;
     return ASSUMED_WINDOW;
   },
   set: (v) => { winOverride.value = Math.max(0, Number(v) || 0); },
@@ -269,7 +279,7 @@ const window = computed({
 const windowSource = computed(() => {
   if (winOverride.value != null) return "set";
   if (props.contextWindow > 0) return "loaded";
-  if (ctxFromSwitches.value > 0) return "-c";
+  if (resolvedCtx.value > 0) return "model";
   return "assumed";
 });
 const promptTok = computed(() => (exactTokens.value != null ? exactTokens.value : estTokens.value));
@@ -289,8 +299,9 @@ function wordCount(s) {
 }
 function buildBody() {
   const c = props.modelValue || {};
-  // Plane-1 switches are NOT sent: they are load-time, applied when the model
-  // (re)spawns (GPU-gated #27). The test uses the loaded/cloud model as-is.
+  // No launch switches here (§7.1): a local model loads with ITS OWN resolved
+  // config (global → class → machine tune), so the test runs exactly what
+  // production runs. The column sends only per-request (task-owned) values.
   return {
     action: props.action,
     variables: { ...(props.vars || {}) },
@@ -417,22 +428,15 @@ defineExpose({ run, cancel });
         :inherit-label="inheritLabel" @update:model-value="patchPin" />
     </div>
 
-    <!-- Plane-1 engine switches (KnobGrid checklist, D15). n_cpu_moe is excluded —
-         it is a hardware-fit knob edited in the Hardware-fit row below. -->
-    <details class="cc-switches">
-      <summary class="cc-eyebrow">Engine switches <span class="lu-muted">— Plane-1 (load-time): ctx · kv-type · flash-attn · flags</span></summary>
-      <div class="cc-switches-body">
-        <p v-if="mtpCapable" class="lu-muted cc-switch-note">This model's GGUF supports <b>MTP</b> — set
-          <b>Speculative decode</b> below to “MTP draft” to try it; gains are machine-dependent, so measure (Run) before keeping it.</p>
-        <KnobGrid checklist :catalog-list="switchCatalogList" :exclude="['n_cpu_moe']"
-          :model-value="modelValue?.switches || []"
-          add-label="＋ Add custom switch" name-placeholder="switch (e.g. ctx_len)"
-          @update:model-value="onEditSwitches" />
-        <p class="lu-muted cc-switch-note">Applied when the engine (re)loads — the Run below tests the
-          currently-loaded / cloud model; per-switch tok/s needs a local model (router #27). Save writes
-          these into this Task's preset.</p>
-      </div>
-    </details>
+    <!-- Engine switches live on the MODEL (§7.1) — one editor, linked, not embedded.
+         The model decides how it runs (switches, shared by every task using it,
+         needs a reload); this task decides how it's asked (the params below). -->
+    <div v-if="canTuneModel" class="cc-engsw">
+      <UiButton intent="secondary" size="small"
+        title="Open Tune & measure for this model — engine switches are set once per model and shared by every task that uses it"
+        @click="openTune">Engine switches ↗</UiButton>
+      <span class="lu-muted">shared by every task using this model — set in Tune &amp; measure</span>
+    </div>
 
     <!-- Prompt (system + user) -->
     <template v-if="promptEditable">
@@ -456,16 +460,6 @@ defineExpose({ run, cancel });
         <UiSelect :model-value="modelValue?.reasoningEffort || ''" :options="REASONING_OPTIONS"
           @update:model-value="patch('reasoningEffort', $event)" /></div>
       <label class="cc-chk"><UiCheckbox :model-value="modelValue?.jsonMode" @update:model-value="patch('jsonMode', $event)" /><span class="lu-muted">JSON</span></label>
-    </div>
-
-    <!-- Hardware fit knobs (Plane-1, load-time): blank = auto-computed for this
-         machine at load; set to pin an override (stored in the preset). -->
-    <div class="cc-params cc-fit">
-      <span class="cc-eyebrow cc-fit-eye">Hardware fit <span class="lu-muted">blank = auto</span></span>
-      <div class="cc-field cc-num"><label>-ngl</label>
-        <UiInput :model-value="modelValue?.nglOverride" type="number" placeholder="auto" @update:model-value="patch('nglOverride', $event)" /></div>
-      <div class="cc-field cc-num"><label>n_cpu_moe</label>
-        <UiInput :model-value="modelValue?.nCpuMoeOverride" type="number" placeholder="auto" @update:model-value="patch('nCpuMoeOverride', $event)" /></div>
     </div>
 
     <!-- Plane-2 long-tail samplers (KnobGrid checklist). temperature + top_p are
@@ -512,7 +506,7 @@ defineExpose({ run, cancel });
           <UiButton v-if="exactTokens == null" intent="ghost" size="small" :loading="counting"
             title="Count with the loaded local model's tokenizer" @click="countExact">Count exact</UiButton>
           <span class="cc-spacer" />
-          <label class="cc-win">window <span class="lu-muted" :title="windowSource === 'assumed' ? 'No -c (ctx_len) switch set — this is an assumed default, edit it to your model\'s real window' : 'From the column\'s -c (ctx_len) switch / loaded model'">({{ windowSource }})</span> <UiInput :model-value="window" type="number" class="cc-win-in" @update:model-value="window = $event" /></label>
+          <label class="cc-win">window <span class="lu-muted" :title="windowSource === 'assumed' ? 'No local model picked — this is an assumed default, edit it to your model\'s real window' : 'From the model\'s resolved launch config (Tune & measure) / loaded model'">({{ windowSource }})</span> <UiInput :model-value="window" type="number" class="cc-win-in" @update:model-value="window = $event" /></label>
         </div>
         <div v-if="overBudget" class="cc-budget cc-budget-over">
           ⚠ prompt ≈{{ promptTok }} + {{ outReserve || 0 }} output = {{ budgetUsed }} tok exceeds the {{ window }}-token window — it will truncate or error.
@@ -538,6 +532,9 @@ defineExpose({ run, cancel });
         <b>{{ testOut.words }}</b> words<template v-if="testOut.tokens"> · <b>{{ testOut.tokens }}</b> tok</template><template v-if="testOut.tps"> · <b>{{ testOut.tps }}</b> tok/s</template> · {{ testOut.ms }} ms · <b>{{ fmtCost(testOut.cost) }}</b>
       </div>
     </div>
+
+    <!-- THE one switch editor (§7.1), opened for this column's model. -->
+    <TuneMeasureModal v-if="tuningModel" :model="tuningModel" @close="onTuneClosed" />
   </div>
 </template>
 
@@ -558,14 +555,15 @@ defineExpose({ run, cancel });
 .cc-num { max-width: 92px; }
 .cc-reason { max-width: 120px; }
 .cc-chk { display: flex; align-items: center; gap: 7px; }
-.cc-switches-body, .cc-samplers-body { margin-top: 8px; }
+.cc-engsw { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.cc-engsw .lu-muted { font-size: 11px; }
+.cc-samplers-body { margin-top: 8px; }
 .cc-samporder { margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 7px; }
 .cc-samporder-list { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .cc-samporder-row { display: grid; grid-template-columns: minmax(140px, 200px) auto auto; gap: 6px; align-items: center; }
 .cc-samporder-name { font-size: 12px; font-family: var(--font-mono, monospace); color: var(--ink); }
 .cc-stops { margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--border); display: flex; flex-direction: column; gap: 6px; }
 .cc-stops-ta { resize: vertical; min-height: 42px; font-family: var(--font-mono, monospace); font-size: 12px; }
-.cc-switch-note { font-size: 11px; margin: 8px 0 0; line-height: 1.4; }
 .cc-preview-body { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .cc-preview-foot { display: flex; align-items: center; gap: 10px; font-size: 11.5px; flex-wrap: wrap; }
 .cc-win { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }

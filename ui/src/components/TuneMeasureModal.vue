@@ -1,16 +1,20 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Quick tune (#20 → Plan B 2026-07-05), extracted from LuModelCatalog so the model
-// catalog opens the SAME modal from its per-row Tune action. Loads the model with
-// ad-hoc Plane-1 engine flags + probes decode tok/s on this box. Pre-fills from the
-// model's RESOLVED defaults (base → type → auto-mtp → hardware → saved tune — show
-// the truth); tweaks flow through POST /load { switches } → the same server-side
-// converter stored switches use. **Save tune** persists the grid VERBATIM as this
-// model's tune FOR THIS MACHINE (PUT /v1/ai/model-tunes; the server derives the
-// machine key) — every later load of this model here uses it automatically. "Remove
-// saved tune" (DELETE) returns the model to the layered defaults. Send-to-Tasks-Lab
-// stays the separate per-TASK depth. Self-contained (loads its own knob catalog);
-// mount behind v-if with a :model and listen for @close.
+// THE one launch-switch editor (§7.1, locked 2026-07-08) — Quick tune (#20 → Plan B
+// 2026-07-05), extracted from LuModelCatalog; opened from the model catalog's per-row
+// Tune action AND from a Lab column's "Engine switches ↗" link (launch config lives on
+// the MODEL — one editor, everywhere). Loads the model with ad-hoc Plane-1 engine
+// flags + probes decode tok/s on this box. Pre-fills from the model's RESOLVED
+// defaults (base → type → auto-mtp → class → applied tune — show the truth); tweaks
+// flow through POST /load { switches } → the same server-side converter stored
+// switches use. **Apply** (was "Save tune") persists the grid VERBATIM as this
+// model's config FOR THIS MACHINE (PUT /v1/ai/model-tunes; the server derives the
+// machine key) — every task that uses this model runs it — and, per the user's
+// apply-now decision, RELOADS the model immediately when it is currently running
+// (no stale window: applied == active). A blast-radius confirm names the affected
+// tasks first. "Remove applied config" (DELETE) returns the model to the layered
+// defaults, with the same reload-if-running. Self-contained (loads its own knob
+// catalog); mount behind v-if with a :model ({id, name}) and listen for @close.
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { request } from "../client.js";
@@ -18,7 +22,7 @@ import { classKeyLabel, listClassTunes, putClassTune } from "../classTunes.js";
 import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
 import { recordMeasurement } from "../measurements.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
-import { sendToTasksLab } from "../common/services/labHandoff.js";
+import { confirmDialog } from "../common/services/dialog.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
 import LuClassTunes from "./LuClassTunes.vue";
@@ -76,10 +80,11 @@ function addComputedToGrid() {
   if (extra.length) tuneRows.value = [...tuneRows.value, ...extra];
 }
 
-// ── the saved per-(model, machine) tune (Plan B) ─────────────────────────────
-const savedTune = ref(null); // { hwKey, rows } | null — this machine's saved tune
+// ── the applied per-(model, machine) config (Plan B storage; §7.1 Apply semantics) ──
+const savedTune = ref(null); // { hwKey, rows } | null — this machine's applied config
 const saveState = ref(""); // "" | saving | removing
 const saveErr = ref("");
+const applyMsg = ref(""); // transient "Applied ✓ …" note after a completed Apply
 
 // Rows whose BARE name matches no plane-1 knob — likely a mistyped or since-
 // DROPPED typed field that would render mis-spelled and fail the spawn (the D5
@@ -106,8 +111,64 @@ async function loadSavedTune() {
     savedTune.value = null; // saved-state is an enrichment; tuning still works
   }
 }
-async function saveTune() {
+// The blast radius for the Apply confirm: the labels of every task whose resolved
+// preset (its own row, else the global default) points at THIS model. Best-effort —
+// null means "couldn't compute" and the confirm falls back to generic copy.
+async function affectedTaskLabels() {
+  try {
+    const [tk, pa, ep] = await Promise.all([
+      request("/v1/ai/task-kinds"), request("/v1/ai/preset-assignments"), request("/v1/ai/engine-presets"),
+    ]);
+    const modelOf = Object.fromEntries((ep.presets || []).map((p) => [p.id, p.model]));
+    const asg = pa || {};
+    // NOTE: /v1/ai/task-kinds returns `taskKinds` (the task catalog rows), NOT `tasks` —
+    // same field every consumer reads (FeatureWorkbench.vue, TaskKinds.vue).
+    return (tk.taskKinds || [])
+      .filter((t) => modelOf[(asg.taskKinds || {})[t.id] || asg.defaultPresetId || ""] === props.model.id)
+      .map((t) => t.label || t.id);
+  } catch {
+    return null;
+  }
+}
+
+// Reload the model NOW when it is the currently-running one, so applied == active
+// (the user's apply-now decision — never "wait for the next load"). Loads WITHOUT
+// explicit switches so the spawn resolves the just-written config through the same
+// path production uses (seen = run). Honest limit: /status reports the PRIMARY
+// resident model; a co-resident secondary (e.g. the pinned embed) isn't respawned —
+// its next load picks the config up.
+async function reloadIfRunning() {
+  const st = await request("/v1/llm-runner/status").catch(() => null);
+  if (!(st?.status === "running" && st?.modelId === props.model.id)) return false;
+  tunePhase.value = "loading";
+  tuneDetail.value = "applying — reloading the model with the new config";
+  await request("/v1/llm-runner/stop", { method: "POST" }).catch(() => {});
+  await request("/v1/llm-runner/load", { method: "POST", body: { modelId: props.model.id } });
+  await pollUntilSettled();
+  tunePhase.value = "";
+  tuneDetail.value = "";
+  return true;
+}
+
+async function applyTune() {
   saveErr.value = "";
+  applyMsg.value = "";
+  // Blast-radius confirm (§7.1): name the affected tasks (capped) before committing.
+  const labels = await affectedTaskLabels();
+  const capped = labels && labels.length > 3
+    ? `${labels.slice(0, 3).join(", ")} +${labels.length - 3} more`
+    : (labels || []).join(", ");
+  const scope = labels == null
+    ? "Every task that uses this model on this PC will run these switches."
+    : labels.length
+      ? `Every task that uses this model on this PC will run these switches: ${capped}.`
+      : "No task currently uses this model — the config takes effect whenever it loads.";
+  const ok = await confirmDialog({
+    title: `Apply to ${props.model.name || props.model.id}?`,
+    message: `${scope} The model reloads now if it's running. (Temperature, tokens, and thinking stay per-task — unchanged.)`,
+    confirmLabel: "Apply",
+  });
+  if (!ok) return;
   saveState.value = "saving";
   try {
     const switches = tuneRows.value
@@ -118,21 +179,30 @@ async function saveTune() {
       body: { modelId: props.model.id, switches },
     });
     savedTune.value = res.rows?.length ? res : null;
+    const reloaded = await reloadIfRunning();
+    applyMsg.value = reloaded
+      ? "Applied ✓ — the model reloaded; every task using it runs this config now."
+      : "Applied ✓ — every task using this model runs this config from its next load.";
   } catch (e) {
-    saveErr.value = e.message || "Couldn't save the tune.";
+    saveErr.value = e.message || "Couldn't apply the config.";
+    tunePhase.value = "";
   } finally {
     saveState.value = "";
   }
 }
 async function removeTune() {
   saveErr.value = "";
+  applyMsg.value = "";
   saveState.value = "removing";
   try {
     await request(`/v1/ai/model-tunes?modelId=${encodeURIComponent(props.model.id)}`, { method: "DELETE" });
     savedTune.value = null;
     await startTune(); // the grid returns to the layered defaults
+    const reloaded = await reloadIfRunning(); // removal applies now too (active = resolved)
+    applyMsg.value = reloaded ? "Removed — the model reloaded on its layered defaults." : "";
   } catch (e) {
-    saveErr.value = e.message || "Couldn't remove the saved tune.";
+    saveErr.value = e.message || "Couldn't remove the applied config.";
+    tunePhase.value = "";
   } finally {
     saveState.value = "";
   }
@@ -142,13 +212,6 @@ async function fetchResolved(id) {
   return resolveModelDefaults(id); // {switches, samplers, mtpCapable} — shared w/ ConfigColumn (one source)
 }
 
-// Hand this tuned model + switches (incl. custom rows) to the Tasks Lab as a new Compare
-// column — the per-TASK depth (a task's exact preset). The per-MODEL keep-path is Save
-// tune above. providerId is left blank: the Lab resolves the bundled-runner provider.
-function sendToLab() {
-  sendToTasksLab({ providerId: "", model: props.model.id, switches: tuneRows.value });
-  emit("close");
-}
 async function startTune() {
   tuneRows.value = [];
   tuneComputed.value = [];
@@ -348,18 +411,19 @@ onBeforeUnmount(stopAutoPoll);
       <p class="lu-muted lu-tune-lede">
         Load this model with custom engine flags and measure decode speed on your hardware.
         Flags are pre-filled from the model's defaults<template v-if="savedTune"> — including
-        your saved tune</template> — tweak, measure, then <b>Save tune</b> to keep the
-        config for this model on this machine.
+        your applied config</template> — tweak, measure, then <b>Apply</b>. Engine switches
+        belong to the <b>model</b>: every task that uses it on this PC shares them (a task
+        decides only how it's <i>asked</i> — temperature, tokens, thinking — on the Tasks tab).
       </p>
       <p v-if="tuneMtpCapable" class="lu-muted lu-tune-lede">This model supports <b>MTP</b> —
         <b>Speculative decode</b> is on by default (“MTP draft”); gains are machine-dependent, so
         measure. To turn it off here, set it to “Off” and Save.</p>
 
       <div v-if="savedTune" class="lu-tune-saved">
-        <UiTag intent="success">Tuned for this machine ✓</UiTag>
-        <UiButton intent="ghost" size="small" :loading="saveState === 'removing'"
-          title="Delete this machine's saved tune — the model returns to its defaults"
-          @click="removeTune">Remove saved tune</UiButton>
+        <UiTag intent="success">Applied on this PC ✓</UiTag>
+        <UiButton intent="secondary" size="small" :loading="saveState === 'removing'"
+          title="Delete this PC's applied config — the model returns to its layered defaults (reloads now if running)"
+          @click="removeTune">Remove applied config</UiButton>
       </div>
 
       <KnobGrid v-model="tuneRows" :catalog="switchCatalog" :origins="tuneOriginTags" />
@@ -379,13 +443,9 @@ onBeforeUnmount(stopAutoPoll);
       <p class="lu-tune-engdef lu-muted">Anything not listed here uses the engine's own defaults.</p>
       <UiButton intent="ghost" size="small" @click="resetTuneSwitches">Reset to model default</UiButton>
 
-      <div class="lu-tune-note lu-muted">
-        <span>Want a per-<b>Task</b> setup instead? Send this config to a Task — it opens as a new
-          column in that Task's Lab, where you save it as the Task's preset.</span>
-        <UiButton intent="secondary" size="small" class="lu-tune-send" @click="sendToLab">Send to Tasks Lab →</UiButton>
-      </div>
       <LuClassTunes ref="classTunesRef" :model-id="model.id" :catalog="switchCatalog" />
       <LuMeasureHistory ref="measureHistRef" :model-id="model.id" />
+      <div v-if="applyMsg" class="lu-tune-applied">{{ applyMsg }}</div>
       <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
 
       <div v-if="tunePhase === 'loading'" class="lu-tune-status">Loading… {{ tuneDetail }}</div>
@@ -401,7 +461,7 @@ onBeforeUnmount(stopAutoPoll);
           {{ t.label }}: {{ t.ok ? `${t.tokensPerSec} tok/s` : "✗" }}
         </span>
         <span v-if="autoState?.status === 'done' && autoState?.best" class="lu-tune-trial lu-tune-trial-win">
-          winner → grid (review, then Save tune)
+          winner → grid (review, then Apply)
         </span>
       </div>
 
@@ -413,7 +473,7 @@ onBeforeUnmount(stopAutoPoll);
             v-if="tuneResult.ramTotalMb"> · RAM {{ gb(tuneResult.ramTotalMb) }} GB</template>
         </div>
         <div v-if="!tuneResult.vramTotalMb" class="lu-muted lu-tune-cpu">No GPU detected — measured on CPU.</div>
-        <!-- Save-tune keeps this config for THIS machine; this keeps it as the shared
+        <!-- Apply keeps this config for THIS machine; this keeps it as the shared
              starting point for every PC of the same class (ROUND 8 Task C — "on a
              result": you share what you measured, not a blind grid). -->
         <div v-if="myClassKey" class="lu-tune-clsrow">
@@ -436,14 +496,14 @@ onBeforeUnmount(stopAutoPoll);
       <UiButton intent="ghost" @click="emit('close')">Close</UiButton>
       <span class="lu-tmm-spacer" />
       <UiButton v-if="!autoRunning" intent="secondary" :disabled="tuneBusy"
-        title="Run a short measured sweep (batch + expert-offload candidates, ~3–5 min) and fill the grid with the fastest config — review, then Save tune"
+        title="Run a short measured sweep (batch + expert-offload candidates, ~3–5 min) and fill the grid with the fastest config — review, then Apply"
         @click="runAutoTune">Auto-tune</UiButton>
       <UiButton v-else intent="danger"
         title="Stop after the current trial finishes"
         @click="cancelAutoTune">Cancel auto-tune</UiButton>
       <UiButton intent="success" :loading="saveState === 'saving'" :disabled="autoRunning"
-        title="Keep this config for this model on this machine — every load here uses it"
-        @click="saveTune">Save tune</UiButton>
+        title="Set this model's engine switches for every task that uses it on this PC — the model reloads now if it's running"
+        @click="applyTune">Apply</UiButton>
       <UiButton intent="primary" :loading="tuneBusy" :disabled="autoRunning" @click="runMeasure">
         {{ tuneResult ? "Measure again" : "Load & measure" }}
       </UiButton>
@@ -456,7 +516,7 @@ onBeforeUnmount(stopAutoPoll);
 .lu-tune-lede { font-size: 12px; margin: 0; }
 .lu-tune-saved { display: flex; align-items: center; gap: 10px; }
 .lu-tune-unk { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
-.lu-tune-note { font-size: 11px; padding: 8px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.lu-tune-applied { font-size: 12px; color: var(--success, #3a7d63); font-weight: 600; }
 .lu-tune-status { font-size: 12.5px; color: var(--ink-2); }
 .lu-tune-result { padding: 12px 14px; background: var(--accent-soft); border: 1px solid var(--accent-line, var(--accent)); border-radius: var(--r-sm, 8px); }
 .lu-tune-tps { font-size: 13px; color: var(--ink-2); }

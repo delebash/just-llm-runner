@@ -561,30 +561,29 @@ class SwitchPresetStore:
             s.close()
 
 
-# ── engine presets (the 2026-06-29 lab+preset model: model+switches+params, the
-# source of truth for what runs). Assigned by TASKKIND (TaskKindPreset), with
-# TaskKindPreset[""] as the global default (2026-07-02: no per-feature override tier). ──
-def _engine_preset_to_wire(p, switches, samplers) -> EnginePresetRow:
+# ── engine presets (the 2026-06-29 lab+preset model, narrowed §7.1 2026-07-08:
+# model + per-request params + samplers — NO launch switches; those are owned by
+# the model × machine tune stack in `switch_resolve`). Assigned by TASKKIND
+# (TaskKindPreset), with TaskKindPreset[""] as the global default (2026-07-02: no
+# per-feature override tier). ──
+def _engine_preset_to_wire(p, samplers) -> EnginePresetRow:
     return EnginePresetRow(
         id=p.id, name=p.name, providerId=p.provider_id, model=p.model,
         temperature=p.temperature, topP=p.top_p, maxTokens=p.max_tokens,
         jsonMode=p.json_mode, reasoningEffort=p.reasoning_effort,
-        nglOverride=p.ngl_override, nCpuMoeOverride=p.n_cpu_moe_override,
-        switches=[PresetFlagRow(flagName=x.flag_name, flagValue=x.flag_value) for x in switches],
         samplers=[PresetFlagRow(flagName=x.param_name, flagValue=x.value) for x in samplers],
         builtIn=p.built_in, position=p.position,
     )
 
 
 def _delete_engine_preset_rows(s, ids) -> None:
-    """Delete engine presets + their FK children (switches/samplers) explicitly, in
-    the given session. Host-agnostic — does NOT rely on SQLite ON DELETE CASCADE (the
+    """Delete engine presets + their FK children (samplers) explicitly, in the
+    given session. Host-agnostic — does NOT rely on SQLite ON DELETE CASCADE (the
     runner's own reset path runs with FK enforcement off). ONE teardown path, shared by
     EnginePresetStore.delete + seed.restore_built_in_engine_presets."""
     ids = [i for i in ids if i]
     if not ids:
         return
-    s.query(db.EnginePresetSwitch).filter(db.EnginePresetSwitch.preset_id.in_(ids)).delete(synchronize_session=False)
     s.query(db.EnginePresetSampler).filter(db.EnginePresetSampler.preset_id.in_(ids)).delete(synchronize_session=False)
     s.query(db.EnginePreset).filter(db.EnginePreset.id.in_(ids)).delete(synchronize_session=False)
 
@@ -593,16 +592,12 @@ class EnginePresetStore:
     def list(self) -> list[EnginePresetRow]:
         s = db.session()
         try:
-            sw: dict[str, list] = {}
-            for r in s.query(db.EnginePresetSwitch).all():
-                sw.setdefault(r.preset_id, []).append(r)
             sm: dict[str, list] = {}
             for r in s.query(db.EnginePresetSampler).all():
                 sm.setdefault(r.preset_id, []).append(r)
             return [
                 _engine_preset_to_wire(
                     p,
-                    sorted(sw.get(p.id, []), key=lambda x: x.flag_name),
                     sorted(sm.get(p.id, []), key=lambda x: x.param_name),
                 )
                 for p in s.query(db.EnginePreset).order_by(db.EnginePreset.position, db.EnginePreset.id).all()
@@ -626,13 +621,6 @@ class EnginePresetStore:
             row.max_tokens = preset.maxTokens
             row.json_mode = preset.jsonMode
             row.reasoning_effort = preset.reasoningEffort
-            row.ngl_override = preset.nglOverride
-            row.n_cpu_moe_override = preset.nCpuMoeOverride
-            s.query(db.EnginePresetSwitch).filter(db.EnginePresetSwitch.preset_id == pid).delete()
-            for x in preset.switches:
-                if not (x.flagName or "").strip():
-                    continue
-                s.add(db.EnginePresetSwitch(preset_id=pid, flag_name=x.flagName.strip(), flag_value=x.flagValue or ""))
             s.query(db.EnginePresetSampler).filter(db.EnginePresetSampler.preset_id == pid).delete()
             for x in preset.samplers:
                 if not (x.flagName or "").strip():

@@ -241,12 +241,10 @@ def test_engine_preset_delete_removes_children(wired):
     eps = stores.get_engine_preset_store()
     p = eps.save(EnginePresetRow(
         name="P", providerId="local-llamacpp", model="m",
-        switches=[PresetFlagRow(flagName="flash_attn", flagValue="on")],
         samplers=[PresetFlagRow(flagName="top_k", flagValue="40")],
     ))
     s = _db.session()
     try:
-        assert s.query(_db.EnginePresetSwitch).filter_by(preset_id=p.id).count() == 1
         assert s.query(_db.EnginePresetSampler).filter_by(preset_id=p.id).count() == 1
     finally:
         s.close()
@@ -256,7 +254,6 @@ def test_engine_preset_delete_removes_children(wired):
     s = _db.session()
     try:
         assert s.query(_db.EnginePreset).filter_by(id=p.id).count() == 0
-        assert s.query(_db.EnginePresetSwitch).filter_by(preset_id=p.id).count() == 0   # children gone (no orphans)
-        assert s.query(_db.EnginePresetSampler).filter_by(preset_id=p.id).count() == 0
+        assert s.query(_db.EnginePresetSampler).filter_by(preset_id=p.id).count() == 0  # child gone (no orphans)
     finally:
         s.close()

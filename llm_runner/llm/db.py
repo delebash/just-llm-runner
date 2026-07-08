@@ -489,11 +489,18 @@ class FeatureSamplerParam(LlmBase):
 # 2026-06-29 lab+preset model). A preset = model + frozen switches + params. It is
 # assigned to features by TASKKIND (TaskKindPreset), with TaskKindPreset[""] as the
 # global default (2026-07-02: a feature's preset IS its task's — no per-feature tier). The
-# PROMPT is NOT here — it stays on the feature (FeaturePrompt). Frozen (stored = run)
-# EXCEPT ngl / n_cpu_moe, which auto-compute at load when their override is null. ──
+# PROMPT is NOT here — it stays on the feature (FeaturePrompt). ──
 class EnginePreset(LlmBase):
     """A reusable engine config built + saved in the Lab: a model + per-request
-    params + a frozen Plane-1 switch child + optional hardware-fit-knob overrides."""
+    params + a long-tail sampler child. HOLDS NO LAUNCH SWITCHES (§7.1, locked
+    2026-07-08): launch config is owned by the MODEL × machine tune stack
+    (`switch_resolve` — global bundles → class_tunes → model_tunes), because a
+    loaded model is ONE process with ONE set of launch flags, shared by every
+    task that points at it. The old per-preset switch child
+    (`engine_preset_switches`) + the ngl/n_cpu_moe override columns were dead
+    storage — written by the Lab, read by NOTHING at load — and were removed;
+    an existing DB keeps the orphan table/columns inert (the
+    `feature_preset_refs` precedent — no reset required)."""
 
     __tablename__ = "engine_presets"
 
@@ -507,23 +514,8 @@ class EnginePreset(LlmBase):
     max_tokens = Column(Integer, nullable=False, default=0)        # 0 → no cap
     json_mode = Column(Boolean, nullable=False, default=False)
     reasoning_effort = Column(String, nullable=False, default="")  # "" | low | medium | high
-    # Hardware-fit knobs: null → auto-compute at load; set → frozen override that wins.
-    ngl_override = Column(Integer, nullable=True)
-    n_cpu_moe_override = Column(Integer, nullable=True)
     position = Column(Integer, nullable=False, default=0)
     built_in = Column(Boolean, nullable=False, default=False)
-
-
-class EnginePresetSwitch(LlmBase):
-    """One FROZEN Plane-1 switch in a preset (flash-attn, cache types, mlock,
-    no-mmap, moe spec-off, …) — variable-cardinality child, PK (preset_id, flag_name).
-    NOT the auto fit knobs (ngl / n_cpu_moe are columns on EnginePreset)."""
-
-    __tablename__ = "engine_preset_switches"
-
-    preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), primary_key=True)
-    flag_name = Column(String, primary_key=True)
-    flag_value = Column(String, nullable=False, default="")
 
 
 class EnginePresetSampler(LlmBase):

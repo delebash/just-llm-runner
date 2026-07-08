@@ -21,7 +21,6 @@ const props = defineProps({
   baseConfig: { type: Object, default: () => ({}) }, // seed each new column from this
   providers: { type: Array, default: () => [] },
   samplerCatalogList: { type: Array, default: () => [] },
-  switchCatalogList: { type: Array, default: () => [] },
   vars: { type: Object, default: () => ({}) },
   presets: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },  // the feature's in-production preset
@@ -90,8 +89,9 @@ function colModelLabel(config) {
   return p?.model || p?.providerId || "inherited";
 }
 
-// ── load an ENGINE preset into a column (model + switches + params + fit-knobs;
-// NOT the prompt — that's the feature's shared test input) ───────────────────
+// ── load an ENGINE preset into a column (model + params + samplers — §7.1: a
+// preset holds NO launch switches; NOT the prompt — that's the feature's shared
+// test input) ─────────────────────────────────────────────────────────────────
 function presetToConfig(p, base) {
   return {
     ...base,
@@ -101,13 +101,9 @@ function presetToConfig(p, base) {
     maxTokens: p.maxTokens ?? base.maxTokens,
     jsonMode: p.jsonMode ?? base.jsonMode,
     reasoningEffort: p.reasoningEffort || "",
-    nglOverride: p.nglOverride ?? null,
-    nCpuMoeOverride: p.nCpuMoeOverride ?? null,
-    switches: (p.switches || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
     samplers: (p.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
     // Mark provenance so ConfigColumn's model seed never clobbers a loaded preset's
-    // switches OR samplers (even when the preset changes the column's model).
-    switchesSource: "preset",
+    // samplers (even when the preset changes the column's model).
     samplersSource: "preset",
   };
 }
@@ -121,10 +117,6 @@ onMounted(() => {
   // trial: one column reads cleaner; "+ Add column" adds more to compare/tune).
   addColumn();
 });
-
-// Exposed so a parent (FeatureLab, on a Tune→Tasks Lab handoff) can seed an extra
-// column ALONGSIDE the base one — compare, not clobber (Phase 5).
-defineExpose({ addColumn });
 </script>
 
 <template>
@@ -147,7 +139,7 @@ defineExpose({ addColumn });
       <div v-for="(col, i) in columns" :key="col.id" class="lu-cmp-col">
         <ConfigColumn :ref="(el) => setColRef(col.id, el)"
           v-model="col.config" :action="action" :providers="providers"
-          :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
+          :sampler-catalog-list="samplerCatalogList"
           :vars="vars" :presets="presets" :prompt-editable="true"
           :production-preset-id="productionPresetId"
           :run-stream="null" :busy="runningAll" :removable="columns.length > 1"

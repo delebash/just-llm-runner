@@ -21,7 +21,6 @@ import UiTag from "../common/components/UiTag.vue";
 import Icon from "../common/components/Icon.vue";
 import { request } from "../client.js";
 import { promptDialog, confirmDialog } from "../common/services/dialog.js";
-import { labHandoff, takeLabHandoff } from "../common/services/labHandoff.js";
 
 const tasks = ref([]);              // [{id,label,description,position,builtIn}]
 const featureTaskKinds = ref({});  // action key → task id
@@ -32,14 +31,12 @@ const providers = ref([]);
 const knobCatalog = ref([]);
 const routing = ref(null);
 const samplerCatalogList = computed(() => knobCatalog.value.filter((k) => k.plane === 2));
-const switchCatalogList = computed(() => knobCatalog.value.filter((k) => k.plane === 1));
 const loading = ref(true);
 const error = ref("");
 const message = ref("");
 
 const selTask = ref("");       // selected task id
 const testAgainst = ref("");   // the member action the Lab runs against
-const pendingHandoff = ref(null); // a Tune→Tasks Lab payload landed on tasks[0] → seeds a Compare column
 
 const promptByKey = computed(() => Object.fromEntries(prompts.value.map((p) => [p.key, p])));
 const selected = computed(() => tasks.value.find((t) => t.id === selTask.value) || null);
@@ -103,7 +100,6 @@ async function load() {
     try { knobCatalog.value = (await request("/v1/ai/knob-catalog")).knobs || []; }
     catch { knobCatalog.value = []; }
     if (!selTask.value && tasks.value.length) selectTask(tasks.value[0].id);
-    if (labHandoff.value) consumeHandoff();  // a Tune→Tasks payload arrived before this mount
   } catch (e) {
     error.value = `Couldn't load: ${e.message}`;
   } finally {
@@ -116,18 +112,6 @@ function selectTask(id) {
   message.value = "";
   const m = membersOf(id);
   testAgainst.value = m[0] || "";
-  pendingHandoff.value = null;  // leaving/re-entering a task drops any tuning-handoff column
-}
-
-// A Tune→Tasks Lab handoff: land the tuned config on the FIRST task and hold it as a
-// pending seed for the Lab (FeatureLab adds ONE Compare column from it, alongside the
-// task's preset column). One-shot (`takeLabHandoff` clears the shared channel).
-function consumeHandoff() {
-  const h = takeLabHandoff();
-  if (!h) return;
-  if (tasks.value.length) selectTask(tasks.value[0].id);  // clears pendingHandoff first…
-  pendingHandoff.value = h;                                // …then arms it for the Lab
-  message.value = "Tuned config sent here — Save the new column as this task's preset.";
 }
 
 async function newTask() {
@@ -231,10 +215,6 @@ async function onUseForTask(presetId) {
 const navCollapsed = ref(false);
 const testPrompt = computed(() => promptByKey.value[testAgainst.value] || null);
 
-// A handoff can also arrive while this page is already mounted; consume it then too.
-// One-shot (`takeLabHandoff`), so no double-consume with load()'s own check.
-watch(labHandoff, (h) => { if (h && !loading.value) consumeHandoff(); });
-
 onMounted(load);
 </script>
 
@@ -311,14 +291,11 @@ onMounted(load);
                 @update:model-value="(v) => testAgainst = v" />
               <span class="lu-muted lu-tk-testhint">run this task's preset on a member feature's prompt</span>
             </div>
-            <p v-else-if="pendingHandoff" class="lu-tk-empty lu-muted">Tuning a sent-over config — <b>assign a member</b> to this task to also test the prompt.</p>
             <div v-else class="lu-tk-empty lu-muted">Assign a feature to this task to test its preset.</div>
-            <!-- The Lab mounts for a member (testPrompt) OR a pending Tune→Tasks handoff
-                 (member-less), seeding the tuned config as a Compare column. -->
-            <FeatureLab v-if="testPrompt || pendingHandoff" :key="testAgainst || '__handoff__'"
+            <FeatureLab v-if="testPrompt" :key="testAgainst"
               :action="testAgainst" :prompt="testPrompt" :providers="providers" :presets="presets"
-              :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
-              :production-preset-id="taskPreset(selTask)" :pin="pin(testAgainst)" :handoff="pendingHandoff"
+              :sampler-catalog-list="samplerCatalogList"
+              :production-preset-id="taskPreset(selTask)" :pin="pin(testAgainst)"
               @use-production="onUseForTask" @presets-changed="onPresetsChanged" />
           </div>
         </section>

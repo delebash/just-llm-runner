@@ -1,17 +1,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Shared engine-preset router — the 2026-06-29 lab + preset model.
+"""Shared engine-preset router — the 2026-06-29 lab + preset model, narrowed by
+the §7.1 switches⇄params lock (2026-07-08).
 
-An ENGINE PRESET = a reusable engine config (model + frozen Plane-1 switches +
-per-request params + optional hardware-fit-knob overrides) built and saved in the
-Lab. It is the SOURCE OF TRUTH for what runs (combined with a feature's prompt).
+An ENGINE PRESET = a reusable per-TASK ask-config (model + per-request params +
+long-tail samplers) built and saved in the Lab. It is the source of truth for
+everything a task can own. It holds NO launch switches: launch config belongs to
+the MODEL × machine tune stack (`switch_resolve` — global bundles → class_tunes →
+model_tunes), edited in Tune & measure, because a loaded model is one process
+with one set of launch flags shared by every task that points at it.
 
 A feature resolves its preset via the cascade (2026-07-02 "task owns the preset"):
     its taskKind's preset (TaskKindPreset) → the global default preset.
 (The per-feature override tier was removed — a feature's preset IS its task's.)
 
-The PROMPT is NOT here — it lives on the feature (FeaturePrompt). Switches and
-long-tail samplers are variable-cardinality children; `nglOverride` /
-`nCpuMoeOverride` are nullable (null = auto-compute the fit knob at load).
+The PROMPT is NOT here — it lives on the feature (FeaturePrompt). Long-tail
+samplers are a variable-cardinality child.
 """
 
 from __future__ import annotations
@@ -26,17 +29,16 @@ from .seed import app_engine_presets
 
 
 class PresetFlagRow(BaseModel):
-    """One flag/sampler key-value in a preset (a frozen switch, or a long-tail
-    sampler). `flagName` maps to an `Overrides` field / `extra_flags` (switches) or
-    rides the per-call `extra` (samplers)."""
+    """One long-tail sampler key-value in a preset. `flagName` rides the
+    per-call `extra` at dispatch."""
 
     flagName: str
     flagValue: str = ""
 
 
 class EnginePresetRow(BaseModel):
-    """A reusable engine config: model + params + frozen switches + sampler tail +
-    optional fit-knob overrides. The Lab builds these; features point at them."""
+    """A reusable per-task ask-config: model + request params + sampler tail.
+    The Lab builds these; features point at them. No launch switches (§7.1)."""
 
     id: str = ""
     name: str = ""
@@ -48,10 +50,6 @@ class EnginePresetRow(BaseModel):
     maxTokens: int = 0                  # 0 → no cap
     jsonMode: bool = False
     reasoningEffort: str = ""           # "" | low | medium | high
-    # Hardware-fit knobs: null → auto-compute at load; set → frozen override that wins.
-    nglOverride: int | None = None
-    nCpuMoeOverride: int | None = None
-    switches: list[PresetFlagRow] = []  # frozen Plane-1 engine switches
     samplers: list[PresetFlagRow] = []  # long-tail Plane-2 samplers
     builtIn: bool = False
     position: int = 0

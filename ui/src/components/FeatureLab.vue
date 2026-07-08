@@ -7,13 +7,15 @@
 // you Run and Save as presets.
 //
 // State boundary (panel-decided): FeatureLab OWNS draft(prompt, read to run) + vars +
-// samplers + switches + columnConfig + the CompareStrip. ROUTING stays in the PARENT —
-// the pin arrives as a prop and is a READ-ONLY seed for the column's model (the pin-edit
+// samplers + columnConfig + the CompareStrip. ROUTING stays in the PARENT — the pin
+// arrives as a prop and is a READ-ONLY seed for the column's model (the pin-edit
 // path was removed as vestigial; models persist via presets, not the routing pin), so
 // there is ONE routing source of truth. save-as / update-preset / delete-preset /
 // use-production are emitted; the parent decides the target — under Plan A that is always
 // a TASK preset (the feature's task in the Workbench, the selected task on the Tasks page).
-import { computed, onMounted, reactive, ref, watch } from "vue";
+// NO LAUNCH SWITCHES here (§7.1, 2026-07-08): those live on the model — the column's
+// "Engine switches ↗" link opens Tune & measure.
+import { computed, reactive, ref, watch } from "vue";
 
 import CompareStrip from "./CompareStrip.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
@@ -25,16 +27,13 @@ const props = defineProps({
   providers: { type: Array, default: () => [] },
   presets: { type: Array, default: () => [] },
   samplerCatalogList: { type: Array, default: () => [] },
-  switchCatalogList: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },
   pin: { type: Object, default: null },         // the action's routing pin (parent-owned)
-  handoff: { type: Object, default: null },     // a pending Tune→Tasks Lab payload (Phase 5)
 });
 const emit = defineEmits(["use-production", "presets-changed"]);
 
 const draft = ref(null);       // editable copy of the prompt (ephemeral test edits)
 const samplerRows = ref([]);   // the action's long-tail samplers (Plane-2)
-const switchRows = ref([]);    // the action's engine switches (Plane-1)
 const vars = reactive({});
 const varHint = "{{variables}}";
 
@@ -74,8 +73,6 @@ function cfgToEnginePreset(name, cfg) {
     temperature: num(cfg.temperature), topP: num(cfg.topP),
     maxTokens: Number(cfg.maxTokens) || 0, jsonMode: !!cfg.jsonMode,
     reasoningEffort: cfg.reasoningEffort || "",
-    nglOverride: num(cfg.nglOverride), nCpuMoeOverride: num(cfg.nCpuMoeOverride),
-    switches: (cfg.switches || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
     samplers: (cfg.samplers || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
   };
 }
@@ -100,7 +97,7 @@ async function updatePreset(id, cfg) {
 
 // Reset the local test state whenever the parent selects a different action.
 watch(() => props.prompt, (p) => { draft.value = p ? { ...p } : null; buildVars(); }, { immediate: true });
-watch(() => props.action, (k) => { switchRows.value = []; loadSamplers(k); }, { immediate: true });
+watch(() => props.action, (k) => { loadSamplers(k); }, { immediate: true });
 
 // The action's run-config SEED for <ConfigColumn>. Read-only: CompareStrip deep-clones
 // this into each column, so edits live on the column and reach us through the column's
@@ -111,40 +108,12 @@ const columnConfig = computed(() => {
   const d = draft.value || {};
   return {
     pin: props.pin,
-    switches: switchRows.value,
     system: d.system, userTemplate: d.userTemplate,
     temperature: d.temperature, topP: d.topP, maxTokens: d.maxTokens,
     reasoningEffort: d.think ? (d.reasoningEffort || "medium") : "",
     jsonMode: d.jsonMode, samplers: samplerRows.value,
-    nglOverride: null, nCpuMoeOverride: null,
   };
 });
-
-// ── Tune→Tasks Lab handoff (Phase 5): seed the tuned {model + switches} as a NEW column
-// ALONGSIDE the task's preset column (compare, not clobber). Idempotent per FeatureLab
-// instance (`seededHandoff`) but re-seeds on a fresh mount — so the column survives the
-// `:key="testAgainst"` remount when the user assigns the first member to a member-less task.
-const stripRef = ref(null);
-function bundledRunnerProviderId() {
-  // the tuned switches came from the local llama.cpp runner (/v1/llm-runner/load), so pin
-  // THAT provider — not "first local" (Ollama is also local:true but can't run this model).
-  const p = props.providers.find((x) => x.providerType === "local-llamacpp" || x.id === "local-llamacpp");
-  return p?.id || "";
-}
-let seededHandoff = null;
-function seedHandoffColumn(h) {
-  if (!h || h === seededHandoff || !stripRef.value) return;
-  seededHandoff = h;
-  const providerId = h.providerId || bundledRunnerProviderId();
-  stripRef.value.addColumn({
-    ...columnConfig.value,
-    pin: providerId || h.model ? { providerId, model: h.model || "" } : columnConfig.value.pin,
-    switches: (h.switches || []).map((r) => ({ name: r.name, value: r.value })),
-    switchesSource: "user", // the tuned switches are user-authored → the model seed won't clobber them
-  });
-}
-onMounted(() => seedHandoffColumn(props.handoff));
-watch(() => props.handoff, seedHandoffColumn);
 </script>
 
 <template>
@@ -156,9 +125,9 @@ watch(() => props.handoff, seedHandoffColumn);
         <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
       </div>
     </div>
-    <CompareStrip ref="stripRef" :key="action"
+    <CompareStrip :key="action"
       :action="action" :base-config="columnConfig" :providers="providers"
-      :sampler-catalog-list="samplerCatalogList" :switch-catalog-list="switchCatalogList"
+      :sampler-catalog-list="samplerCatalogList"
       :vars="vars" :presets="presets" :production-preset-id="productionPresetId"
       @save-as="saveAs"
       @update-preset="updatePreset"

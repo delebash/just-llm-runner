@@ -608,7 +608,40 @@ default" stays as a secondary library-write action, unchanged.
   temperature, tokens, thinking — per task, no reload.").
 - (d) Provenance **badges** (#15/#17/#24b): wording + which surfaces. Separate from this core.
 
-**BUILD SCOPE — NOT STARTED (needs its own build go; rule 10):**
+**BUILD RECORD (2026-07-08, the user's "go" — BUILT + VERIFIED; scope below executed with
+two recorded deviations):** the dead preset-switch storage is deleted end to end
+(`EnginePresetSwitch` class + `ngl_override`/`n_cpu_moe_override` columns out of `db.py`;
+`stores.py` wire/list/save/teardown narrowed to samplers; `seed.py` preset seeder drops the
+switch child + override kwargs; `presets_api.py` wire model + docstrings; tests rewritten —
+`test_presets.py` roundtrip asserts the fields are GONE and a stale `switches` key is ignored,
+`test_shared_storage.py` delete-children test is samplers-only). Kit: `ConfigColumn.vue` lost
+the Engine-switches grid + the Hardware-fit override row and gained the **"Engine switches ↗"**
+link (local models only) that mounts `TuneMeasureModal` for the column's model, with the budget
+window now derived from the model's RESOLVED `ctx_len` (windowSource "model"); `CompareStrip` /
+`FeatureLab` / `TaskKinds` / `FeatureWorkbench` dropped every switch/handoff prop and ref;
+`TuneMeasureModal` — "Save tune" → **Apply** (blast-radius `confirmDialog` naming affected
+tasks capped at 3 "+N more" → `PUT /v1/ai/model-tunes` → **immediate reload when the model is
+the currently-running one**: stop → load `{modelId}` only, so the spawn resolves the just-saved
+config through `switches_fn` — seen = run; honest limit noted in-code: a co-resident secondary
+isn't respawned, its next load picks the config up), "Remove applied config" reloads the same
+way, all "Save tune" copy → Apply/applied; **"Send to Tasks Lab" removed** + `labHandoff.js`
+DELETED + `AiModelsArea` back to a local tab ref (resolves #20 + #34 by deletion).
+**Deviation 1 (open sub-question (c)):** the "?" help popover was NOT built — the two-owner
+explainer shipped as the modal's lede sentence + the Lab link's caption/titles instead; the
+dedicated popover is DEFERRED pending the user's call on the (c) copy — the affordance is
+recorded here, not dropped. **Deviation 2 (open sub-question (a), flagged):** the confirm
+NAMES the affected tasks (capped +N) per the recorded recommendation — the user never
+explicitly picked named-vs-generic; one-line changeable. Also folded opportunistically:
+the "Remove applied config" button is `secondary` (not ghost) per the user's queue item #16
+wording ("not a fan of the plain ghost button").
+**Gates:** runner ruff clean + **409 pytest** · JW `build:vite` clean · **FULL headless smoke
+zero JS errors** (all routes + 5 AI sub-tabs) · rules-checker round 1 **FAIL** (2 genuine:
+`tk.tasks`→`tk.taskKinds` in the blast-radius fetch — fixed; the popover deferral unsurfaced —
+recorded above; + a stale `AiModelsArea` comment — fixed) → re-run → see the ship commit.
+Orphan note: existing DBs keep the inert `engine_preset_switches` table + override columns
+(`feature_preset_refs` precedent) — **no reset needed**.
+
+**ORIGINAL BUILD SCOPE (as locked; kept for the record):**
 - Runner backend: delete `EnginePresetSwitch` + `ngl_override`/`n_cpu_moe_override` (`db.py`, `stores.py:572,629-630`,
   `seed.py:665`, the `EnginePresetRow`/wire fields + presets_api); drop+reseed DB (pre-release policy — the
   user's box needs a data reset). Verify ruff + pytest.

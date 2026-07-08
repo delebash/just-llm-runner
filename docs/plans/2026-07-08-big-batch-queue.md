@@ -2,10 +2,12 @@
 
 **STATUS: §7.1 DECIDED+BUILT · BATCHES 1+2+3 BUILT · ALL DISCUSSIONS DECIDED 2026-07-08
 (B→§7.2 · C→§7.3 · D→§7.4 · F→§7.5 · E parked · the Batch-3 remainder B3-4+B3-10→§7.6, BUILT —
-see the B3-REMAINDER BUILD RECORD under §7.6) · B1-2 still waits on the box's engine-log line ·
-batches 4–6 await their own gos, every
-item now unblocked (B2-9+B5-1 by §7.2 · B4-4 by §7.3 · B6-1/2 by §7.4 · B6-3 folded into this
-go's docs).** The user dropped a 52-line
+see the B3-REMAINDER BUILD RECORD under §7.6) · B1-2 CLOSED 2026-07-08 by the user's own
+diagnosis (a DB-reset disk⇄DB disconnect; "the deleting is fine" — full note + code grounding
+in §8) · batches 4–6 carry THE STANDING GO recorded in §8 (execute at pickup, batch by batch,
+full gates; B2-9 NOT covered — one-line ask) · DL-1 speed/ETA display DECIDED+GO · DL-2
+segmented downloads PLAN-ONLY (§8). Item unblocks: B2-9+B5-1 by §7.2 · B4-4 by §7.3 · B6-1/2
+by §7.4 · B6-3 done with the §7.5 docs.** The user dropped a 52-line
 list (verbatim below) with the
 instruction "take your time to think about each one, many or related, organize them int working
 items, we will need to discuss some in more detail". Rule #10 stands: no code until a per-batch
@@ -396,7 +398,8 @@ like docs/models.md. The "customizable editor/context menus" future item (#52a) 
   null-clear on online), then fix + a regression test (user allowed tests for bug verification?
   no-tests posture — container pytest still fine).
 - B1-2 (#7) engine-update old-build survival: WAITS ON BOX EVIDENCE (the log line) — then decide
-  hardening (boot-time stale-sweep retry).
+  hardening (boot-time stale-sweep retry). **CLOSED 2026-07-08 by the user's own diagnosis — no
+  code change; the full note (verbatim + code grounding) is in §8.**
 - B1-3 (#12a) model-card link in Tauri: kit openExternal hook + JW bridge wiring (§1c).
 - B1-4 (#12b) seed real size facts for every catalog row (+ keep Read-from-link refresh).
 - B1-5 (#27) Lab: saving a preset selects it in the dropdown.
@@ -757,7 +760,8 @@ every change is kit UI; visible on the next desktop build.
 1. ~~Discussions A–F~~ — ALL DECIDED 2026-07-08: A→§7.1, B→§7.2, C→§7.3, D→§7.4, E parked
    (per §2-E, until after A shipped — now a later small item), F→§7.5.
 2. ~~CLARIFY #9 and #34~~ — both resolved by the user 2026-07-08 (see B1-9, B4-5).
-3. B1-2 needs the box's engine-log line for the leftover-build failure before any code.
+3. ~~B1-2 needs the box's engine-log line~~ — RESOLVED 2026-07-08 by the user's own diagnosis
+   (a DB-reset disk⇄DB disconnect; "the deleting is fine"): NO code change. Full note in §8.
 4. §7.1's wording trivia (a) confirm-naming, (b) the literal "Apply" label, (c) the help-popover
    copy — shipped-as-flagged; open only if the user ever objects.
 
@@ -1160,10 +1164,62 @@ downloading**.
   **NOT covered by this go: B2-9** (the §7.2 set-as-default button — it lives in Batch 2, and
   the go names batches 4–6; §7.2 says it gets its own go) — ask the user ONE line at pickup
   whether to fold it in.
-- **Also live at pickup:** B1-2 — the user was TESTING the engine install on their box when
-  this session stopped (their polling question was answered: the 800 ms engine/status poll
-  during install is by design, `useEngine.js:35-49`, and MUST stop when the install ends —
-  a poller that keeps running after completion is a real bug to report). Still owed by the
-  user: the "old engine build" log line (Settings → Logs, or `<data root>\logs\justwrite.log`,
-  incl. rotated `.1`) + the `<data root>\ai-cache\llamacpp\` folder names after an
-  Update/Reinstall.
+- **B1-2 CLOSED at pickup (the user's word 2026-07-08, verbatim):** *"B1-2 i think the deleting
+  is fine, it is a disconnect between what db says and what is on user disk, example i installed
+  engine, then reset the db, when i navigate back to ai settings it says install engine again,
+  this is how multiple folders got left, if i installed seed version then reset db and then
+  installed upated vesion we have 2 folders."* So the leftover build folders were never a failed
+  delete — they are orphans of the DB-reset testing loop: the reset wipes the engine's recorded
+  pin state, the UI honestly reports "install engine" for the newly-seeded pin, and the fresh
+  install lands BESIDE the folder the DB no longer knows about. Grounded against current code:
+  the post-#118 cleanup already self-heals exactly this scenario, because the sweep at the end
+  of EVERY install enumerates the DISK, not the DB (`lifecycle.py:817-842` — keep = {the pinned
+  build, "logs"}; every other build dir is removed after a stop-first, with models.ini carried
+  over; the code comment even anticipates "a DB reset can re-pin an older build and strand
+  folders"). So the next Install/Update/Reinstall on current code leaves exactly ONE build
+  folder no matter what the DB said; a stray folder merely waits for that next install (the
+  sweep runs only inside `_run_install` — by design, nothing deletes outside an install). NO
+  code change (the user's call: "the deleting is fine"). Residual watch-item only: if a stray
+  build folder ever SURVIVES an install on current code, that is the Windows exe-lock case —
+  the "old engine build … still present after cleanup (files in use?)" warning
+  (`lifecycle.py:842`) would then be in Settings → Logs and worth reporting. The install-status
+  polling note stands: the 800 ms engine/status poll during an install is by design
+  (`useEngine.js:35-49`) and must stop at a terminal state — a poller still running after
+  completion is a real bug to report.
+
+---
+
+## §9 — QC ADDITIONS (2026-07-08, arriving LIVE while the user QCs the shipped batches on their box)
+
+The user's standing instruction, verbatim: *"i will be adding tasks as i qc, this should not
+stop your tasks you are doing."* So: the §8 standing go keeps executing; each QC finding is
+RECORDED here as it arrives (verbatim + grounded reading + touch-list). Per rule #10 these
+build on the user's word — fold-in vs own-go asked once at the next report.
+
+- **QC-1 — badge/tag wording must match the real editor names (user verbatim):** *"rename Class
+  default these tags to match real name button dialog Hardware-class defualts, Global luanch
+  defautls add to task."* Reading: the §7.6 badge family + origin tags should use the SAME names
+  as the actual buttons/dialogs they refer to — "Hardware-class defaults" and "Global launch
+  defaults" — instead of the invented shorthand "Class default". Touch-list (grounded from the
+  B3R ship): `tuneState.js` TUNE_BADGES `class` label ("Class default" → "Hardware-class
+  default") + the modal header wording ("Class default for this PC" → "Hardware-class default
+  for this PC") + the catalog row badge + its title; and the grid ORIGIN tags that name these
+  layers (`TuneMeasureModal.vue` ORIGIN_LABELS: "your PC class" → the Hardware-class-defaults
+  name; the global-bundle labels "all models"/"model type"/"speculative decode" → carry the
+  "Global launch defaults" name). Micro-detail to settle at build: the three global bundles are
+  distinct rows in the Global-launch-defaults editor — keep the distinction as a parenthetical
+  (e.g. "Global launch default (all models)") so the tag still says WHICH bundle wrote the
+  value.
+- **QC-2 — the class-library popup is redundant while editing (user verbatim, with two
+  screenshots of the Hardware-class defaults popup):** *"you duplicating things the add import
+  config on the grid, then again on detail and you have the flags listed again on detail in
+  read only with edit button then you can the acutall list of boxes it is wierd and redundant."*
+  Grounded (`LuClassTunes.vue`): clicking a row's Edit does NOT replace the list view — the
+  editor opens as an ADDITIONAL block below it, so the popup then shows the same config three
+  times over: the row's read-only settings summary (`:256` `summaryOf(t)` + the Edit/Copy
+  buttons `:257-260`), the "+ Add class config / Import…" bar still sitting between (`:273-276`),
+  and the editor's actual flag input boxes (`:289-302` — Model + Class key + KnobGrid). My
+  recommendation (awaiting the user's word): one thing on screen at a time — entering Edit/Add/
+  Import REPLACES the table + bar with the editor (Cancel/Save returns to the list), which
+  removes both duplications without losing any affordance. Same structure exists in
+  LuGlobalSwitches' editor flow — check it for the same defect at build.

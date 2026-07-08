@@ -1758,3 +1758,60 @@ bookkeeping (checker verdict → commit) completes; nothing else builds.
   this round, and the earlier "does remove-all cover samplers?" flag was scope creep I
   invented, owned. NO CODE under the hard stop — this is the recorded decision, built
   with the QC-10..17 cluster when the user says go.
+
+**QC-17's own "what does adding them / moving them DO" answered (the user: "qc 17 again
+you didnt actually think and anser the questioned what does moving them adding them do"):**
+adding a switch in any of the three editors writes a real DB row — Global launch defaults
+→ the `switch_presets` bundles (all / model-type / MTP); Hardware-class defaults →
+`class_tunes` (model × vram|ram class); the model's grid + Apply → `model_tunes` (model ×
+this machine). At EVERY model load the ONE resolver merges those layers in order, later
+wins (`switch_resolve.py:79-107`, wired into every production load `install.py:182-189`,
+spawned at `lifecycle.py:602`), and each merged row becomes a REAL llama-server
+command-line flag (`process.py:128` name→flag table; e.g. bool rows emit
+`--context-shift`/`--no-context-shift`, process.py:182-184). So: add a switch in Global →
+every model's next load launches with that flag; in Hardware-class → that model on every
+box of that class; in the model's grid + Apply → that model on this PC, reloaded
+immediately (§7.1). "Moving" does not exist for switches — the same switch NAME can live
+in more than one layer and the higher layer's VALUE wins at load; that later-wins merge IS
+the "override the engine's defaults" in the user's QC-17 decision. Proven live this
+session: the B3R probe moved a global bundle value over the API and watched the model's
+grid change (the drift round-trip), and the 2026-07-06 one-profile A/B measured different
+flag sets changing real TTFT/decode numbers.
+
+**DISCUSSION DECISIONS (user verbatim, 2026-07-08): "qc-11 remove from catalog, qc-10 yes,
+qc-12 yes"** — QC-11 DECIDED: context_shift + cache_reuse come OUT of the knob catalog
+(seed rows removed + a targeted delete of the seeded rows on existing DBs; typing them as
+custom switches remains possible); QC-10 DECIDED: the grouped-headings grid confirmed
+(Your applied config / Hardware-class default / Global launch defaults / Computed for this
+PC — no Engine-defaults section per QC-17); QC-12 DECIDED: the exact copy change stands.
+All still build-gated on the go.
+
+**QC-16 re-answered with the dispatch chain CITED (the user: "you did not actually answer
+my question … what does moving it do"):** moving a feature is backed by code end to end —
+(1) the UI's Move/Add calls `PUT /v1/ai/task-kinds/feature`, which writes the feature→task
+DB row (`task_kinds_api.py:94` `get_feature_task_kinds().set(featureKey, taskKind)`);
+(2) EVERY real run of a feature (`/v1/ai/run` + `/v1/ai/stream`) resolves its preset
+through `_resolve_preset(action, feature, task_kind_of)` (`prompts.py:427-439`), where
+`task_kind_of` reads THAT SAME DB ROW first ("the user-editable feature→task DB row — a UI
+reassignment wins", `install.py:119-122`), then `resolve_task_preset(task_kind)` returns
+the task's preset → global default. So: move "Continue writing" from Generate prose into
+another task and its very next run uses THAT task's preset — model, provider, temperature,
+max tokens, JSON, thinking, samplers. The user-visible effect is real and immediate; what
+was missing is the UI SAYING any of this.
+
+**QC-15's new question answered (user: "what does adding a new task do, it is not backed
+by code, what is the point?"):** creating a task writes a real `task_kinds` row consumed
+by the same chain — but the user's observation is CORRECT for the empty case: a new task
+with no preset and no features does NOTHING. Its only purpose is to be a preset bucket:
+new task → assign a preset → MOVE features into it → those features now run under that
+preset (the chain above). That is the ONLY per-feature-override mechanism under Plan A
+(example: give Continue-writing a bigger model than the rest of Generate prose without
+touching the other prose features). Nothing in the UI explains this, and the name-only
+popup creates the empty do-nothing state the user hit. THE FORK for the user (QC-15 and
+QC-16 converge here — one decision): **(A) keep user regrouping** — the QC-15 rebuild
+makes the form force it honest (create = the full form: name + preset required + move
+features in, one screen; Move/Add affordances say what they do); or **(B) remove the
+machinery** — no custom tasks, no Add/Move; the nine seeded tasks are fixed buckets; the
+Tasks tab becomes: pick a task → its features (read-only list) → set its preset → test in
+the Lab (per-feature overrides then don't exist, matching QC-16 option (c)). The user's
+call; nothing builds until it + the go.

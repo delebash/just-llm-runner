@@ -28,6 +28,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 
 import { request } from "../client.js";
+import { runAiFeature } from "../services/aiFeature.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
 import KnobGrid from "./KnobGrid.vue";
@@ -234,12 +235,29 @@ function onApplyPreset(id) {
   emit("apply-preset", id);
 }
 function startNaming() { naming.value = true; newName.value = ""; }
+// #27: the save happens in the PARENT (the column only emits the name), so the
+// created id isn't known here — remember the pending name and adopt the NEW id
+// when the refreshed preset list flows back down, so the dropdown lands on the
+// preset the user just saved instead of staying blank.
+const pendingSaveName = ref("");
 function confirmSaveAs() {
   const name = newName.value.trim();
   naming.value = false;
   newName.value = "";
-  if (name) emit("save-as", name);
+  if (name) {
+    pendingSaveName.value = name;
+    emit("save-as", name);
+  }
 }
+watch(() => props.presets, (list, old) => {
+  if (!pendingSaveName.value) return;
+  const oldIds = new Set((old || []).map((p) => p.id));
+  const created = (list || []).find((p) => !oldIds.has(p.id) && p.name === pendingSaveName.value);
+  if (created) selPreset.value = created.id;
+  // One-shot either way: the first refresh after a save either carries the new
+  // preset or the save failed — don't adopt a stray later addition.
+  pendingSaveName.value = "";
+});
 
 // ── prompt preview + token count + budget guard (b1/E2) ─────────────────────
 const previewText = computed(() =>
@@ -349,7 +367,16 @@ async function run() {
         cost: res?.cost || 0, // streamed path has no cost yet (FW writing path)
       };
     } else {
-      const r = await request("/v1/ai/run", { method: "POST", body: o });
+      // One-shot path through the shared feature wrapper so every Lab run
+      // REGISTERS in the global AI task panel (#36 — "no ai progress bar no
+      // task") and Cancel is real here too (it only worked on the stream path
+      // before: testCtrl was never set one-shot).
+      const ctrl = new AbortController();
+      testCtrl.value = ctrl;
+      const r = await runAiFeature({
+        ...o, signal: ctrl.signal,
+        task: { label: `Lab test — ${props.action}` },
+      });
       const ms = Math.round(performance.now() - t0);
       const out = r.completionTokens || 0;
       testOut.value = {
@@ -366,7 +393,7 @@ async function run() {
     return testOut.value;
   } catch (e) {
     if (e?.name === "AbortError" || /abort|cancel/i.test(e?.message || "")) testErr.value = "Cancelled.";
-    else testErr.value = e.message?.includes("501") ? "No LLM wired — set a model above or connect a provider." : (e.message || "Run failed.");
+    else testErr.value = (e?.statusCode === 501 || e.message?.includes("501")) ? "No LLM wired — set a model above or connect a provider." : (e.message || "Run failed.");
     emit("result", null);
     return null;
   } finally {

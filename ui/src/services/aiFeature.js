@@ -21,10 +21,20 @@ import { friendlyAiError } from "./aiErrors.js";
 // `variables`— filled into the action's server-side user_template ({{var}}).
 // `provider` — optional provider OBJECT override (the Lab compares providers);
 //              only its id is sent — the server resolves + injects the key.
+// `providerId` — the same override as a plain id string (Lab columns hold ids,
+//              not objects); `provider` wins when both are given.
 // `model`    — optional model id override.
 // `signal`   — optional caller AbortSignal (ORed with the task's own).
 // `task`     — true | { label, meta } to register in the global AI task panel.
-export async function runAiFeature({ action, feature, variables = {}, provider, model, signal, meta, task } = {}) {
+// The remaining named params are the Lab's in-editor candidate overrides —
+// the SAME set its stream sibling below forwards (temperature/system/
+// userTemplate/think/maxTokens) plus the one-shot-only ask-params (topP/
+// jsonMode/reasoningEffort/samplers). All optional; forwarded only when set.
+export async function runAiFeature({
+  action, feature, variables = {}, provider, providerId, model,
+  temperature, topP, maxTokens, jsonMode, reasoningEffort, think,
+  system, userTemplate, samplers, signal, meta, task,
+} = {}) {
   let handle = null;
   let effectiveSignal = signal;
   if (task) {
@@ -39,13 +49,28 @@ export async function runAiFeature({ action, feature, variables = {}, provider, 
   }
 
   const body = { action, variables };
-  if (provider?.id) body.providerId = provider.id;
+  if (provider?.id || providerId) body.providerId = provider?.id || providerId;
   if (model) body.model = model;
+  if (typeof temperature === "number") body.temperature = temperature;
+  if (typeof topP === "number") body.topP = topP;
+  if (maxTokens) body.maxTokens = maxTokens;
+  if (typeof jsonMode === "boolean") body.jsonMode = jsonMode;
+  if (reasoningEffort) body.reasoningEffort = reasoningEffort;
+  if (typeof think === "boolean") body.think = think;
+  if (system != null) body.system = system;
+  if (userTemplate != null) body.userTemplate = userTemplate;
+  if (Array.isArray(samplers) && samplers.length) body.samplers = samplers;
 
   try {
     const json = await request("/v1/ai/run", { method: "POST", body, signal: effectiveSignal });
     if (handle) handle.finish({ model: json.model });
-    return { content: json.content || "", model: json.model || "" };
+    // Usage/cost pass through for callers that display them (the Lab's tok/s +
+    // cost readout); pre-existing callers keep destructuring { content, model }.
+    return {
+      content: json.content || "", model: json.model || "",
+      promptTokens: json.promptTokens || 0, completionTokens: json.completionTokens || 0,
+      cost: json.cost || 0,
+    };
   } catch (err) {
     const wrapped = friendlyAiError(err, provider || null);
     if (handle) handle.fail(wrapped);

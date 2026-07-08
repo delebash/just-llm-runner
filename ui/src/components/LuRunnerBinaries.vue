@@ -13,6 +13,7 @@ import { ref } from "vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import { confirmDialog } from "../common/services/dialog.js";
+import { openExternal } from "../common/services/external.js";
 import { request } from "../client.js";
 
 const rows = ref([]);
@@ -115,7 +116,8 @@ async function reset() {
         The app auto-detects your system and downloads the matching llama.cpp build. If a
         download fails because a release asset moved or was renamed, paste the correct URL
         from the
-        <a class="lu-mlink" href="https://github.com/ggml-org/llama.cpp/releases" target="_blank" rel="noopener">llama.cpp releases page ↗</a>
+        <a class="lu-mlink" href="https://github.com/ggml-org/llama.cpp/releases" target="_blank" rel="noopener"
+          @click.prevent="openExternal('https://github.com/ggml-org/llama.cpp/releases')">llama.cpp releases page ↗</a>
         (choose the asset for your OS + GPU). Windows CUDA needs both the build
         <code>llama-…-cuda-….zip</code> and its matching <code>cudart-…</code> runtime URL.
       </p>

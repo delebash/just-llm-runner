@@ -22,6 +22,7 @@ import Icon from "./Icon.vue";
 import UiButton from "./UiButton.vue";
 import { helpState, helpConfig, openHelp, closeHelp } from "../services/help.js";
 import { renderHelpMarkdown } from "../services/helpMarkdown.js";
+import { openExternal } from "../services/external.js";
 
 const open = computed({
   get: () => helpState.slug !== null,
@@ -57,14 +58,23 @@ watch([slug, anchor], async () => {
 }, { immediate: true });
 
 function onContentClick(e) {
-  const a = e.target.closest("a[data-help-link]");
+  const a = e.target.closest("a[href]");
   if (!a) return;
-  e.preventDefault();
   const href = a.getAttribute("href") || "";
-  // Internal help links jump within the drawer. Preserve any #section anchor
-  // so cross-doc links land on the right heading.
-  const m = href.match(/^\/help(?:\/([^#]+))?(?:#(.+))?$/);
-  if (m) openHelp(m[1] || "", m[2] || "");
+  if (a.hasAttribute("data-help-link")) {
+    e.preventDefault();
+    // Internal help links jump within the drawer. Preserve any #section anchor
+    // so cross-doc links land on the right heading.
+    const m = href.match(/^\/help(?:\/([^#]+))?(?:#(.+))?$/);
+    if (m) openHelp(m[1] || "", m[2] || "");
+    return;
+  }
+  // External doc links: the renderer stamps them target=_blank, which the Tauri
+  // webview swallows — route through the shared opener (#12a).
+  if (/^https?:/i.test(href)) {
+    e.preventDefault();
+    openExternal(href);
+  }
 }
 
 function openFull() { helpConfig.onOpenFull?.(slug.value); }

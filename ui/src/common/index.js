@@ -37,6 +37,10 @@ export { renderHelpMarkdown, slugifyHeading } from "./services/helpMarkdown.js";
 export { default as Toast } from "./components/Toast.vue";
 export { pushToast, clearToasts } from "./services/toastBridge.js";
 
+// shared external-link opener — kit anchors route clicks through openExternal;
+// the host wires its shell bridge via configureExternal (Tauri swallows _blank)
+export { configureExternal, openExternal } from "./services/external.js";
+
 // shared empty-state placeholder
 export { default as EmptyState } from "./components/EmptyState.vue";
 

@@ -102,6 +102,37 @@ def test_id_derived_from_name_and_local_flag():
     assert r3.json()["id"] == "openai" and r3.json()["local"] is False
 
 
+def test_patch_apikey_empty_preserves_even_when_local_flips():
+    """#1 regression (2026-07-08): the form used to send apiKey=None whenever the
+    where-it-runs toggle read Local, silently wiping a stored key on every save of
+    a mis-flagged online provider. Contract locked here: "" preserves the key no
+    matter what `local` says; None stays the EXPLICIT clear for deliberate clients
+    (the fixed form only ever sends None on create, where there is nothing to
+    preserve)."""
+    store = MemStore()
+    c = _client(store)
+    c.post("/v1/llm-providers", json={
+        "name": "Claude", "providerType": "anthropic", "apiKey": "sk-a", "local": False,
+    })
+    assert store.get("claude").apiKey == "sk-a"
+
+    # the fixed-form edit body: "" preserves — even with local=true in the same body
+    r = c.patch("/v1/llm-providers/claude", json={
+        "name": "Claude", "providerType": "anthropic", "apiKey": "", "local": True,
+    })
+    assert r.status_code == 200
+    assert store.get("claude").apiKey == "sk-a"
+    assert r.json()["hasApiKey"] is True
+
+    # explicit clear remains available: None wipes
+    r = c.patch("/v1/llm-providers/claude", json={
+        "name": "Claude", "providerType": "anthropic", "apiKey": None, "local": False,
+    })
+    assert r.status_code == 200
+    assert store.get("claude").apiKey is None
+    assert r.json()["hasApiKey"] is False
+
+
 def test_detect_local(monkeypatch):
     import httpx
 

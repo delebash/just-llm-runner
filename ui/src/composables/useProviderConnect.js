@@ -22,6 +22,13 @@ export const PROVIDER_PRESETS = [
   ["OpenRouter", "https://openrouter.ai/api/v1", "openai-compat", false],
 ];
 
+// Provider types that are ALWAYS a metered cloud API — there is no local
+// Anthropic/Gemini/OpenAI/DeepSeek/OpenRouter server, so where-it-runs is not a
+// choice for them. `openai-compat` and `ollama` are deliberately absent: both
+// genuinely run local (LM Studio, a self-hosted box) or remote (OpenRouter-style
+// gateways) — see the presets above carrying both flavors of openai-compat.
+export const ONLINE_ONLY_TYPES = new Set(["anthropic", "gemini", "openai", "deepseek", "openrouter"]);
+
 // List a (draft) provider's models BEFORE it's saved — the shared draft-probe. Returns
 // { models: string[], error?: string }. `apiKey` empty → null (a local provider needs none).
 export async function probeModels({ providerType, baseUrl, apiKey, defaultModel } = {}) {

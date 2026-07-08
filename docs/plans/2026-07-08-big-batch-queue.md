@@ -1,6 +1,8 @@
 # The 2026-07-08 big batch — organization of the user's 52-item list (discussion first, then gos)
 
-**STATUS: ORGANIZED, NOTHING BUILT.** The user dropped a 52-line list (verbatim below) with the
+**STATUS: §7.1 DECIDED+BUILT · BATCH 1 BUILT (see the B1 BUILD RECORD in §3; B1-2 still waits on
+box evidence) · discussions B–F + batches 2–6 await their own gos.** The user dropped a 52-line
+list (verbatim below) with the
 instruction "take your time to think about each one, many or related, organize them int working
 items, we will need to discuss some in more detail". Rule #10 stands: no code until a per-batch
 "go". The no-tests posture is ON for this stretch ("no testing for now, unless you need to …
@@ -398,6 +400,101 @@ like docs/models.md. The "customizable editor/context menus" future item (#52a) 
   model loads the new one on the next search the same way. Work item: the search path (RAG /
   Ask-the-Book ensureEmbeddingReady chain) triggers the load + shows a loading state; the
   unhelpful identical error goes away as a consequence.
+
+**B1 BUILD RECORD (2026-07-08, the user's bare "go" after the §7.1 ship — read as "the next
+buildable unit in the queue", which is this batch; B1-2 deliberately excluded, it still waits on
+the box's engine-log line).** Everything grounded in current post-§7.1 code before touching it;
+inline T1–T12 citations preceded each first edit per the "do b" checker discipline; ONE
+consolidated gate pass at batch end per the no-tests posture.
+
+- **B1-1 built.** The root cause held exactly as recorded in §1c against current code
+  (`ProviderForm.vue:44` new-provider `local=true` default; `:122` `apiKey: local ? null : …`;
+  `provider_api.py:181-182` None clears) — plus one aggravator: the key FIELD only renders when
+  the toggle reads Online (`:166`), so a mis-flagged row could silently wipe its key on every
+  save with no key field even visible. Fix shape as recorded: a new
+  `ONLINE_ONLY_TYPES` set exported beside `PROVIDER_PRESETS` in `useProviderConnect.js` (the
+  kit's one source for known-provider facts) — anthropic/gemini/openai/deepseek/openrouter;
+  `openai-compat` + `ollama` deliberately absent (both genuinely run local OR remote — the
+  presets themselves carry both flavors of openai-compat: LM Studio local, OpenRouter online).
+  `ProviderForm` gains `lockedOnline` + `isLocal` computeds: known-cloud types render the
+  where-it-runs row as a LOCKED "Online · metered" pill (the `isBuiltin` locked-pill precedent)
+  and self-heal a row mis-saved local; the save body sends `local: isLocal` and **never sends
+  the null clear-sentinel on edit** (`apiKey: draft.apiKey || (isNew ? null : "")`) — the form
+  has no explicit remove-key affordance, so it must never clear one implicitly. The server
+  contract (""=preserve · None=explicit clear) is UNCHANGED and now locked by
+  `tests/test_provider_api.py::test_patch_apikey_empty_preserves_even_when_local_flips`. Honest
+  note for the box: a key that was ALREADY wiped by the old bug is unrecoverable — re-enter it
+  once; the form now shows the key field for the healed row.
+- **B1-3 built.** New kit seam `common/services/external.js` — `configureExternal({open})` +
+  `openExternal(url)` (mirrors the configureHelp/configureDialog boot-config precedent;
+  unconfigured fallback `window.open`). ALL kit external anchors route clicks through it
+  (`@click.prevent`, href kept for copy-link/a11y): the catalog row "Model card ↗" + the footer
+  "Hugging Face ↗" + the edit-dialog "model card ↗" (`LuModelCatalog.vue`) and the
+  "llama.cpp releases page ↗" (`LuRunnerBinaries.vue`); `HelpDrawer.onContentClick` gains an
+  external branch (rendered help-doc links were equally dead — `helpMarkdown.js:45` stamps
+  `target=_blank`). JW converges its TWO pre-existing inline bridge-aware copies onto the seam:
+  `main.js` calls `configureExternal` once at boot (shell bridge → `window.open` fallback) and
+  `onOpenWeb` + `HelpView.openOnWeb`/`onContentClick` now call the kit `openExternal`. JW's own
+  anchor sweep: clean — the only other `_blank` is RichEditor's TipTap Link config with
+  `openOnClick:false` (prose links deliberately don't navigate).
+- **B1-4 built.** All 11 seeded rows now carry `size_label` + `size_bytes`, harvested 2026-07-08
+  by running the app's OWN pre-download inspector (`identity.inspect_model_from_link` — the
+  Read-from-link path) against each pinned quant, so seed == detection by construction
+  (size_bytes = summed-shard download size; size_label = the file's `general.size_label`;
+  nomic's header genuinely carries no size_label — seeded bytes only, noted inline). One value
+  independently cross-checked byte-for-byte against the raw HF file listing
+  (Qwen3-Embedding-0.6B Q8_0 = 639,150,592). Values corroborate the rows' own notes (Llama 70B
+  "~42 GB" → 42,520,398,432; Qwen3-8B-embed "~4.7 GB" → 4,676,804,928). Existing DBs (the box —
+  NO reset): `seed_default_catalog` now does a **fill-empty-only touch-up** on already-present
+  built-in rows — sizes land at next boot only where the fields are EMPTY; a download-derived
+  value is never clobbered (locked by
+  `tests/test_identity.py::test_seed_ships_size_facts_and_reseed_fills_empty_only`).
+- **B1-5 built.** The save flows upward (the column emits only the NAME; FeatureLab owns the
+  POST), so the created id never reached the column's dropdown. `ConfigColumn` now remembers
+  `pendingSaveName` and adopts the matching NEW id when the refreshed preset list flows back
+  down (one-shot: the first refresh after a save either carries it or the save failed). Covers
+  both hosts (TaskKinds + FeatureWorkbench both handle `presets-changed`).
+- **B1-6 built.** Every kit Lab run went through the RAW one-shot `request("/v1/ai/run")`
+  (`CompareStrip:145` hardcodes `run-stream=null`) — no task registration, and Cancel was
+  INERT on that path (`testCtrl` never set). `runAiFeature` extended symmetrically with its
+  stream sibling's Lab overrides (providerId-as-string · temperature · topP · maxTokens ·
+  jsonMode · reasoningEffort · think · system · userTemplate · samplers — all optional,
+  forwarded only when set; the server accepted these exact fields from the old raw body) +
+  usage/cost passthrough in the response (additive — `{content, model}` destructuring keeps
+  working; the JW aiFeature vitest updated to the new contract). `ConfigColumn.run()` one-shot
+  now calls `runAiFeature({..., task: {label: "Lab test — <action>"}})` with a real
+  AbortController; the 501 hint branch hardened to read the wrapper's `statusCode`.
+- **B1-7 built.** "Ask the manuscript" → "Ask the book" at the three spots
+  (`ChatPanel.vue` task label / aria-label / eyebrow). (#46 New-thread is B5-3, untouched.)
+- **B1-8 built — with a root-cause CORRECTION to the §1c/queue theory.** The dup is NOT the
+  group header vs the card tag (headers are "Writing"/"Whole book"… — nothing like the task
+  labels). The real pair is INSIDE the card's provenance line `presetName · taskLabel`: the
+  seeded preset names mirror their task labels — "Ideation · Ideation" (identical) and
+  "Judgment / scoring · Judgment & scoring" (the user's "slightly different names", verbatim
+  match to the data). Fix per the same one-fact-per-line principle: `featurePresetLabel`
+  collapses the pair when the two names normalize equal (lowercase, strip non-alphanumerics) —
+  the editor's read-only Preset line uses the same function, so both surfaces de-dup. A
+  user-renamed preset shows both names again (they're then different facts).
+- **B1-9 built.** The lazy-load infra ALREADY existed (P3: `embedTexts` →
+  `ensureEmbeddingReady` → POST `/v1/llm-runner/ensure-embedding` → poll resident) — the defect
+  was the kit's session-wide ensure cache being UNKEYED: changing the embedding model replayed
+  the stale "ready" for the previous model, so the first search after a switch failed with the
+  SAME not-loaded error as a cold start (the user's #9, verbatim behavior). The cache is now
+  keyed by the requested `(providerId, model)` target — a model switch re-ensures (the server
+  loads whatever routing now configures) and the search proceeds; and the cold ensure
+  REGISTERS in the shared AI task panel ("Preparing the embedding model") so the minutes-long
+  first-use download/spawn is visible instead of a dead spinner (guarded on `getActivePinia()`
+  for unit tests/headless hosts). New vitest case: same model twice = one ensure; switch = a
+  second ensure.
+
+**B1 gates (one consolidated pass at batch end, per the no-tests posture):** runner `ruff`
+clean + **411 pytest** (409 + the 2 new regressions) · JW `npm run test:unit` **30/30** (the
+aiFeature shape test updated for the usage passthrough) · JW `build:vite` clean · the **FULL
+headless smoke: every route + all 5 AI sub-tabs + the provider-form and sampler probes, zero JS
+errors** · rules-checker verdict before the code commits (sha in the git log). Box notes: no DB
+reset needed (the size facts fill empty fields at next boot); the model-card links need the
+DESKTOP app to show the fix (the browser dev path always worked); an apiKey already wiped by
+the old bug must be re-entered once.
 
 **Batch 2 — providers & catalog UI (kit):**
 - B2-1 (#3) rename seeded provider "Built-in server — llama.cpp" → "Built-in provider — llama.cpp"

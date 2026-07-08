@@ -130,6 +130,10 @@ DEFAULT_CATALOG: list[dict] = [
     # auto-derived from `license`; pooling is intrinsic per embed; quality_rank LOWER = better
     # (curated-for-writing order, owner-tested basis — community tunes deliberately rank BELOW
     # the trusted auto-pick set until a Lab A/B earns them a real rank).
+    # `size_label`/`size_bytes` (#12b, harvested 2026-07-08): read from each pinned quant's live
+    # GGUF header via identity.inspect_model_from_link — the SAME path Read-from-link uses, so
+    # seed == detection (size_bytes = summed-shard download size; size_label = the file's
+    # general.size_label). QUANT-SPECIFIC: changing a row's quant clears them for re-inspect.
     # ── Dense (runs fully on the GPU — fast) ──────────────────────────────────────────────
     {"id": "gemma-4-12b-qat", "name": "Gemma 4 12B (QAT)",
      "hf_repo": "unsloth/gemma-4-12B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "12B",
@@ -137,6 +141,7 @@ DEFAULT_CATALOG: list[dict] = [
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
      "min_ram_mb": 12000, "min_vram_mb": 8500, "tier": "mid", "license": "Apache-2.0", "position": 0,
      "quality_rank": 22, "architecture": "gemma4", "experts": 0,
+     "size_label": "12B", "size_bytes": 6716355328,
      "description": "12B model · 256k context · MTP draft for faster generation · UD-Q4_K_XL (QAT)",
      "notes": "The small-card rung of the writing-first ladder; runs fully on a 10-12 GB GPU (tight on 8)."},
     {"id": "gemma-4-31b-qat", "name": "Gemma 4 31B (QAT)",
@@ -145,6 +150,7 @@ DEFAULT_CATALOG: list[dict] = [
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
      "min_ram_mb": 24000, "min_vram_mb": 20000, "tier": "high", "license": "Apache-2.0", "position": 1,
      "quality_rank": 7, "architecture": "gemma4", "experts": 0,
+     "size_label": "31B", "size_bytes": 17287668064,
      "description": "31B model · 256k context · MTP draft for faster generation · UD-Q4_K_XL (QAT)",
      "notes": "The 24 GB-card rung; the family's strongest, with vision. Writing rank pending a Lab A/B against the 26B-A4B."},
     {"id": "llama-3.3-70b-q4_k_m", "name": "Llama 3.3 70B Instruct · Q4_K_M",
@@ -152,6 +158,7 @@ DEFAULT_CATALOG: list[dict] = [
      "trained_ctx": 131072,
      "min_ram_mb": 48000, "min_vram_mb": 46000, "tier": "high-ram", "license": "Llama-Community", "position": 2,
      "quality_rank": 11, "architecture": "llama", "experts": 0,
+     "size_label": "70B", "size_bytes": 42520398432,
      "description": "70B model · 128k context · Q4_K_M",
      "notes": "~42 GB split GGUF — the best all-round local creative-writing model for a ~48 GB rig; use-limited Llama license (never an auto-default)."},
     # ── MoE (experts offload to system RAM — higher quality, slower, needs RAM) ────────────
@@ -161,6 +168,7 @@ DEFAULT_CATALOG: list[dict] = [
      "trained_ctx": 262144, "samplers": {"top_k": "20", "top_p": "0.95", "temperature": "1"},
      "min_vram_mb": 6000, "min_ram_mb": 32000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 3,
      "quality_rank": 8, "architecture": "qwen35moe", "experts": 256,
+     "size_label": "35B-A3B", "size_bytes": 22853663008,
      "description": "35B mixture-of-experts model · 256k context · MTP for faster generation · UD-Q4_K_XL",
      "notes": "~32B-class quality on a small GPU + system RAM via CPU expert offload; the smart all-round alternative."},
     # quality_rank swap (2026-07-06 benchmark re-grounding, C2): Qwen3.6-35B-A3B
@@ -177,6 +185,7 @@ DEFAULT_CATALOG: list[dict] = [
      "mtp": True, "trained_ctx": 131072,
      "min_vram_mb": 12000, "min_ram_mb": 64000, "tier": "high-ram", "license": "MIT", "position": 4,
      "quality_rank": 10, "architecture": "glm4moe", "experts": 128,
+     "size_label": "128x9.4B", "size_bytes": 67721071872,
      "description": "106B mixture-of-experts model · 128k context · MTP for faster generation · UD-Q4_K_XL",
      "notes": "Heavyweight structured extraction + reasoning on a high-RAM rig (64 GB+ RAM); published evals now trail Qwen3.6-35B-A3B."},
     # ── Community writing tunes (user-added 2026-07-06; NEVER auto-picked — ranked below the
@@ -187,6 +196,7 @@ DEFAULT_CATALOG: list[dict] = [
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
      "min_vram_mb": 4000, "min_ram_mb": 24000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 5,
      "quality_rank": 12, "architecture": "gemma4", "experts": 128,
+     "size_label": "26B-A4B", "size_bytes": 17211252288,
      "description": "26B mixture-of-experts model · 256k context · Q4_K_M",
      "notes": "Gryphe's prose style-tune of Gemma 4 26B-A4B — same hardware class as the default. Community tune (reputable maker), quantized by mradermacher; no MTP draft in the quant repo. Pick it deliberately; a Lab A/B decides its real rank."},
     # The user's use-policy word, verbatim (2026-07-06): "i want uncensored as option for
@@ -202,6 +212,7 @@ DEFAULT_CATALOG: list[dict] = [
      "min_vram_mb": 4000, "min_ram_mb": 24000, "tier": "low-vram-moe", "license": "Gemma", "position": 6,
      "license_reviewed": "repo declares license:gemma over an apache-2.0 Google base — checked 2026-07-06; the repackager's own terms are honored (use-limited)",
      "quality_rank": 13, "architecture": "gemma4", "experts": 128,
+     "size_label": "26B-A4B", "size_bytes": 16796015520,
      "description": "26B mixture-of-experts model · 256k context · MTP draft for faster generation · Q4_K_M",
      "notes": "Refusal-ablated Gemma 4 26B-A4B QAT — the option for fiction whose dark, gory, or adult scenes hit stock refusals. Never auto-picked; you choose it. Carries the repo's own Gemma-terms tag (its Google base is Apache-2.0)."},
     # ── Embeddings (build the RAG / semantic-search index — CPU-fine) ──────────────────────
@@ -214,6 +225,8 @@ DEFAULT_CATALOG: list[dict] = [
      "min_vram_mb": 1000, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 7,
      "embedding": True, "pooling": "mean",
      "quality_rank": 70, "architecture": "nomic-bert", "experts": 0,
+     # no size_label: this file's header carries no general.size_label (inspected 2026-07-08)
+     "size_bytes": 84106624,
      "description": "137M embedding model · 2k context · Q4_K_M",
      "notes": "The English CPU embedding floor; mean pooling."},
     {"id": "qwen3-embedding-0.6b", "name": "Qwen3 Embedding 0.6B",
@@ -222,6 +235,7 @@ DEFAULT_CATALOG: list[dict] = [
      "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 8,
      "embedding": True, "pooling": "last",
      "quality_rank": 65, "architecture": "qwen3", "experts": 0,
+     "size_label": "0.6B", "size_bytes": 639150592,
      "description": "0.6B embedding model · 32k context · Q8_0",
      "notes": "The default local embed (stronger multilingual / MTEB than nomic, still tiny ~0.6 GB); last-token pooling."},
     {"id": "bge-m3", "name": "BGE-M3 (multilingual)",
@@ -230,6 +244,7 @@ DEFAULT_CATALOG: list[dict] = [
      "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "MIT", "position": 9,
      "embedding": True, "pooling": "cls",
      "quality_rank": 60, "architecture": "bert", "experts": 0,
+     "size_label": "567M", "size_bytes": 437778496,
      "description": "567M embedding model · 8k context · Q4_K_M",
      "notes": "Multilingual embeddings across 100+ languages; CLS pooling; CPU-fine."},
     {"id": "qwen3-embedding-8b", "name": "Qwen3 Embedding 8B",
@@ -238,6 +253,7 @@ DEFAULT_CATALOG: list[dict] = [
      "min_vram_mb": 7000, "min_ram_mb": 10000, "tier": "high", "license": "Apache-2.0", "position": 10,
      "embedding": True, "pooling": "last",
      "quality_rank": 50, "architecture": "qwen3", "experts": 0,
+     "size_label": "8B", "size_bytes": 4676804928,
      "description": "8B embedding model · 40k context · Q4_K_M",
      "notes": "The #1 multilingual MTEB embed (~4.7 GB, ~7 GB VRAM) for a big card; last-token pooling."},
 ]
@@ -562,10 +578,20 @@ def _seed_samplers(s, model_id: str, samplers: dict | None) -> None:
 
 
 def seed_default_catalog(s) -> int:
-    existing = {r.id for r in s.query(db.ModelCatalog.id).all()}
+    existing = {r.id: r for r in s.query(db.ModelCatalog).all()}
     added = 0
     for c in DEFAULT_CATALOG:
-        if c["id"] in existing:
+        row = existing.get(c["id"])
+        if row is not None:
+            # Fill-empty-only touch-up (#12b, 2026-07-08): existing DBs get the
+            # harvested size FACTS without a reset. Auto-detected fields only,
+            # and only when EMPTY — a value written at download time (the real
+            # local file) or by a fresh inspect always wins; user-editable
+            # fields are never touched here.
+            if row.size_bytes is None and c.get("size_bytes") is not None:
+                row.size_bytes = int(c["size_bytes"])
+            if not row.size_label and c.get("size_label"):
+                row.size_label = str(c["size_label"])
             continue
         s.add(_catalog_row(c, built_in=True))
         _seed_samplers(s, c["id"], c.get("samplers"))

@@ -94,6 +94,37 @@ def test_derived_total_params_from_size_label():
     assert h["total_params"] is None
 
 
+def test_seed_ships_size_facts_and_reseed_fills_empty_only(configured):
+    """#12b (2026-07-08): every built-in catalog row seeds its pinned quant's
+    size_label + size_bytes (harvested via the Read-from-link inspector, so
+    seed == detection), and a RE-seed on an existing DB fills the fields only
+    when EMPTY — a download-derived value is never clobbered."""
+    from llm_runner.llm import db as _db
+
+    # seeded rows carry the facts (spot-check a dense, a MoE, and an embed)
+    assert _row("gemma-4-12b-qat").sizeLabel == "12B"
+    assert _row("gemma-4-12b-qat").sizeBytes == 6716355328
+    assert _row("glm-4.5-air").sizeLabel == "128x9.4B"
+    assert _row("qwen3-embedding-0.6b").sizeBytes == 639150592
+
+    s = _db.session()
+    try:
+        # simulate a pre-#12b row (empty facts) + a download-derived row (real file)
+        blank = s.query(_db.ModelCatalog).get("bge-m3")
+        blank.size_label, blank.size_bytes = "", None
+        derived = s.query(_db.ModelCatalog).get("gemma-4-31b-qat")
+        derived.size_bytes = 12345  # "the local file said so" — must survive reseed
+        s.commit()
+
+        assert seed.seed_default_catalog(s) == 0  # nothing inserted…
+        s.commit()
+    finally:
+        s.close()
+    assert _row("bge-m3").sizeBytes == 437778496       # …but the empty row was filled
+    assert _row("bge-m3").sizeLabel == "567M"
+    assert _row("gemma-4-31b-qat").sizeBytes == 12345  # the derived value was preserved
+
+
 def test_detect_writes_total_params_for_dense_only(configured):
     mid = "llama-3.3-70b-q4_k_m"   # seeded total_params "70B"
     identity.detect_and_store_model_type(mid, "x.gguf", read_meta=lambda _p: _meta_full(size_label="27B"))

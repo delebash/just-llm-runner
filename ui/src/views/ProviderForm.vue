@@ -18,7 +18,7 @@ import LuRunnerEngine from "../components/LuRunnerEngine.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
 import { request } from "../client.js";
-import { PROVIDER_PRESETS, probeModels, createProvider } from "../composables/useProviderConnect.js";
+import { PROVIDER_PRESETS, ONLINE_ONLY_TYPES, probeModels, createProvider } from "../composables/useProviderConnect.js";
 
 const props = defineProps({
   provider: { type: Object, default: null }, // null = adding new
@@ -40,8 +40,14 @@ const draft = reactive({
   timeoutSeconds: props.provider?.timeoutSeconds || 60,
 });
 // The stored Local/Online choice (server derives the id from the name, so there
-// is no id field to type). New providers default to Local.
+// is no id field to type). New providers default to Local — but where-it-runs is
+// only a CHOICE for the ambiguous types (openai-compat, ollama): the metered-cloud
+// types are forced Online by `isLocal`, which also self-heals a row mis-saved as
+// local (#1: an online provider saved while the toggle read Local sent
+// apiKey=null — the clear sentinel — and silently wiped its stored key).
 const local = ref(props.provider ? !!props.provider.local : true);
+const lockedOnline = computed(() => ONLINE_ONLY_TYPES.has(draft.providerType));
+const isLocal = computed(() => (lockedOnline.value ? false : local.value));
 
 const PROVIDER_TYPES = [
   { value: "openai-compat", label: "OpenAI-compatible" },
@@ -111,15 +117,17 @@ const saveErr = ref("");
 async function save() {
   if (!draft.name.trim()) { saveErr.value = "Name is required."; return; }
   saving.value = true; saveErr.value = "";
-  // On edit, an empty apiKey means "keep the stored key"; a local provider sends
-  // none. The id is derived server-side from the name on create; on edit the
-  // path param identifies the row, so the body carries no id.
+  // The id is derived server-side from the name on create; on edit the path param
+  // identifies the row, so the body carries no id. apiKey contract: "" preserves
+  // the stored key, null clears it — and this form has NO explicit remove-key
+  // affordance, so it must never send null on edit (#1: the old `local ? null : …`
+  // wiped a stored key every time the toggle read Local).
   const body = {
     name: draft.name, providerType: draft.providerType,
     baseUrl: draft.baseUrl, defaultModel: draft.defaultModel,
     embeddingModel: draft.embeddingModel, timeoutSeconds: Number(draft.timeoutSeconds) || 60,
-    local: local.value,
-    apiKey: local.value ? null : (draft.apiKey || (isNew.value ? null : "")),
+    local: isLocal.value,
+    apiKey: draft.apiKey || (isNew.value ? null : ""),
   };
   try {
     if (isNew.value) await createProvider(body);
@@ -154,6 +162,8 @@ async function remove() {
     <div class="lu-fgrid">
       <span class="lu-fl">Where it runs</span>
       <div v-if="isBuiltin"><span class="lu-locked">Local · free · built-in</span></div>
+      <div v-else-if="lockedOnline"><span class="lu-locked">Online · metered</span>
+        <div class="lu-fh">This provider type is a metered cloud API — it always runs online.</div></div>
       <div v-else><UiSegmented v-model="local" :options="WHERE" />
         <div class="lu-fh">Local = on this machine, no key. Online = your metered cloud account.</div></div>
 
@@ -163,7 +173,7 @@ async function remove() {
       <span class="lu-fl">Base URL</span>
       <UiInput v-model="draft.baseUrl" placeholder="http://localhost:11434/v1" />
 
-      <template v-if="!local">
+      <template v-if="!isLocal">
         <span class="lu-fl">API key</span>
         <div>
           <UiInput v-model="draft.apiKey" type="password"

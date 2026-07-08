@@ -27,6 +27,7 @@ import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiTag from "../common/components/UiTag.vue";
 import UiProgress from "../common/components/UiProgress.vue";
 import { confirmDialog } from "../common/services/dialog.js";
+import { openExternal } from "../common/services/external.js";
 
 // Shared runner-models state (models / status / load / progress) — one source for the
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
@@ -700,7 +701,8 @@ refreshApplied();
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
                 <div v-if="notesOf(m)" class="lu-mnotes">Your notes: {{ notesOf(m) }}</div>
                 <a v-if="cardUrlOf(m)" class="lu-mlink lu-mcardlink" :href="cardUrlOf(m)"
-                  target="_blank" rel="noopener" title="Open the model's Hugging Face page — full details, files, license">Model card ↗</a>
+                  target="_blank" rel="noopener" title="Open the model's Hugging Face page — full details, files, license"
+                  @click.prevent="openExternal(cardUrlOf(m))">Model card ↗</a>
               </td>
               <td class="lu-mm lu-mtype">
                 <!-- Params column REPLACED (Plan B — the count already rides name/description).
@@ -766,7 +768,8 @@ refreshApplied();
 
     <div class="lu-muted lu-mcat-foot">
       Models download from
-      <a class="lu-mlink" href="https://huggingface.co/models?library=gguf" target="_blank" rel="noopener">Hugging Face ↗</a>
+      <a class="lu-mlink" href="https://huggingface.co/models?library=gguf" target="_blank" rel="noopener"
+        @click.prevent="openExternal('https://huggingface.co/models?library=gguf')">Hugging Face ↗</a>
       — the open model hub. Models load automatically when a task uses them; your chat default and the embedding can run together.
     </div>
 
@@ -782,7 +785,8 @@ refreshApplied();
         <label class="lu-mm-l">
           <span class="lu-mm-lrow">Hugging Face repo
             <a v-if="editing.hfRepo?.trim()" class="lu-mlink" :href="`https://huggingface.co/${editing.hfRepo.trim()}`"
-              target="_blank" rel="noopener" title="Open the model card in your browser — full details, files, license">model card ↗</a>
+              target="_blank" rel="noopener" title="Open the model card in your browser — full details, files, license"
+              @click.prevent="openExternal(`https://huggingface.co/${editing.hfRepo.trim()}`)">model card ↗</a>
           </span>
           <UiInput v-model="editing.hfRepo" placeholder="unsloth/Qwen3-14B-GGUF" />
         </label>

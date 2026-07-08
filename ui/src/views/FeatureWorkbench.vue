@@ -178,10 +178,19 @@ function onPresetsChanged(list) { enginePresets.value = list || []; }
 const presetName = (id) => enginePresets.value.find((p) => p.id === id)?.name || "—";
 // What a feature actually resolves to, with provenance — its task's assigned preset →
 // the global default. Shown muted on the nav card + the read-only line in the editor.
+// #48: the seeded preset names mirror their task labels ("Judgment / scoring" preset
+// on the "Judgment & scoring" task; "Ideation" on "Ideation") — showing both read as
+// the same thing listed twice with drifted spelling. One fact per line: when preset
+// name and task label normalize to the same name, show it once.
+const normName = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 function featurePresetLabel(key) {
   const tk = featureTaskKinds.value?.[key];
   const tkPid = tk ? presetAssign.value.taskKinds?.[tk] : "";
-  if (tkPid) return `${presetName(tkPid)} · ${taskLabel(tk, taskKinds.value)}`;
+  if (tkPid) {
+    const pn = presetName(tkPid);
+    const tl = taskLabel(tk, taskKinds.value);
+    return normName(pn) === normName(tl) ? pn : `${pn} · ${tl}`;
+  }
   const did = presetAssign.value.defaultPresetId;
   if (did) return `${presetName(did)} · default`;
   return "— none —";

@@ -1450,6 +1450,21 @@ build on the user's word — fold-in vs own-go asked once at the next report.
   sentence max on a working surface, detail behind the help affordance; one fact shown once;
   one primary thing on screen per mode. Applies to the QC cluster build and every batch
   after it.
+- **QC-9 — Insert-from pickers must be RELEVANT to the open feature (user verbatim, on the
+  B4 Test-input panel):** *"you have 3 textboxes, does it make sense to drop character info
+  for generate prose? did you actually think about what you where designing?"* Honest
+  answer given in chat: no — the mechanism was designed (exact-name fill + honest mismatch
+  toast) but not the surface; all three source pickers render on every feature, so on a
+  {passage, voiceCanon} prose feature the character/location pickers are DEAD controls
+  whose only possible outcome is an error toast — the ghost-affordance class again. FIX
+  (awaiting the user's word on timing): relevance filtering — each picker renders only when
+  its source's declared variables can fill at least one of the OPEN feature's variables
+  (source contract grows a cheap `provides: [names]` list; the Lab intersects it with the
+  current prompt's vars, honoring the existing single-single bridge). Generate prose then
+  shows only "Insert from chapter…" + Sample; character/location pickers appear on features
+  with boxes they can fill (e.g. single-var user_content analysis features). Small,
+  contained change (FeatureLab picker v-if + the JW sources' provides lists + a vitest case
+  + one probe assertion).
 - **QC-8 — the Advanced expander must go; the copy-from-Lab is the root failure (user
   verbatim):** *"you added avancded hidden under a expand, all you did was copy what was in
   lab and replace what was in the original tune, you did not think about what we where doing

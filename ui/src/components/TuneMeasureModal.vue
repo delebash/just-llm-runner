@@ -6,13 +6,15 @@
 // the MODEL — one editor, everywhere). Loads the model with ad-hoc Plane-1 engine
 // flags + probes decode tok/s on this box.
 //
-// §7.6 (2026-07-08, the user's #26 "show all switches" + snapshot decision): the grid
-// is the KnobGrid CHECKLIST over the WHOLE plane-1 knob catalog — every switch is a
-// visible row, each labeled with where its value comes from (a global bundle · the
-// model type · your PC class · your applied config · computed for this PC · engine
-// default). Set rows pre-fill from the model's RESOLVED defaults INCLUDING the
-// fit-computed values ("Add to grid" is retired — computed values are ordinary rows
-// now); unchecked rows show the knob with the engine's own default in reach. **Apply**
+// §7.6 (2026-07-08) + the same-day QC cluster (queue doc §9, QC-1..8): the grid is
+// the KnobGrid LEDGER over the WHOLE plane-1 knob catalog — every switch is one
+// flat, always-visible row (no Advanced expander, no checkboxes, no per-row
+// resets), the flag name with its origin underneath, tags carrying the REAL
+// editor names (Global launch default · Hardware-class default · your applied
+// config · computed for this PC · engine default). Set rows pre-fill from the
+// model's RESOLVED defaults INCLUDING the fit-computed values ("Add to grid" is
+// retired); unset rows show the engine's own default as a muted placeholder —
+// writing a value sets a row, clearing it unsets it. **Apply**
 // is a SNAPSHOT: the model takes ownership of every set row (PUT /v1/ai/model-tunes;
 // the server derives the machine key and stores the layer BASELINE beside it) — once
 // applied, the model stops following later global/class changes (the user's decision:
@@ -65,7 +67,6 @@ const tunePhase = ref(""); // "" | loading | measuring | done | error
 const tuneDetail = ref(""); // live load detail
 const tuneResult = ref(null); // { tokensPerSec, completionTokens, ms, vramTotalMb, ramTotalMb }
 const tuneErr = ref("");
-const tuneMtpCapable = ref(false); // the tuned model's GGUF supports MTP → surface the spec_type hint
 const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value === "measuring");
 
 // Per-row PROVENANCE (2026-07-07 origins; §7.6 makes them total): which layer
@@ -75,9 +76,12 @@ const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value
 // Fit-computed values are ordinary rows tagged "computed for this PC" (2026-07-08:
 // "Add to grid" retired — the user's snapshot decision means Apply deliberately
 // takes ownership of them; "Refresh from defaults" re-derives them any time).
+// QC-1 (2026-07-08): tags carry the REAL editor names — the same words as the
+// "Global launch defaults" / "Hardware-class defaults" buttons they point at.
 const ORIGIN_LABELS = {
-  base: "all models", type: "model type", mtp: "speculative decode",
-  class: "your PC class", tune: "your applied config",
+  base: "Global launch default (all models)", type: "Global launch default (model type)",
+  mtp: "Global launch default (spec decode)", class: "Hardware-class default",
+  tune: "your applied config",
   computed: "computed for this PC", autotune: "auto-tune winner",
 };
 const tuneOrigins = ref({}); // flagName -> layer id, for the SET rows
@@ -102,9 +106,13 @@ const saveState = ref(""); // "" | saving | removing
 const saveErr = ref("");
 const applyMsg = ref(""); // transient "Applied ✓ …" note after a completed Apply
 
-// ── the §7.6 header badge (B3-4, the user's "d3-4 your rec") — ONE badge family:
-// Auto-tuned / Hand-tuned (an applied config, by how it came to be) · Class default
-// (no applied config, but this box's class has a shared starting point) · Untuned.
+// ── the §7.6 header badge (B3-4) — Auto-tuned / Hand-tuned / Untuned. QC-3
+// (2026-07-08, the user: "this just has one class defaults andt that is not true,
+// it is all of them"): the header state describes the WHOLE config, and only an
+// applied snapshot genuinely is one thing — an untuned model's config is a MIX of
+// layers, which the per-row origin tags show truthfully. So the header never
+// claims a single layer; the has-a-class-default fact lives on the rows (and the
+// catalog row badge).
 const headerBadge = computed(() => {
   if (savedTune.value) {
     const fam = TUNE_BADGES[savedTune.value.source] || null;
@@ -112,9 +120,6 @@ const headerBadge = computed(() => {
       intent: "success",
       label: fam ? `${fam.label} on this PC ✓` : "Applied on this PC ✓",
     };
-  }
-  if (hasClassDefault.value) {
-    return { intent: TUNE_BADGES.class.intent, label: "Class default for this PC" };
   }
   return { intent: TUNE_BADGES.untuned.intent, label: "Untuned — using the layered defaults" };
 });
@@ -286,11 +291,9 @@ function fillFromResolved(res) {
     ...Object.fromEntries((res.computed || []).map((c) => [c.name, "computed"])),
   };
   if (!savedTune.value) inheritedOrigins.value = res.origins || {};
-  tuneMtpCapable.value = res.mtpCapable;
 }
 async function startTune() {
   tuneRows.value = [];
-  tuneMtpCapable.value = false;
   tuneResult.value = null;
   tuneErr.value = "";
   tunePhase.value = "";
@@ -324,20 +327,12 @@ const showClassLib = ref(false);
 const showGlobalLib = ref(false);
 const classTunesRef = ref(null);
 const myClassLabel = computed(() => classKeyLabel(myClassKey.value));
-// §7.6 badge input: does THIS model have a class config for THIS box's class?
-// Read from the SAME listClassTunes payload the class key comes from (one call).
-const classConfigs = ref([]);
-const hasClassDefault = computed(() =>
-  classConfigs.value.some((c) =>
-    c.modelId === props.model.id && c.classKey === myClassKey.value && c.rows?.length));
 async function loadMyClassKey() {
   try {
     const res = await listClassTunes();
     myClassKey.value = res.classKey || "";
-    classConfigs.value = res.tunes || [];
   } catch {
     myClassKey.value = ""; // enrichment — the button simply doesn't render
-    classConfigs.value = [];
   }
 }
 async function saveForClass() {
@@ -501,17 +496,13 @@ onBeforeUnmount(stopAutoPoll);
 <template>
   <AppModal :title="`Tune & measure — ${model.name || model.id}`" :max-width="'560px'" @close="emit('close')">
     <div class="lu-tune">
+      <!-- QC-6 (2026-07-08, "do you really think this looks nice … the text"): ONE
+           short lede — each row explains itself (origin tag + hover help); the
+           two-paragraph explainer is gone, its detail lives in docs/models.md. -->
       <p class="lu-muted lu-tune-lede">
-        Every engine switch is listed below with where its value comes from — the set ones
-        pre-fill from this model's defaults<template v-if="savedTune"> and your applied
-        config</template>; unchecked ones use the engine's own defaults. Tweak, measure, then
-        <b>Apply</b> — the model takes ownership of exactly what you see. Engine switches
-        belong to the <b>model</b>: every task that uses it on this PC shares them (a task
-        decides only how it's <i>asked</i> — temperature, tokens, thinking — on the Tasks tab).
+        Each switch shows where its value comes from — tweak, measure, then <b>Apply</b>
+        (how tasks <i>ask</i> the model — temperature, tokens, thinking — stays on the Tasks tab).
       </p>
-      <p v-if="tuneMtpCapable" class="lu-muted lu-tune-lede">This model supports <b>MTP</b> —
-        <b>Speculative decode</b> is on by default (“MTP draft”); gains are machine-dependent, so
-        measure. To turn it off here, set it to “Off” and Apply.</p>
 
       <!-- #16 + B3-4: the tune state reads BIG — the §7.6 badge family (Auto-tuned /
            Hand-tuned / Class default / Untuned); Remove lives in the footer beside
@@ -530,14 +521,14 @@ onBeforeUnmount(stopAutoPoll);
       </div>
 
       <!-- #21: ONLY the switch grid scrolls — everything after this block (status,
-           auto-tune narration, the result) stays in view without scrolling. §7.6:
-           the grid is the CHECKLIST over the whole plane-1 knob catalog (every
-           switch visible, origin-tagged; its own inner scroll is off — one
-           scroller per area) with the add-row grid as the no-catalog fallback. -->
+           auto-tune narration, the result) stays in view without scrolling. The
+           grid is the LEDGER over the whole plane-1 knob catalog (every switch one
+           flat visible row, origin-tagged — QC cluster 2026-07-08) with the
+           add-row grid as the no-catalog fallback. -->
       <div class="lu-tune-scroll">
-        <KnobGrid v-model="tuneRows" checklist :catalog-list="plane1List"
-          :catalog="switchCatalog" :origins="originTags" :scroll-max="''"
-          :show-footer-reset="false" add-label="＋ Add a custom switch" />
+        <KnobGrid v-model="tuneRows" ledger :catalog-list="plane1List"
+          :catalog="switchCatalog" :origins="originTags"
+          add-label="＋ Add a custom switch" />
         <div v-if="unknownNames.size" class="lu-tune-unk lu-muted">
           <UiTag intent="danger">unrecognized</UiTag>
           <span>{{ [...unknownNames].join(", ") }} — not a known engine flag (mistyped, or dropped

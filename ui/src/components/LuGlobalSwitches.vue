@@ -119,11 +119,12 @@ const ordered = computed(() =>
     </summary>
 
     <div class="lu-gsw-body">
+      <!-- QC-6 (2026-07-08): one definition sentence + the user-decided standing
+           caption; the layer-mechanics explainer lives in docs/models.md and on
+           the Tune grid's own origin tags. -->
       <p class="lu-muted lu-gsw-help">
-        These bundles are the FIRST layer of every model's launch: a hardware-class config or
-        this machine's saved tune overrides them per value, and the engine computes anything
-        no layer sets (GPU layers, context, expert offload). Anything not listed anywhere
-        uses the engine's own defaults. The Tune dialog shows which layer won each value.
+        These bundles are the first layer of every model's launch — a Hardware-class default
+        or an applied config overrides them per value.
         <b>Models with an applied config keep their saved values</b> — a change here reaches
         them only when you refresh or remove their applied config in Tune &amp; measure.
       </p>

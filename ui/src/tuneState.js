@@ -18,10 +18,12 @@ export async function fetchTuneState() {
 }
 
 // The §7.6 badge family — user-decided wording (queue doc §7.6, "d3-4 your rec").
+// QC-1 (2026-07-08): tags use the REAL editor name — "Hardware-class default",
+// matching the Hardware-class defaults button/dialog, never invented shorthand.
 export const TUNE_BADGES = {
   auto: { label: "Auto-tuned", intent: "success" },
   hand: { label: "Hand-tuned", intent: "success" },
-  class: { label: "Class default", intent: "secondary" },
+  class: { label: "Hardware-class default", intent: "secondary" },
   untuned: { label: "Untuned", intent: "secondary" },
 };
 

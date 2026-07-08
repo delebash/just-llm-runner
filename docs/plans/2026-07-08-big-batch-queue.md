@@ -1359,3 +1359,69 @@ build on the user's word — fold-in vs own-go asked once at the next report.
   buttons — flagged: the checkbox's set/unset role moves into the value itself; the blessed
   save-set semantics are UNCHANGED — rows with a known value are what Apply snapshots).
   Cluster = QC-1..8, one build, right after DL-1.
+
+**QC-CLUSTER BUILD RECORD (2026-07-08, the user's ordered fix — BUILT + VERIFIED right after
+DL-1 shipped, before DL-2/B4 per their sequencing).** Every touched file re-read in FULL
+first (KnobGrid.vue · TuneMeasureModal.vue · LuClassTunes.vue · LuGlobalSwitches.vue ·
+tuneState.js · the LuModelCatalog badge cluster). What shipped, by QC item:
+
+- **QC-4 + QC-8 + QC-3(row shape) — KnobGrid gained a third presentation, LEDGER mode**
+  (`ledger` prop; the checklist stays untouched for the sampler grids it was built for —
+  reuse of the MODEL/helpers, not of a look built for another surface, which was the owned
+  root failure). Ledger = every catalog knob ONE flat always-visible row in catalog order:
+  the flag name (mono, the row's ONE name — the friendly label + catalog help live in the
+  hover title) with the origin tag stacked under it, then a kind-aware value control. NO
+  checkboxes, NO per-row ↺ resets, NO Advanced expander — the container probe renders 21
+  flat rows where the checklist showed 8 with the rest hidden. SET = the row has a value:
+  typing into an unset row creates it, clearing the value (empty the input, or pick the
+  explicit "engine default" first option on selects) removes it (`setOrClear` — the blessed
+  §7.6 save-set semantics unchanged by construction; Apply/Load-&-measure still send exactly
+  the value-carrying rows). Unset rows show the engine default as a muted placeholder
+  ("engine default: 4096") and render slightly quieter. Custom keys keep their raw
+  rows + ✕ under a "Custom switches" header; "＋ Add a custom switch" stays.
+- **QC-1 — real editor names everywhere.** `ORIGIN_LABELS`: "all models"→"Global launch
+  default (all models)" · "model type"→"Global launch default (model type)" · "speculative
+  decode"→"Global launch default (spec decode)" · "your PC class"→"Hardware-class default";
+  `TUNE_BADGES.class.label` "Class default"→"Hardware-class default" (the catalog row badge
+  + its title now say "…starts from the Hardware-class default for your PC class").
+- **QC-3 — the header badge stops overclaiming.** The modal header family is now Auto-tuned /
+  Hand-tuned / "Untuned — using the layered defaults" ONLY — the "Class default for this PC"
+  header state is REMOVED (a header state describes the WHOLE config; only an applied
+  snapshot genuinely is one thing; the has-a-class-row fact shows truthfully on the rows'
+  origin tags and on the model's catalog badge). `hasClassDefault`/`classConfigs` deleted
+  from the modal.
+- **QC-6 — the text walls died.** The modal lede is ONE sentence ("Each switch shows where
+  its value comes from — tweak, measure, then Apply (how tasks ask the model … stays on the
+  Tasks tab)."); the MTP paragraph is gone (the spec_type row itself carries its origin tag
+  and catalog help; `tuneMtpCapable` plumbing removed); LuClassTunes' help = one definition
+  sentence + the user-decided standing caption; LuGlobalSwitches' help likewise (the layer-
+  mechanics explainer moved to docs/models.md, which was rewritten to match all of this).
+- **QC-5 — "Hardware-class defaults ↗" opens the EDIT page directly.** The per-model popup
+  mount (`directEdit` = expanded + modelId) skips the list entirely: it opens the editor on
+  this PC's class row when one exists, else a new config prefilled with this model + this
+  PC's class key; Save keeps the editor open (key locks) + toasts "Hardware-class default
+  saved ✓"; no Cancel (the popup's own close is the way out). Recorded consequence: the
+  per-model Import affordance moved to the global library (a config pasted there carries
+  its modelId).
+- **QC-2 — one thing on screen at a time in the global library.** Entering Edit/Add/Import
+  now REPLACES the table + button bar (they render only when nothing is being edited);
+  Cancel/Save returns to the list. No more row-summary + bar + editor stacked three-deep.
+- **QC-7 — applied as the standing lens:** the shipped modal reads lede → badge → flat grid
+  → tools → history, each fact once, no stacked affordances (screenshots eyeballed against
+  exactly this).
+
+**Gates (one consolidated pass):** runner `ruff` clean + **416 pytest** · JW vitest **38/38**
+· `build:vite` clean · the **FULL headless smoke zero JS errors** · a dedicated **QC probe
+(16/16, zero page errors)** against the fake-GGUF seam observing every fixed surface live:
+the global library list→editor replacement round-trip · the 21-row flat ledger (no
+checkboxes/↺/expander, no doubled label element) · real-name origin tags ("Global launch
+default (all models)" · "engine default", the old "your PC class" absent) · the truthful
+Untuned badge · the short lede (old paragraphs asserted ABSENT) · set-by-value round-trip on
+ctx_len (type→set, clear→unset) · the direct-edit class popup (editor immediately, class key
+prefilled cpu|ram16, no list/bar/Cancel) · the trimmed global-launch popup (3 bundles editing
+directly, caption kept) · Apply→"Hand-tuned on this PC ✓"→Remove→Untuned unchanged (DB left
+as found; fake GGUF removed after). Screenshots sent to the user. **Box notes: NO reset** —
+all kit UI; visible on the next desktop build. Flagged one-line-changeables: the row's ONE
+name is the FLAG name (the user's endorsed original showed flag names; friendly label on
+hover) · the header badge's class state was REMOVED rather than reworded (the catalog badge
+carries the class fact) · per-model Import lives in the global library now.

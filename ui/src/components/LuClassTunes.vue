@@ -24,6 +24,7 @@ import UiSelect from "../common/components/UiSelect.vue";
 import UiTag from "../common/components/UiTag.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { confirmDialog } from "../common/services/dialog.js";
+import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import { classKeyLabel, deleteClassTune, listClassTunes, putClassTune } from "../classTunes.js";
 import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
@@ -40,6 +41,13 @@ const props = defineProps({
   expanded: { type: Boolean, default: false },
 });
 const globalMode = computed(() => !props.modelId);
+// QC-5 (2026-07-08, the user: "hardware defuatls brings up grid instead of your
+// hardware default edit page"): the per-model POPUP opens STRAIGHT INTO the
+// editor for this model — this PC's class row when one exists, else a new config
+// prefilled with this PC's class. The list/table stays the GLOBAL library's
+// affordance (many models — you pick a row there). Consequence recorded in the
+// queue doc: per-model Import moves to the global library.
+const directEdit = computed(() => props.expanded && !globalMode.value);
 
 const loaded = ref(false);
 const loading = ref(false);
@@ -86,6 +94,11 @@ async function reload() {
       ownCatalog.value = plane1SwitchCatalog(await fetchKnobCatalog());
     }
     loaded.value = true;
+    if (directEdit.value && !editing.value) {
+      const mine = tunes.value.find((t) => t.classKey === myClassKey.value);
+      if (mine) startEdit(mine);
+      else startAdd();
+    }
   } catch (e) {
     error.value = e.message || "Couldn't load the class library.";
   } finally {
@@ -138,7 +151,15 @@ async function saveEdit() {
   error.value = "";
   try {
     _apply(await putClassTune(mid, switches, key));
-    editing.value = null;
+    if (directEdit.value) {
+      // Direct-edit stays on the editor (there is no list behind it) — re-enter
+      // the saved row so the key locks, and confirm with a toast.
+      const saved = tunes.value.find((t) => t.modelId === mid && t.classKey === key);
+      if (saved) startEdit(saved);
+      pushToast({ message: "Hardware-class default saved ✓" });
+    } else {
+      editing.value = null;
+    }
   } catch (err) {
     error.value = err.message || "Couldn't save the class config.";
   } finally {
@@ -227,12 +248,11 @@ const hasRows = computed(() => tunes.value.length > 0);
     </summary>
 
     <div class="lu-ct-body">
+      <!-- QC-6 (2026-07-08): ONE definition sentence + the user-decided standing
+           caption — the explainer paragraph is gone (detail: docs/models.md). -->
       <p class="lu-muted lu-ct-help">
         A class config is <b>one model's</b> launch setup for every PC with the same video
-        memory and RAM — applied automatically unless this machine has its own applied
-        config<template v-if="globalMode"> (each row belongs to the model in its Model
-        column; there is no single tune covering all models)</template>. Edit a built-in to
-        change it (your edit sticks); Copy/Import moves a config between users as text.
+        memory and RAM — used automatically unless the machine has its own applied config.
         <b>Models with an applied config keep their saved values</b> — a change here reaches
         them only when you refresh or remove their applied config in Tune &amp; measure.
       </p>
@@ -240,8 +260,12 @@ const hasRows = computed(() => tunes.value.length > 0);
       <div v-if="error" class="lu-error">{{ error }}</div>
       <div v-if="loading" class="lu-muted">Loading…</div>
 
+      <!-- QC-2 + QC-5 (2026-07-08): one thing on screen at a time — the list +
+           button bar show only when nothing is being edited/imported (the editor
+           REPLACES them, never stacks below), and the per-model popup skips the
+           list entirely (directEdit). -->
       <template v-else-if="loaded">
-        <table v-if="hasRows" class="lu-ct-tbl">
+        <table v-if="!directEdit && !editing && !showImport && hasRows" class="lu-ct-tbl">
           <thead>
             <tr><th v-if="globalMode">Model</th><th>PC class</th><th>Settings</th><th /></tr>
           </thead>
@@ -264,13 +288,13 @@ const hasRows = computed(() => tunes.value.length > 0);
             </tr>
           </tbody>
         </table>
-        <p v-else class="lu-muted lu-ct-empty">
+        <p v-else-if="!directEdit && !editing && !showImport" class="lu-muted lu-ct-empty">
           {{ globalMode
             ? "No class configs saved yet — measure a config in a model's Tune dialog and use “Save for hardware class”, or add one here."
             : "No class configs for this model yet — measure a config above and use “Save for hardware class”, or add one here." }}
         </p>
 
-        <div class="lu-ct-bar">
+        <div v-if="!directEdit && !editing && !showImport" class="lu-ct-bar">
           <UiButton intent="secondary" size="small" @click="startAdd">＋ Add class config</UiButton>
           <UiButton intent="secondary" size="small" @click="showImport = !showImport; editing = null">Import…</UiButton>
         </div>
@@ -298,7 +322,9 @@ const hasRows = computed(() => tunes.value.length > 0);
           </label>
           <KnobGrid v-model="editing.rows" :catalog="catalogMap" />
           <div class="lu-ct-edact">
-            <UiButton intent="ghost" size="small" @click="editing = null">Cancel</UiButton>
+            <!-- directEdit: the popup's own close is the way out — no Cancel to a
+                 list that isn't there. -->
+            <UiButton v-if="!directEdit" intent="ghost" size="small" @click="editing = null">Cancel</UiButton>
             <UiButton intent="primary" size="small" :loading="saving" @click="saveEdit">Save class config</UiButton>
           </div>
         </div>

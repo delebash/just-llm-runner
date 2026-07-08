@@ -1154,7 +1154,11 @@ downloading**.
   *"did you add anysettings usually we have settings for this like number of threads ect"*):
   the plan MUST carry DB-backed, user-editable settings per the nothing-hardcoded rule —
   enable on/off · connection/segment count · minimum file size worth segmenting ·
-  per-segment retry count.
+  per-segment retry count. **PLAN WRITTEN 2026-07-08 →
+  `docs/plans/2026-07-08-segmented-downloads-plan.md`** (facts verified live: the HF
+  CloudFront hop answers `accept-ranges: bytes` + a real 206; container 1-vs-4 test 15.2 →
+  22.9 MiB/s aggregate with byte-identical reassembly; hf_transfer cited as the official
+  precedent). AWAITS THE USER'S GO before any build.
 
 **DL-1 BUILD RECORD (2026-07-08, built at pickup under the recorded go).** New kit service
 `ui/src/common/services/downloadRate.js` — a PURE sliding-window rate tracker

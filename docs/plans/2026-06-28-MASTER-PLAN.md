@@ -1,5 +1,18 @@
 # MASTER PLAN — LLM stack + JustWrite — COMPLETE / full-detail rebuild (2026-06-28)
 
+> ## ⛔⛔ HISTORICAL ARCHIVE (bannered 2026-07-08) — no longer a tracker; do NOT read this doc whole
+> This 513 KB doc is **fully historical**. On 2026-07-08 every outstanding row of its LIVE TASK
+> TRACKER ("Remaining" T20–T24 + "Open decisions · GPU-gated · research" T30–T50) and its PART-2
+> Phase-F/DEFERRED text was audited against code and dispositioned in
+> **`2026-07-06-outstanding-master-plan.md` §I** — shipped-later verdicts with evidence (task
+> queue → C3, json_schema → C1, router mode + arbiter built, the Usage tab exists, QuickSetup
+> enhancements landed in evolved form, …) plus the genuinely-open tail (the JW cleanup bucket,
+> cloud prompt caching, Apple-Silicon refinements, the reclaim-disk panel, the parking lot).
+> **The ledger is the ONE open-work list; the tracker below is FROZEN history** — do not update
+> it, do not plan from it. Open a single section of this doc only when a task needs its history
+> (the folded verbatim design/research sources remain valuable as evidence); never load the
+> whole file — it costs more than half a context window.
+
 > ## ⛔⛔ SUPERSESSION NOTICE (2026-06-29) — the AI routing/tuning model has been REDESIGNED
 > The AI config model in THIS doc is **job-centric** (a per-job model route; the Compare/lab at job grain; the
 > Fast/Balanced/Best dial; the "Routing by job" engine screen). On 2026-06-28/29 the user and I redesigned that whole

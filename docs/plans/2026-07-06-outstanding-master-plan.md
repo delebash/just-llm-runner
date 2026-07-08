@@ -18,7 +18,7 @@
 > ledger items A5 · C9 · D6 + the D4-1 leg-3 factory-default follow-up (filed in that plan's
 > Phase 2 record).**
 >
-> Supersedes, as the outstanding-work view only: the open-item scatter across `2026-06-28-MASTER-PLAN.md` (the roadmap archive), `2026-06-28-ai-state-grid.md` (whose two ⚠ forks are now: per-model-tune-save → RESOLVED by Plan B; json-grammar → item C1 here), and the per-plan LIVE trackers (which stay authoritative for their own shipped history).
+> Supersedes, as the outstanding-work view only: the open-item scatter across `2026-06-28-MASTER-PLAN.md` (the roadmap archive — **fully folded 2026-07-08 via §I below**, so the master never needs to be opened as a tracker again), `2026-06-28-ai-state-grid.md` (whose two ⚠ forks are now: per-model-tune-save → RESOLVED by Plan B; json-grammar → item C1 here), and the per-plan LIVE trackers (which stay authoritative for their own shipped history).
 
 ---
 
@@ -180,3 +180,68 @@ Two adversarial rules-checker agents re-derived every item from code with orders
 - **Checker B (JV/decisions/corrections scope): 15 confirmed · 1 REFUTED · 2 missed.** REFUTED **D2** — co-residence policy + JV coordination were DECIDED 2026-07-04 (design §7 is titled "Decisions — the user took the agent's recommendation"; the arbiter is built); the real remainder is the JV-side hook BUILD → moved to F4. MISSED → folded: **F5** (the JV Appearance knob-set gap) and **G5** (the SVM box-verifies). Confirmed every §H correction is recorded where claimed — including H1's LAZY-final embedding record in both the SVM plan and the JW recap — and sharpened D1/F1/G2 citations (the F1 symbol sits on `models.py:26` within the `:23-29` import; `storage_relocate` at `lib.rs:389`). Its two runtime-only asks (the live import repro + the engine-config curl) were verified statically by the checker + had been executed live in pass 1 — both passes together cover code AND runtime.
 
 **Net: 26 of 28 claims confirmed as written; 2 refuted and corrected; 4 real additions (E1-cleanup content, E3, F4, F5, G5). Every item above now carries two independent evidence trails.**
+
+## I. Master-plan tail — the 2026-06-28 MASTER-PLAN's outstanding items, folded 2026-07-08
+
+> **PROVENANCE.** Before bannering the 513 KB `2026-06-28-MASTER-PLAN.md` fully historical (part
+> of the user's 2026-07-08 context-cleanup go), the user asked *"is there anything in the master
+> plan left undone?"* — this section is the audited answer, so the master never needs to be
+> opened as a tracker again. Method: every row of the master's LIVE TASK TRACKER "Remaining" +
+> "Open decisions · GPU-gated · research" tables plus the PART-2 Phase-F/DEFERRED text was
+> checked against code or this ledger on 2026-07-08 (greps + file:line reads recorded per item).
+
+**I0 — dispositions of the master's tracker rows (nothing to do; recorded so the verdict is
+citable).** **T21** shared AI task queue → shipped, this ledger **C3**. **T23** json_schema/GBNF
+→ shipped, **C1**. **T40** router-mode build → shipped, it IS the live serving architecture (the
+2026-07-04 SVM implementation). **T41** residency/VRAM planner → shipped as the arbiter
+(`runner/arbiter.py`; §H3). **T42** structured-output quality eval → folded into **C2**'s box
+scope. **T50** measured benchmarks → **C2** (published re-grounding done) + **C9** (the Lab-A/B
+research half) + **§G** (true on-box measurement). **T20** QuickSetup enhancements → all four
+sub-items landed in evolved form under the user's later direction (RAM-gated fit · MoE-aware
+pick · the embedding dropdown; the "Test→Compare deep-link" belonged to the dead job-grain
+Compare design — today's path is Tune's "Send to Tasks Lab"). **T22** shared LLM-UI views →
+shipped in evolved shapes: the Usage tab (`ui/src/views/AiModelsArea.vue:141-171`, the full
+`/v1/ai-usage` rollup + clear — verified 2026-07-08), RunnerStatus = the Local-engine panel,
+DownloadStrip = the catalog/engine progress bars, ProviderSelect = the provider list +
+`LuModelPicker`; the "role/job badges" and "Routing&Cost card" sub-items died with the
+roles→Plan-A redesign. **T30/O1** `prefer_local_features` → ALIVE as an install-time per-app
+hook (`llm/dispatch.py:117`, `install.py:73`, empty for JW) — recorded **fine-as-is** per the
+folded 2026-07-08 recommendation the user approved; reopen only on a user ask. Also verified
+2026-07-08: `PromptLab.vue` is now **load-bearing** (C1's json_schema editor — the master's
+"remove unused PromptLab" cleanup line is dead), and `idb-keyval` is already out of JW's
+`package.json` (that DEFERRED row is done).
+
+- **I1 — the JW cleanup tail (the master's T24 / Phase-F cleanup bucket).** STATUS: **NOT
+  DONE** — small, mechanical, still real (all verified 2026-07-08): `htmlToText` duplicated
+  across **19 renderer files** and `tailWords` across **7** (grep counts match the master's
+  2026-06-27 audit — nothing converged since); the RULE-5 new-entity-popup audit (#34); a
+  shared `runJsonAnalysis`; promoting the big CSS clones to `styles.css`; the
+  `useEntityCrudView` composable idea; the gate ratchets (extend `check-shared-pickers`, jscpd
+  ratchet, the i18n `SettingsView.startNew` key); and the tests-fail-in-isolation fixture
+  (`test_plane2_params.py`/`test_prompts.py` lacked a `configure_storage` fixture when run
+  alone — the full suite is green at 409, so verify-then-fix). Size: small each; batchable.
+- **I2 — cloud prompt caching (the master's O2).** STATUS: **DECISION + BUILD, untouched** —
+  the Anthropic/Gemini adapters send no prompt-caching hints; never built, never decided. A
+  cloud-cost optimization only (the bundled runner has llama.cpp's own prefix cache); worth a
+  decision only when cloud usage matters to the user.
+- **I3 — Apple-Silicon fit/tune refinements.** STATUS: **NOT BUILT (platform gap, academic
+  today)** — macOS detection + the Metal binary preference EXIST (`runner/hardware.py:51,413`
+  → `runtimes["metal"]`, `runner/binary.py:52`), but the master's Apple specifics (unified-
+  memory budget in fit, no `--n-cpu-moe` on Apple, the `iogpu.wired_limit_mb` note) were never
+  built and there is no Mac anywhere in the project to verify against. Park until a Mac exists.
+- **I4 — the "reclaim disk" cache/data panel** (the master's platform-settings remainder).
+  STATUS: **NOT BUILT** — Settings has the portable data root + engine Uninstall (deletes only
+  binaries), but no surface that reports/clears cache usage (hf download cache, logs). Small.
+- **I5 — the DEFERRED-until-needed parking lot (carried, still parked by design):** per-scene
+  incremental snapshot writes · full per-entity write REST · RAG sqlite-vec ANN index · the
+  spawn boot/splash UX · extracting the kit `common/` → a future `@delebash/ui` package · the
+  llama-swap optional layer · the Tauri/package rename PR (track, don't churn). Two rows
+  corrected while folding: `idb-keyval` removal is already DONE (gone from `package.json`),
+  and the "dead Tauri `images_save` cleanup" premise is STALE — `images_save` is live and
+  documented as the Tauri image path (JW `CLAUDE.md` §Image storage); strike that row unless
+  a future audit re-establishes it. These wake on need, not on a list sweep.
+- **I6 — the master's §G JustVoice tail beyond this ledger's F1–F5** (TTS Lab · the JV
+  capture/dictation fix · the JV prompt-editor view · JV catalog drift rows). STATUS: **gated
+  on F1** — all of it presupposes JV convergence onto the current shared stack; F1's own scope
+  line ("full drift enumeration is part of the work") owns discovering the survivors. Recorded
+  here so the names aren't lost; do not plan them separately before F1.

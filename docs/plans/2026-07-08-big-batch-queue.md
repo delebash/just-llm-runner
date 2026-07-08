@@ -1267,3 +1267,29 @@ build on the user's word — fold-in vs own-go asked once at the next report.
   redundancy) is a different surface with no discussed prior — its fix shape still awaits
   the user's word. SEQUENCING (the user's word): DL-1 finishes first → this QC cluster →
   DL-2 plan → Batches 4/5/6.
+- **QC-5 — "Hardware-class defaults ↗" must open the EDIT page directly, like Global launch
+  defaults already does (user verbatim, with screenshots):** *"global defaults button brings
+  up edit this is how it should be, hardware defuatls brings up grid instead of your hardware
+  default edit page, you got lazy again, why do we alwasy have to redo your crappy work."*
+  Grounded: from the Tune modal, "Global launch defaults ↗" opens the three bundles' editable
+  grids IMMEDIATELY (endorsed), while "Hardware-class defaults ↗" opens the per-model
+  LuClassTunes mount on its LIBRARY LIST (row summary + Edit/Copy + Add/Import) and demands a
+  second Edit click. Fix: the per-model mount opens STRAIGHT INTO the class-config editor for
+  this model — this PC's class row when one exists, else the new-config editor prefilled with
+  this model + this class key. This also settles what QC-2 left open for the GLOBAL library
+  mount (many models — a list is genuinely needed to pick a row): there, entering
+  Edit/Add/Import REPLACES the list + button bar (one thing on screen at a time), never
+  stacking below it. QC-2 folds into the ordered cluster on the user's QC-5 direction.
+- **QC-6 — too much small descriptive text on these surfaces (user verbatim):** *"you have so
+  much text description and it is some small uggh you are a terrible programmer even on max,
+  you realy need to think about what you do, you rush everything."* Grounded against the
+  screenshots: the Tune modal opens with TWO dense small-type paragraphs (the §7.6 lede + the
+  MTP note) and the library popup leads with another four-line paragraph — walls of
+  explainer text at caption size. Fix in the cluster: cut each surface to ONE short plain
+  sentence (the modal: what the grid is + where tasks are asked; the library: what a class
+  config is), move the rest behind the existing help affordances, and never ship a
+  multi-paragraph lede on a working surface again. The user then pointed at the same modal
+  again — *"do you really think this looks nice"* … *"the text"* — confirming the lede block
+  IS the target (honest answer: no; it reads as documentation pasted into a dialog). THE
+  ORDERED QC CLUSTER IS NOW QC-1+2+3+4+5+6 — one build, right after DL-1 finishes, before
+  DL-2/B4.

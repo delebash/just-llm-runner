@@ -213,6 +213,40 @@ per-task "stream" flag — the caller picks the endpoint. Design in discussion D
 ## §2 — DISCUSSION AGENDA (blocked on the user; nothing here is decided)
 
 **A. THE tuning-flow consolidation (settles #14b/#15/#22/#23/#25/#26/#31/#32/#33/#35 + halves of #17/#24).**
+
+> ⛔ **A-REVISED (2026-07-08, after the user's pushback — supersedes points 2–3 below; kept for
+> the record).** The user, verbatim: *"i am confused so you are removing the setting engine
+> switches in the lab? that does not make sense, that is the whole point of the lab, to be able
+> to further tune what switches are correct, you choose provider and model and further test
+> besides tune and measure is just very basic nothing really tuned."* The correction this forces:
+> the defect was never "switches don't belong in the Lab" — it's that the Lab's switches are
+> FAKE (stored, never sent, never applied). Revised proposal:
+> 1. **The Lab's switch column becomes LIVE for built-in columns:** each Test first loads the
+>    model with the column's switches — the exact call Tune & measure's Load & measure already
+>    makes (`POST /v1/llm-runner/load {switches}`, `TuneMeasureModal.vue:255`) — then runs the
+>    real prompt. Reloads (~8–12 s) are acceptable in a lab; show a "loading model with these
+>    switches…" status. Online-provider columns show NO launch-switch section (cloud APIs have
+>    none — this also closes #51's UI half): samplers only.
+> 2. **Saving splits by plane, each to its one true store:** the winning LAUNCH switches save to
+>    the MODEL's tune (`model_tunes` — the same store Save tune writes; optional "save as
+>    hardware-class default"), and the winning provider/model/samplers/max-tokens/JSON/think save
+>    to the TASK's preset. The preset NEVER stores launch switches again (the dead
+>    `EnginePresetSwitch`/`ngl_override` storage still gets deleted) — that dead storage is what
+>    made "which one is applied?" unanswerable.
+> 3. **Division of labor, stated in the UI:** Tune & measure = the quick SPEED bench (fit, tok/s,
+>    autotune sweep, save) — deliberately basic; the Lab = the FULL bench (same launch switches,
+>    live this time + real task prompts + output quality + side-by-side compare). Both write
+>    launch results to the same single store, so production still has exactly ONE saved launch
+>    truth per model (+ machine), and the Send-to-Lab carry (#34/B4-5) becomes a real, fixed
+>    path: grid → live column switches → test → save back to the model tune.
+> 4. Open sub-points for the user: (a) should Lab test loads also record into the measurement
+>    history (they can, same seam as Load & measure)? (b) after a Lab test loads trial switches,
+>    the resident model is running THOSE switches until its next production load — acceptable
+>    (next real request reloads per the saved truth via the arbiter/ensure path), or should the
+>    Lab offer "restore saved config" on exit?
+> Points 1, 4, 5 of the original recommendation below stand unchanged (one resolved grid with
+> origin tags in Tune & measure, provenance badges, two-owners answer).
+
 Current truth in §1a. My recommendation (pushback welcome):
 1. **Confirm the rule that already runs the system: launch config is owned by the MODEL tune
    stack (global bundles → class → this machine), full stop.** It matches the user's own priority
@@ -421,3 +455,26 @@ launch flags would force a full unload/reload on every task switch — ~8-12 s o
 "current config" would be whichever task ran last). What tasks legitimately own is everything
 that varies per REQUEST without a reload: samplers, max tokens, JSON, thinking — which presets
 already carry. The one-profile A/B (2026-07-06) is the measured proof this split works.
+
+**User (same thread):** "switches are mostly tied to a machine based on vram, yes different
+models may mean different switches, it seems like you are making modle the holder of the
+swicthes."
+
+**Answer (grounded):** the values are keyed by the PAIR — (model × machine) — which is the
+user's own 2026-07-06 seed-principle decision ("the pair (model × machine) owns the numbers"),
+and both halves are load-bearing: same machine, different models → different values (on the
+2070S: Gemma MoE wants n_cpu_moe ~21, a dense model wants plain ngl and no n_cpu_moe at all,
+the embed model fits outright); same model, different machines → different values (Gemma on
+8 GB offloads experts; on 24 GB it wouldn't). The machine side is literally VRAM-based in the
+schema: `class_tunes.class_key` = `vram<GB>|ram<GB>` with GPU name + cores deliberately
+excluded (`db.py:294-304` — "placement is memory-fit-bound, not compute-bound"), and
+`model_tunes.hw_key` is the machine key. The model is not the OWNER — it's the navigation
+anchor (you open Tune from a model row); every saved row is stamped with the machine or class
+it belongs to, and a different GPU simply stops matching (the #113 hardware-change notice
+covers the swap case). Truly machine-only box policies (mlock, no_mmap, cache types,
+flash-attn) live in the Global launch defaults bundles — all models, overridable above. A
+per-machine-ALL-models layer existed (`hardware_switches`) and was retired 2026-07-07 in the
+user's own provenance review: anything memory-driven turns out to vary by model too, so the
+layer had nothing unique to hold. If the model-first presentation is what makes it FEEL
+model-owned, the machine-first view already exists (the cross-model class library, #127) and
+can be made more prominent — presentation change, not a schema one.

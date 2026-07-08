@@ -216,15 +216,22 @@ const hasRows = computed(() => tunes.value.length > 0);
 
 <template>
   <component :is="expanded ? 'div' : 'details'" class="lu-ct" :class="{ 'lu-ct--expanded': expanded }" @toggle="onToggle">
+    <!-- Copy (#22, 2026-07-08): the old "— all models" suffix read as ONE tune
+         covering every model. This is a LIBRARY: each row is one model's launch
+         config for one PC class. -->
     <summary v-if="!expanded" class="lu-ct-summary">
-      <span class="lu-ct-title">Hardware-class defaults{{ globalMode ? " — all models" : "" }}</span>
-      <span class="lu-muted">shared starting points by PC class (video memory · RAM)</span>
+      <span class="lu-ct-title">Hardware-class defaults{{ globalMode ? " — the library" : "" }}</span>
+      <span class="lu-muted">{{ globalMode
+        ? "every saved config in one table — each row is one model × one PC class (video memory · RAM)"
+        : "shared starting points by PC class (video memory · RAM)" }}</span>
     </summary>
 
     <div class="lu-ct-body">
       <p class="lu-muted lu-ct-help">
-        A class config is the launch setup for every PC with the same video memory and RAM —
-        applied automatically unless this machine has its own saved tune. Edit a built-in to
+        A class config is <b>one model's</b> launch setup for every PC with the same video
+        memory and RAM — applied automatically unless this machine has its own applied
+        config<template v-if="globalMode"> (each row belongs to the model in its Model
+        column; there is no single tune covering all models)</template>. Edit a built-in to
         change it (your edit sticks); Copy/Import moves a config between users as text.
       </p>
 

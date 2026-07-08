@@ -192,16 +192,23 @@ const displayRows = computed(() => {
     </div>
   </div>
 
-  <!-- Default (add-a-row) mode — unchanged. -->
+  <!-- Default (add-a-row) mode. Every row is the SAME 3-column grid (name+origin
+       stack · value · remove) — the origin tag sits UNDER the name (the checklist
+       metacell precedent), never as its own content-sized column: a per-row auto
+       column made each row's value field end at a different x, worst on the longest
+       tag ("speculative decode" — the user's #13 "indented from the right"). -->
   <div v-else class="ui-kg">
     <div v-for="(r, i) in rows" :key="i" class="ui-kg-row">
-      <UiInput
-        :model-value="r.name"
-        :placeholder="namePlaceholder"
-        class="ui-kg-name"
-        :title="meta(r.name)?.help || ''"
-        @update:model-value="patch(i, 'name', $event)"
-      />
+      <div class="ui-kg-namecell">
+        <UiInput
+          :model-value="r.name"
+          :placeholder="namePlaceholder"
+          class="ui-kg-name"
+          :title="meta(r.name)?.help || ''"
+          @update:model-value="patch(i, 'name', $event)"
+        />
+        <span v-if="origins[r.name]" class="ui-kg-origin" title="Where this value comes from">{{ origins[r.name] }}</span>
+      </div>
       <UiSelect
         v-if="meta(r.name)?.options"
         :model-value="r.value"
@@ -214,7 +221,6 @@ const displayRows = computed(() => {
         :placeholder="valuePlaceholder"
         @update:model-value="patch(i, 'value', $event)"
       />
-      <span v-if="origins[r.name]" class="ui-kg-origin" title="Where this value comes from">{{ origins[r.name] }}</span>
       <UiButton intent="ghost" size="small" title="Remove" @click="remove(i)">✕</UiButton>
     </div>
     <UiButton intent="ghost" size="small" @click="add">{{ addLabel }}</UiButton>
@@ -223,10 +229,13 @@ const displayRows = computed(() => {
 
 <style scoped>
 .ui-kg { display: flex; flex-direction: column; gap: 7px; }
-.ui-kg-row { display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 8px; align-items: center; }
-.ui-kg-row:not(:has(.ui-kg-origin)) { grid-template-columns: 1fr 1fr auto; }
+/* ONE row shape for every row (#13): name(+origin under it) · value · remove.
+   align-items start (not center) so the value control tops-align with the name
+   input when a row carries the origin line. */
+.ui-kg-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: start; }
+.ui-kg-namecell { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ui-kg-name :deep(input) { font-family: var(--font-mono, monospace); }
-.ui-kg-origin { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+.ui-kg-origin { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; padding-left: 2px; }
 
 /* Checklist mode */
 .ui-kg-check { gap: 0; }

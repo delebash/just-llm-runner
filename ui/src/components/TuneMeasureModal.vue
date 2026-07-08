@@ -23,9 +23,11 @@ import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
 import { recordMeasurement } from "../measurements.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { confirmDialog } from "../common/services/dialog.js";
+import { pushToast } from "../common/services/toastBridge.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
 import LuClassTunes from "./LuClassTunes.vue";
+import LuGlobalSwitches from "./LuGlobalSwitches.vue";
 import LuMeasureHistory from "./LuMeasureHistory.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiTag from "../common/components/UiTag.vue";
@@ -183,6 +185,9 @@ async function applyTune() {
     applyMsg.value = reloaded
       ? "Applied ✓ — the model reloaded; every task using it runs this config now."
       : "Applied ✓ — every task using this model runs this config from its next load.";
+    // #14a: a toast too — the modal note alone was easy to miss ("i think we need a
+    // toast or something so user really knows").
+    pushToast({ message: applyMsg.value });
   } catch (e) {
     saveErr.value = e.message || "Couldn't apply the config.";
     tunePhase.value = "";
@@ -200,6 +205,8 @@ async function removeTune() {
     await startTune(); // the grid returns to the layered defaults
     const reloaded = await reloadIfRunning(); // removal applies now too (active = resolved)
     applyMsg.value = reloaded ? "Removed — the model reloaded on its layered defaults." : "";
+    pushToast({ message: applyMsg.value
+      || "Removed ✓ — the model uses its layered defaults from its next load." });
   } catch (e) {
     saveErr.value = e.message || "Couldn't remove the applied config.";
     tunePhase.value = "";
@@ -249,7 +256,13 @@ async function resetTuneSwitches() {
 const myClassKey = ref("");
 const classSaveState = ref(""); // "" | saving | saved
 const classSaveErr = ref("");
-const classTunesRef = ref(null); // the library drawer — refresh after a save
+// #19: the library editors open as POPUPS from links (the B2-4 popups pattern) —
+// nothing embedded in this modal anymore. The ref points at the per-model popup's
+// mount; saveForClass's reload is optional-chained, so a closed popup is a no-op
+// and an open one refreshes live.
+const showClassLib = ref(false);
+const showGlobalLib = ref(false);
+const classTunesRef = ref(null);
 const myClassLabel = computed(() => classKeyLabel(myClassKey.value));
 async function loadMyClassKey() {
   try {
@@ -375,6 +388,13 @@ async function pollAutoTune() {
   }
 }
 async function runAutoTune() {
+  // #18: an explicit OK/Cancel before committing the box to a long sweep.
+  const ok = await confirmDialog({
+    title: "Run auto-tune?",
+    message: "This can take a long time — 4 to 30 minutes depending on your hardware — while it loads and measures real configurations. It usually gives the best results for a model that hasn't been tuned yet. You can cancel after any trial.",
+    confirmLabel: "Auto-tune",
+  });
+  if (!ok) return;
   tuneErr.value = "";
   tuneResult.value = null;
   try {
@@ -417,33 +437,50 @@ onBeforeUnmount(stopAutoPoll);
       </p>
       <p v-if="tuneMtpCapable" class="lu-muted lu-tune-lede">This model supports <b>MTP</b> —
         <b>Speculative decode</b> is on by default (“MTP draft”); gains are machine-dependent, so
-        measure. To turn it off here, set it to “Off” and Save.</p>
+        measure. To turn it off here, set it to “Off” and Apply.</p>
 
+      <!-- #16: the applied state reads BIG; its Remove action lives in the footer
+           beside Apply ("move it next to save button so you can see it"). -->
       <div v-if="savedTune" class="lu-tune-saved">
-        <UiTag intent="success">Applied on this PC ✓</UiTag>
-        <UiButton intent="secondary" size="small" :loading="saveState === 'removing'"
-          title="Delete this PC's applied config — the model returns to its layered defaults (reloads now if running)"
-          @click="removeTune">Remove applied config</UiButton>
+        <UiTag intent="success" class="lu-tune-savedtag">Applied on this PC ✓</UiTag>
       </div>
 
-      <KnobGrid v-model="tuneRows" :catalog="switchCatalog" :origins="tuneOriginTags" />
-      <div v-if="unknownNames.size" class="lu-tune-unk lu-muted">
-        <UiTag intent="danger">unrecognized</UiTag>
-        <span>{{ [...unknownNames].join(", ") }} — not a known engine flag (mistyped, or dropped
-          by an engine update). Remove or fix it, or prefix with “--” for a raw flag.</span>
+      <!-- #21: ONLY the switch grid scrolls — everything after this block (status,
+           auto-tune narration, the result) stays in view without scrolling. -->
+      <div class="lu-tune-scroll">
+        <KnobGrid v-model="tuneRows" :catalog="switchCatalog" :origins="tuneOriginTags" />
+        <div v-if="unknownNames.size" class="lu-tune-unk lu-muted">
+          <UiTag intent="danger">unrecognized</UiTag>
+          <span>{{ [...unknownNames].join(", ") }} — not a known engine flag (mistyped, or dropped
+            by an engine update). Remove or fix it, or prefix with “--” for a raw flag.</span>
+        </div>
+        <div v-if="computedShown.length" class="lu-tune-fit lu-muted">
+          <span>Set automatically for this PC (the engine's memory fit — used at launch unless
+            you set them above):
+            <template v-for="(c, i) in computedShown" :key="c.name"><template v-if="i"> · </template><b>{{ knobLabel(c.name) }}</b> {{ c.value }}</template></span>
+          <UiButton intent="ghost" size="small"
+            title="Copy these fit values into the grid as explicit switches — saving them then pins today's placement"
+            @click="addComputedToGrid">Add to grid</UiButton>
+        </div>
+        <p class="lu-tune-engdef lu-muted">Anything not listed here uses the engine's own defaults.</p>
       </div>
-      <div v-if="computedShown.length" class="lu-tune-fit lu-muted">
-        <span>Set automatically for this PC (the engine's memory fit — used at launch unless
-          you set them above):
-          <template v-for="(c, i) in computedShown" :key="c.name"><template v-if="i"> · </template><b>{{ knobLabel(c.name) }}</b> {{ c.value }}</template></span>
-        <UiButton intent="ghost" size="small"
-          title="Copy these fit values into the grid as explicit switches — saving them then pins today's placement"
-          @click="addComputedToGrid">Add to grid</UiButton>
-      </div>
-      <p class="lu-tune-engdef lu-muted">Anything not listed here uses the engine's own defaults.</p>
-      <UiButton intent="ghost" size="small" @click="resetTuneSwitches">Reset to model default</UiButton>
 
-      <LuClassTunes ref="classTunesRef" :model-id="model.id" :catalog="switchCatalog" />
+      <!-- #19: the shared launch-config libraries open as popups — links, not
+           embedded editors. -->
+      <div class="lu-tune-tools">
+        <UiButton intent="ghost" size="small" @click="resetTuneSwitches">Reset to model default</UiButton>
+        <!-- the two library links wrap TOGETHER (a grouped flex child), never one
+             stranded on each line -->
+        <span class="lu-tune-libs">
+          <UiButton intent="secondary" size="small"
+            title="This model's per-PC-class launch configs — the shared starting points a machine without its own applied config uses"
+            @click="showClassLib = true">Hardware-class defaults ↗</UiButton>
+          <UiButton intent="secondary" size="small"
+            title="The always-on switch bundles (all models · MoE · dense · speculative decode) underneath every tune"
+            @click="showGlobalLib = true">Global launch defaults ↗</UiButton>
+        </span>
+      </div>
+
       <LuMeasureHistory ref="measureHistRef" :model-id="model.id" />
       <div v-if="applyMsg" class="lu-tune-applied">{{ applyMsg }}</div>
       <div v-if="saveErr" class="lu-error">{{ saveErr }}</div>
@@ -492,11 +529,26 @@ onBeforeUnmount(stopAutoPoll);
 
       <div v-if="tuneErr" class="lu-error">{{ tuneErr }}</div>
     </div>
+
+    <!-- #19: the library popups — the SAME shared components the Edit view's
+         buttons open (B2-4), here scoped to this model where it applies. -->
+    <AppModal v-if="showClassLib" :title="`Hardware-class defaults — ${model.name || model.id}`"
+      :max-width="'700px'" @close="showClassLib = false">
+      <LuClassTunes ref="classTunesRef" expanded :model-id="model.id" :catalog="switchCatalog" />
+    </AppModal>
+    <AppModal v-if="showGlobalLib" title="Global launch defaults"
+      :max-width="'760px'" @close="showGlobalLib = false">
+      <LuGlobalSwitches expanded />
+    </AppModal>
+
     <template #footer>
       <UiButton intent="ghost" @click="emit('close')">Close</UiButton>
       <span class="lu-tmm-spacer" />
+      <UiButton v-if="savedTune" intent="secondary" :loading="saveState === 'removing'" :disabled="autoRunning"
+        title="Delete this PC's applied config — the model returns to its layered defaults (reloads now if running)"
+        @click="removeTune">Remove applied config</UiButton>
       <UiButton v-if="!autoRunning" intent="secondary" :disabled="tuneBusy"
-        title="Run a short measured sweep (batch + expert-offload candidates, ~3–5 min) and fill the grid with the fastest config — review, then Apply"
+        title="Run a measured sweep (4–30 minutes depending on hardware) and fill the grid with the fastest config — review, then Apply"
         @click="runAutoTune">Auto-tune</UiButton>
       <UiButton v-else intent="danger"
         title="Stop after the current trial finishes"
@@ -515,6 +567,17 @@ onBeforeUnmount(stopAutoPoll);
 .lu-tune { display: flex; flex-direction: column; gap: 12px; }
 .lu-tune-lede { font-size: 12px; margin: 0; }
 .lu-tune-saved { display: flex; align-items: center; gap: 10px; }
+/* #16: the applied state reads BIG — a full-size badge, not row-note fine print. */
+.lu-tune-saved .lu-tune-savedtag { font-size: 13px; padding: 5px 14px; }
+/* #21: the switch grid scrolls in ITS OWN capped region so the load/measure status
+   and the result below never fall out of view. scrollbar-gutter keeps a classic
+   (space-taking) scrollbar from shifting rows when it appears. */
+.lu-tune-scroll {
+  max-height: 280px; overflow-y: auto; scrollbar-gutter: stable;
+  display: flex; flex-direction: column; gap: 12px; padding-right: 4px;
+}
+.lu-tune-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lu-tune-libs { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .lu-tune-unk { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
 .lu-tune-applied { font-size: 12px; color: var(--success, #3a7d63); font-weight: 600; }
 .lu-tune-status { font-size: 12.5px; color: var(--ink-2); }

@@ -1,8 +1,9 @@
 # The 2026-07-08 big batch — organization of the user's 52-item list (discussion first, then gos)
 
-**STATUS: §7.1 DECIDED+BUILT · BATCHES 1+2 BUILT (see the B1 + B2 BUILD RECORDS in §3; B1-2 still
-waits on box evidence; B2-9 waits on discussion B) · discussions B–F + batches 3–6 await their own
-gos.** The user dropped a 52-line
+**STATUS: §7.1 DECIDED+BUILT · BATCHES 1+2+3 BUILT (see the B1/B2/B3 BUILD RECORDS in §3; B1-2
+still waits on box evidence; B2-9 waits on discussion B; B3-4 waits on §7.1 sub-question (d);
+B3-10 flagged — needs the user's word, see the B3 record) · discussions B–F + batches 4–6 await
+their own gos.** The user dropped a 52-line
 list (verbatim below) with the
 instruction "take your time to think about each one, many or related, organize them int working
 items, we will need to discuss some in more detail". Rule #10 stands: no code until a per-batch
@@ -593,7 +594,9 @@ needed — the provider rename reaches the existing DB at next boot via the name
 (container-proven); everything else is kit UI, visible on the next `npm run tauri dev`
 build; the engine-panel Uninstall shows only when the engine is installed.
 
-**Batch 3 — Tune & measure UX (kit; several depend on discussion A):**
+**Batch 3 — Tune & measure UX (kit) — BUILT 2026-07-08 except B3-4 (gated on §7.1 open
+sub-question (d)) and B3-10 (flagged for the user, see the B3 BUILD RECORD below); B3-7 was
+already resolved by §7.1's deletion:**
 - B3-1 (#13) spec-decode switch right-edge overflow/indent — fix with a container-fit pass over
   the tune grid (flex audit).
 - B3-2 (#14a) Save tune → success toast (+ one-line "applies at the next load of this model").
@@ -611,6 +614,87 @@ build; the engine-panel Uninstall shows only when the engine is installed.
 - B3-9 (#22-copy) class-library header copy: stop reading as "one tune for all models" (§1b #22).
 - B3-10 (#26 build-half) the all-switches resolved grid + origin tags + "Add to grid" retirement —
   THE build of discussion A(3).
+
+**B3 BUILD RECORD (2026-07-08, the user's bare "go" after the B2 ship — the next buildable
+queue unit).** Two items deliberately EXCLUDED, neither silently: **B3-4** (provenance badges,
+#15/#17/#24b) is §7.1's explicitly-open sub-question (d) — wording + surfaces need the user;
+**B3-10** (the all-switches resolved grid + "Add to grid" retirement) was queued as "THE build
+of discussion A(3)", but the §2-A block it came from is bannered SUPERSEDED and the §7.1 LOCK
+did not adopt that presentation — the lock shipped per-row origin tags + the fit-computed
+provenance row with "Add to grid" kept deliberate (the strict-beat rationale: never silently
+pin today's fit). Building A(3) would have been overriding a design boundary the user never
+re-confirmed after the pushback rounds (rule #6) — it stays OPEN for the user's word: show
+EVERY catalog knob as a resolved row and retire "Add to grid", yes or no? **B3-7** (#20's
+"fresh compare tab") needed no build: "Send to Tasks Lab" died in §7.1, and the only remaining
+new-column path clones the HOST surface's own baseConfig (`CompareStrip.vue:39-41` — you open
+the Lab ON a task and a new column starts from THAT task's config; nothing binds to "the first
+task" anymore). Everything else grounded before touching (TuneMeasureModal.vue + KnobGrid.vue
+read in full; ConfigColumn.vue:458-466; runner api.py:121-155 + models.py:172-195 for the
+probe's fake-cache seam); inline T1–T12 citation preceded the first edit; ONE consolidated
+gate pass at batch end.
+
+- **B3-1 built (#13, root-caused — not guessed).** The "speculative decode switch is indented
+  from the right" defect was the add-row KnobGrid's row anatomy: each row is its own grid and
+  the origin tag was a content-sized `auto` COLUMN (`ui-kg-row` `1fr 1fr auto auto`, with a
+  `:not(:has())` 3-column variant for tagless rows) — so every row's value control ended at a
+  different x depending on its tag's text, worst on the longest tag ("speculative decode").
+  Fix is structural, not a width patch: ONE row shape for every row (`1fr 1fr auto` — name ·
+  value · remove) with the origin tag STACKED UNDER the name input (the checklist metacell
+  precedent), align-items start. Probe-verified with a hard fact: all rows' value controls
+  report ONE distinct right edge (`distinctRightEdges: 1`), origins render on every resolved
+  row. Checklist mode untouched.
+- **B3-2 built (#14a).** A completed Apply (and Remove) now ALSO fires a kit toast
+  (`pushToast`) with the same message the inline note shows — "Applied ✓ — the model
+  reloaded; every task using it runs this config now" / "…runs this config from its next
+  load" (the copy reflects §7.1's reload-now, not the queue item's pre-lock "applies at next
+  load" phrasing). The inline `applyMsg` note stays for the open modal. Probe-verified (a
+  sonner toast rendered on Apply).
+- **B3-3 built (#16, second half — §7.1 already de-ghosted the button).** "Remove applied
+  config" moved from the top row into the FOOTER beside Apply ("move it next to save button
+  so you can see it"), rendered only when a config is applied and disabled while auto-tune
+  runs. The top row now carries just the applied state, BIGGER: the "Applied on this PC ✓"
+  tag at 13px/5px-14px padding — a badge, not fine print. Probe-verified (footer button +
+  big tag appear after Apply, gone after Remove).
+- **B3-5 built (#18).** Auto-tune now asks first — kit `confirmDialog`: "This can take a long
+  time — 4 to 30 minutes depending on your hardware — while it loads and measures real
+  configurations. It usually gives the best results for a model that hasn't been tuned yet.
+  You can cancel after any trial." (the user's numbers; the footer tooltip's stale "~3–5 min"
+  aligned too). Probe-verified (dialog shown with the 4-to-30 copy; Cancel aborts cleanly).
+- **B3-6 built (#19).** The modal's EMBEDDED per-model LuClassTunes drawer is gone; in its
+  place a grouped pair of links — "Hardware-class defaults ↗" (opens the SAME LuClassTunes
+  `expanded` in an AppModal, scoped to this model via its modelId prop) and "Global launch
+  defaults ↗" (the LuGlobalSwitches popup) — the exact B2-4 popup components, reused. The
+  "Save for hardware class" action stays on a result; its refresh ref now points at the
+  popup mount (optional-chained — a closed popup is a no-op, an open one refreshes live).
+  Probe-verified: the class popup opens expanded, per-model (no Model column), over the Tune
+  modal (nested Reka dialogs stack fine — the confirm-over-modal precedent).
+- **B3-8 built (#21).** The switch grid + its helper rows (unrecognized badge · fit-computed
+  row · engine-defaults note) now live in their OWN capped scroll region
+  (`.lu-tune-scroll`, max 280px, scrollbar-gutter stable) — the load/measure status line,
+  the auto-tune trial narration, the tok/s RESULT card, and every error render BELOW it,
+  always in view; the reset + library links sit between as a tools row (the two links
+  grouped so they wrap together, never one stranded per line — caught in the first
+  screenshot and fixed). The measurement-history drawer sits outside the scroll, collapsed.
+  Probe-verified (region exists, holds the grid, computed max-height 280px).
+- **B3-9 built (#22-copy).** The library no longer reads as one-tune-for-all-models: the
+  global drawer title's "— all models" suffix became "— the library" with the sub-line
+  "every saved config in one table — each row is one model × one PC class"; the help
+  paragraph now opens "A class config is ONE MODEL'S launch setup…" (+ a global-mode
+  sentence: "each row belongs to the model in its Model column; there is no single tune
+  covering all models"); the ProviderForm popup title matches ("Hardware-class defaults —
+  the library"). Probe-verified via the per-model popup's help copy. Also folded: the MTP
+  lede's stale "set it to 'Off' and Save" → "…and Apply" (§7.1's copy sweep missed it).
+
+**B3 gates (one consolidated pass):** runner `ruff` clean + **412 pytest** · JW vitest
+**30/30** · `build:vite` clean · the **FULL headless smoke zero JS errors** · a dedicated
+**B3 Playwright probe that RENDERS the Tune modal** (a fake cached GGUF planted in the
+container's HF cache made gemma-4-12b-qat read "disk" so the Tune button appeared; removed
+after) asserting **8/8**: modal opens · uniform rows with stacked origins + ONE value right
+edge · the capped scroll region · both library links · the per-model class popup + library
+copy · the 4–30-min auto-tune confirm · Apply → toast + big tag + footer Remove · Remove
+cleans up (the probe's Apply/Remove round-trip left the container DB as found). Screenshots
+eyeballed (the modal + the class popup + the auto-tune confirm). Box notes: NO reset needed —
+every change is kit UI; visible on the next desktop build.
 
 **Batch 4 — Tasks Lab layout (kit; after A):**
 - B4-1 (#28) "Add a feature" inline with the "Features in this task" heading.

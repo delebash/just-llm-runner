@@ -234,7 +234,7 @@ async function remove() {
       <UiButton intent="secondary" size="small" @click="showGlobalSwitches = true">Global launch defaults…</UiButton>
       <span class="lu-muted lu-pf-libs-cap">the launch-config libraries — per-PC-class starting points, and the always-on switch bundles under every tune</span>
     </div>
-    <AppModal v-if="showClassTunes" title="Hardware-class defaults — every model"
+    <AppModal v-if="showClassTunes" title="Hardware-class defaults — the library"
       :max-width="'760px'" @close="showClassTunes = false">
       <LuClassTunes expanded />
     </AppModal>

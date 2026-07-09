@@ -16,14 +16,14 @@ export async function fetchKnobCatalog() {
 }
 
 // The Plane-1 map KnobGrid's add-row mode takes as `catalog`:
-// flagName -> { label, help, options } (options only when the row has any).
+// flagName -> { label, help, kind }. QC-18 (user, 2026-07-09): switch values are
+// plain text/number boxes everywhere — no options-driven dropdowns; the HELP
+// carries what a switch does + its accepted values. `kind` (int|float|…) only
+// picks text vs number for the value box.
 export function plane1SwitchCatalog(knobs) {
   return Object.fromEntries(
     (knobs || [])
       .filter((k) => k.plane === 1)
-      .map((k) => [k.flagName, {
-        label: k.label, help: k.help,
-        options: k.options?.length ? k.options : undefined,
-      }]),
+      .map((k) => [k.flagName, { label: k.label, help: k.help, kind: k.kind }]),
   );
 }

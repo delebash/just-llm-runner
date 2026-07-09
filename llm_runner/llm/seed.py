@@ -403,21 +403,24 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
 # KnobGrid input. Plane 1 = load-time engine switch (maps to a process.Overrides
 # field); Plane 2 = per-request sampler (maps to the dispatch `extra`). `options`
 # (inline) become enum rows in knob_option. C1: data only, no code per param.
-_ENUM_CACHE = [{"value": "f16", "label": "f16 (full)"}, {"value": "q8_0", "label": "q8_0"}, {"value": "q4_0", "label": "q4_0"}]
-# Defaults + behaviour notes are cited from llama.cpp `tools/server/README.md`
-# (fetched 2026-06-29) — see docs/plans/2026-06-29-knob-catalog-expansion.md. `tier`
-# = common|advanced drives the UI checklist split (common shown, advanced behind an
-# expander). Order within each plane is common-first (the seeder sets position=i).
+# QC-17 + QC-18 (user, 2026-07-09): plane-1 rows carry NO default_value (the app
+# stops storing/claiming the engine's own defaults — an unset switch simply isn't
+# sent, the engine does its own thing) and NO options (switch values are plain
+# text/number boxes; the HELP names the accepted values — accepted-value lists
+# verified against llama.cpp tools/server/README.md, fetched 2026-07-09). Plane-2
+# sampler rows keep default_value (OUR enable-prefills — samplers untouched).
+# `tier` = common|advanced drives the sampler checklist split. Order within each
+# plane is common-first (the seeder sets position=i).
 DEFAULT_KNOBS: list[dict] = [
     # ── Plane 1 — load switches: COMMON (fit & memory) ──
-    {"flag_name": "ctx_len", "label": "Context size", "kind": "int", "plane": 1, "default_value": "4096", "tier": "common",
-     "help": "Maximum tokens the model can read + write at once. Bigger = more memory (the KV cache grows with it). Set it to fit your longest task."},
-    {"flag_name": "flash_attn", "label": "Flash attention", "kind": "enum", "plane": 1, "default_value": "on", "tier": "common",
-     "help": "Faster attention using less memory. Leave On unless a specific model misbehaves with it.", "options": [{"value": "on", "label": "On"}, {"value": "off", "label": "Off"}, {"value": "auto", "label": "Auto"}]},
-    {"flag_name": "cache_type_k", "label": "KV cache type (K)", "kind": "enum", "plane": 1, "default_value": "q8_0", "tier": "common",
-     "help": "Compress the K side of the KV cache to save VRAM. q8_0 is near-lossless (safe default); q4_0 saves more but can cost quality.", "options": _ENUM_CACHE},
-    {"flag_name": "cache_type_v", "label": "KV cache type (V)", "kind": "enum", "plane": 1, "default_value": "q8_0", "tier": "common",
-     "help": "Compress the V side of the KV cache to save VRAM. q8_0 is near-lossless (safe default).", "options": _ENUM_CACHE},
+    {"flag_name": "ctx_len", "label": "Context size", "kind": "int", "plane": 1, "tier": "common",
+     "help": "Maximum tokens the model can read + write at once. Bigger = more memory (the KV cache grows with it). Set it to fit your longest task; unset, the engine reads the model's own limit."},
+    {"flag_name": "flash_attn", "label": "Flash attention", "kind": "string", "plane": 1, "tier": "common",
+     "help": "Faster attention using less memory. Values: on, off, auto."},
+    {"flag_name": "cache_type_k", "label": "KV cache type (K)", "kind": "string", "plane": 1, "tier": "common",
+     "help": "Compress the K side of the KV cache to save VRAM. q8_0 is near-lossless; q4_0 saves more but can cost quality. Accepts f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1."},
+    {"flag_name": "cache_type_v", "label": "KV cache type (V)", "kind": "string", "plane": 1, "tier": "common",
+     "help": "Compress the V side of the KV cache to save VRAM. q8_0 is near-lossless. Accepts f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1."},
     {"flag_name": "n_cpu_moe", "label": "CPU MoE layers", "kind": "int", "plane": 1, "applies_to": "moe", "tier": "common",
      "help": "Expert layers to run on CPU — frees VRAM (MoE only). Auto-fit sets it; pin the fast value here."},
     # ── Plane 1 — load switches: ADVANCED ──
@@ -429,36 +432,34 @@ DEFAULT_KNOBS: list[dict] = [
     # labelled switch; the seeder merges by flag_name so existing DBs gain it on boot.
     {"flag_name": "n_gpu_layers", "label": "GPU layers", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many model layers run on the GPU (the rest run on CPU). Auto-fit sets it when unset; MoE tunes pin every layer on GPU (99) and free VRAM with CPU MoE layers instead."},
-    {"flag_name": "mlock", "label": "Lock in RAM", "kind": "bool", "plane": 1, "default_value": "true", "tier": "advanced",
-     "help": "Keep the model locked in RAM so the OS can't swap it out (steadier speed). Turn off if RAM is tight."},
+    {"flag_name": "mlock", "label": "Lock in RAM", "kind": "bool", "plane": 1, "tier": "advanced",
+     "help": "Keep the model locked in RAM so the OS can't swap it out (steadier speed). Turn off if RAM is tight. Values: true or false."},
     {"flag_name": "no_mmap", "label": "Load into RAM", "kind": "bool", "plane": 1, "applies_to": "moe", "tier": "advanced",
-     "help": "Read the whole model into RAM instead of memory-mapping it. Needed for MoE CPU-offload; otherwise leave off."},
+     "help": "Read the whole model into RAM instead of memory-mapping it. Needed for MoE CPU-offload; otherwise leave off. Values: true or false."},
     {"flag_name": "no_kv_offload", "label": "KV in system RAM", "kind": "bool", "plane": 1, "tier": "advanced",
-     "help": "Keep the KV cache in system RAM instead of VRAM — frees VRAM but is slower."},
-    {"flag_name": "batch_size", "label": "Batch size", "kind": "int", "plane": 1, "default_value": "2048", "tier": "advanced",
+     "help": "Keep the KV cache in system RAM instead of VRAM — frees VRAM but is slower. Values: true or false."},
+    {"flag_name": "batch_size", "label": "Batch size", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many prompt tokens are processed together (throughput vs memory)."},
-    {"flag_name": "ubatch_size", "label": "Micro-batch size", "kind": "int", "plane": 1, "default_value": "512", "tier": "advanced",
-     "help": "Physical batch — the chunk actually run per step (llama.cpp default 512). Lower it if prompt processing runs out of memory."},
+    {"flag_name": "ubatch_size", "label": "Micro-batch size", "kind": "int", "plane": 1, "tier": "advanced",
+     "help": "Physical batch — the chunk actually run per step. Lower it if prompt processing runs out of memory."},
     {"flag_name": "threads", "label": "CPU threads", "kind": "int", "plane": 1, "tier": "advanced",
-     "help": "CPU threads for generation (drive MoE CPU experts). Default = physical cores."},
+     "help": "CPU threads for generation (drive MoE CPU experts). Unset, the engine uses your physical cores."},
     {"flag_name": "threads_batch", "label": "CPU threads (prompt)", "kind": "int", "plane": 1, "tier": "advanced",
-     "help": "CPU threads for prompt processing. Default = same as CPU threads."},
-    {"flag_name": "parallel", "label": "Parallel slots", "kind": "int", "plane": 1, "default_value": "1", "tier": "advanced",
+     "help": "CPU threads for prompt processing. Unset, the engine matches CPU threads."},
+    {"flag_name": "parallel", "label": "Parallel slots", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "Concurrent server slots (used by batch sweeps / Compare)."},
-    {"flag_name": "cont_batching", "label": "Continuous batching", "kind": "bool", "plane": 1, "default_value": "true", "tier": "advanced",
-     "help": "Overlap requests for throughput. On by default in llama.cpp; only turn it off to debug."},
-    {"flag_name": "context_shift", "label": "Context shift", "kind": "bool", "plane": 1, "default_value": "true", "tier": "advanced",
-     "help": "When the context fills, drop the oldest tokens and shift the KV cache instead of re-reading the whole prompt — keeps long generations + edits fast. On by default; llama.cpp auto-disables it for sliding-window models (e.g. Gemma)."},
-    {"flag_name": "cache_reuse", "label": "KV prefix reuse", "kind": "int", "plane": 1, "default_value": "0", "tier": "advanced",
-     "help": "Reuse a shared prompt prefix's KV cache across calls to skip re-processing it (0 = off)."},
-    {"flag_name": "spec_type", "label": "Speculative decode", "kind": "enum", "plane": 1, "default_value": "none", "tier": "advanced",
-     "help": "Draft-model speculative decode. MTP GGUF only; gains are machine-dependent — measure.",
-     "options": [{"value": "none", "label": "Off"}, {"value": "draft-mtp", "label": "MTP draft"}, {"value": "ngram-mod", "label": "N-gram"}]},
-    {"flag_name": "spec_n_max", "label": "Spec draft tokens", "kind": "int", "plane": 1, "default_value": "3", "tier": "advanced",
+    {"flag_name": "cont_batching", "label": "Continuous batching", "kind": "bool", "plane": 1, "tier": "advanced",
+     "help": "Overlap requests for throughput; only turn it off to debug. Values: true or false."},
+    # context_shift + cache_reuse REMOVED from the catalog (QC-11, user 2026-07-09
+    # "remove from catalog" — they were also pulled from the shipped bundles
+    # 2026-07-07 as a measured net loss). Still typeable as custom switches.
+    {"flag_name": "spec_type", "label": "Speculative decode", "kind": "string", "plane": 1, "tier": "advanced",
+     "help": "Draft-model speculative decode. MTP GGUF only; gains are machine-dependent — measure. Values: none, draft-mtp, ngram-mod."},
+    {"flag_name": "spec_n_max", "label": "Spec draft tokens", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many tokens the draft proposes per step."},
-    {"flag_name": "reasoning_budget", "label": "Thinking budget", "kind": "int", "plane": 1, "default_value": "-1", "tier": "advanced",
+    {"flag_name": "reasoning_budget", "label": "Thinking budget", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "Token budget for the model's thinking phase: -1 = unlimited, 0 = no thinking, a positive number caps it (the budget message is injected when it runs out)."},
-    {"flag_name": "reasoning_budget_message", "label": "Budget-exhausted message", "kind": "string", "plane": 1, "default_value": "", "tier": "advanced",
+    {"flag_name": "reasoning_budget_message", "label": "Budget-exhausted message", "kind": "string", "plane": 1, "tier": "advanced",
      "help": "Text injected before the end-of-thinking tag when the thinking budget runs out. Avoid '#' — it starts a comment in the engine preset file."},
     # ── Plane 2 — per-request samplers: COMMON ──
     # temperature + top_p stay in the catalog but are edited in the per-call params
@@ -886,11 +887,39 @@ def seed_default_runner_settings(s) -> int:
 
 def seed_default_knobs(s) -> int:
     """Seed knob_catalog + its enum options (knob_option). Flush each parent before
-    its FK children (host session: autoflush off + FK on)."""
-    existing = {r.flag_name for r in s.query(db.KnobCatalog.flag_name).all()}
+    its FK children (host session: autoflush off + FK on).
+
+    The catalog is APP-OWNED, read-only data (GET /v1/ai/knob-catalog is its only
+    endpoint — nothing in the app edits knob rows), so built-in rows SYNC to
+    DEFAULT_KNOBS on every boot: label/kind/default_value/help/plane/applies_to/
+    tier/position refresh from the seed (QC-17, 2026-07-09: plane-1 rows carry NO
+    default_value — the app stopped storing the engine's own defaults), built-in
+    rows dropped from the seed are DELETED (QC-11: context_shift + cache_reuse;
+    their KnobOption rows cascade), and built-in option rows the seed no longer
+    carries are deleted too (QC-18: switch values are plain text/number boxes —
+    no seeded enum lists remain on plane 1)."""
+    existing = {r.flag_name: r for r in s.query(db.KnobCatalog).all()}
+    seeded_names = {k["flag_name"] for k in DEFAULT_KNOBS}
     added = 0
+    for name, row in existing.items():
+        if row.built_in and name not in seeded_names:
+            s.delete(row)  # FK ondelete=CASCADE clears its options
     for i, k in enumerate(DEFAULT_KNOBS):
-        if k["flag_name"] in existing:
+        row = existing.get(k["flag_name"])
+        if row is not None:
+            if row.built_in:
+                row.label = str(k.get("label") or "")
+                row.kind = str(k.get("kind") or "string")
+                row.default_value = str(k.get("default_value") or "")
+                row.help = str(k.get("help") or "")
+                row.plane = int(k.get("plane") or 1)
+                row.applies_to = str(k.get("applies_to") or "all")
+                row.tier = str(k.get("tier") or "common")
+                row.position = i
+                seeded_opts = {str(o["value"]) for o in (k.get("options") or [])}
+                for opt in s.query(db.KnobOption).filter(db.KnobOption.flag_name == k["flag_name"]).all():
+                    if opt.built_in and opt.value not in seeded_opts:
+                        s.delete(opt)
             continue
         s.add(db.KnobCatalog(
             flag_name=k["flag_name"], label=str(k.get("label") or ""), kind=str(k.get("kind") or "string"),

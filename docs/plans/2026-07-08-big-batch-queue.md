@@ -1991,3 +1991,72 @@ found) · FULL headless smoke **zero JS errors** on every route · rules-checker
 this commit. Probe-side fix while writing it: a custom class on UiSelect does not reach
 the DOM (fragment root) — the probe scopes by the Features heading instead (comment at
 the click site). Tasks #210 + #211 completed.
+
+**SWITCH-CLUSTER BUILD RECORD (QC-17 + QC-18 + QC-10 + QC-11 + QC-12, shipped 2026-07-09,
+the second half of the same go).** The user's design, verbatim anchors: *"the tune and
+measure works like global and hardware you have an x by each row so if you dont want
+cache_type_k to be set to anything you just click the x to remove the row"* · *"yes i mean
+all switches not samplers"* · *"you have the switch names hardcoded in the tune and
+measeur shoulnd it work just like the other switches"* · *"niceely layed out grouped with
+a header easy seperation"* · *"dont add a save button on each group … it is just an
+example gui look"* · QC-17's decision + QC-10 "yes" + QC-11 "remove from catalog" + QC-12
+"yes". WHAT SHIPPED:
+(1) **KnobGrid** (kit): the LEDGER mode (2026-07-08, every-knob-always-visible with
+"engine default" placeholders/selects) is DELETED — its only consumer was the Tune grid
+and the concept died with QC-17. The add-row mode is now THE switch editor everywhere:
+value editors are PLAIN inputs — text, or number when the catalog kind is int/float
+(`valueType`); the options-driven UiSelect branch is gone (QC-18); hover help sits on
+BOTH the name and the value box. A new opt-in `groups` + `rowGroups` prop pair renders
+the SAME rows/helpers under section headings (QC-10) — one `sections` computed, original
+array indices preserved, unmapped/new rows land in the FIRST group, empty groups don't
+render. The sampler CHECKLIST mode is untouched (the user's "not samplers").
+(2) **TuneMeasureModal**: the grid mounts the add-row editor with the four user-named
+groups — Your applied config · Hardware-class default · Global launch defaults ·
+Computed for this PC (GROUP_OF maps the resolver's origin ids; per-row origin tags are
+replaced by the headings). Only value-carrying rows render; ✕ removes a row; "＋ Add
+switch" (the shared default label — the old "＋ Add a custom switch" custom label died,
+FLAGGED: same editor everywhere) adds one. The every-knob "engine default" base +
+`inheritedOrigins` machinery + `originTags` + the extra baseline resolve in
+loadSavedTune are DELETED. The lede (QC-12, the user's exact copy): the parenthetical is
+gone; below the Apply sentence sits *"Samplers like temperature are set on the Tasks or
+Routing by feature tabs."* — and the lede's first words became "Each section shows where
+its switches come from" (FLAGGED: the headings carry provenance now). FLAGGED
+(one-line-changeable): rows YOU add and the auto-tune winner's rows group under "Your
+applied config" — they become exactly that on Apply.
+(3) **knobCatalog.js**: plane1SwitchCatalog maps {label, help, kind} — options dropped
+from the map (nothing consumes them).
+(4) **seed.py** (QC-11 + QC-17 + QC-18 data): `context_shift` + `cache_reuse` rows
+REMOVED from DEFAULT_KNOBS (still typeable as custom switches); every plane-1 row lost
+its `default_value` (the app stops storing engine-default claims) and its `options`
+(`_ENUM_CACHE` deleted); the old enum rows' kind became "string" (FLAGGED — typed
+values); helps now carry the accepted values per the user's design (cache_type_k/v:
+**"Accepts f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1"** — the set verified at
+the llama.cpp server README 2026-07-09; flash_attn "Values: on, off, auto"; spec_type
+"Values: none, draft-mtp, ngram-mod"; bools "Values: true or false") and the helps that
+STATED engine-default numbers ("llama.cpp default 512", "On by default in llama.cpp")
+dropped those claims (FLAGGED — the same stop-claiming rule applied to prose). Plane-2
+sampler rows keep their default_value prefills (samplers untouched).
+(5) **seed_default_knobs became a SYNC for built-in rows** (FLAGGED, grounded): the knob
+catalog is app-owned, GET-only data (make_knob_catalog_router has no write route;
+nothing edits knob rows), so on every boot built-in rows refresh
+label/kind/default_value/help/plane/applies_to/tier/position from the seed, built-in
+rows DROPPED from the seed are DELETED (the QC-11 targeted delete — KnobOption rows
+cascade), and built-in option rows absent from the seed are deleted (the QC-18 cleanup).
+This is how EXISTING DBs converge with no reset — proven live: the dev DB served 44
+knobs with options/defaults before the restart, 42 with none after (SW0).
+(6) **docs/models.md**: the Tune-dialog paragraph rewritten — only-set-rows + ✕ +
+add + grouped headings + plain values + hover-help accepted values; the engine-default
+placeholder/"pick engine default" copy is gone.
+GATES, all green: runner ruff + **420 pytest** (test_knob_catalog rewritten to the
+QC-17/18 semantics + a NEW curation test seeding the old era-1 state and asserting the
+boot sync removes/clears it) · build:vite · JW vitest **48/48 holds** · the NEW committed
+`scripts/switch-probe.mjs` **8/8 PASSED zero page errors** (SW0 the curated existing DB
+over the live API · SW1 only-set-rows/✕-everywhere/add/zero-engine-default-text · SW2
+headings ⊆ the four names + NO per-section Save in the tune grid · SW3 zero dropdowns,
+12 plain inputs · SW4 ✕ removes 6→5 · SW5 + Add switch lands under "Your applied
+config" · SW6 the QC-12 line verbatim · SW7 the Global editor: zero value dropdowns,
+q8_0 as text, the per-bundle Saves stay — its own storage, per the user's "dont add a
+save button on each group" being about Tune & measure only) — the probe fakes ONE cached
+GGUF under ai-cache/hf so the Tune button renders (the B3R precedent; file removed on
+exit, DB untouched) · b4-probe regression 15/15 · FULL headless smoke zero JS errors ·
+rules-checker verdict at this commit. Tasks #205/#206/#207/#212/#213 completed.

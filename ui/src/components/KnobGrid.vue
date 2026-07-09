@@ -6,19 +6,30 @@
 // model + the SAME commit/patch/remove helpers (no forked logic):
 //
 //   • DEFAULT (add-a-row) — `catalog` is an object map (name -> {label,help,
-//     options}). You add a blank row, type a name + value, remove. So a NEW
-//     llama.cpp param needs no code — just a row. Used by the Tune & measure
-//     switch grid (LuModelCatalog).
+//     kind}). You add a blank row, type a name + value, remove (✕) — a row
+//     present is a flag sent; absent = the engine's own behavior (the user's
+//     command-line model, QC-17/18 2026-07-09). Values are PLAIN text/number
+//     boxes (`kind` only picks the input type); the help (hover) carries what a
+//     switch does + its accepted values — never an options dropdown. So a NEW
+//     llama.cpp param needs no code — just a row. Used by the Global launch
+//     defaults bundles, the Hardware-class editor, AND the Tune & measure grid.
+//     Pass `groups` (+ per-name `rowGroups`) to render the SAME rows under
+//     section headings (QC-10: "heading for each section instead") — the Tune
+//     grid groups by which layer each value came from; rows added here land in
+//     the first group.
 //   • CHECKLIST (`checklist` + `catalogList`) — a PREFILLED grid of KNOWN knobs
-//     from the seeded knob_catalog (ordered common-first by the API). Each row is
-//     an enable/disable checkbox + a kind-aware value (enum→select, int/float→
-//     number, bool→On/Off select), with a per-row "↺ reset to default" when the
-//     value differs from the catalog default, plus a footer "Reset to defaults".
-//     Rows split into Common (shown) + Advanced (behind a "▸ Advanced" expander)
-//     by each row's `tier`. Names NOT in the visible catalog (a custom key, or one
-//     `exclude`d because it is edited elsewhere) fall into the raw "Other keys"
-//     section so nothing is ever hidden. `catalogList` rows are the RAW catalog
-//     rows: { flagName, label, kind, default, tier, help, options }.
+//     from the seeded knob_catalog (ordered common-first by the API) — the
+//     SAMPLER grids. Each row is an enable/disable checkbox + a kind-aware value,
+//     with a per-row "↺ reset to default" when the value differs from the catalog
+//     default, plus a footer "Reset to defaults". Rows split into Common (shown)
+//     + Advanced (behind a "▸ Advanced" expander) by each row's `tier`. Names NOT
+//     in the visible catalog (a custom key, or one `exclude`d because it is
+//     edited elsewhere) fall into the raw "Other keys" section so nothing is ever
+//     hidden. `catalogList` rows are the RAW catalog rows: { flagName, label,
+//     kind, default, tier, help, options }.
+//   (The 2026-07-08 LEDGER mode — every catalog knob always visible with "engine
+//   default" placeholders — was REMOVED 2026-07-09 with QC-17: the app no longer
+//   claims to know the engine's defaults; unset switches simply don't render.)
 import { computed, ref } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
@@ -32,17 +43,14 @@ const props = defineProps({
   namePlaceholder: { type: String, default: "flag (e.g. ctx_len)" },
   valuePlaceholder: { type: String, default: "value" },
   addLabel: { type: String, default: "＋ Add switch" },
+  // Grouped add-row mode (QC-10/17, 2026-07-09): section headings over the SAME
+  // rows/helpers. `groups` = ordered [{ key, label }]; `rowGroups` maps a flag
+  // name to its group key (unmapped/new rows land in the FIRST group). Empty
+  // groups don't render.
+  groups: { type: Array, default: () => [] },
+  rowGroups: { type: Object, default: () => ({}) },
   // Checklist mode (opt-in) — leaves the add-row mode + its `catalog` prop intact.
   checklist: { type: Boolean, default: false },
-  // Ledger mode (opt-in, the 2026-07-08 QC cluster over §7.6): EVERY catalog knob
-  // is one flat, always-visible row — flag name with its origin stacked under it,
-  // then the value. Set = the knob HAS a value; unset shows the engine default as
-  // a muted placeholder; clearing a value (empty the input, or pick the "engine
-  // default" option) unsets it. No checkboxes, no per-row resets, no Advanced
-  // expander — the user's endorsed original row shape, extended to the whole
-  // catalog ("bring back what we discussed"). Built for the Tune & measure grid;
-  // the sampler grids keep their checklist.
-  ledger: { type: Boolean, default: false },
   catalogList: { type: Array, default: () => [] }, // ordered raw rows [{ flagName, label, kind, default, help, options }]
   exclude: { type: Array, default: () => [] },     // flag names to hide from the managed list (edited elsewhere)
   reservedKeys: { type: Array, default: () => [] },// names managed by another control → hidden from "Other keys" too
@@ -86,6 +94,24 @@ function remove(i) {
 function meta(name) {
   return props.catalog?.[name] || null;
 }
+// QC-18: the value box is text or number — kind picks the input type, nothing else.
+function valueType(name) {
+  const kind = meta(name)?.kind;
+  return kind === "int" || kind === "float" ? "number" : "text";
+}
+// ── add-row sections ──
+// Always a section list (one unlabeled section when no `groups`), each row keeping
+// its ORIGINAL array index so the same patch/remove helpers drive both shapes.
+const sections = computed(() => {
+  if (!props.groups.length) return [{ key: "", label: "", rows: rows.value.map((r, i) => ({ r, i })) }];
+  const secs = props.groups.map((g) => ({ ...g, rows: [] }));
+  const byKey = Object.fromEntries(secs.map((s) => [s.key, s]));
+  const fallback = secs[0];
+  rows.value.forEach((r, i) => {
+    (byKey[props.rowGroups[(r.name || "").trim()]] || fallback).rows.push({ r, i });
+  });
+  return secs.filter((s) => s.rows.length);
+});
 
 // ── checklist mode ───────────────────────────────────────────────────────────
 // The knobs shown as managed rows (catalog minus `exclude`), in catalog order.
@@ -138,28 +164,6 @@ function resetAll() {
 
 const BOOL_OPTIONS = [{ value: "true", label: "On" }, { value: "false", label: "Off" }];
 
-// ── ledger mode ──────────────────────────────────────────────────────────────
-// The VALUE carries the set/unset state (no checkbox): writing a value creates
-// the row, clearing it removes the row — so the row set stays exactly the
-// snapshot save-set (§7.6 semantics, unchanged).
-function setOrClear(m, v) {
-  const val = (v ?? "").toString();
-  if (!val.trim()) {
-    commit(rows.value.filter((r) => r.name !== m.flagName));
-  } else if (isOn(m.flagName)) {
-    setVal(m.flagName, val);
-  } else {
-    commit([...rows.value, { name: m.flagName, value: val }]);
-  }
-}
-// Selects get an explicit "engine default" first option as the unset state.
-function ledgerOptions(m) {
-  const base = m.kind === "bool" ? BOOL_OPTIONS : (m.options || []);
-  return [
-    { value: "", label: "engine default" },
-    ...base.map((o) => (typeof o === "string" ? { value: o, label: o } : o)),
-  ];
-}
 // Multi-column (samplers): ONE flat list — all knobs visible at once, flowing
 // row-major into the next column (user decision 2026-06-30: no Common/Advanced
 // split — anyone tuning these is already advanced). Single-column (switches) keeps
@@ -182,47 +186,8 @@ const displayRows = computed(() => {
 </script>
 
 <template>
-  <!-- Ledger mode (opt-in): every knob one flat row — flag + origin, then value. -->
-  <div v-if="ledger && catalogList.length" class="ui-kg ui-kg-ledger">
-    <div v-for="m in visibleCatalog" :key="m.flagName" class="ui-kg-lrow" :class="{ 'is-on': isOn(m.flagName) }">
-      <div class="ui-kg-namecell" :title="[m.label, m.help].filter(Boolean).join(' — ')">
-        <code class="ui-kg-flag ui-kg-lflag">{{ m.flagName }}</code>
-        <span v-if="origins[m.flagName]" class="ui-kg-origin" title="Where this value comes from">{{ origins[m.flagName] }}</span>
-      </div>
-      <UiSelect
-        v-if="m.kind === 'bool' || (m.options && m.options.length)"
-        class="ui-kg-val"
-        :model-value="valOf(m.flagName) ?? ''"
-        :options="ledgerOptions(m)"
-        @update:model-value="setOrClear(m, $event)"
-      />
-      <UiInput
-        v-else
-        class="ui-kg-val"
-        :model-value="valOf(m.flagName) ?? ''"
-        :type="m.kind === 'int' || m.kind === 'float' ? 'number' : 'text'"
-        :placeholder="m.default ? `engine default: ${m.default}` : 'engine default'"
-        @update:model-value="setOrClear(m, $event)"
-      />
-    </div>
-
-    <!-- Custom keys (and anything set that isn't in the catalog) — raw rows so
-         nothing is ever hidden or silently dropped. -->
-    <template v-if="extraRows.length">
-      <div class="ui-kg-extras-h lu-muted">Custom switches</div>
-      <div v-for="({ r, i }) in extraRows" :key="`x${i}`" class="ui-kg-lrow ui-kg-extra">
-        <UiInput :model-value="r.name" :placeholder="namePlaceholder" class="ui-kg-name" @update:model-value="patch(i, 'name', $event)" />
-        <UiInput :model-value="r.value" :placeholder="valuePlaceholder" @update:model-value="patch(i, 'value', $event)" />
-        <UiButton intent="ghost" size="small" title="Remove" @click="remove(i)">✕</UiButton>
-      </div>
-    </template>
-    <div class="ui-kg-foot">
-      <UiButton intent="ghost" size="small" @click="add">{{ addLabel }}</UiButton>
-    </div>
-  </div>
-
   <!-- Checklist mode (opt-in): prefilled, enable/disable, kind-aware, scrollable. -->
-  <div v-else-if="checklist && catalogList.length" class="ui-kg ui-kg-check" :class="{ 'is-cols': columns > 1 }" :style="columns > 1 ? { '--kg-cols': columns } : null">
+  <div v-if="checklist && catalogList.length" class="ui-kg ui-kg-check" :class="{ 'is-cols': columns > 1 }" :style="columns > 1 ? { '--kg-cols': columns } : null">
     <div class="ui-kg-scroll" :style="scrollMax ? { maxHeight: scrollMax } : null">
       <template v-for="row in displayRows" :key="row.expander ? '__adv' : row.m.flagName">
         <button v-if="row.expander" type="button" class="ui-kg-advtoggle" @click="advancedOpen = !advancedOpen">
@@ -285,38 +250,39 @@ const displayRows = computed(() => {
     </div>
   </div>
 
-  <!-- Default (add-a-row) mode. Every row is the SAME 3-column grid (name+origin
-       stack · value · remove) — the origin tag sits UNDER the name (the checklist
-       metacell precedent), never as its own content-sized column: a per-row auto
-       column made each row's value field end at a different x, worst on the longest
-       tag ("speculative decode" — the user's #13 "indented from the right"). -->
+  <!-- Default (add-a-row) mode — optionally sectioned by `groups` (QC-10). Every
+       row is the SAME 3-column grid (name+origin stack · value · remove) — the
+       origin tag sits UNDER the name (the checklist metacell precedent), never as
+       its own content-sized column: a per-row auto column made each row's value
+       field end at a different x, worst on the longest tag ("speculative decode" —
+       the user's #13 "indented from the right"). QC-18: the value is a plain
+       text/number box; the hover help (on both fields) says what the switch does
+       and which values it accepts. -->
   <div v-else class="ui-kg">
-    <div v-for="(r, i) in rows" :key="i" class="ui-kg-row">
-      <div class="ui-kg-namecell">
+    <template v-for="sec in sections" :key="sec.key || '__all'">
+      <div v-if="sec.label" class="ui-kg-group-h">{{ sec.label }}</div>
+      <div v-for="{ r, i } in sec.rows" :key="i" class="ui-kg-row">
+        <div class="ui-kg-namecell">
+          <UiInput
+            :model-value="r.name"
+            :placeholder="namePlaceholder"
+            class="ui-kg-name"
+            :title="meta(r.name)?.help || ''"
+            @update:model-value="patch(i, 'name', $event)"
+          />
+          <span v-if="!groups.length && origins[r.name]" class="ui-kg-origin" title="Where this value comes from">{{ origins[r.name] }}</span>
+        </div>
         <UiInput
-          :model-value="r.name"
-          :placeholder="namePlaceholder"
-          class="ui-kg-name"
+          :model-value="r.value"
+          :placeholder="valuePlaceholder"
+          :type="valueType(r.name)"
           :title="meta(r.name)?.help || ''"
-          @update:model-value="patch(i, 'name', $event)"
+          @update:model-value="patch(i, 'value', $event)"
         />
-        <span v-if="origins[r.name]" class="ui-kg-origin" title="Where this value comes from">{{ origins[r.name] }}</span>
+        <UiButton intent="ghost" size="small" title="Remove" @click="remove(i)">✕</UiButton>
       </div>
-      <UiSelect
-        v-if="meta(r.name)?.options"
-        :model-value="r.value"
-        :options="meta(r.name).options"
-        @update:model-value="patch(i, 'value', $event)"
-      />
-      <UiInput
-        v-else
-        :model-value="r.value"
-        :placeholder="valuePlaceholder"
-        @update:model-value="patch(i, 'value', $event)"
-      />
-      <UiButton intent="ghost" size="small" title="Remove" @click="remove(i)">✕</UiButton>
-    </div>
-    <UiButton intent="ghost" size="small" @click="add">{{ addLabel }}</UiButton>
+    </template>
+    <UiButton intent="ghost" size="small" class="ui-kg-add" @click="add">{{ addLabel }}</UiButton>
   </div>
 </template>
 
@@ -364,14 +330,11 @@ const displayRows = computed(() => {
 .ui-kg-resetspace { width: 0; }
 .ui-kg-extras-h { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; margin: 8px 0 1px; }
 
-/* Ledger mode — one flat row per knob: namecell (flag + origin under) · value.
-   Rows pack left; the flag name is the row's ONE name (the friendly label +
-   help live in the hover title). Unset rows read quieter than set ones. */
-.ui-kg-ledger { gap: 8px; }
-.ui-kg-lrow { display: grid; grid-template-columns: 220px minmax(140px, 180px); justify-content: start; gap: 10px; align-items: center; }
-.ui-kg-lrow.ui-kg-extra { grid-template-columns: 220px minmax(140px, 180px) auto; }
-.ui-kg-lflag { font-size: 12px; color: var(--ink); }
-.ui-kg-lrow:not(.is-on):not(.ui-kg-extra) .ui-kg-val { opacity: 0.75; }
+/* Grouped add-row sections (QC-10): a small bold heading per layer — the same
+   voice as the Global bundles' section labels ("All models" · "MoE models"). */
+.ui-kg-group-h { font-weight: 600; font-size: 12px; color: var(--ink); margin-top: 6px; }
+.ui-kg-group-h:first-child { margin-top: 0; }
+.ui-kg-add { align-self: start; }
 .ui-kg-foot { display: flex; align-items: center; margin-top: 9px; }
 .ui-kg-footspace { flex: 1; }
 </style>

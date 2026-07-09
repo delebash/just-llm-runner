@@ -59,13 +59,49 @@ def test_knob_tiers_and_expanded_set(wired):
     assert by_name["cont_batching"]["plane"] == 1 and by_name["cont_batching"]["kind"] == "bool"
 
 
-def test_enum_options_join(wired):
+def test_plane1_carries_no_engine_default_claims(wired):
+    """QC-17 + QC-18 (user, 2026-07-09): plane-1 switches carry NO default_value
+    (the app stopped storing the engine's own defaults) and NO options (values are
+    plain text/number boxes; the HELP names the accepted values). Plane-2 sampler
+    prefills are untouched."""
+    knobs = stores.list_knob_catalog()
+    for k in knobs:
+        if k["plane"] == 1:
+            assert k["default"] == "", f'{k["flagName"]} still stores a default claim'
+            assert k["options"] == [], f'{k["flagName"]} still carries options'
+    by_name = {k["flagName"]: k for k in knobs}
+    assert "f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1" in by_name["cache_type_k"]["help"]
+    assert "on, off, auto" in by_name["flash_attn"]["help"]
+    # QC-11: context_shift + cache_reuse are OUT of the catalog entirely.
+    assert "context_shift" not in by_name and "cache_reuse" not in by_name
+    # Plane-2 keeps its prefill defaults (samplers untouched).
+    assert by_name["temperature"]["default"] == "0.7"
+
+
+def test_seed_curates_existing_dbs(wired):
+    """Existing DBs converge on boot (the seeder SYNCS built-in rows — the catalog
+    is app-owned, GET-only): a QC-11 removed row is deleted, its options go with
+    it, and a stale plane-1 default_value/option set is cleared."""
+    s = db.session()
+    # Recreate the pre-QC-17 era-1 state by hand.
+    s.add(db.KnobCatalog(flag_name="context_shift", label="Context shift", kind="bool",
+                         default_value="true", plane=1, tier="advanced", built_in=True))
+    s.flush()
+    s.add(db.KnobOption(flag_name="cache_type_k", value="q8_0", label="q8_0",
+                        position=0, built_in=True))
+    row = s.query(db.KnobCatalog).filter(db.KnobCatalog.flag_name == "cache_type_k").one()
+    row.default_value = "q8_0"
+    s.commit()
+    s.close()
+
+    s = db.session()
+    seed.seed_default_knobs(s)
+    s.commit()
+    s.close()
+
     by_name = {k["flagName"]: k for k in stores.list_knob_catalog()}
-    # flash_attn carries its enum options; a non-enum knob carries none.
-    fa = by_name["flash_attn"]
-    assert fa["kind"] == "enum"
-    assert [o["value"] for o in fa["options"]] == ["on", "off", "auto"]
-    assert by_name["ctx_len"]["options"] == []
+    assert "context_shift" not in by_name
+    assert by_name["cache_type_k"]["default"] == "" and by_name["cache_type_k"]["options"] == []
 
 
 def test_knob_catalog_endpoint(wired):
@@ -74,4 +110,5 @@ def test_knob_catalog_endpoint(wired):
     r = TestClient(app).get("/v1/ai/knob-catalog")
     assert r.status_code == 200
     knobs = r.json()["knobs"]
-    assert any(k["flagName"] == "cache_type_k" and k["options"] for k in knobs)
+    ctk = next(k for k in knobs if k["flagName"] == "cache_type_k")
+    assert ctk["options"] == [] and "Accepts" in ctk["help"]

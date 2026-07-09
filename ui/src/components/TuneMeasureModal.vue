@@ -6,15 +6,16 @@
 // the MODEL — one editor, everywhere). Loads the model with ad-hoc Plane-1 engine
 // flags + probes decode tok/s on this box.
 //
-// §7.6 (2026-07-08) + the same-day QC cluster (queue doc §9, QC-1..8): the grid is
-// the KnobGrid LEDGER over the WHOLE plane-1 knob catalog — every switch is one
-// flat, always-visible row (no Advanced expander, no checkboxes, no per-row
-// resets), the flag name with its origin underneath, tags carrying the REAL
-// editor names (Global launch default · Hardware-class default · your applied
-// config · computed for this PC · engine default). Set rows pre-fill from the
-// model's RESOLVED defaults INCLUDING the fit-computed values ("Add to grid" is
-// retired); unset rows show the engine's own default as a muted placeholder —
-// writing a value sets a row, clearing it unsets it. **Apply**
+// §7.6 (2026-07-08) + QC-17/18/10 (2026-07-09, the user: "the tune and measure
+// works like global and hardware you have an x by each row … just like the way we
+// do it on the command line"): the grid is the SAME free-row editor as the Global
+// launch defaults / Hardware-class editors — ONLY the switches that carry a value
+// render, each a name box + a plain text/number value box + ✕ (remove = the flag
+// isn't sent = the engine does its own thing; the app never claims to know the
+// engine's defaults), "+ Add switch" to include one — grouped under a heading per
+// source layer (Your applied config · Hardware-class default · Global launch
+// defaults · Computed for this PC). Set rows pre-fill from the model's RESOLVED
+// defaults INCLUDING the fit-computed values ("Add to grid" is retired). **Apply**
 // is a SNAPSHOT: the model takes ownership of every set row (PUT /v1/ai/model-tunes;
 // the server derives the machine key and stores the layer BASELINE beside it) — once
 // applied, the model stops following later global/class changes (the user's decision:
@@ -51,13 +52,11 @@ const emit = defineEmits(["close"]);
 
 const gb = (mb) => (mb >= 10240 ? `${Math.round(mb / 1024)}` : `${(mb / 1024).toFixed(1)}`);
 
-// Knob-catalog metadata (C1) — labels/typed inputs for the Plane-1 switch grid.
+// Knob-catalog metadata (C1) — names/help/kind for the Plane-1 switch grid.
 // Fetch + map come from the shared knobCatalog.js (one source with LuClassTunes'
-// global mount); the raw list feeds the checklist (§7.6: every knob is a row)
-// and the unknown-flag badge below.
+// global mount); the raw list also feeds the unknown-flag badge below.
 const knobCatalog = ref([]);
 const switchCatalog = computed(() => plane1SwitchCatalog(knobCatalog.value));
-const plane1List = computed(() => knobCatalog.value.filter((k) => k.plane === 1));
 async function loadKnobCatalog() {
   knobCatalog.value = await fetchKnobCatalog(); // [] on failure — enrichment only
 }
@@ -69,33 +68,31 @@ const tuneResult = ref(null); // { tokensPerSec, completionTokens, ms, vramTotal
 const tuneErr = ref("");
 const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value === "measuring");
 
-// Per-row PROVENANCE (2026-07-07 origins; §7.6 makes them total): which layer
-// wrote each SET value, in user language — and for UNSET knobs, which layer the
-// value would come from if you left it unchecked (the inherited fallback: a
-// class/global value when one exists underneath, else the engine's own default).
-// Fit-computed values are ordinary rows tagged "computed for this PC" (2026-07-08:
-// "Add to grid" retired — the user's snapshot decision means Apply deliberately
-// takes ownership of them; "Refresh from defaults" re-derives them any time).
-// QC-1 (2026-07-08): tags carry the REAL editor names — the same words as the
-// "Global launch defaults" / "Hardware-class defaults" buttons they point at.
-const ORIGIN_LABELS = {
-  base: "Global launch default (all models)", type: "Global launch default (model type)",
-  mtp: "Global launch default (spec decode)", class: "Hardware-class default",
-  tune: "your applied config",
-  computed: "computed for this PC", autotune: "auto-tune winner",
+// Per-row PROVENANCE (2026-07-07 origins) → SECTION GROUPING (QC-10, the user's
+// "yes" + "in fact see how you have this niceely layed out grouped with a header
+// easy seperation"): which layer wrote each SET value decides which heading its
+// row renders under — the four user-named sections, headings instead of per-row
+// tags. Unset knobs don't render at all (QC-17 — absent = the engine's own
+// behavior, like the command line). Fit-computed values are ordinary rows under
+// "Computed for this PC" (2026-07-08: "Add to grid" retired). FLAGGED reading
+// (one-line-changeable): rows YOU add here and the auto-tune winner's rows group
+// under "Your applied config" — they become exactly that on Apply.
+const TUNE_GROUPS = [
+  { key: "applied", label: "Your applied config" },
+  { key: "class", label: "Hardware-class default" },
+  { key: "global", label: "Global launch defaults" },
+  { key: "computed", label: "Computed for this PC" },
+];
+const GROUP_OF = {
+  tune: "applied", autotune: "applied",
+  class: "class",
+  base: "global", type: "global", mtp: "global",
+  computed: "computed",
 };
 const tuneOrigins = ref({}); // flagName -> layer id, for the SET rows
-const inheritedOrigins = ref({}); // flagName -> layer id an UNSET knob falls to (baseline)
-const originTags = computed(() => {
-  const out = {};
-  for (const k of plane1List.value) out[k.flagName] = "engine default";
-  for (const [k, v] of Object.entries(inheritedOrigins.value)) out[k] = ORIGIN_LABELS[v] || v;
-  const set = new Set(tuneRows.value.map((r) => (r.name || "").trim()).filter(Boolean));
-  for (const [k, v] of Object.entries(tuneOrigins.value)) {
-    if (set.has(k)) out[k] = ORIGIN_LABELS[v] || v;
-  }
-  return out;
-});
+const rowGroups = computed(() =>
+  Object.fromEntries(Object.entries(tuneOrigins.value).map(([k, v]) => [k, GROUP_OF[v] || "applied"])),
+);
 
 // ── the applied per-(model, machine) config (Plan B storage; §7.1 Apply semantics) ──
 // { hwKey, rows, source, driftCount } | null — source ("auto" | "hand") and
@@ -132,9 +129,7 @@ async function refreshFromDefaults() {
   tuneErr.value = "";
   applyMsg.value = "";
   try {
-    const res = await resolveModelDefaults(props.model.id, { excludeTune: true });
-    fillFromResolved(res);
-    inheritedOrigins.value = res.origins || {}; // the baseline IS the inherited truth
+    fillFromResolved(await resolveModelDefaults(props.model.id, { excludeTune: true }));
     pushToast({ message: "Loaded today's defaults into the grid — review, then Apply to commit." });
   } catch (e) {
     tuneErr.value = e.message || "Couldn't load today's defaults.";
@@ -162,15 +157,6 @@ async function loadSavedTune() {
   try {
     const res = await request(`/v1/ai/model-tunes?modelId=${encodeURIComponent(props.model.id)}`);
     savedTune.value = res.rows?.length ? res : null;
-    if (savedTune.value) {
-      // §7.6: with an applied config every SET row reads "your applied config" —
-      // the inherited tags for UNSET knobs must come from the layer BASELINE
-      // (what a knob falls back to if you uncheck it), not the tune-winning resolve.
-      try {
-        const base = await resolveModelDefaults(props.model.id, { excludeTune: true });
-        inheritedOrigins.value = base.origins || {};
-      } catch { /* enrichment — unset knobs just read "engine default" */ }
-    }
   } catch {
     savedTune.value = null; // saved-state is an enrichment; tuning still works
   }
@@ -290,7 +276,6 @@ function fillFromResolved(res) {
     ...(res.origins || {}),
     ...Object.fromEntries((res.computed || []).map((c) => [c.name, "computed"])),
   };
-  if (!savedTune.value) inheritedOrigins.value = res.origins || {};
 }
 async function startTune() {
   tuneRows.value = [];
@@ -496,12 +481,12 @@ onBeforeUnmount(stopAutoPoll);
 <template>
   <AppModal :title="`Tune & measure — ${model.name || model.id}`" :max-width="'560px'" @close="emit('close')">
     <div class="lu-tune">
-      <!-- QC-6 (2026-07-08, "do you really think this looks nice … the text"): ONE
-           short lede — each row explains itself (origin tag + hover help); the
-           two-paragraph explainer is gone, its detail lives in docs/models.md. -->
+      <!-- QC-6 (2026-07-08) + QC-12 (2026-07-08, the user's exact copy: "replace
+           (how tasks ask the model …) with new line below Apply, Samplers like
+           temperature are set on the Tasks or Routing by feature tabs"). -->
       <p class="lu-muted lu-tune-lede">
-        Each switch shows where its value comes from — tweak, measure, then <b>Apply</b>
-        (how tasks <i>ask</i> the model — temperature, tokens, thinking — stays on the Tasks tab).
+        Each section shows where its switches come from — tweak, measure, then <b>Apply</b>.
+        <br />Samplers like temperature are set on the Tasks or Routing by feature tabs.
       </p>
 
       <!-- #16 + B3-4: the tune state reads BIG — the §7.6 badge family (Auto-tuned /
@@ -522,13 +507,12 @@ onBeforeUnmount(stopAutoPoll);
 
       <!-- #21: ONLY the switch grid scrolls — everything after this block (status,
            auto-tune narration, the result) stays in view without scrolling. The
-           grid is the LEDGER over the whole plane-1 knob catalog (every switch one
-           flat visible row, origin-tagged — QC cluster 2026-07-08) with the
-           add-row grid as the no-catalog fallback. -->
+           grid is the SAME free-row editor as Global/Hardware (QC-17/18: only set
+           switches render; ✕ removes = engine's own default; values are plain
+           boxes), sectioned by source layer (QC-10). -->
       <div class="lu-tune-scroll">
-        <KnobGrid v-model="tuneRows" ledger :catalog-list="plane1List"
-          :catalog="switchCatalog" :origins="originTags"
-          add-label="＋ Add a custom switch" />
+        <KnobGrid v-model="tuneRows" :catalog="switchCatalog"
+          :groups="TUNE_GROUPS" :row-groups="rowGroups" />
         <div v-if="unknownNames.size" class="lu-tune-unk lu-muted">
           <UiTag intent="danger">unrecognized</UiTag>
           <span>{{ [...unknownNames].join(", ") }} — not a known engine flag (mistyped, or dropped

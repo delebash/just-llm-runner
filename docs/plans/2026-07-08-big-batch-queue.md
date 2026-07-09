@@ -2155,6 +2155,62 @@ Also answered in the user's terms: the "fetch" is the window asking the app's ow
 server "is the engine installed?" over localhost — nothing from the internet; on their
 box that answer itself was wrong, which is why "Checking the engine…" never shows.
 
+**QC-13 BACKEND BUILD RECORD (shipped 2026-07-09, unit 2 of the fourth-compact go — the
+"do it all" reading of the recorded proposal, FLAGGED there and executed verbatim).**
+WHAT SHIPPED, per the user's law ("just check the folder path and engine version number
+to see if it is installed already" / "check the path and if path exe exist assume engine
+is installed"):
+(1) **binary.py** — a new READ-path resolver `_find_installed_exe`: the pinned build
+when its folder holds the exe, else the NEWEST on-disk build folder that does (build
+dirs under `llamacpp/` scanned newest-first by the tag number; "logs" — the one
+non-build sibling dir — excluded; loose files like the generated models.ini are files,
+never scanned). `acquired_server_exe` (the status probe + the load guard) and
+`acquired_server_exes` (the A3 spawn fallback chain) now resolve through it, so the
+status, the version shown, the spawn chain, and uninstall all agree with the DISK.
+`_find_variant_exe` became the explicit per-build search (a `build` param, pin default)
+— and `acquire_binary` still calls THAT form: the WRITE path stays pin-keyed
+(install/update always TARGET the pin). That scoping is load-bearing, discovered while
+grounding: if the write path resolved to the disk too, a pin-bump Update would find the
+OLD build's exe, skip its download, and the stale-build sweep (lifecycle _run_install)
+would then delete the only engine on disk. Two small helpers were added and shared:
+`build_num` (the tag-digit parser — MOVED from lifecycle's `_build_num` so the update
+check and the newest-first ordering use ONE parser) and `build_of_exe` (an installed
+exe's build dir under `llamacpp/`).
+(2) **lifecycle.py** — `engine_status.build` now reports the build actually ON DISK
+(`build_of_exe(exe)`), falling back to the pin only when nothing is installed (the pin
+is then the build an install would fetch); `uninstall_engine` resolves the installed
+exe first and removes THAT build dir (what status reports), falling back to the pin's
+dir when nothing resolves; `update_check` still compares latest against the PIN
+(FLAGGED, one line to change: on a pin-reverted box the update banner's "current" is
+the pin, not the disk build — the recorded proposal scoped update/install to the pin
+and this follows it). The checker's verdict note sharpens what that flag means on the
+user's exact box: with disk b9929 / pin b9899, the banner can read "Update available
+(you have b9899)" even when upstream latest IS the b9929 already on disk — clicking it
+then just re-pins and converges with no download (the pin-keyed existing check finds
+the exe), but the "you have" number is the pin's until then. Not a regression (the old
+code had the same banner over a "Not installed" panel); pointing `update_check.current`
+at the RESOLVED disk build is the recorded follow-up — the user's call, one line.
+(3) **Tests** — 5 new (425 total): binary-level `test_acquired_exe_follows_disk_build_
+when_pin_reverted` (the user's exact state: disk pin+30 ≈ b9929, pin b9899 → the exe is
+found and attributed to the disk build), `test_acquired_exe_prefers_pinned_build_when_
+both_on_disk` (the pin stays authoritative when its folder holds the exe), and
+`test_acquire_binary_targets_pin_not_disk_build` (the write path downloads the pin even
+with a superseded build on disk); lifecycle-level `test_engine_status_follows_disk_when_
+pin_reverted` (the REAL `acquired_server_exe` injected over the factory stub; windows/
+cuda hardware; → installed:true, build = the disk's) and `test_engine_uninstall_removes_
+disk_build_when_pin_reverted` (uninstall deletes the disk build's dir, status then
+honestly reports not-installed). The existing engine tests (stubbed exe paths outside
+`llamacpp/` → `build_of_exe` → None → pin fallback) stay green unchanged.
+(4) **docs/models.md** — one user-facing sentence added to the engine paragraph: the
+installed check reads your DISK, not a stored setting; the version shown is the engine
+folder's; a data reset can never make an on-disk engine read "Not installed".
+GATES: runner ruff clean + **425 pytest** · build:vite ✓ · switch-probe 10/10 zero page
+errors (the QC-13 honest-states check re-run against the restarted server on the new
+code) · b4-probe 15/15 · FULL headless smoke zero JS errors · rules-checker verdict at
+this commit (read from the completion notification). Task #215 completed. On the
+user's box this means: the b9929 folder their Explorer shows IS the check's target now
+— the panel reads "Installed · b9929 · cuda12" with no reinstall.
+
 ---
 
 **⛔ THE FOURTH-COMPACT POINT (2026-07-09, user verbatim: "ok so do b2-9 that we settled,

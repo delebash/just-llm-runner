@@ -1023,6 +1023,53 @@ def test_engine_status_not_installed(tmp_path):
     assert svc.engine_status()["installed"] is False
 
 
+def _win_cuda_hw():
+    return HardwareInfo(os="windows", platform="windows", cpu_cores=8, ram_mb=32000,
+                        gpus=[GpuInfo(vendor="NVIDIA", name="RTX 2070 SUPER", vram_mb=8192)],
+                        runtimes={"cuda": True})
+
+
+def test_engine_status_follows_disk_when_pin_reverted(tmp_path):
+    # QC-13 (user's box, 2026-07-09): the Update flow installed b9929, a DB reset
+    # reverted the pin to the seeded b9899, and the app said "Not installed" while
+    # llamacpp/b9929/ sat on disk. The user's law: "check the path and if path exe
+    # exist assume engine is installed" — and the version shown is the DISK's.
+    from llm_runner import default_config
+    from llm_runner.runner.binary import acquired_server_exe, build_num, variant_dir
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe  # the REAL disk probe (the factory stubs it)
+    pinned = default_config().llamacpp.pinned_build
+    disk_build = f"b{build_num(pinned) + 30}"  # b9899 → b9929
+    d = variant_dir(svc.cache_root, disk_build, "cuda12")
+    d.mkdir(parents=True)
+    (d / "llama-server.exe").write_bytes(b"MZ")
+
+    es = svc.engine_status()
+
+    assert es["installed"] is True
+    assert es["build"] == disk_build
+
+
+def test_engine_uninstall_removes_disk_build_when_pin_reverted(tmp_path):
+    # QC-13 companion: uninstall removes the build STATUS reports (the disk's),
+    # not the reverted pin's absent folder.
+    from llm_runner import default_config
+    from llm_runner.runner.binary import acquired_server_exe, build_num, variant_dir
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe
+    disk_build = f"b{build_num(default_config().llamacpp.pinned_build) + 30}"
+    d = variant_dir(svc.cache_root, disk_build, "cuda12")
+    d.mkdir(parents=True)
+    (d / "llama-server.exe").write_bytes(b"MZ")
+
+    out = svc.uninstall_engine()
+
+    assert not (svc.cache_root / "llamacpp" / disk_build).exists()
+    assert out["installed"] is False
+
+
 def test_install_engine_runs_acquire(tmp_path):
     called = {}
 

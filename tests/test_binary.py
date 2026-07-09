@@ -206,3 +206,53 @@ def test_legacy_root_not_attributed_to_unselected_variants(tmp_path):
     (root / "llama-server.exe").write_bytes(b"MZ legacy")
     got = binmod.acquired_server_exes(tmp_path, m, hw)
     assert [g for g, _ in got] == ["cuda12"]
+
+
+# ── QC-13: the install check follows the DISK (user's box, 2026-07-09) ────────
+
+def test_acquired_exe_follows_disk_build_when_pin_reverted(tmp_path):
+    # The user's exact state: the Update flow installed b9929, then a DB reset
+    # reverted the pin to the seeded b9899 — and the app claimed "Not installed".
+    # The user's law: "check the path and if path exe exist assume engine is
+    # installed" — the newest on-disk build holding the exe wins when the pinned
+    # build's folder doesn't.
+    m = default_config()
+    hw = _hw("windows", {"cuda": True})
+    disk_build = f"b{binmod.build_num(m.llamacpp.pinned_build) + 30}"  # b9899 → b9929
+    d = binmod.variant_dir(tmp_path, disk_build, "cuda12")
+    d.mkdir(parents=True)
+    (d / "llama-server.exe").write_bytes(b"MZ update-installed")
+    exe = binmod.acquired_server_exe(tmp_path, m, hw)
+    assert exe == d / "llama-server.exe"
+    assert binmod.build_of_exe(tmp_path, exe) == disk_build
+
+
+def test_acquired_exe_prefers_pinned_build_when_both_on_disk(tmp_path):
+    # The pin stays authoritative when ITS folder holds the exe — disk builds
+    # only step in when the pinned folder has nothing.
+    m = default_config()
+    hw = _hw("windows", {"cuda": True})
+    pinned = m.llamacpp.pinned_build
+    newer = f"b{binmod.build_num(pinned) + 30}"
+    for build in (pinned, newer):
+        d = binmod.variant_dir(tmp_path, build, "cuda12")
+        d.mkdir(parents=True)
+        (d / "llama-server.exe").write_bytes(b"MZ " + build.encode())
+    exe = binmod.acquired_server_exe(tmp_path, m, hw)
+    assert binmod.build_of_exe(tmp_path, exe) == pinned
+
+
+def test_acquire_binary_targets_pin_not_disk_build(monkeypatch, tmp_path):
+    # The WRITE path stays pin-keyed: a pin-bump Update must download the new
+    # build even while the superseded one is still on disk — resolving here
+    # would skip the download and the stale-build sweep would then delete the
+    # only engine on disk.
+    m = default_config()
+    hw = _hw("windows", {"cuda": True})
+    older = f"b{binmod.build_num(m.llamacpp.pinned_build) - 30}"
+    d = binmod.variant_dir(tmp_path, older, "cuda12")
+    d.mkdir(parents=True)
+    (d / "llama-server.exe").write_bytes(b"MZ pre-update")
+    monkeypatch.setattr(binmod, "stream_download", _make_stream([], "llama-server.exe"))
+    exe = binmod.acquire_binary(tmp_path, m, hw)
+    assert exe.is_relative_to(binmod.variant_dir(tmp_path, m.llamacpp.pinned_build, "cuda12"))

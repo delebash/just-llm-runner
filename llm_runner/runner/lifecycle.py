@@ -24,7 +24,14 @@ from dataclasses import fields as _dc_fields, replace as _dc_replace
 
 from .arbiter import get_arbiter as _get_arbiter
 from .binary import acquire_binary as _acquire_binary
-from .binary import acquired_server_exe, acquired_server_exes, binary_dir, select_binary
+from .binary import (
+    acquired_server_exe,
+    acquired_server_exes,
+    binary_dir,
+    build_num,
+    build_of_exe,
+    select_binary,
+)
 from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect, max_vram_mb as _hw_max_vram, used_vram_mb as _hw_used_vram
@@ -264,11 +271,6 @@ def _fetch_latest_llamacpp_tag() -> str:
     return str(r.json().get("tag_name") or "")
 
 
-def _build_num(tag: str) -> int:
-    digits = "".join(ch for ch in str(tag) if ch.isdigit())
-    return int(digits) if digits else -1
-
-
 def _engine_idle() -> dict:
     # Separate channel from the model-load state (a model load must not clobber
     # engine-install progress, and vice-versa). status ∈ idle|installing|installed|error.
@@ -401,7 +403,7 @@ class RunnerService:
     # ── Engine install — its OWN once-per-machine step, separate from loading a
     #    model (a load REQUIRES the engine present; see _run_load). ──────────────
     def engine_status(self) -> dict:
-        """Is the llama.cpp engine installed for THIS box? Reports the selected
+        """Is the llama.cpp engine installed for THIS box? Reports the installed
         build/gpu, whether the exe + (on Windows CUDA) its cudart companion are
         present, and any in-flight install progress (`_engine_state`)."""
         config = self._config_fn()
@@ -415,7 +417,11 @@ class RunnerService:
         return {
             "installed": exe is not None,
             "serverExe": str(exe) if exe else "",
-            "build": config.llamacpp.pinned_build,
+            # QC-13: the build actually ON DISK (the exe's dir), which a reverted
+            # pin may not name; the pin is only reported when nothing is installed
+            # (it is then the build an install would fetch).
+            "build": (build_of_exe(self.cache_root, exe) if exe else None)
+            or config.llamacpp.pinned_build,
             "gpu": asset.gpu if asset else "",
             "platform": hardware.platform,
             "hasRuntime": has_runtime,
@@ -450,18 +456,22 @@ class RunnerService:
         return {"path": str(path), "text": _tail_file(path, tail)}
 
     def uninstall_engine(self) -> dict:
-        """Remove the installed llama.cpp engine binaries for the pinned build
-        (the whole build dir — every per-GPU variant incl. the A3 fallback
-        chain IS the engine). Models in the HF cache are untouched. Stops any
-        running model first: a live llama-server holds its exe open, and
-        Windows cannot delete an open exe. Refused while an install is in
+        """Remove the INSTALLED llama.cpp engine binaries (the whole build dir —
+        every per-GPU variant incl. the A3 fallback chain IS the engine). The
+        build is resolved from the DISK (QC-13): remove what `engine_status`
+        reports installed, which a reverted pin may not name; fall back to the
+        pin's dir when nothing resolves. Models in the HF cache are untouched.
+        Stops any running model first: a live llama-server holds its exe open,
+        and Windows cannot delete an open exe. Refused while an install is in
         flight (the installer thread is writing into the very dir)."""
         with self._lock:
             if self._engine_state["status"] == "installing":
                 return {**self._engine_state, "error": "install in progress — wait for it to finish"}
         self.stop()
         config = self._config_fn()
-        shutil.rmtree(binary_dir(self.cache_root, config.llamacpp.pinned_build), ignore_errors=True)
+        exe = self._acquired_exe(self.cache_root, config, self._hardware_fn())
+        build = (build_of_exe(self.cache_root, exe) if exe else None) or config.llamacpp.pinned_build
+        shutil.rmtree(binary_dir(self.cache_root, build), ignore_errors=True)
         with self._lock:
             self._engine_state = _engine_idle()
         return self.engine_status()
@@ -481,7 +491,7 @@ class RunnerService:
         return {
             "current": current,
             "latest": latest,
-            "updateAvailable": _build_num(latest) > _build_num(current),
+            "updateAvailable": build_num(latest) > build_num(current),
             "error": "",
         }
 

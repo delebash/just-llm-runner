@@ -97,6 +97,33 @@ def variant_dir(cache_root: Path, build: str, gpu: str) -> Path:
     return binary_dir(cache_root, build) / gpu
 
 
+def build_num(tag: str) -> int:
+    """Numeric part of a llama.cpp build tag ("b9929" → 9929; -1 when none) —
+    one parser shared by the update check and the newest-on-disk ordering."""
+    digits = "".join(ch for ch in str(tag) if ch.isdigit())
+    return int(digits) if digits else -1
+
+
+def _on_disk_builds(cache_root: Path) -> list[str]:
+    """Build dirs actually present under `llamacpp/`, newest tag first. "logs" is
+    the one non-build sibling dir; loose files (the generated models.ini) are
+    files, not dirs, so the scan never sees them."""
+    root = cache_root / "llamacpp"
+    if not root.is_dir():
+        return []
+    names = [d.name for d in root.iterdir() if d.is_dir() and d.name != "logs"]
+    return sorted(names, key=build_num, reverse=True)
+
+
+def build_of_exe(cache_root: Path, exe: Path) -> str | None:
+    """The build dir an installed exe lives under (`llamacpp/<build>/…`) — how
+    engine_status reports the version actually on disk (QC-13)."""
+    try:
+        return exe.relative_to(cache_root / "llamacpp").parts[0]
+    except ValueError:
+        return None
+
+
 def _find_server_exe(root: Path, exe_name: str) -> Path | None:
     direct = root / exe_name
     if direct.is_file():
@@ -108,12 +135,17 @@ def _find_server_exe(root: Path, exe_name: str) -> Path | None:
 
 
 def _find_variant_exe(
-    cache_root: Path, config: RunnerConfig, asset: BinaryAsset, *, legacy_root: bool
+    cache_root: Path, config: RunnerConfig, asset: BinaryAsset, *,
+    legacy_root: bool, build: str | None = None,
 ) -> Path | None:
-    """An asset's installed exe: its variant dir first; optionally the legacy build
-    root (pre-variant-layout installs — attributed ONLY to the selected asset, so
-    one legacy exe never counts as every variant)."""
-    build = config.llamacpp.pinned_build
+    """An asset's installed exe within ONE build (the pin unless `build` says
+    otherwise): its variant dir first; optionally the legacy build root
+    (pre-variant-layout installs — attributed ONLY to the selected asset, so
+    one legacy exe never counts as every variant). The WRITE path
+    (`acquire_binary`) uses this pin-keyed form directly — install/update
+    always TARGET the pin."""
+    if build is None:
+        build = config.llamacpp.pinned_build
     exe = _find_server_exe(variant_dir(cache_root, build, asset.gpu), asset.server_exe)
     if exe is None and legacy_root:
         root = binary_dir(cache_root, build)
@@ -131,13 +163,33 @@ def _find_variant_exe(
     return exe
 
 
+def _find_installed_exe(
+    cache_root: Path, config: RunnerConfig, asset: BinaryAsset, *, legacy_root: bool
+) -> Path | None:
+    """READ-path resolution (QC-13, the user's law: "check the path and if path
+    exe exist assume engine is installed"): the pinned build when its folder
+    holds the exe, else the NEWEST on-disk build folder that does — a DB reset
+    reverting the pin must not hide an engine the Update flow already installed.
+    Only status/spawn/uninstall resolve; `acquire_binary` stays pin-keyed
+    (resolving there would let a pin-bump Update skip its download and the
+    stale-build sweep would then delete the only engine on disk)."""
+    pinned = config.llamacpp.pinned_build
+    for candidate in [pinned, *(b for b in _on_disk_builds(cache_root) if b != pinned)]:
+        exe = _find_variant_exe(
+            cache_root, config, asset, legacy_root=legacy_root, build=candidate
+        )
+        if exe is not None:
+            return exe
+    return None
+
+
 def acquired_server_exe(
     cache_root: Path, config: RunnerConfig, hardware: HardwareInfo
 ) -> Path | None:
     asset = select_binary(config, hardware)
     if asset is None:
         return None
-    return _find_variant_exe(cache_root, config, asset, legacy_root=True)
+    return _find_installed_exe(cache_root, config, asset, legacy_root=True)
 
 
 def acquired_server_exes(
@@ -155,7 +207,7 @@ def acquired_server_exes(
         asset = by_gpu.get(gpu)
         if asset is None:
             continue
-        exe = _find_variant_exe(
+        exe = _find_installed_exe(
             cache_root, config, asset,
             legacy_root=selected is not None and asset.gpu == selected.gpu,
         )

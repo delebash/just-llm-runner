@@ -4431,3 +4431,109 @@ first); the five queued tasks slot on the user's word.**
 `c409bfc`. Dev stack: JW server `python -m justwrite_server.cli serve --port 17495`
 + `npm run dev:vite` (:1420), both run_in_background; Chromium via findChrome. The
 cwd RESETS between Bash calls — use `git -C`/absolute paths ALWAYS.
+
+---
+
+**B6 BUILD RECORD (2026-07-09 — #201/#202/#203 + the QC-30b fold-in, built to the
+"B6 BUILD PLAN" section above under the user's standing "go"; supersedes the
+ELEVENTH-COMPACT POINT's "B6 IS MID-BUILD" framing — B6 is BUILT).**
+
+WHAT SHIPPED, by piece, all file:lines in the ship commits:
+
+RUNNER (the three held edits + step 1): `base.py` StreamDelta gained
+`progress: float | None = None` + `model: str = ""` (docstring states the
+contract: progress = prompt-eval 0..1 from the builtin engine only; model is
+stamped by the DISPATCH layer on the done event). `dispatch.py stream_chat`
+stamps `delta.model = model` (the RESOLVED model) on the done delta.
+`openai_compat.py stream_chat` sends `return_progress: true` ONLY when
+`provider_type == "local-llamacpp"` (upstream contract verified at llama.cpp
+master tools/server README + PR 15827: chunks carry top-level `prompt_progress
+{total, cache, processed, time_ms}`; overall = processed/total; works on the
+OAI-compat chat endpoint; landed b6399 < our b9899 floor) and parses those
+frames into `StreamDelta(progress=min(1, processed/total))` guarded total>0.
+`prompts.py` stream gen(): progress deltas → their own `{"progress": p}` SSE
+frame (never a text delta); the done frame gained `model` (from the dispatch
+stamp) + `cost: cost_for(model, pt, ct)` — the stream now carries everything
+/run's response carries; the endpoint docstring says so.
+
+KIT: `client.js requestStream` gained an `onProgress` option ({progress}
+frames → callback), returns model/cost in its usage object, and TAGS an
+in-stream `{error}` frame's throw with `err.streamErrorFrame = true` — the
+one-bit the fallback classifier needs to distinguish a provider error from a
+transport failure. `services/aiFeature.js` REWRITTEN to the one-seam flip the
+plan locked: `runAiFeature` keeps its exact call-site contract ({content,
+model, promptTokens, completionTokens, cost} — all 16 callers verified
+destructuring only that) but runs the STREAM transport under the hood with the
+FULL ask-param body; AUTOMATIC FALLBACK retries ONCE via /v1/ai/run ONLY on a
+transport-level failure with ZERO frames received (`shouldFallBack`: no frames
+seen + not streamErrorFrame + not AbortError/signal.aborted) — never on an
+in-stream error, never on abort, never after frames arrived (tokens were
+spent). `runAiFeatureStream` now forwards the same ask-params
+(providerId/topP/jsonMode/reasoningEffort/samplers) so the wrappers stopped
+diverging; the duplicated task-registration + body-building blocks are ONE
+`startTaskHandle` + ONE `buildRunBody` (T3). Both wrappers wire `onProgress →
+handle.setPrefill`. `stores/aiTasks.js`: task rows gained `prefill` (0..1,
+clamped; null = not reported), the handle gained `setPrefill` (ignored once
+firstDeltaAt is set), and `_recordDelta` clears prefill on the first token.
+`AiTaskStrip.vue` + `AiStatusPanel.vue` render a "reading prompt N%" chip
+while `task.prefill != null` — the TTFT dead bar is a real percentage on the
+builtin engine.
+
+QC-30b (the three gap surfaces, all to the 18-surface `<AiTaskStrip
+:task="myTask">` precedent): MultiReaderPanelModal mounts the strip below the
+blurb (myTask = the ONE QC-31 batch entry); VariationsModal mounts one strip
+PER RUNNING COLUMN below the blurb — the CritiqueModal one-strip-per-task
+precedent — with an #extra-stats chip "variation N" because all three column
+tasks share the runner's label (INTERPRETATION FLAG: the plan said "below each
+surface's run-controls row"; Variations' run controls are per-column footers
+too cramped for the strip, so the strips sit at the modal's top like every
+other modal — say the word to move them); AnalysisView's voiceDrift Explain
+leg got a `driftTask` computed (the tensionTask pattern at the same file) and
+mounts the strip under the "Hot chapters" heading.
+
+TWO FINDINGS-FIRST FIXES while the gates ran (both recorded before fixing):
+(1) PROBE DRIFT, qc-quintet QC-23 leg — it stubbed a delayed /v1/ai/run, which
+the Lab no longer calls (streams first, and the real endpoint's instant
+{error} frame correctly does NOT fall back), so its four QC-23 checks failed
+honestly; repointed to a delayed /v1/ai/stream stub answering in the SSE frame
+shape (progress frame + deltas + done{model,cost}) — the probe now verifies
+the NEW transport live in Chromium (22/22). (2) A REAL QC-28 REGRESSION the
+switch-probe repoint exposed: SW5 asserted the superseded "row lands under
+'Your applied config' (first group)" design; rewriting it to the QC-28 law
+(APPENDS at the BOTTOM) revealed "＋ Add switch" actually landed the new row
+at the visual TOP — KnobGrid's unmapped-row fallback is `secs[0]`, and QC-28's
+TUNE_GROUPS reorder (applied → LAST) silently re-pointed that fallback at the
+class section; the cluster window never re-ran this probe. Fix: KnobGrid
+gained an explicit `fallbackGroup` prop (default "" → first group, the old
+behavior; sole groups-consumer is TuneMeasureModal) and TuneMeasureModal
+passes `fallback-group="applied"`; its QC-28 comment corrected. SWITCH PROBE
+PASSED.
+
+VERIFY (all green, this container): runner ruff clean + **452 pytest** (3 new
+in test_adapter_extra.py: return_progress only for local-llamacpp ·
+prompt_progress → progress deltas 0.5/1.0 + done counts · zero-total guard;
+test_prompts.py's stream test now asserts the {"progress": 0.5} frame + done
+model/cost) · JW server **76 pytest** · JW vitest **70/70** (9 net new in
+aiFeature.test.js: the /run-shaped contract from the stream done frame + ONE
+fetch · full ask-param body · fallback on pre-stream HTTP error + on network
+TypeError · NO fallback on in-stream {error} / on abort / after frames seen ·
+429-wrap when the fallback fails too · stream-wrapper ask-param forwarding +
+usage model/cost · prefill set/clear/straggler semantics · requestStream
+routes {progress} to onProgress not onDelta) · build:vite · FULL headless
+smoke zero JS errors · probes: qc35 13/13 · b4 · b5 · qc-quintet **22/22** ·
+dl2 · b29 · switch (after the two fixes above) · biome clean · the live-curl
+of /v1/ai/stream's error path ({error} frame + [DONE], the shape the fallback
+must not retry). NOT live-verifiable here (flagged in the plan): the prefill %
+against a REAL resident model — the SSE frame path is pytest-tested, the
+rendering probe-tested against a stubbed stream, the visual on a real engine
+is a your-box check: run any AI feature on the built-in provider with a
+long-ish prompt and watch the strip read "reading prompt N%" before tokens.
+
+FLAGS in this build (all small, all reversible one-line): the Variations strip
+placement above; the strip/panel chip copy "reading prompt N%" (my wording —
+the §7.4 record says "the model is reading your prompt" which is the hover
+tooltip verbatim); the fallback classifier treats ANY pre-frame non-abort
+throw as transport (the plan's zero-frames rule — an early HTTP 4xx/5xx on
+/v1/ai/stream therefore retries once via /run; identical server, so the risk
+is one redundant request, never a double-generation, since zero frames means
+generation never started).

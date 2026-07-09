@@ -76,6 +76,7 @@ class AutoTuner:
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._cancel = False
+        self._gen = 0  # sweep generation — a new start() supersedes an old run's teardown
         self._budget_deadline: float | None = None  # optional time box (quick tune)
         self._budget_hit = False                    # sticky: the cap tripped
         self._budget_aborted_load = False           # the cap aborted a load IN FLIGHT
@@ -104,6 +105,7 @@ class AutoTuner:
             if self._state["status"] == "running":
                 return {**self._state, "ok": False, "error": "an auto-tune is already running"}
             self._cancel = False
+            self._gen += 1  # supersede any prior run still tearing down (see `cancelled`)
             # Measurement-history sink (#142 rows 5+6): every OK trial is a real
             # measurement, recorded as it lands. Best-effort — see _try.
             self._record_fn = record_fn
@@ -206,6 +208,15 @@ class AutoTuner:
         """One load→measure trial, pushed to the live trial list. Monotonic MoE prune:
         an n-cpu-moe below an already-failed value is recorded as skipped, never tried
         (below a failed value never fits — the slowest failure mode avoided)."""
+        # QC-22 fast-path: a cancel that landed between trials must not start the
+        # next one — the old path still ran svc.stop() + fired the loads (all
+        # post-cancel wasted work queuing on the router lock the teardown then
+        # waits behind). Return WITHOUT touching the service and WITHOUT pushing
+        # a row (the sweep is ending; a phantom per-phase "cancelled" row would
+        # clutter the trial list) — the caller's `cancelled()` check ends the run.
+        if self._cancel:
+            return {"label": label, "ok": False, "tokensPerSec": 0.0, "vramTotalMb": 0,
+                    "error": "cancelled", "switches": switches}
         cand_ncmoe = _int_of(switches, "n_cpu_moe")
         if cand_ncmoe is not None and any(cand_ncmoe < f for f in failed_ncmoe):
             trial = {"label": label, "ok": False, "tokensPerSec": 0.0, "vramTotalMb": 0,
@@ -261,6 +272,7 @@ class AutoTuner:
         from the strict-beat rule; a baseline win saves NOTHING (an untuned box keeps
         the engine's fit; a tuned box keeps its tune)."""
         svc = self._service_fn()
+        gen = self._gen  # this run's generation — compared in `cancelled` (see below)
         failed_ncmoe: list[int] = []  # MoE VRAM need is monotonic: below a failed value never fits
         try:
             def budget_restore() -> None:
@@ -280,27 +292,42 @@ class AutoTuner:
                     log.warning("auto-tune budget restore load failed", exc_info=True)
 
             def cancelled() -> bool:
-                if self._cancel:
-                    # Free the VRAM the in-flight/last trial holds — otherwise the model
-                    # (+ the co-resident embed) stays resident under TRIAL switches and the
-                    # user's NEXT load (a fresh Quick Setup) contends on the router and
-                    # appears to hang (the reported "rerun … load model into vram it
-                    # hangs"). A cancel means "stop AND let go of the GPU", not just "stop
-                    # looping". Then RESTORE the applied model with its DB-resolved
-                    # switches (async load) — before this fix the last trial's model
-                    # happened to stay resident, so a plain teardown would regress the
-                    # skip-then-write path.
-                    try:
-                        svc.stop()
-                    except Exception:  # noqa: BLE001 — teardown is best-effort
-                        log.warning("auto-tune cancel: stop failed", exc_info=True)
-                    try:
-                        svc.load(model_id)
-                    except Exception:  # noqa: BLE001 — restore is best-effort
-                        log.warning("auto-tune cancel: restore load failed", exc_info=True)
-                    self._set(status="cancelled", detail="cancelled")
+                if not self._cancel:
+                    return False
+                # TERMINAL STATE FIRST (QC-22, 2026-07-09: "stopping the optimize pc
+                # does not work"). svc.stop() serializes on the service's router lock,
+                # which any in-flight trial-load thread holds through its bounded-but-
+                # slow spawn/confirm legs — with a failing box (the user's "baseline —
+                # failed" screenshot) several queued load threads starve the teardown
+                # for what reads as forever, and the old order only wrote "cancelled"
+                # AFTER it. Writing the state first unsticks the UI (the QuickSetup
+                # band stops polling on any non-running status) while the teardown
+                # below still runs to completion.
+                self._set(status="cancelled", detail="cancelled")
+                if gen != self._gen:
+                    # A newer sweep already start()ed (state-first makes that legal):
+                    # the service now belongs to IT — this run's teardown would knock
+                    # down the new run's trial, so skip it (the new run's own per-trial
+                    # svc.stop() supplies the clean slate).
                     return True
-                return False
+                # Free the VRAM the in-flight/last trial holds — otherwise the model
+                # (+ the co-resident embed) stays resident under TRIAL switches and the
+                # user's NEXT load (a fresh Quick Setup) contends on the router and
+                # appears to hang (the reported "rerun … load model into vram it
+                # hangs"). A cancel means "stop AND let go of the GPU", not just "stop
+                # looping". Then RESTORE the applied model with its DB-resolved
+                # switches (async load) — before this fix the last trial's model
+                # happened to stay resident, so a plain teardown would regress the
+                # skip-then-write path.
+                try:
+                    svc.stop()
+                except Exception:  # noqa: BLE001 — teardown is best-effort
+                    log.warning("auto-tune cancel: stop failed", exc_info=True)
+                try:
+                    svc.load(model_id)
+                except Exception:  # noqa: BLE001 — restore is best-effort
+                    log.warning("auto-tune cancel: restore load failed", exc_info=True)
+                return True
 
             batch512 = {"batch_size": "512", "ubatch_size": "512"}
             self._try(svc, model_id, "baseline", _merged(base, {}), failed_ncmoe)

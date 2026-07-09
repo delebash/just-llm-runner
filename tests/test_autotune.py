@@ -161,6 +161,103 @@ def test_cancel_stops_between_trials():
     assert len(st["trials"]) == 1
 
 
+def test_cancel_state_lands_before_a_blocked_teardown():
+    # QC-22 ("stopping the optimize pc does not work"): the teardown's svc.stop()
+    # can block behind the service's router lock for minutes on a failing box —
+    # the terminal state must land BEFORE it, so the UI ("stopping…") unsticks
+    # even while the teardown is still waiting.
+    import time
+
+    gate = threading.Event()
+
+    class BlockingStopService(FakeService):
+        def stop(self, model_id=None):
+            super().stop(model_id)
+            if self.stops > 1:  # the baseline trial's clean-slate stop passes; the teardown blocks
+                gate.wait(timeout=5)
+
+    svc = BlockingStopService(tps_by_ncmoe={"21": 30.0})
+    tuner = _tuner(svc)
+    orig = tuner._push_trial
+
+    def push_and_cancel(row):
+        orig(row)
+        tuner._cancel = True
+
+    tuner._push_trial = push_and_cancel
+    tuner.start("m", BASE)
+    for _ in range(500):  # the state write precedes the blocked stop — poll it in
+        if tuner.status()["status"] == "cancelled":
+            break
+        time.sleep(0.01)
+    assert tuner.status()["status"] == "cancelled"   # unstuck WHILE the teardown blocks
+    assert tuner._thread.is_alive()                  # the teardown really is still blocked
+    assert len(tuner.status()["trials"]) == 1
+    gate.set()
+    tuner._thread.join(timeout=10)
+    assert svc.loads[-1] == {}                       # the restore load still fired after
+
+
+def test_cancel_between_trials_skips_service_work():
+    # QC-22: a cancel that lands between trials must not START the next one —
+    # the fast-path returns before svc.stop()/load(), so the teardown never
+    # queues behind post-cancel trial work.
+    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 25.0, "19": 25.0})
+    tuner = _tuner(svc)
+    orig_preview = svc.preview_fit
+
+    def preview_and_cancel(model_id, switches=None):
+        tuner._cancel = True  # lands after the baseline, before the ncmoe walk
+        return orig_preview(model_id, switches)
+
+    svc.preview_fit = preview_and_cancel
+    st = _run_to_end(tuner, "m", BASE)
+    assert st["status"] == "cancelled"
+    assert [t["label"] for t in st["trials"]] == ["baseline"]  # no walk trial ever pushed
+    assert svc.stops == 2            # baseline's clean slate + the teardown — no walk stops
+    assert svc.embeds == 1           # only the baseline trial touched the service
+    assert svc.loads == [dict(BASE), {}]  # baseline load + the bare restore, nothing else
+
+
+def test_restart_during_teardown_is_accepted_and_old_teardown_skipped():
+    # QC-22 generation guard: state-first makes a restart legal while the old
+    # run still tears down — the old run must then SKIP its teardown (it would
+    # knock down the new run's trial) and never overwrite the new run's state.
+    svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 25.0, "19": 25.0})
+    tuner = _tuner(svc)
+    orig_push = tuner._push_trial
+
+    def push_and_cancel(row):
+        orig_push(row)
+        tuner._cancel = True
+
+    tuner._push_trial = push_and_cancel
+    orig_set = tuner._set
+    restarted = []
+
+    def set_and_restart(**kw):
+        orig_set(**kw)
+        if kw.get("status") == "cancelled" and not restarted:
+            restarted.append(tuner._thread)          # the OLD thread, to join later
+            tuner._push_trial = orig_push            # the new run must run to completion
+            tuner.start("m2", BASE)                  # races in right after the state write
+
+    tuner._set = set_and_restart
+    tuner.start("m", BASE)
+    import time
+
+    for _ in range(500):  # wait for the hook to have restarted (it runs on the old thread)
+        if restarted:
+            break
+        time.sleep(0.01)
+    assert restarted, "the cancel state write never fired"
+    restarted[0].join(timeout=10)   # the old thread
+    tuner._thread.join(timeout=10)  # now the NEW run's thread
+    st = tuner.status()
+    assert st["status"] == "done" and st["modelId"] == "m2"  # the new run owned the state
+    assert {} not in svc.loads  # the old run's bare restore load was SKIPPED (gen guard)
+
+
 def test_save_on_done_writes_winner_verbatim():
     saved = {}
     svc = FakeService(tps_by_ncmoe={"21": 30.0, "23": 35.0, "20": 20.0, "19": 20.0})

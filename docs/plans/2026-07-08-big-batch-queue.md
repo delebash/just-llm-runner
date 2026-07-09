@@ -2496,3 +2496,203 @@ unit · both repos commit+push per unit). Dev stack at the save: JW server task 
 the switch-probe's empty hf scaffold dir is a probe artifact, harmless. Post-compact
 Block-0: re-read the global rules + JW CLAUDE.md + MORNING_RECAP.md + THIS block in
 full before any act.
+
+---
+
+**QC QUINTET BUILD RECORD (shipped 2026-07-09 — tasks #218–#222: QC-20 + QC-21 +
+QC-22 + QC-23 + QC-24, built as one cluster under the standing fourth-compact go;
+QC-24 arrived live during the quartet's grounding — user verbatim: "qc not sure if
+this is on you todo list to fix but the data inserts on the task features is still
+not fixed, character chat has no data to insert, the other one has two drop downs
+and no sample" + "i just look at those two other may not have correct insert from
+pickers" — answered conversationally first, task #222 created, and the user's
+"contine as you are" + "go" folded it into this cluster).**
+
+WHAT SHIPPED, per item:
+
+**QC-20 (#218, "the default provider is not set for llama after running
+quicksetup") —** the shared modelApply service now exposes
+`currentDefaultProviderId` (modelApply.js): the provider side of the dominant
+pair, set UNGATED in `refreshApplied` (`dom.dominant ? dom.dominantProviderId :
+""`) — the existing local gate stays on `currentDefaultId` only, because it exists
+so a cloud default can't false-match a same-id LOCAL catalog row; a provider-row
+match has no such hazard. AiModelsArea derives `isDefaultProvider(p)` (built-in
+row matches on the runner id `local-llamacpp` — the presets carry the runner id,
+not the provider row's own id; every other row matches on `p.id`), calls
+`refreshApplied()` on mount so the tag is present at open, and tags the matching
+row — local AND cloud sections — with a green `UiTag intent="success"` **Default**
+(the catalog row's Default-badge precedent, LuModelCatalog:740). The tagged row's
+button reads **"Default ✓"** but stays CLICKABLE — an interpretation CORRECTED
+mid-build by my own probe work: the first cut disabled it (the catalog's
+Load-as-default precedent, :806-811), which made QC-21's truthful dialog
+UNREACHABLE (the built-in's Apply branch only exists when the built-in IS the
+dominant — the user's own screenshot was the dialog open on the already-default
+built-in) and lost the re-unify-customized-tasks path; the disable was dropped,
+the label kept. FLAGS (mine): the label "Default ✓" and keeping it clickable;
+the tag's placement beside the capability tags.
+
+**QC-21 (#219, "it falsely reports no embinding model is set even thghout quick
+setp set one as default") —** my B2-9 bug, fixed at the confirmed root cause:
+`sdEmbedModel` read the provider ROW's `embeddingModel` field, which is only how
+ONLINE rows carry an embedding — the built-in's lives in the ROUTING default. Now
+`sdEmbedModel = sdIsBuiltin ? currentEmbeddingId : row.embeddingModel` (the
+already-local-gated modelApply ref), the dialog's built-in branch reads **"Your
+embedding (<model>) already runs here — unchanged."** (the record's specified
+sentence), the online branch keeps "Also becomes the embeddings (search)
+provider", and the no-embedding line now only renders when genuinely nothing is
+set. `applySetDefault` skips the redundant `setAsEmbedding` write for the
+built-in (it would rewrite the identical routing value). Live-proven by the
+committed probe on the dev DB: the dialog printed "Your embedding
+(qwen3-embedding-8b) already runs here — unchanged." with zero false lines.
+
+**QC-22 (#220, "qc stopping the optimize pc does not work") —** root cause PINNED
+AT THE LINE, exactly the wedge the record's candidates circled: the sweep's cancel
+teardown (`cancelled()` in autotune.py) ran `svc.stop()` → `svc.load()` BEFORE
+writing the terminal state, and `svc.stop()` serializes on the service's
+`_router_lock` (lifecycle.py:566), which every in-flight trial-load thread holds
+through its bounded-but-slow spawn-fallback/confirm legs (lifecycle.py:982-1006;
+each failing trial fires a load + an ensure_embedding load, queuing more holders)
+— on a failing box (the user's "baseline — failed" screenshot) the teardown
+starves for what reads as forever while "stopping…" shows. THE FIX, three legs in
+autotune.py: (1) **terminal state FIRST** — `cancelled()` writes
+`status="cancelled"` before the teardown; the QuickSetup band stops polling on any
+non-running status (QuickSetup.vue:421), so the UI unsticks immediately while the
+stop/restore still runs to completion behind it; (2) **a sweep generation guard**
+(`_gen`, bumped by `start()`) — state-first makes a restart-during-teardown legal,
+so the old run checks its generation before the teardown and SKIPS it when a newer
+sweep owns the service (it would knock down the new run's trial), and never writes
+state after; (3) **a top-of-`_try` cancel fast-path** — a cancel that lands
+between trials returns before `svc.stop()`/loads (no service work, no phantom
+trial row, no prune poisoning), so no post-cancel work queues on the very lock the
+teardown waits behind. `svc.measure`'s 120 s HTTP timeout (lifecycle.py:105) is
+noted as the residual bounded in-trial window — untouched (changing it changes
+measurement semantics; not mine to decide). Three new pytest recreations
+(test_autotune.py, 19 total in the file): the user's wedge (a service whose stop()
+BLOCKS — status reads "cancelled" while the teardown is still blocked, the restore
+still fires after release), the between-trials fast-path (baseline only; stop/
+embed/load counts prove no post-cancel service work), and the restart-during-
+teardown guard (the new run owns the state; the old bare restore load never
+fires). No UI change needed — the band's existing terminal handling is the
+consumer.
+
+**QC-23 (#221, "qc what happend to the shared ai progress bar?") —** grounded
+truth vs the hypothesis: the B1-6 registration is INTACT (ConfigColumn's one-shot
+path runs through `runAiFeature` with a task — ConfigColumn.vue:376-379; the
+title-bar chip therefore registers), and CompareStrip hardcodes
+`:run-stream="null"` (:145) so the one-shot path is the Lab's ONLY live path;
+what was missing was purely the strip mount — NO kit surface mounted AiTaskStrip
+at all. THE FIX: each ConfigColumn instance stamps a unique `labColId` into its
+task registration's `meta` (the existing runAiFeature meta seam — Run-all fires N
+same-action tasks in parallel, so the label alone can't tell columns apart),
+computes `myTask` from `useAiTasksStore().runningTasks` by that stamp, and mounts
+`<AiTaskStrip :task="myTask" />` below the run row — the SAME strip every other
+AI surface uses (elapsed · first-token · tok/s · stall freshness · Details ·
+Cancel). While a registered task runs, the strip REPLACES the bare "■ Cancel +
+Running…" pair (don't-cram: one progress surface); the bare pair remains only for
+a run no task registered (a future non-null runStream). Probe-proven live with a
+1.8 s-delayed /v1/ai/run stub: the strip rendered mid-run with the right label
+("Lab test — beatSheet"), carried Cancel, the bare text was gone, and the run
+completed into the column result with the strip cleared.
+
+**QC-24 (#222, the data inserts) — AUDIT-FIRST (T6), then the fix.** The live
+per-task audit (every task kind × members × prompt variables × source `provides`
+× seeded samples, run against the dev server — the script mirrored
+`sourceCanFill`'s exact-name + 1×1-bridge semantics) found the user's two reports
+AND four more broken members they predicted ("the other[s] may not have correct
+insert from pickers"):
+
+| Task (before) | Gap |
+|---|---|
+| In-character chat (characterChat: question · excerpts · characterName · characterProfile) | ZERO pickers + NO sample — the user's screenshot, both legs |
+| Grounded chat (chat: question · excerpts) | ZERO pickers (sample OK) |
+| Judgment & scoring — critique, critiqueStructure, multiReader×4 (chapter_label · chapter_text) | sample matched 0 of their variables (the seeded row carries only user_content) |
+| Structured extraction — foreshadowing (chapter_label · chapter_text) | sample matched 0 |
+| Structured creative · Grounded summary | NO sample at all |
+| prose.generate — guided-continue | sample lacked its `direction` box |
+
+THE FIX, three layers: (a) **JW sources** (labTestData.js) — the chapters source
+provides + emits `excerpts` (a chapter's prose as the test stand-in for retrieved
+excerpts — FLAGGED, mine) and the characters source provides + emits
+`characterName` + `characterProfile` (a real character fills In-character chat's
+boxes — the variable names are the prompts' actual camelCase, caught by the
+audit; the record had guessed snake_case). (b) **Seeded samples**
+(seed_presets.py DEFAULT_TEST_SAMPLES) — six NEW (taskKind, label) rows (five in
+round 1 + the checker-caught sixth below), seeded
+ADDITIVELY on existing DBs (fill-if-empty is per pair, so extending an EXISTING
+row's variables would never reach a live box — new labeled rows do): "Ask Mira in
+character" (chat.inVoice — all four boxes), "Chapter to critique" (judge.scored —
+chapter_label/chapter_text for the critique/multi-reader family), "Chapter to
+scan" (extract.structured — foreshadowing), "Scene seed" (creative.structured),
+"Recent chapters digest" (summary.grounded), and — CHECKER-CAUGHT (round 1's one
+T5 FAIL) — "Guided continuation" (prose.generate: {passage, direction,
+voiceCanon}): my first cut only AMENDED the existing "Storm at the lighthouse"
+row with `direction`, which fill-if-empty SKIPS on a live DB (the pair already
+exists), leaving guided-continue's Direction box unfillable on the user's box —
+the record's own flag named the gap but resolved it with the non-reaching
+amendment; the new additive row closes it, container-PROVEN on the EXISTING dev
+DB (after reseed the old row still lacks `direction`, the new row landed,
+guided-continue's best sample match = 3/3; JW server pytest 76 re-green). The
+`direction` amendment on the old row stays for fresh DBs.
+All sample prose synthesized (the §7.3 never-real-manuscript rule); the Sample
+button already cycles multiple rows per kind by design. (c) **The layout** —
+the fill affordances moved OFF the Test-input header line (where flex-wrap
+scattered them: two dropdowns floated up beside the title, Sample wrapped away —
+the user's exact "two drop downs and no sample") into ONE dedicated
+`.lu-fw-testin-fill` row above the boxes they fill (FLAGGED, my reading of "one
+coherent place"). Bonus fix while owning the line: the pickers' `v-show` never
+worked (UiSelect's Reka fragment root — a per-mount Vue warn flood) → a real
+`v-if` inside `template v-for`, and the dead `lu-fw-testin-src` class (fragment
+root drops attrs — it never reached the DOM) removed; probes select
+`.ui-select-trigger`. AFTER-audit (re-run live post-seed): EVERY member of EVERY
+task has ≥1 applicable picker and a sample matching its variables (characterChat:
+chapter + character pickers, best sample 4/4).
+
+GATES: runner ruff clean + **439 pytest** (19 autotune incl. the three new
+recreations) · JW server ruff + **76 pytest** · vitest **57/57** (+2 modelApply
+QC-20 cases: the ungated provider ref, online-dominant gating; +3 testData QC-24
+cases: provides↔fetch lockstep, the character fill, the chapter-excerpts fill) ·
+build:vite ✓ · the NEW committed `scripts/qc-quintet-probe.mjs` **22/22 zero page
+errors** (Default tag + Default ✓ + the truthful embedding line live on the dev
+DB · In-character chat's pickers + Sample filling all four boxes with "Mira" ·
+Grounded chat's chapter picker · the one-row layout measured below the header ·
+the AiTaskStrip observed mid-run and cleared after) · b4-probe PASSED (its
+selectors repointed to the fill row — it asserted the superseded header-line
+placement) · b29-probe PASSED (its overwrite leg now clicks "Default ✓" — the
+row it re-opens IS the default after its keep-mode apply) · dl2-probe + switch-
+probe PASSED · FULL headless smoke zero JS errors. The audit script (before/after
+tables above) ran against the live server both sides of the seed.
+
+---
+
+**⛔ THE SIXTH-COMPACT POINT (2026-07-09, the user mid-build: "when you get to a
+stopping point we should compact" — the QC quintet IS the stopping point; this
+save written with its ship) — THE PICKUP INSTRUCTIONS.**
+
+**Where the fourth-compact "do it all" go stands:** units 1–4 (QC-14 redo ·
+QC-13 backend · B2-9 · DL-2) AND the QC quintet (#218–#222: QC-20 default-provider
+tag · QC-21 truthful embedding line · QC-22 optimize-stop state-first cancel ·
+QC-23 the shared strip on Lab runs · QC-24 the per-task test-data audit + fixes)
+are ALL SHIPPED AND PUSHED — the quintet's commits are the ones carrying this
+save (see the git log; checker verdict from its completion notification at the
+commit). Full records: this file §9, one BUILD RECORD per unit — the QC QUINTET
+BUILD RECORD directly above carries the per-item flags + both audit tables.
+
+**THE GO REMAINS STANDING for the rest of the fourth-compact scope, in order:**
+1. **Batch 5** (#193–#199 + ship #200) — B5-1 pickers→"runs on" provenance chip
+   (§7.2) · B5-2 JW stale-surface audit FINDINGS FIRST · B5-3 "New chat" +
+   delete-chat · B5-4 Ask-the-book nav prominence · B5-5 scene-editor AI context
+   menu · B5-6 strikethrough management · B5-7 AI-complete notice → editor bottom
+   bar. Ground each in §0's verbatim items + §3's batch notes + §7.2 before
+   building.
+2. **Batch 6** (#201–#202 + ship #203) — streaming ON everywhere +
+   return_progress prompt-eval % in the task strip, per §7.4.
+
+Standing disciplines unchanged: any new QC message gets a conversational ANSWER
+FIRST · inline T1–T12 before each build unit · ONE genuine checker verdict per
+CODE commit (from the completion notification, never a transcript grep) · probes
+OBSERVE each changed surface · docs ship with each unit · both repos commit+push
+per unit. Dev stack at the save: JW server background task on :17495 (running the
+quintet's seed — restart post-compact as run_in_background, never inline nohup) +
+vite :1420; probes green at ship: qc-quintet 22/22 · b4 · b29 · dl2 · switch ·
+full smoke. Post-compact Block-0: re-read the global rules + JW CLAUDE.md +
+MORNING_RECAP.md + THIS block in full before any act.

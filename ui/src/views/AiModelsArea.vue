@@ -14,6 +14,7 @@ import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiProgress from "../common/components/UiProgress.vue";
+import UiTag from "../common/components/UiTag.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
 import TaskKinds from "./TaskKinds.vue";
 import ProviderForm from "./ProviderForm.vue";
@@ -218,10 +219,20 @@ const qsRef = ref(null); // the inline QuickSetup mount (exposes openWizard)
 // embedding model (else the dialog says it stays, in one line); the overwrite
 // choice at apply — every task vs keep-my-customized (a task whose preset
 // provider/model differs from the current default keeps its own routing).
-const { currentDefaultId, refreshApplied, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } = useModelApply();
+const { currentDefaultId, currentDefaultProviderId, currentEmbeddingId, refreshApplied, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } = useModelApply();
 const setDefaultFor = ref(null);   // the provider being confirmed (null = closed)
 const overwriteTasks = ref(false); // §7.2's choice; off = keep-my-customized
 const settingDefault = ref(false);
+
+// QC-20 ("the default provider is not set for llama after running quicksetup"):
+// the provider LIST shows which row IS the current default — derived from the
+// same dominant pair the dialog uses (one source), tagged like the catalog's
+// Default badge; that row's Set-as-default reads "Default ✓" (the catalog's
+// already-set affordance, LuModelCatalog:806-811). The built-in row matches on
+// the runner id (presets carry LOCAL_RUNNER_ID, not the provider row's own id).
+const isDefaultProvider = (p) => (p.providerType === "local-llamacpp"
+  ? currentDefaultProviderId.value === LOCAL_RUNNER_ID
+  : !!p.id && currentDefaultProviderId.value === p.id);
 
 const sdIsBuiltin = computed(() => setDefaultFor.value?.providerType === "local-llamacpp");
 // The chat model the default would run on: the built-in's is its assigned local
@@ -229,7 +240,13 @@ const sdIsBuiltin = computed(() => setDefaultFor.value?.providerType === "local-
 // "Default model" field. Empty → the guard branch renders instead of Apply.
 const sdModel = computed(() =>
   sdIsBuiltin.value ? currentDefaultId.value : (setDefaultFor.value?.defaultModel || ""));
-const sdEmbedModel = computed(() => setDefaultFor.value?.embeddingModel || "");
+// QC-21 ("falsely reports no embinding model is set even thghout quick setp set
+// one as default"): the provider ROW's embeddingModel field is only how ONLINE
+// rows carry an embedding — the built-in's lives in the ROUTING default
+// (QuickSetup writes it there via setAsEmbedding), so the built-in reads the
+// current LOCAL embedding instead and the dialog line tells the truth.
+const sdEmbedModel = computed(() =>
+  sdIsBuiltin.value ? currentEmbeddingId.value : (setDefaultFor.value?.embeddingModel || ""));
 
 async function openSetDefault(p) {
   overwriteTasks.value = false;
@@ -246,7 +263,10 @@ async function applySetDefault() {
   try {
     const pid = sdIsBuiltin.value ? LOCAL_RUNNER_ID : p.id;
     await setAsDefault(pid, sdModel.value, { overwrite: overwriteTasks.value });
-    if (sdEmbedModel.value) await setAsEmbedding(pid, sdEmbedModel.value);
+    // QC-21: the built-in's sdEmbedModel IS the current routing embedding — the
+    // write would rewrite the identical value, so it is skipped (the dialog line
+    // says "already runs here — unchanged"). Online rows still repoint it.
+    if (sdEmbedModel.value && !sdIsBuiltin.value) await setAsEmbedding(pid, sdEmbedModel.value);
     pushToast({ message: `${p.name || p.id} is now the default provider — tasks run on ${sdModel.value}.` });
     setDefaultFor.value = null;
   } catch (e) {
@@ -291,6 +311,7 @@ onMounted(() => {
   refreshEngine(); // the Built-in row's Install/Update/Uninstall state
   checkForUpdate(); // A5 — policy-gated (Off = silent); notify surfaces a line, never auto-applies
   checkHardwareChange(); // Task E — gpu/vram change → one dismissible toast
+  refreshApplied(); // QC-20 — the provider rows' Default tag needs the dominant pair at open
 });
 </script>
 
@@ -358,6 +379,10 @@ onMounted(() => {
             <div class="lu-prow-info">
               <div class="lu-prow-name">
                 <b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span>
+                <!-- QC-20: the current default provider is TAGGED (the catalog row's
+                     Default-badge precedent) — derived from the same dominant pair
+                     the set-as-default dialog reads. -->
+                <UiTag v-if="isDefaultProvider(p)" intent="success">Default</UiTag>
                 <!-- Engine actions sit LEFT, beside the tags (user, 2026-07-07): Install
                      engine / Uninstall engine, and the update button next to Uninstall —
                      "Update available" (info) when a newer build exists, "Reinstall"
@@ -399,7 +424,13 @@ onMounted(() => {
             <!-- ONE actions cell (the row is a grid — loose buttons would wrap to a new
                  grid row, which is exactly the misplacement the user screenshotted). -->
             <div class="lu-prow-actions">
-              <UiButton intent="secondary" size="small" @click="openSetDefault(p)">Set as default</UiButton>
+              <!-- QC-20: the tagged row's affordance reads already-set ("Default ✓",
+                   the catalog's label precedent) but stays CLICKABLE — the dialog on
+                   the current default is exactly where QC-21's truthful embedding
+                   line shows, and its overwrite checkbox is how customized tasks
+                   re-unify onto the same provider. -->
+              <UiButton intent="secondary" size="small"
+                @click="openSetDefault(p)">{{ isDefaultProvider(p) ? "Default ✓" : "Set as default" }}</UiButton>
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
             </div>
@@ -425,7 +456,7 @@ onMounted(() => {
               <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.4l1.4 4.1 4.2 1.5-4.2 1.5L8 12.6 6.6 8.5 2.4 7l4.2-1.5z" /></svg>
             </span>
             <div class="lu-prow-info">
-              <div class="lu-prow-name"><b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span></div>
+              <div class="lu-prow-name"><b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span><UiTag v-if="isDefaultProvider(p)" intent="success">Default</UiTag></div>
               <div class="lu-prow-url">{{ p.baseUrl }}</div>
               <div class="lu-prow-meta">
                 <template v-if="p.defaultModel">chat: <b>{{ p.defaultModel }}</b> · </template>
@@ -435,7 +466,8 @@ onMounted(() => {
             </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
             <div class="lu-prow-actions">
-              <UiButton intent="secondary" size="small" @click="openSetDefault(p)">Set as default</UiButton>
+              <UiButton intent="secondary" size="small"
+                @click="openSetDefault(p)">{{ isDefaultProvider(p) ? "Default ✓" : "Set as default" }}</UiButton>
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
             </div>
@@ -450,7 +482,10 @@ onMounted(() => {
         <AppModal v-if="setDefaultFor" title="Set as default provider" :max-width="'480px'" @close="setDefaultFor = null">
           <template v-if="sdModel">
             <p class="lu-sd-line"><b>{{ setDefaultFor.name || setDefaultFor.id }}</b> becomes the default for your AI tasks — they run on <b>{{ sdModel }}</b>.</p>
-            <p v-if="sdEmbedModel" class="lu-sd-line lu-muted">Also becomes the embeddings (search) provider: <b>{{ sdEmbedModel }}</b>.</p>
+            <!-- QC-21: the built-in's embedding lives in the routing default already —
+                 say so instead of the false "no embedding model set". -->
+            <p v-if="sdEmbedModel && sdIsBuiltin" class="lu-sd-line lu-muted">Your embedding (<b>{{ sdEmbedModel }}</b>) already runs here — unchanged.</p>
+            <p v-else-if="sdEmbedModel" class="lu-sd-line lu-muted">Also becomes the embeddings (search) provider: <b>{{ sdEmbedModel }}</b>.</p>
             <p v-else class="lu-sd-line lu-muted">Search embeddings keep their current provider — this provider has no embedding model set.</p>
             <UiCheckbox v-model="overwriteTasks">Also overwrite tasks I customized</UiCheckbox>
           </template>

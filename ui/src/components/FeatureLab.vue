@@ -177,13 +177,22 @@ const columnConfig = computed(() => {
   <div class="lu-fw-tune">
     <div class="lu-fw-tune-h"><b>Tune presets</b><span class="lu-muted">run this feature's prompt on a test input · Save a column as a preset (it appears in the dropdowns)</span></div>
     <div class="lu-fw-testin">
-      <!-- §7.3: Sample (DB rows for this task) + Insert-from (host sources) sit ON
-           the header line — fill affordances beside what they fill, no extra row. -->
-      <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span>
-        <span class="lu-fw-testin-spacer" />
-        <UiSelect v-for="src in visibleSources" :key="src.id" v-show="(sourceOptions[src.id] || []).length > 1"
-          class="lu-fw-testin-src" :model-value="''" :options="sourceOptions[src.id] || []" width="name"
-          @update:model-value="(v) => insertFrom(src, v)" />
+      <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
+      <!-- §7.3 fill affordances — ONE row, all together (QC-24, 2026-07-09: on the
+           header line they WRAPPED, scattering "two drop downs" onto the title row
+           and Sample onto another — the user's screenshot). Every applicable
+           Insert-from picker + the Sample button sit side by side above the boxes
+           they fill; the row simply doesn't render when nothing applies. -->
+      <div v-if="visibleSources.length || samples.length" class="lu-fw-testin-fill">
+        <!-- v-if, not v-show: UiSelect's root is a Reka fragment, so v-show never
+             actually hid an empty source (a pre-existing console warn, fixed here). -->
+        <!-- (no class on UiSelect: its Reka fragment root drops attrs — a class
+             here never reaches the DOM; probes select .ui-select-trigger.) -->
+        <template v-for="src in visibleSources" :key="src.id">
+          <UiSelect v-if="(sourceOptions[src.id] || []).length > 1"
+            :model-value="''" :options="sourceOptions[src.id] || []" width="name"
+            @update:model-value="(v) => insertFrom(src, v)" />
+        </template>
         <UiButton v-if="samples.length" intent="secondary" size="small"
           :title="samples.length > 1 ? 'Fill with a sample from the app — click again for the next one' : 'Fill with the app\'s sample data'"
           @click="fillSample">Sample</UiButton>
@@ -209,8 +218,10 @@ const columnConfig = computed(() => {
 .lu-fw-tune-h b { font-size: 13px; color: var(--ink); }
 .lu-fw-tune-h .lu-muted { font-size: 11.5px; }
 .lu-fw-testin { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
-.lu-fw-testin-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
-.lu-fw-testin-spacer { flex: 1; }
+.lu-fw-testin-h { display: flex; align-items: baseline; gap: 10px; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
+/* QC-24: the fill affordances' own row — pickers + Sample together, never
+   wrapped into the header. */
+.lu-fw-testin-fill { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lu-field { display: flex; flex-direction: column; gap: 5px; }
 .lu-field > label { font-size: 12px; color: var(--muted); }
 </style>

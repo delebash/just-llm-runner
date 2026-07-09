@@ -29,8 +29,10 @@ import { computed, onMounted, ref, watch } from "vue";
 
 import { request } from "../client.js";
 import { runAiFeature } from "../services/aiFeature.js";
+import { useAiTasksStore } from "../stores/aiTasks.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
+import AiTaskStrip from "./AiTaskStrip.vue";
 import KnobGrid from "./KnobGrid.vue";
 import LuModelPicker from "./LuModelPicker.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
@@ -38,6 +40,12 @@ import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiSelect from "../common/components/UiSelect.vue";
+
+// QC-23 ("what happend to the shared ai progress bar?"): each column instance
+// gets a stable id, stamped into its runAiFeature task registration's `meta` so
+// THIS column's strip finds THIS column's task (Run-all fires N same-action
+// tasks in parallel — the label alone can't tell them apart).
+let _labColSeq = 1;
 
 // Reasoning-effort (a1/E2): Off = no reasoning; Low/Med/High map to each provider's
 // native control server-side. JSON mode forces it off (B3) regardless of this pick.
@@ -311,6 +319,12 @@ const testing = ref(false);
 const testOut = ref(null);
 const testErr = ref("");
 const testCtrl = ref(null);
+// QC-23: this column's registered task (matched by the meta stamp) drives the
+// SHARED AiTaskStrip below the run row — the same progress strip every other AI
+// surface mounts, replacing the bare "Running…" text this surface had.
+const labColId = `labcol-${_labColSeq++}`;
+const aiTasks = useAiTasksStore();
+const myTask = computed(() => aiTasks.runningTasks.find((t) => t.meta?.labColId === labColId) || null);
 
 function wordCount(s) {
   return (String(s || "").trim().match(/\S+/g) || []).length;
@@ -375,7 +389,7 @@ async function run() {
       testCtrl.value = ctrl;
       const r = await runAiFeature({
         ...o, signal: ctrl.signal,
-        task: { label: `Lab test — ${props.action}` },
+        task: { label: `Lab test — ${props.action}`, meta: { labColId } },
       });
       const ms = Math.round(performance.now() - t0);
       const out = r.completionTokens || 0;
@@ -545,13 +559,19 @@ defineExpose({ run, cancel });
       </div>
     </details>
 
-    <!-- Run + result -->
+    <!-- Run + result. While a REGISTERED run is in flight the shared AiTaskStrip
+         (QC-23) is the progress surface — elapsed, first-token, tok/s, Cancel —
+         exactly like every other AI surface; the bare ■ Cancel + "Running…" pair
+         remains only for a run no task registered (the host runStream path). -->
     <div class="cc-run">
       <UiButton v-if="!testing" intent="primary" size="small" :disabled="busy" @click="run">▶ Run</UiButton>
-      <UiButton v-else intent="secondary" size="small" @click="cancel">■ Cancel</UiButton>
-      <span v-if="testing" class="lu-muted cc-running">Running…</span>
+      <template v-else-if="!myTask">
+        <UiButton intent="secondary" size="small" @click="cancel">■ Cancel</UiButton>
+        <span class="lu-muted cc-running">Running…</span>
+      </template>
       <span v-if="testErr" class="lu-error cc-err">{{ testErr }}</span>
     </div>
+    <AiTaskStrip v-if="myTask" :task="myTask" />
 
     <div v-if="testOut" class="cc-out">
       <pre class="cc-pre">{{ testOut.content }}</pre>

@@ -18,9 +18,16 @@ import { useRouting } from "../composables/useRouting.js";
 export const LOCAL_RUNNER_ID = "local-llamacpp";
 
 const defaultModelId = ref("");   // the dominant model across the task presets (Default badge)
+const defaultProviderId = ref(""); // the PROVIDER the dominant pair points at — UNGATED (QC-20)
 const embeddingModelId = ref(""); // routing.default.embeddingModel, only when it is a LOCAL embed
 
 export const currentDefaultId = computed(() => defaultModelId.value);
+// QC-20 (2026-07-09, "the default provider is not set for llama after running
+// quicksetup"): the provider side of the dominant pair, ungated — the provider
+// LIST tags its current-default row whether that provider is local or online
+// (the local gate below exists only so a cloud default can't false-match a
+// same-id LOCAL catalog row; a provider row match has no such hazard).
+export const currentDefaultProviderId = computed(() => defaultProviderId.value);
 export const currentEmbeddingId = computed(() => embeddingModelId.value);
 
 // The dominant model across the task presets = the current shared default: the mode of `.model`
@@ -59,9 +66,11 @@ export async function refreshApplied() {
     // Default badge only for a LOCAL dominant — an external default must not false-match a
     // same-id local catalog row (mirrors the embedding-badge gate below).
     defaultModelId.value = dom.dominantProviderId === LOCAL_RUNNER_ID ? (dom.dominant || "") : "";
+    defaultProviderId.value = dom.dominant ? (dom.dominantProviderId || "") : "";
     embeddingModelId.value = r.default?.embeddingId === LOCAL_RUNNER_ID ? (r.default?.embeddingModel || "") : "";
   } catch {
     defaultModelId.value = "";
+    defaultProviderId.value = "";
     embeddingModelId.value = "";
   }
 }
@@ -148,5 +157,5 @@ export async function setAsEmbedding(providerId, modelId) {
 // Shared applied-state + actions. Every consumer gets the SAME refs; call refreshApplied() on
 // open (or after a catalog edit) to (re)populate the badges.
 export function useModelApply() {
-  return { currentDefaultId, currentEmbeddingId, refreshApplied, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID };
+  return { currentDefaultId, currentDefaultProviderId, currentEmbeddingId, refreshApplied, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID };
 }

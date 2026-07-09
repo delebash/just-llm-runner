@@ -16,11 +16,13 @@ import { computed, onMounted, ref, watch } from "vue";
 
 import FeatureLab from "../components/FeatureLab.vue";
 import UiButton from "../common/components/UiButton.vue";
+import UiInput from "../common/components/UiInput.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiTag from "../common/components/UiTag.vue";
 import Icon from "../common/components/Icon.vue";
 import { request } from "../client.js";
-import { promptDialog, confirmDialog } from "../common/services/dialog.js";
+import { confirmDialog } from "../common/services/dialog.js";
+import { pushToast } from "../common/services/toastBridge.js";
 
 const tasks = ref([]);              // [{id,label,description,position,builtIn}]
 const featureTaskKinds = ref({});  // action key → task id
@@ -54,26 +56,25 @@ function membersOf(taskId) {
 const selMembers = computed(() => membersOf(selTask.value));
 
 const presetName = (id) => presets.value.find((p) => p.id === id)?.name || "—";
+const taskLabel = (id) => tasks.value.find((t) => t.id === id)?.label || id;
 function taskPreset(taskId) { return assign.value.taskKinds?.[taskId] || ""; }
-const presetOptions = computed(() => [
-  { value: "", label: "— inherit default —" },
-  ...presets.value.map((p) => ({ value: p.id, label: p.name })),
-]);
-const defaultOptions = computed(() => [
-  { value: "", label: "— none —" },
-  ...presets.value.map((p) => ({ value: p.id, label: p.name })),
-]);
+// QC-15 (2026-07-08, option A): no "— inherit default —" — the fallback concept is
+// gone from the UI (a task always points at a preset; a dangling/empty one renders
+// as an explicit no-preset warning, never as silent inheritance).
+const presetOptions = computed(() => presets.value.map((p) => ({ value: p.id, label: p.name })));
 // Tasks a member can be MOVED to (all but its current one). Leading "Move to…" so the
 // control reads as an action, not a current value (a feature always has a task).
 function moveOptions(exclude) {
   return [{ value: "", label: "Move to…" }, ...tasks.value.filter((t) => t.id !== exclude).map((t) => ({ value: t.id, label: t.label }))];
 }
-// Features NOT already in this task → the "+ Add feature" picker (assigning MOVES it here).
+// QC-16 (option A): the picker says what it DOES — assigning MOVES the feature here
+// (every feature always has a task), so the label is the verb and each option names
+// the task it would leave.
 function addOptions(taskId) {
   const inThis = new Set(membersOf(taskId));
-  return [{ value: "", label: "+ Add a feature…" },
+  return [{ value: "", label: "Move a feature here…" },
     ...Object.keys(featureTaskKinds.value).filter((k) => !inThis.has(k)).sort()
-      .map((k) => ({ value: k, label: actionLabel(k) }))];
+      .map((k) => ({ value: k, label: `${actionLabel(k)} — from ${taskLabel(featureTaskKinds.value[k])}` }))];
 }
 const memberOptions = computed(() => selMembers.value.map((k) => ({ value: k, label: actionLabel(k) })));
 function pin(key) { return routing.value?.pins?.[key] || null; }
@@ -114,24 +115,44 @@ function selectTask(id) {
   testAgainst.value = m[0] || "";
 }
 
-async function newTask() {
-  const label = await promptDialog({ title: "New task", label: "Name", confirmLabel: "Create" });
-  if (!label || !String(label).trim()) return;
+// QC-15 (option A, the no-naming-popups rule): "+ New task" opens the real add form
+// in the pane — name is a plain field, and Save refuses until BOTH name and preset
+// are set (an empty task with no preset does nothing; the form forces it honest).
+const creating = ref(false);
+const draft = ref({ label: "", presetId: "" });
+const canCreate = computed(() => !!draft.value.label.trim() && !!draft.value.presetId);
+function startCreate() {
+  creating.value = true;
+  draft.value = { label: "", presetId: "" };
+  message.value = "";
+}
+function cancelCreate() { creating.value = false; }
+async function createTask() {
+  if (!canCreate.value) return;
   const before = new Set(tasks.value.map((t) => t.id));
   try {
-    applyTaskResp(await request("/v1/ai/task-kinds", { method: "POST", body: { label: String(label).trim() } }));
+    applyTaskResp(await request("/v1/ai/task-kinds", { method: "POST", body: { label: draft.value.label.trim() } }));
     const added = tasks.value.find((t) => !before.has(t.id));
-    if (added) selectTask(added.id);
+    if (added) {
+      await setTaskPreset(added.id, draft.value.presetId);
+      selectTask(added.id);
+    }
+    creating.value = false;
     message.value = "Task created.";
   } catch (e) { error.value = `Create failed: ${e.message}`; }
 }
 
-async function renameTask(t) {
-  const label = await promptDialog({ title: "Rename task", label: "Name", value: t.label, confirmLabel: "Save" });
-  if (!label || !String(label).trim() || String(label).trim() === t.label) return;
+// QC-15 (option A): rename is an inline always-editable name field (no popup) — the
+// selected task's header IS the field; saving happens on blur. Built-ins are
+// renameable (matching prior behavior; per-task Reset restores the shipped name).
+const nameDraft = ref("");
+watch(selected, (t) => { nameDraft.value = t?.label || ""; }, { immediate: true });
+async function saveName(t) {
+  const label = nameDraft.value.trim();
+  if (!t || !label || label === t.label) { nameDraft.value = t?.label || ""; return; }
   try {
     applyTaskResp(await request(`/v1/ai/task-kinds/${encodeURIComponent(t.id)}`, {
-      method: "PUT", body: { label: String(label).trim(), description: t.description || "" },
+      method: "PUT", body: { label, description: t.description || "" },
     }));
     message.value = "Task renamed.";
   } catch (e) { error.value = `Rename failed: ${e.message}`; }
@@ -157,7 +178,11 @@ async function assignFeature(key, taskId) {
     applyTaskResp(await request("/v1/ai/task-kinds/feature", { method: "PUT", body: { featureKey: key, taskKind: taskId } }));
     // if the member left the selected task, keep the test-against valid
     if (!membersOf(selTask.value).includes(testAgainst.value)) testAgainst.value = membersOf(selTask.value)[0] || "";
-    message.value = "Feature reassigned.";
+    // QC-16 (option A): say what the move DID — the feature's very next run resolves
+    // through the target task's preset (both directions: add-picker and Move-to).
+    pushToast({ message: taskPreset(taskId)
+      ? `${actionLabel(key)} now runs with ${taskLabel(taskId)}'s preset`
+      : `${actionLabel(key)} moved to ${taskLabel(taskId)} — set its preset` });
   } catch (e) { error.value = `Reassign failed: ${e.message}`; }
 }
 
@@ -166,12 +191,6 @@ async function setTaskPreset(taskId, presetId) {
     assign.value = await request("/v1/ai/preset-assignments/task-kind", { method: "PUT", body: { taskKind: taskId, presetId } });
     message.value = "Preset assigned.";
   } catch (e) { error.value = `Assign failed: ${e.message}`; }
-}
-async function setDefaultPreset(presetId) {
-  try {
-    assign.value = await request("/v1/ai/preset-assignments/default", { method: "PUT", body: { presetId } });
-    message.value = "Default preset set.";
-  } catch (e) { error.value = `Default failed: ${e.message}`; }
 }
 // Per-task Reset (built-in only) — restore ONE task's name/description/preset to factory.
 async function resetTask(t) {
@@ -188,11 +207,13 @@ async function resetTask(t) {
   } catch (e) { error.value = `Reset failed: ${e.message}`; }
 }
 // Global reset — restore ALL seeded routing to factory (built-in presets + task names +
-// every assignment, incl. the Default preset). Custom tasks + custom presets are kept.
+// every assignment). Custom tasks + custom presets are kept. (QC-15: the copy no longer
+// names the Default-preset fallback — that concept left the UI; the backend reset still
+// restores the whole seeded assignment state.)
 async function resetAll() {
   const ok = await confirmDialog({
     title: "Reset all tasks to defaults?", danger: true,
-    message: "Restores the built-in presets + task names and every task→preset / feature→task assignment (including the Default preset). Your custom tasks + custom presets are kept.",
+    message: "Restores the built-in presets + task names and every task→preset / feature→task assignment. Your custom tasks + custom presets are kept.",
   });
   if (!ok) return;
   try {
@@ -225,30 +246,49 @@ onMounted(load);
 
     <template v-else>
       <div class="lu-fw-body" :class="{ 'nav-collapsed': navCollapsed }">
-        <!-- Left: the task list + New + the global-default fallback. -->
+        <!-- Left: the task list + New. (QC-15: the Default-preset fallback row is GONE —
+             the UI never claims silent inheritance; a task with no preset warns instead.) -->
         <aside v-show="!navCollapsed" class="lu-fw-list">
-          <UiButton intent="primary" size="small" class="lu-tk-new" @click="newTask">＋ New task</UiButton>
+          <UiButton intent="primary" size="small" class="lu-tk-new" @click="startCreate">＋ New task</UiButton>
           <button v-for="t in tasks" :key="t.id" type="button" class="lu-fw-card"
-            :class="{ 'is-active': t.id === selTask }" @click="selectTask(t.id)">
+            :class="{ 'is-active': t.id === selTask && !creating }" @click="selectTask(t.id); creating = false">
             <div class="lu-fw-card-label">{{ t.label }}<UiTag v-if="t.builtIn" class="lu-tk-tag">built-in</UiTag></div>
-            <div class="lu-fw-card-model">{{ taskPreset(t.id) ? presetName(taskPreset(t.id)) : "inherits default" }} · {{ membersOf(t.id).length }} features</div>
+            <div class="lu-fw-card-model">{{ taskPreset(t.id) ? presetName(taskPreset(t.id)) : "⚠ no preset" }} · {{ membersOf(t.id).length }} features</div>
           </button>
-          <div class="lu-tk-default">
-            <div class="lu-tk-default-k">Default preset <span class="lu-muted">(fallback for any task with none)</span></div>
-            <UiSelect :model-value="assign.defaultPresetId || ''" :options="defaultOptions" width="name"
-              @update:model-value="setDefaultPreset" />
+          <div class="lu-tk-aside-foot">
             <UiButton intent="ghost" size="small" class="lu-tk-resetall"
               title="Restore the seeded task/preset + feature assignments — your custom tasks + presets are kept"
               @click="resetAll">↺ Reset all to defaults</UiButton>
           </div>
         </aside>
 
+        <!-- Create mode (QC-15): the real add form, in the pane — a plain name field +
+             the preset select; Save stays disabled until BOTH are set. No name popup. -->
+        <section v-if="creating" class="lu-fw-edit">
+          <div class="lu-fw-h"><b>New task</b><span class="lu-fw-spacer" /></div>
+          <div class="lu-tk-sec lu-tk-createform">
+            <div class="lu-tk-presetrow">
+              <span class="lu-tk-presetrow-k">Name</span>
+              <UiInput v-model="draft.label" width="name" class="lu-tk-createname" />
+            </div>
+            <div class="lu-tk-presetrow">
+              <span class="lu-tk-presetrow-k">Preset</span>
+              <UiSelect v-model="draft.presetId" :options="presetOptions" width="name" placeholder="— pick a preset —" />
+            </div>
+            <div class="lu-tk-createactions">
+              <UiButton intent="secondary" size="small" @click="cancelCreate">Cancel</UiButton>
+              <UiButton intent="primary" size="small" :disabled="!canCreate" @click="createTask">Save</UiButton>
+            </div>
+          </div>
+        </section>
+
         <!-- Right: the selected task — members + preset & test. -->
-        <section v-if="selected" class="lu-fw-edit">
+        <section v-else-if="selected" class="lu-fw-edit">
           <div class="lu-fw-h">
-            <b>{{ selected.label }}</b>
+            <!-- QC-15: the name IS an editable field (no Rename popup); saves on blur. -->
+            <UiInput v-model="nameDraft" class="lu-tk-name" width="name"
+              title="The task's name — edit it right here" @blur="saveName(selected)" />
             <UiTag v-if="selected.builtIn" class="lu-tk-tag">built-in</UiTag>
-            <UiButton intent="ghost" size="small" @click="renameTask(selected)">Rename</UiButton>
             <UiButton v-if="selected.builtIn" intent="ghost" size="small"
               title="Reset this task to its defaults (name, description, preset)"
               @click="resetTask(selected)">Reset</UiButton>
@@ -283,7 +323,7 @@ onMounted(load);
                     @update:model-value="(v) => v && assignFeature(k, v)" />
                 </div>
               </div>
-              <div v-else class="lu-tk-empty lu-muted">No features yet — add one above to test this task.</div>
+              <div v-else class="lu-tk-empty lu-muted">No features yet — move one in above to test this task.</div>
             </div>
 
             <div class="lu-tk-sec">
@@ -291,7 +331,7 @@ onMounted(load);
               <div class="lu-tk-presetrow">
                 <span class="lu-tk-presetrow-k">Preset</span>
                 <UiSelect :model-value="taskPreset(selTask)" :options="presetOptions" width="name"
-                  @update:model-value="(v) => setTaskPreset(selTask, v)" />
+                  placeholder="— no preset — pick one" @update:model-value="(v) => setTaskPreset(selTask, v)" />
               </div>
               <div v-if="selMembers.length" class="lu-tk-testrow">
                 <span class="lu-tk-presetrow-k">Test against</span>
@@ -320,9 +360,11 @@ onMounted(load);
 <style scoped>
 .lu-tk-new { width: 100%; justify-content: center; margin-bottom: 4px; }
 .lu-tk-tag { margin-left: 6px; }
-.lu-tk-default { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 5px; }
-.lu-tk-default-k { font-size: 10px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--ink); }
-.lu-tk-default-k .lu-muted { font-weight: 600; letter-spacing: 0; text-transform: none; }
+.lu-tk-aside-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); display: flex; }
+/* The inline name field is the pane's title — it reads like the old <b> heading
+   but is directly editable (QC-15: no rename popup). */
+.lu-tk-name :deep(input) { font-weight: 700; }
+.lu-tk-createactions { display: flex; gap: 8px; }
 .lu-tk-desc { font-size: 12.5px; color: var(--ink-2); }
 .lu-tk-sec { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--border); }
 /* #29: features | preset-&-test side by side; stacks on narrow panes. */

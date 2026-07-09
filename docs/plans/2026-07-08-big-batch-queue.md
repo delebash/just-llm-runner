@@ -1932,3 +1932,62 @@ QC queue continues conversationally.**
   wording source discipline applies (QC-1: tags use the REAL editor name, tuneState.js:21).
   The exact new label is the USER'S pick (their anchor: "Hardware/model class defaults");
   awaiting the word + go. (Task #214.)
+
+**⛔ THE GO RELEASED (2026-07-09).** After the QC-18/19 exchange the user settled QC-18's
+mechanics and typed the go: *"Your include/exclude so no checboxes, the tune and measure
+works like global and hardware you have an x by each row so if you dont want cache_type_k
+to be set to anything you just click the x to remove the row, yes i mean all switches not
+samplers, now go"* — then, while A built, three more design confirmations arrived (all
+acknowledged in chat before continuing, per the answer-first rule): *"should be the same
+you have the switch names hardcoded in the tune and measeur shoulnd it work just like the
+other switches like this"* (screenshot: the Hardware-class editor's free rows) · *"in fact
+see how you have this niceely layed out grouped with a header easy seperation"*
+(screenshot: the Global bundles' header-per-section cards — the layout reference for
+QC-10's grouping) · *"dont add a save button on each group like in the picture for tune
+and measure it is just an example gui look"* (Tune & measure keeps its single Apply). The
+go covers: the armed OPTION A (QC-15+16) AND the switch cluster QC-17+18+10+11+12 (all
+user-decided; QC-13/14/19 + B2-9 + DL-2 + Batches 5/6 stay out). A mid-build incident,
+owned: the user had to shout *"stop and respond!!!!"* — my mid-turn acknowledgment text
+never rendered because I kept calling tools; the standing lesson is recorded: when the
+user asks for a response, STOP the turn and answer — text written between tool calls does
+not reach them.
+
+**A BUILD RECORD (OPTION A — QC-15+16, shipped 2026-07-09, this commit + the JW probe
+commit).** All six armed points built exactly as scoped, on the file re-read IN FULL
+post-compact (TaskKinds.vue, 341 lines):
+(1) The Default-preset fallback row is GONE — the `.lu-tk-default` block and
+`setDefaultPreset` + its "Default preset set." message deleted; "↺ Reset all to defaults"
+SURVIVES in a new `.lu-tk-aside-foot` at the aside bottom (same position the old block
+held, minus the fallback select); the resetAll confirm copy dropped its "(including the
+Default preset)" parenthetical (it named a UI concept that no longer exists — the backend
+reset still restores the whole seeded assignment state; FLAGGED, one-line-changeable).
+The BACKEND fallback tier stays as silent crash-safety, exactly as pre-flagged and
+unobjected.
+(2) "+ New task" opens the real form IN THE PANE (the no-naming-popups decree): plain
+Name field + Preset select (placeholder "— pick a preset —"), Save DISABLED until both
+are set (`canCreate`), Save = the existing POST /v1/ai/task-kinds + setTaskPreset pair —
+no backend change; a Cancel button exits create mode (FLAGGED: a conventional affordance
+the scope didn't name; without it the form had no exit). promptDialog is out of the file.
+(3) Rename = the header IS an always-editable name field (`nameDraft` + watch, saves on
+blur via the existing PUT; built-ins renameable, matching prior behavior); the Rename
+button died.
+(4) Honest move affordances: the add-picker reads "Move a feature here…" and every option
+reads "<feature> — from <its current task>"; BOTH directions (add-picker + row "Move
+to…") fire a kit pushToast "<feature> now runs with <task>'s preset" — with a FLAGGED
+variant when the target task has no preset: "<feature> moved to <task> — set its preset"
+(the main copy would have lied there).
+(5) The flagged consequence, applied: presetOptions lost "— inherit default —"; the task
+cards' "inherits default" became "⚠ no preset" (FLAGGED wording); the per-task Preset
+select shows placeholder "— no preset — pick one" when unset (FLAGGED wording — a
+preset-less task stays REACHABLE via preset deletion, so the state must render honestly
+without being offered as a choice).
+(6) GATES, all green: JW vitest **48/48 holds** · build:vite ✓ · the committed
+`scripts/b4-probe.mjs` EXTENDED with seven A checks and **15/15 PASSED with zero page
+errors** (A1 no fallback row + Reset-all survives · A2 the picker label · A2b all 29
+offered features carry "— from <task>" · A3 in-pane form, NO dialog, Save disabled · A4
+Save stays disabled with name-only, enables on preset pick · A5 create round-trip selects
+the new task · A6 inline rename on blur, no popup · A7 the probe task deleted, DB left as
+found) · FULL headless smoke **zero JS errors** on every route · rules-checker verdict at
+this commit. Probe-side fix while writing it: a custom class on UiSelect does not reach
+the DOM (fragment root) — the probe scopes by the Features heading instead (comment at
+the click site). Tasks #210 + #211 completed.

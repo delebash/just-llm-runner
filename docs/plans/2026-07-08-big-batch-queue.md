@@ -3690,6 +3690,29 @@ message — the user's answer is what unblocks this):
 - **(Q4) two flagged defaults:** sidebar label "AI tasks" (vs "AI queue"?);
   panel history 5-row tail — confirm or change.
 
+**⛔→✅ ANSWERED (2026-07-09, the user via AskUserQuestion — all four took the
+recommended option): Q1 = SAMPLE ONLY** (relationshipArc gets the seeded
+two-character sample, no auto-pair button — consistent with "relationship arc
+sample is fine") · **Q2 = REMOVE the location picker** (no prompt consumes a
+location var; it only fed the generic user_content being deleted) · **Q3 =
+FINDINGS TABLE FIRST** (the ~45 debatable JW toasts get a per-toast findings
+table — surface · what it says · visible-outcome? · my read — for the user's
+per-surface verdicts; the cull then ships exactly to their calls; that table is
+a deliverable in/right after the #232 window) · **Q4 = KEEP BOTH** (sidebar item
+stays "AI tasks"; panel history stays the 5-row tail). **#232 IS UNBLOCKED — the
+order below is LIVE again: #232 → B6 → #235 last.** **CORRECTION, the user's
+immediate (angry, justified) reaction: "why are yo asking me this we already made
+decsiions on thee?" — they are RIGHT: all four were ALREADY the user's recorded
+decisions ("relationship arc sample is fine" verbatim; QC-37 shipped flagged-for-
+per-surface-verdict; QC-32/QC-38 produced the tail + the sidebar item) and the
+re-ask was re-litigation, my error — the "four open questions" framing was
+over-caution drift across two compactions. The clicks changed NOTHING. THE
+DECIDED-ONCE RULE is now standing (recap): a decision recorded as the user's word
+is FINAL — cite it and proceed; never re-ask; flags are only for genuinely NEW
+decisions.** (Same window, recorded at
+the tail: QC-39..QC-42 arrived as new "add task" items — harness #251/#252/#254/
+#255 + the hook-fix #253 — their sequencing vs this order stays the user's.)
+
 *(Post-compact addendum: QC-39 (Providers & models pink wash + layout pass) and QC-40
 (tutorial = the Cartographer's Daughter, no default project) arrived as user "add task"
 items — full records at this file's TAIL; their sequencing vs the order below is the

@@ -2898,3 +2898,501 @@ commit+push per unit. Dev stack at the save: JW server background task on
 qc-quintet 22/22 · switch · dl2 · full smoke. Post-compact Block-0: re-read the
 global rules + JW CLAUDE.md + MORNING_RECAP.md + THIS block in full before any
 act.
+
+---
+
+**QC-26..QC-34 (2026-07-09, arrived LIVE post-seventh-compact, while QC-25 (#223)
+was mid-grounding; three user messages + five screenshots). THE USER, VERBATIM:**
+
+Message 1: *"i knew you missed a bunch of the model pickers you should have
+searched for class afc-provider"*. Message 2: *"now we have to repeaset a 20 min
+process you stupid computer"*. Message 3: *"add to tasks think about these
+features reset should reset features to and change the wording to match / tune
+and measure -- add switch add row to top it should add to bottom, Your applied
+configs should show up at bottom / Tasks -- change name to Routing by task as
+that is what it is. / llm complete every where pops up a toast, remove toast, it
+is suppose to have the ai progress bar every where we run ai task, but show me
+the places that should have it and where you want to put it needs to be in a
+consistant location / reader knowledge click cancel does not stop ai run,
+clicking cancel should stop whole run, also remove the cancel button, lets leave
+the canceling of all ai tasks to the progress bar cancel button / ai task window
+history takes up most of the window / tool tips sometimes dont disappear / tool
+tips popup when not supposed too."* Screenshots: (1) the Help view listing
+"Writer Lab — AI editor-on-call for any passage"; (2) Reader knowledge mid-run —
+a tooltip STUCK at the window's top-left corner ("Classify each chapter by
+dramatic irony — one LLM call per chapter"), the view's own red "× Cancel"
+beside the header chip, the AI-tasks panel with a history flood (a pile of
+✗ 0.2s "Reader knowledge" entries — one task entry PER CHAPTER call), and a
+completion toast "Reader knowledge — done in 7.7s · View" at the bottom;
+(3) the Critique modal with the same stuck top-left tooltip and its header chip
+reading "Critique · OpenAI-compatible (local) · – ⌄"; (4) ChaptersView with a
+normal Versions tooltip; (5) the Multi-reader modal whose chip tooltip reads
+**"Click to change provider or model for Multi-reader"**.
+
+**QC-26 — THE PICKERS (answered with the root finding).** The screenshots come
+from a build that PREDATES the B5 ship (`aaefeb4`): the shot-5 tooltip string
+"Click to change provider or model for …" exists ONLY in LuFeatureChip's
+edit-mode branch (LuFeatureChip.vue:82) — in `aaefeb4` every JW mount renders
+through AiFeatureChip.vue, which passes `readonly` UNCONDITIONALLY (:50), and
+readonly mounts render the OTHER tooltip branch ("Runs on the … task's model").
+Verified this session: all 19 JW chip mounts import AiFeatureChip (grep, zero
+direct LuFeatureChip mounts in JW), zero `afc-` traces in JustVoice, zero
+non-readonly mounts kit-wide. The shot-1 "Writer Lab" help entry greps ABSENT
+from current helpDocs.js — same conclusion. So the pickers the user sees are the
+pre-B5 chips; pulling + rebuilding gets the removal. **The user's afc-provider
+point still lands a REAL finding:** the kit chip CARRIES the whole picker
+popover as dead code (LuFeatureChip.vue:103-141 — Provider/Model UiSelects, pin
+props pinned/pinnedProviderId/pinnedModel/providerOptions/modelOptions, events
+select-provider/select-model/refresh, the backdrop + .afc-pop CSS) with ZERO
+non-readonly mounts anywhere — a code search rightly finds "a picker", and any
+future mount resurrects it against the §7.2 law (routing edited ONLY on the
+Tasks tab + workbench). FIX (task #224): DELETE the edit mode outright — chip
+becomes provenance-only (feature/label/compact/resolved props + navigate);
+kit-inventory line in JW CLAUDE.md updated. FLAG: this removes the kit's generic
+pin-editing-chip capability for any future host — deliberate, §7.2 makes that
+capability contraband.
+
+**QC-27 (task #225, INTERPRETATION FLAGGED for the user's confirm):** read as —
+the Tasks tab's per-task "Reset" should reset the task's FEATURE MEMBERSHIP to
+seed too (undo moves), not just the preset, and the button/confirm wording must
+say exactly what it resets. Await the user's yes/correction before build.
+
+**QC-28 (task #226):** Tune & measure — "＋ Add switch" must APPEND the new row
+at the BOTTOM (today it inserts at top), and the user's applied config rows
+render at the BOTTOM. Ground the exact current order in TuneMeasureModal/
+KnobGrid at build.
+
+**QC-29 (task #227):** rename the "Tasks" tab to **"Routing by task"** — and
+every copy reference that says "the Tasks tab" (incl. LuFeatureChip's readonly
+tooltip and dialog/help copy) follows in the same change.
+
+**QC-30 (task #228, two halves):** (a) LLM COMPLETION TOASTS GO — kit
+aiTasks._finish stops toasting on success everywhere (B5-7's silentToast seam
+becomes redundant; clean up). FLAG: FAILURE toasts kept (an error after the user
+walked away would otherwise vanish silently) — awaiting veto. (b) the shared
+AiTaskStrip is THE progress surface on EVERY AI-running surface, one consistent
+location. Verified mount audit (grep, this session): the strip ALREADY mounts on
+AnalysisView(tension) · HomeView(briefing) · ReaderKnowledgeView · BrainstormView
+· RichEditor(scene editor) · ChatPanel · IndexBuildModal · Critique(×2:
+structure+notes) · Foreshadowing · MarketingPack · StuckDiagnostic · Sensory ·
+ReverseOutline · PlotHole · BeatSheet · EntitySweep · CharacterAudit ·
+RelationshipArc · SessionRecap. **MISSING: MultiReaderPanelModal ·
+VariationsModal · AnalysisView's voiceDrift leg.** Proposed consistent location
+(shown to the user in the same turn, per "show me"): directly BELOW the
+surface's run-controls/header row, full width, above the results — the Critique
+modal's existing placement (their screenshot 3) is the reference. Build waits on
+the user's placement OK.
+
+**QC-31 (task #229):** Reader knowledge — the view's own red Cancel does NOT
+stop the run (the per-chapter loop keeps going). The user's design: REMOVE that
+button; the strip/panel Cancel is THE cancel and must stop the WHOLE batch. Also
+fold in: the batch must register as ONE task entry (today each chapter call is
+its own entry — the ✗ 0.2s flood in shot 2), which also feeds QC-32.
+
+**QC-32 (task #230):** the AI-tasks panel's history section dominates the
+window. Direction (flagged, user's veto welcome): RUNNING gets the space;
+history collapses to a compact tail (grouped per batch, capped, "Show all"
+affordance).
+
+**QC-33 + QC-34 (task #231, one root):** the kit tooltip directive leaks — a
+tooltip whose anchor unmounts/re-renders mid-hover parks at the window's
+top-left (0,0) and never hides (shots 2+3), and tooltips fire when they
+shouldn't. Fix in the kit v-tooltip directive: hide+destroy on unbind/unmount of
+the anchor, hide on scroll/pointerdown/Escape, guard the show timer when the
+anchor left the DOM or is covered by a modal.
+
+**SEQUENCING (no user word given beyond "add to tasks"):** QC-25 (#223, the
+user's explicit "after b5") stays first and is mid-build; then #224 (completes
+B5-1 structurally) → #228a toast removal + #229 + #230 (one task-surface
+cluster) → #226 → #227 → #231 → the two AWAITING-USER items (#225 wording
+confirm; #228b placement OK) → Batch 6 (#201–#203; #228b naturally lands with
+B6-2's strip work). The user can reorder with a word.
+
+**QC-35 (same window, task #232, AWAITING the user's symptom).** User verbatim:
+*"i thought you fixed the input test for tasks?"* + a screenshot of AI Settings →
+Tasks → Grounded summary. The screenshot itself shows the QC-24 layout LIVE
+(three Insert-from pickers + Sample on one row under the Test input header, the
+User content box filled with the seeded briefing-style sample) — their build
+includes `0ea1383` (QC-24), so the shipped fix is present and something ELSE
+failed. Code candidate found this session: pickers are gated by `sourceCanFill`
+(FeatureLab.vue:118, the QC-9 gate) but a picked ITEM can still fail
+`mergeVariables` → the "fields don't match this prompt's variables" toast
+(FeatureLab.vue:146,153) — a gate that admits a source whose actual payload
+can't fill THIS task's variables would look exactly like "not fixed". Waiting on
+the user's answer to: what happened when you used it — nothing inserted, wrong
+text, the mismatch toast, or the run failed? Then ground testData.js
+`sourceCanFill` against the Grounded-summary prompt's variables line-by-line.
+
+**QC-35 ANSWERED (same window; task #232 now build-ready).** The user, verbatim,
+with two Tasks-tab screenshots (Sample-filled Mira vs inserted Elen Vael):
+*"task lab character chat you test data looks good but inserting the charcter yo
+are not getting the data from the chracter just the role like protognist"*.
+ROOT CAUSE CONFIRMED AT THE LINE: `labTestData.js:65` composes the inserted
+profile as `[c.role, c.description, c.notes].filter(Boolean).join("\n")` — my
+QC-24 adapter HAND-ROLLED a three-field profile instead of reusing the builder
+the real feature runs, so a character with only the role field set inserts as
+literally "Protagonist". The REAL In-character-chat run builds its
+{{characterProfile}} in `characterChat.js:25-68 buildCharacterProfile(character,
+extras)` — role, gender, pronouns, life status, aliases, age, one-liner, plus
+the extras blocks (voice accent/vocabulary/speech-tic/sample line; motivation
+want/need/lie/truth; arc start/midpoint/end; backstory capped 800; up to 4
+quotes). A textbook T3 failure: the copy drifted from the one true builder the
+moment it was written. FIX (locked): export buildCharacterProfile as the ONE
+shared composer; the Lab characters source calls it with the same (character,
+extras) lookup the feature performs, `user_content` rides the same output, and
+the Lab box displays it with the builder's template-parity leading newline
+trimmed (nuance flagged for the build record). Vitest recreates the user's
+role-only character (insert yields the rich composition, not the bare role).
+Ships inside the QC-26..35 cluster — one rebuild on the box collects everything.
+
+**QC-35 REVISED BY THE USER (same window; the user is on the LATEST build —
+"i am running the lates build pulled the latest repo" — so the earlier
+stale-build framing is closed).** Verbatim: *"test inputs no the point was why
+would structed input have character and location, plus even if it did use
+location or character you are really pulling in any iformattion, ideation no
+chapter no location no character is needed, why dont you look and see what the
+prompter is asking for to determine what type of data you should have either
+chapter data, or maybe no dropdown just user type or the sample button, think
+about it"* — with three screenshots: Structured creative showing all three
+Insert-from pickers over a marketing-copy prompt, and Ideation (vars User
+content + Label) showing all three pickers + Sample. ROOT CAUSE AT THE LINES:
+every JW source declares the GENERIC `user_content` in `provides`
+(labTestData.js:31,57,77), so any prompt with a user_content box passes the
+QC-9 gate for ALL THREE sources; two 1×1 bridges widen the leak
+(testData.js:29 — a 1-provides source matches any 1-var prompt;
+testData.js:48 — a 1-field payload fills any 1-box prompt regardless of name).
+THE USER'S DESIGN (their mechanism, verbatim anchor "look and see what the
+prompter is asking for"): the prompt's OWN {{variables}} are the declaration —
+specific entity variables get their picker; the generic user_content gets NO
+picker (the user types, or clicks Sample). Mapped build: (1) drop user_content
+from every source's provides+fetch; (2) delete both 1×1 bridges; (3) locations
+declare `locationProfile` (no prompt uses it today → the picker disappears
+app-wide until a prompt asks — FLAGGED); (4) inserts compose REAL data — the
+characters source calls the run path's buildCharacterProfile(character, extras)
+(characterChat.js:25-68, the #232 fix), locations compose the full entity;
+(5) seed audit at build: any prompt that GENUINELY wants entity data but names
+its var user_content gets the var renamed in seed (built-in sync reaches
+existing DBs; user-edited rows untouched + flagged). RESULTING SURFACES:
+Structured creative + Ideation + Grounded summary → no dropdowns, textarea +
+Sample only; prose/edit features ({{passage}}) → chapter only; In-character
+chat → character + chapter-as-excerpts; Grounded chat → chapter only. Design
+presented to the user for their word; builds inside the QC cluster.
+
+**QC-35 — THE FULL PER-ACTION TEST-INPUT AUDIT (2026-07-09, the user:
+"now look at all the othe rfeatures and see what they are actually asking for
+maybe not dropdown, mayb user just supplies what they want, maybe you need
+better sample data, you need to think and figure out what test data to provodie
+and if that should come from the book, like you did with e same
+buildCharacterProfile" — then, after my one-feature-at-a-time failures on this
+surface: "i asked you to think about the test inputs, you said you did and now
+we have wasted a massive amout of time, can you think twice before you plan or
+take action these mistakes are killing us". ACKNOWLEDGED ROOT FAILURE: B4-4
+built the registry/gate MECHANISM without auditing the 34 prompts' actual input
+contracts — the audit below is the one that should have preceded that build.)**
+
+Source of truth read IN FULL this session: seed_feature_prompts.py:1-1043 —
+every action's system prompt states its own input contract ("You will be
+given: …"); services/analysis/* + services/rag/* hold the client composers that
+build those inputs at point of use. THE LAW (the user's buildCharacterProfile
+pattern): the Lab's test input REUSES the feature's own composer against real
+book entities — never a hand-rolled copy; where the input is the user's own
+freeform intent, NO dropdown — type it or click Sample; Sample stays everywhere
+as the empty-project fallback and must MIMIC the composer's output shape.
+
+THE TABLE — all 34 seeded actions (grain → affordance → data source):
+
+A. CHAPTER-PROSE prompts (template = {{chapter_label}}/{{chapter_text}}):
+critique "Notes" · critiqueStructure · foreshadowing · multiReaderGenre ·
+multiReaderLiterary · multiReaderAgent · multiReaderBookClub (7) →
+"Insert from chapter…" emitting real chapter prose (existing chapters source,
+already honest). Sample: chapter-shaped (verify shape at build).
+
+B. PASSAGE prompts (template = {{passage}}, selection grain): writerAI
+rewrite/expand/tighten/continue/describe + guided-continue(+{{direction}},
+typed) + the 7 line-edit rules (13) → "Insert from chapter…" emitting a
+PASSAGE-GRAIN slice (the chapter's first non-empty scene, not the whole-chapter
+dump the current insert does — grain honesty). guided-continue's direction is
+user-typed; its sample provides one.
+
+C. COMPOSED-FROM-BOOK digests (template = {{user_content}}; each system prompt
+declares a composed input; composer exists in services):
+- readerKnowledge (cumulative facts + chapter, readerKnowledge.js) → chapter
+  picker RUNNING the composer (empty prior-state degrades honestly).
+- entitySweep (chapter + already-in-bible block, entitySweep.js/
+  entityExtraction.js) → chapter picker running the composer.
+- characterAudit (profile + their scenes digest, characterAudit.js) →
+  CHARACTER picker running the composer.
+- voiceDrift (outlier + auto baselines + computed metrics, voiceDrift.js) →
+  chapter picker (the outlier) running the composer.
+- plotHoles (whole-book digest + prose tails + {{world_rules_section}},
+  plotHoleScan.js) · beatSheet (framework beats + digest, beatSheet.js —
+  FLAG: composes with the modal's default framework) · reverseOutline (digest,
+  reverseOutline.js) · marketingPack (title/genre/premise + digest,
+  marketingPack.js) · recap (session state + chapter tail, the SessionRecap
+  composer) · briefing (gap + last chapter + tail + strands + pins, the
+  ResumeBriefing composer) → NO dropdown: ONE "From this book" button per
+  these actions — the book is the argument; the button runs the feature's own
+  composer. Empty/thin book → Sample.
+- relationshipArc (TWO profiles + shared scenes) → a single dropdown cannot
+  honestly pick a pair: Sample + type only, FLAG offered to the user (optional
+  "From this book" auto-picking the most co-present pair) — awaiting their word.
+
+D. FREEFORM user intent (no book data belongs — the user's "no dropdown just
+user type or the sample button"): brainstorm "Ideas" · brainstormPlot "Plot" ·
+sensory (3) → NO pickers; textarea + Sample. unstuck ("prose leading up to the
+cursor") is book prose in disguise → chapter picker emitting the chapter TAIL
+(the honest "where they're stuck").
+
+E. CHAT pair: chat ({{question}} typed + {{excerpts}}) · characterChat
+(+{{characterName}}/{{characterProfile}} via buildCharacterProfile — the #232
+fix) (2) → question typed; chapter picker fills excerpts in the RAG
+formatter's cited [1]/[2] shape (reuse/extract the run path's formatter so the
+test matches a run byte-shape); characterChat adds the character picker.
+
+MECHANISM (locked design, supersedes the generic gate): per-ACTION affordance
+declarations derived from the table (data, not name-matching); the generic
+user_content matching + BOTH 1×1 bridges (kit testData.js:29,:48) deleted; the
+"From this book" compose button is a new Lab affordance riding the same
+registry; all composers exported from their services and REUSED (no copies);
+per-taskKind samples audited at build to mimic each composer's output shape,
+thin ones rewritten. FLAGS AWAITING THE USER: (1) relationshipArc's optional
+auto-pair compose; (2) beatSheet's default framework for the compose button;
+(3) the location picker has NO consumer in this design and disappears until a
+prompt genuinely asks for a location. Build lands inside the QC cluster
+(#224–#232) after the user's word on this table.
+
+**QC-27 CONFIRMED + QC-36 (same window).** The user: *"#225 yes undo moves"* —
+QC-27's reading is user-confirmed; #225 is build-ready (Reset returns preset AND
+feature membership to seed; copy says so). Immediately followed by **QC-36**
+(task #233), verbatim: *"this type of undo should be in the normal undo anyway
+but i tried undo and nothing happend its not tracked i thought we trakced just
+about evderything with undo and reod?"* THE HONEST ANSWER: the global undo/redo
+is the PROJECT store's snapshot history (JW CLAUDE.md — `_record` deep-clones
+HISTORY_SLICES; the one sanctioned monolithic store) — it tracks the BOOK's
+entities; the AI Tasks tab writes SERVER-side routing config that has never
+been part of that history, so ⌘Z had nothing to grab. HAZARD flagged for the
+build: the ⌘Z global shortcut is app-wide (disabled only inside the rich
+editor), so pressing it on /ai most likely fires the PROJECT undo and silently
+reverts an off-screen book edit — verify and stop that regardless of the design
+pick. PROPOSAL presented (their word pending): (a) the QC-16 move toasts gain
+an Undo action — the app's existing soft-delete-toast pattern, instant recovery
+at the point of action; plus (b) ⌘Z while on the AI page drives a
+workbench-LOCAL inverse-action stack (feature moves + preset assignment
+changes) so undo FEELS normal there, while the project snapshot history stays
+book-only. Recommendation AGAINST option (c), folding routing edits into the
+project undo: server-persisted config ≠ book data — cross-domain ⌘Z becomes
+ambiguous about what it will revert, and the in-memory history cannot restore
+server state after a reload anyway.
+
+**QC-35 SAMPLE LAW (user, verbatim, quoting the design line back approvingly):**
+*"The generic {{user_content}} gets no dropdown at all — that box is yours to
+type, plus the Sample button. for the sample read the prompt to figure out what
+it is looking for so you create correct sample"* — the no-dropdown rule is
+user-blessed, and the sample leg is now an ORDER: every seeded sample is
+authored against its prompt's own declared input contract (the "You will be
+given:" block), shaped exactly like what the feature's composer/caller sends at
+a real run — a plotHoles sample IS a chapter-by-chapter digest with prose
+tails; a readerKnowledge sample IS the two going-in fact lists + chapter prose;
+a beatSheet sample IS framework beats + a digest; etc. At build: audit all
+seeded samples per taskKind against this law, rewrite every thin/mis-shaped
+one (additive/refresh rows reach existing DBs; user-edited samples untouched).
+
+**QC-37 — THE TOAST LAW (user, verbatim): *"what move toasts? stop with all the
+toasts too many dont need it, look if the user can see whats going on no toast
+is needed"* (task #234).** The law: a toast exists ONLY when the outcome is NOT
+visible where the user is looking — background/unwatched failures, effects with
+no on-screen surface. This SUPERSEDES QC-16's move toasts (the feature row
+visibly moves — no toast; QC-16's labels/affordances stand) and EXTENDS #228's
+completion-toast removal into an app-wide audit: findings-first sweep of every
+pushToast/ui.showToast call site in the kit + JW, per-site verdict table
+(what it announces · is that visible? · keep/kill), then cull. Expected keeps:
+failures of background work the user isn't watching. QC-36's proposal loses its
+toast-Undo leg accordingly — the remaining pick for the user is the ⌘Z-on-page
+local undo stack (recommended) vs folding routing into the global project undo
+(advised against; the cross-domain ⌘Z hazard gets fixed either way).
+
+**QC-36 addendum (user, verbatim): *"and that is stupped that a toast would gain
+an undo button, toasts dissappear"*** — the principle recorded as law alongside
+QC-37: an UNDO affordance never lives on an ephemeral surface; a toast that
+disappears takes the recovery path with it. Undo lives on durable surfaces
+(⌘Z, the Trash view). Consequence for the #234 audit: the app's long-standing
+soft-delete Undo toasts get the same scrutiny — deletes are VISIBLE (the row
+vanishes) and already have TWO durable recovery paths (⌘Z — soft deletes are
+tracked project-store actions — and Trash restore), so the delete toasts are
+expected kills, listed explicitly in the audit table for the user's eye.
+
+---
+
+**THE RETHINK (2026-07-09, ordered by the user, verbatim: "I want you to
+rethink over everything you have proposed think about what we are doing, and
+then after your new proposal i wnat you to think about it again"). QC-25's
+build was halted mid-grounding for this; nothing was coded.**
+
+WHAT WE ARE DOING (the product frame extracted from every correction this
+window): four themes the user has been teaching one incident at a time —
+(1) TRUTH OVER MACHINERY: every surface reflects the system's real state (the
+chip shows what actually runs; update-check shows what is actually installed;
+the test input shows what a run actually sends). (2) THE USER CAN SEE — DON'T
+NARRATE: no chrome that repeats what the screen shows (toasts die on visible
+outcomes; undo never rides ephemera; progress lives where the work happens).
+(3) ONE MECHANISM, REUSED: every hand-rolled second path has drifted and bitten
+(labTestData's thin profile vs buildCharacterProfile; chat's client pins vs the
+preset cascade; Strike vs aiDel) — one composer, one progress surface, one
+cancel, one routing truth. (4) THE BOOK IS THE DATA: test inputs come from the
+book through the features' own composers; samples only stand in when the book
+is empty.
+
+THE NEW PROPOSAL (what the second pass changed is marked ⟲):
+
+- QC-25 ⟲ HEAL MOVES TO BOOT + POST-INSTALL, not the status path. Second-pass
+  find: healing on engine_status would clobber a DELIBERATE downgrade mid-flow
+  (user pins an older build to force a downgrade install; a status-poll heal
+  would rewrite the pin before they click Install). Boot heal covers the
+  DB-reset case (reset → server restart → pin heals to disk); post-install heal
+  no-ops after any completed install (disk == pin); no GET ever writes.
+  update_check's `current` reads the DISK either way. The remaining hole the
+  heal closes: a reset pin + "Reinstall" would install the OLD build and the
+  #118 sweep would delete the newer one on disk. Flagged edge (accepted): pin
+  edited older + NOT installed + reboot = the unexecuted intent heals away.
+- QC-37/#228a ⟲ ONE toast law, ZERO toasts as the target: the sweep kills
+  visible-outcome toasts AND failure toasts — failures instead mark the
+  titlebar AI chip with a persistent error badge + the panel entry (a DURABLE
+  signal, by the user's own toasts-disappear principle). Mitigates the
+  silent-failure risk better than ephemera. The audit table still lists every
+  call site with keep/kill; expected keeps: none, unless the table surfaces a
+  case with NO durable surface (flagged for the user if found).
+- QC-31 ⟲ GENERALIZED to a standing rule: ONE task entry per USER ACTION,
+  never per LLM call — Reader knowledge (13/batch), multiReader (4 personas),
+  and any other batch runner found in the audit register one entry with batch
+  progress (3/13) + one cancel that aborts the whole loop. Fixes the history
+  flood at the SOURCE.
+- QC-32 ⟲ SHRINKS accordingly: with batches collapsed, the panel needs only
+  RUNNING-first layout + a capped history tail ("Show all") — not a redesign.
+- QC-30b ⟲ FOLDS INTO B6-2: the strip gains prompt-eval % there anyway; the
+  three gap surfaces (MultiReader, Variations, voiceDrift) + placement
+  normalization (below each surface's run-controls row) land in that same
+  pass so the 22 surfaces are touched ONCE.
+- QC-36 ⟲ RECOMMENDATION FLIPS TO MINIMAL: no parallel undo stack for one
+  settings page. Fix the real hazard (the global ⌘Z shortcut scoped to book
+  surfaces so it can never silently revert an off-screen book edit from /ai);
+  recovery for a misclicked move = move it back (visible, one action) or the
+  now-confirmed #225 Reset. The one-slot "⌘Z undoes the last move on this
+  page" stays on the table if the user wants ⌘Z to answer there — their pick.
+- QC-35 stands as tabled (the user has blessed the no-dropdown rule + sample
+  law), with one honesty flag surfaced NOW instead of mid-build: composers
+  that depend on analysis state that may not exist yet (voiceDrift's metrics,
+  readerKnowledge's cumulative facts) degrade to the seeded sample rather
+  than fabricate — each such case recorded in the build table.
+- Unchanged (their word, mechanical): QC-26 dead-mode deletion · #225 Reset
+  scope+wording · QC-28 row order · QC-29 rename · QC-33/34 tooltip root fix.
+
+SHIP SHAPE: one cluster ship (QC-25 + #224-#234 as resolved) then B6 with
+QC-30b folded in — minimizing the user's 20-minute rebuild cycles. Open picks
+for the user: relationshipArc pair-compose (or sample-only) · beatSheet
+default framework · QC-36 minimal-vs-one-slot · any keep the toast table
+surfaces. AWAITING THE USER'S WORD ON THIS PROPOSAL BEFORE ANY BUILD.
+
+**QC-36 DECIDED BY THE USER (verbatim): *"no not global undo undo should always
+be page related, not global that is bad idea"*.** THE LAW: undo is PAGE-related,
+never global. Applied to QC-36 (#233): the AI page gets a page-local inverse
+stack (feature moves + preset assignment changes); ⌘Z there drives it; the
+global book-undo handler is scoped so it can never fire from /ai — the silent
+off-screen-revert hazard dies structurally, and the toast question is moot
+(QC-37). The app's own precedent for the law: the rich editor already owns its
+⌘Z (TipTap page-local history). THE BOOK-WIDE CONSEQUENCE split into its own
+user decision (#235): today the project store is ONE linear snapshot history —
+⌘Z on any book page undoes the last mutation ANYWHERE (a character edit reverts
+while you look at chapters — the same hazard class inside the book). Making the
+book follow the law needs per-domain histories or inverse-action undo (the
+linear whole-slice snapshot model can't partition without breaking undo
+ordering) — a load-bearing project-store rework, priced honestly and parked for
+the user's word.
+
+**QC-38 + the toast confirmation (user, verbatim): *"no ai task complete toasts
+we have the ai progress bar, and the que a user can look at, speaking of that
+we need a main menu item to check ai que"* (task #236).** (1) The zero-toast
+direction for AI completions is user-CONFIRMED — the progress strip + the queue
+are the surfaces; failure signaling = the strip's error state + the queue entry
++ the durable titlebar badge from the rethink (no failure toasts). (2) NEW
+BUILD: the AI queue gets a MAIN-MENU doorway — a sidebar nav item opening the
+AI tasks panel, following the app's own nav→panel precedent (Ask the book,
+B5-4), placed in the PROJECT section beside AI Settings, carrying the live
+running-count/error badge the titlebar chip shows. Label FLAGGED default
+"AI tasks" (matches the panel's title — one name for one thing); "AI queue" on
+the user's word.
+
+**QC-35 pick DECIDED (user, verbatim): *"relationship arc sample is fine"*** —
+relationshipArc's test input = Sample + typing only; the optional
+auto-pair "From this book" compose is NOT built. Folded into #232's table
+(section C, the pair row closes).
+
+**#235 DECIDED (user, verbatim): *"no global book undo that is bad, so yes add
+it as a task but since it is big lets do it last"*** — the book-wide
+page-related undo rework IS happening, sequenced LAST (after QC-25 → the QC
+cluster → B6). And the compact order: *"we nee to compact gain update what you
+need to"* — the eighth-compact save follows.
+
+---
+
+**⛔ THE EIGHTH-COMPACT POINT (2026-07-09 — the CURRENT pickup; supersedes the
+seventh block above). READ THIS BLOCK IN FULL POST-COMPACT, plus Block-0
+(global rules · JW CLAUDE.md · MORNING_RECAP.md).**
+
+**What this window did (no code commits — it was the user's live QC/design
+window; every record is in this file §9 above):** answered + recorded QC-26
+through QC-38 (tasks #224–#236), ran THE RETHINK the user ordered (the
+four-themes product frame + the second-pass revisions — the "THE RETHINK" block
+above), and banked user decisions: QC-27 reset-includes-features ("yes undo
+moves") · the QC-37 TOAST LAW ("if the user can see whats going on no toast is
+needed") with zero-toast target incl. failures→durable titlebar badge
+(user-confirmed: "no ai task complete toasts we have the ai progress bar, and
+the que") · the QC-36 PAGE-RELATED-UNDO LAW ("undo should always be page
+related, not global") → AI-page-local stack + #235 book-wide rework
+(user: YES, LAST) · QC-35's full 34-action test-input table + sample law
+("for the sample read the prompt to figure out what it is looking for") +
+relationshipArc = sample-only · QC-38 sidebar AI-queue doorway. QC-25's
+grounding is COMPLETE (all cited files read; the spec was REVISED by the
+rethink: heal at BOOT + POST-INSTALL only — never the status poll — via a
+save_pin seam injected at configure_service (lifecycle.py:1381, wired in
+install.py:354); update_check's `current` = the disk-resolved build,
+binary.py's existing resolver; the deliberate-downgrade edge is recorded in
+THE RETHINK block); NO code written yet.
+
+**THE ORDER (the standing "do it all" go + the user's sequencing words):**
+1. **QC-25 (#223)** — build per the REVISED spec (boot+post-install heal;
+   disk-read update_check; pytest recreates disk-b9934/pin-b9899 → current
+   b9934, updateAvailable False at latest b9934, pin heals at boot; deliberate
+   pin-bump still reports + downloads; deliberate downgrade mid-flow survives).
+2. **The QC cluster** (#224 chip dead-mode deletion · #225 reset+features+
+   wording · #226 tune rows append bottom + applied-at-bottom · #227 rename
+   "Routing by task" + every copy reference · #228 completion-toast kill
+   (strip gaps/placement DEFERRED into B6-2) · #229 one-task-entry-per-user-
+   action + whole-batch cancel + RK button removal · #230 panel running-first
+   + capped history tail · #231 tooltip directive root fix · #232 the QC-35
+   table build (composer reuse everywhere; samples authored per the prompt
+   contracts; beatSheet compose uses the modal's current default framework —
+   the one still-flagged default) · #233 AI-page-local undo + scope the global
+   ⌘Z off /ai · #234 the app-wide toast audit table → cull · #236 the sidebar
+   "AI tasks" queue item with live badge). One verdict-gated ship; ONE rebuild
+   on the box collects it all.
+3. **B6** (#201–#203 per §7.4) with QC-30b folded into B6-2 (the three missing
+   strips + placement normalization + prompt-eval %, one pass over the 22
+   surfaces).
+4. **#235 LAST** — the book-wide page-undo rework; REAL PLAN first (plan mode
+   + panel check) when reached.
+
+**Disciplines unchanged:** QC messages answered conversationally FIRST, always ·
+inline T1–T12 before each build unit · ONE genuine checker verdict per CODE
+commit (read ONLY from the agent's completion notification) · probes OBSERVE
+every changed surface · docs ship with each unit · both repos commit+push per
+unit · full records in THIS file §9 + recap pointers. The four RETHINK themes
+govern every build decision: truth over machinery · the user can see, don't
+narrate · one mechanism reused · the book is the data. Dev stack: JW server
+run_in_background on :17495 + vite :1420; findChrome, never hardcode. Heads at
+this save: runner `82edf7e` · JW `aaefeb4` + doc-only commits on both (see git
+log).
+
+**The last pick DECIDED (user, verbatim): *"beat sheet modal defaulst to
+today"*** — beatSheet's "From this book" compose uses the Beat sheet modal's
+current default framework. NO flagged defaults remain open in the cluster;
+every QC-26..38 decision is now the user's word.

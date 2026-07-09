@@ -22,7 +22,7 @@ import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
-import { mergeVariables, sourceCanFill, testDataSources } from "../common/services/testData.js";
+import { mergeVariables, testDataAction, testDataSources } from "../common/services/testData.js";
 import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
@@ -104,18 +104,31 @@ async function updatePreset(id, cfg) {
 watch(() => props.prompt, (p) => { draft.value = p ? { ...p } : null; buildVars(); }, { immediate: true });
 watch(() => props.action, (k) => { loadSamplers(k); }, { immediate: true });
 
-// ── §7.3 test data (2026-07-08): the DB Sample button + host Insert-from pickers ──
-// Samples are per-taskKind rows seeded in the DB (editable); clicking Sample
-// cycles them into the {{variables}}. Sources come from the host registry
-// (JW: chapters/characters/locations) — an empty registry = manual fill only.
+// ── Test data (§7.3, rebuilt per QC-35 2026-07-09): per-ACTION affordances ──
+// The host declares, per action, which pickers apply (each with its own
+// fill(id) built on the feature's OWN composer), whether a "From this book"
+// compose button exists (the book is the argument — the button runs the
+// feature's composer over the live project), and which DB sample labels fit
+// this action's prompt contract. An undeclared action gets no pickers/compose;
+// its Sample button cycles the whole taskKind (the freeform default).
 const samples = ref([]);       // this taskKind's DB samples
 const sampleIx = ref(0);       // the next sample the button fills
+const composing = ref(false);
 const sources = testDataSources();
-const sourceOptions = reactive({}); // source.id -> [{value,label}] (loaded once per mount)
-// QC-9: a picker renders only when its source can fill one of THIS prompt's
-// boxes (chapters carry {passage}; a character profile can't fill a prose
-// feature — the picker would only ever toast an error, a dead control).
-const visibleSources = computed(() => sources.filter((s) => sourceCanFill(s, Object.keys(vars))));
+const sourceById = Object.fromEntries(sources.map((s) => [s.id, s]));
+const sourceOptions = reactive({}); // source.id -> [{value,label}] (loaded on first need)
+
+const decl = computed(() => testDataAction(props.action));
+// Pickers the open action declares AND whose source exists in the registry.
+const pickers = computed(() =>
+  (decl.value?.pickers || []).filter((p) => sourceById[p.source]));
+// Sample rows the declaration admits for THIS action (per the QC-35 sample
+// law each label maps to one prompt contract); undeclared → the whole kind.
+const actionSamples = computed(() => {
+  const labels = decl.value?.samples;
+  if (!Array.isArray(labels) || !labels.length) return samples.value;
+  return samples.value.filter((s) => labels.includes(s.label));
+});
 
 watch(() => props.taskKind, async (kind) => {
   samples.value = [];
@@ -126,33 +139,57 @@ watch(() => props.taskKind, async (kind) => {
   } catch { /* the button simply doesn't render */ }
 }, { immediate: true });
 
-for (const src of sources) {
-  Promise.resolve()
-    .then(() => src.list())
-    .then((items) => {
-      sourceOptions[src.id] = [
-        { value: "", label: `Insert from ${src.label}…` },
-        ...(items || []).map((it) => ({ value: String(it.id), label: it.label })),
-      ];
-    })
-    .catch(() => { sourceOptions[src.id] = []; });
-}
+// Load the option list for each source the open action's pickers reference
+// (lazily, once per source per mount — lists are cheap store reads).
+watch(pickers, (list) => {
+  for (const p of list) {
+    if (sourceOptions[p.source]) continue;
+    const src = sourceById[p.source];
+    Promise.resolve()
+      .then(() => src.list())
+      .then((items) => {
+        sourceOptions[p.source] = [
+          { value: "", label: `Insert from ${src.label}…` },
+          ...(items || []).map((it) => ({ value: String(it.id), label: it.label })),
+        ];
+      })
+      .catch(() => { sourceOptions[p.source] = []; });
+  }
+}, { immediate: true });
 
 function fillSample() {
-  if (!samples.value.length) return;
-  const s = samples.value[sampleIx.value % samples.value.length];
+  const rows = actionSamples.value;
+  if (!rows.length) return;
+  const s = rows[sampleIx.value % rows.length];
   sampleIx.value += 1;
   const set = mergeVariables(vars, s.variables);
   if (!set) pushToast({ message: "That sample's fields don't match this prompt's variables." });
 }
-async function insertFrom(src, id) {
+async function insertFrom(picker, id) {
   if (!id) return;
   try {
-    const payload = await src.fetch(id);
-    const set = mergeVariables(vars, payload?.variables || {});
-    if (!set) pushToast({ message: `That ${src.kind || "item"}'s fields don't match this prompt's variables.` });
+    const payload = await picker.fill(id);
+    const set = mergeVariables(vars, payload || {});
+    if (!set) pushToast({ message: `That ${sourceById[picker.source]?.kind || "item"}'s fields don't match this prompt's variables.` });
   } catch (e) {
     pushToast({ message: e?.message || "Couldn't load that item." });
+  }
+}
+// "From this book" — run the feature's own composer over the live project.
+// A composer's honest refusal (e.g. "Need at least three chapters with
+// prose…") surfaces as the toast; the Sample button remains the thin-book path.
+async function composeFromBook() {
+  const c = decl.value?.compose;
+  if (!c || composing.value) return;
+  composing.value = true;
+  try {
+    const payload = await c.run();
+    const set = mergeVariables(vars, payload || {});
+    if (!set) pushToast({ message: "The composed input doesn't match this prompt's variables." });
+  } catch (e) {
+    pushToast({ message: e?.message || "Couldn't compose from this book." });
+  } finally {
+    composing.value = false;
   }
 }
 
@@ -178,23 +215,26 @@ const columnConfig = computed(() => {
     <div class="lu-fw-tune-h"><b>Tune presets</b><span class="lu-muted">run this feature's prompt on a test input · Save a column as a preset (it appears in the dropdowns)</span></div>
     <div class="lu-fw-testin">
       <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
-      <!-- §7.3 fill affordances — ONE row, all together (QC-24, 2026-07-09: on the
-           header line they WRAPPED, scattering "two drop downs" onto the title row
-           and Sample onto another — the user's screenshot). Every applicable
-           Insert-from picker + the Sample button sit side by side above the boxes
-           they fill; the row simply doesn't render when nothing applies. -->
-      <div v-if="visibleSources.length || samples.length" class="lu-fw-testin-fill">
+      <!-- Fill affordances — ONE row, all together (QC-24 layout stands). Only
+           what the open ACTION declares renders here (QC-35): its pickers, its
+           "From this book" compose button, and Sample over the declared rows;
+           the row simply doesn't render when nothing applies. -->
+      <div v-if="pickers.length || decl?.compose || actionSamples.length" class="lu-fw-testin-fill">
         <!-- v-if, not v-show: UiSelect's root is a Reka fragment, so v-show never
              actually hid an empty source (a pre-existing console warn, fixed here). -->
         <!-- (no class on UiSelect: its Reka fragment root drops attrs — a class
              here never reaches the DOM; probes select .ui-select-trigger.) -->
-        <template v-for="src in visibleSources" :key="src.id">
-          <UiSelect v-if="(sourceOptions[src.id] || []).length > 1"
-            :model-value="''" :options="sourceOptions[src.id] || []" width="name"
-            @update:model-value="(v) => insertFrom(src, v)" />
+        <template v-for="p in pickers" :key="p.source">
+          <UiSelect v-if="(sourceOptions[p.source] || []).length > 1"
+            :model-value="''" :options="sourceOptions[p.source] || []" width="name"
+            @update:model-value="(v) => insertFrom(p, v)" />
         </template>
-        <UiButton v-if="samples.length" intent="secondary" size="small"
-          :title="samples.length > 1 ? 'Fill with a sample from the app — click again for the next one' : 'Fill with the app\'s sample data'"
+        <UiButton v-if="decl?.compose" intent="secondary" size="small"
+          :disabled="composing"
+          title="Build this feature's real input from your book — the same composition a live run uses"
+          @click="composeFromBook">{{ decl.compose.label || "From this book" }}</UiButton>
+        <UiButton v-if="actionSamples.length" intent="secondary" size="small"
+          :title="actionSamples.length > 1 ? 'Fill with a sample from the app — click again for the next one' : 'Fill with the app\'s sample data'"
           @click="fillSample">Sample</UiButton>
       </div>
       <div v-for="(_, k) in vars" :key="k" class="lu-field">

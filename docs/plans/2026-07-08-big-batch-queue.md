@@ -4023,3 +4023,175 @@ framing is the proof).
 the ninth compact's: runner `472d9ab` · JW `879ddb8`. Dev stack when needed: JW server
 `python -m justwrite_server.cli serve --port 17495` + `npm run dev:vite` (:1420), both
 run_in_background; Chromium via the smoke's findChrome, never hardcoded.
+
+---
+
+**QC-35 (#232) BUILD PLAN (2026-07-09, post-tenth-compact — executing the armed go
+"lets go commit what you need to and get going"; the spec is this file's QC-35 section
+above, lines ~3081-3162 + the SAMPLE LAW block. Everything below is execution of that
+locked mechanism, grounded file-by-file this session; the user's four decided items ride
+verbatim: relationshipArc = sample+type only · the location picker is REMOVED · beatSheet
+compose = the modal's default framework (BeatSheetModal.vue:40 = TEMPLATE_OPTIONS[0], one
+source, imported not copied) · queue UI unchanged. CHECKER CATCH, round 1 (recorded): the spec's headline
+"all 34 seeded actions" was always a MISCOUNT — DEFAULT_FEATURE_PROMPTS holds **37**
+action keys (A=7 chapter-prose, B=13 passage, C=11 composed, D=4 freeform, E=2 chat —
+the spec's own group table sums to 37; verified at seed_feature_prompts.py:653-945).
+Coverage by group was and is complete — no action is orphaned; every mention of "the
+34-action table" in this file's history means THIS 37-key set. Same round: the
+formatExcerpts duplication is logically identical, not byte-identical (chat.js:43
+differs cosmetically from characterChat.js:81), and reverseOutline gets its own
+explicit sample row — its digest carries tension/pacing/ending metadata lines
+(reverseOutline.js:100-106) the generic digest row lacks.)**
+
+THE MECHANISM AS BUILT (kit): `configureTestData({ sources, actions })` grows the
+per-ACTION declaration map. A source shrinks to a listable entity registry — `{ id,
+label, kind, list() }`; `fetch()`/`provides`/`sourceCanFill` and BOTH 1×1 bridges die
+(testData.js:24-30 sourceCanFill incl. its 1×1 leg, :46-51 the mergeVariables bridge —
+the generic user_content name-matching goes with them; merge becomes exact-name only). A
+declaration: `{ pickers: [{ source, fill(id) → {variables} }], compose: { label?, run()
+→ {variables} }, samples: [labels] }`. FeatureLab renders ONLY what the open action
+declares: its pickers (options from the named source's list()), a "From this book"
+button when compose is declared (runs the feature's own composer; a composer's honest
+error — "Need at least three chapters…" — surfaces as the toast), and Sample cycling
+ONLY the declared labels (undeclared action → no pickers/compose, Sample cycles the
+whole taskKind — the freeform default and the other-host fallback).
+
+COMPOSER REUSE (JW) — the seam per service, extracted from the run path and called BY
+the run path (no copies): plotHoleScan.js `composePlotHolesInput(project)` →
+{user_content, world_rules_section} (from scanPlotHoles:88-119 + worldRulesSection);
+reverseOutline.js `composeReverseOutlineInput(project)` (:87-107); beatSheet.js
+`composeBeatSheetInput(project, templateKey)` (:138-161); marketingPack.js
+`composeMarketingPackInput(project)` (:67-88); readerKnowledge.js
+`composeReaderKnowledgeInput({html, chapterTitle, chapterNum, priorReaderFacts,
+priorPovFacts})` (:107-131; the Lab accumulates prior facts from persisted
+chapter.readerKnowledge entries of PRECEDING chapters — mirrors scanReaderKnowledge's
+own accumulation; empty state degrades to the composer's honest "(nothing — first
+chapter…)"); entityExtraction.js `composeEntitySweepInput({html, chapterTitle,
+chapterNum, existing*})` (:64-78; the Lab passes the live bible); characterAudit.js
+`composeCharacterAuditInput(project, characterId)` (buildProfileText+buildSceneDigest
++userBody :116-142); voiceDrift.js `composeVoiceDriftBody({project, outlierChapterId,
+baselineChapterIds, divergentMetrics})` (:220-257) + a Lab-level
+`composeVoiceDriftInput(project, chapterId)` that derives baselines (3 lowest
+driftScore) + divergent metrics EXACTLY as AnalysisView.vue:189-203 does (that inline
+block repoints onto the shared derivation); stuckDiagnostic.js `composeUnstuckInput`
+(the :86-95 frame, reused by generateUnstuckMoves); sessionRecap.js buildRecapContext +
+resumeBriefing.js buildBriefingContext are ALREADY the exported composers — the Lab
+calls them as-is (their ineligibility errors toast honestly). rag: the logically-identical
+duplicated formatExcerpts (chat.js:34-50 / characterChat.js:72-85) extracts to ONE
+services/rag/excerpts.js used by both chats AND the Lab (the spec's "reuse/extract the
+run path's formatter"); characterChat.js exports buildCharacterProfile (the #232 fix's
+pattern); writerAI.js exports voiceCanonVar so B-group fills send the SAME voiceCanon a
+real run sends (:17-24).
+
+THE DECLARATION TABLE (labTestData.js rewrite; location source deleted — no consumer,
+the user's word): A-group (critique, critiqueStructure, foreshadowing, multiReader×4) —
+chapters picker emitting {chapter_label: the run's exact header "Chapter N — Title\n\n"
+(critique.js:32-34 — the CURRENT source emits a bare title, a real shape gap),
+chapter_text} with ai-mark-stripped text. B-group (writerAI 6 prose + 7 rules) —
+chapters picker at PASSAGE grain: the chapter's first non-empty scene (not the
+whole-chapter dump) + voiceCanon via voiceCanonVar(); guided-continue's direction stays
+typed (its sample provides one). C-group — readerKnowledge/entitySweep: chapter picker
+running the composer; characterAudit: CHARACTER picker running the composer; voiceDrift:
+chapter picker (the outlier) running composeVoiceDriftInput; plotHoles/beatSheet/
+reverseOutline/marketingPack/recap/briefing: NO dropdown, ONE "From this book" compose
+button; relationshipArc: sample+type ONLY. D-group — brainstorm/brainstormPlot/sensory:
+no pickers, textarea + Sample (samples supply the client-filled {{label}}/{{kind}});
+unstuck: chapter picker emitting the chapter TAIL in the run's BEGIN/END PROSE frame.
+E-group — chat: question typed, chapter picker filling {excerpts} through the extracted
+formatExcerpts over the chapter's scenes (the [1]/[2] cited byte-shape); characterChat:
+those two plus the character picker filling {characterName, characterProfile} via
+buildCharacterProfile.
+
+SAMPLES (seed_presets.py DEFAULT_TEST_SAMPLES, per the SAMPLE LAW): every seeded sample
+authored against its prompt's own "You will be given:" contract, shaped like the
+composer's real output — new ADDITIVE rows (fill-if-empty is per (taskKind, label), so
+new labels reach existing DBs; user-edited rows untouched; superseded mis-shaped rows
+drop from the SEED (fresh DBs stay clean) and become unreachable on live DBs because
+declarations reference only the conformant labels). New rows: cited-excerpts chat pair
+(both chat kinds), entitySweep bible-block chapter, readerKnowledge fact-lists+chapter,
+characterAudit profile+scenes, relationshipArc PROFILE A/B+shared chapters, beatSheet
+framework+digest, plotHoles digest+tails (+world_rules_section), voiceDrift
+outlier+baselines+metrics, marketingPack TITLE/GENRE/PREMISE+digest, reverseOutline digest with
+tension/pacing/ending metadata lines, recap + briefing
+composer-shaped contexts, sensory "Subject:" shape, unstuck BEGIN-PROSE frame,
+brainstorm row carrying label/kind, corrected chapter_label rows (the "\n\n" header the
+template concatenation needs). Each authored AFTER re-reading that action's seeded
+system prompt.
+
+VERIFY: vitest (testData suite rewritten to declarations + exact-merge + label
+filtering), build:vite, FULL headless smoke, JW server pytest + ruff (seed touch),
+qc-quintet/b4/b5 probes re-run and repointed where they assert superseded behavior, a
+NEW committed probe observing the new affordances live (compose button fills from the
+seeded book, passage-grain fill, per-action picker visibility), one rules-checker
+verdict before the CODE commit. RISK (the think-twice line): the biggest wrong-guess
+surface is sample authorship drifting from the prompts' contracts — mitigated by
+re-reading every system prompt at authoring time; second risk: probes/tests pinned to
+the old 1×1 bridge semantics failing subtly — mitigated by running the full probe set
+and repointing findings-first.
+
+**QC-35 (#232) BUILD RECORD (2026-07-09 — SHIPPED per the plan above; every leg
+verified live in this container).** WHAT SHIPPED, layer by layer. KIT
+(just-llm-runner/ui): testData.js rebuilt to the per-action registry —
+`configureTestData({ sources, actions })`, sources shrunk to listable
+{id,label,kind,list()}, `testDataAction()` added, `sourceCanFill` + fetch() +
+provides + BOTH 1×1 bridges DELETED, mergeVariables now exact-name only;
+FeatureLab.vue renders only what the open action declares (its pickers, the
+"From this book" compose button running the feature's own composer with the
+composer's honest refusal surfacing as the toast, Sample cycling only the
+declared labels; undeclared action → whole-taskKind Sample, the freeform/other-
+host fallback); common/index.js exports testDataAction. JW composer seams (each
+extracted FROM its run path and re-called BY it — one source, no copies):
+composePlotHolesInput (plotHoleScan.js, incl. world_rules_section),
+composeReverseOutlineInput, composeBeatSheetInput (defaulting to
+TEMPLATE_OPTIONS[0] — the modal's default framework, the user's decided compose
+default, imported not copied), composeMarketingPackInput,
+composeReaderKnowledgeInput (null on empty prose; the run's empty-result path
+rides it), composeEntitySweepInput, composeCharacterAuditInput (null on
+no-scenes), composeVoiceDriftBody + deriveVoiceDriftContext (AnalysisView's
+inline baseline/divergent block REPOINTED onto the shared derivation) +
+composeVoiceDriftInput (bookMetrics→computeVoiceDrift→derive→body),
+composeUnstuckInput (stuckDiagnostic.js), the duplicated formatExcerpts
+extracted to ONE services/rag/excerpts.js (both chats repointed),
+buildCharacterProfile + voiceCanonVar exported. labTestData.js rewritten: the
+LOCATION SOURCE IS GONE (user's word), chapters+characters remain, and
+LAB_TEST_ACTIONS declares ALL 37 actions — A-group chapter fills now emit the
+run's exact header "Chapter N — Title\n\n" (the old bare-title fill fused into
+the template frame — a real shape bug fixed), B-group fills are PASSAGE grain
+(first non-empty scene) + the run's own voiceCanonVar(), unstuck emits the
+chapter tail at the editor's 1800-char grain (ChaptersView.vue:428) through
+composeUnstuckInput, chat/characterChat fill {excerpts} through the extracted
+formatter (cap 6 = the run's k), characterChat's character picker sends
+buildCharacterProfile, C-group pickers RUN the composers (readerKnowledge
+accumulates the PERSISTED chapter.readerKnowledge facts of preceding chapters —
+mirrors the sweep; honest "(nothing — first chapter…)" when unscanned), the six
+digest actions carry ONLY the compose button, relationshipArc is sample+type
+ONLY. SAMPLES (seed_presets.py): reauthored per the SAMPLE LAW — 3 conformant
+rows kept, 18 NEW rows each authored against its prompt's "You will be given:"
+block in the composer's byte-shape (cited excerpts in [1]/[2] form, the plot-
+holes digest with tails + a world-rules block, voiceDrift OUTLIER/BASELINE/
+metrics, beatSheet FRAMEWORK/BEATS/digest, reverseOutline digest WITH the
+tension/pacing/ending metadata parentheses, recap + briefing composer contexts,
+entity-sweep bible block, RK fact lists, characterAudit profile+scenes,
+relationshipArc PROFILE A/B, sensory Subject+context, unstuck BEGIN-PROSE
+frame, brainstorm Category/Seed + the client-filled label/kind); 7 mis-shaped
+rows dropped from the seed (existing DBs keep them inert — no declaration
+references them). PROBE DRIFT FOUND + FIXED findings-first: qc-quintet +
+b4 probes still clicked the pre-QC-29 tab label "Tasks" (verified live: the tab
+is "Routing by task") — their QC-24/QC-23 legs had been silently no-opping;
+repointed. b4's "all three pickers on user_content" check asserted the
+SUPERSEDED QC-9 design — rewritten to the QC-35 law (+ an explicit
+no-location-picker-anywhere check). NEW committed probe scripts/qc35-probe.mjs
+(13/13): reverseOutline compose fills the REAL 13-chapter digest ("The book has
+13 chapters totalling 32,565 words"), relationshipArc sample-only w/ PROFILE
+A/B shape, entitySweep picker composes the bible block live, foreshadowing's
+chapter_label observed as "Chapter 1 — What the door remembers\n\n", brainstorm
+typed/Sample only, zero page errors. TESTS: the vitest testData suite rewritten
+to the new contract (exact-merge, the deleted bridge asserted GONE, all 37
+declarations asserted group-by-group incl. passage-grain + persisted-RK
+accumulation + honest thin-book refusal). GATES, all green: JW vitest 61/61 ·
+build:vite · FULL headless smoke zero JS errors · qc-quintet 22/22 · b4 PASSED
+· b5 PASSED · qc35-probe PASSED · JW server ruff + pytest 76 · runner ruff +
+pytest 449 · biome clean on all 26 changed files. Checker round 1 caught the
+"34 actions" MISCOUNT (37 — recorded in the plan header) before any code was
+written. The Q3 findings table (the ~45 flagged JW toasts) remains the next
+item per the order.

@@ -16,6 +16,7 @@ import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiProgress from "../common/components/UiProgress.vue";
 import UiSelect from "../common/components/UiSelect.vue";
+import UiToggle from "../common/components/UiToggle.vue";
 import LuRunnerBinaries from "./LuRunnerBinaries.vue";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
@@ -50,6 +51,38 @@ const modelsMax = ref(null); // editable knob drafts: seeded ONCE from /resident
 const sleepIdleSeconds = ref(null); // owned by the user until Save (no poll clobber).
 const savingKnobs = ref(false);
 const knobErr = ref("");
+
+// Segmented downloads (DL-2) — the four DB-backed settings, drafts seeded ONCE
+// from GET /engine-config at mount (same owned-until-Save rule as the knobs
+// above). The min-bytes setting is presented in MB (stored in bytes).
+const MB = 1024 * 1024;
+const dlSegmentsEnabled = ref(null);
+const dlSegmentCount = ref(null);
+const dlSegmentMinMb = ref(null);
+const dlSegmentRetries = ref(null);
+
+async function loadDownloadKnobs() {
+  try {
+    const r = await request("/v1/ai/engine-config");
+    if (dlSegmentsEnabled.value === null) dlSegmentsEnabled.value = !!r.downloadSegmentsEnabled;
+    if (dlSegmentCount.value === null) dlSegmentCount.value = r.downloadSegmentCount;
+    if (dlSegmentMinMb.value === null) dlSegmentMinMb.value = Math.round((r.downloadSegmentMinBytes || 0) / MB);
+    if (dlSegmentRetries.value === null) dlSegmentRetries.value = r.downloadSegmentRetries;
+  } catch {
+    // transient — the drafts stay null and Save simply omits them (partial PUT)
+  }
+}
+
+// The on/off choice applies on flip (the updatePolicy select precedent in this
+// same form); the three numbers ride the form's Save.
+async function setDlSegmentsEnabled(v) {
+  dlSegmentsEnabled.value = v;
+  try {
+    await request("/v1/ai/engine-config", { method: "PUT", body: { downloadSegmentsEnabled: !!v } });
+  } catch (e) {
+    knobErr.value = e.message || "Couldn't save.";
+  }
+}
 const { start: startResPoll } = usePoll(refreshResident, 2500);
 
 const residentModels = computed(() => resident.value?.models || []);
@@ -94,14 +127,19 @@ async function saveKnobs() {
   savingKnobs.value = true;
   knobErr.value = "";
   try {
-    // Send ONLY the two knobs — a partial PUT. Never echo a full config, or it would
-    // clobber the binaries / pinned build / VRAM margin the binaries editor owns.
-    const r = await request("/v1/ai/engine-config", {
-      method: "PUT",
-      body: { modelsMax: Number(modelsMax.value), sleepIdleSeconds: Number(sleepIdleSeconds.value) },
-    });
+    // Send ONLY this form's knobs — a partial PUT. Never echo a full config, or it
+    // would clobber the binaries / pinned build / VRAM margin the binaries editor
+    // owns. Download drafts still null (a failed seed fetch) are simply omitted.
+    const body = { modelsMax: Number(modelsMax.value), sleepIdleSeconds: Number(sleepIdleSeconds.value) };
+    if (dlSegmentCount.value !== null) body.downloadSegmentCount = Number(dlSegmentCount.value);
+    if (dlSegmentMinMb.value !== null) body.downloadSegmentMinBytes = Math.round(Number(dlSegmentMinMb.value) * MB);
+    if (dlSegmentRetries.value !== null) body.downloadSegmentRetries = Number(dlSegmentRetries.value);
+    const r = await request("/v1/ai/engine-config", { method: "PUT", body });
     modelsMax.value = r.modelsMax; // re-sync from the server (reflects the clamps)
     sleepIdleSeconds.value = r.sleepIdleSeconds;
+    dlSegmentCount.value = r.downloadSegmentCount;
+    dlSegmentMinMb.value = Math.round((r.downloadSegmentMinBytes || 0) / MB);
+    dlSegmentRetries.value = r.downloadSegmentRetries;
     await refreshResident();
   } catch (e) {
     knobErr.value = e.message || "Couldn't save.";
@@ -114,6 +152,7 @@ onMounted(() => {
   refreshEngine();
   refreshResident();
   startResPoll();
+  loadDownloadKnobs();
 });
 </script>
 
@@ -203,13 +242,33 @@ onMounted(() => {
             <span class="lu-eng-knob-cap">Unload an idle model after (seconds · 0 = never)</span>
             <UiInput v-model="sleepIdleSeconds" type="number" width="token" />
           </label>
+          <label class="lu-eng-knob">
+            <span class="lu-eng-knob-cap">Engine updates</span>
+            <UiSelect :model-value="updatePolicy" width="token"
+              :options="[{ value: 'notify', label: 'Notify' }, { value: 'off', label: 'Off' }]"
+              @update:model-value="setUpdatePolicy" />
+          </label>
+          <!-- Segmented downloads (DL-2): the on/off applies on flip (the update-policy
+               precedent above); the three numbers ride this form's Save. -->
+          <label class="lu-eng-knob">
+            <span class="lu-eng-knob-cap">Faster downloads (parallel connections)</span>
+            <UiToggle :model-value="!!dlSegmentsEnabled" @update:model-value="setDlSegmentsEnabled" />
+          </label>
+          <template v-if="dlSegmentsEnabled">
+            <label class="lu-eng-knob">
+              <span class="lu-eng-knob-cap">Connections per download</span>
+              <UiInput v-model="dlSegmentCount" type="number" width="token" />
+            </label>
+            <label class="lu-eng-knob">
+              <span class="lu-eng-knob-cap">Split files larger than (MB)</span>
+              <UiInput v-model="dlSegmentMinMb" type="number" width="token" />
+            </label>
+            <label class="lu-eng-knob">
+              <span class="lu-eng-knob-cap">Retries per connection</span>
+              <UiInput v-model="dlSegmentRetries" type="number" width="token" />
+            </label>
+          </template>
           <UiButton intent="primary" size="small" :loading="savingKnobs" @click="saveKnobs">Save</UiButton>
-        <label class="lu-eng-knob">
-          <span class="lu-eng-knob-cap">Engine updates</span>
-          <UiSelect :model-value="updatePolicy" width="token"
-            :options="[{ value: 'notify', label: 'Notify' }, { value: 'off', label: 'Off' }]"
-            @update:model-value="setUpdatePolicy" />
-        </label>
         </div>
         <p v-if="knobErr" class="lu-eng-err">{{ knobErr }}</p>
       </div>

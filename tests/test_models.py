@@ -44,7 +44,9 @@ def _make_get(tree, sha="abc1234"):
 
 
 def _make_stream(calls):
-    def _stream(url, dest, on_progress=None, cancel_check=None):
+    def _stream(url, dest, on_progress=None, cancel_check=None, **_segment_kwargs):
+        # **_segment_kwargs absorbs the DL-2 segment settings (segments /
+        # segment_min_bytes / segment_retries) — irrelevant to these stubs.
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(b"GGUF")  # 4 bytes == every entry's declared size
         calls.append(url)

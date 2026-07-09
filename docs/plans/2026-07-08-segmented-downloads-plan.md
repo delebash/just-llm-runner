@@ -1,8 +1,11 @@
 # Segmented (multithreaded) downloads — THE PLAN (DL-2)
 
-**STATUS: PLAN ONLY — the user approves before any build** (queue doc
-`2026-07-08-big-batch-queue.md` §8 DL-2: *"plan 2"*). Nothing in this document is
-implemented.
+**STATUS: BUILT 2026-07-09** — the user's fourth-compact "do it all" go covered the
+build (queue doc §9 "THE FOURTH-COMPACT POINT" unit 4). Shipped as designed below;
+the full build record lives in the queue doc §9 "DL-2 BUILD RECORD". Container-proven
+at ship: the seeded 639 MB embed GGUF downloaded through the app path in ~12 s
+(the pre-DL-2 single-stream container measurement was ~15 MiB/s) and the assembled
+file's sha256 matched the upstream HF oid exactly.
 
 ## Why (the user's evidence, verbatim)
 

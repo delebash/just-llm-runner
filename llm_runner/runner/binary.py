@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
-from .download import stream_download
+from .download import download_kwargs, stream_download
 from .schema import BinaryAsset, HardwareInfo, RunnerConfig
 
 log = logging.getLogger(__name__)
@@ -293,7 +293,8 @@ def acquire_binary(
         suffix = ".tar.gz" if url.lower().endswith((".tar.gz", ".tgz")) else ".zip"
         archive = dest / f"_download{suffix}"
         log.info("downloading llama.cpp %s/%s from %s", asset.platform, asset.gpu, url)
-        stream_download(url, archive, on_progress=on_progress, cancel_check=cancel_check)
+        stream_download(url, archive, on_progress=on_progress, cancel_check=cancel_check,
+                        **download_kwargs(config))
         _unpack(archive, dest)
         archive.unlink(missing_ok=True)
 

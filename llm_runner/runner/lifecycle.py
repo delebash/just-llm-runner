@@ -35,6 +35,7 @@ from .binary import (
 from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect, max_vram_mb as _hw_max_vram, used_vram_mb as _hw_used_vram
+from .download import download_kwargs
 from .models import acquire_model as _acquire_model, cached_gguf_path
 from .process import (
     DEFAULT_HOST,
@@ -883,7 +884,7 @@ class RunnerService:
             raise ValueError(f"unknown model {model_id!r}")
         snapshot = self._acquire_model(
             model.hf_repo, model.quant, model.mmproj, cache_root=self._cache_root / "hf",
-            on_progress=on_progress,
+            on_progress=on_progress, **download_kwargs(self._config_fn()),
         )
         gguf = self._main_gguf(snapshot, model.quant)
         # Best-effort: auto-detect the catalog `type` (moe|dense) from the downloaded
@@ -955,6 +956,7 @@ class RunnerService:
                 draft_snapshot = self._acquire_model(
                     draft_repo, _model.mtp_draft_file, None,
                     cache_root=self._cache_root / "hf", on_progress=_progress,
+                    **download_kwargs(config),
                 )
                 draft_path = Path(draft_snapshot) / _model.mtp_draft_file
                 if not draft_path.exists():

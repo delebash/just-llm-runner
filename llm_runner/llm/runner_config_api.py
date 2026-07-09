@@ -34,6 +34,12 @@ class EngineConfig(BaseModel):
     safetyMarginMb: int
     modelsMax: int          # router: how many models may stay co-resident (>= 1)
     sleepIdleSeconds: int   # router: idle-unload TTL in seconds (0 = never)
+    # Segmented downloads (DL-2): N parallel byte-ranges per file; files under
+    # the min-bytes floor (and everything, when disabled) stay single-stream.
+    downloadSegmentsEnabled: bool = True
+    downloadSegmentCount: int = 4
+    downloadSegmentMinBytes: int = 64 * 1024 * 1024
+    downloadSegmentRetries: int = 3
     # A5 (user "do", 2026-07-06): "off" | "notify". Notify = the UI surfaces "update
     # available" and the bump is a deliberate click; NEVER auto-applied — the pin is a
     # VERIFIED pin (flag semantics move between llama.cpp builds).
@@ -53,6 +59,10 @@ class EngineConfigUpdate(BaseModel):
     safetyMarginMb: int | None = None
     modelsMax: int | None = None
     sleepIdleSeconds: int | None = None
+    downloadSegmentsEnabled: bool | None = None
+    downloadSegmentCount: int | None = None
+    downloadSegmentMinBytes: int | None = None
+    downloadSegmentRetries: int | None = None
     binaries: list[RunnerBinaryRow] | None = None   # each upserted by (platform, gpu)
 
 
@@ -61,7 +71,7 @@ class RunnerConfigStore(Protocol):
 
     def get_config(self) -> EngineConfig: ...
     def upsert_binary(self, row: RunnerBinaryRow) -> None: ...      # by (platform, gpu)
-    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | models_max | sleep_idle_seconds
+    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | models_max | sleep_idle_seconds | download_segment*
     def reset_to_defaults(self) -> None: ...
 
 
@@ -93,6 +103,14 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             store.set_setting("models_max", str(max(1, int(body.modelsMax))))
         if body.sleepIdleSeconds is not None:
             store.set_setting("sleep_idle_seconds", str(max(0, int(body.sleepIdleSeconds))))
+        if body.downloadSegmentsEnabled is not None:
+            store.set_setting("download_segments_enabled", "1" if body.downloadSegmentsEnabled else "0")
+        if body.downloadSegmentCount is not None:
+            store.set_setting("download_segment_count", str(max(1, int(body.downloadSegmentCount))))
+        if body.downloadSegmentMinBytes is not None:
+            store.set_setting("download_segment_min_bytes", str(max(0, int(body.downloadSegmentMinBytes))))
+        if body.downloadSegmentRetries is not None:
+            store.set_setting("download_segment_retries", str(max(0, int(body.downloadSegmentRetries))))
         for row in body.binaries or []:
             if not row.platform.strip() or not row.gpu.strip():
                 raise HTTPException(status_code=400, detail="each binary needs platform + gpu")

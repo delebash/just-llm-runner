@@ -15,6 +15,10 @@ from __future__ import annotations
 from . import db
 from ..runner.config import (
     DEFAULT_BINARIES,
+    DEFAULT_DOWNLOAD_SEGMENT_COUNT,
+    DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES,
+    DEFAULT_DOWNLOAD_SEGMENT_RETRIES,
+    DEFAULT_DOWNLOAD_SEGMENTS_ENABLED,
     DEFAULT_MODELS_MAX,
     DEFAULT_PINNED_BUILD,
     DEFAULT_SAFETY_MARGIN_MB,
@@ -397,6 +401,12 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
     # Router mode (P1e): DB-editable co-resident cap + idle-unload TTL.
     {"key": "models_max", "value": str(DEFAULT_MODELS_MAX)},
     {"key": "sleep_idle_seconds", "value": str(DEFAULT_SLEEP_IDLE_SECONDS)},
+    # Segmented downloads (DL-2): additive rows — an existing DB gains them at
+    # the next boot (the fill-empty seeder never clobbers user edits).
+    {"key": "download_segments_enabled", "value": "1" if DEFAULT_DOWNLOAD_SEGMENTS_ENABLED else "0"},
+    {"key": "download_segment_count", "value": str(DEFAULT_DOWNLOAD_SEGMENT_COUNT)},
+    {"key": "download_segment_min_bytes", "value": str(DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES)},
+    {"key": "download_segment_retries", "value": str(DEFAULT_DOWNLOAD_SEGMENT_RETRIES)},
 ]
 
 # Knob catalog — metadata that turns a raw switch/sampler key into a friendly

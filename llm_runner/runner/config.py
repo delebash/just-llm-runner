@@ -49,6 +49,19 @@ DEFAULT_SAFETY_MARGIN_MB = 1024
 DEFAULT_MODELS_MAX = 2
 DEFAULT_SLEEP_IDLE_SECONDS = 900
 
+# Segmented (multithreaded) downloads (DL-2, plan 2026-07-08): split ONE file
+# into N byte ranges downloaded in parallel — one slow CDN edge stops capping
+# the whole download. DB-editable via runner_setting (the user's requirement:
+# "usually we have settings for this like number of threads ect"). Segment
+# count 4 matches hf_transfer-class tools (more mostly adds CDN load, not
+# speed); files under the min-bytes floor stay single-stream (TCP ramp-up eats
+# the win below ~64 MB); retries are per SEGMENT, resuming from the bytes that
+# segment already wrote.
+DEFAULT_DOWNLOAD_SEGMENTS_ENABLED = True
+DEFAULT_DOWNLOAD_SEGMENT_COUNT = 4
+DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES = 64 * 1024 * 1024
+DEFAULT_DOWNLOAD_SEGMENT_RETRIES = 3
+
 # Prebuilt llama-server distributions, selected by (platform, gpu). We never
 # install a CUDA toolkit — we only DETECT the system and pick the matching
 # prebuilt build; the Windows CUDA builds additionally need the separate cudart

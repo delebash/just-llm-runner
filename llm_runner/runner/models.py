@@ -201,6 +201,9 @@ def acquire_model(
     cache_root: Path | None = None,
     on_progress: Callable[[int, int | None], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    segments: int = 1,
+    segment_min_bytes: int = 64 * 1024 * 1024,
+    segment_retries: int = 3,
 ) -> Path:
     """Download the GGUF(s) for `quant` into the HF cache; return the snapshot
     dir llama.cpp loads from (`…/snapshots/<sha>/`).
@@ -244,6 +247,9 @@ def acquire_model(
                     (lambda n, _t, _b=base: on_progress(_b + n, grand_total)) if on_progress else None
                 ),
                 cancel_check=cancel_check,
+                segments=segments,
+                segment_min_bytes=segment_min_bytes,
+                segment_retries=segment_retries,
             )
 
         # snapshot/<path> -> blob. Relative symlink so the cache dir is

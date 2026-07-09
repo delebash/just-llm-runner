@@ -90,8 +90,9 @@ def test_select_cross_platform_rows():
 
 def _make_stream(calls, exe_name):
     """Fake stream_download: writes a `.zip` or `.tar.gz` (by dest suffix)
-    containing `exe_name`, recording each fetched URL."""
-    def _stream(url, dest, on_progress=None, cancel_check=None):
+    containing `exe_name`, recording each fetched URL. **_segment_kwargs absorbs
+    the DL-2 segment settings — irrelevant to the unpack behavior under test."""
+    def _stream(url, dest, on_progress=None, cancel_check=None, **_segment_kwargs):
         if str(dest).lower().endswith((".tar.gz", ".tgz")):
             with tarfile.open(dest, "w:gz") as tf:
                 data = b"MZ fake"

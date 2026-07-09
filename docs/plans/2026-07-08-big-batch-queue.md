@@ -2265,6 +2265,138 @@ GATES: vitest **52/52** · build:vite ✓ · b29-probe **8/8 zero page errors** 
 at this commit. Task #216 completed. (B5-1 — the picker-removal half of §7.2 — stays a
 Batch-5 unit, next after DL-2.)
 
+**QC-20 + QC-21 (2026-07-09, arrived live mid-DL-2-build with three screenshots; the
+user: "qc add as tasks" — answered conversationally FIRST per the standing lesson,
+tasks #218/#219 created, slotted right after DL-2 ships and before Batch 5 — FLAGGED
+sequencing, one word moves them ahead).**
+**QC-20 (user verbatim: "the default provider is not set for llama after running
+quicksetup."):** grounded — B2-9 shipped Set-as-default buttons on every row but NO
+row-level indicator of which provider IS the current default; QuickSetup writes the
+default into the task presets correctly (the user's own dialog screenshot reads "they
+run on gemma-4-26b-a4b-qat" from exactly those presets), so the data is right and the
+DISPLAY is missing. The fix: the provider list derives the current default provider
+(the dominant pair across the task presets — the same dominantOf/refreshApplied source
+the dialog already uses) and tags that row with a Default mark (the catalog row's
+"Default ✓" precedent); the tagged row's Set-as-default affordance reads as already-set.
+**QC-21 (user verbatim: "when clicking on set default it falsely reports no embinding
+model is set even thghout quick setp set one as default."):** root cause CONFIRMED, my
+B2-9 bug — `sdEmbedModel` (AiModelsArea) reads the provider ROW's `embeddingModel`
+field, which is only how ONLINE rows carry an embedding; the built-in's embedding lives
+in the ROUTING default (routing.default.embeddingId/embeddingModel — QuickSetup wrote
+Qwen3 Embedding 8B there via setAsEmbedding) and the dialog never reads it, so on the
+built-in row the "no embedding model set" small print is always false when a local
+embedding exists. The fix: for the built-in row the dialog reads the current LOCAL
+embedding (useModelApply's `currentEmbeddingId`, already local-gated) and the line
+tells the truth — "your embedding (<model>) already runs here — unchanged"; the false
+branch stays only when genuinely nothing is set.
+
+**QC-22 (2026-07-09, arrived live mid-DL-2-gates with a screenshot; answered
+conversationally first; task #220, queued with QC-20/21 right after DL-2 — FLAGGED
+sequencing).** User verbatim: *"qc stopping the optimize pc does not work."* Screenshot
+facts: the QuickSetup done-step band reads "Optimizing for this PC… / stopping… / 0:22
+elapsed" with a trial row "baseline — failed" — the stop registered client-side (the
+state flipped to "stopping…") but the sweep never ends. Hypotheses RECORDED AS
+UNVERIFIED (the sweep's stop path was not read this session; root-cause at the line
+before any fix): (a) the sweep's cancel flag may only be polled BETWEEN trials, so an
+in-flight or wedged load-and-measure trial never sees it; (b) the "failed" baseline
+suggests the sweep was already erroring when stop was hit — a trial that never returns
+leaves "stopping…" spinning forever. The fix work starts by reading the autotune sweep +
+the band's stop wiring and recreating a wedged/failing trial in pytest.
+
+**DL-2 BUILD RECORD (shipped 2026-07-09, unit 4 of the fourth-compact go — the
+committed plan `2026-07-08-segmented-downloads-plan.md`, built as designed; its STATUS
+banner now says BUILT).** WHAT SHIPPED:
+(1) **download.py** — `stream_download` grew the segmented mode behind the plan's
+capability gate: with `segments > 1`, a HEAD probe must yield `Accept-Ranges: bytes`
+AND a Content-Length AND size ≥ `segment_min_bytes` — anything else (including a probe
+failure) runs the UNCHANGED single-stream path, so turning segments off IS the
+rollback. Segmented: the destination is preallocated once and N workers GET their
+inclusive byte ranges and write at their own offsets through their own file handles
+(no part-files, no double disk usage, no shared-handle locking); per-segment retry
+RESUMES from the bytes that segment already wrote (`Range: bytes=(a+written)-b`), up
+to `segment_retries`, then fails the download with the real error (partial file left,
+as today); a response that ignores Range (non-206) fails loudly rather than corrupt
+at an offset; `cancel_check` is polled per chunk in every worker and the first True
+stops them all (`DownloadCancelled`, as today); progress aggregates the per-segment
+counters into the SAME `on_progress(sum, total)` seam at the same ~1/MB throttle — the
+status endpoints, both bars, and DL-1's speed+ETA display work unchanged; sha256 runs
+AFTER assembly in one sequential read (same return contract; the single-stream path
+keeps its inline hash). `_segment_bounds` = exact-cover inclusive ranges, never more
+segments than bytes. `download_kwargs(config)` is the ONE place `enabled` collapses
+into the count (off → 1 → single-stream) — both consumers use it.
+(2) **Both consumers, no new callers**: `binary.acquire_binary` (engine archives +
+cudart companions) threads `**download_kwargs(config)`; `models.acquire_model` gained
+the three explicit segment params and both lifecycle call sites (`_acquire_and_identify`
++ the MTP-draft leg in `_run_load`) pass `**download_kwargs(config)`. Multi-shard
+models still download shards sequentially — segmentation is per FILE (the plan's
+scope line).
+(3) **The four DB-backed settings** (the user's requirement: "usually we have settings
+for this like number of threads ect"), NOTHING hardcoded: defaults defined ONCE in
+`runner/config.py` (enabled=on · count=4 · min-bytes=64 MB · retries=3, with the
+plan's rationale in the comment), mirrored on `RunnerConfig` (schema), seeded
+ADDITIVELY via `DEFAULT_RUNNER_SETTINGS` (fill-empty — an existing DB gains the rows
+at the next boot, PROVEN live on the dev DB: GET /engine-config served all four with
+defaults after a restart, no reset), included in `reset_to_defaults`, read into the
+config by the store (with a `_bool` parser), exposed on `EngineConfig` +
+`EngineConfigUpdate` + the PUT handler (clamps: count ≥ 1, min-bytes ≥ 0, retries ≥ 0
+— FLAGGED, mine, mirroring the modelsMax clamp precedent).
+(4) **The UI** — the Local engine panel's Details area, beside the residency knobs
+(the committed placement): a "Faster downloads (parallel connections)" toggle that
+applies ON FLIP (the update-policy select precedent in the same form) and hides the
+three number fields when off; "Connections per download" · "Split files larger than
+(MB)" (presented in MB, stored in bytes — FLAGGED presentation) · "Retries per
+connection" ride the form's one Save (drafts seeded once from GET /engine-config,
+owned until Save, re-synced from the PUT response; the Save button moved to the END
+of the knobs form — the layout-grammar position). Labels FLAGGED as mine.
+(5) **Tests — the plan's own list, 11 new (436 total)** in `tests/test_download.py`
+against a REAL in-process ThreadingHTTPServer with Range support: boundary math
+(exact cover · no overlap · last byte inclusive · never more segments than bytes) ·
+segmented sha ≡ single-stream sha + byte-identical file + exactly 4 ranges · progress
+reaches (total, total) · the fallback matrix (no accept-ranges / small file /
+segments=1 → plain GET, zero Range requests) · retry RESUMES from written (the
+retry's Range start measured PAST the segment's own start) · retries-exhausted fails
+with the real error, partial left · cancel stops all workers · the download_kwargs
+collapse. Two existing test stubs gained `**_segment_kwargs` absorption (test_models,
+test_binary — behavior under test unchanged).
+(6) **The live container check (the plan's gate)**: the seeded 639 MB embed GGUF
+(qwen3-embedding-0.6b) downloaded through the APP PATH (POST /v1/llm-runner/download)
+with segments on — 599 MB of 639 MB done at the first 6 s poll, finished by ~12 s
+(the plan's own single-stream container measurement was ~15 MiB/s ≈ 40+ s); the
+assembled file's sha256 EQUALED its HF blob oid (the upstream hash) — end-to-end
+integrity proven; the probe download then removed (box as found).
+(7) **The committed probe** `scripts/dl2-probe.mjs` (JW), 5/5 zero page errors: the
+additive seed on the existing DB · the four knobs render in the engine Details ·
+Save round-trips the count through the DB · the toggle applies on flip + hides the
+numbers · settings restored exactly as found.
+(8) **docs**: the plan doc's STATUS banner → BUILT (+ the container numbers);
+models.md's engine paragraph now names the download settings; recap unit-4 paragraph.
+GATES: runner ruff clean + **436 pytest** · vitest 52/52 · build:vite ✓ · dl2-probe
+5/5 · b29-probe 8/8 · b4-probe 15/15 · switch-probe 10/10 · FULL headless smoke zero
+JS errors · rules-checker **VERDICT: PASS** (completion notification; its three
+non-blocking notes: the non-206 comment overstated "fail loudly" when the path is
+retried first — the comment was CORRECTED per the note before this commit; the
+default literals mirrored in schema/signature defaults are the documented
+models_max-precedent mirrors, runtime single-source intact; the checker could not
+re-execute the suites — the counts above are from THIS session's runs). Task #217
+completed. On the user's 1 Gbit box: the slow-day pattern this targets is one TCP
+stream to one CDN edge — four ranges multiply the paths; DL-1's speed number on the
+bar IS the before/after measurement, and the segment count is the first knob to try
+if slow days persist.
+
+**QC-23 (2026-07-09, arrived live while DL-2's checker ran, with a screenshot; answered
+conversationally first; task #221, queued with QC-20/21/22 — the established
+"qc add as tasks" convention this round, FLAGGED).** User verbatim: *"qc what happend
+to the shared ai progress bar?"* Screenshot facts: a Lab test run in progress on the
+Tasks tab shows only the Lab's own inline "■ Cancel / Running…" row — no shared
+progress strip anywhere on the surface. VERIFIED (this session's records): B1-6 wired
+Lab column runs into the shared AI task queue (useAiTasksStore — the title-bar chip +
+slide-in panel). UNVERIFIED hypothesis, recorded as such (read the code at build, no
+guessing): the B4-2 two-column Tasks-Lab rework dropped the AiTaskStrip mount from this
+surface, leaving only the bare local run text; ALSO verify at the line whether the
+title-bar chip still registers the run (if not, the B1-6 registration itself
+regressed). The fix remounts the shared strip per the kit pattern and the probe
+observes it during a live Lab run.
+
 ---
 
 **⛔ THE FOURTH-COMPACT POINT (2026-07-09, user verbatim: "ok so do b2-9 that we settled,
@@ -2315,3 +2447,52 @@ surface · docs ship with each unit · both repos commit+push per unit. NOTHING 
 frozen — this go empties the queue except future QC. Post-compact Block-0: re-read the
 global rules + JW CLAUDE.md + MORNING_RECAP.md + THIS block (and §7.2/§7.4 + the DL-2
 plan + §0 items per unit as each builds).
+
+---
+
+**⛔ THE FIFTH-COMPACT POINT (2026-07-09, the user: "we need to compact are we at a
+good stoping point" — the save written at the answer, DL-2 committed with it) — THE
+PICKUP INSTRUCTIONS.**
+
+**Where the fourth-compact go stands:** units 1–4 are ALL SHIPPED AND PUSHED — the
+QC-14 redo (with the fourth-compact save), the QC-13 backend disk-resolution fix
+(runner `6d8d57a` + JW `c1e1c9b`), B2-9 set-as-default (runner `fef6e10` + JW
+`456bdf4`), and DL-2 segmented downloads (the commit made WITH this save — see the
+git log; checker VERDICT: PASS read from its completion notification). Full records:
+this file §9, one BUILD RECORD per unit.
+
+**THE GO REMAINS STANDING for the rest of the fourth-compact scope, in this order:**
+1. **The QC quartet** (arrived live during units 3–4, each answered conversationally
+   first, tasks #218–#221, records in §9 above — FLAGGED sequencing: right after
+   DL-2, before Batch 5; one word reorders):
+   - QC-20 (#218): the provider list shows WHICH provider is the current default —
+     derive from the dominant pair (the dialog's own source) and tag the row (the
+     catalog "Default ✓" precedent). Display gap only; the data was right.
+   - QC-21 (#219): the set-as-default dialog's false "no embedding model set" on the
+     built-in — MY B2-9 bug, root cause CONFIRMED (sdEmbedModel reads the row field;
+     the built-in's embedding lives in the routing default). Read currentEmbeddingId
+     for the built-in; the line becomes "your embedding (<model>) already runs here —
+     unchanged".
+   - QC-22 (#220): stopping Optimize-for-this-PC doesn't work ("stopping…" forever,
+     "baseline — failed"). Cancel mechanics READ this session: autotune.cancel sets
+     the flag (autotune.py:92-99), _wait_running observes it (:161-166 — load waits
+     DO abort). Wedge candidates narrowed, root-cause at the line before any fix:
+     svc.stop()/svc.load() synchronous legs, the blocking svc.measure HTTP call
+     (:231 — cancel cannot interrupt it), or the cancel-teardown RESTORE load
+     (:293-299) hanging inside the sweep thread while "stopping…" shows. Recreate in
+     pytest with a wedged/failing trial.
+   - QC-23 (#221): the shared AI progress strip is missing from the Tasks-Lab
+     surface (only the Lab's plain "Running…" shows). B1-6 registration into
+     useAiTasksStore VERIFIED in records; hypothesis (unverified): the B4-2
+     two-column rework dropped the AiTaskStrip mount — read FeatureLab.vue/
+     TaskKinds.vue, remount per the kit pattern, verify the title-bar chip too.
+2. **Batch 5** (#193–#199 + ship #200) per §0 + §3 + §7.2 (B5-1 pickers→chip).
+3. **Batch 6** (#201–#202 + ship #203) per §7.4.
+
+Standing disciplines as above (QC answered first · inline T1–T12 · one genuine
+verdict per CODE commit from the completion notification · probes observe · docs per
+unit · both repos commit+push per unit). Dev stack at the save: JW server task on
+:17495 (restart post-compact — run_in_background, never inline nohup) + vite :1420;
+the switch-probe's empty hf scaffold dir is a probe artifact, harmless. Post-compact
+Block-0: re-read the global rules + JW CLAUDE.md + MORNING_RECAP.md + THIS block in
+full before any act.

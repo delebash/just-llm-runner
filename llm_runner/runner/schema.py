@@ -131,6 +131,13 @@ class RunnerConfig(CamelModel):
     # the arbiter (P2) works WITHIN models_max.
     models_max: int = 2
     sleep_idle_seconds: int = 900
+    # Segmented downloads (DL-2): N parallel byte-ranges per file; files under
+    # the min-bytes floor (and everything, when disabled) stay single-stream.
+    # DB-editable via runner_setting; defaults mirror runner.config DEFAULT_*.
+    download_segments_enabled: bool = True
+    download_segment_count: int = 4
+    download_segment_min_bytes: int = 64 * 1024 * 1024
+    download_segment_retries: int = 3
 
 
 # ─── Model catalog view (GET /v1/llm-runner/models) ─────────────────────

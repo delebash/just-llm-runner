@@ -845,6 +845,10 @@ class RunnerConfigStore:
             safetyMarginMb=cfg.safety_margin_mb,
             modelsMax=cfg.models_max,
             sleepIdleSeconds=cfg.sleep_idle_seconds,
+            downloadSegmentsEnabled=cfg.download_segments_enabled,
+            downloadSegmentCount=cfg.download_segment_count,
+            downloadSegmentMinBytes=cfg.download_segment_min_bytes,
+            downloadSegmentRetries=cfg.download_segment_retries,
             updatePolicy=policy,
             ackHwFingerprint=ack_fp,
             binaries=[_runner_binary_to_row(b) for b in cfg.llamacpp.binaries],
@@ -886,6 +890,10 @@ class RunnerConfigStore:
         seed defaults; user-added custom rows are preserved."""
         from ..runner.config import (
             DEFAULT_BINARIES,
+            DEFAULT_DOWNLOAD_SEGMENT_COUNT,
+            DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES,
+            DEFAULT_DOWNLOAD_SEGMENT_RETRIES,
+            DEFAULT_DOWNLOAD_SEGMENTS_ENABLED,
             DEFAULT_MODELS_MAX,
             DEFAULT_PINNED_BUILD,
             DEFAULT_SAFETY_MARGIN_MB,
@@ -903,7 +911,11 @@ class RunnerConfigStore:
             for key, val in (("pinned_build", DEFAULT_PINNED_BUILD),
                              ("safety_margin_mb", str(DEFAULT_SAFETY_MARGIN_MB)),
                              ("models_max", str(DEFAULT_MODELS_MAX)),
-                             ("sleep_idle_seconds", str(DEFAULT_SLEEP_IDLE_SECONDS))):
+                             ("sleep_idle_seconds", str(DEFAULT_SLEEP_IDLE_SECONDS)),
+                             ("download_segments_enabled", "1" if DEFAULT_DOWNLOAD_SEGMENTS_ENABLED else "0"),
+                             ("download_segment_count", str(DEFAULT_DOWNLOAD_SEGMENT_COUNT)),
+                             ("download_segment_min_bytes", str(DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES)),
+                             ("download_segment_retries", str(DEFAULT_DOWNLOAD_SEGMENT_RETRIES))):
                 existing = s.get(db.RunnerSetting, key)
                 if existing is None:
                     existing = db.RunnerSetting(key=key, built_in=True)
@@ -1303,6 +1315,10 @@ def build_runner_config():
     Wired into the runner service as its `config_fn` by install_llm. Falls back to
     the runner's seed defaults if the binaries haven't been seeded yet."""
     from ..runner.config import (
+        DEFAULT_DOWNLOAD_SEGMENT_COUNT,
+        DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES,
+        DEFAULT_DOWNLOAD_SEGMENT_RETRIES,
+        DEFAULT_DOWNLOAD_SEGMENTS_ENABLED,
         DEFAULT_MODELS_MAX,
         DEFAULT_PINNED_BUILD,
         DEFAULT_SAFETY_MARGIN_MB,
@@ -1330,11 +1346,23 @@ def build_runner_config():
             except (TypeError, ValueError):
                 return default
 
+        def _bool(key: str, default: bool) -> bool:
+            raw = (settings.get(key) or "").strip().lower()
+            if raw in ("1", "true", "on", "yes"):
+                return True
+            if raw in ("0", "false", "off", "no"):
+                return False
+            return default
+
         return RunnerConfig(
             llamacpp=LlamacppSpec(pinned_build=settings.get("pinned_build") or DEFAULT_PINNED_BUILD, binaries=bins),
             safety_margin_mb=_int("safety_margin_mb", DEFAULT_SAFETY_MARGIN_MB),
             models_max=_int("models_max", DEFAULT_MODELS_MAX),
             sleep_idle_seconds=_int("sleep_idle_seconds", DEFAULT_SLEEP_IDLE_SECONDS),
+            download_segments_enabled=_bool("download_segments_enabled", DEFAULT_DOWNLOAD_SEGMENTS_ENABLED),
+            download_segment_count=_int("download_segment_count", DEFAULT_DOWNLOAD_SEGMENT_COUNT),
+            download_segment_min_bytes=_int("download_segment_min_bytes", DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES),
+            download_segment_retries=_int("download_segment_retries", DEFAULT_DOWNLOAD_SEGMENT_RETRIES),
         )
     finally:
         s.close()

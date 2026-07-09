@@ -4195,3 +4195,73 @@ pytest 449 · biome clean on all 26 changed files. Checker round 1 caught the
 "34 actions" MISCOUNT (37 — recorded in the plan header) before any code was
 written. The Q3 findings table (the ~45 flagged JW toasts) remains the next
 item per the order.
+
+---
+
+**THE Q3 TOAST FINDINGS TABLE (2026-07-09 — the user's decided next step for #234's
+flagged tail: "Findings table first". Every remaining pushToast/ui.showToast call
+site in the JW app, enumerated per the toast law — "a toast exists ONLY when the
+outcome is NOT visible where the user is looking" — plus the QC-36 addendum (an Undo
+affordance never rides an ephemeral surface). The kit's sites were already settled in
+#228/#234. Verdicts below are RECOMMENDATIONS; the user's per-surface word decides.
+NOTHING is culled by this table.)**
+
+REFUSALS & FAILURES — invisible outcomes, the law's expected KEEPS (14):
+| # | Site | Message | Recommend |
+|---|------|---------|-----------|
+| 1 | project.js:1811 | "Restore the parent chapter first — then this scene." | KEEP — the restore silently didn't happen; the toast is the only explanation |
+| 2 | project.js:2068 | "That project couldn't be loaded." | KEEP — failure, nothing visible |
+| 3 | TitleBar.vue:99 | "Couldn't save project — <err>" | KEEP — failure |
+| 4 | TitleBar.vue:113 | "Couldn't open project — <err>" | KEEP — failure |
+| 5 | RichEditor.vue:1290 | "Couldn't insert image — <err>" | KEEP — failure |
+| 6 | MarketingPackModal.vue:71 | clipboard blocked | KEEP — failure |
+| 7 | BrainstormView.vue:170 | "Could not access clipboard." | KEEP — failure |
+| 8 | NotesView.vue:108/113/124 | import failures / "Nothing to import." / "Skipped <file>" | KEEP — failures |
+| 9 | SettingsView.vue:458 | "Keep at least one category." | KEEP — refusal |
+| 10 | CommandPalette.vue:128 | "Open a chapter first to save its version." | KEEP — refusal |
+| 11-14 | ChaptersView.vue:425/430/453/458/476/497 | the six editor refusals ("Open a chapter first" / "Write a few lines first" / "Highlight a subject first" / "Place the cursor…") | KEEP — refusals, nothing visible changes |
+
+INVISIBLE EFFECTS — off-screen or external outcomes, KEEP recommended (8):
+| # | Site | Message | Recommend |
+|---|------|---------|-----------|
+| 15 | MarketingPackModal.vue:69 | "<artifact> copied to clipboard." | KEEP — the clipboard is invisible |
+| 16 | BrainstormView.vue:168 | "Copied <text>" | KEEP — clipboard |
+| 17 | SettingsView.vue:162 | server URL copied | KEEP — clipboard |
+| 18 | ExportView.vue:100 | "Exported PDF/DOCX/EPUB." | KEEP — the file lands on disk after the dialog closes; nothing on screen changes |
+| 19 | ExportView.vue:133 | "Sent <title> to JustVoice" | KEEP — external app, invisible here |
+| 20 | ForeshadowingScanModal.vue:175 | "Pinned N loose threads" | KEEP — pins land in off-screen chapters |
+| 21 | SessionRecapModal.vue:121 | "Loose thread pinned in chapter." | KEEP — same |
+| 22 | EntityReviewModal.vue:73 | "Added N entities" | KEEP — the modal closes; the bible rows live off-screen |
+| 23 | CommandPalette.vue:138 | "Saved version of <chapter>" | KEEP — the palette closes; the version list isn't visible |
+
+VISIBLE OUTCOMES — the law's KILL candidates (15):
+| # | Site | Message | Recommend |
+|---|------|---------|-----------|
+| 24 | project.js:576 | "Undid last change." | KILL — the reverted edit is on screen (nuance: a ⌘Z reverting an OFF-screen entity is invisible; QC-36 already scoped ⌘Z to book surfaces, which narrows this) |
+| 25 | project.js:585 | "Redid change." | KILL — same |
+| 26 | project.js:1749 | soft-delete "<thing> deleted" + Undo ACTION | KILL — the QC-36 addendum's named expected kill: the row visibly leaves AND two durable recovery paths exist (⌘Z + Trash restore); undo must not ride ephemera |
+| 27 | project.js:2023 | "Opened Tutorial Project" | KILL — the workspace visibly switches |
+| 28 | project.js:2058 | "Created <title>" | KILL — the new project opens |
+| 29 | project.js:2077 | "Switched to <title>" | KILL — visible switch |
+| 30 | project.js:2096 | "Deleted <title>" (project) | KILL — the row visibly leaves the projects list |
+| 31 | VersionHistoryModal.vue:79 | "Saved version…" | KILL — the version list in the OPEN modal gains the row |
+| 32 | VersionHistoryModal.vue:84 | "Restored <version>" | KILL — the modal closes onto the visibly-restored chapter |
+| 33 | CharacterAuditModal.vue:125 | "Audit cleared." | KILL — the modal's results visibly empty |
+| 34 | CritiqueModal.vue:138 | "Critique cleared." | KILL — same |
+| 35 | NotesView.vue:122 | "Imported N notes." | KILL — the notes visibly appear (and ImportView navigates there) |
+| 36 | ImportView.vue:237/269/278 | "Imported N chapters/notes…" | KILL — each fires right before router.push LANDS the user on the imported content |
+| 37 | CharactersView.vue:139 | photo-import count | KILL — the photos visibly appear on the card |
+| 38 | PlotBoardView.vue:69 | "Applied <template>" | KILL — the board visibly fills with beats |
+| 39 | ChaptersView.vue:522 | "Split into <title>" | KILL — the chapter visibly splits in the outline |
+
+NEEDS A DESIGN WORD, not a bare kill (2):
+| # | Site | Message | The issue |
+|---|------|---------|-----------|
+| 40 | VersionHistoryModal.vue:91 | "Deleted <version>" + Undo ACTION | The row visibly leaves (kill per the law) BUT this Undo toast is the ONLY recovery for a deleted version — killing it removes the recovery path. Options: (a) confirm-before-delete dialog, (b) an in-modal undo affordance, (c) keep this one toast as the exception. Your pick. |
+| 41 | ProjectReplaceModal.vue:35/39 | "Replaced N matches" | Replace-all rewrites text mostly OFF-screen (invisible → keep per the law), but the better shape per the rethink is showing the count INSIDE the modal (a durable surface) and killing both toasts. Your pick. |
+| 42 | SettingsView.vue:323/367 | "Reloading to apply…" / "Restored <backup>" | Both precede/accompany a full visible reload; the toast explains an abrupt event rather than announcing an invisible one. Borderline — your pick. |
+
+Rollup: 23 KEEPs (refusals/failures/clipboard/off-screen effects), 16 KILL
+candidates (visible outcomes, incl. the addendum's soft-delete Undo toasts), 3
+design-word items (#40/#41/#42). Awaiting the user's per-surface verdicts; the cull
+ships as its own small unit once given.

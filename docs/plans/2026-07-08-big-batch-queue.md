@@ -3555,3 +3555,81 @@ turn") true rather than approximate. (b) `RISK_LINE`'s ASCII-hyphen
 alternative matched the boilerplate word "risk-free"; the hyphen left the
 class (the prescribed form is "RISK:"), negative harness case added. The
 checker's re-verdict on the final diff is the one at the commit.
+**SHIPPED: JW `8fc5738` (the v4 hooks + docs, gate-cleared by the genuine
+re-verdict PASS) · runner `3a0b9bd` + `3c8fc2a` (this record + the hardening
+note). The live session's installed gates are the v4 set from this ship.**
+
+---
+
+**QC-25 BUILD RECORD (2026-07-09, the second unit of the resumed order —
+task #223, built to the REVISED spec in the eighth-compact block above).**
+
+**What shipped (all just-llm-runner):** (1) **`update_check` follows the
+DISK** — `current` is now the build actually installed (the same resolve
+`engine_status`/`uninstall_engine` use), with the pin only as the
+nothing-installed fallback; the docstring records the QC-25 story and the
+no-poll-heal law. The user's exact regression dies: a DB reset reverting the
+pin to b9899 under an installed b9934 no longer reports "update available" to
+the build already on disk (an offer whose click would have re-downloaded the
+OLD pin and sweep-deleted the newer engine). (2) **The shared resolve was
+extracted** into `RunnerService._installed_build(config)` (lifecycle.py, right
+above `engine_status`) and `uninstall_engine` + `update_check` + the heal all
+ride it — `engine_status` keeps its inline resolve because it needs the exe
+path itself (serverExe/hasRuntime) and a second disk scan would be waste, not
+reuse. (3) **The pin HEALS UPWARD at BOOT + POST-INSTALL only** —
+`_heal_pin_upward()`: no-op without a writer, when nothing is installed, or
+when the disk build isn't newer than the pin; called at the END of
+`__init__` (the boot leg) and in `_run_install` AFTER the stale-build sweep
+(the post-install leg — deliberately after, so a deliberate pin-downgrade
+Reinstall completes as pinned and the heal only converges when a NEWER build
+SURVIVED the sweep, e.g. a Windows file-lock defeated the rmtree). Never on
+`engine_status`/`update_check` (the second-pass law from the rethink: a poll
+heal would clobber a deliberate downgrade between the pin edit and the
+Reinstall click). (4) **The seam:** `RunnerService(..., save_pin=None)` +
+`configure_service(save_pin_fn=...)` pass-through; wired in the host at
+`llm_runner/llm/install.py` — `save_pin_fn` writes the same
+`runner_setting.pinned_build` row the engine-config API writes, via
+`stores.get_runner_config_store().set_setting`. Standalone/no-host mode has
+no writer → healing is structurally off. (5) **UI: NO change** — verified by
+the spec's grounding: `useEngine.js` `updateToLatest` passes `current` as
+`replaceBuild`, which now carries the real disk build automatically.
+
+**The accepted flagged edge (recorded pre-build, unchanged):** pin edited
+OLDER while a newer build is installed + app reboot before clicking
+Reinstall → the boot heal rewrites the pin upward and the unexecuted
+downgrade intent is lost (re-edit it). Mid-session polls never heal, so the
+intent survives as long as the app stays up.
+
+**Tests (7 new, tests/test_lifecycle.py, driving the REAL
+`acquired_server_exe` against a real tmp filesystem with the injected
+Windows/CUDA hardware — the user's box shape):**
+`test_update_check_reports_disk_build_when_pin_reverted` (disk b9934-shape /
+pin b9899 → current = disk, updateAvailable False at latest == disk) ·
+`test_update_check_pin_fallback_when_nothing_installed` ·
+`test_update_check_deliberate_pin_bump_still_reports` (pin bumped ABOVE disk:
+current stays disk, newer latest still reports — the Update flow can't mask
+itself) · `test_pin_heals_upward_at_boot` (construction with the writer
+converges the pin; engine_status agrees) · `test_pin_heal_never_on_status_poll`
+(writer present mid-session, polls repeatedly — zero writes) ·
+`test_deliberate_downgrade_survives_install` (pin older + Reinstall: install
+targets the pin, sweep removes the newer dir, pin untouched, status reports
+the downgraded build) · `test_post_install_heal_converges_on_surviving_newer_build`
+(spy: `_run_install` invokes the heal after the sweep; unit: the heal
+converges on a surviving newer build and is a strict no-op without a writer).
+
+**Verification:** ruff clean · runner pytest **449 passed** (442 + 7) · JW
+server pytest 76 (install.py sits on its import path) · FULL headless smoke
+zero JS errors (renderer untouched; smoke run per the every-ship discipline)
+· **the LIVE container end-to-end observed** (the probes-observe discipline):
+with a fake `llamacpp/b9939/cpu/llama-server` planted under the dev DB's
+reset pin b9899 (+ a temporary linux/cpu binary row so `select_binary`
+resolves on this GPU-less container), a fresh server boot HEALED the DB pin
+to b9939 through the real `save_pin_fn` → `runner_setting` write,
+`engine/status` reported `installed:true, build:b9939` with the exact exe
+path, and `update-check` returned `current:b9939, updateAvailable:false`
+(latest fetch 403s through the container proxy — the honest error path).
+Container fully RESTORED after: temp row deleted, pin back to b9899, fake dir
+removed, clean reboot re-verified `installed:false, build:b9899` with the pin
+stable (no spurious heal). Rules-checker verdict at the commit. Incidental
+find while probing: `pkill -f` self-matches the invoking shell's own command
+text (the exit-144 mystery) — bracket the pattern.

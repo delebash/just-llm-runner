@@ -1513,3 +1513,189 @@ def test_update_check_same_and_error_paths(tmp_path):
     svc._latest_build_fn = boom
     out = svc.update_check()
     assert out["updateAvailable"] is False and "offline" in out["error"]
+
+
+# ── QC-25: the update check + pin follow the DISK; the pin heals upward at
+#    BOOT + POST-INSTALL only — never on a status poll ─────────────────────────
+
+def _newer_disk_build(cache_root, offset=35):
+    """Put a build NEWER than the seed pin on disk (the user's reset-regression
+    shape: pin reseeded to b9899 while the installed b9934 sits in llamacpp/)."""
+    from llm_runner import default_config
+    from llm_runner.runner.binary import build_num, variant_dir
+
+    disk_build = f"b{build_num(default_config().llamacpp.pinned_build) + offset}"
+    d = variant_dir(cache_root, disk_build, "cuda12")
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "llama-server.exe").write_bytes(b"MZ")
+    return disk_build
+
+
+def test_update_check_reports_disk_build_when_pin_reverted(tmp_path):
+    # QC-25 (user's box, 2026-07-09): a DB reset reverted the pin under an
+    # installed newer build and the app offered an "update" TO the build already
+    # installed — clicking it would have re-fetched the OLD pin and the stale-
+    # build sweep would then delete the newer engine. `current` must be the
+    # DISK's build; latest == disk ⇒ no update offered.
+    from llm_runner.runner.binary import acquired_server_exe
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe
+    disk_build = _newer_disk_build(svc.cache_root)
+    svc._latest_build_fn = lambda: disk_build
+
+    out = svc.update_check()
+
+    assert out["current"] == disk_build
+    assert out["updateAvailable"] is False and out["error"] == ""
+
+
+def test_update_check_pin_fallback_when_nothing_installed(tmp_path):
+    # Nothing on disk → `current` falls back to the pin (the build an install
+    # would fetch), and a newer upstream still reports available.
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = lambda *a, **k: None
+    svc._latest_build_fn = lambda: "b99999"
+
+    out = svc.update_check()
+
+    assert out["current"] == svc._config_fn().llamacpp.pinned_build
+    assert out["updateAvailable"] is True
+
+
+def test_update_check_deliberate_pin_bump_still_reports(tmp_path):
+    # The Update flow writes pinnedBuild=latest BEFORE installing (useEngine
+    # updateToLatest): with the pin bumped above the installed build, `current`
+    # stays the DISK build and the newer latest still reports available — the
+    # bump must not mask the update it is about to perform.
+    from llm_runner import default_config
+    from llm_runner.runner.binary import acquired_server_exe, build_num
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe
+    disk_build = _newer_disk_build(svc.cache_root)
+    bumped = f"b{build_num(disk_build) + 10}"
+
+    def cfg():
+        c = default_config()
+        c.llamacpp.pinned_build = bumped
+        return c
+
+    svc._config_fn = cfg
+    svc._latest_build_fn = lambda: bumped
+
+    out = svc.update_check()
+
+    assert out["current"] == disk_build
+    assert out["updateAvailable"] is True
+
+
+def test_pin_heals_upward_at_boot(tmp_path):
+    # QC-25 heal, the BOOT leg: construction with a save_pin writer converges a
+    # reverted pin up onto the newer on-disk build — Reinstall then targets what
+    # is actually installed instead of re-fetching the reset seed.
+    from llm_runner import default_config
+    from llm_runner.runner.binary import acquired_server_exe
+    from llm_runner.runner.lifecycle import RunnerService
+
+    disk_build = _newer_disk_build(tmp_path)
+    state = {"pin": default_config().llamacpp.pinned_build}
+
+    def cfg():
+        c = default_config()
+        c.llamacpp.pinned_build = state["pin"]
+        return c
+
+    svc = RunnerService(
+        tmp_path, config_fn=cfg, hardware_fn=_win_cuda_hw,
+        acquired_exe=acquired_server_exe,
+        save_pin=lambda b: state.update(pin=b),
+    )
+
+    assert state["pin"] == disk_build          # healed at construction
+    assert svc.engine_status()["build"] == disk_build
+
+
+def test_pin_heal_never_on_status_poll(tmp_path):
+    # The second-pass law: a poll heal would clobber a DELIBERATE downgrade
+    # (the user pins an older build; the poll would rewrite it before they click
+    # Reinstall). status + update_check REPORT the disk truth but never write.
+    from llm_runner.runner.binary import acquired_server_exe
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)   # save_pin=None at boot
+    svc._acquired_exe = acquired_server_exe
+    disk_build = _newer_disk_build(svc.cache_root)
+    calls = []
+    svc._save_pin = calls.append               # writer appears mid-session
+    svc._latest_build_fn = lambda: disk_build
+
+    svc.engine_status()
+    svc.update_check()
+    svc.engine_status()
+
+    assert calls == []                          # polls never healed the pin
+
+
+def test_deliberate_downgrade_survives_install(tmp_path):
+    # The user deliberately pins an OLDER build and clicks Reinstall: the
+    # install fetches the pin, the sweep removes the newer dir, and the
+    # post-install heal (which only converges onto a SURVIVING newer build)
+    # must leave the downgrade pin untouched.
+    from llm_runner import default_config
+    from llm_runner.runner.binary import acquired_server_exe, build_num, variant_dir
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe
+    newer = _newer_disk_build(svc.cache_root)
+    older = f"b{build_num(default_config().llamacpp.pinned_build) - 50}"
+    state = {"pin": older}
+
+    def cfg():
+        c = default_config()
+        c.llamacpp.pinned_build = state["pin"]
+        return c
+
+    svc._config_fn = cfg
+    calls = []
+    svc._save_pin = lambda b: (calls.append(b), state.update(pin=b))
+
+    def fake_acquire(cache_root, config, hardware, on_progress=None, gpu=None):
+        d = variant_dir(cache_root, config.llamacpp.pinned_build, "cuda12")
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "llama-server.exe").write_bytes(b"MZ")
+        return d / "llama-server.exe"
+
+    svc._acquire_binary = fake_acquire
+    svc.install_engine(force=True)
+    svc._engine_thread.join(timeout=5)
+
+    assert svc._engine_state["status"] == "installed"
+    assert state["pin"] == older and calls == []                   # downgrade survived
+    assert not (svc.cache_root / "llamacpp" / newer).exists()      # sweep removed the newer
+    assert svc.engine_status()["build"] == older
+
+
+def test_post_install_heal_converges_on_surviving_newer_build(tmp_path):
+    # The POST-INSTALL leg: _run_install invokes the heal after the sweep (spy),
+    # and the heal itself converges the pin when a newer build is on disk with a
+    # writer present — the odd-state belt (e.g. a Windows file-lock defeats the
+    # sweep and the newer dir survives).
+    from llm_runner.runner.binary import acquired_server_exe
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    heal_calls = []
+    svc._heal_pin_upward = lambda: heal_calls.append(True)
+    svc._acquire_binary = lambda *a, **k: tmp_path / "llama-server"
+    svc.install_engine()
+    svc._engine_thread.join(timeout=5)
+    assert heal_calls, "_run_install must invoke the heal after the sweep"
+
+    # the heal unit itself: pin < disk + writer → converge; no writer → no-op.
+    svc2 = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc2._acquired_exe = acquired_server_exe
+    disk_build = _newer_disk_build(svc2.cache_root)
+    svc2._heal_pin_upward()                     # save_pin=None → strict no-op
+    calls = []
+    svc2._save_pin = calls.append
+    svc2._heal_pin_upward()
+    assert calls == [disk_build]

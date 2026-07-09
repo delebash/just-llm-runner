@@ -351,9 +351,18 @@ def _wire_runner_catalog(data_dir=None) -> None:
             samplers_fallback=lambda meta: fetch_generation_config_samplers(meta.base_repo_url),
         )
 
+    def save_pin_fn(build: str) -> None:
+        # QC-25: the pin WRITER the runner's boot/post-install heal uses to
+        # converge the DB pin onto a newer build already on disk (a DB reset
+        # reverts the pin to the seed; the heal keeps Reinstall from fetching
+        # the old build and sweep-deleting the newer one). Same row the
+        # engine-config API writes (runner_config_api PUT pinnedBuild).
+        stores.get_runner_config_store().set_setting("pinned_build", build)
+
     configure_service(
         catalog_fn=catalog_fn, switches_fn=switches_fn,
         identify_fn=identify_fn, embedding_ids_fn=embedding_ids_fn,
         config_fn=stores.build_runner_config,
+        save_pin_fn=save_pin_fn,
         cache_root=(str(Path(data_dir) / "ai-cache") if data_dir else None),
     )

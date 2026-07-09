@@ -3690,6 +3690,13 @@ message — the user's answer is what unblocks this):
 - **(Q4) two flagged defaults:** sidebar label "AI tasks" (vs "AI queue"?);
   panel history 5-row tail — confirm or change.
 
+*(Post-compact addendum: QC-39 (Providers & models pink wash + layout pass) and QC-40
+(tutorial = the Cartographer's Daughter, no default project) arrived as user "add task"
+items — full records at this file's TAIL; their sequencing vs the order below is the
+user's. A task-gate false-positive was also found live: harness "Tool loaded."
+ToolSearch replies + mid-turn user messages create turn-window shapes v4 doesn't know —
+candidate hook fix awaiting the user's word, noted in EFFECTIVENESS.md.)*
+
 **THE ORDER post-compact:** the user answers the four questions →
 1. **#232** — build the 34-action test-input table per §9's table (composer
    reuse everywhere; drop the generic user_content from provides;
@@ -3784,3 +3791,120 @@ removed, clean reboot re-verified `installed:false, build:b9899` with the pin
 stable (no spurious heal). Rules-checker verdict at the commit. Incidental
 find while probing: `pkill -f` self-matches the invoking shell's own command
 text (the exit-144 mystery) — bracket the pattern.
+
+---
+
+**QC-39 (2026-07-09, post-ninth-compact, the user live-QC-ing — verbatim: "add task
+this background color  it just doesnt look nice, try see what you can do to make it
+look better even think about the whole layout for  this page it just does feel neat" —
+screenshot: AI Settings → Providers & models, built-in provider expanded; the page
+washed pink).**
+
+ANSWERED (grounded at the lines): the pink is `--accent-soft` under JustWrite's oxblood
+accent. (1) `ui/src/views/ProviderForm.vue:260` — `.lu-pform` paints the WHOLE expanded
+provider Edit form `var(--accent-soft)`; for the built-in row that form contains the
+field grid + the Local engine panel + both model slot cards + the entire Model Catalog
+(mounted inline in the provider list, `AiModelsArea.vue:367`), so most of the page sits
+on one accent wash. (2) `ui/src/components/LuModelCatalog.vue:1025` —
+`.lu-mcat-section` ("Chat & writing models") is a SECOND `--accent-soft` fill inside
+the first — the B2-#11 "pronounced band" can't contrast against its own color. (3) JW
+maps the token pink: `justwrite-app/src/renderer/src/tokens.css:34-37` —
+`--accent-hue: 14` (oxblood) → `--accent-soft: oklch(0.92 0.028 14)`; a green-accent
+host renders the same wash pale sage, which is why the kit dev host never showed the
+problem. The token's own contract (`ui/src/common/tokens.contract.css:18`) scopes
+`--accent-soft` to "faint accent tint (focus ring, soft tag bg)" — chip scale, misused
+at page scale. The slot cards themselves are neutral in CSS
+(`LuModelCatalog.vue:997-1005` — `--surface`, `--surface-2` when empty); they read pink
+because the sea around them is. The LAYOUT half of the complaint: the built-in's Edit
+is an inline accordion row that swallows the page (field grid → engine panel → slot
+cards → full catalog → library links → footer inside ONE list row, under a page already
+stacking the hardware strip + subnav + "Providers" header + the LOCAL·FREE band) — a
+page-within-a-list-row with no card rhythm.
+
+STATUS: queued as a harness task on the user's word ("add task"); NOT built. Candidate
+directions to bring the user WITH MOCKUPS/SCREENSHOTS at build time (their pick — the
+never-decide decree): (a) retire the page-scale wash — `.lu-pform` goes neutral surface
++ border and accent stays at chip/band/focus scale (kit-wide fix, both hosts benefit);
+(b) promote the built-in provider out of the accordion into its own permanent top
+section of the tab (it IS the page's subject) with the interior as clean stacked cards,
+online providers a compact list below; (c) keep the accordion, restructure its interior
+into distinct neutral cards with one accent-edged band per section. Sequencing vs
+#232/B6/#235 is the user's.
+
+**QC-40 (2026-07-09, same window — verbatim: "add task the try the tutorial project
+should load the cartagraphers daughter remove the cartagraphers daugher as defautl
+project just have try tutorial project and new project add as task").**
+
+THE ASK: "Try the Tutorial Project" opens THE CARTOGRAPHER'S DAUGHTER (the rich demo
+book) instead of the small hand-built tutorial seed; the Cartographer's Daughter STOPS
+being the default/first project on a fresh install; the entry affordances become just
+"Try tutorial project" + "New project".
+
+Grounded current state: the server seeds the Cartographer's Daughter as THE default
+project on a fresh DB (`justwrite-app/server/justwrite_server/demo_seed.py:20-24`,
+`DEMO_PROJECT_ID = "prj_demo_cartographer"`; `server/tests/test_seed.py:33` asserts
+projects[0] IS it; renderer fallback title at `stores/ui.js:48`). SEPARATELY, a small
+renderer-built "Tutorial Project" exists (`services/tutorialProject.js:10` —
+`TUTORIAL_TITLE = "Tutorial Project"`: 2 characters + 2 locations + 1 strand + 1
+chapter + worldbuilding + a welcome note), materialized on demand by
+`project.createTutorialProject()` (`stores/project.js:2005-2023`) from the Sidebar
+project menu's "Try the Tutorial Project" button (`Sidebar.vue:852-854`). So the build
+= repoint the tutorial affordance at the demo book, stop seeding it as the default
+(fresh boot lands on an entry state offering the two affordances), and settle the fate
+of tutorialProject.js's small seed + the demo-seed default-active mechanics +
+test_seed expectations — those design details go to the user before any build. STATUS:
+queued as a harness task; NOT built.
+
+**QC-41 (2026-07-09, same window — verbatim: "design the context menu for the edit
+better, you are so bad a design dont you have a design plugin or something you shoold
+always load when designing stuff, why dont you automatically use it, here is an example
+of a typical context menu, also a word does not have to be selected for conext menu, it
+works the same as the ai menu certain features are enbaled or disable base on what is
+sleected, example one option is run un for paragrapho beleow, why did you change this
+functionality, you are fable 5, did i not make a rule to think twice before you do,
+surley yo would have figure this out add as task" — plus "remmeber think twice before
+you do!!!!!!" — with a Windows 11 File Explorer context menu screenshot as the design
+reference).**
+
+ANSWERED + OWNED: B5-5's menu is selection-GATED at `RichEditor.vue:805-808`
+(`if (!hasSelection.value) return;` — a bare right-click deliberately kept the native
+menu so spell-check suggestions stayed reachable, per the B5-5 comment at :789-794).
+That gating was MY design call, and it broke precedent-before-pattern: the same-job
+precedent — the editor's AI menu, which opens regardless of selection and
+enables/disables items per selection state, with paragraph-scope targets (the user's
+"run on paragraph below" example) — existed and was not matched. The miss class is
+exactly the think-twice/precedent check; B5 shipped before the #237 hooks went live,
+and no hook grades design-precedent fit — that judgment was mine to run and wasn't.
+DESIGN-PLUGIN ANSWER (checked live via SearchSkills, not memory): no app-UI design
+skill exists in this session (canvas-design = posters/static art; brand-guidelines =
+Anthropic brand; artifact-design covers artifact web pages only) — the loadout for
+design work is the app's own law: precedent-before-pattern (the JV CLAUDE.md RULE #1
+method, shared across both apps) + the design-conformance checklist + don't-cram + a
+named real-world reference. STANDING RULE ADOPTED ON THE USER'S ORDER (recorded in
+MORNING_RECAP standing rules): every design task begins by loading that law and NAMING
+the precedent surface + reference in writing BEFORE designing.
+
+THE TASK (queued; builds on the user's go): (1) FUNCTIONALITY RESTORE — the context
+menu opens on ANY right-click in the manuscript editor; items enable/disable by what
+is selected (the AI-menu law); paragraph-scope actions included (the exact option set
+mirrored from the AI menu at build time — e.g. "run on the paragraph below"). (2)
+VISUAL REDESIGN to the user's Windows-11 reference grammar: icon column + label +
+right-aligned shortcut hints, thin group separators, submenu carets, disabled items
+greyed-not-hidden, rounded elevated panel. (3) ⛔ FLAG for the user's word: opening our
+menu on EVERY right-click removes the native spell-check path the B5-5 gating
+preserved — candidate answers: a "Show more options"-style passthrough row (the user's
+own reference shows Windows' two-tier pattern), a "Spelling…" item, or accept the
+loss. (4) Component question at build (T3): promote a proper menu primitive vs the
+current scoped markup if any second surface wants the same grammar. STATUS: queued as
+a harness task; NOT built.
+
+*(Addendum, same window — the user sent two screenshots of the AI menu itself: "example
+of how ai looks in sceen and how context menu should act." The precedent's observed
+grammar, now the spec: items grouped BY SCOPE — "SELECTION ONLY" → "SELECTION OR WHOLE
+SCENE" → "FROM THE CURSOR" — under a "RUNNING ON" provenance row; the menu ALWAYS
+opens; with no selection the selection-only group greys out with the inline hint
+"Highlight text first to enable" (visible in shot 2); scope-flexible items state their
+fallback in copy ("Runs on the selection, or the whole scene if nothing is selected" —
+Tighten). The context menu adopts the same scope-law + enable/disable + hint behavior
+in the COMPACT Windows-style row grammar — the AI menu keeps the long teaching
+descriptions; the context menu is the quick path.)*

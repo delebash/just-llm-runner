@@ -182,6 +182,12 @@ const phaseLabel = {
               v-tooltip.bottom="'Batch progress — Cancel stops the whole run'">
               {{ t.progress.done }}/{{ t.progress.total }}
             </span>
+            <!-- §7.4 B6-2: real prompt-eval progress (builtin engine) —
+                 cleared when the first token arrives. -->
+            <span v-if="t.prefill != null" class="aip-stat"
+              v-tooltip.bottom="'The model is reading your prompt'">
+              reading prompt {{ Math.round(t.prefill * 100) }}%
+            </span>
             <span class="aip-stat">
               <Icon name="Clock" :size="10" />
               {{ fmtSeconds(elapsedMs(t)) }}

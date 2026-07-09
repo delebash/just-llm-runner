@@ -98,6 +98,11 @@ export const useAiTasksStore = defineStore("aiTasks", {
         tokensOut: 0,
         chars: 0,
         preview: "",
+        // Prompt-eval progress 0..1 (§7.4 B6-2, builtin engine only) — set by
+        // {progress} stream frames while the model reads the prompt, cleared
+        // on the first token so the strip's "reading prompt N%" yields to the
+        // normal streaming stats. null = not reported (cloud providers).
+        prefill: null,
         providerId: null,
         model: null,
         error: null,
@@ -122,6 +127,8 @@ export const useAiTasksStore = defineStore("aiTasks", {
         // progress here — the strip/panel render "n/m" and the one Cancel
         // aborts the whole loop through the shared controller.
         setProgress: (done, total) => this._setProgress(id, done, total),
+        // §7.4 B6-2: prompt-eval percent from the stream's {progress} frames.
+        setPrefill: (p) => this._setPrefill(id, p),
       };
     },
 
@@ -129,6 +136,14 @@ export const useAiTasksStore = defineStore("aiTasks", {
       const t = this.tasks[id];
       if (!t) return;
       t.progress = { done, total };
+    },
+
+    _setPrefill(id, p) {
+      const t = this.tasks[id];
+      if (!t) return;
+      // Prompt eval only happens before the first token — ignore stragglers.
+      if (t.firstDeltaAt) return;
+      t.prefill = typeof p === "number" ? Math.min(1, Math.max(0, p)) : null;
     },
 
     _markStreaming(id) {
@@ -142,6 +157,8 @@ export const useAiTasksStore = defineStore("aiTasks", {
       const now = Date.now();
       if (!t.firstDeltaAt) t.firstDeltaAt = now;
       t.lastDeltaAt = now;
+      // Generation started — the prefill phase is over (§7.4 B6-2).
+      t.prefill = null;
       if (t.status === "connecting") t.status = "streaming";
       if (typeof content === "string") {
         t.preview = content;

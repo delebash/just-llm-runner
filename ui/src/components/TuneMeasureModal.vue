@@ -79,9 +79,11 @@ const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value
 // under "Your applied config" — they become exactly that on Apply.
 // QC-28 (user: "add switch add row to top it should add to bottom, Your
 // applied configs should show up at bottom"): "Your applied config" is the
-// LAST group — and since a freshly-added row has no origin and falls into
-// that group (rowGroups' "applied" fallback), "＋ Add switch" now appends at
-// the visual bottom too (KnobGrid's add() already appends within a section).
+// LAST group — and a freshly-added row (no origin) lands there via KnobGrid's
+// explicit `fallback-group="applied"` (its default fallback is the FIRST
+// group, which after this reorder is the class section — the B6-window probe
+// caught new rows rendering at the top), so "＋ Add switch" appends at the
+// visual bottom (KnobGrid's add() already appends within a section).
 const TUNE_GROUPS = [
   { key: "class", label: "Hardware/model class default" },
   { key: "global", label: "Global launch defaults" },
@@ -518,7 +520,7 @@ onBeforeUnmount(stopAutoPoll);
            boxes), sectioned by source layer (QC-10). -->
       <div class="lu-tune-scroll">
         <KnobGrid v-model="tuneRows" :catalog="switchCatalog"
-          :groups="TUNE_GROUPS" :row-groups="rowGroups" />
+          :groups="TUNE_GROUPS" :row-groups="rowGroups" fallback-group="applied" />
         <div v-if="unknownNames.size" class="lu-tune-unk lu-muted">
           <UiTag intent="danger">unrecognized</UiTag>
           <span>{{ [...unknownNames].join(", ") }} — not a known engine flag (mistyped, or dropped

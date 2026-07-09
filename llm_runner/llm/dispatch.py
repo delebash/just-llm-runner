@@ -279,6 +279,10 @@ def stream_chat(
         ):
             if delta.done:
                 pt, ct = delta.prompt_tokens, delta.completion_tokens
+                # Stamp the RESOLVED model on the done event (adapters leave it
+                # empty) so the SSE done frame can report model + cost (§7.4 —
+                # the stream path carries everything /run's response carries).
+                delta.model = model
             yield delta
     except Exception as e:
         get_ledger().record(

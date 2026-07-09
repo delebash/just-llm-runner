@@ -83,6 +83,12 @@ function openPanel() { tasks.openPanel(); }
       v-tooltip.bottom="'Batch progress — Cancel stops the whole run'">
       {{ task.progress.done }}/{{ task.progress.total }}
     </span>
+    <!-- §7.4 B6-2: real prompt-eval progress (builtin engine) — fills the
+         dead time before the first token; cleared when generation starts. -->
+    <span v-if="task.prefill != null" class="sts-stat"
+      v-tooltip.bottom="'The model is reading your prompt'">
+      reading prompt {{ Math.round(task.prefill * 100) }}%
+    </span>
     <span class="sts-stat">{{ elapsedSeconds }}s</span>
     <span v-if="firstTokenSeconds" class="sts-stat">first token in {{ firstTokenSeconds }}s</span>
     <span v-if="tokensLabel" class="sts-stat">{{ tokensLabel }}</span>

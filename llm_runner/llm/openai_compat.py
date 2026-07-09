@@ -207,6 +207,12 @@ class OpenAICompatAdapter:
             # the field; we just report 0 tokens then).
             "stream_options": {"include_usage": True},
         }
+        if self.provider_type == "local-llamacpp":
+            # §7.4 B6-2: the builtin engine reports prompt-eval progress in the
+            # stream (llama-server `return_progress`, PR 15827 — works on the
+            # OAI chat endpoint; chunks carry a top-level `prompt_progress`).
+            # Cloud providers never see the field.
+            body["return_progress"] = True
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
         extra, effort = pop_reasoning_effort(extra)
@@ -237,6 +243,15 @@ class OpenAICompatAdapter:
                 if usage:
                     pt = int(usage.get("prompt_tokens") or 0)
                     ct = int(usage.get("completion_tokens") or 0)
+                # Prompt-eval progress chunks (builtin engine only — see
+                # return_progress above). Overall progress = processed/total
+                # per the upstream contract; guard total=0.
+                prog = evt.get("prompt_progress")
+                if isinstance(prog, dict):
+                    total = int(prog.get("total") or 0)
+                    processed = int(prog.get("processed") or 0)
+                    if total > 0:
+                        yield StreamDelta(progress=min(1.0, processed / total))
                 # The final usage frame carries an empty choices list.
                 for choice in evt.get("choices") or []:
                     chunk = (choice.get("delta") or {}).get("content") or ""

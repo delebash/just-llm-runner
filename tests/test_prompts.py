@@ -99,6 +99,9 @@ class CaptureAdapter:
     def stream_chat(self, messages, *, model=None, temperature=0.7, max_tokens=None,
                     system=None, think=False, extra=None):
         self.last = {"system": system, "user": messages[-1].content, "stream": True}
+        # Prompt-eval progress before the first token (§7.4 B6-2 — the builtin
+        # engine's prompt_progress frames arrive as progress-only deltas).
+        yield StreamDelta(progress=0.5)
         yield StreamDelta(text="ans")
         yield StreamDelta(text="wer")
         yield StreamDelta(done=True, prompt_tokens=2, completion_tokens=4)
@@ -242,6 +245,13 @@ def test_stream_emits_sse_frames():
         body = "".join(chunk for chunk in r.iter_text())
     assert '"delta": "ans"' in body and '"delta": "wer"' in body
     assert '"done": true' in body and '"completionTokens": 4' in body
+    # §7.4 B6-2: a progress delta becomes its own {"progress": p} frame,
+    # never a text delta.
+    assert '"progress": 0.5' in body
+    # §7.4 B6-1: the done frame carries everything /run's response carries —
+    # the dispatch stamps the RESOLVED model; cost is server-priced from it
+    # (no price entry for "m" → 0.0, same as /run).
+    assert '"model": "m"' in body and '"cost": 0.0' in body
     assert body.strip().endswith("data: [DONE]")
     assert adapter.last["user"] == "Hi Sam"
 

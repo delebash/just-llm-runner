@@ -143,3 +143,83 @@ def test_gemini_schema_rides_response_schema():
     payload = {}
     GeminiAdapter._apply_extra(payload, {"response_format": {"type": "json_object"}})
     assert payload["generationConfig"] == {"responseMimeType": "application/json"}
+
+
+# ── §7.4 B6-2: return_progress + prompt_progress on the builtin engine ────────
+
+class _FakeStreamResponse:
+    def __init__(self, lines, status_code=200):
+        self.status_code = status_code
+        self._lines = lines
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def iter_lines(self):
+        yield from self._lines
+
+    def read(self):
+        return b""
+
+
+class _FakeStreamClient:
+    """Stands in for the adapter's httpx.Client: records the request body and
+    replays canned SSE lines."""
+
+    def __init__(self, lines):
+        self._lines = lines
+        self.last_body = None
+
+    def stream(self, method, url, json=None, headers=None):
+        self.last_body = json
+        return _FakeStreamResponse(self._lines)
+
+
+def _stream_adapter(provider_type, lines):
+    a = OpenAICompatAdapter("p", provider_type, api_key="")
+    a._client = _FakeStreamClient(lines)
+    return a
+
+
+def test_stream_chat_return_progress_only_for_builtin():
+    # §7.4: the builtin engine asks llama-server for prompt-eval progress
+    # (return_progress, PR 15827); cloud/compat providers never see the field.
+    from llm_runner.llm.base import LLMMessage
+    lines = ['data: {"choices":[{"delta":{"content":"hi"}}]}', "data: [DONE]"]
+    for ptype, expected in (("local-llamacpp", True), ("openai-compat", False), ("openai", False)):
+        a = _stream_adapter(ptype, lines)
+        list(a.stream_chat([LLMMessage(role="user", content="q")]))
+        assert (a._client.last_body.get("return_progress") is True) is expected, ptype
+
+
+def test_stream_chat_parses_prompt_progress_frames():
+    # Overall progress = processed/total per the upstream contract; progress
+    # deltas are progress-only (no text), and the final delta stays the done
+    # event with the usage counts.
+    from llm_runner.llm.base import LLMMessage
+    a = _stream_adapter("local-llamacpp", [
+        'data: {"prompt_progress": {"total": 200, "cache": 0, "processed": 100, "time_ms": 5}}',
+        'data: {"prompt_progress": {"total": 200, "cache": 0, "processed": 200, "time_ms": 9}}',
+        'data: {"choices":[{"delta":{"content":"tok"}}]}',
+        'data: {"choices":[],"usage":{"prompt_tokens":200,"completion_tokens":1}}',
+        "data: [DONE]",
+    ])
+    deltas = list(a.stream_chat([LLMMessage(role="user", content="q")]))
+    assert [d.progress for d in deltas if d.progress is not None] == [0.5, 1.0]
+    assert [d.text for d in deltas if d.text] == ["tok"]
+    done = deltas[-1]
+    assert done.done and done.prompt_tokens == 200 and done.completion_tokens == 1
+
+
+def test_stream_chat_prompt_progress_guards_zero_total():
+    # A total of 0 must not divide — the frame is simply skipped.
+    from llm_runner.llm.base import LLMMessage
+    a = _stream_adapter("local-llamacpp", [
+        'data: {"prompt_progress": {"total": 0, "processed": 0}}',
+        "data: [DONE]",
+    ])
+    deltas = list(a.stream_chat([LLMMessage(role="user", content="q")]))
+    assert all(d.progress is None for d in deltas)

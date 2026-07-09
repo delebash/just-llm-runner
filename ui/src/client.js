@@ -70,16 +70,19 @@ export async function postForm(path, formData) {
 
 /**
  * POST and consume a Server-Sent-Events stream (the /v1/ai/stream shape:
- * `data: {"delta": "..."}` per chunk, a final `data: {"done": true, ...}`,
- * then `data: [DONE]`; errors as `data: {"error": "..."}`).
+ * `data: {"delta": "..."}` per chunk, optional `data: {"progress": 0..1}`
+ * prompt-eval frames before the first token (builtin engine only — §7.4 B6-2),
+ * a final `data: {"done": true, ...}`, then `data: [DONE]`; errors as
+ * `data: {"error": "..."}`).
  *
- * Calls onDelta(text) per chunk and resolves with the final
- * { promptTokens, completionTokens } from the done frame — or null when the
- * stream ended without one (callers surface usage to the UI and must be able
- * to tell "not reported" from a real zero count). Throws on an error frame.
- * Pass { signal } to make the stream abortable (the AI task queue's cancel).
+ * Calls onDelta(text) per chunk, onProgress(p) per progress frame, and
+ * resolves with the final { promptTokens, completionTokens, model, cost }
+ * from the done frame — or null when the stream ended without one (callers
+ * surface usage to the UI and must be able to tell "not reported" from a real
+ * zero count). Throws on an error frame. Pass { signal } to make the stream
+ * abortable (the AI task queue's cancel).
  */
-export async function requestStream(path, body, onDelta, { signal } = {}) {
+export async function requestStream(path, body, onDelta, { signal, onProgress } = {}) {
   const opts = {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -112,11 +115,25 @@ export async function requestStream(path, body, onDelta, { signal } = {}) {
       } catch {
         continue;
       }
-      if (frame.error) throw new Error(frame.error);
+      if (frame.error) {
+        // In-stream provider error — NOT a transport failure. Tagged so the
+        // §7.4 automatic fallback never retries it via /run (the provider
+        // would return the identical error on both paths).
+        const e = new Error(frame.error);
+        e.streamErrorFrame = true;
+        throw e;
+      }
       if (frame.done) {
-        usage = { promptTokens: frame.promptTokens || 0, completionTokens: frame.completionTokens || 0 };
+        usage = {
+          promptTokens: frame.promptTokens || 0,
+          completionTokens: frame.completionTokens || 0,
+          model: frame.model || "",
+          cost: frame.cost || 0,
+        };
       } else if (frame.delta) {
         onDelta?.(frame.delta);
+      } else if (typeof frame.progress === "number") {
+        onProgress?.(frame.progress);
       }
     }
   }

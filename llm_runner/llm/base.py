@@ -41,12 +41,20 @@ class StreamDelta:
     """One streamed event. Text chunks carry `text`; the final event carries
     `done=True` plus token usage (0 when the provider didn't report it). Adapters
     yield text deltas as they arrive, then one `done` event so the dispatch layer
-    can record usage and the client can finalize."""
+    can record usage and the client can finalize.
+
+    `progress` (§7.4 B6-2): prompt-eval progress 0..1 from the builtin engine's
+    `prompt_progress` frames (llama-server `return_progress`, PR 15827 — overall
+    progress = processed/total); None on text/done events and on adapters whose
+    backend doesn't report it (cloud). `model` is set by the DISPATCH layer on
+    the done event (the resolved model — adapters leave it empty)."""
 
     text: str = ""
     done: bool = False
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    progress: float | None = None
+    model: str = ""
 
 
 def pop_reasoning_effort(extra: dict[str, Any] | None) -> tuple[dict[str, Any] | None, str]:

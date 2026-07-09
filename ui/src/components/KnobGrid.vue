@@ -45,10 +45,13 @@ const props = defineProps({
   addLabel: { type: String, default: "＋ Add switch" },
   // Grouped add-row mode (QC-10/17, 2026-07-09): section headings over the SAME
   // rows/helpers. `groups` = ordered [{ key, label }]; `rowGroups` maps a flag
-  // name to its group key (unmapped/new rows land in the FIRST group). Empty
+  // name to its group key. Unmapped/new rows land in `fallbackGroup` (a group
+  // key), else the FIRST group — QC-28 needs freshly-added rows in "Your
+  // applied config", the LAST group, so the host names it explicitly. Empty
   // groups don't render.
   groups: { type: Array, default: () => [] },
   rowGroups: { type: Object, default: () => ({}) },
+  fallbackGroup: { type: String, default: "" },
   // Checklist mode (opt-in) — leaves the add-row mode + its `catalog` prop intact.
   checklist: { type: Boolean, default: false },
   catalogList: { type: Array, default: () => [] }, // ordered raw rows [{ flagName, label, kind, default, help, options }]
@@ -106,7 +109,7 @@ const sections = computed(() => {
   if (!props.groups.length) return [{ key: "", label: "", rows: rows.value.map((r, i) => ({ r, i })) }];
   const secs = props.groups.map((g) => ({ ...g, rows: [] }));
   const byKey = Object.fromEntries(secs.map((s) => [s.key, s]));
-  const fallback = secs[0];
+  const fallback = byKey[props.fallbackGroup] || secs[0];
   rows.value.forEach((r, i) => {
     (byKey[props.rowGroups[(r.name || "").trim()]] || fallback).rows.push({ r, i });
   });

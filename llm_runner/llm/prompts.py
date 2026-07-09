@@ -532,10 +532,13 @@ def make_feature_router(
     @router.post("/stream")
     async def stream_feature(body: RunRequest):
         """Streaming counterpart to /run for the interactive features (writerAI /
-        chat / rag). Emits SSE: `data: {"delta": "..."}` per chunk, a final
-        `data: {"done": true, "promptTokens", "completionTokens"}`, then
-        `data: [DONE]`. Errors arrive as `data: {"error": "..."}` (the stream has
-        started, so we can't send an HTTP status)."""
+        chat / rag). Emits SSE: `data: {"delta": "..."}` per chunk, optional
+        `data: {"progress": 0..1}` prompt-eval frames before the first token
+        (builtin engine only — §7.4 B6-2), a final `data: {"done": true,
+        "promptTokens", "completionTokens", "model", "cost"}` carrying everything
+        /run's response carries, then `data: [DONE]`. Errors arrive as
+        `data: {"error": "..."}` (the stream has started, so we can't send an
+        HTTP status)."""
         spec = get_store().get(body.action)
         if spec is None:
             raise HTTPException(status_code=404, detail=f"unknown AI action {body.action!r}")
@@ -566,7 +569,13 @@ def make_feature_router(
                             "done": True,
                             "promptTokens": delta.prompt_tokens,
                             "completionTokens": delta.completion_tokens,
+                            "model": delta.model,
+                            "cost": cost_for(
+                                delta.model, delta.prompt_tokens, delta.completion_tokens
+                            ),
                         }
+                    elif delta.progress is not None:
+                        frame = {"progress": delta.progress}
                     else:
                         frame = {"delta": delta.text}
                     yield f"data: {json.dumps(frame)}\n\n"

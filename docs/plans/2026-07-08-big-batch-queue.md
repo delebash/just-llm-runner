@@ -1863,3 +1863,72 @@ A report):** the Tune-grid cluster QC-10 (grouping yes) + QC-11 (remove from cat
 QC-12 (copy yes) + QC-17 (engine defaults removed, switches only) · QC-13 (Not-installed
 root-cause) · QC-14 (routing-by-feature wrap). Also still frozen: B2-9 · the DL-2 build ·
 Batches 5/6. The §9 QC queue stays LIVE (answer conversationally FIRST, always).
+
+---
+
+**POST-THIRD-COMPACT (2026-07-09). The user's first word after the compact was "compact
+complete but dont code yet" — the armed A go is explicitly SUSPENDED until their go; the
+QC queue continues conversationally.**
+
+- **QC-18 — switch VALUE editors: dropdowns vs plain text (2026-07-09, answered, awaiting
+  the user's word).** The user, on the Global launch defaults popup: *"for all the switches
+  global hardware ect i thought we wanted them just as textboxes that is the normal way and
+  you made them controls, not sure why example q4 and q8 and fp is there a q2 q6? what do
+  you think to me switches are text text for name text or number for vule. what do you
+  think ?"* — then *"like no_mmap you have it as true but it is a textbox you are so
+  inconsistant"* — then the clarifying design statement: *"the help will explain what the
+  switches are for and what the currect accepts values are, the only real question i had
+  and it is why i had the checkboxes for the tune and measure is so the user can decide
+  what switches to include if switch is not included then it is auatomatically enging
+  defauaflt, just like the way we do it on the command line"*. THE GROUNDED READING
+  (verified this turn): the mixed controls are structural, not a user-approved design.
+  KnobGrid's add-row mode (mounted by the Global-launch-defaults + Hardware-class editors,
+  LuGlobalSwitches.vue:141) renders a UiSelect whenever the seeded catalog row carries an
+  `options` list and a plain text input otherwise (KnobGrid.vue:305-316); bools carry no
+  options in the add-row map (plane1SwitchCatalog, knobCatalog.js:20-29), so `no_mmap`/
+  `mlock` show as raw text ("true") in the same list where `cache_type_k/v` (seed.py:406
+  `_ENUM_CACHE`: f16 (full) / q8_0 / q4_0), `flash_attn` (on/off/auto, seed.py:415-416) and
+  `spec_type` (seed.py:454-456) show dropdowns — three value-editor styles in one grid,
+  driven by catalog metadata I seeded, never a user decision; the inconsistency the user
+  called is real and owned. THE FACT CHECK (the user's "is there a q2 q6?"): llama.cpp
+  `--cache-type-k/-v` accepts **f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1**
+  (documented default f16) — NO q2/q6 cache types exist (q2_K/q6_K are model-FILE quant
+  levels, a different axis); verified at
+  github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md, fetched 2026-07-09. So
+  the seeded 3-option dropdown blocks six currently-legal values and goes stale as the
+  engine moves — the same claim-to-know-the-engine failure class QC-17 removed for
+  defaults. MY ANSWER AS GIVEN (the user asked "what do you think"): agree — plain inputs
+  everywhere a plane-1 switch is edited: text for the name, text for string/enum/bool
+  values (typed true/false — exactly what the no_mmap row already stores; the lifecycle
+  parse turns the stored strings into typed flags at spawn), number for int/float; the
+  per-switch HELP carries what it does + the accepted values (the cache-type helps gain the
+  full 9-value list), per the user's own statement. Counter-case stated honestly: free text
+  loses typo protection (q8 vs q8_0) and in-place discoverability — mitigated by the help +
+  the launch error surfacing a bad value. The user's include/exclude semantic ("not
+  included = automatically engine default, just like the command line") is confirmed
+  ALREADY TRUE end to end — only rows present become flags at spawn — and is exactly the
+  decided QC-17 shape (only value-carrying rows render; "+ Add a switch" includes one;
+  clearing removes it), so row-presence IS the old checkbox and nothing needs checkboxes
+  back. SCOPE FLAG (my reading, one-line-changeable): "all the switches global hardware
+  ect" = every plane-1 switch editor (Global launch defaults bundles · Hardware-class
+  defaults · the Tune & measure grid, including its ledger-mode bool/enum selects and the
+  "engine default" select option, which dies under QC-17 anyway); plane-2 samplers
+  UNTOUCHED (QC-17's settled scope). Natural build partner: the QC-10/11/17 Tune-grid
+  cluster. NOTHING BUILDS until the user's word + go. (Task #213.)
+
+- **QC-19 — rename "Hardware-class defaults" (2026-07-09, answered, awaiting the exact
+  label + go).** The user: *"hardware class defuatls propbably should be renamed to
+  something like hardware/model class defuatls as that is more rperesentative of what it
+  is"*. GROUNDED: the user is right about what the thing IS — a class-tune row is one
+  **(model × hardware-class)** launch config (`class_tunes_api.py:37` "One (model,
+  hardware-class) launch config"; db.py class_tunes model×class keying), so "Hardware-class
+  defaults" under-describes: it reads as one config per PC class for ALL models, the exact
+  implication the B3-9 copy fix removed from the caption while the NAME kept implying it.
+  The label's user-facing sites (swept this turn): ProviderForm.vue:233 (button) + :237
+  (library modal title) · TuneMeasureModal.vue:83 (origin-tag map "Hardware-class default")
+  + :548 (link) + :606 (per-model modal title) · LuClassTunes.vue:159 (saved toast) + :244
+  (component title) · tuneState.js:26 (badge label) · LuModelCatalog.vue:288 (no-config
+  hint) · LuGlobalSwitches.vue:126 (help sentence) · docs/models.md tuning section — one
+  wording source discipline applies (QC-1: tags use the REAL editor name, tuneState.js:21).
+  The exact new label is the USER'S pick (their anchor: "Hardware/model class defaults");
+  awaiting the word + go. (Task #214.)

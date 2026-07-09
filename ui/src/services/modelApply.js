@@ -107,20 +107,27 @@ export async function applyPreview() {
   return { configured: currentModels.length > 1 || tunedCurrent || factoryDiff, dominant, presets };
 }
 
-// Set `providerId`/`modelId` as the default on every task preset that still shares the PREVIOUS
-// dominant model (non-clobber: a preset the user re-pointed keeps its own model). Each preset
-// keeps ALL its per-task settings — the PUT sends `{...p, providerId, model}`, so only the
-// routing changes. The catalog + the local QuickSetup path pass LOCAL_RUNNER_ID (a no-op on
-// providerId — presets already point at the bundled runner); the QuickSetup other-provider path
-// passes the connected provider's id, so a task's routing flips to it.
-export async function setAsDefault(providerId, modelId) {
+// Set `providerId`/`modelId` as the default on the task presets. Two modes (§7.2, B2-9):
+// - keep-my-customized (default): only presets still on the CURRENT default pair move —
+//   "a task whose preset provider/model differs from the current global default" counts
+//   as hand-picked and keeps its own routing (the pair comparison is the §7.2 wording;
+//   the pre-B2-9 writer compared the model only, which is the same thing on an all-local
+//   box). Each preset keeps ALL its per-task settings — the PUT sends
+//   `{...p, providerId, model}`, so only the routing changes.
+// - overwrite: EVERY task preset repoints (the user's explicit overwrite choice).
+// The catalog + the local QuickSetup path pass LOCAL_RUNNER_ID; QuickSetup's
+// other-provider path and the provider rows' "Set as default" (B2-9) pass any
+// provider's id, so a task's routing flips to it.
+export async function setAsDefault(providerId, modelId, { overwrite = false } = {}) {
   const [asg, pr] = await Promise.all([
     request("/v1/ai/preset-assignments"),
     request("/v1/ai/engine-presets"),
   ]);
-  const { dominant, taskPresets } = dominantOf(asg, pr.presets || []);
+  const { dominant, dominantProviderId, taskPresets } = dominantOf(asg, pr.presets || []);
   for (const p of taskPresets) {
-    if (p.model !== dominant) continue; // overridden by the user — non-clobber
+    if (!overwrite && (p.model !== dominant || (p.providerId || "") !== dominantProviderId)) {
+      continue; // overridden by the user — non-clobber
+    }
     if (p.providerId === providerId && p.model === modelId) continue; // already the target
     await request(`/v1/ai/engine-presets/${p.id}`, { method: "PUT", body: { ...p, providerId, model: modelId } });
   }

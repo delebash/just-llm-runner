@@ -10,7 +10,9 @@
 // table + the per-provider local-model/Fit section are the next chunks.
 import { computed, onMounted, ref } from "vue";
 
+import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
+import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiProgress from "../common/components/UiProgress.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
 import TaskKinds from "./TaskKinds.vue";
@@ -19,6 +21,7 @@ import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
+import { useModelApply } from "../services/modelApply.js";
 import { useEngine } from "../composables/useEngine.js";
 import { usePoll } from "../common/composables/usePoll.js";
 
@@ -209,6 +212,59 @@ function onSaved() { editingId.value = null; loadProviders(); }
 // pointer in the message (the Tune dialog lives inside the Built-in provider's Edit
 // view — a direct-open handoff is a possible follow-up).
 const qsRef = ref(null); // the inline QuickSetup mount (exposes openWizard)
+
+// ── B2-9 (§7.2): "Set as default" on every provider row. ONE flow local/online:
+// chat/tasks repoint always; the embedding default too WHEN the row has an
+// embedding model (else the dialog says it stays, in one line); the overwrite
+// choice at apply — every task vs keep-my-customized (a task whose preset
+// provider/model differs from the current default keeps its own routing).
+const { currentDefaultId, refreshApplied, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } = useModelApply();
+const setDefaultFor = ref(null);   // the provider being confirmed (null = closed)
+const overwriteTasks = ref(false); // §7.2's choice; off = keep-my-customized
+const settingDefault = ref(false);
+
+const sdIsBuiltin = computed(() => setDefaultFor.value?.providerType === "local-llamacpp");
+// The chat model the default would run on: the built-in's is its assigned local
+// pick (the dominant across the task presets); an online/local-URL row's is its
+// "Default model" field. Empty → the guard branch renders instead of Apply.
+const sdModel = computed(() =>
+  sdIsBuiltin.value ? currentDefaultId.value : (setDefaultFor.value?.defaultModel || ""));
+const sdEmbedModel = computed(() => setDefaultFor.value?.embeddingModel || "");
+
+async function openSetDefault(p) {
+  overwriteTasks.value = false;
+  // The built-in's pick can be stale (another surface may have re-pointed the
+  // presets) — refresh BEFORE the dialog decides between Apply and the guard.
+  if (p.providerType === "local-llamacpp") await refreshApplied();
+  setDefaultFor.value = p;
+}
+
+async function applySetDefault() {
+  const p = setDefaultFor.value;
+  if (!p || !sdModel.value) return;
+  settingDefault.value = true;
+  try {
+    const pid = sdIsBuiltin.value ? LOCAL_RUNNER_ID : p.id;
+    await setAsDefault(pid, sdModel.value, { overwrite: overwriteTasks.value });
+    if (sdEmbedModel.value) await setAsEmbedding(pid, sdEmbedModel.value);
+    pushToast({ message: `${p.name || p.id} is now the default provider — tasks run on ${sdModel.value}.` });
+    setDefaultFor.value = null;
+  } catch (e) {
+    pushToast({ message: `Set as default failed: ${e?.message || e}` });
+  } finally {
+    settingDefault.value = false;
+  }
+}
+
+function sdRunQuickSetup() {
+  setDefaultFor.value = null;
+  qsRef.value?.openWizard?.();
+}
+
+function sdEditProvider() {
+  editingId.value = setDefaultFor.value?.id || null;
+  setDefaultFor.value = null;
+}
 async function checkHardwareChange() {
   try {
     const h = await request("/v1/llm-runner/hardware");
@@ -343,6 +399,7 @@ onMounted(() => {
             <!-- ONE actions cell (the row is a grid — loose buttons would wrap to a new
                  grid row, which is exactly the misplacement the user screenshotted). -->
             <div class="lu-prow-actions">
+              <UiButton intent="secondary" size="small" @click="openSetDefault(p)">Set as default</UiButton>
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
             </div>
@@ -378,12 +435,46 @@ onMounted(() => {
             </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
             <div class="lu-prow-actions">
+              <UiButton intent="secondary" size="small" @click="openSetDefault(p)">Set as default</UiButton>
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
             </div>
           </div>
         </template>
         <div v-if="!loading && !cloudProviders.length" class="lu-pempty">No cloud providers. Click “Add provider” and paste a key from OpenAI / Anthropic / OpenRouter.</div>
+
+        <!-- B2-9 (§7.2): the set-as-default confirm — ONE flow for every provider.
+             Apply branch when the row has a chat model; else the guard branch
+             (built-in: "pick manually or run Quick Setup" — the user's recorded
+             offer; other rows: set the Default model in Edit first). -->
+        <AppModal v-if="setDefaultFor" title="Set as default provider" :max-width="'480px'" @close="setDefaultFor = null">
+          <template v-if="sdModel">
+            <p class="lu-sd-line"><b>{{ setDefaultFor.name || setDefaultFor.id }}</b> becomes the default for your AI tasks — they run on <b>{{ sdModel }}</b>.</p>
+            <p v-if="sdEmbedModel" class="lu-sd-line lu-muted">Also becomes the embeddings (search) provider: <b>{{ sdEmbedModel }}</b>.</p>
+            <p v-else class="lu-sd-line lu-muted">Search embeddings keep their current provider — this provider has no embedding model set.</p>
+            <UiCheckbox v-model="overwriteTasks">Also overwrite tasks I customized</UiCheckbox>
+          </template>
+          <template v-else-if="sdIsBuiltin">
+            <p class="lu-sd-line">Assign a chat model first — pick one in the Model Catalog (Edit this provider), or run Quick Setup.</p>
+          </template>
+          <template v-else>
+            <p class="lu-sd-line">Set this provider's chat model first — open Edit and fill <b>Default model</b>.</p>
+          </template>
+          <template #footer>
+            <template v-if="sdModel">
+              <UiButton intent="secondary" @click="setDefaultFor = null">Cancel</UiButton>
+              <UiButton intent="primary" :loading="settingDefault" @click="applySetDefault">Set as default</UiButton>
+            </template>
+            <template v-else-if="sdIsBuiltin">
+              <UiButton intent="secondary" @click="setDefaultFor = null">Close</UiButton>
+              <UiButton intent="primary" @click="sdRunQuickSetup">Run Quick Setup</UiButton>
+            </template>
+            <template v-else>
+              <UiButton intent="secondary" @click="setDefaultFor = null">Close</UiButton>
+              <UiButton intent="primary" @click="sdEditProvider">Edit provider</UiButton>
+            </template>
+          </template>
+        </AppModal>
       </div>
     </section>
 
@@ -500,6 +591,8 @@ onMounted(() => {
 .lu-prow-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .lu-prow-prog { margin-top: 6px; }
 .lu-prow-err { margin: 6px 0 0; font-size: 12.5px; }
+/* B2-9 set-as-default confirm — body lines above the overwrite choice. */
+.lu-sd-line { margin: 0 0 10px; }
 /* Quick Setup — its own centered row spanning the TOP of the Built-in card (#4;
    no absolute positioning: the overlay variant shifted the grid on the user's box).
    The bottom border seats it as the card's header band above the provider row. */

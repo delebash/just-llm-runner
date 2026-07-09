@@ -2211,6 +2211,60 @@ this commit (read from the completion notification). Task #215 completed. On the
 user's box this means: the b9929 folder their Explorer shows IS the check's target now
 — the panel reads "Installed · b9929 · cuda12" with no reinstall.
 
+**B2-9 BUILD RECORD (shipped 2026-07-09, unit 3 of the fourth-compact go — the §7.2
+LOCKED design, built verbatim).** WHAT SHIPPED:
+(1) **The writer** (`ui/src/services/modelApply.js` — the ONE set-as-default path the
+catalog Default button and QuickSetup already share): `setAsDefault(providerId, modelId,
+{overwrite})`. Keep-my-customized (the default, §7.2's "set it for all but ones already
+set"): only task presets still on the CURRENT default pair move — and the "already set"
+comparison is now the (provider, model) PAIR per the lock's own words ("a task whose
+preset provider/model differs from the current global default"); the pre-B2-9 writer
+compared the model only, identical on an all-local box (FLAGGED: the pair reading is
+mine, one line to relax). Overwrite: EVERY task preset repoints, customized included.
+Presets keep all their per-task settings either way (the PUT sends `{...p, providerId,
+model}`). `routing.default.llmId` stays untouched (FLAGGED: the existing writer's scope —
+under Plan A the presets ARE the default; the legacy routing default is the no-preset
+fallback tier and QuickSetup's precedent never wrote it either).
+(2) **The button + the ONE dialog** (`ui/src/views/AiModelsArea.vue`): every provider
+row — the built-in, local-URL rows, cloud rows — gains "Set as default" in its actions
+cell (`.lu-prow-actions`, before Test/Edit; the same flow local and online per the
+user's "shouldn't the model setting be the same flow"). The AppModal confirm: who
+becomes the default and on which chat model; the embedding line in one sentence — "Also
+becomes the embeddings (search) provider: <model>" when the row has an embedding model,
+else "Search embeddings keep their current provider — this provider has no embedding
+model set" (the user-confirmed small print); and the §7.2 choice as ONE checkbox, "Also
+overwrite tasks I customized", OFF by default (FLAGGED: the off-default is mine — keep
+is the non-destructive read). Apply calls the shared writer, then `setAsEmbedding(pid,
+row.embeddingModel)` when the row embeds (the existing routing-doc writer — no second
+PUT path), then one toast. The chat model: the built-in uses its assigned local pick
+(the dominant across the task presets, refreshed before the dialog decides); any other
+row uses its "Default model" field.
+(3) **The guards**: built-in with no local pick → the §7.2 recorded offer verbatim —
+"Assign a chat model first — pick one in the Model Catalog (Edit this provider), or run
+Quick Setup" with a working Run Quick Setup button (the `qsRef.openWizard` precedent);
+any other row with no Default model → "Set this provider's chat model first — open Edit
+and fill Default model" with an Edit-provider button (FLAGGED: my analog of the recorded
+built-in guard — one line to change).
+(4) **Tests**: 4 new vitest cases (`modelApply.test.js`, the embedApi mock precedent —
+52/52 total): keep-mode moves only the default-pair presets (the same-model-different-
+provider preset is KEPT — the pair rule), per-task settings preserved on the PUT body,
+overwrite moves everything, already-target presets are not re-PUT.
+(5) **The probe** (`scripts/b29-probe.mjs`, committed): a REAL round-trip on the live
+API + UI asserting the user's sentences — a temp cloud provider is created; the no-model
+guard renders; after PATCHing its models the dialog names chat + embed + the choice; a
+hand-customized preset survives keep-mode while the default-pair presets repoint; the
+routing embedding default follows; overwrite moves the customized one too; the built-in
+guard offers Run Quick Setup; then EVERYTHING is restored and the temp provider deleted
+(DB left as found; verified by the probe's own final check). **8/8 PASSED, zero page
+errors, first run.**
+(6) **docs/models.md**: a "Set as default, on any provider" paragraph after the
+Quick-Setup-is-local-only block — the same flow everywhere, the embedding small print,
+the overwrite choice, both guards.
+GATES: vitest **52/52** · build:vite ✓ · b29-probe **8/8 zero page errors** · b4-probe
+15/15 · switch-probe 10/10 · FULL headless smoke zero JS errors · rules-checker verdict
+at this commit. Task #216 completed. (B5-1 — the picker-removal half of §7.2 — stays a
+Batch-5 unit, next after DL-2.)
+
 ---
 
 **⛔ THE FOURTH-COMPACT POINT (2026-07-09, user verbatim: "ok so do b2-9 that we settled,

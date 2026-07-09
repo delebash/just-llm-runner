@@ -32,7 +32,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .base import LLMMessage
-from .dispatch import LLMNotConfiguredError, chat, stream_chat
+from .dispatch import LLMNotConfiguredError, chat, resolve_route, stream_chat
 from .preset_resolve import resolve_task_preset
 from .pricing import cost_for
 from .schema import LLMConfig
@@ -297,6 +297,24 @@ class RunResponse(BaseModel):
     cost: float = 0.0
 
 
+class ResolvedRouteResponse(BaseModel):
+    """What a run of `feature` (or a specific `action`) routes to RIGHT NOW —
+    the §7.2 read-only "runs on" provenance chips display this. Computed from
+    the SAME functions the run path uses (`_resolve_preset` + `resolve_route`),
+    so the chip can never drift from what a run actually does. `configured`
+    False (+ `detail`) is the honest factory/unregistered state."""
+
+    feature: str
+    action: str = ""
+    providerId: str = ""
+    model: str = ""
+    taskKind: str = ""
+    presetId: str = ""
+    presetName: str = ""
+    configured: bool = True
+    detail: str = ""
+
+
 def _parse_sampler_value(v: str):
     """A stored text sampler value → the JSON type the chat API expects
     (bool / int / float / str). Empty → None ('not set')."""
@@ -559,5 +577,30 @@ def make_feature_router(
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(gen(), media_type="text/event-stream")
+
+    @router.get("/resolved-route", response_model=ResolvedRouteResponse)
+    async def resolved_route(feature: str, action: str = "") -> ResolvedRouteResponse:
+        """The provider+model a run of this feature/action would use right now
+        (B5-1, §7.2): the task-preset cascade as the override, then the dispatch
+        resolution — mirrored via the run path's own functions, never re-derived."""
+        key = action or feature
+        preset = _resolve_preset(key, feature, task_kind_of)
+        task_kind = ""
+        if task_kind_of is not None:
+            task_kind = task_kind_of(key) or task_kind_of(feature) or ""
+        base = dict(
+            feature=feature, action=action, taskKind=task_kind,
+            presetId=preset.id if preset else "",
+            presetName=preset.name if preset else "",
+        )
+        try:
+            adapter, model, _tier = resolve_route(
+                get_config(), feature, action=key,
+                provider_override=(preset.providerId if preset else "") or None,
+                model_override=(preset.model if preset else "") or None,
+            )
+        except LLMNotConfiguredError as e:
+            return ResolvedRouteResponse(**base, configured=False, detail=str(e))
+        return ResolvedRouteResponse(**base, providerId=adapter.provider_id, model=model)
 
     return router

@@ -11,6 +11,12 @@
 // Two states only:
 //   - inherit → no pin; the chip shows the host-resolved default provider+model.
 //   - pinned  → the chip tints and shows the pinned provider+model.
+//
+// READONLY mode (B5-1, §7.2 — per-surface pickers removed): `readonly` turns
+// the chip into a pure "runs on" provenance chip. No popover, no pin state —
+// clicking emits `navigate` and the HOST routes to its Tasks tab (the only
+// editor). The resolved provider+model props then carry the task-preset
+// resolution (the host reads useResolvedRoute), not pin state.
 
 import { ref, onMounted, onBeforeUnmount, nextTick } from "vue";
 import Icon from "../common/components/Icon.vue";
@@ -23,6 +29,8 @@ const props = defineProps({
   // unless `compact`.
   label: { type: String, default: "" },
   compact: { type: Boolean, default: false },
+  // Read-only provenance mode (§7.2): no popover; click emits `navigate`.
+  readonly: { type: Boolean, default: false },
   // Host-resolved display values (the fallback-to-default already applied).
   resolvedProviderName: { type: String, default: "—" },
   resolvedModel: { type: String, default: "—" },
@@ -34,12 +42,17 @@ const props = defineProps({
   providerOptions: { type: Array, default: () => [] },
   modelOptions: { type: Array, default: () => [] },
 });
-const emit = defineEmits(["select-provider", "select-model", "refresh"]);
+const emit = defineEmits(["select-provider", "select-model", "refresh", "navigate"]);
 
 // Popover state + dismissal (Esc, chip toggle, transparent backdrop).
 const open = ref(false);
 
 async function toggle() {
+  if (props.readonly) {
+    // Provenance chip — the host routes to its Tasks tab (the only editor).
+    emit("navigate");
+    return;
+  }
   open.value = !open.value;
   if (open.value && props.pinned) {
     // Refresh the model list whenever the popover opens with a pinned
@@ -63,20 +76,22 @@ onBeforeUnmount(() => {
 
 <template>
   <span class="afc-wrap">
-    <button class="afc-chip" :class="{ pinned, open }" @click.stop="toggle"
-      v-tooltip.bottom="`Click to change provider or model for ${label || feature}`">
+    <button class="afc-chip" :class="{ pinned: pinned && !readonly, open }" @click.stop="toggle"
+      v-tooltip.bottom="readonly
+        ? `Runs on the ${label || feature} task's model — manage it on the Tasks tab`
+        : `Click to change provider or model for ${label || feature}`">
       <template v-if="label">
         <span class="afc-label">{{ label }}</span>
         <span class="afc-sep">·</span>
       </template>
       <template v-else-if="!compact">
-        <span class="afc-label">Engine</span>
+        <span class="afc-label">{{ readonly ? "Runs on" : "Engine" }}</span>
         <span class="afc-sep">·</span>
       </template>
       <b class="afc-provider">{{ resolvedProviderName }}</b>
       <span class="afc-sep">·</span>
       <code class="afc-model">{{ resolvedModel }}</code>
-      <Icon name="ChevDown" :size="9" class="afc-caret" />
+      <Icon :name="readonly ? 'ChevRight' : 'ChevDown'" :size="9" class="afc-caret" />
     </button>
 
     <!-- Transparent backdrop. Lives inline (not teleported) so it shares

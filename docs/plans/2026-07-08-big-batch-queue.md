@@ -2664,6 +2664,41 @@ tables above) ran against the live server both sides of the seed.
 
 ---
 
+**QC-25 (2026-07-09, arrived LIVE mid-B5-1 grounding; harness task #223, queued
+AFTER B5 per the user's own word). The user, verbatim:** *"install engine
+detection, this is not difficult why cant you get it right, i reset db, i have
+b9934 installed bu resetting db pinned install back to old engine, add to task
+after b5, i am tired of you screweing up, this is easy."* Three screenshots:
+the disk (`…\ai-cache\llamacpp\`) holds ONLY `b9934/` + logs + models.ini; the
+Local-engine panel reads **"Installed · b9934 · cuda12"** — so the QC-13 disk
+resolution IS working — but the **Pinned build box reads b9899** and the
+provider row shows an **"Update available"** chip. THE ANSWER (root cause at
+the line, answered conversationally in the same turn): the QC-13 fix routed
+status/spawn/uninstall through the disk resolver, but `update_check()`
+(lifecycle.py:487) still reads `current = config.llamacpp.pinned_build` — the
+PIN — and the DB reset reseeded that pin to `DEFAULT_PINNED_BUILD = "b9899"`
+(config.py:39, seed.py:399), regressing it underneath the b9934 actually
+installed. So the chip compares latest-upstream against the stale pin and
+claims an update; worse, the Update flow is deliberately pin-keyed
+(binary.py:141-148, the QC-13 write-path flag), so clicking it would DOWNGRADE
+to b9899 and the #118 replace-sweep would delete the only engine (b9934). The
+user's earlier b9934 install worked because they bumped the pin field by hand;
+the reset threw that user value away. FIX SPEC (recorded in task #223, builds
+after the B5 ship, before B6 — the user's law "check the path and if path exe
+exist assume engine is installed" extended to the pin): (a) `update_check`'s
+`current` becomes the DISK-resolved installed build (the same
+resolve-installed-build the status path uses, binary.py:170-177; pin only as
+the nothing-installed fallback); (b) the pin HEALS UPWARD — when the resolved
+on-disk build is newer than the stored pin, write the disk build back to the
+`pinned_build` row (boot/status seam), so install/update target what is
+actually installed; a deliberate pin BUMP (pin > disk) still downloads —
+preserving the QC-13 invariant that a pin-bump Update can never be skipped by
+disk resolution. Pytest recreates the user's exact state (disk b9934, reseeded
+pin b9899): updateAvailable must be False when latest==b9934, the pin heals to
+b9934, and a hand-bump to a newer tag still reports + downloads.
+
+---
+
 **⛔ THE SIXTH-COMPACT POINT (2026-07-09, the user mid-build: "when you get to a
 stopping point we should compact" — the QC quintet IS the stopping point; this
 save written with its ship) — THE PICKUP INSTRUCTIONS.**
@@ -2696,3 +2731,170 @@ quintet's seed — restart post-compact as run_in_background, never inline nohup
 vite :1420; probes green at ship: qc-quintet 22/22 · b4 · b29 · dl2 · switch ·
 full smoke. Post-compact Block-0: re-read the global rules + JW CLAUDE.md +
 MORNING_RECAP.md + THIS block in full before any act.
+
+---
+
+**B5 BUILD RECORD (2026-07-09, the standing "do it all" go — Batch 5, tasks
+#193–#200, all seven items one verdict-gated cluster).** Grounding per the
+sixth-compact instructions: §0's verbatim items #38–#48, §3's batch notes, and
+§7.2 read in full before building; every claim below carries its file:line.
+
+**B5-1 (#38/#40, §7.2 — per-surface pickers REMOVED, replaced by the read-only
+"runs on" provenance chip).** The load-bearing grounding find: the Ask-the-book
+run path was NOT on the Plan-A preset cascade at all — `services/rag/chat.js`
+resolved provider+model CLIENT-side from the legacy feature pins
+(`ai.modelForFeature("chat")`, old :113) and passed them as per-call overrides
+(old :184), and `characterChat.js` did the same (:136/:188) — per-call override
+beats the preset in `/v1/ai/run` (prompts.py `provider_override=body.providerId
+or preset…`), so chat ran on PINS while writerAI ran on PRESETS. Exactly the
+§7.2 disease. Both services now send NO LLM override — the server cascade
+(task preset → dispatch fallback) rules; the embedding rail (a client-
+orchestrated embed call) still resolves client-side, unchanged. THE TRUTH
+SOURCE for the chip: a new runner endpoint `GET /v1/ai/resolved-route?feature=
+&action=` on `make_feature_router` (prompts.py) that mirrors the run path via
+its OWN functions — `_resolve_preset` + the new `dispatch.resolve_route()`,
+which is the override-resolution block EXTRACTED from `chat()`/`stream_chat()`
+(they duplicated it verbatim; both now call the one function — a T3 two-birds).
+Response: providerId/model/taskKind/presetId/presetName/configured/detail;
+the unconfigured factory state returns configured=false + the actionable
+message, never a 500. Kit: `useResolvedRoute` composable (one module cache
+over the endpoint, the useProviderModels shape; exported from index.js) and
+`LuFeatureChip` gained a `readonly` prop — no popover, no pin tint, lead reads
+"Runs on", caret ChevRight (a go-to signifier, not a dropdown — micro-choice
+FLAGGED), click emits `navigate`. JW's `AiFeatureChip.vue` binding rewrote onto
+useResolvedRoute + readonly chip; click router-pushes `/ai`; same props, so all
+~19 mounts (modals/views incl. the scene strip's "Running on" row) converged in
+one file. ChatPanel's bottom two-dropdown picker row (`.cp-model-pick`, old
+:445-463) is DELETED with its CSS + watcher; `composables/useFeaturePin.js` is
+DELETED (zero consumers after the rewrite); the ai store's `setFeaturePin` is
+now UI-unreferenced (kept — the store still mirrors server routing for guards;
+flagged, B5-2 table row 9). Runner tests: 3 new in test_prompts.py (preset
+resolution incl. /run parity; no-preset dispatch fallback; unconfigured
+honesty) — 18 pass in the file, 442 repo-wide.
+
+**B5-2 (#39 — the stale-surface audit, FINDINGS FIRST, then fixes). The
+strict-diff table (unit · file:line · verdict · action):**
+
+| # | Unit | Where | Verdict → action |
+|---|---|---|---|
+| 1 | Client-side LLM run overrides | rag/chat.js old :113/:184 · characterChat.js old :136/:188 | LEFTOVER (pins bypassing presets) → FIXED in B5-1 |
+| 2 | ChatPanel bottom picker + useFeaturePin | ChatPanel.vue old :445-463 · composables/useFeaturePin.js | LEFTOVER per §7.2 → REMOVED/DELETED in B5-1 |
+| 3 | "Settings → AI providers" error copy (area is "AI Settings") | chat.js :117/:128 · characterChat.js :137/:144 · indexer.js :98/:129 · IndexBuildModal.vue :70 | STALE → copy fixed ("Open AI Settings…"; the index message now says "open Ask the book and build the manuscript index first" — the old one pointed at a "RAG panel" that isn't a thing) |
+| 4 | "Ask the manuscript" + "persisted to IDB" comments | ChatPanel.vue :2-8, :72 | stale comments → fixed |
+| 5 | ProviderSelect.vue | components/ (ZERO consumers) | DEAD pre-shared-stack component → DELETED |
+| 6 | `.jw-btn` selectors styling kit buttons | Sidebar.vue :1118-1126 (5 rules) · ChaptersView.vue :1627 | DEAD selectors — kit buttons render `.ui-btn` (UiButton.vue `classes`), so the intended padding/color rules had silently stopped applying (a real visual regression) → repointed to `.ui-btn` |
+| 7 | `.jw-select-content` click-outside exemption | ChatPanel.vue :274/:282 | stale class (kit renders `.ui-select-content`, UiSelect.vue:91) → fixed |
+| 8 | "Writers Lab" copy pointing at the REMOVED view | ChaptersView.vue :1094 (user-facing) · writerAI.js :67 · RichEditor.vue :612 (comments) | STALE view name → "the Tasks tab's Lab" |
+| 9 | ai store featurePins comment + setFeaturePin | stores/ai.js :74-80/:160 | comment claimed "the chat panel writes featurePins.chat" — no longer true → comment rewritten; state KEPT (mirrors server routing; the workbench still edits pins server-side) — FLAGGED, not deleted |
+| 10 | providerForFeature guards in 12 modals/views | e.g. StuckDiagnosticModal.vue:40 · HomeView.vue:229 | CURRENT (existence-only guards, no run overrides) → keep |
+| 11 | helpDocs.js · i18n locales | — | clean (no picker/thread references) |
+
+**B5-3 (#46).** "New thread" → **"New chat"** (same clear-and-start-fresh), and
+a new **"Delete chat"** beside it — kit `confirmDialog` (danger) then the
+existing `chatApi.deleteThread` (server `DELETE /v1/chat`, chat.py:89) + clear.
+FLAGGED INTERPRETATION (the §3 note's open "delete current vs a chat list"):
+built delete-CURRENT — one conversation per (project, mode, character) is the
+existing model; a multi-chat LIST is a new feature the user didn't draw. If you
+want saved multiple chats per book/character (a chat list with switching), say
+so and it becomes its own item.
+
+**B5-4 (#47).** The `ask` nav row (both sidebar variants) carries
+`.nav-item-accent` — accent ink + accent icon + font-weight 600 (styles.css,
+after :240). Their sentence offered "bigger or bolder or in color"; the pick =
+color + bolder (probe-measured weight 600 + oklch accent vs plain rgb).
+
+**B5-5 (#41).** Right-click IN the scene editor WITH a selection →
+`.ctx-menu` (RichEditor.vue): the four selection AI actions (Rewrite / Expand /
+Describe / Tighten) + the seven Line edits + Cut/Copy/Paste/Add comment,
+grouped, label-only (compact); items call the SAME runWriterAction/runProsePass
+the strip menu uses. Backdrop/Esc/item click close (document-level Esc — the
+menu-scoped keydown missed when focus sat outside). FLAGGED: the menu is
+SELECTION-GATED by design — a bare right-click keeps the NATIVE menu so
+spell-check suggestions stay reachable (their sentence: "highlight a sentence
+right click"). The header AI menu stays, per the item.
+
+**B5-6 (#42) — WITH THE ROOT CAUSE of the user's observed behavior.** Their
+report said accept "leaves a strike through of the original text" while the
+code said accept DELETES the original — both true: **StarterKit's Strike mark
+also parses `<del>` tags and outranked `aiDel` at parse, so every AI original
+round-tripped into a plain `<s>` strike** — accept/reject then found no aiDel
+ranges and the struck original stayed behind forever (verified live: the
+seeded `<del data-ai-del>` rendered as `<s>` before the fix). Fixes:
+`AiDelMark` gets `priority: 1000` (its `del[data-ai-del]` rule now wins; bare
+`del`/`s` still parse as Strike). Then the FEATURE per their words: (a) editor
+setting **"Keep original as strikethrough when accepting an AI change"**
+(EditorSettingsModal + DEFAULT_EDITOR_SETTINGS.keepStrikethroughOnAccept,
+default TRUE per their "this is good" — FLAGGED default); keep-accept resolves
+the del in place (`data-ai-resolved`; remove-then-add because aiDel's custom
+`excludes` drops self-exclusion — a bare addMark NESTED marks and the change
+stayed pending, caught live by the probe); (b) resolved strikes are HISTORY —
+excluded from the pending bar/step/accept-all machinery (findRanges +
+listPendingChanges + hasPendingChanges filter, cursor-mark filter in
+syncDiffState); (c) **"Clear all strikethroughs"** on the scene strip's AI menu
+(enabled only when any exist): removes every aiDel (pending originals =
+accepting them, ins partners unwrap; ins-only continuations untouched) AND
+plain `<s>` strikes — the user's existing chapters carry those pre-fix
+leftovers and their words say "remove all strike throughs" (FLAGGED: a
+deliberate manual strike format would also be cleared by this button); (d)
+read mode hides ALL strikethrough content (readBody strips `s`/`strike` too).
+
+**B5-7 (#43).** Kit aiTasks: the completion/failure toast action label "View"
+→ **"View task queue"**; a task with `meta.silentToast` skips the SUCCESS toast
+(failures still toast). writerAI stamps silentToast on every run through ONE
+seam (`editorTask()` — all writerAI runs are editor runs; variations' three
+streams included, FLAGGED). ChaptersView's bottom bar (right of the word
+count) shows the latest writerAI completion since mount — label + "done in
+Xs · N tokens" + a **View task queue** link (opens the shared panel) + ✕
+dismiss — reading the kit store's existing history entries (no new state).
+
+**Gates (all green):** runner ruff + **442 pytest** (3 new) · JW server **76
+pytest** · vitest **57/57** · build:vite · **FULL headless smoke zero JS
+errors** · the NEW committed `scripts/b5-probe.mjs` **21/21 zero page errors**
+(every §0 sentence asserted live: nav accent measured; picker gone; chip =
+the server route + click→#/ai with no popover; New chat/Delete chat with a
+REAL server delete round-trip; the pending-vs-resolved count; keep-accept;
+read-mode hiding; clear-all; ctx menu with/without selection; the bottom-bar
+notice + View task queue + no toast; book + chat state restored to the byte)
+· b4 + b29 + qc-quintet (22/22) + switch + dl2 probes all PASSED. Probe-debug
+finds worth keeping: fulfilled Playwright routes for the cross-origin API need
+explicit CORS headers or the browser silently blocks them; the chat panel is
+fixed-position and survives navigation (a nav-toggle click CLOSES it).
+docs/models.md gained the "Where a feature's model shows up in the app"
+paragraph. NOT built (recorded): unit tests for aiDiff's TipTap commands — the
+committed probe exercises them through the real editor; a jsdom TipTap harness
+is a later nicety.
+
+---
+
+**⛔ THE SEVENTH-COMPACT POINT (2026-07-09, the user mid-ship: "when you get to
+a stoping point we need to stop" + "compact i mean" — the B5 ship IS the
+stopping point; this save ships with it) — THE PICKUP INSTRUCTIONS.**
+
+**Where the fourth-compact "do it all" go stands:** units 1–4, the QC quintet,
+AND **Batch 5 (#193–#200: B5-1 pickers→"runs on" chip per §7.2 with the
+resolved-route endpoint · B5-2 stale-surface audit, 11-row table, fixes applied
+· B5-3 New chat + Delete chat · B5-4 nav accent · B5-5 selection right-click
+menu · B5-6 strikethrough management incl. THE Strike-shadows-aiDel root cause
+· B5-7 bottom-bar completion notice)** are ALL SHIPPED AND PUSHED — the B5
+commits carry this save (see the git log; checker verdict from its completion
+notification at the commit). Full record: the B5 BUILD RECORD directly above
+(per-item flags + the audit table + the root-cause narratives).
+
+**THE GO REMAINS STANDING, in order:**
+1. **QC-25** (task #223 — the user's word "add to task after b5"): update-check
+   + pin follow the DISK build. Root cause + fix spec in the QC-25 record above
+   (lifecycle.py:487 reads the pin; the reseeded pin regressed under the
+   installed b9934; heal the pin upward + disk-resolved `current`; pytest
+   recreates their exact state).
+2. **Batch 6** (#201–#202 + ship #203) — streaming ON everywhere +
+   return_progress prompt-eval % in the task strip, per §7.4.
+
+Standing disciplines unchanged: any new QC message gets a conversational ANSWER
+FIRST · inline T1–T12 before each build unit · ONE genuine checker verdict per
+CODE commit (from the completion notification, never a transcript grep) ·
+probes OBSERVE each changed surface · docs ship with each unit · both repos
+commit+push per unit. Dev stack at the save: JW server background task on
+:17495 (b0diojan9) + vite :1420; probes green at ship: b5 21/21 · b4 · b29 ·
+qc-quintet 22/22 · switch · dl2 · full smoke. Post-compact Block-0: re-read the
+global rules + JW CLAUDE.md + MORNING_RECAP.md + THIS block in full before any
+act.

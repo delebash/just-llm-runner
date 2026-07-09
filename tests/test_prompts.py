@@ -297,6 +297,66 @@ def test_run_uses_resolved_preset():
     assert adapter.last["think"] is True                     # reasoning on (no json) from the preset
 
 
+def test_resolved_route_reports_the_preset():
+    """B5-1 (§7.2): the read-only "runs on" chip's endpoint reports the SAME
+    resolution a run uses — here the task preset's model, with the provider
+    falling to the dispatch default exactly as /run's provider_override does
+    when the preset names no provider."""
+    from llm_runner.llm import stores
+    from llm_runner.llm.presets_api import EnginePresetRow
+
+    p = stores.get_engine_preset_store().save(EnginePresetRow(name="Writer preset", model="preset-model"))
+    stores.get_task_kind_preset_store().set("prose.generate", p.id)
+    get_llm_registry()._adapters = {}
+    get_llm_registry().register(CaptureAdapter())
+    app = FastAPI()
+    app.include_router(make_feature_router(
+        lambda: MemPromptStore(), lambda: LLMConfig(), task_kind_of=lambda key: "prose.generate",
+    ))
+    c = TestClient(app, raise_server_exceptions=False)
+
+    r = c.get("/v1/ai/resolved-route", params={"feature": "greet"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["configured"] is True
+    assert body["model"] == "preset-model"
+    assert body["providerId"] == "fake"
+    assert body["taskKind"] == "prose.generate"
+    assert body["presetId"] == p.id
+    assert body["presetName"] == "Writer preset"
+
+    # Parity with the run path: /run dispatches the same model the chip shows.
+    run = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}})
+    assert run.status_code == 200
+    assert run.json()["model"] == body["model"]
+
+
+def test_resolved_route_without_preset_falls_to_dispatch():
+    """No task_kind_of / no preset → the legacy dispatch resolution (pin →
+    default), same as a run. presetId stays empty so the chip can say the
+    route comes from the default, not a task preset."""
+    c, adapter = _feature_client(MemPromptStore())
+    r = c.get("/v1/ai/resolved-route", params={"feature": "greet"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["configured"] is True
+    assert body["providerId"] == adapter.provider_id
+    assert body["model"] == adapter.default_model
+    assert body["presetId"] == ""
+
+
+def test_resolved_route_unconfigured_is_honest():
+    """Nothing registered → configured False + the actionable detail, never a
+    500 — the chip renders the factory state instead of erroring."""
+    c, _adapter = _feature_client(MemPromptStore(), register=False)
+    r = c.get("/v1/ai/resolved-route", params={"feature": "greet"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["configured"] is False
+    assert body["detail"]
+    assert body["providerId"] == "" and body["model"] == ""
+
+
 def _preset_sampler_app(samplers):
     """A /run app whose feature resolves to a preset carrying `samplers`."""
     from llm_runner.llm import stores

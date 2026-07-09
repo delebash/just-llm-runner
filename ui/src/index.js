@@ -43,6 +43,7 @@ export { default as AiStatusButton } from "./components/AiStatusButton.vue";
 // props/events + the #foot slot), and the embeddings client (ensure-resident
 // for the bundled runner + POST /v1/ai/embeddings).
 export { useProviderModels } from "./composables/useProviderModels.js";
+export { useResolvedRoute } from "./composables/useResolvedRoute.js";
 export { default as LuFeatureChip } from "./components/LuFeatureChip.vue";
 export { ensureEmbeddingReady, embedTexts, _resetEnsureCache } from "./services/embedApi.js";
 

@@ -138,6 +138,48 @@ def resolve_tier(
     return spec_for(model, tier_override)
 
 
+def resolve_route(
+    config: LLMConfig,
+    feature: str,
+    registry: LLMRegistry | None = None,
+    action: str | None = None,
+    provider_override: str | None = None,
+    model_override: str | None = None,
+) -> tuple[LLMAdapter, str, str | None]:
+    """The full per-call (provider, model, tier) resolution `chat`/`stream_chat`
+    run: `resolve_pin` for the feature/action, then the explicit overrides — a
+    preset's provider/model, or a Lab column's — applied over it. A provider
+    override with no model override lands on that provider's default model; a
+    model override always re-derives the tier from the override. Raises
+    LLMNotConfiguredError on an unregistered override provider or when nothing
+    resolves to a model (the catalog-full / selections-empty factory state).
+
+    This is also what GET /v1/ai/resolved-route reports, so the read-only
+    "runs on" provenance chips display exactly what a run would do (§7.2)."""
+    reg = _reg(registry)
+    adapter, model, tier_override = resolve_pin(config, feature, reg, action=action)
+    if provider_override:
+        other = reg.get(provider_override)
+        if other is None:
+            raise LLMNotConfiguredError(f"Provider {provider_override!r} isn't registered.")
+        adapter = other
+        if not model_override:
+            model = other.default_model
+            tier_override = None
+    if model_override:
+        model = model_override
+        tier_override = None
+    if not (model or "").strip():
+        # Catalog-full / selections-empty factory state (user, 2026-07-06): nothing
+        # is chosen by the seed, so a fresh box reaching an AI feature before setup
+        # gets guidance, not a raw provider error.
+        raise LLMNotConfiguredError(
+            "No model is set. Run Quick Setup (Settings → AI) to pick one for this "
+            "machine, or choose a model in the catalog (Set as default)."
+        )
+    return adapter, model, tier_override
+
+
 def chat(
     *,
     config: LLMConfig,
@@ -161,34 +203,10 @@ def chat(
     blocks without the caller knowing the tier. Pass an explicit bool to override
     (e.g. a Lab column forcing `think: false` to compare reasoned vs direct).
     """
-    reg = _reg(registry)
-    adapter, model, tier_override = resolve_pin(config, feature, reg, action=action)
-    if provider_override:
-        # Lab column override — route this call through a specific
-        # registered provider instead of the feature's resolved route.
-        other = reg.get(provider_override)
-        if other is None:
-            raise LLMNotConfiguredError(
-                f"Provider {provider_override!r} isn't registered."
-            )
-        adapter = other
-        if not model_override:
-            model = other.default_model
-            tier_override = None
-    if model_override:
-        # Lab column override — same provider, different model. The tier
-        # re-derives from the OVERRIDE (a qwen3:14b column goes Reasoned
-        # even when the pin's default model is Guided-class).
-        model = model_override
-        tier_override = None
-    if not (model or "").strip():
-        # Catalog-full / selections-empty factory state (user, 2026-07-06): nothing
-        # is chosen by the seed, so a fresh box reaching an AI feature before setup
-        # gets guidance, not a raw provider error.
-        raise LLMNotConfiguredError(
-            "No model is set. Run Quick Setup (Settings → AI) to pick one for this "
-            "machine, or choose a model in the catalog (Set as default)."
-        )
+    adapter, model, tier_override = resolve_route(
+        config, feature, registry, action=action,
+        provider_override=provider_override, model_override=model_override,
+    )
     tier = spec_for(model, tier_override)
 
     started = time.monotonic()
@@ -241,27 +259,10 @@ def stream_chat(
     precedence + Lab overrides as `chat`, incl. the optional `action` override),
     yields `StreamDelta` events (text deltas, then one `done` event), and records
     usage to the ledger at the end (from the `done` event's token counts)."""
-    reg = _reg(registry)
-    adapter, model, tier_override = resolve_pin(config, feature, reg, action=action)
-    if provider_override:
-        other = reg.get(provider_override)
-        if other is None:
-            raise LLMNotConfiguredError(f"Provider {provider_override!r} isn't registered.")
-        adapter = other
-        if not model_override:
-            model = other.default_model
-            tier_override = None
-    if model_override:
-        model = model_override
-        tier_override = None
-    if not (model or "").strip():
-        # Catalog-full / selections-empty factory state (user, 2026-07-06): nothing
-        # is chosen by the seed, so a fresh box reaching an AI feature before setup
-        # gets guidance, not a raw provider error.
-        raise LLMNotConfiguredError(
-            "No model is set. Run Quick Setup (Settings → AI) to pick one for this "
-            "machine, or choose a model in the catalog (Set as default)."
-        )
+    adapter, model, tier_override = resolve_route(
+        config, feature, registry, action=action,
+        provider_override=provider_override, model_override=model_override,
+    )
     tier = spec_for(model, tier_override)
 
     started = time.monotonic()

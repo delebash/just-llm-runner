@@ -156,10 +156,14 @@ export const useAiTasksStore = defineStore("aiTasks", {
       // chars-÷-4 estimate would read as exact in the toast, so we
       // suppress it entirely when we don't have a real count.
       const tokensStr = t.tokensOut ? ` · ${t.tokensOut.toLocaleString()} tokens` : "";
+      // B5-7 (#43): a host surface can own the completion notice itself (the
+      // JW editor's bottom bar reads the history entry) — those tasks mark
+      // meta.silentToast and the global toast stays quiet on success.
+      if (t.meta?.silentToast) return;
       const open = () => this.openPanel();
       pushToast({
         message: `${t.label} — done in ${seconds}s${tokensStr}`,
-        action: { label: "View", fn: open },
+        action: { label: "View task queue", fn: open },
       });
     },
 
@@ -174,7 +178,7 @@ export const useAiTasksStore = defineStore("aiTasks", {
       const open = () => this.openPanel();
       pushToast({
         message: `${t.label} — failed: ${t.error}`,
-        action: { label: "View", fn: open },
+        action: { label: "View task queue", fn: open },
       });
     },
 

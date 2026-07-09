@@ -3561,9 +3561,18 @@ note). The live session's installed gates are the v4 set from this ship.**
 
 ---
 
-**⛔ QC-CLUSTER WORK-IN-PROGRESS MARKER (2026-07-09 — live while the cluster
-builds; superseded by the cluster BUILD RECORD when it ships as ONE
-verdict-gated unit).** Post-QC-25 the cluster (#224–#236) is building in the
+**⛔ QC-CLUSTER BUILD RECORD (2026-07-09 — SHIPPED: runner `472d9ab` · JW
+`879ddb8` · recap `0dd3613`). 12 of 13 items (#224–#236); #232 DEFERRED on an
+open user flag — see the NINTH-COMPACT POINT below.** Gates at the ship:
+runner ruff + storage pytest · JW vitest **59/59** · build:vite · FULL
+headless smoke zero JS errors · rules-checker **VERDICT: PASS (round 2)** — it
+caught a REAL bug on round 1 (the durable failure badge stuck red forever
+because `togglePanel` never cleared `unseenErrors` — the titlebar chip AND the
+sidebar item both open via toggle, not `openPanel`; fixed by routing
+`togglePanel` through `openPanel`/`closePanel` so the clear lives in one place;
+a new vitest case pins the toggle path — the prior openPanel-only test is why
+58/58 stayed green over a broken shipped path). The build detail (what each
+item did) is preserved verbatim below. Post-QC-25 the cluster built in the
 working trees (BOTH repos uncommitted by design — one ship). DONE in the
 working tree so far, each verified by vitest 58/58 + build:vite: **#224**
 (LuFeatureChip stripped to the provenance-only chip — popover/pin/backdrop/
@@ -3642,11 +3651,66 @@ a new vitest case exercises the toggle path (the prior test only hit
 the checker's two stale-comment notes: MultiReaderPanelModal's "each persona
 registers its own task" comment updated to the one-entry reality (#229), and
 AiStatusButton's in-file contract comment is now TRUE after the fix. Vitest
-59/59 · build:vite green. Re-verdict pending.
+59/59 · build:vite green. Re-verdict → PASS; SHIPPED (see the record header
+above for the shas).
 
-Then: the cluster ships as ONE unit (12 items — #232 is the follow-up commit
-once the user answers its flags). Then: full gates + a probe
-observing each changed surface + ONE checker verdict + the cluster ships.
+---
+
+**⛔ THE NINTH-COMPACT POINT (2026-07-09 — the CURRENT pickup; supersedes the
+eighth block above for what's DONE). READ THIS BLOCK IN FULL POST-COMPACT,
+plus Block-0 (global rules · JW CLAUDE.md · MORNING_RECAP.md).**
+
+**What this window shipped (all committed + pushed, both repos clean):**
+1. **#237 `8fc5738`** — the think-twice hook hardening (the user's "#237
+   first" pick). v4 of the rules-as-checks system, LIVE now: Block-4 plan
+   LOCK needs a GENUINE agent verdict (typed tests/'trivial' no longer clear
+   it; user-decided provenance passes) · Block-6 = a proposal needs a
+   "SECOND PASS —" section · the first code edit denies until the turn cites
+   the plan/spec line + a "RISK:". Full record: §9 "#237 BUILD RECORD".
+2. **QC-25 `55d57ad`** — update_check + engine status follow the DISK build;
+   the pin heals upward at BOOT + POST-INSTALL only (never mid-flow, so a
+   deliberate downgrade survives). §9 "QC-25 BUILD RECORD".
+3. **The QC cluster `472d9ab`/`879ddb8`** — 12 items (#224–#236 minus #232),
+   the record is the "QC-CLUSTER BUILD RECORD" section directly above. Task
+   entries #224–#231, #233, #234, #236 are all completed.
+
+**⛔ #232 IS BLOCKED ON THE USER'S WORD — DO NOT BUILD IT UNTIL THEY ANSWER.**
+Its own spec (§9 "QC-35 — THE FULL PER-ACTION TEST-INPUT AUDIT") says it
+"builds after the user's word on this table," and flag (1) is explicitly
+awaiting them. FOUR questions were put to the user (AskUserQuestion died TWICE
+to container restarts, so they were surfaced as PLAIN TEXT in the turn-end
+message — the user's answer is what unblocks this):
+- **(Q1) relationshipArc test input:** sample-only (recommended; matches
+  "relationship arc sample is fine") vs a "From this book" auto-pair button.
+- **(Q2) location picker:** remove it (recommended — no prompt consumes a
+  location var; it only fed the generic user_content being deleted) vs keep.
+- **(Q3) #234 toast tail:** stop at the clear cases (recommended — the ~45
+  debatable JW-app toasts get a findings table for the user's per-surface
+  verdict) vs cull hard now.
+- **(Q4) two flagged defaults:** sidebar label "AI tasks" (vs "AI queue"?);
+  panel history 5-row tail — confirm or change.
+
+**THE ORDER post-compact:** the user answers the four questions →
+1. **#232** — build the 34-action test-input table per §9's table (composer
+   reuse everywhere; drop the generic user_content from provides;
+   delete BOTH 1×1 bridges in kit testData.js:26/29/48; the "From this book"
+   compose button; samples authored per each prompt's "You will be given:"
+   contract; beatSheet compose = the modal's default framework, already
+   user-decided; apply Q1/Q2/Q3/Q4). ONE verdict-gated ship, both repos.
+2. **B6 (#201–#203)** per §7.4 — streaming ON everywhere + return_progress
+   prompt-eval % in the task strip (QC-30b's three missing strips folded in:
+   MultiReaderPanelModal, VariationsModal, AnalysisView's voiceDrift leg).
+3. **#235 LAST** — the book-wide page-related undo rework (project store's
+   global history → per-page/domain). REAL PLAN first (plan mode + panel).
+
+**Disciplines unchanged:** QC answered conversationally FIRST · inline T1–T12
+before each build unit · ONE genuine checker verdict per CODE commit (read
+ONLY from the agent's completion notification) · probes OBSERVE every changed
+surface · docs ship with each unit · both repos commit+push per unit. The
+four RETHINK themes still govern. Dev stack: JW server run_in_background on
+:17495 + vite :1420 (the container kept restarting this window — restart both
+as run_in_background if dead; findChrome, never hardcode). NEVER decide the
+four questions yourself — they are the user's, flagged and waiting.
 
 **QC-25 BUILD RECORD (2026-07-09, the second unit of the resumed order —
 task #223, built to the REVISED spec in the eighth-compact block above).**

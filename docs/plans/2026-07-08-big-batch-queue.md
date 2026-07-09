@@ -2100,3 +2100,23 @@ GATES: build:vite ✓ · switch-probe now **10/10 zero page errors** (the two ne
 checks + all 8 cluster checks green against the RENAMED heading) · b4-probe 15/15 · FULL
 headless smoke zero JS errors · vitest 48/48 · rules-checker verdict at this commit.
 Tasks #208/#209/#214 completed.
+
+**CHECKER FOLLOW-UP + AN OWNED INCIDENT (2026-07-09, the doc-only commit after
+b856f82/3533820).** The genuine rules-checker verdict on this diff was **FAIL (T5,
+one item)** — but the code had ALREADY been committed on a mis-extracted PASS: my
+verdict-waiter grepped the agent's transcript for "VERDICT: <word>" and matched the
+PROMPT'S OWN instruction text ("Return … VERDICT: PASS or FAIL") long before the agent
+finished. That is the self-certification hole the commit gate exists to close, reproduced
+through a bad extraction — owned. RITUAL CORRECTED: the verdict is read ONLY from the
+agent's completion notification (the harness-authored result), never grepped out of the
+transcript mid-run. The T5 item, fixed here: `models.md:125` still read "the global or
+hardware-class defaults" — LOWERCASE, so the capital-H sed missed it; renamed to
+"hardware/model class defaults" (the record's "every user-facing site" claim was an
+overstatement until this line). Also classified per the checker's secondary note:
+`LuModelCatalog.vue:743`'s tooltip "the curated hardware-class map" names the
+class→model RECOMMENDATION map — a different object than the renamed defaults library —
+kept as-is (FLAGGED, one line to change); the QuickSetup/classTunes/LuClassTunes comment
+matches describe the mechanism, legitimate keeps. Everything else in the checker's full
+report verified sound: the AiModelsArea v-if chain, the non-stacking retry, the shared
+wrap. The first (switch-cluster) checker's full result was re-read after its completion
+notification: genuinely VERDICT: PASS — that commit stands clean.

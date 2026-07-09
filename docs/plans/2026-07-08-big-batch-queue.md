@@ -3806,7 +3806,7 @@ provider Edit form `var(--accent-soft)`; for the built-in row that form contains
 field grid + the Local engine panel + both model slot cards + the entire Model Catalog
 (mounted inline in the provider list, `AiModelsArea.vue:367`), so most of the page sits
 on one accent wash. (2) `ui/src/components/LuModelCatalog.vue:1025` —
-`.lu-mcat-section` ("Chat & writing models") is a SECOND `--accent-soft` fill inside
+`.lu-msection` (row markup at :735) ("Chat & writing models") is a SECOND `--accent-soft` fill inside
 the first — the B2-#11 "pronounced band" can't contrast against its own color. (3) JW
 maps the token pink: `justwrite-app/src/renderer/src/tokens.css:34-37` —
 `--accent-hue: 14` (oxblood) → `--accent-soft: oklch(0.92 0.028 14)`; a green-accent
@@ -3845,8 +3845,8 @@ project on a fresh DB (`justwrite-app/server/justwrite_server/demo_seed.py:20-24
 `DEMO_PROJECT_ID = "prj_demo_cartographer"`; `server/tests/test_seed.py:33` asserts
 projects[0] IS it; renderer fallback title at `stores/ui.js:48`). SEPARATELY, a small
 renderer-built "Tutorial Project" exists (`services/tutorialProject.js:10` —
-`TUTORIAL_TITLE = "Tutorial Project"`: 2 characters + 2 locations + 1 strand + 1
-chapter + worldbuilding + a welcome note), materialized on demand by
+`TUTORIAL_TITLE = "Tutorial Project"`: 2 characters + 1 location + 1 strand + 1
+chapter + worldbuilding + a welcome note — checker-corrected from "2 locations"), materialized on demand by
 `project.createTutorialProject()` (`stores/project.js:2005-2023`) from the Sidebar
 project menu's "Try the Tutorial Project" button (`Sidebar.vue:852-854`). So the build
 = repoint the tutorial affordance at the demo book, stop seeding it as the default
@@ -3908,3 +3908,15 @@ fallback in copy ("Runs on the selection, or the whole scene if nothing is selec
 Tighten). The context menu adopts the same scope-law + enable/disable + hint behavior
 in the COMPACT Windows-style row grammar — the AI menu keeps the long teaching
 descriptions; the context menu is the quick path.)*
+
+**QC-42 (2026-07-09, same window — verbatim: "add task the quck setup line with button
+make it clear that this is only for built in provider add text right of button in
+bigger size For Local built in provider or something like that").**
+
+THE ASK: the Quick Setup row must say clearly it applies ONLY to the built-in
+provider — text to the RIGHT of the "Run Quick Setup" button, in a BIGGER size, copy
+approximately "For Local built-in provider" (the user's "or something like that" =
+exact wording FLAGGED for their word at build). Grounded: the band is the inline
+QuickSetup mount at the top of the Built-in card (`ui/src/views/AiModelsArea.vue:369-375`,
+band CSS at :632; the button + its copy render inside `QuickSetup.vue`'s inline mode).
+STATUS: queued as a harness task; NOT built.

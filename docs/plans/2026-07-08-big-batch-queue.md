@@ -3430,3 +3430,114 @@ USER'S GO, and the standing recommendation is to build it FIRST (before
 QC-25/the cluster) so everything after runs under the hardened gates. If the
 user's first post-compact word is a bare "go", ASK which comes first — #237 or
 QC-25 — rather than deciding.
+
+---
+
+**#237 BUILD RECORD (2026-07-09, post-eighth-compact — the first unit of the
+resumed order). THE GO:** the ordering question was put to the user exactly as
+the addendum above prescribed, and the user picked **"#237 first
+(Recommended)"** — that click is the go for #237 and confirms the rest of the
+order (QC-25 → the cluster → B6 → #235) continues right after. Built entirely
+in `justwrite-app/claude-config/` (the restore-source bundle README.md names;
+`install.sh` provisions it into `~/.claude` on every fresh container, and was
+run with the live session's `CLAUDE_CODE_REMOTE=true` so THIS session's gates
+upgraded immediately — the remaining units of the order run under them).
+
+**What shipped (v4 of the rules-as-checks system, per the #237 spec recorded
+above):** three think-twice gates, all defined once in the shared registry
+`claude-config/hooks/_rules.py` and consumed by the existing hook mechanisms —
+no parallel machinery. (1) **Block 4 hardened:** the `plan` rule's detect
+changed from `plan_lock and not rules_passed` to `plan_lock and not
+user_decided and agent_pass != "pass"` — a plan/design LOCK now requires the
+GENUINE independent-agent verdict (the same harness-authored-notification
+`agent_pass` mechanism the v3 commit gate proved; _rules.py `agent_pass()`),
+closing the typed-tests/'trivial' self-citation escape at lock grain. A new
+`USER_DECIDED` provenance regex escapes turns that merely RECORD the user's own
+decision ("the user's decision/word", "your call", "user, verbatim") — this
+project records user decisions constantly and a checker on a record turn is
+waste; lying about WHO decided would be a flagrant transcript act, the same
+visible-residual class as v3's decoy-agent note. (2) **Block 6 added
+(`second-pass`):** a new Stop rule — any PROPOSAL turn (new `PROPOSAL` regex:
+"I propose/recommend", "my proposal/recommendation", "proposed
+design/approach/fix/change/spec/upgrade", "here's the design/approach/
+proposal", OR lock language not attributed to the user) must contain an
+explicit "SECOND PASS" section; the inject prescribes the exact form (what the
+second look CHANGED or confirmed · what it re-verified at file:line · the
+sharpest remaining doubt). Deliberately slotted AFTER post-task in the
+registry so every historical "Block 0–5" reference in EFFECTIVENESS.md's
+incident records stays truthful — the new rule is Block 6, nothing renumbered.
+Not hedge-exempt (a hedged proposal the user will read still needs its second
+pass). (3) **The pre-edit plan-line check:** `pre-action-check.py`'s first-
+code-edit deny now requires, IN ADDITION to the existing rules-pass, that the
+turn's own text (everything since the last genuine user message — i.e. written
+BEFORE the edit call) contains a `PLAN_REF` (a `doc.md:line` citation, a
+§-section, "queue doc"/"plan doc", "per the plan/spec", or "the user's
+words/word/verbatim") AND a `RISK_LINE` ("RISK: …", "what could be wrong",
+"failure mode: …") — the second look at the keyboard, before the write. The
+two denies merged into ONE message listing everything missing (compliance is
+one round, not two). The trivial exemption for this check is the EXPLICIT word
+"trivial" only (new `TRIVIAL_EXPLICIT`), not the loose TRIVIAL family — words
+like "rename" and "one-line" appear in ordinary task names (QC-29 is literally
+a rename task) and would have silently skipped the check; the existing
+rules-pass deny keeps its original looseness unchanged.
+
+**Files touched (all in justwrite-app):** `claude-config/hooks/_rules.py`
+(the five new regexes + `TRIVIAL_EXPLICIT`, six new `build_ctx` facts —
+`proposal`/`second_pass`/`user_decided`/`plan_ref`/`risk_line`/
+`trivial_explicit` — the hardened `plan` rule, the new `second-pass` rule, the
+rewritten `_PLAN` inject + new `_SECOND` inject); `claude-config/hooks/
+pre-action-check.py` (the combined first-edit deny); `claude-config/hooks/
+verify-gate.py` (docstring/comment renumber to 1–6 + the PASS log line now
+logs proposal/second_pass/agent_pass for tuning); `claude-config/hooks/
+commit-gate.py` (docstring 0–6); `claude-config/hooks/test_gates.py` (the
+regex suite for all five new patterns with negatives; ctx-grain tests for the
+hardened plan rule incl. the agent-pass clear and the user-decided escape;
+Stop-grain tests incl. the FLIPPED assertion — a typed "VERDICT: PASS" on
+"Here's the plan" now BLOCKS, and the genuine-notification + SECOND PASS
+variant passes; the pre-action FLIPS — verdict-only and agent-run-only first
+edits now deny, full compliance passes, loose-"rename" denies, explicit
+"trivial" passes; gate-stats 8→9 ids); `claude-config/README.md` (blocks list
++ granularities + provisioning table); `claude-config/CLAUDE.md` (the
+enforcement section: pre-task bullet, Block 4 rewrite, Block 6 bullet — this
+IS the global rules file after install); `claude-config/EFFECTIVENESS.md`
+(the "v4: THE THINK-TWICE upgrade" ledger entry with the three watch-items —
+Block-6 false-fire rate, boilerplate-RISK creep, user-decided stretch — plus
+the tally rows). `install.sh` needed no change (same file set).
+
+**Why (the user's words, from the #237 record above):** *"when I asked you to
+think twice you change severla decsions … how do i make you do this and persit
+across session, if it is a rule you just ingore it halft the time"* — the
+2026-07-09 rethink changed five locked-looking decisions, so the second pass
+demonstrably pays; text rules decay (the documented salience problem), so v4
+wires the second pass into the same gate machinery that has empirically bound
+behavior since v3: gates keyed to a real action or an agent's own output,
+fired at mechanical boundaries. Honest ceiling unchanged: non-skippable, not
+infallible — the section's presence is structural, its honesty stays semantic.
+
+**Interpretation flags (mine, shipped flagged in advance per the decree):**
+(F1) the GENUINE-agent-verdict requirement is scoped to LOCK-grain turns
+(PLAN_LOCK language); plain proposals get the cheap SECOND PASS section —
+the calibrated reading of the spec's "design/proposal turns", keeping QC
+answer-first usable (tightening to agents-on-every-proposal later is a
+one-line detect change); (F2) the user-decided provenance escape on Block 4;
+(F3) `plan` keeps its existing hedge exemption, `second-pass` gets none;
+(F4) the literal marker conventions ("SECOND PASS —", "RISK:", the PLAN_REF
+forms) as the mechanical translation of the spec's "cites the plan line + one
+line on what could be wrong"; (F5) Block numbering: second-pass = Block 6
+after post-task, nothing renumbered. Say the word to change any of these.
+
+**Verification:** the committed harness `python3 claude-config/hooks/
+test_gates.py` — ALL 7 suites PASS (registry incl. the new regex suite ·
+verify-gate incl. the flipped and new cases · pre-action incl. the think-twice
+denies · task-gate · commit-gate untouched-behavior · gate-stats 9-id roll-up
+· fail-open with a broken registry). Then `bash claude-config/install.sh`
+applied it LIVE (verified: the installed `/root/.claude/hooks/_rules.py`
+imports with `second-pass` in RULE_IDS; the installed CLAUDE.md byte-equal to
+the bundle), and a live-fire probe against the INSTALLED hooks observed each
+changed surface directly: Block 6 fires on a bare "I recommend…" and clears
+with the section; Block 4 blocks "Here's the plan. VERDICT: PASS" (the closed
+escape) with the GENUINE-verdict message; the pre-edit check denies a
+verdict-only first edit with the THINK-TWICE message and clears when the turn
+carries "executing queue doc §9. RISK: …". Rules-checker verdict at the
+commit (the commit gate itself enforced it — fittingly, this unit's own v3
+machinery gated this unit's v4 commit).

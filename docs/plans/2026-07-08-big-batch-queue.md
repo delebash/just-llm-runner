@@ -3541,3 +3541,17 @@ verdict-only first edit with the THINK-TWICE message and clears when the turn
 carries "executing queue doc §9. RISK: …". Rules-checker verdict at the
 commit (the commit gate itself enforced it — fittingly, this unit's own v3
 machinery gated this unit's v4 commit).
+
+**Post-verdict hardening (same unit, before the commit):** the checker's PASS
+carried two sharp notes and both were fixed on the spot, harness re-run (7/7)
+and the live install refreshed. (a) The pre-edit deny window counted ALL
+edits, so a turn that edited a .md doc BEFORE its first code edit bypassed
+the think-twice check — and record-first is the normal work pattern here.
+Fixed at the source: `scan_turn` now also counts `code_edits` (registry, one
+source) and `pre-action-check.py` keys its window on prior CODE edits only;
+new harness case pins that a doc-edit-first turn still denies the first code
+edit. This also makes the hook's own docstring ("the FIRST code change of a
+turn") true rather than approximate. (b) `RISK_LINE`'s ASCII-hyphen
+alternative matched the boilerplate word "risk-free"; the hyphen left the
+class (the prescribed form is "RISK:"), negative harness case added. The
+checker's re-verdict on the final diff is the one at the commit.

@@ -9,11 +9,11 @@
 // §7.6 (2026-07-08) + QC-17/18/10 (2026-07-09, the user: "the tune and measure
 // works like global and hardware you have an x by each row … just like the way we
 // do it on the command line"): the grid is the SAME free-row editor as the Global
-// launch defaults / Hardware-class editors — ONLY the switches that carry a value
+// launch defaults / Hardware/model class editors — ONLY the switches that carry a value
 // render, each a name box + a plain text/number value box + ✕ (remove = the flag
 // isn't sent = the engine does its own thing; the app never claims to know the
 // engine's defaults), "+ Add switch" to include one — grouped under a heading per
-// source layer (Your applied config · Hardware-class default · Global launch
+// source layer (Your applied config · Hardware/model class default · Global launch
 // defaults · Computed for this PC). Set rows pre-fill from the model's RESOLVED
 // defaults INCLUDING the fit-computed values ("Add to grid" is retired). **Apply**
 // is a SNAPSHOT: the model takes ownership of every set row (PUT /v1/ai/model-tunes;
@@ -79,7 +79,7 @@ const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value
 // under "Your applied config" — they become exactly that on Apply.
 const TUNE_GROUPS = [
   { key: "applied", label: "Your applied config" },
-  { key: "class", label: "Hardware-class default" },
+  { key: "class", label: "Hardware/model class default" },
   { key: "global", label: "Global launch defaults" },
   { key: "computed", label: "Computed for this PC" },
 ];
@@ -529,7 +529,7 @@ onBeforeUnmount(stopAutoPoll);
         <span class="lu-tune-libs">
           <UiButton intent="secondary" size="small"
             title="This model's per-PC-class launch configs — the shared starting points a machine without its own applied config uses"
-            @click="showClassLib = true">Hardware-class defaults ↗</UiButton>
+            @click="showClassLib = true">Hardware/model class defaults ↗</UiButton>
           <UiButton intent="secondary" size="small"
             title="The always-on switch bundles (all models · MoE · dense · speculative decode) underneath every tune"
             @click="showGlobalLib = true">Global launch defaults ↗</UiButton>
@@ -587,7 +587,7 @@ onBeforeUnmount(stopAutoPoll);
 
     <!-- #19: the library popups — the SAME shared components the Edit view's
          buttons open (B2-4), here scoped to this model where it applies. -->
-    <AppModal v-if="showClassLib" :title="`Hardware-class defaults — ${model.name || model.id}`"
+    <AppModal v-if="showClassLib" :title="`Hardware/model class defaults — ${model.name || model.id}`"
       :max-width="'700px'" @close="showClassLib = false">
       <LuClassTunes ref="classTunesRef" expanded :model-id="model.id" :catalog="switchCatalog" />
     </AppModal>

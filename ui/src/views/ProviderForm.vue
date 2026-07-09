@@ -230,11 +230,11 @@ async function remove() {
          library (ROUND 15) and the global launch defaults (#140), each the SAME shared
          component the drawers used, opened expanded in a dialog. -->
     <div v-if="isBuiltin" class="lu-pf-libs">
-      <UiButton intent="secondary" size="small" @click="showClassTunes = true">Hardware-class defaults…</UiButton>
+      <UiButton intent="secondary" size="small" @click="showClassTunes = true">Hardware/model class defaults…</UiButton>
       <UiButton intent="secondary" size="small" @click="showGlobalSwitches = true">Global launch defaults…</UiButton>
       <span class="lu-muted lu-pf-libs-cap">the launch-config libraries — per-PC-class starting points, and the always-on switch bundles under every tune</span>
     </div>
-    <AppModal v-if="showClassTunes" title="Hardware-class defaults — the library"
+    <AppModal v-if="showClassTunes" title="Hardware/model class defaults — the library"
       :max-width="'760px'" @close="showClassTunes = false">
       <LuClassTunes expanded />
     </AppModal>

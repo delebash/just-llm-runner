@@ -27,7 +27,7 @@ import { usePoll } from "../common/composables/usePoll.js";
 // install engine uninstall engine" · "move update button next to uninstall change
 // name to Update available") — the same shared useEngine state the Local-engine
 // panel reads, so the row and the panel can never disagree.
-const { engineState: engState, busy: engBusy, error: engError, installed: engInstalled, installing: engInstalling, progressLabel: engProgressLabel, updateInfo: engUpdate, checkForUpdate, refreshEngine, install: engInstall, uninstall: engUninstall, updateToLatest } = useEngine();
+const { engineState: engState, busy: engBusy, error: engError, statusKnown: engKnown, installed: engInstalled, installing: engInstalling, progressLabel: engProgressLabel, updateInfo: engUpdate, checkForUpdate, refreshEngine, install: engInstall, uninstall: engUninstall, updateToLatest } = useEngine();
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
 // own AI-domain settings (e.g. JustWrite's "Writing AI" — voice canon, RAG
@@ -314,9 +314,11 @@ onMounted(() => {
                      visible untill engine is installed"). -->
                 <template v-if="p.providerType === 'local-llamacpp'">
                   <UiButton v-if="engInstalling" intent="primary" size="small" loading>Installing…</UiButton>
-                  <UiButton v-else-if="!engInstalled" intent="primary" size="small"
+                  <!-- QC-13: no Install offer before the status has been FETCHED — the
+                       null pre-fetch state read as not-installed here too. -->
+                  <UiButton v-else-if="engKnown && !engInstalled" intent="primary" size="small"
                     :loading="engBusy" @click="engInstall(false)">Install engine</UiButton>
-                  <template v-else>
+                  <template v-else-if="engKnown">
                     <UiButton intent="ghost" size="small" :loading="engBusy"
                       title="Delete the engine binaries — models are kept" @click="engUninstall">Uninstall engine</UiButton>
                     <UiButton v-if="engUpdate?.updateAvailable" intent="info" size="small"

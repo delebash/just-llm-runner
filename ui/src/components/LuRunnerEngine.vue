@@ -30,7 +30,7 @@ import { usePoll } from "../common/composables/usePoll.js";
 // progress/errors, and the Details drawer. Install POLLING also lives in the
 // composable, so progress keeps flowing whichever surface started it and
 // whichever is mounted.
-const { engineState: st, error, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, refreshEngine, install: engInstall, uninstall: engUninstall, busy: engBusy } = useEngine();
+const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, refreshEngine, install: engInstall, uninstall: engUninstall, busy: engBusy } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
 // Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
@@ -128,6 +128,10 @@ onMounted(() => {
             Installed<span v-if="st.build"> · {{ st.build }}</span><span v-if="st.gpu"> · {{ st.gpu }}</span>
             <span v-if="cudaRuntimeMissing" class="lu-eng-warn"> · CUDA runtime DLLs missing</span>
           </template>
+          <!-- QC-13: never claim "Not installed" before the status has actually been
+               fetched — the false claim (with an Install button) rendered during the
+               pre-fetch window, and stuck when the first fetch failed. -->
+          <template v-else-if="!statusKnown">Checking the engine…</template>
           <template v-else>Not installed — install it before you load a model.</template>
         </div>
       </div>
@@ -140,7 +144,7 @@ onMounted(() => {
              and Uninstall when installed (#8, user 2026-07-08: "Installed · b9899 ·
              cuda12 should have uninstall button"). Same shared action — it confirms
              before deleting; models are kept. -->
-        <UiButton v-if="!installed && !installing" intent="primary" size="small"
+        <UiButton v-if="statusKnown && !installed && !installing" intent="primary" size="small"
           :loading="engBusy" title="Download + install the llama.cpp engine for this machine"
           @click="engInstall()">Install engine</UiButton>
         <UiButton v-if="installed && !installing" intent="ghost" size="small"

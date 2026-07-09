@@ -123,7 +123,7 @@ const ordered = computed(() =>
            caption; the layer-mechanics explainer lives in docs/models.md and on
            the Tune grid's own origin tags. -->
       <p class="lu-muted lu-gsw-help">
-        These bundles are the first layer of every model's launch — a Hardware-class default
+        These bundles are the first layer of every model's launch — a Hardware/model class default
         or an applied config overrides them per value.
         <b>Models with an applied config keep their saved values</b> — a change here reaches
         them only when you refresh or remove their applied config in Tune &amp; measure.

@@ -19,11 +19,18 @@ const st = ref(null); // engine_status() payload
 const busy = ref(false); // an install/uninstall POST in flight
 const error = ref("");
 let pollTimer = null;
+let retryTimer = null;
 
 // DL-1: speed + ETA from the byte deltas the 800 ms poll already sees.
 const rate = createRateTracker();
 const rateText = ref("");
 
+// QC-13 (2026-07-09): `st` starts null, so `installed` computes FALSE before the
+// first status fetch resolves — and surfaces that keyed on `!installed` claimed
+// "Not installed" (and offered Install) during that window, indefinitely when the
+// first fetch failed. `statusKnown` lets them render an honest "Checking…" state
+// instead; a claim about install state needs a FETCHED answer.
+const statusKnown = computed(() => st.value !== null);
 const installed = computed(() => !!st.value?.installed);
 const installing = computed(() => st.value?.status === "installing");
 const progressLabel = computed(() => {
@@ -61,6 +68,13 @@ async function refreshEngine() {
     }
   } catch (e) {
     error.value = e.message || "Couldn't read engine status.";
+    // QC-13: with NO snapshot at all (the first fetch failed — server still
+    // booting, transient net) retry until one lands, so the UI never sits on
+    // "Checking…" forever. Quieter than the panel's existing 2.5 s resident
+    // poll; stops for good after the first successful read.
+    if (st.value === null && !retryTimer) {
+      retryTimer = setTimeout(() => { retryTimer = null; refreshEngine(); }, 5000);
+    }
   } finally {
     _syncPoll(); // starts the poll when a load finds an install in flight; stops it when done
   }
@@ -158,7 +172,7 @@ async function updateToLatest() {
 
 export function useEngine() {
   return {
-    engineState: st, busy, error, installed, installing, progressLabel,
+    engineState: st, busy, error, statusKnown, installed, installing, progressLabel,
     updateInfo, updatePolicy, checkForUpdate, setUpdatePolicy, updateToLatest,
     refreshEngine, install, uninstall,
   };

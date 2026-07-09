@@ -156,7 +156,7 @@ async function saveEdit() {
       // the saved row so the key locks, and confirm with a toast.
       const saved = tunes.value.find((t) => t.modelId === mid && t.classKey === key);
       if (saved) startEdit(saved);
-      pushToast({ message: "Hardware-class default saved ✓" });
+      pushToast({ message: "Hardware/model class default saved ✓" });
     } else {
       editing.value = null;
     }
@@ -241,7 +241,7 @@ const hasRows = computed(() => tunes.value.length > 0);
          covering every model. This is a LIBRARY: each row is one model's launch
          config for one PC class. -->
     <summary v-if="!expanded" class="lu-ct-summary">
-      <span class="lu-ct-title">Hardware-class defaults{{ globalMode ? " — the library" : "" }}</span>
+      <span class="lu-ct-title">Hardware/model class defaults{{ globalMode ? " — the library" : "" }}</span>
       <span class="lu-muted">{{ globalMode
         ? "every saved config in one table — each row is one model × one PC class (video memory · RAM)"
         : "shared starting points by PC class (video memory · RAM)" }}</span>

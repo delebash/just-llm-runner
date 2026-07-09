@@ -12,7 +12,7 @@
 //     boxes (`kind` only picks the input type); the help (hover) carries what a
 //     switch does + its accepted values — never an options dropdown. So a NEW
 //     llama.cpp param needs no code — just a row. Used by the Global launch
-//     defaults bundles, the Hardware-class editor, AND the Tune & measure grid.
+//     defaults bundles, the Hardware/model class editor, AND the Tune & measure grid.
 //     Pass `groups` (+ per-name `rowGroups`) to render the SAME rows under
 //     section headings (QC-10: "heading for each section instead") — the Tune
 //     grid groups by which layer each value came from; rows added here land in

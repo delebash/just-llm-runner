@@ -285,7 +285,7 @@ function tuneBadge(m) {
   const titles = {
     auto: "This PC runs your applied config — produced by the auto-tune sweep",
     hand: "This PC runs your applied config — hand-set in Tune & measure",
-    class: "No applied config on this PC — it starts from the Hardware-class default for your PC class",
+    class: "No applied config on this PC — it starts from the Hardware/model class default for your PC class",
   };
   return { ...TUNE_BADGES[id], title: titles[id] };
 }

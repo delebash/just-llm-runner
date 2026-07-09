@@ -2060,3 +2060,43 @@ save button on each group" being about Tune & measure only) — the probe fakes 
 GGUF under ai-cache/hf so the Tune button renders (the B3R precedent; file removed on
 exit, DB untouched) · b4-probe regression 15/15 · FULL headless smoke zero JS errors ·
 rules-checker verdict at this commit. Tasks #205/#206/#207/#212/#213 completed.
+
+**QC-13 + QC-14 + QC-19 BUILD RECORD (shipped 2026-07-09 — the user's bare "go" on the
+report's three asks; B2-9/DL-2/Batches 5-6 explicitly left frozen).**
+**QC-13 root-caused from code, both legs real (LuRunnerEngine.vue:131 was the only
+render site):** (leg A) useEngine's `st` starts null (useEngine.js:18) so
+`installed` computes FALSE before the first /engine/status fetch resolves — the panel's
+v-else claimed "Not installed" (and offered Install) during the pre-fetch window, long
+on a cold Windows/WebView boot; (leg B) when that FIRST fetch failed (transient), the
+catch left `st` null with NO retry — the false claim stuck. FIX: the composable exposes
+`statusKnown` (st !== null); the panel renders **"Checking the engine…"** while unknown
+and gates its Install button on a KNOWN not-installed; the provider row (AiModelsArea)
+gates its whole engine-button cluster the same way (no Install offer, no Uninstall
+cluster, until fetched); and a failed first fetch now retries every 5 s until ONE
+snapshot lands (quieter than the panel's existing 2.5 s resident poll; stops for good
+after the first success — FLAGGED: the 5 s value is mine). The server-side leg
+(status endpoint reporting wrong) could NOT be reproduced from code — per the recorded
+plan: if the user still sees the false line after this fix, the Settings → Logs line is
+the next evidence. Probe: the panel shows only honest states (QC-13 check).
+**QC-14:** `.lu-fw-card-label` (common/styles.css:263) was `white-space: nowrap +
+ellipsis` — the Routing-by-feature nav cards TRUNCATED their labels instead of wrapping.
+Fix: the label wraps (`overflow-wrap: break-word`, nowrap/ellipsis removed) — shared by
+the Tasks-tab cards (consistent). Probe: computed style asserted (whiteSpace normal, no
+ellipsis) + screenshot.
+**QC-19:** every user-facing "Hardware-class default(s)" became **"Hardware/model class
+default(s)" — the user's OWN anchor label, used verbatim (FLAGGED: one line to change if
+they meant different wording)**. Sites: tuneState.js:26 badge (+ its QC-1 comment) ·
+TuneMeasureModal (the TUNE_GROUPS heading :82, the library link :532, the per-model
+modal title :590, header comments) · LuClassTunes (saved toast :159, drawer title :244)
+· ProviderForm (button :233, library modal title :237) · LuModelCatalog no-config hint
+:288 · LuGlobalSwitches help :126 · KnobGrid comment · docs/models.md (:135 badge, :149
+grid heading, :160/:165/:230 links/buttons) · switch-probe GROUPS list. KEPT, flagged
+one-line-changeable: the "Save for hardware class" button + the empty-state sentences
+quoting it (a verb phrase about this PC's class, not the library's name) and prose like
+"built-in hardware class" describing the mechanism. A first grep with a brace glob
+silently missed the models.md/probe sites — re-swept with plain grep (the trust-the-
+output lesson, again).
+GATES: build:vite ✓ · switch-probe now **10/10 zero page errors** (the two new QC-13/14
+checks + all 8 cluster checks green against the RENAMED heading) · b4-probe 15/15 · FULL
+headless smoke zero JS errors · vitest 48/48 · rules-checker verdict at this commit.
+Tasks #208/#209/#214 completed.

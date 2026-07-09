@@ -254,7 +254,10 @@ button:not(.ui-btn) { color: inherit; }
    here 2026-07-02 from FeatureWorkbench's scoped block so a second SFC can consume it
    without copying it — a left nav list + a right editor pane, each its own scroller). */
 .lu-fw { display: flex; flex-direction: column; min-height: 0; flex: 1; }
-.lu-fw-body { display: grid; grid-template-columns: fit-content(40%) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
+/* QC-14 (user, 2026-07-09 "the tasks where very wide becuase you did not wrap the
+   text earlier"): the nav column CAPS at 380px so card text wraps early, instead
+   of one-line descriptions dragging the column out to 40% of the window. */
+.lu-fw-body { display: grid; grid-template-columns: fit-content(380px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
 .lu-fw-body.nav-collapsed { grid-template-columns: minmax(0, 1fr); }
 .lu-fw-list { min-width: 280px; min-height: 0; border: 1px solid var(--border); border-radius: 10px; padding: 8px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; overflow-x: hidden; }
 .lu-fw-card { box-sizing: border-box; text-align: left; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; min-width: 0; align-self: stretch; }

@@ -2120,3 +2120,88 @@ matches describe the mechanism, legitimate keeps. Everything else in the checker
 report verified sound: the AiModelsArea v-if chain, the non-stacking retry, the shared
 wrap. The first (switch-cluster) checker's full result was re-read after its completion
 notification: genuinely VERDICT: PASS — that commit stands clean.
+
+**QC-14 REDONE (2026-07-09, the user: "no, i said the tasks where very wide becuase you
+did not wrap the text earlier, nothing chahged, you fail" — owned).** My first QC-14 read
+was WRONG: I made the card LABEL wrap (it was ellipsis-truncated), but the user meant the
+CARDS/column are too wide because the one-line DESCRIPTIONS never wrap — with the shell's
+`fit-content(40%)` column, unwrapped text drags the nav out to 40% of the window (~600px
+on their screen). THE REAL FIX: the nav column caps at **380px**
+(`.lu-fw-body grid-template-columns: fit-content(380px) …`, common/styles.css) so text
+wraps early; short-content mounts (the Tasks tab shares the shell) stay content-sized
+under the same cap. FLAGGED (one line to change): the 380px number is mine. The probe's
+QC-14 check now measures the real thing — nav column ≤ 400px AND a >60-char description
+renders on ≥2 lines (measured live: 380px, 2 lines) — and the screenshot went to the
+user. Gates: build:vite ✓ · switch-probe 10/10 zero page errors · b4-probe 15/15 · FULL
+smoke zero JS errors.
+
+**QC-13, the REAL leg — user evidence + the root cause CONFIRMED at the line (2026-07-09,
+fix PROPOSED, awaiting the user's go).** The user's screenshots: their disk has
+`ai-cache/llamacpp/b9929/` (+ logs + models.ini) while the app says "Not installed" —
+the server-side leg the first fix couldn't reproduce. Root cause, verified:
+`binary.py:116` (`_find_variant_exe`) builds the exe path from
+`config.llamacpp.pinned_build` — the DATABASE pin — so a DB reset (pin reverts to the
+seeded b9899) makes the check look in `llamacpp/b9899/` and never see the b9929 the
+Update flow installed. `engine_status` (lifecycle.py:409,418) reports that same pin as
+"build". The user's design, verbatim: *"just check the folder path and engine version
+number to see if it is installed already"* / *"i would have just done something very
+simple check the path and if path exe exist assume engine is installed"*. THE PROPOSED
+FIX (~15 lines, one resolver): installed-build resolution = the pinned build when its
+folder holds the exe, else the NEWEST on-disk build folder that does; `_find_variant_exe`
+uses the resolved build (so status, the version shown, the spawn chain, and uninstall all
+agree with the DISK), `engine_status.build` reports the resolved build; plus a pytest
+recreating the user's exact state (disk b9929, pin b9899 → installed:true, build b9929).
+Also answered in the user's terms: the "fetch" is the window asking the app's own local
+server "is the engine installed?" over localhost — nothing from the internet; on their
+box that answer itself was wrong, which is why "Checking the engine…" never shows.
+
+---
+
+**⛔ THE FOURTH-COMPACT POINT (2026-07-09, user verbatim: "ok so do b2-9 that we settled,
+dl-2 ok where wil you add the settings? do batches 5 and 6, do it all" + "we need to
+compact first, so save then go") — THE PICKUP INSTRUCTIONS.**
+
+**A GO IS ARMED for right after the compact covering, in this execution order:**
+1. **SHIP the pending QC-14 REDO** — the diff is the one-line 380px column cap
+   (common/styles.css .lu-fw-body) + the probe's real measurement + the records above;
+   verified (probe 10/10 listWidth=380/2-line wrap · b4 15/15 · full smoke · build). If
+   its rules-checker verdict (running at save time) lands PASS before the save commit it
+   ships WITH the save; otherwise it is the FIRST act post-compact (verdict from the
+   agent's completion notification ONLY — the corrected ritual).
+2. **The QC-13 backend fix** (read "do it all" as covering my recorded proposal —
+   FLAGGED, one line to change): the resolve-installed-build design in the "QC-13, the
+   REAL leg" block above — the pinned build when its folder holds the exe, else the
+   newest on-disk build that does; `_find_variant_exe` uses the resolved build so
+   status/spawn/uninstall all follow the DISK ("check the path and if path exe exist
+   assume engine is installed" — the user's law); `engine_status.build` reports the
+   resolved build; install/update still TARGET the pin; a pytest recreating the user's
+   exact state (disk b9929, pin b9899 → installed:true, build b9929).
+3. **B2-9** — the §7.2 LOCKED design (read §7.2 in this doc before building): "Set as
+   default" on every provider, local or online, covering EVERY role the provider can
+   serve (chat; embeddings when it embeds), one flow; the overwrite choice at apply:
+   ALL tasks vs keep-my-customized.
+4. **The DL-2 build** — per the committed plan
+   `docs/plans/2026-07-08-segmented-downloads-plan.md` IN FULL before building. THE
+   USER'S SETTINGS QUESTION ANSWERED (from the plan §1, their requirement folded):
+   FOUR DB-backed, user-editable settings rows — `downloadSegmentsEnabled` (default on) ·
+   `downloadSegmentCount` (default 4) · `downloadSegmentMinBytes` (small files stay
+   single-stream) · `downloadSegmentRetries` (default 3) — seeded additive (no reset),
+   surfaced in the **Local engine panel's Details area** (beside the models-kept-loaded /
+   sleep-idle knobs and the binaries editor — the engine/downloads home). Gates incl.
+   the plan's own test list (boundary math · fallbacks · retry/resume · post-assembly
+   hash · a live container probe).
+5. **Batch 5** (#193–#199 + ship #200) — B5-1 pickers→"runs on" chip (§7.2) · B5-2 JW
+   stale-surface audit FINDINGS FIRST · B5-3 "New chat" + delete-chat · B5-4 Ask-the-book
+   nav prominence · B5-5 scene-editor AI context menu · B5-6 strikethrough management ·
+   B5-7 AI-complete notice → editor bottom bar. Each grounded in §0's verbatim items +
+   §3's batch notes before building.
+6. **Batch 6** (#201–#202 + ship #203) — streaming ON everywhere + return_progress
+   prompt-eval % in the task strip, per §7.4.
+
+Standing disciplines unchanged: any new QC message gets a conversational ANSWER FIRST ·
+inline T1–T12 before each build unit · ONE genuine checker verdict per CODE commit (from
+the completion notification, never a transcript grep) · probes OBSERVE each changed
+surface · docs ship with each unit · both repos commit+push per unit. NOTHING left
+frozen — this go empties the queue except future QC. Post-compact Block-0: re-read the
+global rules + JW CLAUDE.md + MORNING_RECAP.md + THIS block (and §7.2/§7.4 + the DL-2
+plan + §0 items per unit as each builds).

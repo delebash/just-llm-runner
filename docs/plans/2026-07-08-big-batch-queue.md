@@ -3396,3 +3396,30 @@ log).
 today"*** — beatSheet's "From this book" compose uses the Beat sheet modal's
 current default framework. NO flagged defaults remain open in the cluster;
 every QC-26..38 decision is now the user's word.
+
+**#237 — THE THINK-TWICE ENFORCEMENT QUESTION (user, verbatim, pre-compact):**
+*"you know because you make so many mistake and when I ask you to think nad you
+rush, clearly you do since when I asked you to think twice you change severla
+decsions, you have cost me so much, so how when i ask you to think do i get you
+to automatically think longer or think twice on every proposal, evertime you
+edit some code following a plan make sure you are doing the correct think and
+think twice before you do, thinking twice now save so much time instead of
+constantly redoing, how do i make you do this and persit across session, if it
+is a rule you just ingore it halft the time."* THE ANSWER GIVEN: text rules
+decay (the documented salience problem that birthed the rules-as-checks system
+2026-06-26); the one mechanism that has empirically bound behavior is a gate
+keyed to a REAL action or an AGENT's own output, fired at a mechanical event
+boundary (the commit gate's design note: "a gate that checks my words can be
+satisfied by my words"). The gap today's failures expose: the existing gates
+verify that a check was CLAIMED (self-citable), not that a second pass
+HAPPENED. Proposed upgrade (task #237, awaiting the go; lives in
+justwrite-app/claude-config/ so install.sh persists it across every
+session/compact): (1) design/proposal turns REQUIRE a genuine rules-checker
+agent verdict — the self-citation escape closes for design; (2) a new Stop
+block requiring an explicit "SECOND PASS —" section on every proposal (what it
+changed / what it verified); (3) the first plan-executing code edit of a unit
+denies until the turn cites the plan line being executed + one line on what
+could be wrong. Evidence the second pass pays: the 2026-07-09 rethink changed
+QC-25 (the status-poll heal would have clobbered deliberate downgrades),
+killed toast-undo (ephemera), folded QC-30b into B6-2 (one pass, not two).
+Honest ceiling: non-skippable ≠ infallible.

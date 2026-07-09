@@ -32,7 +32,7 @@ import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
 const props = defineProps({
   // "" = GLOBAL mode (every model); set = that model's configs only.
   modelId: { type: String, default: "" },
-  // name -> { label, help, options } — the host's Plane-1 switch catalog (the
+  // name -> { label, help, kind } — the host's Plane-1 switch catalog (the
   // Tune modal passes its own). Empty → self-loaded on first open (global mount).
   catalog: { type: Object, default: () => ({}) },
   // true = render the body directly (no collapsed <details>/summary) and load on

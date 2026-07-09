@@ -39,7 +39,7 @@ import UiSelect from "../common/components/UiSelect.vue";
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] }, // [{ name, value }]
-  catalog: { type: Object, default: () => ({}) }, // name -> { label, help, options }  (add-row mode)
+  catalog: { type: Object, default: () => ({}) }, // name -> { label, help, kind }  (add-row mode)
   namePlaceholder: { type: String, default: "flag (e.g. ctx_len)" },
   valuePlaceholder: { type: String, default: "value" },
   addLabel: { type: String, default: "＋ Add switch" },

@@ -2,10 +2,10 @@
 """Knob-catalog endpoint — friendly metadata for the shared KnobGrid (C1).
 
 Turns a raw switch/sampler key into a labelled, typed input: the KnobGrid takes a
-`catalog` (name → {label, help, options}); this serves the seeded metadata so
-both the Lab engine-switches editor (Plane 1) and the per-action sampler editor
-(Plane 2) render friendly inputs. Data-only — no code per param; an unknown key
-still works as a raw row (the KnobGrid escape)."""
+`catalog` (name → {label, help, kind}); this serves the seeded metadata so both
+the Plane-1 switch editors and the per-action sampler editor (Plane 2) render
+friendly inputs. Data-only — no code per param; an unknown key still works as a
+raw row (the KnobGrid escape). GET-only: the catalog is app-owned seed data."""
 
 from __future__ import annotations
 

@@ -77,11 +77,16 @@ const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value
 // "Computed for this PC" (2026-07-08: "Add to grid" retired). FLAGGED reading
 // (one-line-changeable): rows YOU add here and the auto-tune winner's rows group
 // under "Your applied config" — they become exactly that on Apply.
+// QC-28 (user: "add switch add row to top it should add to bottom, Your
+// applied configs should show up at bottom"): "Your applied config" is the
+// LAST group — and since a freshly-added row has no origin and falls into
+// that group (rowGroups' "applied" fallback), "＋ Add switch" now appends at
+// the visual bottom too (KnobGrid's add() already appends within a section).
 const TUNE_GROUPS = [
-  { key: "applied", label: "Your applied config" },
   { key: "class", label: "Hardware/model class default" },
   { key: "global", label: "Global launch defaults" },
   { key: "computed", label: "Computed for this PC" },
+  { key: "applied", label: "Your applied config" },
 ];
 const GROUP_OF = {
   tune: "applied", autotune: "applied",
@@ -230,12 +235,12 @@ async function applyTune() {
     });
     savedTune.value = res.rows?.length ? res : null;
     const reloaded = await reloadIfRunning();
+    // QC-37 (toast law, supersedes B3-2/#14a): the outcome shows inline as
+    // the `applyMsg` note right under the grid (lu-tune-applied) — the toast
+    // duplicated a message already visible where the user is looking.
     applyMsg.value = reloaded
       ? "Applied ✓ — the model reloaded; every task using it runs this config now."
       : "Applied ✓ — every task using this model runs this config from its next load.";
-    // #14a: a toast too — the modal note alone was easy to miss ("i think we need a
-    // toast or something so user really knows").
-    pushToast({ message: applyMsg.value });
   } catch (e) {
     saveErr.value = e.message || "Couldn't apply the config.";
     tunePhase.value = "";
@@ -252,9 +257,10 @@ async function removeTune() {
     savedTune.value = null;
     await startTune(); // the grid returns to the layered defaults
     const reloaded = await reloadIfRunning(); // removal applies now too (active = resolved)
-    applyMsg.value = reloaded ? "Removed — the model reloaded on its layered defaults." : "";
-    pushToast({ message: applyMsg.value
-      || "Removed ✓ — the model uses its layered defaults from its next load." });
+    // QC-37: the inline note is the visible surface (no toast duplicate).
+    applyMsg.value = reloaded
+      ? "Removed — the model reloaded on its layered defaults."
+      : "Removed ✓ — the model uses its layered defaults from its next load.";
   } catch (e) {
     saveErr.value = e.message || "Couldn't remove the applied config.";
     tunePhase.value = "";

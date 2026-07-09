@@ -3561,6 +3561,93 @@ note). The live session's installed gates are the v4 set from this ship.**
 
 ---
 
+**⛔ QC-CLUSTER WORK-IN-PROGRESS MARKER (2026-07-09 — live while the cluster
+builds; superseded by the cluster BUILD RECORD when it ships as ONE
+verdict-gated unit).** Post-QC-25 the cluster (#224–#236) is building in the
+working trees (BOTH repos uncommitted by design — one ship). DONE in the
+working tree so far, each verified by vitest 58/58 + build:vite: **#224**
+(LuFeatureChip stripped to the provenance-only chip — popover/pin/backdrop/
+Esc/edit-CSS deleted, Icon kept for the ChevRight caret; AiFeatureChip drops
+the now-meaningless `readonly` attr; grep: no other consumers in kit/JW/JV) ·
+**#228** (aiTasks.js: pushToast import + the _finish completion toast + the
+B5-7 silentToast escape + the _fail failure toast all deleted; new
+`unseenErrors` state incremented in _fail and cleared by openPanel;
+AiStatusButton renders the red persistent error-count badge — the durable
+failure signal from the rethink) · **#229** (the store handle gained
+`setProgress(done,total)` + a `progress` field; AiTaskStrip + AiStatusPanel
+render "n/m" with the whole-batch-cancel tooltip; scanReaderKnowledge and
+runMultiReaderPanel each own ONE task entry — sub-calls run task:false on the
+handle's signal, per-item/per-persona progress, finish() no-ops after a
+cancel; the `task` pass-through params died; ReaderKnowledgeView's own Cancel
+button + cancelScan deleted — the strip/panel own cancel; three new vitest
+cases pin no-toast-on-done, durable-badge-on-fail + openPanel-clears, and
+setProgress + one-cancel-aborts-shared-signal) · **#230** (AiStatusPanel:
+history renders a 5-row tail behind a "Show all (N)"/"Show less" expander —
+FLAG: the 5 is my default, the cap number wasn't the user's word) · **#231**
+(tooltip.js: every kill route funnels through one killNow(); the autoUpdate
+callback kills when the anchor leaves the DOM — THE stuck-top-left root
+cause: a detached anchor never fires beforeUnmount or mouseleave and
+positions at 0,0; document-level capture scroll/pointerdown/Escape listeners
+attached only while visible; show() re-checks isConnected after the delay;
+focus shows only on :focus-visible — the click-retained-focus misfire).
+ALSO DONE in the working tree (runner pytest 449 + ruff green): **#225**
+(seed.py `reset_task_to_factory` now UNDOES the feature moves involving the
+task, both directions — factory members return, moved-in foreigners re-float
+to their own factory task, uninvolved moves untouched; a feature with no
+factory home is un-overridden; the TaskKinds.vue confirm copy says so; the
+QC-27 leg added to test_reset_task_to_factory with the three-feature matrix)
+· **#227** (the tab reads "Routing by task" — AiModelsArea.vue; the
+user-visible copy references followed: LuFeatureChip tooltip, QuickSetup's
+two hints, ChaptersView's Rewrite description; code-facing comments keep the
+old shorthand where not adjacent to edits).
+ALSO DONE (round 2, vitest 58 + build:vite green): **#226** (TuneMeasureModal
+TUNE_GROUPS reordered so "Your applied config" is LAST → Add-switch + applied
+rows land at the bottom, since a new no-origin row falls into the applied
+group and KnobGrid's add() appends within a section) · **#236** (JW sidebar
+"AI tasks" nav item, PROJECT section, opens the shared AiStatusPanel via a new
+`ui.toggleAiTasksPanel` → `useAiTasksStore().togglePanel`; carries the live
+running/error badge — red on unseen failures — in both the full nav and the
+collapsed rail; label FLAGGED default "AI tasks"; new `sidebar.nav.aiTasks`
+i18n key) · **#233** (QC-36 page-related-undo: App.vue's global ⌘Z/⌘⇧Z now
+bails when `ui.isPageUndoScoped(route.path)` — a new `pageUndoScopes` registry
++ register/unregister/isPageUndoScoped actions in the JW ui store; AiView.vue
+registers "/ai" on mount / unregisters on unmount; the kit's TaskKinds.vue
+owns a page-LOCAL inverse stack — assignFeature + setTaskPreset each capture
+their prior value and push an inverse thunk, a capture-phase ⌘Z handler pops
+it (skips focused text fields, `_undoing` re-entrancy guard, 50-entry cap);
+the global book-undo can no longer silently revert an off-screen mutation from
+/ai) · **#234** (the toast-law audit — CLEAR KILLs culled, all matching the
+user's named examples / the "row visibly moves-or-leaves" core: TrashView
+restore/purge/empty ×3, PlotBoardView Beat-moved + Removed-beat ×2,
+ReaderKnowledgeView clearAll, TaskKinds QC-16 move toast, TuneMeasureModal
+Apply+Remove toasts→the inline `applyMsg` note stays as the visible surface.
+**FLAGGED, not culled** — the ~45 remaining JW-app toasts (Notes/Import/
+Export/Settings/Characters/Chapters/project.js undo-redo/CommandPalette/
+VersionHistory/EntityReview/ProjectReplace/DataManagement etc.) are a
+judgment-heavy set the user never QC'd; per the decree "flags pile up = STOP
+AND ASK", they are recorded as the audit's KEEP-pending-user-verdict tail
+rather than decided unilaterally — the user gives the per-surface verdict).
+THE WHOLE CLUSTER's CODE IS NOW COMPLETE except **#232** (the 34-action
+test-input table — the single largest item, deferred on an open user flag).
+
+**CHECKER ROUND 1 → FAIL (1), FIXED.** The rules-checker caught a real
+user-facing bug the green suite masked (T5): the durable `unseenErrors` badge
+cleared ONLY in `openPanel()`, but BOTH always-present open-paths — the
+titlebar chip and the new sidebar item — open via `togglePanel()`, which set
+`panelOpen = !panelOpen` and never cleared the count, so the red failure badge
+would stick forever. Fixed at the ONE source: `togglePanel()` now routes
+through `openPanel`/`closePanel` (aiTasks.js), so the clear lives in one place;
+a new vitest case exercises the toggle path (the prior test only hit
+`openPanel` — why 58/58 stayed green over a broken shipped path). Also folded
+the checker's two stale-comment notes: MultiReaderPanelModal's "each persona
+registers its own task" comment updated to the one-entry reality (#229), and
+AiStatusButton's in-file contract comment is now TRUE after the fix. Vitest
+59/59 · build:vite green. Re-verdict pending.
+
+Then: the cluster ships as ONE unit (12 items — #232 is the follow-up commit
+once the user answers its flags). Then: full gates + a probe
+observing each changed surface + ONE checker verdict + the cluster ships.
+
 **QC-25 BUILD RECORD (2026-07-09, the second unit of the resumed order —
 task #223, built to the REVISED spec in the eighth-compact block above).**
 

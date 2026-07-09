@@ -12,7 +12,7 @@
 // (the preset library), /v1/ai/preset-assignments (task→preset + the global default),
 // /v1/ai/prompts (member labels + the Lab's prompt), /v1/ai/routing (pins), /v1/llm-providers,
 // /v1/ai/knob-catalog. Shared across both apps — only the seed data differs.
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import FeatureLab from "../components/FeatureLab.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -172,32 +172,76 @@ async function deleteTask(t) {
   } catch (e) { error.value = `Delete failed: ${e.message}`; }
 }
 
-async function assignFeature(key, taskId) {
+// QC-36 (the page-related-undo law): a page-LOCAL inverse stack for the two
+// mutations this surface makes — feature MOVES + task→preset changes. ⌘Z pops
+// the last inverse (the JW host scopes the global book-undo OFF /ai so this
+// handler owns the key here; the kit page is otherwise route-agnostic). Bounded
+// so it can't grow without limit; `_undoing` guards the re-entrant apply.
+const undoStack = ref([]);
+const UNDO_LIMIT = 50;
+let _undoing = false;
+function pushUndo(label, inverse) {
+  if (_undoing) return;             // an inverse's own effects don't re-record
+  undoStack.value.push({ label, inverse });
+  if (undoStack.value.length > UNDO_LIMIT) undoStack.value.shift();
+}
+async function undoLast() {
+  const entry = undoStack.value.pop();
+  if (!entry) return;
+  _undoing = true;
+  try { await entry.inverse(); message.value = `Undid: ${entry.label}`; }
+  finally { _undoing = false; }
+}
+function onKeyUndo(e) {
+  if (!(e.metaKey || e.ctrlKey) || e.shiftKey) return;
+  if (e.key.toLowerCase() !== "z") return;
+  // Don't steal ⌘Z from a focused text field (the create-form name, etc.).
+  const el = document.activeElement;
+  if (el && el.matches?.("input, textarea, [contenteditable=true]")) return;
+  if (!undoStack.value.length) return;
+  e.preventDefault();
+  e.stopPropagation();
+  undoLast();
+}
+onMounted(() => window.addEventListener("keydown", onKeyUndo, { capture: true }));
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeyUndo, { capture: true }));
+
+async function assignFeature(key, taskId, { record = true } = {}) {
   if (!key || !taskId) return;
+  const from = featureTaskKinds.value[key];   // capture BEFORE the move (for the inverse)
   try {
     applyTaskResp(await request("/v1/ai/task-kinds/feature", { method: "PUT", body: { featureKey: key, taskKind: taskId } }));
     // if the member left the selected task, keep the test-against valid
     if (!membersOf(selTask.value).includes(testAgainst.value)) testAgainst.value = membersOf(selTask.value)[0] || "";
-    // QC-16 (option A): say what the move DID — the feature's very next run resolves
-    // through the target task's preset (both directions: add-picker and Move-to).
-    pushToast({ message: taskPreset(taskId)
-      ? `${actionLabel(key)} now runs with ${taskLabel(taskId)}'s preset`
-      : `${actionLabel(key)} moved to ${taskLabel(taskId)} — set its preset` });
+    // QC-37 (toast law, supersedes the QC-16 move toast): the member list
+    // visibly gains/loses the row — the move is on screen, no toast.
+    // QC-36: record the inverse (move it back to where it came from).
+    if (record && from && from !== taskId) {
+      pushUndo(`move ${actionLabel(key)} back to ${taskLabel(from)}`,
+        () => assignFeature(key, from, { record: false }));
+    }
   } catch (e) { error.value = `Reassign failed: ${e.message}`; }
 }
 
-async function setTaskPreset(taskId, presetId) {
+async function setTaskPreset(taskId, presetId, { record = true } = {}) {
+  const prev = taskPreset(taskId);            // capture BEFORE (for the inverse)
   try {
     assign.value = await request("/v1/ai/preset-assignments/task-kind", { method: "PUT", body: { taskKind: taskId, presetId } });
     message.value = "Preset assigned.";
+    // QC-36: record the inverse (restore the prior preset).
+    if (record && prev !== presetId) {
+      pushUndo(`preset for ${taskLabel(taskId)}`,
+        () => setTaskPreset(taskId, prev, { record: false }));
+    }
   } catch (e) { error.value = `Assign failed: ${e.message}`; }
 }
-// Per-task Reset (built-in only) — restore ONE task's name/description/preset to factory.
+// Per-task Reset (built-in only) — restore ONE task's name/description/preset to
+// factory AND undo the feature moves involving it (QC-27, the user's "yes undo moves").
 async function resetTask(t) {
   if (!t?.builtIn) return;
   const ok = await confirmDialog({
     title: `Reset “${t.label}” to defaults?`,
-    message: "Restores this task's name, description, and preset to their shipped defaults. Its features stay where they are.",
+    message: "Restores this task's name, description, preset, and features to their shipped defaults — features moved out come back, and features moved in return to their own tasks.",
   });
   if (!ok) return;
   try {

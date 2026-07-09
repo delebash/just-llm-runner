@@ -528,7 +528,7 @@ defineExpose({ openWizard });
               <span class="lu-fit lu-qs-fit" :class="`lu-fit--${fitOf(pick.default)}`">{{ FIT_LABEL[fitOf(pick.default)] }}</span>
             </div>
             <UiSelect v-model="pick.default" :options="modelOptions" />
-            <p class="lu-muted lu-qs-hint">One good model runs every task — writing, chat, extraction, judgment. Per-task overrides live on the Tasks tab; this sets the shared default.</p>
+            <p class="lu-muted lu-qs-hint">One good model runs every task — writing, chat, extraction, judgment. Per-task overrides live under Routing by task; this sets the shared default.</p>
             <p v-if="descriptionOf(pick.default)" class="lu-qs-why">
               <b>About this model:</b> {{ descriptionOf(pick.default) }}
             </p>
@@ -549,7 +549,7 @@ defineExpose({ openWizard });
         <section class="lu-qs-sec lu-qs-routing">
           <div class="lu-qs-k">What happens when you click Apply</div>
           <ul class="lu-qs-rlist">
-            <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— becomes the model for every task, except any you've changed yourself on the Tasks tab.</span></li>
+            <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— becomes the model for every task, except any you've changed yourself under Routing by task.</span></li>
             <li v-if="pick.default">It <b>downloads now</b> if it isn't already on disk, then loads as the active model.</li>
             <li v-if="pick.embeddingModel">Embedding set to <code>{{ embedName }}</code> — runs on the bundled runner, downloads on first search/index.</li>
             <li>Per-feature pins you've set stay as they are.</li>

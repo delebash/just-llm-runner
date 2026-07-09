@@ -827,10 +827,15 @@ def reset_routing_to_factory() -> None:
 
 def reset_task_to_factory(task_id: str) -> None:
     """Reset ONE built-in task to factory: restore its label/description/position from
-    DEFAULT_TASK_KINDS + set its task→preset to the app's factory assignment. A CUSTOM
-    task has no factory to reset to → ValueError (the API maps it to 400). Edges: if the
-    task has no factory preset entry, or that preset was user-deleted, the task→preset row
-    is CLEARED (falls back to the global default) rather than left stale / FK-violating."""
+    DEFAULT_TASK_KINDS + set its task→preset to the app's factory assignment + UNDO the
+    feature MOVES involving this task (QC-27, the user's "yes undo moves"): every feature
+    whose FACTORY task is this one comes back, and every feature moved INTO this one
+    re-floats to its own factory task — in both cases the row snaps to the app's factory
+    map (a feature with no factory entry is un-overridden entirely). Features whose moves
+    never touched this task are left alone. A CUSTOM task has no factory to reset to →
+    ValueError (the API maps it to 400). Edges: if the task has no factory preset entry,
+    or that preset was user-deleted, the task→preset row is CLEARED (falls back to the
+    global default) rather than left stale / FK-violating."""
     factory = {t["id"]: (i, t) for i, t in enumerate(DEFAULT_TASK_KINDS)}
     if task_id not in factory:
         raise ValueError(f"{task_id!r} is not a built-in task")
@@ -843,6 +848,17 @@ def reset_task_to_factory(task_id: str) -> None:
         row.label = str(t.get("label") or "")
         row.description = str(t.get("description") or "")
         row.position = pos
+        # QC-27: undo the moves involving THIS task, both directions.
+        factory_map = app_feature_task_kinds()
+        for ftk in s.query(db.FeatureTaskKind).all():
+            involved = ftk.task_kind == task_id or factory_map.get(ftk.key) == task_id
+            if not involved:
+                continue
+            factory_tk = factory_map.get(ftk.key, "")
+            if factory_tk:
+                ftk.task_kind = factory_tk
+            else:
+                s.delete(ftk)  # no factory home → un-override (prefix/"" fallback)
         factory_preset = {c["task_kind"]: c["preset_id"] for c in app_taskkind_presets()}.get(task_id, "")
         valid = {r.id for r in s.query(db.EnginePreset.id).all()}
         target = factory_preset if factory_preset in valid else ""

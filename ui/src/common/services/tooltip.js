@@ -45,13 +45,52 @@ function setupState(el, content, placement) {
   let showTimer = null;
   let hideTimer = null;
 
+  // QC-33/34 (#231): while a tooltip is VISIBLE, any scroll, pointerdown, or
+  // Escape kills it instantly — a tooltip that outlives the interaction that
+  // summoned it is the "stuck" class the user kept hitting. Document-level,
+  // capture-phase (scrolls in nested panes don't bubble), attached only for
+  // the tooltip's lifetime.
+  const onDocInteract = () => killNow();
+  const onDocKey = (e) => { if (e.key === "Escape") killNow(); };
+  function addDocListeners() {
+    document.addEventListener("scroll", onDocInteract, { capture: true, passive: true });
+    document.addEventListener("pointerdown", onDocInteract, { capture: true });
+    document.addEventListener("keydown", onDocKey, { capture: true });
+  }
+  function removeDocListeners() {
+    document.removeEventListener("scroll", onDocInteract, { capture: true });
+    document.removeEventListener("pointerdown", onDocInteract, { capture: true });
+    document.removeEventListener("keydown", onDocKey, { capture: true });
+  }
+
+  // Immediate teardown — no fade, no timers. The one path every kill route
+  // (click, scroll, Escape, detached anchor, destroy) funnels through.
+  function killNow() {
+    clearTimeout(showTimer); showTimer = null;
+    clearTimeout(hideTimer); hideTimer = null;
+    if (cleanupPos) { cleanupPos(); cleanupPos = null; }
+    removeDocListeners();
+    if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
+    el.removeAttribute("aria-describedby");
+  }
+
   const show = () => {
     clearTimeout(hideTimer);
     if (tooltipEl || !s.content) return;
     showTimer = setTimeout(() => {
+      // The anchor can leave the DOM during the show delay (a closing modal,
+      // a re-rendered row) — never open against a detached node.
+      if (!el.isConnected) return;
       tooltipEl = createTooltipEl(s.content);
       el.setAttribute("aria-describedby", tooltipEl.id);
+      addDocListeners();
       cleanupPos = autoUpdate(el, tooltipEl, () => {
+        // QC-33 root cause: an anchor detached by non-Vue DOM ops (editor
+        // content, swapped rows) never fires beforeUnmount OR mouseleave —
+        // the orphaned tooltip then positions against a dead 0×0 reference
+        // and sticks at the top-left corner forever. Detect and kill.
+        if (!el.isConnected) { killNow(); return; }
+        if (!tooltipEl) return;
         computePosition(el, tooltipEl, {
           strategy: "fixed",
           placement: s.placement,
@@ -65,6 +104,16 @@ function setupState(el, content, placement) {
     }, SHOW_DELAY);
   };
 
+  // QC-34: clicking a control keeps it focused, and a bare `focus` listener
+  // re-summons the tooltip the pointer already dismissed — only KEYBOARD
+  // focus (:focus-visible) should show it.
+  const onFocus = () => {
+    try {
+      if (!el.matches(":focus-visible")) return;
+    } catch { /* older engines without :focus-visible — show as before */ }
+    show();
+  };
+
   const hide = () => {
     clearTimeout(showTimer);
     if (!tooltipEl) return;
@@ -72,6 +121,7 @@ function setupState(el, content, placement) {
       if (!tooltipEl) return;
       tooltipEl.classList.remove("is-visible");
       if (cleanupPos) { cleanupPos(); cleanupPos = null; }
+      removeDocListeners();
       const node = tooltipEl;
       tooltipEl = null;
       el.removeAttribute("aria-describedby");
@@ -80,38 +130,25 @@ function setupState(el, content, placement) {
     }, HIDE_DELAY);
   };
 
-  const onClickHide = () => {
-    clearTimeout(showTimer); showTimer = null;
-    if (!tooltipEl) return;
-    if (cleanupPos) { cleanupPos(); cleanupPos = null; }
-    tooltipEl.remove();
-    tooltipEl = null;
-    el.removeAttribute("aria-describedby");
-  };
-
   const s = {
     content,
     placement,
-    show, hide, onClickHide,
+    show, hide,
     destroy() {
-      clearTimeout(showTimer);
-      clearTimeout(hideTimer);
-      if (cleanupPos) cleanupPos();
-      if (tooltipEl) tooltipEl.remove();
+      killNow();
       el.removeEventListener("mouseenter", show);
       el.removeEventListener("mouseleave", hide);
-      el.removeEventListener("focus", show);
+      el.removeEventListener("focus", onFocus);
       el.removeEventListener("blur", hide);
-      el.removeEventListener("click", onClickHide);
-      el.removeAttribute("aria-describedby");
+      el.removeEventListener("click", killNow);
     },
   };
 
   el.addEventListener("mouseenter", show);
   el.addEventListener("mouseleave", hide);
-  el.addEventListener("focus", show);
+  el.addEventListener("focus", onFocus);
   el.addEventListener("blur", hide);
-  el.addEventListener("click", onClickHide);
+  el.addEventListener("click", killNow);
 
   Object.defineProperty(el, "__uiTooltip", { value: s, configurable: true, writable: true });
 }

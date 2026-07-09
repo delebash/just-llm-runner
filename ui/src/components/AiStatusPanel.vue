@@ -21,6 +21,15 @@ import UiButton from "../common/components/UiButton.vue";
 const tasks = useAiTasksStore();
 const openPreviews = ref(new Set());
 
+// QC-32: RUNNING work owns the panel; history is a short tail behind an
+// expander instead of 30 rows dominating the window.
+const HISTORY_TAIL = 5;
+const showAllHistory = ref(false);
+const visibleHistory = computed(() =>
+  showAllHistory.value ? tasks.history : tasks.history.slice(0, HISTORY_TAIL));
+const hiddenHistoryCount = computed(() =>
+  Math.max(0, tasks.history.length - visibleHistory.value.length));
+
 // Click-outside dismissal. Exemptions:
 //   - inside the panel itself
 //   - any [data-ai-status-toggle] element (header chip, in-modal Details
@@ -169,6 +178,10 @@ const phaseLabel = {
               <span class="aip-stat-dot" />
               {{ phaseLabel[t.status] || t.status }}
             </span>
+            <span v-if="t.progress" class="aip-stat"
+              v-tooltip.bottom="'Batch progress — Cancel stops the whole run'">
+              {{ t.progress.done }}/{{ t.progress.total }}
+            </span>
             <span class="aip-stat">
               <Icon name="Clock" :size="10" />
               {{ fmtSeconds(elapsedMs(t)) }}
@@ -223,7 +236,7 @@ const phaseLabel = {
           No completed tasks yet.
         </div>
 
-        <div v-for="h in tasks.history" :key="h.id" class="aip-hist-row" :data-status="h.status">
+        <div v-for="h in visibleHistory" :key="h.id" class="aip-hist-row" :data-status="h.status">
           <div class="aip-hist-icon">
             <Icon v-if="h.status === 'done'" name="Check" :size="11" />
             <Icon v-else-if="h.status === 'cancelled'" name="Close" :size="11" />
@@ -242,6 +255,11 @@ const phaseLabel = {
             <div v-if="h.error" class="aip-hist-error">{{ h.error }}</div>
           </div>
         </div>
+
+        <UiButton v-if="hiddenHistoryCount || showAllHistory" intent="ghost" size="small"
+          class="aip-hist-more" @click="showAllHistory = !showAllHistory">
+          {{ showAllHistory ? "Show less" : `Show all (${tasks.history.length})` }}
+        </UiButton>
       </section>
       </aside>
     </transition>

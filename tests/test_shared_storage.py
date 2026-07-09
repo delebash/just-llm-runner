@@ -249,6 +249,32 @@ def test_reset_task_to_factory(wired):
     assert next(t for t in tks.list() if t.id == "prose.edit").label == "Edit prose"  # label restored
     assert tkp.list().get("prose.edit") == "p_fac"                                    # factory preset restored
 
+    # QC-27 (user: "yes undo moves"): the reset also UNDOES the feature moves
+    # involving this task — factory members come back, moved-in foreigners
+    # re-float to their own factory task, and uninvolved moves are untouched.
+    seed.configure_app_seed(
+        feature_task_kinds={"fa": "prose.edit", "fb": "ideation", "fc": "chat"},
+        engine_presets=[{"id": "p_fac", "name": "Factory", "provider_id": "local-llamacpp", "model": "m-fac"}],
+        taskkind_presets=[{"task_kind": "prose.edit", "preset_id": "p_fac"}],
+    )
+    s2 = _db.session()
+    try:
+        seed.seed_default_feature_task_kinds(s2)
+        s2.commit()
+    finally:
+        s2.close()
+    ftk = stores.get_feature_task_kind_store()
+    ftk.set("fa", "ideation")      # moved OUT of prose.edit
+    ftk.set("fb", "prose.edit")    # moved INTO prose.edit
+    ftk.set("fc", "ideation")      # uninvolved move (chat → ideation)
+
+    seed.reset_task_to_factory("prose.edit")
+
+    m = ftk.list()
+    assert m.get("fa") == "prose.edit"   # factory member returned
+    assert m.get("fb") == "ideation"     # foreigner re-floated to ITS factory task
+    assert m.get("fc") == "ideation"     # uninvolved move kept
+
     # a custom task cannot be reset (nothing to reset to) → ValueError
     cst = tks.upsert(TaskKindRow(label="Custom X"))
     with pytest.raises(ValueError):

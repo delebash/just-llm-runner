@@ -78,6 +78,11 @@ function openPanel() { tasks.openPanel(); }
     <Icon name="Sparkle" :size="13" class="sts-spin" />
     <span class="sts-label">{{ task.label }}</span>
 
+    <!-- QC-31: a batch task (one entry per USER ACTION) reports n/m here. -->
+    <span v-if="task.progress" class="sts-stat sts-progress"
+      v-tooltip.bottom="'Batch progress — Cancel stops the whole run'">
+      {{ task.progress.done }}/{{ task.progress.total }}
+    </span>
     <span class="sts-stat">{{ elapsedSeconds }}s</span>
     <span v-if="firstTokenSeconds" class="sts-stat">first token in {{ firstTokenSeconds }}s</span>
     <span v-if="tokensLabel" class="sts-stat">{{ tokensLabel }}</span>

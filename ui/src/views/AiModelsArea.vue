@@ -337,7 +337,8 @@ onMounted(() => {
 
     <nav class="lu-subnav">
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
-      <a :class="{ on: tab === 'tasks' }" @click="tab = 'tasks'">Tasks</a>
+      <!-- QC-29: named for what it IS — routing, keyed by task. -->
+      <a :class="{ on: tab === 'tasks' }" @click="tab = 'tasks'">Routing by task</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
       <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>

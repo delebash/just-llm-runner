@@ -26,7 +26,6 @@
 
 import { defineStore } from "pinia";
 import { markRaw } from "vue";
-import { pushToast } from "../common/services/toastBridge.js";
 
 const HISTORY_LIMIT = 30;
 
@@ -48,6 +47,10 @@ export const useAiTasksStore = defineStore("aiTasks", {
     now: Date.now(),
     // Status panel open state.
     panelOpen: false,
+    // QC-30/QC-37 (the toast law): failures signal DURABLY, not ephemerally —
+    // this count badges the titlebar chip red until the user opens the panel
+    // (viewing acknowledges; the history entry keeps the detail).
+    unseenErrors: 0,
   }),
 
   getters: {
@@ -113,7 +116,19 @@ export const useAiTasksStore = defineStore("aiTasks", {
         finish: (result) => this._finish(id, result),
         fail: (err) => this._fail(id, err),
         cancel: () => this.cancel(id),
+        // QC-31 (one task entry per USER ACTION): a batch owner (Reader
+        // knowledge's 13 chapters, multi-reader's 4 personas) starts ONE
+        // handle, threads `signal` through every sub-call, and reports
+        // progress here — the strip/panel render "n/m" and the one Cancel
+        // aborts the whole loop through the shared controller.
+        setProgress: (done, total) => this._setProgress(id, done, total),
       };
+    },
+
+    _setProgress(id, done, total) {
+      const t = this.tasks[id];
+      if (!t) return;
+      t.progress = { done, total };
     },
 
     _markStreaming(id) {
@@ -150,21 +165,11 @@ export const useAiTasksStore = defineStore("aiTasks", {
       if (result?.providerId) t.providerId = result.providerId;
       if (result?.model) t.model = result.model;
       this._archiveAndRemove(id);
-      const seconds = ((t.finishedAt - t.startedAt) / 1000).toFixed(1);
-      // Tokens are the single best size/cost signal. Local providers
-      // sometimes omit usage on the final chunk; falling back to a
-      // chars-÷-4 estimate would read as exact in the toast, so we
-      // suppress it entirely when we don't have a real count.
-      const tokensStr = t.tokensOut ? ` · ${t.tokensOut.toLocaleString()} tokens` : "";
-      // B5-7 (#43): a host surface can own the completion notice itself (the
-      // JW editor's bottom bar reads the history entry) — those tasks mark
-      // meta.silentToast and the global toast stays quiet on success.
-      if (t.meta?.silentToast) return;
-      const open = () => this.openPanel();
-      pushToast({
-        message: `${t.label} — done in ${seconds}s${tokensStr}`,
-        action: { label: "View task queue", fn: open },
-      });
+      // QC-30/QC-37 (the toast law, user 2026-07-09: "no ai task complete
+      // toasts we have the ai progress bar, and the que"): NO completion
+      // toast — the strip on the surface + the panel history ARE the outcome
+      // surfaces. (This retired B5-7's meta.silentToast escape: with no toast
+      // at all, there is nothing to silence.)
     },
 
     _fail(id, err) {
@@ -175,11 +180,10 @@ export const useAiTasksStore = defineStore("aiTasks", {
       t.error = err?.message || String(err || "Unknown error");
       t.finishedAt = now;
       this._archiveAndRemove(id);
-      const open = () => this.openPanel();
-      pushToast({
-        message: `${t.label} — failed: ${t.error}`,
-        action: { label: "View task queue", fn: open },
-      });
+      // QC-37 (the toast law): failures signal DURABLY, not with a toast
+      // that disappears — the titlebar chip badges red until the panel is
+      // opened, and the history entry carries the error detail.
+      this.unseenErrors += 1;
     },
 
     cancel(id) {
@@ -230,8 +234,12 @@ export const useAiTasksStore = defineStore("aiTasks", {
     },
     clearHistory() { this.history = []; },
 
-    openPanel()   { this.panelOpen = true; },
+    // QC-37: opening the panel acknowledges failures → clear the durable
+    // error badge. togglePanel routes through openPanel so the clear lives in
+    // ONE place — the titlebar chip AND the sidebar item both toggle, and a
+    // per-place `panelOpen = true` would have left the badge stuck red.
+    openPanel()   { this.panelOpen = true; this.unseenErrors = 0; },
     closePanel()  { this.panelOpen = false; },
-    togglePanel() { this.panelOpen = !this.panelOpen; },
+    togglePanel() { this.panelOpen ? this.closePanel() : this.openPanel(); },
   },
 });

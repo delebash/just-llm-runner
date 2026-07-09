@@ -3423,3 +3423,10 @@ could be wrong. Evidence the second pass pays: the 2026-07-09 rethink changed
 QC-25 (the status-poll heal would have clobbered deliberate downgrades),
 killed toast-undo (ephemera), folded QC-30b into B6-2 (one pass, not two).
 Honest ceiling: non-skippable ≠ infallible.
+
+**Eighth-compact ORDER addendum:** task **#237** (the think-twice hook
+hardening) was created AFTER the pickup block above — it is AWAITING THE
+USER'S GO, and the standing recommendation is to build it FIRST (before
+QC-25/the cluster) so everything after runs under the hardened gates. If the
+user's first post-compact word is a bare "go", ASK which comes first — #237 or
+QC-25 — rather than deciding.

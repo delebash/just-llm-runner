@@ -24,6 +24,7 @@ export { default as LuCombobox } from "./components/LuCombobox.vue";
 export { default as LuModelPicker } from "./components/LuModelPicker.vue";
 export { default as DataManagement } from "./components/DataManagement.vue";
 export { default as LogsPanel } from "./components/LogsPanel.vue";
+export { default as ConsolePanel } from "./components/ConsolePanel.vue";
 export { default as UpdatesPanel } from "./components/UpdatesPanel.vue";
 
 // the shared AI task queue (Decision 22) — the global in-flight registry

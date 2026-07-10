@@ -292,3 +292,20 @@ button:not(.ui-btn) { color: inherit; }
 .lu-pill--run { background: var(--accent); color: var(--on-accent, #fff); }
 .lu-pill--load { background: var(--gold-soft, #f5edda); color: var(--gold, #b08a3e); border: 1px solid var(--gold-line, #e2d2b0); }
 .lu-pill--disk { background: var(--surface-3); color: var(--ink-2); border: 1px solid var(--border); }
+
+/* ── Log console box (shared by LogsPanel's live/day tail + ConsolePanel's live
+   server/engine follow; promoted here 2026-07-10 from LogsPanel's scoped
+   .lu-logs-pre / .lu-logline* so a second SFC renders lines identically — ONE
+   source for the level-coloured monospace grammar, paired with logLines.js).
+   Height is the consumer's call: LogsPanel caps at 460px; the console fills its
+   pane. Level classes come from logLineClass(); engine output (no [LEVEL] tokens)
+   renders as bare .lu-logline lines through the same box. */
+.lu-logbox {
+  margin: 0; font-family: var(--font-mono, monospace); font-size: 11.5px; line-height: 1.55;
+  overflow: auto; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--ink-2);
+}
+.lu-logline { white-space: pre-wrap; word-break: break-word; }
+.lu-logline--err { color: var(--danger-ink, #b42318); }
+.lu-logline--warn { color: var(--warning-ink, #b54708); }
+.lu-logline--dim { opacity: 0.6; }

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Iterable, Iterator
+from typing import Callable, Iterable, Iterator
 
 from .base import LLMAdapter, LLMMessage, LLMResponse, StreamDelta
 from .registry import LLMRegistry, get_llm_registry
@@ -27,6 +27,31 @@ from .tiers import TierSpec, spec_for
 from .usage import UsageEntry, get_ledger
 
 log = logging.getLogger(__name__)
+
+
+# ── optional host-injected ensure-local hook (QC-43b) ───────────────────────
+# A run that resolves to the BUILT-IN runner provider makes its model resident
+# before dispatch, so the first local call doesn't die with "Connection refused"
+# when the router/model isn't up yet (the chat/feature twin of the embeddings
+# ensure). The llm/ package must NOT import runner/ (they are decoupled — install.py
+# is the one coupling point), so this is an INJECTED CALLABLE wired at boot exactly
+# like the usage sink (set_ledger): install.py points it at
+# RunnerService.ensure_model_ready. None (standalone / non-runner host) → the ensure
+# is skipped and dispatch behaves exactly as before.
+_ensure_local_model: Callable[[str], None] | None = None
+
+
+def set_ensure_local_model(fn: Callable[[str], None] | None) -> None:
+    """Host wiring at boot: the callable that makes a local-runner model resident
+    (blocking until loaded) before a dispatch routed to the bundled runner. Pass None
+    to unset. Mirrors `set_ledger` — a module-level seam, no runner import here."""
+    global _ensure_local_model
+    _ensure_local_model = fn
+
+
+def get_ensure_local_model() -> Callable[[str], None] | None:
+    """The configured ensure-local hook, or None when no host wired one."""
+    return _ensure_local_model
 
 
 class LLMNotConfiguredError(RuntimeError):

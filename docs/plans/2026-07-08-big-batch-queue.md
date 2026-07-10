@@ -4614,6 +4614,24 @@ with the trivial attestation in the turn text — the #253 text-citation
 failure again; THIS doc line is the durable queue entry.) Items (a) and (b)
 remain offers awaiting the user's word.
 
+**ALL THREE ARE BUILT (2026-07-10 late evening, the user's go "do qc 43
+a,b,c" — this supersedes every OFFERED/QUEUED status above):** (a) the
+stale-seed boot-heal SHIPPED (runner a094143, checker PASS — STALE_SEED_VALUES
+in seed.py, the Gemma-26B draft path heals at next boot); (b) chat
+ensure-resident BUILT server-side in the dispatch path (checker PASS — the
+install.py-injected ensure hook; prompts._ensure_local_ready on /run+/stream
+resolves the SAME route the dispatch uses and blocks via
+lifecycle.ensure_model_ready until loaded/sleeping; failures surface through
+the existing error shapes; 461 pytest + ruff; watch-item filed: the timeout
+branch lacks a dedicated test — the failed-load raise is covered); (c) the
+live Server-console tab BUILT in the kit (ConsolePanel + the AiModelsArea
+"Server console" tab after Usage; the LogsPanel line grammar promoted to ONE
+source — logLines.js + the kit-global .lu-logbox/.lu-logline* classes; live
+follow via usePoll @2s while mounted, auto-scroll pin + jump-to-latest,
+Pause/Resume, stale note; FULL smoke swept the new tab zero errors, vitest
+88/88, screenshot sent to the user). (b)+(c) commit as the cluster ship with
+their checker verdicts.
+
 ---
 
 **THE 2026-07-10 EVENING GO + THREE NEW TASK-ADDS (the user's words, this

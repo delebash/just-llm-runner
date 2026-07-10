@@ -781,6 +781,57 @@ class RunnerService:
         state = self.load(embed_id)
         return {"ok": True, "modelId": embed_id, **state}
 
+    def _resident_ready(self, model_id: str) -> bool:
+        """True when `model_id` is resident AND its router child is loaded|sleeping —
+        i.e. the internal load reached `running` (set ONLY after `_confirm_load` saw the
+        router report loaded|sleeping) and the router is still alive. Same lock-free
+        best-effort read `status()`/`resident()` do; drives ensure_model_ready's
+        already-ready fast path and its poll-success test."""
+        st = self._resident.get(model_id)
+        if st is None or st.get("status") != "running":
+            return False
+        router = self._router
+        return router is not None and router.is_alive()
+
+    def ensure_model_ready(self, model_id: str, timeout_s: float = 180.0) -> None:
+        """BLOCK until `model_id` is resident (loaded|sleeping), driving the SAME load
+        path `ensure_embedding` uses — download-if-needed + lazy-spawn the router +
+        reserve — differing only in that this WAITS for the child instead of returning
+        immediately. The server-side twin of the kit's ensure-embedding, so a LOCAL
+        chat/feature/Lab run no longer dies with "Connection refused" when the built-in
+        router/model isn't up yet (QC-43b).
+
+        Falsy id → immediate no-op (the caller resolved to a non-local / empty model).
+        Already resident+ready → immediate return, no reload. Raises RuntimeError on a
+        failed/error load or when the model isn't ready within `timeout_s`. Runs on the
+        CALLER's thread (dispatch calls it via asyncio.to_thread); the actual load runs
+        on the service's own background thread, whose `_resident` state this polls every
+        ~1s through the injected clock (deterministic offline, like `_confirm_load`)."""
+        if not model_id:
+            return
+        if self._resident_ready(model_id):
+            return
+        # Same trigger ensure_embedding uses: download-if-needed + lazy-spawn the router
+        # + reserve, on the background load thread. A re-load of an already-in-flight /
+        # running model is idempotent inside load() (and its router-liveness gate
+        # respawns a dead router), so this is safe whatever state the model is in.
+        self.load(model_id)
+        deadline = self._now() + timeout_s
+        while True:
+            if self._resident_ready(model_id):
+                return
+            st = self._resident.get(model_id) or {}
+            if st.get("status") == "error":
+                raise RuntimeError(
+                    f'The local model "{model_id}" failed to load: '
+                    f'{st.get("error") or "unknown error"}'
+                )
+            if self._now() >= deadline:
+                raise RuntimeError(
+                    f'Timed out preparing the local model "{model_id}" after {int(timeout_s)}s.'
+                )
+            self._sleep(self._load_poll_interval)
+
     # ── internals ─────────────────────────────────────────────────────────
 
     def _main_gguf(self, snapshot_dir, quant: str) -> Path:

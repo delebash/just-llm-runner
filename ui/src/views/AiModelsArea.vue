@@ -19,6 +19,7 @@ import TaskKinds from "./TaskKinds.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
+import ConsolePanel from "../components/ConsolePanel.vue";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import { useModelApply } from "../services/modelApply.js";
@@ -345,6 +346,8 @@ onMounted(() => {
       <a :class="{ on: tab === 'tasks' }" @click="tab = 'tasks'">Routing by task</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
+      <!-- QC-43c: live server-console tab — the server log ring + the engine child's output. -->
+      <a :class="{ on: tab === 'console' }" @click="tab = 'console'">Server console</a>
       <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
     </nav>
 
@@ -550,6 +553,13 @@ onMounted(() => {
       </template>
       <div v-else class="lu-card lu-usage-empty lu-muted">No usage recorded yet.</div>
       <PricingEditor v-if="tab === 'usage'" />
+    </section>
+
+    <!-- ── Server console — live follow of the server log ring + the engine
+         child's output (QC-43c). Mounted only while active (v-if) so its poll
+         stops when the reader leaves the tab. Fills its height (one scroller). ── -->
+    <section v-show="tab === 'console'" class="lu-tab lu-tab-fill">
+      <ConsolePanel v-if="tab === 'console'" />
     </section>
 
     <!-- ── App-contributed tab (host fills #app-tab; e.g. JW "Writing AI") ── -->

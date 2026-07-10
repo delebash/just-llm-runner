@@ -22,6 +22,7 @@ from llm_runner.llm import (
     make_prompt_router,
     render,
 )
+from llm_runner.llm.dispatch import set_ensure_local_model
 
 
 @pytest.fixture(autouse=True)
@@ -33,6 +34,15 @@ def _isolated_storage():
     db.LlmBase.metadata.create_all(engine)
     db.configure_storage(sessionmaker(bind=engine))
     yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_ensure_hook():
+    # QC-43b: the dispatch ensure-local hook is a process global — keep it OFF by
+    # default (existing tests are unaffected) and clean it up after a test sets it.
+    set_ensure_local_model(None)
+    yield
+    set_ensure_local_model(None)
 
 
 # ── a host store + seed defaults, in memory ─────────────────────────────────
@@ -129,6 +139,19 @@ def _feature_client(store, *, register=True):
         get_llm_registry().register(adapter)
     app = FastAPI()
     app.include_router(make_feature_router(lambda: store, lambda: LLMConfig()))
+    return TestClient(app, raise_server_exceptions=False), adapter
+
+
+def _local_route_client(provider_id):
+    """A feature-execution client whose sole registered adapter has `provider_id` (so
+    resolve_route's first-adapter fallback resolves to it) — lets a test route to the
+    local runner id (== LLMConfig().local_runner_provider_id) or a cloud id at will."""
+    get_llm_registry()._adapters = {}
+    adapter = CaptureAdapter()
+    adapter.provider_id = provider_id
+    get_llm_registry().register(adapter)
+    app = FastAPI()
+    app.include_router(make_feature_router(lambda: MemPromptStore(), lambda: LLMConfig()))
     return TestClient(app, raise_server_exceptions=False), adapter
 
 
@@ -412,3 +435,53 @@ def test_run_body_samplers_override_preset():
     })
     assert r.status_code == 200
     assert adapter.last["extra"]["top_k"] == 5                       # body overrode the preset's 40
+
+
+# ── QC-43b: server-side ensure-local before a dispatch routed to the built-in runner ──
+def test_run_ensures_local_model_when_route_is_local():
+    """A /run that resolves to the built-in runner provider ensures the RESOLVED model
+    is resident before dispatch — the stubbed hook is called with that model id."""
+    ensured = []
+    set_ensure_local_model(lambda mid: ensured.append(mid))
+    c, adapter = _local_route_client("local-llamacpp")   # == LLMConfig().local_runner_provider_id
+    r = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}})
+    assert r.status_code == 200
+    assert ensured == [adapter.default_model]            # ensured the model the route resolved to
+
+
+def test_run_does_not_ensure_for_non_local_provider():
+    """A cloud/remote route must NOT trigger the local ensure hook (only the built-in
+    runner provider needs a lazy resident-load)."""
+    ensured = []
+    set_ensure_local_model(lambda mid: ensured.append(mid))
+    c, _adapter = _local_route_client("cloud")           # != the local runner id
+    r = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}})
+    assert r.status_code == 200
+    assert ensured == []                                 # skipped for a non-local provider
+
+
+def test_run_ensure_failure_surfaces_as_http_error():
+    """An ensure that raises (the model failed to load) surfaces through the run path's
+    existing exception handling as an HTTP error — not a crash."""
+    def boom(mid):
+        raise RuntimeError(f'The local model "{mid}" failed to load: boom')
+
+    set_ensure_local_model(boom)
+    c, _adapter = _local_route_client("local-llamacpp")
+    r = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}})
+    assert r.status_code == 500                           # handled as an HTTP error, not a crash
+
+
+def test_stream_ensure_failure_surfaces_as_error_frame():
+    """An ensure failure on the STREAM path becomes the stream's own SSE error frame
+    (there is no HTTP status to fail with once streaming) — never a 500."""
+    def boom(mid):
+        raise RuntimeError("model load timed out")
+
+    set_ensure_local_model(boom)
+    c, _adapter = _local_route_client("local-llamacpp")
+    with c.stream("POST", "/v1/ai/stream", json={"action": "greet", "variables": {"name": "Sam"}}) as r:
+        assert r.status_code == 200                       # the stream response itself is 200
+        body = "".join(chunk for chunk in r.iter_text())
+    assert '"error": "model load timed out"' in body     # ensure error → SSE error frame
+    assert body.strip().endswith("data: [DONE]")

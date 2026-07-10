@@ -13,6 +13,7 @@ import { request, llmUiUrl } from "../client.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import { confirmDialog } from "../common/services/dialog.js";
+import { logLineClass, parseLogRows } from "../services/logLines.js";
 
 const LIVE = "__live";
 const text = ref("");
@@ -37,33 +38,16 @@ const LEVEL_OPTIONS = [
   { value: "error", label: "Errors only" },
 ];
 
-const LEVEL_RE = /\[(CRITICAL|ERROR|WARNING|INFO|DEBUG)\]/;
-function levelOf(line) {
-  const m = LEVEL_RE.exec(line);
-  return m ? m[1] : "";
-}
-// Group-aware rows: a line WITH a level token starts a group; continuation
-// lines (tracebacks, wrapped messages) inherit the group's level — so filtering
-// to "Errors only" keeps the whole traceback, not just its first line.
+// Group-aware rows come from the shared parser (a line WITH a level token starts
+// a group; continuation lines inherit it — so "Errors only" keeps the whole
+// traceback, not just its first line); the level dropdown then filters.
 const rows = computed(() => {
-  const out = [];
-  let current = "INFO";
-  for (const line of (text.value || "").split("\n")) {
-    const lv = levelOf(line);
-    if (lv) current = lv;
-    out.push({ line, level: current });
-  }
+  const out = parseLogRows(text.value);
   const min = level.value;
   if (min === "all") return out;
   const keep = min === "error" ? new Set(["ERROR", "CRITICAL"]) : new Set(["WARNING", "ERROR", "CRITICAL"]);
   return out.filter((r) => keep.has(r.level));
 });
-function rowClass(r) {
-  if (r.level === "ERROR" || r.level === "CRITICAL") return "lu-logline--err";
-  if (r.level === "WARNING") return "lu-logline--warn";
-  if (r.level === "DEBUG") return "lu-logline--dim";
-  return "";
-}
 
 async function loadDays() {
   try {
@@ -172,9 +156,9 @@ onMounted(() => {
       <UiButton intent="danger" size="small" :loading="busy === 'deleteAll'" title="Remove every stored log file + clear the tail" @click="deleteAll">Delete all logs</UiButton>
     </div>
     <div v-if="err" class="lu-error">{{ err }}</div>
-    <div class="lu-logs-pre" role="log">
+    <div class="lu-logs-pre lu-logbox" role="log">
       <template v-if="rows.length && text">
-        <div v-for="(r, i) in rows" :key="i" class="lu-logline" :class="rowClass(r)">{{ r.line }}</div>
+        <div v-for="(r, i) in rows" :key="i" class="lu-logline" :class="logLineClass(r.level)">{{ r.line }}</div>
       </template>
       <div v-else class="lu-muted">{{ text ? "No lines match this filter." : "No log lines yet." }}</div>
     </div>
@@ -189,13 +173,7 @@ onMounted(() => {
 .lu-logs-spacer { flex: 1; }
 .lu-logs-dl { font-size: 12px; font-weight: 600; color: var(--accent-ink, var(--accent)); text-decoration: none; padding: 4px 6px; }
 .lu-logs-dl:hover { text-decoration: underline; }
-.lu-logs-pre {
-  margin: 0; font-family: var(--font-mono, monospace); font-size: 11.5px; line-height: 1.55;
-  max-height: 460px; overflow: auto; background: var(--surface);
-  border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--ink-2);
-}
-.lu-logline { white-space: pre-wrap; word-break: break-word; }
-.lu-logline--err { color: var(--danger-ink, #b42318); }
-.lu-logline--warn { color: var(--warning-ink, #b54708); }
-.lu-logline--dim { opacity: 0.6; }
+/* Box chrome + the .lu-logline* level grammar are shared (.lu-logbox in
+   common/styles.css); LogsPanel only caps the height of its instance. */
+.lu-logs-pre { max-height: 460px; }
 </style>

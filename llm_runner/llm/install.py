@@ -300,8 +300,10 @@ def _wire_runner_catalog(data_dir=None) -> None:
     shared DB — fully replacing runner-manifest.json (A7). When the host passes a
     `data_dir`, the runner's engine + model cache lives under `<data_dir>/ai-cache`
     so all app data shares one portable root; None → the runner default (~/.cache)."""
-    from ..runner.lifecycle import configure_service
+    from ..runner.lifecycle import configure_service, get_service
     from ..runner.schema import ModelEntry, RecommendedFor
+
+    from .dispatch import set_ensure_local_model
 
     def catalog_fn():
         return [
@@ -366,3 +368,15 @@ def _wire_runner_catalog(data_dir=None) -> None:
         save_pin_fn=save_pin_fn,
         cache_root=(str(Path(data_dir) / "ai-cache") if data_dir else None),
     )
+
+    # QC-43b: wire the dispatch ensure-local hook to the runner service. A run routed
+    # to the bundled runner (chat / features / Lab) makes its model resident BEFORE
+    # dispatch — the server-side twin of the kit's ensure-embedding — so a cold router
+    # no longer surfaces as "Connection refused". The llm/ dispatch never imports
+    # runner/; this closure over ensure_model_ready IS the injected seam (like save_pin
+    # above / configure_service). get_service() is resolved at call time so it always
+    # hits the configured singleton.
+    def _ensure_local_model(model_id: str) -> None:
+        get_service().ensure_model_ready(model_id)
+
+    set_ensure_local_model(_ensure_local_model)

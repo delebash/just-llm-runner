@@ -21,6 +21,7 @@ both apps run the SAME code instead of per-app duplicates.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -32,7 +33,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .base import LLMMessage
-from .dispatch import LLMNotConfiguredError, chat, resolve_route, stream_chat
+from .dispatch import (
+    LLMNotConfiguredError,
+    chat,
+    get_ensure_local_model,
+    resolve_route,
+    stream_chat,
+)
 from .preset_resolve import resolve_task_preset
 from .pricing import cost_for
 from .schema import LLMConfig
@@ -477,6 +484,36 @@ def _effective_spec(spec: FeaturePromptRow, preset) -> FeaturePromptRow:
     )
 
 
+async def _ensure_local_ready(
+    config: LLMConfig,
+    feature: str,
+    action: str,
+    provider_override: str | None,
+    model_override: str | None,
+) -> None:
+    """QC-43b: when a run resolves to the bundled LOCAL runner, make its model resident
+    before dispatch — otherwise the adapter talks to a router that may be down and the
+    caller sees a bare "Connection refused". Done SERVER-side so chat, features, and the
+    Lab are all covered with no client change (embeddings already do the equivalent via
+    ensure_embedding). No-op when: no ensure hook is wired (a host without the bundled
+    runner), the route resolves to a non-local provider, or no model id resolved. The
+    resolved provider id is compared to `config.local_runner_provider_id` (never a
+    hardcoded string). The ensure callable is SYNC and BLOCKS until the model loads, so
+    it runs off the event loop via asyncio.to_thread. Route-resolution errors
+    (LLMNotConfiguredError) and load failures (RuntimeError) propagate to the caller,
+    which surfaces them through its existing error shape (run: exception → HTTP error;
+    stream: caught into the SSE error frame)."""
+    ensure = get_ensure_local_model()
+    if ensure is None:
+        return
+    adapter, model, _tier = resolve_route(
+        config, feature, action=action,
+        provider_override=provider_override, model_override=model_override,
+    )
+    if model and adapter.provider_id == config.local_runner_provider_id:
+        await asyncio.to_thread(ensure, model)
+
+
 def make_feature_router(
     get_store: Callable[[], PromptStore],
     get_config: Callable[[], LLMConfig],
@@ -501,7 +538,16 @@ def make_feature_router(
         messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
         preset = _resolve_preset(body.action, spec.feature, task_kind_of)
         eff = _effective_spec(spec, preset)
+        provider_override = body.providerId or (preset.providerId if preset else "") or None
+        model_override = body.model or (preset.model if preset else "") or None
         try:
+            # QC-43b: a run routed to the bundled local runner makes its model resident
+            # first (else the adapter hits a down router → "Connection refused"). No-op
+            # for cloud/remote providers or when no ensure hook is wired; a load failure
+            # propagates through this handler's existing exception path.
+            await _ensure_local_ready(
+                get_config(), spec.feature, body.action, provider_override, model_override,
+            )
             resp = chat(
                 config=get_config(),
                 feature=spec.feature,
@@ -516,8 +562,8 @@ def make_feature_router(
                 temperature=eff.temperature if body.temperature is None else body.temperature,
                 think=_effective_think(eff, body),
                 max_tokens=(body.maxTokens if body.maxTokens is not None else eff.max_tokens) or None,
-                provider_override=body.providerId or (preset.providerId if preset else "") or None,
-                model_override=body.model or (preset.model if preset else "") or None,
+                provider_override=provider_override,
+                model_override=model_override,
                 extra=_plane2_extra(eff, body, preset),
             )
         except LLMNotConfiguredError as e:
@@ -548,8 +594,26 @@ def make_feature_router(
         system = render(sys_tpl, body.variables)
         preset = _resolve_preset(body.action, spec.feature, task_kind_of)
         eff = _effective_spec(spec, preset)
+        provider_override = body.providerId or (preset.providerId if preset else "") or None
+        model_override = body.model or (preset.model if preset else "") or None
+
+        # QC-43b: ensure a bundled-runner model is resident BEFORE streaming (else the
+        # adapter hits a down router → "Connection refused"). Awaited here in the async
+        # handler; any failure is captured and re-emitted as the stream's OWN SSE error
+        # frame below (never a pre-stream 500, matching how stream_chat errors surface).
+        ensure_error: str | None = None
+        try:
+            await _ensure_local_ready(
+                get_config(), spec.feature, body.action, provider_override, model_override,
+            )
+        except Exception as e:  # noqa: BLE001 — deferred into the SSE error frame below
+            ensure_error = str(e)[:200]
 
         def gen():
+            if ensure_error is not None:
+                yield f"data: {json.dumps({'error': ensure_error})}\n\n"
+                yield "data: [DONE]\n\n"
+                return
             try:
                 for delta in stream_chat(
                     config=get_config(),
@@ -560,8 +624,8 @@ def make_feature_router(
                     temperature=eff.temperature if body.temperature is None else body.temperature,
                     think=_effective_think(eff, body),
                     max_tokens=(body.maxTokens if body.maxTokens is not None else eff.max_tokens) or None,
-                    provider_override=body.providerId or (preset.providerId if preset else "") or None,
-                    model_override=body.model or (preset.model if preset else "") or None,
+                    provider_override=provider_override,
+                    model_override=model_override,
                     extra=_plane2_extra(eff, body, preset),
                 ):
                     if delta.done:

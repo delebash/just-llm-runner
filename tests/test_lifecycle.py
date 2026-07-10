@@ -8,6 +8,8 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from llm_runner.runner.arbiter import VramArbiter
 from llm_runner.runner.lifecycle import RunnerService
 from llm_runner.runner.process import FitPlan, Overrides
@@ -1123,6 +1125,49 @@ def test_ensure_embedding_loads_and_pins(tmp_path):
     row = next(r for r in svc._arbiter.snapshot()["reservations"] if r["key"] == _EMBED.id)
     assert row["pinned"] is True
     assert svc._arbiter.pick_evict() is None  # only a pinned reservation → nothing evictable
+
+
+# ── QC-43b: ensure_model_ready (BLOCK until resident — the dispatch-path trigger) ──
+
+def test_ensure_model_ready_noop_for_falsy_id(tmp_path):
+    # A falsy model id (a run that resolved to a non-local / empty model) → immediate no-op.
+    svc = _service_for(tmp_path)
+    calls = []
+    svc.load = lambda *a, **k: calls.append(a)  # type: ignore[method-assign]
+    svc.ensure_model_ready("")
+    assert calls == []                            # never kicked a load
+
+
+def test_ensure_model_ready_noop_when_already_resident(tmp_path):
+    # Already resident + child loaded → returns immediately WITHOUT re-loading.
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    calls = []
+    svc.load = lambda *a, **k: calls.append(a)  # type: ignore[method-assign]
+    svc.ensure_model_ready(_TEST_MODEL.id)
+    assert calls == []                            # fast path fired → no reload
+
+
+def test_ensure_model_ready_loads_then_returns(tmp_path):
+    # Not resident → drives the normal load path and BLOCKS until the child is loaded.
+    # sleep is a no-op so the poll spins fast while the background load resolves.
+    svc = _service_for(tmp_path, sleep=lambda s: None)
+    svc.ensure_model_ready(_TEST_MODEL.id, timeout_s=10)
+    assert svc.status()["status"] == "running"
+    assert svc._arbiter.is_reserved(_TEST_MODEL.id)   # went fully resident + reserved
+
+
+def test_ensure_model_ready_raises_on_failed_load(tmp_path):
+    # A child that reports 'failed' → the background load errors → ensure surfaces a
+    # clear RuntimeError (not a silent hang / crash).
+    def failed(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "failed"}}]}
+
+    svc = _service_for(tmp_path, router_models=failed, sleep=lambda s: None)
+    with pytest.raises(RuntimeError, match="failed to load"):
+        svc.ensure_model_ready(_TEST_MODEL.id, timeout_s=10)
 
 
 def test_embed_own_load_emits_embeddings_section(tmp_path):

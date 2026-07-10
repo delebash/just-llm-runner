@@ -5750,3 +5750,107 @@ appear (bottom)? (c) does the wrong project persist after an app restart?
 the user's word): the abort branch retries once and the toast names the
 project + the failure ("Couldn't load '<title>' — the server didn't return
 it; try again"), instead of the current generic line.
+
+---
+
+## THE 2026-07-10 NIGHT WINDOW (post-sixteenth-compact) — the user's three answers, executed
+
+The user answered the compact point's open decisions in one message (verbatim:
+"1 it seems to switch now, but i have reset the database twice and restarted
+and i still have untitled project. 2 is there any reason not to strip it for
+ai reasons? 3 not sure what you mean.  Notes for scene you have as detach it
+need to be delete a note not detach."). This window ran inline (no delegated
+builders — three small/medium surgical changes with decree-sensitive design
+semantics; T10 judgment call). Plan rules-checked BEFORE first edit — one
+FAIL (T8: the plan itself must land in docs/plans/ + recap), remedied by
+`justwrite-app/docs/plans/2026-07-10-zero-project-welcome-and-panel-delete.md`;
+the checker's two implementation cautions (zero-project check must NOT sit
+behind the run-once welcome gate; only the PER-NOTE ✕ changes, the panel-close
+✕ stays) were folded in.
+
+**(1) THE ZERO-PROJECT LAW (JW).** Root cause of "reset twice and still have
+untitled project": the renderer minted it — `bootstrap()`'s empty-registry
+fallback minted a blank "Untitled project" on EVERY boot with an empty
+registry and `ensureActiveProjectPersisted()` PUT the row server-side;
+`deleteProject`'s last-project branch minted another via createProject; and
+`_ensureActiveId()` lazily mints an id on any persist with a null active id.
+The server has seeded ZERO projects since QC-40, so every workspace reset
+(POST /v1/data/reset — the Settings button) was undone by the next renderer
+boot. The fallback predated the QC-46 welcome screen, which is now the
+nothing-to-show surface. Shipped shape: bootstrap's empty branch returns
+`{activeId:null, registry:[], snapshot:null}`; the main.js guard forces
+/welcome on EVERY navigation while the registry is empty (allowlist
+/welcome·/ai·/help — exactly the routes WelcomeView's CTAs target; the
+run-once `welcomeSeen` first-run redirect stays for upgraders WITH projects);
+deleteProject-last blanks the in-memory state via the extracted
+`blankSnapshot()` helper (ONE source, shared with createProject), nulls the
+active id + setting, persists nothing, and the Sidebar caller routes to
+/welcome; createProject AND switchProject gate their persist-the-outgoing
+step on `this._activeId` — without that gate the welcome screen's own CTAs
+(Start new / Try tutorial) would re-mint a phantom row through
+_ensureActiveId on their way in (the tutorial path was probed for exactly
+this: EXACTLY prj_demo_cartographer exists after tutorial-from-zero, no
+sibling). `_ensureActiveId` itself stays as an unreachable last-resort net.
+ADJACENT FIX (FLAGGED — not the user's word, reverts on it):
+`ui.projectTitle` was a DEAD constant permanently pinned to "The
+Cartographer's Daughter" (zero writers; App.vue:120 bound it into the
+TitleBar) — every project ever opened showed the demo's name in the TitleBar,
+and the zero-project state exposed it on /welcome (caught live by the
+diagnostic screenshot). App.vue now binds the project store's real title (app
+name when zero projects); the dead key is deleted. DISCOVERED, recorded, not
+changed: the sidebar switcher hides delete on the ACTIVE row, so the
+delete-last branch is unreachable from the UI today (store/reset paths only —
+the probe drives the store seam); and the first cold boot RIGHT after a live
+reset can transiently log one boot-cache fetch failure
+(providerBackend/routingBackend "Failed to fetch" — caught + logged, page
+functional; environmental race, pre-existing service behavior, out of scope).
+QC-47 (switcher): the user's own words close it — "it seems to switch now";
+the hardening candidate stays unbuilt.
+
+**(2) SCENE MARKS: KEEP (recorded decision — deep-audit A1 CLOSED).** The
+user asked "is there any reason not to strip it for ai reasons?" Verified
+answer: YES — keep. The mark the four features see (critique/structural
+critique.js:20,68 · entityExtraction.js:56 · threadExtraction.js:46 ·
+readerKnowledge.js:91, all `stripSceneMarks:false`) is the literal line
+`* * *` (project.js stitches scenes with `<p class="scene-mark">* * *</p>`) —
+the industry-standard manuscript scene-break notation. It tells the model a
+cut/time-jump/POV shift is DELIBERATE; stripping glues scenes into seamless
+prose and would make critique/pacing/reader-knowledge judgments WORSE
+(deliberate breaks misread as abrupt-transition defects). No server prompt
+references the marks; all four parse JSON (no offset/marker parsing); cost of
+keeping ≈ 3 tokens per break. No code change. Flips to full-strip on the
+user's word — one flag per call site.
+
+**(3) PANEL ✕ = DELETE (the user's order).** SceneNotesPanel's per-note
+action now calls `project.removeNote(id)` — soft delete to Trash, NO confirm
+(NotesView's own delete has none), NO toast (QC-37), Trash glyph (the Sidebar
+per-project-delete precedent), tooltip/aria "Delete note"; the trashed copy
+keeps its anchor (delete ≠ detach — probe-asserted), restore from /trash
+reunites everything; unanchoring still lives in NotesView's anchor picker
+("Story-wide"); the panel-close ✕ untouched. The #235 asymmetry stands: a
+panel delete lands in the notes domain, ⌘Z for it lives on /notes (recorded).
+Docs same commit: notes-and-search.md panel paragraph rewritten to delete
+semantics; whats-new.md scene-notes entry + the stale "fresh install starts
+in your own blank project" tutorial line; getting-started.md:24 rewritten to
+the zero-project truth; seed.py + test_seed.py comment lines updated.
+
+**GATES (all green):** vitest 94/94 · build:vite · FULL headless smoke (all
+routes, zero JS errors) · NEW zero-project probe 16/16 (scratchpad
+zero-project-probe.mjs: reset → forced /welcome on cold boot AND on in-app
+navigation → /ai reachable with zero rows after (the _ensureActiveId hazard
+leg) → create via the real dialog → one row → delete-last → /welcome + zero
+rows → tutorial-from-zero → exactly the demo row → zero JS errors on the
+clean run; run 1's two redirect fails were the probe racing the just-reset
+server — the diagnostic re-run with a settle showed the guard working, and
+run 2 was 16/16) · panel delete-leg probe 10/10 (real button: card leaves, in
+trash WITH anchor, no confirm, no errors) · undo-probe 19/19 · JW server
+pytest 80 + ruff · biome on all touched files. Dev DB backed up before and
+restored byte-exact after (sqlite backup API; server stop/start around the
+file swap — lesson relearned: `pkill -f` matches the invoking shell's own
+cmdline; use separate calls or the [b]racket trick).
+
+**OPEN — the user's word only:** the rich-note edit-flattening in the panel
+(still awaiting their verdict) · #256 spell-check research · the strip flip
+if they overrule (2)'s keep. QUEUED (unchanged): panel i18n · the I1 judgment
+legs · per-model GGUF delete · ensure-resident timeout test · progress label
+· hooks payload channel · DOM-env htmlToText suite.

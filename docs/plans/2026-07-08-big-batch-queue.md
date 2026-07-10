@@ -4616,6 +4616,99 @@ remain offers awaiting the user's word.
 
 ---
 
+**THE 2026-07-10 EVENING GO + THREE NEW TASK-ADDS (the user's words, this
+window).** The go, verbatim: *"Do I4, I1,253, authorized for superpowser,
+what is recap bullet keep/strike, do qc 43 a,b,c"* — so QC-43 (a)+(b)+(c) all
+move to BUILD, #253 and I4 and I1 build, and the superpowers install is
+AUTHORIZED (installed this window: `claude plugin marketplace add
+obra/superpowers-marketplace` + `claude plugin install
+superpowers@superpowers-marketplace`, both succeeded, user scope — note this
+container is ephemeral; making it permanent means adding it to the
+claude-config bundle, flagged for the user's word). The keep/strike question
+was answered (the DECIDED-ONCE bullet, MORNING_RECAP.md:722-727; the standing
+offer stands — say remove and it strikes, silence keeps it).
+
+**A NEW STANDING RULE (user verbatim, this window): "when i say add to task
+that means add it as a task not do it now, dont interupt your flow"** — a
+task-add queues the item and the current work continues; nothing builds from
+a task-add until its own go.
+
+**QC-45 (task-add, user verbatim):** *"adding notes to scenes doesnt feel
+right, it opens into a new editor, no way to get back to scene and it doesnt
+feel like adding a note, plus you have alist of chapters and a note label
+this is confusing, i just want to add a not to this one scene, if i want to
+maange notes i do that in note section, please rethink this and then think
+on it a second time"* — a DESIGN RETHINK deliverable first (with an explicit
+second pass, per their words), presented before any build.
+
+**QC-46 (task-add, user):** *"we decided on opening a fresh install with new
+project, i dont like it what was the alternatie that we talked about?"* —
+answered: the discussed alternative was a WELCOME SCREEN (first-run surface
+with New project / Try the tutorial as its actions; the record of the two
+options is the twelfth-compact point above). The revisit is queued; awaiting
+their pick (welcome screen vs something new).
+
+**QC-46 DECIDED (2026-07-10, the user's word, verbatim):** *"i want the
+welcome scree as firtst run surface with something about the ai features and
+if you want to use then run the quick setup for local use or connect to an
+onilne provider, a nice welcome screen hgihtlithng major features and an easy
+setup, think and it and come up with a nice design"* — so: the first-run
+surface is a WELCOME SCREEN that (1) highlights the app's major features,
+(2) introduces the AI features with the two setup paths — Quick Setup for
+local use, or connect an online provider, (3) offers easy setup + the
+project entry points (New project / Try the tutorial). Deliverable FIRST: a
+design pass ("think on it … come up with a nice design" — the design law:
+precedent + real-world reference + mockups for their pick, the QC-39 method).
+Sequenced after the current batch per the don't-interrupt rule.
+
+**THE DECIDED-ONCE BULLET IS STRUCK (2026-07-10, the user's word: "THE
+DECIDED-ONCE RULE remove, if you are unsure i would rather you ask")** — the
+keep/strike question is CLOSED: the unasked 2026-07-09 recap bullet is
+removed and replaced with the user's own principle (ASK WHEN UNSURE —
+recorded decisions still stand, but uncertainty about whether/what was
+decided is resolved by ASKING, never by assuming). MORNING_RECAP.md updated.
+
+**QC-47 (BUG, user):** *"project selection is not working, choosing a
+different project in dropdown is not loading that project"* — queued;
+diagnosis grounding so far (this window, reading only): the click path is
+Sidebar.vue pickProject → store switchProject (project.js:2204-2219) →
+projectApi.fetchSnapshot (projectApi.js:113-125, cache-first) →
+normalizeSnapshot (liftAiArtifacts is null-safe, project.js:289) →
+Object.assign($state); no thrower found by reading — needs a live repro
+(seed two projects, drive the real dropdown, capture console+network).
+Slots after the current batch per the don't-interrupt rule.
+
+**#253 SECOND RESOLUTION (2026-07-10 evening — the recurrence diagnosed; this
+CORRECTS the "(c) IS QUEUED" note above, whose "the #253 text-citation failure
+again" line was written before the full diagnosis).** The five task-gate
+denials this window had THREE causes, none the recorded INJECTED_USER shapes:
+two were a FORMAT mismatch (a genuine prose tests-citation — eight distinct
+T-numbers with reasons — which the VERDICT regex never accepted; the injects'
+"cite the tests" wording never said the required form), two were the
+same-message flush lag (the recorded operating note, violated), and the
+deepest is the ENVIRONMENT shape, live-probed with the window open: mid-turn
+assistant TEXT flushes unreliably (2 of ~6 messages present vs 23/23 thinking
+and 21/21 tool_use blocks) AND thinking blocks arrive with their content
+STRIPPED (empty string, signature only) — so neither text nor thinking is a
+dependable mid-turn citation carrier here; Stop-grain gates work because text
+flushes at turn end, and the commit gate works because agent verdicts arrive
+as user-side entries. BUILT + 7/7 suites green: `tests_cited()` (≥3 distinct
+T-numbers clears the LIGHT gates — in-contract with the injects' own wording,
+INSTALLED) · explicit inject wording (INSTALLED) · the `attest` channel
+(text + thinking + the gated call's own tool_input strings) feeding ONLY the
+affirmative escapes (BUILT, UNCOMMITTED — see next). MID-DIAGNOSIS EVENT,
+recorded honestly: the sandbox's auto-mode classifier DENIED a throwaway
+live-hook diagnostic patch and flagged this session's gate-edit series as
+self-modification warranting the user's review — a fair flag (each #253
+iteration moves the gate toward accepting what the agent produces, even
+though #253 is the user's own order and only the self-attestation-grain LIGHT
+gates are touched; commit/plan-lock stay on the un-forgeable agent verdict).
+Per the flag + the user's ask-when-unsure rule, the payload-channel half and
+any further gate work PAUSE for the user's explicit word; the full evidence
+is EFFECTIVENESS.md "#253 SECOND resolution".
+
+---
+
 **#253 BUILD RECORD (2026-07-10 — the hook fix, unblocked by the user's "do the
 5 quied tasks").**
 

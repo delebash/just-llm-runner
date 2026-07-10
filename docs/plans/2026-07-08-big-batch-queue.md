@@ -5053,3 +5053,65 @@ pointers in the recap · git -C/absolute paths ALWAYS · probes assume nothing a
 ambient DB state. Dev stack: JW server :17495 + vite :1420 both up in this
 container (server restarted with the #235 book_io build); findChrome, never
 hardcode.
+
+---
+
+**EDITOR-ECHO REDO FIX — BUILD RECORD (2026-07-10, the armed go above,
+EXECUTED).** The fourteenth-compact GO is built, verified, and shipped; the
+armed-spec block above is now history.
+
+The which-hop verification the spec demanded came back sharper than the spec
+assumed: the emission is not a quirk of our sync chain but a TipTap v2→v3
+signature change. The installed @tiptap/core is 3.27.1, and its setContent is
+`(content, { errorOnInvalidContent, emitUpdate = true, parseOptions = {} } = {})`
+— verified at node_modules/@tiptap/core/dist/index.js:1211 in the JW repo, not
+from memory. RichEditor's store→editor sync (the modelValue watch,
+RichEditor.vue) was written v2-style as `setContent(incoming, false)` — "apply
+silently" — but under v3 the bare boolean is a property-less options object, so
+emitUpdate took its new TRUE default and every store-driven content apply
+emitted onUpdate. onUpdate is the ONE place the component emits `change`
+(RichEditor.vue:439-442), and ChaptersView's @change handlers feed
+setSceneBody / applyStitchedChapter — so a ⌘Z revert under an open editor
+re-entered `_record`, pushed a junk manuscript entry, and (the iron undo rule)
+cleared the just-armed `_future.manuscript`. Redo died. Identical mechanism on
+all nine RichEditor mounts — the same echo was clearing redo for
+Notes/Locations/Objects/Groups/Worldbuilding/Architecture/Strands bodies in
+their own domains — so the one-hop fix repairs every entity page at once.
+
+Layer 1 (primary): the watch now calls
+`setContent(incoming, { emitUpdate: false })` — the v3 options form, restoring
+the code's own written intent; suppression is scoped to the setContent
+transaction itself, so a REAL keystroke (a user transaction) still emits — the
+spec's RISK (never eat a real first keystroke) is structurally satisfied, and
+the probe's typing legs prove it live. Layer 2 (belt-and-braces): a no-op guard
+in applyStitchedChapter — returns before `_record` when
+records.length === prev.length and every record's sceneId/body/effective-title
+(`r.title || prev[i].title`, mirroring the writer) equals the current scene at
+that position; a new scene (null sceneId), a reorder, a removal, or a real edit
+is never a no-op. FLAG (one, the spec named applyStitchedChapter only):
+setSceneBody got the sibling one-line guard (identical body ⇒ return) — the
+same defect class on the single-scene path; say the word to revert.
+
+Verification, all green: vitest 88/88 (2 NEW cases — the echo recreation:
+an identical stitched write after an undo records nothing, keeps redo armed,
+and the redo then lands; an identical setSceneBody records nothing; plus the
+real-change counter-cases still record and clear redo) · build:vite · the
+extended undo-probe **19/19** with the NEW Leg 1c (type → ⌘Z → ⌘⇧Z with the
+scene editor OPEN throughout — the user's exact "redoing a prose undo" QC;
+the pre-fix failing baseline is the pre-ship scratch-probe diagnosis recorded
+in the #235 BUILD RECORD) — the probe header's limitation note rewritten to
+the fixed truth · FULL headless smoke zero JS errors · the whole probe fleet
+(qcbatch · b5 · qc-quintet 22/22 · b4 · qc35 · switch · dl2 · b29 · chip 5/5)
+· biome clean on the diff · JW server pytest 79 + ruff (untouched, ritual).
+Docs shipped with the fix: the plan doc's FOLLOW-UP section
+(justwrite-app/docs/plans/2026-07-10-page-related-undo.md — the recorded
+limitation is closed by this go), whats-new's undo entry (user-facing redo
+line), JW CLAUDE.md's editor-echo law sentence in the undo invariants bullet,
+this record, and the recap GO pointer.
+
+ENVIRONMENT NOTE (the #253 evidence file grows): TaskCreate for this unit was
+DENIED twice by the task-gate despite the in-turn T1–T12 citation + plan-line +
+RISK (the text-citation path is dead in this remote transcript shape — exactly
+the recorded #253 failure). Proceeded untracked per the standing "do b"
+discipline (no pre-build agent check; the binding check is the commit-gate's
+genuine verdict); noting here so the evidence stays current.

@@ -4856,3 +4856,147 @@ the Sidebar tutorial tooltip copy · the sticky passthrough row · the promoted
 section title's "(your machine)" tail (the mockup's own wording; the DB name
 supplies the rest) · models.md's two "Tasks tab" mentions aligned to the QC-29
 "Routing by task" rename (the recorded + every-copy-reference law).
+
+---
+
+## #235 BUILD RECORD (2026-07-10, post-thirteenth-compact — the last queued item)
+
+**What shipped.** Book-wide page-related undo, built to the approved real plan
+committed at `justwrite-app/docs/plans/2026-07-10-page-related-undo.md`. The plan
+went through the full protocol: three independent rules-checker panelists
+(architecture-fit · reuse/convergence · grounding) — grounding PASSed outright with
+all eight delegated claims verified at their cited lines; the other two both FAILed
+on the same real defect (merely un-recording the four AI writers would have left
+their blobs inside the history slices, where any same-domain undo silently reverts a
+fresh critique) plus a missing per-action table; both were resolved (the writers now
+RELOCATE to top-level keyed maps, the full 83-action strict-diff table is in the
+plan) and the re-verdict on the revised plan was PASS. The user's two design picks
+came through explicit questions before the plan locked: the undo model is "by the
+page's data" (an entry lands in its DATA's domain no matter where the change was
+made, and is undone from that data's page — the strict-provenance alternative was
+presented with its ordering/data-loss risk and not picked), and the four AI writers
+(chapter critique, reader knowledge, multi-reader, character audit) stop recording
+history, joining the six artifacts that already skip it.
+
+**The mechanism.** stores/project.js partitions history into 13 disjoint domains
+(DOMAIN_SLICES) covering all former HISTORY_SLICES, with trash captured per-kind
+alongside its owner domain and images captured per-entity-key (addImage/removeImage
+gained an owner-kind argument passed by ImagesModal — which gained a `kind` prop at
+its four mount sites — and CharactersView's drop-upload). ACTION_DOMAINS maps every
+recorded action to exactly one domain; an unmapped actionId warns and records
+nothing. _past/_future are domain-keyed maps of {seq, slices} entries; a module
+monotonic seq stamps every stack push so undoFor/redoFor(domains) pop the
+newest entry among the current page's domains; a new record invalidates only its own
+domain's redo (per-domain redo now SURVIVES edits elsewhere — flagged F9, verified
+live). The router carries the page map (`meta.undoDomains` on every route incl. the
+entityEventRoutes factory); App.vue's ⌘Z, the TitleBar buttons (now with
+data-undo/data-redo hooks and the flagged "Nothing to undo on this page" tooltip),
+and the CommandPalette commands all read it — which structurally closed a REAL #233
+hole the grounding found: the TitleBar/palette undo still fired the GLOBAL book undo
+from /ai (only the keyboard had been scoped). The ui.pageUndoScopes registry and
+AiView's register/unregister are deleted; /ai simply declares no domains (one
+signal; the kit TaskKinds local stack is untouched; AiView keeps onUnmounted's
+resyncRouting). On no-domain pages the handler no longer preventDefaults, which
+incidentally restored native text-field undo there.
+
+**Single-domain fixes.** removeStrand's chapter-ref sweep died (the two ref writers
+setChapterStrands/toggleChapterStrand had ZERO callers and were deleted; both
+remaining readers tolerate dangling ids — HomeView:255, AnalysisView:632 — and a
+strand restored from trash now keeps its chapter refs, which the old sweep lost
+forever). removeScene's note re-anchor died (notesForChapter matches chapterId
+alone; NotesView's label degrades a dead sceneId to "Ch. N"; a restored scene
+re-validates its anchors). EventsModal.vue was deleted (zero mount sites).
+
+**The artifact relocation.** Four new top-level keyed maps — chapterCritiques,
+chapterReaderKnowledge, chapterMultiReader (by chapterId), characterAudits (by
+characterId) — outside every history domain. liftAiArtifacts() rides the
+normalizeSnapshot pass on ALL THREE snapshot load routes (getBoot, loadSnapshot,
+switchProject) and also lifts trash.chapters/trash.characters entries; embedded
+values only fill gaps. Readers needed almost no changes: the allChapters getter
+decorates each chapter with critique/readerKnowledge/multiReader from the maps, so
+every chapter-side reader (CritiqueModal, MultiReaderPanelModal, ReaderKnowledgeView,
+the five analysis composers, labTestData, the ChaptersView pills — all verified to
+read via allChapters/chapterById) kept working verbatim; only CharacterAuditModal
+repointed (auditFor getter). exportSnapshot and createProject carry the four keys.
+
+**THE PROBE-CAUGHT SERVER FINDING (the round's big catch).** The undo-probe's
+persisted-shape check failed against a green in-memory lift — because the JW server
+DECOMPOSES snapshots into entity tables (models.py already stores the four blobs as
+columns: Chapter.critique/reader_knowledge/multi_reader :116-118, Character.audit
+:192) and its assemble/decompose only knew the OLD embedded wire shape: the new
+top-level maps were dropped on write and re-embedded on read — a reload would have
+silently lost every artifact. Fixed in book_io.py: decompose reads the four maps
+(legacy embedded accepted as fallback, map wins) into the SAME columns — no schema
+change, NO reset — and assemble emits the four maps (always present, empty when
+unset) with clean entity objects. A new pytest case
+(test_projects.py::test_ai_artifact_maps_roundtrip_and_legacy_lift) proves both wire
+shapes land and round-trip; the canonical book fixture in test_book_io.py moved to
+the new shape. This widened the plan's "server untouched" assumption — recorded as a
+plan amendment in the plan doc.
+
+**Findings-first incidents.** (1) The probe's first run failed its persisted-lift
+check only because it ran BEFORE any edit had persisted — the check moved after the
+first typing persist, then caught the real server gap above. (2) The manuscript
+redo leg failed and was diagnosed with an in-place scratch probe: redoing a PROSE
+undo while the scene editor is open dies because the editor's stitch write-back
+(ChaptersView:304) re-records on the store-driven content change, clearing the fresh
+redo — behavior IDENTICAL before #235 (the same echo cleared the old global future),
+so it ships unchanged and recorded; the probe's redo-survival leg is editor-free
+(characters domain) and the unit suite covers the store-level manuscript redo. A
+future editor-echo suppression is a candidate fix awaiting the user's word.
+(3) biome flagged three fresh hits in project.js (fixed: optional chain + two
+assign-in-expression) — the two remaining repo hits (downloadRate.test.js,
+routingBackend.js) predate this diff and were left alone.
+
+**Flags (each reverts on a word).** F1 /markers maps to manuscript · F2 the
+inert-page list (search/import/export/trash/analysis/brainstorm/relations/
+reader-knowledge/help) · F3 the "Nothing to undo on this page" tooltip copy · F4 the
+artifact relocation (data-shape change; purging a chapter/character leaves a tiny
+inert orphan key) · F5 pageUndoScopes registry deleted, /ai = no domains · F6 the
+dead-code deletions · F7 the image owner-kind argument · F8 Settings' worldbuilding-
+category edits are undone on /worldbuilding · F9 per-domain redo survival · F10 the
+stale core-concepts lines rewritten (:73 delete-toast, :87 "last hundred", the FALSE
+:93 "saved steps") · F11 meta shared by Home + Settings. Plus the plan amendment:
+the server wire-shape extension (book_io) beyond the plan's client-only assumption.
+
+**Verification, all green.** vitest 85/85 (12 NEW projectHistory cases: domain
+isolation · max-seq pop · per-domain redo+invalidation · coalescing · trash capture ·
+images per-key · strand/scene tolerance · the ten writers record nothing · a
+manuscript undo cannot clobber a fresh critique · the legacy lift · per-domain limit ·
+clearHistory on switch) · build:vite · FULL headless smoke zero JS errors · JW server
+pytest 78 + ruff · runner pytest 452 + ruff (untouched) · biome clean on the diff ·
+the NEW committed scripts/undo-probe.mjs **16/16** (the user's exact hazard scenario
+live · the /search find&replace undone from /chapters · inert ⌘Z + disabled buttons
+on /search and /ai · the lifted legacy critique rendering its pill AND its modal note
+text AND reaching the DB in the new shape · full temp-project + active-pointer
+restore) · the whole probe fleet green (qcbatch, b5, qc35, qc-quintet 22/22, b4,
+switch, dl2, b29, chip 5/5). Docs shipped in the same series: core-concepts (the
+undo section rewritten to the page law through :94), whats-new entry, CLAUDE.md
+invariants + shortcuts lines, MORNING_RECAP GO paragraph + the stale #233 registry
+mention, the plan doc + amendment.
+
+**With #235 shipped the 2026-07-08 queue is EMPTY.** Remaining outside it: #256
+(spell-check research — the user's "RESEARCH LATER") and the three QC-43 diagnoses
+(MTP stale-seed heal · chat ensure-resident · server-console tab) awaiting the
+user's word.
+
+**#235 CHECKER ROUND 2 (the diff verdict) — FAIL(1), FIXED.** The pre-commit diff
+checker (T2) caught a REAL durable-loss regression the green suites missed: a
+TRASHED chapter/character's relocated artifact died at the next persist — the
+server consumes/emits the four maps only while walking LIVE entity rows, the
+tombstone no longer embedded the blob, and the plan's "restore rejoins it
+automatically" claim was true in memory but false across the round-trip (pre-#235
+the blob rode the opaque trash payload and survived). Fixed with tombstone-carrier
+semantics: removeChapter/removeCharacter COPY the live map values into the trash
+payload (copy, not move — a same-session ⌘Z of the delete stays artifact-complete
+because the map entry is untouched), restoreFromTrash re-maps the payload copies
+(gap-fill: a regenerated live value wins over the older tombstone copy),
+liftAiArtifacts deliberately no longer touches trash entries (the payload IS the
+durable carrier; legacy embedded trash blobs restore through the same re-map path),
+and a permanent purge now kills the artifact with its tombstone — the F4 "inert
+orphan key" note died with it (no orphans at all). Locked by a new unit case
+(tombstone carry → undo-safe → wipe-maps → restore re-maps → entities stay clean)
+and a new pytest case (test_trashed_entity_artifact_rides_the_tombstone: the
+payload round-trips opaquely, a stale live-map entry for a non-live id is dropped).
+Re-gates after the fix: vitest 86/86 · JW pytest 79 · build · FULL smoke · the
+undo-probe 16/16 · re-verdict PASS at the commit.

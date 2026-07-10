@@ -4663,3 +4663,74 @@ correct at negligible cost; the regex is GONE. The vitest case now asserts five
 distinct write families ALL invalidate (providers + routing included) and GETs
 don't. Re-verified: vitest, chip-probe, b5, qc-quintet; fresh checker verdict at
 the commit.)*
+
+---
+
+**⛔ THE TWELFTH-COMPACT POINT (2026-07-10 — the CURRENT pickup; supersedes the
+eleventh. READ THIS + Block-0 post-compact. The user's instruction: decisions →
+compact → THEN code.)**
+
+**SHIPPED this window (pushed):** B6 (#201–#203, runner `6021b5f`+docs, JW
+`aa429b7`+docs — streaming everywhere + prefill %; records above) · the QC-43
+CHIP FIX runner half (`651ff3a` — any-write cache invalidation per the
+checker's FAIL(2)→corrected round; chips update without reload, copy pick "b"
+"No model set · open AI settings"; record + CORRECTION above).
+
+**PENDING COMMIT at this save (land BEFORE compacting, on the in-flight
+combined verdict):** the JW chip half (AiFeatureChip copy · resolvedRoute.test
+· chip-probe NEW · b5/qc-quintet probe repoints · recap GO) and **#253** (the
+hook fix: defensive INJECTED_USER shapes + test_gates cases + EFFECTIVENESS
+"#253 resolution" — built, ALL 7 suites pass, applied live; the evidence sweep
+REFUTED the recorded reproduction shapes, record above).
+
+**THE FIVE-TASK BATCH STATE (the user's "do the 5 quied tasks" go stands):**
+#253 BUILT (commit pending). **QC-39 (#251): the user PICKED (b)** — promote
+the BUILT-IN provider out of the accordion into its own permanent top section
+(its Edit contents ARE the page: engine panel + slots + catalog + libraries);
+EVERY other provider — local openai-compat ones INCLUDED (the user's explicit
+check) — stays in the provider list below with the existing LOCAL·FREE/ONLINE
+grouping and small inline Edit, unchanged; neutral surfaces per mockup (b)
+(the four mockup screenshots were sent to the user; scratchpad
+qc39-mockups.mjs regenerates). NOT built yet. **QC-40/41/42 (#252/#254/#255):
+explained to the user in plain words (they asked; the explanations with their
+verbatim quotes are in the transcript this window); AWAITING their three
+words:** QC-40 fresh-install landing = blank "Untitled project" (rec; the
+existing empty-workspace fallback stores/project.js:147-161) vs a new welcome
+screen; QC-41 spell-check = passthrough "Show browser menu" row (rec; the
+user's own Windows two-tier reference) vs accept-loss; QC-42 exact copy =
+"For the Local built-in provider" (rec, their phrase) vs two alternates.
+DECIDED sub-points already recorded: tutorial button opens the Cartographer's
+Daughter (demo created ON DEMAND, demo_seed.py:20 fixed id keeps it
+reset-safe); demo stops seeding as default; old mini tutorial seed deleted
+(flagged — one word keeps it); QC-41 always-opens + AI-menu enable/disable law
++ Windows-11 row grammar.
+
+**SAME-WINDOW DIAGNOSES STILL AWAITING THE USER'S WORD (recorded in QC-43's
+record; do NOT build unasked):** (a) the MTP stale-seed heal (their box's
+Gemma-26B draft path is stale vs upstream — unblock told: Edit → "Load model
+info from HF"); (b) chat ensure-resident (auto-load like embeddings instead of
+"Connection refused"); (c) the live server-console tab task-add.
+
+**AFTER the compact + their three words: build QC-39(b) + QC-40 + QC-41 +
+QC-42 (one verdict-gated ship), then #235 LAST (real plan first).** Dev stack:
+JW server :17495 + vite :1420 (run_in_background; findChrome). The cwd RESETS
+between Bash calls — git -C/absolute paths ALWAYS. Probes now assume NOTHING
+about ambient DB state (qc-quintet self-configures; the container DB is
+factory-state post-restart).
+
+*(TWELFTH-POINT ADDENDUM — the user's decisions, verbatim this window:
+"qc-40 option 1, qc-41 option 1, aslo make a not we need to look at spell
+checking and other options that word has that an author might want in the
+editor add as task to research later. qc-42 your rec." So: **QC-40 = OPTION 1**
+— fresh install lands in the blank "Untitled project" via the existing
+empty-workspace fallback (stores/project.js:147-161); demo book created only
+when "Try tutorial project" is clicked; old mini tutorial seed deleted.
+**QC-41 = OPTION 1** — the context menu always opens; a bottom passthrough row
+("Show browser menu" grammar) keeps the native spell-check menu reachable;
+AI-menu enable/disable law + Windows-11 row grammar as recorded. **QC-42 =
+"For the Local built-in provider"** (the rec = the user's own phrase). **NEW
+TASK on the user's word:** research spell-checking + the other editor
+affordances Word has that an author might want in the manuscript editor —
+RESEARCH LATER, not scheduled into the current batch. After the compact:
+build QC-39(b) + QC-40 + QC-41 + QC-42 as one verdict-gated ship, then #235
+LAST.)*

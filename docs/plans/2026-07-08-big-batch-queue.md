@@ -4758,6 +4758,20 @@ live repro (grounding recorded above). Dev stack :17495 + :1420 up;
 findChrome; git -C always; stage-then-commit separately (the gate swallows
 compound adds).
 
+**FIFTEENTH-POINT UPDATE (same window, before the compact): THE QC-43 CLUSTER
+IS SHIPPED** — runner `e523ada` (b+c, both checker verdicts PASS in the
+record above; the (b) timeout-branch test is the one filed watch-item), tree
+clean, pushed. The Server-console screenshot went to the user. REMAINING from
+the evening go, in order: **I4** (reclaim-disk cache/logs panel — grounding
+agent dispatched: hf-cache/logs/disk seams + the App-Settings precedent) ·
+**I1** (the JW cleanup tail — the mechanical convergence legs dispatched to
+an Opus agent: htmlToText ×19 + tailWords ×7 → one shared JW service +
+importer sweep + the tests-fail-in-isolation verify-then-fix; the JUDGMENT
+legs — RULE-5 popup audit, CSS-clone promotion, gate ratchets — stay with
+Fable next window) · the QC-46 welcome-screen design pass + QC-45
+scene-notes rethink (think-twice deliverables FOR THE USER, design law:
+precedent + reference + mockups) · QC-47 switcher-bug live repro.
+
 ---
 
 **#253 BUILD RECORD (2026-07-10 — the hook fix, unblocked by the user's "do the

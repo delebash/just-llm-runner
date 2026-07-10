@@ -4707,6 +4707,39 @@ Per the flag + the user's ask-when-unsure rule, the payload-channel half and
 any further gate work PAUSE for the user's explicit word; the full evidence
 is EFFECTIVENESS.md "#253 SECOND resolution".
 
+**⛔ THE FIFTEENTH-COMPACT POINT (2026-07-10 late evening — the CURRENT
+pickup).** The user's words this window: the evening go ("Do I4, I1,253,
+authorized for superpowser … do qc 43 a,b,c") · "make superpowers permenant,
+payload-channel piece ship it" · the delegation rules (Opus executes
+tests/docs/commits/edits per my instruction, I plan/manage/verify; research
+stays on Fable) · "add to task = queue only, don't interrupt flow" · the
+DECIDED-ONCE bullet STRUCK for ask-when-unsure · QC-46 DECIDED welcome screen
+(design pass owed). SHIPPED + PUSHED this window: the editor-echo redo fix
+(JW 4c9a793) · superpowers installed + permanent (install.sh provision,
+proven) · #253 COMPLETE (JW 2bd4b57 — tests_cited + inject wording + attest
+channel with the checker-caught content-key leak FIXED (allowlist
+subject/description/activeForm) + agent_pass whole-transcript spawn ids;
+FAIL(2)→fixed→re-verdict PASS; the commit cleared the gate FIRST TRY proving
+the cross-turn fix live; EFFECTIVENESS carries the full second-resolution +
+the filed event-scoping follow-up) · QC-43a (runner a094143, checker PASS,
+sentinel ride ×5 — the pre-fix gate blindness) · doc commits fccea10/3c96757/
+f6d4865. VERIFIED IN-TREE, UNCOMMITTED (the QC-43 cluster ship): (b) chat
+ensure-resident — server-side via the install.py-injected ensure hook
+(dispatch set_ensure_local_model; prompts._ensure_local_ready on /run +
+/stream; lifecycle.ensure_model_ready; 461 pytest + ruff verified by me;
+FLAG: loading shows as the kit "connecting" phase — a "loading the model"
+progress label is the filed nicety). IN FLIGHT: (c) the Server-console tab
+(kit ConsolePanel + AiModelsArea tab + LogsPanel line-grammar promotion —
+agent building; verify its build/smoke/screenshot on return). THEN: cluster
+gates (runner pytest/ruff · JW vitest/build/FULL smoke/fleet) → flip the
+QC-43 "OFFERED/awaiting" lines above to BUILT (the checker's T11 watch-item)
+→ cluster checker verdict → commit/push → I4 (reclaim-disk panel) → I1 (the
+JW cleanup tail) → the QC-46 welcome-screen design pass + QC-45 scene-notes
+rethink (both think-twice deliverables for the user) → QC-47 switcher-bug
+live repro (grounding recorded above). Dev stack :17495 + :1420 up;
+findChrome; git -C always; stage-then-commit separately (the gate swallows
+compound adds).
+
 ---
 
 **#253 BUILD RECORD (2026-07-10 — the hook fix, unblocked by the user's "do the

@@ -4725,8 +4725,60 @@ Per the flag + the user's ask-when-unsure rule, the payload-channel half and
 any further gate work PAUSE for the user's explicit word; the full evidence
 is EFFECTIVENESS.md "#253 SECOND resolution".
 
-**⛔ THE FIFTEENTH-COMPACT POINT (2026-07-10 late evening — the CURRENT
-pickup).** The user's words this window: the evening go ("Do I4, I1,253,
+**⛔ THE SIXTEENTH-COMPACT POINT (2026-07-10, end of the marathon day — the
+CURRENT pickup; supersedes the fifteenth below).** THE ENTIRE EVENING GO IS
+SHIPPED AND PUSHED, both trees clean: **I1** (JW `21c253d` — 16 htmlToText +
+6 tailWords onto services/text.js; ledger's isolation-fail row verified
+stale) · **I4** (JW `7430079` + runner `cdb6fbc` — /v1/disk/usage +
+spawn-logs/models-cache reclaim + the Settings→Storage Disk-usage card) ·
+the **QC-45/46 design pass** (six mockups sent; THE USER PICKED verbatim
+"W-A hero,N-B side panel") · **QC-45 BUILT** (JW `a42907c` — the docked
+scene-notes panel; ChapterNotesModal deleted) · **QC-46 BUILT** (JW
+`a96bfe8` + runner `5677cd3` — the /welcome first-run screen + kit
+autoOpenQuickSetup) · the **QC-47 repro** (does NOT reproduce; 8/8 probe;
+suspects + the discriminating question recorded above) · recap `7eeda2e` +
+this compact commit. The checker rounds caught and fixed THREE real defects
+in the two picked builds: Sidebar's dropped promptDialog import (QC-46
+round 2 — would have crashed every add dialog; fixed, round-3 live-verified),
+the panel's htmlToText/textToHtml fork (the combined round — converged onto
+services/text.js with blockNewlines/lineAsParagraph options + 6 vitest
+cases), and the stale notes-and-search.md modal copy plus the pre-#235
+re-anchor sentence (rewritten; whats-new entries added for both features). Gates at the last ship: vitest 94/94 · build ·
+FULL smoke · both probes · both pytest suites + ruff · biome.
+
+**OPEN — THE USER'S WORD ONLY (do not build unasked):** (1) QC-47's
+discriminating detail from their box (title change? toast?) — the abort
+branch stores/project.js:2209 is the prime suspect; a hardening is ready on
+their word. (2) The scene-mark decision (deep-audit A1): keep
+`stripSceneMarks:false` on critique/entityExtraction/readerKnowledge/
+threadExtraction or full-strip — one flag per site now. (3) The panel's
+rich-note edit-flattening — accept, or refuse in-place edits on rich notes.
+(4) #256 spell-check research. **QUEUED FOLLOW-UPS (recorded, not built):**
+SceneNotesPanel i18n (hardcoded English copy) · per-model GGUF delete ·
+the (b) ensure-resident timeout-branch test · "loading the model" progress
+label · event-scoping the hooks payload channel · a DOM-env htmlToText test
+suite (textToHtml is now vitest-locked; htmlToText still needs jsdom) · the
+I1 JUDGMENT legs next Fable window (RULE-5 popup audit · runJsonAnalysis ·
+CSS-clone promotion · useEntityCrudView · gate ratchets · the
+writerAI/versionDiff no-strip + voiceDrift HEAD triage).
+
+**OPERATING LESSONS THIS WINDOW (bind post-compact):** (a) NEVER read a
+checker's verdict by grepping its output file — twice an intermediate line
+read "PASS" while the DELIVERED final result was FAIL; only the
+task-notification's result counts. (b) The commit gate wants a FRESH genuine
+verdict notification PER COMMIT and the transcript lags delivery — the
+working pattern is nudge-the-checker → wait for the notification → commit,
+retrying once on the lag; a mid-turn USER message resets the window and
+orphans earlier verdicts. (c) Delegated builders inherit the hooks — resume
+a stalled one with the citation incantation; they cannot fix T11 findings
+that live in the coordinator-fenced docs, so those come home. Container:
+dev stack :17495/:1420 up; the DB carries the demo book + a leftover empty
+"QC47 Probe Book" (probe artifact, harmless — probes self-configure).
+
+---
+
+**⛔ THE FIFTEENTH-COMPACT POINT (2026-07-10 late evening — superseded by
+the sixteenth above).** The user's words this window: the evening go ("Do I4, I1,253,
 authorized for superpowser … do qc 43 a,b,c") · "make superpowers permenant,
 payload-channel piece ship it" · the delegation rules (Opus executes
 tests/docs/commits/edits per my instruction, I plan/manage/verify; research

@@ -4605,6 +4605,15 @@ the log infra exists (logs_api.py + the App-Settings Logs section). Their
 timestamp question answered: %(asctime)s, no converter → the server box's
 LOCAL clock (logs_api.py:44).
 
+**(c) IS QUEUED (2026-07-10, the user's word):** the user asked "i thought i
+added mon for having live console of server?" then confirmed it stayed
+chat-only by mistake ("probably in chat and you did not add it") — so the
+live server-console tab moves from OFFERED to QUEUED, build on their go.
+(The in-container TaskCreate was denied 4× by the task-gate this window even
+with the trivial attestation in the turn text — the #253 text-citation
+failure again; THIS doc line is the durable queue entry.) Items (a) and (b)
+remain offers awaiting the user's word.
+
 ---
 
 **#253 BUILD RECORD (2026-07-10 — the hook fix, unblocked by the user's "do the

@@ -5854,3 +5854,50 @@ cmdline; use separate calls or the [b]racket trick).
 if they overrule (2)'s keep. QUEUED (unchanged): panel i18n · the I1 judgment
 legs · per-model GGUF delete · ensure-resident timeout test · progress label
 · hooks payload channel · DOM-env htmlToText suite.
+
+---
+
+## ⛔ THE SEVENTEENTH-COMPACT POINT (2026-07-10 night — read this first after the compact)
+
+The user's closing words this window (verbatim): "plain-text editing flattens
+rich-formatted notes, fine as is.  need to compact" — that CLOSES the last
+open QC-45 panel question: the scene-notes panel's in-place plain-text editing
+of rich-formatted notes is ACCEPTED AS-IS (the user's decision; no read-only
+mode for rich notes, no code change). Nothing else changed after the ship.
+
+CURRENT STATE — everything from the night window is SHIPPED AND PUSHED:
+JW `fd456e1` (the zero-project law + the panel per-note DELETE + the TitleBar
+real-title adjacent fix + docs + the plan doc
+docs/plans/2026-07-10-zero-project-welcome-and-panel-delete.md) and runner
+`16b793d` (this doc's night-window record). Both trees clean. Full detail:
+the "2026-07-10 NIGHT WINDOW" section above + the JW plan doc + the recap's
+night GO paragraph. Two genuine rules-checker verdicts (plan FAIL(1)→remedied,
+diff PASS). Gates all green (vitest 94 · build · full smoke · zero-project
+probe 16/16 · delete-leg 10/10 · undo 19/19 · pytest 80 · ruff · biome); dev
+DB restored byte-exact.
+
+DECISIONS NOW CLOSED (the user's words): QC-47 switcher ("it seems to switch
+now") · the phantom Untitled project (fixed) · scene marks KEEP (flips on
+their word) · panel ✕ = delete · rich-note flattening fine as is · **ledger
+C9 (the model-quality research: Lab A/B Gryphe/ablated-build evals + rank
+re-grounding) ⛔ NOT DOING** (user, same window, verbatim "c9 mark as not
+doing" — marked in the outstanding-master-plan §C9 + its header still-open
+line; the catalog candidates stay, the guardrails stay, the research is
+closed).
+
+STILL OPEN — the user's word only: #256 spell-check + Word-style author
+affordances research (harness task #256, pending). QUEUED FOLLOW-UPS
+(recorded, not built): SceneNotesPanel i18n · the I1 judgment legs (RULE-5
+popup audit · runJsonAnalysis · CSS-clone promotion · useEntityCrudView ·
+gate ratchets · writerAI/versionDiff no-strip + voiceDrift HEAD triage) ·
+per-model GGUF delete · ensure-resident timeout test · "loading the model"
+progress label · hooks payload channel · DOM-env htmlToText suite ·
+(observed, recorded) the post-reset transient boot-cache fetch flake and the
+switcher's no-delete-on-active-row limitation.
+
+OPERATING NOTES for the next window: the commit gate in this remote
+environment needs the checker verdict notification ADJACENT to the commit
+attempt (SendMessage-nudge the checker to restate, then commit; the
+documented sentinel clears after repeated denies — landed this window on
+deny 5). `pkill -f` matches the invoking shell's own cmdline — separate
+calls or the [b]racket trick.

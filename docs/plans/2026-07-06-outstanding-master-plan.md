@@ -15,8 +15,9 @@
 > seed-facts audit script (11/11 live). **Still open FROM that work: the §G box checks on the
 > user's Windows machine (the orphan kill-on-death proof · computed ctx == 32768 · sweep parity ·
 > untuned fit-placed boot · the opt-out sweep UX · llama-fit-params in the win zip) and the
-> ledger items A5 · C9 · D6 + the D4-1 leg-3 factory-default follow-up (filed in that plan's
-> Phase 2 record).**
+> ledger items A5 · D6 + the D4-1 leg-3 factory-default follow-up (filed in that plan's
+> Phase 2 record). C9 was in this list until 2026-07-10 — closed ⛔ NOT DOING on the user's
+> word ("c9 mark as not doing"; see §C9).**
 >
 > Supersedes, as the outstanding-work view only: the open-item scatter across `2026-06-28-MASTER-PLAN.md` (the roadmap archive — **fully folded 2026-07-08 via §I below**, so the master never needs to be opened as a tracker again), `2026-06-28-ai-state-grid.md` (whose two ⚠ forks are now: per-model-tune-save → RESOLVED by Plan B; json-grammar → item C1 here), and the per-plan LIVE trackers (which stay authoritative for their own shipped history).
 
@@ -71,12 +72,19 @@
 - **C8 — QuickSetup back to LOCAL-ONLY — ✅ SHIPPED 2026-07-06 (user directive: "quick setup is for local only… remove the connect provider… we dont need a drop down for providers"; full design + record in `2026-07-06-a-to-e-execution.md` §C8).** A USER REVERSAL of the 2026-07-05 Option-2 other-provider decision (the one actor allowed): the "Run models with" selector, the in-wizard connect flow (detected-local rows + the hardcoded PROVIDER_PRESETS cloud chips + key input), and the external apply path are REMOVED from `QuickSetup.vue` — the wizard configures the bundled runner only; external providers connect on the provider list (ProviderForm, which keeps the shared `useProviderConnect` presets/probe/create). Adjacencies: `detectLocal` pruned (the cut removed its only consumer; the server endpoint remains) and the committed wizard probe got a found-and-fixed (its hardcoded "Nomic" embed assertion was stale vs the evolved ladder + seeded routing — now data-driven, + two local-only negative assertions); `qs-otherprovider-probe.mjs` deleted (its subject is gone); `models.md` §Quick Setup rewritten local-only. Verified: build clean · vitest 29/29 · full smoke zero JS errors · the fixed probe 9/9 (open → confirm → stubbed Apply → done, 0 page errors). The user's item 3 ("changing default model doesn't actually do anything") was WITHDRAWN by the user ("dont worry about 3").
 - **C7 — prune the dead `useRunnerModels.load()`/`unload()` exports — ✅ SHIPPED 2026-07-06 (user's go "do c7", same day it was filed; implementation record in `2026-07-06-a-to-e-execution.md` §C7).** The two functions + their return-object entries are deleted; the stale comments fixed both sides (`useRunnerModels.js` header/`loadingId`/`download()` notes; `LuModelCatalog.vue`'s pre-Phase-2 header rewritten to the fit-grouped-list + Download/Set-as-default/Set-as-embedding truth); `loadErr`/`needsEngine`/poller/download machinery untouched. Verified: build clean · vitest 29/29 · full headless smoke zero JS errors with the provider-form probe green · zero residual references · the served-module check proved the smoke ran the pruned code. Bundled: the fast-9B QuickSetup optional **DECIDED NO** (user, "no 9b quick setup") — annotated at `2026-07-03-model-setup-simplification.md:344`. The original filing record follows for history: The audit finding, code-verified: `ui/src/composables/useRunnerModels.js` still defines `load()` (:103) and `unload()` (:115) and returns both from `useRunnerModels()` (:153), but their ONLY consumer — LuModelCatalog's Load/Unload buttons — was removed in the model-surface Phase 2 redesign (catalog actions became Download / Set-as-default / Set-as-embedding). The recap deliberately deferred the prune "until the residency/4b surface is finalized … to avoid speculative churn on the shared singleton" — and §H6 then CLOSED-DROPPED 4b (the user's recorded call: no per-model residency controls), which fulfilled the prune condition, but nobody filed the prune. Verified dead 2026-07-06: `LuModelCatalog.vue` calls only `download()` (:411); `QuickSetup.vue` drives the runner directly (`request("/v1/llm-runner/load")` at :372 with its own status poll at :395); JW and JV have zero references (symbol greps both apps). Scope when built: delete the two functions + their return-object entries + fix LuModelCatalog's stale header comment (its ":7 …loads/unloads" line still describes the removed buttons); the `needsEngine`/`loadErr` machinery STAYS — it feeds the catalog's engine-not-installed CTA off the status poll, not off `load()`. Size: tiny, mechanical. (Paths reflect the post-C6 locations.)
 
-- **C9 — the model-quality research: class→model map contents + rank re-grounding + the candidate
+- **C9 — the model-quality research — ⛔ NOT DOING (user, 2026-07-10, verbatim: "c9 mark as not
+  doing"). CLOSED without the research half; do not re-file without a fresh user ask.** What
+  stands as shipped: the candidates ARE in the catalog (the 2026-07-06 Gemma-first lineup,
+  non-default) and the guardrails below remain binding for any future candidate work. What is
+  NOT being done: the Lab A/B rank evidence (Gryphe + the ablated build + 31B-vs-26B for
+  writing), the `model_class_picks` evidence fill, and the Gemma quality_rank re-grounding —
+  the rank keeps its annotated reasoned-not-instrument-cited basis. The original filing record
+  follows for history: class→model map contents + rank re-grounding + the candidate
   evaluations — CANDIDATES NOW IN THE CATALOG (2026-07-06 Gemma-first lineup, non-default, see the
   providers-surface doc §GEMMA-FIRST LINEUP); the RESEARCH HALF (Lab A/B rank evidence: Gryphe +
   the ablated build + 31B-vs-26B for writing) NOT STARTED (user-filed 2026-07-06: "add todo for model research", from
   TurboLLM Discover screenshots; consolidates the follow-up recorded in the model-per-hardware
-  plan §Out-of-scope).** PURPOSE: fill the Phase-3 `model_class_picks` map with evidence, re-ground
+  plan §Out-of-scope). PURPOSE: fill the Phase-3 `model_class_picks` map with evidence, re-ground
   Gemma's quality_rank 9 (currently annotated reasoned-not-instrument-cited), and evaluate the
   writing-use-case candidates. THE CANDIDATE LIST so far:
   1. **Gryphe/Gemma-4-26B-A4B-StyleTune-V2** (carried from the 2026-07-06 five-model scoring — the

@@ -8,7 +8,7 @@
 // JustWrite's polished Settings → AI engines (outer card, icon, name, URL on its
 // own line, model + key on the next, status + Test + Edit). The Features routing
 // table + the per-provider local-model/Fit section are the next chunks.
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 
 import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -42,6 +42,10 @@ const props = defineProps({
   // Host runner forwarded to the Feature Workbench test panel (streaming +
   // cancel + the app's batch AI list). See FeatureWorkbench `runStream`.
   runStream: { type: Function, default: null },
+  // Deep-link seam: when a host routes here to run Quick Setup (JW's welcome
+  // screen, QC-46, via ?quicksetup=1), open the wizard ONCE after the first
+  // load. Off by default — JustVoice inherits it inert.
+  autoOpenQuickSetup: { type: Boolean, default: false },
 });
 
 // The subnav tab. (Was the shared `activeAiTab` from labHandoff.js — that channel
@@ -311,7 +315,16 @@ async function checkHardwareChange() {
 }
 
 onMounted(() => {
-  loadAll();
+  // autoOpenQuickSetup (QC-46): open the wizard ONCE after the FIRST loadAll()
+  // resolves, so it has the provider list + hardware it needs before showing.
+  // nextTick first: the QuickSetup mount (qsRef) sits inside
+  // v-if="builtinProvider", which only renders AFTER the providers land —
+  // the template ref is still null on the resolve tick itself.
+  loadAll().then(async () => {
+    if (!props.autoOpenQuickSetup) return;
+    await nextTick();
+    qsRef.value?.openWizard?.();
+  });
   startResPoll(); // the strip's live VRAM stat + the debug snapshot's resident set
   refreshEngine(); // the Built-in row's Install/Update/Uninstall state
   checkForUpdate(); // A5 — policy-gated (Off = silent); notify surfaces a line, never auto-applies

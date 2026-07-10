@@ -5530,6 +5530,145 @@ Both build next under the standing disciplines.
 
 ---
 
+**QC-45 BUILD RECORD (2026-07-10 — the N-B docked scene-notes panel, built to
+the user's pick; delegated build, coordinator-verified).** What shipped: NEW
+`src/renderer/src/components/SceneNotesPanel.vue` — a docked right side panel
+(~336px) that lives as a flex sibling of the editor inside ChaptersView's edit
+mode (`.chapters-edit-main` row; the editor column genuinely shrinks — the
+`.pane-card.has-side-panel` flip verified against styles.css's flex column),
+composer on top (kit UiTextarea auto-resize + a small primary Add note,
+disabled on empty), the scope's notes as cards below (body text + date;
+click-to-edit IN PLACE with save on blur/⌘Enter via updateNote; detach ✕ =
+the non-destructive unanchor), footer "Notes stay pinned to this scene ·
+Manage all notes ↗" (/notes — the one deliberate navigation). ChapterNotesModal
+.vue is DELETED; all four old entry points repointed (chapter-header Notes
+button + scene-strip button + both outline count badges — the badges now
+navigate into edit mode and open the panel). Scopes: the scene button opens
+scene scope (that scene's notes only); the chapter button opens chapter scope
+— a Chapter-level section plus one section per scene IN ORDER, each with its
+own composer (the old modal's add-to-any-scope capability reborn in the
+panel; the extension of the picked scene-shape to the chapter button is the
+coordinator's scope call, FLAGGED). The user's complaint dies structurally:
+adding a note never navigates — the old flow's router.push to /notes with the
+"Note on Ch. N · Scene M" prefilled title is gone.
+
+As-built decisions (each flagged where it's an interpretation): (1) title =
+the note's first line, first 8 words, no ellipsis, derived ONCE at creation —
+cards show the body; the title only surfaces in NotesView's table. (2)
+`note.body` is HTML (NotesView authors rich notes); the panel is a plain-text
+quick surface — htmlToText/textToHtml round-trip, so EDITING A RICH NOTE IN
+THE PANEL FLATTENS its formatting to <p>-wrapped text on save (documented
+in-code; an accepted quick-surface tradeoff — AWAITING THE USER'S
+CONFIRMATION). (3) Undo: note mutations live in the "notes" undo domain, so
+⌘Z on /chapters does NOT undo a panel add/edit (they undo on /notes) — the
+#235 disjoint-domain law, deliberately untouched, recorded as the intended
+asymmetry. (4) No permanent delete in the panel — detach only; deletion stays
+in the Notes section per the user's "if i want to manage notes i do that in
+note section". (5) No toast on add (the card visibly appears — the toast
+law); no lede (don't-cram); the composer IS the form (QC-15).
+
+Gates all green: biome (2 files) · vitest 88/88 · build:vite · FULL headless
+smoke zero JS errors · the throwaway scene-scope probe (17 checks: card
+appears · hash stays on /chapters · persisted+anchored · derived title ·
+count +1 · visible on /notes · state restored) + chapter-scope check (6
+section headers, 6 composers, no nav) + edit-in-place check (inline textarea
+→ ⌘Enter → updateNote, no nav) — probes in the session scratchpad; real-panel
+screenshots reviewed by the coordinator against the picked mockup. Checker:
+FAIL(1) T11 only (this record + the recap flip — the coordinator's files by
+the build fence); all other tests PASS/NA with the correctness watch noted in
+(2) above. This record + the recap GO update ARE the T11 fix.
+
+---
+
+**QC-46 BUILD RECORD (2026-07-10 — the W-A Paper-hero welcome screen, built to
+the user's pick + their verbatim spec "i want the welcome scree as firtst run
+surface with something about the ai features and if you want to use then run
+the quick setup for local use or connect to an onilne provider, a nice
+welcome screen hgihtlithng major features and an easy setup"; delegated
+build, coordinator-verified).** What shipped: NEW
+`src/renderer/src/views/WelcomeView.vue` on a new `/welcome` route (no
+undoDomains) — the W-A layout ported to a real view: mono "WELCOME TO"
+eyebrow, serif JustWrite wordmark, the one-liner, "Start a new project"
+(primary) + "Try the tutorial project · a short guided book" (secondary), the
+3×2 feature grid (Chapters & scenes · Story bible · Plot strands & timeline ·
+AI assistance · Goals & pace · Export, kit Icons instead of the mockup emoji
+— icon picks are the builder's, FLAGGED), the AI band ("Optional: set up the
+AI features" · Run Quick Setup local-primary · Connect an online provider ·
+the skip line linking /ai), and the footer "This screen shows once — reopen
+it anytime from Help." All copy i18n'd (en.json `welcome.*`).
+
+Wiring, each grounded: (1) FIRST-RUN detection — a run-ONCE
+`router.beforeEach` in main.js: on the first navigation of a cold load, if
+the target is "/" and the `welcomeSeen` setting is unset → redirect /welcome;
+explicit deep-links (any non-root hash — probes included) pass straight
+through, and later in-app navigations to "/" are never intercepted. Marked
+seen on any CTA exit (a reload on /welcome before choosing shows it again —
+show-once = dismissed-once semantics, FLAGGED). Existing users upgrading see
+it ONCE (no welcomeSeen key yet — FLAGGED, accepted). (2) The start flows
+were EXTRACTED to the ONE shared `services/projectStart.js`
+(promptNewProject + openTutorial — the same promptDialog shape/i18n keys +
+createProject/openDemoProject wiring), consumed by BOTH Sidebar's switcher
+and the welcome screen so the two surfaces cannot drift (T3; Sidebar net
+−15 lines). (3) "Run Quick Setup" → `/ai?quicksetup=1`; the kit
+`AiModelsArea` gained an `autoOpenQuickSetup` prop (default false — JV
+inherits it inert) that opens the wizard ONCE after the first loadAll()
+resolves + nextTick (the QuickSetup mount sits under v-if="builtinProvider",
+so the template ref is null on the resolve tick itself — grounded); JW's
+AiView passes it from the route query. (4) "Connect an online provider" →
+/ai (the providers list with its add-provider affordance). (5) The REOPEN
+affordance lives on JW's HELP PAGE header ("reopen from Help" per the footer
+copy): a button that navigates /welcome regardless of the flag — the kit
+HelpDrawer has no host-action extension point (grounded), so the page, not
+the drawer, carries it (placement FLAGGED). (6) The view renders INSIDE the
+app shell (sidebar visible) — the route lives in the normal outlet; the
+mockup was full-bleed, so this is an interpretation (FLAGGED — arguably
+better: the first-run user sees the app around the welcome). (7) User doc:
+docs/getting-started.md gained the welcome-screen section; the builder also
+committed its detailed spec as docs/plans/2026-07-10-qc46-welcome-screen.md
+(JW repo). The smoke's route list gained /welcome.
+
+Gates all green (builder + the coordinator's combined-tree re-run with both
+QC-45 and QC-46 in the tree): vitest 88/88 · build:vite · FULL headless smoke
+zero JS errors · the builder's 10/10 first-run probe (save+clear welcomeSeen
+→ cold boot lands on #/welcome → tutorial CTA exits and sets the flag →
+reload shows no welcome → settings restored byte-exactly) · the real
+rendered-screen screenshot reviewed by the coordinator against the picked
+mockup. Checker: THREE rounds on the QC-46 build — round 2 caught a REAL bug
+(the projectStart extraction dropped Sidebar.vue's `promptDialog` import; the
+six dialog call sites would have thrown ReferenceError) which the builder
+fixed at Sidebar.vue:7 and round 3 verified by driving the real add-flows
+live — VERDICT: PASS.
+
+**THE COMBINED-DIFF CHECKER ROUND (FAIL(2) → fixed, coordinator).** The final
+combined QC-45+QC-46 checker failed two: (T3) SceneNotesPanel had declared
+its OWN htmlToText/escapeHtml/textToHtml — a fresh fork of the exact concern
+I1 had just converged, and writerAI.js carried a second textToHtml. FIXED by
+extending the ONE source `services/text.js`: `htmlToText` gained a
+`blockNewlines` option (paragraph/heading/list/br boundaries kept as
+newlines, 3+ runs collapsed — the panel's display grammar) and a NEW shared
+`textToHtml(text, {lineAsParagraph})` with both grammars (default =
+writerAI's blank-line paragraphs + `\n`→`<br>`, byte-mapped from its deleted
+body; lineAsParagraph = the panel's line-per-`<p>`); both consumers now
+import from text.js (writerAI keeps only its flagged htmlToText variant,
+which remains on the module-header ledger), and SIX new vitest cases lock
+textToHtml's two grammars (services/__tests__/text.test.js — pure string, so
+node-env; htmlToText's DOM need is still the recorded deferral). (T11)
+`docs/notes-and-search.md` §"Pinning a note" still described the DELETED
+modal-and-navigate flow — REWRITTEN to the docked panel (composer add,
+in-place edit, detach, Manage-all, both scopes), and en route the
+coordinator's read caught a SECOND staleness the checker missed: the
+"deletes re-anchor the note up to the chapter" sentence described the
+pre-#235 sweep that removeScene no longer does — corrected to the truthful
+stays-with-chapter behavior. `docs/whats-new.md` gained entries for both the
+welcome screen and the scene-notes panel. Checker note recorded, not built:
+SceneNotesPanel's UI copy is hardcoded English while WelcomeView routes
+through en.json — an i18n inconsistency (NotesView is also mixed), queued as
+a small follow-up, not squarely one of the twelve tests. Post-fix gates:
+biome · vitest 94/94 · build:vite · FULL smoke zero JS errors · the 17-check
+panel probe re-run green on the converged helpers.
+
+---
+
 **QC-47 LIVE REPRO (2026-07-10 — "project selection is not working, choosing
 a different project in dropdown is not loading that project"): DOES NOT
 REPRODUCE in the container.** The probe (scratchpad qc47-probe.mjs) drove the

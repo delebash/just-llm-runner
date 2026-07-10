@@ -125,6 +125,45 @@ def test_seed_ships_size_facts_and_reseed_fills_empty_only(configured):
     assert _row("gemma-4-31b-qat").sizeBytes == 12345  # the derived value was preserved
 
 
+def test_seed_heals_known_stale_value_only(configured):
+    """QC-43a (2026-07-10): a seeded FACT that later proved wrong can't self-heal
+    through fill-empty (the wrong value isn't empty), so `STALE_SEED_VALUES` records
+    the exact historically-seeded path and the seeder swaps it for the CURRENT seed
+    value — but ONLY on an exact stale match; a user/inspect value or None is left be."""
+    from llm_runner.llm import db as _db
+
+    mid = "gemma-4-26b-a4b-uncensored"
+    stale = "MTP/gemma-4-26B-A4B-it-Q4_0-MTP.gguf"
+    current = "mtp-gemma-4-26B-A4B-it.gguf"
+
+    s = _db.session()
+    try:
+        # 1) the exact historically-seeded stale path → healed to the current fact
+        s.query(_db.ModelCatalog).get(mid).mtp_draft_file = stale
+        s.commit()
+        seed.seed_default_catalog(s)
+        s.commit()
+        assert s.query(_db.ModelCatalog).get(mid).mtp_draft_file == current
+
+        # 2) a user/inspect value that is NOT the stale one → left untouched
+        s.query(_db.ModelCatalog).get(mid).mtp_draft_file = "my/custom-draft.gguf"
+        s.commit()
+        seed.seed_default_catalog(s)
+        s.commit()
+        assert s.query(_db.ModelCatalog).get(mid).mtp_draft_file == "my/custom-draft.gguf"
+
+        # 3) None never matches the stale tuple → no heal, no crash (guarded getattr);
+        #    set in-memory only (autoflush=False keeps it un-flushed) since the column
+        #    is NOT NULL, then discard it — the point is the heal path survives None.
+        row = s.query(_db.ModelCatalog).get(mid)
+        row.mtp_draft_file = None
+        seed.seed_default_catalog(s)  # must not raise
+        assert row.mtp_draft_file != stale
+        s.rollback()
+    finally:
+        s.close()
+
+
 def test_detect_writes_total_params_for_dense_only(configured):
     mid = "llama-3.3-70b-q4_k_m"   # seeded total_params "70B"
     identity.detect_and_store_model_type(mid, "x.gguf", read_meta=lambda _p: _meta_full(size_label="27B"))

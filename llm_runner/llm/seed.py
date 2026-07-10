@@ -607,6 +607,20 @@ def _seed_samplers(s, model_id: str, samplers: dict | None) -> None:
             s.add(db.ModelSampler(model_id=model_id, param_name=nm, value=str(val), built_in=False))
 
 
+# Known-stale seeded values, healed at boot (QC-43a, 2026-07-10): a seeded
+# FACT that later proved wrong can never self-heal through fill-empty (the
+# wrong value isn't empty), so each corrected fact records the exact old
+# value(s) it once seeded and the catalog seeder swaps them for the CURRENT
+# seed value — only when the row still carries an exact stale value, so a
+# user- or inspect-written value never matches and is never touched.
+STALE_SEED_VALUES = {
+    # The Gemma-26B ablated row's draft path: upstream's real file is the
+    # root-level `mtp-gemma-4-26B-A4B-it.gguf` (HF tree verified 2026-07-10).
+    ("gemma-4-26b-a4b-uncensored", "mtp_draft_file"):
+        ("MTP/gemma-4-26B-A4B-it-Q4_0-MTP.gguf",),
+}
+
+
 def seed_default_catalog(s) -> int:
     existing = {r.id: r for r in s.query(db.ModelCatalog).all()}
     added = 0
@@ -622,6 +636,12 @@ def seed_default_catalog(s) -> int:
                 row.size_bytes = int(c["size_bytes"])
             if not row.size_label and c.get("size_label"):
                 row.size_label = str(c["size_label"])
+            # Known-stale heal (QC-43a): swap an exact historically-seeded
+            # wrong value for the current seed fact; anything else is a
+            # user/inspect value and stays.
+            for (rid, field), stale in STALE_SEED_VALUES.items():
+                if rid == c["id"] and getattr(row, field, None) in stale and c.get(field):
+                    setattr(row, field, c[field])
             continue
         s.add(_catalog_row(c, built_in=True))
         _seed_samplers(s, c["id"], c.get("samplers"))

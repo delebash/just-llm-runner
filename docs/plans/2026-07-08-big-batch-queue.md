@@ -4779,6 +4779,25 @@ page") · Server logs (size + "managed in Logs") · Engine spawn logs (size +
 Clear) · Database (size) · Free space. FLAGGED: per-model GGUF delete (a
 catalog-surface change) is the deliberate follow-up, not v1.
 
+**FIFTEENTH-POINT UPDATE 2 (the compact save — the user: "when you get to a
+stopping point we need to compact"):** QC-43 SHIPPED (below) + the I4 design
+recorded above and its IMPLEMENTER AGENT DISPATCHED (shared
+platform/disk_api.py sizes endpoint + spawn-logs/models-cache reclaim
+endpoints with the resident-safety refusal + the JW Settings→Storage "Disk
+usage" card + tests + full gates + screenshot; it will notify with results —
+VERIFY its work independently, checker verdict, then ship). The I1 MECHANICAL
+AGENT stalled at its own pre-edit gate mid-task and was resumed with the
+citation incantation — it will notify with the three legs (htmlToText ×~19 +
+tailWords ×~7 → one shared JW service + importer sweep; the
+tests-fail-in-isolation verify-then-fix) — VERIFY, checker, ship. POST-COMPACT
+ORDER: land I1 + I4 as they return → the QC-46 welcome-screen design pass +
+QC-45 scene-notes rethink (think-twice deliverables FOR THE USER; design law:
+precedent + real-world reference + mockups sent for their pick) → the QC-47
+switcher-bug live repro (grounding above). Still user-owned: #256 research ·
+the I1 judgment legs (popup audit, CSS promotion, ratchets) next window · the
+(b) timeout-branch test + "loading the model" label + per-model GGUF delete +
+event-scoped payload channel (filed follow-ups).
+
 **FIFTEENTH-POINT UPDATE (same window, before the compact): THE QC-43 CLUSTER
 IS SHIPPED** — runner `e523ada` (b+c, both checker verdicts PASS in the
 record above; the (b) timeout-branch test is the one filed watch-item), tree

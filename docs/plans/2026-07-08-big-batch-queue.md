@@ -5000,3 +5000,56 @@ and a new pytest case (test_trashed_entity_artifact_rides_the_tombstone: the
 payload round-trips opaquely, a stale live-map entry for a non-live id is dropped).
 Re-gates after the fix: vitest 86/86 · JW pytest 79 · build · FULL smoke · the
 undo-probe 16/16 · re-verdict PASS at the commit.
+
+---
+
+**⛔ THE FOURTEENTH-COMPACT POINT (2026-07-10 — the CURRENT pickup; supersedes the
+thirteenth/twelfth blocks above). READ THIS BLOCK IN FULL POST-COMPACT, plus Block-0
+(global rules · JW CLAUDE.md · MORNING_RECAP.md).**
+
+**State:** #235 (page-related undo) SHIPPED — JW `ae568c6` + runner `7d5c124` (the
+record), both pushed, both trees clean. THE 2026-07-08 QUEUE IS EMPTY; every
+in-container task through #262 is completed. The full #235 record incl. flags F1–F11
++ CHECKER ROUND 2 (the tombstone-carrier fix) is the "#235 BUILD RECORD" above; the
+plan + amendments live at `justwrite-app/docs/plans/2026-07-10-page-related-undo.md`.
+
+**THE GO ARMED FOR RIGHT AFTER THE COMPACT (interpretation flagged): the
+EDITOR-ECHO REDO FIX.** After the ship, the user asked *"redoing a prose undo, why
+cant this work?"* — I explained the echo cycle and ended "Say the word and I'll
+build it"; the user's reply, verbatim: *"we need to compact first"* — read as the
+word, sequenced after the compact (the same shape as the 2026-07-09 "we need to
+compact first, so save then go"). If that reading is wrong the user says so and
+nothing builds. THE SPEC, grounded: redo of a prose undo dies because the OPEN
+scene editor echoes store-driven content changes back through its update path —
+ChaptersView:304 `project.applyStitchedChapter(ch.value.id, records)` — which
+_records a fresh manuscript entry and (the iron undo rule) clears the just-created
+redo. Diagnosed live pre-ship with an in-place scratch probe (redo dead WITHOUT
+navigation → the undo-triggered echo, not remount); behavior identical pre-#235
+(the same echo cleared the old global future). The fix, two layers: (1) silence
+the echo at the sync seam — when ChaptersView sets editor content BECAUSE the
+store changed, suppress the update emission (TipTap setContent with
+emitUpdate=false; verify at build WHICH hop in our sync chain emits); (2) a
+no-op guard in applyStitchedChapter — compare incoming records against current
+scenes, skip the write AND the record when identical (kills any echo path incl.
+mount-time normalization; care: TipTap HTML normalization may make round-trips
+non-byte-identical — probe that hard, layer (1) is the primary). Verification:
+extend scripts/undo-probe.mjs with the in-editor leg (type → ⌘Z → ⌘⇧Z restores
+the typing, editor OPEN throughout) + the standing gates + one checker verdict at
+the commit. RISK to carry into the first edit: the stitched-editor seam also
+handles scene splits/merges while typing — the suppression must never eat a REAL
+first keystroke.
+
+**Still waiting on the user's word, do NOT build unasked:** #256 (spell-check +
+Word-style affordances research — findings table) · the three QC-43 diagnoses (MTP
+stale-seed heal · chat ensure-resident · server-console tab). Genuinely open,
+user-owned, do not nag: the DECIDED-ONCE recap bullet keep/strike · superpowers
+install authorization.
+
+**Disciplines unchanged:** QC answered conversationally FIRST · inline T1–T12 +
+the v4 think-twice gates (first code edit cites the plan/spec line + a RISK line;
+code commits need a GENUINE checker verdict) · FULL smoke on every UI change ·
+probes observe the changed surface · docs ship with the unit · full records here,
+pointers in the recap · git -C/absolute paths ALWAYS · probes assume nothing about
+ambient DB state. Dev stack: JW server :17495 + vite :1420 both up in this
+container (server restarted with the #235 book_io build); findChrome, never
+hardcode.

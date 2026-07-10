@@ -4758,6 +4758,27 @@ live repro (grounding recorded above). Dev stack :17495 + :1420 up;
 findChrome; git -C always; stage-then-commit separately (the gate swallows
 compound adds).
 
+**I4 DESIGN (2026-07-10, grounded by the read-only map — the full seam map is
+in the grounding agent's report, headline facts here):** bytes accumulate at
+the DB (justwrite.db + WAL), the app-server logs (swept via /v1/logs),
+ai-cache/hf (model GGUFs — NO delete surface exists anywhere: catalog Delete
+is DB-row-only per LuModelCatalog.vue:563), ai-cache/llamacpp builds (swept on
+uninstall/update), ai-cache/llamacpp/logs (spawn logs — UNBOUNDED, no sweep),
+and never-GC'd partial downloads; NO aggregate size endpoint exists in either
+repo. THE BUILD: (1) a SHARED platform sizes endpoint (llm_runner.platform,
+beside logs_api — `make_disk_router(data_dir)` → GET /v1/disk/usage walking
+db/logs/ai-cache{hf,llamacpp,llamacpp-logs} + shutil.disk_usage free space —
+shared so JV inherits it, the T3 law); (2) runner reclaim endpoints it owns:
+POST /v1/llm-runner/spawn-logs/clear + POST /v1/llm-runner/models-cache/clear
+(deletes hf blobs — SAFE-BY-DESIGN: catalog rows persist, models re-download
+on demand; strong confirm in UI listing the size); (3) UI: a "Disk usage"
+card in JW Settings→Storage under Data location (the grounded slot,
+SettingsView.vue:1150-1172, same .card + 2-col grid grammar): rows Models
+cache (size + Clear w/ confirm) · Engine builds (size + "managed on the AI
+page") · Server logs (size + "managed in Logs") · Engine spawn logs (size +
+Clear) · Database (size) · Free space. FLAGGED: per-model GGUF delete (a
+catalog-surface change) is the deliberate follow-up, not v1.
+
 **FIFTEENTH-POINT UPDATE (same window, before the compact): THE QC-43 CLUSTER
 IS SHIPPED** — runner `e523ada` (b+c, both checker verdicts PASS in the
 record above; the (b) timeout-branch test is the one filed watch-item), tree

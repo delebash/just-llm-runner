@@ -4734,3 +4734,125 @@ affordances Word has that an author might want in the manuscript editor —
 RESEARCH LATER, not scheduled into the current batch. After the compact:
 build QC-39(b) + QC-40 + QC-41 + QC-42 as one verdict-gated ship, then #235
 LAST.)*
+
+---
+
+**QC-39/40/41/42 BUILD RECORD (2026-07-10 — the four user-decided items built as
+ONE ship per the TWELFTH-POINT ADDENDUM above: "build QC-39(b) + QC-40 + QC-41 +
+QC-42 as one verdict-gated ship").**
+
+**QC-39 (#251), the user's pick (b) — the built-in provider PROMOTED.** The
+providers tab now opens with a permanent `.lu-builtin` top section whose contents
+ARE the old Edit view: the Quick-Setup band at the section's TOP (the #4 card-top
+law preserved), then the identity header (the DB row's name + "(your machine)" —
+the mockup title; LLM/EMBED caps; the QC-20 Default tag; the Set-as-default /
+"Default ✓" button, still clickable for QC-21's truthful dialog), then the FULL
+form mounted bare via a new ProviderForm `permanent` prop (no Cancel — nothing to
+collapse back to; Save + Test connection stay). EVERY other provider — local
+openai-compat rows included, the user's explicit check — stays in the grouped
+list below unchanged (Local·free / Cloud·metered eyebrows, small inline Edit).
+The old built-in ROW died with a full affordance relocation, none dropped: the
+QS band → section top; Install/Installing…/progress/error → the Local-engine
+panel (already there, #135/#8); "Update available"/"Reinstall" → MOVED into the
+panel's action cluster beside Uninstall (the row's own grammar, user 2026-07-07;
+LuRunnerEngine now also calls checkForUpdate on mount and its stale
+"actions live on the list row" comments are rewritten); baseUrl/name → the form
+grid; chat/embed meta → the slot cards; the row's status-dot Test → consolidated
+into the form footer's ONE "Test connection" (the composed-health probe, #139 —
+one check shown once, don't-cram). NEUTRAL SURFACES per the picked mockup: the
+page-scale accent-soft washes are GONE at their two sources — `.lu-pform`
+(ProviderForm.vue, now a neutral surface card; `--bare` variant for the
+permanent mount; `.lu-newform` reduced to a border-color accent override) and
+`.lu-msection td` (LuModelCatalog.vue, now surface-2 with the 3px accent edge
+as the pronouncement). Accent stays at chip/focus scale exactly as the mockups
+showed. AiModelsArea's engine destructure slimmed to
+engState/refreshEngine/checkForUpdate (debug block only); the dead
+lu-prow-qsbtn/prog/err CSS and the UiProgress import removed.
+
+**QC-42 (#255), the user's copy** — the inline band now reads: [Run Quick Setup]
+**"For the Local built-in provider"** (new `.lu-qs-barefor`, 13.5px/600 — bigger
+than the 12px description) followed by the existing user-restored description
+sentence VERBATIM. FLAGGED adjacent alignment (one word reverts): the wizard's
+confirm-step modal title still said "for local built-in server only" (pre-B2-1
+wording) — aligned to "Recommended setup — for the Local built-in provider only".
+
+**QC-40 (#252), option 1** — the demo book stopped seeding: `seed_workspace`
+(justwrite_server/seed.py) no longer creates it, the `demoSeeded` gate flag is no
+longer written (existing DBs keep the inert row; the user's box keeps its
+existing demo project untouched — nothing deletes it), and a fresh install/reset
+lands in the renderer's blank "Untitled project" fallback
+(stores/project.js:147-161 — comment rewritten to say this is now the DESIGNED
+first-run landing). The demo is created ON DEMAND: new `create_demo_project(db)`
+in seed.py (create-if-absent under the fixed id `prj_demo_cartographer` —
+reset-safe, never duplicated, re-creatable after a user delete; never touches
+activeProjectId) exposed as **POST /v1/projects/demo** (api/projects.py, declared
+before the /{project_id} routes; returns {id,title,author,created}). Renderer:
+projectApi gained `createDemoProject()` (drops a stale cached snapshot on
+re-create), the store's old `createTutorialProject` (and the whole client mini
+tutorial seed, services/tutorialProject.js — deleted per the user's decision, one
+word restores it from git) was replaced by `openDemoProject()` (POST → registry
+row if missing → switchProject), and the Sidebar button is now
+i18n `"Try tutorial project"` (en.json; tooltip rewritten to name the demo book —
+my copy, flagged) calling it. Menu = exactly "New project…" + "Try tutorial
+project", the user's decided pair. Tests rewritten to the new law:
+test_seed.py (`test_seed_creates_providers_but_no_demo`,
+`test_demo_created_on_demand` — create/no-duplicate/delete-then-recreate/no
+pointer writes, `test_boot_never_resurrects_a_deleted_demo`,
+`test_reset_reseeds_workspace` → empty workspace) + test_workspace.py (reset
+yields NO projects). User docs: getting-started.md ("Your first project" — blank
+landing + the on-demand tutorial), whats-new.md entry, models.md.
+
+**QC-41 (#254), option 1** — RichEditor's context menu: the
+`if (!hasSelection.value) return;` gate at the old :808 is GONE (and the
+`aiRunning` whole-menu suppression with it) — the menu ALWAYS opens; items
+enable/disable by the AI-menu scope-law (the ChaptersView ai-strip grammar,
+:1110-1166, the user's screenshot spec): "Selection only" (Rewrite/Expand/
+Describe, disabled without a selection, header hint "Highlight text first to
+enable"), "Selection or whole scene" (Tighten), "Line edits" (permanent hint
+"Selection, or whole scene if none" — runProsePass's whole-doc fallback verified
+at :752), then Cut/Copy (selection-only) · Paste (always) · Add comment
+(selection-only, openCommentEditor's own guard :1009); AI rows also grey while
+aiRunning (the strip's own law). Windows-11 row grammar: every row = leading kit
+Icon (Sparkle/Pencil/Cut/Copy/Paste/Comment — all pre-existing kit glyphs) +
+label + right-aligned shortcut hint via the EXISTING `sc()` helper (⌘/Ctrl
+platform-aware); disabled rows grey with dimmed icons; menu min-width 220px. The
+bottom **"Show browser menu (spell check)"** passthrough row (the W11 "Show more
+options" grammar) arms a ONE-SHOT native passthrough — the next right-click is
+the browser's own menu (a trusted-event limitation: we cannot open it
+programmatically; the row's hint says "right-click again") — and is STICKY at
+the menu's bottom so the spell-check door stays visible above the scrolling
+line-edit list (my addition serving the user's stated purpose; flagged).
+
+**PROBE DRIFT fixed findings-first (4 probes located the deleted built-in row /
+the superseded menu law):** b5-probe's B5-5 no-selection leg asserted the old
+"native menu" law → rewritten to QC-41's (menu opens + disabled + hint +
+passthrough); qc-quintet's QC-20/21 legs + b29's built-in-guard leg + dl2's
+Edit-click navigation → repointed to the promoted `.lu-builtin` header/panel
+(same laws, new home). NEW committed **scripts/qcbatch-probe.mjs — 22/22**: the
+promoted section (title/QS-top/no-row/engine-cluster/no-Cancel) · both washes
+neutral by computed style (rgb + oklch parsing) · the provider list's grouping
+survives · QC-42's copy + bigger-than-description font assert · QC-41
+no-selection open/scope-greying/hint/W11 icons+kbds/passthrough EXISTS + the
+one-shot passthrough round-trip (next click native, the one after ours again) +
+with-selection enabling · QC-40's exact two menu entries + the LIVE
+click-to-create-and-open flow ("The Cartographer's Daughter" opens; server has
+the fixed id) with active-pointer-safe setup + full restore.
+
+**VERIFY (all green, this container):** JW vitest 73/73 · build:vite · FULL
+headless smoke zero JS errors (all routes incl. the restructured providers tab)
+· JW server pytest **77** (was 76; the QC-40 rewrites + the new on-demand cases)
+· JW server ruff · runner pytest **452** + ruff · biome on every changed JS file
+· probes: qcbatch **22/22** NEW · qc35 13/13 · b4 · b5 (repointed) · qc-quintet
+**22/22** (repointed) · chip 5/5 · b29 (repointed) · switch · dl2 (repointed) ·
+the live curl round-trip of POST /v1/projects/demo (delete → create:true →
+"The Cartographer's Daughter"/"Mira Halden"). Screenshots of all three changed
+surfaces sent to the user. Incidents en route, both non-code: the dev server
+predated the endpoint (405 until restarted — plus its husk artifact, cleaned)
+and one cwd-footgun strike (probe/npm ran from the runner repo; re-ran with
+explicit cd — the standing rule stands).
+
+**FLAGS (each one word reverts):** the wizard-title alignment (QC-42 above) ·
+the Sidebar tutorial tooltip copy · the sticky passthrough row · the promoted
+section title's "(your machine)" tail (the mockup's own wording; the DB name
+supplies the rest) · models.md's two "Tasks tab" mentions aligned to the QC-29
+"Routing by task" rename (the recorded + every-copy-reference law).

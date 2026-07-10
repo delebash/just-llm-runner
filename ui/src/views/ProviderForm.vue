@@ -23,6 +23,10 @@ import { PROVIDER_PRESETS, ONLINE_ONLY_TYPES, probeModels, createProvider } from
 
 const props = defineProps({
   provider: { type: Object, default: null }, // null = adding new
+  // QC-39 (b): the built-in provider's form is mounted PERMANENTLY as the page's
+  // top section — nothing to collapse back to, so no Cancel, and the section
+  // supplies the card chrome (the form renders bare).
+  permanent: { type: Boolean, default: false },
 });
 const emit = defineEmits(["saved", "deleted", "cancel"]);
 
@@ -159,7 +163,7 @@ async function remove() {
 </script>
 
 <template>
-  <div class="lu-pform">
+  <div class="lu-pform" :class="{ 'lu-pform--bare': props.permanent }">
     <div v-if="isNew" class="lu-pf-presets">
       <span class="lu-muted lu-pf-presets-h">Start from a known provider — fills URL · type · where it runs</span>
       <div class="lu-pf-chips">
@@ -250,14 +254,19 @@ async function remove() {
       <span class="lu-muted lu-pf-test">{{ testMsg }}</span>
       <span class="lu-pf-spacer" />
       <UiButton v-if="!isNew && !isBuiltin" intent="danger" @click="remove">Delete</UiButton>
-      <UiButton intent="ghost" @click="emit('cancel')">Cancel</UiButton>
+      <UiButton v-if="!props.permanent" intent="ghost" @click="emit('cancel')">Cancel</UiButton>
       <UiButton intent="primary" :loading="saving" @click="save">{{ saving ? "Saving…" : "Save provider" }}</UiButton>
     </div>
   </div>
 </template>
 
 <style scoped>
-.lu-pform { padding: 14px 16px; border-top: 1px solid var(--border); background: var(--accent-soft); }
+/* QC-39: neutral surfaces — the page-scale accent-soft (pink) wash is gone
+   (mockup (a)/(b), the user's pick); accent stays at chip/focus scale. The
+   inline expanded form reads as an expanded card in the provider list; the
+   permanent built-in mount renders bare (its section owns the chrome). */
+.lu-pform { padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-top: 8px; }
+.lu-pform--bare { border: 0; border-radius: 0; background: transparent; padding: 0; margin-top: 0; }
 .lu-pf-presets { margin-bottom: 12px; }
 .lu-pf-presets-h { display: block; font-size: 11px; margin-bottom: 6px; }
 .lu-pf-chips { display: flex; gap: 6px; flex-wrap: wrap; }

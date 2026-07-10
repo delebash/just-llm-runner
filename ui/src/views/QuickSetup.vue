@@ -488,6 +488,10 @@ defineExpose({ openWizard });
          does"); the default is the full titled strip. -->
     <template v-if="props.inline">
       <UiButton intent="primary" @click="openWizard">Run Quick Setup</UiButton>
+      <!-- QC-42 (the user's exact copy): the wizard is built-in-only — say so
+           right of the button, bigger than the description, so nobody expects
+           it to configure an online provider. -->
+      <span class="lu-qs-barefor">For the Local built-in provider</span>
       <span class="lu-muted lu-qs-baresub">Detect your hardware, pick the best free local model that fits, and set it as your default.</span>
     </template>
     <div v-else class="lu-qs-head">
@@ -500,7 +504,7 @@ defineExpose({ openWizard });
 
     <AppModal
       v-if="open"
-      :title="step === 'detect' ? 'Probing your hardware…' : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : 'Recommended setup — for local built-in server only'"
+      :title="step === 'detect' ? 'Probing your hardware…' : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : 'Recommended setup — for the Local built-in provider only'"
       :max-width="'640px'"
       :closable="step !== 'apply' && !optRunning"
       @close="onModalClose"
@@ -692,6 +696,7 @@ defineExpose({ openWizard });
 <style scoped>
 .lu-qs { border: 1px solid var(--border); border-radius: var(--r-md, 10px); background: var(--surface); padding: 12px 16px; }
 .lu-qs--bare { border: none; border-radius: 0; background: transparent; padding: 0; display: inline-flex; align-items: center; gap: 12px; }
+.lu-qs-barefor { font-size: 13.5px; font-weight: 600; color: var(--ink); }
 .lu-qs-baresub { font-size: 12px; line-height: 1.4; }
 .lu-qs-head { display: flex; align-items: center; gap: 12px; }
 .lu-qs-head > div { flex: 1; min-width: 0; }

@@ -13,7 +13,6 @@ import { computed, onMounted, ref } from "vue";
 import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
-import UiProgress from "../common/components/UiProgress.vue";
 import UiTag from "../common/components/UiTag.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
 import TaskKinds from "./TaskKinds.vue";
@@ -26,12 +25,12 @@ import { useModelApply } from "../services/modelApply.js";
 import { useEngine } from "../composables/useEngine.js";
 import { usePoll } from "../common/composables/usePoll.js";
 
-// Engine actions live HERE on the Built-in row, LEFT beside the capability tags
-// (user, 2026-07-07: "move install uninstall next to lmm tag on left rename to
-// install engine uninstall engine" · "move update button next to uninstall change
-// name to Update available") — the same shared useEngine state the Local-engine
-// panel reads, so the row and the panel can never disagree.
-const { engineState: engState, busy: engBusy, error: engError, statusKnown: engKnown, installed: engInstalled, installing: engInstalling, progressLabel: engProgressLabel, updateInfo: engUpdate, checkForUpdate, refreshEngine, install: engInstall, uninstall: engUninstall, updateToLatest } = useEngine();
+// Engine state here feeds only the debug snapshot — the engine ACTIONS
+// (Install / Uninstall / Update available / Reinstall + progress + errors) all
+// live on the Local-engine panel inside the promoted built-in section (QC-39:
+// the built-in's list row is gone, so the panel is THE engine surface; same
+// shared useEngine state, so no surface can disagree).
+const { engineState: engState, checkForUpdate, refreshEngine } = useEngine();
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
 // own AI-domain settings (e.g. JustWrite's "Writing AI" — voice canon, RAG
@@ -56,9 +55,14 @@ const error = ref("");
 const editingId = ref(null); // "new" | provider id | null
 const status = ref({}); // provider id -> "checking" | "ok" | "fail"
 
+// QC-39 (b), the user's pick: the BUILT-IN provider is promoted OUT of the
+// accordion into its own permanent top section — its Edit contents ARE the
+// page. Every OTHER provider (local openai-compat ones included — the user's
+// explicit check) stays in the grouped list below with the small inline Edit.
+const builtinProvider = computed(() => providers.value.find((p) => p.providerType === "local-llamacpp") || null);
 // Group by the provider's stored Local/Online choice (set in the form), not a
 // URL guess — a local provider at a LAN IP still groups under Local.
-const localProviders = computed(() => providers.value.filter((p) => p.local));
+const localProviders = computed(() => providers.value.filter((p) => p.local && p.providerType !== "local-llamacpp"));
 const cloudProviders = computed(() => providers.value.filter((p) => !p.local));
 
 const hwLabel = computed(() => {
@@ -348,6 +352,35 @@ onMounted(() => {
 
     <!-- ── Providers & models ── -->
     <section v-show="tab === 'providers'" class="lu-tab">
+      <!-- QC-39 (b), the user's pick: the built-in provider PROMOTED out of the
+           accordion — its own permanent top section whose contents ARE its old
+           Edit view (field grid · engine panel · slot cards · Model Catalog ·
+           libraries). Order preserves the old card 1:1: the Quick-Setup band at
+           the TOP (#4 law), then the identity row (name · caps · Default tag ·
+           Set as default), then the form. The old row's engine buttons +
+           progress/error live on the Local-engine panel inside (one surface);
+           the old row's Test/status is the form footer's Test connection (one
+           check, the composed-health one — #139). -->
+      <div v-if="builtinProvider" class="lu-builtin">
+        <div class="lu-builtin-qs">
+          <QuickSetup ref="qsRef" inline @changed="loadProviders" />
+        </div>
+        <div class="lu-builtin-head">
+          <!-- The DB name already says what it is (seeded "Built-in provider —
+               llama.cpp", user-renamable) — the title adds only the mockup's
+               "(your machine)" tail. -->
+          <h3 class="lu-builtin-title">{{ builtinProvider.name || builtinProvider.id }} (your machine)</h3>
+          <span v-for="c in capList(builtinProvider)" :key="c" class="lu-cap">{{ c }}</span>
+          <UiTag v-if="isDefaultProvider(builtinProvider)" intent="success">Default</UiTag>
+          <span class="lu-builtin-spacer" />
+          <!-- QC-20: reads already-set but stays CLICKABLE — the dialog on the
+               current default is where QC-21's truthful embedding line shows. -->
+          <UiButton intent="secondary" size="small"
+            @click="openSetDefault(builtinProvider)">{{ isDefaultProvider(builtinProvider) ? "Default ✓" : "Set as default" }}</UiButton>
+        </div>
+        <ProviderForm :provider="builtinProvider" permanent @saved="onSaved" />
+      </div>
+
       <div class="lu-providers">
         <div class="lu-pcard-head">
           <span class="lu-pcard-title">Providers</span>
@@ -366,14 +399,6 @@ onMounted(() => {
         <template v-for="p in localProviders" :key="p.id">
           <ProviderForm v-if="editingId === p.id" :provider="p" @saved="onSaved" @deleted="onSaved" @cancel="editingId = null" />
           <div v-else class="lu-prow">
-            <!-- Quick Setup: its own full-width row at the TOP of the Built-in card
-                 (user #4, 2026-07-08: "align run quick setup section to top" — it was
-                 the card's bottom row; grid children place in template order, so first
-                 child + the 1/-1 span = the first row). Still its own spanning row —
-                 the 2026-07-06 "separate row" fix stands. -->
-            <div v-if="p.providerType === 'local-llamacpp'" class="lu-prow-qsbtn">
-              <QuickSetup ref="qsRef" inline @changed="loadProviders" />
-            </div>
             <span class="lu-prow-ic">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.2" /><path d="M6.2 1.5v2.7M9.8 1.5v2.7M6.2 11.8v2.7M9.8 11.8v2.7M1.5 6.2h2.7M1.5 9.8h2.7M11.8 6.2h2.7M11.8 9.8h2.7" stroke-linecap="round" /></svg>
             </span>
@@ -384,35 +409,6 @@ onMounted(() => {
                      Default-badge precedent) — derived from the same dominant pair
                      the set-as-default dialog reads. -->
                 <UiTag v-if="isDefaultProvider(p)" intent="success">Default</UiTag>
-                <!-- Engine actions sit LEFT, beside the tags (user, 2026-07-07): Install
-                     engine / Uninstall engine, and the update button next to Uninstall —
-                     "Update available" (info) when a newer build exists, "Reinstall"
-                     (re-download the pinned build — a REPAIR, distinct from an update:
-                     the user's words) otherwise. While an install RUNS, one "Installing…"
-                     button holds the slot: the exe lands on disk early, so engInstalled
-                     flips true mid-install and the cluster used to jump to Uninstall +
-                     a spinning Update while the cudart/fallback legs still downloaded
-                     (user: "the update button has progress this is weierd it should be
-                     visible untill engine is installed"). -->
-                <template v-if="p.providerType === 'local-llamacpp'">
-                  <UiButton v-if="engInstalling" intent="primary" size="small" loading>Installing…</UiButton>
-                  <!-- QC-13: no Install offer before the status has been FETCHED — the
-                       null pre-fetch state read as not-installed here too. -->
-                  <UiButton v-else-if="engKnown && !engInstalled" intent="primary" size="small"
-                    :loading="engBusy" @click="engInstall(false)">Install engine</UiButton>
-                  <template v-else-if="engKnown">
-                    <UiButton intent="ghost" size="small" :loading="engBusy"
-                      title="Delete the engine binaries — models are kept" @click="engUninstall">Uninstall engine</UiButton>
-                    <UiButton v-if="engUpdate?.updateAvailable" intent="info" size="small"
-                      :loading="engBusy"
-                      :title="`Update the engine to ${engUpdate.latest} (you have ${engUpdate.current}) — the old build folder is removed after the new one installs`"
-                      @click="updateToLatest">Update available</UiButton>
-                    <UiButton v-else intent="secondary" size="small"
-                      :loading="engBusy"
-                      title="Re-download the pinned engine build"
-                      @click="engInstall(true)">Reinstall</UiButton>
-                  </template>
-                </template>
               </div>
               <div class="lu-prow-url">{{ p.baseUrl }}</div>
               <div class="lu-prow-meta">
@@ -425,24 +421,12 @@ onMounted(() => {
             <!-- ONE actions cell (the row is a grid — loose buttons would wrap to a new
                  grid row, which is exactly the misplacement the user screenshotted). -->
             <div class="lu-prow-actions">
-              <!-- QC-20: the tagged row's affordance reads already-set ("Default ✓",
-                   the catalog's label precedent) but stays CLICKABLE — the dialog on
-                   the current default is exactly where QC-21's truthful embedding
-                   line shows, and its overwrite checkbox is how customized tasks
-                   re-unify onto the same provider. -->
               <UiButton intent="secondary" size="small"
                 @click="openSetDefault(p)">{{ isDefaultProvider(p) ? "Default ✓" : "Set as default" }}</UiButton>
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
             </div>
           </div>
-          <!-- Same progress bar as the engine panel — the install runs from THIS row, so
-               its progress renders here too (shared useEngine state; the composable polls). -->
-          <UiProgress v-if="p.providerType === 'local-llamacpp' && engInstalling" class="lu-prow-prog"
-            :value="engState?.total ? engState.downloaded : undefined" :max="engState?.total || undefined"
-            :label="engProgressLabel" />
-          <p v-if="p.providerType === 'local-llamacpp' && engError" class="lu-error lu-prow-err">{{ engError }}</p>
-
         </template>
         <div v-if="!loading && !localProviders.length" class="lu-pempty">No local providers yet. Click “Add provider” and point at <span class="lu-mono">http://localhost:…</span></div>
 
@@ -625,17 +609,17 @@ onMounted(() => {
   padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-top: 8px;
 }
 .lu-prow-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.lu-prow-prog { margin-top: 6px; }
-.lu-prow-err { margin: 6px 0 0; font-size: 12.5px; }
 /* B2-9 set-as-default confirm — body lines above the overwrite choice. */
 .lu-sd-line { margin: 0 0 10px; }
-/* Quick Setup — its own centered row spanning the TOP of the Built-in card (#4;
-   no absolute positioning: the overlay variant shifted the grid on the user's box).
-   The bottom border seats it as the card's header band above the provider row. */
-.lu-prow-qsbtn {
-  grid-column: 1 / -1; padding-bottom: 8px;
-  text-align: center; border-bottom: 1px solid var(--border);
-}
+/* QC-39 (b) — the promoted built-in section (mockup (b) verbatim: one neutral
+   card at the top of the tab; the accent stays at chip/focus scale). The
+   Quick-Setup band keeps the old card-top law (#4): its own centered row,
+   seated as the section's header band by the bottom border. */
+.lu-builtin { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+.lu-builtin-qs { text-align: center; padding-bottom: 10px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+.lu-builtin-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.lu-builtin-title { margin: 0; font-size: 15px; font-weight: 700; color: var(--ink); }
+.lu-builtin-spacer { flex: 1; }
 .lu-prow-ic { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-3); color: var(--ink-2); display: grid; place-items: center; }
 .lu-prow-ic svg { width: 17px; height: 17px; }
 .lu-prow-info { min-width: 0; }
@@ -648,7 +632,9 @@ onMounted(() => {
 .lu-prow-status { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
 .lu-sdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .lu-pempty { font-size: 12px; text-align: center; padding: 14px; background: var(--surface-2); border-radius: 8px; font-style: italic; color: var(--muted); margin-top: 8px; }
-.lu-newform { margin-top: 8px; border: 1px solid var(--accent); border-radius: 10px; overflow: hidden; }
+/* The add-provider form carries the card chrome itself (QC-39 neutral .lu-pform);
+   "new" keeps only the accent border-color as its affordance (chip-scale accent). */
+.lu-newform { border-color: var(--accent); }
 .lu-mono { font-family: var(--font-mono, monospace); }
 
 /* Usage — header + rollup metric cards + per-feature/provider tables. */

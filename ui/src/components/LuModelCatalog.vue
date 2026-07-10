@@ -1016,13 +1016,14 @@ refreshApplied();
 .lu-setup-hint { font-size: 11.5px; color: var(--lu-ink-2, var(--ink-2, #666)); margin-top: 2px; line-height: 1.4; }
 
 /* Section-header rows (Chat & writing / Embedding) inside the one table — a
-   pronounced accent band (#11, user 2026-07-08: "make the chat embed headers more
-   pronounced maybe a highlight color … like the doesn't fit header") so you always
-   know which kind of model you're looking at. */
+   pronounced band (#11) so you always know which kind of model you're looking
+   at. QC-39 (the user's mockup pick): the band's FILL is neutral surface-2 —
+   the page-scale accent-soft wash is gone — and the pronouncement is the 3px
+   accent edge (chip-scale accent). */
 .lu-msection td {
   padding: 9px 11px 8px;
   font-size: 12.5px;
-  background: var(--accent-soft, var(--surface-2, #f0f4f0));
+  background: var(--surface-2, #f0f0f0);
   border-left: 3px solid var(--accent, #3a7d63);
   border-bottom: 1px solid var(--lu-border, var(--border, #e2e2e2));
 }

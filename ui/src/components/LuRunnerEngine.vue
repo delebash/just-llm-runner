@@ -22,16 +22,14 @@ import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
 import { usePoll } from "../common/composables/usePoll.js";
 
-// Engine state comes from the ONE shared composable (useEngine) — the Install /
-// Update / Uninstall ACTIONS live on the Built-in provider's LIST ROW beside the
-// capability tags (AiModelsArea, user 2026-07-07); this panel keeps the status
-// line (llama.cpp installed build + acceleration, e.g. "Installed · b9870 ·
-// cuda12" — no update chatter here, the actionable button is on the row: user,
-// 2026-07-07 "remove this … you can leave Installed · b9870 · cuda12"), install
-// progress/errors, and the Details drawer. Install POLLING also lives in the
-// composable, so progress keeps flowing whichever surface started it and
-// whichever is mounted.
-const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, refreshEngine, install: engInstall, uninstall: engUninstall, busy: engBusy } = useEngine();
+// Engine state comes from the ONE shared composable (useEngine). Since QC-39
+// promoted the built-in provider out of the list (its old row — which carried
+// the Install / Uninstall / Update-available / Reinstall cluster — is gone),
+// THIS panel is the engine's one action surface: status line, the full button
+// cluster, install progress/errors, and the Details drawer. Install POLLING
+// lives in the composable, so progress keeps flowing whichever surface started
+// it and whichever is mounted.
+const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, updateInfo, checkForUpdate, updateToLatest, refreshEngine, install: engInstall, uninstall: engUninstall, busy: engBusy } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
 // Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
@@ -150,6 +148,7 @@ async function saveKnobs() {
 
 onMounted(() => {
   refreshEngine();
+  checkForUpdate(); // A5 — policy-gated; feeds the panel's own Update-available slot
   refreshResident();
   startResPoll();
   loadDownloadKnobs();
@@ -175,20 +174,30 @@ onMounted(() => {
         </div>
       </div>
       <div class="lu-eng-actions">
-        <!-- Install / Update / Uninstall live on the Built-in provider's list row
-             (AiModelsArea) — same shared useEngine state, so this status line and
-             those buttons can never disagree. TWO exceptions where the action must
-             be in reach beside the state it acts on: Install when NOT installed
-             (#135, user 2026-07-07: "you should have install button here as well")
-             and Uninstall when installed (#8, user 2026-07-08: "Installed · b9899 ·
-             cuda12 should have uninstall button"). Same shared action — it confirms
-             before deleting; models are kept. -->
+        <!-- The full engine cluster (QC-39 — the built-in's list row that used to
+             carry it is gone): Install when NOT installed (#135), and when
+             installed Uninstall + the update slot next to it (the row's own
+             grammar, user 2026-07-07: "move update button next to uninstall") —
+             "Update available" (info) when a newer build exists, else "Reinstall"
+             (re-download the pinned build — a REPAIR, distinct from an update:
+             the user's words). While an install RUNS the buttons yield to the
+             progress bar below (#119 — the exe lands on disk early, so a
+             mid-install `installed` flip must not swap the cluster). -->
         <UiButton v-if="statusKnown && !installed && !installing" intent="primary" size="small"
           :loading="engBusy" title="Download + install the llama.cpp engine for this machine"
           @click="engInstall()">Install engine</UiButton>
-        <UiButton v-if="installed && !installing" intent="ghost" size="small"
-          :loading="engBusy" title="Delete the engine binaries — models are kept"
-          @click="engUninstall">Uninstall engine</UiButton>
+        <template v-if="installed && !installing">
+          <UiButton intent="ghost" size="small"
+            :loading="engBusy" title="Delete the engine binaries — models are kept"
+            @click="engUninstall">Uninstall engine</UiButton>
+          <UiButton v-if="updateInfo?.updateAvailable" intent="info" size="small"
+            :loading="engBusy"
+            :title="`Update the engine to ${updateInfo.latest} (you have ${updateInfo.current}) — the old build folder is removed after the new one installs`"
+            @click="updateToLatest">Update available</UiButton>
+          <UiButton v-else intent="secondary" size="small"
+            :loading="engBusy" title="Re-download the pinned engine build"
+            @click="engInstall(true)">Reinstall</UiButton>
+        </template>
         <UiButton intent="ghost" size="small" @click="showDetails = !showDetails">
           {{ showDetails ? "Hide details ▴" : "Details ▾" }}
         </UiButton>

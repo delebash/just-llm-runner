@@ -4537,3 +4537,129 @@ throw as transport (the plan's zero-frames rule — an early HTTP 4xx/5xx on
 /v1/ai/stream therefore retries once via /run; identical server, so the risk
 is one redundant request, never a double-generation, since zero frames means
 generation never started).
+
+---
+
+**QC-43 — THE CHIP FIX (2026-07-10, built on the user's words this window:
+"just leave them but make them work!!!" · "i ran quick setup and it still is
+not shwoing corerectly, i guess try to fix" · copy pick "b").**
+
+ROOT CAUSE, grounded then fixed: `useResolvedRoute.invalidateRoutes()` existed
+with a comment claiming the routing writers call it — and had ZERO callers
+across both repos (the forgot-to-wire class). So every chip fetched once and
+never heard about Quick Setup / Set-as-default / preset edits: on the user's
+box the chips kept reading "Not set up" after Quick Setup ran. SECOND
+grievance, same window: the not-configured copy pushed the LOCAL-ONLY wizard
+("run Quick Setup") at users who want an online provider.
+
+THE FIX: (1) the kit client gained a post-write notification — after every
+SUCCESSFUL non-GET `request()`, subscribers hear (path, method); the client
+stays semantics-free (client.js). (2) `useResolvedRoute` self-subscribes at
+module scope and drops its whole cache when any ROUTING endpoint family is
+written (`engine-presets` | `preset-assignments` | `task-kinds`) — the seam
+rides the transport every writer already uses, so no future writer can forget
+(the invalidation-by-convention design was exactly what drifted).
+**(SUPERSEDED — the three-family allowlist described here was checker-caught
+FAIL(2); the SHIPPED shape invalidates on ANY non-GET kit write. See the
+"QC-43 CORRECTION" block below.)** Mounted
+chips self-heal with NO binding change: AiFeatureChip's watchEffect reads the
+reactive cache row inside ensureRoute, so the delete re-runs it (verified
+live, not assumed). (3) The not-configured copy is provider-neutral per the
+user's pick (b): provider slot "No model set", model slot "open AI settings"
+(AiFeatureChip.vue — clicking already navigates to the AI page).
+
+VERIFIED: JW vitest 73/73 (3 new resolvedRoute cases: cache/refetch · a
+routing write drops + next ensure refetches the new truth · task-kind +
+assignment writes invalidate while GETs/non-routing writes don't) ·
+build:vite · FULL smoke zero JS errors · the NEW committed
+`scripts/chip-probe.mjs` **5/5**: C1 the copy live; C2 an out-of-app API
+write leaves the chip honestly stale; C3 ONE in-app routing write (the
+per-task Reset POST through the kit client) then SPA-navigate back → the chip
+reads "Built-in provider — llama.cpp · chip-probe-model" WITHOUT any reload —
+the user's exact symptom, fixed end-to-end; C4 zero page errors · the ONLINE
+leg (user's "do they work if user is using online?"): a temp `openai`
+provider set on a preset resolves end-to-end
+(`providerId online-probe · gpt-4o-mini · configured:true` from
+/v1/ai/resolved-route; display path identical to C3's) · b29 · qc35 · b4 ·
+b5 · qc-quintet 22/22. PROBE DRIFT fixed alongside (findings-first): b5's
+B5-1 leg asserted the OLD "Quick Setup" copy — repointed to the user-picked
+copy; qc-quintet's QC-20/21 legs implicitly required a configured default and
+failed on this container's post-restart FACTORY DB — the probe now configures
+its own pair (+ routing embed) and restores the snapshot (ambient DB state
+must never decide a probe). Debug artifacts stayed in the scratchpad.
+
+SAME-WINDOW DIAGNOSES DELIVERED, AWAITING THE USER'S WORD (recorded, NOT
+built): (a) the Lab "Connection refused" chain — the model LOAD fails on
+their box because the Gemma-26B row carries a STALE seeded MTP-draft path
+(`MTP/gemma-4-26B-A4B-it-Q4_0-MTP.gguf`; the real upstream files are
+`MTP/mtp-gemma-4-26B-A4B-it-<quant>.gguf` + root `mtp-gemma-4-26B-A4B-it.gguf`
+— HF tree API verified live; the current seed.py:219 value is already correct
+but catalog facts fill EMPTY fields only, so a wrong non-empty value never
+heals). Unblock told to the user: Edit → "Load model info from HF" → save →
+Load. OFFERED: a boot-time heal replacing known-stale seeded values of the
+auto-detected mtp fields. (b) OFFERED: chat runs ensure-resident like
+embeddings (B1-9 precedent) instead of "Connection refused" when the model
+isn't loaded. (c) OFFERED as a task-add: a live server-console tab (follow
+the runner ring-buffer log + the engine child's output) under AI settings —
+the log infra exists (logs_api.py + the App-Settings Logs section). Their
+timestamp question answered: %(asctime)s, no converter → the server box's
+LOCAL clock (logs_api.py:44).
+
+---
+
+**#253 BUILD RECORD (2026-07-10 — the hook fix, unblocked by the user's "do the
+5 quied tasks").**
+
+THE EVIDENCE SWEEP FIRST (the whole fix hangs on it): a full pass over the live
+31,389-entry transcript of this session's environment
+(/root/.claude/projects/-home-user/…jsonl, 340 MB), classifying EVERY user-role
+entry. Findings, each against the recorded #253 claims:
+(1) "ToolSearch 'Tool loaded.' replies are bare user text that reset the turn
+window" — NOT in the current shape: all 92 "Tool loaded" hits live inside
+tool_use/tool_result blocks, which `is_genuine_user` already excludes via its
+has-tool-result check. (2) "task-tool reminders reset the window" — those
+reminders are PROMPT-level injections; ZERO transcript hits. (3) Stop-hook
+feedback + <local-command-caveat> arrive `isMeta: true` — already excluded.
+(4) "long assistant texts are ABSENT from this environment's transcript, so the
+text-citation escapes can never fire" — REFUTED for the current environment:
+1,945 assistant text blocks, longest 8,064 chars; and the B6-window code
+commits cleared the commit gate on genuine in-turn agent verdicts, so the gate
+demonstrably works post-restart. (5) The 183 distinct bare plain-text user
+prefixes are ALL genuine human prompts (plus the post-compact continuation
+message and "[Request interrupted by user]", both of which SHOULD bound a
+turn). Conclusion: the 2026-07-09 incident shapes belong to the PRE-restart
+harness; nothing in the current transcript mis-classifies.
+
+THE SHIPPED FIX is therefore DEFENSIVE hardening, not a rework (deciding NOT to
+rebuild agent_pass/scan_turn is the finding, recorded here): `INJECTED_USER`
+(claude-config/hooks/_rules.py) gained the historically-recorded bare shapes —
+"Tool loaded." · "The task tools haven't been used recently" · "[SYSTEM
+NOTIFICATION" — plus the `<local-command-caveat>` tag, so a harness that ever
+emits them bare again cannot reset the turn window; no genuine human prompt
+starts with those strings, and a prompt merely MENTIONING them mid-text stays
+genuine (both directions harness-tested). test_gates.py gained the cases; ALL
+7 suites PASS on the bundle AND the bundle was applied live via install.sh
+(the installed ~/.claude/hooks/_rules.py grep-verified to carry the new
+shapes). The same-message flush lag is recorded as an OPERATING NOTE in
+EFFECTIVENESS.md's new "#253 resolution" entry (harness behavior — cite the
+rules-pass in a message BEFORE the gated call), alongside the full sweep
+findings and the disposition of the eleventh-window gate incident (attributed
+to the pre-restart shape; if it recurs, capture the transcript tail at the
+moment of denial before touching the gate).
+
+*(QC-43 CORRECTION, same window — the diff rules-checker returned FAIL(2) on the
+first cut and both catches were real: (T5) the three-family allowlist MISSED two
+resolved-route-changing write families — `/v1/llm-providers` PATCH/DELETE is LIVE
+(ProviderForm.vue:142/:153 → provider_api.py deregister/re-register mutates the
+registry resolve_route reads, so editing/deleting an assigned provider left the
+chip stale — exactly the online-provider surface the user asked about) and
+`/v1/ai/routing` PUT (writers exist, currently dead — a latent revival of the
+same class); (T1) an allowlist merely relocates the drift from "forgot to call
+invalidateRoutes" to "forgot to extend the regex". CORRECTED SHAPE, per the
+checker's recommendation: `useResolvedRoute` now invalidates on ANY successful
+non-GET kit request — the kit client carries only AI/provider traffic and the
+cache is a handful of lazily-refilled rows, so any-write invalidation is always
+correct at negligible cost; the regex is GONE. The vitest case now asserts five
+distinct write families ALL invalidate (providers + routing included) and GETs
+don't. Re-verified: vitest, chip-probe, b5, qc-quintet; fresh checker verdict at
+the commit.)*

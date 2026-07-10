@@ -25,6 +25,20 @@ export function llmUiUrl(path) {
   return `${llmUiBase()}${path}`;
 }
 
+// Post-write notification: caches over kit reads (useResolvedRoute's chip
+// cache) subscribe here to hear about every SUCCESSFUL non-GET `request()`.
+// The chip-staleness bug (user, 2026-07-10: Quick Setup ran, chips kept
+// saying "Not set up") was a forgot-to-wire bug — invalidateRoutes existed
+// with zero callers — so invalidation now rides the transport seam every
+// writer already uses instead of per-writer calls that can drift. The client
+// stays semantics-free: it reports (path, method); subscribers own which
+// paths matter.
+const writeListeners = new Set();
+export function onRequestWrite(fn) {
+  writeListeners.add(fn);
+  return () => writeListeners.delete(fn);
+}
+
 export async function request(path, { method = "GET", body, headers, signal } = {}) {
   const opts = { method, headers: { ...(headers || {}) } };
   if (signal) opts.signal = signal;
@@ -36,6 +50,11 @@ export async function request(path, { method = "GET", body, headers, signal } = 
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+  }
+  if (method !== "GET") {
+    for (const fn of writeListeners) {
+      try { fn(path, method); } catch {}
+    }
   }
   if (res.status === 204) return null;
   const ct = res.headers.get("content-type") || "";

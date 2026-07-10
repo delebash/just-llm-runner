@@ -70,5 +70,9 @@ export * from "./services/appearance.js";
 // shared UI locale (BCP-47 tag for UiNumber's Intl formatting; host drives it)
 export { uiLocale, setUiLocale } from "./services/locale.js";
 
+// shared byte formatter (DL-1) — the ONE size-label formatter, so a disk-usage /
+// download surface in either app renders bytes identically.
+export { fmtBytes } from "./services/downloadRate.js";
+
 // shared composables (host-agnostic; vue-only)
 export { useRovingTabindex } from "./composables/useRovingTabindex.js";

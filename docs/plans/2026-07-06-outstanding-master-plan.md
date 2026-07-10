@@ -212,15 +212,26 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
 "remove unused PromptLab" cleanup line is dead), and `idb-keyval` is already out of JW's
 `package.json` (that DEFERRED row is done).
 
-- **I1 — the JW cleanup tail (the master's T24 / Phase-F cleanup bucket).** STATUS: **NOT
-  DONE** — small, mechanical, still real (all verified 2026-07-08): `htmlToText` duplicated
-  across **19 renderer files** and `tailWords` across **7** (grep counts match the master's
-  2026-06-27 audit — nothing converged since); the RULE-5 new-entity-popup audit (#34); a
+- **I1 — the JW cleanup tail (the master's T24 / Phase-F cleanup bucket).** STATUS:
+  **MECHANICAL LEGS DONE (2026-07-10); judgment legs remain.** Done: `htmlToText` (the count
+  was actually **20** definitions, not the 19 recorded here — recount at the build) and
+  `tailWords` (7) converged onto the ONE shared `src/renderer/src/services/text.js` (16 + 6
+  call sites option-mapped with zero behavior change; four htmlToText variants + voiceDrift's
+  HEAD-taking tailWords deliberately left where behavior genuinely differs — two of them
+  suspected latent bugs, flagged for triage, see the queue doc's I1 BUILD RECORD); the
+  tests-fail-in-isolation row was VERIFIED STALE — `test_plane2_params.py` (15) and
+  `test_prompts.py` (22) both pass ALONE today, no fixture missing, row closed with no code
+  change. REMAINING (judgment, a Fable window): the RULE-5 new-entity-popup audit (#34); a
   shared `runJsonAnalysis`; promoting the big CSS clones to `styles.css`; the
   `useEntityCrudView` composable idea; the gate ratchets (extend `check-shared-pickers`, jscpd
-  ratchet, the i18n `SettingsView.startNew` key); and the tests-fail-in-isolation fixture
-  (`test_plane2_params.py`/`test_prompts.py` lacked a `configure_storage` fixture when run
-  alone — the full suite is green at 409, so verify-then-fix). Size: small each; batchable.
+  ratchet, the i18n `SettingsView.startNew` key); triage of the writerAI/versionDiff
+  no-strip pair + voiceDrift's HEAD-vs-tail; a text.test.js (needs a DOM env — vitest is
+  node-env). ALSO OPEN, A USER DECISION (surfaced 2026-07-10; the deep-audit
+  2026-06-20 A1 "fix the scene-mark drift" reconciliation is NOT closed by the
+  convergence): should critique / entityExtraction / readerKnowledge /
+  threadExtraction keep seeing scene-break marks in their LLM input
+  (`stripSceneMarks:false`, today's behavior, deliberately preserved) or move to
+  full-strip? The flip is one option flag per site now.
 - **I2 — cloud prompt caching (the master's O2).** STATUS: **DECISION + BUILD, untouched** —
   the Anthropic/Gemini adapters send no prompt-caching hints; never built, never decided. A
   cloud-cost optimization only (the bundled runner has llama.cpp's own prefix cache); worth a
@@ -231,8 +242,11 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   memory budget in fit, no `--n-cpu-moe` on Apple, the `iogpu.wired_limit_mb` note) were never
   built and there is no Mac anywhere in the project to verify against. Park until a Mac exists.
 - **I4 — the "reclaim disk" cache/data panel** (the master's platform-settings remainder).
-  STATUS: **NOT BUILT** — Settings has the portable data root + engine Uninstall (deletes only
-  binaries), but no surface that reports/clears cache usage (hf download cache, logs). Small.
+  STATUS: **BUILT (2026-07-10)** — shared `llm_runner/platform/disk_api.py` sizes endpoint
+  (`GET /v1/disk/usage`; JV inherits by mounting the same factory), runner reclaim endpoints
+  (spawn-logs clear · models-cache clear with the unload-first refusal), and the JW
+  Settings→Storage "Disk usage" card. Full record: the queue doc's I4 DESIGN + I4 BUILD
+  RECORD. Deliberate follow-up, not v1: per-model GGUF delete on the catalog surface.
 - **I5 — the DEFERRED-until-needed parking lot (carried, still parked by design):** per-scene
   incremental snapshot writes · full per-entity write REST · RAG sqlite-vec ANN index · the
   spawn boot/splash UX · extracting the kit `common/` → a future `@delebash/ui` package · the

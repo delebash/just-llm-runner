@@ -5322,3 +5322,240 @@ RISK (the text-citation path is dead in this remote transcript shape — exactly
 the recorded #253 failure). Proceeded untracked per the standing "do b"
 discipline (no pre-build agent check; the binding check is the commit-gate's
 genuine verdict); noting here so the evidence stays current.
+
+---
+
+**I4 BUILD RECORD (2026-07-10 — the reclaim-disk usage panel, built per the I4
+DESIGN block above; delegated build, tree left uncommitted for the coordinator's
+review).** What shipped, across both repos: the SHARED sizes endpoint is
+`llm_runner/platform/disk_api.py` (`make_disk_router(data_dir)` → `GET
+/v1/disk/usage`, exported from `llm_runner.platform`, mounted in JW's
+`justwrite_server/app.py` beside `make_logs_router` over the same `data_dir` —
+JV inherits it by mounting the same factory, the T3 point of the design); the
+runner reclaim endpoints are `POST /v1/llm-runner/spawn-logs/clear` and `POST
+/v1/llm-runner/models-cache/clear` in `llm_runner/runner/api.py`, backed by
+`RunnerService.clear_spawn_logs()` / `clear_models_cache()` in `lifecycle.py`
+(placed beside `uninstall_engine`, whose stop-first/Windows-lock commentary they
+inherit); the UI is a "Disk usage" card in JW `SettingsView.vue` directly under
+the Data location card, same `.card` + 140px/1fr grid grammar, six rows exactly
+as designed (Models cache + Clear-with-confirm · Engine builds "Managed on the
+AI page" · Server logs "Managed in the Logs section" · Engine spawn logs +
+Clear · Database · Free disk space), em-dash per row until the fetch lands,
+loaded when the Storage section activates and refreshed after any clear.
+
+The as-built decisions a future reader needs (each grounded during the build,
+checker-verified): (1) the models-cache refusal returns **HTTP 200 with
+`{ok:false, detail:"unload models first", models:[…]}`, not a real 409** — the
+kit transport throws on any non-2xx (`serverApi.js` `_doRequest`), which would
+discard the structured body the card needs for its friendly message, and the
+`ensure_embedding` endpoint is the recorded precedent for ok:false-on-200; the
+design's "409-style" is satisfied in semantics (refuse + reason), not status
+code. (2) Bucket semantics: `engineBuilds` measures `ai-cache/llamacpp`
+EXCLUDING its `logs/` subdir (that is the separate `spawnLogs` bucket);
+`database` globs `*.db` at the data root and adds each file's `-wal`/`-shm`
+sidecars; the walk (`dir_size`, os.scandir recursion) NEVER follows symlinks —
+the HF cache symlinks `snapshots/` entries at real `blobs/`, so following would
+double-count — and guards every stat (files vanish mid-walk); a missing dir is
+0, never an error. (3) ONE walk + ONE formatter: `clear_models_cache` imports
+`dir_size` from `platform/disk_api.py` for its freed-bytes figure (platform has
+no runner imports, so the lazy import is cycle-safe), and the card formats sizes
+with the kit's `fmtBytes` — promoted to the kit's public surface in
+`ui/src/common/index.js` (it lives in `common/services/downloadRate.js`, the
+DL-1 single source; `fmtBytes(0)` returns "" so the card maps a real 0 to
+"0 MB" and reserves the em-dash for not-yet-loaded). (4) The in-use guard treats
+`{loaded, sleeping, loading, downloading, starting}` as busy — the union of the
+router's live statuses and the in-flight overlay in `resident()` — and refuses
+without deleting; models re-download on demand because catalog rows persist in
+the host DB (stated in the endpoint docstring). (5) `clear_spawn_logs` deletes
+only `*.log`, keeps the dir for the next spawn, and skips-and-continues on
+OSError (a live spawn can hold a log open on Windows).
+
+Tests: `tests/test_disk_api.py` (exact byte sums per bucket incl. the
+logs-exclusion, missing-dirs-are-zero, symlink-not-followed) +
+`tests/test_runner_reclaim.py` (spawn-logs clear removes *.log only and keeps
+the dir; models-cache clear refuses when a model is resident OR loading and
+wipes+recreates-empty when idle) + a `/v1/disk/usage` mount case in JW
+`server/tests/test_health.py`. Gates all green: runner pytest 469 + ruff · JW
+server pytest 80 + ruff · vitest 88 · build:vite · FULL headless smoke zero JS
+errors · live `GET /v1/disk/usage` on the restarted :17495 returns real bytes.
+Checker verdict on the diff: FAIL(2) first round — T11 (no user doc) + T8 (this
+record missing) — both doc legs; fixed by the "Reclaiming disk space" section
+in JW `docs/storage.md` (auto-bundled into the in-app Help corpus via
+helpDocs.js's docs/*.md glob) + this record. FLAGGED follow-ups unchanged from
+the design: per-model GGUF delete stays the deliberate catalog-surface
+follow-up, not v1; the checker also noted JV's `EnginesView.vue` still carries
+a local `fmtBytesMb` — a latent convergence onto the kit's downloadRate
+helpers, out of this task's fence (JV renderer untouched).
+
+---
+
+**I1 BUILD RECORD (2026-07-10 — the mechanical convergence legs, delegated
+build verified line-level by the coordinator; the JUDGMENT legs — RULE-5 popup
+audit, CSS-clone promotion, gate ratchets — stay queued for a Fable window).**
+What shipped (JW only; runner untouched by this leg): the copy-pasted
+`htmlToText` bodies (TWENTY definitions found — the ledger's "19" was an
+undercount, corrected below) and `tailWords` (7 definitions) converge onto ONE
+shared parameterized module, `src/renderer/src/services/text.js` —
+`htmlToText(html, {stripSceneMarks=true, trim=true, tidyLines=false})` (always
+strips `.ai-del`/unwraps `.ai-ins` so an LLM never critiques its own pending
+suggestions back to itself) and `tailWords(text, max, {ellipsis=false})`. A
+NEW module rather than `llmText.js` because that file is LLM-OUTPUT JSON
+parsing; prose-INPUT prep is a distinct concern (same convergence pattern as
+llmText's own header states). Sixteen htmlToText call sites converged with
+their options byte-mapped from each deleted local body (spot-verified by the
+coordinator at critique.js — old body neither stripped scene-marks nor
+trimmed, new call `{stripSceneMarks:false, trim:false}` with the caller's own
+`.trim()` kept — and beatSheet.js — old body stripped+trimmed, new call is the
+default; the diff checker's strict-diff table covers all sixteen): default ×9
+(marketingPack · reverseOutline · plotHoleScan · relationshipArc ·
+characterAudit · multiReaderCritique · beatSheet · voiceDrift ·
+stuckDiagnostic), `{tidyLines:true}` ×2 (resumeBriefing · sessionRecap),
+`{stripSceneMarks:false}` (readerKnowledge), `{stripSceneMarks:false,
+tidyLines:true}` (threadExtraction), `{trim:false}` (aiTellScanner),
+`{stripSceneMarks:false, trim:false}` (critique ×2 call sites ·
+entityExtraction). Six tailWords sites converged: bare ×2 (plotHoleScan ·
+relationshipArc), `{ellipsis:true}` ×4 (characterAudit · stuckDiagnostic ·
+resumeBriefing · sessionRecap). Net ≈ −140 lines.
+
+FOUR htmlToText variants + ONE tailWords variant are deliberately NOT
+converged because their behavior genuinely differs (each named in text.js's
+header so the next reader finds the ledger): `writerAI.js:31` and
+`versionDiff.js:308` strip NO ai-diff marks at all (versionDiff diffs raw
+stored content — correct; writerAI doing the same is a SUSPECTED LATENT BUG —
+converging it would change behavior, so it is FLAGGED FOR TRIAGE, not
+mechanically absorbed; the two are byte-identical to each other);
+`voiceFingerprint.js:18` collapses ALL whitespace; `labTestData.js:29`
+collapses blank-line runs and has no null-guard; `voiceDrift.js` (~:178) has a
+`tailWords` that takes the HEAD of the text despite its name — converging it
+would change the LLM prompt, SUSPECTED BUG, flagged for triage.
+
+Leg 3 (runner tests-fail-in-isolation) resolved by VERIFY-FIRST: both
+`tests/test_plane2_params.py` (15 passed) and `tests/test_prompts.py` (22
+passed) run green ALONE today — the ledger row is STALE (whatever
+configure_storage fixture gap it described no longer reproduces); zero code
+changed, the ledger row is closed as stale rather than "fixed".
+
+Coordinator decisions at landing: the agent-added SPDX header on text.js was
+STRIPPED — zero of the ~80 renderer service/view files carry SPDX (that
+convention is JustVoice's; JW has none), and the header came from the
+delegation prompt over-copying JV's rule, so the file now matches its
+neighbors. Deferred (recorded, not built): a text.test.js unit suite — vitest
+runs node-env and htmlToText needs a DOM (jsdom env or a happy-dom shim is its
+own small decision), the FULL headless smoke + the 88 existing vitest cases
+cover the converged call paths today.
+
+Gates all green (run by the build agent AND re-run independently by the
+coordinator): biome (17 files clean) · vitest 88/88 · build:vite · FULL
+headless smoke zero JS errors (every route + the 6 AI sub-tabs) · runner
+pytest 469 + ruff · JW server pytest 80 + ruff. One genuine diff rules-checker
+verdict at the commit (the standing discipline).
+
+**THE CHECKER ROUND (FAIL(4) → resolved) + THE PER-UNIT STRICT-DIFF TABLE.**
+The diff checker returned FAIL on four counts: T6 (no per-unit table), T2
+(the tidyLines/trim/tailWords rows unverified — it has no git access), and
+T1+T8 (it surfaced `docs/plans/2026-06-20-deep-audit.md:117-120`, which had
+ruled this dedup "NOT a mechanical lift… FIXES the scene-mark drift… each
+needs the canonical pick chosen deliberately", i.e. the four
+`stripSceneMarks:false` sites were supposed to be RECONCILED to full-strip,
+not frozen). Resolutions: (a) the coordinator built the per-unit table from
+the STAGED diff (below) — every row reconciles, including the previously
+unverified axes: the four ellipsis tailWords sites' deleted bodies read
+`` `… ${parts.slice(-maxWords).join(" ")}` `` and the two bare sites plain
+`parts.slice(-max).join(" ")`, matching text.js's `ellipsis` branch and
+`slice(-max)` exactly; resumeBriefing+sessionRecap's deleted
+`.replace(/\s+\n/g, "\n").trim()` matches `tidyLines:true` + default trim;
+readerKnowledge verified byte-identical by reading its staged diff (old
+helper trimmed INSIDE and did not scene-strip → new
+`{stripSceneMarks:false}` with default trim, the call site's own `.trim()`
+kept — idempotent). (b) T1/T8: the scene-mark drift is NOT silently frozen —
+it is a RECORDED DELIBERATE DEFERRAL: this ship is zero-behavior-change by
+the delegation spec; whether critique / entityExtraction / readerKnowledge /
+threadExtraction should keep seeing scene-break marks in their LLM input is
+a PRODUCT choice (scene dividers are arguably useful signal for critique /
+structural analysis — the audit's 2026-06-20 "full-strip is canonical" call
+predates today's scene model), so deep-audit A1's reconciliation stays OPEN
+and goes to THE USER as a decision; the flip is now one option flag per site
+precisely because of this convergence. Ledger §I1 carries the same note.
+
+The table (old deleted local body → new call; ai = strips .ai-del/.ai-ins,
+scene = strips .scene-mark, trim/tidy/ellipsis as named; every row EQUAL):
+aiTellScanner ai+scene, no trim → `{trim:false}` (scene-strip is the
+default) · beatSheet ai+scene+trim → default · characterAudit
+ai+scene+trim → default; tailWords ellipsis → `{ellipsis:true}` · critique
+ai only, call-site .trim() → `{stripSceneMarks:false, trim:false}` +
+call-site .trim() kept (×2 call sites) · entityExtraction same shape →
+same options + call-site .trim() kept · marketingPack ai+scene+trim →
+default · multiReaderCritique ai+scene+trim → default · plotHoleScan
+ai+scene+trim → default; tailWords bare slice(-max) → bare ·
+readerKnowledge ai+trim (no scene) → `{stripSceneMarks:false}` (trim
+default) + call-site .trim() kept · relationshipArc ai+scene+trim →
+default; tailWords bare → bare · reverseOutline ai+scene+trim → default ·
+threadExtraction ai+tidy+trim (no scene) → `{stripSceneMarks:false,
+tidyLines:true}` · voiceDrift ai+scene+trim → default (its own HEAD-taking
+tailWords untouched, flagged) · resumeBriefing ai+scene+tidy+trim →
+`{tidyLines:true}`; tailWords ellipsis → `{ellipsis:true}` · sessionRecap
+identical to resumeBriefing (×2 htmlToText call sites) · stuckDiagnostic
+ai+scene+trim → default; tailWords ellipsis → `{ellipsis:true}`.
+
+---
+
+**QC-45 + QC-46 DESIGN PASS (2026-07-10 — mockups sent, THE USER PICKED).**
+Per the design law (precedent + real-world reference + mockups for the pick):
+six mockups were injected over the LIVE app (scratchpad qc4546-mockups.mjs —
+the qc39 method; real tokens/fonts, demo book backdrop, scene 1 open in the
+real editor for the notes set) and sent. QC-46 welcome screen: W-A "Paper
+hero" (one centred column: serif wordmark + one-line pitch → Start-a-new-
+project + Try-the-tutorial CTAs → 3×2 feature grid → the AI setup band with
+Run Quick Setup (local) + Connect an online provider + the skip line) · W-B
+"Two-column study" (VS-Code-style Start column + features/AI right; carried
+an UNASKED third "Import a manuscript" entry, flagged) · W-C "Guided steps"
+(three-step create→AI→write cards). References: Scrivener's first-run
+template/tutorial chooser · VS Code's Welcome tab; precedent surfaces: the
+QC-40 blank-fallback landing it replaces (stores/project.js:141-154), the
+kit EmptyState/QuickSetup. QC-45 scene notes: N-A "Quick-note popover"
+(anchored at the scene-strip Notes button) · N-B "Notes side panel"
+(Scrivener-inspector: docked right of the editor, composer on top, notes as
+editable cards, prose stays visible; kit slide-in precedent AiStatusPanel/
+HelpDrawer) · N-C "Lean modal" (today's modal, composer inside, no
+navigation). Grounding of the complaint: the scene-strip button opens
+ChapterNotesModal scene-focused but Add note (ChapterNotesModal.vue:82-88)
+router-pushes to /notes/<id> — the full NotesView editor with the chapters
+anchor dropdown + a prefilled "Note on Ch. N · Scene M" title; that
+navigation is the "opens into a new editor, no way back, list of chapters
+and a note label" experience verbatim.
+
+**THE USER'S PICKS (verbatim: "W-A hero,N-B side panel"):** QC-46 = W-A the
+Paper-hero welcome screen · QC-45 = N-B the docked scene-notes side panel.
+Both build next under the standing disciplines.
+
+---
+
+**QC-47 LIVE REPRO (2026-07-10 — "project selection is not working, choosing
+a different project in dropdown is not loading that project"): DOES NOT
+REPRODUCE in the container.** The probe (scratchpad qc47-probe.mjs) drove the
+REAL sidebar switcher end to end: created "QC47 Probe Book" through the real
+New-project dialog → picked the demo in the dropdown → the demo's content
+verifiably LOADED (45 sidebar chapter rows, 5 scene cards on /chapters) →
+picked the probe book back → its own (empty) content with zero demo bleed.
+All 8 probe legs green; the network log shows the correct
+PATCH /v1/settings + PUT-outgoing/GET-incoming book traffic both directions;
+zero console errors from the switch itself. CODE-LEVEL SUSPECTS for the
+user's box, ranked (grounded this window): (1) the ABORT branch —
+`switchProject` (stores/project.js:2204-2219) fetches the target snapshot
+and on null/error shows the generic toast "That project couldn't be loaded."
+and SILENTLY STAYS on the current project; `fetchSnapshot`
+(services/projectApi.js:113-125) returns null on any fetch error OR a
+registry row whose book GET fails — on their box a transient sidecar
+hiccup or a row-without-book state would look EXACTLY like "picking does
+nothing" (the toast is easy to miss and names no cause). (2)
+`Object.assign(this.$state, snap)` at :2216 MERGES — an older/partial
+stored snapshot missing newer top-level keys would leave the previous
+project's values for those keys in place (a bleed shape, not a not-loading
+shape; normalizeSnapshot's fills bound how much can be missing). NEXT: needs
+ONE discriminating detail from the user's box — when a pick "does nothing",
+(a) does the title at the top-left of the sidebar change? (b) does a toast
+appear (bottom)? (c) does the wrong project persist after an app restart?
+(a-no + b-yes) confirms suspect 1. HARDENING CANDIDATE (not built — awaiting
+the user's word): the abort branch retries once and the toast names the
+project + the failure ("Couldn't load '<title>' — the server didn't return
+it; try again"), instead of the current generic line.

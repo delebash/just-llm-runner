@@ -285,6 +285,31 @@ async def engine_update_check() -> dict:
     return get_service().update_check()
 
 
+# ── Reclaim disk: the runner OWNS its cache, so it owns the deletes. The sizes
+#    are reported by the shared platform GET /v1/disk/usage; these do the freeing. ──
+
+
+@router.post("/v1/llm-runner/spawn-logs/clear", summary="Delete the per-spawn llama-server logs (reclaim disk; the dir is kept)")
+async def spawn_logs_clear() -> dict:
+    """Remove every `*.log` under the runner's `llamacpp/logs` dir — the per-spawn
+    llama-server logs, which are otherwise UNBOUNDED (nothing else sweeps them). The
+    dir is kept so the next spawn can write. Best-effort: a locked file is skipped.
+    Returns `{removed, bytes}`."""
+    return get_service().clear_spawn_logs()
+
+
+@router.post("/v1/llm-runner/models-cache/clear", summary="Delete downloaded model weights to reclaim disk (models re-download on demand)")
+async def models_cache_clear() -> dict:
+    """Delete every downloaded model GGUF from the HF cache. SAFE BY DESIGN: the
+    catalog rows persist in the host DB, so each model simply RE-DOWNLOADS the next
+    time it is loaded — nothing here is lost permanently. Refuses with
+    `{ok: false, detail: "unload models first"}` (HTTP 200) while any model is
+    resident/loading, because its weights are open/mmap'd (and on Windows an open
+    file can't be unlinked); the caller unloads, then retries. On success returns
+    `{ok: true, bytes}`."""
+    return get_service().clear_models_cache()
+
+
 @router.post("/v1/llm-runner/measure", summary="Probe the running model → decode tok/s + resource context")
 async def measure_model(prompt: str = "Write one vivid paragraph about the sea.", max_tokens: int = 128) -> dict:
     """#20 'Tune & measure': run a fixed probe against the loaded model and return

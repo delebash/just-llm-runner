@@ -512,6 +512,57 @@ class RunnerService:
             self._engine_state = _engine_idle()
         return self.engine_status()
 
+    # ── Reclaim disk: the runner owns its cache, so it owns these deletes (the
+    #    SIZES are reported by the shared platform GET /v1/disk/usage). ──────────
+    def clear_spawn_logs(self) -> dict:
+        """Delete every `*.log` under `<cache>/llamacpp/logs` (the per-spawn
+        llama-server logs — UNBOUNDED; nothing else sweeps them). The dir itself is
+        KEPT so the next spawn can write. Best-effort: a file that won't unlink (a
+        live spawn holding it open on Windows) is skipped, never fatal. Returns
+        `{removed, bytes}`."""
+        logs_dir = self._cache_root / "llamacpp" / "logs"
+        removed = 0
+        freed = 0
+        if logs_dir.is_dir():
+            for p in logs_dir.glob("*.log"):
+                try:
+                    size = p.stat().st_size
+                    p.unlink()
+                except OSError:
+                    log.warning("could not remove spawn log %s", p, exc_info=True)
+                    continue
+                removed += 1
+                freed += size
+        return {"removed": removed, "bytes": freed}
+
+    def clear_models_cache(self) -> dict:
+        """Delete every downloaded model GGUF under `<cache>/hf`. SAFE BY DESIGN:
+        the catalog rows live in the host DB, not here, so a cleared model simply
+        RE-DOWNLOADS on demand the next time it is loaded — nothing here is
+        unrecoverable.
+
+        SAFETY GUARD: refuses (`ok: false`, "unload models first") while any model
+        is resident or loading — its weights are open/mmap'd, and deleting them out
+        from under a running llama-server would crash it (and on Windows an open
+        file can't be unlinked). The caller unloads first, then retries. A
+        download-only op runs on a separate channel invisible to `resident()`; that
+        edge stays safe-by-design (the wipe just makes the download re-fetch)."""
+        busy = {"loaded", "sleeping", "loading", "downloading", "starting"}
+        in_use = [m.get("id") for m in self.resident().get("models", []) if m.get("status") in busy]
+        if in_use:
+            return {"ok": False, "detail": "unload models first", "models": in_use}
+        # One walk, one source: the same size measurement the /v1/disk/usage panel shows.
+        from ..platform.disk_api import dir_size
+
+        hf = self._cache_root / "hf"
+        freed = dir_size(hf)
+        shutil.rmtree(hf, ignore_errors=True)
+        try:
+            hf.mkdir(parents=True, exist_ok=True)  # recreate empty so the next download has a home
+        except OSError:
+            log.warning("could not recreate empty hf cache dir at %s", hf, exc_info=True)
+        return {"ok": True, "bytes": freed}
+
     def update_check(self) -> dict:
         """A5 (user "do", 2026-07-06): the latest upstream llama.cpp release vs the
         INSTALLED build. NEVER auto-applies — the pin is a VERIFIED pin (flag

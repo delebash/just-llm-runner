@@ -9,6 +9,13 @@ docs/plans/2026-06-24-shared-platform-settings.md.
 """
 
 from .data_api import make_data_router
+from .disk_api import make_disk_router
 from .logs_api import install_file_log, install_log_ring, make_logs_router
 
-__all__ = ["make_data_router", "make_logs_router", "install_log_ring", "install_file_log"]
+__all__ = [
+    "make_data_router",
+    "make_disk_router",
+    "make_logs_router",
+    "install_log_ring",
+    "install_file_log",
+]

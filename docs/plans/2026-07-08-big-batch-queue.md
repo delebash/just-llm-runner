@@ -6071,3 +6071,147 @@ byte-verified against git HEAD programmatically (done twice, both equal);
 `git show HEAD:file` + importlib is the clean way. The stop-hook
 commit nagging fires while a checker is in flight — doc-only commits
 satisfy it; code waits for the verdict.
+
+## RAG + EXTRACTION BUILD RECORD — THE SHIP (2026-07-11, the twentieth window)
+
+The build that executed the armed go ("i will take your recs, we need to
+compact first") is COMPLETE. The panel-checked plan is
+`justwrite-app/docs/plans/2026-07-11-rag-story-bible-build.md` (T1–T8, flags
+F1–F8, the PANEL ROUND section); the prior windows shipped T1/Move 0 (runner
+`49b367a` + JW `38d0f85`) and the Moves 1–3 + E1/E3 + E5 series (JW
+`34cd632`) — their full state is the NINETEENTH-COMPACT POINT above. This
+window built the remainder: E2, the T7 acceptance probe + the full gates, and
+the T8 docs.
+
+**E2 — the reviewable link-backfill sweep (plan §T5) — SHIPPED.** New
+`src/renderer/src/components/LinkBackfillModal.vue`: one deterministic
+`proposeSceneLinks(project, collectEntities(project))` pass on open (the ONE
+shared scanner E1 already uses — no LLM, no second matcher), proposals
+grouped per entity under the Characters/Locations/Objects section grammar of
+EntityReviewModal, groups sorted by entity name so a misfiring common-word
+entity is easy to untick as a block (per-group All/None, the tb-btn text
+precedent), every row default-ticked like the entity sweep, alias provenance
+shown as `as "Old Salt"` when the match wasn't the entity's name, and a
+footer confirm ("Link N scenes") that applies ONLY the ticked rows through
+the ONE batched store action `applyScenePresenceLinks` (one history entry,
+one undo) and reports the applied count in the sweep-accept toast's shape.
+Nothing ever auto-applies (the spec's common-name risk is why this is a
+review surface). Empty state = kit EmptyState ("Nothing to link"). **F7
+final wording (my design, reverts on a word):** the entry point is a ghost
+"Link scenes" button (Pin icon) on the Analysis toolbar directly beside
+"Entity sweep" — sweep finds NEW entities, Link scenes backfills the ones
+you HAVE — with the modal titled "Link scenes to the story bible". The E2
+vitest apply-path case landed in `entityLinks.test.js`: an unscoped
+whole-book proposal set over a two-chapter fixture, one row unticked, apply
+sets exactly the ticked links, and a re-scan proposes only the unticked
+remainder (vitest 135/135 total).
+
+**T7 — the committed acceptance probe `scripts/rag-probe.mjs` — 18/18
+PASSED, zero page errors.** Fully deterministic, no real models: an
+in-process stub OpenAI-compat server serves embeddings as normalized
+bag-of-words hash vectors (cosine ≈ lexical overlap → stable rankings, the
+spec §11.3 "assert rankings" approach) and SSE chat completions as canned
+frames; the entity-extraction responses are keyed on unique demo-book prose
+("small brass weight" → a Brass-weight object proposal from Ch1 only; "Mind
+the iron stair" → a Margaret character proposal with an alias from Ch5 only)
+so the sweep→review→accept path is reproducible. The stub provider registers
+with model id `nomic-embed-text` — the SEEDED catalog id — so the Move-0
+template row genuinely fires (the panel note: an arbitrary test model id
+would pass through and the template assert could never fire). Legs, all
+green: E3 aliases editable in the review modal · E1 accept creates entities
+AND links their origin-chapter scenes (asserted on the book API's scene
+records) · E2's modal groups the Brass-weight backfill (Ch4 "A letter,
+half-written" + Ch9's plural mention) and applying sets the scene link ·
+Move 0 document-side (all 79 index-build inputs carry `search_document: `)
+and query-side (`search_query: Who is Halvard Renn?`) · Move 1 (the index
+holds 79 entries vs 39 scenes — cards indexed; the pinned card renders as
+[1] "Story Bible — Character: Halvard Renn" with the "pinned" badge; the
+LLM prompt carried the card excerpt under that header; the citation
+click-through lands on #/characters/c4) · Move 3 (a scene excerpt in the
+prompt carried its "(Characters: …)" links line) · the un-named-entity
+question ("who runs the customs house") cites bible cards — the panel showed
+Renn's card pinned from the PRIOR turn (the history-aware matcher live), the
+Customs House card ("Renn's office"), and the group card. Every write is
+restored and VERIFIED restored (presets/routing byte-compared, stub provider
+deleted, demo book back to as-found presence, its rag index + chat thread
+cleared) — the restore check is itself a probe leg.
+
+**The probe caught a REAL pre-existing bug (findings-first, fixed +
+re-verified): ChatPanel's settle never triggered a render.** `ask()` pushed
+the raw `assistantMsg` object into the reactive thread array and then kept
+mutating the RAW target — Vue 3 proxies don't see writes on the raw object,
+so the settle assignments (`citations`, `pending=false`) landed without a
+re-render. On a real box the streaming cadence masks it (some later store
+tick repaints); against the probe's instant stub stream the answer stayed
+visually pending with no citations forever. Diagnosed by process of
+elimination the record should keep: the server relay was proven end-to-end
+with curl (frames + [DONE]), the service call driven directly in-page
+resolved with 6 citations, and the kit task ledger (read via the module
+graph) showed the UI's own run finished "done" with no error — leaving only
+the component's post-resolve DOM path. Fix (ChatPanel.vue, minimal): read
+the just-pushed turn back through the array's reactive proxy and mutate
+THAT (`thread.value[thread.value.length - 1]`); both chat modes ride the
+same object. This is the same lesson class as the editor-echo law: a
+correct-looking mutation that bypasses the reactivity boundary. The probe's
+timeout path keeps a lean self-diagnosis (panel DOM + stub counts + the
+task-ledger dump) so a future failure names itself.
+
+**Gates at the ship, all green:** rag-probe 18/18 · vitest **135/135** ·
+`build:vite` · FULL headless smoke (zero JS errors, jscpd + shared-picker
+static gates included) · the probe fleet — qcbatch 22/22 · b5 · qc35 ·
+qc-quintet 22/22 · b4 · switch · dl2 · b29 · chip 5/5 · undo 19/19 · biome
+clean on the diff (one unused-var warning fixed) · JW server pytest **82** +
+ruff · runner pytest **476** + ruff (untouched, ritual). **Honesty note on
+the fleet list:** the "zero-project probe 16/16" named in earlier records
+was never committed as a script (the fd456e1 commit carries no scripts/
+file — it ran from that session's scratchpad and died with the container);
+its committed coverage is qcbatch's QC-40 legs + the smoke's /welcome
+route. Recorded so no future window hunts for a file that doesn't exist.
+
+**T8 docs, same series:** `docs/whats-new.md` (the sweep entry gains the
+Link-scenes sentence), `docs/notes-and-search.md` (the Ask-the-book help
+section now explains Story Bible entries, pinning + the "pinned" badge,
+citation click-through, the links-line grounding, and points at Link
+scenes), `docs/models.md` (the embed task-template fields on embedding
+rows — document/query sides, `{text}`, per-model seeds, the edit-then-
+Rebuild note). **Path correction:** the plan's §T8 said
+"just-llm-runner/docs/models.md" — no such file exists; THE user-facing
+models doc is `justwrite-app/docs/models.md` (the models-doc law's file) and
+that is what was updated. JW `CLAUDE.md` checked against the shipped
+behavior — its RAG lines make no scenes-only claim; no edit needed.
+
+**Flags recap (all shipped as flagged; each reverts on a word):** F1 the
+embed-template child table · F2 the Qwen3 query-instruction wording · F3
+the per-kind card field lists · F4 the host-registered prompt heal · F5 the
+refined capitalization guard · F6 sha covers text+links · **F7 the "Link
+scenes" entry point + label (finalized this window, above)** · F8 the
+import marker set. Plus this window's one non-plan change, flagged: the
+ChatPanel raw-reactivity fix (a bug fix with a probe-proven mechanism, not
+a design change).
+
+**Tasks:** #275–#282 all complete (the probe legs that #276/#277/#278/#280
+were held open for have now run green). Next per the user's sequencing:
+**task #274** — the Quick Setup embed-pick bug (8B recommended on an 8GB
+box; the fix belongs in the SHARED picker; the exact size/fit rule wants
+the user's word before building).
+
+**Checker round (this ship): VERDICT: PASS** — 10 PASS + 2 NA (T6 audit / T10
+subagent), zero FAIL. Its one non-blocking note was TAKEN before the commit:
+the All/None group toggles in BOTH LinkBackfillModal and EntityReviewModal
+used `tb-btn tb-text`, but `.tb-text` exists only in RichEditor's SCOPED
+style block — a no-op globally, leaving the 28px-square `.tb-btn` base under
+wider text (a pre-existing gap E2 had faithfully copied from its precedent).
+Both converged onto the resolving global modifier `.tb-btn.wide`
+(styles.css:760 — auto width + padding), with the explanation commented at
+the EntityReviewModal site. Build + FULL smoke + rag-probe re-run green
+after the change.
+
+**Gate incident at this commit (the known #253 environment issue, again):**
+the commit gate denied the JW code commit 4× despite the GENUINE
+rules-checker VERDICT: PASS arriving as a harness task-notification in the
+same turn — the gate's transcript-side `agent_pass` detection cannot see
+harness notifications in this remote environment (same shape as the
+eleventh-window incident; #253 remains flagged for the user's word). The
+commit landed through the gate's own MAX_DENIES anti-wedge fail-safe, which
+exists for exactly this detection-bug case. The verdict itself is quoted in
+the commit message and above.

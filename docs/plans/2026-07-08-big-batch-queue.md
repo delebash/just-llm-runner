@@ -6291,3 +6291,121 @@ row in the existing insert-if-missing catalog seeder (the seed.py:269-279
 shape, quality_rank slotting between 50 and 60) plus one
 DEFAULT_EMBED_TEMPLATES line (seed.py:297-300 — the same
 _QWEN3_EMBED_QUERY the 0.6B/8B rows share).
+
+## ⛔ THE TWENTIETH-COMPACT POINT (2026-07-11 — read this first after the compact)
+
+**STATE: the RAG + extraction build is SHIPPED AND CLOSED** (the "RAG +
+EXTRACTION BUILD RECORD — THE SHIP" section above; JW `0d98908` + runner
+`2487e3b`, tasks #275–#282 complete, all gates green). **THE ACTIVE GO IS
+#274** — the user's words this window: *"i agree with your rect on 274 that
+was how it was already supposed to be"*, then **"go"**, then two mid-turn
+questions (answered in chat, recorded here), then *"when you get to a
+stopping point we need to compact"* — the stopping point is THIS save: the
+build is fully grounded and speced below but NO code is written yet; it
+executes post-compact under the standing go.
+
+**The user's clarification (answered, decision confirmed):** the 0.6B DOES
+run fully on CPU — that was decided and box-tested. Receipts: the ROUND-4
+lock (providers-surface doc:359-363) "CPU-only chat UNSUPPORTED … EMBEDDINGS
+keep the CPU band (fittingEmbeds — tiny models, deliberately CPU on the
+user's own box)", and the code's own box-measured note
+(lifecycle.py:1181-1187) that an ngl=0 CUDA child still holds ~549 MB of
+driver context — "the pinned RAG embed" being its named example of a
+CPU-offloaded co-resident. The confirmed #274 rule COMPOSES with that
+decision: CPU-band embeds always qualify; bigger embeds qualify only when
+the leftover VRAM (card − the chat pick's need) covers them.
+
+**Their second question (answered in chat; ONE OPEN QUESTION FLAGGED):**
+"how are we deciding when the embed runs CPU vs GPU — automatic?" Placement
+today is automatic PER LOAD: fit-by-omission leaves ngl unset so the
+llama.cpp child's own `--fit` places tensors given what is free at that
+moment (lifecycle.py:1122-1131); explicit tunes/switches override; a genuine
+CUDA-OOM sheds GPU layers stepwise to 0 (lifecycle.py:1491-1505); the embed
+is PINNED so chat co-loads never evict it (lifecycle.py:1155-1158). The
+honest gap: placement is load-order dependent and never deliberately
+reserves the GPU for the chat model — on the user's box the embed sits CPU
+because of THEIR applied config. The picker fix makes automatic placement
+land sanely (the assigned embed always fits the leftover), but a GUARANTEE
+("the chat model keeps the whole GPU on small cards — the embed spawns
+ngl=0 unless the leftover covers it") would be NEW placement policy —
+**OPEN, wants the user's word; do NOT build it into #274.**
+
+**THE #274 BUILD SPEC (armed, grounded, every fact verified this window):**
+1. **`ui/src/common/services/modelPick.js`** — NEW pure export
+   `pickBestEmbedId(models, { leftoverMb, qualityOf, isEmbed, minVramOf,
+   tierOf })`: candidates = isEmbed && FIT_RUNNABLE; eligible = tier==="cpu"
+   OR minVram <= leftover; pick = pickLowestQuality(eligible); eligible
+   empty → the least-minVram candidate (never empty when something runs).
+   Doc-comment the user's rule verbatim + the ROUND-4 CPU-band law.
+2. **`ui/src/composables/useCatalogMeta.js`** — add `minVramById` +
+   `tierById` maps (the wire fields exist: model_catalog_api.py:50-52).
+3. **`ui/src/views/QuickSetup.vue:115`** — `bestEmbedId()` calls the shared
+   helper; leftover = (hw.gpus[0].vramMb || 0) − (minVramById[pick.default]
+   ?? 0), floored at 0. Call sites :188/:238 unchanged (prefillPick sets the
+   chat default BEFORE the embed — order verified).
+4. **`ui/src/components/LuModelCatalog.vue:260`** — `recommendedEmbedId`
+   converges onto the SAME helper (it is today a drifted duplicate of the
+   wizard rule); its leftover uses its own `recommendedId` (:248) + the
+   vramMb it already reads from /hardware (:243 comment — gpus[0].vramMb).
+5. **`llm_runner/llm/seed.py`** — (a) NEW 4B row between bge-m3 and the 8B:
+   id qwen3-embedding-4b · name "Qwen3 Embedding 4B" · hf_repo
+   Qwen/Qwen3-Embedding-4B-GGUF · quant Q4_K_M · total_params "4B" ·
+   trained_ctx 40960 (HF API gguf metadata, file-derived) · min_vram_mb 3800
+   (the 8B row's file×~1.5 derivation; FLAG) · min_ram_mb 8000 (FLAG,
+   proportionate) · tier "mid" · license "Apache-2.0" (HF cardData) ·
+   position 10 (8B moves to 11; positions don't heal on existing DBs —
+   pre-release reset covers) · embedding True · pooling "last" ·
+   quality_rank 55 · architecture "qwen3" · experts 0 · size_label "4B" ·
+   size_bytes **2496703776** (HF tree, exact) · description "4B embedding
+   model · 40k context · Q4_K_M" · notes about the mid-card rung. (b) the
+   0.6B quality_rank 65 → **58** — **FLAGGED but REQUIRED**: bge-m3 (60)
+   currently outranks the 0.6B, so post-fix the CPU band would pick bge —
+   contradicting the seed's own "The default local embed" note on the 0.6B
+   row and the web-verified MTEB retrieval ordering. New embed ladder:
+   8B 50 · 4B 55 · 0.6B 58 · bge-m3 60 · nomic 70. (c)
+   DEFAULT_EMBED_TEMPLATES (seed.py:297-300) += {"id": "qwen3-embedding-4b",
+   "document": "", "query": _QWEN3_EMBED_QUERY}. Rank changes reach existing
+   DBs only via reset (insert-if-missing seeder) — record honestly.
+6. **`scripts/verify-model-pick.mjs`** (runner) — pickBestEmbedId
+   truth-table cases: 8GB card + 7000-need chat → 0.6B (NOT the 8B, NOT
+   bge); leftover 5000 → 4B; leftover ≥7000 → 8B; leftover 0/CPU-only →
+   0.6B (rank 58 beats bge 60); no cpu-tier + nothing fits → least-minVram
+   fallback; empty → "". Harness shape read this window (M() models +
+   check(); accessors bound per case).
+7. **`tests/test_seed.py`** (runner tests dir) — the 4B row exists w/
+   embedding=True + its template row + the embed rank-ordering assert.
+8. **`justwrite-app/docs/models.md`** — the Quick Setup §3 embedding
+   sentence (~:30-33) now describes the leftover rule ("the most capable
+   embedding that fits what's left after your chat model; the small ones run
+   on CPU so they always qualify") + the catalog embed blurbs if stale.
+9. **Probe** — extend the QuickSetup-covering probe (JW
+   scripts/phaseD-quicksetup-probe.mjs — read its stub shape first) with an
+   8GB-GPU-stub leg asserting the recommended embed = qwen3-embedding-0.6b.
+10. Gates: verify-model-pick.mjs · runner pytest+ruff · JW build+vitest +
+    FULL smoke · the QuickSetup probe + b29/qc-quintet spot · ONE genuine
+    diff-checker verdict per code commit · BUILD RECORD + recap pointer.
+
+**Facts bank (all verified this window, sources in the sections above):**
+Qwen3-Embedding-4B-GGUF: license apache-2.0, Q4_K_M = 2,496,703,776 bytes,
+Q8_0 = 4,279,660,224, gguf context_length 40960, architecture qwen3, ~4.02B
+params. The picker bug mechanism: QuickSetup.vue:111-115 fits embeds against
+the RAW card; seed ranks 8B=50/min 7000 beat 0.6B=65/min 1500 on an 8GB box.
+Environment: dev servers up (JW :17495 + vite :1420); trees clean at this
+save. **NEW environment lesson: a commit-gate DENY blocks the WHOLE chained
+Bash call — never chain `git commit` behind content-writing commands (a
+heredoc append died silently with it this window; always write, then commit
+in a separate call). The gate also misfires on doc-only commits here
+(#253-class): clear it with a quick genuine checker verdict rather than
+riding the MAX_DENIES sentinel.**
+
+**POST-COMPACT ORDER: (1) Block-0 re-reads; read THIS point. (2) Build the
+spec above (items 1–9), gates (10), verdict, ship (runner code commit + JW
+docs/probe commit), BUILD RECORD + recap GO pointer. (3) The OPEN placement
+question + the EmbeddingGemma candidate (llama.cpp #19040) stay on the
+user's word. (4) Then #256 research remains the only other user-worded
+item.**
+
+**Checker residual (recorded):** the reading that the bare "go" covered the
+CONDITIONAL 4B catalog add is reasonable but not airtight — the compact-ready
+reply asks the user to confirm or strike item 5; the placement-guarantee
+question rides the same reply.

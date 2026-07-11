@@ -327,6 +327,14 @@ async function apply() {
     if (target) {
       await request("/v1/llm-runner/load", { method: "POST", body: { modelId: target } });
       await pollLoad();
+      // A failed load must NOT read as success. pollLoad() set error.value from the runner's
+      // status.error (e.g. the "corrupted or incomplete … re-download" message); stay on the
+      // confirm step so that message is shown and the user can retry, instead of falling through
+      // to "done" as if setup completed (the old bug: Apply advanced to done on a bricked load).
+      if (error.value) {
+        step.value = "confirm";
+        return;
+      }
     }
     // NO auto-sweep on Apply (user, 2026-07-07: the measured sweep is too long for a
     // "quick" setup — "6 trials 12 minutes … not acceptable especially for a quick

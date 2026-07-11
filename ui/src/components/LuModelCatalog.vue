@@ -659,6 +659,20 @@ async function _doDelete(m) {
     refreshApplied(); // the strip + badges re-read the (possibly re-pointed) applied state
   } catch (e) { error.value = e.message || "Delete failed."; } finally { busy.value = ""; }
 }
+
+// Re-download / repair a model WITHOUT touching its catalog entry (the corrupt-GGUF recovery,
+// 2026-07-11). Clears the cached (possibly corrupt/incomplete) weights — models-cache/delete
+// KEEPS the catalog row and is idempotent if the file's already gone — then re-fetches. This is
+// the one-click follow-up the runner's "corrupted or incomplete" error tells the user to run;
+// it's also the repair path for a merely-suspect download, no delete-and-re-add dance needed.
+async function redownload(m) {
+  busy.value = `redl:${m.id}`; // own namespace so its spinner ≠ Delete's / the row load spinner
+  error.value = "";
+  try {
+    await request("/v1/llm-runner/models-cache/delete", { method: "POST", body: { modelId: m.id } });
+    await download(m.id); // re-fetch from Hugging Face (own progress channel + refresh)
+  } catch (e) { error.value = e.message || "Re-download failed."; } finally { busy.value = ""; }
+}
 async function resetCatalog() {
   const ok = await confirmDialog({ title: "Reset the model catalog to factory?", message: "Restores the built-in models. Your added models are kept." });
   if (!ok) return;
@@ -828,6 +842,10 @@ refreshApplied();
               <td class="lu-mact">
                 <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
                 <UiButton intent="ghost" size="small" title="Remove from catalog and delete its downloaded weights" :loading="busy === 'del:' + m.id" @click="deleteModel(m)">Delete</UiButton>
+                <UiButton v-if="m.status === 'error' || m.status === 'disk'" intent="secondary" size="small"
+                  :loading="busy === 'redl:' + m.id"
+                  title="Clear the downloaded file and fetch it again — repairs a corrupted or incomplete download. Keeps the catalog entry."
+                  @click="redownload(m)">Re-download</UiButton>
                 <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
                   title="Tune engine flags &amp; measure decode speed" @click="tuning = m">Tune</UiButton>
                 <UiButton v-if="m.status === 'loaded'" intent="ghost" size="small"

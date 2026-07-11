@@ -13,7 +13,7 @@ import pytest
 
 from llm_runner.runner.arbiter import VramArbiter
 from llm_runner.runner.download import DownloadCancelled
-from llm_runner.runner.lifecycle import RunnerService
+from llm_runner.runner.lifecycle import CorruptModelError, RunnerService
 from llm_runner.runner.process import FitPlan, Overrides
 from llm_runner.runner.schema import GpuInfo, HardwareInfo, ModelEntry
 
@@ -31,6 +31,11 @@ _MODEL_B = ModelEntry(id="model-b", name="B", tier="mid", hf_repo="org/b-GGUF", 
 
 def _fake_router(url="http://127.0.0.1:8080", alive=True):
     return SimpleNamespace(url=url, is_alive=lambda: alive, stop=lambda: None)
+
+
+def _raise_bad_magic(_path):
+    """A read_meta stand-in for a corrupt/zeroed GGUF — the exact error gguf.py raises."""
+    raise ValueError("not a GGUF stream (bad magic)")
 
 
 def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
@@ -1009,6 +1014,38 @@ def test_download_unknown_model_errors(tmp_path):
     ds = svc.download_status()
     assert ds["status"] == "error"
     assert "unknown model" in ds["error"]
+
+
+def test_verify_gguf_raises_corrupt_model_error_and_purges(tmp_path):
+    # The integrity gate: a main GGUF whose header won't parse is purged (so the next
+    # fetch re-downloads clean) and raised as an actionable CorruptModelError carrying the id.
+    svc = _service_for(tmp_path)
+    svc._read_meta = _raise_bad_magic
+    model = svc.catalog()[0]
+    repo_dir = tmp_path / "hf" / ("models--" + model.hf_repo.replace("/", "--"))
+    gguf = repo_dir / "snapshots" / "sha" / f"model-{model.quant}.gguf"
+    assert repo_dir.is_dir()
+    with pytest.raises(CorruptModelError) as ei:
+        svc._verify_gguf(model, gguf)
+    assert ei.value.model_id == model.id
+    assert "re-download" in str(ei.value).lower()
+    assert not repo_dir.is_dir()  # weights purged → a clean re-fetch next time
+
+
+def test_download_corrupt_gguf_surfaces_and_purges(tmp_path):
+    # A download whose file fails the header check must NOT report success: the gate catches it
+    # at download time (previously identify() swallowed it and the corruption only surfaced later,
+    # bricking the router with a raw "bad magic"). The error is actionable; the weights are purged.
+    svc = _service_for(tmp_path)
+    svc._read_meta = _raise_bad_magic
+    repo_dir = tmp_path / "hf" / ("models--" + _TEST_MODEL.hf_repo.replace("/", "--"))
+    assert repo_dir.is_dir()
+    svc.download(_TEST_MODEL.id)
+    svc._download_thread.join(timeout=5)
+    ds = svc.download_status()
+    assert ds["status"] == "error"
+    assert "corrupted or incomplete" in ds["error"]
+    assert not repo_dir.is_dir()
 
 
 def test_download_cancel_returns_to_idle(tmp_path):

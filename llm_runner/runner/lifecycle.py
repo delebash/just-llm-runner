@@ -61,6 +61,23 @@ from .schema import ModelEntry
 _LOAD_POLL_TIMEOUT = 300.0   # seconds before a still-`loading` child is declared failed
 _LOAD_POLL_INTERVAL = 1.0    # seconds between GET /models polls
 
+# Post-download integrity gate (the corrupt-GGUF fix, 2026-07-11). A freshly-acquired main
+# GGUF has its header parsed BEFORE spawn; a corrupt or incomplete download (a file zeroed by
+# antivirus mid-write — seen full-size but all-zeros — or a truncated transfer) fails the magic
+# check and is surfaced as an ACTIONABLE error instead of llama.cpp's raw "bad magic", which
+# otherwise bricks the whole router upstream at spawn. Reading a GGUF header is only a few KB,
+# so the check is effectively free — it never scans the multi-GB body.
+
+
+class CorruptModelError(RuntimeError):
+    """A downloaded GGUF failed its integrity check (bad magic / truncated / too small).
+    Raised with an actionable, user-facing message; carries `model_id` so a caller can offer
+    a one-click re-download."""
+
+    def __init__(self, message: str, model_id: str = ""):
+        super().__init__(message)
+        self.model_id = model_id
+
 
 def _default_catalog_fn() -> list[ModelEntry]:
     """Standalone default: no host store wired → empty catalog. Hosts override
@@ -575,8 +592,6 @@ class RunnerService:
         still referenced by ANOTHER catalog row is KEPT (deleting it would strand that sibling's
         weights) and reported in `detail`. Idempotent: ok:True/bytes:0 when nothing is cached or
         the id is unknown (the row may already be gone). Best-effort unlink (locked file skipped)."""
-        from ..platform.disk_api import dir_size
-
         catalog = self.catalog()
         model = next((m for m in catalog if m.id == model_id), None)
         if model is None:
@@ -592,8 +607,22 @@ class RunnerService:
         if model_id in {r.get("id") for r in self.resident().get("models", [])}:
             self.stop(model_id)
 
-        # The repo(s) this model's files live under: its main repo + a SEPARATE draft repo
-        # if the catalog pins one (a same-repo draft rides the main repo dir already).
+        freed, kept = self._purge_model_weights(model, catalog)
+        result = {"ok": True, "bytes": freed}
+        if kept:
+            result["detail"] = "kept weights shared with another model: " + ", ".join(sorted(kept))
+        return result
+
+    def _purge_model_weights(self, model, catalog=None) -> tuple[int, list[str]]:
+        """Delete `model`'s downloaded weights from `<cache>/hf` — its main repo dir plus a
+        SEPARATE MTP-draft repo if the catalog pins one (a same-repo draft rides the main dir).
+        Returns `(freed_bytes, kept_repos)`. A repo another catalog row still needs is KEPT
+        (deleting it would strand that sibling's weights). Assumes the file handle is already
+        free — the caller unloads / cancels any in-flight download first. Shared by
+        `delete_model_cache` and the post-download integrity gate (`_verify_gguf`)."""
+        from ..platform.disk_api import dir_size
+
+        catalog = catalog if catalog is not None else self.catalog()
         repos = {model.hf_repo}
         draft_repo = getattr(model, "mtp_draft_repo", "") or ""
         if draft_repo:
@@ -608,7 +637,7 @@ class RunnerService:
                 continue
             # KEEP a repo another catalog row still needs — those weights aren't ours to delete.
             shared = any(
-                other.id != model_id
+                other.id != model.id
                 and (other.hf_repo == repo or (getattr(other, "mtp_draft_repo", "") or "") == repo)
                 for other in catalog
             )
@@ -617,10 +646,31 @@ class RunnerService:
                 continue
             freed += dir_size(repo_dir)
             shutil.rmtree(repo_dir, ignore_errors=True)
-        result = {"ok": True, "bytes": freed}
-        if kept:
-            result["detail"] = "kept weights shared with another model: " + ", ".join(sorted(kept))
-        return result
+        return freed, kept
+
+    def _verify_gguf(self, model, gguf: Path) -> None:
+        """Fail-fast integrity gate on a freshly-acquired main GGUF: parse its header (magic + KV).
+        A corrupt / incomplete / zeroed download (or a missing file) fails the parse and is PURGED
+        — so the next load or download re-fetches clean — then raised as an actionable
+        `CorruptModelError`, rather than surfacing llama.cpp's raw "bad magic" or bricking the
+        router upstream at spawn. Runs BEFORE spawn, when nothing has the file mmap'd, so the purge
+        always succeeds. The header read is a few KB — it never scans the multi-GB body. `_read_meta`
+        is the injected reader (fake in tests → this is a no-op offline), so only a REAL corrupt
+        file trips it."""
+        try:
+            self._read_meta(gguf)  # magic + KV header; raises on bad magic / truncation / missing file
+        except Exception as exc:  # noqa: BLE001 — any parse/IO failure means the file is unusable
+            log.warning("integrity check failed for %s at %s: %s", model.id, gguf, exc)
+            try:
+                self._purge_model_weights(model)
+            except Exception:  # noqa: BLE001 — purge is best-effort; the actionable error still stands
+                log.warning("could not purge corrupt weights for %s", model.id, exc_info=True)
+            raise CorruptModelError(
+                f'The downloaded file for "{model.name or model.id}" is corrupted or incomplete, '
+                f"so it can't be loaded. It has been removed — re-download the model to repair it. "
+                f"If this keeps happening, add your models folder to your antivirus exclusions.",
+                model_id=model.id,
+            ) from exc
 
     def update_check(self) -> dict:
         """A5 (user "do", 2026-07-06): the latest upstream llama.cpp release vs the
@@ -1113,6 +1163,11 @@ class RunnerService:
             on_progress=on_progress, **cancel_kw, **download_kwargs(self._config_fn()),
         )
         gguf = self._main_gguf(snapshot, model.quant)
+        # Integrity gate (fail-fast): a corrupt / incomplete download is purged + raised as an
+        # actionable CorruptModelError HERE — before _read_meta's raw "bad magic" or a router
+        # spawn that would brick the whole :8080 upstream. This is the ONE download chokepoint,
+        # so it covers BOTH the load (_run_load) and download-only (_run_download) channels.
+        self._verify_gguf(model, gguf)
         # Best-effort: auto-detect the catalog `type` (moe|dense) from the downloaded
         # GGUF so a user-added model's switch presets are grounded in the file, not a
         # hand-typed guess. Never fail the caller on this.

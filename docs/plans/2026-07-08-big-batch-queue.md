@@ -6215,3 +6215,62 @@ eleventh-window incident; #253 remains flagged for the user's word). The
 commit landed through the gate's own MAX_DENIES anti-wedge fail-safe, which
 exists for exactly this detection-bug case. The verdict itself is quoted in
 the commit message and above.
+
+## #274 DECIDED + THE EMBED-LADDER RECOMMENDATION (2026-07-11, discussion — awaiting the go)
+
+**The user's word on #274 (verbatim):** *"i agree with your rect on 274 that
+was how it was already supposed to be."* — the rule is CONFIRMED as the
+intended behavior, not a new design: Quick Setup picks the largest embedding
+model whose file fits the VRAM LEFT AFTER the chat model it just chose (the
+same fit math the catalog uses). The fix lands in the SHARED picker. On the
+user's 8GB box that resolves to Qwen3-Embedding-0.6B, never the 8B.
+
+**Their follow-up question:** which embed TYPE is best for our application,
+and which models to recommend per hardware tier (8GB → 32/64GB cards), not
+limited to the current catalog. Web-verified answer (per the
+upstream-questions hard rule), recorded here:
+
+Three types exist: symmetric/plain (BGE-M3 — no instructions), fixed-prefix
+asymmetric (nomic-embed-text `search_document:`/`search_query:`;
+EmbeddingGemma `title: none | text: `/`task: search result | query: `), and
+instruction-tuned asymmetric (Qwen3-Embedding — free-text task instruction
+on the query side, +1–5% per Qwen's own docs). The best type for
+ask-the-book is INSTRUCTION-TUNED ASYMMETRIC: our case is exactly the
+asymmetric shape (short question vs long prose), the instruction bakes the
+domain in (the F2 template already ships it), and the retrieval-benchmark
+tops are all this type. Operationally the type is ALREADY a non-issue —
+Move 0's per-model template rows carry any of the three verbatim.
+
+The recommended ladder (co-residency law: the embed shares the card with
+the chat model, so the tier is really "leftover VRAM", which is what the
+#274 rule computes):
+- **Tiny / CPU-only:** nomic-embed-text 137M (in catalog, templates shipped).
+- **8GB cards:** Qwen3-Embedding-0.6B (in catalog; Q8 ≈ 0.6 GB, 1024-dim,
+  instruction-aware, official GGUF).
+- **16–32GB cards:** **Qwen3-Embedding-4B — THE CATALOG GAP.** Official
+  Qwen GGUF release (Q4_K_M ≈ 2.5 GB / Q8 ≈ 4.3 GB, 2560-dim, MRL 32–2560,
+  instruction-aware) — near-8B quality at roughly half the VRAM; the natural
+  middle rung. RECOMMENDED ADD (seed row + the same F2-style query
+  instruction template).
+- **32–64GB cards:** Qwen3-Embedding-8B (in catalog; the open-weights MTEB
+  retrieval top ≈ 70.58 composite; Q4 ≈ 5 GB, 4096-dim).
+- **Candidate, NOT seeded yet:** EmbeddingGemma-308M (Google; best open
+  multilingual under 500M on MTEB, 768-dim with MRL, GGUF exists, its two
+  literal prompts fit our template rows verbatim) — HELD because llama.cpp
+  has an OPEN gemma-embedding accuracy issue (ggml-org/llama.cpp #19040);
+  revisit when it settles.
+Cost note recorded: dims scale the index (0.6B=1024d · 4B=2560d ·
+8B=4096d → vector storage + cosine cost); MRL truncation through llama.cpp
+has user-reported issues (HF Qwen3-4B-GGUF discussion #4), so no dimension-
+capping is promised. And for a single novel the hybrid retrieval (BM25 +
+pinning) carries much of the result — the ladder philosophy is "use spare
+VRAM when it's free, never squeeze the chat model for it".
+
+**Armed, awaiting the go:** the #274 build = the shared-picker leftover-VRAM
+rule (+ its tests + probe leg), and — if the user says so in the same go —
+the Qwen3-Embedding-4B catalog row + template seed. Sources verified
+2026-07-11: Qwen3-Embedding-4B-GGUF model card (huggingface.co/Qwen/
+Qwen3-Embedding-4B-GGUF), the Qwen3 instruct +1–5% note (same card family),
+EmbeddingGemma announcements (developers.googleblog.com, huggingface.co/
+blog/embeddinggemma), its prompt strings (google/embeddinggemma-300m card),
+ggml-org/llama.cpp issue #19040, MTEB roundups (bentoml.com guide et al.).

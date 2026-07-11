@@ -5901,3 +5901,58 @@ attempt (SendMessage-nudge the checker to restate, then commit; the
 documented sentinel clears after repeated denies — landed this window on
 deny 5). `pkill -f` matches the invoking shell's own cmdline — separate
 calls or the [b]racket trick.
+
+---
+
+## ⛔ THE EIGHTEENTH-COMPACT POINT (2026-07-11 — read this first after the compact)
+
+**THE GO IS ARMED — the RAG + extraction build.** The user's words: *"i will
+take your recs, we need to compact first."* That takes every recommendation
+in the research doc — THE SPEC IS
+`justwrite-app/docs/plans/2026-07-10-rag-story-bible-research.md` (read it IN
+FULL before building; it carries four passes of design + all citations).
+
+**WHAT'S DECIDED (the user's word, this window):**
+- BUILD the consolidated list (research doc §10): **Move 0** per-model embed
+  templates (nomic both-sides / Qwen3 query-instruction / BGE-M3 none —
+  catalog-driven `embed_templates {document, query}`, kit embedTexts gains
+  taskType, ONE rebuild) · **Move 1** story-bible card chunks (temporal
+  appearances; voice-parameterized buildCharacterProfile; kind-aware
+  citations + navigation; chat prompt updated) · **Move 2** deterministic
+  entity pinning (shared word-boundary matcher, token budget, exact-name >
+  alias, **named-entity-only — NOT 1-hop relations** (rec taken)) ·
+  **Move 3** scene chunks gain a links field (BM25 + excerpt visible,
+  embeddings untouched, no re-embed) · **E1** sweep accept sets scene
+  presence links (same matcher) · **E2** reviewable link-backfill sweep ·
+  **E3** sweep proposes aliases · **E5** scene-break splitting on import ·
+  **acceptance gate** = the canned-question retrieval probe over the demo
+  book on the default embedder with templates on.
+- Recs taken: **no per-entity hide-from-AI flag** (deferred) ·
+  **sqlite-vec+FTS5 migration PARKED** · **PDF import NOT NOW** (closed
+  earlier in the window). Parked list otherwise unchanged (§10).
+- **Task #274** (harness): the Quick Setup embed-pick bug (8B recommended on
+  the 8GB box; should be 0.6B) — grounded + checker-verified in the task
+  text + research doc §11.2 — SEQUENCED AFTER this build, fix in the SHARED
+  picker (LuModelCatalog recommendedEmbedId uses the same helper) + the :549
+  copy reconciliation; exact size/fit rule wants the user's word at build.
+
+**PICKUP for the next window:** Block-0 re-reads, then read the research doc
+IN FULL — it IS the plan source. This is a load-bearing DESIGN build →
+run the rules-checker PANEL (2-3 diverse lenses) on the derived build plan
+BEFORE the first code edit (the global rules require it; the pre-edit gate
+will demand it anyway), track plan tasks as Task entries, build, and hold
+the standing gates (vitest · build:vite · FULL smoke · the probe fleet ·
+pytest+ruff both repos · biome · one genuine diff-checker verdict per code
+commit — remember the environment lessons: verdict notification ADJACENT to
+the commit, SendMessage-nudge to re-deliver, sentinel clears after repeated
+denies; doc-only commits exempt; `pkill -f` self-match). The RAG build
+touches BOTH repos: JW (chunker/indexer/chat/excerpts/panel citations/
+import/sweep) + runner/kit (embed templates in catalog + embedTexts +
+/v1/ai/embeddings) — catalog seed changes ride the runner.
+
+**STILL OPEN ELSEWHERE (unchanged from the seventeenth point):** #256
+spell-check research (pending task) · the queued follow-ups (panel i18n ·
+I1 judgment legs · per-model GGUF delete · ensure-resident timeout test ·
+progress label · hooks payload channel · DOM-env htmlToText suite) · the
+observed-and-recorded residuals (post-reset boot-cache fetch flake ·
+switcher no-delete-on-active-row).

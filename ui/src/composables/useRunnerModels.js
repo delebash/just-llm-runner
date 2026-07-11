@@ -23,6 +23,8 @@ const downloaded = ref(0); // live bytes of the in-flight load (progress bar)
 const total = ref(0); // total bytes of the current phase (0 = unknown → indeterminate)
 const loadErr = ref(""); // the actual server error message when a load fails
 const loadingId = ref(""); // model id whose download is in flight (button feedback)
+const downloadingId = ref(""); // model id on the standalone Download channel — the ONE row that shows Cancel
+const cancelling = ref(false); // true from the cancel click until the channel returns to idle
 
 export const models = computed(() => data.value?.models || []);
 export const vramMb = computed(() => data.value?.vramMb || 0);
@@ -85,6 +87,9 @@ export async function refresh() {
         total.value = Number(active.total) || 0;
         loadErr.value = st.error || dl.error || "";
         rateText.value = rateSuffix(rate.update(downloaded.value), downloaded.value, total.value);
+        // Only the standalone Download channel is cancellable — remember its row.
+        downloadingId.value = dl.status === "downloading" ? dl.modelId || "" : "";
+        if (dl.status !== "downloading") cancelling.value = false;
       } catch {
         detail.value = "";
       }
@@ -95,6 +100,8 @@ export async function refresh() {
       downloaded.value = 0;
       total.value = 0;
       loadErr.value = "";
+      downloadingId.value = "";
+      cancelling.value = false;
       rate.reset();
       rateText.value = "";
       _stopPoll();
@@ -122,6 +129,20 @@ export async function download(modelId) {
   }
 }
 
+// Cancel the in-flight standalone Download — the backend stops at the next chunk boundary
+// and returns the channel to idle (the row falls back to 'available'; the partial blob stays
+// cached so a re-download resumes past it). No-op server-side when nothing is downloading.
+export async function cancelDownload() {
+  cancelling.value = true;
+  try {
+    await request("/v1/llm-runner/download/cancel", { method: "POST" });
+    await refresh();
+  } catch (e) {
+    error.value = e.message || "Couldn't cancel the download.";
+    cancelling.value = false;
+  }
+}
+
 let kicked = false;
 
 /** The shared runner-models state. Every consumer gets the SAME refs; the first
@@ -133,7 +154,8 @@ export function useRunnerModels() {
   }
   return {
     models, vramMb, loading, error, detail, downloaded, total, loadErr, loadingId,
+    downloadingId, cancelling,
     anyLoading, anyError, needsEngine, progressLabel, fmtBytes, FIT_LABEL,
-    refresh, download,
+    refresh, download, cancelDownload,
   };
 }

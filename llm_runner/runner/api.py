@@ -207,6 +207,14 @@ async def download_status() -> dict:
     return get_service().download_status()
 
 
+@router.post("/v1/llm-runner/download/cancel", summary="Cancel an in-flight download-only op")
+async def download_cancel() -> dict:
+    """Signal the standalone Download op to stop at the next chunk boundary. Idempotent:
+    a no-op (returns the current status) when nothing is downloading. Returns the live
+    download status — 'cancelling…' immediately, then idle once the worker unwinds."""
+    return get_service().cancel_download()
+
+
 @router.get("/v1/llm-runner/status", summary="Current load/run status")
 async def runner_status() -> dict:
     """Back-compat SINGLE-model view (most-recently-loaded model's progress/state) — the
@@ -308,6 +316,17 @@ async def models_cache_clear() -> dict:
     file can't be unlinked); the caller unloads, then retries. On success returns
     `{ok: true, bytes}`."""
     return get_service().clear_models_cache()
+
+
+@router.post("/v1/llm-runner/models-cache/delete", summary="Delete ONE model's downloaded weights (reclaim disk)")
+async def models_cache_delete(body: LoadRequest) -> dict:
+    """Delete a single model's GGUF(s) from the HF cache — the disk half of the catalog
+    'Delete'. SAFE BY DESIGN: the weights re-download on demand if the model is re-added.
+    Frees the handle first (cancels an in-flight download of it, unloads it if resident);
+    a repo shared with another catalog row is kept. Returns `{ok: true, bytes, detail?}`."""
+    if not body.model_id:
+        raise HTTPException(status_code=400, detail="modelId required")
+    return get_service().delete_model_cache(body.model_id)
 
 
 @router.post("/v1/llm-runner/measure", summary="Probe the running model → decode tok/s + resource context")

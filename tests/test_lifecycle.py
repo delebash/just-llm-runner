@@ -5,12 +5,14 @@ back-off, error handling) tests offline. The real default RunnerConfig + compute
 run unmocked; a fake HF cache lets `cached_gguf_path` resolve on-disk models faithfully."""
 
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from llm_runner.runner.arbiter import VramArbiter
+from llm_runner.runner.download import DownloadCancelled
 from llm_runner.runner.lifecycle import RunnerService
 from llm_runner.runner.process import FitPlan, Overrides
 from llm_runner.runner.schema import GpuInfo, HardwareInfo, ModelEntry
@@ -1007,6 +1009,67 @@ def test_download_unknown_model_errors(tmp_path):
     ds = svc.download_status()
     assert ds["status"] == "error"
     assert "unknown model" in ds["error"]
+
+
+def test_download_cancel_returns_to_idle(tmp_path):
+    # cancel_download() signals the in-flight download-only worker (via cancel_check);
+    # a DownloadCancelled is NOT an error — the channel returns to idle, run-state untouched.
+    started = threading.Event()
+
+    def blocking_acquire(repo, *a, cancel_check=None, **k):
+        started.set()
+        while not (cancel_check and cancel_check()):  # spin until the test signals cancel
+            time.sleep(0.005)
+        raise DownloadCancelled()
+
+    svc = _service_for(tmp_path)
+    svc._acquire_model = blocking_acquire
+    svc.download(_TEST_MODEL.id)
+    assert started.wait(timeout=5)                         # the worker reached acquire
+    assert svc.download_status()["status"] == "downloading"
+    svc.cancel_download()
+    svc._download_thread.join(timeout=5)
+    ds = svc.download_status()
+    assert ds["status"] == "idle"                          # cancelled → idle, not error
+    assert ds["error"] == ""
+    assert svc.status()["status"] == "idle"                # run-state never touched
+
+
+def test_cancel_download_noop_when_idle(tmp_path):
+    # No download in flight → cancel is a harmless no-op that reports the idle channel.
+    svc = _service_for(tmp_path)
+    ds = svc.cancel_download()
+    assert ds["status"] == "idle"
+
+
+def test_delete_model_cache_removes_repo_dir(tmp_path):
+    # The catalog 'Delete' also reclaims disk: the model's `models--<repo>` dir is removed.
+    svc = _service_for(tmp_path)
+    repo_dir = tmp_path / "hf" / ("models--" + _TEST_MODEL.hf_repo.replace("/", "--"))
+    assert repo_dir.is_dir()                       # the fixture seeded the weights
+    res = svc.delete_model_cache(_TEST_MODEL.id)
+    assert res["ok"] is True and res["bytes"] > 0
+    assert not repo_dir.exists()                   # weights removed from disk
+
+
+def test_delete_model_cache_unknown_is_noop(tmp_path):
+    # Unknown id (the row may already be gone) → idle no-op, never an error.
+    svc = _service_for(tmp_path)
+    res = svc.delete_model_cache("does-not-exist")
+    assert res["ok"] is True and res["bytes"] == 0
+
+
+def test_delete_model_cache_keeps_repo_shared_with_sibling(tmp_path):
+    # Two catalog rows on the SAME repo: deleting one KEEPS the repo dir so the sibling's
+    # weights survive (reported as kept, not freed).
+    sibling = ModelEntry(id="sibling", name="Sibling", tier="mid",
+                         hf_repo=_TEST_MODEL.hf_repo, quant="Q8_0")
+    svc = _service_for(tmp_path, catalog=[_TEST_MODEL, sibling])
+    repo_dir = tmp_path / "hf" / ("models--" + _TEST_MODEL.hf_repo.replace("/", "--"))
+    res = svc.delete_model_cache(_TEST_MODEL.id)
+    assert res["ok"] is True and res["bytes"] == 0
+    assert "kept" in res.get("detail", "")
+    assert repo_dir.is_dir()                        # sibling's weights untouched
 
 
 # ── engine install as its own step, separate from a model load ────────────────

@@ -35,7 +35,7 @@ from .binary import (
 from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect, max_vram_mb as _hw_max_vram, used_vram_mb as _hw_used_vram
-from .download import download_kwargs
+from .download import DownloadCancelled, download_kwargs
 from .models import acquire_model as _acquire_model, cached_gguf_path
 from .process import (
     DEFAULT_HOST,
@@ -365,6 +365,7 @@ class RunnerService:
         self._engine_thread = None
         self._download_state = _download_idle()
         self._download_thread = None
+        self._download_cancel = threading.Event()  # set → the download-only worker aborts
         self._last_log_path = None
         # A3: the binary the CURRENT router actually launched with. A fallback
         # spawn may differ from the preferred build; bounces must reuse the
@@ -563,6 +564,64 @@ class RunnerService:
             log.warning("could not recreate empty hf cache dir at %s", hf, exc_info=True)
         return {"ok": True, "bytes": freed}
 
+    def delete_model_cache(self, model_id: str) -> dict:
+        """Delete THIS model's downloaded weights from `<cache>/hf` — the catalog 'Delete'
+        reclaims disk, not just the DB row. Resolves the model's repo(s) from the catalog and
+        removes each `models--<repo>` cache dir (blobs + snapshots + any same-repo MTP draft).
+        SAFE BY DESIGN: the weights re-download on demand if the model is re-added.
+
+        Frees the file handle first — cancels an in-flight download of this model, and unloads
+        it when resident (its GGUF is mmap'd; an open file can't be unlinked on Windows). A repo
+        still referenced by ANOTHER catalog row is KEPT (deleting it would strand that sibling's
+        weights) and reported in `detail`. Idempotent: ok:True/bytes:0 when nothing is cached or
+        the id is unknown (the row may already be gone). Best-effort unlink (locked file skipped)."""
+        from ..platform.disk_api import dir_size
+
+        catalog = self.catalog()
+        model = next((m for m in catalog if m.id == model_id), None)
+        if model is None:
+            return {"ok": True, "bytes": 0, "detail": "unknown model — nothing cached"}
+
+        # Release any open handle before unlinking. Cancel a download of THIS model, then
+        # unload it if resident (leave other residents up — this is a per-model delete).
+        dl = self._download_state
+        if dl.get("modelId") == model_id and dl.get("status") == "downloading":
+            self.cancel_download()
+            if self._download_thread is not None:
+                self._download_thread.join(timeout=5)
+        if model_id in {r.get("id") for r in self.resident().get("models", [])}:
+            self.stop(model_id)
+
+        # The repo(s) this model's files live under: its main repo + a SEPARATE draft repo
+        # if the catalog pins one (a same-repo draft rides the main repo dir already).
+        repos = {model.hf_repo}
+        draft_repo = getattr(model, "mtp_draft_repo", "") or ""
+        if draft_repo:
+            repos.add(draft_repo)
+
+        hf = self._cache_root / "hf"
+        freed = 0
+        kept: list[str] = []
+        for repo in repos:
+            repo_dir = hf / ("models--" + repo.replace("/", "--"))
+            if not repo_dir.is_dir():
+                continue
+            # KEEP a repo another catalog row still needs — those weights aren't ours to delete.
+            shared = any(
+                other.id != model_id
+                and (other.hf_repo == repo or (getattr(other, "mtp_draft_repo", "") or "") == repo)
+                for other in catalog
+            )
+            if shared:
+                kept.append(repo)
+                continue
+            freed += dir_size(repo_dir)
+            shutil.rmtree(repo_dir, ignore_errors=True)
+        result = {"ok": True, "bytes": freed}
+        if kept:
+            result["detail"] = "kept weights shared with another model: " + ", ".join(sorted(kept))
+        return result
+
     def update_check(self) -> dict:
         """A5 (user "do", 2026-07-06): the latest upstream llama.cpp release vs the
         INSTALLED build. NEVER auto-applies — the pin is a VERIFIED pin (flag
@@ -640,10 +699,22 @@ class RunnerService:
         with self._lock:
             if self._download_state["status"] == "downloading":
                 return dict(self._download_state)  # a download is already in flight
+            self._download_cancel.clear()  # arm a fresh run — drop any prior cancel signal
             self._download_state = {"status": "downloading", "modelId": model_id, "detail": "queued",
                                     "error": "", "downloaded": 0, "total": 0}
             self._download_thread = threading.Thread(target=self._run_download, args=(model_id,), daemon=True)
             self._download_thread.start()
+        return dict(self._download_state)
+
+    def cancel_download(self) -> dict:
+        """Signal an in-flight download-only op to stop at the next chunk/file boundary
+        (the worker polls `cancel_check` per chunk and resets to idle on DownloadCancelled).
+        Idempotent: a no-op when nothing is downloading. Only the standalone Download
+        channel is cancellable — a model load's download leg is not exposed here."""
+        with self._lock:
+            if self._download_state["status"] == "downloading":
+                self._download_cancel.set()
+                self._download_state["detail"] = "cancelling…"
         return dict(self._download_state)
 
     def download_status(self) -> dict:
@@ -1024,18 +1095,22 @@ class RunnerService:
             self._engine_state = {"status": "error", "detail": "", "error": str(exc),
                                   "downloaded": 0, "total": 0}
 
-    def _acquire_and_identify(self, model_id: str, on_progress):
+    def _acquire_and_identify(self, model_id: str, on_progress, cancel_check=None):
         """Shared download IO for load + download (ONE source): resolve the catalog
         model, fetch its GGUF into the cache, and ground the catalog `type` (moe|dense)
         from the file. Returns (model, gguf_path); raises ValueError for an unknown
-        model. `on_progress(downloaded, total)` reports bytes to the CALLER's channel."""
+        model. `on_progress(downloaded, total)` reports bytes to the CALLER's channel.
+        `cancel_check` (download-only path) is polled per chunk → raises DownloadCancelled."""
         # The downloadable catalog is HOST-OWNED (DB-backed via .catalog()).
         model = next((m for m in self.catalog() if m.id == model_id), None)
         if model is None:
             raise ValueError(f"unknown model {model_id!r}")
+        # Pass cancel_check ONLY when supplied (the download-only path) so the load
+        # path's call signature is unchanged — it never cancels through here.
+        cancel_kw = {"cancel_check": cancel_check} if cancel_check is not None else {}
         snapshot = self._acquire_model(
             model.hf_repo, model.quant, model.mmproj, cache_root=self._cache_root / "hf",
-            on_progress=on_progress, **download_kwargs(self._config_fn()),
+            on_progress=on_progress, **cancel_kw, **download_kwargs(self._config_fn()),
         )
         gguf = self._main_gguf(snapshot, model.quant)
         # Best-effort: auto-detect the catalog `type` (moe|dense) from the downloaded
@@ -1518,8 +1593,14 @@ class RunnerService:
                 self._download_state["total"] = total or 0
 
             self._download_state.update(detail="model weights", downloaded=0, total=0)
-            self._acquire_and_identify(model_id, _progress)  # raises ValueError for unknown model
+            self._acquire_and_identify(  # raises ValueError for unknown model
+                model_id, _progress, cancel_check=self._download_cancel.is_set)
             self._download_state = _download_idle()  # done; /models reports it on-disk. No spawn.
+        except DownloadCancelled:
+            # User cancel is not an error — the partial blob stays cached (a re-download
+            # resumes past it); return the channel to idle so the row reads "available".
+            log.info("runner download cancelled for %s", model_id)
+            self._download_state = _download_idle()
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
             log.exception("runner download failed")
             self._download_state = {"status": "error", "modelId": model_id, "detail": "",

@@ -34,7 +34,8 @@ import { openExternal } from "../common/services/external.js";
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
 const {
   models, vramMb, loading, error, downloaded, total, loadErr, loadingId,
-  needsEngine, progressLabel, fmtBytes, FIT_LABEL, refresh, download,
+  downloadingId, cancelling,
+  needsEngine, progressLabel, fmtBytes, FIT_LABEL, refresh, download, cancelDownload,
 } = useRunnerModels();
 
 // Search + sort + fit-grouping (design §4): ONE visible list — models that FIT the machine
@@ -599,7 +600,7 @@ async function deleteModel(m) {
   if (!used.length && !embedRef) {
     const ok = await confirmDialog({
       title: `Remove "${m.name || m.id}" from the catalog?`,
-      message: "Removes the catalog entry (downloaded files on disk are not deleted). Reset restores built-ins.",
+      message: "Removes the catalog entry and deletes its downloaded weights from disk. Reset restores the built-in entries; weights re-download on demand.",
       danger: true,
     });
     if (!ok) return;
@@ -619,8 +620,8 @@ async function deleteModel(m) {
   const ok = await confirmDialog({
     title: `Delete ${m.name || m.id}?`,
     message: repl
-      ? `It's in use by ${usedBits}. They'll be re-pointed to ${nameOf(repl)}, then the entry is removed (downloaded files stay on disk).`
-      : `It's in use by ${usedBits}, and no other ${kind ? "embedding" : "chat"} model is available to re-point to. Delete anyway and everything pointing at it will show "removed from the catalog" until you pick a replacement.`,
+      ? `It's in use by ${usedBits}. They'll be re-pointed to ${nameOf(repl)}, then the entry is removed and its downloaded weights are deleted from disk.`
+      : `It's in use by ${usedBits}, and no other ${kind ? "embedding" : "chat"} model is available to re-point to. Delete anyway and everything pointing at it will show "removed from the catalog" until you pick a replacement. Its downloaded weights are deleted from disk.`,
     confirmLabel: repl ? "Re-point & delete" : "Delete anyway",
     danger: true,
   });
@@ -649,6 +650,9 @@ async function deleteModel(m) {
 async function _doDelete(m) {
   busy.value = `del:${m.id}`; // namespaced so Delete's spinner ≠ the row's load/download spinner
   try {
+    // Delete the downloaded weights FIRST (the runner resolves the repo from the still-present
+    // catalog row), then remove the catalog entry. Weights re-download on demand if re-added.
+    await request("/v1/llm-runner/models-cache/delete", { method: "POST", body: { modelId: m.id } });
     await request(`/v1/ai/model-catalog?modelId=${encodeURIComponent(m.id)}`, { method: "DELETE" });
     await refresh();
     loadCatalogMeta(); // keep the shared catalog-meta map in sync (like save/reset do)
@@ -823,14 +827,21 @@ refreshApplied();
               </td>
               <td class="lu-mact">
                 <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
-                <UiButton intent="ghost" size="small" title="Remove from catalog" :loading="busy === 'del:' + m.id" @click="deleteModel(m)">Delete</UiButton>
+                <UiButton intent="ghost" size="small" title="Remove from catalog and delete its downloaded weights" :loading="busy === 'del:' + m.id" @click="deleteModel(m)">Delete</UiButton>
                 <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
                   title="Tune engine flags &amp; measure decode speed" @click="tuning = m">Tune</UiButton>
                 <UiButton v-if="m.status === 'loaded'" intent="ghost" size="small"
                   :loading="busy === 'unload:' + m.id"
                   title="Unload from memory — frees VRAM; it loads again on Load as default or next use"
                   @click="unloadModel(m)">Unload</UiButton>
-                <span v-if="m.status === 'loading'" class="lu-muted lu-mwait">working…</span>
+                <template v-if="m.status === 'loading'">
+                  <!-- Only the standalone Download channel is cancellable (a spawn-load's
+                       download leg is not exposed); its row shows Cancel, others "working…". -->
+                  <UiButton v-if="m.id === downloadingId" intent="ghost" size="small"
+                    :loading="cancelling" title="Stop this download — the partial file stays cached"
+                    @click="cancelDownload()">Cancel</UiButton>
+                  <span v-else class="lu-muted lu-mwait">working…</span>
+                </template>
                 <UiButton v-else-if="m.status === 'available'" intent="primary" size="small"
                   :loading="loadingId === m.id" @click="download(m.id)">Download</UiButton>
                 <!-- Load-state on the row stays with the STATUS column's "● loaded" pill +

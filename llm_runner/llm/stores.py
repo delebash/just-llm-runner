@@ -17,6 +17,7 @@ import uuid
 
 from . import db
 from .class_tunes_api import ClassTuneConfig, ClassTuneFlag
+from .embed_templates_api import EmbedTemplateRow
 from .feature_presets_api import FeaturePreset
 from .feature_samplers_api import FeatureSamplerRow
 from .model_catalog_api import CatalogRow
@@ -813,6 +814,62 @@ class PricingStore:
             s.close()
 
 
+def _embed_template_to_wire(r: db.ModelEmbedTemplate) -> EmbedTemplateRow:
+    return EmbedTemplateRow(
+        modelId=r.model_id, documentTemplate=r.document_template,
+        queryTemplate=r.query_template, builtIn=r.built_in,
+    )
+
+
+class EmbedTemplateStore:
+    """Per-model embedding task templates (Move 0, RAG build) — the model FACTS
+    /v1/ai/embeddings wraps inputs with. Seeded from DEFAULT_EMBED_TEMPLATES,
+    editable via /v1/ai/embed-templates; a model with no row passes through."""
+
+    def list(self) -> list[EmbedTemplateRow]:
+        s = db.session()
+        try:
+            return [
+                _embed_template_to_wire(r)
+                for r in s.query(db.ModelEmbedTemplate).order_by(db.ModelEmbedTemplate.model_id).all()
+            ]
+        finally:
+            s.close()
+
+    def get(self, model_id: str) -> EmbedTemplateRow | None:
+        s = db.session()
+        try:
+            r = s.get(db.ModelEmbedTemplate, (model_id or "").strip())
+            return _embed_template_to_wire(r) if r is not None else None
+        finally:
+            s.close()
+
+    def upsert(self, row: EmbedTemplateRow) -> EmbedTemplateRow:
+        s = db.session()
+        try:
+            mid = (row.modelId or "").strip()
+            existing = s.get(db.ModelEmbedTemplate, mid)
+            if existing is None:
+                existing = db.ModelEmbedTemplate(model_id=mid)
+                s.add(existing)
+            existing.document_template = str(row.documentTemplate or "")
+            existing.query_template = str(row.queryTemplate or "")
+            s.commit()
+            return _embed_template_to_wire(existing)
+        finally:
+            s.close()
+
+    def delete(self, model_id: str) -> None:
+        s = db.session()
+        try:
+            existing = s.get(db.ModelEmbedTemplate, (model_id or "").strip())
+            if existing is not None:
+                s.delete(existing)
+                s.commit()
+        finally:
+            s.close()
+
+
 def _runner_binary_to_row(b) -> RunnerBinaryRow:
     return RunnerBinaryRow(
         platform=b.platform, gpu=b.gpu, source=b.source, assetUrl=b.asset_url,
@@ -928,6 +985,7 @@ class RunnerConfigStore:
 
 _model_catalog = ModelCatalogStore()
 _pricing = PricingStore()
+_embed_template = EmbedTemplateStore()
 _runner_config = RunnerConfigStore()
 _switch_preset = SwitchPresetStore()
 _feature_sampler = FeatureSamplerStore()
@@ -1275,6 +1333,7 @@ def list_class_picks() -> list[dict]:
     finally:
         s.close()
 def get_pricing_store() -> PricingStore: return _pricing
+def get_embed_template_store() -> EmbedTemplateStore: return _embed_template
 def get_runner_config_store() -> RunnerConfigStore: return _runner_config
 def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
 def get_feature_sampler_store() -> FeatureSamplerStore: return _feature_sampler

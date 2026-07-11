@@ -497,7 +497,19 @@ function pickSlot(id, isEmbed) {
   if (isEmbed) makeEmbedding(m);
   else makeDefault(m);
 }
-function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; listing.value = null; listingErr.value = ""; quantCustom.value = false; }
+// Embed task templates (Move 0, RAG build): the per-model wrapper strings
+// /v1/ai/embeddings applies ({text} slot; empty = pass-through). Loaded/saved
+// via their own /v1/ai/embed-templates rows, shown only on embedding models.
+const editingTpl = ref({ documentTemplate: "", queryTemplate: "" });
+async function loadEditingTpl(modelId) {
+  editingTpl.value = { documentTemplate: "", queryTemplate: "" };
+  try {
+    const res = await request("/v1/ai/embed-templates");
+    const row = (res.rows || []).find((r) => r.modelId === modelId);
+    if (row) editingTpl.value = { documentTemplate: row.documentTemplate || "", queryTemplate: row.queryTemplate || "" };
+  } catch { /* form still opens; templates just read empty */ }
+}
+function startAdd() { editing.value = blankModel(); editingNew.value = true; saveErr.value = ""; inspected.value = null; inspectErr.value = ""; listing.value = null; listingErr.value = ""; quantCustom.value = false; editingTpl.value = { documentTemplate: "", queryTemplate: "" }; }
 async function startEdit(m) {
   saveErr.value = ""; inspected.value = null; inspectErr.value = "";
   listing.value = null; listingErr.value = ""; quantCustom.value = false;
@@ -506,6 +518,8 @@ async function startEdit(m) {
     const row = (cat.rows || []).find((r) => r.id === m.id) || { ...blankModel(), id: m.id, name: m.name };
     editing.value = { ...blankModel(), ...row };
     editingNew.value = false;
+    if (row.embedding) loadEditingTpl(row.id);
+    else editingTpl.value = { documentTemplate: "", queryTemplate: "" };
     // Auto-load the repo listing (ROUND-8 Task-D leftover, caught by the user's
     // screenshots: the seeded form opened with PLAIN text inputs where Read-from-link
     // shows dropdowns): fire-and-forget so Quant + Draft render as pickers with sizes
@@ -533,6 +547,19 @@ async function saveModel() {
       method: "PUT",
       body: { ...e, id: e.id.trim(), minVramMb: e.minVramMb || null, minRamMb: e.minRamMb || null, position: e.position || 0 },
     });
+    // Embed task templates ride their own row (Move 0): save when an embedding
+    // model has any side set; both sides cleared = drop the row (pass-through).
+    if (e.embedding) {
+      const tpl = editingTpl.value;
+      if ((tpl.documentTemplate || "").trim() || (tpl.queryTemplate || "").trim()) {
+        await request("/v1/ai/embed-templates", {
+          method: "PUT",
+          body: { modelId: e.id.trim(), documentTemplate: tpl.documentTemplate || "", queryTemplate: tpl.queryTemplate || "" },
+        });
+      } else {
+        await request(`/v1/ai/embed-templates?modelId=${encodeURIComponent(e.id.trim())}`, { method: "DELETE" });
+      }
+    }
     editing.value = null;
     await refresh();
     loadCatalogMeta();
@@ -905,6 +932,12 @@ refreshApplied();
             <span>Embedding <span class="lu-muted">— a RAG/search model, not a chat LLM</span></span>
           </UiCheckbox>
         </div>
+
+        <template v-if="editing.embedding">
+          <div class="lu-mm-note"><b>Task templates</b> <span class="lu-muted">— some embedding models need an instruction around the text ({text} is the slot; leave empty if the model needs none). Changing these needs a Rebuild of the book index.</span></div>
+          <label class="lu-mm-l">Document template <span class="lu-muted">applied when indexing</span><UiTextarea v-model="editingTpl.documentTemplate" placeholder="search_document: {text}" /></label>
+          <label class="lu-mm-l">Query template <span class="lu-muted">applied to questions/searches</span><UiTextarea v-model="editingTpl.queryTemplate" placeholder="search_query: {text}" /></label>
+        </template>
 
         <div class="lu-mm-note"><b>Fit estimate</b> — a pre-download guess so the list can show “will it fit?”; once downloaded the GGUF sets the real fit.</div>
         <div class="lu-mm-row">

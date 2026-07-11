@@ -128,7 +128,11 @@ export function ensureEmbeddingReady(providerId, providerType, { signal, model }
   return _ensurePromise;
 }
 
-export async function embedTexts({ providerId, providerType, model, input, signal } = {}) {
+// `taskType` ("document" | "query") tells the server which side's embed
+// template to wrap the inputs with (Move 0, RAG build) — index builds embed
+// documents, ask-time questions embed queries; models with no catalog
+// template row pass through unchanged. Omitted = raw.
+export async function embedTexts({ providerId, providerType, model, input, signal, taskType } = {}) {
   if (!providerId) throw new Error("embed: providerId is required.");
   if (input == null) throw new Error("embed: input is required.");
   const arr = Array.isArray(input) ? input : [input];
@@ -141,7 +145,7 @@ export async function embedTexts({ providerId, providerType, model, input, signa
   try {
     json = await request("/v1/ai/embeddings", {
       method: "POST",
-      body: { providerId, model: model || "", input: arr },
+      body: { providerId, model: model || "", input: arr, taskType: taskType || "" },
       signal,
     });
   } catch (err) {

@@ -34,7 +34,7 @@ def configure_app_seed(*, feature_catalog=None, feature_prompts=None,
                        engine_presets=None, taskkind_presets=None,
                        feature_task_kinds=None, model_catalog_extra=None,
                        model_tunes_seed=None, hw_key_fn=None,
-                       test_samples=None) -> None:
+                       test_samples=None, feature_prompt_heals=None) -> None:
     """The host registers its feature DATA once at boot (install_llm does this):
     `feature_catalog` (list of FeatureCatalogEntry), `feature_prompts` (dict
     key→spec), and the ROUTING seed — `engine_presets` (the built-in preset library),
@@ -67,6 +67,16 @@ def configure_app_seed(*, feature_catalog=None, feature_prompts=None,
     # Lab's Sample button — registered so seed_llm carries them on both paths.
     if test_samples is not None:
         _APP["test_samples"] = list(test_samples)
+    # Prompt stale-heals (RAG build 2026-07-11, the QC-43a pattern applied to
+    # feature prompts): prompt seeding is insert-if-missing, so a seed-text
+    # REVISION can never reach an existing DB by itself. The host registers
+    # `{key: [old exact system texts]}` — HOST data, like the prompts
+    # themselves (the old JW strings never enter this shared module); the
+    # generic heal loop in seed_default_feature_prompts refreshes a row from
+    # the current spec ONLY when its system text byte-equals a listed old
+    # value, so a user-edited prompt is never touched.
+    if feature_prompt_heals is not None:
+        _APP["feature_prompt_heals"] = {k: list(v) for k, v in dict(feature_prompt_heals).items()}
 
 
 def app_feature_catalog() -> list:
@@ -266,6 +276,30 @@ DEFAULT_CATALOG: list[dict] = [
      "description": "8B embedding model · 40k context · Q4_K_M",
      "notes": "The #1 multilingual MTEB embed (~4.7 GB, ~7 GB VRAM) for a big card; last-token pooling."},
 ]
+
+# ── Embedding task templates (Move 0, RAG build 2026-07-11) ────────────────────
+# The task instruction each embed model REQUIRES around its input — a model
+# FACT, per its card (all verified on the web, cites in
+# justwrite-app/docs/plans/2026-07-10-rag-story-bible-research.md §9.1/§11.1):
+#   * nomic-embed-text v1.5 — REQUIRES `search_document:` / `search_query:`
+#     prefixes on both sides ("without prefixes, embedding quality degrades").
+#   * Qwen3-Embedding (0.6B + 8B) — instruction-aware on the QUERY side only
+#     ("Instruct: {task}\nQuery: {q}"; ~+22% retrieval relevance); documents
+#     encode plain. The task sentence is seed wording, user-editable (flag F2).
+#   * BGE-M3 — needs none → no row.
+# `{text}` is the input slot; a model with no row (or an empty side) passes
+# through unchanged — online/BYO embed models are automatically untouched.
+_QWEN3_EMBED_QUERY = (
+    "Instruct: Given a question about a novel, retrieve passages and story "
+    "bible entries that answer it\nQuery: {text}"
+)
+DEFAULT_EMBED_TEMPLATES: list[dict] = [
+    {"id": "nomic-embed-text",
+     "document": "search_document: {text}", "query": "search_query: {text}"},
+    {"id": "qwen3-embedding-0.6b", "document": "", "query": _QWEN3_EMBED_QUERY},
+    {"id": "qwen3-embedding-8b", "document": "", "query": _QWEN3_EMBED_QUERY},
+]
+
 
 # (Historical: an old per-model `model_switches` table was DROPPED — it seeded
 # per-model COPIES of the dense/moe TYPE rules (a one-source violation). The NEW
@@ -704,6 +738,23 @@ def seed_default_pricing(s) -> int:
     return added
 
 
+def seed_default_embed_templates(s) -> int:
+    """Seed the per-model embedding task templates from DEFAULT_EMBED_TEMPLATES
+    (merge-by-id — never clobber user edits). /v1/ai/embeddings applies these;
+    editable via /v1/ai/embed-templates."""
+    existing = {r.model_id for r in s.query(db.ModelEmbedTemplate.model_id).all()}
+    added = 0
+    for t in DEFAULT_EMBED_TEMPLATES:
+        if t["id"] in existing:
+            continue
+        s.add(db.ModelEmbedTemplate(
+            model_id=t["id"], document_template=t.get("document") or "",
+            query_template=t.get("query") or "", built_in=True,
+        ))
+        added += 1
+    return added
+
+
 def seed_default_switch_presets(s) -> int:
     """Seed the capability/type switch presets (base + moe + the gated mtp) + their flag rows.
     Flushes each preset before its FK child rows (host session is autoflush=False
@@ -999,8 +1050,26 @@ def seed_default_routing(s) -> bool:
 
 
 def seed_default_feature_prompts(s) -> int:
-    """Seed the host's registered feature prompts (per-app data; merge by key)."""
+    """Seed the host's registered feature prompts (per-app data; merge by key).
+    Insert-if-missing, plus the registered stale-heals: when the host lists a
+    key's OLD seed system texts (configure_app_seed feature_prompt_heals) and
+    the existing row's system byte-equals one of them, the row is refreshed
+    from the CURRENT spec — a user-edited prompt (text ≠ any old seed) is
+    never touched (the QC-43a exact-stale-value pattern, applied to prompts)."""
     existing = {r.key for r in s.query(db.FeaturePrompt.key).all()}
+    heals = _APP.get("feature_prompt_heals") or {}
+    for key, old_texts in heals.items():
+        spec = app_feature_prompts().get(key)
+        if not spec or key not in existing:
+            continue
+        row = s.get(db.FeaturePrompt, key)
+        if row is None or row.system not in old_texts:
+            continue
+        # Refresh ONLY the fields a seed revision carries (system + its schema
+        # mirror) — a user who edited user_template while keeping the seed
+        # system must not lose that edit to a heal.
+        row.system = str(spec.get("system") or "")
+        row.json_schema = str(spec.get("json_schema") or "")
     added = 0
     for key, spec in app_feature_prompts().items():
         if key in existing:
@@ -1039,6 +1108,7 @@ def seed_llm(s=None) -> None:
         seed_default_knobs(s)
         seed_default_class_picks(s)
         seed_default_class_tunes(s)
+        seed_default_embed_templates(s)
         seed_default_feature_prompts(s)
         # The registered per-app extras (see configure_app_seed) — insert-if-missing,
         # so user edits / Quick-tune saves are never clobbered by a reseed.

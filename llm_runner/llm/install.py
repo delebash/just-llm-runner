@@ -20,6 +20,8 @@ from pathlib import Path
 
 from . import db, seed, stores, switch_resolve
 from .api import router as shared_api_router
+from .api import set_embed_template_resolver
+from .embed_templates_api import make_embed_templates_router
 from .config_builder import build_llm_config
 from .feature_presets_api import make_feature_presets_router
 from .feature_samplers_api import make_feature_samplers_router
@@ -72,6 +74,7 @@ def install_llm(
     model_catalog_extra=None,
     model_tunes_seed=None,
     test_samples=None,
+    feature_prompt_heals=None,
     prefer_local_features: Iterable[str] | None = None,
     runner_catalog: bool = True,
     data_dir=None,
@@ -92,6 +95,7 @@ def install_llm(
         model_tunes_seed=model_tunes_seed,
         hw_key_fn=_current_hw_key,
         test_samples=test_samples,
+        feature_prompt_heals=feature_prompt_heals,
     )
     # 2b. per-APP extra model-catalog rows + this box's tune seed now ride the
     # configure_app_seed REGISTRATION above: `seed_llm` seeds them on BOTH paths
@@ -197,6 +201,11 @@ def install_llm(
             mid, "", _current_class_key()),
     ))
     app.include_router(make_pricing_router(stores.get_pricing_store))
+    # Per-model embed task templates (Move 0, RAG build): CRUD + the resolver
+    # seam /v1/ai/embeddings applies (api.py stays storage-free — the injected
+    # closure is the set_ledger pattern).
+    app.include_router(make_embed_templates_router(stores.get_embed_template_store))
+    set_embed_template_resolver(lambda mid: stores.get_embed_template_store().get(mid))
     app.include_router(make_runner_config_router(stores.get_runner_config_store))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
     app.include_router(make_model_tunes_router(

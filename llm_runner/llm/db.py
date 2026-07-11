@@ -166,6 +166,25 @@ class ModelSampler(LlmBase):
     built_in = Column(Boolean, nullable=False, default=False)
 
 
+# ── per-model embedding task templates (Move 0, RAG build 2026-07-11) ─────────
+class ModelEmbedTemplate(LlmBase):
+    """The task-instruction templates an EMBEDDING model requires around its
+    input (nomic: `search_document:`/`search_query:` both sides; Qwen3-Embedding:
+    a query-side `Instruct: …\\nQuery:` only; BGE-M3: none → no row). Template
+    strings carry a `{text}` slot; an empty string = pass-through for that side.
+    A 1:1 child of `model_catalog` (soft ref, like `model_samplers`) rather than
+    catalog columns so existing DBs pick it up additively via create_all — no
+    reset, no column migration. Seeded + user-editable via
+    /v1/ai/embed-templates; applied server-side by /v1/ai/embeddings."""
+
+    __tablename__ = "model_embed_templates"
+
+    model_id = Column(String, primary_key=True)
+    document_template = Column(Text, nullable=False, default="")
+    query_template = Column(Text, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
 # ── cloud pricing (the usage-ledger cost source; replaces the hardcoded
 #    pricing.py MODEL_PRICING dict — seeded + editable) ──────────────────────────
 class ModelPricing(LlmBase):

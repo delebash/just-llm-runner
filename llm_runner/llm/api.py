@@ -163,6 +163,37 @@ class EmbeddingsRequest(BaseModel):
     providerId: str
     model: str = ""
     input: list[str] = []
+    # Embed task side (Move 0, RAG build): "document" | "query" | "" (= raw).
+    # When the model has a catalog template row for the side, each input is
+    # wrapped server-side (nomic prefixes / Qwen3 query instruction).
+    taskType: str = ""
+
+
+# The embed-template resolver seam — this router is storage-free by charter,
+# so install_llm injects a resolver over the host's ModelEmbedTemplate store
+# (the set_ledger / set_ensure_local_model DI pattern). Unset (headless import,
+# tests) → templates simply don't apply.
+_embed_template_resolver = None
+
+
+def set_embed_template_resolver(fn) -> None:
+    """fn(model_id) -> object with .documentTemplate/.queryTemplate, or None."""
+    global _embed_template_resolver
+    _embed_template_resolver = fn
+
+
+def _apply_embed_template(model_id: str, task_type: str, texts: list[str]) -> list[str]:
+    """Wrap each text in the model's task template for the given side. Any of:
+    no resolver / no row / empty side / empty taskType → the texts unchanged."""
+    if _embed_template_resolver is None or task_type not in ("document", "query") or not model_id:
+        return texts
+    row = _embed_template_resolver(model_id)
+    if row is None:
+        return texts
+    template = (row.documentTemplate if task_type == "document" else row.queryTemplate) or ""
+    if "{text}" not in template:
+        return texts
+    return [template.replace("{text}", t) for t in texts]
 
 
 @router.post("/v1/ai/embeddings")
@@ -170,15 +201,17 @@ async def ai_embeddings(body: EmbeddingsRequest) -> dict:
     """Embed texts through a registered provider (server-held key) — the shared
     replacement for the old `/v1/llm/{id}/embeddings` proxy. The client passes
     the embedding provider id (its routing default) + model; non-embedding
-    providers (Anthropic/Gemini) report a clear 400."""
+    providers (Anthropic/Gemini) report a clear 400. `taskType` applies the
+    model's catalog embed template (a model with no row passes through)."""
     adapter = get_llm_registry().get(body.providerId)
     if adapter is None:
         raise HTTPException(status_code=404, detail=f"LLM provider {body.providerId} (not registered)")
     embed = getattr(adapter, "embed", None)
     if embed is None:
         raise HTTPException(status_code=400, detail=f"provider {body.providerId} does not support embeddings")
+    texts = _apply_embed_template(body.model, body.taskType, body.input)
     try:
-        vectors = embed(body.input, model=body.model or None)
+        vectors = embed(texts, model=body.model or None)
     except NotImplementedError as e:
         raise HTTPException(status_code=400, detail=f"provider {body.providerId} does not support embeddings") from e
     except Exception as e:  # noqa: BLE001 — surface upstream/transport errors

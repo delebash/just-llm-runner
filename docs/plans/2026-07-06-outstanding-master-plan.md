@@ -229,12 +229,20 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   suspected latent bugs, flagged for triage, see the queue doc's I1 BUILD RECORD); the
   tests-fail-in-isolation row was VERIFIED STALE — `test_plane2_params.py` (15) and
   `test_prompts.py` (22) both pass ALONE today, no fixture missing, row closed with no code
-  change. REMAINING (judgment, a Fable window): the RULE-5 new-entity-popup audit (#34); a
-  shared `runJsonAnalysis`; promoting the big CSS clones to `styles.css`; the
-  `useEntityCrudView` composable idea; the gate ratchets (extend `check-shared-pickers`, jscpd
-  ratchet, the i18n `SettingsView.startNew` key); triage of the writerAI/versionDiff
-  no-strip pair + voiceDrift's HEAD-vs-tail; a text.test.js (needs a DOM env — vitest is
-  node-env). ALSO OPEN, A USER DECISION (surfaced 2026-07-10; the deep-audit
+  change. **PARTLY SHIPPED (2026-07-11, user-directed "do a and c, revert b"):** the shared
+  `runJsonAnalysis` seam is DONE — `services/runJson.js` + 15 call sites (14 files)
+  converged (behavior-preserving; `|| {}` lives in the helper); and the **writerAI**
+  no-strip latent bug is FIXED — its local `htmlToText` converged onto the shared one,
+  which always strips `.ai-del`/`.ai-ins` so the model never re-reads its own diff markup.
+  **DEFERRED — a USER DECISION (unchanged):** voiceDrift's `tailWords` takes the HEAD
+  despite its name; the head→tail convergence was BUILT, then REVERTED on the user's word
+  (it moved the LLM excerpt from each chapter's opening to its ending — a wash for
+  correctness, not a call to make unilaterally), so voiceDrift stays head-taking + a naming
+  trap until the user picks. versionDiff's no-strip stays (correct — it diffs raw stored
+  content). **STILL REMAINING (judgment, a Fable window):** the RULE-5 new-entity-popup
+  audit (#34); promoting the big CSS clones to `styles.css`; the `useEntityCrudView`
+  composable idea; the gate ratchets (extend `check-shared-pickers`, jscpd ratchet, the
+  i18n `SettingsView.startNew` key); a text.test.js (needs a DOM env — vitest is node-env). ALSO OPEN, A USER DECISION (surfaced 2026-07-10; the deep-audit
   2026-06-20 A1 "fix the scene-mark drift" reconciliation is NOT closed by the
   convergence): should critique / entityExtraction / readerKnowledge /
   threadExtraction keep seeing scene-break marks in their LLM input

@@ -5956,3 +5956,118 @@ I1 judgment legs · per-model GGUF delete · ensure-resident timeout test ·
 progress label · hooks payload channel · DOM-env htmlToText suite) · the
 observed-and-recorded residuals (post-reset boot-cache fetch flake ·
 switcher no-delete-on-active-row).
+
+## ⛔ THE NINETEENTH-COMPACT POINT (2026-07-11 — read this first after the compact)
+
+**THE RAG + EXTRACTION BUILD IS EXECUTING under the armed go and is most of
+the way through.** The panel-checked build plan is
+`justwrite-app/docs/plans/2026-07-11-rag-story-bible-build.md` (T1–T8 +
+flags F1–F8 + the PANEL ROUND section); tasks #275–#282 track it. The user's
+mid-turn word this window: *"when you get to a stopping point we need to
+compact"* — this save IS that stopping point.
+
+**SHIPPED + PUSHED (verdict-gated, both repos on the branch):**
+- **T1 / Move 0 — per-model embed task templates** (runner `49b367a` +
+  JW callers `38d0f85`; diff-checker VERDICT: PASS): additive
+  `model_embed_templates` table (1:1 child of model_catalog, NO reset —
+  create_all; live no-reset boot verified on the dev DB, 3 seeded rows) ·
+  seeds nomic both-sides / Qwen3 0.6B+8B query-instruction (F2 wording) /
+  BGE-M3 none · `/v1/ai/embeddings` gains `taskType` via a resolver seam
+  injected by install_llm (api.py stays storage-free — the set_ledger DI
+  pattern) · `/v1/ai/embed-templates` CRUD + kit model-form fields on
+  embedding rows · kit `embedTexts` forwards taskType · JW callers: indexer
+  = document, chat/characterChat = query (BM25 queryText stays raw). ALSO in
+  that commit: the GENERIC feature-prompt stale-heal loop in the runner
+  seeder (host-registered `feature_prompt_heals` map via configure_app_seed;
+  refreshes system+json_schema ONLY when the row byte-equals a registered
+  old seed text). Runner pytest 476 + ruff clean.
+- The plan doc (`3491b0d`) + the F5 refinement amendment (`8918cfb`),
+  doc-only.
+
+**BUILT + VERDICT-CLEARED, COMMIT LANDS WITH THIS SAVE (the JW series):**
+- **T2 / Move 1 — story-bible cards**: `services/rag/cards.js` (all kinds;
+  temporal appearance lines with place+company+POV; worldbuilding split
+  ~1500 chars; appearances capped at 12 + honest count; events fold into
+  owner cards); `buildCharacterProfile` moved to the LEAF
+  `services/rag/profile.js` with a `voice: "second"|"third"` param
+  (characterChat re-exports — QC-35 imports intact; second-person output
+  byte-identical, asserted); chunker appends cards; ONE exported
+  `citationLabel(chunk)` in excerpts.js consumed by formatExcerpts AND the
+  ChatPanel row (the drifted inline template converged); card citations
+  navigate to entity pages; card excerpt cap 2000 (scenes stay 1200); the
+  "chat" prompt notes Story Bible excerpts + `FEATURE_PROMPT_HEALS`
+  registered in JW (heal string BYTE-VERIFIED equal to the old seed text,
+  344=344, programmatic git-HEAD compare).
+- **T3 / Move 2 — matcher + pinning**: the THREE duplicate normalizers
+  (entityExtraction/entitySweep/foreshadowingScan) converged onto ONE
+  `normalizeName()` + the word-boundary primitive `textMentionsTerm()` in
+  services/text.js (foreshadowingScan's chapterMentionsTerm is now a thin
+  call); `services/rag/entityMatcher.js` = collectEntities/matchEntities/
+  pickPinnedCards/combinePinsAndHits (named-entity-only per the user's rec;
+  exact>alias; ~1200-token budget; history-aware; interviewee excluded;
+  dedupe-vs-retrieved in ONE combiner used by both chats); **F5 REFINED at
+  build** (recorded in the plan flags): the capitalization guard applies
+  only when the text uses capitals at all — "who is rose?" (all lowercase)
+  still pins, "The rose garden" never does. Citations carry `pinned: true`
+  → the panel shows "pinned" instead of a score.
+- **T4 / Move 3 — scene links**: scene chunks gain a `links` line (names
+  incl. POV label from the NEW shared `services/povOptions.js` — extracted
+  from SceneLinks.vue, one source); sha covers text+links (F6 — ALSO makes
+  the Move-0 one-time re-embed AUTOMATIC via the incremental diff);
+  api/rag.py BM25 scores text+links; excerpts render the links line.
+  CHECKER ROUND on T2-T4: FAIL(1) — POV silently dropped from both
+  plan-named lines — FIXED (option a, POV included + povOptions extraction
+  + tests); re-verdict PASS.
+- **T6 / E5 — import scene-splitting**: NEW `services/sceneSplit.js` = a
+  marker-normalizing PRE-PASS (markers F8: "* * *"/"***"/"#"/dash-runs/
+  <hr>/.scene-mark, textContent-based so styled spans work, consumed)
+  DELEGATING to chapterStitch's `splitChapter` (the ONE splitter — panel
+  reuse); importChapters splits marked chapters into real scenes; unmarked
+  chapters keep the byte-identical single-scene shape + title mirror.
+- **T5 PARTIAL — E1 + E3 built; E2 DEFERRED post-compact (the user's
+  stopping-point word):** E1: NEW batched store action
+  `applyScenePresenceLinks` (ONE _record, manuscript domain, merge-no-dup)
+  + NEW `proposeSceneLinks` in entityMatcher.js (ONE scanner for E1+E2) +
+  EntityReviewModal's commit() now creates entities THEN links them to
+  their origin chapters' scenes (toast reports "Linked to N scenes"). E3:
+  the entitySweep prompt + the INLINE character schema gain `aliases`
+  (NOT _ENTITY_ITEM); heal entry registered (BYTE-VERIFIED 1171=1171);
+  clean() validates aliases (blank/self-name dropped); the sweep merge
+  UNIONS aliases across chapters; the review modal shows an editable
+  comma-separated aliases field on character rows.
+  **E2 (LinkBackfillModal — the reviewable whole-book link-backfill sweep,
+  mounted beside the entity-sweep entry, F7) IS NOT BUILT YET** — it is the
+  FIRST post-compact item; proposeSceneLinks + applyScenePresenceLinks are
+  its ready-made engine.
+
+**GATES at this save:** vitest **134/134** (4 suites new: ragCards 17,
+entityMatcher 16(?), entityLinks 4, sceneSplit 7 — counts per file in the
+suites) · build:vite · JW server pytest **82** + ruff · runner pytest
+**476** + ruff · biome NOT yet run on the JW diff · **FULL smoke + the
+probe fleet + the T7 acceptance probe NOT yet run** — they are the T7 gate,
+post-compact, after E2 lands. One genuine diff-checker verdict per code
+commit held throughout (T1 PASS · T2-T4 FAIL→fix→PASS · the T5/T6
+remainder's verdict adjacent to the JW series commit below).
+
+**POST-COMPACT PICKUP, in order:** (1) Block-0 re-reads; read THIS point +
+the build plan §T5/§T7/§T8. (2) Build **E2** (LinkBackfillModal + its
+apply-path vitest + mount beside the Entity-sweep entry — find the mount
+via grep EntitySweepModal; label F7 flagged). (3) **T7**: NEW committed
+`scripts/rag-probe.mjs` (findChrome() copied; byte-exact DB restore; the
+canned-question set incl. the un-named "who runs the customs house" leg;
+the template-in-request assert MUST use a seeded catalog embed model —
+nomic — never a bare test provider; card citation click-through; links
+line; E1 accept leg) + the standing gates (FULL smoke · probe fleet ·
+biome · pytest+ruff both repos). (4) **T8**: whats-new.md + the
+Ask-the-book help page + runner docs/models.md (embed-template fields) +
+CLAUDE.md staleness check + the queue-doc BUILD RECORD + recap GO pointer.
+(5) Mark tasks #276-#282 as they truly complete; then task **#274** (the
+Quick Setup embed-pick bug) is next per the user's sequencing.
+
+**Environment lessons this window (additions):** the vitest node env can't
+parse kit .vue imports — leaf modules (profile.js) beat mock-chains; jsdom
+per-file pragma works (jsdom ^29 installed); the heal strings MUST be
+byte-verified against git HEAD programmatically (done twice, both equal);
+`git show HEAD:file` + importlib is the clean way. The stop-hook
+commit nagging fires while a checker is in flight — doc-only commits
+satisfy it; code waits for the verdict.

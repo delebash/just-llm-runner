@@ -6274,3 +6274,20 @@ Qwen3-Embedding-4B-GGUF), the Qwen3 instruct +1–5% note (same card family),
 EmbeddingGemma announcements (developers.googleblog.com, huggingface.co/
 blog/embeddinggemma), its prompt strings (google/embeddinggemma-300m card),
 ggml-org/llama.cpp issue #19040, MTEB roundups (bentoml.com guide et al.).
+
+**Grounding (read 2026-07-11, the deciding code):** the picker is
+`ui/src/views/QuickSetup.vue:111-115` — `fittingEmbeds` filters catalog
+embeds by the FIT verdict against the RAW box, and `bestEmbedId()` =
+`pickLowestQuality(fittingEmbeds)`. The seed rows
+(`llm_runner/llm/seed.py:241-279`) rank qwen3-embedding-8b at
+quality_rank 50 / min_vram_mb 7000 vs 0.6B at 65 / 1500 — so on an 8GB card
+the 8B "fits" (7000 < 8192) and its better rank WINS. That is #274's exact
+mechanism: the embed fit never subtracts the CHAT model the wizard just
+chose. The confirmed fix therefore changes bestEmbedId's fit input to the
+LEFTOVER (box VRAM − the chat pick's footprint) — the fields it needs
+(min_vram_mb / size_bytes per row + the chat model's footprint from the
+existing fit engine) are already present. The 4B addition is a straight
+row in the existing insert-if-missing catalog seeder (the seed.py:269-279
+shape, quality_rank slotting between 50 and 60) plus one
+DEFAULT_EMBED_TEMPLATES line (seed.py:297-300 — the same
+_QWEN3_EMBED_QUERY the 0.6B/8B rows share).

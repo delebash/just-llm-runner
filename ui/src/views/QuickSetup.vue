@@ -26,7 +26,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import { request } from "../client.js";
 import { listClassTunes } from "../classTunes.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
-import { recommendedModelId, pickLowestQuality, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
+import { recommendedModelId, pickBestEmbedId, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
 import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import UiButton from "../common/components/UiButton.vue";
@@ -71,11 +71,13 @@ const pick = ref({ default: "", embeddingId: "", embeddingModel: "" });
 // The /v1/llm-runner/models view is fit-shaped and carries none of these; the catalog does.
 // `type` (dense|moe) + `embedding` drive the §10 speed-floor pick. Shared with LuModelCatalog
 // through the useCatalogMeta singleton (one source, no drift — the useRunnerModels precedent).
-const { classPicks, qualityById, typeById, embeddingById, useLimitedById, descriptionById, refresh: refreshCatalogMeta } = useCatalogMeta();
+const { classPicks, qualityById, typeById, embeddingById, useLimitedById, descriptionById, minVramById, tierById, refresh: refreshCatalogMeta } = useCatalogMeta();
 function qualityOf(m) { return qualityById.value[m.id] ?? 100; }
 function typeOf(m) { return typeById.value[m.id] || "dense"; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
 function descriptionOf(id) { return descriptionById.value[id] || ""; }
+function minVramOf(m) { return minVramById.value[m.id] || 0; }
+function tierOf(m) { return tierById.value[m.id] || "mid"; }
 // Embedding models are excluded from the LLM auto-pick + the model dropdown. The explicit
 // catalog `embedding` flag is authoritative (bge-m3 has no "embed" in its name); the name
 // regex stays as a fallback for a user-added embed not yet flagged.
@@ -106,13 +108,22 @@ const modelOptions = computed(() =>
       label: `${m.name} · ${FIT_LABEL[m.fit] || "—"}${m.params ? ` · ${m.params}` : ""}`,
     })),
 );
-// Only the FITTING embed models — the editable embedding dropdown (design §3). Best-fit
-// default = lowest quality_rank (the §10 embedding pick, via the shared comparator).
+// Only the FITTING embed models — the editable embedding dropdown (design §3) still
+// lists every raw-card-runnable embed: a bigger manual pick is a deliberate choice.
 const fittingEmbeds = computed(() => models.value.filter((m) => isEmbed(m) && FIT_RUNNABLE.has(m.fit)));
 const embedOptions = computed(() =>
   fittingEmbeds.value.map((m) => ({ value: m.id, label: `${m.name}${m.params ? ` · ${m.params}` : ""}` })),
 );
-function bestEmbedId() { return pickLowestQuality(fittingEmbeds.value, { qualityOf }); }
+// The DEFAULT embed pick (#274, the user's confirmed rule): the most capable embedding
+// that fits what's LEFT of the card after the chat pick — the two co-reside, so the raw
+// card is the wrong fit input (the 8GB/8B bug). CPU-band embeds always qualify (the
+// ROUND-4 law — deliberately CPU on the user's own box). The rule lives ONCE in
+// modelPick.js; the catalog's recommendedEmbedId calls the same function.
+function bestEmbedId() {
+  const cardMb = (hw.value?.gpus && hw.value.gpus[0]?.vramMb) || 0;
+  const leftoverMb = Math.max(0, cardMb - (minVramById.value[pick.value.default] ?? 0));
+  return pickBestEmbedId(models.value, { leftoverMb, qualityOf, isEmbed, minVramOf, tierOf });
+}
 function onEmbedChange() { pick.value.embeddingId = LOCAL_RUNNER_ID; } // all embed options are local
 
 const embedName = computed(() => {
@@ -180,21 +191,16 @@ async function loadAll() {
   }
 }
 
-// Pre-fill the default (the §10 speed-floor pick) + the embedding (the catalog's embed
-// model). Never overwrites a value already set (a user pick, or a saved embedding).
+// Pre-fill the chat default (the class-map/§10 pick). Never overwrites a value already
+// set. The EMBED prefill deliberately does NOT happen here (#274 pass-3 find): openWizard's
+// reconcile below can swap the chat default to the APPLIED model, and the embed pick now
+// depends on the chat pick's leftover — so the embed fills only after the chat is final.
 function prefillPick() {
   if (!pick.value.default) pick.value.default = bestFittingId();
-  if (!pick.value.embeddingModel) {
-    const best = bestEmbedId();
-    if (best) {
-      pick.value.embeddingId = LOCAL_RUNNER_ID;
-      pick.value.embeddingModel = best;
-    }
-  }
 }
 
-// Saved embedding wins over the nomic fallback — only overwrite the pre-fill when the
-// stored routing actually carries one (order-independent vs prefillPick's fallback).
+// A routing-saved embedding is the user's choice and wins — openWizard's post-reconcile
+// auto-fill only runs when routing carried none (or a dead reference).
 async function loadRouting() {
   try {
     const r = await request("/v1/ai/routing");
@@ -232,9 +238,15 @@ async function openWizard() {
   //    longer in the catalog falls back to the best fitting embed, or none.
   const dom = previewState.value?.dominant;
   if (dom && modelById.value[dom]) pick.value.default = dom;
+  // 3. The embed default fills LAST, once the chat default above is FINAL (#274: the
+  //    pick fits the card's leftover beside the chat model, so it must see the model
+  //    that will actually run). A routing-saved embed that still exists is the user's
+  //    choice and is kept; empty or dead → the leftover-aware best pick.
   if (pick.value.embeddingModel && !modelById.value[pick.value.embeddingModel]) {
     pick.value.embeddingId = "";
     pick.value.embeddingModel = "";
+  }
+  if (!pick.value.embeddingModel) {
     const best = bestEmbedId();
     if (best) {
       pick.value.embeddingId = LOCAL_RUNNER_ID;

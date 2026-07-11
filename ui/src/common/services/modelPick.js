@@ -97,6 +97,43 @@ export function pickLowestQuality(models, { qualityOf }) {
 }
 
 /**
+ * The EMBEDDING auto-pick (#274 — the user's confirmed rule, 2026-07-11: "that was how
+ * it was already supposed to be"): the most capable embedding that fits what's LEFT of
+ * the card after the chat pick. The embed CO-RESIDES with the chat model, so fitting the
+ * raw card is not fitting the box — the #274 bug was exactly that: on an 8 GB card the
+ * 8B embed "fit" 8192 alone, outranked the small embeds, and would starve the chat model.
+ * CPU-band embeds (tier "cpu" — the ROUND-4 law: tiny models, deliberately CPU on the
+ * user's own box) ALWAYS qualify regardless of leftover, so every box has a default.
+ *
+ *   candidates = embedding AND runnable on the raw card (the dropdown's own set)
+ *   eligible   = tier "cpu" OR minVram <= leftoverMb
+ *   pick       = lowest quality_rank among eligible (the shared comparator above)
+ *   none eligible → the least-minVram candidate (never empty when something runs)
+ *
+ * QuickSetup's bestEmbedId AND the catalog's recommendedEmbedId both call THIS — one
+ * source, no drift (the recommendedModelId precedent). The manual dropdowns still list
+ * every runnable embed: picking a bigger one stays a deliberate user choice.
+ *
+ * @param {Array}  models  fit-annotated rows ([{id, fit, …}])
+ * @param {Object} accessors  { leftoverMb  → card VRAM minus the chat pick's floor (MB),
+ *   qualityOf(m) → number (LOWER = better), isEmbed(m) → boolean,
+ *   minVramOf(m) → number (the curated VRAM floor, MB), tierOf(m) → string }
+ * @returns {string} the chosen embed's id, or "" when no embed runs at all.
+ */
+export function pickBestEmbedId(models, { leftoverMb, qualityOf, isEmbed, minVramOf, tierOf }) {
+  const candidates = (models || []).filter((m) => isEmbed(m) && FIT_RUNNABLE.has(m.fit));
+  if (!candidates.length) return "";
+  const left = Number(leftoverMb) > 0 ? Number(leftoverMb) : 0;
+  const eligible = candidates.filter((m) => tierOf(m) === "cpu" || (minVramOf(m) || 0) <= left);
+  if (eligible.length) return pickLowestQuality(eligible, { qualityOf });
+  // No CPU-band row and nothing clears the leftover: the closest-to-fitting candidate
+  // (least minVram, quality as the tie-break) — never empty when something runs.
+  return [...candidates].sort(
+    (a, b) => ((minVramOf(a) || 0) - (minVramOf(b) || 0)) || (qualityOf(a) - qualityOf(b)),
+  )[0].id;
+}
+
+/**
  * The ONE composed auto-pick rule — QuickSetup's pick AND the catalog's
  * "Recommended for this PC" badge call THIS (one source, no drift; extracted
  * 2026-07-06, providers-surface redesign item 2): the class→model map is

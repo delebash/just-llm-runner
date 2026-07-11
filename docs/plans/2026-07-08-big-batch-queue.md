@@ -6409,3 +6409,87 @@ item.**
 CONDITIONAL 4B catalog add is reasonable but not airtight — the compact-ready
 reply asks the user to confirm or strike item 5; the placement-guarantee
 question rides the same reply.
+
+---
+
+## #274 BUILD RECORD — SHIPPED (2026-07-11, the twenty-first window)
+
+**What shipped.** The Quick Setup embedding pick now follows the user's confirmed rule
+("i agree with your rect on 274 that was how it was already supposed to be"): the most
+capable embedding that fits what is LEFT of the card after the chat pick, with the
+CPU-band embeds (tier "cpu" — the ROUND-4 law) always eligible. The rule lives ONCE as
+`pickBestEmbedId` in `ui/src/common/services/modelPick.js` (candidates = embedding +
+raw-card-runnable; eligible = tier "cpu" OR minVram <= leftover; pick = the shared
+lowest-quality-rank comparator; none eligible → the least-minVram candidate so the pick
+is never empty when something runs). `useCatalogMeta` gained `minVramById` + `tierById`
+(wire fields already existed — model_catalog_api.py CatalogRow.minVramMb/.tier).
+QuickSetup's `bestEmbedId()` calls the helper with leftover = gpus[0].vramMb −
+minVram(pick.default), floored at zero; LuModelCatalog's `recommendedEmbedId` — the
+drifted duplicate — converges onto the same helper. The Qwen3-Embedding-4B catalog row
+landed (id qwen3-embedding-4b · Qwen/Qwen3-Embedding-4B-GGUF · Q4_K_M · size_bytes
+2,496,703,776 · trained_ctx 40960 · pooling last · quality_rank 55 · tier mid ·
+position 10, the 8B moved to 11) with its _QWEN3_EMBED_QUERY template row, and the
+0.6B's quality_rank moved 65 → 58 so the CPU band's winner is the 0.6B, not bge-m3
+(the seed's own "The default local embed" note plus the web-verified MTEB ordering;
+at 65 the post-fix CPU band would have quietly defaulted to bge).
+
+**The user-ordered THIRD PASS ("lets be safe and do one more pass") — two real finds,
+opinion unchanged, both folded in:**
+1. *The wizard's pick order.* `prefillPick` used to fill the embed against the PREFILL
+   chat default, but `openWizard`'s reconcile can then swap the chat to the APPLIED
+   dominant — post-fix the embed depends on the chat's leftover, so the embed auto-fill
+   MOVED to after the reconcile (QuickSetup.vue: prefillPick now fills the chat only;
+   the post-reconcile block clears a dead embed reference and best-fills an empty one).
+   A routing-saved embed still wins unconditionally.
+2. *True convergence basis for the catalog card.* `recommendedEmbedId`'s leftover uses
+   the APPLIED default (`modelApply.currentDefaultId`) when it is live in the catalog,
+   else the card's own `recommendedId` — matching the wizard's applied-first semantics
+   instead of the spec's recommendedId-only line (my line, not the user's; the user's
+   rule says "after the chat model", i.e. the one that will actually run).
+   Also verified from the runner seed: `gemma-4-26b-a4b-qat` is a JUSTWRITE app-extra
+   row, not in DEFAULT_CATALOG (the class-picks comment says so) — the new seed test
+   derives the 8GB-leftover law from the runner's own low-vram-moe floor (4000) instead.
+
+**FLAGS (each reverts on a word):**
+- **min_vram_mb 4500 on the 4B** (the spec drafted 3800 = file×1.5). The third pass
+  caught that 3800 would put the 4B UNDER the 8GB+Gemma leftover (8192−4000=4192) —
+  making the user's own box default to the 4B, contradicting both their bug words
+  ("should be 0.6B") and the accepted ladder (4B = the 16GB+ rung). 4500 = file
+  (~2.5GB) + the box-measured ~549MB CUDA driver context + KV/compute buffers — the
+  derivation is written in the seed comment. The user is actively weighing 4B-on-CPU
+  for their box (their mid-build question, answered in chat with the A/B recipe);
+  "make the 4b my default" flips this one value + two test expectations.
+- **min_ram_mb 8000 on the 4B** (proportionate derivation, unmeasured).
+- **The seed asserts live in tests/test_embed_templates.py** (the existing seed-test
+  file), not the spec's named `tests/test_seed.py` — that file never existed; T3 says
+  extend the sibling, not mint a twin.
+- **Existing DBs**: the 4B row + its template INSERT at next boot without a reset
+  (proven live in the container — the row appeared on the un-reset dev DB); the 0.6B
+  rank 65→58 and the 8B position reach existing DBs only via reset (insert-if-missing).
+  On an un-reset DB the CPU band's auto-pick is bge-m3 (60 < 65) until the reset —
+  pre-release drop+reseed policy covers.
+
+**Verification (all green).** verify-model-pick.mjs **37/37** (10 new #274 cases incl.
+the reporter's exact box shape: leftover 4192 → 0.6B, and the original bug shape:
+leftover 1192 → 0.6B never the 8B) · runner pytest **477** + ruff clean · JW build:vite
++ vitest **135/135** · phaseD-quicksetup-probe **26/26** — the new #274 leg derives the
+leftover pick from the live catalog and asserts qwen3-embedding-0.6b, AND the wizard's
+own confirm step rendered "Qwen3 Embedding 0.6B" on the stubbed 8GB card with the 4B and
+8B present (the end-to-end kill of the reported bug) · FULL headless smoke zero JS
+errors · b29 probe PASS · qc-quintet **22/22** (first run 20/22 — the two QC-24 picker
+legs failed because phaseD's `/v1/data/reset` leaves ZERO projects per the QC-40 law and
+the pickers had no book data; `POST /v1/projects/demo` restored the tutorial book and
+the re-run went clean — probe-ORDER fallout, not a regression; noted for future fleet
+runs: run phaseD after, or re-create the demo book between) · biome: the diff's files
+are outside JW's biome scope / no runner biome project; the project-wide errors are
+pre-existing in untouched files (downloadRate.test.js, routingBackend.js, project.js).
+
+**Answered in chat this window (the user's mid-build question):** the 4B-Q4 DOES run
+fully on CPU on their box (2.5GB in RAM beside the Gemma's ~24GB working set) and is a
+real retrieval-quality step over the 0.6B, at an ESTIMATED 4-7× the CPU embed time
+(unmeasured — ratio-derived) plus contention with the Gemma's n_cpu_moe expert compute;
+recommendation stands: 0.6B default, 4B as a deliberate manual upgrade, with a
+two-minute on-box A/B recipe delivered in the reply. OPEN on the user's word, unchanged:
+the embed placement GUARANTEE (spawn ngl=0 unless the leftover covers it) — the 4B pick
+today would land via their manual dropdown pick + their ngl=0 tune precedent (or
+OOM-shed). EmbeddingGemma stays parked on llama.cpp #19040.

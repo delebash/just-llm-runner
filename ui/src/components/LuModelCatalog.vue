@@ -16,7 +16,7 @@ import { request } from "../client.js";
 import { useRunnerModels } from "../composables/useRunnerModels.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { applyPreview, useModelApply } from "../services/modelApply.js";
-import { FIT_RUNNABLE, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
+import { FIT_RUNNABLE, pickBestEmbedId, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
 import { TUNE_BADGES, fetchTuneState, tuneBadgeOf } from "../tuneState.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
@@ -180,7 +180,7 @@ function mtpOf(m) { return mtpById.value[m.id] === true; }
 // Model catalog meta (license / use-limited / description — the fit-shaped /models view
 // doesn't carry them). Shared with QuickSetup through the useCatalogMeta singleton (one
 // source, no drift); loadCatalogMeta (its refresh) re-pulls after a catalog edit.
-const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, hfRepoById, notesById, sizeBytesById, classPicks, refresh: loadCatalogMeta } = useCatalogMeta();
+const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, hfRepoById, notesById, sizeBytesById, minVramById, tierById, classPicks, refresh: loadCatalogMeta } = useCatalogMeta();
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
 function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
 function notesOf(m) { return notesById.value[m.id] || ""; }
@@ -255,12 +255,24 @@ const recommendedId = computed(() => recommendedModelId(models.value, {
   isUseLimited: useLimitedOf,
 }));
 // The recommended EMBEDDING (#5, 2026-07-08: "dont we recommend an embed model") —
-// QuickSetup's exact pick (its bestEmbedId): lowest quality-rank among the FITTING
-// embeds, through the same shared comparator, so the card and the wizard agree.
-const recommendedEmbedId = computed(() => pickLowestQuality(
-  models.value.filter((m) => embeddingOf(m) && FIT_RUNNABLE.has(m.fit)),
-  { qualityOf },
-));
+// QuickSetup's exact pick, now through the ONE shared leftover-aware rule (#274:
+// this was a drifted duplicate of the old raw-card sort). The chat side of the
+// leftover is the model that will actually RUN beside the embed: the applied
+// default while it's still in the catalog, else this card's own recommendation —
+// the same applied-first precedence as the wizard's reconcile.
+const recommendedEmbedId = computed(() => {
+  const chatId = (currentDefaultId.value && modelById.value[currentDefaultId.value])
+    ? currentDefaultId.value
+    : recommendedId.value;
+  const leftoverMb = Math.max(0, totalVramMb.value - (minVramById.value[chatId] ?? 0));
+  return pickBestEmbedId(models.value, {
+    leftoverMb,
+    qualityOf,
+    isEmbed: embeddingOf,
+    minVramOf: (m) => minVramById.value[m.id] || 0,
+    tierOf: (m) => tierById.value[m.id] || "mid",
+  });
+});
 function licenseTitle(m) {
   const lic = licenseOf(m);
   return useLimitedOf(m)

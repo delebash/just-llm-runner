@@ -5,7 +5,7 @@
 // Phase 3, so a card-override probe can't construct the two side-by-side deterministically.
 // This does, purely and re-runnably.
 //   Run:  node scripts/verify-model-pick.mjs      (exit 0 = all pass, 1 = any fail)
-import { pickByClassMap, pickBestModel, pickLowestQuality, recommendedModelId } from "../ui/src/common/services/modelPick.js";
+import { pickByClassMap, pickBestEmbedId, pickBestModel, pickLowestQuality, recommendedModelId } from "../ui/src/common/services/modelPick.js";
 
 // A tiny test model. fit ∈ ok|tight|cpu|no|unknown; type ∈ dense|moe.
 const M = (id, fit, type, quality, extra = {}) =>
@@ -129,6 +129,42 @@ check("classMap: empty map → ''", pickByClassMap([], 8192, world(["map-6gb"]))
     recommendedModelId(models, { classPicks: [{ minVramMb: 99999, modelId: "mapped" }], vramMb: 8192, byId, ...acc }), "champ");
 }
 
-console.log(`\n§10 + class-map + composed-pick truth-table: ${pass} passed, ${fail} failed.`);
+// ── #274: pickBestEmbedId — the leftover-VRAM embed rule. The embed CO-RESIDES with
+//    the chat model, so eligibility is tier "cpu" (always) OR minVram <= the card's
+//    LEFTOVER after the chat pick — never the raw card (the 8GB/8B bug). ──
+const E = (id, fit, quality, minVram, tier) =>
+  ({ id, fit, type: "dense", quality, embed: true, useLimited: false, minVram, tier });
+const pe = (list, leftoverMb) => pickBestEmbedId(list, {
+  leftoverMb,
+  qualityOf: (m) => m.quality,
+  isEmbed: (m) => m.embed,
+  minVramOf: (m) => m.minVram,
+  tierOf: (m) => m.tier,
+});
+// The SEEDED ladder shape (seed.py): 8B 50/7000/high · 4B 55/4500/mid ·
+// 0.6B 58/1500/cpu · bge-m3 60/1500/cpu · nomic 70/1000/cpu.
+const LADDER = [
+  E("e8b", "ok", 50, 7000, "high"), E("e4b", "ok", 55, 4500, "mid"),
+  E("e06b", "ok", 58, 1500, "cpu"), E("bge", "ok", 60, 1500, "cpu"),
+  E("nomic", "ok", 70, 1000, "cpu"),
+];
+check("THE #274 BUG: 8GB card, 7000-need chat (leftover 1192) → 0.6B, never the 8B",
+  pe(LADDER, 1192), "e06b");
+check("the reporter's box shape: leftover 4192 (8GB − the 4000-floor MoE) → 0.6B (4B needs 4500)",
+  pe(LADDER, 4192), "e06b");
+check("mid card: leftover 5000 → the 4B rung", pe(LADDER, 5000), "e4b");
+check("big card: leftover 7000 → the 8B", pe(LADDER, 7000), "e8b");
+check("CPU-only box (leftover 0): the CPU band always qualifies; 0.6B (58) beats bge (60)",
+  pe(LADDER, 0), "e06b");
+check("non-embeds are never candidates (a chat row can't win the embed pick)",
+  pe([...LADDER, M("chat", "ok", "dense", 1)], 99999), "e8b");
+check("no CPU band + nothing clears the leftover → least-minVram fallback (never empty)",
+  pe([E("big", "ok", 50, 7000, "high"), E("mid", "ok", 55, 4500, "mid")], 1000), "mid");
+check("unrunnable embeds (fit \"no\") are excluded even with the best rank",
+  pe([E("dead", "no", 1, 100, "cpu"), E("ok6", "cpu", 58, 1500, "cpu")], 0), "ok6");
+check("no embeds at all → ''", pe([M("chat", "ok", "dense", 1)], 5000), "");
+check("empty input → ''", pe([], 5000), "");
+
+console.log(`\n§10 + class-map + composed-pick + #274-embed truth-table: ${pass} passed, ${fail} failed.`);
 process.exit(fail ? 1 : 0);
 

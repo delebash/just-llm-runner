@@ -62,6 +62,16 @@ export const notesById = computed(() =>
 export const sizeBytesById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, r.sizeBytes || 0])),
 );
+// The curated VRAM floor + hardware tier per model (#274): the leftover-aware embed
+// pick needs both — minVram tested against the card's leftover beside the chat pick,
+// tier "cpu" = the always-eligible CPU band (the ROUND-4 law). Wire fields:
+// model_catalog_api.py CatalogRow.minVramMb / .tier.
+export const minVramById = computed(() =>
+  Object.fromEntries(rows.value.map((r) => [r.id, r.minVramMb || 0])),
+);
+export const tierById = computed(() =>
+  Object.fromEntries(rows.value.map((r) => [r.id, r.tier || "mid"])),
+);
 
 /** (Re)fetch the catalog rows into the shared state. Enrichment — on failure the maps
  *  fall back to empty (the fit-shaped list / the pick still work without the badges). */
@@ -79,5 +89,5 @@ export async function refresh() {
 /** Shared model-catalog meta. Every consumer gets the SAME refs; call refresh() on open
  *  or after a catalog edit to (re)populate the one shared source. */
 export function useCatalogMeta() {
-  return { catalogRows, classPicks: classPicksRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, hfRepoById, notesById, sizeBytesById, refresh };
+  return { catalogRows, classPicks: classPicksRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, hfRepoById, notesById, sizeBytesById, minVramById, tierById, refresh };
 }

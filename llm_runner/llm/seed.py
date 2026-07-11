@@ -253,7 +253,12 @@ DEFAULT_CATALOG: list[dict] = [
      "trained_ctx": 32768,
      "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 8,
      "embedding": True, "pooling": "last",
-     "quality_rank": 65, "architecture": "qwen3", "experts": 0,
+     # rank 58 (was 65 — #274): the CPU band's best. MTEB retrieval puts the 0.6B above
+     # bge-m3 and this row's own note calls it "The default local embed", but at 65 it
+     # LOST to bge (60) — under the #274 leftover rule that inversion would have quietly
+     # made bge the small-card default. Reaches existing DBs only via reset
+     # (insert-if-missing seeder).
+     "quality_rank": 58, "architecture": "qwen3", "experts": 0,
      "size_label": "0.6B", "size_bytes": 639150592,
      "description": "0.6B embedding model · 32k context · Q8_0",
      "notes": "The default local embed (stronger multilingual / MTEB than nomic, still tiny ~0.6 GB); last-token pooling."},
@@ -266,10 +271,27 @@ DEFAULT_CATALOG: list[dict] = [
      "size_label": "567M", "size_bytes": 437778496,
      "description": "567M embedding model · 8k context · Q4_K_M",
      "notes": "Multilingual embeddings across 100+ languages; CLS pooling; CPU-fine."},
+    # The mid-card rung (#274, 2026-07-11 — the embed-ladder gap between the tiny CPU
+    # band and the 8B): official Qwen GGUF, near-8B retrieval quality at ~2.5 GB.
+    # min_vram 4500 = the file (~2.5 GB) + the box-measured ~549 MB CUDA driver context
+    # per child (lifecycle.py) + KV/compute buffers — deliberately ABOVE an 8 GB card's
+    # leftover under the seeded default MoE (8192 − 4000 = 4192), so a small card still
+    # defaults to the 0.6B (the user's #274 word: "should be 0.6B") and the 4B is the
+    # 16 GB+ rung or a deliberate manual pick. min_ram proportionate. Both values are
+    # derived floors, flagged in the #274 build record.
+    {"id": "qwen3-embedding-4b", "name": "Qwen3 Embedding 4B",
+     "hf_repo": "Qwen/Qwen3-Embedding-4B-GGUF", "quant": "Q4_K_M", "total_params": "4B",
+     "trained_ctx": 40960,
+     "min_vram_mb": 4500, "min_ram_mb": 8000, "tier": "mid", "license": "Apache-2.0", "position": 10,
+     "embedding": True, "pooling": "last",
+     "quality_rank": 55, "architecture": "qwen3", "experts": 0,
+     "size_label": "4B", "size_bytes": 2496703776,
+     "description": "4B embedding model · 40k context · Q4_K_M",
+     "notes": "The mid-card rung — near-8B retrieval quality at ~2.5 GB; last-token pooling. Auto-picked when the card's leftover beside your chat model covers it."},
     {"id": "qwen3-embedding-8b", "name": "Qwen3 Embedding 8B",
      "hf_repo": "Qwen/Qwen3-Embedding-8B-GGUF", "quant": "Q4_K_M", "total_params": "8B",
      "trained_ctx": 40960,
-     "min_vram_mb": 7000, "min_ram_mb": 10000, "tier": "high", "license": "Apache-2.0", "position": 10,
+     "min_vram_mb": 7000, "min_ram_mb": 10000, "tier": "high", "license": "Apache-2.0", "position": 11,
      "embedding": True, "pooling": "last",
      "quality_rank": 50, "architecture": "qwen3", "experts": 0,
      "size_label": "8B", "size_bytes": 4676804928,
@@ -283,7 +305,7 @@ DEFAULT_CATALOG: list[dict] = [
 # justwrite-app/docs/plans/2026-07-10-rag-story-bible-research.md §9.1/§11.1):
 #   * nomic-embed-text v1.5 — REQUIRES `search_document:` / `search_query:`
 #     prefixes on both sides ("without prefixes, embedding quality degrades").
-#   * Qwen3-Embedding (0.6B + 8B) — instruction-aware on the QUERY side only
+#   * Qwen3-Embedding (0.6B + 4B + 8B) — instruction-aware on the QUERY side only
 #     ("Instruct: {task}\nQuery: {q}"; ~+22% retrieval relevance); documents
 #     encode plain. The task sentence is seed wording, user-editable (flag F2).
 #   * BGE-M3 — needs none → no row.
@@ -297,6 +319,7 @@ DEFAULT_EMBED_TEMPLATES: list[dict] = [
     {"id": "nomic-embed-text",
      "document": "search_document: {text}", "query": "search_query: {text}"},
     {"id": "qwen3-embedding-0.6b", "document": "", "query": _QWEN3_EMBED_QUERY},
+    {"id": "qwen3-embedding-4b", "document": "", "query": _QWEN3_EMBED_QUERY},
     {"id": "qwen3-embedding-8b", "document": "", "query": _QWEN3_EMBED_QUERY},
 ]
 

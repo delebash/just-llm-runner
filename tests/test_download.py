@@ -18,6 +18,7 @@ import pytest
 
 from llm_runner.runner.download import (
     DownloadCancelled,
+    _preallocate,
     _segment_bounds,
     download_kwargs,
     stream_download,
@@ -106,6 +107,15 @@ def test_segment_bounds_exact_cover():
 def test_segment_bounds_never_more_segments_than_bytes():
     assert len(_segment_bounds(3, 8)) == 3
     assert _segment_bounds(3, 8) == [(0, 0), (1, 1), (2, 2)]
+
+
+def test_preallocate_sizes_file_and_makes_parent(tmp_path):
+    # The segment writers need the file sized up front; _preallocate must produce exactly
+    # `total` bytes (sparse on Windows via SetEndOfFile, ftruncate on POSIX) and create the
+    # parent dir. On Windows this replaces the zero-filling truncate() that stalled ~20-50 s.
+    dest = tmp_path / "nested" / "pre.bin"
+    _preallocate(dest, 5 * 1024 * 1024)
+    assert dest.stat().st_size == 5 * 1024 * 1024
 
 
 # ── the sha contract: segmented output ≡ single-stream output ─────────────────

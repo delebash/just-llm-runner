@@ -16,15 +16,56 @@ file doesn't qualify, so turning segments off IS the rollback.
 from __future__ import annotations
 
 import hashlib
+import logging
+import sys
 import threading
 from pathlib import Path
 from typing import Callable
 
 import requests
 
+log = logging.getLogger(__name__)
+
 
 class DownloadCancelled(Exception):
     """Raised when cancel_check() returns True mid-stream."""
+
+
+def _preallocate(dest: Path, total: int) -> None:
+    """Size `dest` to `total` bytes for the parallel segment writers WITHOUT zero-filling.
+    POSIX `ftruncate` is already sparse/instant. On Windows, Python's `truncate()` zero-FILLS
+    (via `_chsize_s`) — physically writing the whole file BEFORE the first byte downloads
+    (measured ~8-20 s for 6 GB, so ~20-50 s for a 15 GB model, shown as a stalled 'model
+    weights' at 0 %). So there mark the file sparse (FSCTL_SET_SPARSE) and set its length with
+    SetEndOfFile (metadata only); segment writes then land in sparse regions cheaply. Falls
+    back to `truncate` on any failure — a correct file always beats a fast one."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            import msvcrt
+            from ctypes import wintypes
+
+            k32 = ctypes.windll.kernel32
+            k32.SetFilePointerEx.argtypes = [wintypes.HANDLE, ctypes.c_longlong,
+                                             ctypes.c_void_p, wintypes.DWORD]
+            k32.SetFilePointerEx.restype = wintypes.BOOL
+            k32.SetEndOfFile.argtypes = [wintypes.HANDLE]
+            k32.SetEndOfFile.restype = wintypes.BOOL
+            with dest.open("wb") as f:
+                h = wintypes.HANDLE(msvcrt.get_osfhandle(f.fileno()))
+                # FSCTL_SET_SPARSE (0x000900C4) — a following SetEndOfFile then costs no
+                # zero-fill; the byte ranges the workers never touch stay unallocated.
+                k32.DeviceIoControl(h, wintypes.DWORD(0x000900C4), None, 0, None, 0,
+                                    ctypes.byref(wintypes.DWORD(0)), None)
+                if not (k32.SetFilePointerEx(h, total, None, 0)  # 0 = FILE_BEGIN
+                        and k32.SetEndOfFile(h)):
+                    raise OSError("SetEndOfFile failed")
+            return
+        except Exception:  # noqa: BLE001 — fall back to a correct (if slower) truncate
+            log.warning("sparse preallocation failed for %s; using truncate", dest, exc_info=True)
+    with dest.open("wb") as f:
+        f.truncate(total)
 
 
 def download_kwargs(config) -> dict:
@@ -149,9 +190,7 @@ def _segmented_download(
     at the same ~1/MB throttle; the first cancel (or failure past its retries)
     stops every worker. sha256 runs after assembly in one sequential read."""
     bounds = _segment_bounds(total, segments)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    with dest.open("wb") as f:
-        f.truncate(total)  # preallocate — segments land at their offsets
+    _preallocate(dest, total)  # size the file for the offset writers WITHOUT a zero-fill stall
 
     written = [0] * len(bounds)          # per-segment byte counters
     stop = threading.Event()             # first cancel/failure stops all workers

@@ -24,6 +24,7 @@ import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import { useModelApply } from "../services/modelApply.js";
 import { useEngine } from "../composables/useEngine.js";
+import { refresh as refreshRunnerModels } from "../composables/useRunnerModels.js";
 import { usePoll } from "../common/composables/usePoll.js";
 
 // Engine state here feeds only the debug snapshot — the engine ACTIONS
@@ -101,8 +102,23 @@ const hwLabel = computed(() => {
 // LuRunnerEngine precedent); it carries the measured VRAM ledger (total /
 // committed / free) + the loaded-models list the debug snapshot includes.
 const resident = ref(null);
+// The catalog rows' status comes from useRunnerModels, whose own poller only runs
+// while a load IT started is in flight — a load from another surface (Quick Setup,
+// a chat leg's ensure, an eviction) left the rows stale ("loads on first use" beside
+// a 6.6 GB header, 2026-07-11). This poll already sees the live resident set every
+// tick, so a CHANGE in the loaded set kicks the shared models refresh — one truth.
+let _loadedSig = null;
 const { start: startResPoll } = usePoll(async () => {
-  try { resident.value = await request("/v1/llm-runner/resident"); } catch { /* keep last */ }
+  try {
+    resident.value = await request("/v1/llm-runner/resident");
+    const sig = (resident.value?.models || [])
+      .filter((m) => m.status === "loaded" || m.status === "sleeping")
+      .map((m) => m.id)
+      .sort()
+      .join("|");
+    if (_loadedSig !== null && sig !== _loadedSig) refreshRunnerModels();
+    _loadedSig = sig;
+  } catch { /* keep last */ }
 }, 2500);
 const gb1 = (mb) => (mb / 1024).toFixed(1);
 const vramLine = computed(() => {

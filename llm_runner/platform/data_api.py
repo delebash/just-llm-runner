@@ -43,6 +43,7 @@ def make_data_router(
     run_reset: Callable[[], None],
     asset_dirs: Callable[[], dict[str, Path]] | None = None,
     prefix: str = "/v1/data",
+    on_replaced: Callable[[], None] | None = None,
 ) -> APIRouter:
     """Build the shared data backup/restore/reset router over host hooks.
 
@@ -55,6 +56,10 @@ def make_data_router(
       app's own seeding stay one implementation.
     - `asset_dirs()` → `{arcname: dir}` extra directories to include in a backup
       and replace on restore (e.g. JustWrite `images/`, JustVoice `audio/`).
+    - `on_replaced()` → called after a successful RESTORE replaced the data under a
+      live app (2026-07-11): the host tears down anything derived from the old data
+      (e.g. the LLM runner's resident models + VRAM ledger). Reset covers itself
+      inside `run_reset`; restore has no host callback without this.
     """
     router = APIRouter(tags=["data"], prefix=prefix)
     _assets = asset_dirs or (lambda: {})
@@ -154,6 +159,8 @@ def make_data_router(
                     if d.exists():
                         shutil.rmtree(d)
                     shutil.copytree(bdir, d)
+        if on_replaced is not None:
+            on_replaced()
         return {"ok": True}
 
     @router.post("/reset")

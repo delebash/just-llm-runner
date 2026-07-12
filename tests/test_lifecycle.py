@@ -15,7 +15,7 @@ from llm_runner.runner.arbiter import VramArbiter
 from llm_runner.runner.download import DownloadCancelled
 from llm_runner.runner.lifecycle import CorruptModelError, RunnerService
 from llm_runner.runner.process import FitPlan, Overrides
-from llm_runner.runner.schema import GpuInfo, HardwareInfo, ModelEntry
+from llm_runner.runner.schema import GpuInfo, HardwareInfo, ModelEntry, RecommendedFor
 
 
 def _fake_hw(vram_mb):
@@ -41,8 +41,8 @@ def _raise_bad_magic(_path):
 def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
                  router_unload=None, router_models=None, now=None, sleep=None,
                  identify_fn=None, switches_fn=None, profile_switches_fn=None,
-                 embedding_ids_fn=None, arbiter=None, acquired_exes=None,
-                 used_vram_fn=None, hardware_fn=None):
+                 embedding_ids_fn=None, default_llm_id_fn=None, arbiter=None,
+                 acquired_exes=None, used_vram_fn=None, hardware_fn=None):
     """A RunnerService with the router + download IO injected. Every catalog model is
     seeded into a fake HF cache (`<root>/hf/models--<repo>/snapshots/sha/<file>.gguf`)
     so both `cached_gguf_path` (the .ini emitter) and the injected `acquire_model`
@@ -83,6 +83,8 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         kw["profile_switches_fn"] = profile_switches_fn
     if embedding_ids_fn is not None:
         kw["embedding_ids_fn"] = embedding_ids_fn
+    if default_llm_id_fn is not None:
+        kw["default_llm_id_fn"] = default_llm_id_fn
     if now is not None:
         kw["now"] = now
     if sleep is not None:
@@ -684,18 +686,38 @@ def test_failed_load_leaves_no_reservation(tmp_path):
 
 
 def test_admit_evicts_lru_when_over_budget(tmp_path):
-    # An 800 MB load onto a 1000 MB card with A(200, LRU) + B(100) resident evicts the LRU (A) to
-    # make room; B (more recent) stays. _admit is exercised directly with an explicit budget.
+    # An 8000 MB load onto a 10000 MB card with A(2000, LRU) + B(1000) resident evicts the LRU (A)
+    # to make room; B (more recent) stays. _admit is exercised directly with an explicit budget.
+    # (Sizes are GPU-scale on purpose — sub-_EVICT_MIN_MB reservations are deliberately skipped
+    # by VRAM-driven eviction since 2026-07-11; see the tiny-embed test below.)
     unloaded = []
-    arb = VramArbiter(hardware_fn=lambda: _fake_hw(1000))
-    arb.reserve("A", 200)   # older → the LRU
-    arb.reserve("B", 100)
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(10000))
+    arb.reserve("A", 2000)   # older → the LRU
+    arb.reserve("B", 1000)
     svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
     svc._router = _fake_router()
     svc._resident = {"A": {"status": "running"}, "B": {"status": "running"}}
-    svc._admit("C", 800, models_max=5, hardware=_fake_hw(1000))
-    assert unloaded == ["A"]                 # only the LRU evicted (200 freed → 900 ≥ 800)
+    svc._admit("C", 8000, models_max=5, hardware=_fake_hw(10000))
+    assert unloaded == ["A"]                 # only the LRU evicted (2000 freed → 9000 ≥ 8000)
     assert not arb.is_reserved("A") and arb.is_reserved("B")
+
+
+def test_admit_vram_eviction_skips_tiny_cpu_embed(tmp_path):
+    # 2026-07-11: evicting a CPU-placed embed (~44 MB measured driver noise) can't make a
+    # GPU model fit — a VRAM-driven eviction must skip it (proceed via the warning path),
+    # keeping the warm embed child the RAG rail wants resident.
+    unloaded = []
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(8192))
+    arb.reserve("cpu-embed", 44)   # unpinned — e.g. its pin was lost across a bounce
+    svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._resident = {"cpu-embed": {"status": "running"}}
+    svc._admit("big-moe", 16000, models_max=5, hardware=_fake_hw(8192), is_moe=True)
+    assert unloaded == []                    # the tiny embed survived the over-budget admit
+    assert arb.is_reserved("cpu-embed")
+    # …but a COUNT-cap eviction still removes it (a child must go regardless of VRAM).
+    svc._admit("third", 10, models_max=1, hardware=_fake_hw(8192))
+    assert unloaded == ["cpu-embed"]
 
 
 def test_admit_respects_pinned(tmp_path):
@@ -1844,3 +1866,240 @@ def test_post_install_heal_converges_on_surviving_newer_build(tmp_path):
     svc2._save_pin = calls.append
     svc2._heal_pin_upward()
     assert calls == [disk_build]
+
+
+# ── #274 half 2 (2026-07-11): the embed CPU-placement guarantee ───────────────
+# The pick rule (ui modelPick.pickBestEmbedId) chooses WHICH embed rides a box assuming
+# small embeds run on CPU; these pin the runner-side half that ENFORCES it at load time
+# (the 2026-07-11 incident: a full-GPU 32k-ctx embed co-loaded beside the chat model).
+
+_EMBED_CPU = ModelEntry(id="embed-small", name="Small Embed", tier="cpu",
+                        hf_repo="org/embed-small-GGUF", quant="Q8_0", pooling="last",
+                        embedding=True, recommended_for=RecommendedFor(min_vram_mb=1500))
+_EMBED_MID = ModelEntry(id="embed-4b", name="Mid Embed", tier="mid",
+                        hf_repo="org/embed-4b-GGUF", quant="Q4_K_M", pooling="last",
+                        embedding=True, recommended_for=RecommendedFor(min_vram_mb=4500))
+_CHAT_26B = ModelEntry(id="chat-26b", name="Chat", tier="low-vram-moe",
+                       hf_repo="org/chat-GGUF", quant="Q4_K_XL",
+                       recommended_for=RecommendedFor(min_vram_mb=6000))
+
+
+def test_embed_tier_cpu_forced_to_ngl0(tmp_path):
+    # tier "cpu" (the ROUND-4 law: deliberately CPU on the user's box) → the section
+    # carries an EXPLICIT n-gpu-layers = 0 + the capped embed ctx. Fit-by-omission
+    # would hand the child the GPU — exactly the 2026-07-11 co-load crash.
+    svc = _service_for(tmp_path, catalog=[_EMBED_CPU], embedding_ids_fn=lambda: {_EMBED_CPU.id},
+                       hardware_fn=lambda: _fake_hw(8192))
+    svc.load(_EMBED_CPU.id)
+    svc._thread.join(timeout=5)
+    ini = _ini(svc)
+    assert "n-gpu-layers = 0" in ini
+    assert "ctx-size = 8192" in ini  # _EMBED_CTX_CAP — never a chat-sized KV pool
+
+
+def test_embed_leftover_gates_gpu_placement(tmp_path):
+    # A non-cpu-tier embed rides the GPU only when the STATIC leftover (card minus the
+    # LOCAL chat default's curated floor) covers its own floor — else explicit CPU.
+    # Static, not live free VRAM: the ask flow loads the embed BEFORE the chat model.
+    def build(vram_mb):
+        return _service_for(tmp_path / str(vram_mb), catalog=[_EMBED_MID, _CHAT_26B],
+                            embedding_ids_fn=lambda: {_EMBED_MID.id},
+                            default_llm_id_fn=lambda: _CHAT_26B.id,
+                            hardware_fn=lambda: _fake_hw(vram_mb))
+
+    svc = build(8192)   # leftover 8192-6000 = 2192 < 4500 → CPU
+    svc.load(_EMBED_MID.id)
+    svc._thread.join(timeout=5)
+    section = _ini(svc).split(f"[{_EMBED_MID.id}]", 1)[1].split("\n[", 1)[0]
+    assert "n-gpu-layers = 0" in section
+
+    svc = build(24576)  # leftover 18576 >= 4500 → GPU (fit-placed → NO explicit ngl)
+    svc.load(_EMBED_MID.id)
+    svc._thread.join(timeout=5)
+    section = _ini(svc).split(f"[{_EMBED_MID.id}]", 1)[1].split("\n[", 1)[0]
+    assert "n-gpu-layers" not in section
+
+
+def test_embed_explicit_tune_ngl_wins_over_policy(tmp_path):
+    # A user tune's explicit ngl beats the placement policy (power-user escape hatch).
+    svc = _service_for(tmp_path, catalog=[_EMBED_CPU], embedding_ids_fn=lambda: {_EMBED_CPU.id},
+                       switches_fn=lambda mid: {"n_gpu_layers": "10"},
+                       hardware_fn=lambda: _fake_hw(8192))
+    svc.load(_EMBED_CPU.id)
+    svc._thread.join(timeout=5)
+    assert "n-gpu-layers = 10" in _ini(svc)
+
+
+def test_non_embed_untouched_by_placement(tmp_path):
+    # A chat model (embedding=False) is NEVER forced to CPU by the embed policy.
+    svc = _service_for(tmp_path, hardware_fn=lambda: _fake_hw(8192))
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert "n-gpu-layers = 0" not in _ini(svc)
+
+
+# ── 2026-07-11 fail-fast: a dead child must not be polled to the deadline ────
+
+def test_confirm_load_fails_fast_on_child_exit_line(tmp_path):
+    # A crashed child can leave the router reporting `loading` forever (the brick) —
+    # the confirm must fail on the router log's own death line, not poll a corpse to
+    # the full deadline (~6.5 minutes observed live on 2026-07-11).
+    def stuck(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loading"}}]}
+
+    svc = _service_for(tmp_path, router_models=stuck, sleep=lambda s: None)
+    svc._router = _fake_router()
+    log_file = tmp_path / "router.log"
+    log_file.write_text("spawning...\ninstance name=test-model exited with status 1\n")
+    svc._last_log_path = log_file
+    assert svc._confirm_load(_TEST_MODEL.id, log_offset=0) == "failed"
+
+
+def test_confirm_load_ignores_exit_line_before_watermark(tmp_path):
+    # A death line from a PREVIOUS attempt (before this load's log watermark) must not
+    # fail THIS load — the scan starts at the offset captured at POST time.
+    def stuck(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loading"}}]}
+
+    svc = _service_for(tmp_path, router_models=stuck, sleep=lambda s: None)
+    svc._router = _fake_router()
+    log_file = tmp_path / "router.log"
+    log_file.write_text("instance name=test-model exited with status 1\n")
+    svc._last_log_path = log_file
+    clock = iter([0.0, 1e9])  # deadline snapshot, then a poll far past it
+    svc._now = lambda: next(clock)
+    assert svc._confirm_load(_TEST_MODEL.id, log_offset=log_file.stat().st_size) == "timeout"
+
+
+def test_confirm_load_treats_error_value_as_failed(tmp_path):
+    # A router that reports `error` (not just `failed`) is terminal too.
+    def err(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "error"}}]}
+
+    svc = _service_for(tmp_path, router_models=err, sleep=lambda s: None)
+    svc._router = _fake_router()
+    assert svc._confirm_load(_TEST_MODEL.id) == "failed"
+
+
+# ── 2026-07-11 ledger honesty: fresh-spawn reconcile + measured true-up ──────
+
+def test_fresh_spawn_reconciles_stale_ledger(tmp_path):
+    # A router that died OUTSIDE stop() leaves resident entries + reservations behind;
+    # the fresh spawn must drop them (live: a ghost embed kept ~3.6 GB booked and the
+    # header read 19.3/8.0 GB with 0 free).
+    arb = VramArbiter()
+    svc = _service_for(tmp_path, arbiter=arb, hardware_fn=lambda: _fake_hw(8192))
+    svc._resident["ghost-embed"] = {"status": "running"}
+    arb.reserve("ghost-embed", 3600, pinned=True)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert "ghost-embed" not in svc._resident
+    assert not arb.is_reserved("ghost-embed")
+    assert arb.is_reserved(_TEST_MODEL.id)
+
+
+def test_trued_up_trues_down_to_measured(tmp_path):
+    # 2026-07-11 inversion: the ncmoe-blind estimate (Gemma: ~16 GB claimed, ~6.5 GB
+    # real) must not wedge the ledger — the measured delta wins in BOTH directions.
+    svc = _service_for(tmp_path, used_vram_fn=lambda: 7500)
+    assert svc._trued_up_vram_mb(16000, before=1000, hardware=_fake_hw(8192)) == 6500
+
+
+def test_trued_up_unmeasurable_caps_at_card(tmp_path):
+    # No probe → the estimate survives, but a single child can never book more than
+    # the card itself.
+    svc = _service_for(tmp_path)  # used_vram_fn → None (unmeasurable)
+    assert svc._trued_up_vram_mb(16000, before=None, hardware=_fake_hw(8192)) == 8192
+
+
+def test_trued_up_keeps_driver_ctx_floor(tmp_path):
+    # The 2026-07-06 motivation survives the inversion: a GPU-claiming fit whose delta
+    # under-counts still books at least the driver-context constant, never ~0.
+    svc = _service_for(tmp_path, used_vram_fn=lambda: 5001)
+    assert svc._trued_up_vram_mb(4000, before=5000, hardware=_fake_hw(8192)) == 549
+
+
+# ── 2026-07-11 admission: refuse a DOOMED dense/explicit spawn ────────────────
+
+def test_admit_refuses_dense_explicit_when_only_pinned(tmp_path):
+    # The proceed-anyway safety net is a lie for a DENSE entry with EXPLICIT ngl — the
+    # child's `--fit` aborts on a user-set ngl and the spawn dies (live 2026-07-11:
+    # `invalid vector subscript` on the draft load). Refuse actionably instead.
+    arb = VramArbiter()
+    svc = _service_for(tmp_path, arbiter=arb, hardware_fn=lambda: _fake_hw(8192))
+    arb.reserve("pinned-embed", 8000, pinned=True)
+    svc._resident["pinned-embed"] = {"status": "running"}
+    with pytest.raises(RuntimeError, match="Not enough free VRAM"):
+        svc._admit(_TEST_MODEL.id, 7000, 2, _fake_hw(8192), ngl_explicit=True, is_moe=False)
+    # a MoE (its estimate over-books — no ncmoe term) and a fit-placed entry proceed
+    svc._admit(_TEST_MODEL.id, 7000, 2, _fake_hw(8192), ngl_explicit=True, is_moe=True)
+    svc._admit(_TEST_MODEL.id, 7000, 2, _fake_hw(8192), ngl_explicit=False, is_moe=False)
+
+
+# ── 2026-07-11 hardening: transient IO is NOT corruption — no purge ──────────
+
+def test_verify_gguf_locked_file_no_purge(tmp_path):
+    # A sharing violation / AV scan holding the file open must NOT purge multi-GB good
+    # weights: retryable error, nothing deleted. (Purge stays for parse-proven
+    # corruption — see test_verify_gguf_raises_corrupt_model_error_and_purges.)
+    svc = _service_for(tmp_path)
+
+    def _locked(_p):
+        raise PermissionError(13, "sharing violation")
+
+    svc._read_meta = _locked
+    model = svc.catalog()[0]
+    repo_dir = tmp_path / "hf" / ("models--" + model.hf_repo.replace("/", "--"))
+    gguf = repo_dir / "snapshots" / "sha" / f"model-{model.quant}.gguf"
+    assert repo_dir.is_dir()
+    with pytest.raises(RuntimeError, match="locked"):
+        svc._verify_gguf(model, gguf)
+    assert repo_dir.is_dir()  # weights NOT deleted
+
+
+# ── 2026-07-12: an embed SWITCH swaps the embed slot — the chat model never pays ──
+
+def test_embed_switch_evicts_replaced_embed_not_chat(tmp_path):
+    # Live repro: switching the embedding default 0.6B→4B auto-loaded the 4B; the OLD
+    # embed's STALE load-time pin deflected the models_max=2 count-cap eviction onto
+    # Gemma. Pins must re-sync to the live default and the replaced embed must be the
+    # preferred victim.
+    old_embed = ModelEntry(id="embed-old", name="Old Embed", tier="cpu",
+                           hf_repo="org/embed-old-GGUF", quant="Q8_0", pooling="last",
+                           embedding=True, recommended_for=RecommendedFor(min_vram_mb=1500))
+    unloaded = []
+    arb = VramArbiter()
+    svc = _service_for(tmp_path, catalog=[_EMBED_CPU, old_embed], arbiter=arb,
+                       embedding_ids_fn=lambda: {_EMBED_CPU.id},   # the NEW default
+                       router_unload=lambda url, mid: unloaded.append(mid),
+                       hardware_fn=lambda: _fake_hw(8192))
+    svc._router = _fake_router()
+    # Pre-switch world: the chat is the LRU (the pre-fix victim), the old embed still
+    # carries the pin it earned when IT was the default.
+    arb.reserve("chat-26b", 5900)
+    arb.reserve(old_embed.id, 550, pinned=True)
+    svc._resident["chat-26b"] = {"status": "running"}
+    svc._resident[old_embed.id] = {"status": "running"}
+
+    svc.load(_EMBED_CPU.id)   # the dropdown switch's auto-load (models_max default = 2)
+    svc._thread.join(timeout=5)
+
+    assert unloaded == [old_embed.id]          # the REPLACED embed went, not the chat
+    assert arb.is_reserved("chat-26b")
+    assert arb.is_reserved(_EMBED_CPU.id)
+    row = next(r for r in arb.snapshot()["reservations"] if r["key"] == _EMBED_CPU.id)
+    assert row["pinned"] is True               # protection followed the new default
+
+
+def test_embed_leftover_falls_back_to_downloaded_chat_floor(tmp_path):
+    # Plan-A boxes leave the routing default LLM empty (task presets rule) - the
+    # baseline then falls back to the largest-floor DOWNLOADED chat model, so a
+    # mid-tier embed still lands on CPU beside the box's real chat model.
+    svc = _service_for(tmp_path, catalog=[_EMBED_MID, _CHAT_26B],
+                       embedding_ids_fn=lambda: {_EMBED_MID.id},
+                       hardware_fn=lambda: _fake_hw(8192))  # no default_llm_id_fn
+    svc.load(_EMBED_MID.id)
+    svc._thread.join(timeout=5)
+    section = _ini(svc).split(f"[{_EMBED_MID.id}]", 1)[1].split("\n[", 1)[0]
+    assert "n-gpu-layers = 0" in section

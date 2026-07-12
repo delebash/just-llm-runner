@@ -6587,3 +6587,57 @@ conversationally FIRST, then STOP and wait for the user to name which open
 item to build. The candidate list is the inventory above; the biggest real
 build is F1. (3) The two #274 follow-ups + the A/B outcome ride the user's
 next word.**
+
+---
+
+## EMBED CPU-PLACEMENT GUARANTEE — BUILD RECORD (SHIPPED 2026-07-11, night)
+
+**The word:** the user's "go" (this session) on the six-fix plan from the 2026-07-11
+ask-the-book incident (full evidenced diagnosis in the session memory
+`embed-gpu-coload-incident-2026-07-11`). This SHIPS #274 follow-up #1 above;
+follow-up #2 ("make the 4b my default") stays OPEN on the user's A/B.
+
+**The incident in one line:** the 0.6B embed spawned full-GPU at 32k ctx (no placement
+rule existed), Gemma then couldn't fit beside the pinned embed — llama.cpp's fit
+ABORTS on the class-tune's explicit ngl → `invalid vector subscript` on the draft
+load → the router kept the id `loading` (the brick) → `_confirm_load` polled the
+corpse ~6.5 min → "Timed out"; the ledger wedged at 19.3/8 GB (ncmoe-blind estimate,
+floored true-up, no fresh-spawn reconcile).
+
+**Shipped (all in `runner/lifecycle.py` unless noted):**
+1. `_apply_embed_placement` + `_embed_gpu_leftover_mb` — embeds (new
+   `ModelEntry.embedding` flag ← catalog row, mapped in `install.py catalog_fn`):
+   tier `cpu` → EXPLICIT `n-gpu-layers = 0`; else GPU only when the STATIC leftover
+   (card − chat baseline floor) covers `min_vram_mb`; ctx capped `min(trained, 8192)`.
+   Baseline: routing default LLM → empty (Plan-A) → largest-floor DOWNLOADED chat
+   model → none → whole card. Applied in BOTH `_run_load` and `_resolve_ini_entries`.
+   Injected `default_llm_id_fn` (install.py closure over the routing store).
+2. `_confirm_load` fail-fast: `error` value terminal + `_child_exited_since` scans the
+   router log APPENDED since this attempt's POST (watermark `_router_log_size`) for
+   `instance name=<id> exited with status` — a dead child fails in seconds, not 6.5 min.
+3. Ledger honesty: `_trued_up_vram_mb` INVERTED to measured-first (floor
+   `_DRIVER_CTX_MB` 549 when the fit claimed GPU; cap at the card; unmeasurable →
+   card-capped estimate) + `_load_via_router` fresh-spawn RECONCILE (drop stale
+   `_resident` entries + reservations a dead router left behind).
+4. `_admit` refuses a DENSE + EXPLICIT-ngl over-budget load with an actionable error
+   when nothing is evictable (a MoE / fit-placed entry proceeds with a warning — the
+   MoE estimate over-books, no ncmoe term in the regression).
+5. `_verify_gguf` purges ONLY on ValueError/FileNotFoundError (parse-proven corruption
+   / AV quarantine); OSError (sharing violation, AV scan lock) → retryable error,
+   NOTHING deleted.
+
+**Gates:** runner pytest 496 pass (+14 new tests; 2 fails pre-existing — the
+Linux-only lspci test on Windows + the timing-flaky ensure_model_ready pair, which
+fail on the UNMODIFIED tree too) · ruff clean. **LIVE box retest** (JW server against
+the real data root, app closed): ensure-embedding → 0.6B spawned `--n-gpu-layers 0`
+ctx 8192, reserved 550 MB MEASURED; Gemma co-loaded BESIDE the pinned embed (the
+exact crash sequence of the incident) → both `loaded`, committed 6698/8192 ·
+1494 free (was 19.3 GB/0 free fiction), nvidia-smi 7666/8192 real, embeddings
+1×1024 OK, chat completion "READY" OK, clean teardown.
+
+**Still open from the incident:** the stale "loads on first use" chip after a
+confirmed load (UI-side; likely fed by the now-fixed stale resident state — verify
+visually next app boot) · what exactly deleted the 0.6B weights midday 2026-07-11
+(Reset catalog EXONERATED — `reset_to_factory` is row-only; suspects: the row
+Delete / Re-download cache-clear, or a pre-fix-5 verify purge on an AV race) ·
+follow-up #2 (4B default) rides the user's A/B.

@@ -137,22 +137,37 @@ export async function embedTexts({ providerId, providerType, model, input, signa
   if (input == null) throw new Error("embed: input is required.");
   const arr = Array.isArray(input) ? input : [input];
   if (!arr.length) return [];
-  // Make the bundled runner's pinned embed resident before we call it (no-op
-  // otherwise). The target model keys the ensure cache — switching the embedding
-  // model lazy-loads the new one on this call instead of failing once (#9).
-  await ensureEmbeddingReady(providerId, providerType, { signal, model });
-  let json;
-  try {
-    json = await request("/v1/ai/embeddings", {
+
+  const post = async () => {
+    const json = await request("/v1/ai/embeddings", {
       method: "POST",
       body: { providerId, model: model || "", input: arr, taskType: taskType || "" },
       signal,
     });
+    return Array.isArray(json?.embeddings) ? json.embeddings.filter(Array.isArray) : [];
+  };
+
+  // Make the bundled runner's pinned embed resident before we call it (no-op
+  // otherwise). The target model keys the ensure cache — switching the embedding
+  // model lazy-loads the new one on this call instead of failing once (#9).
+  await ensureEmbeddingReady(providerId, providerType, { signal, model });
+  try {
+    return await post();
   } catch (err) {
-    // A real embed failure (NOT a user abort) can mean the pinned local embed's router
-    // died — drop the cached "ready" so the next attempt re-ensures (respawn + reload).
-    if (!isAbort(err)) _resetEnsureCache();
-    throw err;
+    // A real embed failure (NOT a user abort) can mean the pinned local embed's
+    // router died — or merely BOUNCED: switching the embedding default re-emits the
+    // `.ini` and restarts the router, and the first batch after a switch landed in
+    // that window as a user-facing "Bad gateway" (2026-07-11). Drop the cached
+    // "ready", re-ensure (which WAITS for the child to come back), and retry ONCE —
+    // a transient bounce becomes a short wait; a real outage still surfaces.
+    if (isAbort(err)) throw err;
+    _resetEnsureCache();
+    try {
+      await ensureEmbeddingReady(providerId, providerType, { signal, model });
+      return await post();
+    } catch (err2) {
+      if (!isAbort(err2)) _resetEnsureCache();
+      throw err2;
+    }
   }
-  return Array.isArray(json?.embeddings) ? json.embeddings.filter(Array.isArray) : [];
 }

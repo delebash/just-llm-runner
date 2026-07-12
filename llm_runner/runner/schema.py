@@ -100,6 +100,9 @@ class ModelEntry(CamelModel):
     active_params: str | None = None
     mtp: bool = False
     pooling: str = ""               # embedding pooling ("" | mean | cls | last | rank) — emitted onto the embed `.ini` section (#119)
+    # Embedding-type model (RAG index/search), not a chat LLM — mirrors the catalog row's
+    # explicit flag; drives the embed CPU-placement guarantee (#274 half 2, 2026-07-11).
+    embedding: bool = False
     # Gemma-style SEPARATE MTP draft file (external speculative-decode model at its
     # own quant). "" everywhere = no external draft (Qwen-style built-in MTP needs
     # none). `mtp_draft_repo` "" = the draft lives in the SAME repo as `hf_repo`.

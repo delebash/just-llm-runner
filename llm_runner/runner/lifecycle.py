@@ -61,6 +61,22 @@ from .schema import ModelEntry
 _LOAD_POLL_TIMEOUT = 300.0   # seconds before a still-`loading` child is declared failed
 _LOAD_POLL_INTERVAL = 1.0    # seconds between GET /models polls
 
+# Embed placement (#274's missing half; built after the 2026-07-11 co-load incident): an
+# embedding child gets the GPU only when the card's STATIC leftover beside the local chat
+# default covers its curated floor — otherwise it is forced to CPU with an EXPLICIT
+# `n-gpu-layers = 0`. Fit-by-omission would hand placement to the child's GPU-greedy
+# `--fit`, which is exactly what co-loaded a full-GPU 32k-ctx embed beside Gemma on an
+# 8 GB card and crashed the chat spawn. See `_apply_embed_placement`.
+_EMBED_CTX_CAP = 8192        # an embedding input is a ~1k-token chunk, never a chat context
+# An ngl-0 CUDA child still holds a driver context (box-measured 549 MB on the 2070 SUPER,
+# 2026-07-06) — the floor a measured reservation can't go below when the fit claimed GPU use.
+_DRIVER_CTX_MB = 549
+# VRAM-driven evictions skip victims reserving less than this (just above the driver-context
+# floor): freeing a CPU-placed embed's ~0–550 MB can't make a GPU model fit, but it kills the
+# warm embed child the RAG rail wants resident (observed live 2026-07-11). Count-cap evictions
+# ignore this — a child must go regardless of its footprint.
+_EVICT_MIN_MB = 600
+
 # Post-download integrity gate (the corrupt-GGUF fix, 2026-07-11). A freshly-acquired main
 # GGUF has its header parsed BEFORE spawn; a corrupt or incomplete download (a file zeroed by
 # antivirus mid-write — seen full-size but all-zeros — or a truncated transfer) fails the magic
@@ -329,6 +345,7 @@ class RunnerService:
         profile_switches_fn=_default_profile_switches_fn,
         identify_fn=_default_identify_fn,
         embedding_ids_fn=_default_embedding_ids_fn,
+        default_llm_id_fn=None,
         acquire_binary=_acquire_binary,
         acquired_exe=acquired_server_exe,
         acquired_exes=acquired_server_exes,
@@ -353,6 +370,9 @@ class RunnerService:
         self._profile_switches_fn = profile_switches_fn
         self._identify_fn = identify_fn
         self._embedding_ids_fn = embedding_ids_fn
+        # The LOCAL chat default's catalog id ("" when the chat default is cloud/Ollama) —
+        # the embed placement guarantee's static baseline (#274 half 2).
+        self._default_llm_id_fn = default_llm_id_fn or (lambda: "")
         self._acquire_binary = acquire_binary
         self._acquired_exe = acquired_exe
         self._acquired_exes = acquired_exes
@@ -659,7 +679,9 @@ class RunnerService:
         file trips it."""
         try:
             self._read_meta(gguf)  # magic + KV header; raises on bad magic / truncation / missing file
-        except Exception as exc:  # noqa: BLE001 — any parse/IO failure means the file is unusable
+        except (ValueError, FileNotFoundError) as exc:
+            # Parse-PROVEN corruption (bad magic / truncated header — gguf.py raises ValueError
+            # for both) or a file the OS says is GONE (AV quarantine): purge + actionable error.
             log.warning("integrity check failed for %s at %s: %s", model.id, gguf, exc)
             try:
                 self._purge_model_weights(model)
@@ -670,6 +692,16 @@ class RunnerService:
                 f"so it can't be loaded. It has been removed — re-download the model to repair it. "
                 f"If this keeps happening, add your models folder to your antivirus exclusions.",
                 model_id=model.id,
+            ) from exc
+        except OSError as exc:
+            # Transient IO — a sharing violation / an AV scan holding the file open is NOT
+            # corruption (2026-07-11 hardening): purging here would delete multi-GB GOOD
+            # weights on a race. No purge; surface a retryable error instead.
+            log.warning("integrity check could not read %s at %s: %s", model.id, gguf, exc)
+            raise RuntimeError(
+                f'Could not read the model file for "{model.name or model.id}" — it may be '
+                f"locked by an antivirus scan or another program. Nothing was deleted; "
+                f"try again in a moment."
             ) from exc
 
     def update_check(self) -> dict:
@@ -1247,6 +1279,9 @@ class RunnerService:
                 ov.model_draft = str(draft_path)
 
             meta = self._read_meta(gguf)
+            # #274 half 2 (2026-07-11): an embed is placed by POLICY (CPU unless the
+            # static leftover covers it) BEFORE the fit — never by the child's default.
+            self._apply_embed_placement(_model, ov, meta, hardware)
             fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
                               safety_margin_mb=config.safety_margin_mb)
             # 1b fit-by-omission: only tune/preset/request-EXPLICIT placement knobs are
@@ -1274,14 +1309,27 @@ class RunnerService:
                 # AFTER a confirmed load (below), so the ledger never holds a non-resident model —
                 # and it is TRUED-UP against the measured used-VRAM delta across the load
                 # (measure-don't-assume; see _trued_up_vram_mb).
-                self._admit(model_id, fit.vram_mb, config.models_max, hardware)
+                # Pins mirror the LIVE routing default (2026-07-12): a load-time pin goes
+                # stale when the default moves — the replaced 0.6B kept its pin and the
+                # count-cap eviction took Gemma instead of it. Re-sync before every
+                # admission, and make replaced embeds the PREFERRED victims (the embed
+                # slot swaps; the chat model never pays for an embed switch).
+                self._arbiter.sync_pins(embed_ids)
+                embed_rows = {m.id for m in self.catalog() if getattr(m, "embedding", False)}
+                stale_embeds = {
+                    mid for mid in self._resident
+                    if mid in embed_rows and mid not in embed_ids and mid != model_id
+                }
+                self._admit(model_id, fit.vram_mb, config.models_max, hardware,
+                            ngl_explicit=fit.ngl_explicit, is_moe=fit.is_moe,
+                            stale_embed_ids=stale_embeds)
                 self._resident[model_id].update(status="starting", detail="loading into VRAM",
                                                 downloaded=0, total=0)
                 vram_before = self._probe_used_vram()
                 self._load_via_router(entry, fit, server_exe, config)
                 # Pin the configured embed so it is NEVER the LRU eviction victim (P3): a chat co-load
                 # evicts another chat, never the embed RAG depends on. A chat model reserves unpinned.
-                self._arbiter.reserve(model_id, self._trued_up_vram_mb(fit.vram_mb, vram_before),
+                self._arbiter.reserve(model_id, self._trued_up_vram_mb(fit.vram_mb, vram_before, hardware),
                                       pinned=model_id in embed_ids)
                 self._resident[model_id].update(status="running", url=self._router.url,
                                                 detail="", error="", downloaded=0, total=0)
@@ -1304,34 +1352,113 @@ class RunnerService:
         except Exception:  # noqa: BLE001 — measurement is best-effort, never load-fatal
             return None
 
-    def _trued_up_vram_mb(self, estimate_mb: int, before: int | None) -> int:
-        """The VRAM (MiB) to RESERVE for a just-CONFIRMED load: `max(fit estimate,
-        measured used-VRAM growth across the load)` — measure-don't-assume (2026-07-06).
+    def _trued_up_vram_mb(self, estimate_mb: int, before: int | None, hardware=None) -> int:
+        """The VRAM (MiB) to RESERVE for a just-CONFIRMED load: the MEASURED used-VRAM
+        growth across the load, floored at the driver-context constant when the fit
+        claimed GPU use, and capped at the card (one child can never exceed it).
 
-        WHY: the fit formula books an `n-gpu-layers = 0` child as 0 MB, but a
-        CUDA-build child still holds ~0.5 GB of driver context (box-measured 549 MB);
-        booking 0 over-reports the remaining budget for every CPU-offloaded
-        co-resident (e.g. the pinned RAG embed), and the fitted estimate for GPU
-        loads can drift from reality too. Loads serialize under `_router_lock`, so
-        the growth between the two snapshots is attributable to THIS load.
-
-        FLOOR at the estimate, never below: the delta can UNDER-count (an evicted
-        victim's child still draining VRAM at the `before` snapshot, or a co-resident
-        going to idle-sleep mid-load, both shrink it) and a shrunken measurement must
-        not let the ledger book less than the formula's own floor. Unmeasurable
-        (None either side) → keep the estimate unchanged."""
+        WHY measured-first (INVERTED 2026-07-11; was `max(estimate, measured)`): the fit
+        regression has no `n-cpu-moe` term, so a CPU-offloaded MoE (Gemma 26B at ngl 30 /
+        ncmoe 21 — real footprint ~6.5 GB) estimates ~16 GB; flooring at that estimate
+        wedged the ledger at 19.3/8 GB with 0 free, evicting or refusing every later load.
+        Measurement is ground truth here — loads serialize under `_router_lock`, so the
+        growth between the snapshots is attributable to THIS load. The old under-count
+        worries (an evicted victim still draining at `before`, a co-resident idle-sleeping
+        mid-load) now degrade to a too-small reservation, which `_admit` handles with a
+        warning + the spawn safety nets — strictly better than a permanently-poisoned
+        ledger. The `_DRIVER_CTX_MB` floor keeps the original 2026-07-06 motivation: an
+        ngl-0 CUDA child still holds ~549 MB of driver context and must not book 0 when
+        the fit claimed GPU use. Unmeasurable (None either side) → the card-capped
+        estimate (deterministic offline)."""
+        cap = _hw_max_vram(hardware) if hardware is not None else 0
+        est = min(estimate_mb, cap) if cap > 0 else estimate_mb
         after = self._probe_used_vram()
         if before is None or after is None:
-            return estimate_mb
-        return max(estimate_mb, after - before)
+            return est
+        measured = max(0, after - before)
+        floor = min(est, _DRIVER_CTX_MB) if est > 0 else 0
+        return max(measured, floor)
 
-    def _admit(self, model_id: str, vram_mb: int, models_max: int, hardware) -> None:
+    def _embed_gpu_leftover_mb(self, hardware) -> int:
+        """The STATIC VRAM leftover an embedding child may claim: card total minus the
+        LOCAL chat default's curated floor (`min_vram_mb`). Static — NOT live free VRAM —
+        because the ask flow loads the embed BEFORE the chat model; a live reading would
+        see an empty card, place the embed on GPU, and the chat load then can't fit (the
+        2026-07-11 co-load crash). Baseline resolution, in order: the routing default's
+        LOCAL chat model's floor; empty (Plan-A boxes route via task presets, the global
+        default stays "") → the largest-floor DOWNLOADED local chat model — the embed
+        must co-exist with whatever big model this box actually runs; nothing
+        downloaded → the whole card (no co-residence yet). A named default with no
+        catalog row / no curated floor → 0 (conservative: the chat model is the
+        primary workload)."""
+        card = _hw_max_vram(hardware)
+        if card <= 0:
+            return 0
+        try:
+            chat_id = self._default_llm_id_fn() or ""
+        except Exception:  # noqa: BLE001 — a routing-store hiccup must never kill a load
+            chat_id = ""
+        if chat_id:
+            row = next((m for m in self.catalog() if m.id == chat_id), None)
+            floor = (row.recommended_for.min_vram_mb if row is not None else None) or 0
+            return max(0, card - floor) if floor > 0 else 0
+        floors = [
+            (m.recommended_for.min_vram_mb or 0)
+            for m in self.catalog()
+            if not getattr(m, "embedding", False)
+            and (m.recommended_for.min_vram_mb or 0) > 0
+            and cached_gguf_path(m.hf_repo, m.quant, cache_root=self._cache_root / "hf",
+                                 mmproj=m.mmproj) is not None
+        ]
+        if not floors:
+            return card
+        return max(0, card - max(floors))
+
+    def _apply_embed_placement(self, model, ov, meta, hardware) -> None:
+        """#274's missing half — the embed CPU-placement GUARANTEE. The pick rule
+        (ui modelPick.pickBestEmbedId) chooses WHICH embed rides a box assuming small
+        embeds run on CPU; nothing enforced it at load time, so llama.cpp's default
+        placement put the whole embed (weights + a 32k KV pool) on the GPU beside the
+        chat model (the 2026-07-11 incident). Rules, first match wins; an EXPLICIT tune
+        ngl always wins over the policy:
+          * ctx: capped at min(trained, _EMBED_CTX_CAP) unless a tune set it — an
+            embedding input is a ~1k-token chunk, never a chat context;
+          * tier "cpu" → ngl 0 (the ROUND-4 law: deliberately CPU on the user's box);
+          * curated floor fits the static leftover → GPU (the fit places it);
+          * otherwise (including no curated floor) → ngl 0.
+        ngl 0 is set as an EXPLICIT override so the `.ini` emits `n-gpu-layers = 0` —
+        fit-by-omission would hand placement back to the child's GPU-greedy `--fit`."""
+        if not getattr(model, "embedding", False):
+            return
+        if not ov.ctx_len:
+            trained = int(getattr(meta, "context_length", 0) or 0)
+            ov.ctx_len = min(trained, _EMBED_CTX_CAP) if trained > 0 else _EMBED_CTX_CAP
+        if ov.n_gpu_layers is not None:
+            return
+        if (getattr(model, "tier", "") or "") == "cpu":
+            ov.n_gpu_layers = 0
+            return
+        rec = getattr(model, "recommended_for", None)
+        need = (rec.min_vram_mb if rec is not None else None) or 0
+        if need <= 0 or need > self._embed_gpu_leftover_mb(hardware):
+            ov.n_gpu_layers = 0
+
+    def _admit(self, model_id: str, vram_mb: int, models_max: int, hardware,
+               *, ngl_explicit: bool = False, is_moe: bool = False,
+               stale_embed_ids: set | None = None) -> None:
         """Make room for a load: evict the LRU non-pinned resident(s) until `model_id` fits the VRAM
         budget AND the child count is under `models_max`. Accounts for `model_id`'s OWN prior
-        reservation (a re-tune replaces it, doesn't add) and never evicts `model_id`. If nothing is
-        evictable (only pinned models, or only `model_id` remains) it PROCEEDS anyway — the spawn OOM
-        back-off + the build's CPU auto-offload are the final safety nets. Caller holds `_router_lock`;
-        `hardware` is passed in (already detected) so the arbiter doesn't re-run nvidia-smi per loop."""
+        reservation (a re-tune replaces it, doesn't add) and never evicts `model_id`.
+
+        When nothing is evictable (only pinned models, or only `model_id` remains) and it still
+        doesn't fit: a DENSE entry with an EXPLICIT ngl is REFUSED with an actionable error
+        (2026-07-11) — the child's `--fit` auto-placement ABORTS on a user-set ngl ("n_gpu_layers
+        already set by user, abort"), so there is NO safety net and the spawn dies (observed:
+        `invalid vector subscript` on the draft load, then a 6-minute poll to timeout). Everything
+        else PROCEEDS with a warning — a MoE's fit estimate over-books (no `n-cpu-moe` term), so
+        refusing on it would block loads that actually fit; a fit-placed (ngl-omitted) entry keeps
+        the child's auto-offload as its net. Caller holds `_router_lock`; `hardware` is passed in
+        (already detected) so the arbiter doesn't re-run nvidia-smi per loop."""
         arb = self._arbiter
         own = arb.reserved_mb(model_id) or 0  # freeing our own reservation adds this back to the budget
         while True:
@@ -1339,8 +1466,30 @@ class RunnerService:
             n_others = arb.count() - (1 if arb.is_reserved(model_id) else 0)
             if fits and n_others < models_max:
                 return
-            victim = arb.pick_evict(exclude=model_id)
+            # A VRAM-driven eviction skips ~zero-VRAM victims (a CPU embed can't make a
+            # GPU model fit); a COUNT-cap eviction must remove a child regardless. A
+            # REPLACED embed (resident but no longer the routing default) goes FIRST
+            # under ANY constraint — dead weight; the embed slot swaps (2026-07-12).
+            over_count = n_others >= models_max
+            victim = None
+            if stale_embed_ids:
+                victim = arb.pick_evict(exclude=model_id, min_mb=0, among=stale_embed_ids)
             if victim is None:
+                victim = arb.pick_evict(exclude=model_id, min_mb=0 if over_count else _EVICT_MIN_MB)
+            if victim is None:
+                if not fits and ngl_explicit and not is_moe:
+                    others = ", ".join(sorted(k for k in self._resident if k != model_id)) or "none"
+                    raise RuntimeError(
+                        f"Not enough free VRAM to load {model_id!r}: it needs ~{vram_mb} MB but only "
+                        f"{arb.remaining_mb(hw=hardware) + own} MB remain and the resident models "
+                        f"({others}) are pinned. Unload a model, pick a smaller embedding model, or "
+                        f"lower this model's GPU layers in its tune."
+                    )
+                if not fits:
+                    log.warning(
+                        "arbiter: %s over budget (needs %d MB, %d MB remain) with nothing evictable"
+                        " — proceeding; the spawn safety nets decide",
+                        model_id, vram_mb, arb.remaining_mb(hw=hardware) + own)
                 return  # only pinned / just this model → proceed; the safety nets handle over-fit
             log.info("arbiter: evict LRU %s to make room for %s (needs %d MB)", victim, model_id, vram_mb)
             self._evict_resident(victim)
@@ -1406,6 +1555,9 @@ class RunnerService:
                         ov.spec_type = None
                         ov.spec_n_max = None
                 meta = self._read_meta(gguf)
+                # #274 half 2 — the same embed placement rule as the active-load path,
+                # so a PASSIVE section can't hand the embed to the child's GPU default.
+                self._apply_embed_placement(m, ov, meta, hardware)
                 fit = compute_fit(meta, gguf.stat().st_size, hardware, ov, safety_margin_mb=margin)
                 # Same 1b fit-by-omission rule as the active-load path above.
                 entries.append(ModelIniEntry(
@@ -1541,6 +1693,15 @@ class RunnerService:
         router_up = self._router is not None and self._router.is_alive()
         _, changed = self._emit_ini(override=entry)
         if not router_up:
+            # RECONCILE before a FRESH spawn (2026-07-11): the new router starts EMPTY,
+            # so resident entries + arbiter reservations left by a router that died
+            # OUTSIDE `stop()` are stale — a ghost embed's reservation kept ~3.6 GB
+            # booked and the header read 19.3/8 GB. Only this load's model survives.
+            for mid in [m for m in self._resident if m != entry.model_id]:
+                self._resident.pop(mid, None)
+                self._arbiter.release(mid)
+            if self._last_id != entry.model_id:
+                self._last_id = entry.model_id if entry.model_id in self._resident else ""
             server_exe = self._spawn_router_with_fallback(server_exe, config)
         else:
             server_exe = self._active_server_exe or server_exe
@@ -1548,13 +1709,18 @@ class RunnerService:
                 self._bounce_router(server_exe, config)
         self._router_load_with_backoff(entry, fit, server_exe, config)
 
-    def _confirm_load(self, model_id: str) -> str:
+    def _confirm_load(self, model_id: str, log_offset: int | None = None) -> str:
         """Poll `GET /models` until the child for `model_id` resolves. POST /models/load is
         ASYNC on b9644 (a 2xx only ACCEPTS; the child loads in the background — box-verified),
         so the 200 is NOT a load confirmation. Returns 'loaded' (status.value loaded|sleeping),
-        'failed' (value failed, or the router process itself died), or 'timeout' (still loading
-        past the deadline). Caller holds `_router_lock`. `_now`/`_sleep`/`_router_models` are
-        injected in tests so this polls deterministically offline."""
+        'failed' (value failed/error, the router process itself died, or — 2026-07-11 — the
+        CHILD died: a crashed child can leave the router reporting its id as still-`loading`
+        forever (the brick), so with `log_offset` set we also scan the router log appended
+        since this load's POST for the router's own `instance name=<id> exited with status`
+        death line; without it a corpse was polled for the full deadline, ~6.5 min observed),
+        or 'timeout' (still loading past the deadline). Caller holds `_router_lock`.
+        `_now`/`_sleep`/`_router_models` are injected in tests so this polls deterministically
+        offline."""
         deadline = self._now() + self._load_poll_timeout
         while True:
             router = self._router
@@ -1567,11 +1733,37 @@ class RunnerService:
             value = (live.get(model_id) or {}).get("value") or ""
             if value in ("loaded", "sleeping"):
                 return "loaded"
-            if value == "failed":
+            if value in ("failed", "error"):
+                return "failed"
+            if log_offset is not None and self._child_exited_since(model_id, log_offset):
                 return "failed"
             if self._now() >= deadline:
                 return "timeout"
             self._sleep(self._load_poll_interval)
+
+    def _router_log_size(self) -> int:
+        """Byte size of the live router log — the watermark `_confirm_load` scans from,
+        so a PREVIOUS attempt's exit line can't fail THIS load."""
+        try:
+            return os.path.getsize(self._last_log_path) if self._last_log_path else 0
+        except OSError:
+            return 0
+
+    def _child_exited_since(self, model_id: str, offset: int) -> bool:
+        """The fail-fast death signal (2026-07-11): the router logs a crashed child as
+        `instance name=<id> exited with status N` but can keep reporting the id as
+        still-`loading` (the brick). Scan only the bytes appended after `offset` (this
+        load's POST watermark). Same log-tail technique the OOM gate already uses."""
+        path = self._last_log_path
+        if not path:
+            return False
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                f.seek(max(0, offset))
+                appended = f.read()
+        except OSError:
+            return False
+        return f"instance name={model_id} exited with status" in appended
 
     def _router_load_with_backoff(self, entry: ModelIniEntry, fit, server_exe, config) -> None:
         """`POST /models/load` the model, then CONFIRM it went resident by polling `GET /models`
@@ -1593,8 +1785,11 @@ class RunnerService:
         while True:
             # POST accepts (2xx) or raises on a synchronous 4xx (bad id / at capacity) — the
             # latter is a real error, not OOM, so it propagates (→ _run_load sets error state).
+            # The log watermark is captured per attempt (a bounce swaps the log file), so the
+            # confirm's child-death scan only sees THIS attempt's lines (fail-fast, 2026-07-11).
+            log_offset = self._router_log_size()
             self._router_load(self._router.url, entry.model_id)
-            outcome = self._confirm_load(entry.model_id)
+            outcome = self._confirm_load(entry.model_id, log_offset=log_offset)
             if outcome == "loaded":
                 return
             # 1b-F4: a FIT-PLACED entry (ngl omitted → the child's own `--fit` placed
@@ -1672,6 +1867,7 @@ def configure_service(
     profile_switches_fn=None,
     identify_fn=None,
     embedding_ids_fn=None,
+    default_llm_id_fn=None,
     config_fn=None,
     hardware_fn=None,
     save_pin_fn=None,
@@ -1693,6 +1889,8 @@ def configure_service(
         kwargs["identify_fn"] = identify_fn
     if embedding_ids_fn is not None:
         kwargs["embedding_ids_fn"] = embedding_ids_fn
+    if default_llm_id_fn is not None:
+        kwargs["default_llm_id_fn"] = default_llm_id_fn
     if config_fn is not None:
         kwargs["config_fn"] = config_fn
     if hardware_fn is not None:

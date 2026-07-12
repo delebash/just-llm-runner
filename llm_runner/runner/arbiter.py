@@ -117,12 +117,36 @@ class VramArbiter:
                 self._seq += 1
                 r.seq = self._seq
 
-    def pick_evict(self, exclude: str | None = None) -> str | None:
+    def sync_pins(self, pinned_keys) -> None:
+        """Re-align every reservation's pinned flag with the LIVE pinned set (the routing
+        default embed). Pins were stamped at load time and never re-checked, so a REPLACED
+        embed kept its stale pin and deflected a count-cap eviction onto the chat model
+        (2026-07-12: switching the embed 0.6B→4B evicted Gemma). Called before every
+        admission so protection always follows the CURRENT default."""
+        keys = set(pinned_keys or ())
+        with self._lock:
+            for k, r in self._reservations.items():
+                r.pinned = k in keys
+
+    def pick_evict(self, exclude: str | None = None, min_mb: int = 0, among=None) -> str | None:
         """The least-recently-used NON-pinned reserved key, or None if nothing is evictable (empty,
         every reservation pinned, or only `exclude` remains). `exclude` keeps the model currently
-        being (re)loaded from evicting itself."""
+        being (re)loaded from evicting itself.
+
+        `min_mb` (2026-07-11): for a VRAM-driven eviction, skip reservations holding less than
+        this — evicting a CPU-placed embed (~0–550 MB driver context) can't make a GPU model
+        fit, but it DOES kill the warm embed child the RAG rail wants resident (observed live:
+        a chat-model admission evicted the CPU 4B for nothing). A COUNT-driven eviction passes
+        0 (a child must go regardless of how little VRAM it holds).
+
+        `among` (2026-07-12): restrict candidates to this key set — the embed-swap pass
+        evicts a REPLACED embed before anything else touches the chat model."""
         with self._lock:
-            cands = [(r.seq, k) for k, r in self._reservations.items() if not r.pinned and k != exclude]
+            cands = [
+                (r.seq, k) for k, r in self._reservations.items()
+                if not r.pinned and k != exclude and r.vram_mb >= min_mb
+                and (among is None or k in among)
+            ]
             return min(cands)[1] if cands else None
 
     def snapshot(self, hw=None) -> dict:

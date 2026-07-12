@@ -121,3 +121,38 @@ def test_cpu_only_box_zero_budget():
     a = _arb(0)  # no GPU
     assert a.remaining_mb() == 0
     assert a.can_coreside(1) is False
+
+
+def test_pick_evict_min_mb_skips_small_reservations():
+    # 2026-07-11: VRAM-driven eviction skips ~zero-VRAM victims (a CPU-placed embed's
+    # driver-context crumbs) — freeing them can't make a GPU model fit, but it kills
+    # the warm embed child. min_mb=0 (the count-driven path) keeps the old behavior.
+    a = _arb(8000)
+    a.reserve("tiny", 44)     # oldest → LRU, but sub-threshold
+    a.reserve("big", 4000)
+    assert a.pick_evict(min_mb=600) == "big"   # LRU says "tiny"; the threshold skips it
+    a.release("big")
+    assert a.pick_evict(min_mb=600) is None    # only the tiny one left → nothing evictable
+    assert a.pick_evict() == "tiny"            # count-driven (min_mb=0) still picks it
+
+
+def test_sync_pins_realigns_to_current_default():
+    # 2026-07-12: pins were stamped at load time and never re-checked — a REPLACED embed
+    # kept its stale pin and deflected a count-cap eviction onto the chat model.
+    a = _arb(8000)
+    a.reserve("old-embed", 500, pinned=True)   # was the default when it loaded
+    a.reserve("new-embed", 500)
+    a.sync_pins({"new-embed"})                 # the default moved
+    assert a.pick_evict() == "old-embed"       # stale pin cleared → evictable
+    a.release("old-embed")
+    assert a.pick_evict() is None              # the CURRENT default is now the pinned one
+
+
+def test_pick_evict_among_restricts_candidates():
+    # The embed-swap pass evicts a REPLACED embed before anything else (2026-07-12).
+    a = _arb(8000)
+    a.reserve("chat", 5000)         # LRU — the default pick without `among`
+    a.reserve("stale-embed", 550)
+    assert a.pick_evict(among={"stale-embed"}) == "stale-embed"
+    assert a.pick_evict(among={"absent"}) is None
+    assert a.pick_evict() == "chat"

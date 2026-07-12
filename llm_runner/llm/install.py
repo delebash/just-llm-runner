@@ -181,6 +181,16 @@ def install_llm(
 
         return get_service().preview_fit(model_id)
 
+    def _stop_runner_best_effort() -> None:
+        # Full runner teardown (unload every child + clear the VRAM ledger). Lazy import
+        # + broad except: a reset must never fail because no runner is configured here.
+        try:
+            from ..runner.lifecycle import get_service
+
+            get_service().stop()
+        except Exception:  # noqa: BLE001
+            logging.getLogger(__name__).warning("runner stop on reset failed", exc_info=True)
+
     app.include_router(make_catalog_router(
         stores.get_model_catalog_store,
         class_picks_fn=stores.list_class_picks,
@@ -199,6 +209,10 @@ def install_llm(
         # resolved-defaults?excludeTune=1 → the modal's "Refresh from defaults".
         resolve_baseline_origins=lambda mid: switch_resolve.resolve_model_switches_with_origins(
             mid, "", _current_class_key()),
+        # Reset = clean slate INCLUDING the runner (2026-07-11, user decision): unload
+        # every resident model + clear the VRAM ledger, so nothing keeps running under
+        # pre-reset rows/tunes while the UI claims the new config is active. Best-effort.
+        on_reset=_stop_runner_best_effort,
     ))
     app.include_router(make_pricing_router(stores.get_pricing_store))
     # Per-model embed task templates (Move 0, RAG build): CRUD + the resolver
@@ -320,7 +334,8 @@ def _wire_runner_catalog(data_dir=None) -> None:
                 id=r.id, name=r.name, tier=r.tier, hf_repo=r.hfRepo, quant=r.quant, mmproj=r.mmproj,
                 total_params=r.totalParams or None, active_params=r.activeParams or None, mtp=r.mtp,
                 mtp_draft_repo=r.mtpDraftRepo, mtp_draft_file=r.mtpDraftFile, mtp_draft_quant=r.mtpDraftQuant,
-                pooling=r.pooling, min_ram_mb=r.minRamMb, recommended_for=RecommendedFor(min_vram_mb=r.minVramMb),
+                pooling=r.pooling, embedding=r.embedding, min_ram_mb=r.minRamMb,
+                recommended_for=RecommendedFor(min_vram_mb=r.minVramMb),
             )
             for r in stores.get_model_catalog_store().list()
         ]
@@ -337,6 +352,17 @@ def _wire_runner_catalog(data_dir=None) -> None:
         if d.embeddingId == "local-llamacpp" and d.embeddingModel:
             return {d.embeddingModel}
         return set()
+
+    def default_llm_id_fn() -> str:
+        # The catalog id the routing default points at the bundled runner as the CHAT
+        # provider — the embed CPU-placement guarantee's STATIC baseline (#274 half 2,
+        # 2026-07-11): an embedding child only gets the GPU room the card can spare
+        # BESIDE this model's curated floor. "" when the chat default is cloud/Ollama
+        # (no local co-residence to protect → the embed may use the whole card).
+        d = stores.get_routing_store().get_routing().default
+        if d.llmId == "local-llamacpp" and d.model:
+            return d.model
+        return ""
 
     def switches_fn(model_id: str):
         # Layered model-level resolution (base → type(moe|dense) → gated auto-mtp →
@@ -373,6 +399,7 @@ def _wire_runner_catalog(data_dir=None) -> None:
     configure_service(
         catalog_fn=catalog_fn, switches_fn=switches_fn,
         identify_fn=identify_fn, embedding_ids_fn=embedding_ids_fn,
+        default_llm_id_fn=default_llm_id_fn,
         config_fn=stores.build_runner_config,
         save_pin_fn=save_pin_fn,
         cache_root=(str(Path(data_dir) / "ai-cache") if data_dir else None),

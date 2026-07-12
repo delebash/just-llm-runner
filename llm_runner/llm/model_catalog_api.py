@@ -186,6 +186,9 @@ def make_catalog_router(
     # tune. Serves resolved-defaults?excludeTune=1, which "Refresh from defaults"
     # loads into the Tune grid (what the model would run with no applied config).
     resolve_baseline_origins: Callable[[str], tuple[dict[str, str], dict[str, str]]] | None = None,
+    # A catalog reset is a config clean-slate (2026-07-11, user decision): the host wires
+    # this to the runner's full stop() so no child keeps running under pre-reset facts.
+    on_reset: Callable[[], None] | None = None,
 ) -> APIRouter:
     """CRUD + reset for the per-model llama.cpp catalog. When
     `resolve_switches(model_id) -> {flag_name: value}` is given, also expose
@@ -221,6 +224,8 @@ def make_catalog_router(
     @router.post("/model-catalog/reset", response_model=CatalogResponse)
     async def reset_catalog() -> CatalogResponse:
         get_store().reset_to_factory()
+        if on_reset is not None:
+            on_reset()
         return _list()
 
     if resolve_switches is not None:

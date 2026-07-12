@@ -15,9 +15,9 @@
 > seed-facts audit script (11/11 live). **Still open FROM that work: the §G box checks on the
 > user's Windows machine (the orphan kill-on-death proof · computed ctx == 32768 · sweep parity ·
 > untuned fit-placed boot · the opt-out sweep UX · llama-fit-params in the win zip) and the
-> ledger items A5 · D6 + the D4-1 leg-3 factory-default follow-up (filed in that plan's
-> Phase 2 record). C9 was in this list until 2026-07-10 — closed ⛔ NOT DOING on the user's
-> word ("c9 mark as not doing"; see §C9).**
+> ledger item D6 + the D4-1 leg-3 factory-default follow-up (filed in that plan's
+> Phase 2 record) — A5 shipped (see §A5; banner corrected 2026-07-12). C9 was REMOVED
+> 2026-07-12 on the user's word; it had been closed ⛔ NOT DOING since 2026-07-10.**
 >
 > Supersedes, as the outstanding-work view only: the open-item scatter across `2026-06-28-MASTER-PLAN.md` (the roadmap archive — **fully folded 2026-07-08 via §I below**, so the master never needs to be opened as a tracker again), `2026-06-28-ai-state-grid.md` (whose two ⚠ forks are now: per-model-tune-save → RESOLVED by Plan B; json-grammar → item C1 here), and the per-plan LIVE trackers (which stay authoritative for their own shipped history).
 
@@ -72,44 +72,11 @@
 - **C8 — QuickSetup back to LOCAL-ONLY — ✅ SHIPPED 2026-07-06 (user directive: "quick setup is for local only… remove the connect provider… we dont need a drop down for providers"; full design + record in `2026-07-06-a-to-e-execution.md` §C8).** A USER REVERSAL of the 2026-07-05 Option-2 other-provider decision (the one actor allowed): the "Run models with" selector, the in-wizard connect flow (detected-local rows + the hardcoded PROVIDER_PRESETS cloud chips + key input), and the external apply path are REMOVED from `QuickSetup.vue` — the wizard configures the bundled runner only; external providers connect on the provider list (ProviderForm, which keeps the shared `useProviderConnect` presets/probe/create). Adjacencies: `detectLocal` pruned (the cut removed its only consumer; the server endpoint remains) and the committed wizard probe got a found-and-fixed (its hardcoded "Nomic" embed assertion was stale vs the evolved ladder + seeded routing — now data-driven, + two local-only negative assertions); `qs-otherprovider-probe.mjs` deleted (its subject is gone); `models.md` §Quick Setup rewritten local-only. Verified: build clean · vitest 29/29 · full smoke zero JS errors · the fixed probe 9/9 (open → confirm → stubbed Apply → done, 0 page errors). The user's item 3 ("changing default model doesn't actually do anything") was WITHDRAWN by the user ("dont worry about 3").
 - **C7 — prune the dead `useRunnerModels.load()`/`unload()` exports — ✅ SHIPPED 2026-07-06 (user's go "do c7", same day it was filed; implementation record in `2026-07-06-a-to-e-execution.md` §C7).** The two functions + their return-object entries are deleted; the stale comments fixed both sides (`useRunnerModels.js` header/`loadingId`/`download()` notes; `LuModelCatalog.vue`'s pre-Phase-2 header rewritten to the fit-grouped-list + Download/Set-as-default/Set-as-embedding truth); `loadErr`/`needsEngine`/poller/download machinery untouched. Verified: build clean · vitest 29/29 · full headless smoke zero JS errors with the provider-form probe green · zero residual references · the served-module check proved the smoke ran the pruned code. Bundled: the fast-9B QuickSetup optional **DECIDED NO** (user, "no 9b quick setup") — annotated at `2026-07-03-model-setup-simplification.md:344`. The original filing record follows for history: The audit finding, code-verified: `ui/src/composables/useRunnerModels.js` still defines `load()` (:103) and `unload()` (:115) and returns both from `useRunnerModels()` (:153), but their ONLY consumer — LuModelCatalog's Load/Unload buttons — was removed in the model-surface Phase 2 redesign (catalog actions became Download / Set-as-default / Set-as-embedding). The recap deliberately deferred the prune "until the residency/4b surface is finalized … to avoid speculative churn on the shared singleton" — and §H6 then CLOSED-DROPPED 4b (the user's recorded call: no per-model residency controls), which fulfilled the prune condition, but nobody filed the prune. Verified dead 2026-07-06: `LuModelCatalog.vue` calls only `download()` (:411); `QuickSetup.vue` drives the runner directly (`request("/v1/llm-runner/load")` at :372 with its own status poll at :395); JW and JV have zero references (symbol greps both apps). Scope when built: delete the two functions + their return-object entries + fix LuModelCatalog's stale header comment (its ":7 …loads/unloads" line still describes the removed buttons); the `needsEngine`/`loadErr` machinery STAYS — it feeds the catalog's engine-not-installed CTA off the status poll, not off `load()`. Size: tiny, mechanical. (Paths reflect the post-C6 locations.)
 
-- **C9 — the model-quality research — ⛔ NOT DOING (user, 2026-07-10, verbatim: "c9 mark as not
-  doing"). CLOSED without the research half; do not re-file without a fresh user ask.** What
-  stands as shipped: the candidates ARE in the catalog (the 2026-07-06 Gemma-first lineup,
-  non-default) and the guardrails below remain binding for any future candidate work. What is
-  NOT being done: the Lab A/B rank evidence (Gryphe + the ablated build + 31B-vs-26B for
-  writing), the `model_class_picks` evidence fill, and the Gemma quality_rank re-grounding —
-  the rank keeps its annotated reasoned-not-instrument-cited basis. The original filing record
-  follows for history: class→model map contents + rank re-grounding + the candidate
-  evaluations — CANDIDATES NOW IN THE CATALOG (2026-07-06 Gemma-first lineup, non-default, see the
-  providers-surface doc §GEMMA-FIRST LINEUP); the RESEARCH HALF (Lab A/B rank evidence: Gryphe +
-  the ablated build + 31B-vs-26B for writing) NOT STARTED (user-filed 2026-07-06: "add todo for model research", from
-  TurboLLM Discover screenshots; consolidates the follow-up recorded in the model-per-hardware
-  plan §Out-of-scope). PURPOSE: fill the Phase-3 `model_class_picks` map with evidence, re-ground
-  Gemma's quality_rank 9 (currently annotated reasoned-not-instrument-cited), and evaluate the
-  writing-use-case candidates. THE CANDIDATE LIST so far:
-  1. **Gryphe/Gemma-4-26B-A4B-StyleTune-V2** (carried from the 2026-07-06 five-model scoring — the
-     one credible candidate; maker-reputation + license + EQ-Bench-creative + Lab A/B).
-  2. **HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP** — the refusal-ablated
-     26B-A4B build the user wants evaluated **for fiction writers** (stock refusal behavior
-     blocking dark/violent/romance prose is a real writing-app failure). Card facts to re-verify
-     per-repo at research: QAT Q4_K_M ≈ 16.8 GB, in-repo MTP draft (252 MB; claimed ~35% faster
-     with identical output), vision mmproj, maker-recommended sampling (temp 0.6 · top_k 64 ·
-     top_p 0.9 · min_p 0.05 · repeat_penalty 1.1 — seedable `model_samplers` rows if adopted),
-     author-claimed clean refusal benchmarks (updated Jun 24 2026; 55.3K downloads).
-  **TRIMMED 2026-07-06 (user: "keep gryphe and abliterateed huahau 27b")** — the list is now the
-  two candidates above; **DROPPED**: unsloth/gemma-4-31B-it-qat-GGUF (31B dense, 24 GB-class) and
-  HauhauCS/Gemma4-31B-QAT-Uncensored (its ablated sibling). ⚠ Interpretation note: the user wrote
-  "huahau 27b" — no 27B exists in the set; read as the **26B-A4B** ablated build (the user calls
-  their 26B-A4B daily driver "27b"). If the 31B was meant instead, say so and this flips.
-  GUARDRAILS (the recorded pushback stands): community fine-tunes/ablations NEVER seed as DEFAULTS
-  without maker-reputation + first-party-verified license + an instrument or Lab win; catalog
-  INCLUSION and default-ELIGIBILITY are separate calls; the license of every candidate is checked
-  via the HF API including the `base_model` chain (the Phase-5 de-circularized method — derivatives
-  of Gemma 4 should inherit Apache-2.0, but each repo's actual tag gets verified, never assumed);
-  the "uncensored" positioning additionally needs the user's explicit use-policy word before any of
-  them becomes a default anywhere. METHOD: HF-API facts + license per candidate → leaderboards /
-  EQ-Bench-creative where listed → Lab A/B on the user's box → map rows + rank updates land as
-  SEED DATA through Phase 3's expression point.
+- **C9 — REMOVED 2026-07-12 (user's word: "remove c9").** Was the model-quality research (Lab
+  A/B rank evidence · `model_class_picks` fill · Gemma rank re-grounding), closed ⛔ NOT DOING
+  since 2026-07-10. The full closed record — candidate list, guardrails, method — lives in git
+  history and the providers-surface doc §GEMMA-FIRST LINEUP. The candidates stay in the catalog
+  (non-default). Do not re-file without a fresh user ask.
 
 ## D. Decisions only the user can make (nothing buildable until then)
 
@@ -234,7 +201,7 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   converged (behavior-preserving; `|| {}` lives in the helper); and the **writerAI**
   no-strip latent bug is FIXED — its local `htmlToText` converged onto the shared one,
   which always strips `.ai-del`/`.ai-ins` so the model never re-reads its own diff markup.
-  **THE JUDGMENT LEGS SHIPPED (2026-07-12, JW `b904ff5`+`bfcd48e`+`e4ca0db`+`849eae4`):**
+  **THE JUDGMENT LEGS SHIPPED (2026-07-12, JW `5f1fa30`+`8491321`+`3f457f9`+`a575715`, post-rebase shas):**
   (1) voiceDrift **TAIL re-applied** per the 2026-07-11 decision — shared `tailWords`
   imported, local head-taking fork deleted, text.js header credits it converged;
   (2) the **CSS clones promoted** to the ONE `styles.css` "Entity library" `.entity-*`
@@ -251,12 +218,14 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   versionDiff's no-strip stays (correct — it diffs raw stored content).
   **STILL REMAINING in I1:** the `useEntityCrudView` composable DECISION (now also
   carries the 7 deliberately-inline `?new` focus-watches as riders — they converge
-  if it's built); the gate ratchets (extend `check-shared-pickers`, jscpd ratchet, the
-  i18n `SettingsView.startNew` key); a text.test.js (needs a DOM env — vitest is node-env);
-  three small recorded follow-ups (SettingsView's pre-existing `.wb-search*` fragment →
-  fold into `.entity-*` · CommandPalette entity creates lack the `?new` focus parity ·
+  if it's built); three small recorded follow-ups (SettingsView's pre-existing `.wb-search*`
+  fragment → fold into `.entity-*` · CommandPalette entity creates lack the `?new` focus parity ·
   promote the popup-probe from the session scratchpad to `scripts/` if a standing guard
-  is wanted). SCENE-MARK DECISION — DECIDED (2026-07-10): **KEEP.** critique /
+  is wanted). **REGROUNDED 2026-07-12:** a `text.test.js` now EXISTS
+  (`src/renderer/src/services/__tests__/text.test.js` — 6 cases over `textToHtml`; the
+  `htmlToText` DOM sliver stays deferred to smoke/probes by design), so it is DONE, not
+  remaining; the gate ratchets (extend `check-shared-pickers`, jscpd ratchet, the i18n
+  `SettingsView.startNew` key) are DEFERRED per the user's "dont do gates" (2026-07-12). SCENE-MARK DECISION — DECIDED (2026-07-10): **KEEP.** critique /
   entityExtraction / readerKnowledge / threadExtraction continue to see the
   scene-break marks in their LLM input (`stripSceneMarks:false`) — the
   manuscript-standard "* * *" cut is a real signal the model should read;

@@ -234,18 +234,29 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   converged (behavior-preserving; `|| {}` lives in the helper); and the **writerAI**
   no-strip latent bug is FIXED — its local `htmlToText` converged onto the shared one,
   which always strips `.ai-del`/`.ai-ins` so the model never re-reads its own diff markup.
-  **DECIDED (2026-07-11 — user took the rec, "you know better, i'll take your rec"):
-  converge to TAIL.** voiceDrift will use the shared `tailWords` (`slice(-max)`), dropping
-  its local head-taking fork + the misleading name in one move. Correctness is a wash
-  (chapter opening vs ending as the illustrative excerpt); the one-shared-helper cleanliness
-  (T3) is the tie-breaker, and "most recent prose" matches the name. **NOT YET RE-APPLIED** —
-  re-do the reverted 2-line change (import `tailWords` from `../text.js`, delete the local
-  fn; restore the `text.js` header to credit voiceDrift as converged) as the first clean
-  task next session; it was already built + rules-checker-verified once. versionDiff's no-strip stays (correct — it diffs raw stored
-  content). **STILL REMAINING (judgment, a Fable window):** the RULE-5 new-entity-popup
-  audit (#34); promoting the big CSS clones to `styles.css`; the `useEntityCrudView`
-  composable idea; the gate ratchets (extend `check-shared-pickers`, jscpd ratchet, the
-  i18n `SettingsView.startNew` key); a text.test.js (needs a DOM env — vitest is node-env). SCENE-MARK DECISION — DECIDED (2026-07-10): **KEEP.** critique /
+  **THE JUDGMENT LEGS SHIPPED (2026-07-12, JW `b904ff5`+`bfcd48e`+`e4ca0db`+`849eae4`):**
+  (1) voiceDrift **TAIL re-applied** per the 2026-07-11 decision — shared `tailWords`
+  imported, local head-taking fork deleted, text.js header credits it converged;
+  (2) the **CSS clones promoted** to the ONE `styles.css` "Entity library" `.entity-*`
+  family — byte-identical across SEVEN full-shape views + Architecture's table leaves
+  (the census undercounted four times; the plan now carries an anti-undercount law),
+  all 8 views repointed, undo-probe selectors repointed, zero-visual-change proven
+  (8 views byte-identical screenshots; list views differ only in offline-font AA);
+  (3) the **RULE-5 popup audit (#34) DONE** — eleven name-popup→detail double-steps
+  collapsed to DIRECT→FORM + focus-and-select via `?new=1` (chapters land title-focused);
+  worldbuilding creates KEPT as popups (F6 verified: its detail form has no category
+  selector — the popup is load-bearing); every single-step popup kept per the per-unit
+  KEEP table. Full record: the queue doc tail "I1 JUDGMENT LEGS BUILD RECORD"; the plan
+  is committed at `justwrite-app/docs/plans/2026-07-12-i1-css-popup-voicedrift.md`.
+  versionDiff's no-strip stays (correct — it diffs raw stored content).
+  **STILL REMAINING in I1:** the `useEntityCrudView` composable DECISION (now also
+  carries the 7 deliberately-inline `?new` focus-watches as riders — they converge
+  if it's built); the gate ratchets (extend `check-shared-pickers`, jscpd ratchet, the
+  i18n `SettingsView.startNew` key); a text.test.js (needs a DOM env — vitest is node-env);
+  three small recorded follow-ups (SettingsView's pre-existing `.wb-search*` fragment →
+  fold into `.entity-*` · CommandPalette entity creates lack the `?new` focus parity ·
+  promote the popup-probe from the session scratchpad to `scripts/` if a standing guard
+  is wanted). SCENE-MARK DECISION — DECIDED (2026-07-10): **KEEP.** critique /
   entityExtraction / readerKnowledge / threadExtraction continue to see the
   scene-break marks in their LLM input (`stripSceneMarks:false`) — the
   manuscript-standard "* * *" cut is a real signal the model should read;

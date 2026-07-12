@@ -6641,3 +6641,93 @@ visually next app boot) · what exactly deleted the 0.6B weights midday 2026-07-
 (Reset catalog EXONERATED — `reset_to_factory` is row-only; suspects: the row
 Delete / Re-download cache-clear, or a pre-fix-5 verify purge on an AV race) ·
 follow-up #2 (4B default) rides the user's A/B.
+
+---
+
+**I1 JUDGMENT LEGS BUILD RECORD (2026-07-12 — voiceDrift TAIL re-apply · the
+CSS `.entity-*` promotion · the RULE-5 new-entity-popup audit #34 — SHIPPED,
+four commits, JW `b904ff5` + `bfcd48e` + `e4ca0db` + `849eae4`, unpushed at
+record time pending the user's word).** The user's go, verbatim: "i will take
+your rec on voice drift, do css, rule 5, you plan let opus do all the work."
+The plan was written in plan mode from two Opus Explore sweeps (the CSS
+strict-diff table and the app-wide create-flow census), panel-checked by two
+independent Opus rules-checkers (grounding + design lenses), and its committed
+copy is `justwrite-app/docs/plans/2026-07-12-i1-css-popup-voicedrift.md` —
+the panel FAILED the first draft twice and both rounds changed it materially:
+the CSS census undercounted FOUR times in total across the whole effort
+(4 views → 7 views → +ArchitectureView's table leaves in two waves →
++.ch-tags/.arch-desc/.notes-tag-empty found by the execution checker), which
+is why the plan now carries an anti-undercount law (a complete
+per-declaration strict-diff verdict per touched view, report-back on anything
+unlisted); and the flow audit was missing a verdict row for ChaptersView's
+outline addSceneToChapter, whose same-named Sidebar sibling gets the OPPOSITE
+verdict (outline stays = KEEP, sidebar navigates = collapse).
+
+What shipped, per task. TASK 1 (`b904ff5`): voiceDrift.js imports the shared
+tailWords (text.js slice(-max)) and its local head-taking fork is deleted; the
+text.js header now lists exactly three genuine variants (versionDiff
+no-strip · voiceFingerprint whitespace-collapse · labTestData
+blank-line-collapse) and credits writerAI + voiceDrift as converged. TASK 2
+(`bfcd48e`, +306/−760): the byte-identical list shape (toolbar/search/
+search-icon/search-input/count/facets/facet/facet-label/chip/table/
+status-empty/empty) and detail shape (name-input+hover+focus · pane-header
+gap · desc · cell-title stacked + cell-inline row + title-text + cell-sub +
+tags) moved to ONE "Entity library" section in styles.css; all eight views
+(the 7 full-shape + Architecture's leaves) repoint; genuine variants stay
+scoped per the plan's per-view lists; undo-probe's five input.character-name
+selectors repointed to input.entity-name. Zero-visual-change was proven the
+hard way: 8 detail/architecture screenshots BYTE-identical before/after; the
+7 list views differ only in facet-chip glyph anti-aliasing (Δ≤49, geometry/
+borders/colors pixel-identical, same signature across files edited hours
+apart by different actors, after==after2 byte-equal) — the app's UI font
+falls back offline (google-fonts blocked in the container) and fallback
+rasterization varies per browser launch; judged a capture artifact, not CSS.
+TASK 3 (`849eae4`): eleven P→FORM double-steps collapsed to the app's own
+CommandPalette DIRECT→FORM precedent — create default-named, land on the
+detail page with ?new=1, the view focuses AND selects the name input then
+strips the query (chapters land in the editor title-focused; the store's
+addChapter has NO title default so the title starts empty — recorded). The
+F6 conditionals did their job: chapters/scenes verified their inline-title
+affordances and collapsed; WORLDBUILDING verified NO — its detail form has no
+category selector, so its popup is load-bearing and BOTH WB creates stay
+popups (recorded in whats-new's user copy). NEW_ENTITY_META pruned to the one
+live worldbuilding entry. Every P→STAY popup untouched per the plan's
+per-unit KEEP list.
+
+THE PROCESS EVENT OF THE WINDOW — the hook change (`e4ca0db`), the user's own
+word ("i want opus to do these edit so make that gate change, it costs to
+much for you to do it"): the pre-task edit DENY was a structural DEADLOCK for
+subagents in this SDK environment — their rules-checker verdicts arrive as
+task-notifications in the coordinator's transcript, never their own, so a
+delegated build agent could never clear the gate (observed live: agent A
+burned three checker rounds without landing one edit; even run_in_background:
+false is force-launched async here). Resolution history: first the user chose
+"coordinator edits inline" (AskUserQuestion), and Tasks 1+2's first six views
+landed that way; mid-flight the user redirected on cost, so
+claude-config/hooks/pre-action-check.py gained a SIDECHAIN BYPASS — a
+subagent edit (isSidechain on the newest transcript entry) skips the pre-task
+deny; the per-edit nudge still fires and the main-session deny/.md
+exemption/Stop gate/commit-gate are untouched; unknown field fails SAFE
+(deny stays armed). Fixture-proven (SIDECHAIN=NUDGE · MAIN-FIRST-EDIT=DENY ·
+MD=NUDGE) + the committed harness test_gates.py 7/7; applied live by copy.
+After the change, agent A2 (WB+Arch+probe) and agent B (the whole Task 3)
+built without a single deny.
+
+Gates, all green, run per commit: vitest 135/135 · build:vite · biome clean ·
+undo-probe 19/19 (post-repoint) · the NEW popup-probe 54/54 (in the session
+scratchpad; each collapsed flow lands focused+selected, typing replaces,
+page-⌘Z removes the create; WB-popup + StatusSelect KEEP legs pass; DB left
+as found) · FULL headless smoke zero JS errors (twice) · one genuine Opus
+diff rules-checker VERDICT: PASS per code commit (Tasks 1+2 combined, then
+Task 3). DB restored byte-exact after teardown (sha 0be0e2ef…).
+
+FOLLOW-UPS RECORDED, NOT BUILT (each needs a word): (1) SettingsView.vue
+:1819-1825 carries a pre-existing byte-identical .wb-search* fragment +
+.set-desc strong outside the locked F1 scope — fold into .entity-* on a
+future pass. (2) CommandPalette's entity DIRECT creates lack the ?new=1
+focus-select (they were "already conformant" and out of scope) — a fast-follow
+for parity. (3) The 7 inline focus-watches are byte-identical by design (plan
+flag F9 — no new abstraction ahead of the useEntityCrudView decision); they
+RIDE that decision and must not quietly persist if it stalls. (4) The
+popup-probe lives in the session scratchpad, not committed — promote to
+scripts/ if the flows need a standing guard.

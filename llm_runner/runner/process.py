@@ -412,6 +412,15 @@ def _looks_like_oom(text: str) -> bool:
     ))
 
 
+def _looks_like_draft_failure(text: str) -> bool:
+    """The MTP/speculative-decode draft-load crash (2026-07-12): llama.cpp's router
+    crashes the DRAFT model ('invalid vector subscript') when it loads beside another
+    LOADING/active child — the co-load bug. The signature is the router's own
+    'failed to load draft model' line; the load backoff recovers by loading the
+    draft-carrying model solo (co-residents unloaded), never losing speculative decoding."""
+    return "failed to load draft model" in (text or "").lower()
+
+
 def _default_health(url: str) -> bool:
     try:
         return requests.get(url + "/health", timeout=2).status_code == 200

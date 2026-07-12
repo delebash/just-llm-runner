@@ -14,7 +14,7 @@ import pytest
 from llm_runner.runner.arbiter import VramArbiter
 from llm_runner.runner.download import DownloadCancelled
 from llm_runner.runner.lifecycle import CorruptModelError, RunnerService
-from llm_runner.runner.process import FitPlan, Overrides
+from llm_runner.runner.process import FitPlan, ModelIniEntry, Overrides
 from llm_runner.runner.schema import GpuInfo, HardwareInfo, ModelEntry, RecommendedFor
 
 
@@ -2103,3 +2103,149 @@ def test_embed_leftover_falls_back_to_downloaded_chat_floor(tmp_path):
     svc._thread.join(timeout=5)
     section = _ini(svc).split(f"[{_EMBED_MID.id}]", 1)[1].split("\n[", 1)[0]
     assert "n-gpu-layers = 0" in section
+
+
+# ── 2026-07-12: embed switch must NOT churn the .ini (Fix A) ──────────────────
+
+def test_ini_stable_across_embed_default_switch(tmp_path):
+    # Switching the embedding default moved the `embeddings = true` marker between
+    # sections → the .ini text changed → _bounce_router reloaded Gemma + the incoming
+    # embed at once → Gemma's MTP draft crashed on the co-load. All embed sections are
+    # now marked regardless of which is the default, so the .ini is byte-stable across a
+    # switch (no bounce, the chat model never disturbed).
+    active = {"id": _EMBED_CPU.id}
+    svc = _service_for(tmp_path, catalog=[_EMBED_CPU, _EMBED_MID, _CHAT_26B],
+                       embedding_ids_fn=lambda: {active["id"]},
+                       hardware_fn=lambda: _fake_hw(8192))
+    svc._last_ini_text = ""
+    svc._emit_ini()
+    ini_a = _ini(svc)
+    active["id"] = _EMBED_MID.id      # the user switches the default embed
+    svc._last_ini_text = ""           # force a rewrite so we compare the RESOLVED text
+    svc._emit_ini()
+    ini_b = _ini(svc)
+    assert ini_a == ini_b             # byte-identical → no bounce on switch
+    assert ini_a.count("embeddings = true") == 2   # BOTH embeds marked, not just the default
+    assert "[chat-26b]" in ini_a and "embeddings = true" not in \
+        ini_a.split("[chat-26b]", 1)[1].split("\n[", 1)[0]  # the chat section is not an embed
+
+
+# ── 2026-07-12: MTP draft co-load crash recovers WITHOUT dropping MTP (Fix B) ──
+
+_GEMMA_MTP = ModelEntry(id="gemma-4-26b-a4b-qat", name="Gemma", tier="low-vram-moe",
+                        hf_repo="org/gemma-GGUF", quant="Q4_K_XL",
+                        recommended_for=RecommendedFor(min_vram_mb=6000))
+
+
+def _mtp_entry():
+    ov = Overrides(spec_type="draft-mtp", spec_n_max=2, model_draft="/x/mtp-draft.gguf")
+    return ModelIniEntry(model_id=_GEMMA_MTP.id, gguf_path="/x/gemma.gguf",
+                         n_gpu_layers=30, n_cpu_moe=21, ctx_len=32768, overrides=ov)
+
+
+def _mtp_fit():
+    return FitPlan(n_gpu_layers=30, n_cpu_moe=21, ctx_len=32768, block_count=48,
+                   is_moe=True, vram_mb=6000, ngl_explicit=True, ncmoe_explicit=True,
+                   ctx_explicit=True)
+
+
+def _draft_crash_log(tmp_path):
+    p = tmp_path / "router.log"
+    p.write_text("E llama_model_load: error loading model: invalid vector subscript\n"
+                 "E srv load_model: failed to load draft model, '/x/mtp-draft.gguf'\n")
+    return p
+
+
+def test_draft_crash_unloads_coresident_and_keeps_mtp(tmp_path):
+    # Stage 1 (cheap, no restart): the draft crashes beside the resident embed → the embed
+    # is unloaded so the draft loads SOLO, and the entry KEEPS its draft (MTP preserved —
+    # never dropped for a transient co-load race).
+    unloaded = []
+    state = {"embed_up": True}
+
+    def models(_url):
+        gemma = "failed" if state["embed_up"] else "loaded"   # loads once the embed is gone
+        return {"object": "list", "data": [
+            {"id": _GEMMA_MTP.id, "status": {"value": gemma}},
+            {"id": _EMBED_CPU.id, "status": {"value": "loaded"}},
+        ]}
+
+    def unload(_url, mid):
+        unloaded.append(mid)
+        if mid == _EMBED_CPU.id:
+            state["embed_up"] = False
+
+    arb = VramArbiter()
+    svc = _service_for(tmp_path, catalog=[_GEMMA_MTP, _EMBED_CPU], arbiter=arb,
+                       router_models=models, router_unload=unload,
+                       hardware_fn=lambda: _fake_hw(8192), sleep=lambda s: None)
+    svc._router = _fake_router()
+    svc._last_log_path = _draft_crash_log(tmp_path)
+    svc._resident[_GEMMA_MTP.id] = {"status": "starting"}
+    svc._resident[_EMBED_CPU.id] = {"status": "running"}
+    arb.reserve(_EMBED_CPU.id, 44)
+
+    entry = _mtp_entry()
+    svc._router_load_with_backoff(entry, _mtp_fit(), tmp_path / "llama-server", svc.config())
+
+    assert unloaded == [_EMBED_CPU.id]                 # co-resident freed, no restart
+    assert entry.overrides.model_draft == "/x/mtp-draft.gguf"   # MTP never dropped
+    assert entry.overrides.spec_type == "draft-mtp"
+
+
+def test_draft_crash_escalates_to_restart_keeping_mtp(tmp_path):
+    # Stage 2 (last resort): unloading the co-resident didn't clear it (router wedged) →
+    # a full engine restart to load the draft ALONE, still with MTP. The restart spawns
+    # empty and the model loads solo.
+    events = []
+    state = {"restarted": False}
+
+    def models(_url):
+        # Only after the restart does the (solo) load succeed.
+        val = "loaded" if state["restarted"] else "failed"
+        return {"object": "list", "data": [{"id": _GEMMA_MTP.id, "status": {"value": val}}]}
+
+    def start_router(*_a, **_k):
+        state["restarted"] = True
+        events.append("restart")
+        return _fake_router()
+
+    arb = VramArbiter()
+    svc = _service_for(tmp_path, catalog=[_GEMMA_MTP], arbiter=arb,
+                       router_models=models, start_router=start_router,
+                       hardware_fn=lambda: _fake_hw(8192), sleep=lambda s: None)
+    svc._router = _fake_router()
+    svc._active_server_exe = tmp_path / "llama-server"
+    svc._last_log_path = _draft_crash_log(tmp_path)
+    svc._resident[_GEMMA_MTP.id] = {"status": "starting"}
+
+    entry = _mtp_entry()
+    # No co-residents → Stage 1 is skipped (nothing to unload); Stage 2 (restart) fires.
+    svc._router_load_with_backoff(entry, _mtp_fit(), tmp_path / "llama-server", svc.config())
+
+    assert events == ["restart"]                        # escalated to exactly one restart
+    assert entry.overrides.spec_type == "draft-mtp"     # MTP still intact after recovery
+
+
+def test_draft_crash_solo_still_fails_raises_never_drops_mtp(tmp_path):
+    # Solo + restart both still crash on the draft → a GENUINE draft problem (corrupt /
+    # too big), not the co-load race. Surface the real error; never silently drop MTP.
+    def models(_url):
+        return {"object": "list", "data": [{"id": _GEMMA_MTP.id, "status": {"value": "failed"}}]}
+
+    svc = _service_for(tmp_path, catalog=[_GEMMA_MTP], router_models=models,
+                       start_router=lambda *a, **k: _fake_router(),
+                       hardware_fn=lambda: _fake_hw(8192), sleep=lambda s: None)
+    svc._router = _fake_router()
+    svc._active_server_exe = tmp_path / "llama-server"
+    crash_log = _draft_crash_log(tmp_path)
+    svc._last_log_path = crash_log
+    # The stage-2 restart rotates the log via _router_log_path; pin it so the (still
+    # crashing) draft signature survives the restart and the draft-specific raise fires.
+    svc._router_log_path = lambda: crash_log
+    svc._resident[_GEMMA_MTP.id] = {"status": "starting"}
+
+    entry = _mtp_entry()
+    with pytest.raises(RuntimeError, match="speculative-decoding|MTP"):
+        svc._router_load_with_backoff(entry, _mtp_fit(), tmp_path / "llama-server", svc.config())
+    assert entry.overrides.spec_type == "draft-mtp"     # NOT dropped even on the hard failure

@@ -45,6 +45,7 @@ from .process import (
     RouterHandle,
     RunnerStartError,
     _BACKOFF_STEP,
+    _looks_like_draft_failure,
     _looks_like_oom,
     _tail_file,
     compute_fit,
@@ -1571,27 +1572,34 @@ class RunnerService:
         # An override for a model NOT in the catalog still gets its own section.
         if override is not None and not any(e.model_id == override.model_id for e in entries):
             entries.insert(0, override)
-        # Mark the embedding section(s) — the ONE authority for embed-ness in the .ini, applied BY ID
-        # in a single post-pass so EVERY emit path gets it (the override slot, a DB-resolved section,
-        # AND the not-in-catalog insert above — a per-branch patch would miss one and emit the embed as
-        # a plain chat child, so /v1/embeddings would mis-route). A `[<embed>]` section needs
-        # `embeddings = true` (+ pooling) for llama-server to expose /v1/embeddings on that child; the
-        # section id = the model id clients request (P3). We deliberately do NOT set `load-on-startup`:
-        # the embed is loaded EXPLICITLY via ensure_embedding()/load() (which reserves it PINNED). A
-        # router-side auto-load would be invisible to `_resident`, so a later ensure would re-POST
-        # /models/load for an already-loaded id (→ 400 → error + release, reporting the working embed as
-        # failed) or flip the emitted .ini text into a spurious _bounce_router that thrashes the resident
-        # chat (~20 s). The "pin" IS the arbiter reservation; load-on-startup adds only that failure mode.
+        # Mark EVERY embedding-capable section — not just the routing default (2026-07-12).
+        # Marking only the active embed meant switching the default MOVED the `embeddings = true`
+        # marker between sections, which changed the .ini TEXT → _bounce_router → the router
+        # reloaded Gemma + the incoming embed AT ONCE, and Gemma's MTP draft then crashed on the
+        # simultaneous co-load (bricking the chat). All embed models are embed-ONLY (the catalog
+        # `embedding` flag), so marking the idle ones is harmless AND makes the .ini STABLE across
+        # an embed-default switch → no bounce → the chat model is never disturbed. The ACTIVE
+        # embed is still selected two ways that don't touch the .ini: the client requests it by
+        # model id (routing), and the arbiter PINS it (`embed_ids`, below / sync_pins). Applied BY
+        # ID in a single post-pass so EVERY emit path gets it (the override slot, a DB-resolved
+        # section, the not-in-catalog insert). We deliberately do NOT set `load-on-startup`: an
+        # idle embed's section must not auto-load (that would be invisible to `_resident`, so a
+        # later ensure would re-POST /models/load for an already-loaded id → 400 → error). The
+        # "pin" is the arbiter reservation; the marker is only "IF spawned, serve /v1/embeddings".
+        # pooling is INTRINSIC per-model (nomic=mean, qwen3-embedding=last); "" → no `pooling =`
+        # line → llama.cpp reads the GGUF's pooling_type (#119). The mark set is the UNION of
+        # every catalog `embedding` row AND the routing default (`embed_ids`) — the flag gives
+        # Fix A's cross-switch stability for real embeds, and the default is always covered even
+        # if a user pointed the embedding default at a row that isn't flagged (misconfig-safe).
         embed_ids = self._embedding_ids_fn()
-        if embed_ids:
-            # pooling is INTRINSIC per-model (nomic=mean, qwen3-embedding=last), resolved BY ID from
-            # the catalog HERE in this single post-pass — so it reaches EVERY emit path incl. the
-            # PRIMARY P3 override-load slot (a per-branch set would miss it). "" → no `pooling =` line
-            # → llama.cpp reads the GGUF's pooling_type (#119).
-            pooling_by_id = {m.id: (getattr(m, "pooling", "") or "") for m in catalog}
+        embed_pooling = {
+            m.id: (getattr(m, "pooling", "") or "")
+            for m in catalog if getattr(m, "embedding", False) or m.id in embed_ids
+        }
+        if embed_pooling:
             entries = [
-                _dc_replace(e, embeddings=True, pooling=pooling_by_id.get(e.model_id, ""))
-                if e.model_id in embed_ids else e
+                _dc_replace(e, embeddings=True, pooling=embed_pooling.get(e.model_id, ""))
+                if e.model_id in embed_pooling else e
                 for e in entries
             ]
         return entries
@@ -1782,6 +1790,8 @@ class RunnerService:
         POST itself (a 4xx: unknown id / at `models-max`) is NOT an OOM — it propagates out of here
         as the load error. Caller holds `_router_lock`."""
         ngl = fit.n_gpu_layers
+        draft_solo_tried = False     # cheap recovery: unloaded co-residents to load the draft solo
+        draft_restart_tried = False  # last resort: restarted the engine to load the draft alone
         while True:
             # POST accepts (2xx) or raises on a synchronous 4xx (bad id / at capacity) — the
             # latter is a real error, not OOM, so it propagates (→ _run_load sets error state).
@@ -1814,6 +1824,58 @@ class RunnerService:
             # failed / timeout: shed GPU layers ONLY on a genuine CUDA-OOM in the spawn log —
             # never on a non-OOM failure (shedding can't fix it and a bounce disrupts residents).
             tail = _tail_file(self._last_log_path) if self._last_log_path else ""
+            # MTP/spec draft-load crash (2026-07-12): llama.cpp's router crashes the DRAFT
+            # model ('invalid vector subscript') when it loads WHILE another child is loading —
+            # a transient SCHEDULING race (e.g. an embed switch bounced Gemma + the embed in
+            # together), NOT a resource problem. So we NEVER drop speculative decoding to work
+            # around it: dropping MTP is ONLY ever a deliberate FIT decision for a draft that
+            # doesn't fit VRAM (made in compute_fit), because a permanent ~1.5-2x decode loss
+            # must not be a reaction to a transient crash. Instead, remove the concurrency and
+            # load the draft SOLO — keeping MTP — escalating cheapest-first, and surface WHY the
+            # load runs long so the user isn't watching a silent spinner.
+            has_draft = bool(entry.overrides.model_draft) or (
+                entry.overrides.spec_type not in (None, "none"))
+            if _looks_like_draft_failure(tail) and has_draft:
+                others = [mid for mid in list(self._resident) if mid != entry.model_id]
+                # Stage 1 (cheap, NO restart): unload the co-resident(s) that raced the draft,
+                # then reload the draft-model solo. They reload lazily on next use — an embed
+                # has no draft, so it co-loads fine beside the warm draft-model afterwards.
+                if not draft_solo_tried and others:
+                    draft_solo_tried = True
+                    log.warning("router child %s crashed loading its MTP draft beside %s — "
+                                "unloading co-residents to load the draft solo (MTP kept; they "
+                                "reload on next use)", entry.model_id, ", ".join(sorted(others)))
+                    self._touch(entry.model_id,
+                                detail="freeing another model so fast generation (MTP) loads cleanly…")
+                    for mid in others:
+                        self._evict_resident(mid)
+                    continue
+                # Stage 2 (last resort): a full engine restart to load the draft-model ALONE.
+                # entry KEEPS its draft — MTP preserved. Stale co-residents dropped first so the
+                # restart comes up empty (this still-`starting` model isn't in the bounce's
+                # reload set), then the loop below re-POSTs it solo.
+                if not draft_restart_tried:
+                    draft_restart_tried = True
+                    log.warning("router child %s still crashed on its MTP draft — restarting the "
+                                "engine to load it alone (MTP kept)", entry.model_id)
+                    self._touch(entry.model_id,
+                                detail="restarting the engine to load fast generation (MTP) cleanly — this takes a little longer…")
+                    for mid in [m for m in list(self._resident) if m != entry.model_id]:
+                        self._resident.pop(mid, None)
+                        self._arbiter.release(mid)
+                    self._emit_ini(override=entry)
+                    self._bounce_router(server_exe, config)
+                    continue
+                # Solo AND a clean restart both still crashed on the draft → NOT the co-load
+                # race: the draft itself is the problem (corrupt/mismatched draft GGUF, or it
+                # genuinely doesn't fit). Surface the real error — never silently degrade to
+                # no-MTP. The user can re-download the draft or turn MTP off in the tune.
+                raise RuntimeError(
+                    f"model {entry.model_id!r} could not load its speculative-decoding (MTP) draft "
+                    f"even on its own (status={outcome}). The draft file may be corrupt or too "
+                    f"large for VRAM — re-download it, or turn MTP off in the model's tune. "
+                    f"Details: {tail[-400:]}"
+                )
             if ngl > 0 and _looks_like_oom(tail):
                 ngl = max(0, ngl - _BACKOFF_STEP)
                 n_cpu_moe = max(0, fit.block_count - ngl) if fit.is_moe else entry.n_cpu_moe

@@ -234,20 +234,23 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   converged (behavior-preserving; `|| {}` lives in the helper); and the **writerAI**
   no-strip latent bug is FIXED — its local `htmlToText` converged onto the shared one,
   which always strips `.ai-del`/`.ai-ins` so the model never re-reads its own diff markup.
-  **DEFERRED — a USER DECISION (unchanged):** voiceDrift's `tailWords` takes the HEAD
-  despite its name; the head→tail convergence was BUILT, then REVERTED on the user's word
-  (it moved the LLM excerpt from each chapter's opening to its ending — a wash for
-  correctness, not a call to make unilaterally), so voiceDrift stays head-taking + a naming
-  trap until the user picks. versionDiff's no-strip stays (correct — it diffs raw stored
+  **DECIDED (2026-07-11 — user took the rec, "you know better, i'll take your rec"):
+  converge to TAIL.** voiceDrift will use the shared `tailWords` (`slice(-max)`), dropping
+  its local head-taking fork + the misleading name in one move. Correctness is a wash
+  (chapter opening vs ending as the illustrative excerpt); the one-shared-helper cleanliness
+  (T3) is the tie-breaker, and "most recent prose" matches the name. **NOT YET RE-APPLIED** —
+  re-do the reverted 2-line change (import `tailWords` from `../text.js`, delete the local
+  fn; restore the `text.js` header to credit voiceDrift as converged) as the first clean
+  task next session; it was already built + rules-checker-verified once. versionDiff's no-strip stays (correct — it diffs raw stored
   content). **STILL REMAINING (judgment, a Fable window):** the RULE-5 new-entity-popup
   audit (#34); promoting the big CSS clones to `styles.css`; the `useEntityCrudView`
   composable idea; the gate ratchets (extend `check-shared-pickers`, jscpd ratchet, the
-  i18n `SettingsView.startNew` key); a text.test.js (needs a DOM env — vitest is node-env). ALSO OPEN, A USER DECISION (surfaced 2026-07-10; the deep-audit
-  2026-06-20 A1 "fix the scene-mark drift" reconciliation is NOT closed by the
-  convergence): should critique / entityExtraction / readerKnowledge /
-  threadExtraction keep seeing scene-break marks in their LLM input
-  (`stripSceneMarks:false`, today's behavior, deliberately preserved) or move to
-  full-strip? The flip is one option flag per site now.
+  i18n `SettingsView.startNew` key); a text.test.js (needs a DOM env — vitest is node-env). SCENE-MARK DECISION — DECIDED (2026-07-10): **KEEP.** critique /
+  entityExtraction / readerKnowledge / threadExtraction continue to see the
+  scene-break marks in their LLM input (`stripSceneMarks:false`) — the
+  manuscript-standard "* * *" cut is a real signal the model should read;
+  stripping would glue scenes and worsen critique/pacing/knowledge judgments.
+  Closes the 2026-06-20 deep-audit A1 reconciliation. Flips on the user's word.
 - **I2 — cloud prompt caching (the master's O2).** STATUS: **DECISION + BUILD, untouched** —
   the Anthropic/Gemini adapters send no prompt-caching hints; never built, never decided. A
   cloud-cost optimization only (the bundled runner has llama.cpp's own prefix cache); worth a

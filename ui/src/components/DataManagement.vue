@@ -12,6 +12,12 @@ import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
   appName: { type: String, default: "Workspace" },
+  // Optional host hook: save the backup blob via a native "save as" dialog —
+  // (blob, suggestedName) => { ok?, cancelled?, error? }. When absent (or in a
+  // plain browser) the export falls back to a normal download. Lets a desktop
+  // host (e.g. through a Tauri bridge) choose where the backup lands + remember
+  // it, while the kit itself stays app-agnostic.
+  saveFile: { type: Function, default: null },
 });
 const busy = ref("");
 
@@ -25,15 +31,25 @@ async function exportBackup() {
   busy.value = "backup";
   try {
     const blob = await requestBlob("/v1/data/backup");
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${props.appName.toLowerCase().replace(/\s+/g, "-")}-backup-${stamp()}.zip`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    pushToast({ message: "Backup downloaded.", kind: "success" });
+    const filename = `${props.appName.toLowerCase().replace(/\s+/g, "-")}-backup-${stamp()}.zip`;
+    if (props.saveFile) {
+      // Desktop host: native "save as" dialog (choose where + remember it).
+      const res = await props.saveFile(blob, filename);
+      if (res?.cancelled) return;
+      if (res && res.ok === false) throw new Error(res.error || "save failed");
+      pushToast({ message: "Backup saved.", kind: "success" });
+    } else {
+      // Browser fallback: download to the default location.
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      pushToast({ message: "Backup downloaded.", kind: "success" });
+    }
   } catch (e) {
     pushToast({ message: `Backup failed: ${e.message}`, kind: "error" });
   } finally {

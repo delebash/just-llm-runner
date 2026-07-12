@@ -6646,8 +6646,8 @@ follow-up #2 (4B default) rides the user's A/B.
 
 **I1 JUDGMENT LEGS BUILD RECORD (2026-07-12 — voiceDrift TAIL re-apply · the
 CSS `.entity-*` promotion · the RULE-5 new-entity-popup audit #34 — SHIPPED,
-four commits, JW `b904ff5` + `bfcd48e` + `e4ca0db` + `849eae4`, unpushed at
-record time pending the user's word).** The user's go, verbatim: "i will take
+four commits, JW `5f1fa30` + `8491321` + `3f457f9` + `a575715` (shas post-rebase;
+PUSHED 2026-07-12 after syncing my work onto the sibling session's `4799e2b`).** The user's go, verbatim: "i will take
 your rec on voice drift, do css, rule 5, you plan let opus do all the work."
 The plan was written in plan mode from two Opus Explore sweeps (the CSS
 strict-diff table and the app-wide create-flow census), panel-checked by two

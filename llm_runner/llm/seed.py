@@ -271,23 +271,25 @@ DEFAULT_CATALOG: list[dict] = [
      "size_label": "567M", "size_bytes": 437778496,
      "description": "567M embedding model · 8k context · Q4_K_M",
      "notes": "Multilingual embeddings across 100+ languages; CLS pooling; CPU-fine."},
-    # The mid-card rung (#274, 2026-07-11 — the embed-ladder gap between the tiny CPU
-    # band and the 8B): official Qwen GGUF, near-8B retrieval quality at ~2.5 GB.
-    # min_vram 4500 = the file (~2.5 GB) + the box-measured ~549 MB CUDA driver context
-    # per child (lifecycle.py) + KV/compute buffers — deliberately ABOVE an 8 GB card's
-    # leftover under the seeded default MoE (8192 − 4000 = 4192), so a small card still
-    # defaults to the 0.6B (the user's #274 word: "should be 0.6B") and the 4B is the
-    # 16 GB+ rung or a deliberate manual pick. min_ram proportionate. Both values are
-    # derived floors, flagged in the #274 build record.
+    # The DEFAULT local embed for a capable box (2026-07-12, reversing #274's "should be
+    # 0.6B"): near-8B retrieval quality at ~2.5 GB, on-box A/B beats the 0.6B on thematic
+    # retrieval. tier "cpu" — an embed runs on CPU by policy (the GPU stays for the chat
+    # model), so it is judged on RAM (8 GB floor), NOT the VRAM leftover; that makes it
+    # ALWAYS-eligible in the embed pick and, being higher quality than the 0.6B (rank 55 <
+    # 58), it wins Quick Setup on any box that clears its RAM floor. A box below 8 GB RAM
+    # gets coarse_fit "no" and falls back to the 0.6B automatically (the ladder self-sorts:
+    # <8 GB RAM → 0.6B; ≥8 GB RAM → 4B on CPU; a big GPU whose leftover covers the 8B → 8B).
+    # min_vram 4500 stays the honest GPU-fit figure (the FIT badge only — eligibility comes
+    # from the tier, placement forces CPU via lifecycle._apply_embed_placement).
     {"id": "qwen3-embedding-4b", "name": "Qwen3 Embedding 4B",
      "hf_repo": "Qwen/Qwen3-Embedding-4B-GGUF", "quant": "Q4_K_M", "total_params": "4B",
      "trained_ctx": 40960,
-     "min_vram_mb": 4500, "min_ram_mb": 8000, "tier": "mid", "license": "Apache-2.0", "position": 10,
+     "min_vram_mb": 4500, "min_ram_mb": 8000, "tier": "cpu", "license": "Apache-2.0", "position": 10,
      "embedding": True, "pooling": "last",
      "quality_rank": 55, "architecture": "qwen3", "experts": 0,
      "size_label": "4B", "size_bytes": 2496703776,
      "description": "4B embedding model · 40k context · Q4_K_M",
-     "notes": "The mid-card rung — near-8B retrieval quality at ~2.5 GB; last-token pooling. Auto-picked when the card's leftover beside your chat model covers it."},
+     "notes": "The default local embed on a capable box (≥8 GB RAM) — near-8B retrieval quality at ~2.5 GB, runs on CPU; last-token pooling."},
     {"id": "qwen3-embedding-8b", "name": "Qwen3 Embedding 8B",
      "hf_repo": "Qwen/Qwen3-Embedding-8B-GGUF", "quant": "Q4_K_M", "total_params": "8B",
      "trained_ctx": 40960,

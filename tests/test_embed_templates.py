@@ -135,11 +135,11 @@ def test_seed_rows_match_model_cards():
 
 
 def test_embed_catalog_ladder_and_the_4b_row():
-    """#274: the seeded embed ladder. The 4B mid rung exists with the full row facts,
-    the 0.6B leads the CPU band (ABOVE bge-m3 — at the old rank 65 it lost to bge's 60,
-    which would have quietly made bge the small-card default under the leftover rule),
-    and the 4B's VRAM floor stays ABOVE an 8 GB card's leftover under the seeded default
-    chat MoE — so a small card defaults to the 0.6B (the user's #274 word)."""
+    """The seeded embed ladder (2026-07-12, reversing #274's "small card → 0.6B"). Embeds
+    run on CPU by policy, so they are judged on RAM, not the VRAM leftover: the 4B joins the
+    CPU band (tier "cpu" → ALWAYS eligible) and, being higher quality than the 0.6B, wins the
+    pick on any box that clears its 8 GB RAM floor — while a box below that floor gets
+    coarse_fit "no" and falls back to the 0.6B. The 8B stays a VRAM-gated (non-cpu) tier."""
     rows = {r["id"]: r for r in seed.DEFAULT_CATALOG}
     b4 = rows["qwen3-embedding-4b"]
     assert b4["embedding"] is True and b4["pooling"] == "last"
@@ -155,22 +155,15 @@ def test_embed_catalog_ladder_and_the_4b_row():
         < ranks["bge-m3"]
         < ranks["nomic-embed-text"]
     )
-    # The CPU band (always eligible under the leftover rule) is exactly the tiny trio;
-    # the 4B/8B are leftover-gated tiers.
-    for rid in ("nomic-embed-text", "qwen3-embedding-0.6b", "bge-m3"):
+    # The CPU band (always eligible — judged on RAM, not VRAM leftover) is the tiny trio
+    # PLUS the 4B; only the 8B stays a VRAM-gated tier (the big-GPU rung).
+    for rid in ("nomic-embed-text", "qwen3-embedding-0.6b", "bge-m3", "qwen3-embedding-4b"):
         assert embeds[rid]["tier"] == "cpu"
-    assert embeds["qwen3-embedding-4b"]["tier"] != "cpu"
     assert embeds["qwen3-embedding-8b"]["tier"] != "cpu"
-    # The ladder law: on an 8 GB card running a small-card MoE chat, the 4B must NOT
-    # clear the leftover (so the 0.6B stays the small-card default — the user's word).
-    # The floor is derived from the runner seed's own low-vram-moe rows (4000 — the
-    # gryphe/uncensored rows; JW's seeded default Gemma is an APP EXTRA sharing this
-    # exact class/floor, see the DEFAULT_MODEL_CLASS_PICKS comment).
-    moe_floor = min(
-        r["min_vram_mb"] for r in rows.values()
-        if r.get("type") == "moe" and r.get("tier") == "low-vram-moe"
-    )
-    assert b4["min_vram_mb"] > 8192 - moe_floor
+    # The ladder law: the 4B is the higher-quality CPU embed gated by a HIGHER RAM floor,
+    # so ≥8 GB-RAM boxes default to the 4B and boxes below its floor fall back to the 0.6B.
+    assert b4["min_ram_mb"] == 8000
+    assert b4["min_ram_mb"] > embeds["qwen3-embedding-0.6b"]["min_ram_mb"]
     # The 4B rides the same instruct query template as its Qwen3 siblings.
     tpl = {t["id"]: t for t in seed.DEFAULT_EMBED_TEMPLATES}
     assert tpl["qwen3-embedding-4b"]["document"] == ""

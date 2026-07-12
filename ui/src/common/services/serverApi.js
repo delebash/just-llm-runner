@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Shared server transport — the single fetch layer for the FastAPI server both
-// apps run. App standard: serverUrl() + request/safeRequest/requestBlob/postForm
+// apps run. App standard: serverUrl() + request/safeRequest/postForm
 // + verbs (get/post/patch/put/del), in-flight GET dedupe, a reactive lastError,
 // and a boot-time checkServer(). App-agnostic: the host calls
 //   configureServerApi({ resolveBase, authToken })
@@ -124,16 +124,11 @@ export function del(path, opts = {}) {
   return request(path, { ...opts, method: "DELETE" });
 }
 
-export async function requestBlob(method, path, opts = {}) {
-  const headers = authHeaders(opts.headers);
-  const res = await fetch(serverUrl(path), { ...opts, method, headers });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${res.status} ${res.statusText}: ${text}`);
-  }
-  return res.blob();
-}
-
+// requestBlob lives in client.js (path-first — THE public `@delebash/llm-ui` export,
+// index.js:14). Do NOT re-add a method-first requestBlob here: the old one was dead +
+// shadowed by the client.js export and its wrong arg order caused real bugs (unified 2026-07-12).
+// NOTE for the JV integration: the surviving client.js requestBlob/postForm are AUTH-FREE;
+// serverApi's authHeaders() stays for that later work (JV authenticates on blob downloads).
 export async function postForm(path, formData, opts = {}) {
   const headers = authHeaders(opts.headers);
   const res = await fetch(serverUrl(path), { ...opts, method: "POST", headers, body: formData });

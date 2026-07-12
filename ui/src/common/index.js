@@ -61,7 +61,7 @@ export { default as ConnectionError } from "./components/ConnectionError.vue";
 // configureServerApi({ resolveBase, authToken }) once at boot)
 export {
   configureServerApi, makeOriginAwareResolver, serverUrl, url, lastError,
-  request, get, post, patch, put, del, requestBlob, postForm, safeRequest, checkServer,
+  request, get, post, patch, put, del, postForm, safeRequest, checkServer,
 } from "./services/serverApi.js";
 
 // shared appearance/theming engine + catalogs (host calls applyAppearance at boot)

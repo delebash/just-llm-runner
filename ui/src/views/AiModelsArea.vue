@@ -107,7 +107,7 @@ const resident = ref(null);
 // a chat leg's ensure, an eviction) left the rows stale ("loads on first use" beside
 // a 6.6 GB header, 2026-07-11). This poll already sees the live resident set every
 // tick, so a CHANGE in the loaded set kicks the shared models refresh — one truth.
-let _loadedSig = null;
+let _loadedSig = "";
 const { start: startResPoll } = usePoll(async () => {
   try {
     resident.value = await request("/v1/llm-runner/resident");

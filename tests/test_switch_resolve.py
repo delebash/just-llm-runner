@@ -50,19 +50,25 @@ def test_non_mtp_model_gets_no_spec_flags(configured):
     assert sw["mlock"] == "true"
 
 
-def test_draft_file_alone_fires_the_gate(configured):
-    # Gemma-style: the MAIN header has no MTP marker (mtp=False) but a SEPARATE
-    # draft file is configured → the draft arm fires INDEPENDENTLY of model.mtp
-    # (the panel's T1 fix — `mtp OR draft`, never `mtp AND …`).
+def test_mtp_enable_flag_governs_regardless_of_draft(configured):
+    # 2026-07-13 split: `mtp` is now the ENABLE flag; unchecking it disables the mtp
+    # preset EVEN with a draft file still configured (the old `mtp OR draft` gate made
+    # uncheck a no-op). A Gemma model enables MTP by setting mtp=True (its external
+    # draft is the mechanism, not the gate); mtp=False means "off" whatever the draft.
     s = db.session()
-    s.add(db.ModelCatalog(id="gemma-draft", name="G", type="moe", mtp=False,
-                          mtp_draft_file="MTP/g-Q4_0-MTP.gguf"))
+    s.add(db.ModelCatalog(id="gemma-on", name="G", type="moe", mtp=True,
+                          mtp_builtin=False, mtp_draft_file="MTP/g-Q4_0-MTP.gguf"))
+    s.add(db.ModelCatalog(id="gemma-off", name="G", type="moe", mtp=False,
+                          mtp_builtin=False, mtp_draft_file="MTP/g-Q4_0-MTP.gguf"))
     s.commit()
     s.close()
-    sw = switch_resolve.resolve_model_switches("gemma-draft")
-    assert sw["spec_type"] == "draft-mtp"
-    assert sw["spec_n_max"] == "2"
-    assert sw["no_mmap"] == "true"          # type=moe layer still applies
+    on = switch_resolve.resolve_model_switches("gemma-on")
+    assert on["spec_type"] == "draft-mtp"
+    assert on["spec_n_max"] == "2"
+    assert on["no_mmap"] == "true"          # type=moe layer still applies
+    off = switch_resolve.resolve_model_switches("gemma-off")
+    assert "spec_type" not in off           # uncheck wins even though a draft is set
+    assert off["no_mmap"] == "true"         # type=moe layer unaffected
 
 
 def test_model_tune_wins_over_every_layer(configured):

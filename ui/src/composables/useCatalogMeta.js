@@ -43,11 +43,13 @@ export const descriptionById = computed(() =>
 export const poolingById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, r.pooling || ""])),
 );
-// MTP-CAPABLE (Plan B): built-in MTP (the header-derived `mtp` flag) OR a configured
-// external draft file (Gemma-style `mtpDraftFile`) — the same OR-gate the resolver's
-// auto-mtp layer uses, so the grid's MTP tag shows exactly what auto-enables.
+// MTP ENABLED (2026-07-13 split): `r.mtp` is now the user-facing ENABLE flag — the same
+// flag the edit-form checkbox binds and `switch_resolve`'s auto-mtp layer reads. The grid
+// badge shows exactly what's enabled. (No longer OR'd with `mtpDraftFile`: that OR is what
+// made the badge and the checkbox disagree once the download header-read clobbered the old
+// combined `mtp` to False — the header truth now lives separately in `mtpBuiltin`.)
 export const mtpById = computed(() =>
-  Object.fromEntries(rows.value.map((r) => [r.id, !!(r.mtp || r.mtpDraftFile)])),
+  Object.fromEntries(rows.value.map((r) => [r.id, !!r.mtp])),
 );
 // The HF repo per model — the "Model card ↗" link (user, 2026-07-07: open the full
 // details in the browser) builds https://huggingface.co/<repo> from it.

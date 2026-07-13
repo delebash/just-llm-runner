@@ -38,7 +38,13 @@ class CatalogRow(BaseModel):
     mmproj: str | None = None
     totalParams: str = ""
     activeParams: str = ""
+    # MTP ENABLED/intent — the user-facing "use MTP" flag (checkbox + grid badge +
+    # switch_resolve's auto-mtp layer). Seed/user-owned; identity NEVER writes it.
     mtp: bool = False
+    # MTP BUILT-IN — header `nextn_predict_layers>0` (Qwen/GLM in-file heads). Written
+    # only by the GGUF identity read; read-only display + auto-detect provenance. A
+    # Gemma external-draft model is mtpBuiltin=False yet can still be mtp=True.
+    mtpBuiltin: bool = False
     type: str = "dense"  # dense | moe — drives which switch preset applies (§6.5)
     # Gemma-style SEPARATE MTP draft file — facts about the model, feeds --model-draft
     # at load (Plan B, D7). "" everywhere = no external draft (Qwen builds MTP in).
@@ -89,7 +95,9 @@ class InspectResponse(BaseModel):
 
     architecture: str = ""
     type: str = "dense"
-    mtp: bool = False
+    # HEADER truth (`nextn_predict_layers>0`) — the read-only auto-detected fact. The
+    # form computes the ENABLE flag from this OR a draft OR the inherited drafter below.
+    mtpBuiltin: bool = False
     trainedCtx: int | None = None
     experts: int = 0            # expert_count (0 = dense)
     sizeLabel: str = ""         # general.size_label ("27B" dense; "128x9.4B" MoE expert-config)
@@ -97,6 +105,11 @@ class InspectResponse(BaseModel):
     samplers: dict[str, str] = Field(default_factory=dict)  # recommended samplers (read-only fact)
     sizeBytes: int = 0          # real total weight size (summed shards) — the download size
     estVramMb: int | None = None  # est. VRAM to fully offload at 8K ctx (real header + size)
+    # Tier-C (2026-07-13): a borrowable OFFICIAL companion drafter, discovered when the
+    # model has no built-in MTP and none in its own repo — "" when none was found.
+    mtpInheritedRepo: str = ""
+    mtpInheritedFile: str = ""
+    mtpInheritedQuant: str = ""
 
 
 class RepoQuantRow(BaseModel):
@@ -272,11 +285,11 @@ def make_catalog_router(
                         if v is not None and k not in merged
                     ]
             return ResolvedModelDefaultsResponse(
-                # mtpCapable = the SAME OR-gate as the resolver's auto-mtp layer
-                # (built-in header mtp OR a configured external draft) — so the
-                # Tune modal's hint fires for draft-style Gemma models too, in
-                # lockstep with the grid Type tag (final-checker fold, 2026-07-05).
-                modelId=modelId, mtpCapable=bool(row and (row.mtp or row.mtpDraftFile)),
+                # mtpCapable = MTP is AVAILABLE to enable — built-in header MTP OR a
+                # configured external draft (2026-07-13: reads `mtpBuiltin`, the header
+                # truth, NOT the `mtp` ENABLE flag — availability is a fact, enablement
+                # is the user's switch). The Tune modal's spec-decode hint rides this.
+                modelId=modelId, mtpCapable=bool(row and (row.mtpBuiltin or row.mtpDraftFile)),
                 switches=[ResolvedFlag(flagName=k, flagValue=str(v)) for k, v in merged.items()],
                 samplers=[ResolvedFlag(flagName=k, flagValue=str(v)) for k, v in samplers.items()],
                 computed=computed,

@@ -73,7 +73,9 @@ def derived_fields_from_meta(meta: GgufMeta) -> dict:
     total_params = meta.size_label if (not meta.is_moe and parse_params(meta.size_label)) else None
     return {
         "type": model_type_from_meta(meta),
-        "mtp": meta.is_mtp,
+        # HEADER truth only (`nextn_predict_layers>0`) → the `mtp_builtin` column.
+        # NEVER the user-facing `mtp` ENABLE flag (2026-07-13 split — see set_derived).
+        "mtp_builtin": meta.is_mtp,
         "trained_ctx": meta.context_length or None,
         "total_params": total_params,
         "size_label": meta.size_label,
@@ -113,7 +115,7 @@ def detect_and_store_model_type(
     except OSError:
         size_bytes = None
     (store or stores.get_model_catalog_store()).set_derived(
-        model_id, model_type=fields["type"], mtp=fields["mtp"],
+        model_id, model_type=fields["type"], mtp_builtin=fields["mtp_builtin"],
         trained_ctx=fields["trained_ctx"], total_params=fields["total_params"],
         samplers=fields["samplers"],
         architecture=fields["architecture"], experts=fields["experts"],
@@ -184,9 +186,31 @@ def inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> di
             ctx_size=min(meta.context_length or _ESTIMATE_CTX, _ESTIMATE_CTX),
             cache_type=16, gpu_layers=meta.block_count,
         ))
+    # Tier-C inherited drafter (2026-07-13): built-in MTP models need none, and the
+    # repo's OWN drafts are pre-picked from the list-files listing — so only probe the
+    # official base family when the header carries no built-in MTP. Best-effort; a
+    # miss (or any network hiccup) simply yields no suggestion.
+    inherited: dict | None = None
+    if not fields["mtp_builtin"]:
+        from ..runner.models import find_inherited_mtp_drafter
+
+        try:
+            inherited = find_inherited_mtp_drafter(
+                repo, meta.architecture or "", meta.base_repo_url or "", revision
+            )
+        except Exception:  # noqa: BLE001 — discovery is advisory, never fails inspect
+            inherited = None
     return {
-        "architecture": meta.architecture, "type": fields["type"], "mtp": fields["mtp"],
+        "architecture": meta.architecture, "type": fields["type"],
+        # HEADER truth → the read-only "auto-detected" panel + the mtp_builtin column.
+        # The user-facing MTP ENABLE flag is computed UI-side (builtin OR draft OR the
+        # inherited drafter below), never overwritten by this read.
+        "mtpBuiltin": fields["mtp_builtin"],
         "trainedCtx": fields["trained_ctx"], "experts": meta.expert_count,
         "sizeLabel": meta.size_label, "totalParams": fields["total_params"] or "",
         "samplers": fields["samplers"], "sizeBytes": int(total), "estVramMb": est_vram_mb,
+        # Tier-C: a borrowable OFFICIAL drafter when the model has no MTP of its own.
+        "mtpInheritedRepo": (inherited or {}).get("repo", ""),
+        "mtpInheritedFile": (inherited or {}).get("file", ""),
+        "mtpInheritedQuant": (inherited or {}).get("quant", ""),
     }

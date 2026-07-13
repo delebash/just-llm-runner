@@ -292,7 +292,7 @@ class PromptStore:
 def _catalog_to_wire(r: db.ModelCatalog, samplers: dict[str, str] | None = None) -> CatalogRow:
     return CatalogRow(
         id=r.id, name=r.name, hfRepo=r.hf_repo, quant=r.quant, mmproj=r.mmproj,
-        totalParams=r.total_params, activeParams=r.active_params, mtp=r.mtp, type=r.type,
+        totalParams=r.total_params, activeParams=r.active_params, mtp=r.mtp, mtpBuiltin=r.mtp_builtin, type=r.type,
         mtpDraftRepo=r.mtp_draft_repo, mtpDraftFile=r.mtp_draft_file, mtpDraftQuant=r.mtp_draft_quant,
         trainedCtx=r.trained_ctx, samplers=dict(samplers or {}),
         minVramMb=r.min_vram_mb, minRamMb=r.min_ram_mb, tier=r.tier, license=r.license,
@@ -331,6 +331,7 @@ class ModelCatalogStore:
             existing.total_params = row.totalParams
             existing.active_params = row.activeParams
             existing.mtp = row.mtp
+            existing.mtp_builtin = bool(row.mtpBuiltin)  # header truth round-trips read-only through the form
             existing.type = row.type or "dense"
             existing.mtp_draft_repo = row.mtpDraftRepo or ""
             existing.mtp_draft_file = row.mtpDraftFile or ""
@@ -400,30 +401,34 @@ class ModelCatalogStore:
         finally:
             s.close()
 
-    def set_derived(self, model_id: str, *, model_type: str, mtp: bool,
+    def set_derived(self, model_id: str, *, model_type: str, mtp_builtin: bool,
                     trained_ctx: int | None, total_params: str | None = None,
                     samplers: dict[str, str] | None = None,
                     architecture: str | None = None, experts: int | None = None,
                     size_label: str | None = None, size_bytes: int | None = None) -> bool:
-        """Set the FILE-DERIVED catalog fields (`type`/`mtp`/`trained_ctx`, and
+        """Set the FILE-DERIVED catalog fields (`type`/`mtp_builtin`/`trained_ctx`, and
         `total_params` when the file gives one) AND replace the per-model recommended
         sampler rows for `model_id`, from a GGUF header read (the GGUF-grounded model
-        layer, Phase 2). `total_params` is written only when not None — a dense model
-        exposes it via `general.size_label` ("27B"), but a MoE expert-label ("128x9.4B")
-        does NOT decompose, so it stays None → the curated value is preserved. The
-        identity facts (`architecture`/`experts`/`size_label`/`size_bytes`, #141 —
-        the auto-detected-panel parity) write only when given (None = leave as is;
-        size_bytes is the QUANT-SPECIFIC file size). Preserves every other field
-        incl. `built_in` AND the user's `notes` (unlike `upsert`, which marks the
-        row user-edited). The sampler set is always REPLACED with the given map
-        (empty clears it). Returns True if a scalar value changed; False when the
-        model row is absent."""
+        layer, Phase 2). Writes `mtp_builtin` (the header `nextn_predict_layers>0`
+        truth), NEVER the user-facing `mtp` ENABLE flag — a Gemma external-draft model
+        reads mtp_builtin=False here yet stays MTP-enabled via its draft; the old code
+        clobbered the enable flag to False on download, which is exactly the grid-vs-
+        checkbox disconnect this split fixes (2026-07-13). `total_params` is written
+        only when not None — a dense model exposes it via `general.size_label` ("27B"),
+        but a MoE expert-label ("128x9.4B") does NOT decompose, so it stays None → the
+        curated value is preserved. The identity facts (`architecture`/`experts`/
+        `size_label`/`size_bytes`, #141 — the auto-detected-panel parity) write only
+        when given (None = leave as is; size_bytes is the QUANT-SPECIFIC file size).
+        Preserves every other field incl. `built_in` AND the user's `notes` (unlike
+        `upsert`, which marks the row user-edited). The sampler set is always REPLACED
+        with the given map (empty clears it). Returns True if a scalar value changed;
+        False when the model row is absent."""
         s = db.session()
         try:
             existing = s.get(db.ModelCatalog, model_id)
             if existing is None:
                 return False
-            changed = (existing.type != model_type or bool(existing.mtp) != bool(mtp)
+            changed = (existing.type != model_type or bool(existing.mtp_builtin) != bool(mtp_builtin)
                        or existing.trained_ctx != trained_ctx
                        or (total_params is not None and existing.total_params != total_params)
                        or (architecture is not None and existing.architecture != architecture)
@@ -431,7 +436,7 @@ class ModelCatalogStore:
                        or (size_label is not None and existing.size_label != size_label)
                        or (size_bytes is not None and existing.size_bytes != size_bytes))
             existing.type = model_type or "dense"
-            existing.mtp = bool(mtp)
+            existing.mtp_builtin = bool(mtp_builtin)
             existing.trained_ctx = trained_ctx
             if total_params is not None:
                 existing.total_params = total_params

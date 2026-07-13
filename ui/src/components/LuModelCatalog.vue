@@ -401,10 +401,10 @@ function onDraftPick(path) {
   e.mtpDraftFile = path || "";
   const d = (listing.value?.drafts || []).find((x) => x.path === path);
   e.mtpDraftQuant = d?.quant || "";
-  // "Setting it … auto-enables MTP" (the form's own promise — a ROUND-8 Task-D
-  // leftover the user's screenshots caught unbuilt): a picked draft checks MTP;
-  // clearing falls back to the header truth from the last inspect (false if none).
-  e.mtp = path ? true : !!inspected.value?.headerMtp;
+  // "Setting it … auto-enables MTP" (the form's own promise): a picked draft checks
+  // MTP; clearing falls back to the header BUILT-IN truth from the last inspect (a
+  // built-in-MTP model stays enabled with no draft; false if neither).
+  e.mtp = path ? true : !!inspected.value?.mtpBuiltin;
 }
 
 async function inspectLink() {
@@ -421,11 +421,19 @@ async function inspectLink() {
     // File-derived scalar facts flow into the draft (persisted by the Save PUT);
     // the sampler set persists from the local file at download (identify → set_derived).
     e.type = r.type || "dense";
-    // The resolver's OR-gate (the user's screenshot bug, 2026-07-07): a Gemma-style
-    // model keeps MTP in an EXTERNAL draft file — its MAIN header has no MTP marker,
-    // so a bare `!!r.mtp` UNCHECKED the box while the draft stayed selected right
-    // above it. header-mtp OR draft-present, same rule switch_resolve applies.
-    e.mtp = !!r.mtp || !!e.mtpDraftFile;
+    // MTP split (2026-07-13): identity reads the header BUILT-IN truth (`mtpBuiltin`),
+    // never the enable flag — so the download read can no longer clobber the box.
+    e.mtpBuiltin = !!r.mtpBuiltin;
+    // Tier-C: no draft chosen but an OFFICIAL companion drafter was discovered → borrow
+    // it (verified to resolve server-side) so a StyleTune-style model can run MTP too.
+    if (!e.mtpDraftFile && r.mtpInheritedFile) {
+      e.mtpDraftRepo = r.mtpInheritedRepo || "";
+      e.mtpDraftFile = r.mtpInheritedFile || "";
+      e.mtpDraftQuant = r.mtpInheritedQuant || "";
+    }
+    // Auto-CHECK on detect (user-agreed): MTP is on when the model is built-in capable
+    // OR a draft (its own or the inherited one) is configured. The user can uncheck.
+    e.mtp = !!r.mtpBuiltin || !!e.mtpDraftFile;
     e.trainedCtx = r.trainedCtx ?? null;
     if (r.totalParams) e.totalParams = r.totalParams; // file-derived (dense); MoE stays curated
     if (!e.minVramMb && r.estVramMb) e.minVramMb = r.estVramMb;
@@ -437,7 +445,8 @@ async function inspectLink() {
     inspected.value = {
       architecture: r.architecture || "", experts: r.experts || 0, sizeLabel: r.sizeLabel || "",
       samplers: r.samplers || {}, sizeBytes: r.sizeBytes || 0, estVramMb: r.estVramMb ?? null,
-      headerMtp: !!r.mtp, // the raw header truth — onDraftPick falls back to it on clear
+      mtpBuiltin: !!r.mtpBuiltin, // header truth — onDraftPick falls back to it on clear
+      mtpInheritedRepo: r.mtpInheritedRepo || "", mtpInheritedFile: r.mtpInheritedFile || "",
     };
     // Description is FILE/LINK-OWNED (#143, user decree: "if user clicks read from
     // file all fields should be updated"): an explicit Read from link REGENERATES
@@ -462,9 +471,10 @@ function composedDescription() {
   const kind = e.embedding ? "embedding model" : e.type === "moe" ? "mixture-of-experts model" : "model";
   bits.push(params ? `${params} ${kind}` : kind);
   if (e.trainedCtx) bits.push(`${Math.round(e.trainedCtx / 1024)}k context`);
-  // Honest MTP phrasing: an external draft file vs built-in prediction layers.
+  // Honest MTP phrasing: an external draft file vs built-in prediction layers. Keyed
+  // to the MODEL's capability (a draft, or the header built-in), not the enable flag.
   if (e.mtpDraftFile) bits.push("MTP draft for faster generation");
-  else if (e.mtp) bits.push("MTP for faster generation");
+  else if (e.mtpBuiltin) bits.push("MTP for faster generation");
   if (e.quant) {
     const q = (listing.value?.quants || []).find((x) => x.quant === e.quant);
     bits.push(`${e.quant}${q?.qat ? " (QAT)" : ""}`);
@@ -476,7 +486,7 @@ function composedDescription() {
 
 function blankModel() {
   return { id: "", name: "", hfRepo: "", quant: "", type: "dense", totalParams: "",
-    activeParams: "", mtp: false, mtpDraftRepo: "", mtpDraftFile: "", mtpDraftQuant: "",
+    activeParams: "", mtp: false, mtpBuiltin: false, mtpDraftRepo: "", mtpDraftFile: "", mtpDraftQuant: "",
     trainedCtx: null, samplers: {}, minVramMb: null, minRamMb: null,
     tier: "mid", license: "", useLimited: false, embedding: false, description: "", notes: "",
     architecture: "", experts: 0, sizeLabel: "", sizeBytes: null, qualityRank: 100, position: 0 };
@@ -930,20 +940,6 @@ refreshApplied();
           </span>
         </label>
 
-        <template v-if="listing?.drafts?.length || editing.mtpDraftFile">
-          <div class="lu-mm-note"><b>MTP draft model</b> <span class="lu-muted">— this repo ships a
-            SEPARATE speculative-decode file at its own quant (Gemma-style; auto-detected from the
-            <code>MTP/</code> folder). Setting it feeds <code>--model-draft</code> and auto-enables MTP —
-            uncheck MTP below or turn it off in Quick tune if you don't want it.</span></div>
-          <label class="lu-mm-l">Draft file
-            <UiSelect v-if="listing?.drafts?.length" :model-value="editing.mtpDraftFile"
-              :options="draftOptions" @update:model-value="onDraftPick" />
-            <UiInput v-else v-model="editing.mtpDraftFile" placeholder="MTP/…-Q4_0-MTP.gguf" />
-          </label>
-          <label class="lu-mm-l">Draft repo <span class="lu-muted">optional — blank = the same repo</span>
-            <UiInput v-model="editing.mtpDraftRepo" placeholder="" /></label>
-        </template>
-
         <!-- #141: every row reads from the PERSISTED catalog facts (seeded, or written
              at download / by the boot backfill), so Edit-open shows exactly what
              Read-from-link shows; a fresh inspect overrides live. -->
@@ -952,6 +948,7 @@ refreshApplied();
           <div class="lu-mm-auto-row"><span class="lu-muted">Architecture</span><span>{{ (inspected?.architecture || editing.architecture) || "—" }}<template v-if="inspected?.experts || editing.experts"> · {{ inspected?.experts || editing.experts }} experts</template></span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Size (file)</span><span>{{ (inspected?.sizeLabel || editing.sizeLabel) || "—" }}</span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Trained context</span><span>{{ editing.trainedCtx ? `${editing.trainedCtx.toLocaleString()} tokens` : "—" }}</span></div>
+          <div class="lu-mm-auto-row"><span class="lu-muted">MTP (built-in)</span><span>{{ (inspected ? inspected.mtpBuiltin : editing.mtpBuiltin) ? "yes — in-file prediction heads" : "no" }}<template v-if="inspected?.mtpInheritedFile"> · official drafter available to borrow</template></span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Recommended samplers</span><span>{{ samplersLabel }}</span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Download size</span><span>{{ (inspected?.sizeBytes || editing.sizeBytes) ? fmtBytes(inspected?.sizeBytes || editing.sizeBytes) : "—" }}<template v-if="inspected?.estVramMb"> · ≈ {{ inspected.estVramMb.toLocaleString() }} MB VRAM (full GPU · 8K ctx)</template></span></div>
         </div>
@@ -967,12 +964,35 @@ refreshApplied();
             <span>MoE <span class="lu-muted">— mixture-of-experts (offloads experts to RAM)</span></span>
           </UiCheckbox>
           <UiCheckbox v-model="editing.mtp">
-            <span>MTP <span class="lu-muted">— multi-token prediction; speculative decode auto-enables</span></span>
+            <span>MTP <span class="lu-muted">— multi-token prediction (speculative decode). Check to enable + configure below.</span></span>
           </UiCheckbox>
           <UiCheckbox v-model="editing.embedding">
             <span>Embedding <span class="lu-muted">— a RAG/search model, not a chat LLM</span></span>
           </UiCheckbox>
         </div>
+
+        <!-- Consistency (2026-07-13, decision A): each capability checkbox REVEALS +
+             owns its config below, in checkbox order (MoE · MTP · Embedding); uncheck
+             hides it. MoE/MTP change resolved switches via switch_resolve; Embedding
+             drives placement + pooling (its own plane) — same interaction, uniform. -->
+        <template v-if="editing.type === 'moe'">
+          <div class="lu-mm-note"><b>MoE</b> <span class="lu-muted">— experts offload to system RAM; the launch pins layers on GPU and frees VRAM via CPU MoE layers (adds <code>no_mmap</code> at load). Tune <code>n_cpu_moe</code> per box in Quick tune.</span></div>
+        </template>
+
+        <template v-if="editing.mtp">
+          <div class="lu-mm-note"><b>MTP config</b> <span class="lu-muted">—
+            <template v-if="editing.mtpBuiltin">built-in prediction heads; no external draft needed. </template>
+            <template v-else>runs via an external speculative-decode draft (Gemma-style). </template>
+            Enabling adds <code>spec_type=draft-mtp</code> at load; uncheck to turn MTP off.</span></div>
+          <label class="lu-mm-l">Draft file <span class="lu-muted">{{ editing.mtpBuiltin ? "optional — built-in MTP" : "the speculative-decode model (feeds --model-draft)" }}</span>
+            <UiSelect v-if="listing?.drafts?.length" :model-value="editing.mtpDraftFile"
+              :options="draftOptions" @update:model-value="onDraftPick" />
+            <UiInput v-else v-model="editing.mtpDraftFile" placeholder="MTP/…-Q4_0-MTP.gguf" />
+          </label>
+          <label class="lu-mm-l">Draft repo <span class="lu-muted">optional — blank = the same repo as the model</span>
+            <UiInput v-model="editing.mtpDraftRepo" placeholder="" /></label>
+          <div v-if="inspected?.mtpInheritedFile && (editing.mtpDraftRepo === inspected.mtpInheritedRepo)" class="lu-mm-note"><span class="lu-muted">Borrowed official drafter: <code>{{ inspected.mtpInheritedRepo }}</code> / <code>{{ inspected.mtpInheritedFile }}</code> — this model ships none of its own, so it uses the base family's.</span></div>
+        </template>
 
         <template v-if="editing.embedding">
           <div class="lu-mm-note"><b>Task templates</b> <span class="lu-muted">— some embedding models need an instruction around the text ({text} is the slot; leave empty if the model needs none). Changing these needs a Rebuild of the book index.</span></div>

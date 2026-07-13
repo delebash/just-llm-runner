@@ -78,13 +78,13 @@ def resolve_model_switches_with_origins(
 
         _apply("all", "base")              # base — every model
         _apply(mtype, "type")              # the model's type preset (moe | dense)
-        # gated auto-MTP (Plan B D3): built-in capable OR external draft configured.
-        # `model.mtp OR mtp_draft_file` — NOT `mtp AND …`: a Gemma-style model's
-        # MAIN header has no MTP marker, so the draft arm must fire independently.
-        mtp_capable = bool(model is not None and (
-            getattr(model, "mtp", False) or getattr(model, "mtp_draft_file", "")
-        ))
-        if mtp_capable:
+        # gated auto-MTP: apply the mtp preset when MTP is ENABLED (2026-07-13 split).
+        # `model.mtp` is now the single user-facing enable flag — checking the box (or
+        # the seed default) turns it on, UNCHECKING turns it off even if a draft file is
+        # still configured (the old `mtp OR mtp_draft_file` gate re-enabled it and made
+        # uncheck a no-op). Availability (built-in `mtp_builtin` OR a draft) is a
+        # separate fact surfaced as `mtpCapable`; enablement is this flag.
+        if bool(model is not None and getattr(model, "mtp", False)):
             _apply("mtp", "mtp")
         # seeded/editable per-(model, HARDWARE-CLASS) tune (2026-07-07): a config
         # measured on one box, portable to every box of the same class. Applies BELOW

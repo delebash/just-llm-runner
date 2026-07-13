@@ -169,6 +169,155 @@ def list_repo_ggufs(repo: str, revision: str = "main") -> dict:
     return classify_gguf_entries(_tree(repo, revision))
 
 
+# ── Tier-C inherited MTP drafter discovery (2026-07-13) ───────────────────────
+# A model with NO built-in MTP (`nextn_predict_layers==0`) and NO draft in its OWN
+# repo can still run speculative-decode MTP by borrowing the OFFICIAL base-family
+# drafter — a small "-assistant"/"-MTP" repo that shares the base's vocab +
+# embeddings (verified: gemma4 26B-A4B → `google/gemma-4-26B-A4B-it-assistant`).
+# This DISCOVERS one at inspect time: derive candidate drafter repos from the base
+# chain, probe HF, and return ONLY a repo that actually resolves and carries a
+# .gguf — verified, never guessed. Best-effort: any network/parse failure yields
+# None (no suggestion), never an exception into the caller.
+_MTP_ARCH_FAMILIES = ("gemma4", "qwen3", "deepseek")   # arch prefixes that support external MTP drafters
+_DRAFTER_SUFFIXES = ("-assistant", "-MTP", "-mtp")       # official companion-drafter repo naming
+_OFFICIAL_ORGS = ("google/", "qwen/", "deepseek-ai/")    # trust the vendor's own drafter, not a repackage
+
+
+def _model_card(repo: str, revision: str = "main") -> dict:
+    r = requests.get(f"{_HF_BASE}/api/models/{repo}/revision/{revision}", timeout=_API_TIMEOUT)
+    r.raise_for_status()
+    return r.json()
+
+
+def _norm_repo(url_or_repo: str) -> str:
+    """'https://huggingface.co/google/gemma-4-26B-A4B-it' | 'google/…' -> 'google/…'."""
+    u = (url_or_repo or "").strip().rstrip("/")
+    if "huggingface.co/" in u:
+        u = u.split("huggingface.co/", 1)[1]
+    segs = [p for p in u.split("/") if p]
+    return "/".join(segs[:2]) if len(segs) >= 2 else ""
+
+
+def _declared_bases(card: dict) -> list[str]:
+    """cardData.base_model (str|list) + base_model:* tags, relation namespace stripped."""
+    out: list[str] = []
+    bm = (card.get("cardData") or {}).get("base_model")
+    if isinstance(bm, str):
+        out.append(bm)
+    elif isinstance(bm, list):
+        out.extend(b for b in bm if isinstance(b, str))
+    for t in card.get("tags") or []:
+        if t.startswith("base_model:"):
+            parts = t.split(":", 2)
+            out.append(parts[2] if len(parts) == 3 else parts[1])
+    seen: set[str] = set()
+    return [b for b in out if b and not (b in seen or seen.add(b))]
+
+
+def _official_base_candidates(repo: str, base_repo_url: str, revision: str) -> list[str]:
+    """Official (vendor-org) base repos to hang a drafter suffix off — walked from the
+    GGUF header's base repo + the HF base_model chain (up to 2 hops). Only vendor-org
+    repos are kept: the drafter must be the AUTHORITATIVE one, not a repackage."""
+    frontier = [r for r in (_norm_repo(base_repo_url), repo) if r]
+    officials: list[str] = []
+    seen: set[str] = set()
+    for _hop in range(2):
+        nxt: list[str] = []
+        for r in frontier:
+            if not r or r in seen:
+                continue
+            seen.add(r)
+            if r.lower().startswith(_OFFICIAL_ORGS):
+                officials.append(r)
+                continue
+            try:
+                nxt.extend(_norm_repo(b) for b in _declared_bases(_model_card(r, revision)))
+            except requests.RequestException:
+                continue
+        frontier = nxt
+    # De-dup, preserve order.
+    out: list[str] = []
+    for r in officials:
+        if r and r not in out:
+            out.append(r)
+    return out
+
+
+def _search_models(query: str, limit: int = 15) -> list[str]:
+    r = requests.get(f"{_HF_BASE}/api/models", params={"search": query, "limit": limit},
+                     timeout=_API_TIMEOUT)
+    r.raise_for_status()
+    return [str(m.get("id") or m.get("modelId") or "") for m in r.json()]
+
+
+def _gguf_drafter_in_repo(repo: str, revision: str = "main") -> dict | None:
+    """The smallest usable .gguf in `repo` as a drafter `{"repo","file","quant"}`, or
+    None (no gguf / repo doesn't resolve). Smallest = fastest draft, and a drafter only
+    affects SPEED — the main model validates every token — so smallest is the safe pick."""
+    try:
+        entries = _tree(repo, revision)
+    except requests.RequestException:
+        return None
+    ggufs = [e for e in entries if str(e.get("path", "")).lower().endswith(".gguf")
+             and "mmproj" not in str(e.get("path", "")).lower()]
+    if not ggufs:
+        return None
+    best = min(ggufs, key=_entry_size)
+    path = str(best.get("path", ""))
+    qm = _QUANT_RE.search(path)
+    return {"repo": repo, "file": path, "quant": qm.group(0) if qm else ""}
+
+
+def find_inherited_mtp_drafter(
+    repo: str, architecture: str, base_repo_url: str = "", revision: str = "main"
+) -> dict | None:
+    """Best-effort Tier-C: a borrowable drafter for an MTP-family model whose own repo
+    ships none. Walks the base chain to the OFFICIAL family root, finds its companion
+    assistant/MTP repo, and returns a usable GGUF drafter `{"repo","file","quant"}` —
+    from the assistant repo itself, or (the common case — official assistants ship
+    safetensors, llama.cpp needs a GGUF) from a community GGUF quant of it, VERIFIED to
+    resolve. None when nothing usable resolves. Never raises — discovery is advisory."""
+    arch = (architecture or "").lower()
+    if not any(arch.startswith(f) for f in _MTP_ARCH_FAMILIES):
+        return None
+    try:
+        bases = _official_base_candidates(repo, base_repo_url, revision)
+    except Exception:  # noqa: BLE001 — discovery is advisory; never break inspect
+        return None
+    for base in bases:
+        # Strip a trailing precision/quant descriptor so a "-it-qat-q4_0-unquantized"
+        # base still hangs the drafter off the "-it" root the vendor publishes it under.
+        roots = {base}
+        low = base.lower()
+        for marker in ("-it-qat", "-it-", "-it"):
+            if marker in low:
+                roots.add(base[: low.index(marker) + len("-it")])
+                break
+        for root in roots:
+            for suf in _DRAFTER_SUFFIXES:
+                assistant = root + suf
+                # 1) the official assistant repo itself, IF it ships a GGUF (rare).
+                got = _gguf_drafter_in_repo(assistant, revision)
+                if got:
+                    return got
+                # 2) else a community GGUF QUANT of that exact assistant — search by its
+                # basename + "GGUF", keep only hits that carry the basename AND "gguf",
+                # and return the first that actually resolves with a .gguf inside.
+                basename = assistant.split("/")[-1]
+                try:
+                    hits = _search_models(f"{basename}-GGUF")
+                except requests.RequestException:
+                    hits = []
+                for hit in hits:
+                    hl = hit.lower()
+                    if basename.lower() not in hl or "gguf" not in hl:
+                        continue
+                    got = _gguf_drafter_in_repo(hit, revision)
+                    if got:
+                        return got
+    return None
+
+
 def is_cached(repo: str, quant: str, *, cache_root: Path, mmproj: str | None = None) -> bool:
     """Offline check: is a GGUF for `quant` already in the local cache? A thin wrapper
     over `cached_gguf_path` (ONE source of the snapshot-path + match rule) — no network

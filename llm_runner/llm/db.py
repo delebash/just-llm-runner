@@ -81,7 +81,17 @@ class ModelCatalog(LlmBase):
     mmproj = Column(String, nullable=True)
     total_params = Column(String, nullable=False, default="")
     active_params = Column(String, nullable=False, default="")
+    # MTP ENABLED/intent (2026-07-13): the user-facing "use MTP" flag — seed- and
+    # user-owned, bound to the edit-form checkbox, read by the grid badge AND
+    # `switch_resolve`'s auto-mtp layer. IDENTITY NEVER writes this (unlike the old
+    # single `mtp` column, which the download header-read clobbered to False for
+    # Gemma-style external-draft models — grid showed MTP, checkbox went unchecked).
     mtp = Column(Boolean, nullable=False, default=False)
+    # MTP BUILT-IN (header truth): `<arch>.nextn_predict_layers > 0` — Qwen/GLM-style
+    # in-file multi-token heads. Written ONLY by the GGUF identity read (set_derived /
+    # inspect); display + auto-detect provenance, never the enable switch. A Gemma
+    # external-draft model reads False here yet is still MTP-ENABLED via its draft.
+    mtp_builtin = Column(Boolean, nullable=False, default=False)
     # Gemma-style SEPARATE MTP draft file (an external speculative-decode model at
     # its own quant; Qwen-style MTP is built into the main file and needs none of
     # these). FACTS about the model (which file), not tune — the per-box
@@ -656,9 +666,38 @@ def session():
     return _SessionLocal()
 
 
+# Additive column migrations (SQLite): `create_all` creates missing TABLES but not
+# missing COLUMNS, so a schema field added after a DB already exists never lands
+# without a reset. Each entry is `(table, column, "SQL type + default")`; applied
+# idempotently (skipped when the column is already present). Additive only — never
+# a drop/rename (those still go through a reset, the pre-production schema path).
+_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("model_catalog", "mtp_builtin", "BOOLEAN NOT NULL DEFAULT 0"),
+)
+
+
+def _migrate_add_columns(engine) -> None:
+    """Idempotently `ALTER TABLE ADD COLUMN` for every `_ADDED_COLUMNS` entry whose
+    column is missing — so an existing DB gains a new field on boot without a reset."""
+    from sqlalchemy import inspect as sa_inspect, text
+
+    insp = sa_inspect(engine)
+    existing_tables = set(insp.get_table_names())
+    with engine.begin() as conn:
+        for table, column, decl in _ADDED_COLUMNS:
+            if table not in existing_tables:
+                continue  # create_all just made it with the column already present
+            cols = {c["name"] for c in insp.get_columns(table)}
+            if column in cols:
+                continue
+            conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {column} {decl}'))
+
+
 def create_all(engine) -> None:
-    """Create every LLM table on the host's engine (idempotent)."""
+    """Create every LLM table on the host's engine (idempotent) + apply additive
+    column migrations so an existing DB gains new fields without a reset."""
     LlmBase.metadata.create_all(bind=engine)
+    _migrate_add_columns(engine)
 
 
 metadata = LlmBase.metadata

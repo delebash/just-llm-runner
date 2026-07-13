@@ -146,7 +146,51 @@ def declared_bases(info: dict) -> list[str]:
     return [b for b in out if b and not (b in seen or seen.add(b))]
 
 
-def audit_row(source: str, row: dict, net: Net) -> dict:
+def _load_header_deriver():
+    """Optional live GGUF-header deriver — returns a `derive(repo, quant) -> facts` fn
+    when `llm_runner` is importable, else None. The audit still RUNS bare (None → header
+    checks are skipped); when the package is present it grounds the seed's HEADER facts
+    (mtp_builtin / type / experts / size / trained_ctx) against the real file, closing
+    the gap the license/quant checks left — the seed's `mtp` was never header-verified
+    before (2026-07-13), which is exactly how the Gemma grid-vs-checkbox drift slipped in."""
+    try:
+        from llm_runner.llm.identity import derived_fields_from_meta
+        from llm_runner.runner.gguf_remote import fetch_gguf_meta
+    except Exception:  # noqa: BLE001 — bare-python run: header checks simply don't run
+        return None
+
+    def _derive(repo: str, quant: str) -> dict:
+        meta, total = fetch_gguf_meta(repo, quant)
+        f = derived_fields_from_meta(meta)
+        return {
+            "mtp_builtin": bool(f["mtp_builtin"]), "type": f["type"],
+            "experts": int(meta.expert_count or 0), "architecture": meta.architecture or "",
+            "trained_ctx": f["trained_ctx"], "size_label": meta.size_label or "",
+            "size_bytes": int(total),
+        }
+
+    return _derive
+
+
+def _norm_header(field: str, v):
+    """Effective-default normalize (mirrors refresh-seed-facts._norm) so an OMITTED seed
+    field the row builder defaults correctly isn't flagged as a spurious header mismatch."""
+    if field == "mtp_builtin":
+        return bool(v)
+    if field == "type":
+        return v or "dense"
+    if field == "experts":
+        return int(v or 0)
+    if field in ("architecture", "size_label"):
+        return v or ""
+    return v  # trained_ctx / size_bytes: None means "not filled yet"
+
+
+_HEADER_FIELDS = ("mtp_builtin", "type", "experts", "architecture", "trained_ctx",
+                  "size_label", "size_bytes")
+
+
+def audit_row(source: str, row: dict, net: Net, header=None) -> dict:
     repo = str(row.get("hf_repo") or "")
     res: dict = {
         "source": source,
@@ -199,6 +243,23 @@ def audit_row(source: str, row: dict, net: Net) -> dict:
     res["draft_checked"] = bool(draft)
     if draft and draft not in siblings:
         res["problems"].append(f"mtp draft {draft} not found in the repo tree")
+
+    # HEADER facts (optional, 2026-07-13): range-read the pinned quant's GGUF header and
+    # diff the seed's file-derived scalars against it — so a hand-typed mtp/size/type/ctx
+    # that drifts from the file FAILS loudly (the generator keeps them in sync; this
+    # keeps them honest). Skipped when llm_runner isn't importable (bare-python run).
+    if header is not None and res["quant"]:
+        try:
+            live = header(res["repo"], res["quant"])
+        except Exception as e:  # noqa: BLE001 — a header read failure is not a facts verdict
+            res["header_note"] = f"header read failed: {type(e).__name__}"
+        else:
+            res["header_checked"] = True
+            for field in _HEADER_FIELDS:
+                seeded = _norm_header(field, row.get(field))
+                fresh = _norm_header(field, live[field])
+                if seeded != fresh:
+                    res["problems"].append(f"header {field}: seed {seeded!r} vs HF {fresh!r}")
     return res
 
 
@@ -212,14 +273,17 @@ def print_table(results: list[dict]) -> None:
         verdict = "FAIL" if r["problems"] else "OK"
         lic = f"{r['seeded']}→{r['hf'] or '?'}"
         draft = " +mtp-draft" if r.get("draft_checked") else ""
+        hdr = " +hdr" if r.get("header_checked") else ""
         print(
             f"{verdict:<4} [{r['source']:<6}] {r['id']:<{wid}}  {r['repo']:<{wrepo}}  "
-            f"{lic}  quant {r['quant'] or '-'}{draft}"
+            f"{lic}  quant {r['quant'] or '-'}{draft}{hdr}"
         )
         for b in r["bases"]:
             print(f"       base {b}")
         if not r["bases"] and r["hf"]:
             print("       base (none declared — the A4 hop has nothing to check)")
+        if r.get("header_note"):
+            print(f"       ~ {r['header_note']}")
         for p in r["problems"]:
             print(f"       ✗ {p}")
 
@@ -246,11 +310,22 @@ def main() -> int:
             f"(pass --jw-seed or set JW_SEED_PRESETS)"
         )
 
+    try:  # Windows consoles default to cp1252 — the table uses ·/✗.
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
     net = Net()
-    results = [audit_row(source, row, net) for source, row in rows]
+    header = _load_header_deriver()
+    if header is None:
+        print("note: llm_runner not importable — HEADER facts (mtp_builtin/type/size/ctx) "
+              "NOT checked this run; license/quant/draft only. Run from the package to header-verify.")
+    results = [audit_row(source, row, net, header) for source, row in rows]
     print_table(results)
     failed = sum(1 for r in results if r["problems"])
-    print(f"\n{len(results)} rows audited · {len(results) - failed} OK · {failed} FAIL")
+    checked_hdr = sum(1 for r in results if r.get("header_checked"))
+    print(f"\n{len(results)} rows audited · {len(results) - failed} OK · {failed} FAIL"
+          f" · {checked_hdr} header-verified")
     return 1 if failed else 0
 
 

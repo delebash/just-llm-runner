@@ -156,7 +156,7 @@ DEFAULT_CATALOG: list[dict] = [
     # ── Dense (runs fully on the GPU — fast) ──────────────────────────────────────────────
     {"id": "gemma-4-12b-qat", "name": "Gemma 4 12B (QAT)",
      "hf_repo": "unsloth/gemma-4-12B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "12B",
-     "mtp": True, "mtp_draft_file": "MTP/gemma-4-12B-it-Q4_0-MTP.gguf", "mtp_draft_quant": "Q4_0",
+     "mtp": True, "mtp_draft_file": "MTP/mtp-gemma-4-12B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
      "min_ram_mb": 12000, "min_vram_mb": 8500, "tier": "mid", "license": "Apache-2.0", "position": 0,
      "quality_rank": 22, "architecture": "gemma4", "experts": 0,
@@ -165,7 +165,7 @@ DEFAULT_CATALOG: list[dict] = [
      "notes": "The small-card rung of the writing-first ladder; runs fully on a 10-12 GB GPU (tight on 8)."},
     {"id": "gemma-4-31b-qat", "name": "Gemma 4 31B (QAT)",
      "hf_repo": "unsloth/gemma-4-31B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "31B",
-     "mtp": True, "mtp_draft_file": "MTP/gemma-4-31B-it-Q4_0-MTP.gguf", "mtp_draft_quant": "Q4_0",
+     "mtp": True, "mtp_draft_file": "MTP/mtp-gemma-4-31B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
      "min_ram_mb": 24000, "min_vram_mb": 20000, "tier": "high", "license": "Apache-2.0", "position": 1,
      "quality_rank": 7, "architecture": "gemma4", "experts": 0,
@@ -183,7 +183,7 @@ DEFAULT_CATALOG: list[dict] = [
     # ── MoE (experts offload to system RAM — higher quality, slower, needs RAM) ────────────
     {"id": "qwen3.6-35b-a3b-mtp", "name": "Qwen3.6 35B-A3B (MTP)",
      "hf_repo": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF", "quant": "UD-Q4_K_XL",
-     "total_params": "35B", "active_params": "3.6B", "mtp": True, "type": "moe",
+     "total_params": "35B", "active_params": "3.6B", "mtp": True, "mtp_builtin": True, "type": "moe",
      "trained_ctx": 262144, "samplers": {"top_k": "20", "top_p": "0.95", "temperature": "1"},
      "min_vram_mb": 6000, "min_ram_mb": 32000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 3,
      "quality_rank": 8, "architecture": "qwen35moe", "experts": 256,
@@ -201,7 +201,7 @@ DEFAULT_CATALOG: list[dict] = [
      "total_params": "106B", "active_params": "12B", "type": "moe",
      # mtp True: the GGUF header carries nextn_predict_layers (live header read 2026-07-07
      # — the seed said False; the strict-diff caught it). Built-in MTP, no external draft.
-     "mtp": True, "trained_ctx": 131072,
+     "mtp": True, "mtp_builtin": True, "trained_ctx": 131072,
      "min_vram_mb": 12000, "min_ram_mb": 64000, "tier": "high-ram", "license": "MIT", "position": 4,
      "quality_rank": 10, "architecture": "glm4moe", "experts": 128,
      "size_label": "128x9.4B", "size_bytes": 67721071872,
@@ -636,7 +636,8 @@ def _catalog_row(c: dict, *, built_in: bool) -> "db.ModelCatalog":
         id=c["id"], name=str(c.get("name") or ""), hf_repo=str(c.get("hf_repo") or ""),
         quant=str(c.get("quant") or ""), mmproj=c.get("mmproj"),
         total_params=str(c.get("total_params") or ""), active_params=str(c.get("active_params") or ""),
-        mtp=bool(c.get("mtp") or False), type=str(c.get("type") or "dense"),
+        mtp=bool(c.get("mtp") or False), mtp_builtin=bool(c.get("mtp_builtin") or False),
+        type=str(c.get("type") or "dense"),
         mtp_draft_repo=str(c.get("mtp_draft_repo") or ""),
         mtp_draft_file=str(c.get("mtp_draft_file") or ""),
         mtp_draft_quant=str(c.get("mtp_draft_quant") or ""),
@@ -677,6 +678,13 @@ STALE_SEED_VALUES = {
     # root-level `mtp-gemma-4-26B-A4B-it.gguf` (HF tree verified 2026-07-10).
     ("gemma-4-26b-a4b-uncensored", "mtp_draft_file"):
         ("MTP/gemma-4-26B-A4B-it-Q4_0-MTP.gguf",),
+    # The 12B/31B QAT rows seeded a WRONG draft path (`gemma-…-Q4_0-MTP.gguf`); the
+    # repos ship `MTP/mtp-gemma-…-it-Q4_0.gguf` (HF tree verified 2026-07-13, caught by
+    # the extended seed-facts audit's draft-in-tree check). Heal the exact old value.
+    ("gemma-4-12b-qat", "mtp_draft_file"):
+        ("MTP/gemma-4-12B-it-Q4_0-MTP.gguf",),
+    ("gemma-4-31b-qat", "mtp_draft_file"):
+        ("MTP/gemma-4-31B-it-Q4_0-MTP.gguf",),
 }
 
 

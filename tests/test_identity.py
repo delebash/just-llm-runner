@@ -70,14 +70,14 @@ def test_derived_fields_from_meta():
     f = identity.derived_fields_from_meta(
         _meta_full(nextn=1, ctx=262144, sampling={"temp": 1.0, "top_k": 20, "penalty_repeat": 1.05})
     )
-    assert f["type"] == "dense" and f["mtp"] is True and f["trained_ctx"] == 262144
+    assert f["type"] == "dense" and f["mtp_builtin"] is True and f["trained_ctx"] == 262144
     # samplers are canonicalized to OUR catalog namespace (temp→temperature,
     # penalty_repeat→repeat_penalty); unchanged keys (top_k) pass through, and values
     # render as the number the file MEANS (float32-noise cleanup: 1.0 → "1").
     assert f["samplers"] == {"temperature": "1", "top_k": "20", "repeat_penalty": "1.05"}
     # dense / no-mtp / no-ctx / no-sampling -> falsy fields (None trained_ctx, {} samplers)
     g = identity.derived_fields_from_meta(_meta_full())
-    assert g["type"] == "dense" and g["mtp"] is False
+    assert g["type"] == "dense" and g["mtp_builtin"] is False
     assert g["trained_ctx"] is None and g["samplers"] == {}
 
 
@@ -182,7 +182,8 @@ def test_detect_stores_mtp_ctx_and_samplers(configured):
     )
     assert out == "dense"
     row = _row(mid)
-    assert row.mtp is True and row.trainedCtx == 262144
+    # set_derived writes the HEADER truth into mtp_builtin (never the enable flag mtp)
+    assert row.mtpBuiltin is True and row.mtp is False and row.trainedCtx == 262144
     assert row.samplers == {"temperature": "1", "top_k": "20"}  # canonicalized + number-cleaned
     assert row.builtIn is True  # set_derived preserves built_in (unlike upsert)
 
@@ -223,7 +224,7 @@ def test_inspect_model_from_link(monkeypatch):
     monkeypatch.setattr(gguf_remote, "fetch_gguf_meta",
                         lambda repo, quant, revision="main": (meta, 17_000_000_000))
     out = identity.inspect_model_from_link("unsloth/Qwen3.6-27B-MTP-GGUF", "Q4_K_M")
-    assert out["type"] == "dense" and out["mtp"] is True and out["trainedCtx"] == 262144
+    assert out["type"] == "dense" and out["mtpBuiltin"] is True and out["trainedCtx"] == 262144
     assert out["experts"] == 0 and out["architecture"] == "qwen35"
     assert out["sizeLabel"] == "27B" and out["totalParams"] == "27B"  # dense param count from size_label
     assert out["samplers"] == {"temperature": "1", "top_k": "20"}  # canonicalized + number-cleaned
@@ -239,7 +240,7 @@ def test_inspect_uses_generation_config_fallback(monkeypatch):
     monkeypatch.setattr(gguf_remote, "fetch_generation_config_samplers",
                         lambda url, revision="main": {"temp": 0.6, "top_p": 0.95})
     out = identity.inspect_model_from_link("unsloth/GLM-4.5-Air-GGUF", "UD-Q4_K_XL")
-    assert out["type"] == "moe" and out["experts"] == 128 and out["mtp"] is True
+    assert out["type"] == "moe" and out["experts"] == 128 and out["mtpBuiltin"] is True
     # from generation_config.json fallback, canonicalized (temp→temperature)
     assert out["samplers"] == {"temperature": "0.6", "top_p": "0.95"}
 

@@ -905,6 +905,8 @@ class RunnerConfigStore:
             policy = (row.value if row else "") or "notify"
             ack_row = s.get(db.RunnerSetting, "ack_hw_fingerprint")
             ack_fp = ack_row.value if ack_row else ""
+            pref_row = s.get(db.RunnerSetting, "preferred_gpu")
+            preferred = (pref_row.value if pref_row else "") or ""
         finally:
             s.close()
         return EngineConfig(
@@ -918,6 +920,7 @@ class RunnerConfigStore:
             downloadSegmentRetries=cfg.download_segment_retries,
             updatePolicy=policy,
             ackHwFingerprint=ack_fp,
+            preferredGpu=preferred,
             binaries=[_runner_binary_to_row(b) for b in cfg.llamacpp.binaries],
         )
 
@@ -979,6 +982,7 @@ class RunnerConfigStore:
                              ("safety_margin_mb", str(DEFAULT_SAFETY_MARGIN_MB)),
                              ("models_max", str(DEFAULT_MODELS_MAX)),
                              ("sleep_idle_seconds", str(DEFAULT_SLEEP_IDLE_SECONDS)),
+                             ("preferred_gpu", ""),
                              ("download_segments_enabled", "1" if DEFAULT_DOWNLOAD_SEGMENTS_ENABLED else "0"),
                              ("download_segment_count", str(DEFAULT_DOWNLOAD_SEGMENT_COUNT)),
                              ("download_segment_min_bytes", str(DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES)),
@@ -1428,6 +1432,7 @@ def build_runner_config():
             safety_margin_mb=_int("safety_margin_mb", DEFAULT_SAFETY_MARGIN_MB),
             models_max=_int("models_max", DEFAULT_MODELS_MAX),
             sleep_idle_seconds=_int("sleep_idle_seconds", DEFAULT_SLEEP_IDLE_SECONDS),
+            preferred_gpu=(settings.get("preferred_gpu") or ""),
             download_segments_enabled=_bool("download_segments_enabled", DEFAULT_DOWNLOAD_SEGMENTS_ENABLED),
             download_segment_count=_int("download_segment_count", DEFAULT_DOWNLOAD_SEGMENT_COUNT),
             download_segment_min_bytes=_int("download_segment_min_bytes", DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES),

@@ -85,7 +85,7 @@ const hwLabel = computed(() => {
     .sort((a, b) => rank(a) - rank(b));
   const active = rts[0] || "";
   const accel = rts
-    .map((k) => (k === active ? `${k.toUpperCase()} (in use)` : `${k.toUpperCase()} available`))
+    .map((k) => (k === active ? `${k.toUpperCase()} (in use)` : `${k.toUpperCase()} (supported)`))
     .join(" · ");
   return {
     os: h.os || "—",

@@ -49,6 +49,10 @@ class EngineConfig(BaseModel):
     # ("counts as changed just gpu vram" · "appears dismissinle toast"). "" = never
     # seen; the UI seeds it silently on first sight (a fresh install is not a change).
     ackHwFingerprint: str = ""
+    # Acceleration-backend override (2026-07-14): the GPU FAMILY the user pinned as the
+    # active engine backend ("cuda" | "vulkan" | "rocm" | "metal"; "" = Auto / hardware
+    # order). The runner moves it to the front of its build-preference order.
+    preferredGpu: str = ""
     binaries: list[RunnerBinaryRow]
 
 
@@ -56,6 +60,7 @@ class EngineConfigUpdate(BaseModel):
     pinnedBuild: str | None = None
     updatePolicy: str | None = None     # "off" | "notify"
     ackHwFingerprint: str | None = None  # the acknowledged gpu|vram fingerprint (Task E)
+    preferredGpu: str | None = None      # backend override family ("" = Auto; cuda|vulkan|rocm|metal)
     safetyMarginMb: int | None = None
     modelsMax: int | None = None
     sleepIdleSeconds: int | None = None
@@ -71,7 +76,7 @@ class RunnerConfigStore(Protocol):
 
     def get_config(self) -> EngineConfig: ...
     def upsert_binary(self, row: RunnerBinaryRow) -> None: ...      # by (platform, gpu)
-    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | models_max | sleep_idle_seconds | download_segment*
+    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | models_max | sleep_idle_seconds | preferred_gpu | download_segment*
     def reset_to_defaults(self) -> None: ...
 
 
@@ -97,6 +102,11 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             store.set_setting("update_policy", up)
         if body.ackHwFingerprint is not None:
             store.set_setting("ack_hw_fingerprint", body.ackHwFingerprint.strip())
+        if body.preferredGpu is not None:
+            pg = body.preferredGpu.strip().lower()
+            if pg not in ("", "cuda", "vulkan", "rocm", "metal"):
+                raise HTTPException(status_code=400, detail="preferredGpu must be blank (Auto) or one of: cuda, vulkan, rocm, metal")
+            store.set_setting("preferred_gpu", pg)
         if body.safetyMarginMb is not None:
             store.set_setting("safety_margin_mb", str(int(body.safetyMarginMb)))
         if body.modelsMax is not None:

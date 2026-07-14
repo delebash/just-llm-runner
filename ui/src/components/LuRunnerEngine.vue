@@ -29,7 +29,7 @@ import { usePoll } from "../common/composables/usePoll.js";
 // cluster, install progress/errors, and the Details drawer. Install POLLING
 // lives in the composable, so progress keeps flowing whichever surface started
 // it and whichever is mounted.
-const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, updateInfo, checkForUpdate, updateToLatest, refreshEngine, install: engInstall, uninstall: engUninstall, busy: engBusy } = useEngine();
+const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, updateInfo, checkForUpdate, updateToLatest, refreshEngine, install: engInstall, uninstall: engUninstall, setBackend, busy: engBusy } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
 // Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
@@ -40,6 +40,32 @@ const showDetails = ref(false);
 const cudaRuntimeMissing = computed(
   () => installed.value && st.value?.gpu?.startsWith("cuda") && st.value?.hasRuntime === false,
 );
+
+// Acceleration-backend selector (2026-07-14): the families this box can actually run
+// (a detected runtime WITH a real binary) come from engine_status.offerBackends; the
+// pin (preferredGpu) + what's installed/active drive the labels. Shown only when there's
+// a genuine choice (>1 offerable), so a single-backend box stays uncluttered.
+const FAM_LABEL = { cuda: "NVIDIA CUDA", vulkan: "Vulkan", rocm: "AMD ROCm", metal: "Apple Metal" };
+const familyOf = (g) => (g && g.startsWith("cuda") ? "cuda" : g || "");
+const backendOptions = computed(() => {
+  const fams = st.value?.offerBackends || [];
+  const inst = new Set((st.value?.installedGpus || []).map(familyOf));
+  return [
+    { value: "", label: "Auto (recommended)" },
+    ...fams.map((f) => ({
+      value: f,
+      label: inst.has(f) ? (FAM_LABEL[f] || f) : `${FAM_LABEL[f] || f} — will download`,
+    })),
+  ];
+});
+const showBackendPicker = computed(() => (st.value?.offerBackends?.length || 0) > 1);
+const activeBackendLabel = computed(() => {
+  const a = st.value?.activeGpu;
+  return a ? (FAM_LABEL[familyOf(a)] || a) : "";
+});
+function onPickBackend(v) {
+  setBackend(v);
+}
 
 // Resident set (4a) — the live loaded/sleeping/in-flight models, the VRAM budget, and
 // the two operator knobs. GET /resident is read-only + safe to poll (never spawns the
@@ -204,6 +230,18 @@ onMounted(() => {
       </div>
     </div>
 
+    <!-- Acceleration backend (2026-07-14): a REAL switch, replacing the old phantom
+         "CUDA available" label — pick which GPU backend the engine runs on; the variant
+         downloads on demand and a manual restart applies it. Shown only when the box has
+         a genuine choice (e.g. an NVIDIA driver exposes both CUDA and Vulkan). -->
+    <div v-if="showBackendPicker" class="lu-eng-backend">
+      <span class="lu-eng-backend-cap">Acceleration backend</span>
+      <UiSelect :model-value="st.preferredGpu || ''" width="token"
+        :options="backendOptions" :disabled="engBusy || installing"
+        @update:model-value="onPickBackend" />
+      <span v-if="activeBackendLabel" class="lu-eng-backend-active">running on {{ activeBackendLabel }}</span>
+    </div>
+
     <!-- Progress + errors live OUTSIDE the collapse: an in-flight install or a failure
          must stay visible while the panel is folded (user, 2026-07-06). -->
     <UiProgress v-if="installing" class="lu-eng-prog"
@@ -313,6 +351,9 @@ onMounted(() => {
 }
 .lu-eng-warn { color: var(--lu-warn, #b45309); }
 .lu-eng-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.lu-eng-backend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lu-eng-backend-cap { font-size: 12.5px; font-weight: 600; color: var(--lu-ink-2, var(--ink-2, #666)); }
+.lu-eng-backend-active { font-size: 11.5px; color: var(--lu-ink-2, var(--ink-2, #666)); font-variant-numeric: tabular-nums; }
 .lu-eng-err { margin: 0; font-size: 12.5px; color: var(--lu-danger, var(--danger, #b91c1c)); }
 .lu-eng-log {
   max-height: 220px;

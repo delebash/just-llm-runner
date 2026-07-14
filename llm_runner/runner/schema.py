@@ -134,6 +134,11 @@ class RunnerConfig(CamelModel):
     # the arbiter (P2) works WITHIN models_max.
     models_max: int = 2
     sleep_idle_seconds: int = 900
+    # User backend override (2026-07-14): a GPU FAMILY ("cuda" | "vulkan" | "rocm" |
+    # "metal") the user pinned as the active acceleration backend — moved to the front
+    # of the hardware preference order by binary._gpu_preference. "" = Auto (pure
+    # hardware order). DB-editable via runner_setting `preferred_gpu`.
+    preferred_gpu: str = ""
     # Segmented downloads (DL-2): N parallel byte-ranges per file; files under
     # the min-bytes floor (and everything, when disabled) stay single-stream.
     # DB-editable via runner_setting; defaults mirror runner.config DEFAULT_*.

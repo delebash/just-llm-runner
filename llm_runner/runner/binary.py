@@ -40,12 +40,33 @@ def _cuda_key(hardware: HardwareInfo) -> str:
     return "cuda13" if max_cap >= 10.0 else "cuda12"
 
 
-def _gpu_preference(hardware: HardwareInfo) -> list[str]:
+def gpu_family(gpu: str) -> str:
+    """The user-facing backend FAMILY of a concrete asset key: every chip-specific
+    CUDA build (`cuda12`/`cuda13`) collapses to `"cuda"`; the rest are their own
+    family. The UI offers/pins families; the runner resolves the concrete key."""
+    g = (gpu or "").strip().lower()
+    return "cuda" if g.startswith("cuda") else g
+
+
+def concrete_gpu(hardware: HardwareInfo, family: str) -> str:
+    """Map a backend FAMILY the user picked (`cuda`/`vulkan`/…) to the concrete
+    asset key for THIS box — `cuda` → the chip-aware `_cuda_key`; others are their
+    own key. Empty stays empty (Auto)."""
+    fam = (family or "").strip().lower()
+    if not fam:
+        return ""
+    return _cuda_key(hardware) if fam == "cuda" else fam
+
+
+def _gpu_preference(hardware: HardwareInfo, preferred: str = "") -> list[str]:
     """Ordered GPU-asset preference, most-capable first, CPU last.
 
     NVIDIA → the chip-aware CUDA build (`_cuda_key`). AMD/Intel → ROCm/HIP
     first (best perf when detected), Vulkan as the universal fallback. CPU is
-    always the final fallback.
+    always the final fallback. A non-empty `preferred` FAMILY (the user's backend
+    override) is moved to the FRONT when that runtime is actually present —
+    otherwise it is ignored, so a pin for a backend this box can't run degrades
+    silently to the auto order (the spawn chain still honours what's installed).
     """
     rt = hardware.runtimes or {}
     prefs: list[str] = []
@@ -58,6 +79,10 @@ def _gpu_preference(hardware: HardwareInfo) -> list[str]:
     if rt.get("vulkan"):
         prefs.append("vulkan")
     prefs.append("cpu")
+    want = concrete_gpu(hardware, preferred)
+    if want and want in prefs:
+        prefs.remove(want)
+        prefs.insert(0, want)
     return prefs
 
 
@@ -78,7 +103,7 @@ def select_binary(config: RunnerConfig, hardware: HardwareInfo) -> BinaryAsset |
         for b in config.llamacpp.binaries
         if b.platform == hardware.platform and b.source != "docker"
     }
-    for gpu in _gpu_preference(hardware):
+    for gpu in _gpu_preference(hardware, config.preferred_gpu):
         if gpu in by_gpu:
             return by_gpu[gpu]
     return None
@@ -203,7 +228,7 @@ def acquired_server_exes(
     selected = select_binary(config, hardware)
     by_gpu = {b.gpu: b for b in config.llamacpp.binaries if b.platform == hardware.platform}
     out: list[tuple[str, Path]] = []
-    for gpu in _gpu_preference(hardware):
+    for gpu in _gpu_preference(hardware, config.preferred_gpu):
         asset = by_gpu.get(gpu)
         if asset is None:
             continue

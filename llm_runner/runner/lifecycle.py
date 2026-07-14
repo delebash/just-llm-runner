@@ -30,6 +30,8 @@ from .binary import (
     binary_dir,
     build_num,
     build_of_exe,
+    concrete_gpu,
+    gpu_family,
     select_binary,
 )
 from .config import default_config as _default_config
@@ -490,6 +492,30 @@ class RunnerService:
         if exe is not None and asset is not None and asset.runtime_url:
             # A Windows CUDA build needs the cudart DLLs unpacked next to the exe.
             has_runtime = any(exe.parent.glob("cudart*"))
+        # Backend switcher (2026-07-14): the concrete variants ON DISK, the one the
+        # router is actually running (or would select), the user's pinned family, and
+        # the families offerable on this box (a detected runtime that also has a real
+        # binary) — so the UI can render a truthful backend selector instead of a
+        # phantom "available" label.
+        try:
+            acquired = self._acquired_exes(self.cache_root, config, hardware)
+        except Exception:  # noqa: BLE001 — the probe must never break status
+            acquired = []
+        installed_gpus = [g for g, _ in acquired]
+        active_gpu = ""
+        if self._active_server_exe:
+            active_gpu = next((g for g, e in acquired if str(e) == str(self._active_server_exe)), "")
+        if not active_gpu:
+            active_gpu = asset.gpu if asset else ""
+        runtimes = hardware.runtimes or {}
+        fams_with_binary = {
+            gpu_family(b.gpu) for b in config.llamacpp.binaries
+            if b.platform == hardware.platform and b.source != "docker"
+        }
+        offer_backends = [
+            f for f in ("cuda", "rocm", "vulkan", "metal")
+            if runtimes.get(f) and f in fams_with_binary
+        ]
         return {
             "installed": exe is not None,
             "serverExe": str(exe) if exe else "",
@@ -501,24 +527,33 @@ class RunnerService:
             "gpu": asset.gpu if asset else "",
             "platform": hardware.platform,
             "hasRuntime": has_runtime,
+            # Backend-switcher fields (concrete keys except preferredGpu = family).
+            "installedGpus": installed_gpus,
+            "activeGpu": active_gpu,
+            "preferredGpu": config.preferred_gpu,
+            "offerBackends": offer_backends,
             **self._engine_state,
         }
 
-    def install_engine(self, force: bool = False, replace_build: str = "") -> dict:
+    def install_engine(self, force: bool = False, replace_build: str = "", gpu: str = "") -> dict:
         """Download + unpack the llama.cpp engine for this box (its OWN step, not
         folded into a model load). Idempotent unless `force`. Runs on a dedicated
         thread so it can't clobber an in-flight model load. `replace_build` (user,
         2026-07-07: "the engine update should delete the old folder"): the OLD
         pinned build this install SUPERSEDES — it gets models.ini carry PRIORITY.
         After ANY successful install, every stale build dir is swept (stop-first
-        for the Windows exe lock; see _run_install's cleanup block)."""
+        for the Windows exe lock; see _run_install's cleanup block). `gpu` (a
+        FAMILY, 2026-07-14) targets ONE variant for the backend selector — a
+        lightweight ADD into the pinned build, with no force-wipe and no sweep, so
+        a working backend is never disturbed while the user tries another."""
         with self._lock:
             if self._engine_state["status"] == "installing":
                 return dict(self._engine_state)
-            self._engine_state = {"status": "installing", "detail": "llama.cpp engine",
+            self._engine_state = {"status": "installing",
+                                  "detail": (f"{gpu} engine build" if gpu else "llama.cpp engine"),
                                   "error": "", "downloaded": 0, "total": 0}
             self._engine_thread = threading.Thread(
-                target=self._run_install, args=(force, replace_build), daemon=True,
+                target=self._run_install, args=(force, replace_build, gpu), daemon=True,
             )
             self._engine_thread.start()
         return dict(self._engine_state)
@@ -1076,19 +1111,34 @@ class RunnerService:
         ts = time.strftime("%Y%m%d-%H%M%S")
         return self.cache_root / "llamacpp" / "logs" / f"router-{ts}.log"
 
-    def _run_install(self, force: bool, replace_build: str = "") -> None:
+    def _run_install(self, force: bool, replace_build: str = "", gpu: str = "") -> None:
         try:
             config = self._config_fn()
             hardware = self._hardware_fn()
-            if force:
-                d = binary_dir(self.cache_root, config.llamacpp.pinned_build)
-                if d.exists():
-                    shutil.rmtree(d, ignore_errors=True)
 
             def _progress(downloaded: int, total: int | None) -> None:
                 self._engine_state["downloaded"] = downloaded
                 self._engine_state["total"] = total or 0
 
+            # Backend switch/add (2026-07-14): install ONE specific variant into the
+            # pinned build for the acceleration-backend selector — a targeted ADD, NOT a
+            # full (re)install. No force-wipe, no stale-build sweep, so a working backend
+            # (and the other coexisting variants) is never disturbed while the user tries
+            # another. `gpu` is a FAMILY ("cuda"/"vulkan"); resolve it to this box's
+            # concrete asset key first.
+            if gpu:
+                concrete = concrete_gpu(hardware, gpu)
+                self._engine_state["detail"] = f"{concrete or gpu} engine build"
+                self._acquire_binary(self.cache_root, config, hardware,
+                                     on_progress=_progress, gpu=concrete)
+                self._engine_state = {"status": "installed", "detail": "", "error": "",
+                                      "downloaded": 0, "total": 0}
+                return
+
+            if force:
+                d = binary_dir(self.cache_root, config.llamacpp.pinned_build)
+                if d.exists():
+                    shutil.rmtree(d, ignore_errors=True)
             self._acquire_binary(self.cache_root, config, hardware, on_progress=_progress)
             # A3-REVISED (user, 2026-07-07: "you are downloading cpu version when i have
             # nvidia card, we do not even use cpu version"): the CPU build is NO LONGER

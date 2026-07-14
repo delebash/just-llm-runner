@@ -113,6 +113,66 @@ async function uninstall() {
   }
 }
 
+// ── Acceleration backend (2026-07-14): the user chooses which GPU backend the engine
+// runs on (Auto | CUDA | Vulkan | …). The choice is a loose config pin (`preferred_gpu`,
+// a family); the runner fronts it in its build-preference order and downloads the variant
+// on demand. Flow: install the variant (EXPLICIT) → pin the preference → offer a MANUAL
+// restart so a running generation is never yanked mid-stream.
+function _familyOf(gpu) {
+  return gpu && gpu.startsWith("cuda") ? "cuda" : gpu || "";
+}
+
+async function _awaitInstall() {
+  // Resolve once the shared install poll leaves the "installing" state.
+  while (st.value?.status === "installing") {
+    await new Promise((r) => setTimeout(r, 500));
+    await refreshEngine();
+  }
+}
+
+async function setBackend(family) {
+  error.value = "";
+  const fam = (family || "").trim().toLowerCase();
+  // 1. Ensure the variant is on disk (explicit download) — skip for Auto / already-installed.
+  const installedFamilies = new Set((st.value?.installedGpus || []).map(_familyOf));
+  if (fam && !installedFamilies.has(fam)) {
+    busy.value = true;
+    try {
+      await request("/v1/llm-runner/engine/install", { method: "POST", body: { gpu: fam } });
+      await refreshEngine();
+      await _awaitInstall();
+    } catch (e) {
+      error.value = e.message || "Couldn't install that backend.";
+      busy.value = false;
+      return;
+    }
+    busy.value = false;
+    if (st.value?.status === "error") return; // the variant download failed — don't switch
+  }
+  // 2. Pin the preference.
+  try {
+    await request("/v1/ai/engine-config", { method: "PUT", body: { preferredGpu: fam } });
+  } catch (e) {
+    error.value = e.message || "Couldn't save the backend choice.";
+    return;
+  }
+  await refreshEngine();
+  // 3. MANUAL apply: the change takes effect on the next engine spawn. Offer to restart
+  // now (a full teardown — a loaded model unloads, a running generation stops), or leave
+  // it to apply lazily at the next model load.
+  const restart = await confirmDialog({
+    title: "Restart the engine to apply?",
+    message: "The new acceleration backend takes effect the next time the engine starts. Restart now to switch immediately — any loaded model unloads and a running generation stops — or leave it and it applies on the next model load.",
+    confirmLabel: "Restart engine",
+  });
+  if (restart) {
+    try {
+      await request("/v1/llm-runner/stop", { method: "POST" });
+    } catch { /* best-effort — the next load spawns fresh regardless */ }
+    await refreshEngine();
+  }
+}
+
 // ── A5: update detection (user "do", 2026-07-06) — notify-only, never auto-applied.
 // The pin is a VERIFIED pin (flag semantics move between llama.cpp builds), so the
 // surface is a line + a deliberate click; policy Off silences the check entirely.
@@ -174,6 +234,6 @@ export function useEngine() {
   return {
     engineState: st, busy, error, statusKnown, installed, installing, progressLabel,
     updateInfo, updatePolicy, checkForUpdate, setUpdatePolicy, updateToLatest,
-    refreshEngine, install, uninstall,
+    refreshEngine, install, uninstall, setBackend,
   };
 }

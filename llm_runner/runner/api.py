@@ -275,7 +275,10 @@ async def engine_install(body: dict | None = None) -> dict:
     # should delete the old folder") — the service removes that old build dir after
     # the new one installs, carrying over a models.ini found inside it first.
     replace_build = str((body or {}).get("replaceBuild") or "")
-    return get_service().install_engine(force=force, replace_build=replace_build)
+    # A backend switch/add (2026-07-14) targets ONE variant family ("cuda"/"vulkan"):
+    # a lightweight ADD into the pinned build — force/replaceBuild are ignored then.
+    gpu = str((body or {}).get("gpu") or "")
+    return get_service().install_engine(force=force, replace_build=replace_build, gpu=gpu)
 
 
 @router.get("/v1/llm-runner/engine/log", summary="Tail the most recent llama-server spawn log")

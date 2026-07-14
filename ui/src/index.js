@@ -47,6 +47,10 @@ export { useProviderModels } from "./composables/useProviderModels.js";
 export { useResolvedRoute } from "./composables/useResolvedRoute.js";
 export { default as LuFeatureChip } from "./components/LuFeatureChip.vue";
 export { ensureEmbeddingReady, embedTexts, _resetEnsureCache } from "./services/embedApi.js";
+// The shared runner-models list's refresh — so a host surface that mutates on-disk model
+// state out-of-band (e.g. JustWrite's Storage "Clear models cache") can re-stat the
+// catalog singleton, which otherwise only re-fetches on first mount / while a load runs.
+export { refresh as refreshRunnerModels } from "./composables/useRunnerModels.js";
 
 // views
 export { default as PromptLab } from "./views/PromptLab.vue";

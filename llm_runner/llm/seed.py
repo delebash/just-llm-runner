@@ -944,15 +944,17 @@ def restore_built_in_task_defs(s) -> None:
 
 def reset_routing_to_factory() -> None:
     """Restore the AI routing config to factory (the Tasks page "Reset all to defaults"):
-    clear task→preset (`task_kind_presets`) + feature→task (`feature_task_kinds`), RESTORE
-    the built-in engine presets + built-in task label/desc, then re-seed the built-in tasks
-    + the app's factory action→task map + task→preset assignments. CUSTOM tasks + CUSTOM
+    clear task→preset (`task_kind_presets`) + feature→task (`feature_task_kinds`) + the
+    per-feature preset overrides (`feature_preset_refs`, restored 2026-07-14), RESTORE the
+    built-in engine presets + built-in task label/desc, then re-seed the built-in tasks +
+    the app's factory action→task map + task→preset assignments. CUSTOM tasks + CUSTOM
     presets are KEPT (the app's reset convention — see the model catalog / switch-preset
     resets); only the built-ins + assignments snap back to defaults."""
     s = db.session()
     try:
         s.query(db.TaskKindPreset).delete()
         s.query(db.FeatureTaskKind).delete()
+        s.query(db.FeaturePresetRef).delete()   # clear per-feature overrides (factory = no overrides)
         s.flush()
         restore_built_in_engine_presets(s)  # delete → flush → re-seed (custom kept)
         restore_built_in_task_defs(s)       # overwrite built-in label/desc back to factory

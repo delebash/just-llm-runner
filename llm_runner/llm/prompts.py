@@ -40,7 +40,7 @@ from .dispatch import (
     resolve_route,
     stream_chat,
 )
-from .preset_resolve import resolve_task_preset
+from .preset_resolve import resolve_feature_preset, resolve_feature_preset_with_source
 from .pricing import cost_for
 from .schema import LLMConfig
 
@@ -318,6 +318,7 @@ class ResolvedRouteResponse(BaseModel):
     taskKind: str = ""
     presetId: str = ""
     presetName: str = ""
+    presetSource: str = ""    # which tier won: "feature" | "task" | "default" | "" (restored 2026-07-14)
     configured: bool = True
     detail: str = ""
 
@@ -450,18 +451,19 @@ def _effective_think(spec: FeaturePromptRow, body: RunRequest) -> bool:
 
 
 def _resolve_preset(action: str, feature: str, task_kind_of):
-    """The engine preset for this action (cascade: the action's taskKind preset →
-    the global default), or None. `task_kind_of` maps an action (or feature) key →
-    its LLM-work taskKind; None (no map wired, e.g. tests) → no preset = legacy
-    routing, so behaviour is unchanged until presets are configured. The ACTION's
-    taskKind is tried first (falling back to the feature's) so writerAI.continue
-    (prose.generate) and writerAI.tighten (prose.edit) resolve to DIFFERENT presets
-    — that per-action split is the point of the taskKind key. (The per-feature
-    override tier was removed 2026-07-02 — a feature's preset IS its task's.)"""
+    """The engine preset for this action — the full 3-tier cascade (restored
+    2026-07-14): the action's OWN override (FeaturePresetRef[action]) → the
+    action's taskKind preset → the global default. `task_kind_of` maps an action
+    (or feature) key → its LLM-work taskKind; None (no map wired, e.g. tests) →
+    no preset = legacy routing, so behaviour is unchanged until presets are
+    configured. The ACTION's taskKind is tried first (falling back to the
+    feature's) so writerAI.continue (prose.generate) and writerAI.tighten
+    (prose.edit) resolve to DIFFERENT presets — and the per-feature override is
+    keyed on the same action id, so those two can also override independently."""
     if task_kind_of is None:
         return None
     task_kind = task_kind_of(action) or task_kind_of(feature) or ""
-    return resolve_task_preset(task_kind)
+    return resolve_feature_preset(action, task_kind)
 
 
 def _effective_spec(spec: FeaturePromptRow, preset) -> FeaturePromptRow:
@@ -657,14 +659,20 @@ def make_feature_router(
         (B5-1, §7.2): the task-preset cascade as the override, then the dispatch
         resolution — mirrored via the run path's own functions, never re-derived."""
         key = action or feature
-        preset = _resolve_preset(key, feature, task_kind_of)
         task_kind = ""
         if task_kind_of is not None:
             task_kind = task_kind_of(key) or task_kind_of(feature) or ""
+        # The same 3-tier cascade the run path uses (via _resolve_preset →
+        # resolve_feature_preset), plus which tier won for the provenance chip.
+        preset, preset_source = (
+            resolve_feature_preset_with_source(key, task_kind)
+            if task_kind_of is not None else (None, "")
+        )
         base = dict(
             feature=feature, action=action, taskKind=task_kind,
             presetId=preset.id if preset else "",
             presetName=preset.name if preset else "",
+            presetSource=preset_source,
         )
         try:
             adapter, model, _tier = resolve_route(

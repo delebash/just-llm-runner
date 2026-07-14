@@ -154,6 +154,7 @@ def install_llm(
         stores.get_engine_preset_store, stores.get_task_kind_preset_store,
         lambda: stores.get_task_kind_preset_store().list().get("", ""),
         lambda pid: stores.get_task_kind_preset_store().set("", pid),
+        stores.get_feature_preset_ref_store,
     ))
     app.include_router(make_knob_catalog_router(stores.list_knob_catalog))
     app.include_router(make_test_samples_router(stores.get_test_sample_store))

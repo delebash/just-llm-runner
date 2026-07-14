@@ -618,12 +618,31 @@ class EnginePresetSampler(LlmBase):
 class TaskKindPreset(LlmBase):
     """taskKind → preset assignment — the bulk handle. Every action whose LLM-work
     taskKind matches this key inherits this preset (and a NEW action of that taskKind
-    auto-joins). `task_kind` "" is the global-default row. (2026-07-02: a feature's
-    preset IS its task's — there is no per-feature override tier.)"""
+    auto-joins) UNLESS the action carries its own `FeaturePresetRef` override.
+    `task_kind` "" is the global-default row. (2026-07-14: the per-feature override
+    tier was restored — the user's fine-grain control; see FeaturePresetRef below.)"""
 
     __tablename__ = "task_kind_presets"
 
     task_kind = Column(String, primary_key=True)
+    preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), nullable=False)
+
+
+class FeaturePresetRef(LlmBase):
+    """A per-feature preset OVERRIDE (the rare escape) — the top tier of the 3-tier
+    cascade: this feature's own preset → its taskKind's preset → the global default.
+    Absent → the feature inherits its taskKind's preset. `key` is the ACTION id, so
+    e.g. writerAI.continue and writerAI.tighten override independently.
+
+    Restored 2026-07-14 (reverses Plan A, 2026-07-02 commit 46cf11a — the removal
+    was buried under a headline that read true in both models; the user's actual
+    intent was always fine-grain per-feature control). Recovered verbatim from
+    46cf11a^; existing DBs kept this exact table inert through the removal, so the
+    restore needs no reset. Full context: docs/plans/2026-07-14-feature-override-and-reasoning-plan.md."""
+
+    __tablename__ = "feature_preset_refs"
+
+    key = Column(String, primary_key=True)
     preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), nullable=False)
 
 

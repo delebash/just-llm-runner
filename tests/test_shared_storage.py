@@ -180,12 +180,14 @@ def test_reset_routing_to_factory(wired):
     custom_task = tks.upsert(TaskKindRow(label="My Custom"))            # a custom task (must survive)
     custom_preset = eps.save(EnginePresetRow(name="Mine", providerId="local-llamacpp", model="m-custom"))
     stores.get_task_kind_preset_store().set("chat.inVoice", custom_preset.id)   # a custom task->preset
+    stores.get_feature_preset_ref_store().set("critique", custom_preset.id)     # a per-feature override
 
     seed.reset_routing_to_factory()
 
     assert ft.list().get("critique") == "judge.scored"          # restored to the factory map
     assert "chat" not in ft.list()                              # non-factory override cleared
     assert stores.get_task_kind_preset_store().list() == {}     # task->preset cleared + reseeded (none)
+    assert stores.get_feature_preset_ref_store().list() == {}   # per-feature overrides cleared (factory = none)
     # a renamed built-in task label is restored from DEFAULT_TASK_KINDS
     assert next(t for t in tks.list() if t.id == "prose.generate").label == "Generate prose"
     # CUSTOM task + custom preset SURVIVE the reset

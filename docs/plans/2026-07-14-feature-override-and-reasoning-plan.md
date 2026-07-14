@@ -19,6 +19,28 @@ Branch (all repos): `claude/admiring-galileo-il3q0o`. Base: runner `9940a97`, JW
 - **Execution:** Unit 1 (T0→T10) ships first as one verdict-gated commit set, then Unit 2
   (T1 engine-bump + key-grep first). Progress recorded here per unit as it ships.
 
+### BUILD RECORD
+
+**U1 BACKEND (runner) — DONE + VERIFIED (this commit).** The 3-tier cascade restored:
+`FeaturePresetRef` model (`db.py`) + `FeaturePresetRefStore` (`stores.py`) + the
+`resolve_feature_preset` cascade (`preset_resolve.py`) + the override API surface
+(`presets_api.py` — `FeatureAssignment`/`FeatureClearRequest`, `AssignmentsResponse.features`,
+`get_refs` param, `PUT /preset-assignments/feature` + `POST /preset-assignments/clear-features`)
++ the run-path wiring (`prompts._resolve_preset` → `resolve_feature_preset`) + the install
+mount + reset clears `feature_preset_refs`. `resolved-route` gained `presetSource`
+("feature"|"task"|"default"|""). U1-T0 audit: touch-list complete, no extra consumers (the
+`routing.features` reads are a DIFFERENT object; `FeaturePreset` ≠ `FeaturePresetRef`).
+**Two deliberate improvements over the literal recovered `46cf11a^` code, both pinned by
+tests:** (1) fall-through-on-dangling in ONE shared `_resolve_with_source` helper (a
+deleted preset's stale ref falls through to the task tier instead of stranding at None —
+the recovered `or`-chain short-circuited); (2) `_delete_engine_preset_rows` also drops
+override rows pointing at a deleted preset (no dangling in the first place). Verified:
+import gate · ruff clean · **pytest 506 passed** (test_presets 3-tier + test_shared_storage
+reset-clears-refs extended); the only 4 failures are PRE-EXISTING `test_lifecycle.py`
+VRAM-environment tests (fail identically at the pre-diff HEAD, the plan-doc commit
+`f65b250` — no GPU in this container), unrelated to this diff. **Still Unit-1-open:** U1-T8 (FeatureWorkbench UI), U1-T9 (1:1
+preset-name alignment + runner name-refresh), the UI-side gates (build:vite/smoke/probes).
+
 ---
 
 ## Context — why this change

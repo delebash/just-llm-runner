@@ -153,6 +153,12 @@ class ModelCatalog(LlmBase):
     experts = Column(Integer, nullable=False, default=0)        # MoE expert count (0 = dense)
     size_label = Column(String, nullable=False, default="")     # e.g. "128x2.6B" / "27B"
     size_bytes = Column(BigInteger, nullable=True)              # the GGUF file size
+    # Pre-download VRAM estimate (full-GPU offload at a realistic 8K ctx), from the
+    # header inputs + real download size — the number shown next to the download size
+    # in the Add-form. Persisted (like size_bytes) so Edit-open == Read-from-link
+    # (#141 parity); written by identity (inspect + download) + the seed; null until
+    # a header read supplies the layer count.
+    est_vram_mb = Column(Integer, nullable=True)
     built_in = Column(Boolean, nullable=False, default=False)
     position = Column(Integer, nullable=False, default=0)
 
@@ -673,6 +679,7 @@ def session():
 # a drop/rename (those still go through a reset, the pre-production schema path).
 _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("model_catalog", "mtp_builtin", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("model_catalog", "est_vram_mb", "INTEGER"),
 )
 
 

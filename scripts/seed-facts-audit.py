@@ -12,7 +12,9 @@ Per seeded catalog row (model-per-hardware plan §Phase 5 + amendment A4):
                tag too — a repackager mislabel FLAGS instead of self-confirming.
                One hop, per the amendment.
   4. QUANT   — the row's `quant` appears in the repo file tree (siblings) and,
-               when the row carries `mtp_draft_file`, that exact file is present.
+               when the row carries `mtp_draft_file`, that exact file is present —
+               in `mtp_draft_repo` when set (a BORROWED cross-repo drafter), else
+               the model's own tree.
 
 Sources walked:
   - runner:    llm_runner/llm/seed.py                       :: DEFAULT_CATALOG
@@ -240,8 +242,19 @@ def audit_row(source: str, row: dict, net: Net, header=None) -> dict:
     if res["quant"] and not any(res["quant"].lower() in f.lower() for f in siblings):
         res["problems"].append(f"quant {res['quant']} not found in the repo tree")
     draft = str(row.get("mtp_draft_file") or "")
+    draft_repo = str(row.get("mtp_draft_repo") or "")
     res["draft_checked"] = bool(draft)
-    if draft and draft not in siblings:
+    if draft and draft_repo:
+        # A BORROWED cross-repo drafter (tier-C inherited assistant) lives in its OWN
+        # repo, not the model's tree — verify it there (gryphe-styletune-v2 borrows the
+        # official Gemma assistant drafter).
+        dstatus, dinfo = net.model_info(draft_repo)
+        dsibs = [str(x.get("rfilename") or "") for x in (dinfo or {}).get("siblings") or []]
+        if dstatus != 200 or dinfo is None:
+            res["problems"].append(f"mtp draft repo {draft_repo}: HTTP {dstatus}")
+        elif draft not in dsibs:
+            res["problems"].append(f"mtp draft {draft} not found in {draft_repo}")
+    elif draft and draft not in siblings:
         res["problems"].append(f"mtp draft {draft} not found in the repo tree")
 
     # HEADER facts (optional, 2026-07-13): range-read the pinned quant's GGUF header and

@@ -70,6 +70,9 @@ class CatalogRow(BaseModel):
     experts: int = 0              # MoE expert count (0 = dense)
     sizeLabel: str = ""           # e.g. "128x2.6B" / "27B"
     sizeBytes: int | None = None  # the GGUF file size — QUANT-SPECIFIC (cleared on quant change)
+    # Pre-download VRAM estimate (full GPU · 8K ctx) — persisted so Edit-open shows the
+    # same "≈ N MB VRAM" line Read-from-link does (#141 parity); null until a header read.
+    estVramMb: int | None = None
     position: int = 0
     builtIn: bool = False
 

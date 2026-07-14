@@ -2,14 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """refresh-seed-facts.py — regenerate the seed's HEADER-DERIVED facts from Hugging Face.
 
-Runs the ACTUAL load-from-HF path (`gguf_remote.fetch_gguf_meta` +
-`identity.derived_fields_from_meta` — the exact code the Add-a-model "Read from
-link" form and the post-download identify use) over every SEEDED catalog row, and
-reconciles the file-derived fields so the SEED equals what a real download detects.
+Runs the ACTUAL load-from-HF method (`identity.inspect_model_from_link` — the exact
+function the Add-a-model "Read from link" form calls, header range-read + sampler
+fallback + the tier-C inherited-drafter probe) over every SEEDED catalog row, and
+reconciles the file-derived fields so the SEED equals what Read-from-link detects.
 This is the "update the seed before we ship again" build step (user, 2026-07-13):
 seeded facts are hand-typed, drift silently, and are never re-grounded — mtp most
-of all (its header truth was never verified). No guessing: every value written here
-is read live from the file.
+of all (its header truth + inherited drafter were never verified). No guessing:
+every value written here is read live from the file via the very same code path.
 
 Sources (same two the seed-facts audit walks):
   - runner:    llm_runner/llm/seed.py         :: DEFAULT_CATALOG
@@ -17,7 +17,11 @@ Sources (same two the seed-facts audit walks):
 
 Scalar facts reconciled + (with --write) rewritten IN PLACE, per row:
   mtp_builtin (nextn_predict_layers>0) · type (moe|dense) · experts · architecture ·
-  trained_ctx · size_label · size_bytes.
+  trained_ctx · size_label · size_bytes · est_vram_mb.
+Tier-C inherited drafter (CONDITIONAL — a Gemma-style row with no built-in MTP and
+no OWN draft): writes the borrowed base-family drafter (mtp_draft_repo/file/quant)
++ enables mtp, matching what Read-from-link configures. A row that ships its own
+draft is never touched.
 Samplers are REPORTED only (nested dict; the seed already ships the file's set, and
 a mismatch there is a curation call, not a mechanical rewrite).
 
@@ -49,23 +53,28 @@ JW_SEED_SIBLING = (
 # The scalar file-derived fields we reconcile (seed key -> how to pull it from the
 # derived-facts dict + the live meta/size). Order = the order we print + insert.
 _SCALAR_FIELDS = ("mtp_builtin", "type", "experts", "architecture", "trained_ctx",
-                  "size_label", "size_bytes")
+                  "size_label", "size_bytes", "est_vram_mb")
+# Tier-C inherited-drafter fields (reconciled CONDITIONALLY — borrow-only rows) + the
+# mtp enable flag they turn on. Written by _apply alongside the scalars; `mtp` first so
+# it becomes the anchor the draft fields cluster around.
+_DRAFT_FIELDS = ("mtp", "mtp_draft_repo", "mtp_draft_file", "mtp_draft_quant")
+_WRITE_FIELDS = _SCALAR_FIELDS + _DRAFT_FIELDS
 
 
 def _norm(field: str, v) -> object:
     """Normalize a seed value to its EFFECTIVE default so an OMITTED field that the row
-    builder already defaults correctly (type→dense, experts→0, mtp_builtin→False, the
+    builder already defaults correctly (type→dense, experts→0, mtp/mtp_builtin→False, the
     string fields→"") isn't flagged as a spurious diff. size_bytes/trained_ctx keep
     None (a genuine "unfilled" the reconcile SHOULD fill from the header)."""
-    if field == "mtp_builtin":
+    if field in ("mtp_builtin", "mtp"):
         return bool(v)
     if field == "type":
         return v or "dense"
     if field == "experts":
         return int(v or 0)
-    if field in ("architecture", "size_label"):
+    if field in ("architecture", "size_label", "mtp_draft_repo", "mtp_draft_file", "mtp_draft_quant"):
         return v or ""
-    return v  # trained_ctx, size_bytes: None means "not filled yet"
+    return v  # trained_ctx, size_bytes, est_vram_mb: None means "not filled yet"
 
 
 def _load_literal(path: Path, symbol: str):
@@ -85,21 +94,29 @@ def _load_literal(path: Path, symbol: str):
 
 
 def _derive_from_hf(repo: str, quant: str) -> dict:
-    """The live facts — the SAME path Read-from-link uses. Raises on network/parse."""
-    from llm_runner.llm.identity import derived_fields_from_meta
-    from llm_runner.runner.gguf_remote import fetch_gguf_meta
+    """The live facts — literally the method Read-from-link uses (`inspect_model_from_link`:
+    header range-read + generation_config sampler fallback + the tier-C inherited-drafter
+    probe). Using the SAME function is the whole point: the seed cannot drift from HF for a
+    field HF derives. Raises on network/parse."""
+    from llm_runner.llm.identity import inspect_model_from_link
 
-    meta, total = fetch_gguf_meta(repo, quant)
-    f = derived_fields_from_meta(meta)
+    r = inspect_model_from_link(repo, quant)
     return {
-        "mtp_builtin": bool(f["mtp_builtin"]),
-        "type": f["type"],
-        "experts": int(meta.expert_count or 0),
-        "architecture": meta.architecture or "",
-        "trained_ctx": f["trained_ctx"],
-        "size_label": meta.size_label or "",
-        "size_bytes": int(total),
-        "samplers": f["samplers"],
+        "mtp_builtin": bool(r["mtpBuiltin"]),
+        "type": r["type"],
+        "experts": int(r["experts"] or 0),
+        "architecture": r["architecture"] or "",
+        "trained_ctx": r["trainedCtx"],
+        "size_label": r["sizeLabel"] or "",
+        "size_bytes": int(r["sizeBytes"]),
+        "est_vram_mb": r["estVramMb"],
+        "samplers": r["samplers"],
+        # Tier-C: the borrowable OFFICIAL base-family drafter (Gemma-style external MTP).
+        # Non-empty only when the model has no built-in MTP; the reconcile applies it
+        # to the seed's draft fields ONLY for a row that ships no own draft.
+        "mtp_inherited_repo": r["mtpInheritedRepo"] or "",
+        "mtp_inherited_file": r["mtpInheritedFile"] or "",
+        "mtp_inherited_quant": r["mtpInheritedQuant"] or "",
     }
 
 
@@ -180,7 +197,7 @@ def _apply(path: Path, updates: dict[str, dict[str, object]]) -> int:
             continue
         start, end = span
         rowtext = src[start:end]
-        for field in _SCALAR_FIELDS:
+        for field in _WRITE_FIELDS:
             if field in fields:
                 rowtext = _set_field(rowtext, field, _fmt(fields[field]))
         src = src[:start] + rowtext + src[end:]
@@ -235,6 +252,23 @@ def main() -> int:
                 fresh = _norm(field, live[field])
                 if seeded != fresh:
                     diffs[field] = fresh
+            # Tier-C inherited drafter (2026-07-13): a Gemma-style row with no built-in
+            # MTP AND no OWN draft can BORROW the official base-family assistant drafter —
+            # exactly what Read-from-link configures + auto-checks. Sync the seed the same
+            # way (draft repo/file/quant + enable mtp), but ONLY when the row ships no own
+            # draft — a model with its own draft (e.g. gemma-4-26b-a4b-qat) is never touched.
+            own_draft = bool(str(row.get("mtp_draft_file") or "").strip())
+            inherited_file = live.get("mtp_inherited_file") or ""
+            if inherited_file and not own_draft:
+                want = {
+                    "mtp": True,
+                    "mtp_draft_repo": live.get("mtp_inherited_repo") or "",
+                    "mtp_draft_file": inherited_file,
+                    "mtp_draft_quant": live.get("mtp_inherited_quant") or "",
+                }
+                for k, v in want.items():
+                    if _norm(k, row.get(k)) != _norm(k, v):
+                        diffs[k] = v
             if diffs:
                 any_diff = True
                 updates[mid] = diffs

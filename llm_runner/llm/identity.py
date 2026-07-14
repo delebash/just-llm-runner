@@ -114,12 +114,16 @@ def detect_and_store_model_type(
         size_bytes = Path(gguf_path).stat().st_size
     except OSError:
         size_bytes = None
+    # Confirm the VRAM estimate from the real downloaded file (the panel's "confirmed
+    # at download" promise) — same helper as the pre-download inspect, so the number
+    # never drifts between the two reads.
+    est_vram_mb = est_vram_mb_from_meta(meta, size_bytes)
     (store or stores.get_model_catalog_store()).set_derived(
         model_id, model_type=fields["type"], mtp_builtin=fields["mtp_builtin"],
         trained_ctx=fields["trained_ctx"], total_params=fields["total_params"],
         samplers=fields["samplers"],
         architecture=fields["architecture"], experts=fields["experts"],
-        size_label=fields["size_label"], size_bytes=size_bytes,
+        size_label=fields["size_label"], size_bytes=size_bytes, est_vram_mb=est_vram_mb,
     )
     return fields["type"]
 
@@ -159,6 +163,24 @@ def backfill_derived_from_cache(rows, cached_path_fn, identify_one) -> int:
 _ESTIMATE_CTX = 8192
 
 
+def est_vram_mb_from_meta(meta, total_bytes) -> int | None:
+    """The Add-form VRAM estimate (full-GPU offload at a realistic 8K ctx), from the
+    header inputs + the real download size. ONE source for the pre-download inspect,
+    the post-download identify, and the seed-facts refresh — so a seeded row, a live
+    Read-from-link, and a downloaded file all show the SAME number (#141 parity).
+    None when the header lacks the layer count needed to estimate."""
+    from ..runner.fit import estimate_vram_mb
+
+    if not (total_bytes and meta.block_count):
+        return None
+    return round(estimate_vram_mb(
+        size_mb=total_bytes / 1e6, n_layers=meta.block_count, n_kv_heads=meta.n_kv_heads,
+        embedding_dim=meta.embedding_length,
+        ctx_size=min(meta.context_length or _ESTIMATE_CTX, _ESTIMATE_CTX),
+        cache_type=16, gpu_layers=meta.block_count,
+    ))
+
+
 def inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> dict:
     """PRE-download: range-read the GGUF header from the HF link (no weights) and
     return the file-derived catalog facts + the real download size + a VRAM estimate,
@@ -169,7 +191,6 @@ def inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> di
 
     Feeds `estimate_vram_mb` the REAL header inputs + real size (carry-forward #1):
     the fit estimate is grounded in the file, not the hand-typed `min_vram` guess."""
-    from ..runner.fit import estimate_vram_mb
     from ..runner.gguf_remote import fetch_generation_config_samplers, fetch_gguf_meta
 
     meta, total = fetch_gguf_meta(repo, quant, revision)
@@ -178,14 +199,7 @@ def inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> di
         fields["samplers"] = canonicalize_sampler_names(
             {k: str(v) for k, v in fetch_generation_config_samplers(meta.base_repo_url).items()}
         )
-    est_vram_mb = None
-    if total and meta.block_count:
-        est_vram_mb = round(estimate_vram_mb(
-            size_mb=total / 1e6, n_layers=meta.block_count, n_kv_heads=meta.n_kv_heads,
-            embedding_dim=meta.embedding_length,
-            ctx_size=min(meta.context_length or _ESTIMATE_CTX, _ESTIMATE_CTX),
-            cache_type=16, gpu_layers=meta.block_count,
-        ))
+    est_vram_mb = est_vram_mb_from_meta(meta, total)
     # Tier-C inherited drafter (2026-07-13): built-in MTP models need none, and the
     # repo's OWN drafts are pre-picked from the list-files listing — so only probe the
     # official base family when the header carries no built-in MTP. Best-effort; a

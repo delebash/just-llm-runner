@@ -336,6 +336,24 @@ const samplersLabel = computed(() => {
   return entries.length ? entries.map(([k, v]) => `${k} ${v}`).join(" · ") : "—";
 });
 
+// The MTP row's plain-language fact (2026-07-13): THREE states off the model's real
+// arrangement, not the enable flag. Read from the PERSISTED row (editing.*) so the
+// opened form reads identically to a live Read-from-link (which mutates editing.* in
+// place); the header BUILT-IN truth takes the fresh inspect value when one is in hand.
+// A separate-draft model no longer reads as a bare "no" — the whole point of the row.
+const mtpFact = computed(() => {
+  const e = editing.value || {};
+  const builtin = inspected.value ? inspected.value.mtpBuiltin : e.mtpBuiltin;
+  if (builtin) return "built-in — in-file prediction heads";
+  // An external draft that ships in the model's OWN repo (no separate draft-repo).
+  if (e.mtpDraftFile && !e.mtpDraftRepo) return "separate — external draft file (separate download)";
+  // A draft from ANOTHER repo — the tier-C official family drafter (persisted as a
+  // draft-repo), or one discovered live but not yet applied. Borrowed, not shipped.
+  if ((e.mtpDraftFile && e.mtpDraftRepo) || inspected.value?.mtpInheritedFile)
+    return "separate — borrows the base family's assistant draft (separate download)";
+  return "not available";
+});
+
 // ── repo file listing (Plan B D9): the quant dropdown + MTP-draft detection ──
 const listing = ref(null); // null | { quants, drafts } for editing.hfRepo
 const listingErr = ref("");
@@ -442,6 +460,9 @@ async function inspectLink() {
     e.experts = r.experts || 0;
     e.sizeLabel = r.sizeLabel || "";
     e.sizeBytes = r.sizeBytes || null;
+    // The VRAM estimate persists too (#141 parity — the "≈ N MB VRAM" line must show
+    // in the opened form, not only right after a live read).
+    e.estVramMb = r.estVramMb ?? null;
     inspected.value = {
       architecture: r.architecture || "", experts: r.experts || 0, sizeLabel: r.sizeLabel || "",
       samplers: r.samplers || {}, sizeBytes: r.sizeBytes || 0, estVramMb: r.estVramMb ?? null,
@@ -489,7 +510,7 @@ function blankModel() {
     activeParams: "", mtp: false, mtpBuiltin: false, mtpDraftRepo: "", mtpDraftFile: "", mtpDraftQuant: "",
     trainedCtx: null, samplers: {}, minVramMb: null, minRamMb: null,
     tier: "mid", license: "", useLimited: false, embedding: false, description: "", notes: "",
-    architecture: "", experts: 0, sizeLabel: "", sizeBytes: null, qualityRank: 100, position: 0 };
+    architecture: "", experts: 0, sizeLabel: "", sizeBytes: null, estVramMb: null, qualityRank: 100, position: 0 };
 }
 
 // ── the slot cards' INLINE PICKERS (#144, extended by #5 2026-07-08: "leave the
@@ -948,9 +969,9 @@ refreshApplied();
           <div class="lu-mm-auto-row"><span class="lu-muted">Architecture</span><span>{{ (inspected?.architecture || editing.architecture) || "—" }}<template v-if="inspected?.experts || editing.experts"> · {{ inspected?.experts || editing.experts }} experts</template></span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Size (file)</span><span>{{ (inspected?.sizeLabel || editing.sizeLabel) || "—" }}</span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Trained context</span><span>{{ editing.trainedCtx ? `${editing.trainedCtx.toLocaleString()} tokens` : "—" }}</span></div>
-          <div class="lu-mm-auto-row"><span class="lu-muted">MTP (built-in)</span><span>{{ (inspected ? inspected.mtpBuiltin : editing.mtpBuiltin) ? "yes — in-file prediction heads" : "no" }}<template v-if="inspected?.mtpInheritedFile"> · official drafter available to borrow</template></span></div>
+          <div class="lu-mm-auto-row"><span class="lu-muted">MTP</span><span>{{ mtpFact }}</span></div>
           <div class="lu-mm-auto-row"><span class="lu-muted">Recommended samplers</span><span>{{ samplersLabel }}</span></div>
-          <div class="lu-mm-auto-row"><span class="lu-muted">Download size</span><span>{{ (inspected?.sizeBytes || editing.sizeBytes) ? fmtBytes(inspected?.sizeBytes || editing.sizeBytes) : "—" }}<template v-if="inspected?.estVramMb"> · ≈ {{ inspected.estVramMb.toLocaleString() }} MB VRAM (full GPU · 8K ctx)</template></span></div>
+          <div class="lu-mm-auto-row"><span class="lu-muted">Download size</span><span>{{ (inspected?.sizeBytes || editing.sizeBytes) ? fmtBytes(inspected?.sizeBytes || editing.sizeBytes) : "—" }}<template v-if="inspected?.estVramMb ?? editing.estVramMb"> · ≈ {{ (inspected?.estVramMb ?? editing.estVramMb).toLocaleString() }} MB VRAM (full GPU · 8K ctx)</template></span></div>
         </div>
         <div v-if="poolingOf(editing)" class="lu-mm-note"><b>Embedding pooling: {{ poolingOf(editing) }}</b> <span class="lu-muted">— how the model's token vectors are combined into one embedding (mean · cls · last). Curated per embedding model; read-only here because the wrong pooling degrades search quality.</span></div>
 
@@ -982,7 +1003,7 @@ refreshApplied();
         <template v-if="editing.mtp">
           <div class="lu-mm-note"><b>MTP config</b> <span class="lu-muted">—
             <template v-if="editing.mtpBuiltin">built-in prediction heads; no external draft needed. </template>
-            <template v-else>runs via an external speculative-decode draft (Gemma-style). </template>
+            <template v-else>runs via an external speculative-decode draft file (a separate download). </template>
             Enabling adds <code>spec_type=draft-mtp</code> at load; uncheck to turn MTP off.</span></div>
           <label class="lu-mm-l">Draft file <span class="lu-muted">{{ editing.mtpBuiltin ? "optional — built-in MTP" : "the speculative-decode model (feeds --model-draft)" }}</span>
             <UiSelect v-if="listing?.drafts?.length" :model-value="editing.mtpDraftFile"
@@ -1014,7 +1035,7 @@ refreshApplied();
         <div class="lu-mm-l"><UiCheckbox v-model="editing.useLimited"><span>Use-limited license <span class="lu-muted">— not free for unrestricted/commercial use; shows the ⚠ badge</span></span></UiCheckbox></div>
 
         <div class="lu-mm-note"><b>Description & your notes</b> <span class="lu-muted">— the description refreshes from the file facts on Read from link; Notes are yours alone and are never touched by reads, downloads, or resets.</span></div>
-        <label class="lu-mm-l">Description <span class="lu-muted">regenerated by Read from link</span><UiTextarea v-model="editing.description" placeholder="What this model is — refreshed from the file facts" /></label>
+        <label class="lu-mm-l">Description <span class="lu-muted">generated from hf info card</span><UiTextarea v-model="editing.description" placeholder="What this model is — refreshed from the file facts" /></label>
         <label class="lu-mm-l">Notes <span class="lu-muted">yours — measurements, taste, use policy</span><UiTextarea v-model="editing.notes" placeholder="e.g. measured writer TTFT 1.6 s on my box; my go-to for dark scenes" /></label>
         <label class="lu-mm-l">Benchmark rank <span class="lu-muted">— published general-benchmark order; lower = better; 100 = unranked (sorts last)</span><UiInput v-model.number="editing.qualityRank" type="number" placeholder="100" /></label>
 

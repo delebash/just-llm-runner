@@ -156,7 +156,7 @@ DEFAULT_CATALOG: list[dict] = [
     # ── Dense (runs fully on the GPU — fast) ──────────────────────────────────────────────
     {"id": "gemma-4-12b-qat", "name": "Gemma 4 12B (QAT)",
      "hf_repo": "unsloth/gemma-4-12B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "12B",
-     "mtp": True, "mtp_draft_file": "MTP/mtp-gemma-4-12B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
+     "mtp": True, "est_vram_mb": 10721, "mtp_draft_file": "MTP/mtp-gemma-4-12B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
      "min_ram_mb": 12000, "min_vram_mb": 8500, "tier": "mid", "license": "Apache-2.0", "position": 0,
      "quality_rank": 22, "architecture": "gemma4", "experts": 0,
@@ -165,14 +165,14 @@ DEFAULT_CATALOG: list[dict] = [
      "notes": "The small-card rung of the writing-first ladder; runs fully on a 10-12 GB GPU (tight on 8)."},
     {"id": "gemma-4-31b-qat", "name": "Gemma 4 31B (QAT)",
      "hf_repo": "unsloth/gemma-4-31B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "31B",
-     "mtp": True, "mtp_draft_file": "MTP/mtp-gemma-4-31B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
+     "mtp": True, "est_vram_mb": 26038, "mtp_draft_file": "MTP/mtp-gemma-4-31B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
      "min_ram_mb": 24000, "min_vram_mb": 20000, "tier": "high", "license": "Apache-2.0", "position": 1,
      "quality_rank": 7, "architecture": "gemma4", "experts": 0,
      "size_label": "31B", "size_bytes": 17287668064,
      "description": "31B model · 256k context · MTP draft for faster generation · UD-Q4_K_XL (QAT)",
      "notes": "The 24 GB-card rung; the family's strongest, with vision. Writing rank pending a Lab A/B against the 26B-A4B."},
-    {"id": "llama-3.3-70b-q4_k_m", "name": "Llama 3.3 70B Instruct · Q4_K_M",
+    {"id": "llama-3.3-70b-q4_k_m", "est_vram_mb": 45768, "name": "Llama 3.3 70B Instruct · Q4_K_M",
      "hf_repo": "unsloth/Llama-3.3-70B-Instruct-GGUF", "quant": "Q4_K_M", "total_params": "70B",
      "trained_ctx": 131072,
      "min_ram_mb": 48000, "min_vram_mb": 46000, "tier": "high-ram", "license": "Llama-Community", "position": 2,
@@ -183,7 +183,7 @@ DEFAULT_CATALOG: list[dict] = [
     # ── MoE (experts offload to system RAM — higher quality, slower, needs RAM) ────────────
     {"id": "qwen3.6-35b-a3b-mtp", "name": "Qwen3.6 35B-A3B (MTP)",
      "hf_repo": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF", "quant": "UD-Q4_K_XL",
-     "total_params": "35B", "active_params": "3.6B", "mtp": True, "mtp_builtin": True, "type": "moe",
+     "total_params": "35B", "active_params": "3.6B", "mtp": True, "est_vram_mb": 24501, "mtp_builtin": True, "type": "moe",
      "trained_ctx": 262144, "samplers": {"top_k": "20", "top_p": "0.95", "temperature": "1"},
      "min_vram_mb": 6000, "min_ram_mb": 32000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 3,
      "quality_rank": 8, "architecture": "qwen35moe", "experts": 256,
@@ -201,7 +201,7 @@ DEFAULT_CATALOG: list[dict] = [
      "total_params": "106B", "active_params": "12B", "type": "moe",
      # mtp True: the GGUF header carries nextn_predict_layers (live header read 2026-07-07
      # — the seed said False; the strict-diff caught it). Built-in MTP, no external draft.
-     "mtp": True, "mtp_builtin": True, "trained_ctx": 131072,
+     "mtp": True, "est_vram_mb": 71354, "mtp_builtin": True, "trained_ctx": 131072,
      "min_vram_mb": 12000, "min_ram_mb": 64000, "tier": "high-ram", "license": "MIT", "position": 4,
      "quality_rank": 10, "architecture": "glm4moe", "experts": 128,
      "size_label": "128x9.4B", "size_bytes": 67721071872,
@@ -209,7 +209,7 @@ DEFAULT_CATALOG: list[dict] = [
      "notes": "Heavyweight structured extraction + reasoning on a high-RAM rig (64 GB+ RAM); published evals now trail Qwen3.6-35B-A3B."},
     # ── Community writing tunes (user-added 2026-07-06; NEVER auto-picked — ranked below the
     # trusted set until a Lab A/B; each row license-verified through its base_model chain) ──
-    {"id": "gryphe-styletune-v2", "name": "Gemma 4 26B-A4B StyleTune V2 (Gryphe)",
+    {"id": "gryphe-styletune-v2", "mtp": True, "mtp_draft_quant": "Q8_0", "mtp_draft_file": "gemma-4-26B-A4B-it-assistant-Q8_0.gguf", "mtp_draft_repo": "Radamanthys11/Gemma-4-26B-A4B-it-assistant-GGUF", "est_vram_mb": 20771, "name": "Gemma 4 26B-A4B StyleTune V2 (Gryphe)",
      "hf_repo": "mradermacher/Gemma-4-26B-A4B-StyleTune-V2-GGUF", "quant": "Q4_K_M",
      "total_params": "26B", "active_params": "4B", "type": "moe",
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
@@ -226,7 +226,7 @@ DEFAULT_CATALOG: list[dict] = [
     {"id": "gemma-4-26b-a4b-uncensored", "name": "Gemma 4 26B-A4B Uncensored (HauhauCS)",
      "hf_repo": "HauhauCS/Gemma4-26B-A4B-QAT-Uncensored-HauhauCS-Balanced-MTP", "quant": "Q4_K_M",
      "total_params": "26B", "active_params": "4B", "type": "moe",
-     "mtp": True, "mtp_draft_file": "mtp-gemma-4-26B-A4B-it.gguf",
+     "mtp": True, "est_vram_mb": 20343, "mtp_draft_file": "mtp-gemma-4-26B-A4B-it.gguf",
      "trained_ctx": 262144,
      "min_vram_mb": 4000, "min_ram_mb": 24000, "tier": "low-vram-moe", "license": "Gemma", "position": 6,
      "license_reviewed": "repo declares license:gemma over an apache-2.0 Google base — checked 2026-07-06; the repackager's own terms are honored (use-limited)",
@@ -238,7 +238,7 @@ DEFAULT_CATALOG: list[dict] = [
     # (The tiny CPU pipeline-test model is deliberately NOT in this seed — user, 2026-07-06:
     # "real seed should not have it". Dev containers/CI add it via the user-facing catalog
     # CRUD with scripts/dev-seed-test-model.py.)
-    {"id": "nomic-embed-text", "name": "Nomic Embed Text v1.5",
+    {"id": "nomic-embed-text", "est_vram_mb": 1535, "name": "Nomic Embed Text v1.5",
      "hf_repo": "nomic-ai/nomic-embed-text-v1.5-GGUF", "quant": "Q4_K_M", "total_params": "137M",
      "trained_ctx": 2048,
      "min_vram_mb": 1000, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 7,
@@ -248,7 +248,7 @@ DEFAULT_CATALOG: list[dict] = [
      "size_bytes": 84106624,
      "description": "137M embedding model · 2k context · Q4_K_M",
      "notes": "The English CPU embedding floor; mean pooling."},
-    {"id": "qwen3-embedding-0.6b", "name": "Qwen3 Embedding 0.6B",
+    {"id": "qwen3-embedding-0.6b", "est_vram_mb": 2613, "name": "Qwen3 Embedding 0.6B",
      "hf_repo": "Qwen/Qwen3-Embedding-0.6B-GGUF", "quant": "Q8_0", "total_params": "0.6B",
      "trained_ctx": 32768,
      "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 8,
@@ -262,7 +262,7 @@ DEFAULT_CATALOG: list[dict] = [
      "size_label": "0.6B", "size_bytes": 639150592,
      "description": "0.6B embedding model · 32k context · Q8_0",
      "notes": "The default local embed (stronger multilingual / MTEB than nomic, still tiny ~0.6 GB); last-token pooling."},
-    {"id": "bge-m3", "name": "BGE-M3 (multilingual)",
+    {"id": "bge-m3", "est_vram_mb": 3171, "name": "BGE-M3 (multilingual)",
      "hf_repo": "gpustack/bge-m3-GGUF", "quant": "Q4_K_M", "total_params": "567M",
      "trained_ctx": 8192,
      "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "MIT", "position": 9,
@@ -281,7 +281,7 @@ DEFAULT_CATALOG: list[dict] = [
     # <8 GB RAM → 0.6B; ≥8 GB RAM → 4B on CPU; a big GPU whose leftover covers the 8B → 8B).
     # min_vram 4500 stays the honest GPU-fit figure (the FIT badge only — eligibility comes
     # from the tier, placement forces CPU via lifecycle._apply_embed_placement).
-    {"id": "qwen3-embedding-4b", "name": "Qwen3 Embedding 4B",
+    {"id": "qwen3-embedding-4b", "est_vram_mb": 4636, "name": "Qwen3 Embedding 4B",
      "hf_repo": "Qwen/Qwen3-Embedding-4B-GGUF", "quant": "Q4_K_M", "total_params": "4B",
      "trained_ctx": 40960,
      "min_vram_mb": 4500, "min_ram_mb": 8000, "tier": "cpu", "license": "Apache-2.0", "position": 10,
@@ -290,7 +290,7 @@ DEFAULT_CATALOG: list[dict] = [
      "size_label": "4B", "size_bytes": 2496703776,
      "description": "4B embedding model · 40k context · Q4_K_M",
      "notes": "The default local embed on a capable box (≥8 GB RAM) — near-8B retrieval quality at ~2.5 GB, runs on CPU; last-token pooling."},
-    {"id": "qwen3-embedding-8b", "name": "Qwen3 Embedding 8B",
+    {"id": "qwen3-embedding-8b", "est_vram_mb": 6874, "name": "Qwen3 Embedding 8B",
      "hf_repo": "Qwen/Qwen3-Embedding-8B-GGUF", "quant": "Q4_K_M", "total_params": "8B",
      "trained_ctx": 40960,
      "min_vram_mb": 7000, "min_ram_mb": 10000, "tier": "high", "license": "Apache-2.0", "position": 11,
@@ -650,6 +650,7 @@ def _catalog_row(c: dict, *, built_in: bool) -> "db.ModelCatalog":
         notes=str(c.get("notes") or ""),
         architecture=str(c.get("architecture") or ""), experts=int(c.get("experts") or 0),
         size_label=str(c.get("size_label") or ""), size_bytes=c.get("size_bytes"),
+        est_vram_mb=c.get("est_vram_mb"),
         built_in=built_in, position=int(c.get("position") or 0),
     )
 
@@ -688,6 +689,23 @@ STALE_SEED_VALUES = {
 }
 
 
+def _fill_inherited_draft(row, c: dict) -> None:
+    """Backfill the tier-C BORROWED drafter onto an existing row without a reset — a
+    Gemma-style model with no built-in MTP AND no own draft (e.g. gryphe-styletune-v2)
+    borrows the official base-family assistant drafter, exactly what Read-from-link
+    configures + auto-checks. Empty-only: fire ONLY when the row currently ships no
+    draft of its own, so a user's own/edited draft (or a deliberate mtp choice on a
+    drafted row) is never clobbered. `mtp` is set to the seed's enable value because a
+    draftless row could not have had mtp on to begin with — this is a newly-available
+    capability, not an override. No-op when the seed row carries no draft."""
+    if row.mtp_draft_file or not c.get("mtp_draft_file"):
+        return
+    row.mtp_draft_repo = str(c.get("mtp_draft_repo") or "")
+    row.mtp_draft_file = str(c["mtp_draft_file"])
+    row.mtp_draft_quant = str(c.get("mtp_draft_quant") or "")
+    row.mtp = bool(c.get("mtp") or False)
+
+
 def seed_default_catalog(s) -> int:
     existing = {r.id: r for r in s.query(db.ModelCatalog).all()}
     added = 0
@@ -701,8 +719,11 @@ def seed_default_catalog(s) -> int:
             # fields are never touched here.
             if row.size_bytes is None and c.get("size_bytes") is not None:
                 row.size_bytes = int(c["size_bytes"])
+            if row.est_vram_mb is None and c.get("est_vram_mb") is not None:
+                row.est_vram_mb = int(c["est_vram_mb"])
             if not row.size_label and c.get("size_label"):
                 row.size_label = str(c["size_label"])
+            _fill_inherited_draft(row, c)
             # Known-stale heal (QC-43a): swap an exact historically-seeded
             # wrong value for the current seed fact; anything else is a
             # user/inspect value and stays.
@@ -721,10 +742,24 @@ def seed_extra_catalog(s, rows) -> int:
     tuned Gemma daily drivers). Insert-if-missing by id — a reset re-creates them,
     a user edit is never clobbered. Seeded `built_in=False`: they are the app's
     seed data, not the shared stack's, so the catalog UI treats them as user rows."""
-    existing = {r.id for r in s.query(db.ModelCatalog.id).all()}
+    existing = {r.id: r for r in s.query(db.ModelCatalog).all()}
     added = 0
     for c in rows or ():
-        if c["id"] in existing:
+        row = existing.get(c["id"])
+        if row is not None:
+            # Fill-empty-only touch-up (2026-07-13), mirroring seed_default_catalog:
+            # an existing DB gets the harvested size + VRAM-estimate FACTS without a
+            # reset. Auto-detected fields only, and only when EMPTY — a value written
+            # at download or by a fresh inspect always wins; user-editable fields are
+            # never touched. (Insert-if-missing skipped these before, so the app's own
+            # rows like JW's Gemma never saw a new fact on an existing box.)
+            if row.est_vram_mb is None and c.get("est_vram_mb") is not None:
+                row.est_vram_mb = int(c["est_vram_mb"])
+            if row.size_bytes is None and c.get("size_bytes") is not None:
+                row.size_bytes = int(c["size_bytes"])
+            if not row.size_label and c.get("size_label"):
+                row.size_label = str(c["size_label"])
+            _fill_inherited_draft(row, c)
             continue
         s.add(_catalog_row(c, built_in=False))
         _seed_samplers(s, c["id"], c.get("samplers"))

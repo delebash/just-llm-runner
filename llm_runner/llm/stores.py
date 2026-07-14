@@ -298,7 +298,7 @@ def _catalog_to_wire(r: db.ModelCatalog, samplers: dict[str, str] | None = None)
         minVramMb=r.min_vram_mb, minRamMb=r.min_ram_mb, tier=r.tier, license=r.license,
         useLimited=r.use_limited, embedding=r.embedding, pooling=r.pooling, qualityRank=r.quality_rank, description=r.description,
         notes=r.notes, architecture=r.architecture, experts=r.experts,
-        sizeLabel=r.size_label, sizeBytes=r.size_bytes,
+        sizeLabel=r.size_label, sizeBytes=r.size_bytes, estVramMb=r.est_vram_mb,
         position=r.position, builtIn=r.built_in,
     )
 
@@ -351,6 +351,7 @@ class ModelCatalogStore:
             existing.experts = int(row.experts or 0)
             existing.size_label = row.sizeLabel or ""
             existing.size_bytes = row.sizeBytes
+            existing.est_vram_mb = row.estVramMb
             existing.position = row.position
             existing.built_in = False
             s.commit()
@@ -405,7 +406,8 @@ class ModelCatalogStore:
                     trained_ctx: int | None, total_params: str | None = None,
                     samplers: dict[str, str] | None = None,
                     architecture: str | None = None, experts: int | None = None,
-                    size_label: str | None = None, size_bytes: int | None = None) -> bool:
+                    size_label: str | None = None, size_bytes: int | None = None,
+                    est_vram_mb: int | None = None) -> bool:
         """Set the FILE-DERIVED catalog fields (`type`/`mtp_builtin`/`trained_ctx`, and
         `total_params` when the file gives one) AND replace the per-model recommended
         sampler rows for `model_id`, from a GGUF header read (the GGUF-grounded model
@@ -434,7 +436,8 @@ class ModelCatalogStore:
                        or (architecture is not None and existing.architecture != architecture)
                        or (experts is not None and existing.experts != experts)
                        or (size_label is not None and existing.size_label != size_label)
-                       or (size_bytes is not None and existing.size_bytes != size_bytes))
+                       or (size_bytes is not None and existing.size_bytes != size_bytes)
+                       or (est_vram_mb is not None and existing.est_vram_mb != est_vram_mb))
             existing.type = model_type or "dense"
             existing.mtp_builtin = bool(mtp_builtin)
             existing.trained_ctx = trained_ctx
@@ -448,6 +451,8 @@ class ModelCatalogStore:
                 existing.size_label = size_label
             if size_bytes is not None:
                 existing.size_bytes = int(size_bytes)
+            if est_vram_mb is not None:
+                existing.est_vram_mb = int(est_vram_mb)
             s.query(db.ModelSampler).filter(db.ModelSampler.model_id == model_id).delete()
             for name, val in (samplers or {}).items():
                 nm = (name or "").strip()

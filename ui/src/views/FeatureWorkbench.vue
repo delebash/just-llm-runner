@@ -6,11 +6,12 @@
 // shows the engine preset it resolves to (with provenance). The RIGHT pane is the
 // action's LLM TASK (a dropdown to reassign it) + the shared <FeatureLab> (test + tune +
 // Save-as-preset). The model + switches + params live in the preset (built in the Lab).
-//   • Routing keys on the LLM-work taskKind, NOT the nav group; the cascade is 2-tier —
-//     the action's TASK preset → the global default (2026-07-02 Plan A: a feature's preset
-//     IS its task's; there is no per-feature override). Creating + TESTING a task and its
-//     preset lives on the Tasks page; here you reassign a feature's task, and the Lab's
-//     "Use for this task" sets that task's preset (the preset here is shown read-only).
+//   • Routing keys on the LLM-work taskKind, NOT the nav group; the cascade is 3-tier
+//     (restored 2026-07-14) — this feature's OWN preset override → the action's TASK
+//     preset → the global default. Here you can (a) reassign a feature's task, (b) give
+//     THIS feature its own preset override (the fine-grain control), or (c) via the Lab's
+//     "Use for this task", set the whole TASK's preset (every feature in it). Creating +
+//     TESTING a task and its preset also lives on the Tasks page.
 //
 // Endpoints: prompts /v1/ai/prompts; the task→preset assignments + provenance
 // /v1/ai/preset-assignments; the feature→task map + reassignment /v1/ai/task-kinds;
@@ -34,8 +35,9 @@ const routing = ref(null);   // {default, features:[…], pins:{key→{providerI
 const providers = ref([]);
 const enginePresets = ref([]);   // EnginePresetRow[]
 // The assignment maps: `.taskKinds` (task→preset, edited on the Tasks page) +
-// `.defaultPresetId` (the global default) — for the read-only provenance line.
-const presetAssign = ref({ defaultPresetId: "", taskKinds: {} });
+// `.features` (action→preset, the per-feature override, restored 2026-07-14) +
+// `.defaultPresetId` (the global default) — the 3-tier provenance source.
+const presetAssign = ref({ defaultPresetId: "", taskKinds: {}, features: {} });
 const taskKinds = ref([]);        // task catalog [{id,label,description}] — the reassign dropdown
 const featureTaskKinds = ref({}); // action key → its resolved task (provenance + the dropdown)
 const knobCatalog = ref([]);      // knob_catalog metadata (C1)
@@ -150,7 +152,7 @@ async function load() {
     try { enginePresets.value = (await request("/v1/ai/engine-presets")).presets || []; }
     catch { enginePresets.value = []; }
     try { presetAssign.value = await request("/v1/ai/preset-assignments"); }
-    catch { presetAssign.value = { defaultPresetId: "", taskKinds: {} }; }
+    catch { presetAssign.value = { defaultPresetId: "", taskKinds: {}, features: {} }; }
     try {
       const tk = await request("/v1/ai/task-kinds");
       taskKinds.value = tk.taskKinds || [];
@@ -174,26 +176,56 @@ function selectAction(key) {
 // and emits the refreshed list; we just store it.
 function onPresetsChanged(list) { enginePresets.value = list || []; }
 
-// ── provenance (2-tier: the feature's task preset → the global default) ──
+// ── provenance (3-tier: this feature's OWN override → its task preset → the global
+// default; the override tier restored 2026-07-14) ──
 const presetName = (id) => enginePresets.value.find((p) => p.id === id)?.name || "—";
-// What a feature actually resolves to, with provenance — its task's assigned preset →
-// the global default. Shown muted on the nav card + the read-only line in the editor.
-// #48: the seeded preset names mirror their task labels ("Judgment / scoring" preset
-// on the "Judgment & scoring" task; "Ideation" on "Ideation") — showing both read as
-// the same thing listed twice with drifted spelling. One fact per line: when preset
-// name and task label normalize to the same name, show it once.
+// A per-feature override id counts only if its preset still EXISTS — a dangling
+// override (the preset was deleted) falls through to the task tier, mirroring the
+// server resolver (preset_resolve._resolve_with_source).
+function overridePid(key) {
+  const id = presetAssign.value.features?.[key];
+  return id && enginePresets.value.some((p) => p.id === id) ? id : "";
+}
+function hasOverride(key) { return !!overridePid(key); }
+// What a feature actually resolves to, with provenance. #48: the seeded preset names now
+// align 1:1 with their task labels (2026-07-14 — e.g. the "Judgment & scoring" preset on
+// the "Judgment & scoring" task), so "<preset> · <task>" would read as the same name
+// twice; when they normalize equal, show it once. Each tier's id is existence-checked so
+// a dangling preset falls through to the next tier, mirroring the server resolver.
 const normName = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+const presetExists = (id) => !!id && enginePresets.value.some((p) => p.id === id);
 function featurePresetLabel(key) {
+  const ovr = overridePid(key);
+  if (ovr) return `${presetName(ovr)} · this feature`;
   const tk = featureTaskKinds.value?.[key];
   const tkPid = tk ? presetAssign.value.taskKinds?.[tk] : "";
-  if (tkPid) {
+  if (presetExists(tkPid)) {
     const pn = presetName(tkPid);
     const tl = taskLabel(tk, taskKinds.value);
     return normName(pn) === normName(tl) ? pn : `${pn} · ${tl}`;
   }
   const did = presetAssign.value.defaultPresetId;
-  if (did) return `${presetName(did)} · default`;
+  if (presetExists(did)) return `${presetName(did)} · default`;
   return "— none —";
+}
+// The per-feature preset OVERRIDE control (the fine-grain tier) — give THIS feature its
+// own preset, or inherit from its task. Distinct from the Lab's "Use for this task",
+// which sets the WHOLE task's preset (every feature in it).
+const featurePresetOptions = computed(() => {
+  const tk = featureTaskKinds.value?.[selAction.value];
+  const inherit = tk ? `— inherit from task (${taskLabel(tk, taskKinds.value)}) —` : "— inherit from task —";
+  return [{ value: "", label: inherit }, ...enginePresets.value.map((p) => ({ value: p.id, label: p.name }))];
+});
+async function setFeaturePreset(key, presetId) {
+  if (!key) return;
+  try {
+    presetAssign.value = await request("/v1/ai/preset-assignments/feature", {
+      method: "PUT", body: { featureKey: key, presetId },
+    });
+    message.value = presetId
+      ? "This feature now runs its own preset (override)."
+      : "Override cleared — this feature follows its task’s preset again.";
+  } catch (e) { error.value = `Preset change failed: ${e.message}`; }
 }
 // The preset the selected feature resolves to (its task's, else the global default) —
 // seeds the Lab column; changed via "Use for this task" (below) or on the Tasks page.
@@ -201,9 +233,9 @@ const selTaskPreset = computed(() => {
   const tk = featureTaskKinds.value?.[selAction.value];
   return (tk ? presetAssign.value.taskKinds?.[tk] : "") || presetAssign.value.defaultPresetId || "";
 });
-// Plan A: a feature's preset IS its task's, so the Lab's chosen preset is assigned to
-// the feature's TASK (every feature in it runs it). No per-feature override any more;
-// the same preset can also be set on the Tasks page.
+// The Lab's "Use for this task" assigns the chosen preset to the feature's TASK (every
+// feature in it runs it) — the task-wide tier, distinct from the per-feature override
+// above. The same task preset can also be set on the Tasks page.
 async function onUseProduction(presetId) {
   const tk = featureTaskKinds.value?.[selAction.value];
   if (!tk) { error.value = "This feature has no task to assign a preset to."; return; }
@@ -225,15 +257,19 @@ async function setFeatureTask(key, taskKind) {
     const tk = await request("/v1/ai/task-kinds/feature", { method: "PUT", body: { featureKey: key, taskKind } });
     taskKinds.value = tk.taskKinds || taskKinds.value;
     featureTaskKinds.value = tk.featureTaskKinds || {};
-    message.value = "Task reassigned.";
+    message.value = `Moved to task “${taskLabel(taskKind, taskKinds.value)}”.`;
   } catch (e) { error.value = `Task change failed: ${e.message}`; }
 }
-// Reset THIS feature to its factory routing: clear its task override so it re-floats to
-// its seeded task (and thus that task's preset). Plan A: there is no per-feature preset
-// override to clear any more — the preset lives on the task.
+// Reset THIS feature to its factory routing: clear its per-feature preset override AND
+// re-float its task to the seeded default (so it inherits that task's preset again).
 async function resetFeature(key) {
   if (!key) return;
   try {
+    // clear the per-feature preset override (returns the refreshed assignments)...
+    presetAssign.value = await request("/v1/ai/preset-assignments/feature", {
+      method: "PUT", body: { featureKey: key, presetId: "" },
+    });
+    // ...then re-float the feature to its seeded task.
     const tk = await request("/v1/ai/task-kinds/feature", { method: "PUT", body: { featureKey: key, taskKind: "" } });
     taskKinds.value = tk.taskKinds || taskKinds.value;
     featureTaskKinds.value = tk.featureTaskKinds || {};
@@ -266,7 +302,7 @@ onMounted(load);
             <div v-else-if="row.type === 'sub'" class="lu-fw-sublabel" :style="ml(row.indent)">{{ row.label }}</div>
             <button v-else type="button" class="lu-fw-card" :style="ml(row.indent)"
               :class="{ 'is-active': row.action.key === selAction }" @click="selectAction(row.action.key)">
-              <div class="lu-fw-card-label">{{ actionLabel(row.action) }}</div>
+              <div class="lu-fw-card-label">{{ actionLabel(row.action) }}<span v-if="hasOverride(row.action.key)" class="lu-fw-dot" title="has its own per-feature preset override" /></div>
               <div v-if="actionDesc(row.action)" class="lu-fw-card-desc">{{ actionDesc(row.action) }}</div>
               <div class="lu-fw-card-model" title="engine preset for this feature">→ {{ featurePresetLabel(row.action.key) }}</div>
             </button>
@@ -281,7 +317,7 @@ onMounted(load);
               <span class="lu-fw-task-k">Task</span>
               <UiSelect :model-value="featureTask(selAction)" :options="taskOptions" width="name"
                 @update:model-value="(v) => setFeatureTask(selAction, v)" />
-              <UiButton intent="ghost" size="small" title="Reset this feature to its default task"
+              <UiButton intent="ghost" size="small" title="Reset this feature to its default task + preset"
                 @click="resetFeature(selAction)">↺</UiButton>
             </span>
             <span class="lu-fw-spacer" />
@@ -293,7 +329,16 @@ onMounted(load);
           </div>
           <div class="lu-fw-runs">
             <span class="lu-fw-task-k">Preset</span>
-            <span class="lu-muted">{{ featurePresetLabel(selAction) }} — set it on the task</span>
+            <UiSelect :model-value="overridePid(selAction)" :options="featurePresetOptions" width="name"
+              @update:model-value="(v) => setFeaturePreset(selAction, v)" />
+            <UiButton v-if="overridePid(selAction)" intent="ghost" size="small"
+              title="Clear this feature's override — follow its task's preset again"
+              @click="setFeaturePreset(selAction, '')">↺</UiButton>
+            <span class="lu-muted lu-fw-runs-note">Runs: {{ featurePresetLabel(selAction) }}</span>
+          </div>
+          <div class="lu-muted lu-fw-grainhint">
+            Sets the preset for <b>this feature only</b>. To change every feature in the task at once,
+            use “Use for this task” in the Lab below.
           </div>
 
           <FeatureLab :action="selAction" :prompt="action" :providers="providers" :presets="enginePresets"
@@ -316,5 +361,8 @@ select.lu-input { cursor: pointer; appearance: auto; }
 /* The per-action LLM-task reassign control in the editor header. */
 .lu-fw-task { display: inline-flex; align-items: center; gap: 6px; }
 .lu-fw-task-k { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-.lu-fw-runs { display: flex; align-items: baseline; gap: 8px; }
+/* The per-feature preset OVERRIDE row + its resolved-provenance note + the grain hint. */
+.lu-fw-runs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lu-fw-runs-note { font-size: 11.5px; }
+.lu-fw-grainhint { font-size: 11px; margin: 2px 0 4px; }
 </style>

@@ -38,8 +38,27 @@ override rows pointing at a deleted preset (no dangling in the first place). Ver
 import gate · ruff clean · **pytest 506 passed** (test_presets 3-tier + test_shared_storage
 reset-clears-refs extended); the only 4 failures are PRE-EXISTING `test_lifecycle.py`
 VRAM-environment tests (fail identically at the pre-diff HEAD, the plan-doc commit
-`f65b250` — no GPU in this container), unrelated to this diff. **Still Unit-1-open:** U1-T8 (FeatureWorkbench UI), U1-T9 (1:1
-preset-name alignment + runner name-refresh), the UI-side gates (build:vite/smoke/probes).
+`f65b250` — no GPU in this container), unrelated to this diff. Shipped `fb03302`.
+
+**U1 UI + NAMING (kit + JW) — DONE + VERIFIED (this commit).** FeatureWorkbench.vue gained the
+genuine per-feature control: a Preset dropdown (override → "— inherit from task (X) —"
+sentinel) writing `PUT /preset-assignments/feature`, a clear-↺, 3-tier `featurePresetLabel`
+("· this feature" / "· <task>" / "· default") with a dangling-override guard mirroring the
+server fall-through, the nav-card override dot (`.lu-fw-dot` DEFINED in common/styles.css —
+it never had CSS), a grain-honest caption ("this feature only" vs "Use for this task"), the
+move message now names the destination, and the full-reset ↺ clears BOTH tiers. U1-T9: the
+four preset names aligned 1:1 to their task labels (Generate prose / Edit prose / Grounded
+summary / Judgment & scoring; p_chat stays role-neutral — it serves both chat tasks) via
+`name_was` + a guarded `seed_default_engine_presets` refresh (renames a built-in only if it
+still carries the old name — user renames survive; test `test_engine_preset_name_refresh`).
+Verified: build:vite clean · JW server imports the runner (signature change OK) · runner
+pytest incl. the name-refresh test + ruff clean · JW server 106 pytest + ruff clean · **FULL
+headless smoke PASSED — every route zero JS errors, shell-structure ✓** (with a seeded
+project; the zero-project boot lands on /welcome which has no shell) · switch-probe PASSED
+(page errors 0) · **live curl round-trip**: a critique→p_prose_voiced override made
+resolved-route report `presetSource:"feature"` + "Generate prose" (override beat the task's
+"Judgment & scoring" — also proving the name alignment live); clear → back to task. DB
+restored to zero projects as found. **Unit 1 COMPLETE.**
 
 ---
 

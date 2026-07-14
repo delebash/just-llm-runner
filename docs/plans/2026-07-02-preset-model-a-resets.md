@@ -1,5 +1,12 @@
 # Plan — Preset model A (task owns the preset) + full reset story + UI polish
 
+> **⚠ CASCADE PARTLY SUPERSEDED (2026-07-14).** This plan's core (Plan A resets, edit-in-place,
+> reset story) stands, BUT its **2-tier cascade** ("task preset → default; no per-feature
+> override") was **reverted**: the per-feature preset override tier is restored, so the live
+> cascade is again **3-tier — feature override → task preset → global default**. The removal here
+> was a misread of intent (the user always wanted fine-grain per-feature control). Current
+> AI-routing/preset model: `docs/plans/2026-07-14-feature-override-and-reasoning-plan.md`.
+
 ## ⛔ LIVE STATUS — where this stands (kept current; single source of truth)
 Branch (all repos): `claude/admiring-galileo-il3q0o`. Base: runner `d4d91bf`, JW `39de67c`.
 - **Approved** by the user (2026-07-02) after a 3-checker rules panel (architecture-fit · reuse · grounding) — all three approve Plan A; FAIL findings folded in (marked 【panel】). User then said "complete all phases without stopping" (no-stop mode).

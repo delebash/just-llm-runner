@@ -224,6 +224,33 @@ def test_reset_restores_built_in_preset(wired):
     assert stores.get_task_kind_preset_store().list().get("prose.generate") == "p_fac"  # factory assignment restored
 
 
+def test_engine_preset_name_refresh(wired):
+    # A factory rename (name_was → name) reaches existing DBs for a still-old-named
+    # built-in, but a user who renamed the built-in keeps their name (1:1 alignment 2026-07-14).
+    from llm_runner.llm import db as _db
+
+    seed.configure_app_seed(
+        feature_task_kinds={},
+        engine_presets=[
+            {"id": "p_a", "name": "New A", "name_was": "Old A", "provider_id": "local-llamacpp", "model": "m"},
+            {"id": "p_b", "name": "New B", "name_was": "Old B", "provider_id": "local-llamacpp", "model": "m"},
+        ],
+        taskkind_presets=[],
+    )
+    s = _db.session()
+    try:  # an existing DB: p_a still under its old name; p_b renamed by the user
+        s.add(_db.EnginePreset(id="p_a", name="Old A", provider_id="local-llamacpp", model="m", built_in=True))
+        s.add(_db.EnginePreset(id="p_b", name="My Own B", provider_id="local-llamacpp", model="m", built_in=True))
+        s.commit()
+        seed.seed_default_engine_presets(s)
+        s.commit()
+    finally:
+        s.close()
+    names = {p.id: p.name for p in stores.get_engine_preset_store().list()}
+    assert names["p_a"] == "New A"      # refreshed (still carried the old default name)
+    assert names["p_b"] == "My Own B"   # user rename survives
+
+
 def test_reset_task_to_factory(wired):
     from llm_runner.llm import db as _db
     from llm_runner.llm.presets_api import EnginePresetRow

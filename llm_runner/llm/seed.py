@@ -847,11 +847,19 @@ def seed_default_engine_presets(s) -> int:
     2026-06-29 lab+preset model — §7.1: request params + samplers only, NO launch
     switches) + their FK sampler children. Flush each parent before its children
     (host session: autoflush off + FK on — the switch-preset seeder gotcha).
-    Per-app data via `app_engine_presets()`."""
-    existing = {r.id for r in s.query(db.EnginePreset.id).all()}
+    Per-app data via `app_engine_presets()`. Insert-if-missing, with one refresh: a
+    built-in row whose name still equals the app's recorded OLD default (`name_was`)
+    is renamed to the current seed name — so a factory rename reaches existing DBs while
+    a user who renamed the built-in keeps their name (B2-1 precedent; 1:1 preset-name
+    alignment restored 2026-07-14)."""
+    existing = {r.id: r for r in s.query(db.EnginePreset).all()}
     added = 0
     for p in app_engine_presets():
-        if p["id"] in existing:
+        row = existing.get(p["id"])
+        if row is not None:
+            was = str(p.get("name_was") or "")
+            if row.built_in and was and row.name == was:
+                row.name = str(p.get("name") or "")
             continue
         s.add(db.EnginePreset(
             id=p["id"], name=str(p.get("name") or ""), provider_id=str(p.get("provider_id") or ""),

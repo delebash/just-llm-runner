@@ -4,6 +4,40 @@
 
 Branch (all repos): `claude/admiring-galileo-il3q0o`. Base: runner `9940a97`, JW `67f204a`.
 
+### ▶ NEXT SESSION — START HERE (Unit 2, on a GPU box)
+
+**Unit 1 is SHIPPED + PUSHED** — the 3-tier per-feature preset override cascade is live.
+Commits on `claude/admiring-galileo-il3q0o`: runner `fb03302` (backend) + `419f5c3`
+(UI/naming/docs); JW `49ad7b5` (seed renames + docs). **First step in a new session:
+`git pull` BOTH repos** (`just-llm-runner` and `justwrite-app`), then continue Unit 2 below.
+
+**Unit 2 is NOT started.** Build it in the task order UNIT 2 § below (U2-T1 → U2-T10). The
+five design leans are LOCKED (user "i agree to your 5 recs go", 2026-07-14) — do NOT
+re-litigate: (1) chat migrates to level Medium; (2) local seeds 1024/4096/8192/16384 +
+Max=cap, global default cap 8192; (3) reasoning_map grain = per provider instance;
+(4) chip doorway editable on the two ChatPanel chips first; (5) downmaps Ollama
+xhigh→max, OpenAI-family xhigh/max→high, Gemini keeps 2048/8192/24576 + extends. The full
+per-provider matrix + the generation-aware map (word + tokens columns) is in UNIT 2 §U2-T2/T5.
+
+**What THIS (GPU-less) container could NOT verify — do these on the box:**
+- **U2-T1 engine bump** (`runner/config.py:39` `DEFAULT_PINNED_BUILD` b9899 → latest; b9993
+  at the 2026-07-14 review — re-check the current latest at build) + a REAL model download
+  + `llama-server --help` to confirm the flag, then a full model LOAD. Also **grep the
+  pinned llama.cpp SOURCE for the exact per-request budget key** (candidates
+  `reasoning_budget` / `reasoning_budget_tokens` / `thinking_budget_tokens` — three web
+  summaries disagreed; the key comes from SOURCE, never a summary). That key gates U2-T5's
+  local emission.
+- **The acceptance test that needs a GPU** (the whole point of moving to the box): after
+  Unit 2, run one LOCAL chat at level **High** and watch the reasoning STOP at the hardware
+  cap (not run for minutes); and one **new-Anthropic** run to confirm words on the wire, no
+  400. Plus the full matrix in §U2-T9 and the box-load smoke.
+- Anthropic model facts (budget_tokens deprecated/400-rejected on new models) + the exact
+  request-key name are web/source facts — re-verify at build (§Context + §U2-T5).
+
+**Everything else in Unit 2 is container-verifiable** (unit tests, build:vite, headless
+smoke, the resolver/map/adapter code) and can be built + gated exactly like Unit 1.
+
+
 - **APPROVED 2026-07-14** — user: *"i agree to your 5 recs go"* — after a 3-lens rules-checker
   panel (architecture-fit · reuse/convergence · grounding) found five real findings, all
   folded in, then a confirmatory re-check returned **VERDICT: PASS** (all T1–T12). The five

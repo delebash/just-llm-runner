@@ -236,7 +236,7 @@ onMounted(() => {
          a genuine choice (e.g. an NVIDIA driver exposes both CUDA and Vulkan). -->
     <div v-if="showBackendPicker" class="lu-eng-backend">
       <span class="lu-eng-backend-cap">Acceleration backend</span>
-      <UiSelect :model-value="st.preferredGpu || ''" width="token"
+      <UiSelect :model-value="st.preferredGpu || ''" width="name"
         :options="backendOptions" :disabled="engBusy || installing"
         @update:model-value="onPickBackend" />
       <span v-if="activeBackendLabel" class="lu-eng-backend-active">running on {{ activeBackendLabel }}</span>
@@ -354,6 +354,10 @@ onMounted(() => {
 .lu-eng-backend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .lu-eng-backend-cap { font-size: 12.5px; font-weight: 600; color: var(--lu-ink-2, var(--ink-2, #666)); }
 .lu-eng-backend-active { font-size: 11.5px; color: var(--lu-ink-2, var(--ink-2, #666)); font-variant-numeric: tabular-nums; }
+/* Content-size the backend select so its box hugs the current label (Auto / CUDA /
+   Vulkan) instead of filling the width="name" max-width cap — the shared trigger is
+   width:100% by default, so the cap alone leaves a wide dead gap before the chevron. */
+.lu-eng-backend :deep(.ui-select-trigger) { width: fit-content; }
 .lu-eng-err { margin: 0; font-size: 12.5px; color: var(--lu-danger, var(--danger, #b91c1c)); }
 .lu-eng-log {
   max-height: 220px;

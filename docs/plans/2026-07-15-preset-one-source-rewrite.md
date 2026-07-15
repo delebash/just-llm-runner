@@ -15,6 +15,51 @@
 **Branch:** `claude/admiring-galileo-il3q0o`. **JustVoice: OUT OF SCOPE** (user's word 2026-07-15: "dont worry about jv").
 **Protocol (user, 2026-07-15):** plan approved → **Opus subagents do all build + testing work** — code starts ONLY on the user's explicit "go" after approval. Push on the user's word.
 
+## ⛔ CORRECTION (2026-07-15, same day — the USER's verdict on seeing the built UI)
+
+**The separate Presets page is DELETED. `Routing by feature` is the ONE routing surface,
+and the Lab's preset bar is the ONE preset control — restored to its ORIGINAL shape.**
+The user's words: *"task kind should not even exist anymore … it looks to me like you just
+renamed tasks to presets"* · *"we should only have routing by feature and it works the same
+way originally"* · *"the dropdown has button use in production … another thing you renamed
+without approval"*. They were right on every count:
+
+- **My design error:** I concluded "the preset IS the group" (correct) and then leapt to
+  "so it needs a group-management page" (wrong) — rebuilding TaskKinds.vue's master/detail
+  shell with member lists + Move-to. Structurally that page WAS the task page renamed. My
+  own approval note even flagged the doubt ("whether you'd rather fold preset management
+  into Routing by feature entirely and drop the second tab") and I never asked it.
+- **My process error:** nothing in the pipeline ever LOOKED at the built UI. Probes assert
+  elements exist; they don't say what a page reads like. The user was the first human to
+  see it — against my own standing memory rule (render + screenshot before "done").
+- **Unapproved renames reverted** (verified in git, not memory): the ORIGINAL control is
+  `Use in production` + a `● in production` marker (`1302f88`); the task era renamed it
+  "Use for this task"/"✓ Task preset" (`46cf11a`) and my rewrite made it "Use for this
+  feature"/"✓ feature preset". All three renames are dead; the original is back verbatim.
+
+**Shipped:** `Presets.vue` DELETED (+ its tab/import/section); `ConfigColumn` restored to
+the original bar (drop the invented `assignLabel`/`showUseProduction` props — one shape for
+every mount); FeatureWorkbench's TOP assignment dropdown DELETED (it duplicated the bar);
+per-feature **Reset to default** restored as a real labeled **danger** button, right-aligned
+in the action header, resetting the ref AND remounting the Lab (`labEpoch`) so the whole
+form reloads; `↺ Reset presets to defaults` relocated to the feature-list footer; the
+**Writing AI** tab moved beside Routing by feature (user's ask); `b4-probe.mjs` DELETED
+(it asserted the deleted page's layout); `presets-probe.mjs` REWRITTEN to the real surface
+(**31/31**, incl. the flattening pin + the original-button assertions); docs re-swept
+(`presets.md` rewritten; ai-providers/models off the dead tab).
+
+**A REAL PRE-EXISTING BUG found by that probe — `csrf.py` (fixed here):** the CSRF Origin
+guard allowlisted only the dev port (1420) + Tauri, never **the server's own origin** — but
+`app.py:216` also serves the UI at that origin (the headless `serve` + browser mode), and
+browsers DO send `Origin` on same-origin mutations. Every write from the self-hosted UI
+403'd. Same-origin is by definition not a CSRF vector; the guard now derives the server's
+own origin per-request and allows it (cross-site is still rejected — `test_csrf.py` 4/4,
+incl. a new same-origin regression). Pre-existing since `227c44f`, unrelated to this
+rewrite; the smoke never caught it because it ran against the allowlisted dev origin.
+**Gates:** JW server pytest **108** + ruff clean · vitest **145/145** · build:vite · FULL
+headless smoke zero JS errors (only the pre-existing `jscpd` threshold red) · presets-probe
+**31/31** · biome clean · **screenshots reviewed by me before calling it done.**
+
 ## BUILD RECORD (2026-07-15 — built on the user's "go" / "keep going until its done")
 
 **ALL STAGES BUILT + VERIFIED; commits pending the diff checker; PUSH awaits the user's word.**

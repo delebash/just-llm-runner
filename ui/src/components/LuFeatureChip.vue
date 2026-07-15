@@ -12,7 +12,7 @@
 //    popover that edits THE ACTION'S PRESET (provider+model + reasoning level).
 //    One source: the chip's resolved route names the preset (presetId/presetName)
 //    and the save writes `PUT /v1/ai/engine-presets/{id}` — the SAME preset the
-//    Presets page and Feature Workbench edit. "used by N features" is derived
+//    Feature Workbench's Lab edits. "used by N features" is derived
 //    from the refs map (GET /v1/ai/preset-assignments). QC-43 any-write
 //    invalidation refreshes every chip after the save (no local refresh math).
 //
@@ -66,7 +66,7 @@ const REASONING_OPTIONS = [
 const tooltip = computed(() =>
   props.editable
     ? `Change the model & reasoning for ${props.label || props.feature} — edits its preset`
-    : `Runs on ${props.label || props.feature} — manage under AI settings → Presets`,
+    : `Runs on ${props.label || props.feature} — manage under AI settings → Routing by feature`,
 );
 
 // ── the edit doorway (editable only) ────────────────────────────────────────

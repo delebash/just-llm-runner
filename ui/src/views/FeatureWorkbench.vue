@@ -7,9 +7,11 @@
 // assigns the action's preset, or clears to the global default) + the shared
 // <FeatureLab> (test + tune + Save-as-preset). The model + switches + params live in
 // the preset (built in the Lab).
-//   • Routing is ONE source now (2026-07-15): a feature points at a preset (its ref)
-//     then the global default. The task tier is gone. Here you assign THIS feature's
-//     preset; the Presets page owns creating/testing presets + their member lists.
+//   • Routing is ONE source (2026-07-15): a feature points at a preset (its ref),
+//     else the global default. The task tier is gone; so is the separate Presets page
+//     (the user's 2026-07-15 verdict — it recreated the task page). THE one preset
+//     control is the Lab bar below: load a preset → "Use in production" assigns it
+//     (the original 1302f88 control, restored); Save-as/Update/🗑 manage the library.
 //
 // Endpoints: prompts /v1/ai/prompts; the per-action refs + default
 // /v1/ai/preset-assignments (+ PUT /preset-assignments/feature); the engine-preset
@@ -20,8 +22,8 @@ import { computed, onMounted, ref } from "vue";
 import FeatureLab from "../components/FeatureLab.vue";
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
-import UiSelect from "../common/components/UiSelect.vue";
 import { request } from "../client.js";
+import { confirmDialog } from "../common/services/dialog.js";
 
 const props = defineProps({
   runStream: { type: Function, default: null },
@@ -153,8 +155,6 @@ function refPid(key) {
   const id = presetAssign.value.features?.[key];
   return presetExists(id) ? id : "";
 }
-const defaultName = computed(() => presetName(presetAssign.value.defaultPresetId));
-
 function featurePresetLabel(key) {
   const pid = refPid(key);
   if (pid) return `${presetName(pid)} · assigned`;
@@ -163,11 +163,6 @@ function featurePresetLabel(key) {
   return "— none —";
 }
 
-const featurePresetOptions = computed(() => [
-  { value: "", label: `— default preset (${defaultName.value}) —` },
-  ...enginePresets.value.map((p) => ({ value: p.id, label: p.name })),
-]);
-function featurePresetValue(key) { return refPid(key); }
 async function setFeaturePreset(key, presetId) {
   if (!key) return;
   try {
@@ -180,12 +175,37 @@ async function setFeaturePreset(key, presetId) {
   } catch (e) { error.value = `Preset change failed: ${e.message}`; }
 }
 
+// ↺ Reset (relocated from the deleted Presets page): restore the built-in presets +
+// every feature assignment + the default to the shipped seeds. Custom presets survive.
+async function resetPresets() {
+  const ok = await confirmDialog({
+    title: "Reset presets to defaults?", danger: true,
+    message: "Restores the built-in presets and every feature assignment to the shipped defaults. Your custom presets are kept.",
+  });
+  if (!ok) return;
+  try {
+    await request("/v1/ai/engine-presets/reset", { method: "POST" });
+    await load();
+    message.value = "Presets reset to defaults.";
+  } catch (e) { error.value = `Reset failed: ${e.message}`; }
+}
+
 const selResolvedPreset = computed(() => refPid(selAction.value) || presetAssign.value.defaultPresetId || "");
 async function onUseProduction(presetId) {
   await setFeaturePreset(selAction.value, presetId);
 }
 
 const navCollapsed = ref(false);
+
+// Per-feature "Reset to default" (the original affordance, kept through every era —
+// the user's word 2026-07-15: a real labeled button, and it resets the WHOLE form):
+// clears the feature's ref (→ the default preset) and bumps the Lab epoch so
+// <FeatureLab> remounts — the column + prompt draft reload from the default preset.
+const labEpoch = ref(0);
+async function resetFeature() {
+  await setFeaturePreset(selAction.value, "");
+  labEpoch.value += 1;
+}
 
 onMounted(load);
 </script>
@@ -213,6 +233,11 @@ onMounted(load);
               <div class="lu-fw-card-model" title="engine preset for this feature">→ {{ featurePresetLabel(row.action.key) }}</div>
             </button>
           </template>
+          <div class="lu-fw-aside-foot">
+            <UiButton intent="ghost" size="small"
+              title="Restore the built-in presets + every feature assignment to the shipped defaults — your custom presets are kept"
+              @click="resetPresets">↺ Reset presets to defaults</UiButton>
+          </div>
         </aside>
 
         <section v-if="action" class="lu-fw-edit">
@@ -220,28 +245,18 @@ onMounted(load);
             <b>{{ actionLabel(action) }}</b>
             <span class="lu-fw-spacer" />
             <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
+            <UiButton v-if="refPid(selAction)" intent="danger" size="small"
+              title="Back to the default preset — clears this feature's assignment and reloads the form"
+              @click="resetFeature">Reset to default</UiButton>
             <UiButton intent="ghost" size="small"
               v-tooltip.bottom="navCollapsed ? 'Show list' : 'Hide list'"
               :aria-label="navCollapsed ? 'Show list' : 'Hide list'"
               @click="navCollapsed = !navCollapsed"><Icon name="SidebarToggle" :size="14" /></UiButton>
           </div>
-          <div class="lu-fw-runs">
-            <span class="lu-fw-task-k">Preset</span>
-            <UiSelect :model-value="featurePresetValue(selAction)" :options="featurePresetOptions" width="name"
-              @update:model-value="(v) => setFeaturePreset(selAction, v)" />
-            <UiButton v-if="featurePresetValue(selAction)" intent="ghost" size="small"
-              title="Clear — this feature runs the default preset"
-              @click="setFeaturePreset(selAction, '')">↺</UiButton>
-            <span class="lu-muted lu-fw-runs-note">Runs: {{ featurePresetLabel(selAction) }}</span>
-          </div>
-          <div class="lu-muted lu-fw-grainhint">
-            Sets the preset for <b>this feature only</b>. Create + test presets (and their
-            member lists) on the <b>Presets</b> page.
-          </div>
-
-          <FeatureLab :action="selAction" :prompt="action" :providers="providers" :presets="enginePresets"
+          <FeatureLab :key="`${selAction}:${labEpoch}`"
+            :action="selAction" :prompt="action" :providers="providers" :presets="enginePresets"
             :sampler-catalog-list="samplerCatalogList"
-            :production-preset-id="selResolvedPreset" assign-label="feature"
+            :production-preset-id="selResolvedPreset"
             @use-production="onUseProduction" @presets-changed="onPresetsChanged" />
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
@@ -255,8 +270,5 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-ghead { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; }
 .lu-fw-gname { font-size: 12px; font-weight: 700; color: var(--ink-2); }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 6px 0 1px; }
-.lu-fw-task-k { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-.lu-fw-runs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.lu-fw-runs-note { font-size: 11.5px; }
-.lu-fw-grainhint { font-size: 11px; margin: 2px 0 4px; }
+.lu-fw-aside-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); display: flex; }
 </style>

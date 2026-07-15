@@ -77,13 +77,10 @@ const props = defineProps({
   inheritLabel: { type: String, default: "— inherit —" },
   // This action's saved presets (parent-owned list, already filtered to the action).
   presets: { type: Array, default: () => [] },
-  // The feature's current IN-PRODUCTION preset id → preselect it + mark it.
+  // The feature's current IN-PRODUCTION preset id → preselect it + mark it
+  // ("● in production"); "Use in production" assigns the loaded preset (the
+  // parent writes the feature's ref).
   productionPresetId: { type: String, default: "" },
-  // "Use for this <assignLabel>" button label + whether it shows. The Presets page
-  // mounts the tested preset AS the page's preset (assign-on-use is meaningless there)
-  // → showUseProduction=false; the Workbench assigns the FEATURE's ref.
-  assignLabel: { type: String, default: "feature" },
-  showUseProduction: { type: Boolean, default: true },
   // Show the system/user prompt editors. Features ×1 = true; Compare may pass false
   // to compare engines on a shared (locked) prompt, true for prompt A/B.
   promptEditable: { type: Boolean, default: true },
@@ -470,10 +467,10 @@ defineExpose({ run, cancel });
       <UiSelect width="name" :model-value="selPreset"
         :options="[{ value: '', label: '— start fresh —' }, ...presets.map((p) => ({ value: p.id, label: p.name }))]"
         @update:model-value="onApplyPreset" />
-      <UiButton v-if="showUseProduction" intent="success" size="small"
-        :disabled="!selPreset || selPreset === productionPresetId"
-        :title="!selPreset ? 'Load or save a preset first' : (selPreset === productionPresetId ? `Already this ${assignLabel}’s preset` : `Make this the preset this ${assignLabel} runs`)"
-        @click="emit('use-production', selPreset)">{{ selPreset && selPreset === productionPresetId ? `✓ ${assignLabel} preset` : `Use for this ${assignLabel}` }}</UiButton>
+      <span v-if="selPreset && selPreset === productionPresetId" class="cc-inprod" title="This preset is in production for this feature">● in production</span>
+      <UiButton v-if="selPreset && selPreset !== productionPresetId" intent="success" size="small"
+        title="Make this preset the one this feature uses"
+        @click="emit('use-production', selPreset)">Use in production</UiButton>
       <UiButton v-if="selPreset && !naming" intent="secondary" size="small" title="Update the loaded preset in place (no new copy)" @click="emit('update-preset', selPreset)">Update</UiButton>
       <UiInput v-if="naming" v-model="newName" placeholder="name — Enter" class="cc-name-in"
         @keyup.enter="confirmSaveAs" @keyup.esc="naming = false; newName = ''" />

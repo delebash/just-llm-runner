@@ -1,16 +1,15 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // FeatureLab — the shared "test + tune" pane for ONE action, extracted from
-// FeatureWorkbench (2026-07-02) so the Presets page reuses it instead of copying the
-// wiring. Given an action + its prompt it builds the {{variables}} test input and feeds
+// FeatureWorkbench (2026-07-02); since 2026-07-15 the Workbench is its only mount. Given an action + its prompt it builds the {{variables}} test input and feeds
 // <CompareStrip> N engine-config columns you Run and Save as presets.
 //
 // State boundary: FeatureLab OWNS draft(prompt, read to run) + vars + columnConfig + the
 // CompareStrip. The column now seeds ENTIRELY from the PRODUCTION PRESET (2026-07-15,
 // one-source rewrite: the flattening trap dies structurally — the prompt row carries NO
 // tunables anymore; params live ONLY on the preset). save-as / update-preset /
-// delete-preset / use-production are emitted; the parent decides the target — a
-// per-feature ref (Workbench) or the page's own preset (Presets page). NO LAUNCH SWITCHES
+// delete-preset / use-production are emitted; the parent (Workbench) writes the
+// feature's ref on use-production. NO LAUNCH SWITCHES
 // here (§7.1): those live on the model — the column's "Engine switches" link opens Tune.
 import { computed, reactive, ref, watch } from "vue";
 
@@ -29,11 +28,6 @@ const props = defineProps({
   presets: { type: Array, default: () => [] },
   samplerCatalogList: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },
-  // The "Use for this <label>" button label + whether it shows. The Presets page mounts
-  // the tested preset AS the page's preset (assign-on-use is meaningless there) →
-  // showUseProduction=false; the Workbench assigns the FEATURE's ref.
-  assignLabel: { type: String, default: "feature" },
-  showUseProduction: { type: Boolean, default: true },
 });
 const emit = defineEmits(["use-production", "presets-changed"]);
 
@@ -224,7 +218,6 @@ const columnConfig = computed(() => {
       :action="action" :base-config="columnConfig" :providers="providers"
       :sampler-catalog-list="samplerCatalogList"
       :vars="vars" :presets="presets" :production-preset-id="productionPresetId"
-      :assign-label="assignLabel" :show-use-production="showUseProduction"
       @save-as="saveAs"
       @update-preset="updatePreset"
       @delete-preset="delPreset"

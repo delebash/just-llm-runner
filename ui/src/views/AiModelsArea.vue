@@ -15,7 +15,6 @@ import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiTag from "../common/components/UiTag.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
-import Presets from "./Presets.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
@@ -371,13 +370,11 @@ onMounted(() => {
 
     <nav class="lu-subnav">
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
-      <!-- 2026-07-15: presets are the one source of routing — create/tune them here. -->
-      <a :class="{ on: tab === 'presets' }" @click="tab = 'presets'">Presets</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
+      <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
       <!-- QC-43c: live server-console tab — the server log ring + the engine child's output. -->
       <a :class="{ on: tab === 'console' }" @click="tab = 'console'">Server console</a>
-      <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
     </nav>
 
     <div v-if="error" class="lu-error" style="margin-top:14px">{{ error }}</div>
@@ -528,12 +525,6 @@ onMounted(() => {
           </template>
         </AppModal>
       </div>
-    </section>
-
-    <!-- ── Presets — create / rename / delete presets, assign which features use each,
-         and test + tune a preset's params in the Lab (the one params editor). ── -->
-    <section v-show="tab === 'presets'" class="lu-tab lu-tab-fill">
-      <Presets v-if="tab === 'presets'" />
     </section>
 
     <!-- ── Routing by feature — the Feature Workbench: per-feature preset (model +

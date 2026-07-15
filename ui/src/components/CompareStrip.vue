@@ -24,8 +24,6 @@ const props = defineProps({
   vars: { type: Object, default: () => ({}) },
   presets: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },  // the feature's in-production preset
-  assignLabel: { type: String, default: "feature" },
-  showUseProduction: { type: Boolean, default: true },
 });
 const emit = defineEmits(["save-as", "update-preset", "delete-preset", "use-production"]);
 
@@ -149,7 +147,6 @@ onMounted(() => {
           :sampler-catalog-list="samplerCatalogList"
           :vars="vars" :presets="presets" :prompt-editable="true"
           :production-preset-id="productionPresetId"
-          :assign-label="assignLabel" :show-use-production="showUseProduction"
           :run-stream="null" :busy="runningAll" :removable="columns.length > 1"
           :label="`Config ${i + 1}`" inherit-label="— pick a model —"
           @result="onResult(col.id, $event)"

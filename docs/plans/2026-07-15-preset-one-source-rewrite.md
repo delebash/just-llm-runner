@@ -205,10 +205,14 @@ suites 42 + ruff. **Left red, all pre-existing/environmental (root-caused):** he
 ISOLATED fresh DB correctly reports no engine installed); rag-probe entity legs (its own
 staleness banner, rag-probe.mjs:46-51). **Probe container-ism fixed:** hardcoded
 `/home/user/...` `createRequire` paths → `import.meta.url` in 6 probes (they never ran on
-Windows before). **Infra follow-up (claude-config):** the PreToolUse pre-action hook DENIES
-subagent Edit/Write (the citation channel doesn't reach the hook's transcript scan; the
-sidechain bypass didn't fire) — agents applied writes via shell file-ops after honest
-think-twice; the hook needs a real subagent bypass. **Remaining for the USER's box:** engine
+Windows before). **Infra follow-up (claude-config): FIXED same day — see the recap's SUBAGENT-HOOK GAP go
+paragraph + `claude-config/EFFECTIVENESS.md` (2026-07-15 entry).** The PreToolUse
+pre-action hook DENIED subagent Edit/Write all day: its sidechain bypass read
+`isSidechain` from the transcript the hook receives, but the harness passes the MAIN
+transcript even for a subagent's call, so the bypass never fired once. Agents applied
+writes via shell file-ops instead — a ~2-3× wall-clock multiplier (this build: 66 min for
+~30 min of code work). Detection now keys on the payload's own `agent_id`, live-captured
+from both sides (subagent has it, coordinator doesn't); 4 regression cases added. **Remaining for the USER's box:** engine
 present → one local High chat run (thinking stops at the hardware cap), one new-Anthropic
 run (words on the wire, no 400) — the Unit-2 acceptance carried through this rewrite.
 

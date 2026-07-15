@@ -35,11 +35,6 @@ from .registry import (
     get_llm_registry,
     load_from_configs,
 )
-from .feature_presets_api import (
-    FeaturePreset,
-    FeaturePresetStore,
-    make_feature_presets_router,
-)
 from .model_catalog_api import (
     CatalogResponse,
     CatalogRow,
@@ -48,7 +43,6 @@ from .model_catalog_api import (
 )
 from .routing_api import (
     FeatureCatalogEntry,
-    FeaturePin,
     RoutingConfig,
     RoutingDefaults,
     RoutingStore,
@@ -82,13 +76,11 @@ __all__ = [
     # prompts (per-feature prompt store contract + render + router factories)
     "FeaturePromptRow", "PromptStore", "render",
     "make_prompt_router", "make_feature_router",
-    # routing (default + per-feature pins, behind a host store)
-    "RoutingStore", "RoutingConfig", "RoutingDefaults", "FeaturePin",
+    # routing (the global default LLM/embedding, behind a host store)
+    "RoutingStore", "RoutingConfig", "RoutingDefaults",
     "FeatureCatalogEntry", "make_routing_router",
     # model catalog (the DB-backed downloadable-model source of truth)
     "CatalogRow", "CatalogResponse", "ModelCatalogStore", "make_catalog_router",
-    # feature presets (per-feature saved configs; active = production)
-    "FeaturePreset", "FeaturePresetStore", "make_feature_presets_router",
     # tiers
     "TIERS", "TierSpec", "classify", "spec_for",
     # usage

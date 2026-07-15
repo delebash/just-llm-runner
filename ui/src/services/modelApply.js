@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Shared model-apply service — the ONE place that (a) reads the current default LLM + the
 // current embedding (the catalog's Default / Embedding badges) and (b) applies a model as the
-// default (written onto the task presets, non-clobber) or as the embedding (routing.default).
+// default (written onto the presets features point at, non-clobber) or as the embedding
+// (routing.default).
 //
 // A module-singleton (the useRunnerModels / useCatalogMeta precedent) because QuickSetup AND
 // LuModelCatalog both mount on the Providers tab: after a QuickSetup Apply the catalog's Default
@@ -17,7 +18,7 @@ import { useRouting } from "../composables/useRouting.js";
 
 export const LOCAL_RUNNER_ID = "local-llamacpp";
 
-const defaultModelId = ref("");   // the dominant model across the task presets (Default badge)
+const defaultModelId = ref("");   // the dominant model across the assigned presets (Default badge)
 const defaultProviderId = ref(""); // the PROVIDER the dominant pair points at — UNGATED (QC-20)
 const embeddingModelId = ref(""); // routing.default.embeddingModel, only when it is a LOCAL embed
 
@@ -30,12 +31,13 @@ export const currentDefaultId = computed(() => defaultModelId.value);
 export const currentDefaultProviderId = computed(() => defaultProviderId.value);
 export const currentEmbeddingId = computed(() => embeddingModelId.value);
 
-// The dominant model across the task presets = the current shared default: the mode of `.model`
-// across the presets the taskKinds point at (+ defaultPresetId), stable order. Returns the mode
-// + the resolved taskPresets. This is the EXACT logic QuickSetup's Apply shipped, extracted here.
+// The dominant model across the assigned presets = the current shared default: the mode of
+// `.model` across the presets the per-action refs point at (+ defaultPresetId), stable order.
+// Returns the mode + the resolved presets. (2026-07-15: the task tier is gone — the analog of the
+// old taskKinds walk is `assignments.features` values, deduped, plus the global default.)
 function dominantOf(assignments, presets) {
   const byId = Object.fromEntries((presets || []).map((p) => [p.id, p]));
-  const ids = new Set(Object.values(assignments?.taskKinds || {}).filter(Boolean));
+  const ids = new Set(Object.values(assignments?.features || {}).filter(Boolean));
   if (assignments?.defaultPresetId) ids.add(assignments.defaultPresetId);
   const taskPresets = [...ids]
     .map((id) => byId[id])

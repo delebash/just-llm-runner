@@ -5,7 +5,7 @@ the backends ignored them (so top_p / response_format / the long-tail samplers a
 silently dropped). These verify the corrected nesting/mapping."""
 
 from llm_runner.llm.anthropic import AnthropicAdapter
-from llm_runner.llm.base import pop_reasoning_effort
+from llm_runner.llm.base import pop_reasoning
 from llm_runner.llm.gemini import GeminiAdapter
 from llm_runner.llm.ollama import OllamaAdapter
 from llm_runner.llm.openai_compat import OpenAICompatAdapter
@@ -47,19 +47,19 @@ def test_apply_extra_none_is_noop():
     assert payload == {"generationConfig": {}}
 
 
-# ── reasoning-effort → each backend's native control (a1/E2) ──────────────────
+# ── reasoning: the resolved word/budget → each backend's native control (U2-T5) ──
 
-def test_pop_reasoning_effort_splits_reserved_key_without_leaking():
-    extra, effort = pop_reasoning_effort({"top_k": 40, "reasoning_effort": "high"})
-    assert effort == "high" and extra == {"top_k": 40}   # level removed (no leak)
-    assert pop_reasoning_effort(None) == (None, "")
-    assert pop_reasoning_effort({"top_k": 40}) == ({"top_k": 40}, "")
+def test_pop_reasoning_splits_both_reserved_keys_without_leaking():
+    extra, effort, budget = pop_reasoning({"top_k": 40, "reasoning_effort": "high", "reasoning_budget_tokens": 1024})
+    assert effort == "high" and budget == 1024 and extra == {"top_k": 40}   # both removed (no leak)
+    assert pop_reasoning(None) == (None, "", None)
+    assert pop_reasoning({"top_k": 40}) == ({"top_k": 40}, "", None)
 
 
 def test_ollama_reasoning_maps_level_or_bool():
     b = {}
     OllamaAdapter._apply_reasoning(b, True, "high")
-    assert b["think"] == "high"          # level string passes straight through
+    assert b["think"] == "high"          # the resolved level word passes straight through
     b = {}
     OllamaAdapter._apply_reasoning(b, True, "")
     assert b["think"] is True            # on, no level → bool true
@@ -68,53 +68,72 @@ def test_ollama_reasoning_maps_level_or_bool():
     assert "think" not in b              # off → omit
 
 
-def test_anthropic_reasoning_sets_thinking_and_bumps_max_tokens():
+def test_anthropic_reasoning_legacy_vs_new_model():
+    # LEGACY model (haiku-4-5): classic budget_tokens = the resolved map NUMBER + max bump.
     b = {"max_tokens": 4096, "temperature": 0.7}
-    AnthropicAdapter._apply_reasoning(b, True, "high")
+    AnthropicAdapter._apply_reasoning(b, True, "high", 8192, "claude-haiku-4-5")
     assert b["thinking"] == {"type": "enabled", "budget_tokens": 8192}
-    assert b["max_tokens"] == 8192 + 2048        # bumped so budget < max_tokens, with answer room
-    assert "temperature" not in b                # thinking requires the default temperature
-    b2 = {"max_tokens": 4096, "temperature": 0.7}
-    AnthropicAdapter._apply_reasoning(b2, False, "high")
-    assert "thinking" not in b2 and b2["temperature"] == 0.7   # off → untouched
+    assert b["max_tokens"] == 8192 + 2048
+    assert "temperature" not in b
+    # NEW model (opus-4-8): adaptive + output_config.effort (the WORD); sampler params dropped.
+    b2 = {"max_tokens": 4096, "temperature": 0.7, "top_p": 0.9}
+    AnthropicAdapter._apply_reasoning(b2, True, "high", 8192, "claude-opus-4-8")
+    assert b2["thinking"] == {"type": "adaptive"}
+    assert b2["output_config"] == {"effort": "high"}
+    assert "temperature" not in b2 and "top_p" not in b2 and "budget_tokens" not in b2["thinking"]
+    # NEW model, think off → explicit disabled.
+    b3 = {}
+    AnthropicAdapter._apply_reasoning(b3, False, "high", None, "claude-sonnet-5")
+    assert b3["thinking"] == {"type": "disabled"}
+    # Fable (always thinks), off → no thinking config forced.
+    b4 = {}
+    AnthropicAdapter._apply_reasoning(b4, False, "high", None, "claude-fable-5")
+    assert "thinking" not in b4
+    # LEGACY off → untouched.
+    b5 = {"temperature": 0.7}
+    AnthropicAdapter._apply_reasoning(b5, False, "high", 8192, "claude-haiku-4-5")
+    assert "thinking" not in b5 and b5["temperature"] == 0.7
 
 
-def test_gemini_reasoning_sets_thinking_budget():
+def test_gemini_reasoning_uses_resolved_budget():
     p = {"generationConfig": {"temperature": 0.7}}
-    GeminiAdapter._apply_reasoning(p, True, "low")
+    GeminiAdapter._apply_reasoning(p, True, "", 2048)   # the resolved NUMBER, not a table lookup
     assert p["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 2048}
     p2 = {"generationConfig": {}}
-    GeminiAdapter._apply_reasoning(p2, False, "low")
+    GeminiAdapter._apply_reasoning(p2, False, "", 2048)
     assert "thinkingConfig" not in p2["generationConfig"]   # off → omit
 
 
 def test_openai_compat_reasoning_cloud_vs_local():
     cloud = OpenAICompatAdapter("p", "openai", api_key="x")
     b = {}
-    cloud._apply_reasoning(b, True, "high")
-    assert b["reasoning_effort"] == "high"        # cloud → native reasoning_effort param
+    cloud._apply_reasoning(b, True, "high", None)
+    assert b["reasoning_effort"] == "high"        # cloud → the resolved reasoning_effort WORD
     b = {}
-    cloud._apply_reasoning(b, True, "")
-    assert b["reasoning_effort"] == "medium"      # on, no level → default
+    cloud._apply_reasoning(b, True, "", None)
+    assert "reasoning_effort" not in b            # on, no word → nothing (no adapter default any more)
     b = {}
-    cloud._apply_reasoning(b, False, "high")
+    cloud._apply_reasoning(b, False, "high", None)
     assert b == {}                                # off → nothing
+    # local: enable_thinking BOTH ways + the per-request reasoning_budget_tokens.
     local = OpenAICompatAdapter("p", "local-llamacpp", api_key="")
     b = {}
-    local._apply_reasoning(b, True, "high")
-    assert b["chat_template_kwargs"] == {"enable_thinking": True}  # local on → enable_thinking
-    assert "reasoning_effort" not in b            # not the cloud param
+    local._apply_reasoning(b, True, "", 1024)
+    assert b["chat_template_kwargs"] == {"enable_thinking": True}
+    assert b["reasoning_budget_tokens"] == 1024   # the resolved hardware-capped budget
+    assert "reasoning_effort" not in b
     b = {}
-    local._apply_reasoning(b, False, "high")
-    assert b["chat_template_kwargs"] == {"enable_thinking": False}  # local OFF → false (#118: one model, no reload)
-    # generic openai-compat: conservative — on → enable_thinking, off → nothing (we don't own its template)
+    local._apply_reasoning(b, False, "", 1024)
+    assert b["chat_template_kwargs"] == {"enable_thinking": False}
+    assert b["reasoning_budget_tokens"] == 0      # off → 0 (belt+braces; the toggle already suppresses)
+    # generic openai-compat: conservative — on → enable_thinking, off → nothing.
     compat = OpenAICompatAdapter("p", "openai-compat", api_key="")
     b = {}
-    compat._apply_reasoning(b, True, "high")
-    assert b["chat_template_kwargs"] == {"enable_thinking": True}   # compat on → enable_thinking
+    compat._apply_reasoning(b, True, "high", None)
+    assert b["chat_template_kwargs"] == {"enable_thinking": True}
     b = {}
-    compat._apply_reasoning(b, False, "high")
-    assert b == {}                                # compat off → nothing (NOT false)
+    compat._apply_reasoning(b, False, "high", None)
+    assert b == {}
 
 
 def test_ollama_schema_rides_format():

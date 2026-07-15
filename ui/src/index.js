@@ -53,7 +53,6 @@ export { ensureEmbeddingReady, embedTexts, _resetEnsureCache } from "./services/
 export { refresh as refreshRunnerModels } from "./composables/useRunnerModels.js";
 
 // views
-export { default as PromptLab } from "./views/PromptLab.vue";
 export { default as ProviderForm } from "./views/ProviderForm.vue";
 export { default as QuickSetup } from "./views/QuickSetup.vue";
 export { default as AiModelsArea } from "./views/AiModelsArea.vue";

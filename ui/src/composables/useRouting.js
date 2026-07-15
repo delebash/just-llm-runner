@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// useRouting — the shared routing document (default LLM/embedding + per-feature
-// pins) load/save/mutations, so the routing surfaces don't each re-implement it
+// useRouting — the shared routing document (default LLM + embedding) load/save/
+// mutations, so the routing surfaces don't each re-implement it
 // (RULE #7: extract, don't copy). Each consumer calls useRouting() and gets its
 // own instance; reload-on-mount is correct. Mutations persist immediately via
 // PUT /v1/ai/routing; the setters RETURN the save promise so a caller that needs
@@ -14,20 +14,18 @@ import { computed, ref } from "vue";
 import { request } from "../client.js";
 
 export function useRouting() {
-  const routing = ref(null);     // {default, features:[…], pins:{key→{providerId,model}}}
+  const routing = ref(null);     // {default, features:[…]}
   const providers = ref([]);
 
   const byId = computed(() => Object.fromEntries(providers.value.map((p) => [p.id, p])));
   const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
   const providerName = (id) => byId.value[id]?.name || id || "—";
-  function pin(key) { return routing.value?.pins?.[key] || null; }
 
   async function loadRouting() {
     const [r, pl] = await Promise.all([
       request("/v1/ai/routing"), request("/v1/llm-providers"),
     ]);
     routing.value = r;
-    if (!routing.value.pins) routing.value.pins = {};
     providers.value = pl.providers || [];
   }
 
@@ -35,9 +33,8 @@ export function useRouting() {
     const r = routing.value;
     routing.value = await request("/v1/ai/routing", {
       method: "PUT",
-      body: { default: r.default, pins: r.pins || {} },
+      body: { default: r.default },
     });
-    if (!routing.value.pins) routing.value.pins = {};
   }
 
   function setDefaultLlm(val) {
@@ -50,19 +47,10 @@ export function useRouting() {
     routing.value.default.embeddingModel = val?.model || "";
     return saveRouting();
   }
-  // A per-feature/action explicit pin. Empty → no override (falls through to the
-  // feature's preset, then the global default).
-  function setPin(key, val) {
-    const pins = routing.value.pins || (routing.value.pins = {});
-    if (!val || !val.providerId) delete pins[key];
-    else pins[key] = { providerId: val.providerId, model: val.model || "" };
-    return saveRouting();
-  }
-
   return {
     routing, providers,
-    byId, featMeta, providerName, pin,
+    byId, featMeta, providerName,
     loadRouting, saveRouting,
-    setDefaultLlm, setDefaultEmbedding, setPin,
+    setDefaultLlm, setDefaultEmbedding,
   };
 }

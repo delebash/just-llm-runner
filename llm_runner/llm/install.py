@@ -23,8 +23,6 @@ from .api import router as shared_api_router
 from .api import set_embed_template_resolver
 from .embed_templates_api import make_embed_templates_router
 from .config_builder import build_llm_config
-from .feature_presets_api import make_feature_presets_router
-from .feature_samplers_api import make_feature_samplers_router
 from .presets_api import make_presets_router
 from .knob_catalog_api import make_knob_catalog_router
 from .model_catalog_api import make_catalog_router
@@ -33,12 +31,12 @@ from .test_samples_api import make_test_samples_router
 from .model_measurements_api import make_model_measurements_router
 from .model_tunes_api import make_model_tunes_router
 from .pricing_api import make_pricing_router
+from .reasoning_map_api import make_reasoning_map_router
 from .runner_config_api import make_runner_config_router
 from .prompts import make_feature_router, make_prompt_router
 from .provider_api import make_provider_router
 from .routing_api import make_routing_router
 from .switch_presets_api import make_switch_presets_router
-from .task_kinds_api import make_task_kinds_router
 from .usage import set_ledger
 from .usage_sink import DbUsageSink
 
@@ -69,8 +67,8 @@ def install_llm(
     feature_catalog,
     feature_prompts,
     engine_presets=None,
-    taskkind_presets=None,
-    feature_task_kinds=None,
+    feature_presets=None,
+    default_preset_id="",
     model_catalog_extra=None,
     model_tunes_seed=None,
     test_samples=None,
@@ -84,13 +82,12 @@ def install_llm(
     db.configure_storage(session_factory)
     db.create_all(engine)
     # 2. register the app's feature DATA (the ONLY per-app inputs): the feature
-    # catalog + prompts, plus the routing seed — the built-in engine presets, the
-    # taskKind→preset assignments, and the action→taskKind map (all optional; an
-    # app that passes none simply seeds no presets → legacy routing).
+    # catalog + prompts, the built-in engine presets, and the per-ACTION preset refs
+    # (action→preset_id — the one source of what an action runs; all optional).
     seed.configure_app_seed(
         feature_catalog=feature_catalog, feature_prompts=feature_prompts,
-        engine_presets=engine_presets, taskkind_presets=taskkind_presets,
-        feature_task_kinds=feature_task_kinds,
+        engine_presets=engine_presets, feature_presets=feature_presets,
+        default_preset_id=default_preset_id,
         model_catalog_extra=model_catalog_extra,
         model_tunes_seed=model_tunes_seed,
         hw_key_fn=_current_hw_key,
@@ -120,41 +117,19 @@ def install_llm(
     def _config():
         return build_llm_config(plf)
 
-    def _task_kind_of(key: str) -> str:
-        """An action id (or feature key) → its LLM-work taskKind, for the preset
-        cascade at dispatch. Resolution order: the user-editable feature→task DB row
-        (a UI reassignment wins) → the app's in-memory seed map (so routing stays
-        correct even if the DB seed is empty — JW swallows seed errors) → the
-        `writerAI.rule.*→prose.edit` prefix → "" (→ the global default preset). The nav
-        `group` is deliberately NOT consulted — routing keys on taskKind (D1)."""
-        row = stores.get_feature_task_kind_store().list().get(key)
-        if row:
-            return row
-        work = seed.app_feature_task_kinds()
-        if key in work:
-            return work[key]
-        if key.startswith("writerAI.rule."):
-            return "prose.edit"
-        return ""
-
     # 5. mount every LLM router (the same surface in every app).
     app.include_router(shared_api_router)
     app.include_router(make_provider_router(stores.get_provider_store))
     app.include_router(make_prompt_router(stores.get_prompt_store, feature_prompts))
-    app.include_router(make_feature_router(stores.get_prompt_store, _config, task_kind_of=_task_kind_of))
-    app.include_router(make_task_kinds_router(
-        stores.get_task_kind_store, stores.get_feature_task_kind_store,
-        stores.get_prompt_store, task_kind_of=_task_kind_of,
-        reset_fn=seed.reset_routing_to_factory,
-        reset_task_fn=seed.reset_task_to_factory,
-    ))
+    app.include_router(make_feature_router(stores.get_prompt_store, _config))
     app.include_router(make_routing_router(stores.get_routing_store, seed.app_feature_catalog))
-    app.include_router(make_feature_presets_router(stores.get_feature_preset_store))
     app.include_router(make_presets_router(
-        stores.get_engine_preset_store, stores.get_task_kind_preset_store,
-        lambda: stores.get_task_kind_preset_store().list().get("", ""),
-        lambda pid: stores.get_task_kind_preset_store().set("", pid),
+        stores.get_engine_preset_store,
+        stores.get_default_preset_id,
+        stores.set_default_preset_id,
         stores.get_feature_preset_ref_store,
+        reset_all_fn=seed.reset_routing_to_factory,
+        reset_one_fn=seed.reset_preset_to_factory,
     ))
     app.include_router(make_knob_catalog_router(stores.list_knob_catalog))
     app.include_router(make_test_samples_router(stores.get_test_sample_store))
@@ -216,6 +191,7 @@ def install_llm(
         on_reset=_stop_runner_best_effort,
     ))
     app.include_router(make_pricing_router(stores.get_pricing_store))
+    app.include_router(make_reasoning_map_router(stores.get_reasoning_map_store))
     # Per-model embed task templates (Move 0, RAG build): CRUD + the resolver
     # seam /v1/ai/embeddings applies (api.py stays storage-free — the injected
     # closure is the set_ledger pattern).
@@ -244,7 +220,6 @@ def install_llm(
     # writes every OK trial; DELETE is the Clear-history button.
     app.include_router(make_model_measurements_router(
         stores.get_model_measurement_store, _current_hw_key))
-    app.include_router(make_feature_samplers_router(stores.get_feature_sampler_store))
 
     # Auto-tune (2026-07-06): the runner drives the measured sweep; the llm layer
     # supplies switch resolution + tune persistence via the same DI seam as the

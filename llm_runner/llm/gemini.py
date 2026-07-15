@@ -19,7 +19,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning_effort
+from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning
 
 log = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class GeminiAdapter:
         messages: list[LLMMessage],
         system: str | None,
         *,
-        temperature: float,
+        temperature: float | None,
         max_tokens: int | None,
     ) -> dict[str, Any]:
         contents: list[dict] = []
@@ -83,11 +83,12 @@ class GeminiAdapter:
                 }
             )
 
+        gen: dict[str, Any] = {}
+        if temperature is not None:
+            gen["temperature"] = temperature
         payload: dict[str, Any] = {
             "contents": contents,
-            "generationConfig": {
-                "temperature": temperature,
-            },
+            "generationConfig": gen,
         }
         if max_tokens is not None:
             payload["generationConfig"]["maxOutputTokens"] = max_tokens
@@ -126,26 +127,24 @@ class GeminiAdapter:
             elif k in cls._GEN_KEYS:
                 gc[cls._GEN_KEYS[k]] = v
 
-    # Effort → Gemini thinkingBudget (0=off, range 128–32768 on 2.5). Verified
-    # against the Gemini thinking docs (2026-06-28), not recalled.
-    _THINK_BUDGET = {"low": 2048, "medium": 8192, "high": 24576}
-
     @classmethod
-    def _apply_reasoning(cls, payload: dict, think: bool, effort: str) -> None:
-        """Gemini thinking (a1/E2): generationConfig.thinkingConfig.thinkingBudget.
-        Only set when reasoning is on, so a model that defaults to no-thinking is
-        untouched when off (and 3.x's thinkingLevel path is left for a later pass)."""
+    def _apply_reasoning(cls, payload: dict, think: bool, effort: str, budget: int | None) -> None:
+        """Gemini thinking (a1/E2, U2-T5): generationConfig.thinkingConfig.thinkingBudget =
+        the resolved NUMBER from the reasoning_map (no adapter table any more — the old
+        `_THINK_BUDGET` is gone; gemini's map seeds preserve 2048/8192/24576). Only set when
+        reasoning is on (a no-thinking-default model is untouched when off; 3.x's
+        thinkingLevel path is a later pass). `effort` is unused here (gemini speaks numbers)."""
         if not think:
             return
         gc = payload.setdefault("generationConfig", {})
-        gc["thinkingConfig"] = {"thinkingBudget": cls._THINK_BUDGET.get(effort, 8192)}
+        gc["thinkingConfig"] = {"thinkingBudget": budget if budget is not None else 8192}
 
     def chat(
         self,
         messages: list[LLMMessage],
         *,
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = 0.7,
         max_tokens: int | None = None,
         system: str | None = None,
         think: bool = False,
@@ -155,9 +154,9 @@ class GeminiAdapter:
         payload = self._build_payload(
             messages, system, temperature=temperature, max_tokens=max_tokens
         )
-        extra, effort = pop_reasoning_effort(extra)
+        extra, effort, budget = pop_reasoning(extra)
         self._apply_extra(payload, extra)
-        self._apply_reasoning(payload, think, effort)
+        self._apply_reasoning(payload, think, effort, budget)
 
         url = f"{self._base_url}/v1beta/models/{model_id}:generateContent"
         try:
@@ -196,9 +195,9 @@ class GeminiAdapter:
         payload = self._build_payload(
             messages, system, temperature=temperature, max_tokens=max_tokens
         )
-        extra, effort = pop_reasoning_effort(extra)
+        extra, effort, budget = pop_reasoning(extra)
         self._apply_extra(payload, extra)
-        self._apply_reasoning(payload, think, effort)
+        self._apply_reasoning(payload, think, effort, budget)
 
         url = f"{self._base_url}/v1beta/models/{model_id}:streamGenerateContent"
         params = {**self._params(), "alt": "sse"}

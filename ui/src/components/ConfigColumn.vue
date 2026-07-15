@@ -47,13 +47,16 @@ import UiSelect from "../common/components/UiSelect.vue";
 // tasks in parallel — the label alone can't tell them apart).
 let _labColSeq = 1;
 
-// Reasoning-effort (a1/E2): Off = no reasoning; Low/Med/High map to each provider's
-// native control server-side. JSON mode forces it off (B3) regardless of this pick.
+// Reasoning (U2, 2026-07-14): Off = no reasoning; the level is the ASK, resolved per
+// provider server-side (the reasoning_map) and — on a LOCAL run — clamped to the tested
+// hardware cap (min wins; Max runs at the cap). JSON mode forces it off (B3) regardless.
 const REASONING_OPTIONS = [
   { value: "", label: "Off" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
+  { value: "xhigh", label: "XHigh" },
+  { value: "max", label: "Max" },
 ];
 const varHint = "{{variable}}"; // shown literally in the UI (avoids a nested {{ }} in the template)
 
@@ -76,6 +79,11 @@ const props = defineProps({
   presets: { type: Array, default: () => [] },
   // The feature's current IN-PRODUCTION preset id → preselect it + mark it.
   productionPresetId: { type: String, default: "" },
+  // "Use for this <assignLabel>" button label + whether it shows. The Presets page
+  // mounts the tested preset AS the page's preset (assign-on-use is meaningless there)
+  // → showUseProduction=false; the Workbench assigns the FEATURE's ref.
+  assignLabel: { type: String, default: "feature" },
+  showUseProduction: { type: Boolean, default: true },
   // Show the system/user prompt editors. Features ×1 = true; Compare may pass false
   // to compare engines on a shared (locked) prompt, true for prompt A/B.
   promptEditable: { type: Boolean, default: true },
@@ -93,6 +101,14 @@ const emit = defineEmits([
   "update:modelValue", "result",
   "save-as", "update-preset", "apply-preset", "delete-preset", "remove", "use-production",
 ]);
+
+// The ACTION's JSON contract (modelValue.jsonMode) is READ-ONLY here (2026-07-15 —
+// json_mode lives on the action's prompt row, never on a preset: routing must never
+// break a per-action parser). The column shows it as a badge + an EPHEMERAL "test as
+// JSON" toggle that overrides it for a test run ONLY (never saved into a preset).
+// Seeds from the contract; re-seeds when the open action changes it.
+const testAsJson = ref(false);
+watch(() => props.modelValue?.jsonMode, (v) => { testAsJson.value = !!v; }, { immediate: true });
 
 // ── config patching (v-model) ───────────────────────────────────────────────
 function patch(key, val) {
@@ -338,10 +354,13 @@ function buildBody() {
     action: props.action,
     variables: { ...(props.vars || {}) },
     temperature: c.temperature === "" || c.temperature == null ? null : Number(c.temperature),
-    think: !!c.reasoningEffort,                 // reasoning on when an effort is picked
-    reasoningEffort: c.reasoningEffort || "",   // the level → native control server-side
+    // U2: the STORED pair — think on iff a level is picked (Off = off); the server
+    // resolves the level to the provider's native control + the local hardware cap.
+    think: (c.reasoningEffort || "") !== "",
+    reasoningEffort: c.reasoningEffort || "",
     maxTokens: Number(c.maxTokens) || 0,
-    jsonMode: !!c.jsonMode,
+    // ephemeral: the action's contract, unless the tester toggled "test as JSON".
+    jsonMode: !!testAsJson.value,
     topP: c.topP === "" || c.topP == null ? null : Number(c.topP),
     providerId: c.pin?.providerId || "",
     model: c.pin?.model || "",
@@ -451,10 +470,10 @@ defineExpose({ run, cancel });
       <UiSelect width="name" :model-value="selPreset"
         :options="[{ value: '', label: '— start fresh —' }, ...presets.map((p) => ({ value: p.id, label: p.name }))]"
         @update:model-value="onApplyPreset" />
-      <UiButton intent="success" size="small"
+      <UiButton v-if="showUseProduction" intent="success" size="small"
         :disabled="!selPreset || selPreset === productionPresetId"
-        :title="!selPreset ? 'Load or save a preset first' : (selPreset === productionPresetId ? 'Already this task’s preset' : 'Make this preset the one this task runs')"
-        @click="emit('use-production', selPreset)">{{ selPreset && selPreset === productionPresetId ? '✓ Task preset' : 'Use for this task' }}</UiButton>
+        :title="!selPreset ? 'Load or save a preset first' : (selPreset === productionPresetId ? `Already this ${assignLabel}’s preset` : `Make this the preset this ${assignLabel} runs`)"
+        @click="emit('use-production', selPreset)">{{ selPreset && selPreset === productionPresetId ? `✓ ${assignLabel} preset` : `Use for this ${assignLabel}` }}</UiButton>
       <UiButton v-if="selPreset && !naming" intent="secondary" size="small" title="Update the loaded preset in place (no new copy)" @click="emit('update-preset', selPreset)">Update</UiButton>
       <UiInput v-if="naming" v-model="newName" placeholder="name — Enter" class="cc-name-in"
         @keyup.enter="confirmSaveAs" @keyup.esc="naming = false; newName = ''" />
@@ -500,7 +519,12 @@ defineExpose({ run, cancel });
       <div class="cc-field cc-reason"><label>Reasoning</label>
         <UiSelect :model-value="modelValue?.reasoningEffort || ''" :options="REASONING_OPTIONS"
           @update:model-value="patch('reasoningEffort', $event)" /></div>
-      <label class="cc-chk"><UiCheckbox :model-value="modelValue?.jsonMode" @update:model-value="patch('jsonMode', $event)" /><span class="lu-muted">JSON</span></label>
+      <div class="cc-field cc-json"><label>JSON contract <span class="lu-muted">set on the action</span></label>
+        <div class="cc-json-row">
+          <span class="cc-json-badge" :class="{ on: modelValue?.jsonMode }">{{ modelValue?.jsonMode ? 'JSON' : 'Plain' }}</span>
+          <label class="cc-chk" title="Test this run as JSON — ephemeral, never saved to the preset (the contract lives on the action's prompt)"><UiCheckbox :model-value="testAsJson" @update:model-value="testAsJson = $event" /><span class="lu-muted">test as JSON</span></label>
+        </div>
+      </div>
     </div>
 
     <!-- Plane-2 long-tail samplers (KnobGrid checklist). temperature + top_p are
@@ -603,6 +627,9 @@ defineExpose({ run, cancel });
 .cc-num { max-width: 92px; }
 .cc-reason { max-width: 120px; }
 .cc-chk { display: flex; align-items: center; gap: 7px; }
+.cc-json-row { display: flex; align-items: center; gap: 12px; }
+.cc-json-badge { font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; border-radius: 999px; padding: 3px 9px; background: var(--surface-3); color: var(--muted); }
+.cc-json-badge.on { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); }
 .cc-engsw { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .cc-engsw .lu-muted { font-size: 11px; }
 .cc-samplers-body { margin-top: 8px; }

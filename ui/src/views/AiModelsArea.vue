@@ -15,7 +15,7 @@ import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiTag from "../common/components/UiTag.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
-import TaskKinds from "./TaskKinds.vue";
+import Presets from "./Presets.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
@@ -371,8 +371,8 @@ onMounted(() => {
 
     <nav class="lu-subnav">
       <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
-      <!-- QC-29: named for what it IS — routing, keyed by task. -->
-      <a :class="{ on: tab === 'tasks' }" @click="tab = 'tasks'">Routing by task</a>
+      <!-- 2026-07-15: presets are the one source of routing — create/tune them here. -->
+      <a :class="{ on: tab === 'presets' }" @click="tab = 'presets'">Presets</a>
       <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
       <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
       <!-- QC-43c: live server-console tab — the server log ring + the engine child's output. -->
@@ -504,7 +504,7 @@ onMounted(() => {
             <p v-if="sdEmbedModel && sdIsBuiltin" class="lu-sd-line lu-muted">Your embedding (<b>{{ sdEmbedModel }}</b>) already runs here — unchanged.</p>
             <p v-else-if="sdEmbedModel" class="lu-sd-line lu-muted">Also becomes the embeddings (search) provider: <b>{{ sdEmbedModel }}</b>.</p>
             <p v-else class="lu-sd-line lu-muted">Search embeddings keep their current provider — this provider has no embedding model set.</p>
-            <UiCheckbox v-model="overwriteTasks">Also overwrite tasks I customized</UiCheckbox>
+            <UiCheckbox v-model="overwriteTasks">Also overwrite presets I customized</UiCheckbox>
           </template>
           <template v-else-if="sdIsBuiltin">
             <p class="lu-sd-line">Assign a chat model first — pick one in the Model Catalog (Edit this provider), or run Quick Setup.</p>
@@ -530,14 +530,15 @@ onMounted(() => {
       </div>
     </section>
 
-    <!-- ── Tasks — create / test / assign the LLM-work tasks + their engine presets. ── -->
-    <section v-show="tab === 'tasks'" class="lu-tab lu-tab-fill">
-      <TaskKinds v-if="tab === 'tasks'" />
+    <!-- ── Presets — create / rename / delete presets, assign which features use each,
+         and test + tune a preset's params in the Lab (the one params editor). ── -->
+    <section v-show="tab === 'presets'" class="lu-tab lu-tab-fill">
+      <Presets v-if="tab === 'presets'" />
     </section>
 
-    <!-- ── Routing by feature — the Feature Workbench: per-feature task + which
-         engine preset it runs (model + ask-params/samplers live in the preset;
-         launch switches live on the MODEL — Tune & measure, §7.1). ── -->
+    <!-- ── Routing by feature — the Feature Workbench: per-feature preset (model +
+         ask-params/samplers live in the preset; launch switches live on the MODEL —
+         Tune & measure, §7.1). ── -->
     <section v-show="tab === 'features'" class="lu-tab lu-tab-fill">
       <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
     </section>

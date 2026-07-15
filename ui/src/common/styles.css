@@ -250,7 +250,7 @@ button:not(.ui-btn) { color: inherit; }
 }
 .ui-tooltip.is-visible { opacity: 0.96; }
 
-/* ── Master/detail workbench shell (shared by FeatureWorkbench + TaskKinds; moved
+/* ── Master/detail workbench shell (shared by FeatureWorkbench + Presets; moved
    here 2026-07-02 from FeatureWorkbench's scoped block so a second SFC can consume it
    without copying it — a left nav list + a right editor pane, each its own scroller). */
 .lu-fw { display: flex; flex-direction: column; min-height: 0; flex: 1; }

@@ -18,7 +18,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning_effort
+from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning
 
 log = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ class OllamaAdapter:
         messages: list[LLMMessage],
         *,
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = 0.7,
         max_tokens: int | None = None,
         system: str | None = None,
         think: bool = False,
@@ -109,11 +109,11 @@ class OllamaAdapter:
             "model": model or self.default_model,
             "messages": self._build_messages(messages, system),
             "stream": False,
-            "options": {"temperature": temperature},
+            "options": {} if temperature is None else {"temperature": temperature},
         }
         if max_tokens is not None:
             body["options"]["num_predict"] = max_tokens
-        extra, effort = pop_reasoning_effort(extra)
+        extra, effort, _ = pop_reasoning(extra)
         self._apply_extra(body, extra)
         self._apply_reasoning(body, think, effort)
 
@@ -144,7 +144,7 @@ class OllamaAdapter:
         messages: list[LLMMessage],
         *,
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = 0.7,
         max_tokens: int | None = None,
         system: str | None = None,
         think: bool = False,
@@ -154,11 +154,11 @@ class OllamaAdapter:
             "model": model or self.default_model,
             "messages": self._build_messages(messages, system),
             "stream": True,
-            "options": {"temperature": temperature},
+            "options": {} if temperature is None else {"temperature": temperature},
         }
         if max_tokens is not None:
             body["options"]["num_predict"] = max_tokens
-        extra, effort = pop_reasoning_effort(extra)
+        extra, effort, _ = pop_reasoning(extra)
         self._apply_extra(body, extra)
         self._apply_reasoning(body, think, effort)
 

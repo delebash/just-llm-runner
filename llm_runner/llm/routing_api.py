@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Shared feature-routing router behind a host-supplied storage boundary.
 
-The Routing tabs of the shared AI UI edit two things, both of which feed the
-dispatch precedence chain (see `dispatch.resolve_pin`):
-  - the global **default** LLM (+ embedding) provider,
-  - per-feature/action **pins** (an explicit provider+model override).
+The Routing tab of the shared AI UI edits the global **default** LLM (+ embedding)
+provider. Per-feature routing is owned by the ACTION's engine preset now (2026-07-15
+— the JW-path pin tier was removed; the preset carries provider+model).
 
 Like `provider_api.py` and `prompts.py`, this is a router factory over a
 host-supplied `RoutingStore` (real persistence — both apps in their shared DB
@@ -31,39 +30,25 @@ class RoutingDefaults(BaseModel):
     embeddingModel: str = ""  # the embedding provider's model (empty → its own default)
 
 
-class FeaturePin(BaseModel):
-    """An explicit per-feature provider+model override (empty = no override →
-    the feature falls through to its preset / the global default)."""
-
-    providerId: str = ""
-    model: str = ""
-
-
 class RoutingConfig(BaseModel):
-    """The stored routing shape (PUT body). `default` is the global default LLM +
-    embedding; `pins` are explicit per-feature/action provider+model overrides."""
+    """The stored routing shape (PUT body): the global default LLM + embedding.
+    Per-feature pins were removed 2026-07-15 (the preset is the one source of routing)."""
 
     default: RoutingDefaults = RoutingDefaults()
-    pins: dict[str, FeaturePin] = {}
 
 
 class FeatureRow(BaseModel):
-    """One catalog feature merged with its current explicit pin (GET response)."""
+    """One catalog feature (GET response) — key/label/hint + its nav group."""
 
     key: str
     label: str
     hint: str = ""
     group: str = ""  # the catalog's nav grouping (display-only), e.g. "Writing", "Analysis"
-    providerId: str = ""
-    model: str = ""
 
 
 class RoutingResponse(BaseModel):
     default: RoutingDefaults
     features: list[FeatureRow]
-    # The raw stored pins, keyed by feature OR action key (e.g. "writerAI.tighten"),
-    # for the Feature Workbench.
-    pins: dict[str, FeaturePin] = {}
 
 
 # ── host boundaries ─────────────────────────────────────────────────────────
@@ -78,7 +63,7 @@ class RoutingStore(Protocol):
 class FeatureCatalogEntry:
     """One feature the host exposes for routing — its key, human label, a hint,
     and the nav group it belongs to (`group`, display-only; NOT a routing key —
-    routing is by taskKind)."""
+    routing is owned by the action's preset)."""
 
     key: str
     label: str
@@ -97,19 +82,10 @@ def make_routing_router(
     def _response() -> RoutingResponse:
         cfg = get_store().get_routing()
         rows = [
-            FeatureRow(
-                key=e.key,
-                label=e.label,
-                hint=e.hint,
-                group=e.group,
-                providerId=(p := cfg.pins.get(e.key) or FeaturePin()).providerId,
-                model=p.model,
-            )
+            FeatureRow(key=e.key, label=e.label, hint=e.hint, group=e.group)
             for e in get_catalog()
         ]
-        return RoutingResponse(
-            default=cfg.default, features=rows, pins=cfg.pins
-        )
+        return RoutingResponse(default=cfg.default, features=rows)
 
     @router.get("/routing", response_model=RoutingResponse)
     async def get_routing() -> RoutingResponse:

@@ -205,13 +205,39 @@ def resolve_route(
     return adapter, model, tier_override
 
 
+def _apply_reasoning(extra: dict | None, adapter: LLMAdapter, model: str, *, think: bool) -> dict | None:
+    """Map the reasoning ASK (the raw level carried in `reasoning_effort`, injected by
+    `prompts._plane2_extra`) into what the RESOLVED provider/model actually emits (U2-T3)
+    — this is the ONE place the resolved model is finally known. Replaces the level with
+    the resolved effort `word` + the computed `reasoning_budget_tokens`; each adapter pops
+    BOTH (`base.pop_reasoning`) and emits only the one its backend speaks. No-op unless
+    reasoning is on for this call (the level is present only when `_effective_think`)."""
+    if not extra or "reasoning_effort" not in extra:
+        return extra
+    level = extra.get("reasoning_effort") or ""
+    e = dict(extra)
+    e.pop("reasoning_effort", None)
+    if not think or not level:
+        return e or None
+    from .reasoning import resolve_reasoning
+    plan = resolve_reasoning(
+        think=think, level=level, provider_id=adapter.provider_id,
+        provider_type=adapter.provider_type, model_id=model,
+    )
+    if plan.word:
+        e["reasoning_effort"] = plan.word
+    if plan.effective is not None:
+        e["reasoning_budget_tokens"] = plan.effective
+    return e or None
+
+
 def chat(
     *,
     config: LLMConfig,
     feature: str,
     messages: Iterable[LLMMessage],
     system: str | None = None,
-    temperature: float = 0.7,
+    temperature: float | None = 0.7,
     max_tokens: int | None = None,
     think: bool | None = None,
     model_override: str | None = None,
@@ -233,6 +259,8 @@ def chat(
         provider_override=provider_override, model_override=model_override,
     )
     tier = spec_for(model, tier_override)
+    eff_think = tier.think if think is None else think
+    extra = _apply_reasoning(extra, adapter, model, think=eff_think)
 
     started = time.monotonic()
     try:
@@ -242,7 +270,7 @@ def chat(
             temperature=temperature,
             max_tokens=max_tokens,
             system=system,
-            think=tier.think if think is None else think,
+            think=eff_think,
             extra=extra,
         )
     except Exception as e:
@@ -271,7 +299,7 @@ def stream_chat(
     feature: str,
     messages: Iterable[LLMMessage],
     system: str | None = None,
-    temperature: float = 0.7,
+    temperature: float | None = 0.7,
     max_tokens: int | None = None,
     think: bool | None = None,
     model_override: str | None = None,
@@ -289,6 +317,8 @@ def stream_chat(
         provider_override=provider_override, model_override=model_override,
     )
     tier = spec_for(model, tier_override)
+    eff_think = tier.think if think is None else think
+    extra = _apply_reasoning(extra, adapter, model, think=eff_think)
 
     started = time.monotonic()
     pt = ct = 0
@@ -299,7 +329,7 @@ def stream_chat(
             temperature=temperature,
             max_tokens=max_tokens,
             system=system,
-            think=tier.think if think is None else think,
+            think=eff_think,
             extra=extra,
         ):
             if delta.done:

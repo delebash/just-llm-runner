@@ -228,7 +228,7 @@ class LoadRequest(CamelModel):
     # Optional legacy override hook: when set, a host-supplied function may
     # replace the base switches wholesale. Unused by JustWrite, which resolves a
     # model's switches from its type baseline (resolve_model_switches) + the
-    # per-Task engine_presets config. Kept for API back-compat.
+    # per-preset engine_presets config. Kept for API back-compat.
     job_id: str | None = None
     # Fit knobs.
     n_gpu_layers: int | None = None
@@ -260,5 +260,5 @@ class LoadRequest(CamelModel):
     # lifecycle._switches_to_overrides used for stored switches (unknown keys →
     # extra_flags), layered LAST — over the named fields above AND the model base.
     # These are transient tuning inputs (measure-only), not saved per-model — a
-    # tuned config persists per-Task in engine_presets via the Lab.
+    # tuned config persists per-preset in engine_presets via the Lab.
     switches: dict[str, str] | None = None

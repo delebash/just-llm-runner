@@ -12,7 +12,7 @@ One Protocol + one router (parallel to routing_api):
 `built_in` marks seeded rows; reset = restore factory values for seeded keys,
 preserve user-added rows. (There is no per-model spawn-flag table — a model's
 switches are its type baseline in `switch_presets` (resolved by
-`resolve_model_switches`) plus the per-Task `engine_presets` config tuned in the
+`resolve_model_switches`) plus the per-preset `engine_presets` config tuned in the
 Lab; the old `model_switches` / `/v1/ai/model-switches` surfaces were dropped.)
 """
 
@@ -211,7 +211,7 @@ def make_catalog_router(
     GET /model-catalog/resolved-defaults — the model's resolved Plane-1 switch defaults
     PLUS its Plane-2 recommended samplers (read from the catalog row), so the Lab + the
     #20 model-card KnobGrid seed the real launch flags + sampler baseline before tuning —
-    read-only; tuned values persist per-Task in `engine_presets` via the Lab, not per-model."""
+    read-only; tuned values persist per-preset in `engine_presets` via the Lab, not per-model."""
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     def _list() -> CatalogResponse:

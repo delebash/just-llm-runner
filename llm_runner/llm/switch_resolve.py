@@ -36,7 +36,7 @@ error — the same user error as hand-setting the knob, documented not special-
 cased.
 
 There is no per-job/per-feature switch layer — engine config is owned by the
-taskKind → preset cascade (`engine_presets`), overlaid at dispatch.
+action → preset refs (`engine_presets` own every tunable, 2026-07-15).
 """
 
 from __future__ import annotations

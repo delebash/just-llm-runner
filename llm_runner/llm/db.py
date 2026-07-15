@@ -6,9 +6,10 @@ domain tables on its own Base) and hands it to `configure_storage`. `install_llm
 calls `create_all(engine)` + `configure_storage(SessionLocal)` for the host — no
 app re-declares an LLM table.
 
-Routing is the default LLM/embedding + explicit per-feature pins (no
-quick/accuracy/role/job columns). Engine config is owned by the taskKind → preset
-cascade (`engine_presets`), overlaid at dispatch.
+Routing is the default LLM/embedding. Engine config is one-source (2026-07-15):
+each action's `feature_preset_refs` row points at an `engine_presets` row, which
+owns the model + every tunable; the action's prompt row keeps only its text and
+its JSON contract.
 """
 
 from __future__ import annotations
@@ -125,6 +126,12 @@ class ModelCatalog(LlmBase):
     # "embed" in its id). Drives the catalog Embedding badge + Set-as-embedding action + the
     # QuickSetup embed picker; a user can mark their own added embed model. (model-surface)
     embedding = Column(Boolean, nullable=False, default=False)
+    # Can this model REASON (chat-template thinking) at all? Seed/user-owned capability
+    # flag (the mtp/embedding precedent, :89/:127) — gates the reasoning picker in the
+    # model UI + the "this model can't reason" hint. NOT auto-detectable by Read-from-HF
+    # (it's a chat-template property, not a GGUF header field) — a documented DECREE-#143
+    # parity exception. Seeded True for reasoning chat models (Gemma), False for embed rows.
+    thinking = Column(Boolean, nullable=False, default=False)
     # Embedding pooling type ("" | mean | cls | last | rank) — INTRINSIC per-model
     # (nomic=mean, qwen3-embedding=last). DB-stored per-model because a switch CANNOT do
     # per-model (switch_resolve layers only all/type/hardware); "" = let llama.cpp read the
@@ -167,7 +174,7 @@ class ModelCatalog(LlmBase):
 #    header keys, else the origin repo's generation_config.json), NOT hand-typed. Read
 #    from the model, shown read-only ("auto-detected from the file"); it SEEDS the Lab
 #    sampler grid (seen = run). Variable-cardinality child so a new sampler key needs no
-#    schema change (mirrors engine_preset_samplers / feature_sampler_params). ──────────
+#    schema change (mirrors engine_preset_samplers). ────────────────────────────────────
 class ModelSampler(LlmBase):
     """One model's recommended sampler value, keyed by the llama.cpp param name
     (temp/top_k/top_p/min_p/…). PK (model_id, param_name); no FK — `model_id` is a
@@ -215,6 +222,30 @@ class ModelPricing(LlmBase):
     output_per_m = Column(Float, nullable=False, default=0.0)
 
 
+# ── per-provider reasoning-level map (U2-T2, 2026-07-14): the level→value table the
+#    ONE resolver (`llm/reasoning.py`) reads. Generation-aware — TWO value columns per
+#    row: `word` (effort-word adapters: OpenAI `reasoning_effort`, Ollama native level,
+#    new-Anthropic `output_config.effort`) and `tokens` (budget-number paths: the local
+#    llama.cpp per-request budget, old-Anthropic `budget_tokens`, Gemini thinkingBudget).
+#    The resolver picks whichever column the resolved backend/model-generation speaks —
+#    ALL values, words AND numbers, are editable DATA, so NO adapter keeps its own level
+#    table any more (`anthropic.py:80` + `gemini.py:131` die in U2-T5). Seeded per provider
+#    TYPE, fill-if-missing per instance. CRUD GET/PUT /v1/ai/reasoning-map/{provider}
+#    (the model_pricing precedent, #75). ──
+class ReasoningMap(LlmBase):
+    """One (provider_id, level) → value row. `word` "" = the provider speaks no effort
+    word at this level; `tokens` NULL = no number form (for a LOCAL row, NULL = unlimited
+    ⇒ the run falls to the hardware cap). PK (provider_id, level)."""
+
+    __tablename__ = "reasoning_map"
+
+    provider_id = Column(String, primary_key=True)
+    level = Column(String, primary_key=True)            # low | medium | high | xhigh | max
+    word = Column(String, nullable=False, default="")   # "" = n/a
+    tokens = Column(Integer, nullable=True)             # NULL = n/a / unlimited
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
 # ── capability/type switch presets (the switch BASE layer; replaces the
 #    hardcoded runner-manifest `flagPresets`) — design §6.5 ──────────────────────
 class SwitchPreset(LlmBase):
@@ -254,7 +285,9 @@ class PresetSwitch(LlmBase):
 class RoutingConfigRow(LlmBase):
     """A routing config — the live config (id='active') AND named presets share
     this table (`is_active` + `name` distinguish). Default LLM/embedding are
-    columns; explicit per-feature overrides are `routing_pins`."""
+    only columns; the JW-path per-feature pin child (`routing_pins`) was removed
+    2026-07-15 (the preset is the one source of routing — presets carry the
+    provider/model; the pin tier never fired in JW)."""
 
     __tablename__ = "routing_configs"
 
@@ -266,21 +299,6 @@ class RoutingConfigRow(LlmBase):
     default_model = Column(String, nullable=False, default="")
     default_embedding_id = Column(String, nullable=False, default="")
     default_embedding_model = Column(String, nullable=False, default="")
-
-
-class RoutingPin(LlmBase):
-    """One feature → explicit provider/model override within a routing config. A
-    row exists only for a feature pinned to something explicit; no override is the
-    absence of a row."""
-
-    __tablename__ = "routing_pins"
-
-    config_id = Column(
-        String, ForeignKey("routing_configs.id", ondelete="CASCADE"), primary_key=True
-    )
-    feature = Column(String, primary_key=True)
-    provider_id = Column(String, nullable=False, default="")
-    model = Column(String, nullable=False, default="")
 
 
 # (The per-hardware `hardware_switches` layer/table was RETIRED 2026-07-07 — the
@@ -351,17 +369,17 @@ class ModelTuneBaseline(LlmBase):
 
 class TestSample(LlmBase):
     """One canned Lab test sample (§7.3, 2026-07-08 — the user's #30 "sample
-    button with some sample data we have in database"): per-taskKind starting
+    button with some sample data we have in database"): per-ACTION starting
     material for the Lab's Test input. SEEDED by the host app (synthesized text,
     never real user content — the test-data decision) via configure_app_seed,
-    fill-if-empty per (task_kind, label) so an edited row survives reseeds.
+    fill-if-empty per (action_key, label) so an edited row survives reseeds.
     Variables live in TestSampleVar rows (relational — the no-JSON-blobs rule).
     Additive table: create_all picks it up on existing DBs, NO reset."""
 
     __tablename__ = "test_samples"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    task_kind = Column(String, nullable=False, default="")
+    action_key = Column(String, nullable=False, default="")
     label = Column(String, nullable=False, default="")
     position = Column(Integer, nullable=False, default=0)
 
@@ -500,30 +518,7 @@ class KnobOption(LlmBase):
     built_in = Column(Boolean, nullable=False, default=False)
 
 
-# ── feature presets (Feature Workbench) + feature prompts ─────────────────────
-class FeaturePreset(LlmBase):
-    """A named saved AI config for one ACTION; `is_active` marks the production
-    one. NO role column (job-native — model is an explicit provider+model)."""
-
-    __tablename__ = "feature_presets"
-
-    id = Column(String, primary_key=True)
-    action = Column(String, nullable=False, default="")
-    name = Column(String, nullable=False, default="")
-    is_active = Column(Boolean, nullable=False, default=False)
-    position = Column(Integer, nullable=False, default=0)
-    provider_id = Column(String, nullable=False, default="")
-    model = Column(String, nullable=False, default="")
-    system = Column(Text, nullable=False, default="")
-    user_template = Column(Text, nullable=False, default="")
-    temperature = Column(Float, nullable=True)
-    think = Column(Boolean, nullable=False, default=False)
-    max_tokens = Column(Integer, nullable=False, default=0)  # 0 → no cap (#18 round-trip)
-    json_mode = Column(Boolean, nullable=False, default=False)  # response_format=json_object (#18)
-    top_p = Column(Float, nullable=True)  # nucleus sampling (#22)
-    reasoning_effort = Column(String, nullable=False, default="")  # "" | low | medium | high (a1/E2)
-
-
+# ── feature prompts (DB-seeded, Lab-editable) ─────────────────────────────────
 class FeaturePrompt(LlmBase):
     """One feature's prompt — seeded from the host's registered feature-prompt
     DATA, editable in the Lab; the DB is the source of truth. `key` is the action
@@ -535,10 +530,9 @@ class FeaturePrompt(LlmBase):
     feature = Column(String, nullable=False, default="")
     system = Column(Text, nullable=False, default="")
     user_template = Column(Text, nullable=False, default="")
-    temperature = Column(Float, nullable=False, default=0.7)
-    think = Column(Boolean, nullable=False, default=False)
-    max_tokens = Column(Integer, nullable=False, default=0)  # 0 → no cap
-    # Plane-2 per-request params (sent in the chat call, no model reload):
+    # The JSON CONTRACT stays on the action (the app's parsers are per-action;
+    # routing must never break a parser). Every tunable (temperature/top_p/think/
+    # reasoning_effort/max_tokens) moved to the engine preset 2026-07-15 — one source.
     json_mode = Column(Boolean, nullable=False, default=False)  # response_format=json_object (#18)
     # C1: optional JSON Schema (text; "" = none). With json_mode on, a valid schema
     # upgrades the weak json_object to schema-ENFORCED output (llama.cpp converts it
@@ -546,34 +540,16 @@ class FeaturePrompt(LlmBase):
     # Action-grain by design: the SHAPE is the feature's contract — presets stay
     # shape-free so they remain reusable across actions.
     json_schema = Column(Text, nullable=False, default="")
-    top_p = Column(Float, nullable=True)  # nucleus sampling (#22); null → provider default
-    reasoning_effort = Column(String, nullable=False, default="")  # "" | low | medium | high (a1/E2)
     built_in = Column(Boolean, nullable=False, default=True)
     label = Column(String, nullable=False, default="")
     description = Column(Text, nullable=False, default="")
     subgroup = Column(String, nullable=False, default="")  # wire field `group` (GROUP reserved)
 
 
-class FeatureSamplerParam(LlmBase):
-    """One per-action sampler knob BEYOND the built-in temp/top_p/json/think/max
-    columns above — the long tail (top_k, min_p, typical_p, mirostat*, dry_*, xtc_*,
-    samplers-order, …). Variable-cardinality key/value rows so a NEW sampler needs
-    no schema change (design D14 / §8). PK (key, param_name); `key` is the action id
-    (FeaturePrompt.key). Merged into the per-call `extra` at dispatch + filtered per
-    adapter. No FK — `key` is an app-catalog action id, not a DB row."""
-
-    __tablename__ = "feature_sampler_params"
-
-    key = Column(String, primary_key=True)         # action id, e.g. "writerAI.tighten"
-    param_name = Column(String, primary_key=True)  # e.g. "top_k", "min_p", "mirostat"
-    value = Column(Text, nullable=False, default="")
-    built_in = Column(Boolean, nullable=False, default=False)
-
-
 # ── engine presets (the Lab's output; the SOURCE OF TRUTH for what runs — the
 # 2026-06-29 lab+preset model). A preset = model + frozen switches + params. It is
-# assigned to features by TASKKIND (TaskKindPreset), with TaskKindPreset[""] as the
-# global default (2026-07-02: a feature's preset IS its task's — no per-feature tier). The
+# assigned to actions by their `feature_preset_refs` row, with the `default_preset_id`
+# global default for unassigned actions (2026-07-15 one-source: the task tier is gone). The
 # PROMPT is NOT here — it stays on the feature (FeaturePrompt). ──
 class EnginePreset(LlmBase):
     """A reusable engine config built + saved in the Lab: a model + per-request
@@ -597,8 +573,13 @@ class EnginePreset(LlmBase):
     temperature = Column(Float, nullable=True)
     top_p = Column(Float, nullable=True)
     max_tokens = Column(Integer, nullable=False, default=0)        # 0 → no cap
-    json_mode = Column(Boolean, nullable=False, default=False)
-    reasoning_effort = Column(String, nullable=False, default="")  # "" | low | medium | high
+    reasoning_effort = Column(String, nullable=False, default="")  # "" | low | medium | high | xhigh | max
+    # Thinking on/off is a STORED field (U2-T3, 2026-07-14: the old
+    # `think = bool(reasoning_effort)` DERIVATION dies). A preset owns whether its task
+    # reasons; `reasoning_effort` above is the LEVEL ("ask"), resolved against the
+    # per-provider `reasoning_map` + the local hardware cap by `llm/reasoning.py`. Seeded
+    # True on p_chat (the one thinking task).
+    think = Column(Boolean, nullable=False, default=False)
     position = Column(Integer, nullable=False, default=0)
     built_in = Column(Boolean, nullable=False, default=False)
 
@@ -615,63 +596,17 @@ class EnginePresetSampler(LlmBase):
     value = Column(Text, nullable=False, default="")
 
 
-class TaskKindPreset(LlmBase):
-    """taskKind → preset assignment — the bulk handle. Every action whose LLM-work
-    taskKind matches this key inherits this preset (and a NEW action of that taskKind
-    auto-joins) UNLESS the action carries its own `FeaturePresetRef` override.
-    `task_kind` "" is the global-default row. (2026-07-14: the per-feature override
-    tier was restored — the user's fine-grain control; see FeaturePresetRef below.)"""
-
-    __tablename__ = "task_kind_presets"
-
-    task_kind = Column(String, primary_key=True)
-    preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), nullable=False)
-
-
 class FeaturePresetRef(LlmBase):
-    """A per-feature preset OVERRIDE (the rare escape) — the top tier of the 3-tier
-    cascade: this feature's own preset → its taskKind's preset → the global default.
-    Absent → the feature inherits its taskKind's preset. `key` is the ACTION id, so
-    e.g. writerAI.continue and writerAI.tighten override independently.
-
-    Restored 2026-07-14 (reverses Plan A, 2026-07-02 commit 46cf11a — the removal
-    was buried under a headline that read true in both models; the user's actual
-    intent was always fine-grain per-feature control). Recovered verbatim from
-    46cf11a^; existing DBs kept this exact table inert through the removal, so the
-    restore needs no reset. Full context: docs/plans/2026-07-14-feature-override-and-reasoning-plan.md."""
+    """A per-ACTION preset assignment — the action's `preset_id` pointer, THE one
+    source of what an action runs (2026-07-15: the task tier is gone). Resolution:
+    this ref → the global default (`default_preset_id` RunnerSetting). Absent → the
+    action falls to the default. `key` is the ACTION id, so writerAI.continue and
+    writerAI.tighten point independently. Every seeded action ships a ref."""
 
     __tablename__ = "feature_preset_refs"
 
     key = Column(String, primary_key=True)
     preset_id = Column(String, ForeignKey("engine_presets.id", ondelete="CASCADE"), nullable=False)
-
-
-class TaskKind(LlmBase):
-    """A user-editable LLM-work TASK — the routing bucket features are assigned to.
-    Seeded with the shared defaults (`seed.DEFAULT_TASK_KINDS`); users create / rename /
-    delete CUSTOM tasks (built-ins are protected). `id` is the routing key — it matches
-    `FeatureTaskKind.task_kind` and `TaskKindPreset.task_kind`
-    (both plain-String SOFT references, no FK: the "" global-default preset row survives, and a
-    task delete cascades cleanup across those tables in `TaskKindStore.delete`)."""
-
-    __tablename__ = "task_kinds"
-
-    id = Column(String, primary_key=True)
-    label = Column(String, nullable=False, default="")
-    description = Column(Text, nullable=False, default="")
-    position = Column(Integer, nullable=False, default=0)
-    built_in = Column(Boolean, nullable=False, default=False)
-
-
-class FeatureTaskKind(LlmBase):
-    """A feature/action key → its LLM-work task (the user-editable reassignment layer).
-    Absent → `install._task_kind_of` falls back to the in-memory seed map, then the
-    `writerAI.rule.*` prefix, then "". Seeded from the host's action→task map."""
-
-    __tablename__ = "feature_task_kinds"
-
-    key = Column(String, primary_key=True)
-    task_kind = Column(String, nullable=False, default="")
 
 
 # ── storage wiring (host hands its session factory; install_llm calls these) ──
@@ -699,6 +634,9 @@ def session():
 _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("model_catalog", "mtp_builtin", "BOOLEAN NOT NULL DEFAULT 0"),
     ("model_catalog", "est_vram_mb", "INTEGER"),
+    # U2-T2 (2026-07-14, thinking/reasoning system):
+    ("model_catalog", "thinking", "BOOLEAN NOT NULL DEFAULT 0"),
+    ("engine_presets", "think", "BOOLEAN NOT NULL DEFAULT 0"),
 )
 
 

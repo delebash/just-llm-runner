@@ -16,7 +16,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning_effort
+from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning
 
 log = logging.getLogger(__name__)
 
@@ -100,29 +100,27 @@ class OpenAICompatAdapter:
             out.append({"role": m.role, "content": m.content})
         return out
 
-    def _apply_reasoning(self, body: dict, think: bool, effort: str) -> None:
-        """Map reasoning to this server's native control (a1/E2). The bundled local
-        llama.cpp runner gets the explicit `chat_template_kwargs.enable_thinking` toggle
-        BOTH ways, so ONE resident model serves thinking-on (chat) AND thinking-off
-        (extraction) per-request with NO reload / section-swap. Box-verified 2026-07-06
-        at pin b9870 (justwrite-app/docs/plans/2026-07-06-onbox-profile-ab-test.md
-        RESULTS): the toggle fully suppresses Gemma 4 reasoning EVEN WITH a hard
-        `--reasoning-budget 1024` on the CLI — superseding the 2026-07-04 note that it
-        worked only without one. We now deliberately EMIT that cap for every local model
-        (the base switch bundle): if a template ignores the toggle, the cap still bounds
-        runaway thinking — the layers compose safely both ways. A generic
-        `openai-compat` server keeps the conservative on→enable_thinking / off→nothing:
-        we don't own its chat template, so we don't force `false` on it. OpenAI-family
-        clouds take the `reasoning_effort` body param."""
+    def _apply_reasoning(self, body: dict, think: bool, effort: str, budget: int | None) -> None:
+        """Emit this server's native reasoning control from the RESOLVED values (U2-T5).
+        The bundled local llama.cpp runner gets the explicit `chat_template_kwargs.
+        enable_thinking` toggle BOTH ways (ONE resident model serves thinking-on chat AND
+        thinking-off extraction per-request, no reload — box-verified 2026-07-06 at b9870)
+        PLUS the per-request `reasoning_budget_tokens` (b9982+, the key grepped from
+        tools/server/server-common.cpp): the resolver's hardware-CAPPED budget when on,
+        0 when off (belt+braces — the toggle already suppresses). A generic `openai-compat`
+        server keeps the conservative on→enable_thinking / off→nothing (we don't own its
+        chat template). OpenAI-family clouds take the resolved `reasoning_effort` WORD from
+        the reasoning_map — no adapter default any more (the resolver supplies the word)."""
         if self.provider_type == "local-llamacpp":
             body.setdefault("chat_template_kwargs", {})["enable_thinking"] = think
+            body["reasoning_budget_tokens"] = budget if (think and budget is not None) else 0
             return
         if not think:
             return
         if self.provider_type == "openai-compat":
             body.setdefault("chat_template_kwargs", {})["enable_thinking"] = True
-        else:
-            body["reasoning_effort"] = effort or "medium"
+        elif effort:
+            body["reasoning_effort"] = effort
 
     def _adapt_response_format(self, body: dict) -> None:
         """C1: the pinned llama-server documents the FLAT schema form
@@ -143,7 +141,7 @@ class OpenAICompatAdapter:
         messages: list[LLMMessage],
         *,
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = 0.7,
         max_tokens: int | None = None,
         system: str | None = None,
         think: bool = False,
@@ -152,15 +150,16 @@ class OpenAICompatAdapter:
         body: dict[str, Any] = {
             "model": model or self.default_model,
             "messages": self._build_messages(messages, system),
-            "temperature": temperature,
         }
+        if temperature is not None:
+            body["temperature"] = temperature
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
-        extra, effort = pop_reasoning_effort(extra)
+        extra, effort, budget = pop_reasoning(extra)
         if extra:
             body.update(extra)
         self._adapt_response_format(body)
-        self._apply_reasoning(body, think, effort)
+        self._apply_reasoning(body, think, effort, budget)
 
         url = f"{self._base_url}/chat/completions"
         try:
@@ -192,7 +191,7 @@ class OpenAICompatAdapter:
         messages: list[LLMMessage],
         *,
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = 0.7,
         max_tokens: int | None = None,
         system: str | None = None,
         think: bool = False,
@@ -201,12 +200,13 @@ class OpenAICompatAdapter:
         body: dict[str, Any] = {
             "model": model or self.default_model,
             "messages": self._build_messages(messages, system),
-            "temperature": temperature,
             "stream": True,
             # Ask for a final usage frame (servers that don't support it ignore
             # the field; we just report 0 tokens then).
             "stream_options": {"include_usage": True},
         }
+        if temperature is not None:
+            body["temperature"] = temperature
         if self.provider_type == "local-llamacpp":
             # §7.4 B6-2: the builtin engine reports prompt-eval progress in the
             # stream (llama-server `return_progress`, PR 15827 — works on the
@@ -215,11 +215,11 @@ class OpenAICompatAdapter:
             body["return_progress"] = True
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
-        extra, effort = pop_reasoning_effort(extra)
+        extra, effort, budget = pop_reasoning(extra)
         if extra:
             body.update(extra)
         self._adapt_response_format(body)
-        self._apply_reasoning(body, think, effort)
+        self._apply_reasoning(body, think, effort, budget)
 
         url = f"{self._base_url}/chat/completions"
         pt = ct = 0

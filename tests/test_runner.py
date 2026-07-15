@@ -241,9 +241,11 @@ def test_render_ini_emits_key_value_and_bare_true():
 
 
 def test_overrides_to_pairs_new_flags_render_in_both_paths():
-    # model-draft (Gemma-style external MTP) + the two reasoning-budget flags
-    # (all three verified against llama.cpp b9644) ride the ONE shared pairs
-    # list, so the spawn argv and the router .ini get them from the same source.
+    # model-draft (Gemma-style external MTP) rides the ONE shared pairs list, so the spawn
+    # argv and the router .ini get it from the same source. The reasoning-budget flags are
+    # RETIRED from the launch profile (U2-T4, 2026-07-14): even set on Overrides they no
+    # longer render — the engine launches at -1 and the per-request `reasoning_budget_tokens`
+    # (from the ONE resolver) carries the hardware cap instead.
     msg = "Taking user constraints into account, I will now output the solution."
     ov = Overrides(
         spec_type="draft-mtp", spec_n_max=2, model_draft="/models/MTP/g-Q4_0-MTP.gguf",
@@ -252,16 +254,14 @@ def test_overrides_to_pairs_new_flags_render_in_both_paths():
     pairs = overrides_to_pairs(ov, n_gpu_layers=99, n_cpu_moe=37, ctx_len=32768)
     d = dict(pairs)
     assert d["model-draft"] == "/models/MTP/g-Q4_0-MTP.gguf"
-    assert d["reasoning-budget"] == "1024"
     assert d["spec-type"] == "draft-mtp" and d["spec-draft-n-max"] == "2"
-    # argv: the spaced message is ONE token after its flag (no shell splitting).
+    # reasoning-budget + its message RETIRED as launch flags — not emitted even when set.
+    assert "reasoning-budget" not in d and "reasoning-budget-message" not in d
     argv = render_argv(pairs)
-    assert argv[argv.index("--reasoning-budget-message") + 1] == msg
     assert argv[argv.index("--model-draft") + 1] == "/models/MTP/g-Q4_0-MTP.gguf"
-    # ini: one UNQUOTED line, spaces preserved (b9644 preset.cpp reads to EOL).
+    assert "--reasoning-budget" not in argv and "--reasoning-budget-message" not in argv
     ini_lines = render_ini(pairs).splitlines()
-    assert f"reasoning-budget-message = {msg}" in ini_lines
-    assert "reasoning-budget = 1024" in ini_lines
+    assert not any(line.startswith("reasoning-budget") for line in ini_lines)
 
 
 def test_new_flags_absent_when_unset():

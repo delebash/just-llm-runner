@@ -1,6 +1,16 @@
 # Plan — Restore per-feature preset override (Unit 1) + the thinking/reasoning system (Unit 2)
 
-## ⛔ LIVE STATUS (kept current; single source of truth)
+> **⛔ PARTIALLY SUPERSEDED (2026-07-15)** by
+> `docs/plans/2026-07-15-preset-one-source-rewrite.md` — the user decided to DELETE the
+> task tier entirely ("i agree with deleting and no legacy fallback and remove tasks"):
+> params live ONLY on presets; each action carries its own preset ref; there is no
+> taskKind, no 3-tier cascade, no prompt-row tunables. **What still stands from this doc:**
+> Unit 1's `FeaturePresetRef` table + per-feature control (now THE primary mechanism, not
+> an override) and Unit 2's ENTIRE reasoning backend (the resolver, the reasoning map, the
+> adapters, the engine bump — absorbed by the rewrite's T4). Every mention of tasks /
+> taskKind / the 3-tier cascade below is historical. Read the 2026-07-15 plan for state.
+
+## ⛔ LIVE STATUS (superseded — see the banner; kept for the Unit-1/Unit-2 record)
 
 Branch (all repos): `claude/admiring-galileo-il3q0o`. Base: runner `9940a97`, JW `67f204a`.
 

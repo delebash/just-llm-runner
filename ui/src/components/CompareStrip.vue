@@ -24,6 +24,8 @@ const props = defineProps({
   vars: { type: Object, default: () => ({}) },
   presets: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },  // the feature's in-production preset
+  assignLabel: { type: String, default: "feature" },
+  showUseProduction: { type: Boolean, default: true },
 });
 const emit = defineEmits(["save-as", "update-preset", "delete-preset", "use-production"]);
 
@@ -99,8 +101,13 @@ function presetToConfig(p, base) {
     temperature: p.temperature ?? base.temperature,
     topP: p.topP ?? base.topP,
     maxTokens: p.maxTokens ?? base.maxTokens,
-    jsonMode: p.jsonMode ?? base.jsonMode,
-    reasoningEffort: p.reasoningEffort || "",
+    // NO jsonMode from the preset (2026-07-15): JSON is the ACTION's contract — kept on
+    // base.jsonMode by the spread above; a preset must never flip a per-action parser.
+    // U2-T7: honor the preset's STORED think. This ignored `think` and read the level
+    // alone, so a preset saved think-off but carrying a level loaded as that level — the
+    // column claimed reasoning a run would never do. `think` is the gate; the level is
+    // only meaningful when it's on (the same collapse ConfigColumn's picker speaks).
+    reasoningEffort: p.think ? (p.reasoningEffort || "") : "",
     samplers: (p.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
     // Mark provenance so ConfigColumn's model seed never clobbers a loaded preset's
     // samplers (even when the preset changes the column's model).
@@ -142,6 +149,7 @@ onMounted(() => {
           :sampler-catalog-list="samplerCatalogList"
           :vars="vars" :presets="presets" :prompt-editable="true"
           :production-preset-id="productionPresetId"
+          :assign-label="assignLabel" :show-use-production="showUseProduction"
           :run-stream="null" :busy="runningAll" :removable="columns.length > 1"
           :label="`Config ${i + 1}`" inherit-label="— pick a model —"
           @result="onResult(col.id, $event)"

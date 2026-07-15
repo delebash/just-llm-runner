@@ -23,7 +23,7 @@
 // when today's defaults differ from the baseline stored at apply time, a notice offers
 // "Refresh from defaults" — it fills the GRID only; Apply commits. Apply also RELOADS
 // the model immediately when it is currently running (no stale window: applied ==
-// active), behind a blast-radius confirm naming the affected tasks. "Remove applied
+// active), behind a blast-radius confirm naming the affected presets. "Remove applied
 // config" (DELETE) returns the model to the live layered defaults, same reload.
 // Self-contained (loads its own knob catalog); mount behind v-if with a :model
 // ({id, name}) and listen for @close.
@@ -168,21 +168,21 @@ async function loadSavedTune() {
     savedTune.value = null; // saved-state is an enrichment; tuning still works
   }
 }
-// The blast radius for the Apply confirm: the labels of every task whose resolved
-// preset (its own row, else the global default) points at THIS model. Best-effort —
-// null means "couldn't compute" and the confirm falls back to generic copy.
-async function affectedTaskLabels() {
+// The blast radius for the Apply confirm (2026-07-15, one source): the PRESETS whose
+// resolved model is THIS model, each with the number of features that use it. Best-effort
+// — null means "couldn't compute" and the confirm falls back to generic copy.
+async function affectedPresets() {
   try {
-    const [tk, pa, ep] = await Promise.all([
-      request("/v1/ai/task-kinds"), request("/v1/ai/preset-assignments"), request("/v1/ai/engine-presets"),
+    const [pa, ep] = await Promise.all([
+      request("/v1/ai/preset-assignments"), request("/v1/ai/engine-presets"),
     ]);
-    const modelOf = Object.fromEntries((ep.presets || []).map((p) => [p.id, p.model]));
     const asg = pa || {};
-    // NOTE: /v1/ai/task-kinds returns `taskKinds` (the task catalog rows), NOT `tasks` —
-    // same field every consumer reads (FeatureWorkbench.vue, TaskKinds.vue).
-    return (tk.taskKinds || [])
-      .filter((t) => modelOf[(asg.taskKinds || {})[t.id] || asg.defaultPresetId || ""] === props.model.id)
-      .map((t) => t.label || t.id);
+    // Feature count per preset (every seeded action carries a ref → the map covers them).
+    const countByPreset = {};
+    for (const pid of Object.values(asg.features || {})) if (pid) countByPreset[pid] = (countByPreset[pid] || 0) + 1;
+    return (ep.presets || [])
+      .filter((p) => p.model === props.model.id)
+      .map((p) => ({ name: p.name || p.id, count: countByPreset[p.id] || 0 }));
   } catch {
     return null;
   }
@@ -210,19 +210,20 @@ async function reloadIfRunning() {
 async function applyTune() {
   saveErr.value = "";
   applyMsg.value = "";
-  // Blast-radius confirm (§7.1): name the affected tasks (capped) before committing.
-  const labels = await affectedTaskLabels();
-  const capped = labels && labels.length > 3
-    ? `${labels.slice(0, 3).join(", ")} +${labels.length - 3} more`
-    : (labels || []).join(", ");
-  const scope = labels == null
-    ? "Every task that uses this model on this PC will run these switches."
-    : labels.length
-      ? `Every task that uses this model on this PC will run these switches: ${capped}.`
-      : "No task currently uses this model — the config takes effect whenever it loads.";
+  // Blast-radius confirm (§7.1): name the affected presets (capped) before committing.
+  const affected = await affectedPresets();
+  const names = (affected || []).map((x) => (x.count ? `${x.name} (${x.count})` : x.name));
+  const capped = names.length > 3
+    ? `${names.slice(0, 3).join(", ")} +${names.length - 3} more`
+    : names.join(", ");
+  const scope = affected == null
+    ? "Every preset that uses this model on this PC will run these switches."
+    : names.length
+      ? `Every preset that uses this model on this PC will run these switches: ${capped}.`
+      : "No preset currently uses this model — the config takes effect whenever it loads.";
   const ok = await confirmDialog({
     title: `Apply to ${props.model.name || props.model.id}?`,
-    message: `${scope} The model reloads now if it's running. (Temperature, tokens, and thinking stay per-task — unchanged.)`,
+    message: `${scope} The model reloads now if it's running. (Temperature, tokens, and thinking stay per-preset — unchanged.)`,
     confirmLabel: "Apply",
   });
   if (!ok) return;
@@ -241,8 +242,8 @@ async function applyTune() {
     // the `applyMsg` note right under the grid (lu-tune-applied) — the toast
     // duplicated a message already visible where the user is looking.
     applyMsg.value = reloaded
-      ? "Applied ✓ — the model reloaded; every task using it runs this config now."
-      : "Applied ✓ — every task using this model runs this config from its next load.";
+      ? "Applied ✓ — the model reloaded; every preset using it runs this config now."
+      : "Applied ✓ — every preset using this model runs this config from its next load.";
   } catch (e) {
     saveErr.value = e.message || "Couldn't apply the config.";
     tunePhase.value = "";

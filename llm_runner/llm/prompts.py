@@ -25,7 +25,7 @@ import asyncio
 import json
 import logging
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Callable, Protocol
 
 from fastapi import APIRouter, HTTPException
@@ -51,25 +51,20 @@ log = logging.getLogger(__name__)
 # ── prompt row + store boundary ─────────────────────────────────────────────
 @dataclass
 class FeaturePromptRow:
-    """One feature's editable prompt — the dispatch-time + Lab-edit view of a
-    `feature_prompts` row. The host maps its own table to/from this. `label`,
-    `description` + `group` are nav metadata (the action's display name, a short
-    blurb, and an optional sub-section label, e.g. writerAI's "Prose actions" /
-    "Line edits") the Feature Workbench renders. `label` empty → the UI derives a
-    name from the key / falls back to the feature label."""
+    """One action's editable prompt — the dispatch-time + Lab-edit view of a
+    `feature_prompts` row. Prompt TEXT + the JSON CONTRACT (`json_mode`/`json_schema`,
+    kept on the action because the app's parsers are per-action) + nav metadata
+    (`label`/`description`/`group`). EVERY tunable (temperature/top_p/think/reasoning/
+    max_tokens) moved to the engine preset 2026-07-15 — the one source. `label` empty
+    → the UI derives a name from the key / falls back to the feature label."""
 
     key: str
     feature: str
     system: str
     user_template: str
-    temperature: float
-    think: bool
     built_in: bool
-    max_tokens: int = 0  # 0 → no cap (the model's own default)
-    json_mode: bool = False  # response_format=json_object (#18)
+    json_mode: bool = False  # response_format=json_object (#18) — the action's JSON CONTRACT
     json_schema: str = ""  # C1: optional JSON Schema text — with json_mode on, upgrades to schema-enforced output
-    top_p: float | None = None  # nucleus sampling (#22); None → provider default
-    reasoning_effort: str = ""  # "" | low | medium | high (a1/E2); the level when think is on
     label: str = ""
     description: str = ""
     group: str = ""
@@ -111,14 +106,9 @@ class PromptOut(BaseModel):
     feature: str
     system: str
     userTemplate: str
-    temperature: float
-    think: bool
     builtIn: bool
-    maxTokens: int = 0
     jsonMode: bool = False
     jsonSchema: str = ""
-    topP: float | None = None
-    reasoningEffort: str = ""
     label: str = ""
     description: str = ""
     group: str = ""
@@ -129,24 +119,16 @@ class PromptList(BaseModel):
 
 
 class PromptUpdate(BaseModel):
-    # The editable fields. `feature` defaults to the built-in's routing key (or
-    # the key itself for a user-created prompt) when omitted. `label`/`description`/
-    # `group` are nav metadata — omitted by the prompt editor, so they fall back to
-    # the seeded defaults (see upsert) rather than being wiped on a content edit.
+    # The editable fields: prompt TEXT + the JSON CONTRACT (jsonMode/jsonSchema) + nav
+    # metadata. Tunables are GONE from the wire (2026-07-15 — they live on the engine
+    # preset). `feature` defaults to the built-in's routing key when omitted; the
+    # contract fields are PRESERVE-ON-OMIT (None = keep the stored value) so a
+    # text-only edit never wipes the seeded json_mode/json_schema.
     feature: str = ""
     system: str = ""
     userTemplate: str = ""
-    temperature: float = 0.7
-    think: bool = False
-    # Plane-2 fields are PRESERVE-ON-OMIT (None = keep the stored value): the
-    # prompt editor sends only the fields it shows, and rebuilding the row from
-    # bare defaults silently WIPED the seeded json_mode/max_tokens/top_p/
-    # reasoning_effort on every text edit (latent #18 bug, found + fixed with C1).
-    maxTokens: int | None = None
     jsonMode: bool | None = None
     jsonSchema: str | None = None
-    topP: float | None = None
-    reasoningEffort: str | None = None
     label: str = ""
     description: str = ""
     group: str = ""
@@ -158,14 +140,9 @@ def _out(r: FeaturePromptRow) -> PromptOut:
         feature=r.feature,
         system=r.system,
         userTemplate=r.user_template,
-        temperature=r.temperature,
-        think=r.think,
         builtIn=r.built_in,
-        maxTokens=r.max_tokens,
         jsonMode=r.json_mode,
         jsonSchema=r.json_schema,
-        topP=r.top_p,
-        reasoningEffort=r.reasoning_effort,
         label=r.label,
         description=r.description,
         group=r.group,
@@ -196,7 +173,8 @@ def make_prompt_router(
     @router.put("/prompts/{key}", response_model=PromptOut)
     async def upsert_prompt(key: str, body: PromptUpdate) -> PromptOut:
         """Lab edit (or create). A key present in the seed catalog stays builtIn
-        (so it can be reset); anything else is a user-created prompt."""
+        (so it can be reset); anything else is a user-created prompt. Text + the JSON
+        CONTRACT + nav only — every tunable lives on the engine preset now."""
         default = defaults.get(key)
         built_in = default is not None
         feature = body.feature or (str(default.get("feature")) if default else key) or key
@@ -205,22 +183,17 @@ def make_prompt_router(
         label = body.label or (str(default.get("label") or "") if default else "")
         description = body.description or (str(default.get("description") or "") if default else "")
         group = body.group or (str(default.get("group") or "") if default else "")
-        # Preserve-on-omit for the Plane-2 fields (None = the editor didn't show
-        # it): keep the STORED value so a prompt-text edit never wipes them.
+        # Preserve-on-omit for the JSON contract (None = the editor didn't send it):
+        # keep the STORED value so a prompt-text edit never wipes the contract.
         prev = get_store().get(key)
         get_store().upsert(FeaturePromptRow(
             key=key,
             feature=feature,
             system=body.system,
             user_template=body.userTemplate,
-            temperature=body.temperature,
-            think=body.think,
             built_in=built_in,
-            max_tokens=body.maxTokens if body.maxTokens is not None else (prev.max_tokens if prev else 0),
             json_mode=body.jsonMode if body.jsonMode is not None else (prev.json_mode if prev else False),
             json_schema=body.jsonSchema if body.jsonSchema is not None else (prev.json_schema if prev else ""),
-            top_p=body.topP if body.topP is not None else (prev.top_p if prev else None),
-            reasoning_effort=body.reasoningEffort if body.reasoningEffort is not None else (prev.reasoning_effort if prev else ""),
             label=label,
             description=description,
             group=group,
@@ -238,14 +211,9 @@ def make_prompt_router(
             feature=str(default.get("feature") or key),
             system=str(default.get("system") or ""),
             user_template=str(default.get("user_template") or ""),
-            temperature=float(default.get("temperature", 0.7)),
-            think=bool(default.get("think", False)),
             built_in=True,
-            max_tokens=int(default.get("max_tokens", 0) or 0),
             json_mode=bool(default.get("json_mode", False)),
             json_schema=str(default.get("json_schema") or ""),
-            top_p=default.get("top_p"),
-            reasoning_effort=str(default.get("reasoning_effort") or ""),
             label=str(default.get("label") or ""),
             description=str(default.get("description") or ""),
             group=str(default.get("group") or ""),
@@ -282,7 +250,7 @@ class RunRequest(BaseModel):
     reasoningEffort: str | None = None
     # Optional ad-hoc long-tail samplers for a Lab column (Compare / Workbench
     # test): [{flagName, flagValue}] applied to THIS call only — not saved —
-    # overriding the action's stored feature_sampler_params. Lets a column vary
+    # overriding the resolved preset's samplers. Lets a column vary
     # samplers without persisting them. (#21)
     samplers: list[dict] = []
     # Optional prior conversation turns ({role, content}) for multi-turn features
@@ -307,7 +275,7 @@ class RunResponse(BaseModel):
 class ResolvedRouteResponse(BaseModel):
     """What a run of `feature` (or a specific `action`) routes to RIGHT NOW —
     the §7.2 read-only "runs on" provenance chips display this. Computed from
-    the SAME functions the run path uses (`_resolve_preset` + `resolve_route`),
+    the SAME functions the run path uses (`resolve_feature_preset` + `resolve_route`),
     so the chip can never drift from what a run actually does. `configured`
     False (+ `detail`) is the honest factory/unregistered state."""
 
@@ -315,10 +283,20 @@ class ResolvedRouteResponse(BaseModel):
     action: str = ""
     providerId: str = ""
     model: str = ""
-    taskKind: str = ""
     presetId: str = ""
     presetName: str = ""
-    presetSource: str = ""    # which tier won: "feature" | "task" | "default" | "" (restored 2026-07-14)
+    presetSource: str = ""    # which tier won: "assigned" | "default" | ""
+    # Reasoning (U2-T6): what this run's thinking resolves to RIGHT NOW — think on/off, the
+    # ask level, the resolved effort word, the requested budget, the local hardware cap + its
+    # source, and the effective (emitted) budget. The chip/picker read these (no client math
+    # — the drift law); cloud routes carry cap=None.
+    think: bool = False
+    level: str = ""
+    reasoningWord: str = ""
+    ask: int | None = None
+    cap: int | None = None
+    effective: int | None = None
+    capSource: str = ""       # "class" | "default" | "" (cloud / none)
     configured: bool = True
     detail: str = ""
 
@@ -370,23 +348,23 @@ def _response_format(spec: FeaturePromptRow, action: str) -> dict:
 
 
 def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict | None:
-    """Per-request `extra` from the action's Plane-2 params — json_mode/top_p PLUS
-    its long-tail sampler knobs, each overridable by the request. Precedence
-    (highest→lowest): per-call `body.samplers` → stored `feature_sampler_params` →
-    the resolved PRESET's samplers (the lab+preset source of truth). The reserved
-    `samplers` key is the sampler ORDER — a comma-joined name list that is split into
-    an array for the engine. Merges straight into the OpenAI-compatible chat body
-    (the adapter applies `extra`); no model reload. Safe across adapters: openai-compat
-    sends all (cloud ignores unknown fields), the others map selectively. (#18 / #22 / §8)"""
+    """Per-request `extra` from the action's JSON CONTRACT (json_mode, on the spec) +
+    the resolved PRESET's tunables (top_p, reasoning, samplers — the one source,
+    2026-07-15), each overridable by the request. Precedence (highest→lowest): per-call
+    `body.samplers` → the resolved PRESET's samplers. The reserved `samplers` key is the
+    sampler ORDER — a comma-joined name list split into an array for the engine. Merges
+    straight into the OpenAI-compatible chat body (the adapter applies `extra`); no model
+    reload. Safe across adapters: openai-compat sends all (cloud ignores unknown fields),
+    the others map selectively. (#18 / #22 / §8)"""
     extra: dict = {}
     json_mode = spec.json_mode if body.jsonMode is None else body.jsonMode
     if json_mode:
         extra["response_format"] = _response_format(spec, body.action)
-    top_p = spec.top_p if body.topP is None else body.topP
+    top_p = (preset.topP if preset else None) if body.topP is None else body.topP
     if top_p is not None:
         extra["top_p"] = top_p
-    # Ad-hoc per-call samplers (a Lab column) win over the stored ones — added
-    # first so the stored loop's `not in extra` guard skips an overridden key.
+    # Ad-hoc per-call samplers (a Lab column) win over the preset's — added first so
+    # the preset loop's `not in extra` guard skips an overridden key.
     for row in body.samplers or []:
         name = (row.get("flagName") or "").strip()
         if not name:
@@ -394,29 +372,21 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict
         val = _parse_sampler_value(row.get("flagValue") or "")
         if val is not None:
             extra[name] = val
-    # Long-tail per-action samplers (stored). Lazy import: stores imports prompts
-    # (FeaturePromptRow), so a top-level import would cycle.
-    from . import stores
-
-    for row in stores.get_feature_sampler_store().list(body.action):
-        val = _parse_sampler_value(row.flagValue)
-        if val is not None and row.flagName not in extra:
-            extra[row.flagName] = val
-    # Resolved preset's long-tail samplers (the lab+preset source of truth) — LOWEST
-    # precedence: applied only where a per-call / per-feature value hasn't set it.
+    # Resolved preset's long-tail samplers (the lab+preset source of truth) — applied
+    # only where a per-call value hasn't already set it.
     for row in getattr(preset, "samplers", None) or []:
         name = (getattr(row, "flagName", "") or "").strip()
         if name and name not in extra:
             val = _parse_sampler_value(getattr(row, "flagValue", "") or "")
             if val is not None:
                 extra[name] = val
-    # Reasoning-effort LEVEL (a1/E2) — carried under the reserved `reasoning_effort`
-    # key, which each adapter pops + maps to its backend's native reasoning control
+    # Reasoning-effort LEVEL (a1/E2) — from the PRESET, carried under the reserved
+    # `reasoning_effort` key each adapter pops + maps to its backend's native control
     # (Anthropic budget_tokens / Gemini thinkingBudget / OpenAI reasoning_effort /
     # llama.cpp chat_template_kwargs / Ollama think-level). ONLY when reasoning is
     # effectively on (B3: think gated off under json_mode), so it never corrupts JSON.
-    if _effective_think(spec, body):
-        effort = (body.reasoningEffort if body.reasoningEffort is not None else spec.reasoning_effort) or ""
+    if _effective_think(spec, body, preset):
+        effort = (body.reasoningEffort if body.reasoningEffort is not None else (preset.reasoningEffort if preset else "")) or ""
         if effort:
             extra["reasoning_effort"] = effort
     # The sampler ORDER ("samplers") is an ARRAY of sampler names — accept a
@@ -439,51 +409,15 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict
     return extra or None
 
 
-def _effective_think(spec: FeaturePromptRow, body: RunRequest) -> bool:
-    """The think flag for this call, with the B3 guardrail: a reasoning block
-    corrupts strict JSON, so think is FORCED off whenever json_mode is on (the
-    request's jsonMode override, else the action's stored json_mode) — even if the
-    action/tier would otherwise reason. (Attribution's reason-then-emit two-pass is
-    the JV-side refinement; here the guardrail keeps extraction/JSON actions valid.)"""
-    think = spec.think if body.think is None else body.think
+def _effective_think(spec: FeaturePromptRow, body: RunRequest, preset=None) -> bool:
+    """The think flag for this call = the PRESET's think (the one source, 2026-07-15),
+    with the B3 guardrail: a reasoning block corrupts strict JSON, so think is FORCED
+    off whenever json_mode is on (the request's jsonMode override, else the action's
+    CONTRACT json_mode). A request `think` override still wins (a Lab column comparing
+    reasoned vs direct). No preset → think off."""
+    think = body.think if body.think is not None else (preset.think if preset else False)
     json_mode = spec.json_mode if body.jsonMode is None else body.jsonMode
     return bool(think) and not json_mode
-
-
-def _resolve_preset(action: str, feature: str, task_kind_of):
-    """The engine preset for this action — the full 3-tier cascade (restored
-    2026-07-14): the action's OWN override (FeaturePresetRef[action]) → the
-    action's taskKind preset → the global default. `task_kind_of` maps an action
-    (or feature) key → its LLM-work taskKind; None (no map wired, e.g. tests) →
-    no preset = legacy routing, so behaviour is unchanged until presets are
-    configured. The ACTION's taskKind is tried first (falling back to the
-    feature's) so writerAI.continue (prose.generate) and writerAI.tighten
-    (prose.edit) resolve to DIFFERENT presets — and the per-feature override is
-    keyed on the same action id, so those two can also override independently."""
-    if task_kind_of is None:
-        return None
-    task_kind = task_kind_of(action) or task_kind_of(feature) or ""
-    return resolve_feature_preset(action, task_kind)
-
-
-def _effective_spec(spec: FeaturePromptRow, preset) -> FeaturePromptRow:
-    """Overlay a resolved preset's engine params onto the prompt spec. In the
-    lab+preset model the PRESET is the source of truth for params (temperature /
-    json / top_p / reasoning / max-tokens); the prompt only carries system/user
-    text. None → spec unchanged. Request-level overrides still win downstream.
-    (The preset's MODEL is applied separately as the provider/model override; its
-    long-tail samplers are wired in a follow-up.)"""
-    if preset is None:
-        return spec
-    return replace(
-        spec,
-        temperature=spec.temperature if preset.temperature is None else preset.temperature,
-        think=bool(preset.reasoningEffort),
-        max_tokens=preset.maxTokens or spec.max_tokens,
-        json_mode=preset.jsonMode,
-        top_p=preset.topP,
-        reasoning_effort=preset.reasoningEffort,
-    )
 
 
 async def _ensure_local_ready(
@@ -519,13 +453,12 @@ async def _ensure_local_ready(
 def make_feature_router(
     get_store: Callable[[], PromptStore],
     get_config: Callable[[], LLMConfig],
-    task_kind_of: Callable[[str], str] | None = None,
 ) -> APIRouter:
     """Build the /v1/ai/run + /v1/ai/stream feature-execution router. The host
     supplies its `PromptStore` and an `llm_config()` builder (its settings →
     LLMConfig). The action's prompt is read from the store, the user + system
-    templates filled from `variables`, and the call routed through the shared
-    dispatch honoring the host's pins / roles / default."""
+    templates filled from `variables`, its ENGINE PRESET resolved (ref → default),
+    and the call routed through the shared dispatch with the preset's model + params."""
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     @router.post("/run", response_model=RunResponse)
@@ -538,10 +471,14 @@ def make_feature_router(
         sys_tpl = spec.system if body.system is None else body.system
         usr_tpl = spec.user_template if body.userTemplate is None else body.userTemplate
         messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
-        preset = _resolve_preset(body.action, spec.feature, task_kind_of)
-        eff = _effective_spec(spec, preset)
+        preset = resolve_feature_preset(body.action)
         provider_override = body.providerId or (preset.providerId if preset else "") or None
         model_override = body.model or (preset.model if preset else "") or None
+        # Every tunable comes from the resolved PRESET (the one source, 2026-07-15);
+        # request-body values override ephemerally. No preset → provider-default route,
+        # NO tunables sent (temperature None omits it), think off — the no-preset rule.
+        temperature = body.temperature if body.temperature is not None else (preset.temperature if preset else None)
+        max_tokens = (body.maxTokens if body.maxTokens is not None else (preset.maxTokens if preset else 0)) or None
         try:
             # QC-43b: a run routed to the bundled local runner makes its model resident
             # first (else the adapter hits a down router → "Connection refused"). No-op
@@ -561,12 +498,12 @@ def make_feature_router(
                 # placeholders so render() returns it unchanged; e.g. plotHoles
                 # injects the project's world-rules section.
                 system=render(sys_tpl, body.variables),
-                temperature=eff.temperature if body.temperature is None else body.temperature,
-                think=_effective_think(eff, body),
-                max_tokens=(body.maxTokens if body.maxTokens is not None else eff.max_tokens) or None,
+                temperature=temperature,
+                think=_effective_think(spec, body, preset),
+                max_tokens=max_tokens,
                 provider_override=provider_override,
                 model_override=model_override,
-                extra=_plane2_extra(eff, body, preset),
+                extra=_plane2_extra(spec, body, preset),
             )
         except LLMNotConfiguredError as e:
             # 501 → the UI shows the actionable "wire an LLM provider" message.
@@ -594,10 +531,13 @@ def make_feature_router(
         usr_tpl = spec.user_template if body.userTemplate is None else body.userTemplate
         messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
         system = render(sys_tpl, body.variables)
-        preset = _resolve_preset(body.action, spec.feature, task_kind_of)
-        eff = _effective_spec(spec, preset)
+        preset = resolve_feature_preset(body.action)
         provider_override = body.providerId or (preset.providerId if preset else "") or None
         model_override = body.model or (preset.model if preset else "") or None
+        # Every tunable comes from the resolved PRESET (the one source, 2026-07-15);
+        # request-body values override ephemerally. No preset → provider-default route.
+        temperature = body.temperature if body.temperature is not None else (preset.temperature if preset else None)
+        max_tokens = (body.maxTokens if body.maxTokens is not None else (preset.maxTokens if preset else 0)) or None
 
         # QC-43b: ensure a bundled-runner model is resident BEFORE streaming (else the
         # adapter hits a down router → "Connection refused"). Awaited here in the async
@@ -623,12 +563,12 @@ def make_feature_router(
                     action=body.action,
                     messages=messages,
                     system=system,
-                    temperature=eff.temperature if body.temperature is None else body.temperature,
-                    think=_effective_think(eff, body),
-                    max_tokens=(body.maxTokens if body.maxTokens is not None else eff.max_tokens) or None,
+                    temperature=temperature,
+                    think=_effective_think(spec, body, preset),
+                    max_tokens=max_tokens,
                     provider_override=provider_override,
                     model_override=model_override,
-                    extra=_plane2_extra(eff, body, preset),
+                    extra=_plane2_extra(spec, body, preset),
                 ):
                     if delta.done:
                         frame = {
@@ -654,34 +594,46 @@ def make_feature_router(
         return StreamingResponse(gen(), media_type="text/event-stream")
 
     @router.get("/resolved-route", response_model=ResolvedRouteResponse)
-    async def resolved_route(feature: str, action: str = "") -> ResolvedRouteResponse:
+    async def resolved_route(
+        feature: str, action: str = "", providerId: str = "", model: str = "",
+    ) -> ResolvedRouteResponse:
         """The provider+model a run of this feature/action would use right now
-        (B5-1, §7.2): the task-preset cascade as the override, then the dispatch
-        resolution — mirrored via the run path's own functions, never re-derived."""
+        (B5-1, §7.2): its preset (ref → default) as the override, then the dispatch
+        resolution — mirrored via the run path's own functions, never re-derived.
+        Optional `providerId`/`model` override params (mirror RunRequest) let a Lab
+        column ask for ITS pinned route's reasoning cap."""
         key = action or feature
-        task_kind = ""
-        if task_kind_of is not None:
-            task_kind = task_kind_of(key) or task_kind_of(feature) or ""
-        # The same 3-tier cascade the run path uses (via _resolve_preset →
-        # resolve_feature_preset), plus which tier won for the provenance chip.
-        preset, preset_source = (
-            resolve_feature_preset_with_source(key, task_kind)
-            if task_kind_of is not None else (None, "")
-        )
+        # The same ref → default resolution the run path uses, plus which tier won.
+        preset, preset_source = resolve_feature_preset_with_source(key)
         base = dict(
-            feature=feature, action=action, taskKind=task_kind,
+            feature=feature, action=action,
             presetId=preset.id if preset else "",
             presetName=preset.name if preset else "",
             presetSource=preset_source,
         )
+        # A Lab column's route override wins over the preset's (cap-hint pick).
+        provider_override = providerId or (preset.providerId if preset else "") or None
+        model_override = model or (preset.model if preset else "") or None
         try:
             adapter, model, _tier = resolve_route(
                 get_config(), feature, action=key,
-                provider_override=(preset.providerId if preset else "") or None,
-                model_override=(preset.model if preset else "") or None,
+                provider_override=provider_override,
+                model_override=model_override,
             )
         except LLMNotConfiguredError as e:
             return ResolvedRouteResponse(**base, configured=False, detail=str(e))
-        return ResolvedRouteResponse(**base, providerId=adapter.provider_id, model=model)
+        # U2-T6: the SAME resolver the run path uses (the dispatch mirror), so the chip
+        # shows exactly what a run emits — think/level/word/ask/cap/effective, no client math.
+        from .reasoning import resolve_reasoning
+        rp = resolve_reasoning(
+            think=preset.think if preset else False,
+            level=(preset.reasoningEffort if preset else ""),
+            provider_id=adapter.provider_id, provider_type=adapter.provider_type, model_id=model,
+        )
+        return ResolvedRouteResponse(
+            **base, providerId=adapter.provider_id, model=model,
+            think=rp.think, level=rp.level, reasoningWord=rp.word,
+            ask=rp.ask, cap=rp.cap, effective=rp.effective, capSource=rp.cap_source,
+        )
 
     return router

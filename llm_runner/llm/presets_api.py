@@ -2,17 +2,16 @@
 """Shared engine-preset router — the 2026-06-29 lab + preset model, narrowed by
 the §7.1 switches⇄params lock (2026-07-08).
 
-An ENGINE PRESET = a reusable per-TASK ask-config (model + per-request params +
+An ENGINE PRESET = a reusable ask-config (model + per-request params +
 long-tail samplers) built and saved in the Lab. It is the source of truth for
 everything a task can own. It holds NO launch switches: launch config belongs to
 the MODEL × machine tune stack (`switch_resolve` — global bundles → class_tunes →
 model_tunes), edited in Tune & measure, because a loaded model is one process
 with one set of launch flags shared by every task that points at it.
 
-A feature resolves its preset via the 3-tier cascade (per-feature override restored
-2026-07-14 — reverses Plan A; see the plan doc):
-    its OWN override (FeaturePresetRef) → its taskKind's preset (TaskKindPreset)
-      → the global default preset.
+An ACTION resolves its preset via a two-tier lookup (2026-07-15, one source — the
+task tier is gone): its own ref (FeaturePresetRef) → the global default preset
+(the `default_preset_id` RunnerSetting).
 
 The PROMPT is NOT here — it lives on the feature (FeaturePrompt). Long-tail
 samplers are a variable-cardinality child.
@@ -38,7 +37,8 @@ class PresetFlagRow(BaseModel):
 
 
 class EnginePresetRow(BaseModel):
-    """A reusable per-task ask-config: model + request params + sampler tail.
+    """A reusable ask-config shared by the actions that point at it: model +
+    request params + sampler tail.
     The Lab builds these; features point at them. No launch switches (§7.1)."""
 
     id: str = ""
@@ -49,8 +49,8 @@ class EnginePresetRow(BaseModel):
     temperature: float | None = None
     topP: float | None = None
     maxTokens: int = 0                  # 0 → no cap
-    jsonMode: bool = False
-    reasoningEffort: str = ""           # "" | low | medium | high
+    reasoningEffort: str = ""           # "" | low | medium | high | xhigh | max
+    think: bool = False                 # STORED (U2-T3): thinking on/off, no longer derived from the level
     samplers: list[PresetFlagRow] = []  # long-tail Plane-2 samplers
     builtIn: bool = False
     position: int = 0
@@ -60,19 +60,14 @@ class EnginePresetRow(BaseModel):
     factoryModel: str = ""
 
 
-class TaskKindAssignment(BaseModel):
-    taskKind: str
-    presetId: str = ""   # "" → clear (this taskKind falls back to the default)
-
-
 class FeatureAssignment(BaseModel):
     featureKey: str      # the ACTION id
-    presetId: str = ""   # "" → clear the override (the feature re-inherits its taskKind)
+    presetId: str = ""   # "" → clear the ref (the feature falls to the default preset)
 
 
 class FeatureClearRequest(BaseModel):
     """Bulk-clear the per-feature overrides for a set of features so each
-    re-inherits its taskKind's preset (used by the per-task/feature Reset)."""
+    falls back to the default preset (used by the per-feature Reset)."""
 
     featureKeys: list[str] = []
 
@@ -89,11 +84,6 @@ class EnginePresetStore(Protocol):
     def delete(self, preset_id: str) -> None: ...
 
 
-class TaskKindPresetStore(Protocol):
-    def list(self) -> dict[str, str]: ...                       # task_kind → preset_id
-    def set(self, task_kind: str, preset_id: str) -> None: ...  # "" clears the row
-
-
 class FeaturePresetRefStore(Protocol):
     def list(self) -> dict[str, str]: ...                         # feature_key(action) → preset_id
     def set(self, feature_key: str, preset_id: str) -> None: ...  # "" clears the row
@@ -105,21 +95,21 @@ class PresetsResponse(BaseModel):
 
 class AssignmentsResponse(BaseModel):
     defaultPresetId: str = ""
-    taskKinds: dict[str, str] = {}    # task_kind → preset_id
-    features: dict[str, str] = {}     # action → preset_id (the per-feature override, restored 2026-07-14)
+    features: dict[str, str] = {}     # action → preset_id (the one-source per-action assignment)
 
 
 def make_presets_router(
     get_presets: Callable[[], EnginePresetStore],
-    get_task_kinds: Callable[[], TaskKindPresetStore],
     get_default: Callable[[], str],
     set_default: Callable[[str], None],
     get_refs: Callable[[], FeaturePresetRefStore],
+    reset_all_fn: Callable[[], None] | None = None,
+    reset_one_fn: Callable[[str], None] | None = None,
 ) -> APIRouter:
-    """CRUD for engine presets + the three assignment layers (default · task-kind ·
-    per-feature override). Mutating calls return the full list/assignments so the UI
-    re-renders from one response. (The per-feature override layer was restored
-    2026-07-14 — reverses Plan A; it is the top tier of the run-path cascade.)"""
+    """CRUD for engine presets + the two assignment layers (default · per-action ref)
+    + the factory resets. Mutating calls return the full list/assignments so the UI
+    re-renders from one response. `reset_all_fn` restores all built-in presets + seeded
+    refs + the default; `reset_one_fn` resets ONE built-in preset (2026-07-15)."""
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     def _presets() -> PresetsResponse:
@@ -135,7 +125,6 @@ def make_presets_router(
     def _assignments() -> AssignmentsResponse:
         return AssignmentsResponse(
             defaultPresetId=get_default(),
-            taskKinds=get_task_kinds().list(),
             features=get_refs().list(),
         )
 
@@ -165,7 +154,27 @@ def make_presets_router(
         get_presets().delete(preset_id)
         return _presets()
 
-    # ── assignments (default · task-kind) ──────────────────────────────────────
+    # ── factory resets (Presets page: Reset all · per-preset Reset) ─────────────
+    @router.post("/engine-presets/reset", response_model=PresetsResponse)
+    async def reset_presets() -> PresetsResponse:
+        """Restore all built-in presets + the seeded per-action refs + the default
+        preset to factory (custom presets kept)."""
+        if reset_all_fn is not None:
+            reset_all_fn()
+        return _presets()
+
+    @router.post("/engine-presets/{preset_id}/reset", response_model=PresetsResponse)
+    async def reset_one_preset(preset_id: str) -> PresetsResponse:
+        """Reset ONE built-in preset to factory (params + samplers). 400 on a custom
+        preset (nothing to reset to)."""
+        if reset_one_fn is not None:
+            try:
+                reset_one_fn(preset_id)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
+        return _presets()
+
+    # ── assignments (default · per-action ref) ─────────────────────────────────
     @router.get("/preset-assignments", response_model=AssignmentsResponse)
     async def list_assignments() -> AssignmentsResponse:
         return _assignments()
@@ -173,13 +182,6 @@ def make_presets_router(
     @router.put("/preset-assignments/default", response_model=AssignmentsResponse)
     async def put_default(body: DefaultAssignment) -> AssignmentsResponse:
         set_default(body.presetId)
-        return _assignments()
-
-    @router.put("/preset-assignments/task-kind", response_model=AssignmentsResponse)
-    async def put_task_kind(body: TaskKindAssignment) -> AssignmentsResponse:
-        if not body.taskKind.strip():
-            raise HTTPException(status_code=400, detail="taskKind is required")
-        get_task_kinds().set(body.taskKind, body.presetId)
         return _assignments()
 
     @router.put("/preset-assignments/feature", response_model=AssignmentsResponse)
@@ -194,7 +196,7 @@ def make_presets_router(
     @router.post("/preset-assignments/clear-features", response_model=AssignmentsResponse)
     async def clear_features(body: FeatureClearRequest) -> AssignmentsResponse:
         """Clear the per-feature override for each given feature so it re-inherits
-        its taskKind's preset (the per-task/feature Reset path)."""
+        the default preset (the per-feature Reset path)."""
         refs = get_refs()
         for key in body.featureKeys:
             if key.strip():

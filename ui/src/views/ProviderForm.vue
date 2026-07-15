@@ -7,7 +7,7 @@
 // Self-contained: calls the shared /v1/llm-providers* endpoints via the shared
 // client; emits "saved"/"deleted" so the parent reloads its list. The built-in
 // provider also mounts the Local engine panel (which hosts the binaries editor) + model catalog.
-import { computed, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 
 import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -160,6 +160,40 @@ async function remove() {
     saveErr.value = e.message || "Delete failed.";
   }
 }
+
+// ── Reasoning levels (per-provider level→value map — U2/T6) ──────────────────
+// The level→(word|tokens) table the ONE resolver reads (GET/PUT
+// /v1/ai/reasoning-map/{provider}). Only for a SAVED provider — the map is keyed
+// by provider id, so a brand-new unsaved provider has none yet. Seeded per
+// provider TYPE server-side (fill-if-missing); one PUT per edited row on change.
+const LEVEL_LABELS = { low: "Low", medium: "Medium", high: "High", xhigh: "XHigh", max: "Max" };
+const reasoningRows = ref([]);
+const reasoningProvider = computed(() => props.provider?.id || "");
+async function loadReasoningMap() {
+  if (!reasoningProvider.value) return;
+  try {
+    const r = await request(`/v1/ai/reasoning-map/${encodeURIComponent(reasoningProvider.value)}`);
+    reasoningRows.value = r?.rows || [];
+  } catch { reasoningRows.value = []; }
+}
+function parseTokens(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  const n = Number.parseInt(s, 10);
+  return Number.isFinite(n) ? n : null;
+}
+async function putReasoningRow(row) {
+  if (!reasoningProvider.value) return;
+  // Values are editable DATA — the server upserts by (provider, level). A failed
+  // PUT leaves the row's edited value in place; the next load reconciles.
+  try {
+    await request(`/v1/ai/reasoning-map/${encodeURIComponent(reasoningProvider.value)}`, {
+      method: "PUT",
+      body: { level: row.level, word: row.word || "", tokens: row.tokens ?? null },
+    });
+  } catch { /* surfaced by the shared client error path */ }
+}
+onMounted(loadReasoningMap);
 </script>
 
 <template>
@@ -225,6 +259,23 @@ async function remove() {
           <div class="lu-fh">Fills the RAG / semantic-search index — fetch the provider's list and pick its embedding model.</div>
         </div>
       </template>
+    </div>
+
+    <!-- Reasoning levels — the per-provider level→(word|tokens) map (U2/T6). Edits
+         PUT one row on change; shown only for a saved provider (keyed by id). -->
+    <div v-if="reasoningProvider" class="lu-pf-reason">
+      <div class="lu-pf-reason-h">Reasoning levels</div>
+      <div class="lu-rtable">
+        <div class="lu-rt-row lu-rt-head"><span>Level</span><span>Word</span><span>Tokens</span></div>
+        <div v-for="row in reasoningRows" :key="row.level" class="lu-rt-row">
+          <span class="lu-rt-lvl">{{ LEVEL_LABELS[row.level] || row.level }}</span>
+          <UiInput :model-value="row.word" placeholder="—"
+            @update:model-value="row.word = $event" @blur="putReasoningRow(row)" />
+          <UiInput type="number" :model-value="row.tokens ?? ''" placeholder="—"
+            @update:model-value="row.tokens = parseTokens($event)" @blur="putReasoningRow(row)" />
+        </div>
+      </div>
+      <div class="lu-fh">what each level asks this provider for — words for effort-word providers, token budgets for the local engine</div>
     </div>
 
     <!-- lu-pf-eng: space between the Provider type row and this panel (user, 2026-07-07). -->
@@ -296,4 +347,10 @@ select.lu-input { cursor: pointer; appearance: auto; }
   display: inline-flex; align-items: center; font-size: 12px; color: var(--ink-2);
   background: var(--surface-3); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px;
 }
+.lu-pf-reason { margin-top: 14px; }
+.lu-pf-reason-h { font-size: 11.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+.lu-rtable { display: flex; flex-direction: column; gap: 6px; }
+.lu-rt-row { display: grid; grid-template-columns: 90px minmax(0,1fr) minmax(0,1fr); gap: 8px; align-items: center; }
+.lu-rt-head { font-size: 11px; color: var(--muted); }
+.lu-rt-lvl { font-size: 12px; color: var(--ink-2); }
 </style>

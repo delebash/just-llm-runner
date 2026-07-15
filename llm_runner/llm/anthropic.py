@@ -19,7 +19,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning_effort
+from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning
 
 log = logging.getLogger(__name__)
 
@@ -75,22 +75,40 @@ class AnthropicAdapter:
             out.append({"role": m.role, "content": m.content})
         return ("\n\n".join(system_parts) if system_parts else None, out)
 
-    # Effort → thinking budget_tokens (must be ≥1024). Verified against the
-    # Anthropic extended-thinking docs (2026-06-28), not recalled.
-    _THINK_BUDGET = {"low": 1024, "medium": 4096, "high": 8192}
+    # Model-generation split (U2-T5, verified 2026-07-14 at platform.claude.com/docs
+    # effort + adaptive-thinking): NEW models take ADAPTIVE thinking + output_config.effort
+    # (the effort WORD from the reasoning_map) and 400-REJECT the legacy budget_tokens +
+    # sampler params; LEGACY models (claude-haiku-4-5 and older) take the classic
+    # budget_tokens (the NUMBER from the reasoning_map, via the resolver — no adapter table
+    # any more; the old _THINK_BUDGET is gone). Re-verify this id list at each model launch.
+    _ADAPTIVE_SUBSTRINGS = ("opus-4-6", "opus-4-7", "opus-4-8", "sonnet-4-6", "sonnet-5", "fable-5", "mythos-5")
+    _ALWAYS_THINKS_SUBSTRINGS = ("fable-5", "mythos-5")
 
     @staticmethod
-    def _apply_reasoning(body: dict, think: bool, effort: str) -> None:
-        """Anthropic extended thinking (a1/E2): a `thinking` block with
-        budget_tokens (≥1024 AND < max_tokens) → bump max_tokens to leave room for
-        the answer. Extended thinking also requires the default temperature, so drop
-        any override. think off → no thinking block (the model answers directly)."""
+    def _apply_reasoning(body: dict, think: bool, effort: str, budget: int | None, model: str) -> None:
+        """Anthropic extended thinking (a1/E2), model-aware (U2-T5). NEW models: adaptive
+        thinking + output_config.effort (the map WORD); drop temperature/top_p/top_k the
+        newest models 400-reject; a model that can't disable thinking (Fable/Mythos 5) sends
+        no explicit disable. LEGACY models: a `thinking` block with budget_tokens (the map
+        NUMBER, ≥1024 AND < max_tokens) + a max_tokens bump; drop the temperature override."""
+        m = (model or "").lower()
+        adaptive = any(s in m for s in AnthropicAdapter._ADAPTIVE_SUBSTRINGS)
+        always_thinks = any(s in m for s in AnthropicAdapter._ALWAYS_THINKS_SUBSTRINGS)
         if not think:
+            if adaptive and not always_thinks:
+                body["thinking"] = {"type": "disabled"}  # new models: explicit off (e.g. Sonnet 5)
             return
-        budget = AnthropicAdapter._THINK_BUDGET.get(effort, 4096)
-        body["thinking"] = {"type": "enabled", "budget_tokens": budget}
-        body["max_tokens"] = max(int(body.get("max_tokens") or 4096), budget + 2048)
-        body.pop("temperature", None)  # thinking requires the default temperature
+        if adaptive:
+            body["thinking"] = {"type": "adaptive"}
+            if effort:
+                body["output_config"] = {"effort": effort}
+            for k in ("temperature", "top_p", "top_k"):
+                body.pop(k, None)  # the newest models 400-reject sampler params under thinking
+        else:
+            b = budget if budget is not None else 4096
+            body["thinking"] = {"type": "enabled", "budget_tokens": b}
+            body["max_tokens"] = max(int(body.get("max_tokens") or 4096), b + 2048)
+            body.pop("temperature", None)  # thinking requires the default temperature
 
     # ── Protocol implementation ─────────────────────────────────────
 
@@ -115,7 +133,7 @@ class AnthropicAdapter:
         messages: list[LLMMessage],
         *,
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = 0.7,
         max_tokens: int | None = None,
         system: str | None = None,
         think: bool = False,
@@ -127,15 +145,16 @@ class AnthropicAdapter:
             "messages": msgs,
             # Anthropic requires max_tokens — pick a high default if not set.
             "max_tokens": max_tokens or 4096,
-            "temperature": temperature,
         }
+        if temperature is not None:
+            body["temperature"] = temperature
         if sys_prompt:
             body["system"] = sys_prompt
-        extra, effort = pop_reasoning_effort(extra)
+        extra, effort, budget = pop_reasoning(extra)
         extra = self._map_extra(extra)
         if extra:
             body.update(extra)
-        self._apply_reasoning(body, think, effort)
+        self._apply_reasoning(body, think, effort, budget, body["model"])
 
         url = f"{self._base_url}/v1/messages"
         try:
@@ -169,7 +188,7 @@ class AnthropicAdapter:
         messages: list[LLMMessage],
         *,
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = 0.7,
         max_tokens: int | None = None,
         system: str | None = None,
         think: bool = False,
@@ -180,16 +199,17 @@ class AnthropicAdapter:
             "model": model or self.default_model,
             "messages": msgs,
             "max_tokens": max_tokens or 4096,
-            "temperature": temperature,
             "stream": True,
         }
+        if temperature is not None:
+            body["temperature"] = temperature
         if sys_prompt:
             body["system"] = sys_prompt
-        extra, effort = pop_reasoning_effort(extra)
+        extra, effort, budget = pop_reasoning(extra)
         extra = self._map_extra(extra)
         if extra:
             body.update(extra)
-        self._apply_reasoning(body, think, effort)
+        self._apply_reasoning(body, think, effort, budget, body["model"])
 
         url = f"{self._base_url}/v1/messages"
         pt = ct = 0
@@ -228,8 +248,10 @@ class AnthropicAdapter:
         # the dispatch call.
         return [
             "claude-fable-5",
+            "claude-mythos-5",
             "claude-opus-4-8",
             "claude-opus-4-7",
+            "claude-sonnet-5",
             "claude-sonnet-4-6",
             "claude-haiku-4-5",
             "claude-haiku-4-5-20251001",

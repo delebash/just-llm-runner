@@ -27,30 +27,31 @@ from ..runner.config import (
 
 # ── per-app registration (the ONLY per-app inputs) ────────────────────────────
 _APP: dict = {"feature_catalog": [], "feature_prompts": {},
-              "engine_presets": [], "taskkind_presets": [], "feature_task_kinds": {}}
+              "engine_presets": [], "feature_presets": {}, "default_preset_id": ""}
 
 
 def configure_app_seed(*, feature_catalog=None, feature_prompts=None,
-                       engine_presets=None, taskkind_presets=None,
-                       feature_task_kinds=None, model_catalog_extra=None,
+                       engine_presets=None, feature_presets=None,
+                       default_preset_id=None, model_catalog_extra=None,
                        model_tunes_seed=None, hw_key_fn=None,
                        test_samples=None, feature_prompt_heals=None) -> None:
     """The host registers its feature DATA once at boot (install_llm does this):
     `feature_catalog` (list of FeatureCatalogEntry), `feature_prompts` (dict
-    key→spec), and the ROUTING seed — `engine_presets` (the built-in preset library),
-    `taskkind_presets` (taskKind→preset assignments), and `feature_task_kinds` (the
-    action→taskKind map). The routing seed is optional; an app that registers none
-    simply seeds no presets and falls back to legacy routing."""
+    key→spec), and the PRESET seed — `engine_presets` (the built-in preset library),
+    `feature_presets` (the per-ACTION action→preset_id refs — the one source of what
+    an action runs, 2026-07-15), and `default_preset_id` (the catch-all for an
+    unassigned action). All optional; an app that registers none seeds no presets →
+    the no-preset route."""
     if feature_catalog is not None:
         _APP["feature_catalog"] = list(feature_catalog)
     if feature_prompts is not None:
         _APP["feature_prompts"] = dict(feature_prompts)
     if engine_presets is not None:
         _APP["engine_presets"] = list(engine_presets)
-    if taskkind_presets is not None:
-        _APP["taskkind_presets"] = list(taskkind_presets)
-    if feature_task_kinds is not None:
-        _APP["feature_task_kinds"] = dict(feature_task_kinds)
+    if feature_presets is not None:
+        _APP["feature_presets"] = dict(feature_presets)
+    if default_preset_id is not None:
+        _APP["default_preset_id"] = str(default_preset_id)
     # Per-app extra catalog rows + the box tune seed are REGISTERED (not one-shot
     # seeded) so `seed_llm` carries them on BOTH paths — boot AND the data-reset
     # endpoint. (Found 2026-07-06: the old install-time-only seeding meant a
@@ -63,7 +64,7 @@ def configure_app_seed(*, feature_catalog=None, feature_prompts=None,
         _APP["model_tunes_seed"] = list(model_tunes_seed)
     if hw_key_fn is not None:
         _APP["hw_key_fn"] = hw_key_fn
-    # §7.3 Lab test samples (2026-07-08): synthesized per-taskKind rows for the
+    # §7.3 Lab test samples (2026-07-08; per-ACTION since 2026-07-15): synthesized rows for the
     # Lab's Sample button — registered so seed_llm carries them on both paths.
     if test_samples is not None:
         _APP["test_samples"] = list(test_samples)
@@ -93,14 +94,16 @@ def app_engine_presets() -> list:
     return _APP["engine_presets"]
 
 
-def app_taskkind_presets() -> list:
-    """The host's taskKind→preset assignments (list of {task_kind, preset_id} dicts)."""
-    return _APP["taskkind_presets"]
+def app_feature_presets() -> dict:
+    """The host's per-ACTION preset refs (action → preset_id) — the one source of what
+    an action runs. Seeded into `feature_preset_refs` (merge-by-key, fill-if-missing)."""
+    return _APP["feature_presets"]
 
 
-def app_feature_task_kinds() -> dict:
-    """The host's action→taskKind map — the routing key `_task_kind_of` reads."""
-    return _APP["feature_task_kinds"]
+def app_default_preset_id() -> str:
+    """The host's global default preset id — the catch-all for an unassigned action
+    (seeded fill-if-empty into the `default_preset_id` RunnerSetting)."""
+    return _APP["default_preset_id"]
 
 
 # ── SHARED seed data ──────────────────────────────────────────────────────────
@@ -347,9 +350,10 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
      # thinking on/off is the per-request toggle our dispatch already sends per task,
      # a different mechanism entirely; the 1024 originated as the author's own
      # box/latency preference and the mainstream pattern ships no launch budget). The
-     # knob stays in knob_catalog (default -1 = unlimited) — set it per-model in the
-     # switches editor if a model's template ignores the toggle or you want capped
-     # deep-think chat.
+     # knob stays in knob_catalog — and as of U2 (2026-07-14) the per-(model, class)
+     # `reasoning_budget` is the reasoning RESOLVER's per-request CAP (read as DATA, no
+     # longer emitted as a launch flag — llm/reasoning.py + U2-T4); the seeded Gemma-class
+     # 1024 bounds every local thinking request on that hardware.
      # context_shift + cache_reuse REMOVED from the base (user, 2026-07-07, on-box tested):
      # Gemma 4's iSWA context supports neither KV shifting nor prefix reuse (llama.cpp
      # auto-disables both with a warning), and context_shift measured as a net loss; the Qwen
@@ -430,27 +434,6 @@ def seed_default_class_picks(s) -> int:
     return added
 
 
-# The nine canonical LLM-work TASKS — the seed defaults for the user-editable
-# `task_kinds` table. App-agnostic (both apps share the same nine), so they live here
-# in the SHARED block, NOT in per-app seed data (moved out of task_kinds_api.TASK_KINDS,
-# 2026-07-02). Users create / rename / delete CUSTOM tasks; these built-ins are
-# protected (TaskKindStore.delete blocks them) and re-seed on boot. `id` is the routing
-# key — it matches feature_task_kinds.task_kind + task_kind_presets.
-# Only the feature→task MAP + the task→preset assignments are per-app. Ordered prose →
-# structured → chat.
-DEFAULT_TASK_KINDS: list[dict] = [
-    {"id": "prose.generate", "label": "Generate prose", "description": "Write new voiced narrative prose."},
-    {"id": "prose.edit", "label": "Edit prose", "description": "Faithful line-level revision of existing prose."},
-    {"id": "ideation", "label": "Ideation", "description": "Open-ended brainstorming of names, titles, and plot moves."},
-    {"id": "creative.structured", "label": "Structured creative", "description": "Creative output emitted as structured JSON."},
-    {"id": "summary.grounded", "label": "Grounded summary", "description": "A faithful digest grounded in the source text."},
-    {"id": "extract.structured", "label": "Structured extraction", "description": "Extract facts / entities as structured JSON."},
-    {"id": "judge.scored", "label": "Judgment & scoring", "description": "Careful analysis and scored critique, emitted as JSON."},
-    {"id": "chat.grounded", "label": "Grounded chat", "description": "Q&A grounded in retrieved excerpts (RAG)."},
-    {"id": "chat.inVoice", "label": "In-character chat", "description": "First-person, in-voice answers from a character."},
-]
-
-
 # Runner config (was runner-manifest.json). The binary list + scalars are
 # imported from the runner package (ONE source of truth; the standalone runner
 # also reads them via runner.config.default_config) and seeded built_in.
@@ -466,6 +449,11 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
     {"key": "download_segment_count", "value": str(DEFAULT_DOWNLOAD_SEGMENT_COUNT)},
     {"key": "download_segment_min_bytes", "value": str(DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES)},
     {"key": "download_segment_retries", "value": str(DEFAULT_DOWNLOAD_SEGMENT_RETRIES)},
+    # Global default reasoning cap (U2-T2, 2026-07-14): the per-request thinking-budget
+    # ceiling for a LOCAL run when no tested per-(model, hardware-class) `reasoning_budget`
+    # tune exists (`seed.py` class tunes override it). Additive — an existing DB gains it
+    # at next boot (fill-empty seeder, never clobbers a user edit).
+    {"key": "reasoning_cap_default", "value": "8192"},
 ]
 
 # Knob catalog — metadata that turns a raw switch/sampler key into a friendly
@@ -526,8 +514,8 @@ DEFAULT_KNOBS: list[dict] = [
      "help": "Draft-model speculative decode. MTP GGUF only; gains are machine-dependent — measure. Values: none, draft-mtp, ngram-mod."},
     {"flag_name": "spec_n_max", "label": "Spec draft tokens", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many tokens the draft proposes per step."},
-    {"flag_name": "reasoning_budget", "label": "Thinking budget", "kind": "int", "plane": 1, "tier": "advanced",
-     "help": "Token budget for the model's thinking phase: -1 = unlimited, 0 = no thinking, a positive number caps it (the budget message is injected when it runs out)."},
+    {"flag_name": "reasoning_budget", "label": "Thinking cap (per-request, this hardware)", "kind": "int", "plane": 1, "tier": "advanced",
+     "help": "The most thinking tokens a LOCAL run will spend on this hardware (U2: no longer a launch flag). Stored as a per-(model, hardware-class) tune; the reasoning resolver reads it as the cap and every request is bounded by it. -1 = unlimited (falls back to the global default cap)."},
     {"flag_name": "reasoning_budget_message", "label": "Budget-exhausted message", "kind": "string", "plane": 1, "tier": "advanced",
      "help": "Text injected before the end-of-thinking tag when the thinking budget runs out. Avoid '#' — it starts a comment in the engine preset file."},
     # ── Plane 2 — per-request samplers: COMMON ──
@@ -616,6 +604,25 @@ def seed_default_providers(s) -> int:
     return added
 
 
+def seed_default_reasoning_map(s) -> int:
+    """Fill-if-missing reasoning_map rows for every provider, keyed by its type (U2-T2).
+    Additive — new providers/levels gain rows at boot; a user edit is never clobbered.
+    Runs AFTER seed_default_providers so it sees the pending-added defaults (same-session
+    autoflush). Operates on the passed session, no commit."""
+    from .reasoning_map_api import seed_rows_for_type
+    have = {(r.provider_id, r.level)
+            for r in s.query(db.ReasoningMap.provider_id, db.ReasoningMap.level).all()}
+    added = 0
+    for prov in s.query(db.LlmProvider).all():
+        for row in seed_rows_for_type(prov.provider_type):
+            if (prov.id, row.level) in have:
+                continue
+            s.add(db.ReasoningMap(provider_id=prov.id, level=row.level,
+                                  word=row.word or "", tokens=row.tokens, built_in=True))
+            added += 1
+    return added
+
+
 # Use-limited licenses (not free for unrestricted/commercial use) → the ⚠ badge.
 # This keyword match runs ONCE at seed time to populate the per-model `use_limited`
 # flag, which is then DB-stored + editable per-model — so there is NO hardcoded
@@ -626,6 +633,19 @@ _USE_LIMITED_TERMS = ("community", "research", "non-commercial", "noncommercial"
 def _use_limited(license_id: str) -> bool:
     lic = (license_id or "").lower()
     return any(t in lic for t in _USE_LIMITED_TERMS)
+
+
+# Reasoning-capable architectures (chat-template thinking) — a ONE-TIME seed helper (the
+# `_use_limited` precedent): it populates the editable per-model `thinking` flag at seed
+# time only; the flag is then DB-stored + user-editable and Read-from-HF NEVER touches it
+# (thinking is a chat-template property, not a GGUF header field — the DECREE-#143 parity
+# exception). An embedding row is always False regardless of arch (guarded in _catalog_row;
+# the qwen3 embeddings share the "qwen3" arch string with reasoning chat models).
+_REASONING_ARCHS = ("gemma4", "glm4moe", "qwen3", "qwen3moe", "qwen35moe")
+
+
+def _can_reason(architecture: str) -> bool:
+    return (architecture or "").lower() in _REASONING_ARCHS
 
 
 def _catalog_row(c: dict, *, built_in: bool) -> "db.ModelCatalog":
@@ -645,6 +665,10 @@ def _catalog_row(c: dict, *, built_in: bool) -> "db.ModelCatalog":
         min_vram_mb=c.get("min_vram_mb"), min_ram_mb=c.get("min_ram_mb"),
         tier=str(c.get("tier") or "mid"), license=str(c.get("license") or ""),
         use_limited=_use_limited(str(c.get("license") or "")), embedding=bool(c.get("embedding") or False),
+        # thinking (U2-T2): an explicit dict value wins; else a one-time arch heuristic,
+        # never True for an embedding row. Editable per-model afterward.
+        thinking=(bool(c["thinking"]) if "thinking" in c
+                  else (not bool(c.get("embedding") or False) and _can_reason(str(c.get("architecture") or "")))),
         pooling=str(c.get("pooling") or ""),
         quality_rank=int(c.get("quality_rank") or 100), description=str(c.get("description") or ""),
         notes=str(c.get("notes") or ""),
@@ -864,8 +888,8 @@ def seed_default_engine_presets(s) -> int:
         s.add(db.EnginePreset(
             id=p["id"], name=str(p.get("name") or ""), provider_id=str(p.get("provider_id") or ""),
             model=str(p.get("model") or ""), temperature=p.get("temperature"), top_p=p.get("top_p"),
-            max_tokens=int(p.get("max_tokens") or 0), json_mode=bool(p.get("json_mode") or False),
-            reasoning_effort=str(p.get("reasoning_effort") or ""),
+            max_tokens=int(p.get("max_tokens") or 0),
+            reasoning_effort=str(p.get("reasoning_effort") or ""), think=bool(p.get("think") or False),
             position=int(p.get("position") or 0), built_in=True))
         s.flush()  # parent in the DB before its FK children
         for pname, pval in (p.get("samplers") or {}).items():
@@ -874,51 +898,28 @@ def seed_default_engine_presets(s) -> int:
     return added
 
 
-def seed_default_taskkind_presets(s) -> int:
-    """Seed the built-in taskKind→preset assignments (the routing defaults, the
-    `TaskKindPreset` bulk handle). FK-safe: skip any assignment whose preset_id
-    isn't a known EnginePreset (seeded above or already in the DB). Per-app data via
-    `app_taskkind_presets()` (list of {task_kind, preset_id})."""
-    existing = {r.task_kind for r in s.query(db.TaskKindPreset.task_kind).all()}
+def seed_default_feature_presets(s) -> int:
+    """Seed the built-in per-ACTION preset refs (the one-source assignment,
+    `feature_preset_refs`) + the global `default_preset_id`. Merge-by-key,
+    fill-if-missing: a user's re-point of an action survives a reseed. FK-safe: skip a
+    ref whose preset_id isn't a known EnginePreset (seeded above or already in the DB).
+    Per-app data via `app_feature_presets()` (action → preset_id)."""
+    existing = {r.key for r in s.query(db.FeaturePresetRef.key).all()}
     valid = {p["id"] for p in app_engine_presets()} | {r.id for r in s.query(db.EnginePreset.id).all()}
     added = 0
-    for c in app_taskkind_presets():
-        if c["task_kind"] in existing or c["preset_id"] not in valid:
+    for action, preset_id in app_feature_presets().items():
+        if action in existing or preset_id not in valid:
             continue
-        s.add(db.TaskKindPreset(task_kind=c["task_kind"], preset_id=c["preset_id"]))
+        s.add(db.FeaturePresetRef(key=action, preset_id=preset_id))
         added += 1
-    return added
-
-
-def seed_default_task_kinds(s) -> int:
-    """Seed the shared built-in TASKS (the LLM-work buckets) into the user-editable
-    `task_kinds` table. App-agnostic — from the shared DEFAULT_TASK_KINDS, not per-app
-    data. Merge-by-id (skips existing), so a user's custom/renamed rows survive a
-    re-seed; built_in=True marks the defaults un-deletable in TaskKindStore."""
-    existing = {r.id for r in s.query(db.TaskKind.id).all()}
-    added = 0
-    for i, t in enumerate(DEFAULT_TASK_KINDS):
-        if t["id"] in existing:
-            continue
-        s.add(db.TaskKind(id=t["id"], label=str(t.get("label") or ""),
-                          description=str(t.get("description") or ""),
-                          position=int(t.get("position", i)), built_in=True))
-        added += 1
-    return added
-
-
-def seed_default_feature_task_kinds(s) -> int:
-    """Seed the host's action→task MAP into the user-editable `feature_task_kinds`
-    table (per-app data via `app_feature_task_kinds()`). Merge-by-key so a user's
-    reassignments survive a re-seed; an absent row falls back to the in-memory map in
-    `install._task_kind_of`, so routing is correct even if this seed is empty."""
-    existing = {r.key for r in s.query(db.FeatureTaskKind.key).all()}
-    added = 0
-    for key, tk in app_feature_task_kinds().items():
-        if key in existing or not tk:
-            continue
-        s.add(db.FeatureTaskKind(key=key, task_kind=tk))
-        added += 1
+    # The catch-all default preset — fill-if-empty (a user's default is never clobbered).
+    want = app_default_preset_id()
+    if want and want in valid:
+        row = s.get(db.RunnerSetting, "default_preset_id")
+        if row is None:
+            s.add(db.RunnerSetting(key="default_preset_id", value=want, built_in=True))
+        elif not (row.value or "").strip():
+            row.value = want
     return added
 
 
@@ -936,89 +937,50 @@ def restore_built_in_engine_presets(s) -> None:
     seed_default_engine_presets(s)
 
 
-def restore_built_in_task_defs(s) -> None:
-    """Overwrite each built-in task's label/description/position back to factory (from the
-    shared DEFAULT_TASK_KINDS). CUSTOM tasks are untouched. Position is the list index —
-    DEFAULT_TASK_KINDS rows carry no `position` key (`seed_default_task_kinds` derives it)."""
-    by_id = {t.id: t for t in s.query(db.TaskKind).filter(db.TaskKind.built_in.is_(True)).all()}
-    for i, t in enumerate(DEFAULT_TASK_KINDS):
-        row = by_id.get(t["id"])
-        if row is None:
-            continue  # a missing built-in is (re)added by seed_default_task_kinds
-        row.label = str(t.get("label") or "")
-        row.description = str(t.get("description") or "")
-        row.position = i
-
-
 def reset_routing_to_factory() -> None:
-    """Restore the AI routing config to factory (the Tasks page "Reset all to defaults"):
-    clear task→preset (`task_kind_presets`) + feature→task (`feature_task_kinds`) + the
-    per-feature preset overrides (`feature_preset_refs`, restored 2026-07-14), RESTORE the
-    built-in engine presets + built-in task label/desc, then re-seed the built-in tasks +
-    the app's factory action→task map + task→preset assignments. CUSTOM tasks + CUSTOM
-    presets are KEPT (the app's reset convention — see the model catalog / switch-preset
-    resets); only the built-ins + assignments snap back to defaults."""
+    """Restore the preset routing to factory (the Presets page 'Reset all'): clear the
+    per-action refs (`feature_preset_refs`) + the global default, RESTORE the built-in
+    engine presets, then re-seed the app's factory refs + default. CUSTOM presets are
+    KEPT (the app's reset convention — see the model catalog / switch-preset resets);
+    only the built-ins + assignments snap back to defaults."""
     s = db.session()
     try:
-        s.query(db.TaskKindPreset).delete()
-        s.query(db.FeatureTaskKind).delete()
-        s.query(db.FeaturePresetRef).delete()   # clear per-feature overrides (factory = no overrides)
+        s.query(db.FeaturePresetRef).delete()   # clear the per-action assignments
+        default = s.get(db.RunnerSetting, "default_preset_id")
+        if default is not None:
+            default.value = ""                  # cleared → re-seeded below from the app default
         s.flush()
-        restore_built_in_engine_presets(s)  # delete → flush → re-seed (custom kept)
-        restore_built_in_task_defs(s)       # overwrite built-in label/desc back to factory
-        seed_default_task_kinds(s)          # re-add any missing built-in tasks
-        seed_default_feature_task_kinds(s)  # the app's factory action→task map
-        seed_default_taskkind_presets(s)    # factory task→preset (FK-safe: presets restored first)
+        restore_built_in_engine_presets(s)      # delete → flush → re-seed (custom kept)
+        seed_default_feature_presets(s)         # factory action→preset refs + the default (FK-safe)
         s.commit()
     finally:
         s.close()
 
 
-def reset_task_to_factory(task_id: str) -> None:
-    """Reset ONE built-in task to factory: restore its label/description/position from
-    DEFAULT_TASK_KINDS + set its task→preset to the app's factory assignment + UNDO the
-    feature MOVES involving this task (QC-27, the user's "yes undo moves"): every feature
-    whose FACTORY task is this one comes back, and every feature moved INTO this one
-    re-floats to its own factory task — in both cases the row snaps to the app's factory
-    map (a feature with no factory entry is un-overridden entirely). Features whose moves
-    never touched this task are left alone. A CUSTOM task has no factory to reset to →
-    ValueError (the API maps it to 400). Edges: if the task has no factory preset entry,
-    or that preset was user-deleted, the task→preset row is CLEARED (falls back to the
-    global default) rather than left stale / FK-violating."""
-    factory = {t["id"]: (i, t) for i, t in enumerate(DEFAULT_TASK_KINDS)}
-    if task_id not in factory:
-        raise ValueError(f"{task_id!r} is not a built-in task")
-    pos, t = factory[task_id]
+def reset_preset_to_factory(preset_id: str) -> None:
+    """Reset ONE built-in engine preset to its factory config (name + params +
+    samplers), keeping its per-action assignments. A CUSTOM preset (not in the app's
+    built-in library) has no factory to reset to → ValueError (the API maps it to 400)."""
+    factory = {p["id"]: p for p in app_engine_presets()}
+    if preset_id not in factory:
+        raise ValueError(f"{preset_id!r} is not a built-in preset")
+    p = factory[preset_id]
     s = db.session()
     try:
-        row = s.get(db.TaskKind, task_id)
+        row = s.get(db.EnginePreset, preset_id)
         if row is None or not row.built_in:
-            raise ValueError(f"{task_id!r} is not a built-in task")
-        row.label = str(t.get("label") or "")
-        row.description = str(t.get("description") or "")
-        row.position = pos
-        # QC-27: undo the moves involving THIS task, both directions.
-        factory_map = app_feature_task_kinds()
-        for ftk in s.query(db.FeatureTaskKind).all():
-            involved = ftk.task_kind == task_id or factory_map.get(ftk.key) == task_id
-            if not involved:
-                continue
-            factory_tk = factory_map.get(ftk.key, "")
-            if factory_tk:
-                ftk.task_kind = factory_tk
-            else:
-                s.delete(ftk)  # no factory home → un-override (prefix/"" fallback)
-        factory_preset = {c["task_kind"]: c["preset_id"] for c in app_taskkind_presets()}.get(task_id, "")
-        valid = {r.id for r in s.query(db.EnginePreset.id).all()}
-        target = factory_preset if factory_preset in valid else ""
-        tkp = s.get(db.TaskKindPreset, task_id)
-        if not target:
-            if tkp is not None:
-                s.delete(tkp)          # no factory preset (or it was deleted) → fall back to default
-        elif tkp is None:
-            s.add(db.TaskKindPreset(task_kind=task_id, preset_id=target))
-        else:
-            tkp.preset_id = target
+            raise ValueError(f"{preset_id!r} is not a built-in preset")
+        row.name = str(p.get("name") or "")
+        row.provider_id = str(p.get("provider_id") or "")
+        row.model = str(p.get("model") or "")
+        row.temperature = p.get("temperature")
+        row.top_p = p.get("top_p")
+        row.max_tokens = int(p.get("max_tokens") or 0)
+        row.reasoning_effort = str(p.get("reasoning_effort") or "")
+        row.think = bool(p.get("think") or False)
+        s.query(db.EnginePresetSampler).filter(db.EnginePresetSampler.preset_id == preset_id).delete()
+        for pname, pval in (p.get("samplers") or {}).items():
+            s.add(db.EnginePresetSampler(preset_id=preset_id, param_name=pname, value=str(pval)))
         s.commit()
     finally:
         s.close()
@@ -1154,11 +1116,9 @@ def seed_default_feature_prompts(s) -> int:
             continue
         s.add(db.FeaturePrompt(
             key=key, feature=str(spec.get("feature") or key), system=str(spec.get("system") or ""),
-            user_template=str(spec.get("user_template") or ""), temperature=float(spec.get("temperature", 0.7)),
-            think=bool(spec.get("think", False)), built_in=True, max_tokens=int(spec.get("max_tokens", 0) or 0),
+            user_template=str(spec.get("user_template") or ""), built_in=True,
             json_mode=bool(spec.get("json_mode", False)),
-            json_schema=str(spec.get("json_schema") or ""), top_p=spec.get("top_p"),
-            reasoning_effort=str(spec.get("reasoning_effort", "") or ""),
+            json_schema=str(spec.get("json_schema") or ""),
             label=str(spec.get("label") or ""), description=str(spec.get("description") or ""),
             subgroup=str(spec.get("group") or ""),
         ))
@@ -1173,14 +1133,13 @@ def seed_llm(s=None) -> None:
         s = db.session()
     try:
         seed_default_providers(s)
+        seed_default_reasoning_map(s)  # after providers exist (same-session autoflush)
         seed_default_routing(s)
         seed_default_catalog(s)
         seed_default_pricing(s)
         seed_default_switch_presets(s)
         seed_default_engine_presets(s)
-        seed_default_task_kinds(s)
-        seed_default_feature_task_kinds(s)
-        seed_default_taskkind_presets(s)
+        seed_default_feature_presets(s)
         seed_default_runner_binaries(s)
         seed_default_runner_settings(s)
         seed_default_knobs(s)

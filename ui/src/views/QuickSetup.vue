@@ -12,15 +12,15 @@
 // offload, the embedding model (by the catalog `embedding` flag), and use-limited licenses.
 // The embedding is the catalog's embed model; it rides routing.default.
 //
-// Apply (the "task owns the preset" model — 2026-07-02 Plan A): the chosen model is
-// written onto every TASK PRESET (/v1/ai/engine-presets) that still points at the
-// PREVIOUS shared default — NON-CLOBBER: a task whose preset the user re-pointed on the
-// Tasks tab keeps its own model. Each preset keeps its per-task settings (top_p / json /
-// samplers); only `.model` changes. The embedding is set via /v1/ai/routing (pins kept);
-// then the chosen model is downloaded (if needed) + loaded as the active one.
+// Apply (the one-source preset model — 2026-07-15): the chosen model is written onto every
+// preset the features point at (/v1/ai/engine-presets) that still points at the PREVIOUS
+// shared default — NON-CLOBBER: a preset the user re-pointed on the Presets tab keeps its
+// own model. Each preset keeps its settings (top_p / samplers / reasoning); only `.model`
+// changes. The embedding is set via /v1/ai/routing; then the chosen model is downloaded
+// (if needed) + loaded as the active one.
 //
 // JustWrite mounts this kit view; JustVoice has its own (TTS) setup wizard. It replaces the
-// old jobs-based wiring (/v1/ai/jobs + a routing `jobs` map — both retired with taskKinds).
+// old jobs-based wiring (/v1/ai/jobs + a routing `jobs` map — both long retired).
 import { computed, onBeforeUnmount, ref } from "vue";
 
 import { request } from "../client.js";
@@ -552,7 +552,7 @@ defineExpose({ openWizard });
               <span class="lu-fit lu-qs-fit" :class="`lu-fit--${fitOf(pick.default)}`">{{ FIT_LABEL[fitOf(pick.default)] }}</span>
             </div>
             <UiSelect v-model="pick.default" :options="modelOptions" />
-            <p class="lu-muted lu-qs-hint">One good model runs every task — writing, chat, extraction, judgment. Per-task overrides live under Routing by task; this sets the shared default.</p>
+            <p class="lu-muted lu-qs-hint">One good model runs every feature — writing, chat, extraction, judgment. Per-feature overrides live under Presets; this sets the shared default.</p>
             <p v-if="descriptionOf(pick.default)" class="lu-qs-why">
               <b>About this model:</b> {{ descriptionOf(pick.default) }}
             </p>
@@ -573,7 +573,7 @@ defineExpose({ openWizard });
         <section class="lu-qs-sec lu-qs-routing">
           <div class="lu-qs-k">What happens when you click Apply</div>
           <ul class="lu-qs-rlist">
-            <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— becomes the model for every task, except any you've changed yourself under Routing by task.</span></li>
+            <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— becomes the model for every preset, except any you've changed yourself under Presets.</span></li>
             <li v-if="pick.default">It <b>downloads now</b> if it isn't already on disk, then loads as the active model.</li>
             <li v-if="pick.embeddingModel">Embedding set to <code>{{ embedName }}</code> — runs on the bundled runner, downloads on first search/index.</li>
             <li>Per-feature pins you've set stay as they are.</li>

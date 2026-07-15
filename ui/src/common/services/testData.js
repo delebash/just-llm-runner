@@ -14,7 +14,7 @@
 //   samples: [<sample labels>],   // which DB samples fit this action's contract
 // }
 // Every field is optional; an UNDECLARED action gets no pickers and no compose
-// button, and Sample cycles the whole taskKind — the freeform default and the
+// button, and Sample cycles the whole action's samples — the freeform default and the
 // fallback for hosts that haven't declared. Boot-config seam like
 // configureHelp/configureDialog/configureExternal.
 

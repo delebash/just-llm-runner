@@ -85,7 +85,7 @@ class LLMConfig:
         )
 
     A feature resolves: active production config → explicit pin → prefer-local →
-    first adapter. Engine presets (the taskKind → preset cascade) are resolved
+    first adapter. Engine presets (each action's preset ref → default) are resolved
     separately in `prompts._resolve_preset` and overlaid onto the call.
     """
 

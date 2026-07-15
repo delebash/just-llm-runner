@@ -36,7 +36,17 @@ from .schema import BinaryAsset, LlamacppSpec, RunnerConfig
 # so an EXISTING DB keeps its old `pinned_build` row — bump it in the UI (Settings
 # → AI → engine Binaries panel) or the row directly; this constant fixes fresh
 # installs and the panel's "reset to defaults".
-DEFAULT_PINNED_BUILD = "b9899"
+# b9899 → b9993 (2026-07-14, Unit 2 engine bump — user: "do the bump and do it all"):
+# reason = the per-request reasoning budget (b9982; the server reads request-body key
+# `reasoning_budget_tokens` in tools/server/server-common.cpp — semantics common/common.h:
+# -1 unlimited / 0 suppress / N>0 cap; the body value overrides the --reasoning-budget launch
+# flag unconditionally, no launch==-1 gate — verified from SOURCE this session), which lets the
+# built-in runner honor low/med/high locally, PLUS the b9986 chat-template reasoning-leak fix.
+# EVERY DEFAULT_BINARIES filename below was re-verified against b9993's real asset list
+# (`gh api releases/tags/b9993`) — all present (win cuda-12.4/13.3 + cudart, win hip-radeon,
+# win vulkan, macos-arm64, ubuntu rocm-7.2, ubuntu vulkan). Upstream latest was b10012 but
+# b9993 is the REVIEWED tag (docs/llama-cpp-watch.md, 2026-07-14) — bleeding-edge not chosen.
+DEFAULT_PINNED_BUILD = "b9993"
 
 # Reserve this much VRAM headroom when computing the GPU layer split.
 DEFAULT_SAFETY_MARGIN_MB = 1024

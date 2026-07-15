@@ -1,20 +1,17 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
 // FeatureLab — the shared "test + tune" pane for ONE action, extracted from
-// FeatureWorkbench (2026-07-02) so the Tasks page reuses it instead of copying the
-// wiring. Given an action + its prompt it builds the {{variables}} test input, loads
-// the action's long-tail samplers, and feeds <CompareStrip> N engine-config columns
-// you Run and Save as presets.
+// FeatureWorkbench (2026-07-02) so the Presets page reuses it instead of copying the
+// wiring. Given an action + its prompt it builds the {{variables}} test input and feeds
+// <CompareStrip> N engine-config columns you Run and Save as presets.
 //
-// State boundary (panel-decided): FeatureLab OWNS draft(prompt, read to run) + vars +
-// samplers + columnConfig + the CompareStrip. ROUTING stays in the PARENT — the pin
-// arrives as a prop and is a READ-ONLY seed for the column's model (the pin-edit
-// path was removed as vestigial; models persist via presets, not the routing pin), so
-// there is ONE routing source of truth. save-as / update-preset / delete-preset /
-// use-production are emitted; the parent decides the target — under Plan A that is always
-// a TASK preset (the feature's task in the Workbench, the selected task on the Tasks page).
-// NO LAUNCH SWITCHES here (§7.1, 2026-07-08): those live on the model — the column's
-// "Engine switches ↗" link opens Tune & measure.
+// State boundary: FeatureLab OWNS draft(prompt, read to run) + vars + columnConfig + the
+// CompareStrip. The column now seeds ENTIRELY from the PRODUCTION PRESET (2026-07-15,
+// one-source rewrite: the flattening trap dies structurally — the prompt row carries NO
+// tunables anymore; params live ONLY on the preset). save-as / update-preset /
+// delete-preset / use-production are emitted; the parent decides the target — a
+// per-feature ref (Workbench) or the page's own preset (Presets page). NO LAUNCH SWITCHES
+// here (§7.1): those live on the model — the column's "Engine switches" link opens Tune.
 import { computed, reactive, ref, watch } from "vue";
 
 import CompareStrip from "./CompareStrip.vue";
@@ -32,13 +29,15 @@ const props = defineProps({
   presets: { type: Array, default: () => [] },
   samplerCatalogList: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },
-  pin: { type: Object, default: null },         // the action's routing pin (parent-owned)
-  taskKind: { type: String, default: "" },      // the action's task — keys the DB samples (§7.3)
+  // The "Use for this <label>" button label + whether it shows. The Presets page mounts
+  // the tested preset AS the page's preset (assign-on-use is meaningless there) →
+  // showUseProduction=false; the Workbench assigns the FEATURE's ref.
+  assignLabel: { type: String, default: "feature" },
+  showUseProduction: { type: Boolean, default: true },
 });
 const emit = defineEmits(["use-production", "presets-changed"]);
 
 const draft = ref(null);       // editable copy of the prompt (ephemeral test edits)
-const samplerRows = ref([]);   // the action's long-tail samplers (Plane-2)
 const vars = reactive({});
 const varHint = "{{variables}}";
 
@@ -50,33 +49,24 @@ function buildVars() {
   if (!found.size) vars.user_content = vars.user_content || "";
 }
 
-async function loadSamplers(key) {
-  if (!key) { samplerRows.value = []; return; }
-  try {
-    const r = await request(`/v1/ai/feature-samplers?feature=${encodeURIComponent(key)}`);
-    samplerRows.value = (r.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue }));
-  } catch {
-    samplerRows.value = [];
-  }
-}
-
 function humanizeVar(k) {
   const s = String(k).replace(/[_-]+/g, " ").replace(/([a-z\d])([A-Z])/g, "$1 $2").trim().toLowerCase();
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : k;
 }
 
 // Save-as / delete / update a tested column as an ENGINE preset. FeatureLab owns the
-// /v1/ai/engine-presets calls (one source for both hosts) and emits the refreshed
-// list; the parent updates its `presets` ref. Where the tested preset is then USED
-// (the feature's task preset vs the selected task's preset — both task-grained under
-// Plan A) is the parent's call → `use-production`.
+// /v1/ai/engine-presets calls (one source for both hosts) and emits the refreshed list.
 function cfgToEnginePreset(name, cfg) {
   const num = (v) => (v === "" || v == null ? null : Number(v));
   return {
     name,
     providerId: cfg.pin?.providerId || "", model: cfg.pin?.model || "",
     temperature: num(cfg.temperature), topP: num(cfg.topP),
-    maxTokens: Number(cfg.maxTokens) || 0, jsonMode: !!cfg.jsonMode,
+    maxTokens: Number(cfg.maxTokens) || 0,
+    // The STORED reasoning pair (U2-T7): think on iff a level is picked (Off = off).
+    // NO jsonMode (2026-07-15): JSON is the ACTION's contract on the prompt row, never a
+    // preset field — a preset must never break a per-action parser.
+    think: (cfg.reasoningEffort || "") !== "",
     reasoningEffort: cfg.reasoningEffort || "",
     samplers: (cfg.samplers || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
   };
@@ -102,16 +92,13 @@ async function updatePreset(id, cfg) {
 
 // Reset the local test state whenever the parent selects a different action.
 watch(() => props.prompt, (p) => { draft.value = p ? { ...p } : null; buildVars(); }, { immediate: true });
-watch(() => props.action, (k) => { loadSamplers(k); }, { immediate: true });
 
 // ── Test data (§7.3, rebuilt per QC-35 2026-07-09): per-ACTION affordances ──
-// The host declares, per action, which pickers apply (each with its own
-// fill(id) built on the feature's OWN composer), whether a "From this book"
-// compose button exists (the book is the argument — the button runs the
-// feature's composer over the live project), and which DB sample labels fit
-// this action's prompt contract. An undeclared action gets no pickers/compose;
-// its Sample button cycles the whole taskKind (the freeform default).
-const samples = ref([]);       // this taskKind's DB samples
+// The host declares, per action, which pickers apply, whether a "From this book" compose
+// button exists, and which DB sample labels fit this action's prompt contract. An
+// undeclared action gets no pickers/compose; its Sample button cycles the whole action's
+// samples (the freeform default).
+const samples = ref([]);       // this action's DB samples
 const sampleIx = ref(0);       // the next sample the button fills
 const composing = ref(false);
 const sources = testDataSources();
@@ -119,28 +106,24 @@ const sourceById = Object.fromEntries(sources.map((s) => [s.id, s]));
 const sourceOptions = reactive({}); // source.id -> [{value,label}] (loaded on first need)
 
 const decl = computed(() => testDataAction(props.action));
-// Pickers the open action declares AND whose source exists in the registry.
 const pickers = computed(() =>
   (decl.value?.pickers || []).filter((p) => sourceById[p.source]));
-// Sample rows the declaration admits for THIS action (per the QC-35 sample
-// law each label maps to one prompt contract); undeclared → the whole kind.
 const actionSamples = computed(() => {
   const labels = decl.value?.samples;
   if (!Array.isArray(labels) || !labels.length) return samples.value;
   return samples.value.filter((s) => labels.includes(s.label));
 });
 
-watch(() => props.taskKind, async (kind) => {
+// Samples are per-ACTION now (2026-07-15: the task tier is gone — GET ?action=<key>).
+watch(() => props.action, async (key) => {
   samples.value = [];
   sampleIx.value = 0;
-  if (!kind) return;
+  if (!key) return;
   try {
-    samples.value = (await request(`/v1/ai/test-samples?taskKind=${encodeURIComponent(kind)}`)).rows || [];
+    samples.value = (await request(`/v1/ai/test-samples?action=${encodeURIComponent(key)}`)).rows || [];
   } catch { /* the button simply doesn't render */ }
 }, { immediate: true });
 
-// Load the option list for each source the open action's pickers reference
-// (lazily, once per source per mount — lists are cheap store reads).
 watch(pickers, (list) => {
   for (const p of list) {
     if (sourceOptions[p.source]) continue;
@@ -175,9 +158,6 @@ async function insertFrom(picker, id) {
     pushToast({ message: e?.message || "Couldn't load that item." });
   }
 }
-// "From this book" — run the feature's own composer over the live project.
-// A composer's honest refusal (e.g. "Need at least three chapters with
-// prose…") surfaces as the toast; the Sample button remains the thin-book path.
 async function composeFromBook() {
   const c = decl.value?.compose;
   if (!c || composing.value) return;
@@ -193,19 +173,26 @@ async function composeFromBook() {
   }
 }
 
-// The action's run-config SEED for <ConfigColumn>. Read-only: CompareStrip deep-clones
-// this into each column, so edits live on the column and reach us through the column's
-// save-as (not a write-back setter). `pin` is the feature's current routing pin, used
-// only to seed the column's model — persisting a chosen model is done via Save-as-preset
-// + assign ("Use for this task"), NOT via the routing pin.
+// The action's run-config SEED for <ConfigColumn>. The production preset is the LIVE
+// owner of EVERY tunable (2026-07-15). Not found (a fresh / unassigned action) → null,
+// and the column seeds blank (a run sends no tunables until the user sets them — provider
+// defaults apply; honest, never invented).
+const productionPreset = computed(
+  () => props.presets.find((p) => p.id === props.productionPresetId) || null,
+);
+
 const columnConfig = computed(() => {
-  const d = draft.value || {};
+  const d = draft.value || {};   // the prompt row: text + the JSON contract only
+  const p = productionPreset.value;
   return {
-    pin: props.pin,
+    pin: p?.providerId ? { providerId: p.providerId, model: p.model || "" } : null,
     system: d.system, userTemplate: d.userTemplate,
-    temperature: d.temperature, topP: d.topP, maxTokens: d.maxTokens,
-    reasoningEffort: d.think ? (d.reasoningEffort || "medium") : "",
-    jsonMode: d.jsonMode, samplers: samplerRows.value,
+    temperature: p?.temperature ?? "",
+    topP: p?.topP ?? "",
+    maxTokens: p?.maxTokens ?? 0,
+    reasoningEffort: p?.think ? (p.reasoningEffort || "") : "",
+    jsonMode: !!d.jsonMode,   // the ACTION's JSON contract (read-only badge in the column)
+    samplers: (p?.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
   };
 });
 </script>
@@ -215,15 +202,7 @@ const columnConfig = computed(() => {
     <div class="lu-fw-tune-h"><b>Tune presets</b><span class="lu-muted">run this feature's prompt on a test input · Save a column as a preset (it appears in the dropdowns)</span></div>
     <div class="lu-fw-testin">
       <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
-      <!-- Fill affordances — ONE row, all together (QC-24 layout stands). Only
-           what the open ACTION declares renders here (QC-35): its pickers, its
-           "From this book" compose button, and Sample over the declared rows;
-           the row simply doesn't render when nothing applies. -->
       <div v-if="pickers.length || decl?.compose || actionSamples.length" class="lu-fw-testin-fill">
-        <!-- v-if, not v-show: UiSelect's root is a Reka fragment, so v-show never
-             actually hid an empty source (a pre-existing console warn, fixed here). -->
-        <!-- (no class on UiSelect: its Reka fragment root drops attrs — a class
-             here never reaches the DOM; probes select .ui-select-trigger.) -->
         <template v-for="p in pickers" :key="p.source">
           <UiSelect v-if="(sourceOptions[p.source] || []).length > 1"
             :model-value="''" :options="sourceOptions[p.source] || []" width="name"
@@ -245,6 +224,7 @@ const columnConfig = computed(() => {
       :action="action" :base-config="columnConfig" :providers="providers"
       :sampler-catalog-list="samplerCatalogList"
       :vars="vars" :presets="presets" :production-preset-id="productionPresetId"
+      :assign-label="assignLabel" :show-use-production="showUseProduction"
       @save-as="saveAs"
       @update-preset="updatePreset"
       @delete-preset="delPreset"
@@ -259,8 +239,6 @@ const columnConfig = computed(() => {
 .lu-fw-tune-h .lu-muted { font-size: 11.5px; }
 .lu-fw-testin { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
 .lu-fw-testin-h { display: flex; align-items: baseline; gap: 10px; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
-/* QC-24: the fill affordances' own row — pickers + Sample together, never
-   wrapped into the header. */
 .lu-fw-testin-fill { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .lu-field { display: flex; flex-direction: column; gap: 5px; }
 .lu-field > label { font-size: 12px; color: var(--muted); }

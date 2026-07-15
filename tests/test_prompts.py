@@ -27,9 +27,8 @@ from llm_runner.llm.dispatch import set_ensure_local_model
 
 @pytest.fixture(autouse=True)
 def _isolated_storage():
-    # The /run path lazily reads feature_sampler_params via db.session(); without a
-    # configured store these tests fail in ISOLATION (they passed only because
-    # another test configured the global storage first). Per-test in-memory DB.
+    # The /run path resolves the preset via db.session() (resolve_feature_preset);
+    # without a configured store these tests fail in ISOLATION. Per-test in-memory DB.
     engine = sa.create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     db.LlmBase.metadata.create_all(engine)
     db.configure_storage(sessionmaker(bind=engine))
@@ -51,15 +50,11 @@ DEFAULTS = {
         "feature": "greet",
         "system": "You are {{role}}.",
         "user_template": "Hi {{name}}",
-        "temperature": 0.3,
-        "think": False,
     },
     "farewell": {
         "feature": "greet",  # two actions can share one routing feature
         "system": "You are {{role}}.",
         "user_template": "Bye {{name}}",
-        "temperature": 0.5,
-        "think": False,
     },
 }
 
@@ -72,8 +67,7 @@ class MemPromptStore:
         for key, spec in DEFAULTS.items():
             self._rows[key] = FeaturePromptRow(
                 key=key, feature=spec["feature"], system=spec["system"],
-                user_template=spec["user_template"], temperature=spec["temperature"],
-                think=spec["think"], built_in=True,
+                user_template=spec["user_template"], built_in=True,
             )
 
     def get(self, key):
@@ -102,7 +96,8 @@ class CaptureAdapter:
 
     def chat(self, messages, *, model=None, temperature=0.7, max_tokens=None,
              system=None, think=False, extra=None):
-        self.last = {"system": system, "user": messages[-1].content, "think": think, "extra": extra}
+        self.last = {"system": system, "user": messages[-1].content, "think": think,
+                     "extra": extra, "temperature": temperature}
         return LLMResponse(text="answer", model=model or self.default_model,
                            prompt_tokens=3, completion_tokens=7)
 
@@ -178,7 +173,6 @@ def test_edit_then_reset_roundtrip():
     # edit — a built-in key stays builtIn (so it can be reset)
     r = c.put("/v1/ai/prompts/greet", json={
         "system": "EDITED {{role}}", "userTemplate": "Yo {{name}}",
-        "temperature": 0.9, "think": True,
     })
     assert r.status_code == 200 and r.json()["builtIn"] is True
     assert store.get("greet").system == "EDITED {{role}}"
@@ -254,7 +248,6 @@ def test_edit_changes_what_run_sends():
     editor = _editor_client(store)
     editor.put("/v1/ai/prompts/greet", json={
         "system": "NEW {{role}}", "userTemplate": "CHANGED {{name}}",
-        "temperature": 0.3, "think": False,
     })
     c, adapter = _feature_client(store)
     c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "Sam", "role": "bot"}})
@@ -280,54 +273,74 @@ def test_stream_emits_sse_frames():
 
 
 def test_effective_think_guardrail_off_under_json():
-    """B3: a reasoning block corrupts strict JSON, so think is forced off whenever
-    json_mode is on (stored OR request override), even if think would be on."""
+    """B3: think comes from the PRESET; a reasoning block corrupts strict JSON, so it's
+    forced off whenever json_mode is on (the action's contract or a request override)."""
+    from llm_runner.llm.presets_api import EnginePresetRow
     from llm_runner.llm.prompts import RunRequest, _effective_think
 
-    def spec(think, json_mode):
-        return FeaturePromptRow(
-            key="f", feature="f", system="", user_template="", temperature=0.5,
-            think=think, json_mode=json_mode, built_in=True,
-        )
+    def spec(json_mode):
+        return FeaturePromptRow(key="f", feature="f", system="", user_template="",
+                                built_in=True, json_mode=json_mode)
+
+    def preset(think):
+        return EnginePresetRow(name="p", think=think)
 
     def req(think=None, jsonMode=None):
         return RunRequest(action="f", think=think, jsonMode=jsonMode)
 
-    assert _effective_think(spec(True, False), req()) is True          # think on, no json
-    assert _effective_think(spec(True, True), req()) is False          # stored json_mode → off
-    assert _effective_think(spec(True, False), req(jsonMode=True)) is False   # request json → off
-    assert _effective_think(spec(False, True), req(think=True)) is False      # guardrail beats override
-    assert _effective_think(spec(False, False), req()) is False        # think off → off
+    assert _effective_think(spec(False), req(), preset(True)) is True          # think on, no json
+    assert _effective_think(spec(True), req(), preset(True)) is False          # contract json_mode → off
+    assert _effective_think(spec(False), req(jsonMode=True), preset(True)) is False   # request json → off
+    assert _effective_think(spec(True), req(think=True), preset(False)) is False      # guardrail beats override
+    assert _effective_think(spec(False), req(), preset(False)) is False        # think off → off
 
 
 def test_run_uses_resolved_preset():
-    """The lab+preset model: with a `task_kind_of` wired + a preset assigned to the
-    action's taskKind, /run dispatches the PRESET's model + params (its top_p /
-    reasoning), not the prompt's. No preset / no task_kind_of → the legacy path is
-    unchanged (every other test runs make_feature_router without task_kind_of)."""
+    """The one-source model: with a preset assigned to the action (its ref), /run
+    dispatches the PRESET's model + params (temperature/top_p/reasoning/think), not the
+    prompt's — proving params-from-preset-only. No ref / no default → the no-preset route."""
     from llm_runner.llm import stores
     from llm_runner.llm.presets_api import EnginePresetRow
 
     p = stores.get_engine_preset_store().save(EnginePresetRow(
-        name="W", model="preset-model", temperature=0.2, topP=0.9, reasoningEffort="high",
+        name="W", model="preset-model", temperature=0.2, topP=0.9, reasoningEffort="high", think=True,
     ))
-    stores.get_task_kind_preset_store().set("prose.generate", p.id)
+    stores.get_feature_preset_ref_store().set("greet", p.id)
 
     get_llm_registry()._adapters = {}
     adapter = CaptureAdapter()
     get_llm_registry().register(adapter)
     app = FastAPI()
-    app.include_router(make_feature_router(
-        lambda: MemPromptStore(), lambda: LLMConfig(), task_kind_of=lambda key: "prose.generate",
-    ))
+    app.include_router(make_feature_router(lambda: MemPromptStore(), lambda: LLMConfig()))
     c = TestClient(app, raise_server_exceptions=False)
 
     r = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}})
     assert r.status_code == 200
     assert r.json()["model"] == "preset-model"               # the preset's model overrode the route
+    assert adapter.last["temperature"] == 0.2                # the preset's temperature
     assert adapter.last["extra"]["top_p"] == 0.9             # the preset's top_p flowed through
     assert adapter.last["extra"]["reasoning_effort"] == "high"
     assert adapter.last["think"] is True                     # reasoning on (no json) from the preset
+
+
+def test_run_no_preset_omits_temperature_and_reasoning():
+    """The no-preset rule (checker's live gate): an action with no ref AND no default
+    dispatches on the provider-default route — temperature is NOT sent (None, so the
+    adapter omits it — never a fabricated value), reasoning off, no tunables."""
+    c, adapter = _feature_client(MemPromptStore())   # no preset ref, no default seeded
+    r = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}})
+    assert r.status_code == 200
+    assert adapter.last["temperature"] is None       # omitted (no preset → provider default)
+    assert adapter.last["think"] is False            # reasoning off
+    assert adapter.last["extra"] is None             # no tunables sent
+
+
+def test_run_body_temperature_override_still_wins():
+    """A request temperature (writerAI 3-variation) is an ephemeral override even with
+    no preset — it reaches the adapter."""
+    c, adapter = _feature_client(MemPromptStore())
+    c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}, "temperature": 0.55})
+    assert adapter.last["temperature"] == 0.55
 
 
 def test_resolved_route_reports_the_preset():
@@ -339,24 +352,23 @@ def test_resolved_route_reports_the_preset():
     from llm_runner.llm.presets_api import EnginePresetRow
 
     p = stores.get_engine_preset_store().save(EnginePresetRow(name="Writer preset", model="preset-model"))
-    stores.get_task_kind_preset_store().set("prose.generate", p.id)
+    stores.get_feature_preset_ref_store().set("greet", p.id)
     get_llm_registry()._adapters = {}
     get_llm_registry().register(CaptureAdapter())
     app = FastAPI()
-    app.include_router(make_feature_router(
-        lambda: MemPromptStore(), lambda: LLMConfig(), task_kind_of=lambda key: "prose.generate",
-    ))
+    app.include_router(make_feature_router(lambda: MemPromptStore(), lambda: LLMConfig()))
     c = TestClient(app, raise_server_exceptions=False)
 
-    r = c.get("/v1/ai/resolved-route", params={"feature": "greet"})
+    r = c.get("/v1/ai/resolved-route", params={"feature": "greet", "action": "greet"})
     assert r.status_code == 200
     body = r.json()
     assert body["configured"] is True
     assert body["model"] == "preset-model"
     assert body["providerId"] == "fake"
-    assert body["taskKind"] == "prose.generate"
     assert body["presetId"] == p.id
     assert body["presetName"] == "Writer preset"
+    assert body["presetSource"] == "assigned"
+    assert "taskKind" not in body
 
     # Parity with the run path: /run dispatches the same model the chip shows.
     run = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}})
@@ -378,6 +390,19 @@ def test_resolved_route_without_preset_falls_to_dispatch():
     assert body["presetId"] == ""
 
 
+def test_resolved_route_override_params_win():
+    """The resolved-route override query params (providerId/model) mirror RunRequest —
+    a Lab column asks for ITS pinned route (the cap-hint pick), overriding the preset's.
+    The reported route is that override (its reasoning cap would be read from it)."""
+    c, adapter = _feature_client(MemPromptStore())
+    r = c.get("/v1/ai/resolved-route", params={"feature": "greet", "model": "override-model"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["model"] == "override-model"          # the override model, not the default
+    assert body["providerId"] == adapter.provider_id
+    assert body["cap"] is None                        # cloud/fake route → no local cap
+
+
 def test_resolved_route_unconfigured_is_honest():
     """Nothing registered → configured False + the actionable detail, never a
     500 — the chip renders the factory state instead of erroring."""
@@ -396,14 +421,12 @@ def _preset_sampler_app(samplers):
     from llm_runner.llm.presets_api import EnginePresetRow
 
     p = stores.get_engine_preset_store().save(EnginePresetRow(name="S", model="m", samplers=samplers))
-    stores.get_task_kind_preset_store().set("prose.generate", p.id)
+    stores.get_feature_preset_ref_store().set("greet", p.id)
     get_llm_registry()._adapters = {}
     adapter = CaptureAdapter()
     get_llm_registry().register(adapter)
     app = FastAPI()
-    app.include_router(make_feature_router(
-        lambda: MemPromptStore(), lambda: LLMConfig(), task_kind_of=lambda key: "prose.generate",
-    ))
+    app.include_router(make_feature_router(lambda: MemPromptStore(), lambda: LLMConfig()))
     return TestClient(app, raise_server_exceptions=False), adapter
 
 

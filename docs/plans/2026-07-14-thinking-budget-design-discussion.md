@@ -1,10 +1,18 @@
 # Thinking-budget design discussion — state save (2026-07-14, evening)
 
-**Status: OPEN DISCUSSION — no design locked, no code written. The user paused for
-the night and asked for progress to be saved. The next session picks up exactly
-here. Ground rules the user set and that govern the continuation: no rushing to a
-final design, no guessing, always verify in CODE (not documents, not memory), and
-the user steers the pace and the order of questions.**
+**⛔ SUPERSEDED (2026-07-14) — DECISION MADE. DO NOT USE THIS DOC FOR STATE; DO NOT
+RE-OPEN B vs C.** This was an open-discussion snapshot from the evening of 2026-07-14.
+The design was RESOLVED and the plan APPROVED the same day (user: *"i agree to your 5
+recs go"*) + a 3-lens rules-checker panel returned PASS. The local rule landed on
+`effective = min(level, hardware cap)` — what this doc called **candidate C**. The
+authoritative, current design + build plan is
+**`2026-07-14-feature-override-and-reasoning-plan.md`** (its ▶ NEXT SESSION / UNIT 2
+§U2-T1→T10 block is the exact instructions). This file is kept ONLY as history of how
+the decision was reached; nothing live should point here.
+
+---
+
+_(original open-discussion snapshot below, retained for history)_
 
 ## How this started
 

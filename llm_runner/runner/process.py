@@ -127,12 +127,13 @@ _VALUE_FLAGS = (
     ("parallel", "--parallel"),
     ("cache_reuse", "--cache-reuse"),
     ("model_draft", "--model-draft"),
-    ("reasoning_budget", "--reasoning-budget"),
-    # Free text with spaces is fine in BOTH renderers: argv passes it as one list
-    # token; the router .ini parser takes everything after "= " to end-of-line
-    # UNQUOTED (llama.cpp b9644 common/preset.cpp — quotes would be literal).
-    # Edge: a "#" inside the value starts an .ini comment — avoid it in messages.
-    ("reasoning_budget_message", "--reasoning-budget-message"),
+    # reasoning_budget + reasoning_budget_message launch flags RETIRED (U2-T4, 2026-07-14,
+    # decision 1a): the engine launches at its default (-1 = unlimited) and EVERY request
+    # carries the resolved per-request `reasoning_budget_tokens` from the ONE resolver
+    # (llm/reasoning.py). The pre-b9982 "request key honored only when launch == -1" gate is
+    # satisfied by construction; post-b9982 the request value wins anyway. The
+    # `reasoning_budget` VALUE lives on as DATA — the class-tune cap the resolver reads — it
+    # is simply no longer a launch flag. (The raw runner-API load fields stay untouched.)
 )
 
 

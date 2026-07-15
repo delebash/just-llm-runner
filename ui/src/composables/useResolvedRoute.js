@@ -7,8 +7,9 @@
 // JustVoice later) — the same one-cache-one-endpoint shape as
 // useProviderModels.
 //
-// Entries are the wire rows ({ providerId, model, taskKind, presetId,
-// presetName, configured, detail }); presentation (provider display name) is
+// Entries are the wire rows ({ providerId, model, presetId, presetName,
+// presetSource, think, level, reasoningWord, ask, cap, effective, capSource,
+// configured, detail }); presentation (provider display name) is
 // the consumer's job. In-memory session cache of a re-fetchable read; an
 // in-flight map coalesces concurrent ensures of the same key so a page of
 // chips costs one request per feature.
@@ -21,8 +22,9 @@
 // class); a first fix allow-listed three endpoint families and the checker
 // caught it re-creating the same drift ("forgot to add the endpoint to the
 // regex") while already missing two live route-changers (/v1/llm-providers
-// PATCH/DELETE mutates the registry resolved-route reads; /v1/ai/routing PUT
-// feeds resolve_pin). The kit client carries only AI/provider traffic and
+// PATCH/DELETE mutates the registry resolved-route reads; a preset/assignment
+// write — /v1/ai/engine-presets or /v1/ai/preset-assignments — repoints what a
+// run resolves to). The kit client carries only AI/provider traffic and
 // this cache is a handful of lazily-refilled rows, so any-write invalidation
 // is always correct at negligible cost. Mounted chips self-heal: their
 // watchEffect reads the reactive cache row, so the delete re-runs ensureRoute

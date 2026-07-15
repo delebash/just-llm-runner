@@ -12,24 +12,21 @@ preserves user-added rows (lazy-imports the shared `seed` to avoid an import cyc
 
 from __future__ import annotations
 
-import re
 import uuid
 
 from . import db
 from .class_tunes_api import ClassTuneConfig, ClassTuneFlag
 from .embed_templates_api import EmbedTemplateRow
-from .feature_presets_api import FeaturePreset
-from .feature_samplers_api import FeatureSamplerRow
 from .model_catalog_api import CatalogRow
 from .model_measurements_api import MeasurementFlag, MeasurementRow
 from .model_tunes_api import ModelTuneFlag
 from .pricing_api import PricingRow
+from .reasoning_map_api import REASONING_LEVELS, ReasoningLevelRow, seed_rows_for_type
 from .runner_config_api import EngineConfig, RunnerBinaryRow
 from .prompts import FeaturePromptRow
 from .switch_presets_api import PresetSwitchRow, SwitchPresetRow
 from .presets_api import EnginePresetRow, PresetFlagRow
-from .routing_api import FeaturePin, RoutingConfig, RoutingDefaults
-from .task_kinds_api import TaskKindRow
+from .routing_api import RoutingConfig, RoutingDefaults
 from .schema import LLMProviderConfig
 
 _ACTIVE_ID = "active"
@@ -78,19 +75,28 @@ class ProviderStore:
             _apply_provider(row, cfg)
             s.add(row)
             s.commit()
+            ptype = row.provider_type
         finally:
             s.close()
+        # U2-T2: fill the new provider's reasoning-map rows from its type (fill-if-missing).
+        _reasoning_map.seed_missing(cfg.id, seed_rows_for_type(ptype))
 
     def replace(self, provider_id: str, cfg: LLMProviderConfig) -> None:
         s = db.session()
+        ptype = ""
         try:
             row = s.get(db.LlmProvider, provider_id)
             if row is None:
                 return
             _apply_provider(row, cfg)  # id/built_in/kind/position immutable on edit
             s.commit()
+            ptype = row.provider_type
         finally:
             s.close()
+        # U2-T2: a type change adds any missing reasoning-map rows for the new type
+        # (fill-if-missing — existing rows + user edits untouched).
+        if ptype:
+            _reasoning_map.seed_missing(provider_id, seed_rows_for_type(ptype))
 
     def remove(self, provider_id: str) -> None:
         s = db.session()
@@ -104,33 +110,22 @@ class ProviderStore:
 
 
 # ── routing (default + explicit pins) ─────────────────────────────────────────
-def _row_to_routing(s, row: db.RoutingConfigRow) -> RoutingConfig:
-    pins = {
-        p.feature: FeaturePin(providerId=p.provider_id, model=p.model)
-        for p in s.query(db.RoutingPin).filter(db.RoutingPin.config_id == row.id).all()
-    }
+def _row_to_routing(row: db.RoutingConfigRow) -> RoutingConfig:
     return RoutingConfig(
         default=RoutingDefaults(
             llmId=row.default_llm_id, model=row.default_model,
             embeddingId=row.default_embedding_id, embeddingModel=row.default_embedding_model,
         ),
-        pins=pins,
     )
 
 
-def _apply_routing(s, row: db.RoutingConfigRow, cfg: RoutingConfig) -> None:
+def _apply_routing(row: db.RoutingConfigRow, cfg: RoutingConfig) -> None:
+    # The default LLM + embedding are the whole routing config now — the JW-path
+    # per-feature pins were removed 2026-07-15 (presets are the one source).
     row.default_llm_id = cfg.default.llmId
     row.default_model = cfg.default.model
     row.default_embedding_id = cfg.default.embeddingId
     row.default_embedding_model = cfg.default.embeddingModel
-    # Persist the (possibly new) config row before inserting its FK children
-    # (routing_pins) — the host session has autoflush off + FK on.
-    s.add(row)
-    s.flush()
-    s.query(db.RoutingPin).filter(db.RoutingPin.config_id == row.id).delete()
-    for feature, p in cfg.pins.items():
-        if p.providerId:  # explicit pin only
-            s.add(db.RoutingPin(config_id=row.id, feature=feature, provider_id=p.providerId, model=p.model))
 
 
 class RoutingStore:
@@ -138,7 +133,7 @@ class RoutingStore:
         s = db.session()
         try:
             row = s.get(db.RoutingConfigRow, _ACTIVE_ID)
-            return _row_to_routing(s, row) if row is not None else RoutingConfig()
+            return _row_to_routing(row) if row is not None else RoutingConfig()
         finally:
             s.close()
 
@@ -149,81 +144,7 @@ class RoutingStore:
             if row is None:
                 row = db.RoutingConfigRow(id=_ACTIVE_ID, is_active=True, position=0)
                 s.add(row)
-            _apply_routing(s, row, cfg)
-            s.commit()
-        finally:
-            s.close()
-
-
-# ── feature presets (Feature Workbench) ───────────────────────────────────────
-def _preset_to_wire(r: db.FeaturePreset) -> FeaturePreset:
-    return FeaturePreset(
-        id=r.id, action=r.action, name=r.name, active=r.is_active,
-        providerId=r.provider_id, model=r.model, system=r.system,
-        userTemplate=r.user_template, temperature=r.temperature, think=r.think,
-        maxTokens=r.max_tokens, jsonMode=r.json_mode,
-        topP=r.top_p, reasoningEffort=r.reasoning_effort,
-    )
-
-
-def _apply_preset(row: db.FeaturePreset, p: FeaturePreset) -> None:
-    row.action = p.action
-    row.name = p.name
-    row.provider_id = p.providerId
-    row.model = p.model
-    row.system = p.system
-    row.user_template = p.userTemplate
-    row.temperature = p.temperature
-    row.think = p.think
-    row.max_tokens = p.maxTokens
-    row.json_mode = p.jsonMode
-    row.top_p = p.topP
-    row.reasoning_effort = p.reasoningEffort
-
-
-class FeaturePresetStore:
-    def list_presets(self) -> list[FeaturePreset]:
-        s = db.session()
-        try:
-            return [_preset_to_wire(r) for r in s.query(db.FeaturePreset).order_by(db.FeaturePreset.action, db.FeaturePreset.position).all()]
-        finally:
-            s.close()
-
-    def save_preset(self, preset: FeaturePreset) -> FeaturePreset:
-        s = db.session()
-        try:
-            row = s.get(db.FeaturePreset, preset.id) if preset.id else None
-            if row is None:
-                row = db.FeaturePreset(id=preset.id or uuid.uuid4().hex[:12], is_active=False,
-                                       position=s.query(db.FeaturePreset).filter(db.FeaturePreset.action == preset.action).count())
-                _apply_preset(row, preset)
-                s.add(row)
-            else:
-                _apply_preset(row, preset)
-            s.commit()
-            return _preset_to_wire(row)
-        finally:
-            s.close()
-
-    def delete_preset(self, preset_id: str) -> None:
-        s = db.session()
-        try:
-            row = s.get(db.FeaturePreset, preset_id)
-            if row is not None:
-                s.delete(row)
-                s.commit()
-        finally:
-            s.close()
-
-    def set_active(self, preset_id: str) -> None:
-        s = db.session()
-        try:
-            row = s.get(db.FeaturePreset, preset_id)
-            if row is None:
-                return
-            for other in s.query(db.FeaturePreset).filter(db.FeaturePreset.action == row.action, db.FeaturePreset.is_active.is_(True)).all():
-                other.is_active = False
-            row.is_active = True
+            _apply_routing(row, cfg)
             s.commit()
         finally:
             s.close()
@@ -233,9 +154,7 @@ class FeaturePresetStore:
 def _prompt_to_row(r: db.FeaturePrompt) -> FeaturePromptRow:
     return FeaturePromptRow(
         key=r.key, feature=r.feature, system=r.system, user_template=r.user_template,
-        temperature=r.temperature, think=r.think, built_in=r.built_in,
-        max_tokens=r.max_tokens, json_mode=r.json_mode, json_schema=r.json_schema,
-        top_p=r.top_p, reasoning_effort=r.reasoning_effort,
+        built_in=r.built_in, json_mode=r.json_mode, json_schema=r.json_schema,
         label=r.label, description=r.description, group=r.subgroup,
     )
 
@@ -263,23 +182,15 @@ class PromptStore:
             if existing is None:
                 s.add(db.FeaturePrompt(
                     key=row.key, feature=row.feature, system=row.system, user_template=row.user_template,
-                    temperature=row.temperature, think=row.think, built_in=row.built_in,
-                    max_tokens=row.max_tokens, json_mode=row.json_mode,
-                    json_schema=row.json_schema, top_p=row.top_p,
-                    reasoning_effort=row.reasoning_effort,
+                    built_in=row.built_in, json_mode=row.json_mode, json_schema=row.json_schema,
                     label=row.label, description=row.description, subgroup=row.group,
                 ))
             else:
                 existing.feature = row.feature
                 existing.system = row.system
                 existing.user_template = row.user_template
-                existing.temperature = row.temperature
-                existing.think = row.think
-                existing.max_tokens = row.max_tokens
                 existing.json_mode = row.json_mode
                 existing.json_schema = row.json_schema
-                existing.top_p = row.top_p
-                existing.reasoning_effort = row.reasoning_effort
                 existing.label = row.label
                 existing.description = row.description
                 existing.subgroup = row.group
@@ -464,41 +375,6 @@ class ModelCatalogStore:
             s.close()
 
 
-class FeatureSamplerStore:
-    """Per-action long-tail sampler knobs (feature_sampler_params) — edited by the
-    lab via make_feature_samplers_router, merged into the per-call extra at dispatch."""
-
-    def list(self, key: str) -> list[FeatureSamplerRow]:
-        s = db.session()
-        try:
-            return [
-                FeatureSamplerRow(flagName=r.param_name, flagValue=r.value, builtIn=r.built_in)
-                for r in s.query(db.FeatureSamplerParam)
-                .filter(db.FeatureSamplerParam.key == key)
-                .order_by(db.FeatureSamplerParam.param_name)
-                .all()
-            ]
-        finally:
-            s.close()
-
-    def replace(self, key: str, samplers: list[FeatureSamplerRow]) -> list[FeatureSamplerRow]:
-        """Replace the whole sampler set for an action. The lab sends every row;
-        empty-named rows are dropped."""
-        s = db.session()
-        try:
-            s.query(db.FeatureSamplerParam).filter(db.FeatureSamplerParam.key == key).delete()
-            for sp in samplers:
-                if not (sp.flagName or "").strip():
-                    continue
-                s.add(db.FeatureSamplerParam(
-                    key=key, param_name=sp.flagName.strip(), value=sp.flagValue or "", built_in=False,
-                ))
-            s.commit()
-        finally:
-            s.close()
-        return self.list(key)
-
-
 # ── capability/type switch presets (base/moe/dense) ───────────────────────────
 def _switch_preset_to_wire(p: db.SwitchPreset, switches: list[db.PresetSwitch]) -> SwitchPresetRow:
     return SwitchPresetRow(
@@ -574,14 +450,14 @@ class SwitchPresetStore:
 
 # ── engine presets (the 2026-06-29 lab+preset model, narrowed §7.1 2026-07-08:
 # model + per-request params + samplers — NO launch switches; those are owned by
-# the model × machine tune stack in `switch_resolve`). Assigned by TASKKIND
-# (TaskKindPreset), with TaskKindPreset[""] as the global default (2026-07-02: no
-# per-feature override tier). ──
+# the model × machine tune stack in `switch_resolve`). Assigned per-ACTION via
+# `feature_preset_refs`, with the `default_preset_id` RunnerSetting as the global
+# default (2026-07-15: the task tier is gone — the preset is the one source). ──
 def _engine_preset_to_wire(p, samplers) -> EnginePresetRow:
     return EnginePresetRow(
         id=p.id, name=p.name, providerId=p.provider_id, model=p.model,
         temperature=p.temperature, topP=p.top_p, maxTokens=p.max_tokens,
-        jsonMode=p.json_mode, reasoningEffort=p.reasoning_effort,
+        reasoningEffort=p.reasoning_effort, think=p.think,
         samplers=[PresetFlagRow(flagName=x.param_name, flagValue=x.value) for x in samplers],
         builtIn=p.built_in, position=p.position,
     )
@@ -593,7 +469,7 @@ def _delete_engine_preset_rows(s, ids) -> None:
     runner's own reset path runs with FK enforcement off). ONE teardown path, shared by
     EnginePresetStore.delete + seed.restore_built_in_engine_presets. Also drops any
     per-feature OVERRIDE (`feature_preset_refs`) pointing at a deleted preset so the
-    feature re-inherits its taskKind's preset rather than stranding on a dangling id
+    feature falls to the default preset rather than stranding on a dangling id
     (restored 2026-07-14; the resolver also falls through defensively)."""
     ids = [i for i in ids if i]
     if not ids:
@@ -634,8 +510,8 @@ class EnginePresetStore:
             row.temperature = preset.temperature
             row.top_p = preset.topP
             row.max_tokens = preset.maxTokens
-            row.json_mode = preset.jsonMode
             row.reasoning_effort = preset.reasoningEffort
+            row.think = preset.think
             s.query(db.EnginePresetSampler).filter(db.EnginePresetSampler.preset_id == pid).delete()
             for x in preset.samplers:
                 if not (x.flagName or "").strip():
@@ -656,34 +532,10 @@ class EnginePresetStore:
             s.close()
 
 
-class TaskKindPresetStore:
-    def list(self) -> dict[str, str]:
-        s = db.session()
-        try:
-            return {r.task_kind: r.preset_id for r in s.query(db.TaskKindPreset).all()}
-        finally:
-            s.close()
-
-    def set(self, task_kind: str, preset_id: str) -> None:
-        s = db.session()
-        try:
-            row = s.get(db.TaskKindPreset, task_kind)
-            if not preset_id:
-                if row is not None:
-                    s.delete(row)
-            elif row is None:
-                s.add(db.TaskKindPreset(task_kind=task_kind, preset_id=preset_id))
-            else:
-                row.preset_id = preset_id
-            s.commit()
-        finally:
-            s.close()
-
-
 class FeaturePresetRefStore:
-    """The per-feature preset OVERRIDE store (the top tier of the 3-tier cascade;
-    restored 2026-07-14, recovered verbatim from 46cf11a^). Keyed by ACTION id;
-    "" clears the override so the feature re-inherits its taskKind's preset."""
+    """The per-ACTION preset assignment store (`feature_preset_refs`) — THE one
+    source of what an action runs (2026-07-15). Keyed by ACTION id; "" clears the
+    row so the action falls to the global default preset."""
 
     def list(self) -> dict[str, str]:
         s = db.session()
@@ -708,105 +560,8 @@ class FeaturePresetRefStore:
             s.close()
 
 
-def _slugify_task(label: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", ".", (label or "").strip().lower()).strip(".")
-    if not s:
-        return "task"
-    # "feature" is a reserved id: PUT /task-kinds/feature is a literal route that would
-    # shadow PUT /task-kinds/{id}, so a task with that id could never be renamed.
-    return "feature.task" if s == "feature" else s
-
-
-def _task_kind_to_wire(r: db.TaskKind) -> TaskKindRow:
-    return TaskKindRow(id=r.id, label=r.label, description=r.description, position=r.position, builtIn=r.built_in)
-
-
-class TaskKindStore:
-    """The user-editable TASK catalog (`db.TaskKind`). Seeded with the shared built-in
-    nine; users create / rename / delete CUSTOM tasks. Built-ins are protected from
-    delete; a custom delete cascades cleanup across the SOFT-referencing tables (no FK)."""
-
-    def list(self) -> list[TaskKindRow]:
-        s = db.session()
-        try:
-            return [_task_kind_to_wire(r) for r in s.query(db.TaskKind).order_by(db.TaskKind.position, db.TaskKind.id).all()]
-        finally:
-            s.close()
-
-    def upsert(self, row: TaskKindRow) -> TaskKindRow:
-        s = db.session()
-        try:
-            tid = (row.id or "").strip()
-            if not tid:
-                # new: derive a stable id from the label; suffix on collision, never clobber.
-                base = _slugify_task(row.label)
-                tid = base
-                n = 2
-                while s.get(db.TaskKind, tid) is not None:
-                    tid = f"{base}-{n}"
-                    n += 1
-            existing = s.get(db.TaskKind, tid)
-            if existing is None:
-                existing = db.TaskKind(id=tid, position=s.query(db.TaskKind).count())
-                s.add(existing)
-            existing.label = row.label
-            existing.description = row.description or ""
-            if row.position:
-                existing.position = row.position
-            # built_in is set only by the seeder; upsert never promotes/demotes it.
-            s.commit()
-            return _task_kind_to_wire(existing)
-        finally:
-            s.close()
-
-    def delete(self, task_id: str) -> None:
-        s = db.session()
-        try:
-            row = s.get(db.TaskKind, task_id)
-            if row is None:
-                return
-            if row.built_in:
-                raise ValueError("cannot delete a built-in task")
-            # cascade cleanup across every SOFT reference (no FK to task_kinds): its
-            # preset assignment + every feature assigned to it.
-            s.query(db.TaskKindPreset).filter(db.TaskKindPreset.task_kind == task_id).delete()
-            s.query(db.FeatureTaskKind).filter(db.FeatureTaskKind.task_kind == task_id).delete()
-            s.delete(row)
-            s.commit()
-        finally:
-            s.close()
-
-
-class FeatureTaskKindStore:
-    """feature/action key → its task (the user-editable reassignment layer). "" clears
-    the row → the feature re-floats to its factory task via `install._task_kind_of`."""
-
-    def list(self) -> dict[str, str]:
-        s = db.session()
-        try:
-            return {r.key: r.task_kind for r in s.query(db.FeatureTaskKind).all()}
-        finally:
-            s.close()
-
-    def set(self, feature_key: str, task_kind: str) -> None:
-        s = db.session()
-        try:
-            row = s.get(db.FeatureTaskKind, feature_key)
-            if not task_kind:
-                if row is not None:
-                    s.delete(row)
-            elif row is None:
-                s.add(db.FeatureTaskKind(key=feature_key, task_kind=task_kind))
-            else:
-                row.task_kind = task_kind
-            s.commit()
-        finally:
-            s.close()
-
-
 _provider = ProviderStore()
 _routing = RoutingStore()
-_feature_preset = FeaturePresetStore()
 _prompt = PromptStore()
 def _pricing_to_wire(r: db.ModelPricing) -> PricingRow:
     return PricingRow(modelId=r.model_id, inputPerM=r.input_per_m, outputPerM=r.output_per_m)
@@ -851,6 +606,61 @@ class PricingStore:
             existing = s.get(db.ModelPricing, (model_id or "").strip().lower())
             if existing is not None:
                 s.delete(existing)
+                s.commit()
+        finally:
+            s.close()
+
+
+def _reasoning_map_to_wire(r: db.ReasoningMap) -> ReasoningLevelRow:
+    return ReasoningLevelRow(level=r.level, word=r.word, tokens=r.tokens)
+
+
+class ReasoningMapStore:
+    """Per-provider reasoning level→value rows (U2-T2). Read by the resolver
+    (`llm/reasoning.py`) + the /v1/ai/reasoning-map CRUD; seeded per provider TYPE,
+    fill-if-missing per instance (never clobbers a user edit)."""
+
+    _ORDER = {lvl: i for i, lvl in enumerate(REASONING_LEVELS)}
+
+    def for_provider(self, provider_id: str) -> list[ReasoningLevelRow]:
+        s = db.session()
+        try:
+            rows = s.query(db.ReasoningMap).filter(db.ReasoningMap.provider_id == provider_id).all()
+            return [_reasoning_map_to_wire(r) for r in sorted(rows, key=lambda r: self._ORDER.get(r.level, 99))]
+        finally:
+            s.close()
+
+    def map_for(self, provider_id: str) -> dict[str, ReasoningLevelRow]:
+        """level → row, for the resolver's lookup."""
+        return {r.level: r for r in self.for_provider(provider_id)}
+
+    def upsert(self, provider_id: str, row: ReasoningLevelRow) -> None:
+        s = db.session()
+        try:
+            existing = s.get(db.ReasoningMap, (provider_id, row.level))
+            if existing is None:
+                existing = db.ReasoningMap(provider_id=provider_id, level=row.level)
+                s.add(existing)
+            existing.word = row.word or ""
+            existing.tokens = row.tokens
+            s.commit()
+        finally:
+            s.close()
+
+    def seed_missing(self, provider_id: str, rows: list[ReasoningLevelRow]) -> None:
+        """Fill-if-missing: insert a (provider, level) row only when absent — never
+        clobber a user edit. Called at seed + on provider create."""
+        s = db.session()
+        try:
+            have = {r[0] for r in s.query(db.ReasoningMap.level).filter(db.ReasoningMap.provider_id == provider_id).all()}
+            changed = False
+            for row in rows:
+                if row.level in have:
+                    continue
+                s.add(db.ReasoningMap(provider_id=provider_id, level=row.level,
+                                      word=row.word or "", tokens=row.tokens, built_in=True))
+                changed = True
+            if changed:
                 s.commit()
         finally:
             s.close()
@@ -1031,15 +841,12 @@ class RunnerConfigStore:
 
 _model_catalog = ModelCatalogStore()
 _pricing = PricingStore()
+_reasoning_map = ReasoningMapStore()
 _embed_template = EmbedTemplateStore()
 _runner_config = RunnerConfigStore()
 _switch_preset = SwitchPresetStore()
-_feature_sampler = FeatureSamplerStore()
 _engine_preset = EnginePresetStore()
-_task_kind_preset = TaskKindPresetStore()
 _feature_preset_ref = FeaturePresetRefStore()
-_task_kind = TaskKindStore()
-_feature_task_kind = FeatureTaskKindStore()
 
 
 class ModelTuneStore:
@@ -1194,9 +1001,10 @@ _class_tune = ClassTuneStore()
 
 
 class TestSampleStore:
-    """Canned Lab test samples (§7.3): list by taskKind (or all); upsert/delete
-    for editability; `seed_fill` inserts only where (task_kind, label) is absent
-    so edited/deleted-then-reseeded rows behave like every other seeder."""
+    """Canned Lab test samples (§7.3): list by ACTION (or all); upsert/delete for
+    editability; `seed_fill` inserts only where (action_key, label) is absent so
+    edited/deleted-then-reseeded rows behave like every other seeder. A host authors
+    each blob ONCE and lists its sibling ACTIONS (the fan-out below) — no copy-paste."""
 
     def _vars_for(self, s, ids: list[int]) -> dict[int, dict[str, str]]:
         out: dict[int, dict[str, str]] = {}
@@ -1205,30 +1013,30 @@ class TestSampleStore:
                 out.setdefault(v.sample_id, {})[v.name] = v.value
         return out
 
-    def list_for_kind(self, task_kind: str = "") -> list[dict]:
+    def list_for_action(self, action: str = "") -> list[dict]:
         s = db.session()
         try:
             q = s.query(db.TestSample)
-            if task_kind:
-                q = q.filter(db.TestSample.task_kind == task_kind)
+            if action:
+                q = q.filter(db.TestSample.action_key == action)
             samples = q.order_by(db.TestSample.position, db.TestSample.id).all()
             vars_by = self._vars_for(s, [x.id for x in samples])
-            return [{"id": x.id, "taskKind": x.task_kind, "label": x.label,
+            return [{"id": x.id, "action": x.action_key, "label": x.label,
                      "variables": vars_by.get(x.id, {})} for x in samples]
         finally:
             s.close()
 
-    def upsert(self, task_kind: str, label: str, variables: dict[str, str],
+    def upsert(self, action: str, label: str, variables: dict[str, str],
                sample_id: int | None = None) -> int:
         s = db.session()
         try:
             row = s.get(db.TestSample, sample_id) if sample_id else None
             if row is None:
-                row = db.TestSample(task_kind=task_kind, label=label)
+                row = db.TestSample(action_key=action, label=label)
                 s.add(row)
                 s.flush()
             else:
-                row.task_kind = task_kind
+                row.action_key = action
                 row.label = label
                 s.query(db.TestSampleVar).filter(db.TestSampleVar.sample_id == row.id).delete()
             for name, value in (variables or {}).items():
@@ -1250,27 +1058,39 @@ class TestSampleStore:
             s.close()
 
     def seed_fill(self, s, rows: list[dict]) -> int:
-        """Insert missing (task_kind, label) samples on the GIVEN session (the
-        seed_llm transaction); returns how many were added."""
+        """Insert missing (action_key, label) samples on the GIVEN session. Each host
+        row authors ONE blob and fans it to its sibling actions: `actions` (a list) — or
+        a single `action` — names every action the blob seeds, so a shape shared by N
+        actions is written once, not copied N times. Returns how many rows were added."""
         added = 0
-        for i, r in enumerate(rows or []):
-            kind = (r.get("taskKind") or "").strip()
+        pos = 0
+        for r in rows or []:
             label = (r.get("label") or "").strip()
-            if not kind or not label:
+            variables = r.get("variables") or {}
+            actions = r.get("actions")
+            if actions is None:
+                one = (r.get("action") or "").strip()
+                actions = [one] if one else []
+            if not label:
                 continue
-            exists = s.query(db.TestSample).filter(
-                db.TestSample.task_kind == kind, db.TestSample.label == label
-            ).first()
-            if exists:
-                continue
-            row = db.TestSample(task_kind=kind, label=label, position=i)
-            s.add(row)
-            s.flush()
-            for name, value in (r.get("variables") or {}).items():
-                n = (name or "").strip()
-                if n:
-                    s.add(db.TestSampleVar(sample_id=row.id, name=n, value=value or ""))
-            added += 1
+            for action in actions:
+                a = (action or "").strip()
+                if not a:
+                    continue
+                exists = s.query(db.TestSample).filter(
+                    db.TestSample.action_key == a, db.TestSample.label == label
+                ).first()
+                if exists:
+                    continue
+                row = db.TestSample(action_key=a, label=label, position=pos)
+                pos += 1
+                s.add(row)
+                s.flush()
+                for name, value in variables.items():
+                    n = (name or "").strip()
+                    if n:
+                        s.add(db.TestSampleVar(sample_id=row.id, name=n, value=value or ""))
+                added += 1
         return added
 
 
@@ -1365,8 +1185,32 @@ _model_measurement = ModelMeasurementStore()
 
 def get_provider_store() -> ProviderStore: return _provider
 def get_routing_store() -> RoutingStore: return _routing
-def get_feature_preset_store() -> FeaturePresetStore: return _feature_preset
 def get_prompt_store() -> PromptStore: return _prompt
+
+
+# The global default engine preset — the one catch-all for an action with no ref.
+# Stored as a RunnerSetting scalar (relocated 2026-07-15 from the deleted
+# TaskKindPreset[""] row; the reasoning_cap_default precedent).
+def get_default_preset_id() -> str:
+    s = db.session()
+    try:
+        row = s.get(db.RunnerSetting, "default_preset_id")
+        return row.value if row is not None else ""
+    finally:
+        s.close()
+
+
+def set_default_preset_id(preset_id: str) -> None:
+    s = db.session()
+    try:
+        row = s.get(db.RunnerSetting, "default_preset_id")
+        if row is None:
+            row = db.RunnerSetting(key="default_preset_id", built_in=False)
+            s.add(row)
+        row.value = preset_id or ""
+        s.commit()
+    finally:
+        s.close()
 def get_model_catalog_store() -> ModelCatalogStore: return _model_catalog
 
 
@@ -1380,15 +1224,12 @@ def list_class_picks() -> list[dict]:
     finally:
         s.close()
 def get_pricing_store() -> PricingStore: return _pricing
+def get_reasoning_map_store() -> ReasoningMapStore: return _reasoning_map
 def get_embed_template_store() -> EmbedTemplateStore: return _embed_template
 def get_runner_config_store() -> RunnerConfigStore: return _runner_config
 def get_switch_preset_store() -> SwitchPresetStore: return _switch_preset
-def get_feature_sampler_store() -> FeatureSamplerStore: return _feature_sampler
 def get_engine_preset_store() -> EnginePresetStore: return _engine_preset
-def get_task_kind_preset_store() -> TaskKindPresetStore: return _task_kind_preset
 def get_feature_preset_ref_store() -> FeaturePresetRefStore: return _feature_preset_ref
-def get_task_kind_store() -> TaskKindStore: return _task_kind
-def get_feature_task_kind_store() -> FeatureTaskKindStore: return _feature_task_kind
 def get_model_tune_store() -> ModelTuneStore: return _model_tune
 def get_class_tune_store() -> ClassTuneStore: return _class_tune
 def get_model_measurement_store() -> ModelMeasurementStore: return _model_measurement

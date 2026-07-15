@@ -29,7 +29,10 @@ infra, bypassing that github proxy — so the review CAN run from this environme
 
 ## Current state
 
-- **Pinned build:** `b9899` — `llm_runner/runner/config.py:39` (`DEFAULT_PINNED_BUILD`).
+- **Pinned build:** `b9993` — `llm_runner/runner/config.py:39` (`DEFAULT_PINNED_BUILD`).
+  Bumped from `b9899` on 2026-07-14 (Unit 2 engine bump; every `DEFAULT_BINARIES` filename
+  re-verified against b9993's real asset list via `gh api releases/tags/b9993`). Upstream
+  latest at the bump was `b10012` (unreviewed — b9993 chosen deliberately).
 - **In-app binary-bump check already exists** (separate from this ledger): the app,
   running on the user's box, calls `_fetch_latest_llamacpp_tag()`
   (`llm_runner/runner/lifecycle.py:296-306` → `releases/latest`) and `update_check`
@@ -51,6 +54,16 @@ Verified against upstream builds in code (so a reviewer knows what's already ado
 - **Sampler order** — our `DEFAULT_SAMPLER_ORDER` tracks llama.cpp's 9-name set
   (penalties + `top_n_sigma` included).
 - Build-tag parsing (`"b9929" → 9929`): `llm_runner/runner/binary.py:101`.
+- **b9982 (adopted at the b9993 bump, 2026-07-14)** — per-request reasoning budget. The
+  server chat endpoint reads request-body key **`reasoning_budget_tokens`** (alias
+  `thinking_budget_tokens`), grepped from source `tools/server/server-common.cpp`
+  (`int reasoning_budget = json_value(body, "reasoning_budget_tokens", …)`). Semantics
+  (`common/common.h`): `-1` = unlimited/disabled, `0` = suppress thinking, `N>0` = cap at N
+  tokens. The body value OVERRIDES the `--reasoning-budget` launch flag unconditionally (no
+  `launch==-1` gate — `tests/test-chat.cpp::test_reasoning_budget_tokens_per_request`). This
+  is the key **U2-T5** emits so the built-in runner honors low/med/high; our launch profile
+  stops emitting `--reasoning-budget` (leaves the engine default -1) and sends the resolved
+  number per request.
 
 ## Review checklist (run every review)
 
@@ -121,5 +134,6 @@ b9911 (NVFP4), b9937 · AMD Vulkan b9932 (GCN FA), b9929 (small GPUs) · Intel S
 | Date reviewed | `since` tag | Latest tag seen | New builds | Relevant? | Action |
 |---|---|---|---|---|---|
 | 2026-07-14 | b9899 (pin) | b9993 | b9900–b9993 (releases pp.1–10) | Yes | Full review done via WebFetch. Candidates recorded above; nothing forces a change. Top flag: engine bump b9899→b9993 (awaits box test + your word). |
+| 2026-07-14 | b9993 | b10012 | — | — | **Engine bump EXECUTED** b9899→b9993 (Unit 2, user "do the bump and do it all"): adoption candidates #1 (bump) + #2 (per-request reasoning-budget key `reasoning_budget_tokens`, grepped from source) taken; assets re-verified via `gh api releases/tags/b9993`. Upstream latest = b10012 (unreviewed; b9993 chosen deliberately). Box test (b9993 download + model load + a local High chat watching thinking stop at the cap) = the Unit-2 acceptance step. |
 
-**Last reviewed:** `b9993` · 2026-07-14.
+**Last reviewed:** `b9993` · 2026-07-14 (pin now b9993).

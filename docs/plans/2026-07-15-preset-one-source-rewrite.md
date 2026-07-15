@@ -60,6 +60,42 @@ rewrite; the smoke never caught it because it ran against the allowlisted dev or
 headless smoke zero JS errors (only the pre-existing `jscpd` threshold red) · presets-probe
 **31/31** · biome clean · **screenshots reviewed by me before calling it done.**
 
+### QUICKSETUP FOLLOW-ON (2026-07-15, same day)
+
+After the correction above the user drove Quick Setup on their box and asked for a genuine
+PARALLEL-download experience — verbatim: *"why cant we have two progress bars with downloads
+running in parrallel? cancel or restart on both, just like it is in the progress bar in the
+models download"* and *"you have to download the main model if it is not downloaded so you can
+run both downloads at same time, if main is already downloaded it still need to load its
+weights and we can show progress bar of downloading embed"*, plus earlier: friendlier words
+(not "model weights") and the embed must ACTUALLY download during Apply. Built to this
+user-decided design (kit `ui/src/views/QuickSetup.vue`): the apply step now shows **two
+independent reactive bars** (`chatBar`/`embedBar`) fired together via `Promise.all` — the chat
+model on the LOAD channel (`/load`+`/status`, download then spawn into VRAM) and the embedding
+on the DOWNLOAD-ONLY channel (`/download`+`/download/status`, no VRAM, which
+`lifecycle.download()` states can proceed while another model is loaded). Each bar carries its
+own **Cancel** (`/stop` · `/download/cancel` — state flips first so the poll loop exits at
+once, the partial blob stays cached, Retry resumes from it) and **Retry**; `friendlyPhase`
+replaces the raw engine `detail` with plain words; the embed is downloaded DURING Apply, no
+longer deferred to first search. **The rethink fix:** a successful chat Retry must call the
+extracted `finishApply()` so the wizard advances to the done step — without it the user
+retries, it works, and the modal stays stuck on the apply step forever (`retryChat` guards on
+`chatBar.state === "done" && step === "apply"`). The modal's `:closable` now opens whenever
+nothing is running (`!optRunning && chatBar.state !== 'running' && embedBar.state !== 'running'`)
+— cancellable parallel bars must never trap the user. The old single-bar state
+(`applyStage`/`applyPhase`/`resetBar`) + `pollLoad`/`pollDownload` were deleted; their logic
+lives in `runChat`/`runEmbed`. **T3 (rules-checker catch, folded):** the bar-caption format was
+hoisted to a shared `progressCaption(phase, done, total, rateText)` in `common/services/
+downloadRate.js` — `barLabel` had forked `useRunnerModels.progressLabel`'s three-branch
+`${phase} · ${cur} / ${tot}${rate}` shape; both now call the one formatter, covered by a new
+vitest case. Gates: `build:vite` ✓ · vitest **147/147** (2 new `progressCaption` cases) ·
+headless smoke zero JS errors (only the pre-existing `jscpd` red) · a 3-scenario Playwright
+driver — parallel mid-flight (two bars, friendly words, bytes+speed+ETA + Cancel on each) ·
+error→Retry→**done** (the rethink fix) · embed Cancel while chat keeps downloading — **13/13
+verdicts PASS with the screenshots read**. Docs shipped in the same commit:
+`justwrite-app/docs/models.md` step 4 + the A5-1 ledger line + the recap pointer.
+(Runner-repo QuickSetup.vue has no biome/lint gate — no `biome.json`, no lint script — verified.)
+
 ## BUILD RECORD (2026-07-15 — built on the user's "go" / "keep going until its done")
 
 **ALL STAGES BUILT + VERIFIED; commits pending the diff checker; PUSH awaits the user's word.**

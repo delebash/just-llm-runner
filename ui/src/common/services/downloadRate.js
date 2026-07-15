@@ -76,3 +76,15 @@ export function rateSuffix(bytesPerSec, downloaded, total) {
   }
   return out;
 }
+
+/** The caption BOTH download progress bars render: "<phase> · <done> / <total><rateText>".
+ *  ONE formatter (T3) — the caller resolves `phase` (its own fallback words) and passes the
+ *  byte counts + the rateSuffix; the three-branch shape lives here so the model-download bar
+ *  (useRunnerModels.progressLabel) and Quick Setup's parallel bars can never drift. */
+export function progressCaption(phase, done, total, rateText = "") {
+  const cur = fmtBytes(done);
+  const tot = fmtBytes(total);
+  if (cur && tot) return `${phase} · ${cur} / ${tot}${rateText}`;
+  if (cur) return `${phase} · ${cur}${rateText}`;
+  return phase;
+}

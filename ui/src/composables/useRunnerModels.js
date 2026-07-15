@@ -12,7 +12,7 @@
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
-import { createRateTracker, fmtBytes, rateSuffix } from "../common/services/downloadRate.js";
+import { createRateTracker, fmtBytes, progressCaption, rateSuffix } from "../common/services/downloadRate.js";
 import { FIT_LABEL } from "../common/services/modelPick.js";
 
 const data = ref(null); // the raw /v1/llm-runner/models response
@@ -43,14 +43,9 @@ const rate = createRateTracker();
 const rateText = ref("");
 
 // Phase + bytes caption shown above the download progress bar.
-export const progressLabel = computed(() => {
-  const phase = detail.value || "loading…";
-  const cur = fmtBytes(downloaded.value);
-  const tot = fmtBytes(total.value);
-  if (cur && tot) return `${phase} · ${cur} / ${tot}${rateText.value}`;
-  if (cur) return `${phase} · ${cur}${rateText.value}`;
-  return phase;
-});
+export const progressLabel = computed(() =>
+  progressCaption(detail.value || "loading…", downloaded.value, total.value, rateText.value),
+);
 
 // Coarse Fit label text (FIT_LABEL) is imported from modelPick.js — ONE source (the fit
 // vocabulary lives beside FIT_RUNNABLE/FIT_RANK); re-exposed via useRunnerModels() below so

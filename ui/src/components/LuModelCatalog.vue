@@ -33,10 +33,16 @@ import { openExternal } from "../common/services/external.js";
 // Shared runner-models state (models / status / load / progress) — one source for the
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
 const {
-  models, vramMb, loading, error, downloaded, total, loadErr, loadingId,
+  models, vramMb, loading, error, loadProgress, downloadProgress, loadErr, loadingId,
   downloadingId, cancelling,
-  needsEngine, progressLabel, fmtBytes, FIT_LABEL, refresh, download, cancelDownload,
+  needsEngine, fmtBytes, FIT_LABEL, refresh, download, cancelDownload, cancelLoad,
 } = useRunnerModels();
+
+// A loading row reads the channel that actually concerns IT (2026-07-15): the standalone
+// download row → downloadProgress; a spawn-load row → loadProgress. No more one merged label.
+function barFor(m) {
+  return m.id === downloadingId.value ? downloadProgress : loadProgress;
+}
 
 // Search + sort + fit-grouping (design §4): ONE visible list — models that FIT the machine
 // grouped first, the rest below — with a search box and a sort control (replaces the old
@@ -862,7 +868,7 @@ refreshApplied();
               <td>
                 <span v-if="m.status === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
                 <UiProgress v-else-if="m.status === 'loading'" class="lu-mprog"
-                  :value="downloaded" :max="total" :label="progressLabel" />
+                  :value="barFor(m).downloaded" :max="barFor(m).total" :label="barFor(m).label" />
                 <span v-else-if="m.status === 'error'" class="lu-mstat lu-mstat--err"
                   :title="needsEngine ? 'Install the engine first — see Local engine above' : (loadErr || 'Load failed')">
                   {{ needsEngine ? "install engine ↑" : (loadErr || "failed") }}
@@ -884,12 +890,15 @@ refreshApplied();
                   title="Unload from memory — frees VRAM; it loads again on Load as default or next use"
                   @click="unloadModel(m)">Unload</UiButton>
                 <template v-if="m.status === 'loading'">
-                  <!-- Only the standalone Download channel is cancellable (a spawn-load's
-                       download leg is not exposed); its row shows Cancel, others "working…". -->
+                  <!-- BOTH channels cancel now (user, 2026-07-15). The standalone Download
+                       row stops via /download/cancel; a spawn-LOAD row aborts via /stop — a
+                       true abort of the download leg (server S2), the partial GGUF kept. -->
                   <UiButton v-if="m.id === downloadingId" intent="ghost" size="small"
                     :loading="cancelling" title="Stop this download — the partial file stays cached"
                     @click="cancelDownload()">Cancel</UiButton>
-                  <span v-else class="lu-muted lu-mwait">working…</span>
+                  <UiButton v-else intent="ghost" size="small"
+                    title="Stop loading this model — the download aborts and its VRAM is freed"
+                    @click="cancelLoad(m.id)">Cancel</UiButton>
                 </template>
                 <UiButton v-else-if="m.status === 'available'" intent="primary" size="small"
                   :loading="loadingId === m.id" @click="download(m.id)">Download</UiButton>
@@ -1080,7 +1089,6 @@ refreshApplied();
 .lu-mgroup td { background: var(--surface-2); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; padding: 5px 11px; }
 .lu-mm { color: var(--ink-2); white-space: nowrap; }
 .lu-mact { text-align: right; white-space: nowrap; }
-.lu-mwait { font-size: 11px; }
 
 /* License badge — neutral for permissive (Apache/MIT), a gold warning chip for
    use-limited licenses (Llama-Community, *-Research, Gemma terms). */

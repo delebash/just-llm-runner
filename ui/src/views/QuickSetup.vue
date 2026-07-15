@@ -21,7 +21,7 @@
 //
 // JustWrite mounts this kit view; JustVoice has its own (TTS) setup wizard. It replaces the
 // old jobs-based wiring (/v1/ai/jobs + a routing `jobs` map — both long retired).
-import { computed, onBeforeUnmount, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import { request } from "../client.js";
 import { listClassTunes } from "../classTunes.js";
@@ -29,11 +29,13 @@ import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { recommendedModelId, pickBestEmbedId, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
 import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { confirmDialog } from "../common/services/dialog.js";
-import { createRateTracker, progressCaption, rateSuffix } from "../common/services/downloadRate.js";
+import { createDownloadTask } from "../composables/useDownloadTask.js";
+import { friendlyEnginePhase } from "../composables/useEngine.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiProgress from "../common/components/UiProgress.vue";
 import AppModal from "../common/components/AppModal.vue";
+import DownloadBar from "../common/components/DownloadBar.vue";
 
 const emit = defineEmits(["changed"]);
 // inline (user, 2026-07-06: "the orginal text to be to th right of the button" · "quick setup
@@ -212,6 +214,20 @@ async function loadRouting() {
   }
 }
 
+// Is the llama.cpp engine already installed on this box? Drives whether Apply shows the
+// engine bar first (user, 2026-07-15: "if engine is not installed … first user interaction
+// will be quick setup we need same type of progress bar cancel"). Fetched at openWizard.
+const engineInstalled = ref(true); // assume present until the status fetch says otherwise
+const engineNeeded = computed(() => !engineInstalled.value);
+async function loadEngineStatus() {
+  try {
+    const es = await request("/v1/llm-runner/engine/status");
+    engineInstalled.value = !!es.installed;
+  } catch {
+    engineInstalled.value = true; // unknown → don't show a spurious engine step
+  }
+}
+
 // ── open / close ────────────────────────────────────────────────────────────
 async function openWizard() {
   open.value = true;
@@ -225,11 +241,12 @@ async function openWizard() {
   await Promise.all([
     loadAll(),
     loadRouting(),
+    loadEngineStatus(),
     // D4-1 (a)+(c): the change preview — computed by the SAME dominantOf the Apply
     // writer uses (modelApply.applyPreview), so the changelist can never drift.
     applyPreview().then((p) => { previewState.value = p; }).catch(() => { previewState.value = null; }),
   ]);
-  // Reconcile AFTER all three resolve (order-safe — the catalog is loaded here):
+  // Reconcile AFTER all resolve (order-safe — the catalog is loaded here):
   // 1. The wizard opens ON the applied setup (user, 2026-07-06: "if model is already
   //    applied then drop down should select that model") — the dropdown starts at the
   //    CURRENT default when it still exists in the catalog, so re-opening the wizard
@@ -295,9 +312,8 @@ const keptPresets = computed(() => {
 // The runner's raw `detail` is engineer-speak ("model weights", "loading into VRAM").
 // This audience gets plain language + a real progress bar with speed/ETA (user,
 // 2026-07-15: "if models are not downloaded already we need to show a progress bar and
-// what it is doing besided model wieghts make the words more userfriendly"). The bytes
-// come from the status polls the wizard already made; the speed/ETA math is the ONE
-// shared tracker the engine-install + catalog bars use (downloadRate.js — no fork).
+// what it is doing besided model wieghts make the words more userfriendly"). The friendly
+// phrasing (PHASE_WORDS) is passed to each download task's `friendly`.
 const PHASE_WORDS = {
   queued: "Getting ready",
   "model weights": "Downloading the model",
@@ -315,149 +331,80 @@ function friendlyPhase(detail, status) {
 
 const applying = ref(false);
 
-// TWO bars, running in PARALLEL (user, 2026-07-15: "why cant we have two progress bars
-// with downloads running in parrallel? cancel or restart on both, just like it is in the
-// progress bar in the models download"). They are genuinely independent server-side: the
-// chat model rides the LOAD channel (/llm-runner/load + /status — download, then spawn into
-// VRAM) and the embedding rides the DOWNLOAD-ONLY channel (/llm-runner/download +
-// /download/status — no spawn, no VRAM), and lifecycle.download() states outright that a
-// download "can proceed while another model is loaded". The small embed (~0.6 GB) lands
-// long before the multi-GB chat model, so fetching it here costs the user nothing.
-// Per-bar state: "" idle · "running" · "done" · "error" · "cancelled" (Cancel/Retry each,
-// the model catalog's Download-bar affordances).
-function makeBar() {
-  return reactive({ on: false, state: "", phase: "", done: 0, total: 0, rateText: "", error: "" });
+// ── the THREE download bars: engine · chat · embed (2026-07-15, the ONE-DOWNLOADER
+// consolidation — user: "reuse the control … stop repeating code … if component exists to
+// do this already use it instead of writing your own"). Each is the SHARED createDownloadTask
+// over its server channel, rendered by the SHARED DownloadBar — ONE implementation, ONE bar,
+// replacing the old hand-rolled chatBar/embedBar + runChat/runEmbed/cancel/retry copy. They
+// run in parallel where they can: the embed rides its OWN download channel (needs no engine),
+// so it fetches alongside the engine install; the chat LOAD needs the engine, so it waits for
+// the engine task when one is running, then fires.
+function readEngineStatus(st) {
+  if (st.status === "error") return { terminal: "error", error: st.error };
+  if (st.installed || st.status === "installed") return { terminal: "done" };
+  return { detail: st.detail, done: st.downloaded, total: st.total, status: st.status };
 }
-const chatBar = makeBar();
-const embedBar = makeBar();
-const chatRate = createRateTracker();
-const embedRate = createRateTracker();
-
-// The bar's caption — the ONE shared formatter (progressCaption from downloadRate.js),
-// the SAME builder useRunnerModels.progressLabel uses, so the two can never drift (T3).
-function barLabel(bar) {
-  return progressCaption(bar.phase || "Working", bar.done, bar.total, bar.rateText);
-}
-function feed(bar, tracker, st) {
-  bar.phase = friendlyPhase(st.detail, st.status);
-  bar.done = Number(st.downloaded) || 0;
-  bar.total = Number(st.total) || 0;
-  bar.rateText = rateSuffix(tracker.update(bar.done), bar.done, bar.total);
-}
-function armBar(bar, tracker) {
-  bar.on = true;
-  bar.state = "running";
-  bar.phase = "Getting ready";
-  bar.done = 0;
-  bar.total = 0;
-  bar.rateText = "";
-  bar.error = "";
-  tracker.reset();
-}
-const sleepMs = (ms) => new Promise((res) => setTimeout(res, ms));
-
-// ── the chat model: LOAD channel (downloads, then spawns into VRAM) ──
-async function runChat() {
-  const target = pick.value.default;
-  if (!target) return;
-  armBar(chatBar, chatRate);
-  try {
-    await request("/v1/llm-runner/load", { method: "POST", body: { modelId: target } });
-  } catch (e) {
-    chatBar.state = "error";
-    chatBar.error = e?.message || "Couldn't start the model.";
-    return;
+function readLoadStatus(st) {
+  if (st.status === "running") return { terminal: "done" };
+  if (st.status === "error") {
+    const err = st.error === "engine-not-installed"
+      ? "The engine isn't installed — install it first (the engine bar above)."
+      : st.error;
+    return { terminal: "error", error: err };
   }
-  for (let i = 0; i < 600; i++) {
-    if (chatBar.state !== "running") return; // a Cancel flipped the state — stop silently
-    let st;
-    try {
-      st = await request("/v1/llm-runner/status");
-    } catch {
-      return;
-    }
-    if (chatBar.state !== "running") return;
-    feed(chatBar, chatRate, st);
-    if (st.status === "running") {
-      chatBar.state = "done";
-      chatBar.phase = "Ready";
-      return;
-    }
-    if (st.status === "error") {
-      chatBar.state = "error";
-      chatBar.error = st.error || "The model failed to load.";
-      return;
-    }
-    await sleepMs(1200);
-  }
+  return { detail: st.detail, done: st.downloaded, total: st.total, status: st.status };
+}
+function readDownloadStatus(st) {
+  if (st.status === "error") return { terminal: "error", error: st.error };
+  // `idle` is the download channel's terminal for a FINISHED fetch; a cancel flips our own
+  // state first, so reaching here still running means it genuinely completed.
+  if (st.status === "idle") return { terminal: "done" };
+  return { detail: st.detail, done: st.downloaded, total: st.total, status: st.status };
 }
 
-// ── the embedding: DOWNLOAD-ONLY channel (lands on disk; it loads on the first search) ──
-async function runEmbed() {
-  const id = pick.value.embeddingModel;
-  if (!id) return;
-  armBar(embedBar, embedRate);
-  try {
-    await request("/v1/llm-runner/download", { method: "POST", body: { modelId: id } });
-  } catch (e) {
-    embedBar.state = "error";
-    embedBar.error = e?.message || "Couldn't start the download.";
-    return;
-  }
-  for (let i = 0; i < 900; i++) {
-    if (embedBar.state !== "running") return; // a Cancel flipped the state — stop silently
-    let st;
-    try {
-      st = await request("/v1/llm-runner/download/status");
-    } catch {
-      return;
-    }
-    if (embedBar.state !== "running") return;
-    // `idle` is this channel's terminal for BOTH finished and cancelled; a Cancel sets our
-    // state first, so reaching here still "running" means it genuinely finished.
-    if (st.status === "idle") {
-      embedBar.state = "done";
-      embedBar.phase = "Ready";
-      embedBar.done = 0;
-      embedBar.total = 0;
-      embedBar.rateText = "";
-      return;
-    }
-    if (st.status === "error") {
-      embedBar.state = "error";
-      embedBar.error = st.error || "The search model failed to download.";
-      return;
-    }
-    feed(embedBar, embedRate, st);
-    await sleepMs(1200);
-  }
-}
+// The channel starts read the LIVE pick at call time (a re-apply may have changed it).
+const engineTask = createDownloadTask({
+  start: () => request("/v1/llm-runner/engine/install", { method: "POST" }),
+  statusUrl: "/v1/llm-runner/engine/status",
+  read: readEngineStatus,
+  cancel: () => request("/v1/llm-runner/engine/install/cancel", { method: "POST" }),
+  friendly: friendlyEnginePhase,
+});
+const chatTask = createDownloadTask({
+  start: () => request("/v1/llm-runner/load", { method: "POST", body: { modelId: pick.value.default } }),
+  statusUrl: "/v1/llm-runner/status",
+  read: readLoadStatus,
+  cancel: () => request("/v1/llm-runner/stop", { method: "POST", body: { modelId: pick.value.default } }),
+  friendly: friendlyPhase,
+});
+const embedTask = createDownloadTask({
+  start: () => request("/v1/llm-runner/download", { method: "POST", body: { modelId: pick.value.embeddingModel } }),
+  statusUrl: "/v1/llm-runner/download/status",
+  read: readDownloadStatus,
+  cancel: () => request("/v1/llm-runner/download/cancel", { method: "POST" }),
+  friendly: friendlyPhase,
+});
 
-// Cancel = the SAME endpoints the catalog's Download bar uses. State + phase flip FIRST so
-// the poll loop above exits at once; THEN the server call. Chat stop = /stop {modelId}: it
-// drops the model from the resident set, which the load worker re-checks at its router-lock
-// and unwinds. CAVEAT: the in-flight server fetch may run to completion in the background
-// and stays cached — "Cancel" is truthful about the SETUP, and Retry resumes from cache.
-// The embed uses the download channel's own cancel (stops at the next chunk, KEEPS the
-// partial blob, so a retry resumes past it).
-async function cancelChat() {
-  chatBar.state = "cancelled";
-  chatBar.phase = "Cancelled";
-  chatBar.rateText = "";
-  await request("/v1/llm-runner/stop", { method: "POST", body: { modelId: pick.value.default } }).catch(() => {});
-}
-async function cancelEmbed() {
-  embedBar.state = "cancelled";
-  embedBar.phase = "Cancelled";
-  embedBar.rateText = "";
-  await request("/v1/llm-runner/download/cancel", { method: "POST" }).catch(() => {});
-}
+// Sequencing: the chat load is gated on the engine. When the engine install finishes, fire the
+// load; when it's cancelled/errors, the chat can't proceed (no load attempt) — say so, pointing
+// at the engine bar. A later successful engine retry re-fires the load automatically.
+watch(() => engineTask.state, (s) => {
+  if (step.value !== "apply") return;
+  if (s === "done" && pick.value.default && chatTask.state !== "done") chatTask.start();
+  else if (s === "cancelled") chatTask.fail("The engine install was cancelled — install it above, then this continues.");
+  else if (s === "error") chatTask.fail("The engine didn't install — retry it above, then this continues.");
+});
+// The wizard advances only when the CHAT model is genuinely live; a successful chat retry
+// advances too (the watch fires again). The embed never gates the step (it self-downloads on
+// first search); its honest done-note rides the done step.
+watch(() => chatTask.state, (s) => {
+  if (s === "done" && step.value === "apply") finishApply();
+});
 
-// The completion tail — EXTRACTED so a Retry can reach it too (the rethink fix below). It
-// records whether this box already has measured/class tunes for the chosen model (drives
-// the done-step Optimize vs Re-optimize label + the "tuned for your hardware ✓" note), then
-// advances to the done step. Guarded so a double-finish (parallel resolve, then a later
-// Retry) can't run it twice.
+// The completion tail — EXTRACTED so a Retry (via the chat watch) reaches it too. It records
+// whether this box already has measured/class tunes for the chosen model (drives the done-step
+// Optimize vs Re-optimize label + the "tuned for your hardware ✓" note), then advances to the
+// done step. Guarded so a double-finish can't run it twice.
 async function finishApply() {
   if (step.value === "done") return;
   const target = pick.value.default;
@@ -475,17 +422,6 @@ async function finishApply() {
   emit("changed");
 }
 
-// Retry — THE rethink FIX (user, 2026-07-15): a successful chat retry must ADVANCE the
-// wizard. Without the finishApply() call the user retries, the model loads, and the modal
-// stays stuck on the apply step forever. The embed never gates the step, so its retry just
-// re-runs the download.
-async function retryChat() {
-  await runChat();
-  if (chatBar.state === "done" && step.value === "apply") await finishApply();
-}
-function retryEmbed() {
-  return runEmbed();
-}
 async function apply() {
   applying.value = true;
   error.value = "";
@@ -510,36 +446,34 @@ async function apply() {
     // writer the catalog's Set-as-default uses, so the surfaces never drift: it writes
     // `{...p, providerId, model}` onto every task preset that still shares the previous
     // default (non-clobber; each preset keeps its per-task settings). The embedding stays a
-    // LOCAL runner concern (the RAG index) — only written when one is chosen (no clobber of
-    // a saved embed with a blank).
+    // LOCAL runner concern (the RAG index) — only written when one is chosen.
     const target = pick.value.default;
     await setAsDefault(LOCAL_RUNNER_ID, target);
     if (pick.value.embeddingModel) await setAsEmbedding(pick.value.embeddingId, pick.value.embeddingModel);
-    // BOTH models fetch AT ONCE (user, 2026-07-15: "we can run both downloads at same
-    // time") — independent server channels, so the small embed usually finishes well before
-    // the multi-GB chat model. The embed is DOWNLOADED here, not deferred to "first search"
-    // (user: "the embed must actually download during Apply" — the first Ask-the-book
-    // otherwise paid a silent multi-GB wait); it is skipped only when already on disk. Each
-    // bar carries its own Cancel/Retry. The wizard advances only when the CHAT model is
-    // genuinely live — the embed never gates the step (it self-downloads on first search too).
-    chatBar.on = false;
-    embedBar.on = false;
+
+    // Fresh run for the three bars.
+    engineTask.reset();
+    chatTask.reset();
+    embedTask.reset();
+
+    // The embed rides its OWN download channel (no engine needed — lifecycle.download states a
+    // download can proceed while another model is loaded); fire it in PARALLEL, skipped when
+    // already on disk. It never gates the step (it self-downloads on first search too).
     const needEmbed = !!pick.value.embeddingModel
       && !modelById.value[pick.value.embeddingModel]?.downloaded;
-    await Promise.all([
-      target ? runChat() : Promise.resolve(),
-      needEmbed ? runEmbed() : Promise.resolve(),
-    ]);
-    // A failed/cancelled load must NOT read as success (the old bug: Apply advanced to done
-    // on a bricked load). Stay on the apply step so the bars keep their Retry; a cancelled
-    // state shows NO red error, an error state shows the runner's own message.
-    if (target && chatBar.state !== "done") {
-      error.value = chatBar.state === "error" ? chatBar.error : "";
-      applying.value = false;
-      return;
+    if (needEmbed) embedTask.start();
+
+    // The chat model needs the engine. Missing → install it FIRST (its own bar) and hold the
+    // chat as "Waiting for the engine…"; the engine watch fires the load the moment it
+    // finishes. Present → load immediately. Nothing to load (no fitting model) → straight to done.
+    if (!target) {
+      await finishApply();
+    } else if (engineNeeded.value) {
+      chatTask.waiting("Waiting for the engine…");
+      engineTask.start();
+    } else {
+      chatTask.start();
     }
-    // The completion tail (Optimize-label bookkeeping + step → done) is shared with Retry.
-    await finishApply();
   } catch (e) {
     error.value = `Apply failed: ${e.message}`;
     step.value = "confirm";
@@ -566,7 +500,6 @@ const classTuned = ref(false);   // a hardware-class tune matched this box + mod
 // the honest copy (a capped pass phrases its running/done text differently).
 const QUICK_TUNE_SECONDS = 120;
 const optQuick = ref(false);
-let optTimer = null;
 const optRunning = computed(() => optState.value?.status === "running");
 // The finished trials so far (each a real load→measure result) — the honest "it's working"
 // signal on a LONG job: shown live with their tok/s so progress is visible without a fake ETA.
@@ -594,6 +527,7 @@ function startOptTick() {
 }
 function stopOptTick() { if (optTickTimer) { clearInterval(optTickTimer); optTickTimer = null; } }
 
+let optTimer = null;
 function stopOptPoll() {
   if (optTimer) { clearInterval(optTimer); optTimer = null; }
   stopOptTick();
@@ -690,7 +624,7 @@ defineExpose({ openWizard });
       v-if="open"
       :title="step === 'detect' ? 'Probing your hardware…' : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : 'Recommended setup — for the Local built-in provider only'"
       :max-width="'640px'"
-      :closable="!optRunning && chatBar.state !== 'running' && embedBar.state !== 'running'"
+      :closable="!optRunning && engineTask.state !== 'running' && chatTask.state !== 'running' && embedTask.state !== 'running'"
       @close="onModalClose"
     >
       <!-- DETECT -->
@@ -766,40 +700,22 @@ defineExpose({ openWizard });
 
       <!-- APPLY -->
       <template v-else-if="step === 'apply'">
-        <p class="lu-qs-applying">Setting up your models — both download at once.</p>
+        <p class="lu-qs-applying">
+          {{ engineTask.state
+            ? "Setting up your models — installing the engine first, then your model."
+            : "Setting up your models — both download at once." }}
+        </p>
 
-        <!-- The main model: downloads, then loads into VRAM. -->
-        <div v-if="chatBar.on" class="lu-qs-bar">
-          <div class="lu-qs-bar-h">
-            <b>{{ modelById[pick.default]?.name || pick.default }}</b>
-            <span class="lu-muted lu-qs-bar-role">writes + chats</span>
-            <span class="lu-qs-spacer" />
-            <UiButton v-if="chatBar.state === 'running'" intent="secondary" size="small" @click="cancelChat">Cancel</UiButton>
-            <UiButton v-else-if="chatBar.state === 'cancelled' || chatBar.state === 'error'" intent="secondary" size="small" @click="retryChat">Retry</UiButton>
-            <span v-else-if="chatBar.state === 'done'" class="lu-qs-bar-ok">Ready ✓</span>
-          </div>
-          <UiProgress :value="chatBar.done" :max="chatBar.total" :label="barLabel(chatBar)" />
-          <p v-if="chatBar.error" class="lu-error lu-qs-bar-err">{{ chatBar.error }}</p>
-        </div>
-
-        <!-- The search model: download only (it loads itself on the first search). -->
-        <div v-if="embedBar.on" class="lu-qs-bar">
-          <div class="lu-qs-bar-h">
-            <b>{{ embedName }}</b>
-            <span class="lu-muted lu-qs-bar-role">powers search + Ask the book</span>
-            <span class="lu-qs-spacer" />
-            <UiButton v-if="embedBar.state === 'running'" intent="secondary" size="small" @click="cancelEmbed">Cancel</UiButton>
-            <UiButton v-else-if="embedBar.state === 'cancelled' || embedBar.state === 'error'" intent="secondary" size="small" @click="retryEmbed">Retry</UiButton>
-            <span v-else-if="embedBar.state === 'done'" class="lu-qs-bar-ok">Ready ✓</span>
-          </div>
-          <UiProgress :value="embedBar.done" :max="embedBar.total" :label="barLabel(embedBar)" />
-          <p v-if="embedBar.error" class="lu-error lu-qs-bar-err">{{ embedBar.error }}</p>
-        </div>
+        <!-- ONE bar per download (the SHARED DownloadBar over the SHARED createDownloadTask):
+             the engine (only when it isn't installed yet), the chat model, and the search
+             model. Each carries its own Cancel / Retry. -->
+        <DownloadBar v-if="engineTask.state" title="The engine" role="the program that runs models" :task="engineTask" />
+        <DownloadBar v-if="chatTask.state" :title="modelById[pick.default]?.name || pick.default" role="writes + chats" :task="chatTask" />
+        <DownloadBar v-if="embedTask.state" :title="embedName" role="powers search + Ask the book" :task="embedTask" />
 
         <p class="lu-muted lu-qs-applynote">
           A model is several gigabytes, so a first run can take a few minutes — each only
-          downloads once. Cancelling keeps what has already downloaded; Retry picks up
-          where it stopped.
+          downloads once. Cancel stops a download; Retry starts it again.
         </p>
       </template>
 
@@ -810,7 +726,7 @@ defineExpose({ openWizard });
           <li>Default model · <code>{{ modelById[pick.default]?.name || pick.default }}</code></li>
           <li v-if="pick.embeddingModel">Embedding · <code>{{ embedName }}</code></li>
         </ul>
-        <p v-if="embedBar.on && embedBar.state !== 'done'" class="lu-muted lu-qs-applynote">
+        <p v-if="embedTask.state && embedTask.state !== 'done'" class="lu-muted lu-qs-applynote">
           The search model didn't finish downloading — it downloads itself on your first
           search, or you can grab it any time from the model catalog.
         </p>
@@ -947,12 +863,6 @@ defineExpose({ openWizard });
 .lu-qs-req { font-size: 12px; margin: 0 0 12px; }
 .lu-qs-applying { font-size: 13px; }
 .lu-qs-applynote { font-size: 11.5px; margin-top: 8px; }
-.lu-qs-bar { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; margin-top: 10px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); }
-.lu-qs-bar-h { display: flex; align-items: center; gap: 9px; }
-.lu-qs-bar-h b { font-size: 12.5px; }
-.lu-qs-bar-role { font-size: 11px; }
-.lu-qs-bar-ok { font-size: 11px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--success, #3a7d63); }
-.lu-qs-bar-err { font-size: 11.5px; }
 .lu-qs-summary { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }
 .lu-qs-opt { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; margin: 10px 0; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); font-size: 12px; }
 .lu-qs-opt-btns { display: flex; gap: 8px; flex-wrap: wrap; }

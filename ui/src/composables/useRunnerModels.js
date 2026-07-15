@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Shared runner-models state: ONE source of the /v1/llm-runner/models catalog list + its
-// LIVE load/download status, consumed by the model catalog so there is
-// ONE poller and ONE status truth (no
-// double-fetch, no drift). A module singleton — the modelDefaults.js / dialog.js
-// precedent — NOT a per-component ref.
+// LIVE load/download status, consumed by the model catalog so there is ONE poller and ONE
+// status truth (no double-fetch, no drift). A module singleton — the modelDefaults.js /
+// dialog.js precedent — NOT a per-component ref.
 //
-// Deliberately NOT built on usePoll: usePoll registers onUnmounted, which cannot bind
-// at module scope. The interval here self-manages — it starts only while a load is in
-// flight and stops when idle (a faithful move of LuModelCatalog's own refresh gating),
-// so it never leaks and needs no component lifecycle to own it.
-import { computed, ref } from "vue";
+// Deliberately NOT built on usePoll: usePoll registers onUnmounted, which cannot bind at
+// module scope. The interval here self-manages — it starts only while a load is in flight
+// and stops when idle (a faithful move of LuModelCatalog's own refresh gating).
+//
+// TWO SEPARATE progress channels (2026-07-15, the ONE-DOWNLOADER consolidation — user:
+// "stop repeating code, reuse stuff"): a model LOAD (spawn-into-VRAM, /status) and the
+// standalone DOWNLOAD (/download/status) can overlap, so each keeps its OWN progress object
+// (`loadProgress` / `downloadProgress`). This kills the old merge ("the active download's
+// progress wins") that made a loading row and a downloading row share ONE lying label. Both
+// captions come from the SHARED progressCaption formatter (downloadRate.js) — one source.
+import { computed, reactive, ref } from "vue";
 
 import { request } from "../client.js";
 import { createRateTracker, fmtBytes, progressCaption, rateSuffix } from "../common/services/downloadRate.js";
@@ -18,13 +23,10 @@ import { FIT_LABEL } from "../common/services/modelPick.js";
 const data = ref(null); // the raw /v1/llm-runner/models response
 const loading = ref(true); // first-load spinner
 const error = ref("");
-const detail = ref(""); // live status phase while a model is loading
-const downloaded = ref(0); // live bytes of the in-flight load (progress bar)
-const total = ref(0); // total bytes of the current phase (0 = unknown → indeterminate)
 const loadErr = ref(""); // the actual server error message when a load fails
 const loadingId = ref(""); // model id whose download is in flight (button feedback)
-const downloadingId = ref(""); // model id on the standalone Download channel — the ONE row that shows Cancel
-const cancelling = ref(false); // true from the cancel click until the channel returns to idle
+const downloadingId = ref(""); // model id on the standalone Download channel — its row shows Cancel
+const cancelling = ref(false); // true from the download-cancel click until the channel returns to idle
 
 export const models = computed(() => data.value?.models || []);
 export const vramMb = computed(() => data.value?.vramMb || 0);
@@ -34,22 +36,45 @@ const anyError = computed(() => models.value.some((m) => m.status === "error"));
 // surface that as a CTA pointing at the Local engine panel, not a raw error code.
 export const needsEngine = computed(() => loadErr.value === "engine-not-installed");
 
-// fmtBytes now lives in downloadRate.js (it had an identical twin in useEngine);
-// re-exported so existing consumers (LuModelCatalog) keep their import surface.
+// fmtBytes lives in downloadRate.js; re-exported so existing consumers keep their import surface.
 export { fmtBytes };
 
-// DL-1: speed + ETA from the byte deltas the poll already sees.
-const rate = createRateTracker();
-const rateText = ref("");
-
-// Phase + bytes caption shown above the download progress bar.
-export const progressLabel = computed(() =>
-  progressCaption(detail.value || "loading…", downloaded.value, total.value, rateText.value),
-);
-
-// Coarse Fit label text (FIT_LABEL) is imported from modelPick.js — ONE source (the fit
-// vocabulary lives beside FIT_RUNNABLE/FIT_RANK); re-exposed via useRunnerModels() below so
-// its consumers (LuModelCatalog) are unchanged. The badge tint is the shared .lu-fit--* CSS.
+// ── the two per-channel progress objects (each its own rate tracker + the shared label) ──
+const loadRate = createRateTracker();
+const dlRate = createRateTracker();
+export const loadProgress = reactive({
+  detail: "", downloaded: 0, total: 0, rateText: "",
+  label: computed(() => progressCaption(
+    loadProgress.detail || "loading…", loadProgress.downloaded, loadProgress.total, loadProgress.rateText,
+  )),
+});
+export const downloadProgress = reactive({
+  detail: "", downloaded: 0, total: 0, rateText: "",
+  label: computed(() => progressCaption(
+    downloadProgress.detail || "downloading…", downloadProgress.downloaded, downloadProgress.total, downloadProgress.rateText,
+  )),
+});
+function _resetLoad() {
+  loadProgress.detail = ""; loadProgress.downloaded = 0; loadProgress.total = 0;
+  loadProgress.rateText = ""; loadRate.reset();
+}
+function _resetDownload() {
+  downloadProgress.detail = ""; downloadProgress.downloaded = 0; downloadProgress.total = 0;
+  downloadProgress.rateText = ""; dlRate.reset();
+}
+function _feedLoad(st) {
+  loadProgress.detail = st.detail || (st.status === "downloading" ? "downloading…" : "starting…");
+  loadProgress.downloaded = Number(st.downloaded) || 0;
+  loadProgress.total = Number(st.total) || 0;
+  loadProgress.rateText = rateSuffix(loadRate.update(loadProgress.downloaded), loadProgress.downloaded, loadProgress.total);
+}
+function _feedDownload(dl) {
+  if (dl.status !== "downloading") { _resetDownload(); return; }
+  downloadProgress.detail = dl.detail || "downloading…";
+  downloadProgress.downloaded = Number(dl.downloaded) || 0;
+  downloadProgress.total = Number(dl.total) || 0;
+  downloadProgress.rateText = rateSuffix(dlRate.update(downloadProgress.downloaded), downloadProgress.downloaded, downloadProgress.total);
+}
 
 let timer = null;
 function _startPoll() {
@@ -70,35 +95,30 @@ export async function refresh() {
     // surface the real error, not a bare "failed").
     if (anyLoading.value || anyError.value) {
       try {
-        // A download runs on its OWN channel (can overlap a load); poll both and let
-        // the active download's progress win so the bar shows download bytes too.
+        // The LOAD channel and the standalone DOWNLOAD channel run independently (a download
+        // can overlap a load); poll BOTH and feed each its OWN progress object — no merge.
         const [st, dl] = await Promise.all([
           request("/v1/llm-runner/status"),
           request("/v1/llm-runner/download/status").catch(() => ({ status: "idle" })),
         ]);
-        const active = dl.status === "downloading" ? dl : st;
-        detail.value = active.detail || (active.status === "downloading" ? "downloading…" : "starting…");
-        downloaded.value = Number(active.downloaded) || 0;
-        total.value = Number(active.total) || 0;
+        _feedLoad(st);
+        _feedDownload(dl);
         loadErr.value = st.error || dl.error || "";
-        rateText.value = rateSuffix(rate.update(downloaded.value), downloaded.value, total.value);
-        // Only the standalone Download channel is cancellable — remember its row.
+        // Only the standalone Download channel is cancellable via /download/cancel — remember
+        // its row; the LOAD row cancels via /stop (a true abort now, server S2).
         downloadingId.value = dl.status === "downloading" ? dl.modelId || "" : "";
         if (dl.status !== "downloading") cancelling.value = false;
       } catch {
-        detail.value = "";
+        _resetLoad();
       }
       if (anyLoading.value) _startPoll();
       else _stopPoll();
     } else {
-      detail.value = "";
-      downloaded.value = 0;
-      total.value = 0;
+      _resetLoad();
+      _resetDownload();
       loadErr.value = "";
       downloadingId.value = "";
       cancelling.value = false;
-      rate.reset();
-      rateText.value = "";
       _stopPoll();
     }
   } catch (e) {
@@ -109,9 +129,8 @@ export async function refresh() {
 }
 
 // Download the weights ONLY (no spawn) — the catalog's "Download" action. The model then
-// reports as on-disk ('disk'); loading happens on use (a feature run, or QuickSetup's
-// apply driving /v1/llm-runner/load itself), never from the catalog. The catalog's old
-// load()/unload() exports died with their buttons (model-surface Phase 2; pruned at C7).
+// reports on-disk ('disk'); loading happens on use (a feature run, or QuickSetup's apply
+// driving /v1/llm-runner/load itself), never from the catalog.
 export async function download(modelId) {
   loadingId.value = modelId;
   try {
@@ -124,8 +143,8 @@ export async function download(modelId) {
   }
 }
 
-// Cancel the in-flight standalone Download — the backend stops at the next chunk boundary
-// and returns the channel to idle (the row falls back to 'available'; the partial blob stays
+// Cancel the in-flight standalone Download — the backend stops at the next chunk boundary and
+// returns the channel to idle (the row falls back to 'available'; the partial blob stays
 // cached so a re-download resumes past it). No-op server-side when nothing is downloading.
 export async function cancelDownload() {
   cancelling.value = true;
@@ -138,19 +157,32 @@ export async function cancelDownload() {
   }
 }
 
+// Cancel an in-flight model LOAD — the spawn's download leg. A TRUE abort now (server S2,
+// 2026-07-15): /stop drops the model from the resident set, and the load worker's cancel_check
+// observes that to abort the fetch at the next chunk (before, the download ran to completion).
+// The row flips off 'loading' on the next refresh, so its Cancel button retires itself.
+export async function cancelLoad(modelId) {
+  try {
+    await request("/v1/llm-runner/stop", { method: "POST", body: { modelId } });
+    await refresh();
+  } catch (e) {
+    error.value = e.message || "Couldn't cancel the load.";
+  }
+}
+
 let kicked = false;
 
-/** The shared runner-models state. Every consumer gets the SAME refs; the first
- *  consumer kicks the initial fetch. `refresh`/`download` mutate the shared state. */
+/** The shared runner-models state. Every consumer gets the SAME refs; the first consumer
+ *  kicks the initial fetch. `refresh`/`download` mutate the shared state. */
 export function useRunnerModels() {
   if (!kicked) {
     kicked = true;
     refresh();
   }
   return {
-    models, vramMb, loading, error, detail, downloaded, total, loadErr, loadingId,
-    downloadingId, cancelling,
-    anyLoading, anyError, needsEngine, progressLabel, fmtBytes, FIT_LABEL,
-    refresh, download, cancelDownload,
+    models, vramMb, loading, error, loadErr, loadingId, downloadingId, cancelling,
+    loadProgress, downloadProgress,
+    anyLoading, anyError, needsEngine, fmtBytes, FIT_LABEL,
+    refresh, download, cancelDownload, cancelLoad,
   };
 }

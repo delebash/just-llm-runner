@@ -13,7 +13,7 @@ import { computed, ref } from "vue";
 
 import { request } from "../client.js";
 import { confirmDialog } from "../common/services/dialog.js";
-import { createRateTracker, fmtBytes, rateSuffix } from "../common/services/downloadRate.js";
+import { createRateTracker, progressCaption, rateSuffix } from "../common/services/downloadRate.js";
 
 const st = ref(null); // engine_status() payload
 const busy = ref(false); // an install/uninstall POST in flight
@@ -33,10 +33,20 @@ const rateText = ref("");
 const statusKnown = computed(() => st.value !== null);
 const installed = computed(() => !!st.value?.installed);
 const installing = computed(() => st.value?.status === "installing");
+// The engine install's raw `detail` is engineer-speak / empty during the main download;
+// map it to a user phrase. Exported so QuickSetup's engineTask reads the SAME wording (one
+// source — the ONE-DOWNLOADER consolidation, 2026-07-15).
+export function friendlyEnginePhase(detail) {
+  const d = String(detail || "").trim();
+  if (!d || d === "llama.cpp engine" || /engine build/i.test(d)) return "Downloading the engine";
+  if (d === "removing old builds" || d === "carrying models.ini over" || /^removing old build/.test(d))
+    return "Setting it up";
+  if (d === "cancelling…") return "Cancelling";
+  return d;
+}
 const progressLabel = computed(() => {
   const s = st.value || {};
-  if (!s.total) return `Downloading…${rateText.value}`;
-  return `${fmtBytes(s.downloaded)} / ${fmtBytes(s.total)}${rateText.value}`;
+  return progressCaption(friendlyEnginePhase(s.detail), s.downloaded, s.total, rateText.value);
 });
 
 function _syncPoll() {
@@ -90,6 +100,19 @@ async function install(force) {
     error.value = e.message || "Install failed.";
   } finally {
     busy.value = false;
+  }
+}
+
+async function cancel() {
+  // Cancel an in-flight engine install (the same shape as the model /download/cancel).
+  // The install poll (_syncPoll) keeps running while status is "installing", so it picks
+  // up the "cancelling…" detail immediately and then the terminal not-installed idle.
+  error.value = "";
+  try {
+    await request("/v1/llm-runner/engine/install/cancel", { method: "POST" });
+    await refreshEngine();
+  } catch (e) {
+    error.value = e.message || "Couldn't cancel the install.";
   }
 }
 
@@ -234,6 +257,6 @@ export function useEngine() {
   return {
     engineState: st, busy, error, statusKnown, installed, installing, progressLabel,
     updateInfo, updatePolicy, checkForUpdate, setUpdatePolicy, updateToLatest,
-    refreshEngine, install, uninstall, setBackend,
+    refreshEngine, install, cancel, uninstall, setBackend,
   };
 }

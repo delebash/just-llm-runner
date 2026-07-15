@@ -29,7 +29,7 @@ import { usePoll } from "../common/composables/usePoll.js";
 // cluster, install progress/errors, and the Details drawer. Install POLLING
 // lives in the composable, so progress keeps flowing whichever surface started
 // it and whichever is mounted.
-const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, updateInfo, checkForUpdate, updateToLatest, refreshEngine, install: engInstall, uninstall: engUninstall, setBackend, busy: engBusy } = useEngine();
+const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, updateInfo, checkForUpdate, updateToLatest, refreshEngine, install: engInstall, cancel: engCancel, uninstall: engUninstall, setBackend, busy: engBusy } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
 // Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
@@ -244,9 +244,13 @@ onMounted(() => {
 
     <!-- Progress + errors live OUTSIDE the collapse: an in-flight install or a failure
          must stay visible while the panel is folded (user, 2026-07-06). -->
-    <UiProgress v-if="installing" class="lu-eng-prog"
-      :value="st.total ? st.downloaded : undefined" :max="st.total || undefined"
-      :label="progressLabel" />
+    <div v-if="installing" class="lu-eng-installing">
+      <UiProgress class="lu-eng-prog"
+        :value="st.total ? st.downloaded : undefined" :max="st.total || undefined"
+        :label="progressLabel" />
+      <UiButton intent="secondary" size="small"
+        title="Stop the engine download — installing again restarts it" @click="engCancel">Cancel</UiButton>
+    </div>
 
     <p v-if="error" class="lu-eng-err">{{ error }}</p>
 
@@ -359,6 +363,8 @@ onMounted(() => {
    width:100% by default, so the cap alone leaves a wide dead gap before the chevron. */
 .lu-eng-backend :deep(.ui-select-trigger) { width: fit-content; }
 .lu-eng-err { margin: 0; font-size: 12.5px; color: var(--lu-danger, var(--danger, #b91c1c)); }
+.lu-eng-installing { display: flex; align-items: center; gap: 10px; }
+.lu-eng-installing .lu-eng-prog { flex: 1; min-width: 0; }
 .lu-eng-log {
   max-height: 220px;
   overflow: auto;

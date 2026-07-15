@@ -1209,6 +1209,61 @@ def test_install_engine_runs_acquire(tmp_path):
     assert svc.engine_status()["status"] == "installed"
 
 
+def test_cancel_install_engine_returns_to_idle(tmp_path):
+    # S1: a cancel during the engine build download (cancel_check threaded into
+    # acquire_binary raises DownloadCancelled) is NOT an error — the engine returns to
+    # the not-installed idle state, mirroring the model download's cancel.
+    started = threading.Event()
+
+    def blocking_acquire(*a, cancel_check=None, **k):
+        started.set()
+        while not (cancel_check and cancel_check()):  # spin until the test signals cancel
+            time.sleep(0.005)
+        raise DownloadCancelled()
+
+    svc = _service_for(tmp_path)
+    svc._acquire_binary = blocking_acquire
+    svc.install_engine()
+    assert started.wait(timeout=5)                        # the installer reached the download
+    assert svc.engine_status()["status"] == "installing"
+    svc.cancel_install_engine()
+    svc._engine_thread.join(timeout=5)
+    es = svc.engine_status()
+    assert es["status"] == "idle"                         # cancelled → idle, not error
+    assert es["error"] == ""
+
+
+def test_cancel_install_engine_noop_when_idle(tmp_path):
+    # S1: no install in flight → cancel is a harmless no-op reporting the idle channel.
+    svc = _service_for(tmp_path)
+    es = svc.cancel_install_engine()
+    assert es["status"] == "idle"
+
+
+def test_stop_during_load_download_aborts_without_error(tmp_path):
+    # S2: with cancel_check wired at the load's weights download, a stop() during the
+    # (unlocked) download aborts the fetch at the next chunk — the model leaves _resident
+    # and the load must NOT set an error state (a user cancel, not a failure).
+    started = threading.Event()
+
+    def blocking_acquire(repo, *a, cancel_check=None, **k):
+        started.set()
+        while not (cancel_check and cancel_check()):  # spin until stop() pops the model
+            time.sleep(0.005)
+        raise DownloadCancelled()
+
+    svc = _service_for(tmp_path)
+    svc._acquire_model = blocking_acquire
+    svc.load(_TEST_MODEL.id)
+    assert started.wait(timeout=5)                        # the load is blocked mid-download
+    svc.stop(_TEST_MODEL.id)                              # pop from _resident → cancel_check flips True
+    svc._thread.join(timeout=5)
+    st = svc.status()
+    assert st["status"] != "error"                        # a cancel is not a failure
+    assert st["status"] == "idle"
+    assert _TEST_MODEL.id not in svc._resident
+
+
 def test_engine_log_empty_then_tails(tmp_path):
     svc = _service_for(tmp_path)
     assert svc.engine_log() == {"path": "", "text": ""}
@@ -1826,7 +1881,7 @@ def test_deliberate_downgrade_survives_install(tmp_path):
     calls = []
     svc._save_pin = lambda b: (calls.append(b), state.update(pin=b))
 
-    def fake_acquire(cache_root, config, hardware, on_progress=None, gpu=None):
+    def fake_acquire(cache_root, config, hardware, on_progress=None, gpu=None, cancel_check=None):
         d = variant_dir(cache_root, config.llamacpp.pinned_build, "cuda12")
         d.mkdir(parents=True, exist_ok=True)
         (d / "llama-server.exe").write_bytes(b"MZ")

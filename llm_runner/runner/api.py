@@ -281,6 +281,15 @@ async def engine_install(body: dict | None = None) -> dict:
     return get_service().install_engine(force=force, replace_build=replace_build, gpu=gpu)
 
 
+@router.post("/v1/llm-runner/engine/install/cancel", summary="Cancel an in-flight engine install")
+async def engine_install_cancel() -> dict:
+    """Signal the engine install to stop at the next chunk boundary — the same shape as the
+    model /download/cancel. Idempotent: a no-op (returns the current status) when nothing is
+    installing. Returns the live engine status — 'cancelling…' immediately, then not-installed
+    (idle) once the installer thread unwinds."""
+    return get_service().cancel_install_engine()
+
+
 @router.get("/v1/llm-runner/engine/log", summary="Tail the most recent llama-server spawn log")
 async def engine_log(tail: int = 200) -> dict:
     return get_service().engine_log(tail=tail)

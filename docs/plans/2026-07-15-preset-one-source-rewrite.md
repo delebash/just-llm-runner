@@ -96,6 +96,77 @@ verdicts PASS with the screenshots read**. Docs shipped in the same commit:
 `justwrite-app/docs/models.md` step 4 + the A5-1 ledger line + the recap pointer.
 (Runner-repo QuickSetup.vue has no biome/lint gate — no `biome.json`, no lint script — verified.)
 
+### ONE-DOWNLOADER CONSOLIDATION (2026-07-15)
+
+Seeing the two-parallel-bars build, the user gave the reuse order — verbatim: *"regardless of
+what we download engine model whatever we should be able to do it, reuse the control … stop
+repeating code, reuse stuff, if component exists to do this already use it instead of writing
+your own"* + *"the existing bar for model and engine both have cancel if not they should"* +
+*"if engine is not installed … first user interaction will be quick setup we need same type of
+progress bar cancel"*.
+
+**The triplication that existed** (all three re-implemented the same "POST to start → poll a
+status channel → feed a progress bar → cancel/retry" loop): (1) `composables/useEngine.js` — the
+engine install singleton, with ZERO cancel; (2) `composables/useRunnerModels.js` — the catalog
+singleton, whose `refresh()` MERGED the LOAD and DOWNLOAD channels into ONE `detail/downloaded/
+total` ("the active download's progress wins"), so a simultaneous load row and download row shared
+one lying label, and the LOAD row had no cancel; (3) `views/QuickSetup.vue` — the freshly-added
+`chatBar`/`embedBar` reactive objects + `runChat`/`runEmbed`/`cancelChat`/`cancelEmbed`/`retryChat`/
+`retryEmbed`, a third hand-rolled copy of the same poll loop.
+
+**What replaced it.** A new kit composable `composables/useDownloadTask.js` — `createDownloadTask(channel)`
+— is THE one orchestrator: `channel = {start, statusUrl, read, cancel, friendly, fetch?, pollMs?,
+maxPolls?}`; it returns a reactive task `{state ("" | running | done | error | cancelled), phase,
+done, total, rateText, error, label, start(), cancel() (flips state FIRST so the poll loop exits,
+THEN the server call), retry(), waiting(phase), fail(message), reset()}`. Its caption reuses the
+EXISTING single-source formatter `progressCaption` (downloadRate.js) — no fork. A new kit component
+`common/components/DownloadBar.vue` is THE one bar (props `{title, role, task}`: header row · [Cancel
+while running] / [Retry on cancelled|error] / "Ready ✓" on done · shared `UiProgress` · error line;
+the old `.lu-qs-bar*` styles moved here as `.lu-dlbar*`). QuickSetup now mounts **three**
+`createDownloadTask` instances rendered by DownloadBar — `engineTask` (only when the engine isn't
+installed, from a `GET /engine/status` at open), `chatTask` (the LOAD channel; when the engine is
+missing it shows a held "Waiting for the engine…" state and fires the moment `engineTask` reaches
+done — an engine cancel/error sets the chat to a needs-engine error), and `embedTask` (the DOWNLOAD
+channel, fired in parallel since a download needs no engine). The finishApply gating, the
+embed-failure honest done-note, and the `:closable = nothing running across ALL three tasks` are
+preserved; the chat watch drives finishApply so a successful chat retry still advances.
+
+**Merit-flagged reuse boundary (T1/T3).** `createDownloadTask` models a SELF-STARTED, FINITE task
+(perfect for QuickSetup's three). The two domain singletons are NOT that shape: `useRunnerModels`
+polls a continuously-mutating models LIST and its channels are triggered by external buttons (not
+by the composable), and `useEngine`'s install has four entry-shapes (install/reinstall/backend-add/
+update) plus singleton terminal duties (#138 models-refresh, backend fields). Wrapping either in a
+finite self-started task would add indirection, not remove it — so they KEEP their pollers but (a)
+reuse the ONE `progressCaption` formatter (killing the duplicated caption logic the checker cited),
+(b) gain cancel, and (c) `useRunnerModels` SPLITS the merged progress into `loadProgress` +
+`downloadProgress` so a load row and a download row show their own real bytes. `useEngine` gains
+`cancel()` (the new endpoint) surfaced as a Cancel button beside `LuRunnerEngine`'s install bar;
+`LuModelCatalog` reads the channel that concerns each loading row and the LOAD row gains a Cancel
+(`/stop`, now a TRUE abort — see server S2).
+
+**Two server additions** (`llm_runner/runner/lifecycle.py` + `api.py`): **S1 — engine-install
+cancel.** `RunnerService._engine_cancel` (a `threading.Event`), cleared on install start, threaded
+as `cancel_check=self._engine_cancel.is_set` into every `_run_install` `acquire_binary` call (the
+DL-2 `stream_download` seam already accepted it); `DownloadCancelled` is caught → `_engine_idle()`
+(back to not-installed; the partial archive is left on disk but a fresh install RESTARTS the fetch —
+the segmented path re-preallocates from segment offset 0, no cross-call resume). New method
+`cancel_install_engine()` + route `POST /v1/llm-runner/engine/install/cancel`, mirroring the model
+`download_cancel`. **S2 — true load abort.** The load's weights (and MTP-draft) download now passes
+`cancel_check=lambda: model_id not in self._resident`, so a `stop()` (which pops the model) aborts the
+fetch at the next chunk; `_run_load` catches `DownloadCancelled` BEFORE the generic except (log info,
+`arbiter.release`, return with NO error state — the model is already gone, don't resurrect it). Before
+this the download ran to completion and the load only unwound at the router-lock re-check.
+
+**Gates.** Runner `pytest` 509 passed (+3 new: S1 cancel-flips-to-idle, S1 idempotent-when-idle, S2
+stop-during-download-no-error; the only 2 failures are the pre-existing Windows-env `test_hardware`
+lspci + `test_lifecycle` ensure_model_ready timeout) · `ruff` clean · JW `build:vite` ✓ · `test:unit`
+**157/157** (+12 new `useDownloadTask` cases) · headless smoke zero JS errors on every route (only the
+pre-existing `jscpd` red) · the extended Playwright driver — **16/16 verdicts PASS with the screenshots
+read**: scenario A (three bars at once — engine downloading ∥ embed downloading, chat "Waiting for the
+engine…", then engine done → chat loads), B (engine Cancel → chat needs-engine error → engine Retry →
+recovery to done), C (catalog load row 2.4 GB / 4.2 GB ∥ download row 300 MB / 640 MB — different bytes,
+both with Cancel — the merged-label lie dead).
+
 ## BUILD RECORD (2026-07-15 — built on the user's "go" / "keep going until its done")
 
 **ALL STAGES BUILT + VERIFIED; commits pending the diff checker; PUSH awaits the user's word.**

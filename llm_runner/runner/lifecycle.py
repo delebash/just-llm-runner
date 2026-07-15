@@ -403,6 +403,7 @@ class RunnerService:
         self._router_lock = threading.Lock()    # serialize router spawn/bounce/emit/load
         self._thread = None
         self._engine_thread = None
+        self._engine_cancel = threading.Event()  # set → the engine-install worker aborts mid-download
         self._download_state = _download_idle()
         self._download_thread = None
         self._download_cancel = threading.Event()  # set → the download-only worker aborts
@@ -549,6 +550,7 @@ class RunnerService:
         with self._lock:
             if self._engine_state["status"] == "installing":
                 return dict(self._engine_state)
+            self._engine_cancel.clear()  # arm a fresh run — drop any prior cancel signal
             self._engine_state = {"status": "installing",
                                   "detail": (f"{gpu} engine build" if gpu else "llama.cpp engine"),
                                   "error": "", "downloaded": 0, "total": 0}
@@ -556,6 +558,17 @@ class RunnerService:
                 target=self._run_install, args=(force, replace_build, gpu), daemon=True,
             )
             self._engine_thread.start()
+        return dict(self._engine_state)
+
+    def cancel_install_engine(self) -> dict:
+        """Signal an in-flight engine install to stop at the next chunk boundary (the
+        installer thread threads `self._engine_cancel.is_set` into acquire_binary's
+        download, which raises DownloadCancelled). Idempotent: a no-op when nothing is
+        installing. Mirrors cancel_download."""
+        with self._lock:
+            if self._engine_state["status"] == "installing":
+                self._engine_cancel.set()
+                self._engine_state["detail"] = "cancelling…"
         return dict(self._engine_state)
 
     def engine_log(self, tail: int = 200) -> dict:
@@ -1130,7 +1143,8 @@ class RunnerService:
                 concrete = concrete_gpu(hardware, gpu)
                 self._engine_state["detail"] = f"{concrete or gpu} engine build"
                 self._acquire_binary(self.cache_root, config, hardware,
-                                     on_progress=_progress, gpu=concrete)
+                                     on_progress=_progress, gpu=concrete,
+                                     cancel_check=self._engine_cancel.is_set)
                 self._engine_state = {"status": "installed", "detail": "", "error": "",
                                       "downloaded": 0, "total": 0}
                 return
@@ -1139,7 +1153,8 @@ class RunnerService:
                 d = binary_dir(self.cache_root, config.llamacpp.pinned_build)
                 if d.exists():
                     shutil.rmtree(d, ignore_errors=True)
-            self._acquire_binary(self.cache_root, config, hardware, on_progress=_progress)
+            self._acquire_binary(self.cache_root, config, hardware, on_progress=_progress,
+                                 cancel_check=self._engine_cancel.is_set)
             # A3-REVISED (user, 2026-07-07: "you are downloading cpu version when i have
             # nvidia card, we do not even use cpu version"): the CPU build is NO LONGER
             # pre-downloaded as a universal fallback — a multi-hundred-MB download the
@@ -1156,7 +1171,10 @@ class RunnerService:
                 try:
                     self._engine_state["detail"] = f"fallback build ({gpu})"
                     self._acquire_binary(self.cache_root, config, hardware,
-                                         on_progress=_progress, gpu=gpu)
+                                         on_progress=_progress, gpu=gpu,
+                                         cancel_check=self._engine_cancel.is_set)
+                except DownloadCancelled:
+                    raise  # a user cancel aborts the whole install, not a best-effort miss
                 except Exception:  # noqa: BLE001 — the net is a bonus, never a blocker
                     log.warning("fallback build %s failed to install (spawn chain will "
                                 "have fewer candidates)", gpu, exc_info=True)
@@ -1223,6 +1241,15 @@ class RunnerService:
             self._heal_pin_upward()
             self._engine_state = {"status": "installed", "detail": "", "error": "",
                                   "downloaded": 0, "total": 0}
+        except DownloadCancelled:
+            # A user cancel is not an error — restore the not-installed idle state. The
+            # partial archive stays on disk, but a FRESH install re-fetches from the start:
+            # acquire_binary's single-stream fetch truncates dest, and the segmented path
+            # re-preallocates + resets its per-segment offsets to 0 (segment_retries only
+            # resume WITHIN one call), so there is no cross-call resume — the next install
+            # overwrites the partial. Mirrors _run_download's cancel handling.
+            log.info("engine install cancelled")
+            self._engine_state = _engine_idle()
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
             log.exception("engine install failed")
             self._engine_state = {"status": "error", "detail": "", "error": str(exc),
@@ -1304,7 +1331,12 @@ class RunnerService:
                 return
 
             self._touch(model_id, detail="model weights", downloaded=0, total=0)
-            _model, gguf = self._acquire_and_identify(model_id, _progress)
+            # True load abort (S2): a stop() during this (slow, unlocked) download drops
+            # model_id from _resident, so this cancel_check flips True and the fetch aborts
+            # at the next chunk — raising DownloadCancelled (caught below). Before this, the
+            # download ran to completion and the load only unwound at the router-lock re-check.
+            _model, gguf = self._acquire_and_identify(
+                model_id, _progress, cancel_check=lambda: model_id not in self._resident)
 
             # Gemma-style external MTP: the model declares a SEPARATE draft GGUF
             # (catalog mtp_draft_* facts). When the resolved config wants draft-mtp
@@ -1320,6 +1352,7 @@ class RunnerService:
                 draft_snapshot = self._acquire_model(
                     draft_repo, _model.mtp_draft_file, None,
                     cache_root=self._cache_root / "hf", on_progress=_progress,
+                    cancel_check=lambda: model_id not in self._resident,
                     **download_kwargs(config),
                 )
                 draft_path = Path(draft_snapshot) / _model.mtp_draft_file
@@ -1384,6 +1417,12 @@ class RunnerService:
                                       pinned=model_id in embed_ids)
                 self._resident[model_id].update(status="running", url=self._router.url,
                                                 detail="", error="", downloaded=0, total=0)
+        except DownloadCancelled:
+            # A stop() during the download aborted the fetch (S2). The model is already gone
+            # from _resident (stop popped it), so do NOT set an error state (that would read as
+            # a real failure) and do NOT resurrect it — just release any reservation.
+            log.info("runner load cancelled during download for %s", model_id)
+            self._arbiter.release(model_id)
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
             log.exception("runner load failed")
             # A concurrent stop() may have cancelled + removed the model — don't resurrect it.

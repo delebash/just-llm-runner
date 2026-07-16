@@ -58,10 +58,12 @@ Origin of the model: `docs/plans/2026-07-15-preset-one-source-rewrite.md`.
   + `POST /v1/ai/preset-assignments/feature/{key}/reset`, `presets_api.py`): restores the
   feature's SEEDED ref (its OWN default preset, not clear-to-global) + refreshes that
   preset's params to the seed + resets the feature's prompt to seed. Toast, button stays.
-- **Model on reset — USER DECISION (2026-07-16):** a real reset is FULL — preset + prompt +
-  **model**, and the model resets to **the default set in the model tab** (the routing
-  default, §3), NOT "kept" and NOT the seed's empty model. *(PENDING: the shipped `9b14b0f`
-  currently KEEPS the model; change it to restore the routing default.)*
+- **Model on reset — USER DECISION (2026-07-16), SHIPPED:** a real reset is FULL — preset +
+  prompt + **provider/model**, and the model resets to **the default set in the model tab**
+  (the routing default `RoutingDefaults.llmId/model`, §3), NOT "kept" and NOT the seed's
+  empty model. A fresh box with no default set leaves the seed's empty model (→ needs Quick
+  Setup). Verified live: routing default `MY-DEFAULT-MODEL` + a per-feature override → reset
+  → `model=MY-DEFAULT-MODEL, provider=local-llamacpp, think, medium`.
 - **Reset ALL features** (footer "↺ Reset presets to defaults", `FeatureWorkbench.vue:180-191`
   → `POST /v1/ai/engine-presets/reset`): all built-in presets + seeded refs + default back to
   factory (custom presets kept; this one DOES blank models to the seed).
@@ -76,7 +78,7 @@ Origin of the model: `docs/plans/2026-07-15-preset-one-source-rewrite.md`.
 
 ## Known gaps vs this design (open tasks)
 - #305 built-in `/models` returns resident, not catalog (§4).
-- #301 reset should restore the routing-default model, not keep (§5).
+- ~~#301 reset should restore the routing-default model~~ — DONE (§5, shipped + verified).
 - #303 reasoning dropdown ignores the hardware cap (§6).
 - #300 savable "Output as JSON" per action (stashed → redo on current code).
 - #302 Lab "Update" → "Save" (stashed → redo).

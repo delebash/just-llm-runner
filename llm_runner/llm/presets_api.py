@@ -217,16 +217,22 @@ def make_presets_router(
         seeded = app_feature_presets().get(key, "")
         get_refs().set(key, seeded)
         if seeded and reset_one_fn is not None:
-            keep_model = next((p.model for p in get_presets().list() if p.id == seeded), "")
             try:
-                reset_one_fn(seeded)   # factory params + samplers (also blanks model)
+                reset_one_fn(seeded)   # factory params + samplers (blanks model to the seed "")
             except ValueError:
                 pass                    # a custom ref id has no factory — leave the ref only
             else:
-                if keep_model:          # a reset must NOT wipe the user's model
+                # provider+model → the GLOBAL default set in the model tab (the routing
+                # default), per the user's 2026-07-16 decision: a real reset is FULL, NOT
+                # "keep". A fresh box with no default set leaves the seed's empty model
+                # (→ needs Quick Setup), which is graceful.
+                from . import stores
+                d = stores.get_routing_store().get_routing().default
+                if d.model:
                     row = next((p for p in get_presets().list() if p.id == seeded), None)
                     if row is not None:
-                        row.model = keep_model
+                        row.providerId = d.llmId or row.providerId
+                        row.model = d.model
                         get_presets().save(row)
         return _assignments()
 

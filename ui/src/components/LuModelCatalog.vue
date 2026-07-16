@@ -127,13 +127,16 @@ async function makeDefault(m) {
   } catch (e) { error.value = e.message || "Couldn't set the default."; }
   finally { applyingId.value = ""; }
 }
+// The stop/unload wire call — ONE source (Unload's unloadModel + Re-download's unload-first
+// both ride it, no duplicated fetch/body).
+const stopModel = (m) => request("/v1/llm-runner/stop", { method: "POST", body: { modelId: m.id } });
 // Unload (user, 2026-07-07: "no way to unload"): free a resident model's VRAM without
 // loading something else. The router stays up; the model loads again on Load-as-default
 // or on the next request that needs it.
 async function unloadModel(m) {
   busy.value = `unload:${m.id}`;
   try {
-    await request("/v1/llm-runner/stop", { method: "POST", body: { modelId: m.id } });
+    await stopModel(m);
     await refresh();
   } catch (e) { error.value = e.message || "Couldn't unload."; }
   finally { busy.value = ""; }
@@ -706,6 +709,11 @@ async function redownload(m) {
   busy.value = `redl:${m.id}`; // own namespace so its spinner ≠ Delete's / the row load spinner
   error.value = "";
   try {
+    // A RESIDENT model's GGUF is memory-mapped by llama-server (locked on Windows) — deleting
+    // the cache under the engine fails. Unload FIRST (same stop writer as the Unload button) so
+    // the file is free to replace; on failure this throws → error surfaced, cache NOT deleted.
+    // The model reloads on next use / Load as default.
+    if (m.status === "loaded") await stopModel(m);
     await request("/v1/llm-runner/models-cache/delete", { method: "POST", body: { modelId: m.id } });
     await download(m.id); // re-fetch from Hugging Face (own progress channel + refresh)
   } catch (e) { error.value = e.message || "Re-download failed."; } finally { busy.value = ""; }
@@ -879,9 +887,9 @@ refreshApplied();
               <td class="lu-mact">
                 <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
                 <UiButton intent="ghost" size="small" title="Remove from catalog and delete its downloaded weights" :loading="busy === 'del:' + m.id" @click="deleteModel(m)">Delete</UiButton>
-                <UiButton v-if="m.status === 'error' || m.status === 'disk'" intent="secondary" size="small"
+                <UiButton v-if="m.status === 'error' || m.status === 'disk' || m.status === 'loaded'" intent="secondary" size="small"
                   :loading="busy === 'redl:' + m.id"
-                  title="Clear the downloaded file and fetch it again — repairs a corrupted or incomplete download. Keeps the catalog entry."
+                  title="Clear the downloaded file and fetch it again — repairs a corrupted or incomplete download. A loaded model is unloaded first. Keeps the catalog entry."
                   @click="redownload(m)">Re-download</UiButton>
                 <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
                   title="Tune engine flags &amp; measure decode speed" @click="tuning = m">Tune</UiButton>

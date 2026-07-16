@@ -255,6 +255,14 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   (spawn-logs clear · models-cache clear with the unload-first refusal), and the JW
   Settings→Storage "Disk usage" card. Full record: the queue doc's I4 DESIGN + I4 BUILD
   RECORD. Deliberate follow-up, not v1: per-model GGUF delete on the catalog surface.
+  **UI follow-up SHIPPED (2026-07-15):** the catalog **Re-download** (repair) action now
+  renders on a **loaded** row too — not just `error`/`disk` (`LuModelCatalog.vue:890`
+  `v-if` gains `|| m.status === 'loaded'`) — and `redownload()` **unloads first** when the
+  model is loaded (`:716` `if (m.status === "loaded") await stopModel(m)`) so the
+  `models-cache/delete` never hits the server's unload-first refusal (the resident GGUF is
+  mmap-locked). Unload uses the SAME `stopModel` writer as the Unload button (`:132`); on
+  unload failure the error surfaces and the cache is NOT deleted. Verify: build:vite green +
+  headless smoke 0 JS errors on #/ai. Reverts by dropping the `'loaded'` clause + the guard.
 - **I5 — the DEFERRED-until-needed parking lot (carried, still parked by design):** per-scene
   incremental snapshot writes · full per-entity write REST · RAG sqlite-vec ANN index · the
   spawn boot/splash UX · extracting the kit `common/` → a future `@delebash/ui` package · the

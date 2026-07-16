@@ -5,7 +5,7 @@
 // present = that knob is set/sent. It has TWO opt-in presentations over the SAME
 // model + the SAME commit/patch/remove helpers (no forked logic):
 //
-//   • DEFAULT (add-a-row) — `catalog` is an object map (name -> {label,help,
+//   • DEFAULT (add-a-row) — `catalog` is an object map (name -> {help,
 //     kind}). You add a blank row, type a name + value, remove (✕) — a row
 //     present is a flag sent; absent = the engine's own behavior (the user's
 //     command-line model, QC-17/18 2026-07-09). Values are PLAIN text/number
@@ -25,8 +25,9 @@
 //     + Advanced (behind a "▸ Advanced" expander) by each row's `tier`. Names NOT
 //     in the visible catalog (a custom key, or one `exclude`d because it is
 //     edited elsewhere) fall into the raw "Other keys" section so nothing is ever
-//     hidden. `catalogList` rows are the RAW catalog rows: { flagName, label,
-//     kind, default, tier, help, options }.
+//     hidden. `catalogList` rows are the RAW catalog rows: { flagName,
+//     kind, default, tier, help, options }. The row shows the EXACT flag name
+//     only — no friendly label (user ruling 2026-07-16).
 //   (The 2026-07-08 LEDGER mode — every catalog knob always visible with "engine
 //   default" placeholders — was REMOVED 2026-07-09 with QC-17: the app no longer
 //   claims to know the engine's defaults; unset switches simply don't render.)
@@ -39,7 +40,7 @@ import UiSelect from "../common/components/UiSelect.vue";
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] }, // [{ name, value }]
-  catalog: { type: Object, default: () => ({}) }, // name -> { label, help, kind }  (add-row mode)
+  catalog: { type: Object, default: () => ({}) }, // name -> { help, kind }  (add-row mode)
   namePlaceholder: { type: String, default: "flag (e.g. ctx_len)" },
   valuePlaceholder: { type: String, default: "value" },
   addLabel: { type: String, default: "＋ Add switch" },
@@ -54,7 +55,7 @@ const props = defineProps({
   fallbackGroup: { type: String, default: "" },
   // Checklist mode (opt-in) — leaves the add-row mode + its `catalog` prop intact.
   checklist: { type: Boolean, default: false },
-  catalogList: { type: Array, default: () => [] }, // ordered raw rows [{ flagName, label, kind, default, help, options }]
+  catalogList: { type: Array, default: () => [] }, // ordered raw rows [{ flagName, kind, default, help, options }]
   exclude: { type: Array, default: () => [] },     // flag names to hide from the managed list (edited elsewhere)
   reservedKeys: { type: Array, default: () => [] },// names managed by another control → hidden from "Other keys" too
   // Fixed height before the grid scrolls (single-column only). Pass "" to disable
@@ -199,7 +200,6 @@ const displayRows = computed(() => {
         <div v-else class="ui-kg-crow" :class="{ 'is-on': isOn(row.m.flagName) }">
           <UiCheckbox :model-value="isOn(row.m.flagName)" @update:model-value="(on) => toggle(row.m, on)" />
           <div class="ui-kg-metacell" :title="row.m.help || ''">
-            <span class="ui-kg-label">{{ row.m.label || row.m.flagName }}</span>
             <code class="ui-kg-flag">{{ row.m.flagName }}</code>
             <span v-if="origins[row.m.flagName]" class="ui-kg-origin"
               title="Where this value comes from">{{ origins[row.m.flagName] }}</span>
@@ -318,12 +318,13 @@ const displayRows = computed(() => {
    custom rows span the full width. */
 .ui-kg-check.is-cols .ui-kg-scroll { display: grid; grid-template-columns: repeat(var(--kg-cols, 3), minmax(210px, 1fr)); gap: 6px 16px; align-content: start; overflow-x: auto; padding-right: 0; }
 .ui-kg-check.is-cols .ui-kg-crow { grid-template-columns: auto minmax(0, 1fr) 84px auto; gap: 7px; }
-.ui-kg-check.is-cols .ui-kg-label, .ui-kg-check.is-cols .ui-kg-flag { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-kg-check.is-cols .ui-kg-flag { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ui-kg-check.is-cols .ui-kg-extras-h, .ui-kg-check.is-cols .ui-kg-crow.ui-kg-extra { grid-column: 1 / -1; }
 .ui-kg-check.is-cols .ui-kg-crow.ui-kg-extra { grid-template-columns: 200px minmax(110px, 150px) auto; justify-content: start; }
 .ui-kg-metacell { display: flex; flex-direction: column; min-width: 0; }
-.ui-kg-label { font-size: 12.5px; color: var(--ink); line-height: 1.25; }
-.ui-kg-flag { font-family: var(--font-mono, monospace); font-size: 10px; color: var(--muted); }
+/* The exact switch name IS the row's name now — the friendly `.ui-kg-label` line was
+   deleted (user ruling 2026-07-16); the monospace flag is promoted to the primary line. */
+.ui-kg-flag { font-family: var(--font-mono, monospace); font-size: 12.5px; color: var(--ink); line-height: 1.25; }
 .ui-kg-val :deep(input) { font-family: var(--font-mono, monospace); }
 /* Advanced expander — a disclosure affordance styled like the section eyebrows
    (muted uppercase), not a ghost action button. */

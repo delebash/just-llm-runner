@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Knob-catalog endpoint — friendly metadata for the shared KnobGrid (C1).
 
-Turns a raw switch/sampler key into a labelled, typed input: the KnobGrid takes a
-`catalog` (name → {label, help, kind}); this serves the seeded metadata so both
+Turns a raw switch/sampler key into a typed input: the KnobGrid takes a
+`catalog` (name → {help, kind}); this serves the seeded metadata so both
 the Plane-1 switch editors and the per-action sampler editor (Plane 2) render
 friendly inputs. Data-only — no code per param; an unknown key still works as a
 raw row (the KnobGrid escape). GET-only: the catalog is app-owned seed data."""
@@ -22,7 +22,6 @@ class KnobOption(BaseModel):
 
 class KnobMeta(BaseModel):
     flagName: str
-    label: str = ""
     kind: str = "string"        # bool | int | float | enum | string
     default: str = ""
     help: str = ""

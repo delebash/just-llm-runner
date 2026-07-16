@@ -5,7 +5,7 @@
 // modelDefaults.js precedent: a small shared module instead of fetch copies).
 import { request } from "./client.js";
 
-// The raw seeded knob rows [{ flagName, label, kind, default, tier, plane, help,
+// The raw seeded knob rows [{ flagName, kind, default, tier, plane, help,
 // options }]; [] on any failure — the catalog is an enrichment, raw rows still work.
 export async function fetchKnobCatalog() {
   try {
@@ -16,14 +16,15 @@ export async function fetchKnobCatalog() {
 }
 
 // The Plane-1 map KnobGrid's add-row mode takes as `catalog`:
-// flagName -> { label, help, kind }. QC-18 (user, 2026-07-09): switch values are
+// flagName -> { help, kind }. QC-18 (user, 2026-07-09): switch values are
 // plain text/number boxes everywhere — no options-driven dropdowns; the HELP
 // carries what a switch does + its accepted values. `kind` (int|float|…) only
-// picks text vs number for the value box.
+// picks text vs number for the value box. No friendly `label` — the UI shows the
+// EXACT switch name only (user ruling 2026-07-16).
 export function plane1SwitchCatalog(knobs) {
   return Object.fromEntries(
     (knobs || [])
       .filter((k) => k.plane === 1)
-      .map((k) => [k.flagName, { label: k.label, help: k.help, kind: k.kind }]),
+      .map((k) => [k.flagName, { help: k.help, kind: k.kind }]),
   );
 }

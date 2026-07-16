@@ -467,15 +467,15 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
 # plane is common-first (the seeder sets position=i).
 DEFAULT_KNOBS: list[dict] = [
     # ── Plane 1 — load switches: COMMON (fit & memory) ──
-    {"flag_name": "ctx_len", "label": "Context size", "kind": "int", "plane": 1, "tier": "common",
+    {"flag_name": "ctx_len", "kind": "int", "plane": 1, "tier": "common",
      "help": "Maximum tokens the model can read + write at once. Bigger = more memory (the KV cache grows with it). Set it to fit your longest task; unset, the engine reads the model's own limit."},
-    {"flag_name": "flash_attn", "label": "Flash attention", "kind": "string", "plane": 1, "tier": "common",
+    {"flag_name": "flash_attn", "kind": "string", "plane": 1, "tier": "common",
      "help": "Faster attention using less memory. Values: on, off, auto."},
-    {"flag_name": "cache_type_k", "label": "KV cache type (K)", "kind": "string", "plane": 1, "tier": "common",
+    {"flag_name": "cache_type_k", "kind": "string", "plane": 1, "tier": "common",
      "help": "Compress the K side of the KV cache to save VRAM. q8_0 is near-lossless; q4_0 saves more but can cost quality. Accepts f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1."},
-    {"flag_name": "cache_type_v", "label": "KV cache type (V)", "kind": "string", "plane": 1, "tier": "common",
+    {"flag_name": "cache_type_v", "kind": "string", "plane": 1, "tier": "common",
      "help": "Compress the V side of the KV cache to save VRAM. q8_0 is near-lossless. Accepts f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1."},
-    {"flag_name": "n_cpu_moe", "label": "CPU MoE layers", "kind": "int", "plane": 1, "applies_to": "moe", "tier": "common",
+    {"flag_name": "n_cpu_moe", "kind": "int", "plane": 1, "applies_to": "moe", "tier": "common",
      "help": "Expert layers to run on CPU — frees VRAM (MoE only). Auto-fit sets it; pin the fast value here."},
     # ── Plane 1 — load switches: ADVANCED ──
     # n_gpu_layers ADDED 2026-07-07 (user bug report): it was always a valid Overrides
@@ -484,84 +484,84 @@ DEFAULT_KNOBS: list[dict] = [
     # (the MoE pattern: all layers on GPU, offload via n_cpu_moe) and the Tune grid
     # badged the resolved row "unrecognized". The knob row makes it a first-class,
     # labelled switch; the seeder merges by flag_name so existing DBs gain it on boot.
-    {"flag_name": "n_gpu_layers", "label": "GPU layers", "kind": "int", "plane": 1, "tier": "advanced",
+    {"flag_name": "n_gpu_layers", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many model layers run on the GPU (the rest run on CPU). Auto-fit sets it when unset; MoE tunes pin every layer on GPU (99) and free VRAM with CPU MoE layers instead."},
-    {"flag_name": "mlock", "label": "Lock in RAM", "kind": "bool", "plane": 1, "tier": "advanced",
+    {"flag_name": "mlock", "kind": "bool", "plane": 1, "tier": "advanced",
      "help": "Keep the model locked in RAM so the OS can't swap it out (steadier speed). Turn off if RAM is tight. Values: true or false."},
-    {"flag_name": "no_mmap", "label": "Load into RAM", "kind": "bool", "plane": 1, "applies_to": "moe", "tier": "advanced",
+    {"flag_name": "no_mmap", "kind": "bool", "plane": 1, "applies_to": "moe", "tier": "advanced",
      "help": "Read the whole model into RAM instead of memory-mapping it. Needed for MoE CPU-offload; otherwise leave off. Values: true or false."},
-    {"flag_name": "no_kv_offload", "label": "KV in system RAM", "kind": "bool", "plane": 1, "tier": "advanced",
+    {"flag_name": "no_kv_offload", "kind": "bool", "plane": 1, "tier": "advanced",
      "help": "Keep the KV cache in system RAM instead of VRAM — frees VRAM but is slower. Values: true or false."},
-    {"flag_name": "batch_size", "label": "Batch size", "kind": "int", "plane": 1, "tier": "advanced",
+    {"flag_name": "batch_size", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many prompt tokens are processed together (throughput vs memory)."},
-    {"flag_name": "ubatch_size", "label": "Micro-batch size", "kind": "int", "plane": 1, "tier": "advanced",
+    {"flag_name": "ubatch_size", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "Physical batch — the chunk actually run per step. Lower it if prompt processing runs out of memory."},
-    {"flag_name": "threads", "label": "CPU threads", "kind": "int", "plane": 1, "tier": "advanced",
+    {"flag_name": "threads", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "CPU threads for generation (drive MoE CPU experts). Unset, the engine uses your physical cores."},
-    {"flag_name": "threads_batch", "label": "CPU threads (prompt)", "kind": "int", "plane": 1, "tier": "advanced",
+    {"flag_name": "threads_batch", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "CPU threads for prompt processing. Unset, the engine matches CPU threads."},
-    {"flag_name": "parallel", "label": "Parallel slots", "kind": "int", "plane": 1, "tier": "advanced",
+    {"flag_name": "parallel", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "Concurrent server slots (used by batch sweeps / Compare)."},
-    {"flag_name": "cont_batching", "label": "Continuous batching", "kind": "bool", "plane": 1, "tier": "advanced",
+    {"flag_name": "cont_batching", "kind": "bool", "plane": 1, "tier": "advanced",
      "help": "Overlap requests for throughput; only turn it off to debug. Values: true or false."},
     # context_shift + cache_reuse REMOVED from the catalog (QC-11, user 2026-07-09
     # "remove from catalog" — they were also pulled from the shipped bundles
     # 2026-07-07 as a measured net loss). Still typeable as custom switches.
-    {"flag_name": "spec_type", "label": "Speculative decode", "kind": "string", "plane": 1, "tier": "advanced",
+    {"flag_name": "spec_type", "kind": "string", "plane": 1, "tier": "advanced",
      "help": "Draft-model speculative decode. MTP GGUF only; gains are machine-dependent — measure. Values: none, draft-mtp, ngram-mod."},
-    {"flag_name": "spec_n_max", "label": "Spec draft tokens", "kind": "int", "plane": 1, "tier": "advanced",
+    {"flag_name": "spec_n_max", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many tokens the draft proposes per step."},
-    {"flag_name": "reasoning_budget", "label": "Thinking budget (per-request)", "kind": "int", "plane": 1, "per_request": True, "tier": "advanced",
+    {"flag_name": "reasoning_budget", "kind": "int", "plane": 1, "per_request": True, "tier": "advanced",
      "help": "Thinking-token budget for this model, layered like any switch (global → hardware class → your applied config) — but NOT a launch flag: it is sent with EVERY request as JSON and applies immediately, no reload. -1 = unlimited (can think until the context fills), 0 = thinking off, N = at most N thinking tokens."},
     # ── Plane 2 — per-request samplers: COMMON ──
     # temperature + top_p stay in the catalog but are edited in the per-call params
     # row (excluded from the checklist by ConfigColumn) — tier is harmless here.
-    {"flag_name": "temperature", "label": "Temperature", "kind": "float", "plane": 2, "default_value": "0.7", "tier": "common",
+    {"flag_name": "temperature", "kind": "float", "plane": 2, "default_value": "0.7", "tier": "common",
      "help": "Randomness. Low (≈0) for extraction/JSON; higher (0.8–1.0) for prose."},
-    {"flag_name": "top_p", "label": "Top-p", "kind": "float", "plane": 2, "default_value": "0.95", "tier": "common",
+    {"flag_name": "top_p", "kind": "float", "plane": 2, "default_value": "0.95", "tier": "common",
      "help": "Nucleus sampling — keep the smallest set of tokens summing to this probability. The cloud-API truncation knob."},
-    {"flag_name": "top_k", "label": "Top-k", "kind": "int", "plane": 2, "tier": "common",
+    {"flag_name": "top_k", "kind": "int", "plane": 2, "tier": "common",
      "help": "Keep only the k most-likely tokens (0 = off)."},
-    {"flag_name": "min_p", "label": "Min-p", "kind": "float", "plane": 2, "tier": "common",
+    {"flag_name": "min_p", "kind": "float", "plane": 2, "tier": "common",
      "help": "Drop tokens below this fraction of the top token's probability. For local models this is the truncation knob to reach for first (try 0.05–0.1)."},
-    {"flag_name": "repeat_penalty", "label": "Repeat penalty", "kind": "float", "plane": 2, "tier": "common",
+    {"flag_name": "repeat_penalty", "kind": "float", "plane": 2, "tier": "common",
      "help": "Penalize recently-used tokens (>1 reduces repetition)."},
-    {"flag_name": "repeat_last_n", "label": "Repeat range", "kind": "int", "plane": 2, "default_value": "64", "tier": "common",
+    {"flag_name": "repeat_last_n", "kind": "int", "plane": 2, "default_value": "64", "tier": "common",
      "help": "How many recent tokens Repeat penalty looks back over (llama.cpp default 64; -1 = whole context, 0 = off)."},
-    {"flag_name": "seed", "label": "Seed", "kind": "int", "plane": 2, "tier": "common",
+    {"flag_name": "seed", "kind": "int", "plane": 2, "tier": "common",
      "help": "Fixed RNG seed for reproducible output (-1 = random)."},
     # ── Plane 2 — per-request samplers: ADVANCED ──
-    {"flag_name": "presence_penalty", "label": "Presence penalty", "kind": "float", "plane": 2, "tier": "advanced",
+    {"flag_name": "presence_penalty", "kind": "float", "plane": 2, "tier": "advanced",
      "help": "Penalize tokens that already appeared at all (OpenAI-style; 0 = off)."},
-    {"flag_name": "frequency_penalty", "label": "Frequency penalty", "kind": "float", "plane": 2, "tier": "advanced",
+    {"flag_name": "frequency_penalty", "kind": "float", "plane": 2, "tier": "advanced",
      "help": "Penalize tokens by how often they've appeared (OpenAI-style; 0 = off)."},
-    {"flag_name": "typical_p", "label": "Typical-p", "kind": "float", "plane": 2, "tier": "advanced",
+    {"flag_name": "typical_p", "kind": "float", "plane": 2, "tier": "advanced",
      "help": "Locally-typical sampling — keep tokens near the expected information content (1.0 = off)."},
-    {"flag_name": "dry_multiplier", "label": "DRY penalty", "kind": "float", "plane": 2, "tier": "advanced",
+    {"flag_name": "dry_multiplier", "kind": "float", "plane": 2, "tier": "advanced",
      "help": "Don't-Repeat-Yourself: penalize repeated sequences (0 = off). A stronger anti-repetition than Repeat penalty."},
-    {"flag_name": "dry_base", "label": "DRY base", "kind": "float", "plane": 2, "default_value": "1.75", "tier": "advanced",
+    {"flag_name": "dry_base", "kind": "float", "plane": 2, "default_value": "1.75", "tier": "advanced",
      "help": "How steeply DRY penalizes longer repeats (llama.cpp default 1.75). Used with DRY penalty."},
-    {"flag_name": "dry_allowed_length", "label": "DRY allowed length", "kind": "int", "plane": 2, "default_value": "2", "tier": "advanced",
+    {"flag_name": "dry_allowed_length", "kind": "int", "plane": 2, "default_value": "2", "tier": "advanced",
      "help": "Repeats up to this length are free; longer ones get penalized (llama.cpp default 2)."},
-    {"flag_name": "dry_penalty_last_n", "label": "DRY range", "kind": "int", "plane": 2, "default_value": "-1", "tier": "advanced",
+    {"flag_name": "dry_penalty_last_n", "kind": "int", "plane": 2, "default_value": "-1", "tier": "advanced",
      "help": "How many recent tokens DRY scans (-1 = whole context, 0 = off)."},
-    {"flag_name": "xtc_probability", "label": "XTC probability", "kind": "float", "plane": 2, "tier": "advanced",
+    {"flag_name": "xtc_probability", "kind": "float", "plane": 2, "tier": "advanced",
      "help": "Exclude-Top-Choices: chance to drop the most-likely tokens for variety (0 = off)."},
-    {"flag_name": "xtc_threshold", "label": "XTC threshold", "kind": "float", "plane": 2, "default_value": "0.1", "tier": "advanced",
+    {"flag_name": "xtc_threshold", "kind": "float", "plane": 2, "default_value": "0.1", "tier": "advanced",
      "help": "XTC only removes tokens above this probability (llama.cpp default 0.1; 1.0 = off). Used with XTC probability."},
-    {"flag_name": "mirostat", "label": "Mirostat", "kind": "int", "plane": 2, "tier": "advanced",
+    {"flag_name": "mirostat", "kind": "int", "plane": 2, "tier": "advanced",
      "help": "Adaptive perplexity sampler: 0 = off, 1 = v1, 2 = v2."},
-    {"flag_name": "mirostat_tau", "label": "Mirostat tau", "kind": "float", "plane": 2, "default_value": "5.0", "tier": "advanced",
+    {"flag_name": "mirostat_tau", "kind": "float", "plane": 2, "default_value": "5.0", "tier": "advanced",
      "help": "Mirostat target 'surprise' (entropy) — higher = more varied (llama.cpp default 5.0). Used only when Mirostat is on."},
-    {"flag_name": "mirostat_eta", "label": "Mirostat eta", "kind": "float", "plane": 2, "default_value": "0.1", "tier": "advanced",
+    {"flag_name": "mirostat_eta", "kind": "float", "plane": 2, "default_value": "0.1", "tier": "advanced",
      "help": "Mirostat learning rate — how fast it adapts (llama.cpp default 0.1). Used only when Mirostat is on."},
-    {"flag_name": "dynatemp_range", "label": "Dynamic temp range", "kind": "float", "plane": 2, "default_value": "0.0", "tier": "advanced",
+    {"flag_name": "dynatemp_range", "kind": "float", "plane": 2, "default_value": "0.0", "tier": "advanced",
      "help": "Dynamic temperature: how far temperature can swing per token (0 = off)."},
-    {"flag_name": "dynatemp_exponent", "label": "Dynamic temp exponent", "kind": "float", "plane": 2, "default_value": "1.0", "tier": "advanced",
+    {"flag_name": "dynatemp_exponent", "kind": "float", "plane": 2, "default_value": "1.0", "tier": "advanced",
      "help": "Shape of the dynamic-temperature curve (llama.cpp default 1.0). Used with Dynamic temp range."},
-    {"flag_name": "top_n_sigma", "label": "Top-n-sigma", "kind": "float", "plane": 2, "default_value": "-1.0", "tier": "advanced",
+    {"flag_name": "top_n_sigma", "kind": "float", "plane": 2, "default_value": "-1.0", "tier": "advanced",
      "help": "Keep tokens within N standard deviations of the top logit (-1 = off). A newer, simple truncation."},
-    {"flag_name": "min_keep", "label": "Min keep", "kind": "int", "plane": 2, "default_value": "0", "tier": "advanced",
+    {"flag_name": "min_keep", "kind": "int", "plane": 2, "default_value": "0", "tier": "advanced",
      "help": "Always keep at least this many candidate tokens through the filters (0 = no minimum)."},
 ]
 
@@ -1023,7 +1023,7 @@ def seed_default_knobs(s) -> int:
 
     The catalog is APP-OWNED, read-only data (GET /v1/ai/knob-catalog is its only
     endpoint — nothing in the app edits knob rows), so built-in rows SYNC to
-    DEFAULT_KNOBS on every boot: label/kind/default_value/help/plane/applies_to/
+    DEFAULT_KNOBS on every boot: kind/default_value/help/plane/applies_to/
     tier/position refresh from the seed (QC-17, 2026-07-09: plane-1 rows carry NO
     default_value — the app stopped storing the engine's own defaults), built-in
     rows dropped from the seed are DELETED (QC-11: context_shift + cache_reuse;
@@ -1040,7 +1040,6 @@ def seed_default_knobs(s) -> int:
         row = existing.get(k["flag_name"])
         if row is not None:
             if row.built_in:
-                row.label = str(k.get("label") or "")
                 row.kind = str(k.get("kind") or "string")
                 row.default_value = str(k.get("default_value") or "")
                 row.help = str(k.get("help") or "")
@@ -1055,7 +1054,7 @@ def seed_default_knobs(s) -> int:
                         s.delete(opt)
             continue
         s.add(db.KnobCatalog(
-            flag_name=k["flag_name"], label=str(k.get("label") or ""), kind=str(k.get("kind") or "string"),
+            flag_name=k["flag_name"], kind=str(k.get("kind") or "string"),
             default_value=str(k.get("default_value") or ""), help=str(k.get("help") or ""),
             plane=int(k.get("plane") or 1), applies_to=str(k.get("applies_to") or "all"),
             tier=str(k.get("tier") or "common"), per_request=bool(k.get("per_request") or False),

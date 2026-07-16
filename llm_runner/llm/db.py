@@ -485,14 +485,17 @@ class RunnerSetting(LlmBase):
 
 
 # ── knob catalog — metadata that turns a raw switch/sampler key into a friendly
-#    KnobGrid input (label/type/default/help/plane). DATA, no code per param
+#    KnobGrid input (type/default/help/plane). DATA, no code per param
 #    (design C1). `flag_name` maps to an Overrides field (Plane-1) or a sampler
-#    `extra` key (Plane-2). Enum options live in the child `knob_option`. ──────────
+#    `extra` key (Plane-2). Enum options live in the child `knob_option`. The UI
+#    shows the EXACT switch name only — no friendly `label` (user ruling 2026-07-16;
+#    the physical `label` column was dropped — create_all never drops it from an
+#    existing DB, a harmless orphan under the pre-release drop+reseed policy, same
+#    as the reasoning_cap_default orphan). ──────────
 class KnobCatalog(LlmBase):
     __tablename__ = "knob_catalog"
 
     flag_name = Column(String, primary_key=True)
-    label = Column(String, nullable=False, default="")
     kind = Column(String, nullable=False, default="string")  # bool|int|float|enum|string
     default_value = Column(String, nullable=False, default="")
     help = Column(Text, nullable=False, default="")

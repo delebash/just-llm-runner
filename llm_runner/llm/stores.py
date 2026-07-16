@@ -1247,7 +1247,7 @@ def list_knob_catalog() -> list[dict]:
         rows = s.query(db.KnobCatalog).order_by(db.KnobCatalog.plane, db.KnobCatalog.position).all()
         return [
             {
-                "flagName": k.flag_name, "label": k.label, "kind": k.kind,
+                "flagName": k.flag_name, "kind": k.kind,
                 "default": k.default_value, "help": k.help, "plane": k.plane,
                 "appliesTo": k.applies_to, "tier": k.tier, "perRequest": k.per_request,
                 "options": opts.get(k.flag_name, []),

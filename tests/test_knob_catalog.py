@@ -88,7 +88,7 @@ def test_seed_curates_existing_dbs(wired):
     it, and a stale plane-1 default_value/option set is cleared."""
     s = db.session()
     # Recreate the pre-QC-17 era-1 state by hand.
-    s.add(db.KnobCatalog(flag_name="context_shift", label="Context shift", kind="bool",
+    s.add(db.KnobCatalog(flag_name="context_shift", kind="bool",
                          default_value="true", plane=1, tier="advanced", built_in=True))
     s.flush()
     s.add(db.KnobOption(flag_name="cache_type_k", value="q8_0", label="q8_0",

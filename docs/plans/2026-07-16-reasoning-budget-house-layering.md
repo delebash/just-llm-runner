@@ -107,3 +107,108 @@ declared verdict rule). Harness spec lives with the JW-side record.
    plan's explicit **"Feature door (kit UI, second builder)"** work — the resolved-route
    now serves `value`/`valueSource` for it. Not modified here (backend scope; JS not in the
    pytest/ruff tier; caption wording is a UI design choice the plan owns).
+
+---
+
+## BUILD RECORD (label deletion, Opus builder)
+
+**User ruling (2026-07-16):** Switch UIs show the **EXACT switch name only** — never a
+friendly label ("the only name we use is the exact switch name … yes delete label
+column"). The knob-catalog `label` column + every data/wire/render path is DELETED.
+`help` STAYS ("the help is fine"); `kind`, `plane`, `tier`, `per_request`, `options`,
+`default` all STAY. KnobOption's `label` (enum-option display, e.g. `On`/`Off`) is a
+DIFFERENT column and is untouched.
+
+**What changed · file:line**
+- `llm_runner/llm/db.py:495` — deleted the `label = Column(...)` declaration on
+  `KnobCatalog`; updated the section comment (`~487`) `(label/type/...)` → `(type/...)`
+  and added the orphan-column note.
+- `llm_runner/llm/knob_catalog_api.py:26` — deleted the `label: str = ""` field on
+  `KnobMeta`; module docstring `catalog (name → {label, help, kind})` → `{help, kind}`.
+- `llm_runner/llm/stores.py:1250` — `list_knob_catalog` no longer emits `"label"`
+  (line 1246's `{"value", "label"}` is the KnobOption enum-option join — untouched).
+- `llm_runner/llm/seed.py` — removed `"label": "…"` from all **41** `DEFAULT_KNOBS` rows
+  (mechanical regex on `{"flag_name":` lines only); `seed_default_knobs` sync path
+  (`~1042` `row.label = …` deleted) and insert (`~1056` `label=…` kwarg deleted); the
+  `seed_default_knobs` docstring's synced-field list (`~1025`) `label/kind/…` → `kind/…`.
+  The `DEFAULT_KNOBS` comment (`~456`) carried no `label` mention — unchanged.
+- `ui/src/knobCatalog.js:27` — `plane1SwitchCatalog` map `{ label, help, kind }` →
+  `{ help, kind }`; raw-row shape comment (`~8`) + the map comment (`~19`) updated.
+- `ui/src/components/KnobGrid.vue` — the checklist metacell was a friendly-label headline
+  (`.ui-kg-label`, `{{ row.m.label || row.m.flagName }}`) STACKED over the raw-flag
+  `<code class="ui-kg-flag">{{ row.m.flagName }}</code>`. Deleting the friendly label
+  (`.ui-kg-label` span) leaves the `<code>` flag as the SINGLE exact-name line; its CSS
+  is promoted from muted 10px to ink 12.5px (reusing the old `.ui-kg-label` values, kept
+  monospace), the dead `.ui-kg-label` rule + the is-cols selector reference removed.
+  (First pass swapped the span's binding to `flagName`, which DOUBLE-rendered the name —
+  the rules-checker R1 catch; corrected to the metacell collapse above.) Prop/shape doc
+  comments (`~8,~28,~42,~57`) updated. The GROUP header `sec.label` (`~266`, from the
+  `groups` prop) + `BOOL_OPTIONS` labels (`~168`) are NOT knob labels — left as-is.
+- `tests/test_knob_catalog.py:91` — dropped the now-invalid `label=` kwarg from the
+  hand-built `KnobCatalog(...)` (line 94's `KnobOption(... label="q8_0" ...)` STAYS).
+
+**Sweep — `grep -rn "\.label" ui/src` (every hit inspected):**
+
+| File:line | Object source | Verdict |
+|---|---|---|
+| `knobCatalog.js:27` | knob catalog (`plane1SwitchCatalog`) | **CHANGED** |
+| `components/KnobGrid.vue:202` | knob catalog (`catalogList` row) | **CHANGED** |
+| `components/KnobGrid.vue:266` | `sec.label` — `groups` section header | not knob (excluded) |
+| `views/ProviderForm.vue:238` | `PROVIDER_TYPES` option | not knob |
+| `views/QuickSetup.vue:780,798` | optimize-trial / measurement (`t.label`, `best.label`) | not knob |
+| `views/FeatureWorkbench.vue:56,77,82,85,96,98,223,226,228` | routing feature/group/action labels | not knob |
+| `stores/aiTasks.js:230` · `services/aiFeature.js:34` | AI-task label | not knob |
+| `components/AiTaskStrip.vue:79` · `AiStatusPanel.vue:167,253` | task/history label | not knob |
+| `common/components/AppDialog.vue:46,179` | dialog field label | not knob |
+| `common/services/appearance.js:51,54` | font label | not knob |
+| `components/LuModelPicker.vue:104` | model-option label | not knob |
+| `components/LuModelCatalog.vue:850,879` | tune-badge / DownloadBar label | not knob |
+| `components/LuGlobalSwitches.vue:44,138` | `/v1/ai/switch-presets` row (`SwitchPresetRow.label`, a bundle name) | not knob |
+| `components/FeatureLab.vue:108,129,130,208` | sample/source labels | not knob |
+| `common/services/toastBridge.js:29` | toast action label | not knob |
+| `components/LuMeasureHistory.vue:95` | measurement label | not knob |
+| `components/LuFeatureChip.vue:68,69,207` | feature / REASONING_OPTIONS label | not knob |
+| `common/components/Breadcrumb.vue:23,24` | breadcrumb segment label | not knob |
+| `components/TuneMeasureModal.vue:125,505,559,562` | tune-badge family / trial labels | not knob |
+| `common/components/DownloadBar.vue:31` | task label | not knob |
+| `common/components/HelpTrigger.vue:29` | help label | not knob |
+| `components/LuCombobox.vue:25,52` | combobox item label | not knob |
+| `common/components/UiField.vue:20` · `UiSelect.vue:64,99` | form/select-option label | not knob |
+
+Also inspected (no `.label` read, but consume the catalog): `ConfigColumn.vue` (passes
+`samplerCatalogList` → KnobGrid checklist; its labels are UiSelect options/field labels)
+and `LuClassTunes.vue` (builds `plane1SwitchCatalog` → KnobGrid `catalog`, add-row mode
+which reads only `help`/`kind`). Add-row mode never rendered `label`. **No item left for
+owner decision.** Runner test sweep (`grep -rn label tests/`): only
+`test_knob_catalog.py:91` was a knob-catalog `label`; all other `label=` hits are
+FeatureCatalogEntry / SwitchPresetRow / TestSample / measurement-trial — not knob.
+
+**Verification**
+- `python -m pytest` → **3 failed, 510 passed, 1 skipped** — the 3 are the documented
+  pre-existing failures (`test_hardware.py::test_pci_gpus_linux_lspci_name_match` Windows
+  path-colons; `test_lifecycle.py::test_ensure_model_ready_loads_then_returns` +
+  `::test_ensure_model_ready_raises_on_failed_load` threaded-load timeouts). No new
+  failures; all knob-catalog tests pass.
+- `ruff check .` → **All checks passed!**
+- JW kit compile check `cd justwrite-app && npm run build:vite` → **✓ built** (the kit is
+  aliased into JW's build; warnings are pre-existing vueuse `#__PURE__` annotations). Re-run
+  clean after the KnobGrid metacell fix.
+- **Rules-checker (Opus, one pass on the final diff):** initial verdict FAIL on 3 items —
+  R1 (KnobGrid double-render), R4 (stale `label/` in the `seed_default_knobs` docstring),
+  R5 (renderer change cleared only by build:vite). All three now addressed: R1 by the
+  metacell collapse, R4 by the docstring fix. R2/R3 passed; KnobOption `label` correctly
+  preserved.
+- **R5 / visual gate — HONEST LIMITATION:** the KnobGrid render change was verified by
+  `build:vite` (compile) + diff inspection (the metacell now renders `flagName` exactly
+  ONCE, at `KnobGrid.vue:203`). The headless renderer smoke + a live screenshot of the
+  checklist were **NOT run** — that gate requires booting the server on **:17495** and
+  `dev:vite` on **:1420**, ports this task EXPLICITLY forbade touching (consistent with the
+  task's own tier listing only build:vite). The single-render is structurally guaranteed by
+  the diff; the promoted `.ui-kg-flag` size reuses the previously-shipped legible values, so
+  no new magic numbers. **Owner: eyeball the switch checklist once (AI settings → sampler /
+  switch grids) to confirm the monospace name reads well as the sole line.**
+
+**What reverses it:** revert the commit. Orphan-column caveat — existing DBs keep a
+physical `knob_catalog.label` column; `create_all` never drops it, and nothing reads it.
+Harmless under the pre-release drop+reseed policy (same class as the
+`reasoning_cap_default` orphan above).

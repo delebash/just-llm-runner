@@ -27,31 +27,14 @@ export async function putClassTune(modelId, switches, classKey = "") {
   });
 }
 
-// THE one switch-row upsert, shared by BOTH tune endpoints — because both carry the same
-// hazard: they are wholesale REPLACE, not merge. class-tunes deletes every row of the
-// (model, class) pair before inserting (stores.py:970-975); model-tunes does the same per
-// model, pinned by tests/test_model_tunes.py::test_put_replaces_the_whole_set ("the old
-// batch_size row is GONE, not merged"). So a caller changing ONE key MUST send the whole set
-// back — sending `{one_key}` alone silently destroys that row's n_gpu_layers / n_cpu_moe /
-// ctx_len / …. It lives here, once, so the next one-key writer cannot hand-roll a partial PUT
-// against either endpoint (two private copies is how the class-tune one got shipped).
-//
-// Note a row can EXIST while a BROADER layer still owns the key you're writing (the row just
-// doesn't carry it), so "the resolved origin isn't `class`/`tune`" NEVER implies "no row to
-// preserve" — always upsert. `rows` = [{flagName, flagValue}]; absent/[] (no row yet)
-// correctly yields just the new key, which is the create case.
-export function upsertSwitchRows(rows, flagName, flagValue) {
-  const kept = (rows || [])
-    .filter((r) => r.flagName !== flagName)
-    .map((r) => ({ flagName: r.flagName, flagValue: String(r.flagValue ?? "") }));
-  return [...kept, { flagName, flagValue: String(flagValue) }];
-}
-
-// The same upsert in the `switches` OBJECT shape putClassTune takes (it re-converts to rows
-// at :23). One implementation, two wire shapes — never a second upsert.
-export function mergeClassSwitches(rows, flagName, flagValue) {
-  return Object.fromEntries(upsertSwitchRows(rows, flagName, flagValue).map((r) => [r.flagName, r.flagValue]));
-}
+// ⚠ ONE-KEY WRITERS, READ FIRST: both tune endpoints are wholesale REPLACE, not merge
+// (class-tunes deletes every row of the (model, class) pair before inserting,
+// stores.py:970-975; model-tunes pinned by test_model_tunes::test_put_replaces_the_whole_set).
+// A caller changing ONE key MUST GET the full set and send it all back — a partial PUT
+// silently destroys the row's other switches. The shared upsert helpers that guarded this
+// (upsertSwitchRows/mergeClassSwitches) were DELETED 2026-07-16 with their only consumer
+// (the chip's layer-writing save — superseded by the preset tier); recover them from git
+// history before hand-rolling a new partial write.
 
 export async function deleteClassTune(modelId, classKey) {
   const q = `modelId=${encodeURIComponent(modelId)}&classKey=${encodeURIComponent(classKey)}`;

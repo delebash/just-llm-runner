@@ -56,7 +56,10 @@ function buildRunBody({
   if (typeof topP === "number") body.topP = topP;
   if (maxTokens) body.maxTokens = maxTokens;
   if (typeof jsonMode === "boolean") body.jsonMode = jsonMode;
-  if (reasoningEffort) body.reasoningEffort = reasoningEffort;
+  // != null, not truthy: "" is a REAL override (2026-07-16 preset tier — an explicit
+  // empty level means "follow the model / provider default", overriding the preset's
+  // stored level; dropping it would silently fall back to that stored level).
+  if (reasoningEffort != null) body.reasoningEffort = reasoningEffort;
   if (typeof think === "boolean") body.think = think;
   if (system != null) body.system = system;
   if (userTemplate != null) body.userTemplate = userTemplate;

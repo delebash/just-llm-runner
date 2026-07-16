@@ -46,6 +46,7 @@ import { onRequestWrite, request } from "../client.js";
 // vocabularies for the same layer. Cloud's "map" and the no-value "" carry no
 // label on purpose: the budget line is a LOCAL-route surface.
 export const RESOLVED_SOURCE_LABELS = {
+  preset: "this preset", // the feature's own ask (2026-07-16 preset tier)
   tune: "your applied config",
   class: "hardware class default",
   base: "global default",

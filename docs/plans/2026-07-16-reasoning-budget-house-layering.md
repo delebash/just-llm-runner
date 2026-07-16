@@ -45,6 +45,55 @@ declared verdict rule). Harness spec lives with the JW-side record.
 
 ## BUILD RECORDS (appended by each builder)
 
+### BUILD RECORD (the preset tier, inline — 2026-07-16, the user's "feature is the end of the line")
+
+**Design change (user):** the thinking level moved ONTO the preset as an optional top
+tier. Level set = the preset's OWN ask (local: the map's number, source "preset"; cloud:
+the map's word) · level EMPTY + think on = FOLLOW the selected model's layered
+`reasoning_budget` (unchanged house layering below), resolved live, nothing copied ·
+think off = off. The chip/Lab thinking control is three-state (Off / Model|Provider
+default / levels) and saves ONE preset PUT — identical to the Lab's update; the chip
+NEVER writes layer rows (the 2026-07-16 morning design's winning-row writes are
+superseded and deleted).
+
+**What changed · file:line:**
+- `llm_runner/llm/reasoning.py` — preset tier in `resolve_reasoning` (level→map tokens,
+  source "preset"; token-less map row falls through to follow); docstring.
+- `llm_runner/llm/prompts.py:386-392` — the reasoning key is ALWAYS injected under
+  effective think ("" = a real state); `llm_runner/llm/dispatch.py:216-226` — only
+  think-off short-circuits. (Pre-existing latent gap: think-on with no level never
+  reached the resolver — would have broken the follow state.)
+- `llm_runner/llm/seed.py` (`seed_default_reasoning_map`) — `s.flush()` before the
+  provider query: the host session is autoflush-OFF, so the seeder saw zero providers
+  and seeded an EMPTY reasoning map on every fresh boot/reset since 2026-07-14 (found
+  on the user's box; proven live: fresh boot + in-process reset both now seed 5 rows).
+- `ui/src/components/LuFeatureChip.vue` — three-state control; one preset save;
+  `saveLocalBudget`/`seedLocalBudget`/CUSTOM/savedNote deleted; blast line preset-sized.
+- `ui/src/classTunes.js` — `upsertSwitchRows`/`mergeClassSwitches` deleted with their
+  only consumer; the replace-hazard warning stays as a comment for future writers.
+- `ui/src/components/ConfigColumn.vue` + `FeatureLab.vue` + `CompareStrip.vue` — the
+  "default" option + the think/effort mappings (a stored think-on+empty-level must load
+  as Default, never collapse to Off); `ui/src/services/aiFeature.js:62` — "" forwarded
+  as a REAL override (never falls back to the preset's stored level mid-test).
+- `ui/src/views/ProviderForm.vue` — Reasoning levels became a POPUP editor (user
+  ruling; the launch-config-libraries button pattern), loaded on open.
+- `ui/src/composables/useResolvedRoute.js` — source label "preset" → "this preset".
+- JW: `server/justwrite_server/seed_presets.py` — p_chat seeds think ON + level EMPTY
+  (follow; the old "medium" would ask 4096 on fresh boxes, 4× the tested value);
+  `docs/models.md` rewritten to the three-state story; chip tests rewritten
+  (`LuFeatureChip.save.test.js` — pins one-preset-write + the no-layer-writes contract
+  + the follow-state collapse regression); `classTunes.test.js` deleted with its
+  subject.
+
+**How verified:** runner pytest 515 passed / 3 documented pre-existing / ruff clean;
+JW `test:fast` fully green (build ✓, vitest 163, server 108); the reasoning suite
+carries 4 new preset-tier cases + the autoflush regression test PROVEN to fire
+(fails with the flush removed — demonstrated, restored); the seed fix proven on a
+live isolated rig (boot + `/v1/data/reset` → 5 rows).
+
+**What reverses it:** revert the commit; the JW seed change re-seeds only on fresh/reset
+DBs (fill-if-missing) — an existing p_chat row keeps its stored pair.
+
 ### BUILD RECORD (backend, Opus builder) — 2026-07-16
 
 **What changed · why (one line each):**

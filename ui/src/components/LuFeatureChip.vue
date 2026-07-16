@@ -43,8 +43,9 @@ import {
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 import { request } from "../client.js";
-import { listClassTunes, mergeClassSwitches, putClassTune, upsertSwitchRows } from "../classTunes.js";
-import { resolvedSourceLabel, useResolvedRoute } from "../composables/useResolvedRoute.js";
+// resolvedSourceLabel: the budget line's layer names. Importing the module also arms
+// its any-write invalidation (QC-43), so a save here refreshes every mounted chip.
+import { resolvedSourceLabel } from "../composables/useResolvedRoute.js";
 import { LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import LuModelPicker from "./LuModelPicker.vue";
 
@@ -70,23 +71,17 @@ const props = defineProps({
 });
 const emit = defineEmits(["navigate"]);
 
-// The Reasoning "ask" vocabulary — mirrors the backend REASONING_LEVELS
-// (llm/reasoning_map_api.py) + ConfigColumn's REASONING_OPTIONS. "" = Off (think
-// stored false); a level = think stored true at that effort. One stored pair.
-const REASONING_OPTIONS = [
-  { value: "", label: "Off" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "XHigh" },
-  { value: "max", label: "Max" },
-];
-// The level vocabulary in ascending order + its display words — the LOCAL budget
-// editor labels each level with ITS OWN map number ("Low (1024)"), so it reuses the
-// words above rather than a second table.
+// The ONE thinking control (2026-07-16 preset tier — "feature is the end of the
+// line"). Three states, ONE stored pair (think + reasoningEffort on the preset):
+//   ""        = Off            (think stored false)
+//   "default" = think on, NO level — local: FOLLOW the selected model's layered
+//               budget (resolved live, nothing copied); cloud: the provider's own
+//               default (no word sent). The DEFAULT state of the seeded presets.
+//   a level   = the preset's OWN ask — local: the map's number (source "preset");
+//               cloud: the map's word. Rides the preset across model changes.
+const THINKING_DEFAULT = "default";
 const LEVEL_ORDER = ["low", "medium", "high", "xhigh", "max"];
-const LEVEL_WORD = Object.fromEntries(REASONING_OPTIONS.map((o) => [o.value, o.label]));
-const CUSTOM = "__custom"; // the display-only "Custom (N)" option (an unmatched value)
+const LEVEL_WORD = { low: "Low", medium: "Medium", high: "High", xhigh: "XHigh", max: "Max" };
 
 const tooltip = computed(() =>
   props.editable
@@ -103,26 +98,26 @@ const providers = ref([]);
 const presetRow = ref(null); // the FULL EnginePresetRow, merged on save
 const memberCount = ref(0);
 const draftPin = ref(null); // { providerId, model } | null (LuModelPicker v-model)
-const draftReasoning = ref(""); // "" | low | medium | high | xhigh | max  (CLOUD)
-const savedNote = ref("");      // the LOCAL budget save keeps the popover open — this confirms it
+const draftThinking = ref(""); // "" (Off) | THINKING_DEFAULT | a level — both routes
 const localLevelRows = ref([]); // the LOCAL provider's reasoning-map rows [{ level, word, tokens }]
-const draftBudget = ref("");    // "" (Off) | a level | CUSTOM  (LOCAL)
 
-const { refreshRoute } = useResolvedRoute();
-
-// The LOCAL "Thinking" options: Off + every level the provider's map carries, each
-// labelled with ITS number ("Low (1024)"). A resolved value matching no level's
-// tokens surfaces as a display-only "Custom (N)" — a custom NUMBER is typed in the
-// switch grids, not picked here.
-const localBudgetOptions = computed(() => {
-  const byLevel = Object.fromEntries(localLevelRows.value.map((r) => [r.level, r]));
+// The three-state options, both routes. LOCAL levels are labelled with their own map
+// number ("Low (1024)"); a level whose map row carries no number is skipped (it speaks
+// no local budget — picking it would silently follow, so it isn't offered). A value
+// typed straight into a switch grid needs no option here: the line below the control
+// reports it with its source ("thinking budget 3000 — hardware class default").
+const thinkingOptions = computed(() => {
   const opts = [{ value: "", label: "Off" }];
-  for (const lvl of LEVEL_ORDER) {
-    const row = byLevel[lvl];
-    if (row && row.tokens != null) opts.push({ value: lvl, label: `${LEVEL_WORD[lvl]} (${row.tokens})` });
-  }
-  if (draftBudget.value === CUSTOM) {
-    opts.push({ value: CUSTOM, label: `Custom (${props.route?.value ?? "invalid"})` });
+  if (draftIsLocal.value) {
+    opts.push({ value: THINKING_DEFAULT, label: "Model default" });
+    const byLevel = Object.fromEntries(localLevelRows.value.map((r) => [r.level, r]));
+    for (const lvl of LEVEL_ORDER) {
+      const row = byLevel[lvl];
+      if (row && row.tokens != null) opts.push({ value: lvl, label: `${LEVEL_WORD[lvl]} (${row.tokens})` });
+    }
+  } else {
+    opts.push({ value: THINKING_DEFAULT, label: "Provider default" });
+    for (const lvl of LEVEL_ORDER) opts.push({ value: lvl, label: LEVEL_WORD[lvl] });
   }
   return opts;
 });
@@ -153,10 +148,6 @@ const draftIsLocal = computed(() => (draftPin.value?.providerId || "") === LOCAL
 const pinNamesRoute = computed(() =>
   (draftPin.value?.providerId || "") === (props.route?.providerId || "")
   && (draftPin.value?.model || "") === (props.route?.model || ""));
-// The model the budget edit will land on (the save re-resolves onto the pin), so the blast
-// line names what will actually change.
-const budgetModel = computed(() => draftPin.value?.model || props.route?.model || "");
-
 // A repoint INTO local must arrive with the level map loaded, or the dropdown renders with
 // no levels. Keyed by provider, so re-entering local costs nothing after the first load.
 // `!loading` keeps this to its actual job: loadPopover does its OWN awaited load on open (the
@@ -196,7 +187,6 @@ watch(popoverOpen, (open) => { if (open) loadPopover(); });
 async function loadPopover() {
   loading.value = true;
   saveErr.value = "";
-  savedNote.value = "";
   try {
     const [provRes, presetsRes, assignRes] = await Promise.all([
       request("/v1/llm-providers"),
@@ -214,12 +204,13 @@ async function loadPopover() {
       providerId: p?.providerId || props.route?.providerId || "",
       model: p?.model || props.route?.model || "",
     };
-    // The stored think+effort pair collapses to the one dropdown value: Off unless
-    // both think is on AND an effort is set.
-    draftReasoning.value = p && p.think && p.reasoningEffort ? p.reasoningEffort : "";
+    // The stored pair → the three-state control: Off unless think is on; think on
+    // with no level = "default" (follow / provider default); else the stored level.
+    // Seeded from the STORED preset — never from the resolved value (no copies).
+    draftThinking.value = !p?.think ? "" : (p.reasoningEffort || THINKING_DEFAULT);
     const refs = assignRes?.features || {};
     memberCount.value = Object.values(refs).filter((v) => v === pid).length;
-    if (draftIsLocal.value) { await loadLocalMap(); seedLocalBudget(props.route); }
+    if (draftIsLocal.value) await loadLocalMap(); // option labels ("Low (1024)") only
   } catch (e) {
     saveErr.value = e?.message || "Could not load the preset.";
   } finally {
@@ -240,92 +231,28 @@ async function loadLocalMap() {
   }
 }
 
-// Seed the dropdown from a RESOLVED ROUTE ROW — never from props.route directly: the caller
-// passes a row it just fetched, and props only flow down on the parent's next render, so
-// reading props here would re-seed off the pre-save value. The pick is DERIVED from what
-// actually resolves (the route's `value`), not from the preset — on a local route the preset
-// carries think on/off only; the number lives in the layers.
-function seedLocalBudget(route) {
-  if (!route?.think) {
-    draftBudget.value = ""; // Off
-    return;
-  }
-  const match = localLevelRows.value.find((r) => r.tokens != null && r.tokens === route.value);
-  draftBudget.value = match ? match.level : CUSTOM;
-}
-
-// Write the picked level's number into the layer that ACTUALLY WON (valueSource) —
-// the user's one-value design. Writing anywhere else would be a masked write: the
-// number would sit in a layer a more specific one overrides, and the line would go
-// on reading the old value. Existing endpoints only; never the preset.
-//
-// `route` is passed in (never read off props here) for two reasons: props flow down on
-// the parent's next render, not when an await resolves; and the caller hands us a route
-// re-resolved AFTER think was turned on — a think-OFF route reports valueSource "", so
-// the winning layer is literally unknowable until thinking is on. Returns true iff it wrote.
-async function saveLocalBudget(route) {
-  const level = draftBudget.value;
-  // Off ⇒ think false, no budget (thinking is off). Custom ⇒ display-only: the value
-  // is already in its layer and no level was picked, so there is nothing to write.
-  if (level === "" || level === CUSTOM) return false;
-  const picked = localLevelRows.value.find((r) => r.level === level)?.tokens;
-  if (picked == null) return false; // no number in the map for this level ⇒ nothing to write
-  const modelId = route?.model || "";
-  if (!modelId) return false;
-  const src = route?.valueSource || "";
-  if (src === "tune") {
-    // The applied config owns every row it carries. model-tunes PUT is the SAME wholesale
-    // replace as class-tunes (tests/test_model_tunes.py::test_put_replaces_the_whole_set),
-    // so this reads the full set and sends it all back through the ONE shared upsert.
-    const cur = await request(`/v1/ai/model-tunes?modelId=${encodeURIComponent(modelId)}`);
-    await request("/v1/ai/model-tunes", {
-      method: "PUT",
-      body: { modelId, switches: upsertSwitchRows(cur?.rows, "reasoning_budget", picked) },
-    });
-    return true;
-  }
-  // Every other layer (class | base | type | mtp | default | invalid) → the (model, THIS
-  // box's class) row, which out-ranks every one of them (the layer order is
-  // base < type < mtp < class < tune, switch_resolve.py:80-92) and is out-ranked only by
-  // an applied tune, handled above. `listClassTunes()` is the existing accessor for this
-  // machine's server-derived classKey (LuClassTunes reads the same field, LuClassTunes.vue:78).
-  const lib = await listClassTunes();
-  const classKey = lib?.classKey || "";
-  if (!classKey) throw new Error("Couldn't read this PC's hardware class.");
-  // The lookup is UNCONDITIONAL — never gated on src === "class". A class row can exist
-  // while a BROADER layer still owns reasoning_budget (the row just doesn't carry that key;
-  // only one model is seeded with it, seed.py:396-400), so src reads "base"/"default" there
-  // while a row full of other switches is sitting in it. mergeClassSwitches carries the
-  // replace hazard; it yields {reasoning_budget} alone when there is no row — the "create"
-  // the spec asked for — and preserves the row's other switches when there is one.
-  const existing = (lib.tunes || []).find((t) => t.modelId === modelId && t.classKey === classKey);
-  await putClassTune(modelId, mergeClassSwitches(existing?.rows, "reasoning_budget", picked), classKey);
-  return true;
-}
-
+// ONE preset save, both routes — the user's law verbatim: "changing provider model
+// effort in chip for feature should be the same thing as going to routing by feature
+// changing it there and clicking update." The thinking budget rides the SAME write
+// (2026-07-16 preset tier): a picked level is the preset's own ask (the local resolver
+// reads it via the map, source "preset"); "default" stores an EMPTY level — think on,
+// follow the selected model's layered budget, nothing copied. No layer rows are ever
+// written from here: the hardware class default stays product data (the Tune & measure
+// libraries edit it), your applied config stays what Apply wrote.
 async function save() {
   if (!presetRow.value) { saveErr.value = "No preset to edit."; return; }
   saving.value = true;
   saveErr.value = "";
-  savedNote.value = "";
-  const local = draftIsLocal.value;
   try {
-    // The PRESET write goes FIRST — it owns think on/off, and on a local route that
-    // ordering is load-bearing: a think-OFF route resolves no budget at all
-    // (reasoning.py:72 returns an empty plan ⇒ valueSource ""), so the winning layer is
-    // unknowable until thinking is on. Writing the budget before this would have to GUESS
-    // a layer, and guessing "class" while an applied tune exists is a masked write.
-    //
     // Merge onto the FULL row — change ONLY provider/model/think/reasoningEffort;
-    // every other tunable (temp/top_p/samplers/…) is preserved verbatim. A LOCAL
-    // preset keeps think ON/OFF only (the plan: no per-feature local budget) — the
-    // level is display vocabulary the local resolver never reads, so it is not stored.
+    // every other tunable (temp/top_p/samplers/…) is preserved verbatim.
+    const v = draftThinking.value;
     const merged = {
       ...presetRow.value,
       providerId: draftPin.value?.providerId || "",
       model: draftPin.value?.model || "",
-      think: local ? draftBudget.value !== "" : draftReasoning.value !== "",
-      reasoningEffort: local ? "" : (draftReasoning.value || ""),
+      think: v !== "",
+      reasoningEffort: v === "" || v === THINKING_DEFAULT ? "" : v,
     };
     await request(`/v1/ai/engine-presets/${encodeURIComponent(presetRow.value.id)}`, {
       method: "PUT",
@@ -333,24 +260,7 @@ async function save() {
     });
     // QC-43: the kit client's post-write hook invalidates useResolvedRoute, so
     // every mounted chip (incl. this one, via its host's `route` prop) refetches.
-    if (!local) { popoverOpen.value = false; return; }
-    // LOCAL: re-resolve WITH think applied, so valueSource names the real winning layer,
-    // then write the budget into THAT layer and re-resolve once more to show where it
-    // landed (a write can land in a different layer than the one it read).
-    const resolved = await refreshRoute(props.feature);
-    // NO `|| props.route` fallback here. refreshRoute swallows fetch errors and returns null
-    // (useResolvedRoute.js), and the preset PUT just dropped the cache — so falling back would
-    // hand saveLocalBudget a stale row and put us straight back to GUESSING the winning layer,
-    // the one thing this ordering exists to prevent. A visible failure beats a masked write.
-    if (!resolved) {
-      throw new Error("Saved the preset, but couldn't re-check which layer owns this model's budget — the budget was left unchanged.");
-    }
-    const wrote = await saveLocalBudget(resolved);
-    const final = wrote ? await refreshRoute(props.feature) : resolved;
-    // Re-seed from the row we were handed — props.route only flows down on the parent's
-    // next render, so reading it here would re-seed off the PRE-save value.
-    seedLocalBudget(final || resolved);
-    savedNote.value = "Saved ✓";
+    popoverOpen.value = false;
   } catch (e) {
     saveErr.value = e?.message || "Save failed.";
   } finally {
@@ -393,40 +303,27 @@ async function save() {
             inherit-label="Inherit default"
             @update:model-value="draftPin = $event" />
 
-          <!-- LOCAL: the thinking-budget editor (the level is just the vocabulary for a
-               number in the model's layered config). CLOUD: the level select, unchanged —
-               the provider's map owns what a level means. -->
-          <label v-if="draftIsLocal" class="afc-pop-field">
+          <!-- ONE three-state control, both routes (Off / Model|Provider default /
+               levels). Local levels show their map numbers; the line below reports
+               what actually resolves and which layer said so. -->
+          <label class="afc-pop-field">
             <span class="afc-pop-lbl">Thinking</span>
-            <select class="lu-input afc-pop-sel" :value="draftBudget"
-              @change="draftBudget = $event.target.value">
-              <option v-for="o in localBudgetOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-            </select>
-          </label>
-          <label v-else class="afc-pop-field">
-            <span class="afc-pop-lbl">Reasoning</span>
-            <select class="lu-input afc-pop-sel" :value="draftReasoning"
-              @change="draftReasoning = $event.target.value">
-              <option v-for="o in REASONING_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+            <select class="lu-input afc-pop-sel" :value="draftThinking"
+              @change="draftThinking = $event.target.value">
+              <option v-for="o in thinkingOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
           </label>
 
           <div v-if="budgetLine" class="afc-pop-cap">{{ budgetLine }}</div>
           <div v-if="isUnlimited" class="afc-pop-warn">Unlimited ⚠ — this model has been observed to loop; may think until the context fills</div>
 
-          <!-- Blast radius. LOCAL edits a MODEL-on-this-hardware row, so it must never
-               claim to be a preset-sized change. -->
-          <div v-if="draftIsLocal" class="afc-pop-blast">
-            Changes <b>{{ budgetModel }}</b>'s thinking budget on this hardware — every
-            thinking feature on this model shares it
-          </div>
-          <div v-else class="afc-pop-blast">
+          <!-- Every save is preset-sized now — the thinking level rides the preset. -->
+          <div class="afc-pop-blast">
             Changes the “<b>{{ presetName }}</b>” preset — used by {{ memberCount }}
             feature{{ memberCount === 1 ? "" : "s" }}
           </div>
 
           <div v-if="saveErr" class="afc-pop-err">{{ saveErr }}</div>
-          <div v-else-if="savedNote" class="afc-pop-saved">{{ savedNote }}</div>
 
           <div class="afc-pop-foot">
             <UiButton intent="ghost" size="small" @click="popoverOpen = false">Cancel</UiButton>
@@ -503,7 +400,6 @@ async function save() {
 /* The -1 loop warning — a real hazard (verified on-box), so it carries warning ink,
    not the muted note voice the retired "always thinks" line used. */
 .afc-pop-warn { font-size: 10.5px; color: var(--danger); line-height: 1.4; }
-.afc-pop-saved { font-size: 11px; color: var(--success, #3a7d63); font-weight: 600; }
 .afc-pop-blast { font-size: 11px; color: var(--muted); line-height: 1.4; }
 .afc-pop-blast b { color: var(--ink-2); }
 .afc-pop-err { font-size: 11px; color: var(--danger); }

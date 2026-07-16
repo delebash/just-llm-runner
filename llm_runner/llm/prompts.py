@@ -385,8 +385,12 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict
     # effectively on (B3: think gated off under json_mode), so it never corrupts JSON.
     if _effective_think(spec, body, preset):
         effort = (body.reasoningEffort if body.reasoningEffort is not None else (preset.reasoningEffort if preset else "")) or ""
-        if effort:
-            extra["reasoning_effort"] = effort
+        # ALWAYS injected under effective think — the key's PRESENCE marks think-on for
+        # dispatch._apply_reasoning. "" is a real state (2026-07-16 preset tier): local
+        # ⇒ FOLLOW the model's layered budget; cloud ⇒ provider default (no word sent).
+        # Gating on non-empty effort would silently skip the local budget for the
+        # follow state — the default state of every seeded thinking preset.
+        extra["reasoning_effort"] = effort
     # The sampler ORDER ("samplers") is an ARRAY of sampler names — accept a
     # comma-joined string from the knob value and split it for the engine.
     if isinstance(extra.get("samplers"), str):

@@ -50,14 +50,16 @@ import UiSelect from "../common/components/UiSelect.vue";
 // tasks in parallel — the label alone can't tell them apart).
 let _labColSeq = 1;
 
-// Reasoning (U2, 2026-07-14): Off = no reasoning; the level is the ASK, resolved per
-// provider server-side (the reasoning_map). JSON mode forces it off (B3) regardless.
-// On a LOCAL run the level is display vocabulary ONLY — the emitted budget is the
-// model's layered `reasoning_budget` switch, reported by `localBudgetLine` below.
+// Reasoning — the three-state control (2026-07-16 preset tier): Off = think stored
+// false · Default = think on, NO level (local: FOLLOW the model's layered budget,
+// resolved live and reported by `localBudgetLine` below; cloud: the provider's own
+// default, no word sent) · a level = the preset's OWN ask (local: the map's number,
+// source "preset"; cloud: the map's word). JSON mode forces it off (B3) regardless.
 // (The hardware-cap clamp this comment used to describe was DELETED 2026-07-16 —
 // "no magic behind the curtains": there is no min(), the resolved value IS the budget.)
 const REASONING_OPTIONS = [
   { value: "", label: "Off" },
+  { value: "default", label: "Default" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
@@ -402,13 +404,12 @@ function buildBody() {
     action: props.action,
     variables: { ...(props.vars || {}) },
     temperature: c.temperature === "" || c.temperature == null ? null : Number(c.temperature),
-    // U2: the STORED pair — think on iff a level is picked (Off = off); the server
-    // resolves the level to the provider's native control. On a LOCAL run the level is
-    // display vocabulary only and the budget comes from the model's layered
-    // `reasoning_budget` switch — NOT clamped (the hardware-cap min() was deleted
-    // 2026-07-16; reasoning.py:8,64).
+    // The three-state pair (2026-07-16 preset tier): "" = Off · "default" = think on
+    // with an EXPLICIT empty level (sent as "" so the run follows the model's layered
+    // budget / the provider default — never falling back to the preset's stored level)
+    // · a level = the column's own ask. No clamp anywhere (min() deleted 2026-07-16).
     think: (c.reasoningEffort || "") !== "",
-    reasoningEffort: c.reasoningEffort || "",
+    reasoningEffort: c.reasoningEffort === "default" ? "" : (c.reasoningEffort || ""),
     maxTokens: Number(c.maxTokens) || 0,
     // the action's saved JSON-output setting (the "Output as JSON" checkbox).
     jsonMode: !!c.jsonMode,

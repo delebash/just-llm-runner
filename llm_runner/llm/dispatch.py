@@ -218,7 +218,10 @@ def _apply_reasoning(extra: dict | None, adapter: LLMAdapter, model: str, *, thi
     level = extra.get("reasoning_effort") or ""
     e = dict(extra)
     e.pop("reasoning_effort", None)
-    if not think or not level:
+    # An EMPTY level with think on is a real state (2026-07-16 preset tier): local ⇒
+    # follow the model's layered budget; cloud ⇒ the resolver returns an empty plan
+    # (provider default). Only think-off short-circuits.
+    if not think:
         return e or None
     from .reasoning import resolve_reasoning
     plan = resolve_reasoning(

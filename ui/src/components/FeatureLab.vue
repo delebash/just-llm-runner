@@ -57,11 +57,12 @@ function cfgToEnginePreset(name, cfg) {
     providerId: cfg.pin?.providerId || "", model: cfg.pin?.model || "",
     temperature: num(cfg.temperature), topP: num(cfg.topP),
     maxTokens: Number(cfg.maxTokens) || 0,
-    // The STORED reasoning pair (U2-T7): think on iff a level is picked (Off = off).
-    // NO jsonMode (2026-07-15): JSON is the ACTION's contract on the prompt row, never a
-    // preset field — a preset must never break a per-action parser.
+    // The STORED three-state pair (2026-07-16 preset tier): Off = think false ·
+    // "default" = think on, level stored EMPTY (follow the model / provider default) ·
+    // a level = the preset's own ask. NO jsonMode (2026-07-15): JSON is the ACTION's
+    // contract on the prompt row, never a preset field.
     think: (cfg.reasoningEffort || "") !== "",
-    reasoningEffort: cfg.reasoningEffort || "",
+    reasoningEffort: cfg.reasoningEffort === "default" ? "" : (cfg.reasoningEffort || ""),
     samplers: (cfg.samplers || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
   };
 }
@@ -216,7 +217,7 @@ const columnConfig = computed(() => {
     temperature: p?.temperature ?? "",
     topP: p?.topP ?? "",
     maxTokens: p?.maxTokens ?? 0,
-    reasoningEffort: p?.think ? (p.reasoningEffort || "") : "",
+    reasoningEffort: !p?.think ? "" : (p.reasoningEffort || "default"),
     jsonMode: !!d.jsonMode,   // the ACTION's JSON contract (the savable "Output as JSON" checkbox)
     samplers: (p?.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
   };

@@ -7,7 +7,7 @@
 // Self-contained: calls the shared /v1/llm-providers* endpoints via the shared
 // client; emits "saved"/"deleted" so the parent reloads its list. The built-in
 // provider also mounts the Local engine panel (which hosts the binaries editor) + model catalog.
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 
 import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -169,6 +169,11 @@ async function remove() {
 const LEVEL_LABELS = { low: "Low", medium: "Medium", high: "High", xhigh: "XHigh", max: "Max" };
 const reasoningRows = ref([]);
 const reasoningProvider = computed(() => props.provider?.id || "");
+// POPUP editor, not an inline auto-expanded table (user ruling 2026-07-16: "reasoning
+// level in provider should be collapsable … actually i like the popup editor") — the
+// same button+AppModal pattern as the launch-config libraries below. Loaded on open.
+const showReasoning = ref(false);
+watch(showReasoning, (open) => { if (open) loadReasoningMap(); });
 async function loadReasoningMap() {
   if (!reasoningProvider.value) return;
   try {
@@ -193,7 +198,6 @@ async function putReasoningRow(row) {
     });
   } catch { /* surfaced by the shared client error path */ }
 }
-onMounted(loadReasoningMap);
 </script>
 
 <template>
@@ -261,10 +265,15 @@ onMounted(loadReasoningMap);
       </template>
     </div>
 
-    <!-- Reasoning levels — the per-provider level→(word|tokens) map (U2/T6). Edits
-         PUT one row on change; shown only for a saved provider (keyed by id). -->
-    <div v-if="reasoningProvider" class="lu-pf-reason">
-      <div class="lu-pf-reason-h">Reasoning levels</div>
+    <!-- Reasoning levels — a POPUP editor (user ruling 2026-07-16), same pattern as the
+         launch-config library buttons below. Shown only for a saved provider (the map is
+         keyed by id). Edits PUT one row on change. -->
+    <div v-if="reasoningProvider" class="lu-pf-libs">
+      <UiButton intent="secondary" size="small" @click="showReasoning = true">Reasoning levels…</UiButton>
+      <span class="lu-muted lu-pf-libs-cap">what each level asks this provider for — words for effort-word providers, token budgets for the local engine</span>
+    </div>
+    <AppModal v-if="showReasoning" title="Reasoning levels"
+      :max-width="'560px'" @close="showReasoning = false">
       <div class="lu-rtable">
         <div class="lu-rt-row lu-rt-head"><span>Level</span><span>Word</span><span>Tokens</span></div>
         <div v-for="row in reasoningRows" :key="row.level" class="lu-rt-row">
@@ -276,7 +285,7 @@ onMounted(loadReasoningMap);
         </div>
       </div>
       <div class="lu-fh">what each level asks this provider for — words for effort-word providers, token budgets for the local engine</div>
-    </div>
+    </AppModal>
 
     <!-- lu-pf-eng: space between the Provider type row and this panel (user, 2026-07-07). -->
     <LuRunnerEngine v-if="isBuiltin" class="lu-pf-eng" />

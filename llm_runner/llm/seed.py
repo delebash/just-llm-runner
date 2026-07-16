@@ -602,9 +602,17 @@ def seed_default_providers(s) -> int:
 def seed_default_reasoning_map(s) -> int:
     """Fill-if-missing reasoning_map rows for every provider, keyed by its type (U2-T2).
     Additive — new providers/levels gain rows at boot; a user edit is never clobbered.
-    Runs AFTER seed_default_providers so it sees the pending-added defaults (same-session
-    autoflush). Operates on the passed session, no commit."""
+    Runs AFTER seed_default_providers — and the flush below is MANDATORY, not politeness:
+    the HOST session is autoflush-OFF (JW `database.py` sessionmaker; the `seed.py:924`
+    precedent), so without it the provider query hits the DB, sees ZERO just-added
+    providers, and seeds NOTHING — silently. That exact bug shipped 2026-07-14: fresh
+    boots/resets came up with an empty reasoning map (UI shows no levels; runs still
+    worked via the resolver's type-seed fallback) and only a SECOND boot healed it.
+    Found on the user's box 2026-07-16; pinned by
+    test_reasoning.py::test_map_seeds_on_an_autoflush_off_session.
+    Operates on the passed session, no commit."""
     from .reasoning_map_api import seed_rows_for_type
+    s.flush()  # make seed_default_providers' pending rows visible (autoflush-OFF host)
     have = {(r.provider_id, r.level)
             for r in s.query(db.ReasoningMap.provider_id, db.ReasoningMap.level).all()}
     added = 0

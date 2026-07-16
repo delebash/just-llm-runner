@@ -109,11 +109,11 @@ function presetToConfig(p, base) {
     maxTokens: p.maxTokens ?? base.maxTokens,
     // NO jsonMode from the preset (2026-07-15): JSON is the ACTION's contract — kept on
     // base.jsonMode by the spread above; a preset must never flip a per-action parser.
-    // U2-T7: honor the preset's STORED think. This ignored `think` and read the level
-    // alone, so a preset saved think-off but carrying a level loaded as that level — the
-    // column claimed reasoning a run would never do. `think` is the gate; the level is
-    // only meaningful when it's on (the same collapse ConfigColumn's picker speaks).
-    reasoningEffort: p.think ? (p.reasoningEffort || "") : "",
+    // U2-T7: honor the preset's STORED think — `think` is the gate. Think on with an
+    // empty level loads as "default" (2026-07-16 preset tier: follow the model /
+    // provider default), NOT as Off — collapsing it to "" wrote think=false back on
+    // the next save, silently destroying the follow state.
+    reasoningEffort: p.think ? (p.reasoningEffort || "default") : "",
     samplers: (p.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
     // Mark provenance so ConfigColumn's model seed never clobbers a loaded preset's
     // samplers (even when the preset changes the column's model).

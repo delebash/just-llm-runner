@@ -95,17 +95,19 @@ const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
 });
 const emit = defineEmits([
-  "update:modelValue", "result",
+  "update:modelValue", "result", "save-json",
   "save-as", "update-preset", "apply-preset", "delete-preset", "remove", "use-production",
 ]);
 
-// The ACTION's JSON contract (modelValue.jsonMode) is READ-ONLY here (2026-07-15 —
-// json_mode lives on the action's prompt row, never on a preset: routing must never
-// break a per-action parser). The column shows it as a badge + an EPHEMERAL "test as
-// JSON" toggle that overrides it for a test run ONLY (never saved into a preset).
-// Seeds from the contract; re-seeds when the open action changes it.
-const testAsJson = ref(false);
-watch(() => props.modelValue?.jsonMode, (v) => { testAsJson.value = !!v; }, { immediate: true });
+// The ACTION's json_mode is an EDITABLE, SAVABLE setting (2026-07-16, user-restored the
+// checkbox): ONE "Output as JSON" toggle that (a) applies when THIS column runs AND (b)
+// persists to the action's prompt row (feature-level — never a preset field, so routing
+// can never flip a per-action parser). Toggling patches the column (run + display update
+// now) and emits `save-json` up; the parent writes it to /v1/ai/prompts.
+function onJsonToggle(v) {
+  patch("jsonMode", !!v);
+  emit("save-json", !!v);
+}
 
 // ── config patching (v-model) ───────────────────────────────────────────────
 function patch(key, val) {
@@ -356,8 +358,8 @@ function buildBody() {
     think: (c.reasoningEffort || "") !== "",
     reasoningEffort: c.reasoningEffort || "",
     maxTokens: Number(c.maxTokens) || 0,
-    // ephemeral: the action's contract, unless the tester toggled "test as JSON".
-    jsonMode: !!testAsJson.value,
+    // the action's saved JSON-output setting (the "Output as JSON" checkbox).
+    jsonMode: !!c.jsonMode,
     topP: c.topP === "" || c.topP == null ? null : Number(c.topP),
     providerId: c.pin?.providerId || "",
     model: c.pin?.model || "",
@@ -471,7 +473,7 @@ defineExpose({ run, cancel });
       <UiButton v-if="selPreset && selPreset !== productionPresetId" intent="success" size="small"
         title="Make this preset the one this feature uses"
         @click="emit('use-production', selPreset)">Use in production</UiButton>
-      <UiButton v-if="selPreset && !naming" intent="secondary" size="small" title="Update the loaded preset in place (no new copy)" @click="emit('update-preset', selPreset)">Update</UiButton>
+      <UiButton v-if="selPreset && !naming" intent="secondary" size="small" title="Save changes to the loaded preset in place — &quot;Save as preset&quot; makes a new copy instead" @click="emit('update-preset', selPreset)">Save</UiButton>
       <UiInput v-if="naming" v-model="newName" placeholder="name — Enter" class="cc-name-in"
         @keyup.enter="confirmSaveAs" @keyup.esc="naming = false; newName = ''" />
       <UiButton v-else intent="primary" size="small" title="Save this tested config as a reusable preset" @click="startNaming">＋ Save as preset</UiButton>
@@ -516,11 +518,8 @@ defineExpose({ run, cancel });
       <div class="cc-field cc-reason"><label>Reasoning</label>
         <UiSelect :model-value="modelValue?.reasoningEffort || ''" :options="REASONING_OPTIONS"
           @update:model-value="patch('reasoningEffort', $event)" /></div>
-      <div class="cc-field cc-json"><label>JSON contract <span class="lu-muted">set on the action</span></label>
-        <div class="cc-json-row">
-          <span class="cc-json-badge" :class="{ on: modelValue?.jsonMode }">{{ modelValue?.jsonMode ? 'JSON' : 'Plain' }}</span>
-          <label class="cc-chk" title="Test this run as JSON — ephemeral, never saved to the preset (the contract lives on the action's prompt)"><UiCheckbox :model-value="testAsJson" @update:model-value="testAsJson = $event" /><span class="lu-muted">test as JSON</span></label>
-        </div>
+      <div class="cc-field cc-json">
+        <label class="cc-chk" title="Output as JSON — the model must return valid JSON for this feature. Turn on when the app needs the result as structured data instead of prose. Saved for this feature."><UiCheckbox :model-value="!!modelValue?.jsonMode" @update:model-value="onJsonToggle" /><span>Output as JSON</span></label>
       </div>
     </div>
 
@@ -624,9 +623,6 @@ defineExpose({ run, cancel });
 .cc-num { max-width: 92px; }
 .cc-reason { max-width: 120px; }
 .cc-chk { display: flex; align-items: center; gap: 7px; }
-.cc-json-row { display: flex; align-items: center; gap: 12px; }
-.cc-json-badge { font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; border-radius: 999px; padding: 3px 9px; background: var(--surface-3); color: var(--muted); }
-.cc-json-badge.on { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); }
 .cc-engsw { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .cc-engsw .lu-muted { font-size: 11px; }
 .cc-samplers-body { margin-top: 8px; }

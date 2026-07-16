@@ -76,10 +76,26 @@ Origin of the model: `docs/plans/2026-07-15-preset-one-source-rewrite.md`.
   level and doesn't constrain/annotate to the cap. Decide (#303): disable-above-cap vs
   show-the-cap-at-the-picker.
 
+## 7. Per-action JSON output (the "Output as JSON" checkbox)
+- **Where it lives:** on the action's **prompt row** (`FeaturePromptRow.json_mode`), NEVER on a
+  preset — a preset is shared across actions and must never flip one action's parser. It is
+  feature-level and savable.
+- **UI (restored 2026-07-16, #300):** ONE savable "Output as JSON" checkbox in the Lab config
+  column (`ConfigColumn` `.cc-json`) — the earlier read-only badge + ephemeral "test as JSON"
+  toggle are gone. Toggling it: patches the column (the test run + display update now) →
+  `save-json` up through `CompareStrip` (which syncs every column of this action, since json
+  is per-action) → `FeatureLab.saveJson` PUTs the FULL saved prompt with only `jsonMode`
+  changed to `/v1/ai/prompts/{action}` (system/userTemplate are OVERWRITE-on-PUT, only
+  jsonMode/jsonSchema/nav are preserve-on-omit — so the full body is required) → `prompt-changed`
+  bubbles to `FeatureWorkbench`, which updates its cached row **in place** (an array-replace
+  would re-fire FeatureLab's shallow `props.prompt` watch and wipe the user's test inputs).
+- **At run time:** the request's `jsonMode` overrides the stored contract for that call
+  (`prompts.py:360,419`); the saved value is what every production run uses.
+
 ## Known gaps vs this design (open tasks)
 - #305 built-in `/models` returns resident, not catalog (§4).
 - ~~#301 reset should restore the routing-default model~~ — DONE (§5, shipped + verified).
 - #303 reasoning dropdown ignores the hardware cap (§6).
-- #300 savable "Output as JSON" per action (stashed → redo on current code).
-- #302 Lab "Update" → "Save" (stashed → redo).
+- ~~#300 savable "Output as JSON" per action~~ — DONE (§7; 4-file kit change, build+smoke+PUT-contract verified).
+- ~~#302 Lab "Update" → "Save"~~ — DONE.
 - #299 model-chooser popover layout; #304 run-stats shown 3 inconsistent ways.

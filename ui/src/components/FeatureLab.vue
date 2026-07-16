@@ -29,7 +29,7 @@ const props = defineProps({
   samplerCatalogList: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },
 });
-const emit = defineEmits(["use-production", "presets-changed"]);
+const emit = defineEmits(["use-production", "presets-changed", "prompt-changed"]);
 
 const draft = ref(null);       // editable copy of the prompt (ephemeral test edits)
 const vars = reactive({});
@@ -82,6 +82,38 @@ async function updatePreset(id, cfg) {
   if (!p) return;  // preset not in the list (e.g. just deleted) → no-op, never silently rename
   const r = await request(`/v1/ai/engine-presets/${id}`, { method: "PUT", body: cfgToEnginePreset(p.name, cfg) });
   emit("presets-changed", r.presets || []);
+}
+
+// Persist the action's JSON-output setting to its prompt row (user-restored 2026-07-16 —
+// the savable "Output as JSON" checkbox). The server OVERWRITES system/userTemplate on PUT
+// (only jsonMode/jsonSchema/nav are preserve-on-omit), so send the FULL SAVED prompt
+// (props.prompt — never the ephemeral draft) with only jsonMode changed. Reuses the kit
+// request() + pushToast; emits prompt-changed so the parent refreshes its cached row (an
+// in-place update — a remount on the next action-switch must not show the stale value).
+async function saveJson(v) {
+  const p = props.prompt;
+  if (!props.action || !p) return;
+  try {
+    const r = await request(`/v1/ai/prompts/${encodeURIComponent(props.action)}`, {
+      method: "PUT",
+      body: {
+        feature: p.feature || "",
+        system: p.system || "",
+        userTemplate: p.userTemplate || "",
+        jsonMode: !!v,
+        jsonSchema: p.jsonSchema ?? "",
+        label: p.label || "",
+        description: p.description || "",
+        group: p.group || "",
+      },
+    });
+    const on = !!(r?.jsonMode ?? v);
+    if (draft.value) draft.value = { ...draft.value, jsonMode: on };
+    emit("prompt-changed", { key: props.action, jsonMode: on });
+    pushToast({ message: on ? "JSON output on for this feature." : "JSON output off for this feature." });
+  } catch (e) {
+    pushToast({ message: e?.message || "Couldn't save the JSON-output setting." });
+  }
 }
 
 // Reset the local test state whenever the parent selects a different action.
@@ -185,7 +217,7 @@ const columnConfig = computed(() => {
     topP: p?.topP ?? "",
     maxTokens: p?.maxTokens ?? 0,
     reasoningEffort: p?.think ? (p.reasoningEffort || "") : "",
-    jsonMode: !!d.jsonMode,   // the ACTION's JSON contract (read-only badge in the column)
+    jsonMode: !!d.jsonMode,   // the ACTION's JSON contract (the savable "Output as JSON" checkbox)
     samplers: (p?.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
   };
 });
@@ -221,6 +253,7 @@ const columnConfig = computed(() => {
       @save-as="saveAs"
       @update-preset="updatePreset"
       @delete-preset="delPreset"
+      @save-json="saveJson"
       @use-production="(id) => emit('use-production', id)" />
   </div>
 </template>

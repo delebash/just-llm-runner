@@ -148,6 +148,14 @@ function selectAction(key) {
 
 // FeatureLab owns the Save-as / Delete engine-preset calls (one source for both hosts).
 function onPresetsChanged(list) { enginePresets.value = list || []; }
+// The Lab persisted a savable per-action setting (the JSON-output toggle). Refresh our
+// cached prompt row IN PLACE — not an array replace — so FeatureLab's shallow props.prompt
+// watch doesn't re-fire (a re-fire re-seeds its draft and wipes the user's test inputs),
+// while a remount on the next action-switch still reads the fresh value.
+function onPromptChanged({ key, jsonMode }) {
+  const row = prompts.value.find((p) => p.key === key);
+  if (row) row.jsonMode = !!jsonMode;
+}
 
 // resolution (2026-07-15, one source): the action's ref then the global default.
 const presetName = (id) => enginePresets.value.find((p) => p.id === id)?.name || "—";
@@ -275,7 +283,8 @@ onMounted(load);
             :action="selAction" :prompt="action" :providers="providers" :presets="enginePresets"
             :sampler-catalog-list="samplerCatalogList"
             :production-preset-id="selResolvedPreset"
-            @use-production="onUseProduction" @presets-changed="onPresetsChanged" />
+            @use-production="onUseProduction" @presets-changed="onPresetsChanged"
+            @prompt-changed="onPromptChanged" />
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
       </div>

@@ -25,7 +25,7 @@ const props = defineProps({
   presets: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },  // the feature's in-production preset
 });
-const emit = defineEmits(["save-as", "update-preset", "delete-preset", "use-production"]);
+const emit = defineEmits(["save-as", "update-preset", "delete-preset", "use-production", "save-json"]);
 
 let nextId = 1;
 const columns = ref([]);          // [{ id, config }]
@@ -51,6 +51,13 @@ function setColRef(id, el) {
 }
 function onResult(id, res) {
   results.value = { ...results.value, [id]: res };
+}
+// json_mode is per-ACTION — every column of this action shares it. A toggle in any column
+// updates all columns' local jsonMode (display + runs stay consistent) and bubbles up to
+// persist to the action's prompt row.
+function onSaveJson(v) {
+  for (const col of columns.value) col.config.jsonMode = !!v;
+  emit("save-json", !!v);
 }
 
 // A column is "local" when its pinned provider is a local one (→ serial group).
@@ -155,7 +162,8 @@ onMounted(() => {
           @save-as="emit('save-as', $event, col.config)"
           @update-preset="emit('update-preset', $event, col.config)"
           @delete-preset="emit('delete-preset', $event)"
-          @use-production="emit('use-production', $event)" />
+          @use-production="emit('use-production', $event)"
+          @save-json="onSaveJson" />
       </div>
     </div>
   </section>

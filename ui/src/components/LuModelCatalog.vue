@@ -915,7 +915,11 @@ refreshApplied();
                      status of loaded and button already says load as default, but we do
                      need unload button" — the label stays plain; Unload renders on any
                      loaded row, incl. the default). -->
-                <UiButton v-else-if="embeddingOf(m)" intent="secondary" size="small"
+                <!-- Same intent as the general branch below — parity (user, 2026-07-07 +
+                     re-flagged 2026-07-15: "how can the load as default button be styled
+                     different for embed vs main"). Only the TARGET differs: this writes
+                     the embedding default; the other writes the general default. -->
+                <UiButton v-else-if="embeddingOf(m)" intent="primary" size="small"
                   :disabled="m.id === currentEmbeddingId" :loading="applyingId === m.id"
                   title="Make this the embedding model (semantic search + grounded chat) and load it now, alongside your chat model"
                   @click="makeEmbedding(m)">

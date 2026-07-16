@@ -37,6 +37,7 @@ import { resolveModelDefaults } from "../modelDefaults.js";
 import { TUNE_BADGES } from "../tuneState.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import { pushToast } from "../common/services/toastBridge.js";
+import { fmtSeconds, fmtTokens, fmtTps } from "../common/services/runStats.js";
 import AppModal from "../common/components/AppModal.vue";
 import KnobGrid from "./KnobGrid.vue";
 import LuClassTunes from "./LuClassTunes.vue";
@@ -558,8 +559,8 @@ onBeforeUnmount(stopAutoPoll);
       <div v-if="autoTrials.length" class="lu-tune-trials lu-muted">
         <span v-for="t in autoTrials" :key="t.label" class="lu-tune-trial"
           :class="{ 'lu-tune-trial-bad': !t.ok }"
-          :title="t.ok ? `${t.tokensPerSec} tok/s` : t.error">
-          {{ t.label }}: {{ t.ok ? `${t.tokensPerSec} tok/s` : "✗" }}
+          :title="t.ok ? fmtTps(t.tokensPerSec) : t.error">
+          {{ t.label }}: {{ t.ok ? fmtTps(t.tokensPerSec) : "✗" }}
         </span>
         <span v-if="autoState?.status === 'done' && autoState?.best" class="lu-tune-trial lu-tune-trial-win">
           winner → grid (review, then Apply)
@@ -567,9 +568,9 @@ onBeforeUnmount(stopAutoPoll);
       </div>
 
       <div v-if="tuneResult" class="lu-tune-result">
-        <div class="lu-tune-tps"><b>{{ tuneResult.tokensPerSec }}</b> tok/s</div>
+        <div class="lu-tune-tps"><b>{{ fmtTps(tuneResult.tokensPerSec) }}</b></div>
         <div class="lu-tune-meta">
-          {{ tuneResult.completionTokens }} tokens · {{ tuneResult.ms }} ms<template
+          {{ fmtTokens({ outputTokens: tuneResult.completionTokens }) }} · {{ fmtSeconds(tuneResult.ms) }}<template
             v-if="tuneResult.vramTotalMb"> · VRAM {{ gb(tuneResult.vramTotalMb) }} GB</template><template
             v-if="tuneResult.ramTotalMb"> · RAM {{ gb(tuneResult.ramTotalMb) }} GB</template>
         </div>

@@ -101,8 +101,9 @@ Origin of the model: `docs/plans/2026-07-15-preset-one-source-rewrite.md`.
 - ~~#304 run-stats shown inconsistently (ms vs s, total vs output tokens)~~ — DONE: one shared
   formatter `common/services/runStats.js` (fmtSeconds/fmtTokens/fmtTps/fmtWords/fmtCost) used by
   the Lab result readout (ConfigColumn), Compare ranking (CompareStrip), and the task strip +
-  status panel (AiTaskStrip/AiStatusPanel). Tune-benchmark surfaces (TuneMeasureModal · QuickSetup)
-  also show tok/s/ms — a related but distinct family, NOT folded in (flagged for a follow-up).
+  status panel (AiTaskStrip/AiStatusPanel), AND the tune-benchmark surfaces (TuneMeasureModal ·
+  QuickSetup, folded in on the user's "unify" go) — every tok/s / tokens / time readout in the
+  kit now comes from the one formatter.
 - #299 model-chooser popover layout — deferred while reasoning is edited in another session
   (the popover lives in LuFeatureChip alongside the reasoning cap line).
 - #305 secondary (picker cache refetch after a download) — DONE (useRunnerModels tracks the

@@ -29,6 +29,7 @@ import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { recommendedModelId, pickBestEmbedId, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
 import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { confirmDialog } from "../common/services/dialog.js";
+import { fmtTps } from "../common/services/runStats.js";
 import { createDownloadTask } from "../composables/useDownloadTask.js";
 import { friendlyEnginePhase } from "../composables/useEngine.js";
 import UiButton from "../common/components/UiButton.vue";
@@ -778,7 +779,7 @@ defineExpose({ openWizard });
               <ul v-if="optTrialsDone.length" class="lu-qs-opt-trials">
                 <li v-for="(t, i) in optTrialsDone" :key="i" :class="{ 'is-fail': !t.ok }">
                   <span class="lu-qs-opt-tl">{{ t.label }}</span>
-                  <span v-if="t.ok" class="lu-qs-opt-tv">{{ Math.round(t.tokensPerSec) }} tok/s</span>
+                  <span v-if="t.ok" class="lu-qs-opt-tv">{{ fmtTps(t.tokensPerSec) }}</span>
                   <span v-else class="lu-qs-opt-tx">{{ t.error && t.error.startsWith("skipped") ? "skipped" : "failed" }}</span>
                 </li>
               </ul>
@@ -792,7 +793,7 @@ defineExpose({ openWizard });
             <!-- Self-diagnosing quick pass (ROUND 8): a capped run that saved nothing
                  routes the user deeper (the full sweep / the Tune dialog) instead of
                  reading like a verdict — 2 minutes is a probe, not proof. -->
-            <span class="lu-qs-opt-ok">Optimized ✓ {{ optState.best.tokensPerSec }} tok/s —
+            <span class="lu-qs-opt-ok">Optimized ✓ {{ fmtTps(optState.best.tokensPerSec) }} —
               {{ optState.saved
                 ? "saved for this machine."
                 : (optState.best.label === "baseline"

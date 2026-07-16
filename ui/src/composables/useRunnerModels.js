@@ -19,6 +19,7 @@ import { computed, reactive, ref } from "vue";
 import { request } from "../client.js";
 import { createRateTracker, fmtBytes, progressCaption, rateSuffix } from "../common/services/downloadRate.js";
 import { FIT_LABEL } from "../common/services/modelPick.js";
+import { useProviderModels } from "./useProviderModels.js";
 
 const data = ref(null); // the raw /v1/llm-runner/models response
 const loading = ref(true); // first-load spinner
@@ -27,6 +28,14 @@ const loadErr = ref(""); // the actual server error message when a load fails
 const loadingId = ref(""); // model id whose download is in flight (button feedback)
 const downloadingId = ref(""); // model id on the standalone Download channel — its row shows Cancel
 const cancelling = ref(false); // true from the download-cancel click until the channel returns to idle
+
+// #305: the model dropdown (useProviderModels) caches per-provider lists and never refetches
+// once populated — so a model downloaded here never appears in a picker until a full reload.
+// Track the built-in catalog's model-id SET and invalidate that cache when it changes (a
+// download adds one, a delete removes one), so open pickers refresh in place. `local-llamacpp`
+// is the seeded built-in provider id (api.py:92,114; registry.py).
+const BUILTIN_PROVIDER_ID = "local-llamacpp";
+let _lastBuiltinIds = null; // sorted-joined catalog model ids seen last refresh (null = not yet populated)
 
 export const models = computed(() => data.value?.models || []);
 export const vramMb = computed(() => data.value?.vramMb || 0);
@@ -91,6 +100,14 @@ export async function refresh() {
   try {
     data.value = await request("/v1/llm-runner/models");
     error.value = "";
+    // #305: when the built-in catalog gains/loses a model, refresh the picker cache so open
+    // dropdowns show it without a full reload. Compare the id SET only (not status) so a mere
+    // load→disk flip doesn't refetch. Skip the first population (pickers fetch lazily anyway).
+    const builtinIds = (data.value?.models || []).map((m) => m.id).sort().join(",");
+    if (_lastBuiltinIds !== null && builtinIds !== _lastBuiltinIds) {
+      useProviderModels().refreshModels(BUILTIN_PROVIDER_ID);
+    }
+    _lastBuiltinIds = builtinIds;
     // Pull live status while a load is in flight (progress) OR after one failed (so we can
     // surface the real error, not a bare "failed").
     if (anyLoading.value || anyError.value) {

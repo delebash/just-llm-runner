@@ -466,7 +466,19 @@ async function save() {
 .afc-caret { color: var(--muted); margin-left: 2px; flex-shrink: 0; }
 
 /* ── the edit popover ─────────────────────────────────────────────────────── */
-.afc-pop {
+/* :global is REQUIRED, not a shortcut — PROVEN by DOM probe 2026-07-16, do not "clean up".
+   reka-ui's PopoverContent root receives the `class` (attr fallthrough) but NOT Vue's
+   scope attribute, so a scoped `.afc-pop` rule matches NOTHING and the popover ships
+   BOXLESS — no width, no background, shrink-wrapped to its widest <select>, text bleeding
+   over whatever is behind it. It looks correctly wired in source, which is why it shipped.
+   Measured, same jsdom probe, same day:
+     .afc-pop  (PopoverContent root) → data-dismissable-layer|style|tabindex|class|id|…  NO data-v
+     .ui-modal (DialogContent root)  → data-v-f924ce02|data-dismissable-layer|class|…    HAS data-v
+   So this is NOT general to reka portals: AppModal/HelpDrawer (DialogContent) are fine and
+   stay scoped; UiSelect carries no scoped block. LuFeatureChip is the kit's ONLY
+   PopoverContent. The slot's children DO get the scope id and stay scoped below — only the
+   root rule must be global. If a reka upgrade ever propagates it, this can go back. */
+:global(.afc-pop) {
   z-index: 60;
   width: 300px; max-width: calc(100vw - 24px);
   display: flex; flex-direction: column; gap: 10px;

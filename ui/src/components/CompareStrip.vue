@@ -16,6 +16,7 @@ import { computed, onMounted, ref } from "vue";
 import ConfigColumn from "./ConfigColumn.vue";
 import UiButton from "../common/components/UiButton.vue";
 import { fmtCost, fmtTps } from "../common/services/runStats.js";
+import { presetToThinkingControl } from "../thinkingControl.js";
 
 const props = defineProps({
   action: { type: String, default: "" },
@@ -109,11 +110,9 @@ function presetToConfig(p, base) {
     maxTokens: p.maxTokens ?? base.maxTokens,
     // NO jsonMode from the preset (2026-07-15): JSON is the ACTION's contract — kept on
     // base.jsonMode by the spread above; a preset must never flip a per-action parser.
-    // U2-T7: honor the preset's STORED think — `think` is the gate. Think on with an
-    // empty level loads as "default" (2026-07-16 preset tier: follow the model /
-    // provider default), NOT as Off — collapsing it to "" wrote think=false back on
-    // the next save, silently destroying the follow state.
-    reasoningEffort: p.think ? (p.reasoningEffort || "default") : "",
+    // U2-T7 + the preset tier: the ONE stored-pair → control mapping (thinkingControl.js)
+    // — think on with an empty level loads as "default" (follow), never collapses to Off.
+    reasoningEffort: presetToThinkingControl(p),
     samplers: (p.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
     // Mark provenance so ConfigColumn's model seed never clobbers a loaded preset's
     // samplers (even when the preset changes the column's model).

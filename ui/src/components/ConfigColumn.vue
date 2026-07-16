@@ -35,6 +35,7 @@ import { useAiTasksStore } from "../stores/aiTasks.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
 import { fmtCost, fmtSeconds, fmtTokens, fmtTps, fmtWords } from "../common/services/runStats.js";
+import { THINKING_DEFAULT, thinkingControlToWire } from "../thinkingControl.js";
 import AiTaskStrip from "./AiTaskStrip.vue";
 import KnobGrid from "./KnobGrid.vue";
 import LuModelPicker from "./LuModelPicker.vue";
@@ -59,7 +60,7 @@ let _labColSeq = 1;
 // "no magic behind the curtains": there is no min(), the resolved value IS the budget.)
 const REASONING_OPTIONS = [
   { value: "", label: "Off" },
-  { value: "default", label: "Default" },
+  { value: THINKING_DEFAULT, label: "Default" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
@@ -404,12 +405,10 @@ function buildBody() {
     action: props.action,
     variables: { ...(props.vars || {}) },
     temperature: c.temperature === "" || c.temperature == null ? null : Number(c.temperature),
-    // The three-state pair (2026-07-16 preset tier): "" = Off · "default" = think on
-    // with an EXPLICIT empty level (sent as "" so the run follows the model's layered
-    // budget / the provider default — never falling back to the preset's stored level)
-    // · a level = the column's own ask. No clamp anywhere (min() deleted 2026-07-16).
-    think: (c.reasoningEffort || "") !== "",
-    reasoningEffort: c.reasoningEffort === "default" ? "" : (c.reasoningEffort || ""),
+    // The three-state pair — the ONE mapping (thinkingControl.js). "default" is sent as
+    // an EXPLICIT empty level so the run follows the model's layered budget / provider
+    // default, never falling back to the preset's stored level. No clamp anywhere.
+    ...thinkingControlToWire(c.reasoningEffort),
     maxTokens: Number(c.maxTokens) || 0,
     // the action's saved JSON-output setting (the "Output as JSON" checkbox).
     jsonMode: !!c.jsonMode,

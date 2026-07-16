@@ -174,6 +174,16 @@ const reasoningProvider = computed(() => props.provider?.id || "");
 // same button+AppModal pattern as the launch-config libraries below. Loaded on open.
 const showReasoning = ref(false);
 watch(showReasoning, (open) => { if (open) loadReasoningMap(); });
+// Hide the INAPPLICABLE column per provider type (user ruling 2026-07-16: a blank Word
+// on the built-in provider is inert — the local path never reads a word — and a field
+// that does nothing should say so or not exist). Mirrors REASONING_MAP_TYPE_SEEDS'
+// semantics (reasoning_map_api.py): number-only types have no word form; word-only
+// types have no token form; anthropic + unknown types speak BOTH (safe default —
+// never lock a user out of a live column).
+const NUMBER_ONLY_TYPES = new Set(["local-llamacpp", "gemini"]);
+const WORD_ONLY_TYPES = new Set(["openai", "openai-compat", "deepseek", "openrouter", "ollama"]);
+const showWordCol = computed(() => !NUMBER_ONLY_TYPES.has(draft.providerType));
+const showTokensCol = computed(() => !WORD_ONLY_TYPES.has(draft.providerType));
 async function loadReasoningMap() {
   if (!reasoningProvider.value) return;
   try {
@@ -274,17 +284,25 @@ async function putReasoningRow(row) {
     </div>
     <AppModal v-if="showReasoning" title="Reasoning levels"
       :max-width="'560px'" @close="showReasoning = false">
-      <div class="lu-rtable">
-        <div class="lu-rt-row lu-rt-head"><span>Level</span><span>Word</span><span>Tokens</span></div>
+      <div class="lu-rtable" :class="{ 'lu-rtable--two': !(showWordCol && showTokensCol) }">
+        <div class="lu-rt-row lu-rt-head">
+          <span>Level</span>
+          <span v-if="showWordCol">Word</span>
+          <span v-if="showTokensCol">Tokens</span>
+        </div>
         <div v-for="row in reasoningRows" :key="row.level" class="lu-rt-row">
           <span class="lu-rt-lvl">{{ LEVEL_LABELS[row.level] || row.level }}</span>
-          <UiInput :model-value="row.word" placeholder="—"
+          <UiInput v-if="showWordCol" :model-value="row.word" placeholder="—"
             @update:model-value="row.word = $event" @blur="putReasoningRow(row)" />
-          <UiInput type="number" :model-value="row.tokens ?? ''" placeholder="—"
+          <UiInput v-if="showTokensCol" type="number" :model-value="row.tokens ?? ''" placeholder="—"
             @update:model-value="row.tokens = parseTokens($event)" @blur="putReasoningRow(row)" />
         </div>
       </div>
-      <div class="lu-fh">what each level asks this provider for — words for effort-word providers, token budgets for the local engine</div>
+      <div class="lu-fh">{{ showWordCol && showTokensCol
+        ? "what each level asks this provider for — new models take the word, legacy models the token budget"
+        : showTokensCol
+          ? "the thinking-token budget each level asks this provider for"
+          : "the effort word each level asks this provider for" }}</div>
     </AppModal>
 
     <!-- lu-pf-eng: space between the Provider type row and this panel (user, 2026-07-07). -->
@@ -360,6 +378,9 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-pf-reason-h { font-size: 11.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
 .lu-rtable { display: flex; flex-direction: column; gap: 6px; }
 .lu-rt-row { display: grid; grid-template-columns: 90px minmax(0,1fr) minmax(0,1fr); gap: 8px; align-items: center; }
+/* One value column when the provider speaks only words OR only numbers (the
+   inapplicable column is hidden — an inert field must not render). */
+.lu-rtable--two .lu-rt-row { grid-template-columns: 90px minmax(0,1fr); }
 .lu-rt-head { font-size: 11px; color: var(--muted); }
 .lu-rt-lvl { font-size: 12px; color: var(--ink-2); }
 </style>

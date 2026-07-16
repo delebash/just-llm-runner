@@ -16,19 +16,14 @@
 //    from the refs map (GET /v1/ai/preset-assignments). QC-43 any-write
 //    invalidation refreshes every chip after the save (no local refresh math).
 //
-// The reasoning control has TWO shapes, branched on whether the PIN being saved is the
-// built-in runner (see `draftIsLocal` below — on open that IS the route; it diverges only
-// when the picker repoints mid-popover) (2026-07-16 house layering —
-// docs/plans/2026-07-16-reasoning-budget-house-layering.md):
-//   – CLOUD: the level select, writing the preset's think + reasoningEffort.
-//     The provider's reasoning_map owns what a level means. Unchanged.
-//   – LOCAL (the built-in runner): the level is only VOCABULARY — the emitted
-//     budget is the layered `reasoning_budget` switch (base bundle → class tune →
-//     applied tune, most-specific wins). So the preset keeps think on/off ONLY and
-//     the picked level's number is written to the layer that WON (`valueSource`)
-//     through the existing model-tunes / class-tunes endpoints. Writing it to the
-//     preset, or to a layer that didn't win, would be a masked write — the value
-//     would be overridden and the line would keep reading the old number.
+// The Thinking control is THREE-STATE and PRESET-ONLY (2026-07-16 preset tier —
+// docs/plans/2026-07-16-reasoning-budget-house-layering.md, "feature is the end of the
+// line"): Off / Model|Provider default (think on, level stored EMPTY — local follows the
+// selected model's layered budget live; cloud lets the provider decide) / a level (the
+// preset's OWN ask). The save is the ONE preset PUT above for BOTH routes; this chip
+// NEVER writes model-tunes/class-tunes (the layer libraries are edited in Tune &
+// measure). Local vs cloud differs only in DISPLAY: option labels carry the local map's
+// numbers, and the value+source line below reports what actually resolves.
 //
 // The read-only mode stays byte-compatible with every existing mount: `editable`
 // defaults false and the `route` prop (the full resolved-route row, needed only
@@ -46,6 +41,7 @@ import { request } from "../client.js";
 // resolvedSourceLabel: the budget line's layer names. Importing the module also arms
 // its any-write invalidation (QC-43), so a save here refreshes every mounted chip.
 import { resolvedSourceLabel } from "../composables/useResolvedRoute.js";
+import { presetToThinkingControl, THINKING_DEFAULT, thinkingControlToWire } from "../thinkingControl.js";
 import { LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import LuModelPicker from "./LuModelPicker.vue";
 
@@ -71,15 +67,8 @@ const props = defineProps({
 });
 const emit = defineEmits(["navigate"]);
 
-// The ONE thinking control (2026-07-16 preset tier — "feature is the end of the
-// line"). Three states, ONE stored pair (think + reasoningEffort on the preset):
-//   ""        = Off            (think stored false)
-//   "default" = think on, NO level — local: FOLLOW the selected model's layered
-//               budget (resolved live, nothing copied); cloud: the provider's own
-//               default (no word sent). The DEFAULT state of the seeded presets.
-//   a level   = the preset's OWN ask — local: the map's number (source "preset");
-//               cloud: the map's word. Rides the preset across model changes.
-const THINKING_DEFAULT = "default";
+// The three-state Thinking control — vocabulary + both mappings live ONCE in
+// ../thinkingControl.js (imported below); see it for the states' meaning.
 const LEVEL_ORDER = ["low", "medium", "high", "xhigh", "max"];
 const LEVEL_WORD = { low: "Low", medium: "Medium", high: "High", xhigh: "XHigh", max: "Max" };
 
@@ -124,14 +113,12 @@ const thinkingOptions = computed(() => {
 
 const presetName = computed(() => props.route?.presetName || "this preset");
 
-// ── local vs cloud (2026-07-16) ─────────────────────────────────────────────
+// ── local vs cloud (2026-07-16 — DISPLAY-ONLY since the preset tier) ─────────
 // Is the ROUTE's resolved provider the built-in runner? Uses the same
 // `=== LOCAL_RUNNER_ID` id comparison modelApply.js already gates its Default/Embedding
-// badges on (modelApply.js:70,72), not a provider-type lookup. This gates the value+source
-// LINE (which reports the resolved route); the CONTROL branches on `draftIsLocal` below.
-// Cloud keeps the level select (the map owns its numbers); LOCAL edits the layered
-// `reasoning_budget` switch, because on a local box the budget is a property of the
-// MODEL on THIS hardware, not of one feature's preset.
+// badges on (modelApply.js:70,72), not a provider-type lookup. This gates the
+// value+source LINE (which reports the resolved route); `draftIsLocal` below picks the
+// option labels. The SAVE does not branch — one preset PUT either way.
 const isLocalRoute = computed(() => (props.route?.providerId || "") === LOCAL_RUNNER_ID);
 
 // THE CONTROL AND THE SAVE MUST KEY OFF THE SAME THING, and that thing is the pin being
@@ -204,10 +191,8 @@ async function loadPopover() {
       providerId: p?.providerId || props.route?.providerId || "",
       model: p?.model || props.route?.model || "",
     };
-    // The stored pair → the three-state control: Off unless think is on; think on
-    // with no level = "default" (follow / provider default); else the stored level.
     // Seeded from the STORED preset — never from the resolved value (no copies).
-    draftThinking.value = !p?.think ? "" : (p.reasoningEffort || THINKING_DEFAULT);
+    draftThinking.value = presetToThinkingControl(p);
     const refs = assignRes?.features || {};
     memberCount.value = Object.values(refs).filter((v) => v === pid).length;
     if (draftIsLocal.value) await loadLocalMap(); // option labels ("Low (1024)") only
@@ -246,13 +231,11 @@ async function save() {
   try {
     // Merge onto the FULL row — change ONLY provider/model/think/reasoningEffort;
     // every other tunable (temp/top_p/samplers/…) is preserved verbatim.
-    const v = draftThinking.value;
     const merged = {
       ...presetRow.value,
       providerId: draftPin.value?.providerId || "",
       model: draftPin.value?.model || "",
-      think: v !== "",
-      reasoningEffort: v === "" || v === THINKING_DEFAULT ? "" : v,
+      ...thinkingControlToWire(draftThinking.value),
     };
     await request(`/v1/ai/engine-presets/${encodeURIComponent(presetRow.value.id)}`, {
       method: "PUT",

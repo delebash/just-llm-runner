@@ -20,6 +20,7 @@ import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
 import { mergeVariables, testDataAction, testDataSources } from "../common/services/testData.js";
 import { pushToast } from "../common/services/toastBridge.js";
+import { presetToThinkingControl, thinkingControlToWire } from "../thinkingControl.js";
 
 const props = defineProps({
   action: { type: String, default: "" },
@@ -57,12 +58,9 @@ function cfgToEnginePreset(name, cfg) {
     providerId: cfg.pin?.providerId || "", model: cfg.pin?.model || "",
     temperature: num(cfg.temperature), topP: num(cfg.topP),
     maxTokens: Number(cfg.maxTokens) || 0,
-    // The STORED three-state pair (2026-07-16 preset tier): Off = think false ·
-    // "default" = think on, level stored EMPTY (follow the model / provider default) ·
-    // a level = the preset's own ask. NO jsonMode (2026-07-15): JSON is the ACTION's
-    // contract on the prompt row, never a preset field.
-    think: (cfg.reasoningEffort || "") !== "",
-    reasoningEffort: cfg.reasoningEffort === "default" ? "" : (cfg.reasoningEffort || ""),
+    // The STORED three-state pair — the ONE mapping (thinkingControl.js). NO jsonMode
+    // (2026-07-15): JSON is the ACTION's contract on the prompt row, never a preset field.
+    ...thinkingControlToWire(cfg.reasoningEffort),
     samplers: (cfg.samplers || []).filter((r) => (r.name || "").trim()).map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
   };
 }
@@ -217,7 +215,7 @@ const columnConfig = computed(() => {
     temperature: p?.temperature ?? "",
     topP: p?.topP ?? "",
     maxTokens: p?.maxTokens ?? 0,
-    reasoningEffort: !p?.think ? "" : (p.reasoningEffort || "default"),
+    reasoningEffort: presetToThinkingControl(p),
     jsonMode: !!d.jsonMode,   // the ACTION's JSON contract (the savable "Output as JSON" checkbox)
     samplers: (p?.samplers || []).map((s) => ({ name: s.flagName, value: s.flagValue })),
   };

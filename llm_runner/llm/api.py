@@ -106,6 +106,20 @@ async def ping_llm_provider(provider_id: str) -> dict:
 
 @router.get("/v1/llm-providers/{provider_id}/models")
 async def list_provider_models(provider_id: str) -> dict:
+    # The BUILT-IN engine's models are the CATALOG (every downloaded model), NOT the lazy
+    # router's resident set (#305 / same root as #139): the openai-compat adapter would
+    # query the live llama-server /v1/models = only the loaded model, so a freshly
+    # downloaded model never shows in the picker. Compose from the catalog here — the same
+    # source the probe/health uses (they can never disagree).
+    if provider_id == "local-llamacpp":
+        try:
+            h = _builtin_provider_health()
+            out = {"models": h["models"]}
+            if not h["ok"]:
+                out["error"] = h["detail"]
+            return out
+        except Exception as e:  # noqa: BLE001 — surface as data
+            return {"models": [], "error": str(e)}
     adapter = get_llm_registry().get(provider_id)
     if adapter is None:
         raise HTTPException(status_code=404, detail=f"LLM provider {provider_id} (not registered)")

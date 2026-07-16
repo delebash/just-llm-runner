@@ -25,7 +25,7 @@ from typing import Callable, Protocol
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .seed import app_engine_presets
+from .seed import app_engine_presets, app_feature_presets
 
 
 class PresetFlagRow(BaseModel):
@@ -201,6 +201,33 @@ def make_presets_router(
         for key in body.featureKeys:
             if key.strip():
                 refs.set(key, "")
+        return _assignments()
+
+    @router.post("/preset-assignments/feature/{key}/reset", response_model=AssignmentsResponse)
+    async def reset_feature_ref(key: str) -> AssignmentsResponse:
+        """Restore ONE feature to its DEFAULTS — the per-feature 'Reset to default':
+        (1) its SEEDED per-action ref (the factory action→preset map — the feature's OWN
+        default preset, e.g. grounded-chat, NOT a clear to the global default), AND
+        (2) that built-in preset's PARAMS refreshed to the shipped seed (so a stale/tuned
+        preset comes back to its factory reasoning/params — e.g. medium) while KEEPING the
+        current model (the user's Quick-Setup pick must survive a per-feature reset).
+        A feature with no seeded ref falls to the global default (empty ref)."""
+        if not key.strip():
+            raise HTTPException(status_code=400, detail="feature key is required")
+        seeded = app_feature_presets().get(key, "")
+        get_refs().set(key, seeded)
+        if seeded and reset_one_fn is not None:
+            keep_model = next((p.model for p in get_presets().list() if p.id == seeded), "")
+            try:
+                reset_one_fn(seeded)   # factory params + samplers (also blanks model)
+            except ValueError:
+                pass                    # a custom ref id has no factory — leave the ref only
+            else:
+                if keep_model:          # a reset must NOT wipe the user's model
+                    row = next((p for p in get_presets().list() if p.id == seeded), None)
+                    if row is not None:
+                        row.model = keep_model
+                        get_presets().save(row)
         return _assignments()
 
     return router

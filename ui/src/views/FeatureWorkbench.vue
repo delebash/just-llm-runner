@@ -24,6 +24,7 @@ import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 import { request } from "../client.js";
 import { confirmDialog } from "../common/services/dialog.js";
+import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
   runStream: { type: Function, default: null },
@@ -197,14 +198,31 @@ async function onUseProduction(presetId) {
 
 const navCollapsed = ref(false);
 
-// Per-feature "Reset to default" (the original affordance, kept through every era —
-// the user's word 2026-07-15: a real labeled button, and it resets the WHOLE form):
-// clears the feature's ref (→ the default preset) and bumps the Lab epoch so
-// <FeatureLab> remounts — the column + prompt draft reload from the default preset.
+// Per-feature "Reset to default" — the original affordance (the user's word: a COMPLETE
+// reset of THIS feature to ITS defaults). Restores the feature's SEEDED preset ref (its
+// OWN default preset — e.g. grounded-chat/medium, NOT a clear to the global default) AND
+// resets its prompt (system/user/JSON) to the seed, then remounts <FeatureLab> so the form
+// reloads from those defaults. Any customization for this feature is discarded. Toast, not
+// inline text; the button stays (the feature is now assigned to its own default).
 const labEpoch = ref(0);
 async function resetFeature() {
-  await setFeaturePreset(selAction.value, "");
-  labEpoch.value += 1;
+  const key = selAction.value;
+  if (!key) return;
+  const ok = await confirmDialog({
+    title: "Reset this feature to defaults?", danger: true,
+    message: "Restores this feature's preset (model, params, reasoning) and its prompt to the shipped defaults. Any customization for this feature is discarded.",
+  });
+  if (!ok) return;
+  try {
+    message.value = "";
+    await request(`/v1/ai/preset-assignments/feature/${encodeURIComponent(key)}/reset`, { method: "POST" });
+    // Reset the feature's prompt to its seed too (a COMPLETE reset). A custom action with
+    // no seeded prompt has nothing to reset — ignore its 400.
+    try { await request(`/v1/ai/prompts/${encodeURIComponent(key)}/reset`, { method: "POST" }); } catch { /* no seeded prompt */ }
+    await load();          // refresh prompts + assignments so the form reloads from defaults
+    labEpoch.value += 1;   // remount <FeatureLab> → the column re-seeds from the restored preset
+    pushToast({ message: "Reset to defaults." });
+  } catch (e) { error.value = `Reset failed: ${e.message}`; }
 }
 
 onMounted(load);
@@ -245,8 +263,8 @@ onMounted(load);
             <b>{{ actionLabel(action) }}</b>
             <span class="lu-fw-spacer" />
             <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
-            <UiButton v-if="refPid(selAction)" intent="danger" size="small"
-              title="Back to the default preset — clears this feature's assignment and reloads the form"
+            <UiButton intent="danger" size="small"
+              title="Reset this feature to its own default preset (model · params · reasoning) and prompt"
               @click="resetFeature">Reset to default</UiButton>
             <UiButton intent="ghost" size="small"
               v-tooltip.bottom="navCollapsed ? 'Show list' : 'Hide list'"

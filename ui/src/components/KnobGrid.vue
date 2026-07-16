@@ -5,13 +5,15 @@
 // present = that knob is set/sent. It has TWO opt-in presentations over the SAME
 // model + the SAME commit/patch/remove helpers (no forked logic):
 //
-//   • DEFAULT (add-a-row) — `catalog` is an object map (name -> {help,
-//     kind}). You add a blank row, type a name + value, remove (✕) — a row
+//   • DEFAULT (add-a-row) — `catalog` is an object map (name -> {help, kind,
+//     perRequest}). You add a blank row, type a name + value, remove (✕) — a row
 //     present is a flag sent; absent = the engine's own behavior (the user's
 //     command-line model, QC-17/18 2026-07-09). Values are PLAIN text/number
 //     boxes (`kind` only picks the input type); the help (hover) carries what a
 //     switch does + its accepted values — never an options dropdown. So a NEW
-//     llama.cpp param needs no code — just a row. Used by the Global launch
+//     llama.cpp param needs no code — just a row. A `perRequest` knob renders THE
+//     one per-request note under its row (the labeling law, 2026-07-16 — a row here
+//     must be a real launch switch or say it isn't). Used by the Global launch
 //     defaults bundles, the Hardware/model class editor, AND the Tune & measure grid.
 //     Pass `groups` (+ per-name `rowGroups`) to render the SAME rows under
 //     section headings (QC-10: "heading for each section instead") — the Tune
@@ -40,7 +42,7 @@ import UiSelect from "../common/components/UiSelect.vue";
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] }, // [{ name, value }]
-  catalog: { type: Object, default: () => ({}) }, // name -> { help, kind }  (add-row mode)
+  catalog: { type: Object, default: () => ({}) }, // name -> { help, kind, perRequest }  (add-row mode)
   namePlaceholder: { type: String, default: "flag (e.g. ctx_len)" },
   valuePlaceholder: { type: String, default: "value" },
   addLabel: { type: String, default: "＋ Add switch" },
@@ -264,26 +266,36 @@ const displayRows = computed(() => {
   <div v-else class="ui-kg">
     <template v-for="sec in sections" :key="sec.key || '__all'">
       <div v-if="sec.label" class="ui-kg-group-h">{{ sec.label }}</div>
-      <div v-for="{ r, i } in sec.rows" :key="i" class="ui-kg-row">
-        <div class="ui-kg-namecell">
+      <template v-for="{ r, i } in sec.rows" :key="i">
+        <div class="ui-kg-row">
+          <div class="ui-kg-namecell">
+            <UiInput
+              :model-value="r.name"
+              :placeholder="namePlaceholder"
+              class="ui-kg-name"
+              :title="meta(r.name)?.help || ''"
+              @update:model-value="patch(i, 'name', $event)"
+            />
+            <span v-if="!groups.length && origins[r.name]" class="ui-kg-origin" title="Where this value comes from">{{ origins[r.name] }}</span>
+          </div>
           <UiInput
-            :model-value="r.name"
-            :placeholder="namePlaceholder"
-            class="ui-kg-name"
+            :model-value="r.value"
+            :placeholder="valuePlaceholder"
+            :type="valueType(r.name)"
             :title="meta(r.name)?.help || ''"
-            @update:model-value="patch(i, 'name', $event)"
+            @update:model-value="patch(i, 'value', $event)"
           />
-          <span v-if="!groups.length && origins[r.name]" class="ui-kg-origin" title="Where this value comes from">{{ origins[r.name] }}</span>
+          <UiButton intent="ghost" size="small" title="Remove" @click="remove(i)">✕</UiButton>
         </div>
-        <UiInput
-          :model-value="r.value"
-          :placeholder="valuePlaceholder"
-          :type="valueType(r.name)"
-          :title="meta(r.name)?.help || ''"
-          @update:model-value="patch(i, 'value', $event)"
-        />
-        <UiButton intent="ghost" size="small" title="Remove" @click="remove(i)">✕</UiButton>
-      </div>
+        <!-- The labeling law (user, 2026-07-16): a row in a switches surface must be a
+             real engine switch or SAY it isn't. THE one note site — it rides the catalog
+             flag, so all three add-row grids (Tune & measure · class defaults · global
+             bundles) get it from here; no per-grid copy. Full-width (not in the namecell)
+             so the sentence stays one legible line. -->
+        <div v-if="meta(r.name)?.perRequest" class="ui-kg-perreq">
+          per-request — sent with every request as JSON, not a launch flag; applies without reload
+        </div>
+      </template>
     </template>
     <UiButton intent="ghost" size="small" class="ui-kg-add" @click="add">{{ addLabel }}</UiButton>
   </div>
@@ -298,6 +310,11 @@ const displayRows = computed(() => {
 .ui-kg-namecell { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ui-kg-name :deep(input) { font-family: var(--font-mono, monospace); }
 .ui-kg-origin { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; padding-left: 2px; }
+/* The per-request note — the muted note family (same --muted ink as .ui-kg-origin),
+   but PROSE: sentence case, no uppercase/tracking, and it wraps. The negative top
+   margin pulls it under its own row against the .ui-kg flex gap so it reads as that
+   row's note, not a free-floating line. */
+.ui-kg-perreq { font-size: 10.5px; color: var(--muted); line-height: 1.35; margin: -4px 0 1px; padding-left: 2px; }
 
 /* Checklist mode */
 .ui-kg-check { gap: 0; }

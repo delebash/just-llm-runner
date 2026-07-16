@@ -212,3 +212,279 @@ FeatureCatalogEntry / SwitchPresetRow / TestSample / measurement-trial — not k
 physical `knob_catalog.label` column; `create_all` never drops it, and nothing reads it.
 Harmless under the pre-release drop+reseed policy (same class as the
 `reasoning_cap_default` orphan above).
+
+---
+
+## BUILD RECORD (UI surfaces, Opus builder)
+
+Closes the plan's **"Feature door (kit UI, second builder)"** + the backend record's
+handoff caveat 3 (LuFeatureChip still reading the deleted `cap`/`ask`/`effective`).
+Every user-facing string below is the user-approved copy, verbatim.
+
+**What changed · why · file:line**
+
+- **THE source-label map** — `ui/src/composables/useResolvedRoute.js:43-59`:
+  `RESOLVED_SOURCE_LABELS` + `resolvedSourceLabel()` (tune→"your applied config" ·
+  class→"hardware class default" · base→"global default" · default→"built-in default" ·
+  invalid→"invalid value"; cloud "map"/"" carry none — the budget line is local-only).
+  *Why: ONE export so the chip popover and the Lab line can't drift into two
+  vocabularies for the same layer.*
+- **Stale field-list comment fixed** — `useResolvedRoute.js:10-17`: `ask/cap/effective/
+  capSource` → `value`/`valueSource` (the plan's named handoff item).
+- **Override params** — `useResolvedRoute.js:66-111`: `keyOf`/`fetchRoute`/`routeFor`/
+  `ensureRoute`/`refreshRoute` take optional `providerId`/`model` and forward them to the
+  endpoint's own override params. **Backward compatible by construction**: an override-free
+  call returns the ORIGINAL key shape (`:70`), so every existing chip row is byte-identical
+  and a pinned Lab column can never overwrite a feature chip's route. *Why: Surface 4 needs
+  THIS column's pinned route, not the feature's production route.*
+- **Surface 1 — per-request note.** `ui/src/knobCatalog.js:32` carries `perRequest` through
+  `plane1SwitchCatalog` (`{help, kind, perRequest}`); `ui/src/components/KnobGrid.vue:295-297`
+  renders THE one note under any add-row row whose catalog entry is `perRequest` —
+  *"per-request — sent with every request as JSON, not a launch flag; applies without
+  reload"*. **One site, three grids**: verified all three build their catalog from
+  `plane1SwitchCatalog` (TuneMeasureModal.vue:59 · LuClassTunes.vue:94 ·
+  LuGlobalSwitches.vue:57) and pass it as `catalog`, so no per-grid copy exists or is needed.
+  The row loop became a `<template v-for>` so the note is a full-width sibling of its row —
+  the namecell is a 1fr grid column and would have shredded the sentence.
+- **Surfaces 2+3 — the chip popover** (`ui/src/components/LuFeatureChip.vue`):
+  - DELETED `capLine` + `alwaysThinksNote` (they read `cap`/`ask`/`effective`, gone from the
+    wire) and their now-dead `.afc-pop-note` rule.
+  - `isLocalRoute` (`:137`) branches on `route.providerId === LOCAL_RUNNER_ID` — the SAME id
+    comparison `modelApply.js:70,72` already gates its Default/Embedding badges on (the
+    codebase compares by provider **id**, not type; mirrored exactly as instructed).
+  - LOCAL control: label **"Thinking"**, options Off + each level from
+    `GET /v1/ai/reasoning-map/{providerId}` labelled with its own number ("Low (1024)");
+    a resolved `value` matching no level's tokens shows a display-only **"Custom (N)"**.
+  - `budgetLine` (`:166`) — *"thinking budget {value} — {source label}"*, straight off the
+    wire (no client math). `isUnlimited` (`:182`) adds the verbatim **"Unlimited ⚠ — this
+    model has been observed to loop; may think until the context fills"** at `value === -1`.
+  - Blast radius branches (`:template`): LOCAL says *"Changes {model}'s thinking budget on
+    this hardware — every thinking feature on this model shares it"*; cloud keeps the preset
+    blast. *Why: a model-on-this-hardware edit must never claim preset scope.*
+  - **SAVE (the one-value design)** — the picked level's map number is written to the layer
+    that **WON** (`valueSource`), through existing endpoints only: `tune` → GET
+    `/v1/ai/model-tunes?modelId=…` + PUT the FULL set with `reasoning_budget` upserted;
+    every other layer (`class`/`base`/`type`/`mtp`/`default`/`invalid`) → the (model,
+    this-class) row via `putClassTune`, which out-ranks all of them (layer order
+    `base < type < mtp < class < tune`, `switch_resolve.py:79-92`). Off ⇒ think false, no
+    budget write; Custom ⇒ display-only, no write. *Why the winning layer: writing anywhere
+    else is a masked write — the number would sit under an override and the line would keep
+    reading the old value.* The preset still takes think on/off; for LOCAL `reasoningEffort`
+    is forced `""` (the plan: presets keep think on/off only for local — the local resolver
+    reads the layer, never the level, and `reasoning.py:65` resolves fine with `level=""`).
+  - **ORDERING is load-bearing**: the PRESET write goes FIRST, then the route is re-resolved,
+    and only THEN is the budget written into the freshly-named winning layer. A think-OFF
+    route resolves no budget at all (`reasoning.py:72` returns an empty plan ⇒ `valueSource`
+    `""`), so on the off→on path the winning layer is *unknowable* beforehand — writing first
+    would have to GUESS a layer, and guessing "class" while an applied tune exists is a
+    masked write. The same ordering makes a mid-popover model change safe: the re-resolved
+    route names the NEW model, so the budget lands on the model the preset now points at.
+  - After a LOCAL save the popover STAYS OPEN and re-seeds via `seedLocalBudget(final)` from the
+    row `refreshRoute` returned — never `props.route`, which only flows down on the parent's next
+    render and would re-seed off the PRE-save value — so the value+source line shows the layer
+    the write actually landed in. Cloud save closes, unchanged. *(This exact claim was false in
+    the first cut: the seeding function didn't exist. It does now — `:243` — and every SFC
+    identifier was enumerated def-vs-call-site. It is still **unexecuted**; see caveat 2.)*
+- **Surface 4 — the Lab line** (`ui/src/components/ConfigColumn.vue`): `localBudgetLine`
+  renders *"local: thinking budget {value} — {source label}"* only when the column's PINNED
+  route resolves local + thinking-on; cloud/no-pin renders nothing. The ensure is driven by a
+  **string** key (`pinnedRouteKey`), reusing this file's own documented precedent (`:182-184`
+  "Watch the model STRING (not an array getter) … which would loop") — `modelValue` is a new
+  object on every keystroke, so an array getter would re-fire the ensure constantly
+  (`localBudgetLine` at `:241`). Placed under the params row rather than inside `.cc-reason`
+  (that field is capped at 120px and would wrap the line into a column of fragments). Also
+  fixed the file's **stale clamp comment** (`:52-57`) that still described the deleted
+  hardware-cap min().
+- **Surface 5 — the read-only chip: NO changes** (verified: `editable` still defaults false;
+  the read-only path touches none of the branched code).
+
+**classKey outcome — accessor FOUND, no fallback taken.** `listClassTunes()`
+(`ui/src/classTunes.js:11`) returns the server-derived current-box `classKey` alongside the
+library; `LuClassTunes.vue:78` already reads that exact field. It is reachable from the chip,
+so the spec's 5-minute fallback (hide the save / "needs owner decision") was **not** used and
+**no new endpoint** was invented. A missing classKey throws a real error rather than writing
+to a guessed class.
+
+**Verification**
+- `npm run build:vite` (justwrite-app; the kit is aliased into JW's build) → **✓ built**.
+  Warnings are the pre-existing vueuse `#__PURE__` annotations.
+- `npm run test:unit` → **168 passed** (157 = the documented baseline, + 11 new).
+- New tests, all in JW (the kit has no JS harness — see caveat 1): `resolvedRoute.test.js`
+  (+2) the override forwarding + cache-key isolation and the approved source-label vocabulary;
+  `classTunes.test.js` (+4, new) the `mergeClassSwitches` full-replace guard;
+  `components/__tests__/LuFeatureChip.save.test.js` (+5, new) which MOUNTS the chip and
+  actually drives the local save (caveat 2). **Three legs proven to FIRE, not just green** —
+  each re-broken, observed failing, reverted: the override leg (`expected 2 calls, got 1`),
+  the data-loss leg (`expected { reasoning_budget: '8192' } to deeply equal { n_gpu_layers:
+  '99', … }`) and the ReferenceError leg (`expected 'seedLocalBudgetTYPO is not defined' to be
+  ''`). `resolvedRoute.test.js` ALSO carried a comment asserting "no consumer forwards
+  override through the cache" — true until this change, now false, so it was corrected rather
+  than left to lie.
+- `npx biome check` on the changed kit files → exit 0, **but scope it honestly**: biome does
+  NOT validate identifiers in `.vue` SFCs here — injecting a bare `totallyUndefinedThing()`
+  call into `LuFeatureChip.vue` still exits 0 (tested, then reverted). So biome's pass covers
+  the `.js` modules; for the SFCs it proves nothing about undefined references. `build:vite`
+  doesn't either — it compiles SFCs without resolving script identifiers.
+- **Bounded live probe** on an ISOLATED rig (JW server :17610 + vite :17611 — **1420/17495
+  never touched**; Chromium resolved via the `findChrome()` pattern copied from
+  `scripts/headless-smoke.mjs`, pointed at Edge through `JW_CHROME` because this box is
+  Windows and the smoke's roots are Linux-only). `#/ai` renders (title "JustWrite",
+  2219 body chars) with **2 console 404s** (`/v1/ai/engine-config` resolving against the vite
+  origin — a rig-wiring artifact). **Attributed, not assumed**: re-probing the BASELINE with
+  the kit changes stashed produced the IDENTICAL 2 errors and IDENTICAL body size ⇒
+  pre-existing, **zero new console errors from this diff**. Rigs torn down.
+- **R5 / visual gate — HONEST LIMITATION:** no screenshot was taken and none of the three new
+  surfaces was driven interactively (the popover's local branch needs a configured LOCAL
+  route + a reasoning-map row; the probe only proves the page mounts clean). This is at the
+  **user's explicit instruction** — they are doing all visual verification on their own box.
+  **Owner's look pass:** (1) a `reasoning_budget` row in any switch grid shows the
+  per-request note once; (2) the chip popover on a LOCAL route shows Thinking + the
+  value+source line, and a save moves the value to the layer the line names; (3) the Lab
+  column's "local: thinking budget …" line appears only for a local pin.
+
+**Rules-checker (Opus): TWO passes, both FAIL, both fixed — the second caught a shipped bug
+the first pass's fixes introduced.**
+
+**Pass 2 — `seedLocalBudget` DID NOT EXIST.** The pass-1 fix renamed the seeding call site but
+never split the function: `save()` called `seedLocalBudget(...)` while the definition was still
+the zero-arg `loadLocalBudget()`. Every LOCAL budget save would have thrown
+`ReferenceError` *after* the write landed — so a SUCCESSFUL save would report itself FAILED with
+a JS internals string in the error slot. **Nothing caught it**: `build:vite` compiles SFCs
+without resolving script identifiers, biome doesn't validate `.vue` identifiers (proven above),
+the probe only mounted `#/ai`, and no test touches an SFC. This is the textbook "green ≠ proof
+— a test that never exercises the path is no test", and the pass-1 record's defence ("verified
+by code-read only") is exactly what failed: the code-read missed an undefined call one line
+below the code it was inspecting. Fixed by the real split — `loadLocalMap()` (fetch, keyed by
+provider) + `seedLocalBudget(route)` (seed from a passed row) — and every identifier in the SFC
+was then re-enumerated def-vs-call-site.
+
+**Pass 2 — the `draftIsLocal` fix had REGRESSED cloud→local.** Display branched on the route
+while save branched on the pin, so they disagreed on a mid-popover repoint: a cloud route
+showing "Reasoning: High" saved as `think=false` — a visible pick silently discarded. Fixed by
+the invariant the checker named: **the control and the save now key off the SAME thing** (the
+pin being written, `draftIsLocal`), the level map loads on a repoint into local, the value+source
+line additionally requires the pin to still name the route (`pinNamesRoute` — otherwise the row
+describes the model you left), and the blast line names `budgetModel` (what will change). The
+spec's "branch on the ROUTE" is honoured where it was written for — on open, pin == route — and
+the divergence only exists in the repoint case the spec didn't anticipate. **This one is flagged
+for the owner** (see caveat 4): it is a guess at intent, and the checker is right that it should
+have been asked.
+
+**Pass 4 — the fix had landed on the BRANCH, not the bug CLASS (R3).** The upsert existed
+TWICE: `mergeClassSwitches` (hardened, documented, tested) and a private `upsertRows` inline in
+the SFC for the `tune` branch — same operation, split only by the two endpoints' body shapes.
+And **model-tunes PUT is the identical wholesale replace** (`tests/test_model_tunes.py::
+test_put_replaces_the_whole_set`: "the old batch_size row is GONE, not merged" — **read, not
+taken on the checker's word**). So the exact bug that was fixed for class-tunes still had an
+untested, undocumented twin one branch over. Fixed properly: ONE `upsertSwitchRows` in
+`classTunes.js:43` serves both endpoints (`mergeClassSwitches:52` is now a thin shape
+conversion over it), the SFC's private copy is gone, and a 5th mount leg drives the `tune`
+branch — **proven to fire**: a partial write there fails it with *expected
+`{ reasoning_budget: '8192' }` to deeply equal `{ threads, batch_size, … }`*. Also from pass 4:
+`save()`'s `saveLocalBudget(resolved || props.route)` fallback re-introduced the very layer
+GUESS the ordering exists to prevent (`refreshRoute` returns null on a swallowed fetch error and
+the preset PUT had just dropped the cache) — it now throws an honest error instead; and the map
+no longer double-fetches on open.
+
+**Pass 1 — the three original findings, all fixed:**
+
+- **R1(a) — a DATA-LOSS bug, the checker's best catch.** `putClassTune` is a wholesale
+  REPLACE (`stores.py:970-975` DELETEs every row of the (model, class) pair before
+  inserting — **verified by reading the store**, not taken on the checker's word). The first
+  cut looked the existing class row up only when `src === "class"` and otherwise PUT
+  `{reasoning_budget}` alone. But **a class row can exist while a BROADER layer owns
+  `reasoning_budget`** — the row simply doesn't carry that key (only one model is seeded with
+  it, `seed.py:396-400`), so the origin reads `base`/`default` while a row full of
+  `n_gpu_layers`/`n_cpu_moe`/`ctx_len` sits there. Picking "High" in a chip would have
+  **silently destroyed those switches**. Fixed: the lookup is now UNCONDITIONAL and the merge
+  moved into `classTunes.js` as `mergeClassSwitches` — the module that owns the class-tune
+  wire — carrying the replace hazard in its doc so the next one-key writer can't repeat it.
+  The spec's "base/default → CREATE the row with `{reasoning_budget}` only" is satisfied
+  exactly: with no row the merge yields that single key. *(The checker is right that this
+  ambiguity — "create" when the row already exists — should have been ASKED, not guessed.)*
+- **R1(b) — stale route as the write target.** Half was already fixed by the ordering above
+  (the budget write consumes the route re-resolved AFTER the preset write, so it names the
+  new model). The other half was real: `local` was computed from the OLD route, so repointing
+  local→cloud still forced `reasoningEffort: ""`, leaving the cloud preset `think=true` with
+  no level ⇒ `resolve_reasoning` returns nothing (`reasoning.py:93-94`). Fixed: save
+  semantics now follow `draftIsLocal` (the pin being written), while the displayed control
+  still branches on the route as the spec ordered.
+- **R2 — three stale claims** in `ConfigColumn.vue`, all fixed: the deleted hardware-cap
+  clamp still described at `buildBody` (a second copy of the claim I'd fixed 330 lines
+  above), the `samplerCatalogList` row shape still listing the deleted `label`, and my own
+  new comment overclaiming that the line reports "the Reasoning ask above" — it reports the
+  **route**, which derives think/level from the assigned PRESET (`prompts.py:628-629`).
+- **Also from the checker's notes:** `valueSource`'s real vocabulary is wider than the spec's
+  five — `base · type · mtp · class · tune` (`switch_resolve.py:24-25`, verified). A
+  `reasoning_budget` typed into the MoE/dense/MTP bundle would have rendered a dangling
+  "budget 2048 — " with an empty label. Both surfaces now fall back to the raw origin. The
+  save was already correct for those origins (class out-ranks type/mtp).
+- R3/R4 PASS (one source label map, one note site, Surface 5 untouched, no dead CSS, the
+  composable's new params additive so every existing caller is unaffected).
+
+**What reverses it:** revert the commit (kit-only; no schema, no endpoint, no seed touched).
+Caveats / owner decisions:
+1. **The JW-side tests + harness are NOT in this commit.** The kit has **no JS test harness of
+   its own** (`ui/package.json` has no test script and there are no specs under `ui/`), which is
+   why the kit composable's tests already live in JW's vitest suite. This task was scoped to
+   commit in THIS repo only, and the JW repo also holds unrelated concurrent work from another
+   session, so nothing there was staged. Left modified/created and uncommitted **in
+   justwrite-app**:
+   - `vitest.config.js` — the vue plugin + the mirrored dedupe list (the mount harness).
+   - `src/renderer/src/services/__tests__/resolvedRoute.test.js` (+2 legs).
+   - `src/renderer/src/services/__tests__/classTunes.test.js` (new, +4).
+   - `src/renderer/src/components/__tests__/LuFeatureChip.save.test.js` (new, +5).
+   **Owner: land these four with JW's own commit** — without them the kit ships with its
+   override/label/merge behaviour and its whole local-save path unpinned, which is exactly how
+   the two bugs above got in. This split is an artefact of the task scoping, not a design view.
+2. **R5 — the LOCAL save path is now EXECUTED (pass-3 finding; the gap is CLOSED).** Passes 1-2
+   left this path untested, and that gap had already shipped two bugs past a fully green
+   build+lint. My stated excuse — "no mount harness exists, closing it is bigger than this
+   task" — was **FALSE, and the checker caught it**: I had "verified" the deps with CJS
+   `require.resolve`, which reports ESM-only packages as missing. `jsdom` (`package.json:72`)
+   and `@vitejs/plugin-vue` (`:68`) are both installed and importable; only `@vue/test-utils` is
+   absent, and `createApp` doesn't need it. An error that flattered the work was never checked.
+   The real cost was ~3 config lines. Done instead of excused:
+   - `vitest.config.js` gains `plugins: [vue()]` + the SAME `dedupe` list as `vite.config.js`
+     (the aliased kit imports peers by bare specifier from a dir with no node_modules — without
+     dedupe a mounted kit SFC can't resolve `reka-ui`). The default environment stays **node**;
+     the one component file opts in with a `@vitest-environment jsdom` docblock, so the pure-JS
+     suites are untouched.
+   - `src/renderer/src/components/__tests__/LuFeatureChip.save.test.js` (new, 5 legs) MOUNTS the
+     chip, opens the popover, picks a level and clicks Save — executing `saveLocalBudget` for
+     real. It pins BOTH write branches: the class-row write and the model-tune write each
+     preserve their row's other switches; a save reports success (not a ReferenceError); think
+     on/off goes to the preset while the budget never does; Off writes no budget at all.
+   - **Three legs PROVEN to fire** (green ≠ proof), each re-broken then reverted: the
+     `src === "class"` gate fails it with the wipe itself (*expected `{ reasoning_budget:
+     '8192' }` to deeply equal `{ n_gpu_layers: '99', … }`*); a partial model-tunes write fails
+     the tune leg (*… to deeply equal `{ threads, batch_size, … }`*); the typo fails it with
+     *expected `'seedLocalBudgetTYPO is not defined'` to be `''`*.
+   Residual: the CLOUD branch and the mid-popover repoint are still not mounted — the harness
+   now exists to cover them cheaply. The owner's look pass is still worth one real local save.
+3. **`reasoningEffort` is cleared on a LOCAL preset save.** Repointing local→cloud starts at
+   Reasoning = Off rather than re-using a level that was never meaningful locally. Follows
+   "presets keep only think on/off for local"; flag it if the level should be remembered.
+4. **OWNER DECISION — the mid-popover repoint (a guess, not an approved rule).** The spec says
+   branch the control on the ROUTE; it never said what happens when the user repoints the model
+   picker while the popover is open, and the two obvious readings conflict (branch-on-route
+   silently discards a visible pick; branch-on-pin diverges from the spec's words). The
+   implemented rule, stated as it actually SHIPS: **control + save both read the same
+   `draftIsLocal`, so display and save can never disagree.** Each branch keeps its own draft —
+   there is no reset code — so a repoint shows the OTHER branch's draft: cloud→local lands on
+   Off only because `draftBudget` was never seeded, and switching back preserves the earlier
+   pick. Identical to the spec on open (pin == route); only the repoint case differs. Confirm
+   or redirect.
+5. **Two spec-mandated behaviours worth the owner's eye** (surfaced by the checker; both follow
+   the spec as written, so neither was changed):
+   - `putClassTune` always writes `built_in=False` (`stores.py:984`), so a budget pick in the
+     chip silently converts a **seeded built-in class tune into a user-owned row** — it stops
+     re-seeding from then on. That is a property of the existing endpoint, not of this change,
+     but this change makes it reachable from a chip instead of only from the tune editor.
+   - The UI branches local on provider **id** (`LOCAL_RUNNER_ID`, as the spec instructed) while
+     the backend branches on provider **type** (`_LOCAL_TYPES`, `reasoning.py:21`). Identical
+     today; they'd diverge for a second provider of type `local-llamacpp`.
+6. **Cache-key alignment** (checker note, correct today): the chip's `refreshRoute(props.feature)`
+   matches the host's key because `AiFeatureChip.vue:31,33` ensures/reads with feature only and
+   the kit chip has no `action` prop. It would break if a host ever mounted the chip WITH an
+   action — cheap guard, not a defect now.

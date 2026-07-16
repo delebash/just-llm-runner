@@ -28,7 +28,9 @@
 import { computed, onMounted, ref, watch } from "vue";
 
 import { request } from "../client.js";
+import { resolvedSourceLabel, useResolvedRoute } from "../composables/useResolvedRoute.js";
 import { runAiFeature } from "../services/aiFeature.js";
+import { LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { useAiTasksStore } from "../stores/aiTasks.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
@@ -49,8 +51,11 @@ import UiSelect from "../common/components/UiSelect.vue";
 let _labColSeq = 1;
 
 // Reasoning (U2, 2026-07-14): Off = no reasoning; the level is the ASK, resolved per
-// provider server-side (the reasoning_map) and — on a LOCAL run — clamped to the tested
-// hardware cap (min wins; Max runs at the cap). JSON mode forces it off (B3) regardless.
+// provider server-side (the reasoning_map). JSON mode forces it off (B3) regardless.
+// On a LOCAL run the level is display vocabulary ONLY — the emitted budget is the
+// model's layered `reasoning_budget` switch, reported by `localBudgetLine` below.
+// (The hardware-cap clamp this comment used to describe was DELETED 2026-07-16 —
+// "no magic behind the curtains": there is no min(), the resolved value IS the budget.)
 const REASONING_OPTIONS = [
   { value: "", label: "Off" },
   { value: "low", label: "Low" },
@@ -65,8 +70,9 @@ const props = defineProps({
   action: { type: String, default: "" },
   providers: { type: Array, default: () => [] },
   // Plane-2 (samplers) knob-catalog rows, ordered common-first — drive the
-  // prefilled KnobGrid checklist. Raw catalog rows ({ flagName, label, kind,
-  // default, help, options }); unknown keys still edit raw under "Other keys".
+  // prefilled KnobGrid checklist. Raw catalog rows ({ flagName, kind, default, help,
+  // options }); unknown keys still edit raw under "Other keys". (No `label` — the knob
+  // catalog's label column was DELETED 2026-07-16: the exact switch name is the name.)
   samplerCatalogList: { type: Array, default: () => [] },
   // The shared test input (parent-owned; ONE set across Compare's columns).
   vars: { type: Object, default: () => ({}) },
@@ -205,6 +211,48 @@ function onTuneClosed() {
   tuningModel.value = null;
   seedFromModel(props.modelValue?.pin?.model, props.modelValue?.pin?.providerId);
 }
+
+// ── the resolved LOCAL thinking budget for THIS column's pinned route (2026-07-16)
+// The Reasoning select is the ASK. On a LOCAL route the emitted budget is NOT a task
+// value: it is the model's layered `reasoning_budget` switch (base bundle → class tune
+// → applied tune), same as every other launch-adjacent value the column only READS
+// (§7.1). So the column shows what resolves + which layer it came from, and never
+// offers to edit it here — Tune & measure (the "Engine switches ↗" link above) is
+// that editor. The resolved-route endpoint takes providerId/model overrides, so the
+// line follows THIS column's pin rather than the feature's production route.
+// Cloud/no-pin: nothing renders.
+const { ensureRoute, routeFor } = useResolvedRoute();
+// A STRING key (the file's own precedent above: never an array getter) — it fires the
+// ensure only when the pin ACTUALLY changes, not on every modelValue reference change.
+const pinnedRouteKey = computed(() => {
+  const pin = props.modelValue?.pin;
+  return props.action && pin?.providerId && pin?.model
+    ? `${props.action}|${pin.providerId}|${pin.model}`
+    : "";
+});
+watch(pinnedRouteKey, (key) => {
+  if (!key) return;
+  const pin = props.modelValue.pin;
+  ensureRoute(props.action, "", pin.providerId, pin.model);
+}, { immediate: true });
+// HONEST SCOPE: this reports the ROUTE, not this column's Reasoning select. The endpoint
+// derives think/level from the action's ASSIGNED PRESET (prompts.py:628-629) and accepts
+// only providerId/model overrides — so the line is "what a run of this action on this pin
+// resolves to". When the preset has thinking OFF there is no resolved budget at all
+// (value null, source "") and the line correctly says nothing rather than inventing a
+// number, even if this column's own select is set for a test run.
+const localBudgetLine = computed(() => {
+  const pin = props.modelValue?.pin;
+  if (!pinnedRouteKey.value) return "";
+  const r = routeFor(props.action, "", pin.providerId, pin.model);
+  // Cloud (or an unresolved/thinking-off route) has no layered budget to report.
+  if (!r || r.providerId !== LOCAL_RUNNER_ID || !r.think || r.value == null) return "";
+  const label = resolvedSourceLabel(r.valueSource);
+  // A `reasoning_budget` typed into the MoE/dense/MTP bundles resolves with origin
+  // "type"/"mtp" (switch_resolve.py:24-25) — outside the approved 5-label vocabulary. Say
+  // the layer's raw origin rather than trailing an empty dash.
+  return `local: thinking budget ${r.value} — ${label || r.valueSource}`;
+});
 
 // ── sampler ORDER (the reserved `samplers` entry in the samplers array) ───────
 // Off = engine default order. On = a per-request order, stored as a single
@@ -355,7 +403,10 @@ function buildBody() {
     variables: { ...(props.vars || {}) },
     temperature: c.temperature === "" || c.temperature == null ? null : Number(c.temperature),
     // U2: the STORED pair — think on iff a level is picked (Off = off); the server
-    // resolves the level to the provider's native control + the local hardware cap.
+    // resolves the level to the provider's native control. On a LOCAL run the level is
+    // display vocabulary only and the budget comes from the model's layered
+    // `reasoning_budget` switch — NOT clamped (the hardware-cap min() was deleted
+    // 2026-07-16; reasoning.py:8,64).
     think: (c.reasoningEffort || "") !== "",
     reasoningEffort: c.reasoningEffort || "",
     maxTokens: Number(c.maxTokens) || 0,
@@ -520,6 +571,13 @@ defineExpose({ run, cancel });
       </div>
     </div>
 
+    <!-- The layered thinking budget a LOCAL run on this column's pinned model uses, and
+         which layer it came from. Sits under the params row (where the Reasoning select
+         lives) rather than inside that field — .cc-reason is capped at 120px and would
+         wrap this to a column of fragments. -->
+    <div v-if="localBudgetLine" class="cc-localbudget lu-muted"
+      title="The model's layered reasoning_budget on this PC (Global launch defaults → hardware class → your applied config) — edit it in Tune &amp; measure">{{ localBudgetLine }}</div>
+
     <!-- Plane-2 long-tail samplers (KnobGrid checklist). temperature + top_p are
          excluded — they are edited in the per-call params row above. #35 (B4-3,
          2026-07-08): ONE flat column — no multi-column spread, no Advanced section. -->
@@ -619,6 +677,8 @@ defineExpose({ run, cancel });
 .cc-params { display: flex; gap: 14px 18px; align-items: flex-end; flex-wrap: wrap; }
 .cc-num { max-width: 92px; }
 .cc-reason { max-width: 120px; }
+/* The resolved local budget line — pulled up snug under the params row it reports on. */
+.cc-localbudget { font-size: 11px; margin-top: -4px; font-variant-numeric: tabular-nums; }
 .cc-chk { display: flex; align-items: center; gap: 7px; }
 .cc-engsw { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .cc-engsw .lu-muted { font-size: 11px; }

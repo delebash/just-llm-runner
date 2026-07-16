@@ -24,6 +24,7 @@ import { computed } from "vue";
 import { useAiTasksStore } from "../stores/aiTasks.js";
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
+import { fmtTokens, fmtTps } from "../common/services/runStats.js";
 
 const props = defineProps({
   // The task object (from aiTasks.runningTasks) to display, or null when
@@ -43,8 +44,8 @@ const firstTokenSeconds = computed(() => {
 });
 const tokensLabel = computed(() => {
   if (!props.task) return null;
-  if (props.task.tokensOut) return `${props.task.tokensOut} tokens`;
-  if (props.task.chars)     return `~${Math.round(props.task.chars / 4)} tokens`;
+  if (props.task.tokensOut) return fmtTokens({ outputTokens: props.task.tokensOut });
+  if (props.task.chars)     return `~${fmtTokens({ outputTokens: Math.round(props.task.chars / 4) })}`;
   return null;
 });
 const tokensPerSecond = computed(() => {
@@ -92,7 +93,7 @@ function openPanel() { tasks.openPanel(); }
     <span class="sts-stat">{{ elapsedSeconds }}s</span>
     <span v-if="firstTokenSeconds" class="sts-stat">first token in {{ firstTokenSeconds }}s</span>
     <span v-if="tokensLabel" class="sts-stat">{{ tokensLabel }}</span>
-    <span v-if="tokensPerSecond" class="sts-stat">{{ tokensPerSecond }} tok/s</span>
+    <span v-if="tokensPerSecond" class="sts-stat">{{ fmtTps(tokensPerSecond) }}</span>
     <span v-if="freshness" class="sts-stat" :data-fresh="freshness">
       <span class="sts-dot" />
       <template v-if="freshness === 'fresh'">live</template>

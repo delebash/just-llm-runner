@@ -17,6 +17,9 @@ import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { useAiTasksStore } from "../stores/aiTasks.js";
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
+// Shared run-stat format (#304). Tokens + tok/s single-sourced with AiTaskStrip; the local
+// fmtSeconds below stays (it adds a minutes form for long history durations the shared one doesn't).
+import { fmtTokens, fmtTps } from "../common/services/runStats.js";
 
 const tasks = useAiTasksStore();
 const openPreviews = ref(new Set());
@@ -196,11 +199,11 @@ const phaseLabel = {
               first {{ (firstTokenMs(t) / 1000).toFixed(1) }}s
             </span>
             <span v-if="t.tokensOut || t.chars" class="aip-stat" v-tooltip.bottom="t.tokensOut ? 'Exact output tokens (from the model)' : 'Approximate from streamed characters (~4 chars/token)'">
-              <template v-if="t.tokensOut">{{ t.tokensOut }} tok</template>
-              <template v-else>~{{ Math.round(t.chars / 4) }} tok</template>
+              <template v-if="t.tokensOut">{{ fmtTokens({ outputTokens: t.tokensOut }) }}</template>
+              <template v-else>~{{ fmtTokens({ outputTokens: Math.round(t.chars / 4) }) }}</template>
             </span>
             <span v-if="tokensPerSecond(t)" class="aip-stat">
-              {{ tokensPerSecond(t) }} tok/s
+              {{ fmtTps(tokensPerSecond(t)) }}
             </span>
             <span v-if="freshness(t)" class="aip-stat" :data-fresh="freshness(t)" v-tooltip.bottom="freshness(t) === 'stuck' ? 'No tokens received in 10+ seconds — likely stuck' : freshness(t) === 'stalling' ? 'No tokens in the last few seconds' : 'Streaming live'">
               <span class="aip-stat-dot" />

@@ -98,4 +98,12 @@ Origin of the model: `docs/plans/2026-07-15-preset-one-source-rewrite.md`.
 - #303 reasoning dropdown ignores the hardware cap (§6).
 - ~~#300 savable "Output as JSON" per action~~ — DONE (§7; 4-file kit change, build+smoke+PUT-contract verified).
 - ~~#302 Lab "Update" → "Save"~~ — DONE.
-- #299 model-chooser popover layout; #304 run-stats shown 3 inconsistent ways.
+- ~~#304 run-stats shown inconsistently (ms vs s, total vs output tokens)~~ — DONE: one shared
+  formatter `common/services/runStats.js` (fmtSeconds/fmtTokens/fmtTps/fmtWords/fmtCost) used by
+  the Lab result readout (ConfigColumn), Compare ranking (CompareStrip), and the task strip +
+  status panel (AiTaskStrip/AiStatusPanel). Tune-benchmark surfaces (TuneMeasureModal · QuickSetup)
+  also show tok/s/ms — a related but distinct family, NOT folded in (flagged for a follow-up).
+- #299 model-chooser popover layout — deferred while reasoning is edited in another session
+  (the popover lives in LuFeatureChip alongside the reasoning cap line).
+- #305 secondary (picker cache refetch after a download) — DONE (useRunnerModels tracks the
+  built-in catalog id-set and invalidates the picker cache).

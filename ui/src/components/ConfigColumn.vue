@@ -32,6 +32,7 @@ import { runAiFeature } from "../services/aiFeature.js";
 import { useAiTasksStore } from "../stores/aiTasks.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
+import { fmtCost, fmtSeconds, fmtTokens, fmtTps, fmtWords } from "../common/services/runStats.js";
 import AiTaskStrip from "./AiTaskStrip.vue";
 import KnobGrid from "./KnobGrid.vue";
 import LuModelPicker from "./LuModelPicker.vue";
@@ -383,7 +384,7 @@ async function run() {
     if (props.runStream) {
       const ctrl = new AbortController();
       testCtrl.value = ctrl;
-      testOut.value = { content: "", model: "", ms: 0, tokens: 0, tps: 0, words: 0, cost: 0 };
+      testOut.value = { content: "", model: "", ms: 0, promptTokens: 0, outputTokens: 0, tps: 0, words: 0, cost: 0 };
       const res = await props.runStream({
         ...o, signal: ctrl.signal,
         onDelta: (_d, full) => { if (testOut.value) { testOut.value.content = full; testOut.value.words = wordCount(full); } },
@@ -393,7 +394,7 @@ async function run() {
       const out = u.completionTokens || 0;
       testOut.value = {
         content: res?.content || "", model: res?.model || "", ms,
-        tokens: (u.promptTokens || 0) + out,
+        promptTokens: u.promptTokens || 0, outputTokens: out,
         tps: ms > 0 && out > 0 ? +(out / (ms / 1000)).toFixed(1) : 0,
         words: wordCount(res?.content || ""),
         cost: res?.cost || 0, // streamed path has no cost yet (FW writing path)
@@ -413,7 +414,7 @@ async function run() {
       const out = r.completionTokens || 0;
       testOut.value = {
         content: r.content, model: r.model, ms,
-        tokens: (r.promptTokens || 0) + out,
+        promptTokens: r.promptTokens || 0, outputTokens: out,
         // Decode speed = output tokens / wall-second (prompt is prefilled). The
         // lab's tuning + ranking yardstick.
         tps: ms > 0 && out > 0 ? +(out / (ms / 1000)).toFixed(1) : 0,
@@ -435,10 +436,6 @@ async function run() {
 }
 function cancel() {
   testCtrl.value?.abort();
-}
-function fmtCost(c) {
-  if (!c) return "$0";
-  return c < 0.01 ? `$${c.toFixed(4)}` : `$${c.toFixed(2)}`;
 }
 
 // Preselect + load the feature's in-production preset into this column on open
@@ -597,7 +594,7 @@ defineExpose({ run, cancel });
       <pre class="cc-pre">{{ testOut.content }}</pre>
       <div class="lu-muted cc-stats">
         <template v-if="testOut.model">model <b>{{ testOut.model }}</b> · </template>
-        <b>{{ testOut.words }}</b> words<template v-if="testOut.tokens"> · <b>{{ testOut.tokens }}</b> tok</template><template v-if="testOut.tps"> · <b>{{ testOut.tps }}</b> tok/s</template> · {{ testOut.ms }} ms · <b>{{ fmtCost(testOut.cost) }}</b>
+        {{ fmtWords(testOut.words) }}<template v-if="testOut.outputTokens"> · {{ fmtTokens(testOut) }}</template><template v-if="testOut.tps"> · {{ fmtTps(testOut.tps) }}</template> · {{ fmtSeconds(testOut.ms) }} · {{ fmtCost(testOut.cost) }}
       </div>
     </div>
 

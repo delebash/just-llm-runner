@@ -15,6 +15,7 @@ import { computed, onMounted, ref } from "vue";
 
 import ConfigColumn from "./ConfigColumn.vue";
 import UiButton from "../common/components/UiButton.vue";
+import { fmtCost, fmtTps } from "../common/services/runStats.js";
 
 const props = defineProps({
   action: { type: String, default: "" },
@@ -141,7 +142,7 @@ onMounted(() => {
       <span v-if="ranked.length" class="lu-cmp-rank">
         <span class="lu-cmp-rank-h">Fastest</span>
         <span v-for="(x, i) in ranked" :key="x.col.id" class="lu-cmp-rank-item" :class="{ win: i === 0 }">
-          <b>{{ colModelLabel(x.col.config) }}</b> · {{ x.res.tps }} tok/s<template v-if="x.res.cost"> · ${{ x.res.cost < 0.01 ? x.res.cost.toFixed(4) : x.res.cost.toFixed(2) }}</template>
+          <b>{{ colModelLabel(x.col.config) }}</b> · {{ fmtTps(x.res.tps) }}<template v-if="x.res.cost"> · {{ fmtCost(x.res.cost) }}</template>
         </span>
       </span>
     </div>

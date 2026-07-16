@@ -102,6 +102,15 @@ def test_gemini_reasoning_uses_resolved_budget():
     p2 = {"generationConfig": {}}
     GeminiAdapter._apply_reasoning(p2, False, "", 2048)
     assert "thinkingConfig" not in p2["generationConfig"]   # off → omit
+    # budget None (no number resolved) → claim NOTHING (the old `else 8192` sent a number
+    # below High — the Max<High bug).
+    p3 = {"generationConfig": {}}
+    GeminiAdapter._apply_reasoning(p3, True, "", None)
+    assert "thinkingConfig" not in p3["generationConfig"]
+    # -1 passes through verbatim (documented dynamic/unlimited — the gemini `max` seed).
+    p4 = {"generationConfig": {}}
+    GeminiAdapter._apply_reasoning(p4, True, "", -1)
+    assert p4["generationConfig"]["thinkingConfig"] == {"thinkingBudget": -1}
 
 
 def test_openai_compat_reasoning_cloud_vs_local():
@@ -120,7 +129,7 @@ def test_openai_compat_reasoning_cloud_vs_local():
     b = {}
     local._apply_reasoning(b, True, "", 1024)
     assert b["chat_template_kwargs"] == {"enable_thinking": True}
-    assert b["reasoning_budget_tokens"] == 1024   # the resolved hardware-capped budget
+    assert b["reasoning_budget_tokens"] == 1024   # the resolved per-request budget (layered switch value)
     assert "reasoning_effort" not in b
     b = {}
     local._apply_reasoning(b, False, "", 1024)

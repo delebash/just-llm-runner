@@ -29,6 +29,7 @@ class KnobMeta(BaseModel):
     plane: int = 1              # 1 = load switch, 2 = sampler
     appliesTo: str = "all"     # all | moe | dense
     tier: str = "common"       # common | advanced (UI checklist split)
+    perRequest: bool = False   # plane-1 switch sent per REQUEST, not a launch flag (reasoning_budget)
     options: list[KnobOption] = []
 
 

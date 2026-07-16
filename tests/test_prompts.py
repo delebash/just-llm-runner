@@ -392,15 +392,15 @@ def test_resolved_route_without_preset_falls_to_dispatch():
 
 def test_resolved_route_override_params_win():
     """The resolved-route override query params (providerId/model) mirror RunRequest —
-    a Lab column asks for ITS pinned route (the cap-hint pick), overriding the preset's.
-    The reported route is that override (its reasoning cap would be read from it)."""
+    a Lab column asks for ITS pinned route, overriding the preset's. The reported route
+    is that override (its reasoning budget would be read from it)."""
     c, adapter = _feature_client(MemPromptStore())
     r = c.get("/v1/ai/resolved-route", params={"feature": "greet", "model": "override-model"})
     assert r.status_code == 200
     body = r.json()
     assert body["model"] == "override-model"          # the override model, not the default
     assert body["providerId"] == adapter.provider_id
-    assert body["cap"] is None                        # cloud/fake route → no local cap
+    assert body["value"] is None                      # no preset / think off → no budget resolved
 
 
 def test_resolved_route_unconfigured_is_honest():

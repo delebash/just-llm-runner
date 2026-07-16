@@ -131,13 +131,16 @@ class GeminiAdapter:
     def _apply_reasoning(cls, payload: dict, think: bool, effort: str, budget: int | None) -> None:
         """Gemini thinking (a1/E2, U2-T5): generationConfig.thinkingConfig.thinkingBudget =
         the resolved NUMBER from the reasoning_map (no adapter table any more — the old
-        `_THINK_BUDGET` is gone; gemini's map seeds preserve 2048/8192/24576). Only set when
-        reasoning is on (a no-thinking-default model is untouched when off; 3.x's
-        thinkingLevel path is a later pass). `effort` is unused here (gemini speaks numbers)."""
-        if not think:
+        `_THINK_BUDGET` is gone; gemini's map seeds preserve 2048/8192/24576, max = -1
+        dynamic). Only set when reasoning is on AND a number was resolved: `budget is None`
+        (no number) ⇒ claim NOTHING (the old `else 8192` silently substituted a number
+        BELOW High — the Max<High bug). A resolved number passes through verbatim, INCLUDING
+        -1 (documented dynamic/unlimited). A no-thinking-default model is untouched when off;
+        3.x's thinkingLevel path is a later pass. `effort` is unused (gemini speaks numbers)."""
+        if not think or budget is None:
             return
         gc = payload.setdefault("generationConfig", {})
-        gc["thinkingConfig"] = {"thinkingBudget": budget if budget is not None else 8192}
+        gc["thinkingConfig"] = {"thinkingBudget": budget}
 
     def chat(
         self,

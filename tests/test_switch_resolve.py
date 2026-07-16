@@ -130,10 +130,13 @@ def test_origins_track_the_writing_layer(configured):
 def test_unknown_model_empty(configured):
     assert switch_resolve.resolve_model_switches("does-not-exist") == {
         "flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true",
+        # reasoning_budget=1024 RESTORED to the base bundle (2026-07-16, house-layering
+        # rewrite): it is the visible GLOBAL tier of the per-request thinking budget, read
+        # via switch_resolve at request time — NOT a launch flag (emission retired U2-T4).
+        "reasoning_budget": "1024",
         # context_shift + cache_reuse REMOVED from the base (user, 2026-07-07): Gemma 4's
         # iSWA supports neither KV shift nor prefix reuse (llama.cpp auto-disables both) and
         # context_shift measured a net loss — per-model knobs now, not a shipped base value.
-        # reasoning_budget likewise ABSENT (user, 2026-07-06): a per-taste knob, never base.
     }  # unknown model → treated as dense, base preset only (no mtp gate w/o a row)
 
 

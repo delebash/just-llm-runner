@@ -57,6 +57,10 @@ def test_knob_tiers_and_expanded_set(wired):
     # The 4 already-plumbed switches are present (Plane-1); cont_batching is a bool.
     assert by_name["ubatch_size"]["plane"] == 1
     assert by_name["cont_batching"]["plane"] == 1 and by_name["cont_batching"]["kind"] == "bool"
+    # reasoning_budget is the ONE per-request plane-1 switch (sent as JSON per request, not
+    # a launch flag); every other plane-1 switch is a launch flag → perRequest False.
+    assert by_name["reasoning_budget"]["plane"] == 1 and by_name["reasoning_budget"]["perRequest"] is True
+    assert by_name["cont_batching"]["perRequest"] is False
 
 
 def test_plane1_carries_no_engine_default_claims(wired):

@@ -1,32 +1,33 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The ONE reasoning resolver (U2-T3, 2026-07-14). Turns a task's Reasoning "ask"
-(think on/off + a Low/Medium/High/XHigh/Max level) into the value each provider actually
-emits, reading the editable per-provider `reasoning_map` and — for a LOCAL run — the
-tested per-(model, hardware-class) budget cap, else the global default cap. After this
-plan NO adapter keeps a level→value table (anthropic.py / gemini.py both drop theirs);
-adapters emit what THIS returns. Called by the run path (`dispatch._apply_reasoning`,
-after `resolve_route` resolves the real provider/model) AND by GET /v1/ai/resolved-route
-(the mirror law) so the "runs on" chip can never drift from what a run does."""
+"""The ONE reasoning resolver (U2-T3, 2026-07-14; house-layering rewrite 2026-07-16).
+Turns a task's Reasoning "ask" (think on/off + a Low/Medium/High/XHigh/Max level) into
+the value each provider actually emits. LOCAL runs read the layered `reasoning_budget`
+SWITCH value — the house layering base bundle → hardware-class tune → applied model tune
+(most-specific wins), resolved by the SAME `switch_resolve.resolve_model_switches_with_origins`
+every other switch uses — sent per request as `reasoning_budget_tokens`, NEVER a launch
+flag and never clamped: the layered value IS the emitted number. Sentinels are honest:
+-1 = unlimited (legal, never seeded), 0 = suppress. CLOUD levels come from the editable
+per-provider `reasoning_map` (word for effort-word adapters, tokens for number adapters).
+After this plan NO adapter keeps a level→value table; adapters emit what THIS returns.
+Called by the run path (`dispatch._apply_reasoning`, after `resolve_route` resolves the
+real provider/model) AND by GET /v1/ai/resolved-route (the mirror law) so the "runs on"
+chip can never drift from what a run does."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Provider types whose LOCAL runs honor a hardware BUDGET (a token number) instead of an
-# effort word; the cap applies only to these. Today only the built-in llama.cpp runner.
+# Provider types whose LOCAL runs read the layered `reasoning_budget` SWITCH value (a token
+# number) instead of a cloud effort word. Today only the built-in llama.cpp runner.
 _LOCAL_TYPES = ("local-llamacpp",)
-
-_CAP_LAST_DITCH = 8192  # matches the reasoning_cap_default seed — used only if the row is gone
 
 
 @dataclass
 class ReasoningPlan:
     think: bool = False           # effective on/off for this call
-    level: str = ""               # the ask level (low|medium|high|xhigh|max) or ""
+    level: str = ""               # the ask level (cloud vocabulary); carried for display
     word: str = ""                # effort word to emit (word-speaking adapters); "" = none
-    ask: int | None = None        # the requested budget number from the map (pre-cap)
-    cap: int | None = None        # local hardware cap (None = no cap / cloud)
-    effective: int | None = None  # the budget number actually emitted (local: min(ask, cap))
-    cap_source: str = ""          # "class" | "default" | "" (cloud / none)
+    value: int | None = None      # the budget number emitted (local: the layered switch value; number-speaking cloud: the map tokens); None = no number
+    source: str = ""              # local: "tune"|"class"|"base"|"default"|"invalid" · cloud: "map" · "" = none
 
 
 def _map_row(provider_id: str, provider_type: str, level: str) -> tuple[str, int | None]:
@@ -43,38 +44,6 @@ def _map_row(provider_id: str, provider_type: str, level: str) -> tuple[str, int
     return "", None
 
 
-def _cap_for(model_id: str, class_key: str) -> tuple[int, str]:
-    """The LOCAL thinking cap: the tested per-(model, class) `reasoning_budget` tune (the
-    SAME ClassTune rows `switch_resolve` reads), else the global `reasoning_cap_default`."""
-    from . import db
-    s = db.session()
-    try:
-        if class_key and model_id:
-            row = (
-                s.query(db.ClassTune)
-                .filter(
-                    db.ClassTune.model_id == model_id,
-                    db.ClassTune.class_key == class_key,
-                    db.ClassTune.flag_name == "reasoning_budget",
-                )
-                .first()
-            )
-            if row is not None and str(row.flag_value).strip():
-                try:
-                    return int(row.flag_value), "class"
-                except ValueError:
-                    pass
-        setting = s.query(db.RunnerSetting).filter(db.RunnerSetting.key == "reasoning_cap_default").first()
-        if setting is not None and str(setting.value).strip():
-            try:
-                return int(setting.value), "default"
-            except ValueError:
-                pass
-    finally:
-        s.close()
-    return _CAP_LAST_DITCH, "default"
-
-
 def resolve_reasoning(
     *,
     think: bool,
@@ -83,30 +52,47 @@ def resolve_reasoning(
     provider_type: str,
     model_id: str,
     class_key: str | None = None,
+    hw_key: str | None = None,
 ) -> ReasoningPlan:
     """Resolve the reasoning ask into what this provider/model emits.
 
-    - think off (or no level) ⇒ everything empty; the adapter still sends its own off
-      signal (llama.cpp `enable_thinking=False` + budget 0).
-    - LOCAL (budget provider): effective = min(ask, cap); Max / no number ⇒ the cap. The
-      cap is the tested class tune or the global default, ALWAYS reported (`cap_source`).
-    - Cloud: `word` + `ask` straight from the map, no cap; a number-speaking cloud (gemini,
-      legacy Anthropic) emits `ask`, a word-speaking cloud emits `word`.
+    - think off ⇒ empty plan (both local and cloud); the adapter still sends its own off
+      signal (llama.cpp `enable_thinking=False` + budget 0). Cloud with think on but NO
+      level ⇒ empty plan too (no map row to read).
+    - LOCAL: the emitted budget IS the layered `reasoning_budget` switch value (base bundle
+      → class tune → applied model tune, most-specific wins), read by the SAME
+      `switch_resolve` every switch uses — NO min()/clamp, level is display vocabulary only
+      (resolve even when level is ""). Sentinels pass through honest: -1 unlimited, 0
+      suppress; a non-numeric row ⇒ value None + source "invalid" (thinking visibly off,
+      never a silent guess). No word for local.
+    - Cloud: `word` + `value` straight from the map; a number-speaking cloud (gemini,
+      legacy Anthropic) carries the map tokens, a word-speaking cloud carries `word`.
     """
     plan = ReasoningPlan(think=bool(think), level=level or "")
-    if not think or not level:
+    if not think:
         return plan
-    plan.word, plan.ask = _map_row(provider_id, provider_type, level)
     if provider_type in _LOCAL_TYPES:
+        from . import switch_resolve
         if class_key is None:
             from ..runner.hardware import current_class_key
             class_key = current_class_key()
-        plan.cap, plan.cap_source = _cap_for(model_id, class_key)
-        # Max / no number ⇒ run at the cap; else the smaller of the ask and the cap.
-        plan.effective = plan.cap if plan.ask is None else min(plan.ask, plan.cap)
-    else:
-        # Cloud: no local cap. Number-speaking clouds emit `ask`; word-speaking clouds
-        # emit `word` (effective stays the ask so resolved-route can display a number
-        # where one exists — the adapter chooses word vs number by its generation).
-        plan.effective = plan.ask
+        if hw_key is None:
+            from ..runner.hardware import current_machine_key
+            hw_key = current_machine_key()
+        merged, origins = switch_resolve.resolve_model_switches_with_origins(model_id, hw_key, class_key)
+        raw = (merged.get("reasoning_budget") or "").strip()
+        if not raw:
+            plan.value, plan.source = 1024, "default"   # last-ditch: no row in any layer (old DB pre-reseed); 1024 = the only tested value; visible via source
+        else:
+            try:
+                plan.value, plan.source = int(raw), origins.get("reasoning_budget", "base")
+            except ValueError:
+                plan.value, plan.source = None, "invalid"   # adapter emits 0 → thinking visibly off, never a silent guess
+        return plan
+    # Cloud: no layered budget. The map's tokens (number adapters) + word (effort adapters).
+    if not level:
+        return plan
+    plan.word, tokens = _map_row(provider_id, provider_type, level)
+    plan.value = tokens
+    plan.source = "map" if tokens is not None else ""
     return plan

@@ -25,19 +25,23 @@ REASONING_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 class ReasoningLevelRow(BaseModel):
     level: str                    # one of REASONING_LEVELS
     word: str = ""                # effort word for word-speaking adapters; "" = n/a
-    tokens: int | None = None     # budget number; None = n/a (local: unlimited ⇒ hardware cap)
+    tokens: int | None = None     # budget number; None = no number form (word-only provider types)
 
 
 # Per provider-TYPE seed for the reasoning_map — the ONE source both the seeder (seed.py)
 # and the resolver's missing-row fallback (llm/reasoning.py) read (no duplicate table).
 # (word, tokens) per level; `word` "" = the type speaks no effort word, `tokens` None = no
-# number form (local: unlimited ⇒ the run falls to the hardware cap). Downmaps where a type
-# lacks a level are baked in (openai xhigh/max→"high"; ollama xhigh→"max"). Provider_type
-# vocabulary + adapter routing from `registry.construct` (registry.py:70-111).
+# number form (word-only provider types). LOCAL runs no longer read this map for the budget
+# — the resolver reads the layered `reasoning_budget` switch value (llm/reasoning.py); the
+# local rows remain editable map DATA. Downmaps where a type lacks a level are baked in
+# (openai xhigh/max→"high"; ollama xhigh→"max"). Provider_type vocabulary + adapter routing
+# from `registry.construct` (registry.py:70-111).
 REASONING_MAP_TYPE_SEEDS: dict[str, dict[str, tuple[str, int | None]]] = {
     "local-llamacpp": {
         "low": ("", 1024), "medium": ("", 4096), "high": ("", 8192),
-        "xhigh": ("", 16384), "max": ("", None),  # None ⇒ unlimited ⇒ hardware cap
+        # max finite BY POLICY (32768): the Gemma thinking loop is VERIFIED on-box; -1
+        # stays legal as a typed value but is never seeded.
+        "xhigh": ("", 16384), "max": ("", 32768),
     },
     "anthropic": {  # new models take output_config.effort (word); legacy take budget_tokens (number)
         "low": ("low", 1024), "medium": ("medium", 4096), "high": ("high", 8192),
@@ -53,7 +57,9 @@ REASONING_MAP_TYPE_SEEDS: dict[str, dict[str, tuple[str, int | None]]] = {
     },
     "gemini": {  # thinkingBudget numbers, preserving 2048/8192/24576 + extended xhigh/max [FLAGGED seeds — tune]
         "low": ("", 2048), "medium": ("", 8192), "high": ("", 24576),
-        "xhigh": ("", 32768), "max": ("", None),  # None ⇒ dynamic/unlimited
+        # max = -1 = documented dynamic/unlimited for thinkingBudget-era models (fixes Max
+        # silently sending 8192 < High's 24576; gemini 3.x thinkingLevel is a later pass).
+        "xhigh": ("", 32768), "max": ("", -1),
     },
 }
 

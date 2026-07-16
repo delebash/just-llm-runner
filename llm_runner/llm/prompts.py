@@ -287,16 +287,14 @@ class ResolvedRouteResponse(BaseModel):
     presetName: str = ""
     presetSource: str = ""    # which tier won: "assigned" | "default" | ""
     # Reasoning (U2-T6): what this run's thinking resolves to RIGHT NOW — think on/off, the
-    # ask level, the resolved effort word, the requested budget, the local hardware cap + its
-    # source, and the effective (emitted) budget. The chip/picker read these (no client math
-    # — the drift law); cloud routes carry cap=None.
+    # ask level, the resolved effort word, and the emitted budget value + the layer it came
+    # from. The chip/picker read these (no client math — the mirror/drift law); a cloud
+    # word route carries value=None.
     think: bool = False
     level: str = ""
     reasoningWord: str = ""
-    ask: int | None = None
-    cap: int | None = None
-    effective: int | None = None
-    capSource: str = ""       # "class" | "default" | "" (cloud / none)
+    value: int | None = None
+    valueSource: str = ""     # local: "tune"|"class"|"base"|"default"|"invalid" · cloud: "map" · "" = none
     configured: bool = True
     detail: str = ""
 
@@ -623,7 +621,8 @@ def make_feature_router(
         except LLMNotConfiguredError as e:
             return ResolvedRouteResponse(**base, configured=False, detail=str(e))
         # U2-T6: the SAME resolver the run path uses (the dispatch mirror), so the chip
-        # shows exactly what a run emits — think/level/word/ask/cap/effective, no client math.
+        # shows exactly what a run emits — think/level/word + the layered budget value +
+        # its origin layer, no client math.
         from .reasoning import resolve_reasoning
         rp = resolve_reasoning(
             think=preset.think if preset else False,
@@ -633,7 +632,7 @@ def make_feature_router(
         return ResolvedRouteResponse(
             **base, providerId=adapter.provider_id, model=model,
             think=rp.think, level=rp.level, reasoningWord=rp.word,
-            ask=rp.ask, cap=rp.cap, effective=rp.effective, capSource=rp.cap_source,
+            value=rp.value, valueSource=rp.source,
         )
 
     return router

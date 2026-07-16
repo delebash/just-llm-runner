@@ -345,21 +345,19 @@ DEFAULT_EMBED_TEMPLATES: list[dict] = [
 # here — it's a computed fit knob, not a constant.)
 DEFAULT_SWITCH_PRESETS: list[dict] = [
     {"id": "base", "label": "Base (every model)", "applies_to": "all", "position": 0,
-     # reasoning_budget was REMOVED from this bundle (user, 2026-07-06 after the full
-     # walk-through: it is a per-taste bound on thinking-ENABLED tasks, not a rule —
-     # thinking on/off is the per-request toggle our dispatch already sends per task,
-     # a different mechanism entirely; the 1024 originated as the author's own
-     # box/latency preference and the mainstream pattern ships no launch budget). The
-     # knob stays in knob_catalog — and as of U2 (2026-07-14) the per-(model, class)
-     # `reasoning_budget` is the reasoning RESOLVER's per-request CAP (read as DATA, no
-     # longer emitted as a launch flag — llm/reasoning.py + U2-T4); the seeded Gemma-class
-     # 1024 bounds every local thinking request on that hardware.
+     # reasoning_budget RESTORED to this bundle (2026-07-16, house-layering rewrite),
+     # REVERSING the 2026-07-06 removal. Safe now because launch emission is retired
+     # (process.py U2-T4): this is NOT a launch flag — it is the visible GLOBAL tier of the
+     # per-request thinking budget, read via switch_resolve at request time and layered
+     # like any switch (base → hardware class → applied model tune, most-specific wins).
+     # 1024 = the tested value.
      # context_shift + cache_reuse REMOVED from the base (user, 2026-07-07, on-box tested):
      # Gemma 4's iSWA context supports neither KV shifting nor prefix reuse (llama.cpp
      # auto-disables both with a warning), and context_shift measured as a net loss; the Qwen
      # config omits both too. Neither is a safe UNIVERSAL default → they stay per-model knobs
      # in knob_catalog, enable per model where they actually help.
-     "switches": {"flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0", "mlock": "true"}},
+     "switches": {"flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0",
+                  "mlock": "true", "reasoning_budget": "1024"}},
     {"id": "moe", "label": "MoE (mixture-of-experts)", "applies_to": "moe", "position": 1,
      # ONLY no_mmap is genuinely MoE-specific; the spec_type default (none) lives ONCE in
      # knob_catalog — no duplicate here (the phase's own "one source" rule, 2026-07-03 Phase 3).
@@ -449,11 +447,10 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
     {"key": "download_segment_count", "value": str(DEFAULT_DOWNLOAD_SEGMENT_COUNT)},
     {"key": "download_segment_min_bytes", "value": str(DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES)},
     {"key": "download_segment_retries", "value": str(DEFAULT_DOWNLOAD_SEGMENT_RETRIES)},
-    # Global default reasoning cap (U2-T2, 2026-07-14): the per-request thinking-budget
-    # ceiling for a LOCAL run when no tested per-(model, hardware-class) `reasoning_budget`
-    # tune exists (`seed.py` class tunes override it). Additive — an existing DB gains it
-    # at next boot (fill-empty seeder, never clobbers a user edit).
-    {"key": "reasoning_cap_default", "value": "8192"},
+    # (reasoning_cap_default REMOVED 2026-07-16: the reasoning budget is no longer a
+    # min()-clamped cap — it is a normal layered `reasoning_budget` SWITCH row resolved by
+    # switch_resolve (base bundle → class tune → model tune). Existing DBs keep an orphan
+    # runner_setting row; the resolver no longer reads it.)
 ]
 
 # Knob catalog — metadata that turns a raw switch/sampler key into a friendly
@@ -514,10 +511,8 @@ DEFAULT_KNOBS: list[dict] = [
      "help": "Draft-model speculative decode. MTP GGUF only; gains are machine-dependent — measure. Values: none, draft-mtp, ngram-mod."},
     {"flag_name": "spec_n_max", "label": "Spec draft tokens", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many tokens the draft proposes per step."},
-    {"flag_name": "reasoning_budget", "label": "Thinking cap (per-request, this hardware)", "kind": "int", "plane": 1, "tier": "advanced",
-     "help": "The most thinking tokens a LOCAL run will spend on this hardware (U2: no longer a launch flag). Stored as a per-(model, hardware-class) tune; the reasoning resolver reads it as the cap and every request is bounded by it. -1 = unlimited (falls back to the global default cap)."},
-    {"flag_name": "reasoning_budget_message", "label": "Budget-exhausted message", "kind": "string", "plane": 1, "tier": "advanced",
-     "help": "Text injected before the end-of-thinking tag when the thinking budget runs out. Avoid '#' — it starts a comment in the engine preset file."},
+    {"flag_name": "reasoning_budget", "label": "Thinking budget (per-request)", "kind": "int", "plane": 1, "per_request": True, "tier": "advanced",
+     "help": "Thinking-token budget for this model, layered like any switch (global → hardware class → your applied config) — but NOT a launch flag: it is sent with EVERY request as JSON and applies immediately, no reload. -1 = unlimited (can think until the context fills), 0 = thinking off, N = at most N thinking tokens."},
     # ── Plane 2 — per-request samplers: COMMON ──
     # temperature + top_p stay in the catalog but are edited in the per-call params
     # row (excluded from the checklist by ConfigColumn) — tier is harmless here.
@@ -1052,6 +1047,7 @@ def seed_default_knobs(s) -> int:
                 row.plane = int(k.get("plane") or 1)
                 row.applies_to = str(k.get("applies_to") or "all")
                 row.tier = str(k.get("tier") or "common")
+                row.per_request = bool(k.get("per_request") or False)
                 row.position = i
                 seeded_opts = {str(o["value"]) for o in (k.get("options") or [])}
                 for opt in s.query(db.KnobOption).filter(db.KnobOption.flag_name == k["flag_name"]).all():
@@ -1062,7 +1058,7 @@ def seed_default_knobs(s) -> int:
             flag_name=k["flag_name"], label=str(k.get("label") or ""), kind=str(k.get("kind") or "string"),
             default_value=str(k.get("default_value") or ""), help=str(k.get("help") or ""),
             plane=int(k.get("plane") or 1), applies_to=str(k.get("applies_to") or "all"),
-            tier=str(k.get("tier") or "common"),
+            tier=str(k.get("tier") or "common"), per_request=bool(k.get("per_request") or False),
             position=i, built_in=True,
         ))
         s.flush()

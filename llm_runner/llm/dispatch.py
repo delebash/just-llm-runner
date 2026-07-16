@@ -209,8 +209,9 @@ def _apply_reasoning(extra: dict | None, adapter: LLMAdapter, model: str, *, thi
     """Map the reasoning ASK (the raw level carried in `reasoning_effort`, injected by
     `prompts._plane2_extra`) into what the RESOLVED provider/model actually emits (U2-T3)
     — this is the ONE place the resolved model is finally known. Replaces the level with
-    the resolved effort `word` + the computed `reasoning_budget_tokens`; each adapter pops
-    BOTH (`base.pop_reasoning`) and emits only the one its backend speaks. No-op unless
+    the resolved effort `word` + the `reasoning_budget_tokens` (LOCAL: the layered switch
+    value, no clamp; number-speaking cloud: the map tokens); each adapter pops BOTH
+    (`base.pop_reasoning`) and emits only the one its backend speaks. No-op unless
     reasoning is on for this call (the level is present only when `_effective_think`)."""
     if not extra or "reasoning_effort" not in extra:
         return extra
@@ -226,8 +227,8 @@ def _apply_reasoning(extra: dict | None, adapter: LLMAdapter, model: str, *, thi
     )
     if plan.word:
         e["reasoning_effort"] = plan.word
-    if plan.effective is not None:
-        e["reasoning_budget_tokens"] = plan.effective
+    if plan.value is not None:
+        e["reasoning_budget_tokens"] = plan.value
     return e or None
 
 

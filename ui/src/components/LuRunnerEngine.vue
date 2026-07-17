@@ -219,7 +219,7 @@ onMounted(() => {
           <UiButton v-if="updateInfo?.updateAvailable" intent="info" size="small"
             :loading="engBusy"
             :title="`Update the engine to ${updateInfo.latest} (you have ${updateInfo.current}) — the old build folder is removed after the new one installs`"
-            @click="updateToLatest">Update available</UiButton>
+            @click="updateToLatest">Update to {{ updateInfo.latest }}</UiButton>
           <UiButton v-else intent="secondary" size="small"
             :loading="engBusy" title="Re-download the pinned engine build"
             @click="engInstall(true)">Reinstall</UiButton>

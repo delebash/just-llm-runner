@@ -632,6 +632,55 @@ def test_resident_surfaces_load_error(tmp_path):
     assert row["status"] == "error"
 
 
+# ── T1: the phase is set by the download itself (2026-07-17 approved plan) ──
+# _run_load used to write detail="model weights" UNCONDITIONALLY before checking disk
+# (:1361), so an already-cached model flashed a download bar that lied (the user's
+# phantom bar). Now the neutral "preparing" is written up front and the download's own
+# _progress callback — which fires only on real chunks — sets its leg's phase.
+
+def _detail_recorder(svc):
+    """Capture every `detail` value _touch writes, in order, without changing behavior."""
+    details = []
+    orig = svc._touch
+
+    def spy(mid, **fields):
+        if "detail" in fields:
+            details.append(fields["detail"])
+        return orig(mid, **fields)
+
+    svc._touch = spy
+    return details
+
+
+def test_cached_model_never_announces_a_download(tmp_path):
+    # The harness seeds every catalog model into the fake HF cache and its injected
+    # acquire_model returns the snapshot WITHOUT firing on_progress — i.e. a fully
+    # cached model. The phantom phase must not appear.
+    svc = _service_for(tmp_path)
+    details = _detail_recorder(svc)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert "model weights" not in details      # the phantom (fails before T1)
+    assert "preparing" in details              # the honest neutral phase
+
+
+def test_real_download_still_announces_model_weights(tmp_path):
+    svc = _service_for(tmp_path)
+    real_acquire = svc._acquire_model
+
+    def acquiring_with_chunks(repo, *a, on_progress=None, **k):
+        if on_progress:
+            on_progress(1024, 4096)            # a real chunk lands
+        return real_acquire(repo, *a, **k)
+
+    svc._acquire_model = acquiring_with_chunks
+    details = _detail_recorder(svc)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert "model weights" in details          # a real download still says so
+
+
 # ── the router-listing mask (2026-07-17, the user's dead "Load now" button) ──
 # The router's GET /models lists EVERY preset model, loaded or not (box-verified: the
 # .ini catalog appears with status values like "unloaded"). resident() used to skip any

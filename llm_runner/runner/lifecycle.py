@@ -1347,8 +1347,17 @@ class RunnerService:
                 ov = _merge_overrides(ov, _switches_to_overrides(switches))
 
             def _progress(downloaded: int, total: int | None) -> None:
-                # Live byte counters the GUI polls via status() to draw a bar.
-                self._touch(model_id, downloaded=downloaded, total=total or 0)
+                # Live byte counters the GUI polls via status() to draw a bar. The PHASE
+                # is set HERE, by the download itself — never ahead of it (T1, 2026-07-17
+                # approved plan): a cached file fires no chunks, so a bar for a download
+                # that isn't happening can no longer appear (the user's phantom
+                # "Downloading the model" on an already-cached load).
+                self._touch(model_id, detail="model weights", downloaded=downloaded, total=total or 0)
+
+            def _progress_draft(downloaded: int, total: int | None) -> None:
+                # Same rule for the SEPARATE MTP draft leg — its phase only when its
+                # bytes actually flow (a cached main + missing draft still shows this).
+                self._touch(model_id, detail="MTP draft model", downloaded=downloaded, total=total or 0)
 
             # Engine install is its OWN step (POST /engine/install); a model load
             # REQUIRES it present — fail fast BEFORE the multi-GB download.
@@ -1358,7 +1367,7 @@ class RunnerService:
                             error="engine-not-installed", downloaded=0, total=0)
                 return
 
-            self._touch(model_id, detail="model weights", downloaded=0, total=0)
+            self._touch(model_id, detail="preparing", downloaded=0, total=0)
             # True load abort (S2): a stop() during this (slow, unlocked) download drops
             # model_id from _resident, so this cancel_check flips True and the fetch aborts
             # at the next chunk — raising DownloadCancelled (caught below). Before this, the
@@ -1375,11 +1384,14 @@ class RunnerService:
             # A draft failure fails the LOAD with the real reason (the user asked
             # for MTP; never silently drop to no-MTP). (Plan B, D7)
             if ov.spec_type == "draft-mtp" and not ov.model_draft and getattr(_model, "mtp_draft_file", ""):
-                self._touch(model_id, detail="MTP draft model", downloaded=0, total=0)
+                # Neutral phase + zeroed counters between the legs (the main model's
+                # bytes must not linger under the draft's label); the draft's own
+                # phase comes from _progress_draft, only when it actually downloads.
+                self._touch(model_id, detail="preparing", downloaded=0, total=0)
                 draft_repo = _model.mtp_draft_repo or _model.hf_repo
                 draft_snapshot = self._acquire_model(
                     draft_repo, _model.mtp_draft_file, None,
-                    cache_root=self._cache_root / "hf", on_progress=_progress,
+                    cache_root=self._cache_root / "hf", on_progress=_progress_draft,
                     cancel_check=lambda: model_id not in self._resident,
                     **download_kwargs(config),
                 )

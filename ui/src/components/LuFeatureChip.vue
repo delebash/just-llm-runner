@@ -41,7 +41,10 @@ import { request } from "../client.js";
 // resolvedSourceLabel: the budget line's layer names. Importing the module also arms
 // its any-write invalidation (QC-43), so a save here refreshes every mounted chip.
 import { resolvedSourceLabel } from "../composables/useResolvedRoute.js";
-import { presetToThinkingControl, THINKING_CUSTOM, thinkingControlToWire } from "../thinkingControl.js";
+import {
+  presetToThinkingControl, resolvedToThinkingControl, THINKING_CUSTOM,
+  thinkingControlToWire, thinkingOptionsFor,
+} from "../thinkingControl.js";
 import { LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import LuModelPicker from "./LuModelPicker.vue";
 
@@ -67,10 +70,8 @@ const props = defineProps({
 });
 const emit = defineEmits(["navigate"]);
 
-// The three-state Thinking control — vocabulary + both mappings live ONCE in
+// The Thinking control — vocabulary, options builder and both mappings live ONCE in
 // ../thinkingControl.js (imported below); see it for the states' meaning.
-const LEVEL_ORDER = ["low", "medium", "high", "xhigh", "max"];
-const LEVEL_WORD = { low: "Low", medium: "Medium", high: "High", xhigh: "XHigh", max: "Max" };
 
 const tooltip = computed(() =>
   props.editable
@@ -90,28 +91,15 @@ const draftPin = ref(null); // { providerId, model } | null (LuModelPicker v-mod
 const draftThinking = ref(""); // "" (Off) | a level | THINKING_CUSTOM (display-only)
 const levelRows = ref([]); // the PROVIDER's reasoning-map rows [{ level, word, tokens }]
 
-// The options — ONE shape for every provider (the user's B ruling extended everywhere,
-// 2026-07-16: "all same everywhere"; the "Model default"/"Provider default" entries are
-// DELETED): Off + every level the provider's map carries, labelled with its number
-// where the provider speaks numbers ("Low (1024)") and plain where it speaks words
-// ("Low"). The control SEEDS from what will actually run and save sets what's shown
-// ("it is what it is"). A state matching no offered level — a grid-typed local number,
-// or a stored think-on pair with an empty level — shows as display-only "Custom",
-// with the local number in parentheses when there is one.
-const thinkingOptions = computed(() => {
-  const opts = [{ value: "", label: "Off" }];
-  const byLevel = Object.fromEntries(levelRows.value.map((r) => [r.level, r]));
-  for (const lvl of LEVEL_ORDER) {
-    const row = byLevel[lvl];
-    if (!row) continue;
-    opts.push({ value: lvl, label: row.tokens != null ? `${LEVEL_WORD[lvl]} (${row.tokens})` : LEVEL_WORD[lvl] });
-  }
-  if (draftThinking.value === THINKING_CUSTOM) {
-    const n = draftIsLocal.value ? props.route?.value : null;
-    opts.push({ value: THINKING_CUSTOM, label: n != null ? `Custom (${n})` : "Custom" });
-  }
-  return opts;
-});
+// The options — the ONE shared builder (thinkingControl.js), identical to the Lab's:
+// Off + the provider's levels (numbered where it speaks numbers) + display-only Custom
+// while Custom IS the state. The user's B ruling, 2026-07-16: the control shows what
+// will actually run and save sets what's shown ("it is what it is").
+const thinkingOptions = computed(() => thinkingOptionsFor({
+  levelRows: levelRows.value,
+  current: draftThinking.value,
+  customValue: draftIsLocal.value ? props.route?.value : null,
+}));
 
 const presetName = computed(() => props.route?.presetName || "this preset");
 
@@ -196,21 +184,13 @@ async function loadPopover() {
     const refs = assignRes?.features || {};
     memberCount.value = Object.values(refs).filter((v) => v === pid).length;
     await loadLevelMap(); // every provider has a map (words and/or numbers) — labels need it
-    if (draftIsLocal.value) {
-      // LOCAL seeds from the RESOLVED value (the user's B ruling): the control shows
-      // what this feature will actually run — the matched level, else Custom (N).
-      // Think off (stored) is Off regardless.
-      if (!p?.think) {
-        draftThinking.value = "";
-      } else {
-        const match = levelRows.value.find((r) => r.tokens != null && r.tokens === props.route?.value);
-        draftThinking.value = match ? match.level : THINKING_CUSTOM;
-      }
-    } else {
-      // CLOUD seeds from the stored pair (no resolved number exists to show);
-      // think-on with an empty level reads as Custom — the provider decides.
-      draftThinking.value = presetToThinkingControl(p);
-    }
+    // LOCAL seeds through the SHARED resolver (the B ruling): a stored level is the
+    // preset's own ask; the follow state (empty level) shows the level whose map number
+    // matches what actually runs, else Custom. CLOUD has no resolved number to match, so
+    // it seeds from the stored pair — think-on/empty reads as Custom (the provider decides).
+    draftThinking.value = draftIsLocal.value
+      ? resolvedToThinkingControl(p, props.route?.value, levelRows.value)
+      : presetToThinkingControl(p);
   } catch (e) {
     saveErr.value = e?.message || "Could not load the preset.";
   } finally {

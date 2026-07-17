@@ -35,7 +35,9 @@ import { useAiTasksStore } from "../stores/aiTasks.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
 import { fmtCost, fmtSeconds, fmtTokens, fmtTps, fmtWords } from "../common/services/runStats.js";
-import { THINKING_CUSTOM, thinkingControlToWire } from "../thinkingControl.js";
+import {
+  levelForValue, THINKING_CUSTOM, thinkingControlToWire, thinkingOptionsFor,
+} from "../thinkingControl.js";
 import AiTaskStrip from "./AiTaskStrip.vue";
 import KnobGrid from "./KnobGrid.vue";
 import LuModelPicker from "./LuModelPicker.vue";
@@ -51,23 +53,12 @@ import UiSelect from "../common/components/UiSelect.vue";
 // tasks in parallel — the label alone can't tell them apart).
 let _labColSeq = 1;
 
-// Reasoning — ONE control shape everywhere (the user's B ruling extended, 2026-07-16;
-// the unapproved "Default" entry is DELETED): Off = think stored false · a level = the
-// preset's OWN ask (local: the map's number, source "preset"; cloud: the map's word) ·
-// display-only Custom = a think-on pair matching no level (an empty stored level — the
-// follow / provider-default state — or a grid-typed local number, reported with its
-// number by `localBudgetLine` below). Saving with Custom selected writes {think: true,
-// level: ""} — identical to the stored shape it displays (thinkingControl.js). JSON
-// mode forces it off (B3) regardless. No clamp anywhere ("no magic behind the
-// curtains": there is no min(), the resolved value IS the budget).
-const REASONING_LEVELS = [
-  { value: "", label: "Off" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "XHigh" },
-  { value: "max", label: "Max" },
-];
+// Reasoning — the SAME control the chip renders, built by the SAME shared builder
+// (thinkingControl.js): Off · the provider's levels, numbered where it speaks numbers
+// ("Low (1024)") · display-only Custom (with its number) while Custom IS the state.
+// The user's B ruling, 2026-07-16 — the control shows what will actually run and save
+// sets what's shown. JSON mode forces it off (B3) regardless. No clamp anywhere ("no
+// magic behind the curtains": there is no min(), the resolved value IS the budget).
 const varHint = "{{variable}}"; // shown literally in the UI (avoids a nested {{ }} in the template)
 
 const props = defineProps({
@@ -105,12 +96,21 @@ const props = defineProps({
   // topP, maxTokens, reasoningEffort, jsonMode, samplers:[{name,value}] }.
   modelValue: { type: Object, default: () => ({}) },
 });
-// Below defineProps on purpose — the computed reads `props` (declaration order, no
-// TDZ-timing cleverness). Custom is offered only while it IS the loaded state.
-const REASONING_OPTIONS = computed(() =>
-  props.modelValue?.reasoningEffort === THINKING_CUSTOM
-    ? [...REASONING_LEVELS, { value: THINKING_CUSTOM, label: "Custom" }]
-    : REASONING_LEVELS);
+// Below defineProps on purpose — these read `props` (declaration order, no TDZ-timing
+// cleverness).
+const isLocalPin = computed(() => (props.modelValue?.pin?.providerId || "") === LOCAL_RUNNER_ID);
+// The pinned provider's level map — the option NUMBERS ("Low (1024)") and the
+// resolved-value match both read it. Enrichment: an empty map falls back to plain level
+// words inside the shared builder, never to an Off-only control.
+const levelRows = ref([]);
+watch(() => props.modelValue?.pin?.providerId, async (pid) => {
+  if (!pid) { levelRows.value = []; return; }
+  try {
+    levelRows.value = (await request(`/v1/ai/reasoning-map/${encodeURIComponent(pid)}`))?.rows || [];
+  } catch {
+    levelRows.value = [];
+  }
+}, { immediate: true });
 const emit = defineEmits([
   "update:modelValue", "result", "save-json",
   "save-as", "update-preset", "apply-preset", "delete-preset", "remove", "use-production",
@@ -251,6 +251,35 @@ watch(pinnedRouteKey, (key) => {
 // resolves to". When the preset has thinking OFF there is no resolved budget at all
 // (value null, source "") and the line correctly says nothing rather than inventing a
 // number, even if this column's own select is set for a test run.
+// The RESOLVED budget for this column's pin — what a run of this action on this pin
+// would actually emit. Feeds both the Custom label's number and the normalize below.
+const pinnedValue = computed(() => {
+  const pin = props.modelValue?.pin;
+  if (!pinnedRouteKey.value || !isLocalPin.value) return null;
+  const r = routeFor(props.action, "", pin.providerId, pin.model);
+  return r?.think ? (r.value ?? null) : null;
+});
+
+// The ONE options builder — byte-identical to the chip's (thinkingControl.js).
+const REASONING_OPTIONS = computed(() => thinkingOptionsFor({
+  levelRows: levelRows.value,
+  current: props.modelValue?.reasoningEffort,
+  customValue: pinnedValue.value,
+}));
+
+// NORMALIZE Custom → the level that actually resolves (the B ruling: "it should not be
+// custom" when a level matches). The parent seeds from the STORED pair, so the follow
+// state (think on + empty level) arrives as Custom; once the route + map are in, this
+// re-seeds it to the matched level so the Lab reads "Low (1024)" exactly like the chip —
+// and a Save then writes what's shown. Terminates: the patch makes the value a level, so
+// the guard stops it. Only the follow state is touched (a genuinely unmatched value —
+// a number typed into a switch grid — stays Custom).
+watch([() => props.modelValue?.reasoningEffort, pinnedValue, levelRows], () => {
+  if (props.modelValue?.reasoningEffort !== THINKING_CUSTOM) return;
+  const lvl = levelForValue(levelRows.value, pinnedValue.value);
+  if (lvl) patch("reasoningEffort", lvl);
+});
+
 const localBudgetLine = computed(() => {
   const pin = props.modelValue?.pin;
   if (!pinnedRouteKey.value) return "";

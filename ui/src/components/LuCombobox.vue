@@ -24,14 +24,30 @@ const open = ref(false);
 const norm = computed(() =>
   props.items.map((m) => (typeof m === "string" ? { id: m, label: m } : { id: m.id, label: m.label || m.id })),
 );
-// Filter the dropdown by what's typed (substring, case-insensitive).
+// What the user TYPED this session — NOT the selected value. null = "not typing" ⇒ the
+// list shows everything. Filtering on `modelValue` (until 2026-07-16, user-found) made a
+// picked value filter the list down to ITSELF: with gemma-4-26b-a4b-qat selected, every
+// other downloaded model was invisible — on every provider, permanently, because the
+// value can only ever match itself. A combobox filters by the QUERY; the selection is a
+// result, never the filter.
+const query = ref(null);
 const filtered = computed(() => {
-  const q = (props.modelValue || "").toLowerCase();
+  const q = (query.value || "").toLowerCase();
   return q ? norm.value.filter((m) => m.id.toLowerCase().includes(q)) : norm.value;
 });
+function onInput(e) {
+  query.value = e.target.value; // typing narrows; free text stays allowed
+  emit("update:modelValue", e.target.value);
+  open.value = !props.disabled;
+}
 function pick(id) {
   emit("update:modelValue", id);
+  query.value = null; // a pick ends the query — reopening shows the full list
   open.value = false;
+}
+function openList(v) {
+  if (v) query.value = null; // opening (focus / chevron) always offers everything
+  open.value = v;
 }
 </script>
 
@@ -43,11 +59,11 @@ function pick(id) {
         :value="modelValue"
         :placeholder="placeholder"
         :disabled="disabled"
-        @input="$emit('update:modelValue', $event.target.value)"
-        @focus="open = !disabled && norm.length > 0"
-        @blur="open = false"
+        @input="onInput"
+        @focus="openList(!disabled && norm.length > 0)"
+        @blur="openList(false)"
       />
-      <span v-if="!disabled" class="lu-cb-chev" role="button" tabindex="-1" @mousedown.prevent="open = !open">▾</span>
+      <span v-if="!disabled" class="lu-cb-chev" role="button" tabindex="-1" @mousedown.prevent="openList(!open)">▾</span>
       <div v-if="open" class="lu-cb-list">
         <div v-for="m in filtered" :key="m.id" @mousedown.prevent="pick(m.id)">{{ m.label }}</div>
         <div v-if="!filtered.length" class="lu-cb-empty">{{ items.length ? "No match" : (showFetch ? "No models yet — Fetch first" : "No models listed — type one") }}</div>

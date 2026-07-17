@@ -49,6 +49,11 @@ export async function request(path, { method = "GET", body, headers, signal } = 
   const res = await fetch(llmUiUrl(path), opts);
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
+    // Central client-side log: every failed request is recorded ONCE here, so a
+    // caller's catch→toast can't be the only trace (2026-07-17 — a swallowed 422 on
+    // a preset PUT was invisible until we added this + the server-side log). console
+    // is the browser's own logger — no framework reinvented.
+    console.error(`[llm-ui] ${method} ${path} -> HTTP ${res.status}`, detail?.slice?.(0, 500) || "");
     throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
   }
   if (method !== "GET") {

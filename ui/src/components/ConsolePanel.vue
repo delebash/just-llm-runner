@@ -17,7 +17,7 @@ import { request } from "../client.js";
 import { usePoll } from "../common/composables/usePoll.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
-import { logLineClass, parseLogRows } from "../services/logLines.js";
+import { filterRowsByMinLevel, logLineClass, parseEngineRows, parseLogRows } from "../services/logLines.js";
 
 // The server ring holds 500 (logs_api capacity); the engine log is tailed to 500
 // too — fetch and render the same cap so the box never grows unbounded.
@@ -31,7 +31,18 @@ const SOURCES = [
   { value: "engine", label: "Engine output" },
 ];
 
+// Minimum-level filter (user, 2026-07-17: "filter by log level"). Both sources parse
+// levels now — server via its [LEVEL] token, engine via llama.cpp's I/W/E/D grammar —
+// so this filters either. "ALL" = no floor.
+const LEVELS = [
+  { value: "ALL", label: "All levels" },
+  { value: "INFO", label: "Info +" },
+  { value: "WARNING", label: "Warnings +" },
+  { value: "ERROR", label: "Errors only" },
+];
+
 const source = ref("server");
+const minLevel = ref("ALL");
 const text = ref("");
 const enginePath = ref("");
 const paused = ref(false);
@@ -45,20 +56,29 @@ const box = ref(null);
 const isServer = computed(() => source.value === "server");
 // Server log → the shared level-aware grammar. Engine output is plain
 // llama-server stdout with no [LEVEL] tokens → bare monospace lines (level "").
+// Parse to level-tagged rows (server [LEVEL] grammar / engine I-W-E-D grammar),
+// cap, THEN filter by the chosen minimum level. Filtering after the cap keeps the
+// box bounded and the newest window in view.
 const rows = computed(() => {
-  const parsed = isServer.value
-    ? parseLogRows(text.value)
-    : (text.value || "").split("\n").map((line) => ({ line, level: "" }));
-  return parsed.slice(-LINE_CAP);
+  const parsed = isServer.value ? parseLogRows(text.value) : parseEngineRows(text.value);
+  return filterRowsByMinLevel(parsed.slice(-LINE_CAP), minLevel.value);
 });
 const hasContent = computed(() => !!text.value && rows.value.length > 0);
 const stale = computed(() => fails.value >= STALE_AFTER);
 const emptyLabel = computed(() => {
   if (!loadedOnce.value) return "Loading…";
+  // Content exists but the level filter hid it all — say so, don't imply the log is empty.
+  if (text.value && minLevel.value !== "ALL") return `No ${minLevel.value.toLowerCase()}-or-higher lines in view.`;
   return isServer.value
     ? "No log lines yet."
     : "No engine output yet — start a model to spawn the engine and see its output.";
 });
+
+// Raising/lowering the floor changes what's visible — re-pin to the newest line.
+function onPickLevel(v) {
+  minLevel.value = v;
+  if (pinned.value) nextTick(scrollToBottom);
+}
 
 function scrollToBottom() {
   const el = box.value;
@@ -137,6 +157,7 @@ onMounted(async () => {
       <span class="lu-pcard-title">Server console</span>
       <span class="lu-muted lu-console-sub">Live tail of the app server log and the engine child's output.</span>
       <span class="lu-console-spacer" />
+      <UiSelect :model-value="minLevel" :options="LEVELS" @update:model-value="onPickLevel" />
       <UiSelect :model-value="source" :options="SOURCES" @update:model-value="onPickSource" />
       <UiButton intent="secondary" size="small" @click="togglePause">{{ paused ? "Resume" : "Pause" }}</UiButton>
     </div>

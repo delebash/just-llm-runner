@@ -13,7 +13,6 @@ import { computed, nextTick, onMounted, ref } from "vue";
 import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
-import UiTag from "../common/components/UiTag.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
@@ -400,11 +399,13 @@ onMounted(() => {
                "(your machine)" tail. -->
           <h3 class="lu-builtin-title">{{ builtinProvider.name || builtinProvider.id }} (your machine)</h3>
           <span v-for="c in capList(builtinProvider)" :key="c" class="lu-cap">{{ c }}</span>
-          <UiTag v-if="isDefaultProvider(builtinProvider)" intent="success">Default</UiTag>
           <span class="lu-builtin-spacer" />
-          <!-- QC-20: reads already-set but stays CLICKABLE — the dialog on the
-               current default is where QC-21's truthful embedding line shows. -->
-          <UiButton intent="secondary" size="small"
+          <!-- The default indicator is THIS right-aligned button, green when set
+               (2026-07-17, user: "make it green… more obvious", "align right"); the
+               separate left "Default" tag was removed so it lives in one place. QC-20:
+               reads already-set but stays CLICKABLE — the dialog on the current default
+               is where QC-21's truthful embedding line shows. -->
+          <UiButton :intent="isDefaultProvider(builtinProvider) ? 'success' : 'secondary'" size="small"
             @click="openSetDefault(builtinProvider)">{{ isDefaultProvider(builtinProvider) ? "Default ✓" : "Set as default" }}</UiButton>
         </div>
         <ProviderForm :provider="builtinProvider" permanent @saved="onSaved" />
@@ -434,10 +435,9 @@ onMounted(() => {
             <div class="lu-prow-info">
               <div class="lu-prow-name">
                 <b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span>
-                <!-- QC-20: the current default provider is TAGGED (the catalog row's
-                     Default-badge precedent) — derived from the same dominant pair
-                     the set-as-default dialog reads. -->
-                <UiTag v-if="isDefaultProvider(p)" intent="success">Default</UiTag>
+                <!-- The default indicator is the right-aligned green "Default ✓" button
+                     in the actions cell (2026-07-17); the left "Default" tag was removed
+                     so it lives in one place, consistent with the model catalog. -->
               </div>
               <div class="lu-prow-url">{{ p.baseUrl }}</div>
               <div class="lu-prow-meta">
@@ -450,7 +450,7 @@ onMounted(() => {
             <!-- ONE actions cell (the row is a grid — loose buttons would wrap to a new
                  grid row, which is exactly the misplacement the user screenshotted). -->
             <div class="lu-prow-actions">
-              <UiButton intent="secondary" size="small"
+              <UiButton :intent="isDefaultProvider(p) ? 'success' : 'secondary'" size="small"
                 @click="openSetDefault(p)">{{ isDefaultProvider(p) ? "Default ✓" : "Set as default" }}</UiButton>
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
@@ -470,7 +470,7 @@ onMounted(() => {
               <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.4l1.4 4.1 4.2 1.5-4.2 1.5L8 12.6 6.6 8.5 2.4 7l4.2-1.5z" /></svg>
             </span>
             <div class="lu-prow-info">
-              <div class="lu-prow-name"><b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span><UiTag v-if="isDefaultProvider(p)" intent="success">Default</UiTag></div>
+              <div class="lu-prow-name"><b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span></div>
               <div class="lu-prow-url">{{ p.baseUrl }}</div>
               <div class="lu-prow-meta">
                 <template v-if="p.defaultModel">chat: <b>{{ p.defaultModel }}</b> · </template>
@@ -480,7 +480,7 @@ onMounted(() => {
             </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
             <div class="lu-prow-actions">
-              <UiButton intent="secondary" size="small"
+              <UiButton :intent="isDefaultProvider(p) ? 'success' : 'secondary'" size="small"
                 @click="openSetDefault(p)">{{ isDefaultProvider(p) ? "Default ✓" : "Set as default" }}</UiButton>
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>

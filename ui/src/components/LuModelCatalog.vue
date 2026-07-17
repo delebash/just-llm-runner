@@ -842,8 +842,12 @@ refreshApplied();
             <tr v-else>
               <td class="lu-mn">
                 <span class="lu-mn-name">{{ m.name }}</span>
-                <UiTag v-if="m.id === currentDefaultId" intent="success" class="lu-mbadge">Default</UiTag>
-                <UiTag v-else-if="m.id === currentEmbeddingId" intent="info" class="lu-mbadge">Embedding</UiTag>
+                <!-- The DEFAULT indicator is the right-aligned green "Default ✓" button
+                     (below) — one place, aligned with the provider rows (2026-07-17). The
+                     left "Default" tag was removed; the Embedding badge stays (it is NOT
+                     the default indicator, and a model can be the embed without being the
+                     chat default). -->
+                <UiTag v-if="m.id === currentEmbeddingId" intent="info" class="lu-mbadge">Embedding</UiTag>
                 <UiTag v-if="m.id === recommendedId" intent="accent2" class="lu-mbadge"
                   title="What Quick Setup would pick for this machine — the curated hardware-class map first, then the speed-floor rule">
                   Recommended for this PC</UiTag>
@@ -926,14 +930,18 @@ refreshApplied();
                      re-flagged 2026-07-15: "how can the load as default button be styled
                      different for embed vs main"). Only the TARGET differs: this writes
                      the embedding default; the other writes the general default. -->
-                <UiButton v-else-if="embeddingOf(m)" intent="primary" size="small"
-                  :disabled="m.id === currentEmbeddingId || m.status === 'stopping'" :loading="applyingId === m.id"
+                <!-- Green when it IS the default (2026-07-17, user: "make it green when
+                     default is true… more obvious"); a disabled button greys out whatever
+                     the intent, so the default state stays ENABLED + clickable (re-apply is
+                     idempotent) — matching the provider "Default ✓" which is clickable too. -->
+                <UiButton v-else-if="embeddingOf(m)" :intent="m.id === currentEmbeddingId ? 'success' : 'primary'" size="small"
+                  :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
                   title="Make this the embedding model (semantic search + grounded chat) and load it now, alongside your chat model"
                   @click="makeEmbedding(m)">
                   {{ m.id === currentEmbeddingId ? "Default ✓" : "Load as default" }}
                 </UiButton>
-                <UiButton v-else intent="primary" size="small"
-                  :disabled="m.id === currentDefaultId || m.status === 'stopping'" :loading="applyingId === m.id"
+                <UiButton v-else :intent="m.id === currentDefaultId ? 'success' : 'primary'" size="small"
+                  :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
                   title="Make this the default model for every task and load it now" @click="makeDefault(m)">
                   {{ m.id === currentDefaultId ? "Default ✓" : "Load as default" }}
                 </UiButton>

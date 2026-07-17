@@ -175,10 +175,11 @@ export async function cancelDownload() {
   }
 }
 
-// Cancel an in-flight model LOAD — the spawn's download leg. A TRUE abort now (server S2,
-// 2026-07-15): /stop drops the model from the resident set, and the load worker's cancel_check
-// observes that to abort the fetch at the next chunk (before, the download ran to completion).
-// The row flips off 'loading' on the next refresh, so its Cancel button retires itself.
+// Cancel an in-flight model LOAD — a TRUE abort in EVERY phase (T2, 2026-07-17): /stop
+// sets the load's cancel token and returns at once; the load thread honors it at its
+// checkpoints (a download aborts at the next chunk; a child that spawned after the
+// cancel is silently unloaded; the model never stays loaded). The row flips off
+// 'loading' on the next refresh, so its Cancel button retires itself.
 export async function cancelLoad(modelId) {
   try {
     await request("/v1/llm-runner/stop", { method: "POST", body: { modelId } });

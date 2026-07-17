@@ -905,9 +905,9 @@ refreshApplied();
                   title="Unload from memory — frees VRAM; it loads again on Load as default or next use"
                   @click="unloadModel(m)">Unload</UiButton>
                 <template v-if="m.status === 'loading'">
-                  <!-- BOTH channels cancel now (user, 2026-07-15). The standalone Download
-                       row stops via /download/cancel; a spawn-LOAD row aborts via /stop — a
-                       true abort of the download leg (server S2), the partial GGUF kept. -->
+                  <!-- BOTH channels cancel. The standalone Download row stops via
+                       /download/cancel; a spawn-LOAD row aborts via /stop — a true abort
+                       in every phase (T2 cancel token), the partial GGUF kept. -->
                   <UiButton v-if="m.id === downloadingId" intent="ghost" size="small"
                     :loading="cancelling" title="Stop this download — the partial file stays cached"
                     @click="cancelDownload()">Cancel</UiButton>

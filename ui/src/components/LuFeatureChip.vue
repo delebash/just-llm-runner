@@ -358,7 +358,15 @@ async function save() {
    PopoverContent. The slot's children DO get the scope id and stay scoped below — only the
    root rule must be global. If a reka upgrade ever propagates it, this can go back. */
 :global(.afc-pop) {
-  z-index: 60;
+  /* 999 — NOT a guess: this popover portals to <body> (PopoverPortal, no `to`), so in a
+     modal it lands as a SIBLING of AppModal's .ui-modal-overlay (z 200) / .ui-modal
+     (z 201), and reka's [data-reka-popper-content-wrapper] carries `z-index: auto` (no
+     stacking context) — so THIS number competes directly with the overlay's. At 60 it
+     painted behind the scrim + its backdrop blur = invisible ("model pick is not
+     opening", user 2026-07-17). 999 matches .ui-select-content (common/styles.css) — the
+     other body-portalled reka popper that already clears modals — one value for one role.
+     Pinned by justwrite-app chipPopoverStacking.test.js. */
+  z-index: 999;
   width: 300px; max-width: calc(100vw - 24px);
   display: flex; flex-direction: column; gap: 10px;
   padding: 12px 14px;

@@ -891,6 +891,52 @@ def test_resident_error_outranks_router_idle_listing(tmp_path):
     assert row["status"] == "error"
 
 
+def test_resident_reports_stopping_while_router_still_says_loaded(tmp_path):
+    # T2b — the ONE deliberate exception to the active-wins precedence: during a
+    # teardown WE ordered, the router keeps reporting "loaded" until the child exits;
+    # painting that re-invites the second Unload click (the user's unload-×3). The
+    # "stopping" the stop() wrote must win the merge for its bounded window.
+    entered = threading.Event()
+    gate = threading.Event()
+
+    def gated_unload(url, mid):
+        entered.set()
+        gate.wait(5)
+
+    def still_loaded(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loaded"}}]}
+
+    # Virtual clock: the confirm-unload poll (router never agrees here) fast-forwards
+    # to its bounded timeout instead of spending 5 real seconds.
+    clock = {"t": 0.0}
+    svc = _service_for(tmp_path, router_unload=gated_unload, router_models=still_loaded,
+                       now=lambda: clock["t"],
+                       sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+
+    stop_done = threading.Event()
+    threading.Thread(target=lambda: (svc.stop(_TEST_MODEL.id), stop_done.set()), daemon=True).start()
+    assert entered.wait(5)
+    row = next(m for m in svc.resident()["models"] if m["id"] == _TEST_MODEL.id)
+    assert row["status"] == "stopping"   # pre-T2b this read "loaded" — the flicker
+    gate.set()
+    assert stop_done.wait(10)
+
+
+def test_resident_cancelling_outranks_router_idle_listing(tmp_path):
+    # T2b: a mid-load cancel resolving ("cancelling") is in-flight state like any
+    # other — it must not be masked by the router's idle preset listing.
+    def preset_listed_but_unloaded(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "unloaded"}}]}
+
+    svc = _service_for(tmp_path, router_models=preset_listed_but_unloaded)
+    svc._router = _fake_router()
+    svc._resident[_TEST_MODEL.id] = {"status": "cancelling", "modelId": _TEST_MODEL.id}
+    row = next(m for m in svc.resident()["models"] if m["id"] == _TEST_MODEL.id)
+    assert row["status"] == "cancelling"
+
+
 def test_resident_router_active_state_beats_stale_in_flight(tmp_path):
     # Precedence must not flip the other way: once the child is genuinely loading/loaded,
     # the router's ACTIVE state is the truth — a not-yet-updated in-flight entry must not

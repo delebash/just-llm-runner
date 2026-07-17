@@ -165,7 +165,7 @@ class RunnerModelInfo(CamelModel):
     min_vram_mb: int | None = None
     min_ram_mb: int | None = None
     fit: str                        # "ok" | "tight" | "no" | "cpu" | "unknown"
-    status: str                     # "loaded" | "loading" | "error" | "disk" | "available"
+    status: str                     # "loaded" | "loading" | "stopping" | "error" | "disk" | "available"
     downloaded: bool = False
 
 
@@ -187,7 +187,8 @@ class RunnerModelsResponse(CamelModel):
 class ResidentModel(CamelModel):
     """One model as the router currently reports it. `status` is the router's own
     lifecycle word (loaded | sleeping | loading | failed | unloaded) OR an in-flight
-    service word (downloading | starting) for a load not yet visible to the router.
+    service word (downloading | starting | cancelling | stopping) for a load/teardown
+    the router can't yet (or no longer truthfully) report — T2b, 2026-07-17.
     The size fields come from the router's `meta` block on a LOADED child (absent
     until loaded) — the real resident footprint vs the pre-download catalog estimate."""
 

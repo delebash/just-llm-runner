@@ -120,6 +120,11 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
 
     def _status_for(model_id: str, downloaded: bool) -> str:
         s = live.get(model_id)
+        # T2b (2026-07-17): a model being torn down or cancel-resolved says so — the
+        # card renders "Unloading…" with its buttons inert instead of a live "● loaded"
+        # that invites the second click (the user's unload-×3).
+        if s in ("stopping", "cancelling"):
+            return "stopping"
         if s in ("loaded", "sleeping"):
             return "loaded"
         if s in ("loading", "downloading", "starting"):

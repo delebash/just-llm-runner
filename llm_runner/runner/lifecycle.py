@@ -1090,12 +1090,18 @@ class RunnerService:
         # size"; `list(...)` is atomic under the GIL, giving a stable view without a shared lock.
         for mid, st in list(self._resident.items()):
             s = st.get("status")
-            if s not in ("downloading", "starting", "error"):
+            if s not in ("downloading", "starting", "error", "cancelling", "stopping"):
                 continue
             row = by_id.get(mid)
             if row is None:
                 models.append({"id": mid, "status": s, "vram_mb": self._arbiter.reserved_mb(mid)})
-            elif row["status"] not in ("loaded", "sleeping", "loading"):
+            elif s == "stopping" or row["status"] not in ("loaded", "sleeping", "loading"):
+                # T2b: "stopping" overrides even an ACTIVE router listing — the ONE
+                # exception to the 4c53a08 precedence (active child state wins). The
+                # child is being torn down on OUR order; the router keeps reporting
+                # "loaded" until it has exited, and painting that would re-invite the
+                # second Unload click. Bounded: stop()'s compare-and-pop removes the
+                # entry when the router agrees (or at the confirm timeout).
                 row["status"] = s
         out["models"] = models
         return out

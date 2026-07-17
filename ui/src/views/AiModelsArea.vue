@@ -450,10 +450,13 @@ onMounted(() => {
             <!-- ONE actions cell (the row is a grid — loose buttons would wrap to a new
                  grid row, which is exactly the misplacement the user screenshotted). -->
             <div class="lu-prow-actions">
-              <UiButton :intent="isDefaultProvider(p) ? 'success' : 'secondary'" size="small"
-                @click="openSetDefault(p)">{{ isDefaultProvider(p) ? "Default ✓" : "Set as default" }}</UiButton>
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
+              <!-- Default/Set-as-default is the RIGHTMOST action (2026-07-17) — matches the
+                   model catalog's "Default ✓" position + the built-in header, so the default
+                   indicator is far-right on every surface. -->
+              <UiButton :intent="isDefaultProvider(p) ? 'success' : 'secondary'" size="small"
+                @click="openSetDefault(p)">{{ isDefaultProvider(p) ? "Default ✓" : "Set as default" }}</UiButton>
             </div>
           </div>
         </template>
@@ -480,10 +483,13 @@ onMounted(() => {
             </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
             <div class="lu-prow-actions">
-              <UiButton :intent="isDefaultProvider(p) ? 'success' : 'secondary'" size="small"
-                @click="openSetDefault(p)">{{ isDefaultProvider(p) ? "Default ✓" : "Set as default" }}</UiButton>
               <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
               <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
+              <!-- Default/Set-as-default is the RIGHTMOST action (2026-07-17) — matches the
+                   model catalog's "Default ✓" position + the built-in header, so the default
+                   indicator is far-right on every surface. -->
+              <UiButton :intent="isDefaultProvider(p) ? 'success' : 'secondary'" size="small"
+                @click="openSetDefault(p)">{{ isDefaultProvider(p) ? "Default ✓" : "Set as default" }}</UiButton>
             </div>
           </div>
         </template>

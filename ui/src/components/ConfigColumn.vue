@@ -35,7 +35,7 @@ import { useAiTasksStore } from "../stores/aiTasks.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
 import { assemblePrompt, estimateTokens } from "../tokens.js";
 import { fmtCost, fmtSeconds, fmtTokens, fmtTps, fmtWords } from "../common/services/runStats.js";
-import { THINKING_DEFAULT, thinkingControlToWire } from "../thinkingControl.js";
+import { THINKING_CUSTOM, thinkingControlToWire } from "../thinkingControl.js";
 import AiTaskStrip from "./AiTaskStrip.vue";
 import KnobGrid from "./KnobGrid.vue";
 import LuModelPicker from "./LuModelPicker.vue";
@@ -51,16 +51,17 @@ import UiSelect from "../common/components/UiSelect.vue";
 // tasks in parallel — the label alone can't tell them apart).
 let _labColSeq = 1;
 
-// Reasoning — the three-state control (2026-07-16 preset tier): Off = think stored
-// false · Default = think on, NO level (local: FOLLOW the model's layered budget,
-// resolved live and reported by `localBudgetLine` below; cloud: the provider's own
-// default, no word sent) · a level = the preset's OWN ask (local: the map's number,
-// source "preset"; cloud: the map's word). JSON mode forces it off (B3) regardless.
-// (The hardware-cap clamp this comment used to describe was DELETED 2026-07-16 —
-// "no magic behind the curtains": there is no min(), the resolved value IS the budget.)
-const REASONING_OPTIONS = [
+// Reasoning — ONE control shape everywhere (the user's B ruling extended, 2026-07-16;
+// the unapproved "Default" entry is DELETED): Off = think stored false · a level = the
+// preset's OWN ask (local: the map's number, source "preset"; cloud: the map's word) ·
+// display-only Custom = a think-on pair matching no level (an empty stored level — the
+// follow / provider-default state — or a grid-typed local number, reported with its
+// number by `localBudgetLine` below). Saving with Custom selected writes {think: true,
+// level: ""} — identical to the stored shape it displays (thinkingControl.js). JSON
+// mode forces it off (B3) regardless. No clamp anywhere ("no magic behind the
+// curtains": there is no min(), the resolved value IS the budget).
+const REASONING_LEVELS = [
   { value: "", label: "Off" },
-  { value: THINKING_DEFAULT, label: "Default" },
   { value: "low", label: "Low" },
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
@@ -104,6 +105,12 @@ const props = defineProps({
   // topP, maxTokens, reasoningEffort, jsonMode, samplers:[{name,value}] }.
   modelValue: { type: Object, default: () => ({}) },
 });
+// Below defineProps on purpose — the computed reads `props` (declaration order, no
+// TDZ-timing cleverness). Custom is offered only while it IS the loaded state.
+const REASONING_OPTIONS = computed(() =>
+  props.modelValue?.reasoningEffort === THINKING_CUSTOM
+    ? [...REASONING_LEVELS, { value: THINKING_CUSTOM, label: "Custom" }]
+    : REASONING_LEVELS);
 const emit = defineEmits([
   "update:modelValue", "result", "save-json",
   "save-as", "update-preset", "apply-preset", "delete-preset", "remove", "use-production",

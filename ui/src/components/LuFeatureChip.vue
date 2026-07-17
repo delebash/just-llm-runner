@@ -41,7 +41,7 @@ import { request } from "../client.js";
 // resolvedSourceLabel: the budget line's layer names. Importing the module also arms
 // its any-write invalidation (QC-43), so a save here refreshes every mounted chip.
 import { resolvedSourceLabel } from "../composables/useResolvedRoute.js";
-import { presetToThinkingControl, THINKING_DEFAULT, thinkingControlToWire } from "../thinkingControl.js";
+import { presetToThinkingControl, THINKING_CUSTOM, thinkingControlToWire } from "../thinkingControl.js";
 import { LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import LuModelPicker from "./LuModelPicker.vue";
 
@@ -87,32 +87,28 @@ const providers = ref([]);
 const presetRow = ref(null); // the FULL EnginePresetRow, merged on save
 const memberCount = ref(0);
 const draftPin = ref(null); // { providerId, model } | null (LuModelPicker v-model)
-const draftThinking = ref(""); // "" (Off) | a level | CUSTOM (local, display-only) | THINKING_DEFAULT (cloud)
-const localLevelRows = ref([]); // the LOCAL provider's reasoning-map rows [{ level, word, tokens }]
-const CUSTOM = "__custom"; // a resolved value matching no level (typed in a grid) — display-only
+const draftThinking = ref(""); // "" (Off) | a level | THINKING_CUSTOM (display-only)
+const levelRows = ref([]); // the PROVIDER's reasoning-map rows [{ level, word, tokens }]
 
-// The options. LOCAL (the user's B ruling, 2026-07-16 — "say the thinking level if it
-// matches, otherwise show custom with the number"; the unapproved "Model default" entry
-// is DELETED): Off + every level with its map number; the control SEEDS from the
-// RESOLVED value and save sets what's shown ("it is what it is"). A resolved value
-// matching no level shows as display-only "Custom (N)" — saving with it selected
-// preserves the stored pair untouched. CLOUD keeps its shape (Provider default = think
-// on, no word sent — flagged to the user 2026-07-16, same origin as the deleted local
-// entry; awaiting their word).
+// The options — ONE shape for every provider (the user's B ruling extended everywhere,
+// 2026-07-16: "all same everywhere"; the "Model default"/"Provider default" entries are
+// DELETED): Off + every level the provider's map carries, labelled with its number
+// where the provider speaks numbers ("Low (1024)") and plain where it speaks words
+// ("Low"). The control SEEDS from what will actually run and save sets what's shown
+// ("it is what it is"). A state matching no offered level — a grid-typed local number,
+// or a stored think-on pair with an empty level — shows as display-only "Custom",
+// with the local number in parentheses when there is one.
 const thinkingOptions = computed(() => {
   const opts = [{ value: "", label: "Off" }];
-  if (draftIsLocal.value) {
-    const byLevel = Object.fromEntries(localLevelRows.value.map((r) => [r.level, r]));
-    for (const lvl of LEVEL_ORDER) {
-      const row = byLevel[lvl];
-      if (row && row.tokens != null) opts.push({ value: lvl, label: `${LEVEL_WORD[lvl]} (${row.tokens})` });
-    }
-    if (draftThinking.value === CUSTOM) {
-      opts.push({ value: CUSTOM, label: `Custom (${props.route?.value ?? "invalid"})` });
-    }
-  } else {
-    opts.push({ value: THINKING_DEFAULT, label: "Provider default" });
-    for (const lvl of LEVEL_ORDER) opts.push({ value: lvl, label: LEVEL_WORD[lvl] });
+  const byLevel = Object.fromEntries(levelRows.value.map((r) => [r.level, r]));
+  for (const lvl of LEVEL_ORDER) {
+    const row = byLevel[lvl];
+    if (!row) continue;
+    opts.push({ value: lvl, label: row.tokens != null ? `${LEVEL_WORD[lvl]} (${row.tokens})` : LEVEL_WORD[lvl] });
+  }
+  if (draftThinking.value === THINKING_CUSTOM) {
+    const n = draftIsLocal.value ? props.route?.value : null;
+    opts.push({ value: THINKING_CUSTOM, label: n != null ? `Custom (${n})` : "Custom" });
   }
   return opts;
 });
@@ -141,12 +137,12 @@ const draftIsLocal = computed(() => (draftPin.value?.providerId || "") === LOCAL
 const pinNamesRoute = computed(() =>
   (draftPin.value?.providerId || "") === (props.route?.providerId || "")
   && (draftPin.value?.model || "") === (props.route?.model || ""));
-// A repoint INTO local must arrive with the level map loaded, or the dropdown renders with
-// no levels. Keyed by provider, so re-entering local costs nothing after the first load.
-// `!loading` keeps this to its actual job: loadPopover does its OWN awaited load on open (the
-// seed must not race the map), so without the guard every open fetched the map twice.
-watch(draftIsLocal, (local) => {
-  if (local && popoverOpen.value && !loading.value && !localLevelRows.value.length) loadLocalMap();
+// A repoint to ANOTHER PROVIDER must arrive with that provider's level map, or the
+// dropdown renders with no levels / stale labels. `!loading` keeps this to its actual
+// job: loadPopover does its OWN awaited load on open (the seed must not race the map),
+// so without the guard every open fetched the map twice.
+watch(() => draftPin.value?.providerId, (pid, old) => {
+  if (pid && pid !== old && popoverOpen.value && !loading.value) loadLevelMap();
 });
 
 // The resolved budget + the LAYER it came from, straight off the wire — no client
@@ -199,19 +195,20 @@ async function loadPopover() {
     };
     const refs = assignRes?.features || {};
     memberCount.value = Object.values(refs).filter((v) => v === pid).length;
+    await loadLevelMap(); // every provider has a map (words and/or numbers) — labels need it
     if (draftIsLocal.value) {
       // LOCAL seeds from the RESOLVED value (the user's B ruling): the control shows
       // what this feature will actually run — the matched level, else Custom (N).
-      // Think off (stored) is Off regardless. Needs the map loaded first.
-      await loadLocalMap();
+      // Think off (stored) is Off regardless.
       if (!p?.think) {
         draftThinking.value = "";
       } else {
-        const match = localLevelRows.value.find((r) => r.tokens != null && r.tokens === props.route?.value);
-        draftThinking.value = match ? match.level : CUSTOM;
+        const match = levelRows.value.find((r) => r.tokens != null && r.tokens === props.route?.value);
+        draftThinking.value = match ? match.level : THINKING_CUSTOM;
       }
     } else {
-      // CLOUD seeds from the stored pair (no resolved number exists to show).
+      // CLOUD seeds from the stored pair (no resolved number exists to show);
+      // think-on with an empty level reads as Custom — the provider decides.
       draftThinking.value = presetToThinkingControl(p);
     }
   } catch (e) {
@@ -221,16 +218,17 @@ async function loadPopover() {
   }
 }
 
-// The provider's level→number map (the dropdown's numbers). Keyed by PROVIDER, so one load
-// covers any local model. Enrichment only: on failure Off still works, levels just don't list.
-async function loadLocalMap() {
+// The provider's level map (the dropdown's labels — numbers where it speaks numbers,
+// plain words where it doesn't). Keyed by PROVIDER, so one load covers any model.
+// Enrichment only: on failure Off still works, levels just don't list.
+async function loadLevelMap() {
   const provider = draftPin.value?.providerId || props.route?.providerId || "";
-  if (!provider) { localLevelRows.value = []; return; }
+  if (!provider) { levelRows.value = []; return; }
   try {
     const rmap = await request(`/v1/ai/reasoning-map/${encodeURIComponent(provider)}`);
-    localLevelRows.value = rmap?.rows || [];
+    levelRows.value = rmap?.rows || [];
   } catch {
-    localLevelRows.value = [];
+    levelRows.value = [];
   }
 }
 
@@ -249,14 +247,14 @@ async function save() {
   try {
     // Merge onto the FULL row — change ONLY provider/model/think/reasoningEffort;
     // every other tunable (temp/top_p/samplers/…) is preserved verbatim. Save sets the
-    // feature to what the control shows (the user's B ruling) — except display-only
-    // Custom, which preserves the stored pair untouched (a grid-typed number is not a
-    // level; there is nothing valid to write).
+    // feature to what the control shows (the user's B ruling). The mapping is TOTAL
+    // (thinkingControl.js): Custom writes {think: true, level: ""} — byte-identical to
+    // the only stored shape it ever displays for, so it never silently changes thinking.
     const merged = {
       ...presetRow.value,
       providerId: draftPin.value?.providerId || "",
       model: draftPin.value?.model || "",
-      ...(draftThinking.value === CUSTOM ? {} : thinkingControlToWire(draftThinking.value)),
+      ...thinkingControlToWire(draftThinking.value),
     };
     await request(`/v1/ai/engine-presets/${encodeURIComponent(presetRow.value.id)}`, {
       method: "PUT",

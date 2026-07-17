@@ -83,6 +83,14 @@ def install_file_log(log_path: Path, backup_days: int = 30) -> Path | None:
     global _file_handler
     log_path = Path(log_path)
     root = logging.getLogger()
+    # The runner's operational telemetry (load/stop asks + their trigger, spawns,
+    # evictions, install events) logs at INFO — but the root logger's default level is
+    # WARNING and NOTHING in the chain ever raised it, so the on-disk log carried zero
+    # INFO lines (2026-07-17: an unload-respawn hunt was undiagnosable for exactly this
+    # reason). Raise the llm_runner PACKAGE only — root stays WARNING so third-party
+    # INFO noise stays out of the user's log. Volume is safe: the package's INFO sites
+    # are one-shot lifecycle events, nothing per-token/per-chunk.
+    logging.getLogger("llm_runner").setLevel(logging.INFO)
     if _file_handler is not None:
         if getattr(_file_handler, "baseFilename", None) == str(log_path):
             return log_path

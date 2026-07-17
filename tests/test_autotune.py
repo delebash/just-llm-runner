@@ -34,7 +34,7 @@ class FakeService:
         self.embeds += 1
         return {"ok": True}
 
-    def load(self, model_id, overrides=None, job_id=None, switches=None):
+    def load(self, model_id, overrides=None, job_id=None, switches=None, trigger="api"):
         self.loads.append(dict(switches or {}))
         self._current = (model_id, str((switches or {}).get("n_cpu_moe", "")))
         return {"status": "starting"}

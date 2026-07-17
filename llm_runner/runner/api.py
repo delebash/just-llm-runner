@@ -188,7 +188,8 @@ async def load_model(body: LoadRequest) -> dict:
         extra_flags=list(body.extra_flags or []),
     )
     return get_service().load(
-        body.model_id, overrides=overrides, job_id=body.job_id, switches=body.switches
+        body.model_id, overrides=overrides, job_id=body.job_id, switches=body.switches,
+        trigger="api",
     )
 
 

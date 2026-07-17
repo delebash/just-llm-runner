@@ -263,7 +263,7 @@ def test_load_carries_new_flags_into_overrides(monkeypatch):
     captured = {}
 
     class _Svc:
-        def load(self, model_id, overrides=None, job_id=None, switches=None):
+        def load(self, model_id, overrides=None, job_id=None, switches=None, trigger="api"):
             captured["ov"] = overrides
             return {"status": "loading"}
 

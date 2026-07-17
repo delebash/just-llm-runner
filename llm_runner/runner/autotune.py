@@ -232,7 +232,7 @@ class AutoTuner:
                 svc.ensure_embedding()  # co-resident embed = production-true floor
             except Exception:  # noqa: BLE001 — no embed configured is fine
                 pass
-            svc.load(model_id, switches=switches)
+            svc.load(model_id, switches=switches, trigger="autotune")
             ok, err = self._wait_running(svc, model_id)
             if not ok:
                 trial["error"] = err
@@ -287,7 +287,7 @@ class AutoTuner:
                 except Exception:  # noqa: BLE001 — teardown is best-effort
                     log.warning("auto-tune budget stop failed", exc_info=True)
                 try:
-                    svc.load(model_id)
+                    svc.load(model_id, trigger="autotune")
                 except Exception:  # noqa: BLE001 — restore is best-effort
                     log.warning("auto-tune budget restore load failed", exc_info=True)
 
@@ -324,7 +324,7 @@ class AutoTuner:
                 except Exception:  # noqa: BLE001 — teardown is best-effort
                     log.warning("auto-tune cancel: stop failed", exc_info=True)
                 try:
-                    svc.load(model_id)
+                    svc.load(model_id, trigger="autotune")
                 except Exception:  # noqa: BLE001 — restore is best-effort
                     log.warning("auto-tune cancel: restore load failed", exc_info=True)
                 return True

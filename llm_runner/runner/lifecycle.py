@@ -783,12 +783,23 @@ class RunnerService:
     def load(
         self, model_id: str, overrides: Overrides | None = None,
         job_id: str | None = None, switches: dict[str, str] | None = None,
+        trigger: str = "api",
     ) -> dict:
         """Make `model_id` resident in the router (spawning the router LAZILY on the
         first call). The in-flight guard is PER-MODEL now — loading a DIFFERENT model
         while one is loading proceeds (co-residence within `models_max`); a second load
         of the SAME in-flight model returns its current state. Heavy work runs on a
-        background thread (`_run_load`)."""
+        background thread (`_run_load`).
+
+        `trigger` names the ASK's origin in the log — "api" (a user's HTTP call, the
+        default) / "ensure-ready" (dispatch's auto-load before a local AI run) /
+        "ensure-embedding" / "autotune". Telemetry only, never behavior. Added
+        2026-07-17: an unload-then-respawn hunt died because NOTHING recorded who asked
+        for a load — every internal caller must pass its own name, so an unnamed caller
+        showing up as "api" in a log stays a signal, not a lie."""
+        # Log EVERY ask — including the warm no-op and in-flight returns below. The
+        # respawn hunt needs the asks that DIDN'T start a load too.
+        log.info("load %s (trigger=%s)", model_id, trigger)
         with self._lock:
             cur = self._resident.get(model_id)
             if cur is not None and cur.get("status") in ("downloading", "starting"):
@@ -814,6 +825,7 @@ class RunnerService:
             self._resident[model_id] = {"status": "downloading", "modelId": model_id, "url": "",
                                         "detail": "queued", "error": "", "downloaded": 0, "total": 0}
             self._last_id = model_id
+            log.info("load %s: starting load thread (trigger=%s)", model_id, trigger)
             self._thread = threading.Thread(
                 target=self._run_load, args=(model_id, overrides or Overrides(), job_id, switches), daemon=True,
             )
@@ -859,6 +871,10 @@ class RunnerService:
         teardown: unload everything and stop the router process, matching the old
         single-model `stop()`. Held under `_router_lock` so it can't race a load's router
         ops."""
+        # The ask logs BEFORE the lock: a stop that then blocks behind a load's router
+        # ops still lands in the log at click time (2026-07-17 — timeline correlation
+        # was impossible when only the eventual unload-failed WARNING recorded anything).
+        log.info("stop %s", model_id or "<full teardown>")
         with self._router_lock:
             router = self._router
             if model_id:
@@ -988,31 +1004,41 @@ class RunnerService:
             except Exception:  # noqa: BLE001 — a GET failure just yields an empty live set
                 log.warning("GET /models failed while reading the resident set", exc_info=True)
         models: list[dict] = []
-        seen: set[str] = set()
+        by_id: dict[str, dict] = {}
         for mid, info in live.items():
             meta = info.get("meta") or {}
-            models.append({
+            row = {
                 "id": mid,
                 "status": info.get("value") or "unloaded",
                 "n_params": meta.get("n_params"),
                 "size_bytes": meta.get("size"),
                 "n_ctx": meta.get("n_ctx"),
                 "vram_mb": self._arbiter.reserved_mb(mid),  # GPU-resident VRAM the arbiter reserved
-            })
-            seen.add(mid)
-        # A load still downloading/starting — or one that ERRORED before the router saw it (e.g.
-        # engine-not-installed → the router never spawned, so GET /models can't report it) — is
-        # not a router section; surface it too so the catalog shows progress / the failure (and
-        # its install-engine CTA) that would otherwise be lost when reading only the router.
+            }
+            models.append(row)
+            by_id[mid] = row
+        # Overlay OUR in-flight ledger onto the router's view. Two cases:
+        #  • The router doesn't list the id (never spawned — e.g. engine-not-installed
+        #    errors, or a load mid-download with the router down): APPEND it, as ever.
+        #  • The router DOES list the id but as IDLE: our in-flight status OVERRIDES it.
+        #    The router lists EVERY preset model, loaded or not — so the old `if mid in
+        #    seen: continue` masked the WHOLE pre-router phase of a load (disk check,
+        #    fit, .ini emit, lock wait) behind the router's stale "unloaded", and the
+        #    catalog's Load button looked dead while the load was already running (the
+        #    user's 3-click repro, 2026-07-17). An ACTIVE router state (loaded|sleeping|
+        #    loading) is the child's own truth and always wins the other way.
         # Snapshot to a list: `_evict_resident` pops `_resident` from the load thread under
         # `_router_lock`, so iterating the live dict here (the API thread) could raise "dict changed
         # size"; `list(...)` is atomic under the GIL, giving a stable view without a shared lock.
         for mid, st in list(self._resident.items()):
-            if mid in seen:
-                continue
             s = st.get("status")
-            if s in ("downloading", "starting", "error"):
+            if s not in ("downloading", "starting", "error"):
+                continue
+            row = by_id.get(mid)
+            if row is None:
                 models.append({"id": mid, "status": s, "vram_mb": self._arbiter.reserved_mb(mid)})
+            elif row["status"] not in ("loaded", "sleeping", "loading"):
+                row["status"] = s
         out["models"] = models
         return out
 
@@ -1031,7 +1057,7 @@ class RunnerService:
         if not embed_ids:
             return {"ok": False, "detail": "no local embedding model configured"}
         embed_id = next(iter(embed_ids))
-        state = self.load(embed_id)
+        state = self.load(embed_id, trigger="ensure-embedding")
         return {"ok": True, "modelId": embed_id, **state}
 
     def _resident_ready(self, model_id: str) -> bool:
@@ -1064,11 +1090,13 @@ class RunnerService:
             return
         if self._resident_ready(model_id):
             return
-        # Same trigger ensure_embedding uses: download-if-needed + lazy-spawn the router
+        # Same path ensure_embedding uses: download-if-needed + lazy-spawn the router
         # + reserve, on the background load thread. A re-load of an already-in-flight /
         # running model is idempotent inside load() (and its router-liveness gate
         # respawns a dead router), so this is safe whatever state the model is in.
-        self.load(model_id)
+        # This is THE auto-load a manual Unload races (2026-07-17): any pending local
+        # AI run re-loads its model here, by design — the trigger names it in the log.
+        self.load(model_id, trigger="ensure-ready")
         deadline = self._now() + timeout_s
         while True:
             if self._resident_ready(model_id):

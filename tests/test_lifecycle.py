@@ -4,6 +4,7 @@ so the orchestration (status transitions, DB→.ini emission, co-residence, OOM
 back-off, error handling) tests offline. The real default RunnerConfig + compute_fit
 run unmocked; a fake HF cache lets `cached_gguf_path` resolve on-disk models faithfully."""
 
+import logging
 import threading
 import time
 from pathlib import Path
@@ -629,6 +630,85 @@ def test_resident_surfaces_load_error(tmp_path):
     assert res["router"] is False
     row = next(m for m in res["models"] if m["id"] == _TEST_MODEL.id)
     assert row["status"] == "error"
+
+
+# ── the router-listing mask (2026-07-17, the user's dead "Load now" button) ──
+# The router's GET /models lists EVERY preset model, loaded or not (box-verified: the
+# .ini catalog appears with status values like "unloaded"). resident() used to skip any
+# in-flight `_resident` entry whose id the router already listed (`if mid in seen:
+# continue`), so for the WHOLE pre-router phase of a load — disk check, fit, .ini emit,
+# lock wait — the router's stale idle value won and the UI showed "Load now" as if the
+# click did nothing. The user clicked three times; every click had already worked.
+
+def test_resident_in_flight_load_outranks_router_idle_listing(tmp_path):
+    def preset_listed_but_unloaded(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "unloaded"}}]}
+
+    svc = _service_for(tmp_path, router_models=preset_listed_but_unloaded)
+    svc._router = _fake_router()  # router alive, model listed idle
+    svc._resident[_TEST_MODEL.id] = {"status": "downloading", "modelId": _TEST_MODEL.id}
+    row = next(m for m in svc.resident()["models"] if m["id"] == _TEST_MODEL.id)
+    assert row["status"] == "downloading"  # the mask reported "unloaded" here
+
+
+def test_resident_error_outranks_router_idle_listing(tmp_path):
+    # Same mask, error flavor: a load that failed AFTER the router was up (spawn refused)
+    # leaves _resident="error" while the router still lists the model idle — the failure
+    # (and its CTA) must not be hidden behind "unloaded".
+    def preset_listed_but_unloaded(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "unloaded"}}]}
+
+    svc = _service_for(tmp_path, router_models=preset_listed_but_unloaded)
+    svc._router = _fake_router()
+    svc._resident[_TEST_MODEL.id] = {"status": "error", "modelId": _TEST_MODEL.id, "error": "spawn refused"}
+    row = next(m for m in svc.resident()["models"] if m["id"] == _TEST_MODEL.id)
+    assert row["status"] == "error"
+
+
+def test_resident_router_active_state_beats_stale_in_flight(tmp_path):
+    # Precedence must not flip the other way: once the child is genuinely loading/loaded,
+    # the router's ACTIVE state is the truth — a not-yet-updated in-flight entry must not
+    # mask a child that is really up.
+    def child_loaded(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loaded"}}]}
+
+    svc = _service_for(tmp_path, router_models=child_loaded)
+    svc._router = _fake_router()
+    svc._resident[_TEST_MODEL.id] = {"status": "downloading", "modelId": _TEST_MODEL.id}
+    row = next(m for m in svc.resident()["models"] if m["id"] == _TEST_MODEL.id)
+    assert row["status"] == "loaded"
+
+
+# ── load()/stop() telemetry (2026-07-17: the respawn hunt was blind because nothing
+# logged WHO asked for a load — the file log had zero INFO lines to correlate) ──
+
+def test_load_logs_its_trigger(tmp_path, caplog):
+    svc = _service_for(tmp_path)
+    with caplog.at_level(logging.INFO, logger="llm_runner.runner.lifecycle"):
+        svc.load(_TEST_MODEL.id, trigger="ensure-ready")
+        svc._thread.join(timeout=5)
+    assert any("trigger=ensure-ready" in r.message and _TEST_MODEL.id in r.message
+               for r in caplog.records)
+
+
+def test_load_default_trigger_is_api_and_warm_noop_still_logs(tmp_path, caplog):
+    # Every ask lands in the log — including the warm no-op (a resident model re-asked),
+    # which is exactly the call a respawn hunt needs to see.
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    with caplog.at_level(logging.INFO, logger="llm_runner.runner.lifecycle"):
+        svc.load(_TEST_MODEL.id)  # warm — returns without a new thread
+    assert any("trigger=api" in r.message for r in caplog.records)
+
+
+def test_stop_logs_the_ask(tmp_path, caplog):
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    with caplog.at_level(logging.INFO, logger="llm_runner.runner.lifecycle"):
+        svc.stop(_TEST_MODEL.id)
+    assert any("stop" in r.message and _TEST_MODEL.id in r.message for r in caplog.records)
 
 
 def test_stop_during_confirm_poll_is_clean(tmp_path):

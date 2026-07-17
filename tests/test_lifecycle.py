@@ -68,8 +68,19 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         (d / f"model-{m.quant}.gguf").write_bytes(b"x" * 1024)
         snaps[m.hf_repo] = d
 
+    # The default router view is REACTIVE to unload (T2, 2026-07-17): stop()'s
+    # confirm-unload polls GET /models until the model stops reading loaded — a static
+    # always-loaded default would park every stop() in that poll's 5 s timeout. Like
+    # the real router: unloaded ids report "unloaded", everything else "loaded".
+    _unloaded_ids = set()
+
+    def _default_unload(url, mid):
+        _unloaded_ids.add(mid)
+
     def _all_loaded(url):
-        return {"object": "list", "data": [{"id": m.id, "status": {"value": "loaded"}} for m in models]}
+        return {"object": "list", "data": [
+            {"id": m.id, "status": {"value": "unloaded" if m.id in _unloaded_ids else "loaded"}}
+            for m in models]}
 
     kw = {}
     if hardware_fn is not None:
@@ -98,8 +109,9 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         acquire_model=lambda repo, *a, **k: snaps[repo],
         read_meta=lambda p: SimpleNamespace(block_count=24, embedding_length=2048, is_moe=False, n_kv_heads=8),
         start_router=start_router or (lambda *a, **k: _fake_router()),
-        router_load=router_load or (lambda *a, **k: None),
-        router_unload=router_unload or (lambda *a, **k: None),
+        # A re-load of a previously-unloaded id flips it back to loaded (as the router does).
+        router_load=router_load or (lambda url, mid: _unloaded_ids.discard(mid)),
+        router_unload=router_unload or _default_unload,
         router_models=router_models or _all_loaded,
         used_vram_fn=used_vram_fn or (lambda: None),
         # A FRESH arbiter per service isolates each test's ledger (the default is the shared
@@ -679,6 +691,171 @@ def test_real_download_still_announces_model_weights(tmp_path):
     svc.load(_TEST_MODEL.id)
     svc._thread.join(timeout=5)
     assert "model weights" in details          # a real download still says so
+
+
+# ── T2: cancel is a per-load token the LOAD THREAD honors (2026-07-17 approved plan) ──
+# stop() on a mid-load model sets the token and returns AT ONCE (the old stop blocked on
+# _router_lock behind the load's router ops for the whole VRAM phase); the load thread
+# cancels at checkpoints — never evicting for a cancelled load, silently unloading a
+# child that spawned after the cancel (the user's q2 ruling), and always cleaning its
+# ledger entry (a bare return would wedge a permanent "cancelling" with the UI inert).
+
+def test_stop_during_vram_phase_returns_promptly_and_child_is_unloaded(tmp_path):
+    entered = threading.Event()
+    gate = threading.Event()
+    unloads = []
+
+    def gated_router_load(url, mid):
+        entered.set()
+        gate.wait(5)
+
+    svc = _service_for(tmp_path, router_load=gated_router_load,
+                       router_unload=lambda url, mid: unloads.append(mid))
+    svc.load(_TEST_MODEL.id)
+    assert entered.wait(5)
+
+    # The user's Cancel, while the spawn is in flight. OLD code: this call blocks on
+    # _router_lock until the load finishes (the "stuck cancel"). NEW: returns at once.
+    done = threading.Event()
+    out = {}
+
+    def do_stop():
+        out["st"] = svc.stop(_TEST_MODEL.id)
+        done.set()
+
+    threading.Thread(target=do_stop, daemon=True).start()
+    assert done.wait(1.0), "stop() must not block behind the load's router ops"
+    # Double-stop while resolving: also prompt, also harmless.
+    assert svc.stop(_TEST_MODEL.id) is not None
+
+    gate.set()
+    svc._thread.join(timeout=5)
+    # The q2 silent unload: the just-spawned child was unloaded; nothing survives.
+    assert unloads == [_TEST_MODEL.id]
+    assert _TEST_MODEL.id not in svc._resident          # no stuck "cancelling"
+    assert not svc._arbiter.is_reserved(_TEST_MODEL.id)  # reservation released
+    assert not svc._cancel_events                        # token died with its load
+
+
+def test_cancel_inside_the_admit_window_never_evicts(tmp_path):
+    # THE panel's architecture finding: between the lock-entry checkpoint and _admit
+    # sit sync_pins + a catalog() DB round-trip — a cancel landing THERE must not let
+    # _admit evict an innocent resident. The cancel is injected from inside the hooked
+    # catalog_fn WHILE the router lock is held (i.e. inside the window itself); a test
+    # injecting earlier passes even with the hole present.
+    svc_ref = {}
+    armed = threading.Event()  # armed only for the SECOND load — not B's seeding
+    fired = []
+
+    models = [_TEST_MODEL, _MODEL_B]
+
+    def hooked_catalog():
+        svc = svc_ref.get("svc")
+        if svc is not None and armed.is_set() and svc._router_lock.locked() and not fired:
+            fired.append(True)
+            svc.stop(_TEST_MODEL.id)  # the cancel lands INSIDE the window
+        return models
+
+    svc = _service_for(tmp_path, catalog=models)
+    svc._catalog_fn = hooked_catalog
+    svc_ref["svc"] = svc
+
+    admits = []
+    orig_admit = svc._admit
+    svc._admit = lambda *a, **k: (admits.append(a), orig_admit(*a, **k))
+
+    # Seed an innocent resident B the eviction would target.
+    svc.load(_MODEL_B.id)
+    svc._thread.join(timeout=5)
+    assert svc._resident[_MODEL_B.id]["status"] == "running"
+    admits.clear()
+    armed.set()
+
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+
+    assert admits == [], "_admit must never run for a cancelled load"
+    assert svc._resident[_MODEL_B.id]["status"] == "running"   # the innocent survived
+    assert svc._arbiter.is_reserved(_MODEL_B.id)
+    assert _TEST_MODEL.id not in svc._resident
+
+
+def test_cancel_during_download_leaves_no_ledger_entry(tmp_path):
+    # The token path end-to-end through the download leg: stop() marks "cancelling"
+    # (no pop), the fetch aborts via cancel_check, and the LOAD THREAD cleans up.
+    svc_ref = {}
+
+    def cancelling_acquire(repo, *a, cancel_check=None, **k):
+        svc_ref["svc"].stop(_TEST_MODEL.id)         # the user cancels mid-download
+        assert cancel_check is not None and cancel_check()
+        raise DownloadCancelled()
+
+    svc = _service_for(tmp_path)
+    svc._acquire_model = cancelling_acquire
+    svc_ref["svc"] = svc
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+
+    assert _TEST_MODEL.id not in svc._resident
+    assert not svc._arbiter.is_reserved(_TEST_MODEL.id)
+    assert not svc._cancel_events
+    assert svc.status().get("status") != "error"     # a cancel is never a failure
+
+
+def test_stop_resident_confirm_unload_timeout_pops_and_warns(tmp_path, caplog):
+    # Pathological branch: the router keeps reporting the model loaded after a
+    # successful unload POST. The ledger must not wedge: bounded poll → WARNING → pop.
+    clock = {"t": 0.0}
+
+    def always_loaded(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loaded"}}]}
+
+    svc = _service_for(tmp_path, router_models=always_loaded,
+                       now=lambda: clock["t"], sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    with caplog.at_level(logging.WARNING, logger="llm_runner.runner.lifecycle"):
+        svc.stop(_TEST_MODEL.id)
+    assert _TEST_MODEL.id not in svc._resident
+    assert any("confirm-unload timeout" in r.message for r in caplog.records)
+
+
+def test_stop_compare_and_pop_spares_a_concurrent_fresh_load(tmp_path):
+    # The panel's stop/auto-load race: a fresh load() (e.g. ensure_model_ready's
+    # auto-load) lands while stop() is inside its unload — stop's final pop must
+    # remove only ITS OWN "stopping" entry, never the fresh "downloading" one, else
+    # the new load aborts at its checkpoint and its waiter dies at the 180 s timeout.
+    unload_entered = threading.Event()
+    unload_gate = threading.Event()
+    state = {"unloaded": False}
+
+    def gated_unload(url, mid):
+        unload_entered.set()
+        unload_gate.wait(5)
+        state["unloaded"] = True
+
+    def reactive_models(url):
+        v = "unloaded" if state["unloaded"] else "loaded"
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": v}}]}
+
+    svc = _service_for(tmp_path, router_unload=gated_unload, router_models=reactive_models)
+    svc._router_load = lambda url, mid: state.__setitem__("unloaded", False)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+
+    stop_done = threading.Event()
+    threading.Thread(target=lambda: (svc.stop(_TEST_MODEL.id), stop_done.set()), daemon=True).start()
+    assert unload_entered.wait(5)
+
+    # The concurrent fresh load arrives mid-stop and re-seeds the ledger entry.
+    svc.load(_TEST_MODEL.id)
+    unload_gate.set()
+    assert stop_done.wait(10)
+    svc._thread.join(timeout=10)
+
+    st = svc._resident.get(_TEST_MODEL.id)
+    assert st is not None, "stop() must not pop the fresh load's entry"
+    assert st["status"] == "running"
 
 
 # ── the router-listing mask (2026-07-17, the user's dead "Load now" button) ──

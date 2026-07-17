@@ -401,6 +401,11 @@ class RunnerService:
         self._engine_state = _engine_idle()
         self._lock = threading.Lock()           # resident-set queue mutations
         self._router_lock = threading.Lock()    # serialize router spawn/bounce/emit/load
+        # T2 (2026-07-17 approved plan): one cancel token per IN-FLIGHT load. stop() on a
+        # mid-load model SETS the event and returns at once (never touching _router_lock —
+        # the old stop blocked behind the load's router ops for the whole VRAM phase); the
+        # LOAD THREAD honors it at checkpoints and owns all cleanup. Guarded by _lock.
+        self._cancel_events: dict[str, threading.Event] = {}
         self._thread = None
         self._engine_thread = None
         self._engine_cancel = threading.Event()  # set → the engine-install worker aborts mid-download
@@ -824,6 +829,9 @@ class RunnerService:
                 return dict(cur)
             self._resident[model_id] = {"status": "downloading", "modelId": model_id, "url": "",
                                         "detail": "queued", "error": "", "downloaded": 0, "total": 0}
+            # A FRESH event per load — never setdefault: a stale set event from a prior
+            # cancelled load would silently self-cancel this one at the first checkpoint.
+            self._cancel_events[model_id] = threading.Event()
             self._last_id = model_id
             log.info("load %s: starting load thread (trigger=%s)", model_id, trigger)
             self._thread = threading.Thread(
@@ -866,28 +874,77 @@ class RunnerService:
         return dict(self._download_state)
 
     def stop(self, model_id: str | None = None) -> dict:
-        """`stop(id)` unloads ONE resident model (frees its VRAM; the router stays up for
-        the others). `stop()` (no id — the back-compat `/v1/llm-runner/stop`) is a FULL
-        teardown: unload everything and stop the router process, matching the old
-        single-model `stop()`. Held under `_router_lock` so it can't race a load's router
-        ops."""
-        # The ask logs BEFORE the lock: a stop that then blocks behind a load's router
-        # ops still lands in the log at click time (2026-07-17 — timeline correlation
-        # was impossible when only the eventual unload-failed WARNING recorded anything).
+        """`stop(id)` cancels an IN-FLIGHT load or unloads a resident model; `stop()`
+        (no id — the back-compat `/v1/llm-runner/stop`) is a FULL teardown.
+
+        T2 (2026-07-17 approved plan) — the three shapes:
+        • MID-LOAD (`downloading`/`starting`): set the model's cancel token, mark
+          `cancelling`, return AT ONCE — never touching `_router_lock` (the old stop
+          blocked behind the load's router ops for the whole VRAM phase while the UI's
+          "Cancelled" lied). The LOAD THREAD owns all cleanup at its checkpoints.
+        • RESIDENT: mark `stopping` BEFORE the lock (visible even while queued), unload
+          under it, then CONFIRM-UNLOAD — poll GET /models until the router agrees the
+          model is gone, so "stop returned" can never flicker back to "● loaded" during
+          child teardown. The final removal is a COMPARE-AND-POP: only the `stopping`
+          entry THIS stop wrote is popped — a fresher `downloading` entry written by a
+          concurrent load() (e.g. ensure_model_ready's auto-load) is left alone, else
+          that load's thread would abort at its membership checkpoint and its waiter
+          would die at the 180 s timeout.
+        • Already `cancelling`/`stopping`: a double-stop is a no-op."""
+        # The ask logs BEFORE any lock: a stop that then queues still lands in the log
+        # at click time (2026-07-17 — timeline correlation was impossible before).
         log.info("stop %s", model_id or "<full teardown>")
-        with self._router_lock:
-            router = self._router
-            if model_id:
+        if model_id:
+            st = (self._resident.get(model_id) or {}).get("status")
+            if st in ("downloading", "starting"):
+                ev = self._cancel_events.get(model_id)
+                if ev is not None:
+                    ev.set()
+                self._touch(model_id, status="cancelling", detail="")
+                return self.status()
+            if st in ("cancelling", "stopping"):
+                return self.status()  # a second click while the first resolves
+            # Resident (or errored) → the unload path. The status write is UNLOCKED and
+            # deliberate: a stop queued behind a load's router ops must already read
+            # "stopping", not "● loaded" (the user's unload-×3, 2026-07-17).
+            self._touch(model_id, status="stopping", detail="")
+            with self._router_lock:
+                router = self._router
                 if router is not None and router.is_alive():
                     try:
                         self._router_unload(router.url, model_id)
                     except Exception:  # noqa: BLE001 — best-effort
                         log.warning("router unload %s failed", model_id, exc_info=True)
-                self._resident.pop(model_id, None)
-                self._arbiter.release(model_id)  # free its VRAM reservation
-                if self._last_id == model_id:
-                    self._last_id = next(iter(self._resident), "")
-            else:
+                    # Confirm-unload (bounded): the unload POST can return while the
+                    # child is still exiting, and GET /models keeps saying loaded until
+                    # it has — popping then would let the next poll paint "● loaded"
+                    # again and invite the second click.
+                    deadline = self._now() + 5.0
+                    while True:
+                        try:
+                            live = _parse_router_models(self._router_models(router.url))
+                        except Exception:  # noqa: BLE001 — router died mid-teardown = gone
+                            break
+                        if (live.get(model_id) or {}).get("value") not in ("loaded", "sleeping", "loading"):
+                            break
+                        if self._now() >= deadline:
+                            log.warning("confirm-unload timeout: router still reports %s "
+                                        "after unload — popping anyway", model_id)
+                            break
+                        self._sleep(self._load_poll_interval)
+                with self._lock:
+                    cur = self._resident.get(model_id)
+                    if cur is not None and cur.get("status") == "stopping":
+                        self._resident.pop(model_id, None)
+                        if self._last_id == model_id:
+                            self._last_id = next(iter(self._resident), "")
+                # The OLD residency's reservation goes either way; a concurrent fresh
+                # load reserves anew only after its own confirmed load (it cannot have
+                # reserved yet — reserve happens under the router lock stop holds).
+                self._arbiter.release(model_id)
+        else:
+            with self._router_lock:
+                router = self._router
                 if router is not None:
                     try:
                         router.stop()
@@ -895,6 +952,7 @@ class RunnerService:
                         pass
                 self._router = None
                 self._resident.clear()
+                self._cancel_events.clear()
                 self._arbiter.clear()  # full teardown → drop the whole VRAM ledger
                 self._last_ini_text = ""
                 self._last_id = ""
@@ -1325,6 +1383,31 @@ class RunnerService:
             st.update(**fields)
         return st is not None
 
+    def _cancelled(self, model_id: str) -> bool:
+        """Has stop() asked THIS load to cancel? (T2 — the per-load token.)"""
+        ev = self._cancel_events.get(model_id)
+        return ev is not None and ev.is_set()
+
+    def _cleanup_cancelled(self, model_id: str, *, unload_child: bool = False) -> None:
+        """The ONE cancel cleanup (T2's per-exit matrix): pop the ledger entry, release
+        the arbiter reservation, drop the event — idempotent, exactly-once per field.
+        `unload_child=True` for the post-spawn checkpoint (the q2 ruling: a child that
+        spawned after the cancel is unloaded SILENTLY; the absent state speaks).
+        A bare return at any checkpoint would wedge a permanent `cancelling` entry —
+        stop() no longer pops for mid-load cancels, the load thread must."""
+        if unload_child:
+            router = self._router
+            if router is not None and router.is_alive():
+                try:
+                    self._router_unload(router.url, model_id)
+                except Exception:  # noqa: BLE001 — best-effort; the pop below still runs
+                    log.warning("cancel: unload of just-spawned %s failed", model_id, exc_info=True)
+        with self._lock:
+            self._resident.pop(model_id, None)
+            self._cancel_events.pop(model_id, None)
+        self._arbiter.release(model_id)
+        log.info("load %s: cancelled — cleaned up (child_unloaded=%s)", model_id, unload_child)
+
     def _run_load(
         self, model_id: str, overrides: Overrides | None = None,
         job_id: str | None = None, switches: dict[str, str] | None = None,
@@ -1368,12 +1451,14 @@ class RunnerService:
                 return
 
             self._touch(model_id, detail="preparing", downloaded=0, total=0)
-            # True load abort (S2): a stop() during this (slow, unlocked) download drops
-            # model_id from _resident, so this cancel_check flips True and the fetch aborts
-            # at the next chunk — raising DownloadCancelled (caught below). Before this, the
-            # download ran to completion and the load only unwound at the router-lock re-check.
+            # True load abort (S2 → T2): a stop() during this (slow, unlocked) download
+            # SETS the cancel token, so this cancel_check flips True and the fetch aborts
+            # at the next chunk — raising DownloadCancelled (caught below). The membership
+            # half stays as the belt for the no-id FULL teardown, which clears _resident
+            # wholesale and arms no per-model event (the two cover disjoint paths).
             _model, gguf = self._acquire_and_identify(
-                model_id, _progress, cancel_check=lambda: model_id not in self._resident)
+                model_id, _progress,
+                cancel_check=lambda: self._cancelled(model_id) or model_id not in self._resident)
 
             # Gemma-style external MTP: the model declares a SEPARATE draft GGUF
             # (catalog mtp_draft_* facts). When the resolved config wants draft-mtp
@@ -1392,7 +1477,7 @@ class RunnerService:
                 draft_snapshot = self._acquire_model(
                     draft_repo, _model.mtp_draft_file, None,
                     cache_root=self._cache_root / "hf", on_progress=_progress_draft,
-                    cancel_check=lambda: model_id not in self._resident,
+                    cancel_check=lambda: self._cancelled(model_id) or model_id not in self._resident,
                     **download_kwargs(config),
                 )
                 draft_path = Path(draft_snapshot) / _model.mtp_draft_file
@@ -1420,12 +1505,12 @@ class RunnerService:
             )
 
             with self._router_lock:
-                # A stop() during the (slow, unlocked) download cancels this load by
-                # dropping model_id from _resident. stop() ALSO holds _router_lock, so
-                # once WE hold it the resident set is stable — re-check before spawning,
-                # else we leave a ghost router loaded for a model no one wants (a VRAM
-                # leak that status() would report as idle).
-                if model_id not in self._resident:
+                # T2 checkpoint 1: a cancel (token) or a full teardown (membership) that
+                # landed during the unlocked download phase. Cleanup, never a bare
+                # return — stop() no longer pops for mid-load cancels, so a bare return
+                # would wedge a permanent "cancelling" entry with the UI inert.
+                if self._cancelled(model_id) or model_id not in self._resident:
+                    self._cleanup_cancelled(model_id)
                     return
                 # Arbiter admission (P2): evict the LRU non-pinned resident(s) until this model
                 # fits the VRAM budget within models_max, THEN load. Under _router_lock so the
@@ -1444,6 +1529,15 @@ class RunnerService:
                     mid for mid in self._resident
                     if mid in embed_rows and mid not in embed_ids and mid != model_id
                 }
+                # T2 checkpoint 2 — IMMEDIATELY before _admit, not only at the lock
+                # entry: `catalog()` above is a DB round-trip, so a cancel can land
+                # between the two, and _admit EVICTS other residents to make room — a
+                # cancelled load must never cost the user a model they were using (the
+                # panel's architecture finding: the first plan's killer, surviving in
+                # this window). Adjacency is the guarantee.
+                if self._cancelled(model_id):
+                    self._cleanup_cancelled(model_id)
+                    return
                 self._admit(model_id, fit.vram_mb, config.models_max, hardware,
                             ngl_explicit=fit.ngl_explicit, is_moe=fit.is_moe,
                             stale_embed_ids=stale_embeds)
@@ -1451,6 +1545,13 @@ class RunnerService:
                                                 downloaded=0, total=0)
                 vram_before = self._probe_used_vram()
                 self._load_via_router(entry, fit, server_exe, config)
+                # T2 checkpoint 3: the router op itself is not interruptible — a cancel
+                # that landed while the child was spawning takes effect HERE: unload the
+                # child we just spawned, SILENTLY (the user's q2 ruling — the absent
+                # state speaks), release, and never reach reserve/running.
+                if self._cancelled(model_id):
+                    self._cleanup_cancelled(model_id, unload_child=True)
+                    return
                 # Pin the configured embed so it is NEVER the LRU eviction victim (P3): a chat co-load
                 # evicts another chat, never the embed RAG depends on. A chat model reserves unpinned.
                 self._arbiter.reserve(model_id, self._trued_up_vram_mb(fit.vram_mb, vram_before, hardware),
@@ -1458,16 +1559,22 @@ class RunnerService:
                 self._resident[model_id].update(status="running", url=self._router.url,
                                                 detail="", error="", downloaded=0, total=0)
         except DownloadCancelled:
-            # A stop() during the download aborted the fetch (S2). The model is already gone
-            # from _resident (stop popped it), so do NOT set an error state (that would read as
-            # a real failure) and do NOT resurrect it — just release any reservation.
+            # A stop() during the download aborted the fetch (S2 → T2). Under the token
+            # design stop() no longer pops the entry (it sits at "cancelling") — the
+            # cleanup is OURS: pop + release + drop the event. Never an error state
+            # (a user-requested stop must not read as a failure).
             log.info("runner load cancelled during download for %s", model_id)
-            self._arbiter.release(model_id)
+            self._cleanup_cancelled(model_id)
         except Exception as exc:  # noqa: BLE001 — any failure becomes error state
             log.exception("runner load failed")
             # A concurrent stop() may have cancelled + removed the model — don't resurrect it.
             self._touch(model_id, status="error", detail="", error=str(exc), downloaded=0, total=0)
             self._arbiter.release(model_id)  # never leak a reservation on a failed/cancelled load
+        finally:
+            # The token dies with its load, every path (the cancelled paths already
+            # popped it — idempotent). A survivor would self-cancel a FUTURE load only
+            # if load() reused it; load() arms a fresh Event, this is the second belt.
+            self._cancel_events.pop(model_id, None)
 
     # ── Arbiter admission (P2): co-reside if it fits, else evict the LRU ───────
     #    Called from _run_load under `_router_lock`.

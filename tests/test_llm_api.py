@@ -54,6 +54,51 @@ def test_ping_and_models_use_registry():
     reg._adapters = {}
 
 
+def _builtin_fixture(monkeypatch, tmp_path, *, cached_repos, installed=True):
+    """Wire the built-in branch's three lazy imports (they resolve at CALL time, so
+    patching the modules is what reaches them)."""
+    from types import SimpleNamespace
+
+    import llm_runner.llm.stores as stores
+    import llm_runner.runner.lifecycle as lifecycle
+    import llm_runner.runner.models as runner_models
+
+    rows = [
+        SimpleNamespace(id="on-disk", hfRepo="org/a", quant="Q4_K_M", mmproj=None),
+        SimpleNamespace(id="catalog-only", hfRepo="org/b", quant="Q4_K_M", mmproj=None),
+    ]
+    monkeypatch.setattr(lifecycle, "get_service", lambda: SimpleNamespace(
+        engine_status=lambda: {"installed": installed, "build": "b9993", "gpu": "cuda"},
+        cache_root=tmp_path,
+    ))
+    monkeypatch.setattr(stores, "get_model_catalog_store",
+                        lambda: SimpleNamespace(list=lambda: rows))
+    monkeypatch.setattr(runner_models, "is_cached",
+                        lambda repo, quant, *, cache_root, mmproj=None: repo in cached_repos)
+
+
+def test_builtin_models_lists_only_downloaded(monkeypatch, tmp_path):
+    """The built-in provider answers "what can run RIGHT NOW" — the models list is what
+    is ON DISK, never every catalog row (user ruling 2026-07-16; the route's own comment
+    always claimed "every downloaded model" but the filter did not exist, so a seeded
+    Hugging Face reference appeared in every model picker). The catalog is the place you
+    download FROM."""
+    _builtin_fixture(monkeypatch, tmp_path, cached_repos={"org/a"})
+    body = _client().get("/v1/llm-providers/local-llamacpp/models").json()
+    assert body["models"] == ["on-disk"]        # the un-downloaded row is NOT offered
+    assert "error" not in body
+
+
+def test_builtin_health_counts_downloaded_and_total(monkeypatch, tmp_path):
+    """The health line names BOTH numbers: a short/empty picker reads as "download one",
+    not as a broken provider. And a catalog with nothing on disk is NOT ok — nothing can
+    run until something is fetched."""
+    _builtin_fixture(monkeypatch, tmp_path, cached_repos=set())
+    body = _client().get("/v1/llm-providers/local-llamacpp/models").json()
+    assert body["models"] == []
+    assert "0 of 2 models downloaded" in body["error"]
+
+
 class FakeEmbedAdapter(FakeAdapter):
     provider_id = "emb"
 

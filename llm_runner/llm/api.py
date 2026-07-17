@@ -64,10 +64,26 @@ def _builtin_provider_health() -> dict:
     storage + the runner before serving; the built-in branch is the recorded
     exception (it IS the storage-backed provider)."""
     from ..runner.lifecycle import get_service
+    from ..runner.models import is_cached
     from . import stores
 
-    st = get_service().engine_status()
+    service = get_service()
+    st = service.engine_status()
     rows = stores.get_model_catalog_store().list()
+    # DOWNLOADED ONLY (user ruling, 2026-07-16): `models` answers "what can this provider
+    # run RIGHT NOW", so it lists what is ON DISK — not every catalog row. The catalog is
+    # the place you download FROM; a picker offering a Hugging Face reference it hasn't
+    # fetched is offering something that cannot run. This restores the behaviour this
+    # docstring and the route's own comment always CLAIMED ("every downloaded model") —
+    # the filter was simply never there, so a fresh catalog row appeared in every model
+    # picker the moment it was seeded. Same disk truth the catalog's own Downloaded badge
+    # uses (`runner/api.py:143` — one source, they cannot disagree).
+    # NOTE the field names: this store yields the WIRE `CatalogRow` (camelCase `hfRepo`,
+    # model_catalog_api.py:29-38) — NOT the runner's snake_case catalog entry that
+    # `runner/api.py:143` iterates. Same disk check, different row type.
+    hf_cache = service.cache_root / "hf"
+    downloaded = [r for r in rows
+                  if is_cached(r.hfRepo, r.quant, cache_root=hf_cache, mmproj=r.mmproj)]
     installed = bool(st.get("installed"))
     bits = []
     if installed:
@@ -76,12 +92,16 @@ def _builtin_provider_health() -> dict:
         bits.append("engine installed" + (f" · {build}" if build else "") + (f" · {gpu}" if gpu else ""))
     else:
         bits.append("engine not installed — install it on the Built-in provider row")
-    bits.append(f"{len(rows)} model{'s' if len(rows) != 1 else ''} in the catalog")
+    # Say BOTH numbers: "2 of 9 downloaded" is the honest line when a picker looks empty
+    # or short — it names the fix (download one) instead of reading as a broken provider.
+    bits.append(f"{len(downloaded)} of {len(rows)} model{'s' if len(rows) != 1 else ''} downloaded")
     bits.append("models load on first use")
     return {
-        "ok": installed and bool(rows), "builtin": True,
+        # A catalog full of un-downloaded rows is NOT ok for this provider: nothing can
+        # run until something is on disk, and `ok` drives the form's Test connection.
+        "ok": installed and bool(downloaded), "builtin": True,
         "detail": " · ".join(bits),
-        "models": [r.id for r in rows],
+        "models": [r.id for r in downloaded],
     }
 
 

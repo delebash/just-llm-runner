@@ -18,6 +18,7 @@ import { computed, reactive, ref } from "vue";
 
 import { request } from "../client.js";
 import { createRateTracker, fmtBytes, progressCaption, rateSuffix } from "../common/services/downloadRate.js";
+import { friendlyPhase } from "../common/services/loadPhases.js";
 import { FIT_LABEL } from "../common/services/modelPick.js";
 import { useProviderModels } from "./useProviderModels.js";
 
@@ -187,6 +188,55 @@ export async function cancelLoad(modelId) {
   }
 }
 
+// Re-issue the load a row/card errored on — the task adapter's Retry. (A standalone
+// DOWNLOAD error's retry is the same download() the row button already offers; the
+// adapter defaults to the LOAD channel, the common card/row case.)
+export async function retryLoad(modelId) {
+  try {
+    await request("/v1/llm-runner/load", { method: "POST", body: { modelId } });
+    await refresh();
+  } catch (e) {
+    error.value = e.message || "Couldn't retry the load.";
+  }
+}
+
+// ── T3 (2026-07-17 approved plan): the per-model task-shaped adapter ─────────────────
+// DownloadBar renders "any object with the same shape" (its own contract) — this is a
+// PROJECTION over this singleton, not a second task implementation: no new poller, no
+// new truth; per-model gating comes from the model's OWN row status (never the
+// single-channel loadingId — the first plan's gating bug), bytes from the channel that
+// concerns the model (the absorbed barFor logic: standalone download ↔ downloadProgress,
+// spawn-load ↔ loadProgress; the /status byte channel is single-model — a pre-existing
+// limitation with two CONCURRENT loads, documented in the plan, not worsened here).
+// A plain function returning a plain object: templates re-run it reactively through the
+// refs it reads (a per-call computed() would leak one per render).
+export function taskFor(modelId) {
+  const m = models.value.find((x) => x.id === modelId);
+  const status = m?.status || "";
+  if (status === "stopping") {
+    // Teardown/cancel resolving. NO cancel member — an unload isn't cancellable, and
+    // DownloadBar's Cancel renders only when `task.cancel` exists (the null-guard).
+    return { state: "running", phase: "stopping", done: 0, total: 0, rateText: "",
+             error: "", label: friendlyPhase("", "stopping") };
+  }
+  if (status === "loading") {
+    const isDl = modelId === downloadingId.value;
+    const p = isDl ? downloadProgress : loadProgress;
+    return {
+      state: "running", phase: p.detail, done: p.downloaded, total: p.total,
+      rateText: p.rateText, error: "",
+      label: progressCaption(friendlyPhase(p.detail, "downloading"), p.downloaded, p.total, p.rateText),
+      cancel: () => (isDl ? cancelDownload() : cancelLoad(modelId)),
+    };
+  }
+  if (status === "error") {
+    return { state: "error", phase: "", done: 0, total: 0, rateText: "",
+             error: loadErr.value || "Load failed", label: "",
+             retry: () => retryLoad(modelId) };
+  }
+  return { state: "", phase: "", done: 0, total: 0, rateText: "", error: "", label: "" };
+}
+
 let kicked = false;
 
 /** The shared runner-models state. Every consumer gets the SAME refs; the first consumer
@@ -200,6 +250,6 @@ export function useRunnerModels() {
     models, vramMb, loading, error, loadErr, loadingId, downloadingId, cancelling,
     loadProgress, downloadProgress,
     anyLoading, anyError, needsEngine, fmtBytes, FIT_LABEL,
-    refresh, download, cancelDownload, cancelLoad,
+    refresh, download, cancelDownload, cancelLoad, retryLoad, taskFor,
   };
 }

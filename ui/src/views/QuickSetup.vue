@@ -31,6 +31,7 @@ import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER
 import { confirmDialog } from "../common/services/dialog.js";
 import { fmtTps } from "../common/services/runStats.js";
 import { createDownloadTask } from "../composables/useDownloadTask.js";
+import { friendlyPhase } from "../common/services/loadPhases.js";
 import { friendlyEnginePhase } from "../composables/useEngine.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
@@ -312,23 +313,9 @@ const keptPresets = computed(() => {
 // ── apply: one model → every preset (non-clobber) + embedding + download/load ──
 // The runner's raw `detail` is engineer-speak ("model weights", "loading into VRAM").
 // This audience gets plain language + a real progress bar with speed/ETA (user,
-// 2026-07-15: "if models are not downloaded already we need to show a progress bar and
-// what it is doing besided model wieghts make the words more userfriendly"). The friendly
-// phrasing (PHASE_WORDS) is passed to each download task's `friendly`.
-const PHASE_WORDS = {
-  queued: "Getting ready",
-  "model weights": "Downloading the model",
-  "MTP draft model": "Downloading the fast-generation helper file",
-  "loading into VRAM": "Loading it into your graphics card",
-};
-function friendlyPhase(detail, status) {
-  const d = String(detail || "").trim();
-  if (PHASE_WORDS[d]) return PHASE_WORDS[d];
-  if (d) return d;                       // already a sentence (the MTP notes)
-  if (status === "downloading") return "Downloading";
-  if (status === "starting") return "Starting the engine";
-  return "Working";
-}
+// 2026-07-15: "make the words more userfriendly"). The friendly phrasing moved to THE
+// shared loadPhases.js (T3, 2026-07-17 — one vocabulary, every model surface; a JW
+// source test pins that no local copy regrows here); imported at the top.
 
 const applying = ref(false);
 

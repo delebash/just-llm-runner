@@ -24,7 +24,10 @@ defineProps({
       <b class="lu-dlbar-title">{{ title }}</b>
       <span v-if="role" class="lu-muted lu-dlbar-role">{{ role }}</span>
       <span class="lu-dlbar-spacer" />
-      <UiButton v-if="task.state === 'running'" intent="secondary" size="small" @click="task.cancel()">Cancel</UiButton>
+      <!-- Cancel renders only when the task CAN cancel (T3: a "stopping" adapter task
+           is running but supplies no cancel — an unload isn't cancellable; without the
+           guard the button would render and crash on click). -->
+      <UiButton v-if="task.state === 'running' && task.cancel" intent="secondary" size="small" @click="task.cancel()">Cancel</UiButton>
       <UiButton v-else-if="task.state === 'cancelled' || task.state === 'error'" intent="secondary" size="small" @click="task.retry()">Retry</UiButton>
       <span v-else-if="task.state === 'done'" class="lu-dlbar-ok">Ready ✓</span>
     </div>

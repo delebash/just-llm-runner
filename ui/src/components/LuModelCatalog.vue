@@ -27,22 +27,19 @@ import UiTextarea from "../common/components/UiTextarea.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiTag from "../common/components/UiTag.vue";
 import UiProgress from "../common/components/UiProgress.vue";
+import DownloadBar from "../common/components/DownloadBar.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { openExternal } from "../common/services/external.js";
 
 // Shared runner-models state (models / status / load / progress) — one source for the
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
 const {
-  models, vramMb, loading, error, loadProgress, downloadProgress, loadErr, loadingId,
+  models, vramMb, loading, error, loadErr, loadingId,
   downloadingId, cancelling,
-  needsEngine, fmtBytes, FIT_LABEL, refresh, download, cancelDownload, cancelLoad,
+  needsEngine, fmtBytes, FIT_LABEL, refresh, download, cancelDownload, cancelLoad, taskFor,
 } = useRunnerModels();
-
-// A loading row reads the channel that actually concerns IT (2026-07-15): the standalone
-// download row → downloadProgress; a spawn-load row → loadProgress. No more one merged label.
-function barFor(m) {
-  return m.id === downloadingId.value ? downloadProgress : loadProgress;
-}
+// (barFor is gone — T3: its channel choice lives in the shared taskFor adapter, the
+// ONE per-model projection both the rows and the slot cards render from.)
 
 // Search + sort + fit-grouping (design §4): ONE visible list — models that FIT the machine
 // grouped first, the rest below — with a search box and a sort control (replaces the old
@@ -234,6 +231,7 @@ function slotState(m) {
   if (!m) return null;
   if (m.status === "loaded") return "loaded";
   if (m.status === "loading") return "working";
+  if (m.status === "stopping") return "stopping"; // T2b: teardown/cancel resolving
   if (m.status === "error") return "error";
   if (m.status === "disk") return "idle";       // downloaded — loads on first use
   return "missing";                              // not downloaded yet
@@ -759,7 +757,11 @@ refreshApplied();
         </div>
         <div v-if="defaultModel && !defaultGone" class="lu-setup-live">
           <span v-if="slotState(defaultModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
-          <span v-else-if="slotState(defaultModel) === 'working'" class="lu-muted">↓ working…</span>
+          <!-- T3: THE shared control (QuickSetup's bar — phases, Cancel, one wording)
+               replaces the bare "↓ working…" word; "stopping" renders it too
+               ("Unloading…", no Cancel — an unload isn't cancellable). -->
+          <DownloadBar v-else-if="slotState(defaultModel) === 'working' || slotState(defaultModel) === 'stopping'"
+            class="lu-setup-dlbar" :title="defaultName" role="General model" :task="taskFor(defaultModel.id)" />
           <span v-else-if="slotState(defaultModel) === 'error'" class="lu-error-inline">load failed — see its row below</span>
           <span v-else-if="slotState(defaultModel) === 'idle'" class="lu-muted">○ loads on first use</span>
           <span v-else class="lu-muted">not downloaded — see its row below</span>
@@ -790,7 +792,8 @@ refreshApplied();
         </div>
         <div v-if="embeddingModel && !embeddingGone" class="lu-setup-live">
           <span v-if="slotState(embeddingModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
-          <span v-else-if="slotState(embeddingModel) === 'working'" class="lu-muted">↓ working…</span>
+          <DownloadBar v-else-if="slotState(embeddingModel) === 'working' || slotState(embeddingModel) === 'stopping'"
+            class="lu-setup-dlbar" :title="embeddingName" role="Embedding model" :task="taskFor(embeddingModel.id)" />
           <span v-else-if="slotState(embeddingModel) === 'error'" class="lu-error-inline">load failed — see its row below</span>
           <span v-else-if="slotState(embeddingModel) === 'idle'" class="lu-muted">○ loads on first search</span>
           <span v-else class="lu-muted">not downloaded — see its row below</span>
@@ -875,8 +878,12 @@ refreshApplied();
               </td>
               <td>
                 <span v-if="m.status === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
+                <!-- T3: the row keeps its COMPACT bar (density rule) but everything it
+                     shows — channel choice, friendly words — comes from the same
+                     taskFor adapter the cards render. -->
                 <UiProgress v-else-if="m.status === 'loading'" class="lu-mprog"
-                  :value="barFor(m).downloaded" :max="barFor(m).total" :label="barFor(m).label" />
+                  :value="taskFor(m.id).done" :max="taskFor(m.id).total" :label="taskFor(m.id).label" />
+                <span v-else-if="m.status === 'stopping'" class="lu-mstat">Unloading…</span>
                 <span v-else-if="m.status === 'error'" class="lu-mstat lu-mstat--err"
                   :title="needsEngine ? 'Install the engine first — see Local engine above' : (loadErr || 'Load failed')">
                   {{ needsEngine ? "install engine ↑" : (loadErr || "failed") }}
@@ -920,13 +927,13 @@ refreshApplied();
                      different for embed vs main"). Only the TARGET differs: this writes
                      the embedding default; the other writes the general default. -->
                 <UiButton v-else-if="embeddingOf(m)" intent="primary" size="small"
-                  :disabled="m.id === currentEmbeddingId" :loading="applyingId === m.id"
+                  :disabled="m.id === currentEmbeddingId || m.status === 'stopping'" :loading="applyingId === m.id"
                   title="Make this the embedding model (semantic search + grounded chat) and load it now, alongside your chat model"
                   @click="makeEmbedding(m)">
                   {{ m.id === currentEmbeddingId ? "Default ✓" : "Load as default" }}
                 </UiButton>
                 <UiButton v-else intent="primary" size="small"
-                  :disabled="m.id === currentDefaultId" :loading="applyingId === m.id"
+                  :disabled="m.id === currentDefaultId || m.status === 'stopping'" :loading="applyingId === m.id"
                   title="Make this the default model for every task and load it now" @click="makeDefault(m)">
                   {{ m.id === currentDefaultId ? "Default ✓" : "Load as default" }}
                 </UiButton>
@@ -1120,6 +1127,8 @@ refreshApplied();
 
 /* The strip cards' live state + Load/Unload row + the pair caption (2026-07-07). */
 .lu-setup-live { display: flex; align-items: center; gap: 8px; margin-top: 7px; font-size: 11.5px; }
+/* The shared bar fills the card's live row (its own margin-top is for QuickSetup's stack). */
+.lu-setup-dlbar { flex: 1; min-width: 0; margin-top: 0; }
 .lu-error-inline { color: var(--danger); font-size: 11px; }
 .lu-setup-cap { font-size: 11.5px; line-height: 1.5; margin: 8px 0 0; }
 

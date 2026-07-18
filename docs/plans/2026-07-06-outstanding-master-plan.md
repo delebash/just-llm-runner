@@ -134,6 +134,23 @@
 - **F3 — Audiobook converters + speaker-attribution deep research.** The parked research TODO (converters/casting/chaptering features to mine + attribution improvements). STATUS: **RESEARCH**, parked by the user 2026-06-27. Pass-1 + pass-2 CONFIRMED (the TODO doc's own line 3: "NOT STARTED — parked for later (user, 2026-06-27)").
 - **F4 — JustVoice `EngineManager.load()` → shared-VRAM-arbiter hook (moved here from the refuted D2).** The coordination DECISION was made 2026-07-04 (design §7.2: one shared budget arbiter in `just-llm-runner`, already built as `runner/arbiter.py`); the JV side of the wiring — JV's TTS engine loads reserving/releasing against that arbiter — is the SVM plan's own explicitly-deferred future plan, sequenced naturally with F1 (JV can't even import the shared stack until convergence). Includes the small §7.2 wording fix (JV engines are OS subprocesses, not in-process). STATUS: **NOT BUILT** (deferred build, decision already made). Size: medium, after F1.
 - **F5 — JV Appearance settings knob-set gap (pass-2's missed-item find).** JV's Appearance tab exposes only Theme / Interface size / Accent hue / Language (`JustVoice … SettingsView.vue:2291-2383`) while the SHARED appearance engine (already adopted by JV) supports the full set JW exposes (font pairing, second accent, nav/section-heading styles, status hues). The JV recap itself calls this "the clearest remaining user-facing inconsistency" (`JustVoice/MORNING_RECAP.md:117-119`). NOTE: this is a renderer-Settings gap — NOT delivered for free by F1's server-side convergence. STATUS: **NOT BUILT**. Size: small-medium.
+- **F6 — ONLINE TTS providers for JV, the official-SDK way (user, 2026-07-17: "hopefully
+  we will finish up last of changes and bugs for jw, we will want to do the same for jv
+  for tts online providers").** When the JW provider-native-SDK migration lands (the
+  2026-07-17 plan: `openai`+`anthropic`+`google-genai` SDKs behind the base.py Protocol,
+  local stack stays ours), give JV's TTS the SAME treatment: (a) SURVEY FIRST — the
+  standing rule from the JW exhibit (memory `survey-ecosystem-before-building`: named
+  maintained packages + build-vs-adopt with the maintenance asymmetry stated; our own
+  code never counts as "the existing option"); (b) the JW migration's SDKs already carry
+  two online-TTS surfaces for free — the `openai` SDK (`/audio/speech`) and `google-genai`
+  (Gemini native TTS via `responseModalities: AUDIO` / the Interactions TTS docs page,
+  verified to exist 2026-07-17) — so those two providers are near-zero marginal cost;
+  (c) the one NEW vendor-SDK candidate is **ElevenLabs** (the major TTS-first player,
+  official Python SDK) — survey it against alternatives before adopting; (d) JV's
+  existing local TTS engines stay JV-owned (same hybrid shape as JW: vendor SDKs for
+  cloud, our code for local). SEQUENCED after/with F1 (JV can't import today's shared
+  stack) and after the JW migration proves the SDK glue. STATUS: **NOT STARTED** —
+  queued at the user's word; needs its own survey + plan + go. Size: medium.
 
 ## G. Your-box checklist (built + container-verified; only your Windows machine can finish these)
 

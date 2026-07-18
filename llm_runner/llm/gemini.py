@@ -79,7 +79,12 @@ class GeminiAdapter:
         http_options = gtypes.HttpOptions(timeout=timeout_seconds * 1000)  # SDK wants ms
         if base_url:
             http_options.base_url = base_url.rstrip("/")
-        self._client = genai.Client(api_key=api_key or "", http_options=http_options)
+        # A dummy placeholder (never ""): google-genai==2.12.1 raises
+        # `ValueError: No API key was provided` on an empty key with no env fallback, so a
+        # seeded keyless gemini provider must construct with a non-empty stand-in to
+        # register (real calls still 401/403 without a real key). Mirrors openai_sdk's
+        # "sk-no-key" — the C4.1 device (#15).
+        self._client = genai.Client(api_key=api_key or "no-key", http_options=http_options)
 
     @staticmethod
     def _build_config(

@@ -294,6 +294,19 @@ def test_gemini_chat_error_maps_to_d10():
     assert str(ei.value).startswith("gemini 404:")
 
 
+def test_gemini_constructs_keyless_when_no_env_key(monkeypatch):
+    # PRE-FIX (#15, the C4.1 sk-no-key device): a seeded keyless gemini provider must
+    # CONSTRUCT + register so JW test_seed's `all(registered)` holds on a box with no
+    # GEMINI_API_KEY/GOOGLE_API_KEY. google-genai==2.12.1 raises
+    # `ValueError: No API key was provided` on an EMPTY api_key with no env key, so the
+    # constructor passes the "no-key" placeholder. RED before the fix: this construct
+    # raised ValueError (real calls still 401/403 without a key; models()/ping() swallow).
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    a = GeminiAdapter("p", api_key="")
+    assert a.provider_type == "gemini"
+
+
 # ── #15 C3: the anthropic SDK surface (allowlist / chat / stream / models / errors) ──
 
 

@@ -61,7 +61,18 @@ export async function listModels(providerId) {
   return request(`/v1/llm-providers/${encodeURIComponent(providerId)}/models`);
 }
 
+// Reveal a SAVED provider's plaintext key so the form can pre-fill a masked, editable
+// field (#12 C6). POST — a GET would be world-readable; the endpoint is opt-in server-side
+// (the host mounts it only behind an origin-check middleware). Returns the key string, or
+// "" when none is stored. Never log or persist the result.
+export async function revealKey(providerId) {
+  const r = await request(`/v1/llm-providers/${encodeURIComponent(providerId)}/key/reveal`, {
+    method: "POST",
+  });
+  return r?.apiKey || "";
+}
+
 /** The shared provider-connect surface. Every consumer gets the SAME presets + endpoints. */
 export function useProviderConnect() {
-  return { PROVIDER_PRESETS, probeModels, createProvider, listModels };
+  return { PROVIDER_PRESETS, probeModels, createProvider, listModels, revealKey };
 }

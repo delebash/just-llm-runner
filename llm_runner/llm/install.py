@@ -76,6 +76,7 @@ def install_llm(
     prefer_local_features: Iterable[str] | None = None,
     runner_catalog: bool = True,
     data_dir=None,
+    allow_key_reveal: bool = False,
 ) -> None:
     """Wire + mount the whole shared LLM stack onto `app`. Idempotent table create."""
     # 1. storage — the app's own engine/session back every shared table.
@@ -119,7 +120,12 @@ def install_llm(
 
     # 5. mount every LLM router (the same surface in every app).
     app.include_router(shared_api_router)
-    app.include_router(make_provider_router(stores.get_provider_store))
+    # allow_key_reveal threads the host's opt-in to the key/reveal route (#12 C6): the
+    # host must guard mutating /v1 with an origin check to enable it. JV mounts
+    # make_provider_router directly with the safe default OFF; only JW (below) opts in.
+    app.include_router(
+        make_provider_router(stores.get_provider_store, allow_key_reveal=allow_key_reveal)
+    )
     app.include_router(make_prompt_router(stores.get_prompt_store, feature_prompts))
     app.include_router(make_feature_router(stores.get_prompt_store, _config))
     app.include_router(make_routing_router(stores.get_routing_store, seed.app_feature_catalog))

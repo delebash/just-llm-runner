@@ -33,10 +33,10 @@ class MemStore:
         self._rows = [p for p in self._rows if p.id != pid]
 
 
-def _client(store):
+def _client(store, allow_key_reveal=False):
     get_llm_registry()._adapters = {}
     app = FastAPI()
-    app.include_router(make_provider_router(lambda: store))
+    app.include_router(make_provider_router(lambda: store, allow_key_reveal=allow_key_reveal))
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -131,6 +131,38 @@ def test_patch_apikey_empty_preserves_even_when_local_flips():
     assert r.status_code == 200
     assert store.get("claude").apiKey is None
     assert r.json()["hasApiKey"] is False
+
+
+def test_key_reveal_opt_in_returns_stored_key():
+    """#12 C6: when the host opts in (allow_key_reveal=True — JW, guarded by its
+    origin-check middleware), POST /key/reveal returns the stored plaintext key so the
+    form can pre-fill a masked, editable field; an unknown id 404s. The GET/list still
+    never echoes the key (test above); reveal is the deliberate, POST-only exception."""
+    store = MemStore()
+    c = _client(store, allow_key_reveal=True)
+    c.post("/v1/llm-providers", json={
+        "name": "Claude", "providerType": "anthropic", "apiKey": "sk-secret", "local": False,
+    })
+    r = c.post("/v1/llm-providers/claude/key/reveal")
+    assert r.status_code == 200 and r.json() == {"apiKey": "sk-secret"}
+    # a provider with no stored key reveals ""
+    c.post("/v1/llm-providers", json={"name": "Keyless", "providerType": "openai-compat", "local": True})
+    assert c.post("/v1/llm-providers/keyless/key/reveal").json() == {"apiKey": ""}
+    # unknown id → 404
+    assert c.post("/v1/llm-providers/nope/key/reveal").status_code == 404
+
+
+def test_key_reveal_absent_by_default():
+    """The SAFE default (allow_key_reveal off) — an app that does NOT guard mutating
+    /v1 with an origin check (JustVoice) mounts make_provider_router with no flag, so
+    the credential-returning route is simply NOT registered (404). Fires-proof for the
+    JV inherits-the-safe-default branch of the origin-guard requirement."""
+    store = MemStore()
+    c = _client(store)  # default allow_key_reveal=False
+    c.post("/v1/llm-providers", json={
+        "name": "Claude", "providerType": "anthropic", "apiKey": "sk-secret", "local": False,
+    })
+    assert c.post("/v1/llm-providers/claude/key/reveal").status_code == 404
 
 
 def test_detect_local(monkeypatch):

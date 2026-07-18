@@ -139,8 +139,20 @@ def _check_type(provider_type: str) -> None:
         )
 
 
-def make_provider_router(get_store: Callable[[], ProviderStore]) -> APIRouter:
-    """Build the /v1/llm-providers router over a host-supplied `ProviderStore`."""
+def make_provider_router(
+    get_store: Callable[[], ProviderStore], allow_key_reveal: bool = False
+) -> APIRouter:
+    """Build the /v1/llm-providers router over a host-supplied `ProviderStore`.
+
+    `allow_key_reveal` (default OFF, #12 C6): mounts the POST
+    `/v1/llm-providers/{id}/key/reveal` endpoint that returns a saved provider's
+    plaintext key (so the UI can pre-fill a masked field the user can edit). It is a
+    credential-returning endpoint, so its safety is a per-mounting-app property: the
+    HOST must guard mutating `/v1` requests with an origin check (JW's
+    `CsrfOriginMiddleware`). JW opts IN (`install_llm(allow_key_reveal=True)`); an app
+    with no such guard (JustVoice mounts this router with no origin-check middleware —
+    only conditional CORS + bearer auth, verified 2026-07-17) leaves the SAFE default,
+    so the route is simply absent there. NEVER log the key."""
     router = APIRouter(tags=["llm"])
 
     @router.get("/v1/llm-providers", response_model=LLMProviderList)
@@ -234,6 +246,17 @@ def make_provider_router(get_store: Callable[[], ProviderStore]) -> APIRouter:
             except Exception:  # noqa: BLE001 - a down probe is just "not detected"
                 continue
         return DetectLocalResponse(detected=out)
+
+    if allow_key_reveal:
+        @router.post("/v1/llm-providers/{provider_id}/key/reveal")
+        async def reveal_llm_provider_key(provider_id: str) -> dict:
+            """Return a saved provider's plaintext key so the UI can pre-fill a masked,
+            editable field (#12 C6). POST (not GET — a GET is world-readable). Guarded by
+            the host's origin-check middleware; opt-in only. NEVER logged."""
+            cfg = get_store().get(provider_id)
+            if cfg is None:
+                raise HTTPException(status_code=404, detail=f"LLM provider {provider_id}")
+            return {"apiKey": cfg.apiKey or ""}
 
     return router
 

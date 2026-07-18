@@ -8,6 +8,7 @@ import "./styles.css";
 
 export { default as UiButton } from "./components/UiButton.vue";
 export { default as UiInput } from "./components/UiInput.vue";
+export { default as UiSecretInput } from "./components/UiSecretInput.vue";
 export { default as UiTextarea } from "./components/UiTextarea.vue";
 export { default as UiCheckbox } from "./components/UiCheckbox.vue";
 export { default as UiTag } from "./components/UiTag.vue";

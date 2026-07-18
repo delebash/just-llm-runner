@@ -13,13 +13,14 @@ import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import LuCombobox from "../components/LuCombobox.vue";
 import UiInput from "../common/components/UiInput.vue";
+import UiSecretInput from "../common/components/UiSecretInput.vue";
 import LuClassTunes from "../components/LuClassTunes.vue";
 import LuGlobalSwitches from "../components/LuGlobalSwitches.vue";
 import LuRunnerEngine from "../components/LuRunnerEngine.vue";
 import LuModelCatalog from "../components/LuModelCatalog.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
 import { request } from "../client.js";
-import { PROVIDER_PRESETS, ONLINE_ONLY_TYPES, probeModels, createProvider } from "../composables/useProviderConnect.js";
+import { PROVIDER_PRESETS, ONLINE_ONLY_TYPES, probeModels, createProvider, revealKey } from "../composables/useProviderConnect.js";
 
 const props = defineProps({
   provider: { type: Object, default: null }, // null = adding new
@@ -44,6 +45,21 @@ const draft = reactive({
   embeddingModel: props.provider?.embeddingModel || "",
   timeoutSeconds: props.provider?.timeoutSeconds || 60,
 });
+// #12 C6: on OPEN of a saved provider that HAS a key, reveal it into the (masked,
+// editable) field so Fetch/Test carry it and the user can edit it in place — the old
+// write-only-blank field read as "no key saved" and sent an empty key. `revealLoaded`
+// flips the SAVE semantics: once the real key is loaded, clearing the field MEANS clear
+// (send null); until then (new provider, or a reveal that FAILED), an empty field keeps
+// the stored key ("" — today's fallback + the 🔒 hint).
+const revealLoaded = ref(false);
+async function loadSavedKey() {
+  if (isNew.value || !props.provider?.hasApiKey) return;
+  try {
+    draft.apiKey = await revealKey(props.provider.id);
+    revealLoaded.value = true;
+  } catch { /* reveal failed → keep write-only ""-keeps semantics + the hint */ }
+}
+loadSavedKey();
 // The stored Local/Online choice (server derives the id from the name, so there
 // is no id field to type). New providers default to Local — but where-it-runs is
 // only a CHOICE for the ambiguous types (openai-compat, ollama): the metered-cloud
@@ -132,16 +148,18 @@ async function save() {
   if (!draft.name.trim()) { saveErr.value = "Name is required."; return; }
   saving.value = true; saveErr.value = "";
   // The id is derived server-side from the name on create; on edit the path param
-  // identifies the row, so the body carries no id. apiKey contract: "" preserves
-  // the stored key, null clears it — and this form has NO explicit remove-key
-  // affordance, so it must never send null on edit (#1: the old `local ? null : …`
-  // wiped a stored key every time the toggle read Local).
+  // identifies the row, so the body carries no id. apiKey contract: "" preserves the
+  // stored key, null clears it. Key-wipe guard (#12 C6): an empty field clears the key
+  // ONLY when the reveal succeeded (revealLoaded — the user saw the real key and
+  // deliberately erased it); otherwise (new provider, or a reveal that failed) an empty
+  // field KEEPS the stored key ("" — today's write-only fallback). This replaces the old
+  // `isNew ? null : ""` (#1: never wipe a stored key the user never saw).
   const body = {
     name: draft.name, providerType: draft.providerType,
     baseUrl: draft.baseUrl, defaultModel: draft.defaultModel,
     embeddingModel: draft.embeddingModel, timeoutSeconds: Number(draft.timeoutSeconds) || 60,
     local: isLocal.value,
-    apiKey: draft.apiKey || (isNew.value ? null : ""),
+    apiKey: draft.apiKey || (revealLoaded.value ? null : ""),
   };
   try {
     if (isNew.value) await createProvider(body);
@@ -244,11 +262,15 @@ async function putReasoningRow(row) {
       <template v-if="!isLocal">
         <span class="lu-fl">API key</span>
         <div>
-          <UiInput v-model="draft.apiKey" type="password"
-            :placeholder="!isNew && provider?.hasApiKey ? '••••••••  (a key is saved)' : 'sk-…'" />
-          <!-- The key is write-only server-side, so the form can never re-display it — a
-               blank field on edit read as "no key saved" (user, 2026-07-06). State it. -->
-          <div v-if="!isNew && provider?.hasApiKey && !draft.apiKey" class="lu-fh">
+          <!-- #12 C6: a normal masked password field with an eye reveal. On a saved
+               provider the stored key is revealed INTO it on open (revealLoaded), so it
+               shows the real (masked) key the user can edit; Fetch/Test carry it. -->
+          <UiSecretInput v-model="draft.apiKey"
+            :placeholder="!isNew && provider?.hasApiKey && !revealLoaded ? '••••••••  (a key is saved)' : 'sk-…'" />
+          <!-- Fallback hint ONLY when the reveal has not loaded the key (a brand-new
+               provider never shows it; a FAILED reveal falls back to write-only
+               ""-keeps semantics). Once revealed, an empty field means CLEAR. -->
+          <div v-if="!isNew && provider?.hasApiKey && !revealLoaded && !draft.apiKey" class="lu-fh">
             🔒 An API key is saved (never shown). Leave blank to keep it — typing replaces it.
           </div>
         </div>

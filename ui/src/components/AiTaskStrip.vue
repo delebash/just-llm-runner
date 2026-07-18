@@ -25,6 +25,7 @@ import { useAiTasksStore } from "../stores/aiTasks.js";
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 import { fmtTokens, fmtTps } from "../common/services/runStats.js";
+import { freshnessOf } from "../common/services/streamFreshness.js";
 
 const props = defineProps({
   // The task object (from aiTasks.runningTasks) to display, or null when
@@ -55,18 +56,9 @@ const tokensPerSecond = computed(() => {
   const span = Math.max(1, tasks.now - props.task.firstDeltaAt);
   return (tokens / (span / 1000)).toFixed(1);
 });
-const lastDeltaAgo = computed(() => {
-  if (!props.task?.lastDeltaAt) return null;
-  return Math.max(0, tasks.now - props.task.lastDeltaAt);
-});
-const freshness = computed(() => {
-  if (props.task?.status !== "streaming") return null;
-  const ago = lastDeltaAgo.value;
-  if (ago == null) return null;
-  if (ago < 3000) return "fresh";
-  if (ago < 10000) return "stalling";
-  return "stuck";
-});
+// #5 (2026-07-17): rate-relative — the shared classifier, not the old absolute 3s/10s
+// that mislabelled a slow local model as "stalling" through healthy work.
+const freshness = computed(() => freshnessOf(props.task, tasks.now));
 
 function onCancel() {
   if (props.task) tasks.cancel(props.task.id);

@@ -20,6 +20,7 @@ import UiButton from "../common/components/UiButton.vue";
 // Shared run-stat format (#304). Tokens + tok/s single-sourced with AiTaskStrip; the local
 // fmtSeconds below stays (it adds a minutes form for long history durations the shared one doesn't).
 import { fmtTokens, fmtTps } from "../common/services/runStats.js";
+import { freshnessOf } from "../common/services/streamFreshness.js";
 
 const tasks = useAiTasksStore();
 const openPreviews = ref(new Set());
@@ -112,15 +113,11 @@ function tokensPerSecond(task) {
   if (!tokens) return null;
   return (tokens / (liveSpanMs / 1000)).toFixed(1);
 }
-// Freshness class for the last-token indicator.
-// fresh < 3s · stalling 3-10s · stuck > 10s.
+// Freshness class for the last-token indicator (#5, 2026-07-17): the SHARED
+// rate-relative classifier — calibrates to the stream's own pace instead of the
+// old absolute 3s/10s that read a slow local model as "stalling" through healthy work.
 function freshness(task) {
-  if (task.status !== "streaming") return null;
-  const ago = lastDeltaAgoMs(task);
-  if (ago == null) return null;
-  if (ago < 3000) return "fresh";
-  if (ago < 10000) return "stalling";
-  return "stuck";
+  return freshnessOf(task, tasks.now);
 }
 
 const phaseLabel = {
@@ -205,7 +202,7 @@ const phaseLabel = {
             <span v-if="tokensPerSecond(t)" class="aip-stat">
               {{ fmtTps(tokensPerSecond(t)) }}
             </span>
-            <span v-if="freshness(t)" class="aip-stat" :data-fresh="freshness(t)" v-tooltip.bottom="freshness(t) === 'stuck' ? 'No tokens received in 10+ seconds — likely stuck' : freshness(t) === 'stalling' ? 'No tokens in the last few seconds' : 'Streaming live'">
+            <span v-if="freshness(t)" class="aip-stat" :data-fresh="freshness(t)" v-tooltip.bottom="freshness(t) === 'stuck' ? 'No new tokens for well past this model\'s usual pace — likely stuck' : freshness(t) === 'stalling' ? 'Slower than this model\'s usual pace right now' : 'Streaming live'">
               <span class="aip-stat-dot" />
               <template v-if="freshness(t) === 'fresh'">live</template>
               <template v-else-if="freshness(t) === 'stalling'">stalling · {{ fmtSeconds(lastDeltaAgoMs(t)) }}</template>

@@ -18,11 +18,12 @@
 //   "cancelled"  — aborted by user; archived to history
 //   "error"      — threw; archived to history with .error
 //
-// Stalled detection (UI concern, not stored): a streaming task whose
-// lastDeltaAt is more than ~5s in the past looks stalled; >30s likely
-// stuck. The store exposes `now` (live-ticked) so a computed in any
-// view can derive the freshness signal without each view spinning its
-// own setInterval.
+// Stalled detection (UI concern, not stored): classified by the shared
+// streamFreshness.js against `now` (live-ticked, so a computed in any view
+// derives the signal without its own setInterval) — RATE-RELATIVE (#5), the
+// gap since lastDeltaAt vs this stream's own mean inter-token gap, not a fixed
+// wall clock (a slow local model's healthy multi-second gaps aren't "stalling").
+// deltaCount (below) feeds that mean.
 
 import { defineStore } from "pinia";
 import { markRaw } from "vue";
@@ -93,6 +94,9 @@ export const useAiTasksStore = defineStore("aiTasks", {
         startedAt: now,
         firstDeltaAt: 0,
         lastDeltaAt: 0,
+        // #5 (2026-07-17): count of streamed deltas — feeds streamFreshness's
+        // rate-relative stall test (mean inter-token gap = span / (deltaCount - 1)).
+        deltaCount: 0,
         finishedAt: 0,
         tokensIn: 0,
         tokensOut: 0,
@@ -157,6 +161,8 @@ export const useAiTasksStore = defineStore("aiTasks", {
       const now = Date.now();
       if (!t.firstDeltaAt) t.firstDeltaAt = now;
       t.lastDeltaAt = now;
+      t.deltaCount = (t.deltaCount || 0) + 1; // #5: rate-relative freshness calibration
+
       // Generation started — the prefill phase is over (§7.4 B6-2).
       t.prefill = null;
       if (t.status === "connecting") t.status = "streaming";

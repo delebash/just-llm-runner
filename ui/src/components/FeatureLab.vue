@@ -68,6 +68,7 @@ async function saveAs(name, cfg) {
   if (!name || !cfg) return;
   const r = await request("/v1/ai/engine-presets", { method: "POST", body: cfgToEnginePreset(name, cfg) });
   emit("presets-changed", r.presets || []);
+  pushToast({ message: "Preset saved.", kind: "success" }); // after the await → success-only
 }
 async function delPreset(id) {
   if (!id) return;
@@ -81,6 +82,7 @@ async function updatePreset(id, cfg) {
   if (!p) return;  // preset not in the list (e.g. just deleted) → no-op, never silently rename
   const r = await request(`/v1/ai/engine-presets/${id}`, { method: "PUT", body: cfgToEnginePreset(p.name, cfg) });
   emit("presets-changed", r.presets || []);
+  pushToast({ message: "Preset saved.", kind: "success" }); // after the await → success-only
 }
 
 // Persist the action's JSON-output setting to its prompt row (user-restored 2026-07-16 —

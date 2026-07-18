@@ -265,8 +265,11 @@ async function putReasoningRow(row) {
           <!-- #12 C6: a normal masked password field with an eye reveal. On a saved
                provider the stored key is revealed INTO it on open (revealLoaded), so it
                shows the real (masked) key the user can edit; Fetch/Test carry it. -->
+          <!-- No format hint: `sk-` is the OpenAI prefix only, misleading for every
+               other online provider (user, 2026-07-18). The label + a saved-key note
+               below carry the meaning; an empty placeholder is provider-neutral. -->
           <UiSecretInput v-model="draft.apiKey"
-            :placeholder="!isNew && provider?.hasApiKey && !revealLoaded ? '••••••••  (a key is saved)' : 'sk-…'" />
+            :placeholder="!isNew && provider?.hasApiKey && !revealLoaded ? '••••••••  (a key is saved)' : ''" />
           <!-- Fallback hint ONLY when the reveal has not loaded the key (a brand-new
                provider never shows it; a FAILED reveal falls back to write-only
                ""-keeps semantics). Once revealed, an empty field means CLEAR. -->

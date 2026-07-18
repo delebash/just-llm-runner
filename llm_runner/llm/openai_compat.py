@@ -253,8 +253,12 @@ class OpenAICompatAdapter:
         data = payload.get("data") or []
         return [str(m.get("id")) for m in data if m.get("id")]
 
-    def embed(self, texts: list[str], *, model: str | None = None) -> list[list[float]]:
-        """POST /embeddings (OpenAI shape: {data: [{embedding}, ...]})."""
+    def embed(
+        self, texts: list[str], *, model: str | None = None, task_type: str = ""
+    ) -> list[list[float]]:
+        """POST /embeddings (OpenAI shape: {data: [{embedding}, ...]}). `task_type`
+        is accepted and IGNORED — the OpenAI embeddings API has no task-side concept
+        (the `think` kwarg precedent; #15 C5)."""
         body = {"model": model or self.default_model, "input": list(texts)}
         url = f"{self._base_url}/embeddings"
         try:

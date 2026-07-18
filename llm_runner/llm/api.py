@@ -234,9 +234,11 @@ def _apply_embed_template(model_id: str, task_type: str, texts: list[str]) -> li
 async def ai_embeddings(body: EmbeddingsRequest) -> dict:
     """Embed texts through a registered provider (server-held key) — the shared
     replacement for the old `/v1/llm/{id}/embeddings` proxy. The client passes
-    the embedding provider id (its routing default) + model; non-embedding
-    providers (Anthropic/Gemini) report a clear 400. `taskType` applies the
-    model's catalog embed template (a model with no row passes through)."""
+    the embedding provider id (its routing default) + model; a non-embedding
+    provider (Anthropic) reports a clear 400. `taskType` applies the model's
+    catalog embed template (a model with no row passes through) AND is passed to
+    the adapter's `embed(task_type=…)` — Gemini maps it to its RETRIEVAL_*
+    task_type; adapters with no task concept ignore it (#15 C5)."""
     adapter = get_llm_registry().get(body.providerId)
     if adapter is None:
         raise HTTPException(status_code=404, detail=f"LLM provider {body.providerId} (not registered)")
@@ -245,7 +247,7 @@ async def ai_embeddings(body: EmbeddingsRequest) -> dict:
         raise HTTPException(status_code=400, detail=f"provider {body.providerId} does not support embeddings")
     texts = _apply_embed_template(body.model, body.taskType, body.input)
     try:
-        vectors = embed(texts, model=body.model or None)
+        vectors = embed(texts, model=body.model or None, task_type=body.taskType)
     except NotImplementedError as e:
         raise HTTPException(status_code=400, detail=f"provider {body.providerId} does not support embeddings") from e
     except Exception as e:  # noqa: BLE001 — surface upstream/transport errors

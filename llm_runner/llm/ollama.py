@@ -186,9 +186,13 @@ class OllamaAdapter:
             return []
         return [m.get("name") for m in payload.get("models") or [] if m.get("name")]
 
-    def embed(self, texts: list[str], *, model: str | None = None) -> list[list[float]]:
+    def embed(
+        self, texts: list[str], *, model: str | None = None, task_type: str = ""
+    ) -> list[list[float]]:
         """Native /api/embed (batch); falls back to legacy /api/embeddings
-        (single) on older daemons. Mirrors the retired gateway's _ollama_embed."""
+        (single) on older daemons. Mirrors the retired gateway's _ollama_embed.
+        `task_type` is accepted and IGNORED — Ollama's embed API has no task-side
+        concept (the `think` kwarg precedent; #15 C5)."""
         arr = list(texts)
         m = model or self.default_model
         try:

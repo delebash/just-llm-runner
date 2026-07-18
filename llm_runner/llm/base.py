@@ -198,13 +198,21 @@ class LLMAdapter(Protocol):
         the network (e.g. GET /models) — callers should cache."""
         ...
 
-    def embed(self, texts: list[str], *, model: str | None = None) -> list[list[float]]:
+    def embed(
+        self, texts: list[str], *, model: str | None = None, task_type: str = ""
+    ) -> list[list[float]]:
         """Embed texts into vectors — one vector per input, same order.
 
+        `task_type` names the embedding SIDE — `"document" | "query" | ""` — for
+        providers that distinguish them (Gemini's `RETRIEVAL_DOCUMENT` /
+        `RETRIEVAL_QUERY`); adapters with no native task concept accept and IGNORE
+        it (the `think` kwarg precedent above). `""` sends no task hint.
+
         Only providers that expose an embeddings endpoint implement this
-        (OpenAI-compatible `/embeddings`, Ollama `/api/embed`); adapters that
-        don't (Anthropic, Gemini) omit it, and the embeddings endpoint reports a
-        clear 400. Raises RuntimeError on an upstream/transport error.
+        (OpenAI-compatible `/embeddings`, Ollama `/api/embed`, Gemini's
+        `embed_content`); adapters that don't (Anthropic) omit it, and the
+        embeddings endpoint reports a clear 400. Raises RuntimeError on an
+        upstream/transport error.
         """
         ...
 

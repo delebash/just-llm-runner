@@ -1,0 +1,45 @@
+{
+  "config_field": "response_schema",
+  "parsed": {
+    "characters": [
+      {
+        "name": "Mara",
+        "role": "Protagonist",
+        "oneLiner": "A person leaving the lighthouse with a brass key.",
+        "aliases": [],
+        "evidence": "Mara slipped the brass key into her coat"
+      },
+      {
+        "name": "Captain Odo",
+        "role": "Captain",
+        "oneLiner": "The captain of the Merry Gull.",
+        "aliases": [
+          "Odo"
+        ],
+        "evidence": "Captain Odo watched her go"
+      }
+    ],
+    "locations": [
+      {
+        "name": "Lighthouse of Vell",
+        "kind": "Structure",
+        "note": "The location Mara leaves at the start.",
+        "evidence": "left the Lighthouse of Vell"
+      },
+      {
+        "name": "Merry Gull",
+        "kind": "Ship",
+        "note": "The vessel captained by Odo.",
+        "evidence": "railing of the Merry Gull"
+      }
+    ],
+    "objects": [
+      {
+        "name": "brass key",
+        "kind": "Key",
+        "note": "An object taken by Mara.",
+        "evidence": "slipped the brass key into her coat"
+      }
+    ]
+  }
+}

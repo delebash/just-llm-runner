@@ -74,6 +74,79 @@ def pop_reasoning(
     return e, effort, budget
 
 
+def build_chat_messages(
+    messages: list[LLMMessage], system: str | None
+) -> list[dict]:
+    """The OpenAI-shape message list: an optional leading system turn, then each turn
+    as ``{"role": …, "content": …}``. The ONE builder shared by the openai-compat +
+    ollama + openai-SDK chat-completions paths (was byte-identical copies on each —
+    C2.0 reuse consolidation, #15)."""
+    out: list[dict] = []
+    if system:
+        out.append({"role": "system", "content": system})
+    for m in messages:
+        out.append({"role": m.role, "content": m.content})
+    return out
+
+
+def split_system(
+    messages: list[LLMMessage], system: str | None
+) -> tuple[str | None, list[LLMMessage]]:
+    """Sweep the system text out of a turn list: collect the ``system=`` kwarg plus any
+    ``role="system"`` turns, join with a blank line, and return ``(joined_or_None,
+    non_system_turns)`` — the remainder as ``LLMMessage``s for each adapter to map to its
+    own wire shape (anthropic dict-ifies, gemini → Content/Part, the openai Responses
+    input array). Source of truth: anthropic's ``_split_system`` (#15 C2.0)."""
+    parts: list[str] = []
+    if system:
+        parts.append(system)
+    rest: list[LLMMessage] = []
+    for m in messages:
+        if m.role == "system":
+            parts.append(m.content)
+            continue
+        rest.append(m)
+    return ("\n\n".join(parts) if parts else None, rest)
+
+
+def select_allowed(
+    extra: dict[str, Any] | None,
+    allowed: set[str],
+    renames: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """The sampler allowlist filter: keep only keys in ``allowed`` from a per-call
+    ``extra``, applying ``renames`` (source key → wire key). ``extra=None`` → ``{}``.
+    Everything a typed cloud API doesn't speak (min_p, mirostat*, the samplers order
+    array, …) is DROPPED here — the min_p-400 fix at the boundary. Shared by anthropic
+    ``_map_extra``, gemini ``_build_config``, openai_sdk's param profiles (#15 C2.0)."""
+    if not extra:
+        return {}
+    renames = renames or {}
+    out: dict[str, Any] = {}
+    for k, v in extra.items():
+        if k in allowed:
+            out[renames.get(k, k)] = v
+    return out
+
+
+def adapter_http_error(
+    provider_type: str,
+    status: int | None,
+    detail: str,
+    *,
+    stream: bool = False,
+) -> RuntimeError:
+    """The D10 adapter-error contract in ONE place so the JW error envelope +
+    friendly-error mapping keep parsing (they regex a 3-digit status). Non-stream →
+    ``"{ptype} {status}: {detail[:400]}"``; stream → ``"{ptype} stream {status}: …"``;
+    ``status=None`` (transport/connection) → ``"{ptype} request failed: {detail}"``
+    (#15 C2.0)."""
+    if status is None:
+        return RuntimeError(f"{provider_type} request failed: {detail}")
+    kind = "stream " if stream else ""
+    return RuntimeError(f"{provider_type} {kind}{status}: {str(detail)[:400]}")
+
+
 @runtime_checkable
 class LLMAdapter(Protocol):
     """The contract every LLM provider adapter satisfies."""

@@ -1,44 +1,68 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Google Gemini adapter.
+"""Google Gemini adapter — the official ``google-genai`` SDK (the 2026-07-17 SDK pivot,
+#15 C2).
 
-Speaks the v1beta generativelanguage API
-(https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent).
-Distinct from OpenAI chat-completions: messages are "contents", roles are
-"user" | "model" (not "user" | "assistant"), and the system prompt goes
-into a top-level `systemInstruction` field.
+Speaks the SDK's first-class typed surface ``client.models.generate_content`` /
+``generate_content_stream`` (D2, RULED 2026-07-17 "so use generate_content" — NOT the
+SDK's ``interactions`` plumbing; generate_content is stateless by construction, creating
+no server-side object, which satisfies the never-persist ruling). Gemini's wire quirks —
+roles "user"|"model" (not "assistant"), the system prompt in a top-level
+``system_instruction``, thinking via ``thinking_config`` — are all typed SDK fields now,
+so the ``min_p`` 400 unknown-field bug dies at the boundary: ``_build_config`` only ever
+sets params Gemini speaks.
 
-Lifted verbatim from JustVoice `server/justvoice/engines/llm/gemini.py`
-into the shared `llm_runner` package (2026-06-21 AI-stack convergence).
+Thinking (D6-A, the user's HELD ruling 2026-07-17: "also keep numeric rows … unless the
+interactions sdk changes that"): the reasoning-map keeps its NUMERIC seed rows —
+think-off OMITS ``thinking_config`` (model default), think-on + a number →
+``thinking_budget=n`` (incl. -1 = documented dynamic), think-on + a word →
+``thinking_level=word``. The numeric choice rides THIS generate_content surface; if the
+adapter ever moves to the SDK's ``interactions`` surface (which speaks thinking_level
+words), the mapping REOPENS for a fresh ruling.
+
+Grounded on the 2026-07-17 LIVE PROOF (real API calls; key never persisted) + installed
+``google-genai==2.12.1`` introspection — see
+``docs/plans/2026-07-17-provider-native-dialects-plan.md`` §0.5.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Iterator
 
-import httpx
+from google import genai
+from google.genai import errors as gerrors
+from google.genai import types as gtypes
 
-from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning
+from .base import (
+    LLMMessage,
+    LLMResponse,
+    StreamDelta,
+    adapter_http_error,
+    pop_reasoning,
+    select_allowed,
+    split_system,
+)
 
 log = logging.getLogger(__name__)
 
 
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com"
-DEFAULT_MODEL = "gemini-2.5-flash"
+# gemini-2.5-* is new-user-blocked on current keys (404 "no longer available to new
+# users", live-proven 2026-07-17). The flash-lite alias is live-proven on this tier
+# (proof item 7) and tracks Google's current flash-lite tier instead of rotting like the
+# dated `gemini-2.5-flash` default did.
+DEFAULT_MODEL = "gemini-flash-lite-latest"
 
+# House embed task side ("document"|"query") → Gemini EmbedContentConfig.task_type; ""
+# (or any other value) sends no task_type (proof item 5).
+_TASK_MAP = {"document": "RETRIEVAL_DOCUMENT", "query": "RETRIEVAL_QUERY"}
 
-# Gemini uses "model" where OpenAI/Anthropic use "assistant".
-_ROLE_MAP = {
-    "user": "user",
-    "assistant": "model",
-    "system": "user",  # handled by extraction into systemInstruction
-    "tool": "user",
-}
+# The FinishReason enum name (lowered) → the house LLMResponse.finish_reason contract.
+_FINISH_MAP = {"max_tokens": "length", "stop": "stop"}
 
 
 class GeminiAdapter:
-    """LLM adapter for Google Gemini."""
+    """LLM adapter for Google Gemini over the official google-genai SDK."""
 
     def __init__(
         self,
@@ -51,96 +75,68 @@ class GeminiAdapter:
     ):
         self.provider_id = provider_id
         self.provider_type = "gemini"
-        self._api_key = api_key
-        self._base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
         self.default_model = default_model or DEFAULT_MODEL
-        self._client = httpx.Client(timeout=timeout_seconds)
+        http_options = gtypes.HttpOptions(timeout=timeout_seconds * 1000)  # SDK wants ms
+        if base_url:
+            http_options.base_url = base_url.rstrip("/")
+        self._client = genai.Client(api_key=api_key or "", http_options=http_options)
 
-    def _params(self) -> dict[str, str]:
-        # Gemini takes the key as a query param, not a header.
-        return {"key": self._api_key} if self._api_key else {}
-
-    def _build_payload(
-        self,
-        messages: list[LLMMessage],
-        system: str | None,
+    @staticmethod
+    def _build_config(
         *,
+        system: str | None,
         temperature: float | None,
         max_tokens: int | None,
+        think: bool,
+        effort: str,
+        budget: int | None,
+        extra: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        contents: list[dict] = []
-        sys_parts: list[str] = []
+        """Map the house call contract → GenerateContentConfig kwargs. Typed fields
+        ONLY — anything Gemini doesn't speak is dropped HERE (the min_p-400 fix)."""
+        cfg: dict[str, Any] = {}
         if system:
-            sys_parts.append(system)
-        for m in messages:
-            if m.role == "system":
-                sys_parts.append(m.content)
-                continue
-            contents.append(
-                {
-                    "role": _ROLE_MAP.get(m.role, "user"),
-                    "parts": [{"text": m.content}],
-                }
-            )
-
-        gen: dict[str, Any] = {}
+            cfg["system_instruction"] = system
         if temperature is not None:
-            gen["temperature"] = temperature
-        payload: dict[str, Any] = {
-            "contents": contents,
-            "generationConfig": gen,
-        }
+            cfg["temperature"] = temperature
         if max_tokens is not None:
-            payload["generationConfig"]["maxOutputTokens"] = max_tokens
-        if sys_parts:
-            payload["systemInstruction"] = {
-                "parts": [{"text": "\n\n".join(sys_parts)}]
-            }
-        return payload
+            cfg["max_output_tokens"] = max_tokens
+        # Gemini's typed sampler set + the stop→stop_sequences rename; everything else
+        # (min_p, mirostat*, the samplers order array, …) drops via the shared allowlist.
+        cfg.update(select_allowed(
+            extra,
+            {"top_p", "top_k", "seed", "presence_penalty", "frequency_penalty", "stop"},
+            renames={"stop": "stop_sequences"},
+        ))
+        rf = (extra or {}).get("response_format")
+        if isinstance(rf, dict) and rf.get("type") in ("json_object", "json", "json_schema"):
+            cfg["response_mime_type"] = "application/json"
+            schema = (rf.get("json_schema") or {}).get("schema")
+            if rf.get("type") == "json_schema" and isinstance(schema, dict):
+                cfg["response_json_schema"] = schema  # raw JSON Schema — proof item 4
+        # Thinking (D6-A): off → OMIT thinking_config (model default = today's semantics);
+        # on + number → thinking_budget (incl. -1 dynamic); on + word → thinking_level.
+        if think:
+            if effort in ("minimal", "low", "medium", "high"):
+                # FORWARD-COMPAT / currently unreachable: gemini's seed rows are NUMERIC and
+                # the Reasoning-levels editor hides gemini's word column (ProviderForm
+                # NUMBER_ONLY_TYPES), so no word reaches here under D6-A today.
+                cfg["thinking_config"] = gtypes.ThinkingConfig(thinking_level=effort)
+            elif budget is not None:
+                cfg["thinking_config"] = gtypes.ThinkingConfig(thinking_budget=budget)
+        return cfg
 
-    # openai-compat `extra` key -> Gemini generationConfig (camelCase). Keys absent
-    # here (min_p, mirostat, dry_*, xtc_*, top_n_sigma, …) Gemini doesn't support → dropped.
-    _GEN_KEYS = {
-        "top_p": "topP", "top_k": "topK", "max_tokens": "maxOutputTokens",
-        "stop": "stopSequences", "seed": "seed",
-        "presence_penalty": "presencePenalty", "frequency_penalty": "frequencyPenalty",
-    }
-
-    @classmethod
-    def _apply_extra(cls, payload: dict, extra: dict | None) -> None:
-        """Route per-call `extra` into Gemini's generationConfig (camelCase, mapped
-        names) + responseMimeType for JSON; drop params Gemini doesn't support.
-        (Was payload.update(extra) → top-level keys Gemini ignored; #18 / #22 / §8.)"""
-        if not extra:
-            return
-        gc = payload.setdefault("generationConfig", {})
-        for k, v in extra.items():
-            if k == "response_format":
-                fmt = v.get("type") if isinstance(v, dict) else v
-                # C1: a schema rides as generationConfig.responseSchema alongside
-                # the JSON mime; plain JSON mode sets the mime only, as before.
-                schema = (v.get("json_schema") or {}).get("schema") if isinstance(v, dict) else None
-                if fmt in ("json_object", "json", "json_schema"):
-                    gc["responseMimeType"] = "application/json"
-                if fmt == "json_schema" and isinstance(schema, dict):
-                    gc["responseSchema"] = schema
-            elif k in cls._GEN_KEYS:
-                gc[cls._GEN_KEYS[k]] = v
-
-    @classmethod
-    def _apply_reasoning(cls, payload: dict, think: bool, effort: str, budget: int | None) -> None:
-        """Gemini thinking (a1/E2, U2-T5): generationConfig.thinkingConfig.thinkingBudget =
-        the resolved NUMBER from the reasoning_map (no adapter table any more — the old
-        `_THINK_BUDGET` is gone; gemini's map seeds preserve 2048/8192/24576, max = -1
-        dynamic). Only set when reasoning is on AND a number was resolved: `budget is None`
-        (no number) ⇒ claim NOTHING (the old `else 8192` silently substituted a number
-        BELOW High — the Max<High bug). A resolved number passes through verbatim, INCLUDING
-        -1 (documented dynamic/unlimited). A no-thinking-default model is untouched when off;
-        3.x's thinkingLevel path is a later pass. `effort` is unused (gemini speaks numbers)."""
-        if not think or budget is None:
-            return
-        gc = payload.setdefault("generationConfig", {})
-        gc["thinkingConfig"] = {"thinkingBudget": budget}
+    @staticmethod
+    def _contents(turns: list[LLMMessage]) -> list[gtypes.Content]:
+        # Content/Part construction offline-verified 2026-07-17 (google-genai==2.12.1):
+        # types.Content(role='user', parts=[types.Part(text='x')]) constructs fine.
+        return [
+            gtypes.Content(
+                role=("model" if m.role == "assistant" else "user"),
+                parts=[gtypes.Part(text=m.content)],
+            )
+            for m in turns
+        ]
 
     def chat(
         self,
@@ -153,34 +149,38 @@ class GeminiAdapter:
         think: bool = False,
         extra: dict[str, Any] | None = None,
     ) -> LLMResponse:
-        model_id = model or self.default_model
-        payload = self._build_payload(
-            messages, system, temperature=temperature, max_tokens=max_tokens
-        )
         extra, effort, budget = pop_reasoning(extra)
-        self._apply_extra(payload, extra)
-        self._apply_reasoning(payload, think, effort, budget)
-
-        url = f"{self._base_url}/v1beta/models/{model_id}:generateContent"
+        sys_text, turns = split_system(messages, system)
+        config = gtypes.GenerateContentConfig(**self._build_config(
+            system=sys_text, temperature=temperature, max_tokens=max_tokens,
+            think=think, effort=effort, budget=budget, extra=extra,
+        ))
+        model_id = (model or self.default_model).removeprefix("models/")
         try:
-            r = self._client.post(url, json=payload, params=self._params())
-        except httpx.HTTPError as e:
-            raise RuntimeError(f"gemini request failed: {e}") from e
-        if r.status_code >= 400:
-            raise RuntimeError(f"gemini {r.status_code}: {r.text[:400]}")
+            r = self._client.models.generate_content(
+                model=model_id, contents=self._contents(turns), config=config
+            )
+        except gerrors.APIError as e:
+            raise adapter_http_error("gemini", e.code, str(e)) from e
+        except Exception as e:  # transport / other
+            raise adapter_http_error("gemini", None, str(e)) from e
 
-        data = r.json()
-        candidate = (data.get("candidates") or [{}])[0]
-        parts = (candidate.get("content") or {}).get("parts") or []
-        text = "".join(p.get("text", "") for p in parts)
-        usage = data.get("usageMetadata") or {}
+        cand = r.candidates[0] if r.candidates else None
+        parts = (cand.content.parts if cand and cand.content else None) or []
+        # NOT r.text — it can raise/warn on non-text parts (thought signatures etc.).
+        text = "".join(p.text or "" for p in parts)
+        finish = "stop"
+        if cand is not None and cand.finish_reason is not None:
+            name = cand.finish_reason.name.lower()
+            finish = _FINISH_MAP.get(name, name)
+        um = r.usage_metadata
         return LLMResponse(
             text=text,
             model=model_id,
-            finish_reason=candidate.get("finishReason", "stop").lower(),
-            prompt_tokens=int(usage.get("promptTokenCount") or 0),
-            completion_tokens=int(usage.get("candidatesTokenCount") or 0),
-            raw=data,
+            finish_reason=finish,
+            prompt_tokens=(um.prompt_token_count or 0) if um else 0,
+            completion_tokens=(um.candidates_token_count or 0) if um else 0,
+            raw=r.model_dump(exclude_none=True),
         )
 
     def stream_chat(
@@ -188,75 +188,80 @@ class GeminiAdapter:
         messages: list[LLMMessage],
         *,
         model: str | None = None,
-        temperature: float = 0.7,
+        temperature: float | None = 0.7,
         max_tokens: int | None = None,
         system: str | None = None,
         think: bool = False,
         extra: dict[str, Any] | None = None,
     ) -> Iterator[StreamDelta]:
-        model_id = model or self.default_model
-        payload = self._build_payload(
-            messages, system, temperature=temperature, max_tokens=max_tokens
-        )
         extra, effort, budget = pop_reasoning(extra)
-        self._apply_extra(payload, extra)
-        self._apply_reasoning(payload, think, effort, budget)
-
-        url = f"{self._base_url}/v1beta/models/{model_id}:streamGenerateContent"
-        params = {**self._params(), "alt": "sse"}
+        sys_text, turns = split_system(messages, system)
+        config = gtypes.GenerateContentConfig(**self._build_config(
+            system=sys_text, temperature=temperature, max_tokens=max_tokens,
+            think=think, effort=effort, budget=budget, extra=extra,
+        ))
+        model_id = (model or self.default_model).removeprefix("models/")
         pt = ct = 0
-        with self._client.stream("POST", url, json=payload, params=params) as r:
-            if r.status_code >= 400:
-                detail = r.read().decode("utf-8", errors="replace")
-                raise RuntimeError(f"gemini stream {r.status_code}: {detail[:400]}")
-            for line in r.iter_lines():
-                if not line or not line.startswith("data:"):
-                    continue
-                data_s = line[5:].strip()
-                if not data_s:
-                    continue
-                try:
-                    evt = json.loads(data_s)
-                except json.JSONDecodeError:
-                    continue
-                um = evt.get("usageMetadata") or {}
-                if um:
-                    pt = int(um.get("promptTokenCount") or 0)
-                    ct = int(um.get("candidatesTokenCount") or 0)
-                cand = (evt.get("candidates") or [{}])[0]
-                parts = (cand.get("content") or {}).get("parts") or []
-                chunk = "".join(p.get("text", "") for p in parts)
-                if chunk:
-                    yield StreamDelta(text=chunk)
+        try:
+            stream = self._client.models.generate_content_stream(
+                model=model_id, contents=self._contents(turns), config=config
+            )
+            for chunk in stream:
+                um = chunk.usage_metadata
+                if um is not None:  # final chunk authoritative (proof item 2)
+                    if um.prompt_token_count is not None:
+                        pt = um.prompt_token_count
+                    if um.candidates_token_count is not None:
+                        ct = um.candidates_token_count
+                cand = chunk.candidates[0] if chunk.candidates else None
+                parts = (cand.content.parts if cand and cand.content else None) or []
+                piece = "".join(p.text or "" for p in parts)
+                if piece:
+                    yield StreamDelta(text=piece)
+        except gerrors.APIError as e:
+            raise adapter_http_error("gemini", e.code, str(e), stream=True) from e
+        except Exception as e:
+            raise adapter_http_error("gemini", None, str(e)) from e
         yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
 
     def models(self) -> list[str]:
         try:
-            r = self._client.get(
-                f"{self._base_url}/v1beta/models", params=self._params()
-            )
-            if r.status_code >= 400:
-                return []
-            data = r.json()
-        except (httpx.HTTPError, json.JSONDecodeError):
+            out: list[str] = []
+            for m in self._client.models.list():
+                actions = getattr(m, "supported_actions", None)
+                # D7: keep only chat/embed-capable ids (drops veo/imagen/lyria/aqa/… noise);
+                # a missing/None supported_actions is treated as KEEP.
+                if actions and not ({"generateContent", "embedContent"} & set(actions)):
+                    continue
+                mid = (m.name or "").removeprefix("models/")
+                if mid:
+                    out.append(mid)
+            return out
+        except Exception:
             return []
-        out: list[str] = []
-        for m in data.get("models") or []:
-            mid = m.get("name") or ""
-            # Strip the "models/" prefix Google includes.
-            if mid.startswith("models/"):
-                mid = mid[7:]
-            if mid:
-                out.append(mid)
-        return out
+
+    def embed(
+        self, texts: list[str], *, model: str | None = None, task_type: str = ""
+    ) -> list[list[float]]:
+        m = (model or "gemini-embedding-001").removeprefix("models/")
+        cfg = (
+            gtypes.EmbedContentConfig(task_type=_TASK_MAP[task_type])
+            if task_type in _TASK_MAP
+            else None
+        )
+        try:
+            r = self._client.models.embed_content(model=m, contents=list(texts), config=cfg)
+        except gerrors.APIError as e:
+            raise adapter_http_error("gemini", e.code, str(e)) from e
+        except Exception as e:
+            raise adapter_http_error("gemini", None, str(e)) from e
+        return [list(e.values) for e in r.embeddings]
 
     def ping(self) -> bool:
         try:
-            r = self._client.get(
-                f"{self._base_url}/v1beta/models",
-                params=self._params(),
-                timeout=5.0,
-            )
-            return r.status_code < 500
-        except httpx.HTTPError:
+            next(iter(self._client.models.list()), None)  # fetches page 1 (a real call)
+            return True
+        except gerrors.APIError as e:
+            return e.code < 500 if isinstance(e.code, int) else False
+        except Exception:
             return False

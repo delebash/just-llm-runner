@@ -16,7 +16,7 @@ from typing import Any, Iterator
 
 import httpx
 
-from .base import LLMMessage, LLMResponse, StreamDelta, pop_reasoning
+from .base import LLMMessage, LLMResponse, StreamDelta, build_chat_messages, pop_reasoning
 
 log = logging.getLogger(__name__)
 
@@ -89,17 +89,6 @@ class OpenAICompatAdapter:
             h["authorization"] = f"Bearer {self._api_key}"
         return h
 
-    @staticmethod
-    def _build_messages(
-        messages: list[LLMMessage], system: str | None
-    ) -> list[dict]:
-        out: list[dict] = []
-        if system:
-            out.append({"role": "system", "content": system})
-        for m in messages:
-            out.append({"role": m.role, "content": m.content})
-        return out
-
     def _apply_reasoning(self, body: dict, think: bool, effort: str, budget: int | None) -> None:
         """Emit this server's native reasoning control from the RESOLVED values (U2-T5).
         The bundled local llama.cpp runner gets the explicit `chat_template_kwargs.
@@ -149,7 +138,7 @@ class OpenAICompatAdapter:
     ) -> LLMResponse:
         body: dict[str, Any] = {
             "model": model or self.default_model,
-            "messages": self._build_messages(messages, system),
+            "messages": build_chat_messages(messages, system),
         }
         if temperature is not None:
             body["temperature"] = temperature
@@ -199,7 +188,7 @@ class OpenAICompatAdapter:
     ) -> Iterator[StreamDelta]:
         body: dict[str, Any] = {
             "model": model or self.default_model,
-            "messages": self._build_messages(messages, system),
+            "messages": build_chat_messages(messages, system),
             "stream": True,
             # Ask for a final usage frame (servers that don't support it ignore
             # the field; we just report 0 tokens then).

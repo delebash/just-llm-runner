@@ -1,0 +1,59 @@
+[
+  {
+    "candidates": [
+      {
+        "content": {
+          "parts": [
+            {
+              "text": "One, two, three, four, five."
+            }
+          ],
+          "role": "model"
+        },
+        "index": 0
+      }
+    ],
+    "model_version": "gemini-3.1-flash-lite",
+    "response_id": "v8Faavq4BvqGqtsPiqri4AQ",
+    "usage_metadata": {
+      "candidates_token_count": 10,
+      "prompt_token_count": 7,
+      "prompt_tokens_details": [
+        {
+          "modality": "TEXT",
+          "token_count": 7
+        }
+      ],
+      "total_token_count": 17
+    }
+  },
+  {
+    "candidates": [
+      {
+        "content": {
+          "parts": [
+            {
+              "text": ""
+            }
+          ],
+          "role": "model"
+        },
+        "finish_reason": "STOP",
+        "index": 0
+      }
+    ],
+    "model_version": "gemini-3.1-flash-lite",
+    "response_id": "v8Faavq4BvqGqtsPiqri4AQ",
+    "usage_metadata": {
+      "candidates_token_count": 10,
+      "prompt_token_count": 7,
+      "prompt_tokens_details": [
+        {
+          "modality": "TEXT",
+          "token_count": 7
+        }
+      ],
+      "total_token_count": 17
+    }
+  }
+]

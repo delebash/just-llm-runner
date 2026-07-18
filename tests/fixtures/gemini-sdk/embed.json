@@ -1,0 +1,20 @@
+{
+  "document_dims": [
+    3072,
+    3072
+  ],
+  "query_768_dims": [
+    768
+  ],
+  "sample_head": [
+    0.011473546,
+    0.007823722,
+    -0.0046398886,
+    -0.07850537
+  ],
+  "response_fields": [
+    "embeddings",
+    "metadata",
+    "sdk_http_response"
+  ]
+}

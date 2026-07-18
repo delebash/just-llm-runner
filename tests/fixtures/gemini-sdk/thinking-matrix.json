@@ -1,0 +1,43 @@
+[
+  {
+    "model": "gemini-3.1-flash-lite",
+    "case": "budget=256",
+    "ok": true,
+    "thoughts_tokens": 144,
+    "out_tokens": 2
+  },
+  {
+    "model": "gemini-3.1-flash-lite",
+    "case": "budget=0",
+    "ok": true,
+    "thoughts_tokens": null,
+    "out_tokens": 2
+  },
+  {
+    "model": "gemini-3.1-flash-lite",
+    "case": "level=minimal",
+    "ok": true,
+    "thoughts_tokens": null,
+    "out_tokens": 2
+  },
+  {
+    "model": "gemini-3.1-flash-lite",
+    "case": "level=low",
+    "ok": true,
+    "thoughts_tokens": 144,
+    "out_tokens": 2
+  },
+  {
+    "model": "gemini-3.1-flash-lite",
+    "case": "level=high",
+    "ok": true,
+    "thoughts_tokens": 88,
+    "out_tokens": 2
+  },
+  {
+    "model": "gemini-3.1-pro-preview",
+    "case": "level=low",
+    "ok": false,
+    "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_to"
+  }
+]

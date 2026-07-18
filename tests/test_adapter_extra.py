@@ -4,8 +4,13 @@ adapters did body/payload.update(extra), which left sampling params top-level an
 the backends ignored them (so top_p / response_format / the long-tail samplers all
 silently dropped). These verify the corrected nesting/mapping."""
 
+import pytest
+from google.genai import errors as gerrors
+from google.genai import types as gtypes
+
+from _sdk_fakes import KwargsCapture, load_fixture
 from llm_runner.llm.anthropic import AnthropicAdapter
-from llm_runner.llm.base import pop_reasoning
+from llm_runner.llm.base import LLMMessage, pop_reasoning
 from llm_runner.llm.gemini import GeminiAdapter
 from llm_runner.llm.ollama import OllamaAdapter
 from llm_runner.llm.openai_compat import OpenAICompatAdapter
@@ -24,27 +29,32 @@ def test_ollama_extra_nests_under_options_and_format():
     assert "top_p" not in body                # NOT left at the top level (the bug)
 
 
-def test_gemini_extra_maps_to_generationconfig_and_drops_unsupported():
-    payload = {"generationConfig": {"temperature": 0.7}}
-    GeminiAdapter._apply_extra(payload, {
-        "top_p": 0.9, "top_k": 40, "min_p": 0.05, "mirostat": 2,
-        "response_format": {"type": "json_object"},
-    })
-    gc = payload["generationConfig"]
-    assert gc["topP"] == 0.9                   # mapped to camelCase
-    assert gc["topK"] == 40
-    assert gc["responseMimeType"] == "application/json"
-    assert "min_p" not in gc and "mirostat" not in gc  # unsupported by Gemini → dropped
-    assert "top_p" not in payload              # NOT left at the top level (the bug)
+def test_gemini_build_config_maps_typed_and_drops_unsupported():
+    # SDK rewrite (#15 C2): _build_config keeps ONLY Gemini's typed params + the stop
+    # rename; the min_p-400 trigger bug dies here — unsupported samplers are DROPPED,
+    # never merged (red-first against a naive `cfg.update(extra)`).
+    cfg = GeminiAdapter._build_config(
+        system="s", temperature=0.7, max_tokens=64, think=False, effort="", budget=None,
+        extra={"top_p": 0.9, "top_k": 40, "seed": 7, "stop": ["END"],
+               "min_p": 0.05, "mirostat": 2, "samplers": ["top_k", "top_p"]},
+    )
+    assert cfg["top_p"] == 0.9 and cfg["top_k"] == 40 and cfg["seed"] == 7
+    assert cfg["stop_sequences"] == ["END"] and "stop" not in cfg   # renamed
+    assert cfg["system_instruction"] == "s" and cfg["max_output_tokens"] == 64
+    assert "min_p" not in cfg and "mirostat" not in cfg and "samplers" not in cfg
+    gtypes.GenerateContentConfig(**cfg)   # builds a REAL typed config (raises on unknown)
 
 
-def test_apply_extra_none_is_noop():
+def test_gemini_build_config_empty_extra_is_bare():
+    cfg = GeminiAdapter._build_config(system=None, temperature=None, max_tokens=None,
+                                      think=False, effort="", budget=None, extra=None)
+    assert cfg == {}
+
+
+def test_ollama_apply_extra_none_is_noop():
     body = {"options": {}}
     OllamaAdapter._apply_extra(body, None)
     assert body == {"options": {}}
-    payload = {"generationConfig": {}}
-    GeminiAdapter._apply_extra(payload, None)
-    assert payload == {"generationConfig": {}}
 
 
 # ── reasoning: the resolved word/budget → each backend's native control (U2-T5) ──
@@ -95,22 +105,20 @@ def test_anthropic_reasoning_legacy_vs_new_model():
     assert "thinking" not in b5 and b5["temperature"] == 0.7
 
 
-def test_gemini_reasoning_uses_resolved_budget():
-    p = {"generationConfig": {"temperature": 0.7}}
-    GeminiAdapter._apply_reasoning(p, True, "", 2048)   # the resolved NUMBER, not a table lookup
-    assert p["generationConfig"]["thinkingConfig"] == {"thinkingBudget": 2048}
-    p2 = {"generationConfig": {}}
-    GeminiAdapter._apply_reasoning(p2, False, "", 2048)
-    assert "thinkingConfig" not in p2["generationConfig"]   # off → omit
-    # budget None (no number resolved) → claim NOTHING (the old `else 8192` sent a number
-    # below High — the Max<High bug).
-    p3 = {"generationConfig": {}}
-    GeminiAdapter._apply_reasoning(p3, True, "", None)
-    assert "thinkingConfig" not in p3["generationConfig"]
-    # -1 passes through verbatim (documented dynamic/unlimited — the gemini `max` seed).
-    p4 = {"generationConfig": {}}
-    GeminiAdapter._apply_reasoning(p4, True, "", -1)
-    assert p4["generationConfig"]["thinkingConfig"] == {"thinkingBudget": -1}
+def test_gemini_build_config_thinking_off_word_number():
+    base = dict(system=None, temperature=None, max_tokens=None, extra=None)
+    # off → OMIT thinking_config (model default = today's semantics)
+    assert "thinking_config" not in GeminiAdapter._build_config(think=False, effort="", budget=2048, **base)
+    # think on + a NUMBER → thinking_budget (the resolved map value, not a table lookup)
+    tc = GeminiAdapter._build_config(think=True, effort="", budget=2048, **base)["thinking_config"]
+    assert tc.thinking_budget == 2048 and tc.thinking_level is None
+    # -1 passes through verbatim (documented dynamic/unlimited — the gemini `max` seed)
+    assert GeminiAdapter._build_config(think=True, effort="", budget=-1, **base)["thinking_config"].thinking_budget == -1
+    # think on + a WORD → thinking_level (forward-compat branch, D6-A)
+    tl = GeminiAdapter._build_config(think=True, effort="high", budget=None, **base)["thinking_config"]
+    assert tl.thinking_level is not None and tl.thinking_budget is None
+    # think on but neither a word nor a number resolved → still OMIT (claim nothing)
+    assert "thinking_config" not in GeminiAdapter._build_config(think=True, effort="", budget=None, **base)
 
 
 def test_openai_compat_reasoning_cloud_vs_local():
@@ -158,19 +166,132 @@ def test_ollama_schema_rides_format():
     assert body["format"] == "json"
 
 
-def test_gemini_schema_rides_response_schema():
-    # C1: a json_schema response_format sets generationConfig.responseSchema
-    # alongside the JSON mime; plain json sets the mime only.
-    from llm_runner.llm.gemini import GeminiAdapter
-    payload = {}
-    GeminiAdapter._apply_extra(payload, {"response_format": {"type": "json_schema", "json_schema": {
-        "name": "k", "schema": {"type": "object"}, "strict": True}}})
-    gc = payload["generationConfig"]
-    assert gc["responseMimeType"] == "application/json"
-    assert gc["responseSchema"] == {"type": "object"}
-    payload = {}
-    GeminiAdapter._apply_extra(payload, {"response_format": {"type": "json_object"}})
-    assert payload["generationConfig"] == {"responseMimeType": "application/json"}
+def test_gemini_build_config_response_schema_and_json_object():
+    base = dict(system=None, temperature=None, max_tokens=None, think=False, effort="", budget=None)
+    # json_schema → the RAW JSON Schema rides response_json_schema + the JSON mime (proof item 4)
+    cfg = GeminiAdapter._build_config(extra={"response_format": {"type": "json_schema",
+        "json_schema": {"name": "k", "schema": {"type": "object"}, "strict": True}}}, **base)
+    assert cfg["response_mime_type"] == "application/json"
+    assert cfg["response_json_schema"] == {"type": "object"}
+    # json_object → the mime ONLY, no schema
+    cfg2 = GeminiAdapter._build_config(extra={"response_format": {"type": "json_object"}}, **base)
+    assert cfg2 == {"response_mime_type": "application/json"}
+
+
+# ── #15 C2: the google-genai SDK surface (chat/stream/models/embed/errors) over a fake
+#    client, with response objects rebuilt from the committed LIVE-PROOF fixtures ──
+
+class _FakeGenaiModels(KwargsCapture):
+    """Fake google-genai `client.models` surface (flat: the adapter calls
+    self._client.models.<method>). Captures kwargs into self.last; returns canned SDK
+    objects, or raises a preset error."""
+
+    def __init__(self, *, response=None, stream=None, model_list=None, embed=None, error=None):
+        super().__init__()
+        self.models = self  # flat: .models.generate_content etc. resolve to this object
+        self._response = response
+        self._stream = stream or []
+        self._model_list = model_list or []
+        self._embed = embed
+        self._error = error
+
+    def generate_content(self, *, model, contents, config):
+        self._capture(model=model, contents=contents, config=config)
+        if self._error:
+            raise self._error
+        return self._response
+
+    def generate_content_stream(self, *, model, contents, config):
+        self._capture(model=model, contents=contents, config=config)
+        if self._error:
+            raise self._error
+        return iter(self._stream)
+
+    def list(self):
+        if self._error:
+            raise self._error
+        return iter(self._model_list)
+
+    def embed_content(self, *, model, contents, config):
+        self._capture(model=model, contents=contents, config=config)
+        if self._error:
+            raise self._error
+        return self._embed
+
+
+def _gemini(**fake):
+    a = GeminiAdapter("p", api_key="x")
+    a._client = _FakeGenaiModels(**fake)
+    return a
+
+
+def _resp(fixture):
+    return gtypes.GenerateContentResponse.model_validate(load_fixture(fixture))
+
+
+def test_gemini_chat_parses_text_usage_finish():
+    a = _gemini(response=_resp("gemini-sdk/chat-create.json"))
+    r = a.chat([LLMMessage(role="user", content="hi")], model="models/gemini-3.1-flash-lite")
+    assert r.text == "OK."
+    assert r.prompt_tokens == 11 and r.completion_tokens == 2
+    assert r.finish_reason == "stop"
+    assert r.model == "gemini-3.1-flash-lite"          # the models/ prefix is stripped
+    assert a._client.last["model"] == "gemini-3.1-flash-lite"
+    # the turn was mapped to a real Content/Part (role "user")
+    sent = a._client.last["contents"][0]
+    assert sent.role == "user" and sent.parts[0].text == "hi"
+
+
+def test_gemini_chat_max_tokens_maps_to_length():
+    data = load_fixture("gemini-sdk/chat-create.json")
+    data["candidates"][0]["finish_reason"] = "MAX_TOKENS"
+    a = _gemini(response=gtypes.GenerateContentResponse.model_validate(data))
+    r = a.chat([LLMMessage(role="user", content="hi")])
+    assert r.finish_reason == "length"
+
+
+def test_gemini_stream_assembles_text_and_final_usage():
+    chunks = [gtypes.GenerateContentResponse.model_validate(c)
+              for c in load_fixture("gemini-sdk/chat-stream.json")]
+    a = _gemini(stream=chunks)
+    deltas = list(a.stream_chat([LLMMessage(role="user", content="count")]))
+    assert "".join(d.text for d in deltas if d.text) == "One, two, three, four, five."
+    done = deltas[-1]
+    assert done.done and done.prompt_tokens == 7 and done.completion_tokens == 10
+
+
+def test_gemini_models_filters_to_usable_and_strips_prefix():
+    ms = [
+        gtypes.Model(name="models/gemini-3.1-flash-lite", supported_actions=["generateContent"]),
+        gtypes.Model(name="models/gemini-embedding-001", supported_actions=["embedContent"]),
+        gtypes.Model(name="models/veo-3", supported_actions=["predictLongRunning"]),  # noise
+        gtypes.Model(name="models/mystery"),  # None supported_actions → KEEP
+    ]
+    out = _gemini(model_list=ms).models()
+    assert "gemini-3.1-flash-lite" in out and "gemini-embedding-001" in out
+    assert "veo-3" not in out            # no generate/embed action → dropped (D7)
+    assert "mystery" in out              # missing supported_actions treated as keep
+    assert all(not m.startswith("models/") for m in out)
+
+
+def test_gemini_embed_maps_task_type_and_extracts_vectors():
+    er = gtypes.EmbedContentResponse.model_validate(
+        {"embeddings": [{"values": [0.1, 0.2]}, {"values": [0.3]}]}
+    )
+    a = _gemini(embed=er)
+    assert a.embed(["a", "b"], task_type="document") == [[0.1, 0.2], [0.3]]
+    assert a._client.last["model"] == "gemini-embedding-001"          # default embed model
+    assert a._client.last["config"].task_type == "RETRIEVAL_DOCUMENT"  # mapped task side
+    a2 = _gemini(embed=er)
+    a2.embed(["a"], task_type="")
+    assert a2._client.last["config"] is None                          # "" → no config
+
+
+def test_gemini_chat_error_maps_to_d10():
+    err = gerrors.ClientError(404, {"error": {"code": 404, "message": "nope", "status": "NOT_FOUND"}}, None)
+    with pytest.raises(RuntimeError) as ei:
+        _gemini(error=err).chat([LLMMessage(role="user", content="hi")])
+    assert str(ei.value).startswith("gemini 404:")
 
 
 # ── §7.4 B6-2: return_progress + prompt_progress on the builtin engine ────────

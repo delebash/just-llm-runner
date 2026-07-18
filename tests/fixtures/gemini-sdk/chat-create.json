@@ -1,0 +1,30 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "OK."
+          }
+        ],
+        "role": "model"
+      },
+      "finish_reason": "STOP",
+      "index": 0
+    }
+  ],
+  "model_version": "gemini-3.1-flash-lite",
+  "response_id": "r8FaaqS1A8jnz7IP9tyQyQc",
+  "usage_metadata": {
+    "candidates_token_count": 2,
+    "prompt_token_count": 11,
+    "prompt_tokens_details": [
+      {
+        "modality": "TEXT",
+        "token_count": 11
+      }
+    ],
+    "total_token_count": 13
+  },
+  "automatic_function_calling_history": []
+}

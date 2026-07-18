@@ -76,15 +76,27 @@ class GeminiAdapter:
         self.provider_id = provider_id
         self.provider_type = "gemini"
         self.default_model = default_model or DEFAULT_MODEL
-        http_options = gtypes.HttpOptions(timeout=timeout_seconds * 1000)  # SDK wants ms
-        if base_url:
-            http_options.base_url = base_url.rstrip("/")
-        # A dummy placeholder (never ""): google-genai==2.12.1 raises
-        # `ValueError: No API key was provided` on an empty key with no env fallback, so a
-        # seeded keyless gemini provider must construct with a non-empty stand-in to
-        # register (real calls still 401/403 without a real key). Mirrors openai_sdk's
-        # "sk-no-key" — the C4.1 device (#15).
-        self._client = genai.Client(api_key=api_key or "no-key", http_options=http_options)
+        self._api_key = api_key
+        self._base_url = base_url.rstrip("/") if base_url else ""
+        self._timeout_ms = timeout_seconds * 1000  # the SDK wants ms
+        # Lazy client (#16): construct stores config only; the google-genai client is built
+        # on first real call (_ensure_client). google-genai validates the key at Client()
+        # build (empty key + no env → ValueError), so eager construction of a seeded KEYLESS
+        # gemini row used to need a dummy key to register — deferring the build removes that:
+        # a keyless row registers, and the first real call surfaces the SDK's own no-key
+        # error honestly (chat → RuntimeError "gemini request failed …"; models()/ping()
+        # swallow it → []/False, the unchanged keyless degradation).
+        self._client = None
+
+    def _ensure_client(self):
+        """Build the SDK client once, on first use (#16). Respects an already-set
+        ``self._client`` (tests assign a fake), so it never rebuilds over one."""
+        if self._client is None:
+            http_options = gtypes.HttpOptions(timeout=self._timeout_ms)
+            if self._base_url:
+                http_options.base_url = self._base_url
+            self._client = genai.Client(api_key=self._api_key, http_options=http_options)
+        return self._client
 
     @staticmethod
     def _build_config(
@@ -162,7 +174,7 @@ class GeminiAdapter:
         ))
         model_id = (model or self.default_model).removeprefix("models/")
         try:
-            r = self._client.models.generate_content(
+            r = self._ensure_client().models.generate_content(
                 model=model_id, contents=self._contents(turns), config=config
             )
         except gerrors.APIError as e:
@@ -208,7 +220,7 @@ class GeminiAdapter:
         model_id = (model or self.default_model).removeprefix("models/")
         pt = ct = 0
         try:
-            stream = self._client.models.generate_content_stream(
+            stream = self._ensure_client().models.generate_content_stream(
                 model=model_id, contents=self._contents(turns), config=config
             )
             for chunk in stream:
@@ -232,7 +244,7 @@ class GeminiAdapter:
     def models(self) -> list[str]:
         try:
             out: list[str] = []
-            for m in self._client.models.list():
+            for m in self._ensure_client().models.list():
                 actions = getattr(m, "supported_actions", None)
                 # D7: keep only chat/embed-capable ids (drops veo/imagen/lyria/aqa/… noise);
                 # a missing/None supported_actions is treated as KEEP.
@@ -255,7 +267,7 @@ class GeminiAdapter:
             else None
         )
         try:
-            r = self._client.models.embed_content(model=m, contents=list(texts), config=cfg)
+            r = self._ensure_client().models.embed_content(model=m, contents=list(texts), config=cfg)
         except gerrors.APIError as e:
             raise adapter_http_error("gemini", e.code, str(e)) from e
         except Exception as e:
@@ -264,7 +276,7 @@ class GeminiAdapter:
 
     def ping(self) -> bool:
         try:
-            next(iter(self._client.models.list()), None)  # fetches page 1 (a real call)
+            next(iter(self._ensure_client().models.list()), None)  # fetches page 1 (a real call)
             return True
         except gerrors.APIError as e:
             return e.code < 500 if isinstance(e.code, int) else False

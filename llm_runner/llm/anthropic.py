@@ -68,14 +68,27 @@ class AnthropicAdapter:
         self.provider_type = "anthropic"
         self._base_url = (base_url or DEFAULT_BASE_URL).rstrip("/")
         self.default_model = default_model or DEFAULT_MODEL
-        # D9: max_retries=2 (the SDK default) + the provider's timeout + base_url
-        # (equals-default is harmless). The SDK owns the anthropic-version header.
-        self._client = anthropic.Anthropic(
-            api_key=api_key or "",
-            base_url=self._base_url,
-            timeout=timeout_seconds,
-            max_retries=2,
-        )
+        self._api_key = api_key
+        self._timeout_seconds = timeout_seconds
+        # Lazy client (#16): unify the SDK-adapter shape. anthropic.Anthropic already
+        # constructs fine with an empty key (it never needed a dummy), but building it on
+        # first real call keeps all three SDK adapters identical — construct stores config,
+        # _ensure_client builds once. Keyless first call 401s at request time as before.
+        self._client = None
+
+    def _ensure_client(self):
+        """Build the SDK client once, on first use (#16). Respects an already-set
+        ``self._client`` (tests assign a fake), so it never rebuilds over one."""
+        if self._client is None:
+            # D9: max_retries=2 (the SDK default) + the provider's timeout + base_url
+            # (equals-default is harmless). The SDK owns the anthropic-version header.
+            self._client = anthropic.Anthropic(
+                api_key=self._api_key or "",
+                base_url=self._base_url,
+                timeout=self._timeout_seconds,
+                max_retries=2,
+            )
+        return self._client
 
     # ── Helpers ─────────────────────────────────────────────────────
 
@@ -184,7 +197,7 @@ class AnthropicAdapter:
             system=system, think=think, extra=extra,
         )
         try:
-            msg = self._client.messages.create(**kwargs)
+            msg = self._ensure_client().messages.create(**kwargs)
         except anthropic.APIStatusError as e:
             raise adapter_http_error("anthropic", e.status_code, str(e)) from e
         except Exception as e:  # connection / timeout / other
@@ -220,7 +233,7 @@ class AnthropicAdapter:
         )
         pt = ct = 0
         try:
-            events = self._client.messages.create(**kwargs, stream=True)
+            events = self._ensure_client().messages.create(**kwargs, stream=True)
             # Raw stream events (introspected on 0.117.0): message_start carries usage on
             # .message.usage; content_block_delta with a text_delta carries .delta.text;
             # message_delta carries the running output_tokens on .usage.
@@ -250,7 +263,7 @@ class AnthropicAdapter:
         # D8: the real /v1/models endpoint (exists since 2025); fall back to the curated
         # list on ANY error so the works-without-a-key behavior survives.
         try:
-            return [m.id for m in self._client.models.list()]
+            return [m.id for m in self._ensure_client().models.list()]
         except Exception:
             return list(_CURATED_MODELS)
 
@@ -261,7 +274,7 @@ class AnthropicAdapter:
     def ping(self) -> bool:
         try:
             # Tiny ping: ask for 1 token. Cheap + validates the key.
-            self._client.messages.create(
+            self._ensure_client().messages.create(
                 model=self.default_model,
                 messages=[{"role": "user", "content": "ping"}],
                 max_tokens=1,

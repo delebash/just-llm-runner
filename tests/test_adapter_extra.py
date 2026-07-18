@@ -294,17 +294,42 @@ def test_gemini_chat_error_maps_to_d10():
     assert str(ei.value).startswith("gemini 404:")
 
 
-def test_gemini_constructs_keyless_when_no_env_key(monkeypatch):
-    # PRE-FIX (#15, the C4.1 sk-no-key device): a seeded keyless gemini provider must
-    # CONSTRUCT + register so JW test_seed's `all(registered)` holds on a box with no
-    # GEMINI_API_KEY/GOOGLE_API_KEY. google-genai==2.12.1 raises
-    # `ValueError: No API key was provided` on an EMPTY api_key with no env key, so the
-    # constructor passes the "no-key" placeholder. RED before the fix: this construct
-    # raised ValueError (real calls still 401/403 without a key; models()/ping() swallow).
+# ── #16: lazy SDK-client construction — the dummy keys are GONE. Each SDK adapter now
+#    constructs cheap (stores config only) and builds its vendor client on first real call
+#    (_ensure_client), so a seeded KEYLESS provider registers with no placeholder key; the
+#    first real call surfaces the SDK's own no-key error (chat → RuntimeError "… request
+#    failed …"), while models()/ping() swallow it → []/False (unchanged keyless degrade).
+#    RED before #16: __init__ built the client eagerly with a "no-key"/"sk-no-key" dummy,
+#    so `_client` was NOT None at construct and the assertions below failed.
+
+def test_gemini_lazy_keyless_construct_and_degrade(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     a = GeminiAdapter("p", api_key="")
-    assert a.provider_type == "gemini"
+    assert a._client is None                        # nothing built at construct (no dummy key)
+    assert a.models() == [] and a.ping() is False   # keyless degrades (the SDK ValueError swallowed)
+    with pytest.raises(RuntimeError) as ei:         # a real call surfaces it honestly
+        a.chat([LLMMessage(role="user", content="hi")])
+    assert str(ei.value).startswith("gemini request failed")
+
+
+def test_openai_sdk_lazy_keyless_construct_and_degrade(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    a = OpenAISDKAdapter("p", "openai", api_key="")
+    assert a._client is None                        # no "sk-no-key" dummy built at construct
+    assert a.models() == [] and a.ping() is False   # keyless degrades (the SDK OpenAIError swallowed)
+    with pytest.raises(RuntimeError) as ei:
+        a.chat([LLMMessage(role="user", content="hi")])
+    assert str(ei.value).startswith("openai request failed")
+
+
+def test_anthropic_lazy_client_built_once():
+    # Anthropic never needed a dummy (its SDK constructs fine keyless), but #16 unifies the
+    # SDK-adapter shape: construct stores config, _ensure_client builds once and caches.
+    a = AnthropicAdapter("p", api_key="")
+    assert a._client is None
+    c1 = a._ensure_client()
+    assert type(c1).__name__ == "Anthropic" and a._ensure_client() is c1  # built once, cached
 
 
 # ── #15 C3: the anthropic SDK surface (allowlist / chat / stream / models / errors) ──

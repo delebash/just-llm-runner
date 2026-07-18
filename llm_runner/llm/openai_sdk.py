@@ -115,14 +115,28 @@ class OpenAISDKAdapter:
                 f"provider {provider_id} ({provider_type}) has no base_url "
                 f"and no default available — set base_url in the provider config"
             )
-        # D9: max_retries=2 (SDK default) + the provider's timeout + base_url. A dummy key
-        # keeps the client constructible for a keyless local gateway; real calls 401 without.
-        self._client = openai.OpenAI(
-            api_key=api_key or "sk-no-key",
-            base_url=self._base_url,
-            timeout=timeout_seconds,
-            max_retries=2,
-        )
+        self._api_key = api_key
+        self._timeout_seconds = timeout_seconds
+        # Lazy client (#16): the openai SDK validates the key at OpenAI() build (empty key +
+        # no OPENAI_API_KEY env → OpenAIError), so eager construction of a seeded KEYLESS row
+        # used to need a dummy key to register. Deferring the build to first real call removes
+        # it: a keyless row registers; the first real call surfaces the SDK's own no-key error
+        # (chat → RuntimeError "{type} request failed …"; models()/ping() swallow → []/False).
+        # The base_url check above stays EAGER — it's a config error, not a key/network one.
+        self._client = None
+
+    def _ensure_client(self):
+        """Build the SDK client once, on first use (#16). Respects an already-set
+        ``self._client`` (tests assign a fake), so it never rebuilds over one."""
+        if self._client is None:
+            # D9: max_retries=2 (SDK default) + the provider's timeout + base_url.
+            self._client = openai.OpenAI(
+                api_key=self._api_key,
+                base_url=self._base_url,
+                timeout=self._timeout_seconds,
+                max_retries=2,
+            )
+        return self._client
 
     # ── param mapping ───────────────────────────────────────────────
 
@@ -241,8 +255,9 @@ class OpenAISDKAdapter:
     def _responses_create(self, kwargs: dict, *, stream: bool):
         """Create a Responses call; if a reasoning model 400s on `temperature`, pop it and
         retry ONCE with a single WARNING (no reuse mechanism exists — carried ruling)."""
+        client = self._ensure_client()
         try:
-            return self._client.responses.create(**kwargs, stream=stream)
+            return client.responses.create(**kwargs, stream=stream)
         except openai.APIStatusError as e:
             if (e.status_code == 400 and "temperature" in kwargs
                     and "temperature" in str(e).lower()):
@@ -251,7 +266,7 @@ class OpenAISDKAdapter:
                     "(reasoning model)"
                 )
                 kwargs.pop("temperature", None)
-                return self._client.responses.create(**kwargs, stream=stream)
+                return client.responses.create(**kwargs, stream=stream)
             raise
 
     # ── Protocol implementation ─────────────────────────────────────
@@ -298,7 +313,7 @@ class OpenAISDKAdapter:
             system=system, think=think, extra=extra, stream=False,
         )
         try:
-            resp = self._client.chat.completions.create(**kwargs)
+            resp = self._ensure_client().chat.completions.create(**kwargs)
         except openai.APIStatusError as e:
             raise adapter_http_error(self.provider_type, e.status_code, str(e)) from e
         except Exception as e:
@@ -376,7 +391,7 @@ class OpenAISDKAdapter:
         )
         pt = ct = 0
         try:
-            stream = self._client.chat.completions.create(**kwargs)
+            stream = self._ensure_client().chat.completions.create(**kwargs)
             for chunk in stream:
                 cu = getattr(chunk, "usage", None)
                 if cu is not None:
@@ -397,7 +412,7 @@ class OpenAISDKAdapter:
     def embed(self, texts: list[str], *, model: str | None = None, task_type: str = "") -> list[list[float]]:
         # task_type accepted + ignored (C5): OpenAI-shape embeddings have no task concept.
         try:
-            r = self._client.embeddings.create(input=list(texts), model=model or self.default_model)
+            r = self._ensure_client().embeddings.create(input=list(texts), model=model or self.default_model)
         except openai.APIStatusError as e:
             raise adapter_http_error(self.provider_type, e.status_code, str(e)) from e
         except Exception as e:
@@ -406,13 +421,13 @@ class OpenAISDKAdapter:
 
     def models(self) -> list[str]:
         try:
-            return [m.id for m in self._client.models.list()]
+            return [m.id for m in self._ensure_client().models.list()]
         except Exception:
             return []
 
     def ping(self) -> bool:
         try:
-            self._client.models.list()
+            self._ensure_client().models.list()
             return True
         except openai.APIStatusError as e:
             return (e.status_code or 500) < 500

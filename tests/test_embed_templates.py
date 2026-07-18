@@ -27,7 +27,9 @@ class RecordingEmbedAdapter:
     def chat(self, messages, **k):
         return LLMResponse(text="ok", model="m", prompt_tokens=1, completion_tokens=1)
 
-    def embed(self, texts, *, model=None):
+    def embed(self, texts, *, model=None, task_type=""):
+        # task_type accepted + ignored — the route passes it unconditionally now
+        # (#15 C5); this fake records the (already template-wrapped) texts.
         RecordingEmbedAdapter.last_texts = list(texts)
         return [[0.1, 0.2] for _ in texts]
 

@@ -71,6 +71,14 @@ DEFAULT_DOWNLOAD_SEGMENTS_ENABLED = True
 DEFAULT_DOWNLOAD_SEGMENT_COUNT = 4
 DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES = 64 * 1024 * 1024
 DEFAULT_DOWNLOAD_SEGMENT_RETRIES = 3
+# Upper bounds for the two count knobs (#10, 2026-07-17). There was NO cap: a UI
+# "20" spawned 20 parallel Range requests (one thread each), and past ~4-8 that
+# only piles load on the CDN edge without adding speed (the comment above). 16 is a
+# generous ceiling; retries past ~10 just prolong a genuinely-dead segment. The write
+# path (engine-config PUT) and the read path (download_kwargs) both clamp to these —
+# ONE source, so a raw DB poke can't route around them either.
+MAX_DOWNLOAD_SEGMENT_COUNT = 16
+MAX_DOWNLOAD_SEGMENT_RETRIES = 10
 
 # Prebuilt llama-server distributions, selected by (platform, gpu). We never
 # install a CUDA toolkit — we only DETECT the system and pick the matching

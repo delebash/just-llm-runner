@@ -299,26 +299,31 @@ onMounted(() => {
               :options="[{ value: 'notify', label: 'Notify' }, { value: 'off', label: 'Off' }]"
               @update:model-value="setUpdatePolicy" />
           </label>
-          <!-- Segmented downloads (DL-2): the on/off applies on flip (the update-policy
-               precedent above); the three numbers ride this form's Save. -->
-          <label class="lu-eng-knob">
-            <span class="lu-eng-knob-cap">Faster downloads (parallel connections)</span>
-            <UiToggle :model-value="!!dlSegmentsEnabled" @update:model-value="setDlSegmentsEnabled" />
-          </label>
-          <template v-if="dlSegmentsEnabled">
-            <label class="lu-eng-knob">
-              <span class="lu-eng-knob-cap">Connections per download</span>
-              <UiInput v-model="dlSegmentCount" type="number" width="token" />
-            </label>
-            <label class="lu-eng-knob">
-              <span class="lu-eng-knob-cap">Split files larger than (MB)</span>
-              <UiInput v-model="dlSegmentMinMb" type="number" width="token" />
-            </label>
-            <label class="lu-eng-knob">
-              <span class="lu-eng-knob-cap">Retries per connection</span>
-              <UiInput v-model="dlSegmentRetries" type="number" width="token" />
-            </label>
-          </template>
+          <!-- Segmented downloads (DL-2; #9 2026-07-17): its own sub-group so the
+               "Faster downloads" master toggle reads as a SECTION HEADER above the three
+               connection fields, not an inline knob mistaken for part of Engine-updates.
+               The on/off applies on flip (the update-policy precedent); the numbers ride
+               Save. Ranges in the captions mirror the server clamp (#10). -->
+          <div class="lu-eng-dlgroup">
+            <div class="lu-eng-dlgroup-head">
+              <span class="lu-eng-dlgroup-title">Faster downloads (parallel connections)</span>
+              <UiToggle :model-value="!!dlSegmentsEnabled" @update:model-value="setDlSegmentsEnabled" />
+            </div>
+            <div v-if="dlSegmentsEnabled" class="lu-eng-dlgroup-fields">
+              <label class="lu-eng-knob">
+                <span class="lu-eng-knob-cap">Connections per download (1–16)</span>
+                <UiInput v-model="dlSegmentCount" type="number" width="token" />
+              </label>
+              <label class="lu-eng-knob">
+                <span class="lu-eng-knob-cap">Split files larger than (MB)</span>
+                <UiInput v-model="dlSegmentMinMb" type="number" width="token" />
+              </label>
+              <label class="lu-eng-knob">
+                <span class="lu-eng-knob-cap">Retries per connection (0–10)</span>
+                <UiInput v-model="dlSegmentRetries" type="number" width="token" />
+              </label>
+            </div>
+          </div>
           <UiButton intent="primary" size="small" :loading="savingKnobs" @click="saveKnobs">Save</UiButton>
         </div>
         <p v-if="knobErr" class="lu-eng-err">{{ knobErr }}</p>
@@ -434,4 +439,10 @@ onMounted(() => {
 .lu-eng-knobs { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .lu-eng-knob { display: flex; flex-direction: column; gap: 3px; }
 .lu-eng-knob-cap { font-size: 11.5px; color: var(--lu-ink-2, var(--ink-2, #666)); }
+/* #9 (2026-07-17): the "Faster downloads" toggle + its three fields as a distinct
+   sub-group on its own full-width row (breaks the flex-wrap flow of .lu-eng-knobs). */
+.lu-eng-dlgroup { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--lu-border, var(--border, #e5e5e5)); }
+.lu-eng-dlgroup-head { display: flex; align-items: center; gap: 10px; }
+.lu-eng-dlgroup-title { font-size: 12px; font-weight: 700; letter-spacing: .01em; color: var(--lu-ink-1, var(--ink-1, #222)); }
+.lu-eng-dlgroup-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 </style>

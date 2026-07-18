@@ -18,6 +18,8 @@ from typing import Protocol
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..runner.config import MAX_DOWNLOAD_SEGMENT_COUNT, MAX_DOWNLOAD_SEGMENT_RETRIES
+
 
 class RunnerBinaryRow(BaseModel):
     platform: str
@@ -116,11 +118,14 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
         if body.downloadSegmentsEnabled is not None:
             store.set_setting("download_segments_enabled", "1" if body.downloadSegmentsEnabled else "0")
         if body.downloadSegmentCount is not None:
-            store.set_setting("download_segment_count", str(max(1, int(body.downloadSegmentCount))))
+            # #10 (2026-07-17): clamp to [1, MAX] — a bare "20" spawned 20 parallel Range
+            # requests; >~8 only loads the CDN, no speed. saveKnobs re-reads the returned
+            # config, so the field snaps back to the clamped value the user sees.
+            store.set_setting("download_segment_count", str(max(1, min(MAX_DOWNLOAD_SEGMENT_COUNT, int(body.downloadSegmentCount)))))
         if body.downloadSegmentMinBytes is not None:
             store.set_setting("download_segment_min_bytes", str(max(0, int(body.downloadSegmentMinBytes))))
         if body.downloadSegmentRetries is not None:
-            store.set_setting("download_segment_retries", str(max(0, int(body.downloadSegmentRetries))))
+            store.set_setting("download_segment_retries", str(max(0, min(MAX_DOWNLOAD_SEGMENT_RETRIES, int(body.downloadSegmentRetries)))))
         for row in body.binaries or []:
             if not row.platform.strip() or not row.gpu.strip():
                 raise HTTPException(status_code=400, detail="each binary needs platform + gpu")

@@ -72,12 +72,18 @@ def download_kwargs(config) -> dict:
     """The stream_download segment kwargs for a RunnerConfig — ONE place that
     collapses `enabled` into the segment count (off → 1 → the single-stream
     path), so both consumers (engine binaries + model GGUFs) stay in step."""
+    # Belt for the engine-config write clamp (#10, 2026-07-17): even a raw DB value
+    # or a standalone hand-edited config can't route around the ceiling — past ~16
+    # parallel Range requests only loads the CDN, no speed. Local import keeps the
+    # module load dependency-light (the standalone-download note in the docstring).
+    from .config import MAX_DOWNLOAD_SEGMENT_COUNT, MAX_DOWNLOAD_SEGMENT_RETRIES
+
     enabled = bool(getattr(config, "download_segments_enabled", True))
-    count = int(getattr(config, "download_segment_count", 4) or 1)
+    count = max(1, min(MAX_DOWNLOAD_SEGMENT_COUNT, int(getattr(config, "download_segment_count", 4) or 1)))
     return {
         "segments": count if enabled else 1,
         "segment_min_bytes": int(getattr(config, "download_segment_min_bytes", 64 * 1024 * 1024)),
-        "segment_retries": int(getattr(config, "download_segment_retries", 3)),
+        "segment_retries": max(0, min(MAX_DOWNLOAD_SEGMENT_RETRIES, int(getattr(config, "download_segment_retries", 3)))),
     }
 
 

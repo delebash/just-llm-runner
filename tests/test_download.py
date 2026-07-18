@@ -202,3 +202,21 @@ def test_download_kwargs_collapse():
     assert download_kwargs(cfg) == {"segments": 6, "segment_min_bytes": 123, "segment_retries": 2}
     cfg.download_segments_enabled = False
     assert download_kwargs(cfg)["segments"] == 1               # off = the single-stream path
+
+
+def test_download_kwargs_clamps_the_count_and_retries():
+    """#10 (2026-07-17) — the read-path belt: even a raw DB value past the ceiling can't
+    spawn 200 threads. Was UNCAPPED (a "20" spawned 20 parallel Range requests). Mirrors
+    the engine-config write clamp, so the two paths agree on the same [1, MAX] window."""
+    from llm_runner.runner.config import MAX_DOWNLOAD_SEGMENT_COUNT, MAX_DOWNLOAD_SEGMENT_RETRIES
+
+    over = SimpleNamespace(download_segments_enabled=True, download_segment_count=200,
+                           download_segment_min_bytes=123, download_segment_retries=99)
+    kw = download_kwargs(over)
+    assert kw["segments"] == MAX_DOWNLOAD_SEGMENT_COUNT        # 200 → 16, not 200 threads
+    assert kw["segment_retries"] == MAX_DOWNLOAD_SEGMENT_RETRIES
+    # And the floor: a 0/negative count still yields at least the single stream.
+    under = SimpleNamespace(download_segments_enabled=True, download_segment_count=0,
+                            download_segment_min_bytes=123, download_segment_retries=-5)
+    kw2 = download_kwargs(under)
+    assert kw2["segments"] == 1 and kw2["segment_retries"] == 0

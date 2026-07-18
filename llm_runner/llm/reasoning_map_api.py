@@ -35,7 +35,7 @@ class ReasoningLevelRow(BaseModel):
 # — the resolver reads the layered `reasoning_budget` switch value (llm/reasoning.py); the
 # local rows remain editable map DATA. Downmaps where a type lacks a level are baked in
 # (openai xhigh/max→"high"; ollama xhigh→"max"). Provider_type vocabulary + adapter routing
-# from `registry.construct` (registry.py:70-111).
+# from `registry.construct` (registry.py:70-131 — the SDK-adapter branches, #15 C4).
 REASONING_MAP_TYPE_SEEDS: dict[str, dict[str, tuple[str, int | None]]] = {
     "local-llamacpp": {
         "low": ("", 1024), "medium": ("", 4096), "high": ("", 8192),
@@ -61,11 +61,24 @@ REASONING_MAP_TYPE_SEEDS: dict[str, dict[str, tuple[str, int | None]]] = {
         # silently sending 8192 < High's 24576; gemini 3.x thinkingLevel is a later pass).
         "xhigh": ("", 32768), "max": ("", -1),
     },
+    # D5 (#15 C4): xai/mistral emit NO effort param (not in openai_sdk.EMIT_EFFORT_TYPES) —
+    # they run thinking at the model's own default. Honest empty rows (nothing to speak);
+    # the ProviderForm hides both columns for these types (MODEL_DEFAULT_TYPES).
+    "xai": {
+        "low": ("", None), "medium": ("", None), "high": ("", None),
+        "xhigh": ("", None), "max": ("", None),
+    },
+    "mistral": {
+        "low": ("", None), "medium": ("", None), "high": ("", None),
+        "xhigh": ("", None), "max": ("", None),
+    },
 }
 
-# openai-family types all select OpenAICompatAdapter + take the reasoning_effort word →
-# share the "openai" seed (registry.py:87). local-llamacpp shares the CLASS but NOT the
-# seed (it emits a token budget, not a word) — it keeps its own row above.
+# deepseek/openrouter now ride the official openai SDK adapter (openai_sdk.py, #15 C4);
+# openai-compat rides the local httpx adapter. All three still share the "openai" effort-word
+# SEED shape here — the rows are harmless DATA; the ADAPTER emission gate governs what's
+# actually sent (openai_sdk.EMIT_EFFORT_TYPES: only openai/openrouter emit; deepseek does
+# not). xai/mistral are NOT aliased — they carry their own honest empty rows above.
 _TYPE_ALIAS: dict[str, str] = {"openai-compat": "openai", "deepseek": "openai", "openrouter": "openai"}
 
 

@@ -84,10 +84,23 @@ def construct(cfg: "LLMProviderConfig") -> "LLMAdapter":
             default_model=cfg.defaultModel,
             timeout_seconds=cfg.timeoutSeconds,
         )
-    if pt in ("openai", "openai-compat", "deepseek", "openrouter", "local-llamacpp"):
+    if pt in ("openai-compat", "local-llamacpp"):
         from .openai_compat import OpenAICompatAdapter
 
         return OpenAICompatAdapter(
+            cfg.id,
+            provider_type=pt,
+            api_key=cfg.apiKey or "",
+            base_url=cfg.baseUrl,
+            default_model=cfg.defaultModel,
+            timeout_seconds=cfg.timeoutSeconds,
+        )
+    if pt in ("openai", "deepseek", "openrouter", "xai", "mistral"):
+        # The official openai SDK adapter (#15 C4): openai → Responses API; the rest →
+        # chat-completions at each vendor's base_url (D3/D4).
+        from .openai_sdk import OpenAISDKAdapter
+
+        return OpenAISDKAdapter(
             cfg.id,
             provider_type=pt,
             api_key=cfg.apiKey or "",

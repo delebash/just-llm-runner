@@ -27,11 +27,11 @@ from pydantic import BaseModel
 class LLMProviderConfig(BaseModel):
     """A registered LLM provider entry. `providerType` discriminates
     which adapter (anthropic / openai / openai-compat / gemini / ollama /
-    deepseek / openrouter / local-llamacpp) handles the dispatch."""
+    deepseek / openrouter / xai / mistral / local-llamacpp) handles the dispatch."""
 
     id: str
     name: str = ""
-    providerType: str  # "anthropic" | "openai" | "openai-compat" | "gemini" | "ollama" | "deepseek" | "openrouter" | "local-llamacpp"
+    providerType: str  # "anthropic" | "openai" | "openai-compat" | "gemini" | "ollama" | "deepseek" | "openrouter" | "xai" | "mistral" | "local-llamacpp"
     baseUrl: str = ""
     apiKey: str | None = None
     defaultModel: str = ""

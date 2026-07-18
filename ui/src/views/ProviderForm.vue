@@ -62,6 +62,8 @@ const PROVIDER_TYPES = [
   { value: "openai", label: "OpenAI" },
   { value: "deepseek", label: "DeepSeek" },
   { value: "openrouter", label: "OpenRouter" },
+  { value: "xai", label: "xAI (Grok)" },
+  { value: "mistral", label: "Mistral" },
 ];
 const WHERE = [{ value: true, label: "Local · free" }, { value: false, label: "Online · metered" }];
 
@@ -181,9 +183,15 @@ watch(showReasoning, (open) => { if (open) loadReasoningMap(); });
 // types have no token form; anthropic + unknown types speak BOTH (safe default —
 // never lock a user out of a live column).
 const NUMBER_ONLY_TYPES = new Set(["local-llamacpp", "gemini"]);
-const WORD_ONLY_TYPES = new Set(["openai", "openai-compat", "deepseek", "openrouter", "ollama"]);
-const showWordCol = computed(() => !NUMBER_ONLY_TYPES.has(draft.providerType));
-const showTokensCol = computed(() => !WORD_ONLY_TYPES.has(draft.providerType));
+const WORD_ONLY_TYPES = new Set(["openai", "openai-compat", "openrouter", "ollama"]);
+// D5 (#15 C4): these types run thinking at the MODEL's own default — the adapter emits no
+// effort param (openai_sdk.EMIT_EFFORT_TYPES excludes them), so neither column is editable;
+// show the line instead (a user must never edit a value nothing sends). deepseek moved here
+// out of WORD_ONLY_TYPES (its dead cloud reasoning_effort branch was removed with the pivot).
+const MODEL_DEFAULT_TYPES = new Set(["deepseek", "xai", "mistral"]);
+const showModelDefault = computed(() => MODEL_DEFAULT_TYPES.has(draft.providerType));
+const showWordCol = computed(() => !showModelDefault.value && !NUMBER_ONLY_TYPES.has(draft.providerType));
+const showTokensCol = computed(() => !showModelDefault.value && !WORD_ONLY_TYPES.has(draft.providerType));
 async function loadReasoningMap() {
   if (!reasoningProvider.value) return;
   try {
@@ -284,25 +292,30 @@ async function putReasoningRow(row) {
     </div>
     <AppModal v-if="showReasoning" title="Reasoning levels"
       :max-width="'560px'" @close="showReasoning = false">
-      <div class="lu-rtable" :class="{ 'lu-rtable--two': !(showWordCol && showTokensCol) }">
-        <div class="lu-rt-row lu-rt-head">
-          <span>Level</span>
-          <span v-if="showWordCol">Word</span>
-          <span v-if="showTokensCol">Tokens</span>
-        </div>
-        <div v-for="row in reasoningRows" :key="row.level" class="lu-rt-row">
-          <span class="lu-rt-lvl">{{ LEVEL_LABELS[row.level] || row.level }}</span>
-          <UiInput v-if="showWordCol" :model-value="row.word" placeholder="—"
-            @update:model-value="row.word = $event" @blur="putReasoningRow(row)" />
-          <UiInput v-if="showTokensCol" type="number" :model-value="row.tokens ?? ''" placeholder="—"
-            @update:model-value="row.tokens = parseTokens($event)" @blur="putReasoningRow(row)" />
-        </div>
+      <div v-if="showModelDefault" class="lu-fh">
+        This provider runs thinking at the model's own default — no per-level control.
       </div>
-      <div class="lu-fh">{{ showWordCol && showTokensCol
-        ? "what each level asks this provider for — new models take the word, legacy models the token budget"
-        : showTokensCol
-          ? "the thinking-token budget each level asks this provider for"
-          : "the effort word each level asks this provider for" }}</div>
+      <template v-else>
+        <div class="lu-rtable" :class="{ 'lu-rtable--two': !(showWordCol && showTokensCol) }">
+          <div class="lu-rt-row lu-rt-head">
+            <span>Level</span>
+            <span v-if="showWordCol">Word</span>
+            <span v-if="showTokensCol">Tokens</span>
+          </div>
+          <div v-for="row in reasoningRows" :key="row.level" class="lu-rt-row">
+            <span class="lu-rt-lvl">{{ LEVEL_LABELS[row.level] || row.level }}</span>
+            <UiInput v-if="showWordCol" :model-value="row.word" placeholder="—"
+              @update:model-value="row.word = $event" @blur="putReasoningRow(row)" />
+            <UiInput v-if="showTokensCol" type="number" :model-value="row.tokens ?? ''" placeholder="—"
+              @update:model-value="row.tokens = parseTokens($event)" @blur="putReasoningRow(row)" />
+          </div>
+        </div>
+        <div class="lu-fh">{{ showWordCol && showTokensCol
+          ? "what each level asks this provider for — new models take the word, legacy models the token budget"
+          : showTokensCol
+            ? "the thinking-token budget each level asks this provider for"
+            : "the effort word each level asks this provider for" }}</div>
+      </template>
     </AppModal>
 
     <!-- lu-pf-eng: space between the Provider type row and this panel (user, 2026-07-07). -->

@@ -202,3 +202,22 @@ def test_stream_chat_yields_deltas_and_records_usage():
     assert snap["by_feature"]["x"]["calls"] == 1
     assert snap["by_feature"]["x"]["prompt_tokens"] == 7
     assert snap["by_feature"]["x"]["completion_tokens"] == 11
+
+
+# ── #15 C4: registry rewire — the openai SDK adapter serves all five cloud types ──
+
+def test_registry_constructs_openai_sdk_for_all_five_types():
+    from llm_runner.llm.openai_sdk import OpenAISDKAdapter
+    from llm_runner.llm.registry import construct
+    from llm_runner.llm.schema import LLMProviderConfig
+    for pt in ("openai", "deepseek", "openrouter", "xai", "mistral"):
+        a = construct(LLMProviderConfig(id=pt, name=pt, providerType=pt))
+        assert isinstance(a, OpenAISDKAdapter) and a.provider_type == pt
+
+
+def test_registry_compat_openai_without_base_url_raises():
+    # C4.2 removed compat's "openai" defaults entry, so a bare "openai" compat no longer
+    # resolves a base_url — its construction now raises (openai rides openai_sdk instead).
+    from llm_runner.llm.openai_compat import OpenAICompatAdapter
+    with pytest.raises(ValueError):
+        OpenAICompatAdapter("p", "openai", api_key="x")

@@ -29,6 +29,9 @@ _EXPECTED = {
     "gemini": ("gemini", "https://generativelanguage.googleapis.com"),
     "deepseek": ("deepseek", "https://api.deepseek.com/v1"),
     "openrouter": ("openrouter", "https://openrouter.ai/api/v1"),
+    # xAI + Mistral join as dedicated SDK-chat-completions types (#15 C4, D4).
+    "xai": ("xai", "https://api.x.ai/v1"),
+    "mistral": ("mistral", "https://api.mistral.ai/v1"),
 }
 
 

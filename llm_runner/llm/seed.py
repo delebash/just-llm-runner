@@ -129,6 +129,10 @@ DEFAULT_PROVIDERS: list[dict] = [
      "provider_type": "deepseek", "base_url": "https://api.deepseek.com/v1", "local": False},
     {"id": "openrouter", "name": "OpenRouter (aggregator)",
      "provider_type": "openrouter", "base_url": "https://openrouter.ai/api/v1", "local": False},
+    {"id": "xai", "name": "xAI (Grok)",
+     "provider_type": "xai", "base_url": "https://api.x.ai/v1", "local": False},
+    {"id": "mistral", "name": "Mistral",
+     "provider_type": "mistral", "base_url": "https://api.mistral.ai/v1", "local": False},
 ]
 
 # The downloadable catalog — a SMALL curated hardware ladder (reconciled 2026-07-05 for the
@@ -514,6 +518,10 @@ DEFAULT_KNOBS: list[dict] = [
     {"flag_name": "reasoning_budget", "kind": "int", "plane": 1, "per_request": True, "tier": "advanced",
      "help": "Thinking-token budget for this model, layered like any switch (global → hardware class → your applied config) — but NOT a launch flag: it is sent with EVERY request as JSON and applies immediately, no reload. -1 = unlimited (can think until the context fills), 0 = thinking off, N = at most N thinking tokens."},
     # ── Plane 2 — per-request samplers: COMMON ──
+    # NB (#15 C4): cloud delivery of any sampler knob here is gated by the per-type
+    # allowlists — openai_sdk.TYPE_PARAM_PROFILES · anthropic._map_extra ·
+    # gemini._build_config; ollama + local (llama.cpp) pass everything. Adding a new
+    # sampler here means deciding, per cloud, whether it survives that allowlist.
     # temperature + top_p stay in the catalog but are edited in the per-call params
     # row (excluded from the checklist by ConfigColumn) — tier is harmless here.
     {"flag_name": "temperature", "kind": "float", "plane": 2, "default_value": "0.7", "tier": "common",

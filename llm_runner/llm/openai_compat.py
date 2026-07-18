@@ -23,23 +23,14 @@ log = logging.getLogger(__name__)
 
 # Per-provider default base URLs. Used when the provider config's base_url
 # is empty — the most common case (user only enters an API key).
+# The true clouds (openai/deepseek/openrouter) moved to openai_sdk.py with the SDK pivot
+# (#15 C4) — this file now serves ONLY the local httpx paths: the generic openai-compat
+# gateway (LM Studio / self-hosted) + the bundled llama.cpp runner.
 PROVIDER_DEFAULTS = {
-    "openai": {
-        "base_url": "https://api.openai.com/v1",
-        "default_model": "gpt-4o-mini",
-    },
     "openai-compat": {
         # No real default — a "compat" provider always has a custom URL.
         "base_url": "http://localhost:11434/v1",
         "default_model": "llama3.2",
-    },
-    "deepseek": {
-        "base_url": "https://api.deepseek.com/v1",
-        "default_model": "deepseek-chat",
-    },
-    "openrouter": {
-        "base_url": "https://openrouter.ai/api/v1",
-        "default_model": "openai/gpt-4o-mini",
     },
     "local-llamacpp": {
         # The built-in llama.cpp runner spawns llama-server on loopback
@@ -52,10 +43,12 @@ PROVIDER_DEFAULTS = {
 
 
 class OpenAICompatAdapter:
-    """Adapter for any provider that speaks POST /chat/completions in the
-    OpenAI shape. Covers OpenAI itself, DeepSeek, OpenRouter, and any
-    self-hosted server matching the spec (vLLM, llama.cpp's server,
-    LM Studio, Together, Groq, Mistral, etc.)."""
+    """Adapter for a LOCAL server that speaks POST /chat/completions in the OpenAI shape:
+    the generic ``openai-compat`` gateway (vLLM, LM Studio, a self-hosted box) and the
+    bundled ``local-llamacpp`` runner. The true clouds (OpenAI/DeepSeek/OpenRouter, +
+    xAI/Mistral) moved to the official SDK adapter ``openai_sdk.py`` (#15 C4); this file
+    keeps byte-identical pass-through (the samplers order array, llama-server's
+    ``prompt_progress`` frames) that the SDK path deliberately doesn't touch."""
 
     def __init__(
         self,
@@ -90,16 +83,17 @@ class OpenAICompatAdapter:
         return h
 
     def _apply_reasoning(self, body: dict, think: bool, effort: str, budget: int | None) -> None:
-        """Emit this server's native reasoning control from the RESOLVED values (U2-T5).
-        The bundled local llama.cpp runner gets the explicit `chat_template_kwargs.
+        """Emit this LOCAL server's native reasoning control from the RESOLVED values
+        (U2-T5). The bundled local llama.cpp runner gets the explicit `chat_template_kwargs.
         enable_thinking` toggle BOTH ways (ONE resident model serves thinking-on chat AND
         thinking-off extraction per-request, no reload — box-verified 2026-07-06 at b9870)
         PLUS the per-request `reasoning_budget_tokens` (b9982+, the key grepped from
         tools/server/server-common.cpp): the resolver's hardware-CAPPED budget when on,
         0 when off (belt+braces — the toggle already suppresses). A generic `openai-compat`
         server keeps the conservative on→enable_thinking / off→nothing (we don't own its
-        chat template). OpenAI-family clouds take the resolved `reasoning_effort` WORD from
-        the reasoning_map — no adapter default any more (the resolver supplies the word)."""
+        chat template). (`effort` is unused here now — the cloud `reasoning_effort` emission
+        moved to openai_sdk.py with the SDK pivot, #15 C4; the param stays for the call
+        contract shared with every adapter.)"""
         if self.provider_type == "local-llamacpp":
             body.setdefault("chat_template_kwargs", {})["enable_thinking"] = think
             body["reasoning_budget_tokens"] = budget if (think and budget is not None) else 0
@@ -108,8 +102,6 @@ class OpenAICompatAdapter:
             return
         if self.provider_type == "openai-compat":
             body.setdefault("chat_template_kwargs", {})["enable_thinking"] = True
-        elif effort:
-            body["reasoning_effort"] = effort
 
     def _adapt_response_format(self, body: dict) -> None:
         """C1: the pinned llama-server documents the FLAT schema form

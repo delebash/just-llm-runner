@@ -4,6 +4,10 @@ adapters did body/payload.update(extra), which left sampling params top-level an
 the backends ignored them (so top_p / response_format / the long-tail samplers all
 silently dropped). These verify the corrected nesting/mapping."""
 
+from types import SimpleNamespace as NS
+
+import httpx
+import openai
 import pytest
 from google.genai import errors as gerrors
 from google.genai import types as gtypes
@@ -14,6 +18,7 @@ from llm_runner.llm.base import LLMMessage, pop_reasoning
 from llm_runner.llm.gemini import GeminiAdapter
 from llm_runner.llm.ollama import OllamaAdapter
 from llm_runner.llm.openai_compat import OpenAICompatAdapter
+from llm_runner.llm.openai_sdk import OpenAISDKAdapter
 
 
 def test_ollama_extra_nests_under_options_and_format():
@@ -121,17 +126,10 @@ def test_gemini_build_config_thinking_off_word_number():
     assert "thinking_config" not in GeminiAdapter._build_config(think=True, effort="", budget=None, **base)
 
 
-def test_openai_compat_reasoning_cloud_vs_local():
-    cloud = OpenAICompatAdapter("p", "openai", api_key="x")
-    b = {}
-    cloud._apply_reasoning(b, True, "high", None)
-    assert b["reasoning_effort"] == "high"        # cloud → the resolved reasoning_effort WORD
-    b = {}
-    cloud._apply_reasoning(b, True, "", None)
-    assert "reasoning_effort" not in b            # on, no word → nothing (no adapter default any more)
-    b = {}
-    cloud._apply_reasoning(b, False, "high", None)
-    assert b == {}                                # off → nothing
+def test_openai_compat_reasoning_local_and_generic():
+    # #15 C4: the cloud "openai" reasoning_effort branch is GONE (that emission moved to
+    # openai_sdk) and compat no longer constructs type "openai" (its defaults entry is
+    # removed). Compat now serves ONLY local-llamacpp + the generic openai-compat gateway.
     # local: enable_thinking BOTH ways + the per-request reasoning_budget_tokens.
     local = OpenAICompatAdapter("p", "local-llamacpp", api_key="")
     b = {}
@@ -143,11 +141,13 @@ def test_openai_compat_reasoning_cloud_vs_local():
     local._apply_reasoning(b, False, "", 1024)
     assert b["chat_template_kwargs"] == {"enable_thinking": False}
     assert b["reasoning_budget_tokens"] == 0      # off → 0 (belt+braces; the toggle already suppresses)
-    # generic openai-compat: conservative — on → enable_thinking, off → nothing.
+    # generic openai-compat: conservative — on → enable_thinking, off → nothing. No
+    # reasoning_effort is ever emitted (the dead cloud branch was deleted with the pivot).
     compat = OpenAICompatAdapter("p", "openai-compat", api_key="")
     b = {}
     compat._apply_reasoning(b, True, "high", None)
     assert b["chat_template_kwargs"] == {"enable_thinking": True}
+    assert "reasoning_effort" not in b
     b = {}
     compat._apply_reasoning(b, False, "high", None)
     assert b == {}
@@ -412,6 +412,271 @@ def test_anthropic_chat_error_maps_to_d10():
     assert str(ei.value).startswith("anthropic 429:")
 
 
+# ── #15 C4: the openai SDK adapter — Responses (openai) + CC (deepseek/openrouter/xai/
+#    mistral). Fakes are thin subclasses of the _sdk_fakes KwargsCapture base. ──
+
+
+class _Dumpable(NS):
+    """A SimpleNamespace that also answers model_dump() (LLMResponse.raw is not asserted)."""
+
+    def model_dump(self, **_kw):
+        return {}
+
+
+class _FakeResponses(KwargsCapture):
+    """Fake client.responses: create() captures kwargs, returns a Response (or, with
+    stream=True, an event iterator), or raises. `temp_error` fires on the FIRST call only
+    (the temperature-retry-once proof)."""
+
+    def __init__(self, *, response=None, stream=None, error=None, temp_error=None):
+        super().__init__()
+        self._response = response
+        self._stream = stream or []
+        self._error = error
+        self._temp_error = temp_error
+        self._calls = 0
+
+    def create(self, **kwargs):
+        self._capture(**kwargs)
+        self._calls += 1
+        if self._temp_error is not None and self._calls == 1:
+            raise self._temp_error
+        if self._error:
+            raise self._error
+        if kwargs.get("stream"):
+            return iter(self._stream)
+        return self._response
+
+
+class _FakeChatCompletions(KwargsCapture):
+    """Fake client.chat.completions: create() captures kwargs + returns a completion or,
+    with stream=True, a chunk iterator, or raises."""
+
+    def __init__(self, *, completion=None, stream=None, error=None):
+        super().__init__()
+        self._completion = completion
+        self._stream = stream or []
+        self._error = error
+
+    def create(self, **kwargs):
+        self._capture(**kwargs)
+        if self._error:
+            raise self._error
+        if kwargs.get("stream"):
+            return iter(self._stream)
+        return self._completion
+
+
+class _FakeEmbeddings(KwargsCapture):
+    def __init__(self, *, data=None, error=None):
+        super().__init__()
+        self._data = data or []
+        self._error = error
+
+    def create(self, **kwargs):
+        self._capture(**kwargs)
+        if self._error:
+            raise self._error
+        return NS(data=self._data)
+
+
+class _FakeModelsList:
+    def __init__(self, model_list=None, error=None):
+        self._model_list = model_list or []
+        self._error = error
+
+    def list(self):
+        if self._error:
+            raise self._error
+        return iter(self._model_list)
+
+
+class _FakeOpenAIClient:
+    def __init__(self, *, responses=None, completions=None, embeddings=None, models=None):
+        self.responses = responses or _FakeResponses()
+        self.chat = NS(completions=completions or _FakeChatCompletions())
+        self.embeddings = embeddings or _FakeEmbeddings()
+        self.models = models or _FakeModelsList()
+
+
+def _sdk(provider_type, **client):
+    a = OpenAISDKAdapter("p", provider_type, api_key="x")
+    a._client = _FakeOpenAIClient(**client)
+    return a
+
+
+def test_openai_sdk_cc_profiles_filter_and_rename():
+    # openrouter KEEPS top_k/min_p (extra_body) + renames repeat_penalty →
+    # repetition_penalty (OpenRouter's documented name); top_p/seed stay typed; the
+    # samplers order array + mirostat are DROPPED (never survive on an SDK type — the
+    # min_p-400 fix; today's compat.update(extra) would have passed them all through).
+    typed, eb = _sdk("openrouter")._cc_params(
+        {"top_p": 0.9, "seed": 7, "top_k": 40, "min_p": 0.05, "repeat_penalty": 1.1,
+         "samplers": ["top_k"], "mirostat": 2})
+    assert typed == {"top_p": 0.9, "seed": 7}
+    assert eb == {"top_k": 40, "min_p": 0.05, "repetition_penalty": 1.1}
+    # deepseek + xai DROP min_p/top_k (not in profile); seed stays typed; no extra_body.
+    for pt in ("deepseek", "xai"):
+        typed, eb = _sdk(pt)._cc_params({"top_p": 0.9, "min_p": 0.05, "top_k": 40, "seed": 7})
+        assert typed == {"top_p": 0.9, "seed": 7} and eb == {}, pt
+    # mistral renames seed → random_seed via extra_body (Mistral's documented name).
+    typed, eb = _sdk("mistral")._cc_params({"seed": 7, "top_p": 0.9, "min_p": 0.05})
+    assert typed == {"top_p": 0.9} and eb == {"random_seed": 7}
+
+
+def test_openai_sdk_cc_response_format_downgrade_and_passthrough():
+    js = {"type": "json_schema",
+          "json_schema": {"name": "k", "schema": {"type": "object"}, "strict": True}}
+    # deepseek documents json_object ONLY → a json_schema downgrades to json_object.
+    typed, _ = _sdk("deepseek")._cc_params({"response_format": js})
+    assert typed["response_format"] == {"type": "json_object"}
+    # xai/mistral document real json_schema → passes through untouched.
+    for pt in ("xai", "mistral"):
+        typed, _ = _sdk(pt)._cc_params({"response_format": js})
+        assert typed["response_format"] == js, pt
+
+
+def test_openai_sdk_reasoning_emission_per_type():
+    turn = [LLMMessage(role="user", content="hi")]
+    base = dict(model="m", temperature=None, max_tokens=None, system=None, think=True)
+    # openai (Responses): think+word → reasoning={"effort": w}
+    kw = _sdk("openai")._responses_kwargs(turn, extra={"reasoning_effort": "high"}, **base)
+    assert kw["reasoning"] == {"effort": "high"}
+    # openrouter (CC): think+word → reasoning_effort
+    kw = _sdk("openrouter")._cc_kwargs(turn, extra={"reasoning_effort": "high"}, stream=False, **base)
+    assert kw["reasoning_effort"] == "high"
+    # deepseek/xai/mistral emit NOTHING even with a word + think-on (D5 EMIT_EFFORT_TYPES).
+    for pt in ("deepseek", "xai", "mistral"):
+        kw = _sdk(pt)._cc_kwargs(turn, extra={"reasoning_effort": "high"}, stream=False, **base)
+        assert "reasoning_effort" not in kw, pt
+
+
+def test_openai_sdk_responses_store_false_and_input_shapes():
+    a = _sdk("openai")
+    kw = a._responses_kwargs(
+        [LLMMessage(role="user", content="hi")],
+        model="gpt-5", temperature=0.5, max_tokens=64, system="be nice", think=False,
+        extra={"top_p": 0.8, "min_p": 0.05})
+    assert kw["store"] is False                       # never persist — D2/D3
+    assert kw["input"] == "hi"                         # single user turn → plain string
+    assert kw["instructions"] == "be nice"             # system swept into instructions
+    assert kw["temperature"] == 0.5 and kw["max_output_tokens"] == 64
+    assert kw["top_p"] == 0.8 and "min_p" not in kw    # only top_p survives on Responses
+    # multi-turn → the typed input array (assistant → output_text, user → input_text).
+    kw2 = a._responses_kwargs(
+        [LLMMessage(role="user", content="q1"),
+         LLMMessage(role="assistant", content="a1"),
+         LLMMessage(role="user", content="q2")],
+        model="gpt-5", temperature=None, max_tokens=None, system=None, think=False, extra=None)
+    assert isinstance(kw2["input"], list) and len(kw2["input"]) == 3
+    assert kw2["input"][1] == {"role": "assistant", "content": [{"type": "output_text", "text": "a1"}]}
+    assert kw2["input"][0]["content"][0]["type"] == "input_text"
+    assert "instructions" not in kw2                   # no system → no instructions key
+
+
+def test_openai_sdk_responses_text_format_strict_false_and_json_object():
+    a = _sdk("openai")
+    kw = a._responses_kwargs(
+        [LLMMessage(role="user", content="hi")],
+        model="gpt-5", temperature=None, max_tokens=None, system=None, think=False,
+        extra={"response_format": {"type": "json_schema",
+               "json_schema": {"name": "sweep", "schema": {"type": "object"}, "strict": True}}})
+    # strict ALWAYS False (our schemas don't meet strict's every-key-required rule).
+    assert kw["text"] == {"format": {"type": "json_schema", "name": "sweep",
+                                     "strict": False, "schema": {"type": "object"}}}
+    kw2 = a._responses_kwargs(
+        [LLMMessage(role="user", content="hi")],
+        model="gpt-5", temperature=None, max_tokens=None, system=None, think=False,
+        extra={"response_format": {"type": "json_object"}})
+    assert kw2["text"] == {"format": {"type": "json_object"}}
+
+
+def test_openai_sdk_responses_parse_incomplete_maps_to_length():
+    resp = _Dumpable(output_text="hello", usage=NS(input_tokens=12, output_tokens=3),
+                     status="incomplete", incomplete_details=NS(reason="max_output_tokens"),
+                     model="gpt-5")
+    r = _sdk("openai", responses=_FakeResponses(response=resp)).chat(
+        [LLMMessage(role="user", content="hi")], model="gpt-5")
+    assert r.text == "hello"
+    assert r.finish_reason == "length"                 # incomplete + max_output_tokens → length
+    assert r.prompt_tokens == 12 and r.completion_tokens == 3
+
+
+def test_openai_sdk_responses_temperature_retry_once():
+    err = openai.APIStatusError(
+        "Unsupported parameter: 'temperature' is not supported with this model.",
+        response=httpx.Response(400, request=httpx.Request("POST", "https://api.openai.com/v1/responses")),
+        body=None)
+    resp = _Dumpable(output_text="ok", usage=NS(input_tokens=1, output_tokens=1),
+                     status="completed", incomplete_details=None, model="o3")
+    fake = _FakeResponses(response=resp, temp_error=err)
+    r = _sdk("openai", responses=fake).chat([LLMMessage(role="user", content="hi")],
+                                            model="o3", temperature=0.7)
+    assert r.text == "ok"                              # retried WITHOUT temperature → succeeded
+    assert fake._calls == 2                            # exactly one retry
+    assert "temperature" not in fake.last              # the retry dropped temperature
+
+
+def test_openai_sdk_responses_stream_parses_text_and_usage():
+    events = [
+        NS(type="response.output_text.delta", delta="Hel"),
+        NS(type="response.output_text.delta", delta="lo"),
+        NS(type="response.completed", response=NS(usage=NS(input_tokens=8, output_tokens=5))),
+    ]
+    deltas = list(_sdk("openai", responses=_FakeResponses(stream=events)).stream_chat(
+        [LLMMessage(role="user", content="hi")], model="gpt-5"))
+    assert "".join(d.text for d in deltas if d.text) == "Hello"
+    done = deltas[-1]
+    assert done.done and done.prompt_tokens == 8 and done.completion_tokens == 5
+
+
+def test_openai_sdk_cc_chat_parses_and_builds_messages():
+    comp = _Dumpable(choices=[NS(message=NS(content="hi there"), finish_reason="stop")],
+                     usage=NS(prompt_tokens=5, completion_tokens=2), model="deepseek-chat")
+    a = _sdk("deepseek", completions=_FakeChatCompletions(completion=comp))
+    r = a.chat([LLMMessage(role="system", content="sys"), LLMMessage(role="user", content="hi")],
+               model="deepseek-chat", extra={"min_p": 0.05, "top_p": 0.9})
+    assert r.text == "hi there" and r.finish_reason == "stop"
+    assert r.prompt_tokens == 5 and r.completion_tokens == 2
+    sent = a._client.chat.completions.last
+    assert sent["messages"][0] == {"role": "system", "content": "sys"}   # build_chat_messages
+    assert sent["top_p"] == 0.9 and "min_p" not in sent                  # min_p dropped at boundary
+
+
+def test_openai_sdk_cc_stream_parses_text_and_usage():
+    chunks = [
+        NS(usage=None, choices=[NS(delta=NS(content="Hel"))]),
+        NS(usage=None, choices=[NS(delta=NS(content="lo"))]),
+        NS(usage=NS(prompt_tokens=9, completion_tokens=4), choices=[]),  # final usage frame, empty choices
+    ]
+    a = _sdk("deepseek", completions=_FakeChatCompletions(stream=chunks))
+    deltas = list(a.stream_chat([LLMMessage(role="user", content="hi")], model="deepseek-chat"))
+    assert "".join(d.text for d in deltas if d.text) == "Hello"
+    done = deltas[-1]
+    assert done.done and done.prompt_tokens == 9 and done.completion_tokens == 4
+    sent = a._client.chat.completions.last
+    assert sent["stream"] is True and sent["stream_options"] == {"include_usage": True}
+
+
+def test_openai_sdk_embed_extracts_index_ordered_vectors():
+    data = [NS(embedding=[0.1, 0.2]), NS(embedding=[0.3, 0.4])]
+    a = _sdk("openai", embeddings=_FakeEmbeddings(data=data))
+    out = a.embed(["a", "b"], model="text-embedding-3-small", task_type="document")  # task_type ignored
+    assert out == [[0.1, 0.2], [0.3, 0.4]]
+    assert a._client.embeddings.last["model"] == "text-embedding-3-small"
+
+
+def test_openai_sdk_cc_error_maps_to_d10():
+    err = openai.APIStatusError(
+        "rate limited",
+        response=httpx.Response(429, request=httpx.Request("POST", "https://api.deepseek.com/v1/chat/completions")),
+        body=None)
+    with pytest.raises(RuntimeError) as ei:
+        _sdk("deepseek", completions=_FakeChatCompletions(error=err)).chat(
+            [LLMMessage(role="user", content="hi")], model="deepseek-chat")
+    assert str(ei.value).startswith("deepseek 429:")
+
+
 # ── §7.4 B6-2: return_progress + prompt_progress on the builtin engine ────────
 
 class _FakeStreamResponse:
@@ -456,7 +721,10 @@ def test_stream_chat_return_progress_only_for_builtin():
     # (return_progress, PR 15827); cloud/compat providers never see the field.
     from llm_runner.llm.base import LLMMessage
     lines = ['data: {"choices":[{"delta":{"content":"hi"}}]}', "data: [DONE]"]
-    for ptype, expected in (("local-llamacpp", True), ("openai-compat", False), ("openai", False)):
+    # (#15 C4: the old ("openai", False) row is now ("openai-compat", False) — "openai" rides
+    # openai_sdk and no longer constructs on compat; a non-builtin compat type still gets no
+    # return_progress, and openai-compat's default base_url keeps construction valid.)
+    for ptype, expected in (("local-llamacpp", True), ("openai-compat", False), ("openai-compat", False)):
         a = _stream_adapter(ptype, lines)
         list(a.stream_chat([LLMMessage(role="user", content="q")]))
         assert (a._client.last_body.get("return_progress") is True) is expected, ptype

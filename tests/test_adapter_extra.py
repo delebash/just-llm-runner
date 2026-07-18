@@ -287,6 +287,47 @@ def test_gemini_embed_maps_task_type_and_extracts_vectors():
     assert a2._client.last["config"] is None                          # "" → no config
 
 
+class _FakeEmbedGenai:
+    """Fake google-genai models surface for embeddings. Returns `per_call` vectors
+    per call (fixed — mimics gemini-embedding-2, which returns ONE for any list), or
+    len(contents) when per_call is None (mimics gemini-embedding-001's real batching).
+    Records the length of every call's contents."""
+
+    def __init__(self, per_call):
+        self.models = self
+        self.per_call = per_call
+        self.calls = []
+
+    def embed_content(self, *, model, contents, config):
+        self.calls.append(list(contents))
+        n = self.per_call if self.per_call is not None else len(contents)
+        return NS(embeddings=[NS(values=[0.1, 0.2]) for _ in range(n)])
+
+
+def test_gemini_embed_falls_back_to_per_text_when_the_model_ignores_batch():
+    # gemini-embedding-2 returns ONE vector for a list (verified live 2026-07-18) — the
+    # adapter must still return one-per-input, so it falls back to a call per text.
+    a = GeminiAdapter("p", api_key="x")
+    a._client = _FakeEmbedGenai(per_call=1)
+    out = a.embed(["a", "b", "c"], model="gemini-embedding-2")
+    assert len(out) == 3                                    # one vector per input
+    assert a._embed_no_batch == {"gemini-embedding-2"}      # the model is remembered
+    assert [len(c) for c in a._client.calls] == [3, 1, 1, 1]  # batch try, then per-text
+    # a SECOND batch skips the now-known-futile batch call and goes straight to per-text
+    a._client.calls.clear()
+    a.embed(["d", "e"], model="gemini-embedding-2")
+    assert [len(c) for c in a._client.calls] == [1, 1]
+
+
+def test_gemini_embed_batches_when_the_model_supports_it():
+    a = GeminiAdapter("p", api_key="x")
+    a._client = _FakeEmbedGenai(per_call=None)              # returns len(contents)
+    out = a.embed(["a", "b", "c"], model="gemini-embedding-001")
+    assert len(out) == 3
+    assert a._embed_no_batch == set()                      # no fallback needed
+    assert [len(c) for c in a._client.calls] == [3]        # ONE batch call
+
+
 def test_gemini_chat_error_maps_to_d10():
     err = gerrors.ClientError(404, {"error": {"code": 404, "message": "nope", "status": "NOT_FOUND"}}, None)
     with pytest.raises(RuntimeError) as ei:

@@ -87,6 +87,10 @@ class GeminiAdapter:
         # error honestly (chat → RuntimeError "gemini request failed …"; models()/ping()
         # swallow it → []/False, the unchanged keyless degradation).
         self._client = None
+        # Embed models that ignore batching (return ONE vector for a list of N — e.g.
+        # gemini-embedding-2, verified 2026-07-18). Learned on the first mismatch so
+        # later batches skip the wasted batch call and go straight to per-text.
+        self._embed_no_batch = set()
 
     def _ensure_client(self):
         """Build the SDK client once, on first use (#16). Respects an already-set
@@ -257,6 +261,15 @@ class GeminiAdapter:
         except Exception:
             return []
 
+    def _embed_call(self, m, contents, cfg):
+        try:
+            r = self._ensure_client().models.embed_content(model=m, contents=contents, config=cfg)
+        except gerrors.APIError as e:
+            raise adapter_http_error("gemini", e.code, str(e)) from e
+        except Exception as e:
+            raise adapter_http_error("gemini", None, str(e)) from e
+        return [list(e.values) for e in r.embeddings]
+
     def embed(
         self, texts: list[str], *, model: str | None = None, task_type: str = ""
     ) -> list[list[float]]:
@@ -266,13 +279,19 @@ class GeminiAdapter:
             if task_type in _TASK_MAP
             else None
         )
-        try:
-            r = self._ensure_client().models.embed_content(model=m, contents=list(texts), config=cfg)
-        except gerrors.APIError as e:
-            raise adapter_http_error("gemini", e.code, str(e)) from e
-        except Exception as e:
-            raise adapter_http_error("gemini", None, str(e)) from e
-        return [list(e.values) for e in r.embeddings]
+        texts = list(texts)
+        if not texts:
+            return []
+        # Most Gemini embed models batch (one vector per input). gemini-embedding-2 does
+        # NOT — it returns a SINGLE vector for a list (verified 2026-07-18), which the
+        # caller reads as "response length didn't match the batch size". Try the batch;
+        # on a count mismatch, remember the model and fall back to one call per text.
+        if len(texts) > 1 and m not in self._embed_no_batch:
+            vecs = self._embed_call(m, texts, cfg)
+            if len(vecs) == len(texts):
+                return vecs
+            self._embed_no_batch.add(m)
+        return [self._embed_call(m, [t], cfg)[0] for t in texts]
 
     def ping(self) -> bool:
         try:

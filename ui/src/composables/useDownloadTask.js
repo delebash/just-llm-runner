@@ -14,6 +14,8 @@ import { computed, reactive } from "vue";
 
 import { request } from "../client.js";
 import { createRateTracker, progressCaption, rateSuffix } from "../common/services/downloadRate.js";
+import { friendlyPhase } from "../common/services/loadPhases.js";
+import { friendlyEnginePhase } from "./useEngine.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -171,4 +173,61 @@ export function createDownloadTask(channel) {
   task.fail = fail;
   task.reset = reset;
   return task;
+}
+
+// ── THE three runner channels (promoted from QuickSetup's inline defs, 2026-07-18 —
+// LuBookSearchSetup needed the engine + download channels and a copy is how drift
+// starts). Each is a factory returning a channel for createDownloadTask; the model
+// channels take a `getId` thunk so the start reads the LIVE pick at call time. The
+// pure `read` mappers ride along for unit tests. ─────────────────────────────────
+
+export function readEngineStatus(st) {
+  if (st.status === "error") return { terminal: "error", error: st.error };
+  if (st.installed || st.status === "installed") return { terminal: "done" };
+  return { detail: st.detail, done: st.downloaded, total: st.total, status: st.status };
+}
+export function readLoadStatus(st) {
+  if (st.status === "running") return { terminal: "done" };
+  if (st.status === "error") {
+    const err = st.error === "engine-not-installed"
+      ? "The engine isn't installed — install it first (the engine bar above)."
+      : st.error;
+    return { terminal: "error", error: err };
+  }
+  return { detail: st.detail, done: st.downloaded, total: st.total, status: st.status };
+}
+export function readDownloadStatus(st) {
+  if (st.status === "error") return { terminal: "error", error: st.error };
+  // `idle` is the download channel's terminal for a FINISHED fetch; a cancel flips the
+  // task's own state first, so reaching here still running means it genuinely completed.
+  if (st.status === "idle") return { terminal: "done" };
+  return { detail: st.detail, done: st.downloaded, total: st.total, status: st.status };
+}
+
+export function engineInstallChannel() {
+  return {
+    start: () => request("/v1/llm-runner/engine/install", { method: "POST" }),
+    statusUrl: "/v1/llm-runner/engine/status",
+    read: readEngineStatus,
+    cancel: () => request("/v1/llm-runner/engine/install/cancel", { method: "POST" }),
+    friendly: friendlyEnginePhase,
+  };
+}
+export function modelLoadChannel(getId) {
+  return {
+    start: () => request("/v1/llm-runner/load", { method: "POST", body: { modelId: getId() } }),
+    statusUrl: "/v1/llm-runner/status",
+    read: readLoadStatus,
+    cancel: () => request("/v1/llm-runner/stop", { method: "POST", body: { modelId: getId() } }),
+    friendly: friendlyPhase,
+  };
+}
+export function modelDownloadChannel(getId) {
+  return {
+    start: () => request("/v1/llm-runner/download", { method: "POST", body: { modelId: getId() } }),
+    statusUrl: "/v1/llm-runner/download/status",
+    read: readDownloadStatus,
+    cancel: () => request("/v1/llm-runner/download/cancel", { method: "POST" }),
+    friendly: friendlyPhase,
+  };
 }

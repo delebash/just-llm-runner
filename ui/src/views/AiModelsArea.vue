@@ -18,6 +18,7 @@ import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
 import ConsolePanel from "../components/ConsolePanel.vue";
+import LuBookSearchSetup from "../components/LuBookSearchSetup.vue";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import { useModelApply } from "../services/modelApply.js";
@@ -506,6 +507,12 @@ onMounted(() => {
                  say so instead of the false "no embedding model set". -->
             <p v-if="sdEmbedModel && sdIsBuiltin" class="lu-sd-line lu-muted">Your embedding (<b>{{ sdEmbedModel }}</b>) already runs here — unchanged.</p>
             <p v-else-if="sdEmbedModel" class="lu-sd-line lu-muted">Also becomes the embeddings (search) provider: <b>{{ sdEmbedModel }}</b>.</p>
+            <!-- ONLINE row with no embedding of its own → the Book-search section
+                 (2026-07-18): truthful "unchanged" line when an embedding already
+                 routes; otherwise recommend the local setup (engine + embed model,
+                 shared DownloadBars, cancel free) / a configured Ollama / skip —
+                 skipping is passive, Apply never blocks, chat runs bible-only. -->
+            <LuBookSearchSetup v-else-if="!sdIsBuiltin" :providers="providers" />
             <p v-else class="lu-sd-line lu-muted">Search embeddings keep their current provider — this provider has no embedding model set.</p>
             <UiCheckbox v-model="overwriteTasks">Also overwrite presets I customized</UiCheckbox>
           </template>

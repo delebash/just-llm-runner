@@ -30,9 +30,7 @@ import { recommendedModelId, pickBestEmbedId, FIT_GPU, FIT_RUNNABLE, FIT_LABEL }
 import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import { fmtTps } from "../common/services/runStats.js";
-import { createDownloadTask } from "../composables/useDownloadTask.js";
-import { friendlyPhase } from "../common/services/loadPhases.js";
-import { friendlyEnginePhase } from "../composables/useEngine.js";
+import { createDownloadTask, engineInstallChannel, modelDownloadChannel, modelLoadChannel } from "../composables/useDownloadTask.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiProgress from "../common/components/UiProgress.vue";
@@ -327,51 +325,12 @@ const applying = ref(false);
 // run in parallel where they can: the embed rides its OWN download channel (needs no engine),
 // so it fetches alongside the engine install; the chat LOAD needs the engine, so it waits for
 // the engine task when one is running, then fires.
-function readEngineStatus(st) {
-  if (st.status === "error") return { terminal: "error", error: st.error };
-  if (st.installed || st.status === "installed") return { terminal: "done" };
-  return { detail: st.detail, done: st.downloaded, total: st.total, status: st.status };
-}
-function readLoadStatus(st) {
-  if (st.status === "running") return { terminal: "done" };
-  if (st.status === "error") {
-    const err = st.error === "engine-not-installed"
-      ? "The engine isn't installed — install it first (the engine bar above)."
-      : st.error;
-    return { terminal: "error", error: err };
-  }
-  return { detail: st.detail, done: st.downloaded, total: st.total, status: st.status };
-}
-function readDownloadStatus(st) {
-  if (st.status === "error") return { terminal: "error", error: st.error };
-  // `idle` is the download channel's terminal for a FINISHED fetch; a cancel flips our own
-  // state first, so reaching here still running means it genuinely completed.
-  if (st.status === "idle") return { terminal: "done" };
-  return { detail: st.detail, done: st.downloaded, total: st.total, status: st.status };
-}
-
-// The channel starts read the LIVE pick at call time (a re-apply may have changed it).
-const engineTask = createDownloadTask({
-  start: () => request("/v1/llm-runner/engine/install", { method: "POST" }),
-  statusUrl: "/v1/llm-runner/engine/status",
-  read: readEngineStatus,
-  cancel: () => request("/v1/llm-runner/engine/install/cancel", { method: "POST" }),
-  friendly: friendlyEnginePhase,
-});
-const chatTask = createDownloadTask({
-  start: () => request("/v1/llm-runner/load", { method: "POST", body: { modelId: pick.value.default } }),
-  statusUrl: "/v1/llm-runner/status",
-  read: readLoadStatus,
-  cancel: () => request("/v1/llm-runner/stop", { method: "POST", body: { modelId: pick.value.default } }),
-  friendly: friendlyPhase,
-});
-const embedTask = createDownloadTask({
-  start: () => request("/v1/llm-runner/download", { method: "POST", body: { modelId: pick.value.embeddingModel } }),
-  statusUrl: "/v1/llm-runner/download/status",
-  read: readDownloadStatus,
-  cancel: () => request("/v1/llm-runner/download/cancel", { method: "POST" }),
-  friendly: friendlyPhase,
-});
+// The channels are THE shared factories (useDownloadTask.js, promoted 2026-07-18 —
+// LuBookSearchSetup rides the same engine/download channels); the model channels take
+// a thunk so each start reads the LIVE pick at call time (a re-apply may change it).
+const engineTask = createDownloadTask(engineInstallChannel());
+const chatTask = createDownloadTask(modelLoadChannel(() => pick.value.default));
+const embedTask = createDownloadTask(modelDownloadChannel(() => pick.value.embeddingModel));
 
 // Sequencing: the chat load is gated on the engine. When the engine install finishes, fire the
 // load; when it's cancelled/errors, the chat can't proceed (no load attempt) — say so, pointing

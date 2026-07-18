@@ -103,6 +103,12 @@ class ProviderStore:
         try:
             row = s.get(db.LlmProvider, provider_id)
             if row is not None:
+                # Cascade the provider's reasoning-map rows (no FK on ReasoningMap):
+                # a retype via delete+re-add would otherwise inherit the old type's
+                # rows (fill-if-missing never overwrites them) and mis-map thinking.
+                s.query(db.ReasoningMap).filter(
+                    db.ReasoningMap.provider_id == provider_id
+                ).delete()
                 s.delete(row)
                 s.commit()
         finally:

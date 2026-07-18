@@ -19,7 +19,7 @@ export const PROVIDER_PRESETS = [
   ["OpenAI", "https://api.openai.com/v1", "openai", false],
   ["Anthropic", "https://api.anthropic.com", "anthropic", false],
   ["Gemini", "https://generativelanguage.googleapis.com", "gemini", false],
-  ["OpenRouter", "https://openrouter.ai/api/v1", "openai-compat", false],
+  ["OpenRouter", "https://openrouter.ai/api/v1", "openrouter", false],
 ];
 
 // Provider types that are ALWAYS a metered cloud API — there is no local

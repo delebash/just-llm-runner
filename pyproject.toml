@@ -5,13 +5,21 @@ version = "0.1.0"
 description = "Shared local-LLM runner core for JustVoice + JustWrite — detects hardware, manages/recommends GGUF models, downloads the right prebuilt llama.cpp (CUDA bundled), and spawns llama-server (OpenAI-compatible). Internal library; not published to PyPI."
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
-# Deliberately light deps — NO ML (torch/transformers). This is why the
-# JustWrite sidecar bundle stays small (~tens of MB frozen).
+# Deliberately light deps — still NO ML (torch/transformers), so the JustWrite
+# sidecar bundle stays small. The three vendor SDKs below (the 2026-07-17 SDK pivot)
+# add ~15-25 MB installed (google-genai pulls google-auth + websockets) — no ML;
+# accepted by the ruling.
 dependencies = [
     "fastapi>=0.115",   # the mountable router (both apps mount it)
     "pydantic>=2.9",    # camelCase schema (shared contract)
     "requests>=2.32",   # streaming downloads (binaries + GGUF)
     "httpx>=0.27",      # provider adapters (cloud + local chat-completions)
+    # Official vendor SDKs (user ruling 2026-07-17 — the SDK pivot; versions are the
+    # live-proof pins): they own each cloud's wire format + retries. Local adapters
+    # (llama.cpp/Ollama/generic compat) deliberately stay on httpx.
+    "openai>=2.46",
+    "anthropic>=0.117",
+    "google-genai>=2.12",
 ]
 
 [project.optional-dependencies]

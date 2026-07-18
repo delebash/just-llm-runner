@@ -294,6 +294,124 @@ def test_gemini_chat_error_maps_to_d10():
     assert str(ei.value).startswith("gemini 404:")
 
 
+# ── #15 C3: the anthropic SDK surface (allowlist / chat / stream / models / errors) ──
+
+
+def test_anthropic_map_extra_is_an_allowlist():
+    # C3: _map_extra is now an ALLOWLIST over base.select_allowed — only Anthropic's
+    # typed params survive (top_p/top_k/metadata + the stop→stop_sequences rename);
+    # min_p/mirostat/seed/samplers/response_format are DROPPED at the boundary
+    # (red-first: today's pass-through _map_extra forwarded min_p + seed verbatim).
+    out = AnthropicAdapter._map_extra({
+        "top_p": 0.9, "top_k": 40, "metadata": {"user_id": "u"},
+        "stop": ["END"], "min_p": 0.05, "mirostat": 2, "seed": 7,
+        "samplers": ["top_k"], "response_format": {"type": "json_object"},
+    })
+    assert out == {"top_p": 0.9, "top_k": 40, "metadata": {"user_id": "u"},
+                   "stop_sequences": ["END"]}
+    assert AnthropicAdapter._map_extra(None) is None
+    assert AnthropicAdapter._map_extra({"min_p": 0.05}) is None   # nothing survives → None
+
+
+class _FakeAnthropicModels:
+    def __init__(self, model_list=None, error=None):
+        self._model_list = model_list or []
+        self._error = error
+
+    def list(self):
+        if self._error:
+            raise self._error
+        return iter(self._model_list)
+
+
+class _FakeAnthropic(KwargsCapture):
+    """Fake anthropic client (flat: the adapter calls self._client.messages.create /
+    self._client.models.list). .messages.create captures kwargs and returns a canned
+    Message, or with stream=True a canned event iterator, or raises a preset error."""
+
+    def __init__(self, *, message=None, stream=None, model_list=None, error=None, list_error=None):
+        super().__init__()
+        self.messages = self  # flat: .messages.create → self.create
+        self.models = _FakeAnthropicModels(model_list, list_error)
+        self._message = message
+        self._stream = stream or []
+        self._error = error
+
+    def create(self, **kwargs):
+        self._capture(**kwargs)
+        if self._error:
+            raise self._error
+        if kwargs.get("stream"):
+            return iter(self._stream)
+        return self._message
+
+
+def _anthropic(**fake):
+    a = AnthropicAdapter("p", api_key="x")
+    a._client = _FakeAnthropic(**fake)
+    return a
+
+
+def test_anthropic_chat_assembles_kwargs_and_parses():
+    import anthropic as _sdk
+    msg = _sdk.types.Message.model_validate({
+        "id": "msg_1", "type": "message", "role": "assistant", "model": "claude-haiku-4-5",
+        "content": [{"type": "text", "text": "Hel"}, {"type": "text", "text": "lo"}],
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 11, "output_tokens": 5},
+    })
+    a = _anthropic(message=msg)
+    r = a.chat(
+        [LLMMessage(role="system", content="be brief"), LLMMessage(role="user", content="hi")],
+        model="claude-haiku-4-5", temperature=0.5, max_tokens=256,
+        extra={"top_p": 0.9, "stop": ["END"], "min_p": 0.05},
+    )
+    assert r.text == "Hello"                     # text blocks concatenated
+    assert r.finish_reason == "end_turn"
+    assert r.prompt_tokens == 11 and r.completion_tokens == 5
+    sent = a._client.last
+    assert sent["model"] == "claude-haiku-4-5"
+    assert sent["system"] == "be brief"          # swept out via split_system
+    assert sent["messages"] == [{"role": "user", "content": "hi"}]   # only the user turn, dict-ified
+    assert sent["temperature"] == 0.5 and sent["max_tokens"] == 256
+    assert sent["top_p"] == 0.9 and sent["stop_sequences"] == ["END"]  # allowlisted + renamed
+    assert "min_p" not in sent                   # dropped at the boundary
+
+
+def test_anthropic_stream_parses_events_and_final_usage():
+    from types import SimpleNamespace as NS
+    events = [
+        NS(type="message_start", message=NS(usage=NS(input_tokens=11))),
+        NS(type="content_block_delta", delta=NS(type="text_delta", text="Hel")),
+        NS(type="content_block_delta", delta=NS(type="text_delta", text="lo")),
+        NS(type="message_delta", usage=NS(output_tokens=7)),
+    ]
+    a = _anthropic(stream=events)
+    deltas = list(a.stream_chat([LLMMessage(role="user", content="hi")]))
+    assert "".join(d.text for d in deltas if d.text) == "Hello"
+    assert a._client.last["stream"] is True
+    done = deltas[-1]
+    assert done.done and done.prompt_tokens == 11 and done.completion_tokens == 7
+
+
+def test_anthropic_models_live_then_curated_fallback():
+    from types import SimpleNamespace as NS
+    live = _anthropic(model_list=[NS(id="claude-opus-4-8"), NS(id="claude-haiku-4-5")]).models()
+    assert live == ["claude-opus-4-8", "claude-haiku-4-5"]        # D8: the live /v1/models list
+    fell_back = _anthropic(list_error=RuntimeError("boom")).models()
+    assert "claude-haiku-4-5" in fell_back and len(fell_back) >= 5   # curated fallback on error
+
+
+def test_anthropic_chat_error_maps_to_d10():
+    import anthropic as _sdk
+    import httpx
+    resp = httpx.Response(429, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+    err = _sdk.APIStatusError("slow down", response=resp, body=None)  # status_code = 429
+    with pytest.raises(RuntimeError) as ei:
+        _anthropic(error=err).chat([LLMMessage(role="user", content="hi")])
+    assert str(ei.value).startswith("anthropic 429:")
+
+
 # ── §7.4 B6-2: return_progress + prompt_progress on the builtin engine ────────
 
 class _FakeStreamResponse:

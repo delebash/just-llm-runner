@@ -12,7 +12,8 @@
   tear the overlay mid-fade).
 -->
 <script setup>
-import { ref, useSlots, watch } from "vue";
+import { computed, ref, useSlots, watch } from "vue";
+import { useDraggable } from "@vueuse/core";
 import {
   DialogRoot,
   DialogPortal,
@@ -38,6 +39,10 @@ const props = defineProps({
   // Optional explicit width (any CSS length, e.g. "980px"); capped at 96vw.
   // Overrides the default / --wide widths for modals that need a specific size.
   maxWidth: { type: String, default: "" },
+  // Drag-by-the-header, ON by default (user ruling 2026-07-19). Opt OUT for
+  // shells where dragging is meaningless — an edge-anchored slide-in panel has
+  // nowhere to be dragged to.
+  draggable: { type: Boolean, default: true },
 });
 const emit = defineEmits(["close"]);
 
@@ -58,6 +63,84 @@ defineExpose({ close });
 // it to enforce closable:false. Backdrop dismissal blocked unconditionally.
 function onEscape(e) { if (!props.closable) e.preventDefault(); }
 function onOutside(e) { if (!props.dismissable) e.preventDefault(); }
+
+// ---------------------------------------------------------------------------
+// Drag by the header (user ruling 2026-07-19). VueUse's useDraggable rather than
+// a hand-rolled pointer dance: it already ships handle + disabled + a cancellable
+// onStart, and it was ALREADY installed (a transitive dep of reka-ui) — we only
+// declare it. Position RESETS on every open: `dragged`/`position` are plain setup
+// refs and the component is mounted fresh by a parent v-if at the call sites, so
+// a reopen is a new setup scope. `visible` is watched anyway as a belt-and-braces
+// reset for any call site that keeps AppModal mounted and toggles it instead.
+const contentRef = ref(null);
+const headerRef = ref(null);
+const dragged = ref(false);
+// Reka's DialogContent is a component; a template ref yields the instance, so
+// unwrap $el. The `?? contentRef.value` fallback covers a plain-element ref.
+const dragTarget = computed(() => contentRef.value?.$el ?? contentRef.value);
+// Keep at least this much of the modal reachable, so it can never be thrown
+// fully off-screen with no way to grab it back.
+const MIN_VISIBLE = 80;
+// Dragging LEFT is reserved more generously than the other edges. MIN_VISIBLE on the
+// left bound would leave only the modal's RIGHT 80px on screen — and that strip is the
+// close button, which onStart refuses to start a drag from, so the modal could be pushed
+// somewhere it cannot be pulled back from. Reserve enough that a grabbable slice of
+// header (title side, no controls) stays reachable.
+const MIN_GRABBABLE = 160;
+
+const { x, y, position } = useDraggable(dragTarget, {
+  handle: headerRef,
+  disabled: computed(() => !props.draggable),
+  preventDefault: true,
+  onStart: (_pos, event) => {
+    // Never start a drag from an interactive control in the header — the close
+    // button and any #header-extra badges/buttons/inputs must still click.
+    if (event.target?.closest?.("button, a, input, select, textarea, [role=button]")) return false;
+    if (!dragged.value) {
+      // THE TRANSFORM COLLISION: .ui-modal is centred by translate(-50%,-50%) and
+      // useDraggable positions with left/top. Seed the position from the element's
+      // CURRENT centred rect and drop the centring transform in the same tick,
+      // otherwise the modal jumps by half its own size the instant left/top win.
+      const r = dragTarget.value?.getBoundingClientRect?.();
+      if (r) position.value = { x: r.left, y: r.top };
+      dragged.value = true;
+    }
+  },
+  onMove: (p) => {
+    // Clamp ourselves rather than passing `containerElement`. VueUse's start()
+    // computes the grab offset as
+    //   e.clientX - (targetRect.left - containerRect.left + container.scrollLeft)
+    // and for document.documentElement when the page is scrolled,
+    // -containerRect.top contributes +scrollY AND container.scrollTop contributes
+    // another +scrollY — the scroll offset is double-counted and the modal jumps
+    // by 2x the scroll distance on grab. Independently of that, its move() then
+    // clamps with Math.max(0, x) in DOCUMENT coords — the wrong space for a
+    // position:fixed element. With no container, move() is
+    // `e.clientX - pressedDelta.x` — pure viewport coords, exactly right here.
+    // (Read from @vueuse/core 14.3.0 dist/index.js:2881-2896, 2906, 2910.)
+    const el = dragTarget.value;
+    if (!el) return;
+    const maxX = window.innerWidth - MIN_VISIBLE;
+    const minX = MIN_GRABBABLE - el.offsetWidth;
+    const maxY = window.innerHeight - MIN_VISIBLE;
+    const cx = Math.min(Math.max(p.x, minX), maxX);
+    const cy = Math.min(Math.max(p.y, 0), maxY);
+    if (cx !== p.x || cy !== p.y) position.value = { x: cx, y: cy };
+  },
+});
+
+watch(visible, (v) => { if (v) { dragged.value = false; position.value = { x: 0, y: 0 }; } });
+
+const contentStyle = computed(() => {
+  const s = {};
+  if (props.maxWidth) s.width = `min(${props.maxWidth}, 96vw)`;
+  if (dragged.value) {
+    s.left = `${x.value}px`;
+    s.top = `${y.value}px`;
+    s.transform = "none";
+  }
+  return s;
+});
 </script>
 
 <template>
@@ -65,14 +148,20 @@ function onOutside(e) { if (!props.dismissable) e.preventDefault(); }
     <DialogPortal>
       <DialogOverlay class="ui-modal-overlay" />
       <DialogContent
+        ref="contentRef"
         class="ui-modal"
-        :class="{ 'ui-modal--wide': wide, 'ui-modal--flush': noPadding }"
-        :style="maxWidth ? { width: `min(${maxWidth}, 96vw)` } : undefined"
+        :class="{
+          'ui-modal--wide': wide,
+          'ui-modal--flush': noPadding,
+          'ui-modal--draggable': draggable,
+          'is-dragged': dragged,
+        }"
+        :style="contentStyle"
         @escape-key-down="onEscape"
         @pointer-down-outside="onOutside"
         @interact-outside="onOutside"
       >
-        <header class="ui-modal__header">
+        <header ref="headerRef" class="ui-modal__header">
           <slot name="header">
             <DialogTitle as-child>
               <div class="ui-modal__titleblock">
@@ -111,8 +200,11 @@ function onOutside(e) { if (!props.dismissable) e.preventDefault(); }
   position: fixed;
   inset: 0;
   z-index: 200;
-  background: var(--scrim, color-mix(in oklab, black 36%, transparent));
-  backdrop-filter: blur(3px);
+  /* NO scrim dim and NO backdrop blur — the user ruled BOTH off (2026-07-19).
+     The modal's own border + shadow do the separating. The overlay ELEMENT
+     stays: it still blocks interaction with the page behind and carries reka's
+     outside-click semantics (onOutside above). Only its visuals are gone. */
+  background: transparent;
   animation: ui-modal-overlay-in 0.16s ease-out;
 }
 .ui-modal-overlay[data-state="closed"] { animation: ui-modal-overlay-out 0.16s ease-in forwards; }
@@ -146,6 +238,11 @@ function onOutside(e) { if (!props.dismissable) e.preventDefault(); }
   from { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   to   { opacity: 0; transform: translate(-50%, -48%) scale(0.98); }
 }
+/* Once dragged, left/top own the position: kill the centring transform AND the
+   animation — the close keyframe animates transform back toward the centre and
+   would yank a dragged modal across the screen on the way out. */
+.ui-modal.is-dragged { transform: none; animation: none; }
+.ui-modal--draggable .ui-modal__header { cursor: move; }
 .ui-modal--wide { width: min(840px, 94vw); }
 .ui-modal--flush .ui-modal__body { padding: 0; }
 

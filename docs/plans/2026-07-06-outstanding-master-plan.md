@@ -1,5 +1,9 @@
 # OUTSTANDING MASTER PLAN — every open item across the three repos, verified twice (2026-07-06)
 
+> **▶ The whole-system LIVE tracker is `justwrite-app/docs/TASKS.md`** (2026-07-19). This ledger
+> is the twice-verified AI-stack DETAIL the tracker points to — open it for depth on an item;
+> track status in `TASKS.md`, not here.
+
 > **PURPOSE.** The ONE ledger of everything genuinely outstanding across `just-llm-runner` (+ the `@delebash/llm-ui` kit inside it), `justwrite-app`, and `JustVoice` — built at the user's direction after tracker mistakes were found: *"i want new master plan with all outstanding items verified against code, then reverify … including jv outstanding items, we are not coding anything … verify this info twice."* **METHOD:** every item's status was (pass 1) verified by the author against code with file:line or a live endpoint, then (pass 2) independently re-verified by adversarial rules-checker agents instructed to refute each claim and to hunt for items MISSED by this list. Both evidence columns are recorded per item. **No code was written in this exercise** (three tracker/doc corrections only, listed in §H).
 >
 > **How to read STATUS:** `NOT BUILT` = the feature/change does not exist in code (evidence cited) · `DECISION` = nothing to build until the user decides · `BOX` = built, but only verifiable on the user's Windows machine · `RESEARCH` = a reading/benchmarking deliverable, not code.
@@ -294,21 +298,12 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   line ("full drift enumeration is part of the work") owns discovering the survivors. Recorded
   here so the names aren't lost; do not plan them separately before F1.
 
-## J. IDEAS — under consideration (not yet committed work)
+## J. IDEAS — MOVED to `justwrite-app/docs/IDEAS.md` (2026-07-19)
 
-> Created 2026-07-08 per the discussion-F lock (big-batch queue doc §7.5): the user is holding
-> the user-facing `ROADMAP.md` until ship and wants ONE place for ideas being considered. One
-> line per idea; an idea gets **promoted** to a real lettered item (or a plan doc) when the user
-> decides it — never built from this list directly. This section is part of THE ledger on
-> purpose (the no-second-backlog rule).
-
-- **J1 — customizable editor/context menus** (the user's big-batch item #52a; queue B5-8): let
-  the user customize the scene editor's context menu + header AI menu contents/order.
-- **J2 — multi-model co-residency VRAM budgeting** (from the 2026-07-08 router discussion,
-  queue §7.6): for big-VRAM boxes running 2–3 resident models, the fit calculation must count
-  already-resident models before sizing a load, plus an eviction policy; per-section switches
-  already work — the gap is only the memory arithmetic. (The sleeping-child OOM incident on the
-  user's box is the motivating failure class.)
-- **J3 — "defaults drift" notice beyond the Tune modal** (optional follow-on to §7.6's
-  Refresh-from-defaults): a passive indicator on catalog rows whose applied config has drifted
-  from today's defaults. Only if the in-modal notice proves insufficient.
+> The system's ideas backlog is now the ONE list `justwrite-app/docs/IDEAS.md` (whole-system:
+> JustWrite · shared AI stack · JustVoice). The former §J entries live there, unchanged:
+> **J1** customizable editor/context menus → IDEAS "UI / UX" · **J2** multi-model co-residency
+> VRAM budgeting → IDEAS "Infra / tooling" · **J3** defaults-drift notice → IDEAS "AI / authoring".
+> An idea is promoted to a real lettered item (or a plan doc) when the user decides it — never
+> built from the ideas list directly. (Supersedes the old "part of THE ledger / no-second-backlog"
+> framing: the tracker + ideas list are the live surfaces; this ledger is the detail they point to.)

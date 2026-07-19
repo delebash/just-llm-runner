@@ -87,8 +87,10 @@ def select_files(
 ) -> tuple[str, list[dict]]:
     """Resolve (commit_sha, [tree entries]) for the GGUF file(s) of `quant`.
 
-    Matches `*.gguf` whose path contains `quant` (case-insensitive) — this
-    naturally grabs every shard of a split model (`…-00001-of-00003.gguf`).
+    Matches `*.gguf` whose path carries `quant` as a WHOLE quant token
+    (case-insensitive, boundary-aware via `_quant_matches` — so "Q2_0" never
+    grabs a "PQ2_0"/"Q2_0_g64" file) — this naturally grabs every shard of a
+    split model (`…-00001-of-00003.gguf`).
     If `mmproj` is set, also include `*.gguf` whose path contains it (the
     multimodal-projector sidecar some MoE GGUFs require even for text). Raises
     FileNotFoundError when nothing matches (bad quant/repo — fail loud, never
@@ -97,10 +99,9 @@ def select_files(
     commit_sha = _revision_sha(repo, revision)
     entries = _tree(repo, revision)
 
-    q = quant.lower()
     selected = [
         e for e in entries
-        if e["path"].lower().endswith(".gguf") and q in e["path"].lower()
+        if e["path"].lower().endswith(".gguf") and _quant_matches(quant, e["path"])
     ]
     if mmproj:
         mp = mmproj.lower()
@@ -116,8 +117,21 @@ def select_files(
     return commit_sha, selected
 
 
-# Quant token in a GGUF filename: Q4_K_M / IQ4_XS / UD-Q4_K_XL / Q4_0 / BF16 / F16…
-_QUANT_RE = re.compile(r"(?:UD-)?(?:I?Q\d[A-Za-z0-9_]*|BF16|F16|F32)")
+# Quant token in a GGUF filename: Q4_K_M / IQ4_XS / PQ2_0 / UD-Q4_K_XL / Q4_0 / BF16 / F16…
+# Leading `(?<![A-Za-z0-9])` word-boundary so a P-prefixed quant (PQ2_0) is its OWN
+# token, not the tail "Q2_0" merged into the Q2_0 row; the Q family is `[IP]?Q` so PQ
+# still matches (an un-widened anchored regex would find NO token and drop the file
+# from the dropdown). Case-sensitive, as before.
+_QUANT_RE = re.compile(r"(?<![A-Za-z0-9])(?:UD-)?(?:[IP]?Q\d[A-Za-z0-9_]*|BF16|F16|F32)")
+
+
+def _quant_matches(quant: str, path: str) -> bool:
+    """True when `quant` occurs in `path` as a WHOLE quant token (case-insensitive).
+    Boundary-aware (`[a-z0-9_]` neither side) so quant "Q2_0" matches `…-Q2_0.gguf`
+    but NOT `…-PQ2_0.gguf` (a different quant) nor `…-Q2_0_g64.gguf` (a longer one).
+    The ONE quant-match rule shared by `select_files` and `cached_gguf_path`."""
+    q = re.escape(quant.lower())
+    return re.search(rf"(?<![a-z0-9_]){q}(?![a-z0-9_])", path.lower()) is not None
 
 
 def classify_gguf_entries(entries: list[dict]) -> dict:
@@ -359,8 +373,7 @@ def cached_gguf_path(
     snapshots = Path(cache_root) / ("models--" + repo.replace("/", "--")) / "snapshots"
     if not snapshots.is_dir():
         return None
-    q = quant.lower()
-    cands = sorted(p for p in snapshots.rglob("*.gguf") if q in p.name.lower())
+    cands = sorted(p for p in snapshots.rglob("*.gguf") if _quant_matches(quant, p.name))
     return cands[0] if cands else None
 
 

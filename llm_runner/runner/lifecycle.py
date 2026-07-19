@@ -38,7 +38,7 @@ from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect, max_vram_mb as _hw_max_vram, used_vram_mb as _hw_used_vram
 from .download import DownloadCancelled, download_kwargs
-from .models import acquire_model as _acquire_model, cached_gguf_path
+from .models import acquire_model as _acquire_model, cached_gguf_path, _quant_matches
 from .process import (
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -1180,8 +1180,11 @@ class RunnerService:
     # ── internals ─────────────────────────────────────────────────────────
 
     def _main_gguf(self, snapshot_dir, quant: str) -> Path:
+        # Word-bounded quant match (the ONE `_quant_matches` rule, shared with
+        # select_files/cached_gguf_path) — a plain substring would resolve quant
+        # "Q2_0" to a co-cached "…-PQ2_0.gguf" (sorts first) and load the WRONG file.
         cands = sorted(
-            p for p in Path(snapshot_dir).rglob("*.gguf") if quant.lower() in p.name.lower()
+            p for p in Path(snapshot_dir).rglob("*.gguf") if _quant_matches(quant, p.name)
         )
         if not cands:
             raise FileNotFoundError(f"no .gguf for quant {quant!r} in {snapshot_dir}")

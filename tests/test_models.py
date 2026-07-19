@@ -202,6 +202,11 @@ def test_classify_bonsai_dspark_drafters():
     assert not any("mmproj" in q["quant"].lower() for q in out["quants"])
     # a real quant still lands in the dropdown
     assert "Q2_g64" in quant_paths
+    # PQ2_0 and Q2_0 are TWO distinct quant rows (word-bounded token) — one file each,
+    # NOT merged: an unanchored regex would read "PQ2_0" as the tail "Q2_0".
+    by_quant = {q["quant"]: q for q in out["quants"]}
+    assert by_quant["PQ2_0"]["files"] == 1 and by_quant["PQ2_0"]["kind"] == "Q"
+    assert by_quant["Q2_0"]["files"] == 1 and by_quant["Q2_0"]["kind"] == "Q"
 
 
 def test_drafter_skips_shards_prefers_quant_single(monkeypatch):
@@ -264,3 +269,46 @@ def test_drafter_fp16_filter_fires_alone(monkeypatch):
     monkeypatch.setattr(models.requests, "get", _make_get(tree))
     got = models._gguf_drafter_in_repo("owner/repo")
     assert got == {"repo": "owner/repo", "file": "model-Q4_K_M.gguf", "quant": "Q4_K_M"}
+
+
+# ── word-bounded quant matching in select_files + cached_gguf_path (2026-07-19) ──
+
+_PQ_TREE = [
+    {"type": "file", "path": "Ternary-Bonsai-27B-PQ2_0.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 4}},
+    {"type": "file", "path": "Ternary-Bonsai-27B-Q2_0.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 4}},
+]
+
+
+def test_select_files_pq2_0_and_q2_0_dont_cross_match(monkeypatch):
+    # "Q2_0" must select ONLY the plain Q2_0 file — not the PQ2_0 (a different quant);
+    # "PQ2_0" must select ONLY its own file. Plain substring merged both into Q2_0.
+    monkeypatch.setattr(models.requests, "get", _make_get(_PQ_TREE))
+    _, q = models.select_files("owner/repo", "Q2_0")
+    assert [f["path"] for f in q] == ["Ternary-Bonsai-27B-Q2_0.gguf"]
+    _, pq = models.select_files("owner/repo", "PQ2_0")
+    assert [f["path"] for f in pq] == ["Ternary-Bonsai-27B-PQ2_0.gguf"]
+
+
+def test_select_files_q2_0_excludes_longer_g64_token(monkeypatch):
+    # "Q2_0" must not match a "Q2_0_g64"-named file (a longer, distinct token).
+    tree = [
+        {"type": "file", "path": "model-Q2_0.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 4}},
+        {"type": "file", "path": "model-Q2_0_g64.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 4}},
+    ]
+    monkeypatch.setattr(models.requests, "get", _make_get(tree))
+    _, files = models.select_files("owner/repo", "Q2_0")
+    assert [f["path"] for f in files] == ["model-Q2_0.gguf"]
+
+
+def test_cached_gguf_path_word_bounded_quant(tmp_path):
+    # The SAME boundary rule holds for the on-disk cache lookup: seed a PQ2_0 and a
+    # Q2_0 snapshot file; "Q2_0" resolves only the Q2_0 file, "PQ2_0" only PQ2_0.
+    snap = tmp_path / "models--owner--repo" / "snapshots" / "sha"
+    snap.mkdir(parents=True)
+    (snap / "Ternary-Bonsai-27B-PQ2_0.gguf").write_bytes(b"GGUF")
+    (snap / "Ternary-Bonsai-27B-Q2_0.gguf").write_bytes(b"GGUF")
+    q = models.cached_gguf_path("owner/repo", "Q2_0", cache_root=tmp_path)
+    assert q is not None and q.name == "Ternary-Bonsai-27B-Q2_0.gguf"
+    pq = models.cached_gguf_path("owner/repo", "PQ2_0", cache_root=tmp_path)
+    assert pq is not None and pq.name == "Ternary-Bonsai-27B-PQ2_0.gguf"
+    assert models.is_cached("owner/repo", "Q2_0", cache_root=tmp_path)

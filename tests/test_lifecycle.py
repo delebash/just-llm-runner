@@ -1912,6 +1912,21 @@ def test_run_install_extra_failure_is_best_effort(tmp_path):
     assert svc._engine_state["status"] == "installed"
 
 
+def test_main_gguf_resolves_quant_word_bounded(tmp_path):
+    # The load-path resolver must pick the file for the EXACT quant token — with a
+    # PQ2_0 co-cached beside Q2_0, a plain substring match (+ sort) would return the
+    # PQ2_0 file ('p' < 'q') and load the WRONG weights. `_main_gguf` is boundary-aware.
+    snap = tmp_path / "snap"
+    snap.mkdir()
+    (snap / "Ternary-Bonsai-27B-PQ2_0.gguf").write_bytes(b"x")
+    (snap / "Ternary-Bonsai-27B-Q2_0.gguf").write_bytes(b"x")
+    # `_main_gguf` does not touch self — call it unbound to avoid the heavy service fixture.
+    got = RunnerService._main_gguf(None, snap, "Q2_0")
+    assert got.name == "Ternary-Bonsai-27B-Q2_0.gguf"
+    got_pq = RunnerService._main_gguf(None, snap, "PQ2_0")
+    assert got_pq.name == "Ternary-Bonsai-27B-PQ2_0.gguf"
+
+
 def test_run_install_replace_build_carries_ini_and_deletes_old(tmp_path):
     # #118 (user, 2026-07-07): an UPDATE replaces the old build — a hand-maintained
     # models.ini inside the old build dir is carried into the new one, then the old

@@ -73,3 +73,75 @@ Fix C — a tier-C drafter *loadability* guard: verify the engine can actually l
 suggested drafter's architecture before offering it (e.g. `dspark` is unknown to
 mainline llama.cpp, so even a correctly-quantized dspark gguf may not load). This is
 NOT built here; it is logged as an idea in `justwrite-app/docs/IDEAS.md`.
+
+---
+
+# quant tokens are word-bounded — PQ2_0 is its own quant, not Q2_0 (2026-07-19, follow-up)
+
+## What changed
+
+Three edits to `llm_runner/runner/models.py`, plus tests.
+
+1. `_QUANT_RE` gained a leading word-boundary lookbehind `(?<![A-Za-z0-9])` and its Q
+   family widened from `I?Q` to `[IP]?Q`. So `Ternary-Bonsai-27B-PQ2_0.gguf` now yields
+   the whole token **`PQ2_0`** (its own quant row) instead of the tail `Q2_0` merged
+   into the real Q2_0 row. The widened `[IP]?Q` is required — without it the anchored
+   regex would find NO token in a `PQ2_0` name and the file would vanish from the quant
+   dropdown.
+2. New shared helper `_quant_matches(quant, path)` — case-insensitive, boundary-aware
+   (`(?<![a-z0-9_])` … `(?![a-z0-9_])`). It replaced the plain `q in path.lower()`
+   substring match in ALL THREE snapshot/tree quant resolvers — `select_files`,
+   `cached_gguf_path`, and `RunnerService._main_gguf` (the LIVE load-path resolver in
+   `lifecycle.py`; a rules-checker caught this third site — a plain substring there would
+   sort a co-cached `…-PQ2_0.gguf` ahead of `…-Q2_0.gguf` and load the WRONG weights). So
+   quant "Q2_0" no longer selects/resolves/loads a `PQ2_0` or a `Q2_0_g64` file. mmproj
+   name-fragment matching is untouched.
+3. `classify_gguf_entries` kind classification: verified unchanged — a `PQ2_0` token
+   classifies as kind "Q" (`removeprefix("UD-")` leaves "PQ2_0"; not IQ; contains Q).
+
+## Why
+
+`_QUANT_RE` was unanchored, so "PQ2_0" matched as its "Q2_0" tail and the PQ2_0 file
+merged into the Q2_0 quant row. Separately, `select_files` and `cached_gguf_path` used a
+plain `q in path.lower()` substring test, so quant "Q2_0" also matched `PQ2_0` files (and
+would match a `Q2_0_g64`-named file) — the wrong file(s) selected/resolved. Real exhibit:
+`prism-ml/Ternary-Bonsai-27B-gguf` ships both `-PQ2_0.gguf` and `-Q2_0.gguf`.
+
+## file:line
+
+- `llm_runner/runner/models.py:118-123` — `_QUANT_RE` comment + pattern
+  `(?<![A-Za-z0-9])(?:UD-)?(?:[IP]?Q\d[A-Za-z0-9_]*|BF16|F16|F32)`.
+- `llm_runner/runner/models.py:126-132` — new `_quant_matches` helper.
+- `llm_runner/runner/models.py:100-103` — `select_files` uses `_quant_matches` (docstring
+  at 88-96 updated).
+- `llm_runner/runner/models.py` — `cached_gguf_path` uses `_quant_matches` in its
+  `rglob("*.gguf")` filter.
+- `llm_runner/runner/lifecycle.py:41` — import adds `_quant_matches`; `_main_gguf`
+  (`~1182`) uses it instead of `quant.lower() in p.name.lower()`.
+- `tests/test_models.py` — bonsai classify test extended (PQ2_0/Q2_0 two distinct rows) +
+  `test_select_files_pq2_0_and_q2_0_dont_cross_match`,
+  `test_select_files_q2_0_excludes_longer_g64_token`,
+  `test_cached_gguf_path_word_bounded_quant`.
+- `tests/test_lifecycle.py` — `test_main_gguf_resolves_quant_word_bounded` (Q2_0 wins
+  over a co-cached PQ2_0 on the load path).
+
+## How to verify
+
+```
+python -m pytest tests/test_models.py    # 16 passed
+python -m pytest                          # 584 passed, 1 skipped, 2 failed (both on the ignore list)
+```
+
+The two full-suite failures are the documented known-bad/flaky pair:
+`test_hardware.py::test_pci_gpus_linux_lspci_name_match` (known-bad on this box) and
+`test_lifecycle.py::test_ensure_model_ready_raises_on_failed_load` (documented flaky — it
+failed twice earlier today). Any OTHER failure is a real regression.
+
+## What reverses it
+
+Revert the `models.py` edits: restore `_QUANT_RE` to
+`(?:UD-)?(?:I?Q\d[A-Za-z0-9_]*|BF16|F16|F32)`, delete `_quant_matches`, and put the plain
+`q in …lower()` substring tests back in `select_files` + `cached_gguf_path`. In
+`lifecycle.py` drop the `_quant_matches` import and restore `_main_gguf`'s substring
+match. Remove the four added tests + the bonsai-test additions. No schema, no data, no
+wire-format change — pure matching logic.

@@ -271,6 +271,73 @@ def test_drafter_fp16_filter_fires_alone(monkeypatch):
     assert got == {"repo": "owner/repo", "file": "model-Q4_K_M.gguf", "quant": "Q4_K_M"}
 
 
+# ── the draft-pick FLOOR: 4-bit-or-better (2026-07-19) ────────────────────────
+
+def test_q4_or_better_floor():
+    # THE one predicate both pickers order by.
+    for good in ("Q4_K_M", "Q4_0", "IQ4_XS", "UD-Q4_K_XL", "Q5_K_M", "Q6_K", "Q8_0",
+                 "BF16", "F16", "F32"):
+        assert models._q4_or_better(good), good
+    for bad in ("Q2_K", "Q2_0", "Q3_K_M", "IQ2_XXS", "IQ3_XXS", "", "weird"):
+        assert not models._q4_or_better(bad), bad
+    # PQ2_0's leading P is a format marker, not a bit-width — it is still 2-bit.
+    assert not models._q4_or_better("PQ2_0")
+
+
+def test_classify_marks_the_draft_pick_floor():
+    # Each draft row carries the flag the Add/Edit form's pre-select orders by, so the
+    # UI never re-derives (and never disagrees with) the rule.
+    out = models.classify_gguf_entries([
+        {"type": "file", "path": "MTP/m-Q2_K-MTP.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 1}},
+        {"type": "file", "path": "MTP/m-Q4_0-MTP.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 9}},
+    ])
+    assert {d["path"]: d["q4OrBetter"] for d in out["drafts"]} == {
+        "MTP/m-Q2_K-MTP.gguf": False, "MTP/m-Q4_0-MTP.gguf": True}
+
+
+def test_draft_floor_flag_survives_the_wire_model():
+    # THE guard for the 2026-07-19 miss the rules-checker caught: `/model-catalog/list-files`
+    # declares `response_model=ListFilesResponse`, and Pydantic's default extra="ignore"
+    # SILENTLY DROPS any key the row model doesn't name — so the flag reached the browser
+    # as `undefined` and the form's pre-select fell back to smallest-wins-with-no-floor,
+    # the exact behaviour the floor exists to replace. Assert it survives the real
+    # classify → response-model hop the form receives.
+    from llm_runner.llm.model_catalog_api import ListFilesResponse
+
+    data = models.classify_gguf_entries([
+        {"type": "file", "path": "MTP/m-Q2_K-MTP.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 1}},
+        {"type": "file", "path": "MTP/m-Q4_0-MTP.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 9}},
+    ])
+    rows = ListFilesResponse(**data).model_dump()["drafts"]
+    assert {r["path"]: r["q4OrBetter"] for r in rows} == {
+        "MTP/m-Q2_K-MTP.gguf": False, "MTP/m-Q4_0-MTP.gguf": True}
+
+
+def test_drafter_floor_fires_alone_over_a_smaller_low_bit_quant(monkeypatch):
+    # Isolates the FLOOR: a Q2_K that is the smallest file beside a larger Q4_K_M.
+    # Neither the shard nor the fp16 filter touches either candidate, so only the
+    # 4-bit floor can reject the smaller Q2_K — remove it and this flips red.
+    tree = [
+        {"type": "file", "path": "model-Q2_K.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 1 * _GB}},
+        {"type": "file", "path": "model-Q4_K_M.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 3 * _GB}},
+    ]
+    monkeypatch.setattr(models.requests, "get", _make_get(tree))
+    got = models._gguf_drafter_in_repo("owner/repo")
+    assert got == {"repo": "owner/repo", "file": "model-Q4_K_M.gguf", "quant": "Q4_K_M"}
+
+
+def test_drafter_falls_back_to_smallest_when_nothing_clears_the_floor(monkeypatch):
+    # The floor is a PREFERENCE, not a filter: a repo with only sub-4-bit quants still
+    # gets a suggestion — the smallest of them.
+    tree = [
+        {"type": "file", "path": "model-Q3_K_S.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 3 * _GB}},
+        {"type": "file", "path": "model-Q2_K.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 1 * _GB}},
+    ]
+    monkeypatch.setattr(models.requests, "get", _make_get(tree))
+    got = models._gguf_drafter_in_repo("owner/repo")
+    assert got == {"repo": "owner/repo", "file": "model-Q2_K.gguf", "quant": "Q2_K"}
+
+
 # ── word-bounded quant matching in select_files + cached_gguf_path (2026-07-19) ──
 
 _PQ_TREE = [

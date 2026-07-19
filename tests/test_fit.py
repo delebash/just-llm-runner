@@ -105,6 +105,24 @@ def test_max_gpu_layers_clamps():
     assert fit.max_gpu_layers(vram_budget_mb=500, **cfg) == 0  # below base overhead
 
 
+def test_marginal_drops_exactly_the_base_offset():
+    # A co-resident model (the speculative-decode draft) pays the slope — its own
+    # weights + KV — but NOT the per-in-use-GPU base constant, which the first model
+    # already paid. Anything else double-counts ~1.5 GB and sheds main-model layers.
+    cfg = _cfg()
+    full = fit.estimate_vram_mb(gpu_layers=32, **cfg)
+    marginal = fit.marginal_vram_mb(gpu_layers=32, **cfg)
+    assert marginal == full - fit._C5
+    assert marginal > 0
+
+
+def test_marginal_floors_at_zero_for_a_tiny_model():
+    # A draft small enough that the regression's slope can't cover the base offset
+    # must not return a NEGATIVE budget credit.
+    tiny = fit.marginal_vram_mb(gpu_layers=1, **_cfg(size_mb=1, n_layers=1, ctx_size=512))
+    assert tiny == 0.0
+
+
 def test_gqa_reduces_kv_cost():
     # More KV heads (MHA) ⇒ more VRAM/layer ⇒ no more layers fit than GQA.
     mha = fit.max_gpu_layers(vram_budget_mb=4000, **_cfg(n_kv_heads=32))

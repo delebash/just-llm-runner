@@ -996,9 +996,19 @@ class RunnerService:
             return {"ok": False, "error": "model not downloaded"}
         try:
             ov = _switches_to_overrides(dict(switches) if switches else (self._switches_fn(model_id) or {}))
+            # Mirror the `.ini` emitter's draft resolve (2026-07-19) so the PREVIEW's
+            # layer split matches what the spawn will actually get: a wanted draft that
+            # is on disk is charged to the fit; one not downloaded yet contributes
+            # nothing, exactly like the emitter's strip branch.
+            if _wants_draft(ov, model):
+                cached_draft = self._cached_draft_path(model, self._cache_root / "hf")
+                if cached_draft is not None:
+                    ov.model_draft = str(cached_draft)
             meta = self._read_meta(gguf)
+            draft_meta, draft_bytes = self._draft_fit_inputs(ov)
             f = compute_fit(meta, gguf.stat().st_size, self._hardware_fn(), ov,
-                            safety_margin_mb=self._config_fn().safety_margin_mb)
+                            safety_margin_mb=self._config_fn().safety_margin_mb,
+                            draft_meta=draft_meta, draft_bytes=draft_bytes)
         except Exception as exc:  # noqa: BLE001 — a preview must never raise into the sweep
             return {"ok": False, "error": str(exc)}
         return {"ok": True, "blockCount": f.block_count, "isMoe": f.is_moe,
@@ -1221,6 +1231,51 @@ class RunnerService:
                 return p
         return None
 
+    def acquire_draft_file(self, repo: str, file: str, cancel_check=None,
+                           on_progress=None) -> Path:
+        """THE draft-GGUF fetch: acquire ONE draft by exact path, return where it landed.
+
+        The single body behind BOTH consumers — `_acquire_and_identify`'s configured-draft
+        leg (load + download) and the auto-tune sweep's A/B trials, which measure
+        alternates the catalog row does not name. It owns the whole rule, not just the
+        `_acquire_model` call: the file path is its own selector, the snapshot preserves
+        relative paths so an exact join resolves it, and a snapshot that lacks the file
+        after a fetch is FAIL-LOUD (never a silent drop to no-MTP — the user asked for
+        MTP). Keeping the join + that check in one place is the point; they were briefly
+        duplicated here and drifting was only a matter of time. Downloads into the normal
+        HF cache, so delete-model-cache / Reclaim disk semantics are unchanged."""
+        cancel_kw = {"cancel_check": cancel_check} if cancel_check is not None else {}
+        snapshot = self._acquire_model(
+            repo, file, None, cache_root=self._cache_root / "hf", on_progress=on_progress,
+            **cancel_kw, **download_kwargs(self._config_fn()),
+        )
+        path = Path(snapshot) / file
+        if not path.exists():
+            raise FileNotFoundError(
+                f"MTP draft downloaded but not found in the snapshot: {file!r}"
+            )
+        return path
+
+    def _draft_fit_inputs(self, ov) -> tuple:
+        """`(draft_meta, draft_bytes)` for `compute_fit` when the resolved config pins a
+        draft GGUF path, else `(None, 0)` — THE one reader shared by the three fit sites
+        (active load · `.ini` emit · `preview_fit`), so a draft's VRAM can never be
+        counted by one and missed by another (2026-07-19). Keyed on `ov.model_draft`,
+        which each site has already resolved to a real on-disk path by the time it
+        computes a fit. Best-effort: an unreadable header yields no term rather than
+        failing the caller — the load path's own fail-loud acquire covers a genuinely
+        missing draft, and the spawn OOM back-off remains the safety net."""
+        path = getattr(ov, "model_draft", "") or ""
+        if not path:
+            return None, 0
+        try:
+            p = Path(path)
+            return self._read_meta(p), p.stat().st_size
+        except Exception:  # noqa: BLE001 — a fit input, never a load blocker
+            log.warning("draft header read failed for %r — its VRAM is not charged to "
+                        "the fit", path, exc_info=True)
+            return None, 0
+
     def model_downloaded(self, m, hf_cache) -> bool:
         """Is this catalog model FULLY downloaded — main weights AND, when the resolved
         config wants an external MTP draft, the draft too? THE catalog badge's source of
@@ -1415,11 +1470,11 @@ class RunnerService:
             log.warning("model type auto-detect failed for %s", model_id, exc_info=True)
         # Gemma-style external MTP: the model declares a SEPARATE draft GGUF (catalog
         # mtp_draft_* facts). When the resolved config wants draft-mtp and nothing set
-        # model_draft explicitly, acquire the draft next to the main weights — REUSING
-        # this same acquire path (the file path is its own selector: select_files matches
-        # path-substrings and the snapshot preserves relative paths). A draft failure
-        # fails the CALLER with the real reason — never a silent drop to no-MTP (the user
-        # asked for MTP). The load path then points --model-draft at the returned path.
+        # model_draft explicitly, fetch it next to the main weights through
+        # `acquire_draft_file` — THE one draft-fetch body (path-as-selector, snapshot
+        # join, fail-loud check), shared with the auto-tune sweep's draft A/B so the two
+        # cannot drift. A draft failure fails the CALLER with the real reason, never a
+        # silent drop to no-MTP. The load path then points --model-draft at the result.
         draft_path = None
         if _wants_draft(overrides, model):
             # Neutral phase + zeroed counters between the legs (the main model's bytes
@@ -1428,16 +1483,10 @@ class RunnerService:
             # the download itself, never ahead of it).
             if reset_progress is not None:
                 reset_progress()
-            draft_snapshot = self._acquire_model(
-                model.mtp_draft_repo or model.hf_repo, model.mtp_draft_file, None,
-                cache_root=self._cache_root / "hf", on_progress=on_progress_draft,
-                cancel_check=cancel_check, **download_kwargs(self._config_fn()),
+            draft_path = self.acquire_draft_file(
+                model.mtp_draft_repo or model.hf_repo, model.mtp_draft_file,
+                cancel_check=cancel_check, on_progress=on_progress_draft,
             )
-            draft_path = Path(draft_snapshot) / model.mtp_draft_file
-            if not draft_path.exists():
-                raise FileNotFoundError(
-                    f"MTP draft downloaded but not found in the snapshot: {model.mtp_draft_file!r}"
-                )
         return model, gguf, draft_path
 
     def _touch(self, model_id: str, **fields) -> bool:
@@ -1540,8 +1589,12 @@ class RunnerService:
             # #274 half 2 (2026-07-11): an embed is placed by POLICY (CPU unless the
             # static leftover covers it) BEFORE the fit — never by the child's default.
             self._apply_embed_placement(_model, ov, meta, hardware)
+            # The draft (just acquired + pinned above) is GPU-resident alongside the
+            # main model — charge its VRAM to the fit, or it silently sheds main layers.
+            draft_meta, draft_bytes = self._draft_fit_inputs(ov)
             fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
-                              safety_margin_mb=config.safety_margin_mb)
+                              safety_margin_mb=config.safety_margin_mb,
+                              draft_meta=draft_meta, draft_bytes=draft_bytes)
             # 1b fit-by-omission: only tune/preset/request-EXPLICIT placement knobs are
             # emitted; a non-explicit knob is omitted so the child's default `--fit`
             # places tensors at our always-emitted ctx. Tuned boxes render identically
@@ -1851,7 +1904,11 @@ class RunnerService:
                 # #274 half 2 — the same embed placement rule as the active-load path,
                 # so a PASSIVE section can't hand the embed to the child's GPU default.
                 self._apply_embed_placement(m, ov, meta, hardware)
-                fit = compute_fit(meta, gguf.stat().st_size, hardware, ov, safety_margin_mb=margin)
+                # Same draft-VRAM charge as the active-load path: a PASSIVE section that
+                # carries `model-draft` holds those bytes too once the router loads it.
+                draft_meta, draft_bytes = self._draft_fit_inputs(ov)
+                fit = compute_fit(meta, gguf.stat().st_size, hardware, ov, safety_margin_mb=margin,
+                                  draft_meta=draft_meta, draft_bytes=draft_bytes)
                 # Same 1b fit-by-omission rule as the active-load path above.
                 entries.append(ModelIniEntry(
                     model_id=m.id, gguf_path=str(gguf),
@@ -2120,9 +2177,13 @@ class RunnerService:
             # model ('invalid vector subscript') when it loads WHILE another child is loading —
             # a transient SCHEDULING race (e.g. an embed switch bounced Gemma + the embed in
             # together), NOT a resource problem. So we NEVER drop speculative decoding to work
-            # around it: dropping MTP is ONLY ever a deliberate FIT decision for a draft that
-            # doesn't fit VRAM (made in compute_fit), because a permanent ~1.5-2x decode loss
-            # must not be a reaction to a transient crash. Instead, remove the concurrency and
+            # around it, because a permanent ~1.5-2x decode loss must not be a reaction to a
+            # transient crash. (Nothing drops MTP automatically for VRAM reasons: since
+            # 2026-07-19 `compute_fit` CHARGES the draft's weights + KV to the budget, so a
+            # draft that doesn't fit sheds MAIN-model layers instead of silently disabling
+            # speculation. The only automatic strip is the .ini emitter's missing-draft one,
+            # which is loud. An earlier version of this comment credited compute_fit with a
+            # drop-MTP decision it has never made.) Instead, remove the concurrency and
             # load the draft SOLO — keeping MTP — escalating cheapest-first, and surface WHY the
             # load runs long so the user isn't watching a silent spinner.
             has_draft = bool(entry.overrides.model_draft) or (

@@ -129,13 +129,21 @@ class RepoQuantRow(BaseModel):
 
 
 class RepoDraftRow(BaseModel):
-    """One detected MTP draft file in the repo (`MTP/` dir / `-MTP.gguf`) — picked
-    by exact path; its quant + size ride along for the label."""
+    """One detected MTP draft file in the repo (`MTP/` dir, `-MTP.gguf`, or a `dspark`
+    own-repo drafter) — picked by exact path; its quant + size ride along for the label.
+
+    EVERY field the form needs must be declared here: this model is the wire, and
+    Pydantic's default `extra="ignore"` silently DROPS anything `classify_gguf_entries`
+    adds but this class doesn't name. That is exactly how `q4OrBetter` reached the
+    browser as `undefined` on its first cut (2026-07-19), collapsing the draft
+    pre-select back to plain smallest-wins with no floor."""
 
     path: str
     quant: str = ""
     sizeMb: int = 0
     qat: bool = False
+    # The shared 4-bit pick floor (`_q4_or_better`) — the form's pre-select orders by it.
+    q4OrBetter: bool = False
 
 
 class ListFilesResponse(BaseModel):

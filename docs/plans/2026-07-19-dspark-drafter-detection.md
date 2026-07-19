@@ -145,3 +145,9 @@ Revert the `models.py` edits: restore `_QUANT_RE` to
 `lifecycle.py` drop the `_quant_matches` import and restore `_main_gguf`'s substring
 match. Remove the four added tests + the bonsai-test additions. No schema, no data, no
 wire-format change — pure matching logic.
+
+---
+
+**Follow-on (2026-07-19):** the draft-pick rule this doc leaves at "smallest wins" gained
+a 4-bit FLOOR, the VRAM fit learned to charge the draft, and Tune & measure gained draft
+trials — `2026-07-19-draft-fit-floor-and-lab-measure.md`.

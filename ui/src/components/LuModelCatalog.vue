@@ -402,11 +402,21 @@ async function loadRepoFiles({ autopick = true } = {}) {
       const fitting = vramMb.value ? r.quants.filter((q) => q.sizeMb <= vramMb.value) : [];
       e.quant = (fitting.length ? fitting[fitting.length - 1] : r.quants[0]).quant;
     }
-    // detect pre-select (D9): a repo shipping an MTP draft pre-picks the SMALLEST
-    // one when the model has none configured — a draft should be small/fast (the
-    // user's measured gemma pick, Q4_0 @ 240MB, IS the smallest). "None" stays.
+    // detect pre-select (D9): a repo shipping an MTP draft pre-picks the smallest one
+    // AT THE FLOOR when the model has none configured. A draft only affects SPEED (the
+    // main model verifies every proposed token, so draft bits buy acceptance rate, never
+    // quality) while each drafted token re-reads its weights spec_n_max times per cycle
+    // and its weights+KV take VRAM from the main model's layers — so small wins on every
+    // box, big card included. `q4OrBetter` (server-side, one predicate shared with the
+    // tier-C suggestion) is the floor under that: below 4-bit, lost acceptance can cost
+    // more than the saved bytes. Repos with nothing at the floor fall back to smallest
+    // overall by construction. Bigger-is-better holds only ACROSS drafters of different
+    // parameter counts — machine-dependent, so Tune & measure times it rather than us
+    // guessing (docs/plans/2026-07-19-draft-fit-floor-and-lab-measure.md). "None" stays.
     if (r.drafts.length && !e.mtpDraftFile) {
-      onDraftPick([...r.drafts].sort((a, b) => (a.sizeMb || 0) - (b.sizeMb || 0))[0].path);
+      const ranked = [...r.drafts].sort(
+        (a, b) => (b.q4OrBetter ? 1 : 0) - (a.q4OrBetter ? 1 : 0) || (a.sizeMb || 0) - (b.sizeMb || 0));
+      onDraftPick(ranked[0].path);
     }
   } catch (err) {
     listing.value = null;

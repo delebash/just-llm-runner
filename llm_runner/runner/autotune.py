@@ -17,7 +17,12 @@ back-off would silently shed layers and corrupt the reading — a trial that
 back-offs simply measures slower and loses), sweep threads (measured flat on
 the reference box), or auto-save (the caller decides: the Tune modal fills
 the grid for review; QuickSetup passes save=True). MTP bases DO get one spec-n
-alternative trial (A9, 2026-07-06).
+alternative trial (A9, 2026-07-06) and, since D4 (2026-07-19), a draft phase:
+one SAVEABLE "no draft (spec off)" trial — the honest answer to "does drafting
+pay on THIS box", the question a CPU-only machine most needs — plus one
+INFORMATIONAL trial per alternate draft file the repo ships (measured and
+shown, never saved; the durable choice lives on the catalog row). Doc:
+docs/plans/2026-07-19-draft-fit-floor-and-lab-measure.md.
 
 BENCH-METHOD CAVEAT (on-box incident 3, 2026-07-06): a verbatim-repeated prompt
 hits llama's prompt cache and TTFT collapses to decode-only — `measure` reads
@@ -40,6 +45,7 @@ import time
 from fastapi import APIRouter, HTTPException
 
 from .lifecycle import get_service
+from .models import list_repo_ggufs
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +55,7 @@ _MEASURE_TOKENS = 192    # live-validated 2026-07-06: 96-token measures sat insi
 _TIE_BAND = 0.95         # trials within 5% of the best are TIES → prefer the higher n-cpu-moe (VRAM headroom over noise)
 _WALK_STEP = 2           # 1b-F5: the n-cpu-moe walk stride — probe ±2 around the anchor, then keep stepping
 _WALK_MAX_TRIALS = 12    # explicit-ncmoe trial budget: covers a 37→21-style journey (8 steps) with slack
+_DRAFT_ALT_CAP = 4       # D4: most alternate draft FILES to A/B — each one is a download + a load
 
 
 def _merged(base: dict, delta: dict) -> dict:
@@ -189,12 +196,18 @@ class AutoTuner:
         the tie band: a tie must never overwrite the baseline, because saving a tying
         explicit value would permanently disable the engine's fit over an equal-or-
         better placement. Ties AMONG explicit candidates still resolve to the highest
-        n-cpu-moe (VRAM headroom over ±10% MTP noise, live-validated 2026-07-06)."""
+        n-cpu-moe (VRAM headroom over ±10% MTP noise, live-validated 2026-07-06).
+
+        `informational` trials (the D4 draft-FILE A/B, 2026-07-19) are EXCLUDED from the
+        candidate set: they are measured and shown, never saved. A winning `model_draft`
+        would pin an absolute cache path into a tune row, while the durable home for
+        that choice is the catalog's `mtp_draft_*` fields, which the USER sets in the
+        Edit-model form — the machine supplies measurements, the user supplies choices."""
         ok = [t for t in trials if t["ok"]]
         if not ok:
             return None
         baseline = next((t for t in ok if t["label"] == "baseline"), None)
-        explicit = [t for t in ok if t["label"] != "baseline"]
+        explicit = [t for t in ok if t["label"] != "baseline" and not t.get("informational")]
         if not explicit:
             return baseline
         top = max(t["tokensPerSec"] for t in explicit)
@@ -204,10 +217,15 @@ class AutoTuner:
             return baseline
         return best
 
-    def _try(self, svc, model_id: str, label: str, switches: dict, failed_ncmoe: list[int]) -> dict:
+    def _try(self, svc, model_id: str, label: str, switches: dict, failed_ncmoe: list[int],
+             *, extra: dict | None = None) -> dict:
         """One load→measure trial, pushed to the live trial list. Monotonic MoE prune:
         an n-cpu-moe below an already-failed value is recorded as skipped, never tried
-        (below a failed value never fits — the slowest failure mode avoided)."""
+        (below a failed value never fits — the slowest failure mode avoided). `extra`
+        seeds extra keys on the row at CREATION (never patched on after the push, which
+        a status() poll could observe half-written) — the D4 draft phase marks its
+        file trials `informational` that way."""
+        seed = dict(extra or {})
         # QC-22 fast-path: a cancel that landed between trials must not start the
         # next one — the old path still ran svc.stop() + fired the loads (all
         # post-cancel wasted work queuing on the router lock the teardown then
@@ -216,16 +234,17 @@ class AutoTuner:
         # clutter the trial list) — the caller's `cancelled()` check ends the run.
         if self._cancel:
             return {"label": label, "ok": False, "tokensPerSec": 0.0, "vramTotalMb": 0,
-                    "error": "cancelled", "switches": switches}
+                    "error": "cancelled", "switches": switches, **seed}
         cand_ncmoe = _int_of(switches, "n_cpu_moe")
         if cand_ncmoe is not None and any(cand_ncmoe < f for f in failed_ncmoe):
             trial = {"label": label, "ok": False, "tokensPerSec": 0.0, "vramTotalMb": 0,
-                     "error": "skipped — a higher n-cpu-moe already failed", "switches": switches}
+                     "error": "skipped — a higher n-cpu-moe already failed",
+                     "switches": switches, **seed}
             self._push_trial(trial)
             return trial
         self._set(detail=f"trying {label}…")
         trial = {"label": label, "ok": False, "tokensPerSec": 0.0,
-                 "vramTotalMb": 0, "error": "", "switches": switches}
+                 "vramTotalMb": 0, "error": "", "switches": switches, **seed}
         try:
             svc.stop()  # clean slate per trial — deterministic VRAM
             try:
@@ -262,6 +281,74 @@ class AutoTuner:
         if not trial["ok"] and cand_ncmoe is not None and not self._cancel and not self._budget_hit:
             failed_ncmoe.append(cand_ncmoe)
         return trial
+
+    def _draft_alternates(self, svc, model_id: str, base: dict) -> list[dict]:
+        """The OTHER draft GGUFs this model's draft repo ships — the D4 A/B candidates.
+
+        Empty unless the resolved config actually speculates (`spec_type=draft-mtp`).
+        The CONFIGURED draft is excluded: the baseline trial already measures it.
+        Ordered by the SHARED pick rule the form and the tier-C suggestion use — the
+        `q4OrBetter` floor first, then smallest — and capped at `_DRAFT_ALT_CAP` so a
+        repo shipping a dozen quants can't turn a tune into an all-night download.
+        Discovery is ADVISORY (the tier-C precedent): any listing/network failure
+        yields no candidates and the sweep finishes normally."""
+        if str((base or {}).get("spec_type") or "") != "draft-mtp":
+            return []
+        try:
+            model = next((m for m in svc.catalog() if m.id == model_id), None)
+            if model is None:
+                return []
+            configured = getattr(model, "mtp_draft_file", "") or ""
+            repo = getattr(model, "mtp_draft_repo", "") or model.hf_repo
+            drafts = list_repo_ggufs(repo)["drafts"]
+        except Exception:  # noqa: BLE001 — advisory: never break a sweep on discovery
+            log.warning("draft A/B listing failed for %s", model_id, exc_info=True)
+            return []
+        alts = [d for d in drafts if d.get("path") and d.get("path") != configured]
+        alts.sort(key=lambda d: (0 if d.get("q4OrBetter") else 1, d.get("sizeMb") or 0))
+        return [dict(d, repo=repo) for d in alts[:_DRAFT_ALT_CAP]]
+
+    def _draft_phase(self, svc, model_id: str, base: dict, batch512: dict,
+                     failed_ncmoe: list[int]) -> None:
+        """D4 (2026-07-19): does speculative decoding pay on THIS box, and which draft
+        file is fastest here? Two kinds of trial, deliberately unequal:
+
+          * "no draft (spec off)" — a NORMAL, saveable candidate (`spec_type=none` is
+            the documented MTP opt-OUT). This is the trial that answers the question a
+            CPU-only box actually has: is drafting worth it at all, when every drafted
+            token re-reads the draft's weights through the same memory bottleneck?
+          * one per alternate draft FILE — `informational`: measured and shown, never
+            saved. Bigger-draft-wins is real only ACROSS drafters, and it is
+            machine-dependent, so this MEASURES it instead of the pickers guessing;
+            but the durable home for the choice is the catalog's `mtp_draft_*` fields,
+            which the user sets in the Edit-model form.
+
+        Each candidate is fetched through the service's one acquire door before its
+        trial; a failed fetch is one recorded row, never the end of the sweep."""
+        if str((base or {}).get("spec_type") or "") != "draft-mtp":
+            return
+        self._try(svc, model_id, "no draft (spec off)",
+                  _merged(base, {"spec_type": "none", **batch512}), failed_ncmoe)
+        if self._cancel or self._budget_over():
+            return
+        for d in self._draft_alternates(svc, model_id, base):
+            if self._cancel or self._budget_over():
+                return
+            name = str(d["path"]).rsplit("/", 1)[-1]
+            gb = (d.get("sizeMb") or 0) / 1024
+            label = f"draft {name} ({gb:.1f} GB)" if gb else f"draft {name}"
+            self._set(detail=f"downloading {name}…")
+            try:
+                path = svc.acquire_draft_file(d["repo"], d["path"],
+                                              cancel_check=lambda: self._cancel)
+            except Exception as exc:  # noqa: BLE001 — one bad candidate, not the sweep
+                self._push_trial({"label": label, "ok": False, "tokensPerSec": 0.0,
+                                  "vramTotalMb": 0, "error": str(exc), "switches": {},
+                                  "informational": True})
+                continue
+            self._try(svc, model_id, label,
+                      _merged(base, {"model_draft": str(path), **batch512}),
+                      failed_ncmoe, extra={"informational": True})
 
     def _run(self, model_id: str, base: dict, save_fn, save: bool) -> None:
         """The 1b-F5 sweep shape: baseline (the CURRENT launch — tuned explicit values,
@@ -389,6 +476,13 @@ class AutoTuner:
             if alt is not None and not self._budget_over():
                 self._try(svc, model_id, f"spec-n {alt}",
                           _merged(base, {"spec_n_max": str(alt), **batch512}), failed_ncmoe)
+                if cancelled():
+                    return
+
+            # D4: spec-off + the draft-file A/B (see _draft_phase). Last, because its
+            # candidates may DOWNLOAD — the cheap measured knobs are settled by now.
+            if not self._budget_over():
+                self._draft_phase(svc, model_id, base, batch512, failed_ncmoe)
                 if cancelled():
                     return
 

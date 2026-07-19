@@ -91,6 +91,53 @@ def test_fit_safety_margin_shrinks_budget():
     assert tight.n_gpu_layers <= loose.n_gpu_layers
 
 
+# ── the speculative-decode draft's share of the budget (2026-07-19) ───────────
+
+_ONE_GB = 1_000_000_000  # a Gemma-class external MTP draft file
+
+
+def test_fit_draft_takes_layers_from_the_main_split():
+    # llama.cpp fully offloads a `--model-draft` GGUF (we emit no draft-layers flag),
+    # so its weights + KV must come off the budget BEFORE the main split — otherwise
+    # the draft silently steals layers the fit already promised to the main model.
+    args = (_meta(block_count=10), _TEN_GB, _hw(vram_mb=8192))
+    without = compute_fit(*args)
+    with_draft = compute_fit(*args, draft_meta=_meta(block_count=4), draft_bytes=_ONE_GB)
+    assert 0 < with_draft.n_gpu_layers < without.n_gpu_layers
+
+
+def test_fit_reservation_counts_the_draft():
+    # fit.vram_mb is what the VRAM arbiter reserves. With the split PINNED identical,
+    # the only delta is the draft — if it were missing, a co-resident admission would
+    # over-book by exactly the draft's size (the #274 co-load defect).
+    args = (_meta(block_count=10), _TEN_GB, _hw(vram_mb=24000))
+    pinned = dict(overrides=Overrides(n_gpu_layers=4))
+    bare = compute_fit(*args, **pinned)
+    with_draft = compute_fit(*args, **pinned, draft_meta=_meta(block_count=4),
+                             draft_bytes=_ONE_GB)
+    assert with_draft.n_gpu_layers == bare.n_gpu_layers == 4  # same split…
+    assert with_draft.vram_mb > bare.vram_mb                  # …more VRAM held
+
+
+def test_fit_without_a_draft_is_byte_identical():
+    # Regression pin with LITERAL values — the pre-2026-07-19 plan for a 10 GB MoE on an
+    # 8 GB card. Comparing the defaults against explicitly-passed defaults would be a
+    # tautology that could not catch an arithmetic slip; these numbers can.
+    args = (_meta(block_count=10, expert_count=128), _TEN_GB, _hw(vram_mb=8192))
+    plan = compute_fit(*args)
+    assert (plan.n_gpu_layers, plan.n_cpu_moe, plan.ctx_len, plan.vram_mb) == (4, 6, 4096, 6432)
+    # …and a draft SIZE with no draft meta is inert (the meta is what arms the term).
+    assert compute_fit(*args, draft_bytes=_ONE_GB) == plan
+
+
+def test_fit_draft_is_a_no_op_on_a_cpu_only_box():
+    # No GPU → no VRAM budget to charge, so a declared draft changes nothing (it rides
+    # in RAM there, inside the coarse band's error bars — deliberately not modelled).
+    args = (_meta(block_count=10), _TEN_GB, _hw(vram_mb=None))
+    assert compute_fit(*args) == compute_fit(*args, draft_meta=_meta(block_count=4),
+                                             draft_bytes=_ONE_GB)
+
+
 # ── compose_flags (renders from Overrides + fit knobs; no manifest preset) ─────
 
 def test_compose_flags_sets_ngl_and_moe(tmp_path):

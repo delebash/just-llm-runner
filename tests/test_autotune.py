@@ -4,6 +4,7 @@ candidate ladder, winner pick, failure-skip, cancel, save and busy-guard logic
 test without a GPU or a llama-server."""
 
 import threading
+from types import SimpleNamespace
 
 from llm_runner.runner.autotune import AutoTuner
 
@@ -309,6 +310,208 @@ def test_busy_guard_rejects_second_start():
     gate.set()
     tuner._thread.join(timeout=10)
     assert tuner.status()["status"] == "done"
+
+
+# ── D4: the draft phase — spec-off + the draft-file A/B (2026-07-19) ──────────
+
+_MTP_BASE = dict(BASE, spec_type="draft-mtp", spec_n_max="2")
+
+
+class DraftService(FakeService):
+    """FakeService + the catalog row, acquire door and per-trial-KIND speeds the draft
+    phase drives. `draft_tps`/`spec_off_tps` key off the trial's OWN switches (the
+    n_cpu_moe-keyed script can't distinguish these — every draft trial carries the
+    base's n_cpu_moe)."""
+
+    def __init__(self, *, configured="MTP/cur-Q4_0-MTP.gguf", acquire_error=None,
+                 draft_tps=None, spec_off_tps=None, **kw):
+        super().__init__(**kw)
+        self.configured = configured
+        self.acquire_error = acquire_error
+        self.draft_tps = draft_tps
+        self.spec_off_tps = spec_off_tps
+        self.acquired = []       # (repo, file) per acquire_draft_file call
+        self.events = []         # interleaved "acquire:<file>" / "load:<what>"
+
+    def catalog(self):
+        return [SimpleNamespace(id="m", hf_repo="org/main-GGUF", mtp_draft_repo="",
+                                mtp_draft_file=self.configured)]
+
+    def acquire_draft_file(self, repo, file, cancel_check=None):
+        if cancel_check is not None and cancel_check():
+            raise RuntimeError("cancelled")
+        if self.acquire_error:
+            raise RuntimeError(self.acquire_error)
+        self.acquired.append((repo, file))
+        self.events.append(f"acquire:{file}")
+        return f"/cache/{file}"
+
+    def load(self, model_id, overrides=None, job_id=None, switches=None, trigger="api"):
+        sw = dict(switches or {})
+        self.events.append(f"load:{sw.get('model_draft') or sw.get('spec_type') or 'base'}")
+        return super().load(model_id, overrides, job_id, switches, trigger)
+
+    def measure(self, *, model_id=None, max_tokens=0, **kw):
+        sw = self.loads[-1] if self.loads else {}
+        forced = (self.draft_tps if sw.get("model_draft") else
+                  self.spec_off_tps if sw.get("spec_type") == "none" else None)
+        if forced is None:
+            return super().measure(model_id=model_id, max_tokens=max_tokens, **kw)
+        return {"ok": True, "tokensPerSec": forced, "completionTokens": max_tokens,
+                "ms": 1000.0, "vramTotalMb": 7000}
+
+
+def _listing(monkeypatch, drafts, *, raises=None):
+    def fake(repo, revision="main"):
+        if raises:
+            raise raises
+        return {"quants": [], "drafts": drafts}
+
+    monkeypatch.setattr("llm_runner.runner.autotune.list_repo_ggufs", fake)
+
+
+def test_draft_phase_measures_spec_off_and_each_alternate(monkeypatch):
+    # An MTP base gets the saveable spec-off trial plus one row per alternate draft
+    # FILE, each DOWNLOADED before its own load, ordered by the shared pick rule
+    # (the q4OrBetter floor first, then smallest). The configured draft is skipped —
+    # the baseline already measures it.
+    _listing(monkeypatch, [
+        {"path": "MTP/cur-Q4_0-MTP.gguf", "sizeMb": 240, "q4OrBetter": True},   # configured
+        {"path": "MTP/alt-Q2_K-MTP.gguf", "sizeMb": 100, "q4OrBetter": False},  # smallest, below floor
+        {"path": "MTP/alt-BF16-MTP.gguf", "sizeMb": 880, "q4OrBetter": True},
+    ])
+    svc = DraftService(tps_by_ncmoe={"21": 30.0, "23": 20.0, "19": 20.0})
+    st = _run_to_end(_tuner(svc), "m", _MTP_BASE)
+    assert st["status"] == "done"
+    labels = [t["label"] for t in st["trials"]]
+    assert "no draft (spec off)" in labels
+    assert "draft alt-BF16-MTP.gguf (0.9 GB)" in labels
+    assert "draft alt-Q2_K-MTP.gguf (0.1 GB)" in labels
+    # the configured draft is never re-fetched or re-measured
+    assert [f for _r, f in svc.acquired] == ["MTP/alt-BF16-MTP.gguf", "MTP/alt-Q2_K-MTP.gguf"]
+    # …and every acquire precedes ITS load (download, then measure)
+    assert svc.events.index("acquire:MTP/alt-BF16-MTP.gguf") < svc.events.index("load:/cache/MTP/alt-BF16-MTP.gguf")
+
+
+def test_no_draft_phase_without_spec_draft_mtp(monkeypatch):
+    _listing(monkeypatch, [{"path": "MTP/alt-Q4_0-MTP.gguf", "sizeMb": 100, "q4OrBetter": True}])
+    svc = DraftService(tps_by_ncmoe={"21": 30.0, "23": 20.0, "19": 20.0})
+    st = _run_to_end(_tuner(svc), "m", BASE)  # no spec_type
+    assert not any("draft" in t["label"] for t in st["trials"])
+    assert svc.acquired == []
+
+
+def test_draft_file_trials_never_win_and_never_save(monkeypatch):
+    # THE save-discipline invariant: an informational draft-FILE trial is the fastest
+    # thing measured and STILL cannot become the winner — a model_draft tune row would
+    # pin an absolute cache path. No `model_draft` key may ever reach save_fn.
+    _listing(monkeypatch, [{"path": "MTP/alt-BF16-MTP.gguf", "sizeMb": 880, "q4OrBetter": True}])
+    saves = []
+    svc = DraftService(tps_by_ncmoe={"21": 30.0, "23": 20.0, "19": 20.0},
+                       draft_tps=99.0)   # the alternate draft is far and away fastest
+    st = _run_to_end(_tuner(svc), "m", _MTP_BASE,
+                     save_fn=lambda mid, sw: saves.append(sw), save=True)
+    fastest = max(st["trials"], key=lambda t: t["tokensPerSec"])
+    assert fastest["label"].startswith("draft ") and fastest["informational"] is True
+    assert st["best"]["label"] != fastest["label"]
+    assert all("model_draft" not in sw for sw in saves)
+
+
+def test_spec_off_can_win_and_saves_the_opt_out(monkeypatch):
+    # The other half: "no draft (spec off)" is a NORMAL candidate. When drafting turns
+    # out not to pay on this box, it wins under strict-beat and spec_type=none persists
+    # (the documented MTP opt-OUT) — the CPU-only question, answered by measurement.
+    _listing(monkeypatch, [])
+    saves = []
+    svc = DraftService(tps_by_ncmoe={"21": 10.0, "23": 9.0, "19": 9.0},
+                       spec_off_tps=40.0)   # drafting does NOT pay on this box
+    st = _run_to_end(_tuner(svc), "m", _MTP_BASE,
+                     save_fn=lambda mid, sw: saves.append(sw), save=True)
+    assert st["best"]["label"] == "no draft (spec off)"
+    assert st["saved"] is True and saves[-1]["spec_type"] == "none"
+
+
+def test_draft_phase_skipped_when_the_budget_is_gone(monkeypatch):
+    # The time box gates this phase like every other: no new trial is scheduled and
+    # nothing downloads once the cap trips — the sweep still finishes DONE.
+    _listing(monkeypatch, [{"path": "MTP/alt-Q4_0-MTP.gguf", "sizeMb": 100, "q4OrBetter": True}])
+    clock = {"t": 0.0}
+    svc = DraftService(tps_by_ncmoe={"21": 30.0, "23": 40.0, "19": 20.0})
+    orig = svc.measure
+
+    def timed(**kw):
+        clock["t"] += 6.0
+        return orig(**kw)
+
+    svc.measure = timed
+    st = _run_to_end(_clocked_tuner(svc, clock), "m", _MTP_BASE, budget_seconds=10)
+    assert st["status"] == "done"
+    assert not any("draft" in t["label"] for t in st["trials"])
+    assert svc.acquired == []
+
+
+def test_draft_listing_failure_skips_the_alternates_only(monkeypatch):
+    # Discovery is ADVISORY (the tier-C precedent): a dead HF listing costs the
+    # alternates, not the sweep — and spec-off, which needs no network, still runs.
+    _listing(monkeypatch, [], raises=RuntimeError("HF down"))
+    svc = DraftService(tps_by_ncmoe={"21": 30.0, "23": 20.0, "19": 20.0})
+    st = _run_to_end(_tuner(svc), "m", _MTP_BASE)
+    assert st["status"] == "done"
+    assert "no draft (spec off)" in [t["label"] for t in st["trials"]]
+    assert not any(t["label"].startswith("draft ") for t in st["trials"])
+
+
+def test_draft_acquire_failure_is_one_row_not_the_sweep(monkeypatch):
+    _listing(monkeypatch, [{"path": "MTP/alt-Q4_0-MTP.gguf", "sizeMb": 100, "q4OrBetter": True}])
+    svc = DraftService(tps_by_ncmoe={"21": 30.0, "23": 20.0, "19": 20.0},
+                       acquire_error="404 from the hub")
+    st = _run_to_end(_tuner(svc), "m", _MTP_BASE)
+    assert st["status"] == "done"
+    row = next(t for t in st["trials"] if t["label"].startswith("draft "))
+    assert row["ok"] is False and "404" in row["error"] and row["informational"] is True
+
+
+def test_cancel_between_trials_never_starts_a_draft_download(monkeypatch):
+    # A cancel that lands BEFORE the alternates must not begin fetching one.
+    _listing(monkeypatch, [{"path": "MTP/alt-Q4_0-MTP.gguf", "sizeMb": 100, "q4OrBetter": True}])
+    svc = DraftService(tps_by_ncmoe={"21": 30.0, "23": 20.0, "19": 20.0})
+    tuner = _tuner(svc)
+    orig = tuner._push_trial
+
+    def push_and_cancel(row):
+        orig(row)
+        if row["label"] == "no draft (spec off)":
+            tuner._cancel = True   # cancel right before the alternates would download
+
+    tuner._push_trial = push_and_cancel
+    st = _run_to_end(tuner, "m", _MTP_BASE)
+    assert st["status"] == "cancelled"
+    assert svc.acquired == []      # nothing downloaded after the cancel
+
+
+def test_cancel_DURING_a_draft_download_aborts_that_fetch(monkeypatch):
+    # THE escape proven to FIRE: the acquire door is handed the sweep's cancel token, so
+    # a Stop pressed mid-download aborts THAT fetch instead of finishing a multi-hundred-
+    # MB file first. Drop `cancel_check=` from _draft_phase's acquire call and this goes
+    # red two ways — the fake completes the download (svc.acquired grows) and no failed
+    # draft row is ever recorded.
+    _listing(monkeypatch, [{"path": "MTP/alt-Q4_0-MTP.gguf", "sizeMb": 100, "q4OrBetter": True}])
+    svc = DraftService(tps_by_ncmoe={"21": 30.0, "23": 20.0, "19": 20.0})
+    tuner = _tuner(svc)
+
+    def cancel_midway(repo, file, cancel_check=None):
+        tuner._cancel = True                        # the user hits Stop mid-download
+        if cancel_check is not None and cancel_check():
+            raise RuntimeError("download cancelled")
+        svc.acquired.append((repo, file))           # no token → the fetch runs to the end
+        return f"/cache/{file}"
+
+    svc.acquire_draft_file = cancel_midway
+    st = _run_to_end(tuner, "m", _MTP_BASE)
+    assert st["status"] == "cancelled"
+    assert svc.acquired == []                       # aborted, not completed
+    row = next(t for t in st["trials"] if t["label"].startswith("draft "))
+    assert row["ok"] is False and "cancelled" in row["error"] and row["informational"] is True
 
 
 # ── the time box (budget_seconds — the QuickSetup ~2-min quick tune, 2026-07-07) ──

@@ -134,6 +134,34 @@ def _quant_matches(quant: str, path: str) -> bool:
     return re.search(rf"(?<![a-z0-9_]){q}(?![a-z0-9_])", path.lower()) is not None
 
 
+def _q4_or_better(quant: str) -> bool:
+    """Is this quant token at least 4-bit — THE draft-pick floor (2026-07-19)?
+
+    True for `Q4_*`/`IQ4_*`/`UD-Q4_*` and everything above (Q5/Q6/Q8, BF16/F16/F32);
+    False for Q2/Q3/IQ2/IQ3 (and `PQ2_0`-class, whose leading P does not change the
+    bit-width) and for an unrecognised/empty token.
+
+    WHY a floor at all: a drafter only affects SPEED — the main model verifies every
+    proposed token, so draft bits can never change output quality, only the ACCEPTANCE
+    rate. Smaller is therefore better by default (every drafted token re-reads the
+    draft's weights, `spec_n_max` times per cycle, on GPU and CPU alike). But that
+    argument runs out at the bottom: a 2/3-bit draft can degrade acceptance enough to
+    cost more verification passes than the bytes it saves. This predicate is that one
+    guard — shared by BOTH pickers (the tier-C suggestion here and the Add/Edit form's
+    pre-select, via the `q4OrBetter` flag on each draft row).
+
+    One deliberate asymmetry it does NOT paper over: full precision counts as "at the
+    floor" here (it is, on bit-width), but `_gguf_drafter_in_repo` excludes BF16/F16/F32
+    outright — a BORROWED full-precision file is usually a shard tail or the base model,
+    not a drafter. So the form may pre-select a repo's own BF16 draft that the tier-C
+    suggester would never propose: correct in both places, for different reasons."""
+    q = (quant or "").strip().upper().removeprefix("UD-")
+    if q in ("BF16", "F16", "F32"):
+        return True
+    m = re.match(r"[IP]?Q(\d)", q)
+    return bool(m) and int(m.group(1)) >= 4
+
+
 def classify_gguf_entries(entries: list[dict]) -> dict:
     """PURE classification of an HF tree listing for the Add/Edit form (Plan B D9):
     the quant dropdown + MTP-draft detection, one `_tree` call parsed two ways.
@@ -148,8 +176,10 @@ def classify_gguf_entries(entries: list[dict]) -> dict:
       * drafts — draft files (`MTP/` dir or `-MTP.gguf`, the observed MTP
         convention; plus `dspark` in the name, the own-repo drafter convention —
         exhibit prism-ml/Ternary-Bonsai-27B-gguf's `-dspark-Q4_1.gguf`), each its
-        own row ({path, quant, sizeMb, qat}) since a draft is picked by exact path
-        (its quant rides along).
+        own row ({path, quant, sizeMb, qat, q4OrBetter}) since a draft is picked by
+        exact path (its quant rides along). `q4OrBetter` is the shared pick FLOOR
+        (`_q4_or_better`) the form's pre-select orders by — one predicate, server-side,
+        so the UI and the tier-C suggestion below can never disagree about it.
     """
     quants: dict[str, dict] = {}
     drafts: list[dict] = []
@@ -167,7 +197,8 @@ def classify_gguf_entries(entries: list[dict]) -> dict:
         qat = "qat" in low
         is_draft = low.endswith("-mtp.gguf") or "/mtp/" in low or low.startswith("mtp/") or "dspark" in low
         if is_draft:
-            drafts.append({"path": path, "quant": quant, "sizeMb": size_mb, "qat": qat})
+            drafts.append({"path": path, "quant": quant, "sizeMb": size_mb, "qat": qat,
+                           "q4OrBetter": _q4_or_better(quant)})
             continue
         if not quant:
             continue  # no recognizable token → free-type territory, not a dropdown row
@@ -270,18 +301,27 @@ _SHARD_RE = re.compile(r"-\d+-of-\d+\.gguf$", re.IGNORECASE)  # split-shard tail
 
 
 def _gguf_drafter_in_repo(repo: str, revision: str = "main") -> dict | None:
-    """The smallest QUANTIZED single-file .gguf in `repo` as a drafter
-    `{"repo","file","quant"}`, or None (no usable candidate / repo doesn't resolve).
-    Smallest = fastest draft, and a drafter only affects SPEED — the main model
-    validates every token — so smallest is the safe pick. Split shards and
-    full-precision (BF16/F16/F32) files are excluded: a drafter is purely a speed
-    device, and an fp16 shard tail (the smallest FILE, but not a loadable model) is
-    exactly the wrong pick."""
+    """The smallest QUANTIZED single-file .gguf in `repo` at the pick FLOOR, as a
+    drafter `{"repo","file","quant"}` — or None (no usable candidate / repo doesn't
+    resolve).
+
+    Smallest wins because a drafter only affects SPEED: the main model verifies every
+    proposed token, so draft bits buy acceptance rate, never quality — while every
+    drafted token re-reads the draft's weights (`spec_n_max` times per cycle) and its
+    weights+KV occupy VRAM the main model's layers would otherwise use. `_q4_or_better`
+    is the floor under that rule (a 2/3-bit draft can lose more to rejected proposals
+    than it saves in bytes): the smallest candidate AT the floor wins, and only if none
+    clears it does the smallest overall win. Split shards and full-precision
+    (BF16/F16/F32) files are excluded outright: a drafter is purely a speed device, and
+    an fp16 shard tail (the smallest FILE, but not a loadable model) is exactly the
+    wrong pick. Bigger-is-better is a real effect only ACROSS drafters of different
+    parameter counts, which is machine-dependent — measured by Tune & measure's draft
+    trials, not guessed here (`docs/plans/2026-07-19-draft-fit-floor-and-lab-measure.md`)."""
     try:
         entries = _tree(repo, revision)
     except requests.RequestException:
         return None
-    candidates: list[dict] = []
+    candidates: list[tuple[dict, str]] = []  # (tree entry, its quant token)
     for e in entries:
         path = str(e.get("path", ""))
         low = path.lower()
@@ -292,16 +332,18 @@ def _gguf_drafter_in_repo(repo: str, revision: str = "main") -> dict | None:
         m = _QUANT_RE.search(path)
         if not m:
             continue  # no recognizable quant token
-        q = m.group(0).upper().removeprefix("UD-")
+        token = m.group(0)
+        q = token.upper().removeprefix("UD-")
         if not (q.startswith("IQ") or "Q" in q):
             continue  # BF16/F16/F32 → full precision, not a quantized drafter
-        candidates.append(e)
+        candidates.append((e, token))
     if not candidates:
         return None
-    best = min(candidates, key=_entry_size)
-    path = str(best.get("path", ""))
-    qm = _QUANT_RE.search(path)
-    return {"repo": repo, "file": path, "quant": qm.group(0) if qm else ""}
+    # The floor first: smallest AT 4-bit-or-better, falling back to smallest overall
+    # only when no candidate clears it (a Q2-only repo still gets a suggestion).
+    at_floor = [pair for pair in candidates if _q4_or_better(pair[1])]
+    best, quant = min(at_floor or candidates, key=lambda pair: _entry_size(pair[0]))
+    return {"repo": repo, "file": str(best.get("path", "")), "quant": quant}
 
 
 def find_inherited_mtp_drafter(

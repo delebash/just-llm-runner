@@ -1818,6 +1818,64 @@ def test_load_skips_draft_when_spec_off(tmp_path):
     assert "model-draft" not in _ini(svc)
 
 
+def _spy_compute_fit(monkeypatch):
+    """Record every compute_fit kwargs dict, running the REAL function underneath."""
+    from llm_runner.runner import lifecycle as lc
+
+    calls: list[dict] = []
+    real = lc.compute_fit
+
+    def spy(*a, **kw):
+        calls.append(kw)
+        return real(*a, **kw)
+
+    monkeypatch.setattr("llm_runner.runner.lifecycle.compute_fit", spy)
+    return calls
+
+
+def test_load_and_preview_charge_the_draft_to_the_fit(tmp_path, monkeypatch):
+    # 2026-07-19: a draft is GPU-resident beside the main model, so EVERY fit site must
+    # see it or the split over-books. Asserted as wiring (does compute_fit receive the
+    # draft's meta + byte size) because this harness injects ONE read_meta shape for
+    # every path, which makes the numeric delta degenerate here; the arithmetic itself
+    # is pinned by test_runner.py::test_fit_draft_takes_layers_from_the_main_split.
+    calls = _spy_compute_fit(monkeypatch)
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL],
+                       switches_fn=lambda mid: {"spec_type": "draft-mtp"})
+    # PREVIEW with the draft not yet downloaded → no term (mirrors the emitter's strip)
+    svc.preview_fit(_DRAFT_MODEL.id)
+    assert calls[-1]["draft_meta"] is None and calls[-1]["draft_bytes"] == 0
+    # …once it is on disk, the preview charges it — so the Tune modal matches the spawn
+    snap = tmp_path / "hf" / "models--org--draft-GGUF" / "snapshots" / "sha"
+    (snap / "MTP").mkdir(parents=True, exist_ok=True)
+    (snap / "MTP" / "d-Q4_0-MTP.gguf").write_bytes(b"g" * 4096)
+    svc.preview_fit(_DRAFT_MODEL.id)
+    assert calls[-1]["draft_meta"] is not None and calls[-1]["draft_bytes"] == 4096
+    # …and the ACTIVE load charges the draft it just acquired
+    calls.clear()
+    svc.load(_DRAFT_MODEL.id, switches={"spec_type": "draft-mtp"})
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert calls and all(c["draft_bytes"] == 4096 and c["draft_meta"] is not None for c in calls)
+
+
+def test_passive_section_charges_its_cached_draft_to_the_fit(tmp_path, monkeypatch):
+    # The third fit site: a PASSIVE .ini section carrying model-draft holds those bytes
+    # too once the router loads it, so its fit must charge them as well.
+    def auto_mtp(mid):
+        return {"spec_type": "draft-mtp"} if mid == _DRAFT_MODEL.id else {}
+
+    calls = _spy_compute_fit(monkeypatch)
+    svc = _service_for(tmp_path, catalog=[_TEST_MODEL, _DRAFT_MODEL], switches_fn=auto_mtp)
+    snap = tmp_path / "hf" / "models--org--draft-GGUF" / "snapshots" / "sha"
+    (snap / "MTP").mkdir(parents=True, exist_ok=True)
+    (snap / "MTP" / "d-Q4_0-MTP.gguf").write_bytes(b"g" * 4096)
+    svc.load(_TEST_MODEL.id)  # the OTHER model loads → draft-model emits PASSIVELY
+    svc._thread.join(timeout=5)
+    assert any(c.get("draft_bytes") == 4096 for c in calls)      # the passive section
+    assert any(c.get("draft_bytes") == 0 for c in calls)         # the draft-less loader
+
+
 def test_passive_section_carries_cached_draft(tmp_path):
     # Diff-checker fold (Plan B D7): the auto-mtp layer can set draft-mtp on a
     # PASSIVE co-resident section. When the draft IS cached, the section must

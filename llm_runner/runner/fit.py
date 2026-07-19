@@ -187,6 +187,29 @@ def estimate_vram_mb(
     return a * (gpu_layers + b) + c
 
 
+def marginal_vram_mb(
+    *, size_mb: float, n_layers: int, n_kv_heads: int, embedding_dim: int,
+    ctx_size: int, cache_type: int, gpu_layers: int,
+) -> float:
+    """Predicted VRAM for a SECOND model sharing an already-in-use GPU — the same
+    regression MINUS its base offset `_C5` (≈1.5 GB), floored at 0.
+
+    `_C5` is the fitted per-in-use-GPU constant (CUDA context, scratch/compute
+    buffers): it is paid ONCE, by the model that puts the GPU to work. Charging it
+    again to a co-resident model would double-count ~1.5 GB and needlessly shed main-
+    model layers. The co-resident's own weights AND its KV cache at `ctx_size` DO
+    ride in the slope, so they are counted in full.
+
+    THE consumer is `compute_fit`'s speculative-decode draft term (2026-07-19): a
+    `--model-draft` GGUF is fully offloaded by llama.cpp alongside the main model,
+    so its cost must come off the budget before the main split is computed."""
+    return max(0.0, estimate_vram_mb(
+        size_mb=size_mb, n_layers=n_layers, n_kv_heads=n_kv_heads,
+        embedding_dim=embedding_dim, ctx_size=ctx_size, cache_type=cache_type,
+        gpu_layers=gpu_layers,
+    ) - _C5)
+
+
 def max_gpu_layers(
     *, size_mb: float, n_layers: int, n_kv_heads: int, embedding_dim: int,
     ctx_size: int, cache_type: int, vram_budget_mb: float,

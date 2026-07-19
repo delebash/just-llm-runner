@@ -308,6 +308,8 @@ def compute_fit(
     overrides: Overrides | None = None,
     *,
     safety_margin_mb: int = DEFAULT_SAFETY_MARGIN_MB,
+    draft_meta: GgufMeta | None = None,
+    draft_bytes: int = 0,
 ) -> FitPlan:
     """Decide how much of the model fits on the GPU.
 
@@ -319,6 +321,15 @@ def compute_fit(
     `safety_margin_mb` comes from the RunnerConfig (DB-backed, host) or its
     default; the KV cache-type is taken from the resolved overrides (the DB
     `base` preset sets q8_0) so it isn't under-counted.
+
+    `draft_meta`/`draft_bytes` (2026-07-19) describe the speculative-decode DRAFT
+    GGUF when the resolved config carries one (`ov.model_draft`). A draft is a
+    SECOND model in the same process — GPU-placed by the engine itself (`-ngld`
+    defaults to `auto`, and we emit no override) — so its weights + its own KV are
+    charged to the budget before the main split. Omit them and the draft silently
+    steals main-model layers: the #274 embed-co-load defect in a new coat. Callers
+    that resolve a draft path MUST pass these; absent → byte-identical to the
+    pre-2026-07-19 plan.
     """
     ov = overrides or Overrides()
     n_layers = max(1, meta.block_count)
@@ -344,6 +355,38 @@ def compute_fit(
         )
         ctx_explicit = False
 
+    # The speculative-decode DRAFT's share of the budget, taken BEFORE the main split.
+    # `marginal_vram_mb` drops the regression's per-in-use-GPU base offset — the main
+    # model already pays that once — while keeping the draft's weights AND its KV at
+    # our chosen ctx. ctx itself was picked against the UNdiminished budget just above
+    # (one pass, no iteration): that leaves the ctx choice slightly optimistic — and note
+    # `kv_affordable`'s _KV_CTX_SHARE now effectively covers main + draft KV together
+    # rather than main alone — which the spawn probe-and-back-off nets, per this
+    # function's docstring. A CPU-only box (budget 0) has no GPU to charge, so the term
+    # is a no-op there.
+    draft_marginal_mb = 0.0
+    draft_full_mb = 0.0
+    if draft_meta is not None and budget_mb > 0:
+        d_layers = max(1, draft_meta.block_count)
+        d_kw = dict(
+            size_mb=draft_bytes / 1e6,
+            n_layers=d_layers,
+            n_kv_heads=draft_meta.n_kv_heads or max(1, draft_meta.embedding_length // 128),
+            embedding_dim=draft_meta.embedding_length,
+            ctx_size=ctx_len,
+            cache_type=cache_type,
+            # We emit no `-ngld`, whose default is `auto` — read from the INSTALLED
+            # b10068 `--help` (the PIN is b9993, config.py:49; not re-read there, and
+            # upstream's server README agrees) — so the engine sizes the draft's offload
+            # itself. Charge ALL its layers anyway: over-reserving costs a main layer at
+            # worst, under-reserving is what OOMs. Same build shows NO draft-specific
+            # context flag, so the draft rides our chosen ctx.
+            gpu_layers=d_layers,
+        )
+        draft_marginal_mb = fit.marginal_vram_mb(**d_kw)
+        draft_full_mb = fit.estimate_vram_mb(**d_kw)
+    main_budget_mb = max(0.0, budget_mb - draft_marginal_mb)
+
     if ov.n_gpu_layers is not None:
         n_gpu = max(0, min(n_layers, ov.n_gpu_layers))
     else:
@@ -355,7 +398,7 @@ def compute_fit(
             embedding_dim=meta.embedding_length,
             ctx_size=ctx_len,
             cache_type=cache_type,
-            vram_budget_mb=budget_mb,
+            vram_budget_mb=main_budget_mb,
         )
 
     if ov.n_cpu_moe is not None:
@@ -366,11 +409,21 @@ def compute_fit(
     # GPU-resident VRAM for the chosen split — the SAME fitted formula run forward (cost of n_gpu)
     # rather than inverse (max layers for a budget). The VRAM arbiter reserves this (P2). A
     # fully-CPU load (n_gpu == 0) touches no GPU (no CUDA context), so it reserves 0 — NOT the
-    # formula's ~1.5 GB base offset, which represents an in-use GPU.
-    vram_mb = int(fit.estimate_vram_mb(
-        size_mb=total_weight_bytes / 1e6, n_layers=n_layers, n_kv_heads=n_kv_heads,
-        embedding_dim=meta.embedding_length, ctx_size=ctx_len, cache_type=cache_type, gpu_layers=n_gpu,
-    )) if n_gpu > 0 else 0
+    # formula's ~1.5 GB base offset, which represents an in-use GPU. A draft rides ON TOP: the
+    # arbiter must reserve what the process actually holds, or a co-resident admission
+    # over-books by the draft's size (the very miss this term exists to close).
+    if n_gpu > 0:
+        vram_mb = int(fit.estimate_vram_mb(
+            size_mb=total_weight_bytes / 1e6, n_layers=n_layers, n_kv_heads=n_kv_heads,
+            embedding_dim=meta.embedding_length, ctx_size=ctx_len, cache_type=cache_type,
+            gpu_layers=n_gpu,
+        ) + draft_marginal_mb)
+    elif draft_full_mb > 0:
+        # Main fell fully to CPU, but the draft still lands on the GPU — it is then the
+        # ONLY tenant, so it pays the base offset itself (full estimate, not marginal).
+        vram_mb = int(draft_full_mb)
+    else:
+        vram_mb = 0
 
     return FitPlan(
         n_gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe, ctx_len=ctx_len,

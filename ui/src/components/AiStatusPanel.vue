@@ -13,7 +13,8 @@
 // The store ticks `now` every 500ms so every elapsed / freshness number
 // stays live without each row registering its own setInterval.
 
-import { ref, computed, onMounted, onBeforeUnmount } from "vue";
+import { ref, computed } from "vue";
+import { usePanelDismiss } from "../common/composables/usePanelDismiss.js";
 import { useAiTasksStore } from "../stores/aiTasks.js";
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -34,37 +35,15 @@ const visibleHistory = computed(() =>
 const hiddenHistoryCount = computed(() =>
   Math.max(0, tasks.history.length - visibleHistory.value.length));
 
-// Click-outside dismissal. Exemptions:
-//   - inside the panel itself
-//   - any [data-ai-status-toggle] element (header chip, in-modal Details
-//     buttons — anywhere a click is meant to open the panel)
-//   - any teleported dialog/listbox surfaces (Reka popovers)
-//   - sonner toasts (the View action on a completion toast calls
-//     openPanel; without this the click would bubble here and close
-//     the panel it just opened)
-function onDocClick(e) {
-  if (!tasks.panelOpen) return;
-  const target = e.target;
-  if (!target) return;
-  if (target.closest?.(".aip")) return;
-  if (target.closest?.("[data-ai-status-toggle]")) return;
-  if (target.closest?.('[role="dialog"], [role="listbox"]')) return;
-  if (target.closest?.("[data-sonner-toast], [data-sonner-toaster]")) return;
-  tasks.closePanel();
-}
-function onDocKeydown(e) {
-  if (e.key === "Escape" && tasks.panelOpen) {
-    e.stopPropagation();
-    tasks.closePanel();
-  }
-}
-onMounted(() => {
-  document.addEventListener("click", onDocClick);
-  document.addEventListener("keydown", onDocKeydown);
-});
-onBeforeUnmount(() => {
-  document.removeEventListener("click", onDocClick);
-  document.removeEventListener("keydown", onDocKeydown);
+// Esc + click-outside dismissal comes from the shared composable (2026-07-19 —
+// this component used to carry its own near-identical copy; the toggle and
+// portal exemptions now live in ONE place). The panel needs one extra
+// exemption of its own: sonner toasts — the View action on a completion toast
+// calls openPanel, and without this the same click would bubble here and close
+// the panel it just opened.
+const panelEl = ref(null);
+usePanelDismiss(() => tasks.panelOpen, panelEl, () => tasks.closePanel(), {
+  exempt: ["[data-sonner-toast]", "[data-sonner-toaster]"],
 });
 
 function togglePreview(id) {
@@ -136,7 +115,7 @@ const phaseLabel = {
        their own z-index values. -->
   <Teleport to="body">
     <transition name="aip-slide">
-      <aside v-if="tasks.panelOpen" class="aip" role="dialog" aria-label="AI tasks">
+      <aside v-if="tasks.panelOpen" ref="panelEl" class="aip" role="dialog" aria-label="AI tasks">
       <header class="aip-head">
         <div>
           <div class="aip-eyebrow">Status</div>

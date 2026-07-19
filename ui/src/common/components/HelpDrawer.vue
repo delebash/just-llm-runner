@@ -21,6 +21,7 @@ import {
 import Icon from "./Icon.vue";
 import UiButton from "./UiButton.vue";
 import { helpState, helpConfig, openHelp, closeHelp } from "../services/help.js";
+import { PANEL_TOGGLE_ATTR } from "../composables/usePanelDismiss.js";
 import { renderHelpMarkdown } from "../services/helpMarkdown.js";
 import { openExternal } from "../services/external.js";
 
@@ -77,6 +78,20 @@ function onContentClick(e) {
   }
 }
 
+// Reka already gives this drawer Esc + outside-click dismissal (DialogRoot /
+// DialogContent), so it does NOT use usePanelDismiss — one dismissal
+// mechanism, not two. The one thing Reka can't know about is a toggle trigger:
+// without this guard, clicking an open drawer's own "?" would let Reka close it
+// on pointerdown and the trigger's click would immediately re-open it, so the
+// toggle would look dead. Same exemption the shared composable makes, expressed
+// in Reka's own hook (2026-07-19).
+function onPointerDownOutside(e) {
+  // Reka wraps the real pointer event: the CustomEvent's own target is the
+  // dialog content, the click target lives in detail.originalEvent.
+  const target = e.detail?.originalEvent?.target || e.target;
+  if (target?.closest?.(PANEL_TOGGLE_ATTR)) e.preventDefault();
+}
+
 function openFull() { helpConfig.onOpenFull?.(slug.value); }
 function openWeb() { helpConfig.onOpenWeb?.(slug.value); }
 </script>
@@ -85,7 +100,10 @@ function openWeb() { helpConfig.onOpenWeb?.(slug.value); }
   <DialogRoot v-model:open="open">
     <DialogPortal>
       <DialogOverlay class="help-drawer-overlay" />
-      <DialogContent class="help-drawer" aria-label="Help">
+      <DialogContent
+        class="help-drawer"
+        aria-label="Help"
+        @pointer-down-outside="onPointerDownOutside">
         <header class="help-drawer-header">
           <DialogTitle as-child>
             <div class="help-drawer-titleblock">
@@ -131,7 +149,10 @@ function openWeb() { helpConfig.onOpenWeb?.(slug.value); }
   position: fixed;
   inset: 0;
   z-index: 250;
-  background: color-mix(in oklab, black 28%, transparent);
+  /* No dim, no blur — the user ruled backdrop dimming + blur off app-wide
+     (2026-07-19). The drawer's own border-left + shadow do the separating.
+     The element STAYS: it carries Reka's outside-click dismissal. */
+  background: transparent;
   animation: helpFadeIn 160ms ease;
 }
 .help-drawer {

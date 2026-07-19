@@ -29,7 +29,7 @@ function toggle() { tasks.togglePanel(); }
   <div class="ai-status-wrap">
     <button class="ai-status-btn"
       :class="{ active, 'has-errors': errors > 0 }"
-      data-ai-status-toggle
+      data-panel-toggle
       @click="toggle"
       v-tooltip.bottom="errors
         ? `${errors} AI ${errors === 1 ? 'task' : 'tasks'} failed — open the queue`

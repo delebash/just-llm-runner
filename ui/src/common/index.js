@@ -31,7 +31,7 @@ export { tooltipDirective } from "./services/tooltip.js";
 // docs markdown renderer. The host supplies the docs content via configureHelp().
 export { default as HelpDrawer } from "./components/HelpDrawer.vue";
 export { default as HelpTrigger } from "./components/HelpTrigger.vue";
-export { configureHelp, openHelp, closeHelp, helpState, helpConfig } from "./services/help.js";
+export { configureHelp, openHelp, closeHelp, toggleHelp, helpState, helpConfig } from "./services/help.js";
 export { renderHelpMarkdown, slugifyHeading } from "./services/helpMarkdown.js";
 
 // shared toast host + imperative bridge (vue-sonner under the hood)
@@ -77,3 +77,4 @@ export { fmtBytes } from "./services/downloadRate.js";
 
 // shared composables (host-agnostic; vue-only)
 export { useRovingTabindex } from "./composables/useRovingTabindex.js";
+export { usePanelDismiss, PANEL_TOGGLE_ATTR } from "./composables/usePanelDismiss.js";

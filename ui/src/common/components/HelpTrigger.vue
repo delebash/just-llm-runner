@@ -17,7 +17,7 @@
 <script setup>
 import { computed } from "vue";
 import Icon from "./Icon.vue";
-import { openHelp, helpConfig } from "../services/help.js";
+import { toggleHelp, helpConfig } from "../services/help.js";
 
 const props = defineProps({
   slug: { type: String, required: true },
@@ -30,8 +30,10 @@ const tooltipText = computed(
 );
 
 function open() {
-  // openHelp accepts the convenience form "slug#anchor" and splits it.
-  openHelp(props.slug);
+  // toggleHelp accepts the convenience form "slug#anchor" and splits it. A
+  // second click on the SAME trigger closes the drawer (user ruling
+  // 2026-07-19 — nav triggers open AND close, like chat's).
+  toggleHelp(props.slug);
 }
 </script>
 
@@ -39,6 +41,7 @@ function open() {
   <button
     type="button"
     class="help-trigger"
+    data-panel-toggle
     :aria-label="tooltipText"
     v-tooltip.bottom="tooltipText"
     @click="open">

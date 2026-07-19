@@ -63,3 +63,19 @@ export function closeHelp() {
   helpState.slug = null;
   helpState.anchor = "";
 }
+
+// Toggle: a second click on the SAME trigger closes the drawer, matching how
+// the chat panel's nav entry behaves (user ruling 2026-07-19 — "click on nav
+// like how chat works to open close"). Clicking a DIFFERENT trigger while the
+// drawer is open navigates to that doc rather than closing, which is what a
+// reader wants from a second "?" on another surface.
+export function toggleHelp(slug, anchor = "") {
+  let s = slug || "";
+  const hash = s.indexOf("#");
+  if (hash !== -1) s = s.slice(0, hash);
+  if (helpState.slug === s) {
+    closeHelp();
+    return;
+  }
+  openHelp(slug, anchor);
+}

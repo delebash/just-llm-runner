@@ -97,7 +97,7 @@ function openPanel() { tasks.openPanel(); }
     <slot name="extra-stats" :task="task" />
 
     <span class="sts-spacer" />
-    <UiButton intent="ghost" size="small" data-ai-status-toggle @click="openPanel" v-tooltip.bottom="'Open full status panel'">
+    <UiButton intent="ghost" size="small" data-panel-toggle @click="openPanel" v-tooltip.bottom="'Open full status panel'">
       Details
     </UiButton>
     <UiButton intent="danger" size="small" @click="onCancel">

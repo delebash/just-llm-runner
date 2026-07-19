@@ -3,6 +3,8 @@
 /days, /day, DELETE /day, DELETE /all; /clear empties the ring (Logs phase)."""
 
 import logging
+import re
+from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -28,6 +30,41 @@ def test_tail_and_download_capture_log_lines():
     assert dl.status_code == 200
     assert "hello-from-the-ring-42" in dl.text
     assert "justwrite-logs-" in dl.headers.get("content-disposition", "")
+
+
+_ISO_STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d{3}) \[WARNING\] ")
+
+
+def test_stamps_are_strict_iso_local_with_millis(tmp_path):
+    """The stamp is strict ISO-8601 (`T` + `.mmm`) on BOTH sinks — the ring the UI
+    tails and the day file on disk. Pinned because the UI localizes this stamp at
+    render (logLines.js formatLogStamp) and JS `Date.parse` cannot read logging's
+    default `2026-07-19 00:06:22,169` space+comma form: a silent revert to the
+    default would leave every log line rendering unformatted."""
+    c = _client()
+    install_file_log(tmp_path / "logs" / "app.log")
+    before = datetime.now()
+    logging.getLogger("test.logs").warning("iso-stamp-probe")
+    after = datetime.now()
+
+    line = next(
+        ln for ln in c.get("/v1/logs/tail?lines=50").json()["text"].splitlines()
+        if "iso-stamp-probe" in ln
+    )
+    m = _ISO_STAMP.match(line)
+    assert m, f"not a strict-ISO stamp: {line!r}"
+    # LOCAL clock, not UTC: the parsed stamp sits inside the window the call was
+    # made in. (On a UTC-configured box the two coincide and this is merely
+    # not-false; on the user's Windows box a UTC stamp would miss by hours.)
+    stamped = datetime.strptime(m.group(1), "%Y-%m-%dT%H:%M:%S")
+    assert before.replace(microsecond=0) <= stamped <= after
+
+    # the FILE carries the same grammar — the UI's day view parses it identically
+    file_line = next(
+        ln for ln in (tmp_path / "logs" / "app.log").read_text(encoding="utf-8").splitlines()
+        if "iso-stamp-probe" in ln
+    )
+    assert _ISO_STAMP.match(file_line)
 
 
 def test_clear_empties_the_ring_only(tmp_path):

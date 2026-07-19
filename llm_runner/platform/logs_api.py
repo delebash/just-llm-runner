@@ -41,7 +41,21 @@ from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 
-_FMT = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+# Timestamps are strict ISO-8601 on the RING and in the FILES (2026-07-19, the
+# user's ruling: "local in ui and iso in file"). Not logging's default
+# `2026-07-19 00:06:22,169` — that space+comma form is not reliably parseable by
+# JS `Date.parse`, and the UI re-renders each stamp in the READER's regional
+# format at display time (`logLines.js` formatLogStamp). ISO stays on disk
+# because it sorts, greps, and is unambiguous between machines — and because
+# `/v1/logs/download` turns RING lines into a file artifact, so the ring cannot
+# carry a locale format either. A `datefmt` suppresses the default `,mmm`, so
+# milliseconds are re-added explicitly. No timezone suffix: this is the server
+# box's LOCAL clock, and JS parses a bare date-time form as local — that pairing
+# is what makes the round-trip land on the right wall-clock time.
+_FMT = logging.Formatter(
+    "%(asctime)s.%(msecs)03d [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
 _DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 

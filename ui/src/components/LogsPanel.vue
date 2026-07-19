@@ -13,7 +13,7 @@ import { request, llmUiUrl } from "../client.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import { confirmDialog } from "../common/services/dialog.js";
-import { logLineClass, parseLogRows } from "../services/logLines.js";
+import { formatLogDay, logLineClass, parseLogRows } from "../services/logLines.js";
 
 const LIVE = "__live";
 const text = ref("");
@@ -29,7 +29,10 @@ const dayOptions = computed(() => [
   { value: LIVE, label: "Live tail" },
   ...days.value.map((d) => ({
     value: d.day,
-    label: `${d.day}${d.live ? " (today)" : ""} · ${d.sizeKb} KB`,
+    // LABEL is localised (the reader's date format); `value` above stays the ISO
+    // id — it is the `/v1/logs/day?date=` wire key. Ordering does not depend on
+    // the label text: the server returns days newest-first (_day_files sorts).
+    label: `${formatLogDay(d.day)}${d.live ? " (today)" : ""} · ${d.sizeKb} KB`,
   })),
 ]);
 const LEVEL_OPTIONS = [
@@ -80,7 +83,11 @@ function onPickDay(v) {
 }
 async function copyLogs() {
   try {
-    await navigator.clipboard.writeText(rows.value.map((r) => r.line).join("\n"));
+    // `raw`, not `line`: a copied log is an ARTIFACT, like Download beside it —
+    // it gets pasted into a bug report or a file, where ISO + milliseconds are
+    // what's wanted. The rows are still the LEVEL-FILTERED ones, so "Errors only"
+    // copies only errors (copying the unparsed blob would silently lose that).
+    await navigator.clipboard.writeText(rows.value.map((r) => r.raw).join("\n"));
     copied.value = true;
     setTimeout(() => { copied.value = false; }, 1500);
   } catch { /* clipboard blocked — ignore */ }
@@ -98,7 +105,9 @@ async function deleteDay() {
   if (!day) return;
   const ok = await confirmDialog({
     title: "Delete this day's log?",
-    message: `The stored log for ${day} will be removed from disk. This can't be undone.`,
+    // reader-facing prose → localised, matching the picker label it was chosen
+    // from; the raw ISO `day` still goes on the wire at the DELETE below.
+    message: `The stored log for ${formatLogDay(day)} will be removed from disk. This can't be undone.`,
     confirmLabel: "Delete day",
     danger: true,
   });

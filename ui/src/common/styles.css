@@ -96,6 +96,7 @@ button:not(.ui-btn) { color: inherit; }
 /* Size a control to what it holds, not the container. Opt in via the `width`
    prop (UiInput/UiTextarea/…) or the .ui-w-* class directly. Tokens default to
    sensible px; a host can retune --w-* in its tokens.css. */
+.ui-w-num   { max-width: var(--w-num, 84px); }
 .ui-w-token { max-width: var(--w-token, 110px); }
 .ui-w-id    { max-width: var(--w-id, 180px); }
 .ui-w-name  { max-width: var(--w-name, 280px); }

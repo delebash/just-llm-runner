@@ -40,7 +40,7 @@
  *   --font-ui          UI font stack
  *
  * ── Content-typed width caps (.ui-w-*) ─────────────────────
- *   --w-token 110 · --w-id 180 · --w-name 280 · --w-url 360 · --w-path 480
+ *   --w-num 84 · --w-token 110 · --w-id 180 · --w-name 280 · --w-url 360 · --w-path 480
  *   --w-prose 640 · --w-edit 880   (px; size a field to what it holds)
  *
  * ── Component flags ────────────────────────────────────────

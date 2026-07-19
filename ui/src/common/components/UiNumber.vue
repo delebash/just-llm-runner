@@ -33,6 +33,8 @@ const props = defineProps({
   id:         { type: String, default: undefined },
   inputId:    { type: String, default: undefined }, // compatibility alias
   invalid:    { type: Boolean, default: false },
+  // Content-typed width cap — parity with UiInput. Empty = full width.
+  width:      { type: String, default: "" },
 });
 const emit = defineEmits(["update:modelValue", "blur", "focus", "keydown"]);
 
@@ -113,6 +115,7 @@ function onKeydown(e) {
 const classes = computed(() => [
   "ui-input", "ui-number",
   props.size === "small" && "ui-input--small",
+  props.width && `ui-w-${props.width}`,
   { "is-invalid": props.invalid },
 ]);
 </script>

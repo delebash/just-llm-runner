@@ -28,6 +28,9 @@ const props = defineProps({
   // top section — nothing to collapse back to, so no Cancel, and the section
   // supplies the card chrome (the form renders bare).
   permanent: { type: Boolean, default: false },
+  // New-provider default, set by the tab the user is standing on (AiModelsArea's
+  // providerScope). Ignored when editing an existing provider.
+  initialLocal: { type: Boolean, default: true },
 });
 const emit = defineEmits(["saved", "deleted", "cancel"]);
 
@@ -66,7 +69,7 @@ loadSavedKey();
 // types are forced Online by `isLocal`, which also self-heals a row mis-saved as
 // local (#1: an online provider saved while the toggle read Local sent
 // apiKey=null — the clear sentinel — and silently wiped its stored key).
-const local = ref(props.provider ? !!props.provider.local : true);
+const local = ref(props.provider ? !!props.provider.local : props.initialLocal);
 const lockedOnline = computed(() => ONLINE_ONLY_TYPES.has(draft.providerType));
 const isLocal = computed(() => (lockedOnline.value ? false : local.value));
 

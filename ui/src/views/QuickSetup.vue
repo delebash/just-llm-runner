@@ -37,7 +37,7 @@ import UiProgress from "../common/components/UiProgress.vue";
 import AppModal from "../common/components/AppModal.vue";
 import DownloadBar from "../common/components/DownloadBar.vue";
 
-const emit = defineEmits(["changed"]);
+const emit = defineEmits(["changed", "closed"]);
 // inline (user, 2026-07-06: "the orginal text to be to th right of the button" · "quick setup
 // button so people know what it does" · "leave out the all editable"): render the Run button
 // PLUS its one-line description to the right, bare (no card), for embedding on the Built-in
@@ -293,6 +293,10 @@ async function openWizard() {
 function onModalClose() {
   open.value = false;
 }
+// The host may want to route away when a deep-linked run ends (AiModelsArea
+// re-emits this only for an auto-opened wizard). Watching `open` catches BOTH
+// close paths — onModalClose and attemptClose — from one place.
+watch(open, (v, prev) => { if (!v && prev) emit("closed"); });
 // Close guard (user, 2026-07-06 — reversing the earlier "leave it running in background": the
 // sweep pegs the GPU and PAUSES every other AI feature, so a headless background run is a trap
 // the user can't see). While a sweep runs, the modal's X + Esc are disabled (:closable below);

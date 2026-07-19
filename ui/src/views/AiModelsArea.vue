@@ -13,6 +13,7 @@ import { computed, nextTick, onMounted, ref } from "vue";
 import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
+import UiSegmented from "../common/components/UiSegmented.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
@@ -46,12 +47,20 @@ const props = defineProps({
   // screen, QC-46, via ?quicksetup=1), open the wizard ONCE after the first
   // load. Off by default — JustVoice inherits it inert.
   autoOpenQuickSetup: { type: Boolean, default: false },
+  // Deep-link seam for the provider TABS: "online" lands the provider list on the
+  // Online tab (JW's first-run AI setup dialog, "Connect an online provider", via
+  // ?providers=online). Anything else — including the default "" — starts on Local.
+  initialProviderScope: { type: String, default: "" },
 });
+const emit = defineEmits(["quick-setup-closed"]);
 
 // The subnav tab. (Was the shared `activeAiTab` from labHandoff.js — that channel
 // existed only for the Tune→Tasks switch-carry handoff, removed with §7.1: engine
 // switches live on the model, so there is nothing to hand to the Lab anymore.)
 const tab = ref("providers");
+// Local vs Online is a TAB on the provider list (not two stacked eyebrow groups) —
+// deliberately NOT named `tab`, which is the page subnav above.
+const providerScope = ref(props.initialProviderScope === "online" ? "online" : "local");
 const providers = ref([]);
 const hardware = ref(null);
 const usage = ref(null);
@@ -69,6 +78,8 @@ const builtinProvider = computed(() => providers.value.find((p) => p.providerTyp
 // URL guess — a local provider at a LAN IP still groups under Local.
 const localProviders = computed(() => providers.value.filter((p) => p.local && p.providerType !== "local-llamacpp"));
 const cloudProviders = computed(() => providers.value.filter((p) => !p.local));
+// ONE row template renders whichever scope the tab is on.
+const shownProviders = computed(() => (providerScope.value === "online" ? cloudProviders.value : localProviders.value));
 
 const hwLabel = computed(() => {
   const h = hardware.value;
@@ -225,6 +236,12 @@ const statusLabel = (id) => STATUS_LABEL[status.value[id]] || "Not checked";
 const statusColor = (id) => STATUS_COLOR[status.value[id]] || "var(--border-strong)";
 
 function onSaved() { editingId.value = null; loadProviders(); }
+
+// Only a DEEP-LINKED run (the first-run AI setup dialog) hands control back to
+// the host; a wizard the user opened by clicking the button leaves them here.
+function onQuickSetupClosed() {
+  if (props.autoOpenQuickSetup) emit("quick-setup-closed");
+}
 
 // ── Task E — the hardware-change notification (user, 2026-07-06/07 dispositions:
 // "counts as changed just gpu vram" · "appears dismissinle toast" · fires ONCE per
@@ -390,9 +407,15 @@ onMounted(() => {
            progress/error live on the Local-engine panel inside (one surface);
            the old row's Test/status is the form footer's Test connection (one
            check, the composed-health one — #139). -->
-      <div v-if="builtinProvider" class="lu-builtin">
+      <!-- The scope term is v-SHOW, not v-if, and deliberately so: the QuickSetup
+           mount below carries `qsRef`, and TWO openers outside this block reach it
+           (the hardware-change toast's action, and the auto-open deep link). A v-if
+           here would unmount the wizard on the Online tab and turn both into silent
+           optional-chain no-ops. builtinProvider stays v-if — no provider, no ref
+           to want. -->
+      <div v-if="builtinProvider" v-show="providerScope === 'local'" class="lu-builtin">
         <div class="lu-builtin-qs">
-          <QuickSetup ref="qsRef" inline @changed="loadProviders" />
+          <QuickSetup ref="qsRef" inline @changed="loadProviders" @closed="onQuickSetupClosed" />
         </div>
         <div class="lu-builtin-head">
           <!-- The DB name already says what it is (seeded "Built-in provider —
@@ -421,17 +444,24 @@ onMounted(() => {
           </UiButton>
         </div>
 
-        <ProviderForm v-if="editingId === 'new'" class="lu-newform" @saved="onSaved" @cancel="editingId = null" />
+        <ProviderForm v-if="editingId === 'new'" class="lu-newform" :initial-local="providerScope === 'local'" @saved="onSaved" @cancel="editingId = null" />
 
-        <div class="lu-eyebrow-row">
-          <span class="lu-eyebrow">Local · free</span>
-          <span class="lu-muted lu-eyebrow-sub">Runs on your machine. No API key, no per-token cost — your prose never leaves the box.</span>
-        </div>
-        <template v-for="p in localProviders" :key="p.id">
+        <!-- Local vs Online are TABS (user, 2026-07-19), not two stacked eyebrow
+             groups — ONE row template renders the scope you're standing on, so the
+             two near-duplicate lists that used to drift are gone. -->
+        <UiSegmented v-model="providerScope" variant="connected" class="lu-scope"
+          :options="[
+            { value: 'local', label: 'Local · free', sublabel: 'Runs on your machine — no API key, no per-token cost' },
+            { value: 'online', label: 'Online · metered', sublabel: 'Your account — API key + URL; pay per token' },
+          ]" />
+        <template v-for="p in shownProviders" :key="p.id">
           <ProviderForm v-if="editingId === p.id" :provider="p" @saved="onSaved" @deleted="onSaved" @cancel="editingId = null" />
           <div v-else class="lu-prow">
             <span class="lu-prow-ic">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.2" /><path d="M6.2 1.5v2.7M9.8 1.5v2.7M6.2 11.8v2.7M9.8 11.8v2.7M1.5 6.2h2.7M1.5 9.8h2.7M11.8 6.2h2.7M11.8 9.8h2.7" stroke-linecap="round" /></svg>
+              <!-- The ONLY difference the two old row templates had: the chip glyph on
+                   local, the sparkle on online. -->
+              <svg v-if="providerScope === 'local'" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.2" /><path d="M6.2 1.5v2.7M9.8 1.5v2.7M6.2 11.8v2.7M9.8 11.8v2.7M1.5 6.2h2.7M1.5 9.8h2.7M11.8 6.2h2.7M11.8 9.8h2.7" stroke-linecap="round" /></svg>
+              <svg v-else viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.4l1.4 4.1 4.2 1.5-4.2 1.5L8 12.6 6.6 8.5 2.4 7l4.2-1.5z" /></svg>
             </span>
             <div class="lu-prow-info">
               <div class="lu-prow-name">
@@ -461,40 +491,10 @@ onMounted(() => {
             </div>
           </div>
         </template>
-        <div v-if="!loading && !localProviders.length" class="lu-pempty">No local providers yet. Click “Add provider” and point at <span class="lu-mono">http://localhost:…</span></div>
-
-        <div class="lu-eyebrow-row lu-eyebrow-cloud">
-          <span class="lu-eyebrow">Cloud · metered</span>
-          <span class="lu-muted lu-eyebrow-sub">Your account — API key + URL. Pay per token; every call leaves the machine.</span>
+        <div v-if="!loading && !shownProviders.length" class="lu-pempty">
+          <template v-if="providerScope === 'local'">No local providers yet. Click “Add provider” and point at <span class="lu-mono">http://localhost:…</span></template>
+          <template v-else>No cloud providers. Click “Add provider” and paste a key from OpenAI / Anthropic / OpenRouter.</template>
         </div>
-        <template v-for="p in cloudProviders" :key="p.id">
-          <ProviderForm v-if="editingId === p.id" :provider="p" @saved="onSaved" @deleted="onSaved" @cancel="editingId = null" />
-          <div v-else class="lu-prow">
-            <span class="lu-prow-ic">
-              <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.4l1.4 4.1 4.2 1.5-4.2 1.5L8 12.6 6.6 8.5 2.4 7l4.2-1.5z" /></svg>
-            </span>
-            <div class="lu-prow-info">
-              <div class="lu-prow-name"><b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span></div>
-              <div class="lu-prow-url">{{ p.baseUrl }}</div>
-              <div class="lu-prow-meta">
-                <template v-if="p.defaultModel">chat: <b>{{ p.defaultModel }}</b> · </template>
-                <template v-if="p.embeddingModel">embed: <b>{{ p.embeddingModel }}</b> · </template>
-                {{ p.hasApiKey ? "API key set" : "no key" }}
-              </div>
-            </div>
-            <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
-            <div class="lu-prow-actions">
-              <UiButton intent="secondary" size="small" @click="testProvider(p)">Test</UiButton>
-              <UiButton intent="primary" size="small" @click="editingId = p.id">Edit</UiButton>
-              <!-- Default/Set-as-default is the RIGHTMOST action (2026-07-17) — matches the
-                   model catalog's "Default ✓" position + the built-in header, so the default
-                   indicator is far-right on every surface. -->
-              <UiButton :intent="isDefaultProvider(p) ? 'success' : 'secondary'" size="small"
-                @click="openSetDefault(p)">{{ isDefaultProvider(p) ? "Default ✓" : "Set as default" }}</UiButton>
-            </div>
-          </div>
-        </template>
-        <div v-if="!loading && !cloudProviders.length" class="lu-pempty">No cloud providers. Click “Add provider” and paste a key from OpenAI / Anthropic / OpenRouter.</div>
 
         <!-- B2-9 (§7.2): the set-as-default confirm — ONE flow for every provider.
              Apply branch when the row has a chat model; else the guard branch
@@ -641,10 +641,10 @@ onMounted(() => {
 .lu-pcard-head .lu-btn { margin-left: auto; }
 .lu-plus { font-weight: 700; }
 
-.lu-eyebrow-row { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 2px; }
-.lu-eyebrow-cloud { margin-top: 16px; }
-.lu-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.lu-eyebrow-sub { font-size: 11.5px; }
+/* The Local/Online tab strip. The kit's connected UiSegmented flexes its buttons,
+   so the caller owns the row width (a full-width strip over a wide provider list
+   reads as a banner, not a control). */
+.lu-scope { display: flex; margin: 10px 0 4px; max-width: 520px; }
 
 .lu-prow {
   /* 4 columns: icon · info · status · the ONE actions cell (Test/Edit + the Built-in

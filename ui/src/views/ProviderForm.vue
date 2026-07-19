@@ -24,10 +24,6 @@ import { PROVIDER_PRESETS, ONLINE_ONLY_TYPES, probeModels, createProvider, revea
 
 const props = defineProps({
   provider: { type: Object, default: null }, // null = adding new
-  // QC-39 (b): the built-in provider's form is mounted PERMANENTLY as the page's
-  // top section — nothing to collapse back to, so no Cancel, and the section
-  // supplies the card chrome (the form renders bare).
-  permanent: { type: Boolean, default: false },
   // New-provider default, set by the tab the user is standing on (AiModelsArea's
   // providerScope). Ignored when editing an existing provider.
   initialLocal: { type: Boolean, default: true },
@@ -240,7 +236,7 @@ async function putReasoningRow(row) {
 </script>
 
 <template>
-  <div class="lu-pform" :class="{ 'lu-pform--bare': props.permanent }">
+  <div class="lu-pform">
     <div v-if="isNew" class="lu-pf-presets">
       <span class="lu-muted lu-pf-presets-h">Start from a known provider — fills URL · type · where it runs</span>
       <div class="lu-pf-chips">
@@ -373,7 +369,7 @@ async function putReasoningRow(row) {
       <span class="lu-muted lu-pf-test">{{ testMsg }}</span>
       <span class="lu-pf-spacer" />
       <UiButton v-if="!isNew && !isBuiltin" intent="danger" @click="remove">Delete</UiButton>
-      <UiButton v-if="!props.permanent" intent="ghost" @click="emit('cancel')">Cancel</UiButton>
+      <UiButton intent="ghost" @click="emit('cancel')">Cancel</UiButton>
       <UiButton intent="primary" :loading="saving" @click="save">{{ saving ? "Saving…" : "Save provider" }}</UiButton>
     </div>
   </div>
@@ -382,10 +378,10 @@ async function putReasoningRow(row) {
 <style scoped>
 /* QC-39: neutral surfaces — the page-scale accent-soft (pink) wash is gone
    (mockup (a)/(b), the user's pick); accent stays at chip/focus scale. The
-   inline expanded form reads as an expanded card in the provider list; the
-   permanent built-in mount renders bare (its section owns the chrome). */
+   inline expanded form reads as an expanded card in the provider list — ONE
+   presentation now, for every provider including the built-in (2026-07-19: the
+   promoted built-in section and its bare `permanent` variant are deleted). */
 .lu-pform { padding: 14px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-top: 8px; }
-.lu-pform--bare { border: 0; border-radius: 0; background: transparent; padding: 0; margin-top: 0; }
 .lu-pf-presets { margin-bottom: 12px; }
 .lu-pf-presets-h { display: block; font-size: 11px; margin-bottom: 6px; }
 .lu-pf-chips { display: flex; gap: 6px; flex-wrap: wrap; }

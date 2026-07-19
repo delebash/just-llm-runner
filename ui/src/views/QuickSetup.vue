@@ -574,10 +574,12 @@ defineExpose({ openWizard });
          does"); the default is the full titled strip. -->
     <template v-if="props.inline">
       <UiButton intent="primary" @click="openWizard">Run Quick Setup</UiButton>
-      <!-- QC-42 (the user's exact copy): the wizard is built-in-only — say so
-           right of the button, bigger than the description, so nobody expects
-           it to configure an online provider. -->
-      <span class="lu-qs-barefor">For the Local built-in provider</span>
+      <!-- QC-42: the wizard is built-in-only — say so right of the button, bigger
+           than the description, so nobody expects it to configure an online
+           provider. Since 2026-07-19 this band sits at the top of the Local tab
+           rather than inside the built-in provider's card, so these WORDS are the
+           only thing carrying the scope — hence naming llama.cpp outright. -->
+      <span class="lu-qs-barefor">Sets up the built-in llama.cpp provider only</span>
       <span class="lu-muted lu-qs-baresub">Detect your hardware, pick the best free local model that fits, and set it as your default.</span>
     </template>
     <div v-else class="lu-qs-head">

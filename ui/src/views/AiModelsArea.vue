@@ -29,9 +29,9 @@ import { usePoll } from "../common/composables/usePoll.js";
 
 // Engine state here feeds only the debug snapshot — the engine ACTIONS
 // (Install / Uninstall / Update available / Reinstall + progress + errors) all
-// live on the Local-engine panel inside the promoted built-in section (QC-39:
-// the built-in's list row is gone, so the panel is THE engine surface; same
-// shared useEngine state, so no surface can disagree).
+// live on the Local-engine panel inside the built-in provider's ProviderForm —
+// reached by Edit on its row since 2026-07-19; same shared useEngine state, so
+// no surface can disagree.
 const { engineState: engState, checkForUpdate, refreshEngine } = useEngine();
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
@@ -69,14 +69,15 @@ const error = ref("");
 const editingId = ref(null); // "new" | provider id | null
 const status = ref({}); // provider id -> "checking" | "ok" | "fail"
 
-// QC-39 (b), the user's pick: the BUILT-IN provider is promoted OUT of the
-// accordion into its own permanent top section — its Edit contents ARE the
-// page. Every OTHER provider (local openai-compat ones included — the user's
-// explicit check) stays in the grouped list below with the small inline Edit.
-const builtinProvider = computed(() => providers.value.find((p) => p.providerType === "local-llamacpp") || null);
 // Group by the provider's stored Local/Online choice (set in the form), not a
 // URL guess — a local provider at a LAN IP still groups under Local.
-const localProviders = computed(() => providers.value.filter((p) => p.local && p.providerType !== "local-llamacpp"));
+// 2026-07-19: the built-in is IN the local list (the promoted card is gone) and is
+// always its FIRST row. `.filter()` already returns a fresh array, so sorting it in
+// place never touches `providers.value`.
+const isBuiltin = (p) => p.providerType === "local-llamacpp";
+const localProviders = computed(() => providers.value
+  .filter((p) => p.local)
+  .sort((a, b) => Number(isBuiltin(b)) - Number(isBuiltin(a))));
 const cloudProviders = computed(() => providers.value.filter((p) => !p.local));
 // ONE row template renders whichever scope the tab is on.
 const shownProviders = computed(() => (providerScope.value === "online" ? cloudProviders.value : localProviders.value));
@@ -350,8 +351,8 @@ onMounted(() => {
   // autoOpenQuickSetup (QC-46): open the wizard ONCE after the FIRST loadAll()
   // resolves, so it has the provider list + hardware it needs before showing.
   // nextTick first: the QuickSetup mount (qsRef) sits inside
-  // v-if="builtinProvider", which only renders AFTER the providers land —
-  // the template ref is still null on the resolve tick itself.
+  // the providers tab's template, so the ref is only populated on the render
+  // that follows the resolve — it is still null on the resolve tick itself.
   loadAll().then(async () => {
     if (!props.autoOpenQuickSetup) return;
     await nextTick();
@@ -398,41 +399,20 @@ onMounted(() => {
 
     <!-- ── Providers & models ── -->
     <section v-show="tab === 'providers'" class="lu-tab">
-      <!-- QC-39 (b), the user's pick: the built-in provider PROMOTED out of the
-           accordion — its own permanent top section whose contents ARE its old
-           Edit view (field grid · engine panel · slot cards · Model Catalog ·
-           libraries). Order preserves the old card 1:1: the Quick-Setup band at
-           the TOP (#4 law), then the identity row (name · caps · Default tag ·
-           Set as default), then the form. The old row's engine buttons +
-           progress/error live on the Local-engine panel inside (one surface);
-           the old row's Test/status is the form footer's Test connection (one
-           check, the composed-health one — #139). -->
-      <!-- The scope term is v-SHOW, not v-if, and deliberately so: the QuickSetup
-           mount below carries `qsRef`, and TWO openers outside this block reach it
-           (the hardware-change toast's action, and the auto-open deep link). A v-if
-           here would unmount the wizard on the Online tab and turn both into silent
-           optional-chain no-ops. builtinProvider stays v-if — no provider, no ref
-           to want. -->
-      <div v-if="builtinProvider" v-show="providerScope === 'local'" class="lu-builtin">
-        <div class="lu-builtin-qs">
-          <QuickSetup ref="qsRef" inline @changed="loadProviders" @closed="onQuickSetupClosed" />
-        </div>
-        <div class="lu-builtin-head">
-          <!-- The DB name already says what it is (seeded "Built-in provider —
-               llama.cpp", user-renamable) — the title adds only the mockup's
-               "(your machine)" tail. -->
-          <h3 class="lu-builtin-title">{{ builtinProvider.name || builtinProvider.id }} (your machine)</h3>
-          <span v-for="c in capList(builtinProvider)" :key="c" class="lu-cap">{{ c }}</span>
-          <span class="lu-builtin-spacer" />
-          <!-- The default indicator is THIS right-aligned button, green when set
-               (2026-07-17, user: "make it green… more obvious", "align right"); the
-               separate left "Default" tag was removed so it lives in one place. QC-20:
-               reads already-set but stays CLICKABLE — the dialog on the current default
-               is where QC-21's truthful embedding line shows. -->
-          <UiButton :intent="isDefaultProvider(builtinProvider) ? 'success' : 'secondary'" size="small"
-            @click="openSetDefault(builtinProvider)">{{ isDefaultProvider(builtinProvider) ? "Default ✓" : "Set as default" }}</UiButton>
-        </div>
-        <ProviderForm :provider="builtinProvider" permanent @saved="onSaved" />
+      <!-- 2026-07-19 (user ruling): the QC-39 (b) PROMOTION is reversed — the
+           built-in provider is now a NORMAL first row in the Local list with the
+           same inline Edit as every other provider (the Local tab gives the
+           findability the promotion existed to give). What stays lifted out is
+           the Quick-Setup band: it sits at the TOP of the Local scope in its own
+           right, because it is the first-run path and no longer has a card to
+           live in. -->
+      <!-- The scope term is v-SHOW, not v-if, and deliberately so: this QuickSetup
+           mount carries `qsRef`, and TWO openers outside this block reach it (the
+           hardware-change toast's action, and the auto-open deep link). A v-if here
+           would unmount the wizard on the Online tab and turn both into silent
+           optional-chain no-ops. -->
+      <div v-show="providerScope === 'local'" class="lu-qs-band">
+        <QuickSetup ref="qsRef" inline @changed="loadProviders" @closed="onQuickSetupClosed" />
       </div>
 
       <div class="lu-providers">
@@ -466,15 +446,23 @@ onMounted(() => {
             <div class="lu-prow-info">
               <div class="lu-prow-name">
                 <b>{{ p.name || p.id }}</b><span v-for="c in capList(p)" :key="c" class="lu-cap">{{ c }}</span>
+                <!-- 2026-07-19: the built-in is a normal row now, so the ONE thing that
+                     still marks it out is this tag (same .lu-cap badge, no new style). -->
+                <span v-if="isBuiltin(p)" class="lu-cap">Built-in</span>
                 <!-- The default indicator is the right-aligned green "Default ✓" button
                      in the actions cell (2026-07-17); the left "Default" tag was removed
                      so it lives in one place, consistent with the model catalog. -->
               </div>
               <div class="lu-prow-url">{{ p.baseUrl }}</div>
+              <!-- ONE meta line for every row. The built-in needs no API key, so the key
+                   clause is the ONE part it drops — "no key" on a provider that requires
+                   none reads as a missing setting rather than a fact. Separators LEAD each
+                   clause (not trail), so dropping any one clause can't strand a dangling
+                   "·" and a new clause is added in exactly one place. -->
               <div class="lu-prow-meta">
-                <template v-if="p.defaultModel">chat: <b>{{ p.defaultModel }}</b> · </template>
-                <template v-if="p.embeddingModel">embed: <b>{{ p.embeddingModel }}</b> · </template>
-                {{ p.hasApiKey ? "API key set" : "no key" }}
+                <template v-if="p.defaultModel">chat: <b>{{ p.defaultModel }}</b></template>
+                <template v-if="p.embeddingModel"><template v-if="p.defaultModel"> · </template>embed: <b>{{ p.embeddingModel }}</b></template>
+                <template v-if="!isBuiltin(p)"><template v-if="p.defaultModel || p.embeddingModel"> · </template>{{ p.hasApiKey ? "API key set" : "no key" }}</template>
               </div>
             </div>
             <span class="lu-prow-status"><span class="lu-sdot" :style="{ background: statusColor(p.id) }" />{{ statusLabel(p.id) }}</span>
@@ -632,7 +620,6 @@ onMounted(() => {
 /* Routing-by-feature fills its height (its own nav + content panes scroll); it
    does not scroll as a whole. */
 .lu-tab.lu-tab-fill { overflow: hidden; display: flex; flex-direction: column; }
-.lu-qs-wrap { display: block; margin-bottom: 14px; }
 
 /* naked control — the host wraps it in its own page card (.pane-card in JW) */
 .lu-pcard-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
@@ -655,15 +642,10 @@ onMounted(() => {
 .lu-prow-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 /* B2-9 set-as-default confirm — body lines above the overwrite choice. */
 .lu-sd-line { margin: 0 0 10px; }
-/* QC-39 (b) — the promoted built-in section (mockup (b) verbatim: one neutral
-   card at the top of the tab; the accent stays at chip/focus scale). The
-   Quick-Setup band keeps the old card-top law (#4): its own centered row,
-   seated as the section's header band by the bottom border. */
-.lu-builtin { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-.lu-builtin-qs { text-align: center; padding-bottom: 10px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
-.lu-builtin-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
-.lu-builtin-title { margin: 0; font-size: 15px; font-weight: 700; color: var(--ink); }
-.lu-builtin-spacer { flex: 1; }
+/* The Quick-Setup band, lifted out of the (now deleted) promoted built-in card
+   2026-07-19 — it keeps the same seating that card gave it: its own centered row
+   at the top of the Local scope, closed by a rule. */
+.lu-qs-band { padding-bottom: 14px; border-bottom: 1px solid var(--border); margin-bottom: 14px; text-align: center; }
 .lu-prow-ic { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-3); color: var(--ink-2); display: grid; place-items: center; }
 .lu-prow-ic svg { width: 17px; height: 17px; }
 .lu-prow-info { min-width: 0; }

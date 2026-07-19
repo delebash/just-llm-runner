@@ -131,9 +131,11 @@ def classify_gguf_entries(entries: list[dict]) -> dict:
         header key — it lives in the name, e.g. `…-qat-…`; the user's explicit
         label ask). mmproj sidecars and files with NO recognizable quant token
         are skipped (rare; the form's free-type covers them).
-      * drafts — MTP draft files (`MTP/` dir or `-MTP.gguf`, the observed
-        convention), each its own row ({path, quant, sizeMb, qat}) since a draft
-        is picked by exact path (its quant rides along).
+      * drafts — draft files (`MTP/` dir or `-MTP.gguf`, the observed MTP
+        convention; plus `dspark` in the name, the own-repo drafter convention —
+        exhibit prism-ml/Ternary-Bonsai-27B-gguf's `-dspark-Q4_1.gguf`), each its
+        own row ({path, quant, sizeMb, qat}) since a draft is picked by exact path
+        (its quant rides along).
     """
     quants: dict[str, dict] = {}
     drafts: list[dict] = []
@@ -149,7 +151,7 @@ def classify_gguf_entries(entries: list[dict]) -> dict:
         m = _QUANT_RE.search(path)
         quant = m.group(0) if m else ""
         qat = "qat" in low
-        is_draft = low.endswith("-mtp.gguf") or "/mtp/" in low or low.startswith("mtp/")
+        is_draft = low.endswith("-mtp.gguf") or "/mtp/" in low or low.startswith("mtp/") or "dspark" in low
         if is_draft:
             drafts.append({"path": path, "quant": quant, "sizeMb": size_mb, "qat": qat})
             continue
@@ -250,19 +252,39 @@ def _search_models(query: str, limit: int = 15) -> list[str]:
     return [str(m.get("id") or m.get("modelId") or "") for m in r.json()]
 
 
+_SHARD_RE = re.compile(r"-\d+-of-\d+\.gguf$", re.IGNORECASE)  # split-shard tail
+
+
 def _gguf_drafter_in_repo(repo: str, revision: str = "main") -> dict | None:
-    """The smallest usable .gguf in `repo` as a drafter `{"repo","file","quant"}`, or
-    None (no gguf / repo doesn't resolve). Smallest = fastest draft, and a drafter only
-    affects SPEED — the main model validates every token — so smallest is the safe pick."""
+    """The smallest QUANTIZED single-file .gguf in `repo` as a drafter
+    `{"repo","file","quant"}`, or None (no usable candidate / repo doesn't resolve).
+    Smallest = fastest draft, and a drafter only affects SPEED — the main model
+    validates every token — so smallest is the safe pick. Split shards and
+    full-precision (BF16/F16/F32) files are excluded: a drafter is purely a speed
+    device, and an fp16 shard tail (the smallest FILE, but not a loadable model) is
+    exactly the wrong pick."""
     try:
         entries = _tree(repo, revision)
     except requests.RequestException:
         return None
-    ggufs = [e for e in entries if str(e.get("path", "")).lower().endswith(".gguf")
-             and "mmproj" not in str(e.get("path", "")).lower()]
-    if not ggufs:
+    candidates: list[dict] = []
+    for e in entries:
+        path = str(e.get("path", ""))
+        low = path.lower()
+        if not low.endswith(".gguf") or "mmproj" in low:
+            continue
+        if _SHARD_RE.search(path):
+            continue  # split shard — not a standalone loadable drafter
+        m = _QUANT_RE.search(path)
+        if not m:
+            continue  # no recognizable quant token
+        q = m.group(0).upper().removeprefix("UD-")
+        if not (q.startswith("IQ") or "Q" in q):
+            continue  # BF16/F16/F32 → full precision, not a quantized drafter
+        candidates.append(e)
+    if not candidates:
         return None
-    best = min(ggufs, key=_entry_size)
+    best = min(candidates, key=_entry_size)
     path = str(best.get("path", ""))
     qm = _QUANT_RE.search(path)
     return {"repo": repo, "file": path, "quant": qm.group(0) if qm else ""}

@@ -166,3 +166,101 @@ def test_classify_plain_repo_no_drafts():
     by_quant = {q["quant"]: q for q in out["quants"]}
     assert by_quant["UD-Q4_K_XL"]["files"] == 2 and by_quant["UD-Q4_K_XL"]["qat"] is False
     assert "UD-Q8_0" in by_quant
+
+
+# ── dspark own-repo drafters + inherited-drafter shard/fp16 guard (2026-07-19) ──
+
+_GB = 1024 * 1024 * 1024
+
+# prism-ml/Ternary-Bonsai-27B-gguf, real filenames verbatim (fetched from HF
+# 2026-07-19): a full-precision F16, several Q quants, TWO `-dspark-*` own-repo
+# drafters, two mmproj sidecars, a README.
+BONSAI_TREE = [
+    {"type": "file", "path": "Ternary-Bonsai-27B-F16.gguf", "oid": "a", "lfs": {"oid": "l1", "size": int(53.8 * _GB)}},
+    {"type": "file", "path": "Ternary-Bonsai-27B-PQ2_0.gguf", "oid": "b", "lfs": {"oid": "l2", "size": int(8.2 * _GB)}},
+    {"type": "file", "path": "Ternary-Bonsai-27B-Q2_0.gguf", "oid": "c", "lfs": {"oid": "l3", "size": int(8.1 * _GB)}},
+    {"type": "file", "path": "Ternary-Bonsai-27B-Q2_g64.gguf", "oid": "d", "lfs": {"oid": "l4", "size": int(7.59 * _GB)}},
+    {"type": "file", "path": "Ternary-Bonsai-27B-dspark-Q4_1.gguf", "oid": "e", "lfs": {"oid": "l5", "size": int(1.95 * _GB)}},
+    {"type": "file", "path": "Ternary-Bonsai-27B-dspark-bf16.gguf", "oid": "f", "lfs": {"oid": "l6", "size": int(2.6 * _GB)}},
+    {"type": "file", "path": "Ternary-Bonsai-27B-mmproj-BF16.gguf", "oid": "g", "lfs": {"oid": "l7", "size": int(0.9 * _GB)}},
+    {"type": "file", "path": "Ternary-Bonsai-27B-mmproj-Q8_0.gguf", "oid": "h", "lfs": {"oid": "l8", "size": int(0.5 * _GB)}},
+    {"type": "file", "path": "README.md", "oid": "i", "size": 20},
+]
+
+
+def test_classify_bonsai_dspark_drafters():
+    out = models.classify_gguf_entries(BONSAI_TREE)
+    draft_paths = {d["path"] for d in out["drafts"]}
+    # BOTH dspark files are detected as drafts (name-keyed, quant OR bf16)…
+    assert "Ternary-Bonsai-27B-dspark-Q4_1.gguf" in draft_paths
+    assert "Ternary-Bonsai-27B-dspark-bf16.gguf" in draft_paths
+    # …and NEITHER leaks into the quant dropdown
+    quant_paths = {q["quant"] for q in out["quants"]}
+    assert "Q4_1" not in quant_paths
+    # mmproj sidecars skipped entirely (never a quant, never a draft)
+    assert not any("mmproj" in d["path"].lower() for d in out["drafts"])
+    assert not any("mmproj" in q["quant"].lower() for q in out["quants"])
+    # a real quant still lands in the dropdown
+    assert "Q2_g64" in quant_paths
+
+
+def test_drafter_skips_shards_prefers_quant_single(monkeypatch):
+    # BF16 split shards (shard-2 is the smallest FILE) + a larger single Q4_K_M:
+    # the shard tail must be rejected, the loadable Q4_K_M returned.
+    tree = [
+        {"type": "file", "path": "model-BF16-00001-of-00002.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 20 * _GB}},
+        {"type": "file", "path": "model-BF16-00002-of-00002.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 1 * _GB}},
+        {"type": "file", "path": "model-Q4_K_M.gguf", "oid": "c", "lfs": {"oid": "l3", "size": 5 * _GB}},
+    ]
+    monkeypatch.setattr(models.requests, "get", _make_get(tree))
+    got = models._gguf_drafter_in_repo("owner/repo")
+    assert got == {"repo": "owner/repo", "file": "model-Q4_K_M.gguf", "quant": "Q4_K_M"}
+
+
+def test_drafter_none_when_only_shards_and_mmproj(monkeypatch):
+    tree = [
+        {"type": "file", "path": "model-BF16-00001-of-00002.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 20 * _GB}},
+        {"type": "file", "path": "model-BF16-00002-of-00002.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 20 * _GB}},
+        {"type": "file", "path": "mmproj-BF16.gguf", "oid": "c", "lfs": {"oid": "l3", "size": 1 * _GB}},
+    ]
+    monkeypatch.setattr(models.requests, "get", _make_get(tree))
+    assert models._gguf_drafter_in_repo("owner/repo") is None
+
+
+def test_drafter_picks_dspark_over_f16(monkeypatch):
+    # The Bonsai shape: a small dspark-Q4_1 drafter beside a huge full-precision F16.
+    # F16 is full precision (excluded); the quantized single-file dspark is the pick.
+    tree = [
+        {"type": "file", "path": "Ternary-Bonsai-27B-dspark-Q4_1.gguf", "oid": "a", "lfs": {"oid": "l1", "size": int(1.95 * _GB)}},
+        {"type": "file", "path": "Ternary-Bonsai-27B-F16.gguf", "oid": "b", "lfs": {"oid": "l2", "size": int(53.8 * _GB)}},
+    ]
+    monkeypatch.setattr(models.requests, "get", _make_get(tree))
+    got = models._gguf_drafter_in_repo("owner/repo")
+    assert got == {"repo": "owner/repo", "file": "Ternary-Bonsai-27B-dspark-Q4_1.gguf", "quant": "Q4_1"}
+
+
+def test_drafter_shard_filter_fires_alone(monkeypatch):
+    # Isolates the SHARD filter: a QUANTIZED shard tail (survives the fp16 filter)
+    # that is the SMALLEST file, beside a LARGER single quant. Only shard-exclusion
+    # can reject the smaller quantized shard → the single-file Q5_K_M must win.
+    tree = [
+        {"type": "file", "path": "model-Q4_K_M-00001-of-00002.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 1 * _GB}},
+        {"type": "file", "path": "model-Q4_K_M-00002-of-00002.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 1 * _GB}},
+        {"type": "file", "path": "model-Q5_K_M.gguf", "oid": "c", "lfs": {"oid": "l3", "size": 5 * _GB}},
+    ]
+    monkeypatch.setattr(models.requests, "get", _make_get(tree))
+    got = models._gguf_drafter_in_repo("owner/repo")
+    assert got == {"repo": "owner/repo", "file": "model-Q5_K_M.gguf", "quant": "Q5_K_M"}
+
+
+def test_drafter_fp16_filter_fires_alone(monkeypatch):
+    # Isolates the fp16 filter: a NON-shard F16 that is the SMALLEST file, beside a
+    # larger single Q4_K_M. The shard filter never touches F16 (no -N-of-N tail), so
+    # only fp16-exclusion can reject the smaller F16 → the Q4_K_M must win.
+    tree = [
+        {"type": "file", "path": "model-F16.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 1 * _GB}},
+        {"type": "file", "path": "model-Q4_K_M.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 5 * _GB}},
+    ]
+    monkeypatch.setattr(models.requests, "get", _make_get(tree))
+    got = models._gguf_drafter_in_repo("owner/repo")
+    assert got == {"repo": "owner/repo", "file": "model-Q4_K_M.gguf", "quant": "Q4_K_M"}

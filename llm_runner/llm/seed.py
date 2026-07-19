@@ -118,6 +118,16 @@ DEFAULT_PROVIDERS: list[dict] = [
      "provider_type": "local-llamacpp", "base_url": "http://127.0.0.1:8080/v1", "local": True},
     {"id": "openai-compat-local", "name": "Ollama (local)",
      "provider_type": "ollama", "base_url": "http://localhost:11434", "local": True},
+    # LM Studio (user, 2026-07-19: "add lm studio as local provider"). It was already
+    # REACHABLE — a preset chip (useProviderConnect.js:18) and a detect-local probe
+    # (provider_api.py:233) — but never PRESENT: it only appeared once the user went
+    # looking for it. Seeding gives it the same out-of-the-box presence Ollama has.
+    # Type stays the generic `openai-compat` adapter: LM Studio speaks OpenAI-compatible,
+    # so a dedicated type would buy a label and cost ~8 parallel type lists (the
+    # 2026-07-17-provider-native-dialects-plan.md:688-693 checklist). Revisit only if
+    # LM Studio's NATIVE surface (/api/v0, JIT model loading) is ever wanted.
+    {"id": "lmstudio", "name": "LM Studio (local)",
+     "provider_type": "openai-compat", "base_url": "http://localhost:1234/v1", "local": True},
     {"id": "openai", "name": "OpenAI",
      "provider_type": "openai", "base_url": "https://api.openai.com/v1", "local": False},
     {"id": "claude", "name": "Claude (Anthropic)",

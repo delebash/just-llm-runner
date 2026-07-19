@@ -24,6 +24,9 @@ from llm_runner.llm.seed import DEFAULT_PROVIDERS
 _EXPECTED = {
     "local-llamacpp": ("local-llamacpp", "http://127.0.0.1:8080/v1"),
     "openai-compat-local": ("ollama", "http://localhost:11434"),
+    # LM Studio rides the generic openai-compat adapter (2026-07-19) — seeded so it is
+    # PRESENT out of the box like Ollama, not merely reachable via the preset chip.
+    "lmstudio": ("openai-compat", "http://localhost:1234/v1"),
     "openai": ("openai", "https://api.openai.com/v1"),
     "claude": ("anthropic", "https://api.anthropic.com"),
     "gemini": ("gemini", "https://generativelanguage.googleapis.com"),

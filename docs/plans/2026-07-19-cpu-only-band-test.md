@@ -38,6 +38,15 @@ For every leg: **pp** (prompt-processing tok/s) at 512 / 2048 / 8192 prompt toke
 **tg** (generation tok/s, 128 tokens), and **peak RAM** (Task Manager, working set).
 Derive TTFT ≈ prompt_tokens ÷ pp. Threads = physical cores.
 
+> **AUTOMATED 2026-07-19 — prefer the bench harness over doing this by hand.**
+> `cd justwrite-app && npm run bench -- --config scripts/bench/configs/cpu-band.json`
+> runs every leg below (llama-bench matrix + the feature legs through the real app
+> against the tutorial book) and writes `bench-results/<run-id>/summary.md` with this
+> doc's table already filled in, plus the captured feature outputs for the prose sniff.
+> Add `--tauri` to watch it in the real app window. Legs A and C need their models
+> downloaded first. Harness docs: `justwrite-app/docs/bench.md`. The manual recipe below
+> stays valid — and is still the fallback if the harness is unavailable.
+
 Preferred tool: `llama-bench.exe` from the installed engine folder (the b9993
 distribution under the data root's engine cache — same folder as `llama-server.exe`;
 if `llama-bench.exe` is absent in that zip, fall back to timing `llama-server`

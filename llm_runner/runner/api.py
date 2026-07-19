@@ -17,7 +17,6 @@ from fastapi import APIRouter, HTTPException
 from . import fit
 from .hardware import class_key, detect, machine_key, max_vram_mb
 from .lifecycle import get_service
-from .models import is_cached
 from .process import Overrides
 from .schema import (
     HardwareInfo,
@@ -145,7 +144,7 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
 
     models: list[RunnerModelInfo] = []
     for m in catalog:
-        downloaded = is_cached(m.hf_repo, m.quant, cache_root=hf_cache, mmproj=m.mmproj)
+        downloaded = service.model_downloaded(m, hf_cache)  # main weights AND the MTP draft when wanted
         models.append(
             RunnerModelInfo(
                 id=m.id,

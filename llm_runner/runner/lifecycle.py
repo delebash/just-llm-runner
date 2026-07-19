@@ -38,7 +38,7 @@ from .config import default_config as _default_config
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect, max_vram_mb as _hw_max_vram, used_vram_mb as _hw_used_vram
 from .download import DownloadCancelled, download_kwargs
-from .models import acquire_model as _acquire_model, cached_gguf_path, _quant_matches
+from .models import acquire_model as _acquire_model, cached_gguf_path, is_cached, _quant_matches
 from .process import (
     DEFAULT_HOST,
     DEFAULT_PORT,
@@ -286,6 +286,21 @@ def _switches_to_overrides(switches: dict[str, str]) -> Overrides:
         if value not in (None, ""):
             ov.extra_flags.append(str(value))
     return ov
+
+
+def _wants_draft(ov, model) -> bool:
+    """THE one needs-its-draft predicate: does this resolved config call for an EXTERNAL
+    MTP draft that isn't already pinned to a path? True only when the merged overrides
+    select `draft-mtp`, no explicit `model_draft` was set, and the catalog model actually
+    declares a draft file. Its THREE consumers must agree: `_acquire_and_identify` (fetch
+    the draft on load AND download), the router `.ini` emitter (point at the cached draft
+    or strip+warn), and `RunnerService.model_downloaded` (the catalog badge)."""
+    return (
+        ov is not None
+        and ov.spec_type == "draft-mtp"
+        and not ov.model_draft
+        and bool(getattr(model, "mtp_draft_file", ""))
+    )
 
 log = logging.getLogger(__name__)
 
@@ -1206,6 +1221,18 @@ class RunnerService:
                 return p
         return None
 
+    def model_downloaded(self, m, hf_cache) -> bool:
+        """Is this catalog model FULLY downloaded — main weights AND, when the resolved
+        config wants an external MTP draft, the draft too? THE catalog badge's source of
+        truth (replaces a raw `is_cached`, which saw only the main weights and so read
+        "Downloaded ✓" for an MTP model still missing its draft). Called per row per
+        /models poll — switch resolution here is pure DB reads (`_switches_fn`),
+        acceptable at catalog scale."""
+        if not is_cached(m.hf_repo, m.quant, cache_root=hf_cache, mmproj=m.mmproj):
+            return False
+        ov = _switches_to_overrides(self._switches_fn(m.id) or {})
+        return not _wants_draft(ov, m) or self._cached_draft_path(m, hf_cache) is not None
+
     def _runner_log_path(self, model_id: str) -> Path:
         """Per-load log file — real `start_runner` creates the dir + redirects the
         merged stdout/stderr here (tailed on failure + by `engine_log`)."""
@@ -1350,12 +1377,18 @@ class RunnerService:
             self._engine_state = {"status": "error", "detail": "", "error": str(exc),
                                   "downloaded": 0, "total": 0}
 
-    def _acquire_and_identify(self, model_id: str, on_progress, cancel_check=None):
-        """Shared download IO for load + download (ONE source): resolve the catalog
-        model, fetch its GGUF into the cache, and ground the catalog `type` (moe|dense)
-        from the file. Returns (model, gguf_path); raises ValueError for an unknown
-        model. `on_progress(downloaded, total)` reports bytes to the CALLER's channel.
-        `cancel_check` (download-only path) is polled per chunk → raises DownloadCancelled."""
+    def _acquire_and_identify(self, model_id: str, on_progress, cancel_check=None,
+                              *, overrides=None, on_progress_draft=None, reset_progress=None):
+        """Shared download IO for load + download (ONE source, main + draft): resolve the
+        catalog model, fetch its GGUF into the cache, ground the catalog `type` (moe|dense)
+        from the file, and — when `_wants_draft(overrides, model)` — fetch the model's
+        EXTERNAL MTP draft too via the SAME acquire path, so download and load pull the
+        identical bytes ("Downloaded ✓" is honest; first load never surprise-fetches).
+        Returns (model, gguf_path, draft_path_or_None); raises ValueError for an unknown
+        model. `on_progress(downloaded, total)` reports main-weight bytes to the CALLER's
+        channel; `on_progress_draft` the draft leg's; `reset_progress` (optional) zeroes
+        the neutral phase between the two legs. `cancel_check` is polled per chunk on BOTH
+        legs → raises DownloadCancelled (the two callers pass DIFFERENT cancel tokens)."""
         # The downloadable catalog is HOST-OWNED (DB-backed via .catalog()).
         model = next((m for m in self.catalog() if m.id == model_id), None)
         if model is None:
@@ -1380,7 +1413,32 @@ class RunnerService:
             self._identify_fn(model_id, gguf)
         except Exception:  # noqa: BLE001 — identification is advisory only
             log.warning("model type auto-detect failed for %s", model_id, exc_info=True)
-        return model, gguf
+        # Gemma-style external MTP: the model declares a SEPARATE draft GGUF (catalog
+        # mtp_draft_* facts). When the resolved config wants draft-mtp and nothing set
+        # model_draft explicitly, acquire the draft next to the main weights — REUSING
+        # this same acquire path (the file path is its own selector: select_files matches
+        # path-substrings and the snapshot preserves relative paths). A draft failure
+        # fails the CALLER with the real reason — never a silent drop to no-MTP (the user
+        # asked for MTP). The load path then points --model-draft at the returned path.
+        draft_path = None
+        if _wants_draft(overrides, model):
+            # Neutral phase + zeroed counters between the legs (the main model's bytes
+            # must not linger under the draft's label); the draft's own phase comes from
+            # on_progress_draft, only when it actually downloads (T1: a phase is set by
+            # the download itself, never ahead of it).
+            if reset_progress is not None:
+                reset_progress()
+            draft_snapshot = self._acquire_model(
+                model.mtp_draft_repo or model.hf_repo, model.mtp_draft_file, None,
+                cache_root=self._cache_root / "hf", on_progress=on_progress_draft,
+                cancel_check=cancel_check, **download_kwargs(self._config_fn()),
+            )
+            draft_path = Path(draft_snapshot) / model.mtp_draft_file
+            if not draft_path.exists():
+                raise FileNotFoundError(
+                    f"MTP draft downloaded but not found in the snapshot: {model.mtp_draft_file!r}"
+                )
+        return model, gguf, draft_path
 
     def _touch(self, model_id: str, **fields) -> bool:
         """Update a resident model's state dict IF it still exists — a concurrent stop()
@@ -1465,35 +1523,17 @@ class RunnerService:
             # at the next chunk — raising DownloadCancelled (caught below). The membership
             # half stays as the belt for the no-id FULL teardown, which clears _resident
             # wholesale and arms no per-model event (the two cover disjoint paths).
-            _model, gguf = self._acquire_and_identify(
+            # ONE acquire path for main + draft (2026-07-19): the shared function fetches
+            # the external MTP draft too when the resolved config wants it — never a
+            # silent drop to no-MTP (the user asked for MTP; a draft failure fails the
+            # LOAD with the real reason). Download uses the identical path, so a
+            # "Downloaded ✓" model already has its draft on disk.
+            _model, gguf, draft_path = self._acquire_and_identify(
                 model_id, _progress,
-                cancel_check=lambda: self._cancelled(model_id) or model_id not in self._resident)
-
-            # Gemma-style external MTP: the model declares a SEPARATE draft GGUF
-            # (catalog mtp_draft_* facts). When the resolved config wants draft-mtp
-            # and nothing set model_draft explicitly, acquire the draft next to the
-            # main weights — REUSING the same acquire path (the exact file path is
-            # its own selector: select_files matches path-substrings and the
-            # snapshot preserves relative paths) — then point --model-draft at it.
-            # A draft failure fails the LOAD with the real reason (the user asked
-            # for MTP; never silently drop to no-MTP). (Plan B, D7)
-            if ov.spec_type == "draft-mtp" and not ov.model_draft and getattr(_model, "mtp_draft_file", ""):
-                # Neutral phase + zeroed counters between the legs (the main model's
-                # bytes must not linger under the draft's label); the draft's own
-                # phase comes from _progress_draft, only when it actually downloads.
-                self._touch(model_id, detail="preparing", downloaded=0, total=0)
-                draft_repo = _model.mtp_draft_repo or _model.hf_repo
-                draft_snapshot = self._acquire_model(
-                    draft_repo, _model.mtp_draft_file, None,
-                    cache_root=self._cache_root / "hf", on_progress=_progress_draft,
-                    cancel_check=lambda: self._cancelled(model_id) or model_id not in self._resident,
-                    **download_kwargs(config),
-                )
-                draft_path = Path(draft_snapshot) / _model.mtp_draft_file
-                if not draft_path.exists():
-                    raise FileNotFoundError(
-                        f"MTP draft downloaded but not found in the snapshot: {_model.mtp_draft_file!r}"
-                    )
+                cancel_check=lambda: self._cancelled(model_id) or model_id not in self._resident,
+                overrides=ov, on_progress_draft=_progress_draft,
+                reset_progress=lambda: self._touch(model_id, detail="preparing", downloaded=0, total=0))
+            if draft_path:
                 ov.model_draft = str(draft_path)
 
             meta = self._read_meta(gguf)
@@ -1786,18 +1826,25 @@ class RunnerService:
                 continue  # not on disk → no section (a section needs the file for compute_fit)
             try:
                 ov = _switches_to_overrides(self._switches_fn(m.id) or {})
-                # Plan B D7 (diff-checker fold): the auto-mtp layer can put
-                # `draft-mtp` on a PASSIVE co-resident section too. Point it at the
-                # CACHED draft when present; if the draft was never downloaded,
-                # STRIP spec for this section — no network in the ini emitter, and
-                # `spec-type = draft-mtp` without a `model-draft` line would hand
-                # llama-server a broken preset on a router bounce. The first ACTIVE
-                # load of that model acquires the draft (fail-loud) + re-emits.
-                if ov.spec_type == "draft-mtp" and not ov.model_draft and getattr(m, "mtp_draft_file", ""):
+                # Plan B D7 (diff-checker fold): the auto-mtp layer can put `draft-mtp`
+                # on a PASSIVE co-resident section too. Point it at the CACHED draft —
+                # which Download now fetches (2026-07-19 one-acquire change), so it
+                # normally is present.
+                if _wants_draft(ov, m):
                     cached_draft = self._cached_draft_path(m, hf_cache)
                     if cached_draft is not None:
                         ov.model_draft = str(cached_draft)
                     else:
+                        # A CORNER case now (cancelled mid-draft / hand-deleted / a
+                        # pre-fix download) — no longer the normal downloaded-but-not-
+                        # yet-loaded state. Strip spec LOUDLY: no network in the ini
+                        # emitter, and `spec-type = draft-mtp` without a `model-draft`
+                        # line would hand llama-server a broken preset on a router
+                        # bounce. The first ACTIVE load re-acquires the draft (fail-loud).
+                        log.warning(
+                            "model %s wants MTP (draft-mtp) but its draft %r is not "
+                            "downloaded — MTP is OFF for this router section; Re-download "
+                            "the model to restore it", m.id, m.mtp_draft_file)
                         ov.spec_type = None
                         ov.spec_n_max = None
                 meta = self._read_meta(gguf)
@@ -2140,18 +2187,33 @@ class RunnerService:
             )
 
     def _run_download(self, model_id: str) -> None:
-        """Download-only worker (OWN channel): fetch the weights + ground the catalog
-        type from the file, then mark the download idle. It NEVER touches the model
-        run-state (_state/_runner), so a running model is undisturbed. The engine is
-        not required to download — only to load."""
+        """Download-only worker (OWN channel): fetch the weights — AND the external MTP
+        draft when the resolved config wants it (2026-07-19), so "Downloaded ✓" is honest
+        and the first load never surprise-fetches — ground the catalog type from the file,
+        then mark the download idle. It NEVER touches the model run-state (_state/_runner),
+        so a running model is undisturbed. The engine is NOT required to download — only to
+        load: the draft decision reads the effective config via `_switches_to_overrides`,
+        a pure DB read + memoized hardware keys, so the engine-free promise still HOLDS."""
         try:
             def _progress(downloaded: int, total: int | None) -> None:
                 self._download_state["downloaded"] = downloaded
                 self._download_state["total"] = total or 0
 
+            def _progress_draft(downloaded: int, total: int | None) -> None:
+                self._download_state.update(detail="MTP draft model",
+                                            downloaded=downloaded, total=total or 0)
+
+            def _reset_progress() -> None:
+                # Neutral phase + zeroed counters between the legs (main bytes must not
+                # linger under the draft's label); the draft's phase comes from its own
+                # callback, only when it actually downloads.
+                self._download_state.update(detail="preparing", downloaded=0, total=0)
+
+            ov = _switches_to_overrides(self._switches_fn(model_id) or {})
             self._download_state.update(detail="model weights", downloaded=0, total=0)
             self._acquire_and_identify(  # raises ValueError for unknown model
-                model_id, _progress, cancel_check=self._download_cancel.is_set)
+                model_id, _progress, cancel_check=self._download_cancel.is_set,
+                overrides=ov, on_progress_draft=_progress_draft, reset_progress=_reset_progress)
             self._download_state = _download_idle()  # done; /models reports it on-disk. No spawn.
         except DownloadCancelled:
             # User cancel is not an error — the partial blob stays cached (a re-download

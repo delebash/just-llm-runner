@@ -1856,6 +1856,121 @@ def test_passive_section_strips_spec_when_draft_not_cached(tmp_path):
     assert "model-draft" not in passive
 
 
+def test_ini_emit_strip_warns_when_draft_missing(tmp_path, caplog):
+    # 2026-07-19: the strip is now LOUD. Emitting `spec-type = draft-mtp` with no
+    # `model-draft` would hand llama-server a broken preset on a router bounce, so the
+    # emitter drops spec AND warns, naming the model id — the escape must be proven to
+    # FIRE (after the one-acquire change a missing draft is a CORNER case, not normal).
+    def auto_mtp_switches(mid):
+        return {"spec_type": "draft-mtp"} if mid == _DRAFT_MODEL.id else {}
+
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL, _TEST_MODEL],
+                       switches_fn=auto_mtp_switches)  # draft file NOT created
+    with caplog.at_level(logging.WARNING, logger="llm_runner.runner.lifecycle"):
+        svc.load(_TEST_MODEL.id)  # the OTHER model loads → draft-model emits passively
+        svc._thread.join(timeout=5)
+    assert any("MTP is OFF for this router section" in r.message and _DRAFT_MODEL.id in r.message
+               for r in caplog.records)
+
+
+# ── Download (own channel) acquires the draft too — one acquire path (2026-07-19) ──
+
+def test_download_acquires_both_legs_for_mtp(tmp_path):
+    # The Download button now fetches the external MTP draft too, so "Downloaded ✓" is
+    # honest and the first load never surprise-fetches. Two acquire calls in order (main
+    # quant, then the draft file), and the draft leg's phase shows in download_state.
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL],
+                       switches_fn=lambda mid: {"spec_type": "draft-mtp"})
+    snap = tmp_path / "hf" / "models--org--draft-GGUF" / "snapshots" / "sha"
+    real = svc._acquire_model
+    calls, details = [], []
+
+    def spy(repo, second, *a, on_progress=None, **k):
+        calls.append((repo, second))
+        if second == _DRAFT_MODEL.mtp_draft_file:      # the draft leg → plant the file
+            (snap / "MTP").mkdir(parents=True, exist_ok=True)
+            (snap / "MTP" / "d-Q4_0-MTP.gguf").write_bytes(b"g" * 64)
+        if on_progress:
+            on_progress(512, 1024)                     # a real chunk → the leg's phase writes
+        details.append(svc._download_state["detail"])
+        return real(repo, second, *a, **k)
+
+    svc._acquire_model = spy
+    svc.download(_DRAFT_MODEL.id)
+    svc._download_thread.join(timeout=5)
+
+    assert svc.download_status()["status"] == "idle"   # completed cleanly
+    assert calls == [(_DRAFT_MODEL.hf_repo, _DRAFT_MODEL.quant),
+                     (_DRAFT_MODEL.hf_repo, _DRAFT_MODEL.mtp_draft_file)]
+    assert "MTP draft model" in details
+
+
+def test_download_single_acquire_when_no_draft_wanted(tmp_path):
+    # spec_type=draft-mtp but the model declares NO draft file → _wants_draft is False →
+    # exactly ONE acquire (the "or no mtp_draft_file" arm of the predicate).
+    svc = _service_for(tmp_path, catalog=[_TEST_MODEL],
+                       switches_fn=lambda mid: {"spec_type": "draft-mtp"})
+    calls = []
+    real = svc._acquire_model
+
+    def spy(repo, second, *a, **k):
+        calls.append((repo, second))
+        return real(repo, second, *a, **k)
+
+    svc._acquire_model = spy
+    svc.download(_TEST_MODEL.id)
+    svc._download_thread.join(timeout=5)
+
+    assert svc.download_status()["status"] == "idle"
+    assert calls == [(_TEST_MODEL.hf_repo, _TEST_MODEL.quant)]
+
+
+def test_download_cancel_during_draft_leg_returns_to_idle(tmp_path):
+    # A cancel during the SECOND (draft) leg aborts via cancel_check (which now covers
+    # BOTH legs) → DownloadCancelled → the channel returns to idle (a user cancel is
+    # never an error).
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL],
+                       switches_fn=lambda mid: {"spec_type": "draft-mtp"})
+    real = svc._acquire_model
+
+    def spy(repo, second, *a, cancel_check=None, **k):
+        if second == _DRAFT_MODEL.mtp_draft_file:      # the draft leg
+            svc.cancel_download()                       # the user cancels mid-draft
+            assert cancel_check is not None and cancel_check()
+            raise DownloadCancelled()
+        return real(repo, second, *a, **k)
+
+    svc._acquire_model = spy
+    svc.download(_DRAFT_MODEL.id)
+    svc._download_thread.join(timeout=5)
+
+    assert svc.download_status()["status"] == "idle"
+    assert svc.download_status()["error"] == ""
+
+
+# ── model_downloaded: the badge counts the draft when the config wants it ─────────
+
+def test_model_downloaded_false_when_wanted_draft_missing_then_true(tmp_path):
+    hf_cache = tmp_path / "hf"
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL],
+                       switches_fn=lambda mid: {"spec_type": "draft-mtp"})
+    # Main weights cached (harness seeds them) but the wanted draft is absent → False.
+    assert svc.model_downloaded(_DRAFT_MODEL, hf_cache) is False
+    # Plant the draft → both legs cached → True.
+    snap = hf_cache / "models--org--draft-GGUF" / "snapshots" / "sha"
+    (snap / "MTP").mkdir(parents=True, exist_ok=True)
+    (snap / "MTP" / "d-Q4_0-MTP.gguf").write_bytes(b"g" * 64)
+    assert svc.model_downloaded(_DRAFT_MODEL, hf_cache) is True
+
+
+def test_model_downloaded_true_when_draft_not_wanted(tmp_path):
+    hf_cache = tmp_path / "hf"
+    # spec off → the draft isn't wanted, so a present main GGUF is "downloaded" even
+    # though the model declares a draft file that was never fetched.
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL], switches_fn=lambda mid: {})
+    assert svc.model_downloaded(_DRAFT_MODEL, hf_cache) is True
+
+
 def test_run_install_plants_fallback_builds(tmp_path):
     # A3-REVISED (user, 2026-07-07: "we do not even use cpu version"): the CPU build
     # is NO LONGER pre-downloaded. The one remaining extra is vulkan on a ROCm pick;

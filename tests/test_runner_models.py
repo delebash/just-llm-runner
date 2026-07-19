@@ -72,6 +72,12 @@ class _FakeService:
     def download_status(self):
         return {"status": "idle", "modelId": "", "detail": "", "error": "", "downloaded": 0, "total": 0}
 
+    def model_downloaded(self, m, hf_cache):
+        # Nothing is on disk in these endpoint tests → no model reads "downloaded"
+        # (the badge moved off a raw is_cached to service.model_downloaded, 2026-07-19,
+        # which additionally counts the MTP draft when the resolved config wants it).
+        return False
+
     def ensure_embedding(self):
         # Tests set `_ensure` to the configured shape; default is the no-local-embed case.
         return getattr(self, "_ensure", {"ok": False, "detail": "no local embedding model configured"})
@@ -89,8 +95,6 @@ def _resident(*ids_and_statuses):
 def _patch(monkeypatch, *, hardware, models, resident=None):
     monkeypatch.setattr(api, "detect", lambda: hardware)
     monkeypatch.setattr(api, "get_service", lambda: _FakeService(models, resident=resident))
-    # Nothing is on disk in these tests.
-    monkeypatch.setattr(api, "is_cached", lambda *a, **k: False)
 
 
 def test_fit_bands_on_a_12gb_gpu(monkeypatch):
@@ -140,7 +144,6 @@ def test_fit_scores_total_card_even_with_models_resident(monkeypatch):
     svc = _FakeService(models, resident=_resident(("mid", "sleeping")))
     monkeypatch.setattr(api, "detect", lambda: hw)
     monkeypatch.setattr(api, "get_service", lambda: svc)
-    monkeypatch.setattr(api, "is_cached", lambda *a, **k: False)
     body = _client().get("/v1/llm-runner/models").json()
     assert body["models"][0]["fit"] == "tight"  # the card's answer, resident or not
     assert body["vramMb"] == 12288  # the response reports the card, matching the labels
@@ -204,7 +207,6 @@ def test_status_reflects_download_channel(monkeypatch):
     }
     monkeypatch.setattr(api, "detect", lambda: hw)
     monkeypatch.setattr(api, "get_service", lambda: svc)
-    monkeypatch.setattr(api, "is_cached", lambda *a, **k: False)
     status = {m["id"]: m["status"] for m in _client().get("/v1/llm-runner/models").json()["models"]}
     assert status == {"dl-one": "loading", "other": "available"}
 

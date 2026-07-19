@@ -40,6 +40,27 @@ infra, bypassing that github proxy — so the review CAN run from this environme
   "is there a newer binary"; THIS ledger answers "is there anything worth adopting
   in our code".
 
+## Watch list — forward-looking (not-yet-merged upstream we're tracking)
+
+Distinct from the retrospective "Adoption candidates" below: things NOT yet in a
+pinnable build that we want to be told about the moment they land.
+
+- **Ternary Bonsai / Q2_0 CUDA support (added 2026-07-19).**
+  - **What:** PrismML's Ternary Bonsai models (Qwen3.6-27B ternary, ~1.71 bits/weight,
+    ~6.7 GB deployed, Apache-2.0, 262k ctx) need the **Q2_0** quant type. Upstream status
+    (2026-07-19): CPU (#24448) + Metal (#25419) + **Vulkan (#25430)** Q2_0 merged — this is
+    the `b9913` "new Q2_0 quant type" line noted in the Adoption candidates — but **CUDA
+    (#25707) is still an OPEN PR**, so there is no NVIDIA path on mainline yet, and PrismML's
+    own docs say stock builds can't run it (GPU today = their fork, which we'd never ship).
+  - **Watch for:** the **CUDA Q2_0 PR merging into a pinnable release**
+    (https://github.com/ggml-org/llama.cpp/pull/25707), plus the group-size churn settling
+    (fork's g128 files → mainline standardized on g64, `_Q2_0_g64.gguf`, renames pending).
+  - **Then:** promote the IDEAS item → a **2070S Lab A/B vs Gemma 26B-A4B** for the 8 GB
+    class (evidence-not-press-release — the catalog law). 27B-class quality resident on an
+    8 GB card would be a real contender for that rung.
+  - **Cross-ref:** `justwrite-app/docs/IDEAS.md` → "Ternary Bonsai-27B" · the
+    whole-system tracker `justwrite-app/docs/TASKS.md`.
+
 ## Baseline — capabilities we already rely on (as of the b9899 pin)
 
 Verified against upstream builds in code (so a reviewer knows what's already adopted):

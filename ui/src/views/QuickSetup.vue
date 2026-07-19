@@ -174,6 +174,23 @@ function bestFittingId() {
 // stays disabled (the empty-state points at a bigger card / a smaller model).
 const applyDisabled = computed(() => !fitting.value.length || !pick.value.default);
 
+// A friendly verdict headline (the LocalProse-comparison review, 2026-07-19): derived from
+// the REAL fit of the picked model so it never overpromises — a full-GPU fit reads "the full
+// setup", a tight offload says so. Empty when nothing fits (the no-GPU empty state owns that
+// case). NOT a word-count/context claim: the honest figure is the EFFECTIVE ctx (tuned per
+// box), which the wizard doesn't carry — the catalog's trained 256k would mislead.
+const fitVerdict = computed(() => {
+  if (!fitting.value.length || !pick.value.default) return "";
+  const f = fitOf(pick.value.default);
+  if (f === "ok") return "This machine runs the full local setup.";
+  if (f === "tight") return "This machine runs the setup — a tight fit, but it works.";
+  return "";
+});
+// Only surface the QAT "good to know" when the PICK is actually a QAT model (the description
+// carries the "QAT" tag) — the ladder is QAT-first, but a non-QAT pick (Llama-70B, a MoE)
+// must not get a false claim. Honest-truth rule (design-conformance §5).
+const isQatPick = computed(() => /\bQAT\b/i.test(descriptionOf(pick.value.default) || ""));
+
 // ── load hardware + catalog (optionally for an overridden card) ──────────────
 async function loadAll() {
   loading.value = true;
@@ -581,6 +598,7 @@ defineExpose({ openWizard });
       <template v-else-if="step === 'confirm'">
         <div v-if="error" class="lu-error">{{ error }}</div>
 
+        <p v-if="fitVerdict" class="lu-qs-verdict">{{ fitVerdict }}</p>
         <p class="lu-muted lu-qs-req">Requirements: a video card with at least 8 GB VRAM and 32 GB of system RAM.</p>
 
         <section class="lu-qs-sec">
@@ -602,20 +620,30 @@ defineExpose({ openWizard });
               <b>About this model:</b> {{ descriptionOf(pick.default) }}
             </p>
           </section>
+          <p v-if="isQatPick" class="lu-qs-goodtoknow">
+            <b>Good to know:</b> these are QAT (quantization-aware trained) models — about
+            3–4× lighter on memory than full precision while keeping close to the original
+            quality. That's how a capable model fits your card.
+          </p>
         </template>
-        <div v-else class="lu-muted lu-qs-empty">
-          No chat model can run well on this machine — writing needs a video card with at least 8 GB VRAM and 32 GB of system RAM (CPU-only generation is too slow to support).
+        <div v-else class="lu-qs-empty">
+          No local model can run well on this machine — generating on the CPU alone is too slow
+          for writing. You can still use every AI feature by connecting an <b>online provider</b>
+          below: your work stays on your disk, and only the text a feature needs is sent. Local
+          search still runs on your CPU.
         </div>
 
-        <!-- The embedding — always LOCAL (the RAG index). -->
-        <section v-if="embedOptions.length" class="lu-qs-sec">
+        <!-- The embedding — always LOCAL (the RAG index). Hidden when no chat model fits:
+             that state routes OUT to an online provider (no local Apply happens), so the
+             local embed picker + the Apply changelist below would be contradictory UI. -->
+        <section v-if="fitting.length && embedOptions.length" class="lu-qs-sec">
           <div class="lu-qs-k">Embedding</div>
           <UiSelect v-model="pick.embeddingModel" :options="embedOptions" @update:model-value="onEmbedChange" />
           <p class="lu-muted lu-qs-hint">Powers semantic search + grounded chat. Runs on the bundled runner alongside your chat model; a smaller embed is fine.</p>
         </section>
 
         <!-- What will happen on Apply. -->
-        <section class="lu-qs-sec lu-qs-routing">
+        <section v-if="fitting.length" class="lu-qs-sec lu-qs-routing">
           <div class="lu-qs-k">What happens when you click Apply</div>
           <ul class="lu-qs-rlist">
             <li v-if="modelById[pick.default]"><b>{{ modelById[pick.default].name }}</b> <span class="lu-muted">— becomes the model for every preset, except any you've changed yourself under Routing by feature.</span></li>
@@ -628,7 +656,7 @@ defineExpose({ openWizard });
              tunes for a current model) sees EXACTLY which tasks Apply will change before
              anything writes — the lists come from the SAME dominant-model logic the Apply
              writer uses. A fresh box renders nothing here and stays one-click. -->
-        <section v-if="previewState?.configured" class="lu-qs-sec lu-qs-changes">
+        <section v-if="fitting.length && previewState?.configured" class="lu-qs-sec lu-qs-changes">
           <div class="lu-qs-k">This machine is already set up — what Apply will change</div>
           <template v-if="repointedPresets.length">
             <ul class="lu-qs-rlist">
@@ -763,7 +791,11 @@ defineExpose({ openWizard });
         <template v-if="step === 'confirm'">
           <UiButton intent="ghost" @click="onModalClose">Cancel</UiButton>
           <span class="lu-qs-spacer" />
-          <UiButton intent="primary" :disabled="applyDisabled" :loading="applying" @click="apply">
+          <!-- Nothing fits locally: the primary action routes OUT to the provider list (this
+               wizard sits inside the Providers & models tab, so closing lands there). C8 holds
+               — no provider-connect INSIDE the wizard; it just hands off. -->
+          <UiButton v-if="!fitting.length" intent="primary" @click="onModalClose">Set up an online provider</UiButton>
+          <UiButton v-else intent="primary" :disabled="applyDisabled" :loading="applying" @click="apply">
             Apply setup
           </UiButton>
         </template>
@@ -806,8 +838,12 @@ defineExpose({ openWizard });
 .lu-qs-rlist li { padding-left: 14px; position: relative; }
 .lu-qs-rlist li::before { content: "•"; position: absolute; left: 0; color: var(--muted); }
 .lu-qs-rlist code { font-family: var(--font-mono, monospace); font-size: 11.5px; }
-.lu-qs-empty { font-size: 12.5px; padding: 8px 0; }
+.lu-qs-empty { font-size: 12.5px; line-height: 1.55; padding: 8px 0; color: var(--ink-2); }
+.lu-qs-empty b { color: var(--ink); }
 .lu-qs-req { font-size: 12px; margin: 0 0 12px; }
+.lu-qs-verdict { font-size: 15px; font-weight: 700; color: var(--ink); margin: 0 0 10px; }
+.lu-qs-goodtoknow { font-size: 12px; line-height: 1.5; margin: 14px 0 0; padding: 8px 10px; background: var(--surface-2); border-radius: 6px; color: var(--ink-2); }
+.lu-qs-goodtoknow b { color: var(--ink); }
 .lu-qs-applying { font-size: 13px; }
 .lu-qs-applynote { font-size: 11.5px; margin-top: 8px; }
 .lu-qs-summary { margin: 8px 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; }

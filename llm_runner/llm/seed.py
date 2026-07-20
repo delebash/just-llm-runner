@@ -1048,6 +1048,34 @@ def seed_default_runner_settings(s) -> int:
     return added
 
 
+def seed_model_list_rules(s) -> int:
+    """Seed the online-provider model-list ruleset (#8) as ONE JSON document in the
+    RunnerSetting store. Seed-REFRESH convention (like the feature-prompt stale-heal, but
+    keyed on the `built_in` flag rather than byte-equality): a MISSING row is seeded
+    built_in=True; an UNMODIFIED row (still built_in — never PUT by a user) is refreshed
+    to the current seed whenever it drifts from it (a `SEED_VERSION`/rules bump reaches
+    existing installs); a USER-edited row (built_in=False, set by the PUT store) is NEVER
+    clobbered. Returns 1 when a new row was added."""
+    import json
+
+    from .model_list_rules import seed_doc
+
+    want = seed_doc()
+    row = s.get(db.RunnerSetting, "model_list_rules")
+    if row is None:
+        s.add(db.RunnerSetting(
+            key="model_list_rules", value=json.dumps(want, sort_keys=True), built_in=True))
+        return 1
+    if row.built_in:
+        try:
+            cur = json.loads(row.value)
+        except (ValueError, TypeError):
+            cur = None
+        if cur != want:  # unmodified but stale (old seed) → refresh in place
+            row.value = json.dumps(want, sort_keys=True)
+    return 0
+
+
 def seed_default_knobs(s) -> int:
     """Seed knob_catalog + its enum options (knob_option). Flush each parent before
     its FK children (host session: autoflush off + FK on).
@@ -1168,6 +1196,7 @@ def seed_llm(s=None) -> None:
         seed_default_feature_presets(s)
         seed_default_runner_binaries(s)
         seed_default_runner_settings(s)
+        seed_model_list_rules(s)
         seed_default_knobs(s)
         seed_default_class_picks(s)
         seed_default_class_tunes(s)

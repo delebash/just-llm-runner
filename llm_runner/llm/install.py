@@ -20,8 +20,9 @@ from pathlib import Path
 
 from . import db, seed, stores, switch_resolve
 from .api import router as shared_api_router
-from .api import set_embed_template_resolver
+from .api import set_embed_template_resolver, set_model_list_rules_resolver
 from .embed_templates_api import make_embed_templates_router
+from .model_list_rules_api import make_model_list_rules_router
 from .config_builder import build_llm_config
 from .presets_api import make_presets_router
 from .knob_catalog_api import make_knob_catalog_router
@@ -203,6 +204,12 @@ def install_llm(
     # closure is the set_ledger pattern).
     app.include_router(make_embed_templates_router(stores.get_embed_template_store))
     set_embed_template_resolver(lambda mid: stores.get_embed_template_store().get(mid))
+    # Online-provider model-list ruleset (#8): the GET/PUT/reset editor + the resolver the
+    # models endpoints apply (adapter.provider_type → its rule dict). Storage is ONE JSON
+    # doc in the runner-settings store — no new table (mirrors default_preset_id).
+    app.include_router(make_model_list_rules_router(
+        stores.get_model_list_rules, stores.set_model_list_rules, stores.reset_model_list_rules))
+    set_model_list_rules_resolver(lambda: stores.get_model_list_rules().get("rules", {}))
     app.include_router(make_runner_config_router(stores.get_runner_config_store))
     app.include_router(make_switch_presets_router(stores.get_switch_preset_store))
     app.include_router(make_model_tunes_router(

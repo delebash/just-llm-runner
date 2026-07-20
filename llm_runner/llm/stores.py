@@ -1220,6 +1220,69 @@ def set_default_preset_id(preset_id: str) -> None:
         s.commit()
     finally:
         s.close()
+
+
+# The online-provider model-list ruleset (#8) — ONE JSON document in the same
+# RunnerSetting store as `default_preset_id` (NOT a new table). `built_in` is the
+# unmodified-signal: a seeded/reset doc is built_in=True (a seed bump refreshes it,
+# seed.seed_model_list_rules); a user PUT flips it False so a reseed never clobbers it.
+def get_model_list_rules() -> dict:
+    """The stored rules document {seedVersion, rules}. Missing/corrupt → the factory
+    seed (so the endpoint + resolver always have a well-formed doc)."""
+    import json
+
+    from .model_list_rules import seed_doc
+
+    s = db.session()
+    try:
+        row = s.get(db.RunnerSetting, "model_list_rules")
+        if row is None or not (row.value or "").strip():
+            return seed_doc()
+        try:
+            doc = json.loads(row.value)
+        except (ValueError, TypeError):
+            return seed_doc()
+        return doc if isinstance(doc, dict) else seed_doc()
+    finally:
+        s.close()
+
+
+def set_model_list_rules(doc: dict) -> None:
+    """Persist a USER edit — marks the row built_in=False so a reseed never clobbers it."""
+    import json
+
+    s = db.session()
+    try:
+        row = s.get(db.RunnerSetting, "model_list_rules")
+        if row is None:
+            row = db.RunnerSetting(key="model_list_rules")
+            s.add(row)
+        row.value = json.dumps(doc or {}, sort_keys=True)
+        row.built_in = False
+        s.commit()
+    finally:
+        s.close()
+
+
+def reset_model_list_rules() -> None:
+    """Snap the rules back to the shipped seed and re-arm seed-refresh (built_in=True)."""
+    import json
+
+    from .model_list_rules import seed_doc
+
+    s = db.session()
+    try:
+        row = s.get(db.RunnerSetting, "model_list_rules")
+        if row is None:
+            row = db.RunnerSetting(key="model_list_rules")
+            s.add(row)
+        row.value = json.dumps(seed_doc(), sort_keys=True)
+        row.built_in = True
+        s.commit()
+    finally:
+        s.close()
+
+
 def get_model_catalog_store() -> ModelCatalogStore: return _model_catalog
 
 

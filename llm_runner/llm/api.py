@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from .model_list_rules import apply_rules
 from .registry import construct, get_llm_registry
 from .schema import LLMProviderConfig
 from .tiers import TIERS, classify
@@ -25,6 +26,37 @@ from .usage import get_ledger
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["llm"])
+
+# The model-list-rules seam (#8) — this router is storage-free by charter, so install_llm
+# injects a resolver over the host's runner-settings-backed rules doc (the set_ledger /
+# set_embed_template_resolver DI pattern). Unset (headless import, most tests) → no
+# filtering: every provider's raw list passes through (the under-filter-safe default).
+_model_list_rules_resolver = None
+
+
+def set_model_list_rules_resolver(fn) -> None:
+    """fn() -> dict[providerType, ruleDict]. Unset → passthrough (no filtering)."""
+    global _model_list_rules_resolver
+    _model_list_rules_resolver = fn
+
+
+def _rules_for(provider_type: str) -> dict | None:
+    """The rule dict for a provider TYPE (or None = passthrough). A rules-store failure
+    NEVER 500s the picker — it degrades to passthrough (under-filter beats crash)."""
+    if _model_list_rules_resolver is None:
+        return None
+    try:
+        return (_model_list_rules_resolver() or {}).get(provider_type)
+    except Exception:  # noqa: BLE001 — surface as "no rules", not a 500
+        log.warning("model-list-rules resolver failed", exc_info=True)
+        return None
+
+
+def _filtered_models(raw: list[str], provider_type: str, *, show_all: bool) -> dict:
+    """Apply the type's rules to a raw id list → the back-compatible wire shape
+    {models, embeddings, hiddenCount}. `?all=1` bypasses every rule."""
+    res = apply_rules(raw, _rules_for(provider_type), show_all=show_all)
+    return {"models": res.models, "embeddings": res.embeddings, "hiddenCount": res.hidden_count}
 
 
 class TierClassifyRequest(BaseModel):
@@ -125,29 +157,36 @@ async def ping_llm_provider(provider_id: str) -> dict:
 
 
 @router.get("/v1/llm-providers/{provider_id}/models")
-async def list_provider_models(provider_id: str) -> dict:
+async def list_provider_models(
+    provider_id: str, show_all: int = Query(0, alias="all")
+) -> dict:
     # The BUILT-IN engine's models are the CATALOG (every downloaded model), NOT the lazy
     # router's resident set (#305 / same root as #139): the openai-compat adapter would
     # query the live llama-server /v1/models = only the loaded model, so a freshly
     # downloaded model never shows in the picker. Compose from the catalog here — the same
-    # source the probe/health uses (they can never disagree).
+    # source the probe/health uses (they can never disagree). LOCAL type → bypasses the
+    # online model-list rules entirely (never hide a downloaded model); the uniform shape
+    # keeps the client's reader (`r.embeddings`/`r.hiddenCount`) happy.
     if provider_id == "local-llamacpp":
         try:
             h = _builtin_provider_health()
-            out = {"models": h["models"]}
+            out = {"models": h["models"], "embeddings": [], "hiddenCount": 0}
             if not h["ok"]:
                 out["error"] = h["detail"]
             return out
         except Exception as e:  # noqa: BLE001 — surface as data
-            return {"models": [], "error": str(e)}
+            return {"models": [], "embeddings": [], "hiddenCount": 0, "error": str(e)}
     adapter = get_llm_registry().get(provider_id)
     if adapter is None:
         raise HTTPException(status_code=404, detail=f"LLM provider {provider_id} (not registered)")
     try:
-        return {"models": adapter.models()}
+        raw = adapter.models()
     except Exception as e:  # noqa: BLE001
         log.warning("LLM provider %s models() failed: %s", provider_id, e)
-        return {"models": [], "error": str(e)}
+        return {"models": [], "embeddings": [], "hiddenCount": 0, "error": str(e)}
+    # Apply the model-list rules for this provider's TYPE (#8). A type with no rules row
+    # passes through unchanged (under-filter-safe); `?all=1` shows everything.
+    return _filtered_models(raw, adapter.provider_type, show_all=bool(show_all))
 
 
 class ProbeModelsRequest(BaseModel):
@@ -156,6 +195,7 @@ class ProbeModelsRequest(BaseModel):
     apiKey: str | None = None
     defaultModel: str = ""
     timeoutSeconds: int = 30
+    all: bool = False  # bypass the model-list rules (the form's "show all" on a draft)
 
 
 @router.post("/v1/llm-providers/probe-models")
@@ -187,10 +227,13 @@ async def probe_provider_models(body: ProbeModelsRequest) -> dict:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     try:
-        return {"models": adapter.models()}
+        raw = adapter.models()
     except Exception as e:  # noqa: BLE001 — surface upstream errors as data
         log.warning("probe-models for %s failed: %s", body.providerType, e)
-        return {"models": [], "error": str(e)}
+        return {"models": [], "embeddings": [], "hiddenCount": 0, "error": str(e)}
+    # Same model-list rules as the saved-provider endpoint (#8), keyed by the draft's
+    # declared TYPE; `all=true` bypasses them for the form's "show all".
+    return _filtered_models(raw, body.providerType, show_all=body.all)
 
 
 class EmbeddingsRequest(BaseModel):

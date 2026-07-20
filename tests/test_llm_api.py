@@ -49,7 +49,11 @@ def test_ping_and_models_use_registry():
     reg.register(FakeAdapter())
     c = _client()
     assert c.post("/v1/llm-providers/fake/ping").json() == {"ok": True}
-    assert c.get("/v1/llm-providers/fake/models").json() == {"models": ["m1", "m2"]}
+    # The models endpoint returns the back-compatible {models, embeddings, hiddenCount}
+    # shape (#8). No rules resolver is wired in this bare-router test → passthrough: the
+    # raw list is the chat bucket, nothing classified as embedding, nothing hidden.
+    assert c.get("/v1/llm-providers/fake/models").json() == {
+        "models": ["m1", "m2"], "embeddings": [], "hiddenCount": 0}
     assert c.post("/v1/llm-providers/nope/ping").status_code == 404
     reg._adapters = {}
 

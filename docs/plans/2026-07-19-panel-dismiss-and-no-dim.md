@@ -163,6 +163,11 @@ the delivery report for the user to confirm or reverse. Reversing costs the two
 panels' call sites plus this section — the composable would become a backdrop
 component instead.
 
+**RULED 2026-07-20 (user): BLESSED — the amendment stands, no code change.** The user
+confirmed the shipped behaviour on their box (Ask-the-book open → click a nav tab → panel
+closes AND navigation lands, one click) and blessed the §5 rewrite. A backdrop revert is
+the only thing that would break it, so it is off the table. Closed.
+
 ### A consequence of one shared vocabulary, stated plainly
 
 Because every panel trigger now carries the same `[data-panel-toggle]` attribute
@@ -174,6 +179,11 @@ not obviously wrong — but it is a real behaviour change that nobody explicitly
 ruled on, and it is the sharpest open question in this change. If it should
 revert, the fix is a per-panel toggle value (`data-panel-toggle="chat"`) plus a
 `toggle` option on the composable.
+
+**RULED 2026-07-20 (user): WON'T DO — close it.** The user's call: it effectively works
+because the scenario (two panels open at once, where opening one should close the other)
+doesn't arise in practice today. Left as-is; revisit only if that scenario appears. The
+per-panel-toggle fix above is the recorded path if it ever needs reverting.
 
 ## How to verify
 

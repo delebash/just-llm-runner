@@ -8,12 +8,12 @@
 // module scope. The interval here self-manages — it starts only while a load is in flight
 // and stops when idle (a faithful move of LuModelCatalog's own refresh gating).
 //
-// TWO SEPARATE progress channels (2026-07-15, the ONE-DOWNLOADER consolidation — user:
-// "stop repeating code, reuse stuff"): a model LOAD (spawn-into-VRAM, /status) and the
-// standalone DOWNLOAD (/download/status) can overlap, so each keeps its OWN progress object
-// (`loadProgress` / `downloadProgress`). This kills the old merge ("the active download's
-// progress wins") that made a loading row and a downloading row share ONE lying label. Both
-// captions come from the SHARED progressCaption formatter (downloadRate.js) — one source.
+// TWO SEPARATE progress channels (2026-07-15 consolidation; per-model downloads 2026-07-20):
+// a model LOAD (spawn-into-VRAM, /status — single-model byte channel) and the standalone
+// DOWNLOAD (/download/status — now a {modelId: {...}} map, CONCURRENT) can overlap, so LOAD
+// keeps one `loadProgress` object and DOWNLOAD keeps a per-model `downloadMap`. This kills the
+// old merge ("the active download's progress wins") that made a loading row and a downloading
+// row share ONE lying label. All captions come from the SHARED progressCaption (downloadRate.js).
 import { computed, reactive, ref } from "vue";
 
 import { request } from "../client.js";
@@ -26,9 +26,15 @@ const data = ref(null); // the raw /v1/llm-runner/models response
 const loading = ref(true); // first-load spinner
 const error = ref("");
 const loadErr = ref(""); // the actual server error message when a load fails
-const loadingId = ref(""); // model id whose download is in flight (button feedback)
-const downloadingId = ref(""); // model id on the standalone Download channel — its row shows Cancel
-const cancelling = ref(false); // true from the download-cancel click until the channel returns to idle
+const loadingId = ref(""); // model id whose Download-button POST is in flight (button feedback)
+// CONCURRENT downloads (2026-07-20): a per-model progress map keyed by model id, created/removed
+// as the /download/status map changes — several models download at once, each its own row + bar.
+// `downloadingIds` derives the live download SET from it; `cancellingIds` is the mid-cancel set
+// (a row stays "cancelling" until the channel drops its entry). Replaces the old single
+// downloadingId/cancelling/downloadProgress trio (one download at a time).
+const downloadMap = reactive({}); // modelId → { status, detail, downloaded, total, rateText, error }
+const dlRates = new Map(); // modelId → its OWN rate tracker (non-reactive; cleaned up with the entry)
+const cancellingIds = reactive(new Set()); // model ids whose cancel is in flight
 
 // #305: the model dropdown (useProviderModels) caches per-provider lists and never refetches
 // once populated — so a model downloaded here never appears in a picker until a full reload.
@@ -40,6 +46,13 @@ let _lastBuiltinIds = null; // sorted-joined catalog model ids seen last refresh
 
 export const models = computed(() => data.value?.models || []);
 export const vramMb = computed(() => data.value?.vramMb || 0);
+// The live download SET derived from the per-model map (status "downloading"; an "error" entry is
+// NOT in it). Consumers use `downloadingIds.has(id)` — the row's Cancel gates on it.
+export const downloadingIds = computed(() => {
+  const s = new Set();
+  for (const [id, e] of Object.entries(downloadMap)) if (e.status === "downloading") s.add(id);
+  return s;
+});
 const anyLoading = computed(() => models.value.some((m) => m.status === "loading"));
 const anyError = computed(() => models.value.some((m) => m.status === "error"));
 // A model load now REQUIRES the engine installed (it no longer auto-downloads it);
@@ -49,28 +62,17 @@ export const needsEngine = computed(() => loadErr.value === "engine-not-installe
 // fmtBytes lives in downloadRate.js; re-exported so existing consumers keep their import surface.
 export { fmtBytes };
 
-// ── the two per-channel progress objects (each its own rate tracker + the shared label) ──
+// ── the LOAD channel's single progress object (the /status byte channel is single-model) ──
 const loadRate = createRateTracker();
-const dlRate = createRateTracker();
 export const loadProgress = reactive({
   detail: "", downloaded: 0, total: 0, rateText: "",
   label: computed(() => progressCaption(
     loadProgress.detail || "loading…", loadProgress.downloaded, loadProgress.total, loadProgress.rateText,
   )),
 });
-export const downloadProgress = reactive({
-  detail: "", downloaded: 0, total: 0, rateText: "",
-  label: computed(() => progressCaption(
-    downloadProgress.detail || "downloading…", downloadProgress.downloaded, downloadProgress.total, downloadProgress.rateText,
-  )),
-});
 function _resetLoad() {
   loadProgress.detail = ""; loadProgress.downloaded = 0; loadProgress.total = 0;
   loadProgress.rateText = ""; loadRate.reset();
-}
-function _resetDownload() {
-  downloadProgress.detail = ""; downloadProgress.downloaded = 0; downloadProgress.total = 0;
-  downloadProgress.rateText = ""; dlRate.reset();
 }
 function _feedLoad(st) {
   loadProgress.detail = st.detail || (st.status === "downloading" ? "downloading…" : "starting…");
@@ -78,12 +80,38 @@ function _feedLoad(st) {
   loadProgress.total = Number(st.total) || 0;
   loadProgress.rateText = rateSuffix(loadRate.update(loadProgress.downloaded), loadProgress.downloaded, loadProgress.total);
 }
-function _feedDownload(dl) {
-  if (dl.status !== "downloading") { _resetDownload(); return; }
-  downloadProgress.detail = dl.detail || "downloading…";
-  downloadProgress.downloaded = Number(dl.downloaded) || 0;
-  downloadProgress.total = Number(dl.total) || 0;
-  downloadProgress.rateText = rateSuffix(dlRate.update(downloadProgress.downloaded), downloadProgress.downloaded, downloadProgress.total);
+// ── the DOWNLOAD channel's per-model map (concurrent): feed each entry from the server's
+//    {modelId: {...}} snapshot, and DROP entries that left it (absent == that model finished —
+//    its weights are on disk; the /models row flips to "disk"). One rate tracker per model. ──
+function _resetDownloads() {
+  for (const id of Object.keys(downloadMap)) delete downloadMap[id];
+  dlRates.clear();
+  cancellingIds.clear();
+}
+function _feedDownloads(map) {
+  for (const [mid, dl] of Object.entries(map)) {
+    let tracker = dlRates.get(mid);
+    if (!tracker) { tracker = createRateTracker(); dlRates.set(mid, tracker); }
+    const downloaded = Number(dl.downloaded) || 0;
+    const total = Number(dl.total) || 0;
+    downloadMap[mid] = {
+      status: dl.status || "downloading",
+      detail: dl.detail || "downloading…",
+      downloaded, total,
+      error: dl.error || "",
+      // No rate on a terminal (error) entry — it isn't advancing.
+      rateText: dl.status === "downloading" ? rateSuffix(tracker.update(downloaded), downloaded, total) : "",
+    };
+    if (dl.status !== "downloading") cancellingIds.delete(mid); // terminal → the cancel flag retires
+  }
+  // Reap entries the server no longer reports (finished/cancelled → back to idle/on-disk).
+  for (const mid of Object.keys(downloadMap)) {
+    if (!(mid in map)) {
+      delete downloadMap[mid];
+      dlRates.delete(mid);
+      cancellingIds.delete(mid);
+    }
+  }
 }
 
 let timer = null;
@@ -117,15 +145,14 @@ export async function refresh() {
         // can overlap a load); poll BOTH and feed each its OWN progress object — no merge.
         const [st, dl] = await Promise.all([
           request("/v1/llm-runner/status"),
-          request("/v1/llm-runner/download/status").catch(() => ({ status: "idle" })),
+          request("/v1/llm-runner/download/status").catch(() => ({ downloads: {} })),
         ]);
         _feedLoad(st);
-        _feedDownload(dl);
-        loadErr.value = st.error || dl.error || "";
-        // Only the standalone Download channel is cancellable via /download/cancel — remember
-        // its row; the LOAD row cancels via /stop (a true abort now, server S2).
-        downloadingId.value = dl.status === "downloading" ? dl.modelId || "" : "";
-        if (dl.status !== "downloading") cancelling.value = false;
+        _feedDownloads(dl.downloads || {});
+        // loadErr is the LOAD-channel error ONLY now — per-model DOWNLOAD errors live in the
+        // map and surface per row via taskFor(id).error, so a failed download of one model no
+        // longer masquerades as the (single) load error.
+        loadErr.value = st.error || "";
       } catch {
         _resetLoad();
       }
@@ -133,10 +160,8 @@ export async function refresh() {
       else _stopPoll();
     } else {
       _resetLoad();
-      _resetDownload();
+      _resetDownloads();
       loadErr.value = "";
-      downloadingId.value = "";
-      cancelling.value = false;
       _stopPoll();
     }
   } catch (e) {
@@ -161,17 +186,18 @@ export async function download(modelId) {
   }
 }
 
-// Cancel the in-flight standalone Download — the backend stops at the next chunk boundary and
-// returns the channel to idle (the row falls back to 'available'; the partial blob stays
-// cached so a re-download resumes past it). No-op server-side when nothing is downloading.
-export async function cancelDownload() {
-  cancelling.value = true;
+// Cancel ONE model's in-flight download — the backend stops it (or aborts it while queued) at the
+// next chunk boundary and drops it from the map (the row falls back to 'available'; the partial
+// part-files stay cached so a re-download resumes past them). Other models keep downloading.
+// No-op server-side when that model isn't downloading.
+export async function cancelDownload(modelId) {
+  cancellingIds.add(modelId);
   try {
-    await request("/v1/llm-runner/download/cancel", { method: "POST" });
+    await request("/v1/llm-runner/download/cancel", { method: "POST", body: { modelId } });
     await refresh();
   } catch (e) {
     error.value = e.message || "Couldn't cancel the download.";
-    cancelling.value = false;
+    cancellingIds.delete(modelId);
   }
 }
 
@@ -206,7 +232,7 @@ export async function retryLoad(modelId) {
 // PROJECTION over this singleton, not a second task implementation: no new poller, no
 // new truth; per-model gating comes from the model's OWN row status (never the
 // single-channel loadingId — the first plan's gating bug), bytes from the channel that
-// concerns the model (the absorbed barFor logic: standalone download ↔ downloadProgress,
+// concerns the model (the absorbed barFor logic: standalone download ↔ downloadMap[id],
 // spawn-load ↔ loadProgress; the /status byte channel is single-model — a pre-existing
 // limitation with two CONCURRENT loads, documented in the plan, not worsened here).
 // A plain function returning a plain object: templates re-run it reactively through the
@@ -221,18 +247,22 @@ export function taskFor(modelId) {
              error: "", label: friendlyPhase("", "stopping") };
   }
   if (status === "loading") {
-    const isDl = modelId === downloadingId.value;
-    const p = isDl ? downloadProgress : loadProgress;
+    // A standalone download for THIS model reads its own map entry; a spawn-load reads the
+    // single load channel. isDl comes from the per-model download set (not a single id).
+    const isDl = downloadingIds.value.has(modelId);
+    const p = isDl ? (downloadMap[modelId] || { detail: "", downloaded: 0, total: 0, rateText: "" }) : loadProgress;
     return {
       state: "running", phase: p.detail, done: p.downloaded, total: p.total,
       rateText: p.rateText, error: "",
       label: progressCaption(friendlyPhase(p.detail, "downloading"), p.downloaded, p.total, p.rateText),
-      cancel: () => (isDl ? cancelDownload() : cancelLoad(modelId)),
+      cancel: () => (isDl ? cancelDownload(modelId) : cancelLoad(modelId)),
     };
   }
   if (status === "error") {
+    // A per-model DOWNLOAD error lives in the map; a LOAD error is the single loadErr.
+    const dlErr = downloadMap[modelId]?.error;
     return { state: "error", phase: "", done: 0, total: 0, rateText: "",
-             error: loadErr.value || "Load failed", label: "",
+             error: dlErr || loadErr.value || "Load failed", label: "",
              retry: () => retryLoad(modelId) };
   }
   return { state: "", phase: "", done: 0, total: 0, rateText: "", error: "", label: "" };
@@ -248,8 +278,8 @@ export function useRunnerModels() {
     refresh();
   }
   return {
-    models, vramMb, loading, error, loadErr, loadingId, downloadingId, cancelling,
-    loadProgress, downloadProgress,
+    models, vramMb, loading, error, loadErr, loadingId, downloadingIds, cancellingIds,
+    loadProgress,
     anyLoading, anyError, needsEngine, fmtBytes, FIT_LABEL,
     refresh, download, cancelDownload, cancelLoad, retryLoad, taskFor,
   };

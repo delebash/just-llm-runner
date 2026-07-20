@@ -35,7 +35,7 @@ import { openExternal } from "../common/services/external.js";
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
 const {
   models, vramMb, loading, error, loadErr, loadingId,
-  downloadingId, cancelling,
+  downloadingIds, cancellingIds,
   needsEngine, fmtBytes, FIT_LABEL, refresh, download, cancelDownload, cancelLoad, taskFor,
 } = useRunnerModels();
 // (barFor is gone — T3: its channel choice lives in the shared taskFor adapter, the
@@ -940,9 +940,9 @@ refreshApplied();
                   <!-- BOTH channels cancel. The standalone Download row stops via
                        /download/cancel; a spawn-LOAD row aborts via /stop — a true abort
                        in every phase (T2 cancel token), the partial GGUF kept. -->
-                  <UiButton v-if="m.id === downloadingId" intent="ghost" size="small"
-                    :loading="cancelling" title="Stop this download — the partial file stays cached"
-                    @click="cancelDownload()">Cancel</UiButton>
+                  <UiButton v-if="downloadingIds.has(m.id)" intent="ghost" size="small"
+                    :loading="cancellingIds.has(m.id)" title="Stop this download — the partial file stays cached"
+                    @click="cancelDownload(m.id)">Cancel</UiButton>
                   <UiButton v-else intent="ghost" size="small"
                     title="Stop loading this model — the download aborts and its VRAM is freed"
                     @click="cancelLoad(m.id)">Cancel</UiButton>

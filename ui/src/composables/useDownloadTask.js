@@ -226,8 +226,11 @@ export function modelDownloadChannel(getId) {
   return {
     start: () => request("/v1/llm-runner/download", { method: "POST", body: { modelId: getId() } }),
     statusUrl: "/v1/llm-runner/download/status",
-    read: readDownloadStatus,
-    cancel: () => request("/v1/llm-runner/download/cancel", { method: "POST" }),
+    // /download/status is a per-model map now ({modelId: {...}}, CONCURRENT). Extract THIS
+    // model's entry; ABSENT == idle == readDownloadStatus's finished-terminal (the same
+    // "done" it returned for the old single idle status), so a completed download still ends.
+    read: (st) => readDownloadStatus((st.downloads || {})[getId()] || { status: "idle" }),
+    cancel: () => request("/v1/llm-runner/download/cancel", { method: "POST", body: { modelId: getId() } }),
     friendly: friendlyPhase,
   };
 }

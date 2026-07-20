@@ -39,6 +39,17 @@ def _raise_bad_magic(_path):
     raise ValueError("not a GGUF stream (bad magic)")
 
 
+def _yield_poll(_seconds):
+    """Injected `sleep` for an ensure_model_ready poll that waits on the BACKGROUND load
+    thread. `time.sleep(0)` yields the GIL each iteration; a no-op (`lambda s: None`) makes
+    the poll a tight GIL-holding busy-loop that STARVES the load thread, so the load can't
+    reach its terminal state before the poll's own timeout — a real hang whenever the load
+    path does enough work (the fit-placed failed-load retry/bounce crossed that line and hung
+    deterministically on Windows). Production polls with a real time.sleep, which yields, so
+    it never starves; this mirrors that cheaply without a real delay."""
+    time.sleep(0)
+
+
 def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
                  router_unload=None, router_models=None, now=None, sleep=None,
                  identify_fn=None, switches_fn=None, profile_switches_fn=None,
@@ -1807,8 +1818,9 @@ def test_ensure_model_ready_noop_when_already_resident(tmp_path):
 
 def test_ensure_model_ready_loads_then_returns(tmp_path):
     # Not resident → drives the normal load path and BLOCKS until the child is loaded.
-    # sleep is a no-op so the poll spins fast while the background load resolves.
-    svc = _service_for(tmp_path, sleep=lambda s: None)
+    # The poll yields the GIL each iteration (_yield_poll) so the background load thread
+    # actually runs — a no-op sleep would busy-spin and starve it (see _yield_poll).
+    svc = _service_for(tmp_path, sleep=_yield_poll)
     svc.ensure_model_ready(_TEST_MODEL.id, timeout_s=10)
     assert svc.status()["status"] == "running"
     assert svc._arbiter.is_reserved(_TEST_MODEL.id)   # went fully resident + reserved
@@ -1820,7 +1832,7 @@ def test_ensure_model_ready_raises_on_failed_load(tmp_path):
     def failed(url):
         return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "failed"}}]}
 
-    svc = _service_for(tmp_path, router_models=failed, sleep=lambda s: None)
+    svc = _service_for(tmp_path, router_models=failed, sleep=_yield_poll)
     with pytest.raises(RuntimeError, match="failed to load"):
         svc.ensure_model_ready(_TEST_MODEL.id, timeout_s=10)
 

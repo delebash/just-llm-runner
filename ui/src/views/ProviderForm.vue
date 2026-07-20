@@ -21,6 +21,9 @@ import LuModelCatalog from "../components/LuModelCatalog.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
 import { request } from "../client.js";
 import { PROVIDER_PRESETS, ONLINE_ONLY_TYPES, probeModels, createProvider, revealKey } from "../composables/useProviderConnect.js";
+import { useModelApply } from "../services/modelApply.js";
+import { useProviderModels } from "../composables/useProviderModels.js";
+import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
   provider: { type: Object, default: null }, // null = adding new
@@ -34,6 +37,14 @@ const isNew = computed(() => !props.provider);
 // The bundled llama.cpp runner — its where-it-runs + type are fixed (it's THE
 // built-in engine), and it's the one provider with a managed model catalog.
 const isBuiltin = computed(() => props.provider?.providerType === "local-llamacpp");
+
+// When the provider being edited IS the live default provider, a changed chat/embed
+// model in the dropdown must also repoint routing (setAsDefault/setAsEmbedding) — not
+// just write the provider field. Otherwise the field updates but tasks keep running on
+// the old model (the QC report: "changing the dropdown does nothing, you have to click
+// Default again"). A NON-default provider's dropdown stays a stored preference until the
+// Default button promotes it — so this is gated on the id match only.
+const { currentDefaultProviderId, refreshApplied, setAsDefault, setAsEmbedding } = useModelApply();
 
 const draft = reactive({
   name: props.provider?.name || "",
@@ -92,27 +103,56 @@ function applyPreset([name, url, type, isLocal]) {
   local.value = isLocal;
 }
 
-// ── model discovery (draft-probe — works before save) ───────────────────────
-const fetched = ref([]);
+// ── model discovery (stale-while-revalidate) ────────────────────────────────
+// Two sources feed the model dropdowns:
+//  • the shared per-provider cache (useProviderModels, keyed by the SAVED id via
+//    GET /v1/llm-providers/{id}/models) shows the last-known list instantly on open
+//    and is background-refreshed — the fix for "the dropdown is empty until you click
+//    Fetch, and the list goes stale". In-memory/session-scoped by design: an online
+//    list changes too often to persist to disk, and the refresh-on-open self-heals it.
+//  • a manual Fetch runs the DRAFT probe (the form's CURRENT type/URL/key — works
+//    before save and reflects unsaved credential edits). Once probed, its result wins
+//    over the cache so an edited key's models show. Free-text entry always works either
+//    way (LuCombobox), so a stale or missing entry never blocks a pick; Test is the
+//    explicit connection check.
+const { modelsFor, refreshModels } = useProviderModels();
+const probed = ref(null); // draft-probe result; null → fall back to the shared cache
 const fetching = ref(false);
 const probeMsg = ref("");
 const EMBED_RX = /embed/i;
-const chatModels = computed(() => fetched.value.filter((m) => !EMBED_RX.test(m)));
-const embedModels = computed(() => fetched.value.filter((m) => EMBED_RX.test(m)));
+const availableModels = computed(() =>
+  probed.value ?? (props.provider?.id ? modelsFor(props.provider.id) : []));
+const chatModels = computed(() => availableModels.value.filter((m) => !EMBED_RX.test(m)));
+const embedModels = computed(() => availableModels.value.filter((m) => EMBED_RX.test(m)));
 
 async function fetchModels() {
   fetching.value = true;
   probeMsg.value = "";
   try {
     const r = await probeModels({ providerType: draft.providerType, baseUrl: draft.baseUrl, apiKey: draft.apiKey, defaultModel: draft.defaultModel });
-    fetched.value = r.models || [];
-    if (!fetched.value.length) probeMsg.value = r.error || "No models returned — check the URL / key / that a model is loaded.";
+    probed.value = r.models || []; // an explicit Fetch overrides the shared cache
+    if (!probed.value.length) probeMsg.value = r.error || "No models returned — check the URL / key / that a model is loaded.";
   } catch (e) {
     probeMsg.value = e.message || "Fetch failed.";
   } finally {
     fetching.value = false;
   }
 }
+
+// On OPEN of a saved provider that can be queried (a key set, or a local server),
+// background-refresh its model list so the dropdown is populated without a manual Fetch.
+// Gated on the SAVED provider (props, not the reactive form state) so toggling fields in
+// the form doesn't re-trigger it; a keyless online row has nothing to query with, a
+// brand-new provider has no id yet (both keep the draft-probe Fetch as their only path),
+// and the built-in engine's models live on the catalog, not these comboboxes (v-if
+// !isBuiltin) — so it needs no fetch here.
+async function autoLoadSavedModels() {
+  const p = props.provider;
+  if (isNew.value || isBuiltin.value || !p?.id || !(p.hasApiKey || p.local)) return;
+  fetching.value = true;
+  try { await refreshModels(p.id); } finally { fetching.value = false; }
+}
+autoLoadSavedModels();
 
 const testMsg = ref("");
 async function testConnection() {
@@ -161,8 +201,29 @@ async function save() {
     apiKey: draft.apiKey || (revealLoaded.value ? null : ""),
   };
   try {
-    if (isNew.value) await createProvider(body);
-    else await request(`/v1/llm-providers/${encodeURIComponent(props.provider.id)}`, { method: "PATCH", body });
+    if (isNew.value) {
+      await createProvider(body);
+    } else {
+      await request(`/v1/llm-providers/${encodeURIComponent(props.provider.id)}`, { method: "PATCH", body });
+      // Repoint routing when this IS the default provider and a model changed — BEFORE
+      // emit("saved") so the setAsDefault write, not a parent re-fetch, is what moves
+      // routing. Gate the (3-request) refresh on a real model change so an ordinary save
+      // pays nothing; refresh so the "is default provider" check reads fresh truth, not a
+      // possibly-stale module singleton.
+      const modelChanged = draft.defaultModel && draft.defaultModel !== props.provider.defaultModel;
+      const embedChanged = draft.embeddingModel && draft.embeddingModel !== props.provider.embeddingModel;
+      if (modelChanged || embedChanged) {
+        await refreshApplied();
+        if (currentDefaultProviderId.value === props.provider.id) {
+          // overwrite stays false: a model swap must not clobber per-task pins. Mirrors
+          // applySetDefault (AiModelsArea) so both paths repoint identically (R3).
+          if (modelChanged) await setAsDefault(props.provider.id, draft.defaultModel, { overwrite: false });
+          if (embedChanged) await setAsEmbedding(props.provider.id, draft.embeddingModel);
+          if (modelChanged) pushToast({ message: `Tasks now run on ${draft.defaultModel}.` });
+          else if (embedChanged) pushToast({ message: `Embedding now runs on ${draft.embeddingModel}.` });
+        }
+      }
+    }
     emit("saved");
   } catch (e) {
     saveErr.value = e.message || "Save failed.";

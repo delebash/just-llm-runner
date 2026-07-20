@@ -48,19 +48,21 @@ export function useProviderModels() {
     return modelsByProvider[providerId] || [];
   }
 
-  /** Lazy fetch: only when nothing cached and nothing in flight. */
+  /** Lazy fetch: only when nothing cached and nothing in flight. Returns the fetch
+   *  promise (or undefined when it short-circuits) so a caller can await a loading state. */
   function ensureModels(providerId) {
     if (!providerId) return;
     if (inFlight.has(providerId)) return;
     const cached = modelsByProvider[providerId];
     if (cached && cached.length > 0) return;
-    fetchInto(providerId);
+    return fetchInto(providerId);
   }
 
-  /** Explicit re-fetch (the Refresh affordance); concurrent calls coalesce. */
+  /** Explicit re-fetch (the Refresh affordance); concurrent calls coalesce. Returns the
+   *  fetch promise so a caller can await it (e.g. to show a spinner). */
   function refreshModels(providerId) {
     if (!providerId) return;
-    fetchInto(providerId);
+    return fetchInto(providerId);
   }
 
   return { modelsFor, ensureModels, refreshModels };

@@ -869,6 +869,10 @@ Commit C6: `feat(providers): saved key in a password field with eye reveal; Fetc
    websockets sometimes need PyInstaller hidden-import hooks); dev is unaffected.
 
 **The user's box-check list (the user runs it):**
+> **✅ Box-checked good 2026-07-20 (user).** The re-add flow for Gemini / Claude / Ollama
+> and the #12 key mask/reveal all pass on the real box. STILL OPEN: OpenAI, xAI and Mistral
+> are live-unverified until funded keys exist — connect them then. Closed (except the
+> funded-key remainder) in `justwrite-app/docs/TASKS.md`.
 - Delete the Gemini provider → restart → row reappears typed `gemini` → paste key →
   Fetch lists BARE 3.x ids (no `models/` prefix, no veo/imagen noise) → chat streams
   on a 3.x model · entitySweep returns valid JSON · Ask-the-book rebuild works on

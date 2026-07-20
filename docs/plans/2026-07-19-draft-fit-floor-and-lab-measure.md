@@ -449,12 +449,12 @@ trial row. Tune rows are untouched — the draft phase is barred from writing an
 - **Engine facts not re-read on the PIN.** `-ngld auto` and the absence of a draft-ctx
   flag come from the installed b10068; the pinned build is b9993. One `--help` on a b9993
   binary closes it.
-- **Not looked at on a real box.** Two things want the user's eyes: (1) the draft rows in
-  the Tune & measure trial strip (label wording and width — labels read
-  `draft <file> (N.N GB)`), and (2) the Add-model form's draft pre-select on a repo that
-  ships a sub-4-bit draft, confirming the floor picks what you expect. Added to
-  `justwrite-app/docs/TASKS.md` → Your-box checks. **Note (2) is not a nicety:** the
-  wire-strip bug above made that exact pre-select silently wrong while the whole suite was
-  green — one look at the form would have caught what no test did.
+- **✅ Box-checked good on the real box (2026-07-20, user).** Both looks are done: (1) the
+  draft rows in the Tune & measure trial strip (labels `draft <file> (N.N GB)` read well,
+  strip width fine) and (2) the Add-model form's draft pre-select on a repo shipping a
+  sub-4-bit draft (the floor picks the expected quant, not the smallest file). **Note (2)
+  was not a nicety:** the wire-strip bug above made that exact pre-select silently wrong
+  while the whole suite was green — one look at the form caught what no test did. Closed in
+  `justwrite-app/docs/TASKS.md`.
 - **Unrelated, but proven this session:** `test_ensure_model_ready_raises_on_failed_load`
   is deterministically failing at HEAD (see above) — it needs its own fix, not a waiver.

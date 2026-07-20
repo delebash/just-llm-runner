@@ -32,8 +32,10 @@ export const PROVIDER_PRESETS = [
 export const ONLINE_ONLY_TYPES = new Set(["anthropic", "gemini", "openai", "deepseek", "openrouter", "xai", "mistral"]);
 
 // List a (draft) provider's models BEFORE it's saved — the shared draft-probe. Returns
-// { models: string[], error?: string }. `apiKey` empty → null (a local provider needs none).
-export async function probeModels({ providerType, baseUrl, apiKey, defaultModel } = {}) {
+// the cleaned split { models: chat ids, embeddings: string[], hiddenCount: N, error? }
+// (#8; the server applies the provider TYPE's model-list rules). `all: true` bypasses the
+// rules (the form's "show all"). `apiKey` empty → null (a local provider needs none).
+export async function probeModels({ providerType, baseUrl, apiKey, defaultModel, all } = {}) {
   return request("/v1/llm-providers/probe-models", {
     method: "POST",
     body: {
@@ -41,6 +43,7 @@ export async function probeModels({ providerType, baseUrl, apiKey, defaultModel 
       baseUrl,
       apiKey: apiKey || null,
       ...(defaultModel ? { defaultModel } : {}),
+      ...(all ? { all: true } : {}),
     },
   });
 }
@@ -52,13 +55,15 @@ export async function createProvider(body) {
 }
 
 // List a SAVED/registered provider's models — uses the adapter's STORED key server-side
-// (GET /v1/llm-providers/{id}/models → { models: string[], error?: string }; the error is
-// returned as DATA, not raised, so callers must surface it). Unlike probeModels (the pre-save
-// DRAFT probe, which needs a client-supplied key), this serves an already-persisted provider
-// whose key is write-only — so a consumer can list a connected cloud provider's models
-// without holding its key.
-export async function listModels(providerId) {
-  return request(`/v1/llm-providers/${encodeURIComponent(providerId)}/models`);
+// (GET /v1/llm-providers/{id}/models → { models: chat ids, embeddings: string[],
+// hiddenCount: N, error? }; the server applies the provider TYPE's model-list rules, #8;
+// the error is returned as DATA, not raised, so callers must surface it). `all: true`
+// (→ ?all=1) bypasses the rules and returns the raw unfiltered list. Unlike probeModels
+// (the pre-save DRAFT probe, which needs a client-supplied key), this serves an
+// already-persisted provider whose key is write-only.
+export async function listModels(providerId, { all = false } = {}) {
+  const q = all ? "?all=1" : "";
+  return request(`/v1/llm-providers/${encodeURIComponent(providerId)}/models${q}`);
 }
 
 // Reveal a SAVED provider's plaintext key so the form can pre-fill a masked, editable

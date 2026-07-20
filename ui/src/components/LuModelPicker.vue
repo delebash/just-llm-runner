@@ -44,18 +44,24 @@ const route = computed(() => pin.value.providerId || "");
 // kept its own per-instance cache over the same endpoint. A provider with no
 // key / unreachable just yields an empty list (the dropdown falls back to
 // "(provider default)" + the saved default).
-const { modelsFor, ensureModels } = useProviderModels();
+const { modelsFor, embeddingsFor, ensureModels } = useProviderModels();
 // Fetch the pinned provider's models on mount + whenever it changes.
 watch(() => pin.value.providerId, (pid) => { if (pid) ensureModels(pid); }, { immediate: true });
 
-// Fetched models for a provider, filtered by kind so a chat picker doesn't
-// suggest embedding models (and vice-versa) — same /embed/i split the provider
-// form uses. Free text is always allowed in editable mode, so this only shapes
-// the suggestion list, never restricts what can be entered.
+// Fetched models for a provider, filtered by kind so a chat picker doesn't suggest
+// embedding models (and vice-versa). The server now splits chat vs embedding per the
+// provider TYPE's model-list rules (#8): modelsFor() is the chat list, embeddingsFor()
+// the classified embeddings. The /embed/i guess stays as a FALLBACK only — a local /
+// unruled provider (ollama, LM Studio) gets no server split, so its embedding models are
+// still surfaced. Free text is always allowed in editable mode, so this only shapes the
+// suggestion list, never restricts what can be entered.
 const EMBED_RX = /embed/i;
 function filteredModels(pid) {
-  const all = modelsFor(pid);
-  return props.kind === "embedding" ? all.filter((m) => EMBED_RX.test(m)) : all.filter((m) => !EMBED_RX.test(m));
+  if (props.kind === "embedding") {
+    const embeds = embeddingsFor(pid);
+    return embeds.length ? embeds : modelsFor(pid).filter((m) => EMBED_RX.test(m));
+  }
+  return modelsFor(pid).filter((m) => !EMBED_RX.test(m));
 }
 
 // Models offered in the native <select>: the (kind-filtered) fetched list, plus

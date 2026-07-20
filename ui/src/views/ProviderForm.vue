@@ -115,28 +115,47 @@ function applyPreset([name, url, type, isLocal]) {
 //    over the cache so an edited key's models show. Free-text entry always works either
 //    way (LuCombobox), so a stale or missing entry never blocks a pick; Test is the
 //    explicit connection check.
-const { modelsFor, refreshModels } = useProviderModels();
-const probed = ref(null); // draft-probe result; null → fall back to the shared cache
+const { modelsFor, embeddingsFor, hiddenCountFor, refreshModels } = useProviderModels();
+const probed = ref(null); // draft-probe result {models, embeddings, hiddenCount}; null → the shared cache
+// The server now splits chat vs embedding + reports how many ids it pruned (#8). The
+// /embed/i pass stays as a client-side FALLBACK only: a local/unruled provider (ollama,
+// LM Studio) gets no server split, so its embedding models are still surfaced by the guess.
+const EMBED_RX = /embed/i;
+const savedId = computed(() => props.provider?.id || "");
+// The raw chat list feeding the client fallback: the probe's models, else the cache's.
+const rawChat = computed(() => (probed.value ? probed.value.models : (savedId.value ? modelsFor(savedId.value) : [])) || []);
+const serverEmbeds = computed(() => (probed.value ? probed.value.embeddings : (savedId.value ? embeddingsFor(savedId.value) : [])) || []);
+const chatModels = computed(() => rawChat.value.filter((m) => !EMBED_RX.test(m)));
+const embedModels = computed(() => (serverEmbeds.value.length ? serverEmbeds.value : rawChat.value.filter((m) => EMBED_RX.test(m))));
+// How many ids the server hid (0 → no affordance). From the probe when active, else the cache.
+const hiddenCount = computed(() => (probed.value ? (probed.value.hiddenCount || 0) : (savedId.value ? hiddenCountFor(savedId.value) : 0)));
+
 const fetching = ref(false);
 const probeMsg = ref("");
-const EMBED_RX = /embed/i;
-const availableModels = computed(() =>
-  probed.value ?? (props.provider?.id ? modelsFor(props.provider.id) : []));
-const chatModels = computed(() => availableModels.value.filter((m) => !EMBED_RX.test(m)));
-const embedModels = computed(() => availableModels.value.filter((m) => EMBED_RX.test(m)));
 
-async function fetchModels() {
+async function fetchModels(all = false) {
   fetching.value = true;
   probeMsg.value = "";
   try {
-    const r = await probeModels({ providerType: draft.providerType, baseUrl: draft.baseUrl, apiKey: draft.apiKey, defaultModel: draft.defaultModel });
-    probed.value = r.models || []; // an explicit Fetch overrides the shared cache
-    if (!probed.value.length) probeMsg.value = r.error || "No models returned — check the URL / key / that a model is loaded.";
+    const r = await probeModels({ providerType: draft.providerType, baseUrl: draft.baseUrl, apiKey: draft.apiKey, defaultModel: draft.defaultModel, all });
+    // An explicit Fetch overrides the shared cache with the full split.
+    probed.value = { models: r.models || [], embeddings: r.embeddings || [], hiddenCount: r.hiddenCount || 0 };
+    if (!r.models?.length && !r.embeddings?.length) probeMsg.value = r.error || "No models returned — check the URL / key / that a model is loaded.";
   } catch (e) {
     probeMsg.value = e.message || "Fetch failed.";
   } finally {
     fetching.value = false;
   }
+}
+
+// "N models hidden — show all": refetch WITHOUT the model-list rules (session-scoped, not
+// persisted). Routes to the same source that's currently showing — the draft probe when a
+// manual Fetch is active, else the saved provider's cache (?all=1).
+async function showAllModels() {
+  if (probed.value) { await fetchModels(true); return; }
+  if (!savedId.value) return;
+  fetching.value = true;
+  try { await refreshModels(savedId.value, { all: true }); } finally { fetching.value = false; }
 }
 
 // On OPEN of a saved provider that can be queried (a key set, or a local server),
@@ -354,7 +373,13 @@ async function putReasoningRow(row) {
         <span class="lu-fl">Default chat model</span>
         <div>
           <LuCombobox v-model="draft.defaultModel" :items="chatModels" :loading="fetching"
-            placeholder="Fetch or type a model id" @fetch="fetchModels" />
+            placeholder="Fetch or type a model id" @fetch="fetchModels()" />
+          <!-- The list is trimmed to chat + embedding models (#8). "show all" refetches the
+               provider's RAW list for this session when the user wants the full dump. -->
+          <div v-if="hiddenCount > 0" class="lu-fh lu-showall">
+            {{ hiddenCount }} model{{ hiddenCount === 1 ? "" : "s" }} hidden ·
+            <button type="button" class="lu-showall-btn" :disabled="fetching" @click="showAllModels">show all</button>
+          </div>
           <div v-if="probeMsg" class="lu-fh lu-fh-warn">{{ probeMsg }}</div>
           <div class="lu-fh">Fetched from the provider once connected — switch it per feature in Features.</div>
         </div>
@@ -362,7 +387,7 @@ async function putReasoningRow(row) {
         <span class="lu-fl">Embedding model <span class="lu-muted">optional</span></span>
         <div>
           <LuCombobox v-model="draft.embeddingModel" :items="embedModels" :loading="fetching"
-            placeholder="leave blank if not used" @fetch="fetchModels" />
+            placeholder="leave blank if not used" @fetch="fetchModels()" />
           <div class="lu-fh">Fills the RAG / semantic-search index — fetch the provider's list and pick its embedding model.</div>
         </div>
       </template>
@@ -455,6 +480,9 @@ async function putReasoningRow(row) {
 .lu-fl { color: var(--ink-2); font-size: 11.5px; }
 .lu-fh { font-size: 11px; color: var(--muted); margin-top: 3px; }
 .lu-fh-warn { color: var(--danger); }
+/* "N models hidden — show all" affordance under the chat dropdown (#8). */
+.lu-showall-btn { font: inherit; background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.lu-showall-btn:disabled { opacity: .6; cursor: default; }
 .lu-pf-err { margin-top: 10px; }
 /* Space between the form grid (Provider type is its last built-in row) and the Local
    engine panel (user, 2026-07-07: "space between provider type and local engine"). */

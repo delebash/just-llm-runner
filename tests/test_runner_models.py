@@ -70,7 +70,7 @@ class _FakeService:
         return _TEST_CONFIG  # safety_margin_mb=1024
 
     def download_status(self):
-        return {"status": "idle", "modelId": "", "detail": "", "error": "", "downloaded": 0, "total": 0}
+        return {"downloads": {}}   # per-model map; empty == nothing downloading
 
     def model_downloaded(self, m, hf_cache):
         # Nothing is on disk in these endpoint tests → no model reads "downloaded"
@@ -201,10 +201,11 @@ def test_status_reflects_download_channel(monkeypatch):
     )
     models = [_model("dl-one", 6000), _model("other", 6000)]
     svc = _FakeService(models)  # router-down/empty resident; the download channel drives status
-    svc.download_status = lambda: {
-        "status": "downloading", "modelId": "dl-one", "detail": "", "error": "",
-        "downloaded": 0, "total": 0,
-    }
+    # Per-model download map now: {modelId: entry}. Only "dl-one" is downloading.
+    svc.download_status = lambda: {"downloads": {
+        "dl-one": {"status": "downloading", "modelId": "dl-one", "detail": "", "error": "",
+                   "downloaded": 0, "total": 0},
+    }}
     monkeypatch.setattr(api, "detect", lambda: hw)
     monkeypatch.setattr(api, "get_service", lambda: svc)
     status = {m["id"]: m["status"] for m in _client().get("/v1/llm-runner/models").json()["models"]}

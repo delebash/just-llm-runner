@@ -1327,11 +1327,55 @@ def test_dead_router_flips_to_error(tmp_path):
     assert svc.status()["status"] == "error"
 
 
-# ── download-only (fetch weights, no spawn) — its OWN channel, separate from load ─
+# ── download-only (fetch weights, no spawn) — its OWN per-model channel, CONCURRENT ─
+# The channel is a {modelId: entry} MAP now (concurrent downloads); a model ABSENT from
+# download_status()["downloads"] is idle/done, and an "error" entry PERSISTS until replaced.
+
+def _dl_map(svc):
+    return svc.download_status()["downloads"]
+
+
+def _await_download(svc, model_id, timeout=5):
+    """Wait for a model's download-only op to SETTLE: absent (done/cancelled) or a persistent
+    'error' entry. Robust to the worker popping its own thread ref — polls the status map rather
+    than joining a thread that may already be gone. Returns the terminal entry (None if done)."""
+    t = svc._download_threads.get(model_id)
+    if t is not None:
+        t.join(timeout=timeout)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        dl = _dl_map(svc)
+        if model_id not in dl or dl[model_id]["status"] == "error":
+            return dl.get(model_id)
+        time.sleep(0.005)
+    raise AssertionError(f"download for {model_id!r} did not settle within {timeout}s")
+
+
+def _wait_until(pred, timeout=5):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if pred():
+            return
+        time.sleep(0.005)
+    raise AssertionError("condition not met within timeout")
+
+
+def _gated_acquire(gate, orig):
+    """A fake `_acquire_model` that BLOCKS until `gate` is set (so a test can hold a download
+    mid-flight), honouring cancel_check (→ DownloadCancelled). Delegates to `orig` for the real
+    seeded snapshot path once released, so the rest of `_acquire_and_identify` runs normally."""
+    def _acq(repo, *a, cancel_check=None, **k):
+        while not gate.is_set():
+            if cancel_check and cancel_check():
+                raise DownloadCancelled()
+            time.sleep(0.005)
+        return orig(repo, *a, **k)
+    return _acq
+
 
 def test_download_only_fetches_no_spawn(tmp_path):
-    # download() fetches the weights but does NOT spawn the router: its channel returns
-    # to idle, no router, and `start_router` is never called.
+    # download() fetches the weights but does NOT spawn the router: its channel goes back to
+    # idle (the model LEAVES the map), no router, and `start_router` is never called.
     started = {"hit": False}
 
     def spy_start(*a, **k):
@@ -1340,8 +1384,8 @@ def test_download_only_fetches_no_spawn(tmp_path):
 
     svc = _service_for(tmp_path, start_router=spy_start)
     svc.download(_TEST_MODEL.id)
-    svc._download_thread.join(timeout=5)
-    assert svc.download_status()["status"] == "idle"   # download channel done
+    _await_download(svc, _TEST_MODEL.id)
+    assert _TEST_MODEL.id not in _dl_map(svc)          # download channel done (absent == idle)
     assert svc.status()["status"] == "idle"            # run-state untouched
     assert svc._router is None
     assert started["hit"] is False                     # NO spawn
@@ -1355,10 +1399,10 @@ def test_download_does_not_clobber_running_model(tmp_path):
     svc._thread.join(timeout=5)
     assert svc.status()["status"] == "running"
     svc.download(_TEST_MODEL.id)
-    svc._download_thread.join(timeout=5)
+    _await_download(svc, _TEST_MODEL.id)
     assert svc.status()["status"] == "running"          # run-state UNTOUCHED
     assert svc._router is not None                      # router still up
-    assert svc.download_status()["status"] == "idle"    # download finished separately
+    assert _TEST_MODEL.id not in _dl_map(svc)           # download finished separately
 
 
 def test_download_needs_no_engine(tmp_path):
@@ -1366,28 +1410,25 @@ def test_download_needs_no_engine(tmp_path):
     svc = _service_for(tmp_path)
     svc._acquired_exe = lambda *a, **k: None
     svc.download(_TEST_MODEL.id)
-    svc._download_thread.join(timeout=5)
-    ds = svc.download_status()
-    assert ds["status"] == "idle"
-    assert ds["error"] == ""
+    assert _await_download(svc, _TEST_MODEL.id) is None  # done, no error entry
+    assert _TEST_MODEL.id not in _dl_map(svc)
 
 
 def test_download_grounds_type_via_identify(tmp_path):
     seen = []
     svc = _service_for(tmp_path, identify_fn=lambda mid, path: seen.append(mid))
     svc.download(_TEST_MODEL.id)
-    svc._download_thread.join(timeout=5)
-    assert svc.download_status()["status"] == "idle"
+    _await_download(svc, _TEST_MODEL.id)
+    assert _TEST_MODEL.id not in _dl_map(svc)
     assert seen == [_TEST_MODEL.id]
 
 
 def test_download_unknown_model_errors(tmp_path):
     svc = _service_for(tmp_path)
     svc.download("does-not-exist")
-    svc._download_thread.join(timeout=5)
-    ds = svc.download_status()
-    assert ds["status"] == "error"
-    assert "unknown model" in ds["error"]
+    entry = _await_download(svc, "does-not-exist")
+    assert entry is not None and entry["status"] == "error"
+    assert "unknown model" in entry["error"]
 
 
 def test_verify_gguf_raises_corrupt_model_error_and_purges(tmp_path):
@@ -1415,16 +1456,15 @@ def test_download_corrupt_gguf_surfaces_and_purges(tmp_path):
     repo_dir = tmp_path / "hf" / ("models--" + _TEST_MODEL.hf_repo.replace("/", "--"))
     assert repo_dir.is_dir()
     svc.download(_TEST_MODEL.id)
-    svc._download_thread.join(timeout=5)
-    ds = svc.download_status()
-    assert ds["status"] == "error"
-    assert "corrupted or incomplete" in ds["error"]
+    entry = _await_download(svc, _TEST_MODEL.id)
+    assert entry is not None and entry["status"] == "error"
+    assert "corrupted or incomplete" in entry["error"]
     assert not repo_dir.is_dir()
 
 
 def test_download_cancel_returns_to_idle(tmp_path):
-    # cancel_download() signals the in-flight download-only worker (via cancel_check);
-    # a DownloadCancelled is NOT an error — the channel returns to idle, run-state untouched.
+    # cancel_download(id) signals the in-flight worker (via cancel_check); a DownloadCancelled is
+    # NOT an error — the entry LEAVES the map, run-state untouched.
     started = threading.Event()
 
     def blocking_acquire(repo, *a, cancel_check=None, **k):
@@ -1437,20 +1477,106 @@ def test_download_cancel_returns_to_idle(tmp_path):
     svc._acquire_model = blocking_acquire
     svc.download(_TEST_MODEL.id)
     assert started.wait(timeout=5)                         # the worker reached acquire
-    assert svc.download_status()["status"] == "downloading"
-    svc.cancel_download()
-    svc._download_thread.join(timeout=5)
-    ds = svc.download_status()
-    assert ds["status"] == "idle"                          # cancelled → idle, not error
-    assert ds["error"] == ""
+    assert _dl_map(svc)[_TEST_MODEL.id]["status"] == "downloading"
+    svc.cancel_download(_TEST_MODEL.id)
+    _await_download(svc, _TEST_MODEL.id)
+    assert _TEST_MODEL.id not in _dl_map(svc)              # cancelled → gone, not an error
     assert svc.status()["status"] == "idle"                # run-state never touched
 
 
 def test_cancel_download_noop_when_idle(tmp_path):
-    # No download in flight → cancel is a harmless no-op that reports the idle channel.
+    # Nothing downloading → cancel is a harmless no-op returning the (empty) map — both the
+    # cancel-all (no id) and the per-id form.
     svc = _service_for(tmp_path)
-    ds = svc.cancel_download()
-    assert ds["status"] == "idle"
+    assert svc.cancel_download()["downloads"] == {}
+    assert svc.cancel_download("does-not-exist")["downloads"] == {}
+
+
+# ── CONCURRENT downloads (2026-07-20): the per-model map + the admission gate ──────
+
+def test_two_downloads_run_concurrently(tmp_path):
+    # Default limit (4) → both admitted at once: both present as "downloading" PAST "queued".
+    gate = threading.Event()
+    svc = _service_for(tmp_path, catalog=[_TEST_MODEL, _MODEL_B])
+    svc._acquire_model = _gated_acquire(gate, svc._acquire_model)
+    svc.download(_TEST_MODEL.id)
+    svc.download(_MODEL_B.id)
+    _wait_until(lambda: all(_dl_map(svc).get(m, {}).get("detail") == "model weights"
+                            for m in (_TEST_MODEL.id, _MODEL_B.id)))
+    dl = _dl_map(svc)
+    for m in (_TEST_MODEL.id, _MODEL_B.id):
+        assert dl[m]["status"] == "downloading" and dl[m]["detail"] != "queued"   # both RUNNING
+    gate.set()                                             # release both → they settle
+    _await_download(svc, _TEST_MODEL.id)
+    _await_download(svc, _MODEL_B.id)
+    assert _dl_map(svc) == {}
+
+
+def test_download_max_concurrent_one_queues_the_second(tmp_path):
+    # limit=1 → the second download stays "queued" until the first frees the slot.
+    gate = threading.Event()
+    svc = _service_for(tmp_path, catalog=[_TEST_MODEL, _MODEL_B])
+    svc._config_fn = lambda: SimpleNamespace(download_max_concurrent=1)
+    svc._acquire_model = _gated_acquire(gate, svc._acquire_model)
+    svc.download(_TEST_MODEL.id)
+    _wait_until(lambda: _dl_map(svc).get(_TEST_MODEL.id, {}).get("detail") == "model weights")
+    svc.download(_MODEL_B.id)                              # A holds the only slot → B must queue
+    time.sleep(0.1)
+    assert _dl_map(svc)[_MODEL_B.id]["detail"] == "queued"        # still waiting behind A
+    assert _dl_map(svc)[_MODEL_B.id]["status"] == "downloading"   # (queued IS a downloading entry)
+    gate.set()                                            # A finishes → B is admitted → both settle
+    _await_download(svc, _TEST_MODEL.id)
+    _await_download(svc, _MODEL_B.id)
+    assert _dl_map(svc) == {}
+
+
+def test_cancel_one_download_leaves_the_other(tmp_path):
+    gate = threading.Event()
+    svc = _service_for(tmp_path, catalog=[_TEST_MODEL, _MODEL_B])
+    svc._acquire_model = _gated_acquire(gate, svc._acquire_model)
+    svc.download(_TEST_MODEL.id)
+    svc.download(_MODEL_B.id)
+    _wait_until(lambda: all(_dl_map(svc).get(m, {}).get("detail") == "model weights"
+                            for m in (_TEST_MODEL.id, _MODEL_B.id)))
+    svc.cancel_download(_TEST_MODEL.id)                    # cancel ONLY A
+    _await_download(svc, _TEST_MODEL.id)
+    assert _TEST_MODEL.id not in _dl_map(svc)             # A cancelled → gone
+    assert _dl_map(svc)[_MODEL_B.id]["status"] == "downloading"   # B untouched, still running
+    gate.set()
+    _await_download(svc, _MODEL_B.id)
+
+
+def test_delete_path_cancels_its_own_download(tmp_path):
+    # delete_model_cache frees the handle first — cancels + joins THIS model's download.
+    gate = threading.Event()
+    svc = _service_for(tmp_path)
+    svc._acquire_model = _gated_acquire(gate, svc._acquire_model)
+    svc.download(_TEST_MODEL.id)
+    _wait_until(lambda: _dl_map(svc).get(_TEST_MODEL.id, {}).get("detail") == "model weights")
+    res = svc.delete_model_cache(_TEST_MODEL.id)          # cancels the in-flight download, then purges
+    assert res["ok"] is True
+    assert _TEST_MODEL.id not in _dl_map(svc)             # its download was cancelled + reaped
+
+
+def test_error_entry_persists_and_is_replaced_by_fresh_download(tmp_path):
+    svc = _service_for(tmp_path)
+    svc._read_meta = _raise_bad_magic                     # → CorruptModelError at the verify gate
+    repo_dir = tmp_path / "hf" / ("models--" + _TEST_MODEL.hf_repo.replace("/", "--"))
+    svc.download(_TEST_MODEL.id)
+    entry = _await_download(svc, _TEST_MODEL.id)
+    assert entry["status"] == "error"
+    assert _dl_map(svc)[_TEST_MODEL.id]["status"] == "error"     # the error entry PERSISTS in the map
+
+    # A fresh download() REPLACES the error entry (idempotency only short-circuits a "downloading"
+    # one). Re-seed good weights + meta so the replacement actually completes and leaves the map.
+    snap = repo_dir / "snapshots" / "sha"
+    snap.mkdir(parents=True, exist_ok=True)
+    (snap / f"model-{_TEST_MODEL.quant}.gguf").write_bytes(b"x" * 1024)
+    svc._read_meta = lambda p: SimpleNamespace(block_count=24, embedding_length=2048, is_moe=False, n_kv_heads=8)
+    fresh = svc.download(_TEST_MODEL.id)
+    assert fresh["status"] == "downloading"               # error → a fresh run, not rejected
+    _await_download(svc, _TEST_MODEL.id)
+    assert _TEST_MODEL.id not in _dl_map(svc)             # now succeeds → leaves the map
 
 
 def test_delete_model_cache_removes_repo_dir(tmp_path):

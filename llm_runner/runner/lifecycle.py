@@ -34,7 +34,11 @@ from .binary import (
     gpu_family,
     select_binary,
 )
-from .config import default_config as _default_config
+from .config import (
+    DEFAULT_DOWNLOAD_MAX_CONCURRENT,
+    MAX_DOWNLOAD_CONCURRENT,
+    default_config as _default_config,
+)
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import detect as _detect, max_vram_mb as _hw_max_vram, used_vram_mb as _hw_used_vram
 from .download import DownloadCancelled, download_kwargs
@@ -329,14 +333,6 @@ def _engine_idle() -> dict:
     return {"status": "idle", "detail": "", "error": "", "downloaded": 0, "total": 0}
 
 
-def _download_idle() -> dict:
-    # Its OWN channel too: a download is a file fetch that must NOT clobber a running
-    # model's run-state (same isolation reason as _engine_state), so a download can run
-    # concurrently with a loaded model. status ∈ idle | downloading | error.
-    return {"status": "idle", "modelId": "", "detail": "", "error": "",
-            "downloaded": 0, "total": 0}
-
-
 class RunnerService:
     """Owns the long-lived llama-server ROUTER + the resident-model set.
 
@@ -424,9 +420,18 @@ class RunnerService:
         self._thread = None
         self._engine_thread = None
         self._engine_cancel = threading.Event()  # set → the engine-install worker aborts mid-download
-        self._download_state = _download_idle()
-        self._download_thread = None
-        self._download_cancel = threading.Event()  # set → the download-only worker aborts
+        # CONCURRENT model downloads (2026-07-20): each downloaded model gets its OWN map
+        # entry + cancel Event + worker thread, so clicking Download on several models runs
+        # them in parallel (the old single `_download_state` made the 2nd click a silent
+        # no-op). ABSENT from `_download_states` == idle/done; an "error" entry PERSISTS until
+        # a fresh download() replaces it. All three maps are guarded by `self._lock`.
+        self._download_states: dict[str, dict] = {}   # modelId → {status, modelId, detail, error, downloaded, total}
+        self._download_cancels: dict[str, threading.Event] = {}   # modelId → its cancel token
+        self._download_threads: dict[str, threading.Thread] = {}  # modelId → its worker thread
+        # Admission gate: a queued worker parks here until fewer than `download_max_concurrent`
+        # downloads are RUNNING. Shares `self._lock` so the map reads/writes and the wait/notify
+        # are one critical section; a completing worker notifies it to wake the next in line.
+        self._download_gate = threading.Condition(self._lock)
         self._last_log_path = None
         # A3: the binary the CURRENT router actually launched with. A fallback
         # spawn may differ from the preferred build; bounces must reuse the
@@ -686,13 +691,14 @@ class RunnerService:
         if model is None:
             return {"ok": True, "bytes": 0, "detail": "unknown model — nothing cached"}
 
-        # Release any open handle before unlinking. Cancel a download of THIS model, then
-        # unload it if resident (leave other residents up — this is a per-model delete).
-        dl = self._download_state
-        if dl.get("modelId") == model_id and dl.get("status") == "downloading":
-            self.cancel_download()
-            if self._download_thread is not None:
-                self._download_thread.join(timeout=5)
+        # Release any open handle before unlinking. Cancel a download of THIS model only
+        # (other models may be downloading concurrently — leave them running), then join its
+        # worker so its file handle is freed before rmtree. cancel_download(id) is a harmless
+        # no-op when this model isn't downloading.
+        self.cancel_download(model_id)
+        t = self._download_threads.get(model_id)
+        if t is not None:
+            t.join(timeout=5)
         if model_id in {r.get("id") for r in self.resident().get("models", [])}:
             self.stop(model_id)
 
@@ -855,38 +861,83 @@ class RunnerService:
             self._thread.start()
             return dict(self._resident[model_id])
 
+    def _download_limit(self) -> int:
+        """The admission ceiling, read LIVE at each gate check so the knob is tunable
+        without a restart: `download_max_concurrent` clamped to [1, MAX_DOWNLOAD_CONCURRENT]
+        (the same ONE-source clamp the config-API write path applies — a raw DB poke can't
+        route around it)."""
+        raw = getattr(self._config_fn(), "download_max_concurrent", DEFAULT_DOWNLOAD_MAX_CONCURRENT)
+        try:
+            return max(1, min(MAX_DOWNLOAD_CONCURRENT, int(raw)))
+        except (TypeError, ValueError):
+            return DEFAULT_DOWNLOAD_MAX_CONCURRENT
+
+    def _await_slot(self, model_id: str, cancel_ev: threading.Event) -> None:
+        """Park a queued download until a slot frees, then CLAIM it atomically. A slot is
+        free when fewer than `_download_limit()` downloads are RUNNING (an entry whose detail
+        has moved past "queued"). Re-checks its own cancel token every ~0.2 s so a cancel
+        while QUEUED still takes effect; on admission flips the entry's detail to the running
+        phase UNDER the lock so the running-count is race-free."""
+        with self._download_gate:
+            while True:
+                entry = self._download_states.get(model_id)
+                if entry is None or cancel_ev.is_set():
+                    raise DownloadCancelled()   # cancelled (or removed) before we ever ran
+                running = sum(1 for e in self._download_states.values()
+                              if e.get("status") == "downloading" and e.get("detail") != "queued")
+                if running < self._download_limit():
+                    entry["detail"] = "model weights"   # claim the slot → now counted as running
+                    return
+                self._download_gate.wait(timeout=0.2)
+
     def download(self, model_id: str) -> dict:
         """Download a model's GGUF into the cache WITHOUT spawning it — the catalog's
-        'Download' action, separate from 'Load'. Runs on its OWN state channel + thread
-        (like engine-install) so it NEVER touches the running model's state: a download
-        can proceed while another model is loaded. Does NOT require the engine installed
-        (that is only needed to spawn). On success the model reports as on-disk via
-        /models; loading it is a distinct step."""
+        'Download' action, separate from 'Load'. Runs on its OWN per-model channel + thread
+        (like engine-install) so it NEVER touches the running model's state: a download can
+        proceed while another model is loaded, AND several models download concurrently (up
+        to `download_max_concurrent`; the rest queue). Idempotent: a second click while THIS
+        model is already downloading/queued returns its live state. A prior "error" entry is
+        replaced by a fresh run. Does NOT require the engine installed (only loading does)."""
         with self._lock:
-            if self._download_state["status"] == "downloading":
-                return dict(self._download_state)  # a download is already in flight
-            self._download_cancel.clear()  # arm a fresh run — drop any prior cancel signal
-            self._download_state = {"status": "downloading", "modelId": model_id, "detail": "queued",
-                                    "error": "", "downloaded": 0, "total": 0}
-            self._download_thread = threading.Thread(target=self._run_download, args=(model_id,), daemon=True)
-            self._download_thread.start()
-        return dict(self._download_state)
+            entry = self._download_states.get(model_id)
+            if entry is not None and entry.get("status") == "downloading":
+                return dict(entry)   # already in flight (queued or running) — idempotent
+            cancel_ev = threading.Event()
+            self._download_cancels[model_id] = cancel_ev
+            entry = {"status": "downloading", "modelId": model_id, "detail": "queued",
+                     "error": "", "downloaded": 0, "total": 0}
+            self._download_states[model_id] = entry   # replaces any prior "error" entry
+            t = threading.Thread(target=self._run_download, args=(model_id,), daemon=True)
+            self._download_threads[model_id] = t
+            t.start()
+            return dict(entry)
 
-    def cancel_download(self) -> dict:
-        """Signal an in-flight download-only op to stop at the next chunk/file boundary
-        (the worker polls `cancel_check` per chunk and resets to idle on DownloadCancelled).
-        Idempotent: a no-op when nothing is downloading. Only the standalone Download
-        channel is cancellable — a model load's download leg is not exposed here."""
+    def cancel_download(self, model_id: str | None = None) -> dict:
+        """Signal a download-only op to stop at the next chunk/file boundary (a running
+        worker polls `cancel_check` per chunk; a QUEUED one is woken and aborts before it
+        runs). With `model_id` → cancel just that one; `None` → cancel ALL (the back-compat
+        no-id path any engine-panel 'cancel everything' uses). Idempotent: unknown/idle ids
+        are no-ops. Returns the full download_status() snapshot."""
         with self._lock:
-            if self._download_state["status"] == "downloading":
-                self._download_cancel.set()
-                self._download_state["detail"] = "cancelling…"
-        return dict(self._download_state)
+            targets = ([model_id] if model_id is not None
+                       else list(self._download_cancels.keys()))
+            for mid in targets:
+                ev = self._download_cancels.get(mid)
+                if ev is not None:
+                    ev.set()
+                e = self._download_states.get(mid)
+                if e is not None and e.get("status") == "downloading":
+                    e["detail"] = "cancelling…"
+            self._download_gate.notify_all()   # wake any parked (queued) workers to re-check
+        return self.download_status()
 
     def download_status(self) -> dict:
-        """Progress/terminal state of an in-flight download-only op — its own channel,
-        separate from the model run-state (status()) and engine install."""
-        return dict(self._download_state)
+        """Snapshot of EVERY in-flight/errored download keyed by model id — its own channel,
+        separate from the model run-state (status()) and engine install. Shape:
+        `{"downloads": {modelId: {status, modelId, detail, error, downloaded, total}}}`.
+        An id ABSENT from the map is idle/done (its weights are on disk)."""
+        with self._lock:
+            return {"downloads": {mid: dict(e) for mid, e in self._download_states.items()}}
 
     def stop(self, model_id: str | None = None) -> dict:
         """`stop(id)` cancels an IN-FLIGHT load or unloads a resident model; `stop()`
@@ -2248,43 +2299,68 @@ class RunnerService:
             )
 
     def _run_download(self, model_id: str) -> None:
-        """Download-only worker (OWN channel): fetch the weights — AND the external MTP
-        draft when the resolved config wants it (2026-07-19), so "Downloaded ✓" is honest
-        and the first load never surprise-fetches — ground the catalog type from the file,
-        then mark the download idle. It NEVER touches the model run-state (_state/_runner),
-        so a running model is undisturbed. The engine is NOT required to download — only to
-        load: the draft decision reads the effective config via `_switches_to_overrides`,
-        a pure DB read + memoized hardware keys, so the engine-free promise still HOLDS."""
+        """Per-model download-only worker (OWN channel): wait for an admission slot, fetch the
+        weights — AND the external MTP draft when the resolved config wants it (2026-07-19), so
+        "Downloaded ✓" is honest and the first load never surprise-fetches — ground the catalog
+        type from the file, then DROP this model's map entry (absent == done; /models reports it
+        on-disk). It NEVER touches the model run-state (_resident/_router), so a running model —
+        or a sibling download — is undisturbed. The engine is NOT required to download, only to
+        load: the draft decision reads the effective config via `_switches_to_overrides` (a pure
+        DB read + memoized hardware keys), so the engine-free promise still HOLDS. Success/cancel
+        remove the entry; a failure leaves a persistent "error" entry until a fresh download()."""
+        cancel_ev = self._download_cancels.get(model_id) or threading.Event()
         try:
+            self._await_slot(model_id, cancel_ev)   # park while at the concurrency ceiling; sets detail
+
             def _progress(downloaded: int, total: int | None) -> None:
-                self._download_state["downloaded"] = downloaded
-                self._download_state["total"] = total or 0
+                e = self._download_states.get(model_id)
+                if e is not None:   # a concurrent cancel may have dropped it
+                    e["downloaded"] = downloaded
+                    e["total"] = total or 0
 
             def _progress_draft(downloaded: int, total: int | None) -> None:
-                self._download_state.update(detail="MTP draft model",
-                                            downloaded=downloaded, total=total or 0)
+                e = self._download_states.get(model_id)
+                if e is not None:
+                    e["detail"] = "MTP draft model"
+                    e["downloaded"] = downloaded
+                    e["total"] = total or 0
 
             def _reset_progress() -> None:
-                # Neutral phase + zeroed counters between the legs (main bytes must not
-                # linger under the draft's label); the draft's phase comes from its own
-                # callback, only when it actually downloads.
-                self._download_state.update(detail="preparing", downloaded=0, total=0)
+                # Neutral phase + zeroed counters between the legs (main bytes must not linger
+                # under the draft's label); the draft's phase comes from its own callback, only
+                # when it actually downloads.
+                e = self._download_states.get(model_id)
+                if e is not None:
+                    e["detail"] = "preparing"
+                    e["downloaded"] = 0
+                    e["total"] = 0
 
             ov = _switches_to_overrides(self._switches_fn(model_id) or {})
-            self._download_state.update(detail="model weights", downloaded=0, total=0)
             self._acquire_and_identify(  # raises ValueError for unknown model
-                model_id, _progress, cancel_check=self._download_cancel.is_set,
+                model_id, _progress, cancel_check=cancel_ev.is_set,
                 overrides=ov, on_progress_draft=_progress_draft, reset_progress=_reset_progress)
-            self._download_state = _download_idle()  # done; /models reports it on-disk. No spawn.
+            with self._lock:
+                self._download_states.pop(model_id, None)   # done → idle (weights on disk)
         except DownloadCancelled:
-            # User cancel is not an error — the partial blob stays cached (a re-download
-            # resumes past it); return the channel to idle so the row reads "available".
+            # User cancel is not an error — the partial part-files stay cached (a re-download
+            # resumes past them); drop the entry so the row reads "available" again.
             log.info("runner download cancelled for %s", model_id)
-            self._download_state = _download_idle()
-        except Exception as exc:  # noqa: BLE001 — any failure becomes error state
+            with self._lock:
+                self._download_states.pop(model_id, None)
+        except Exception as exc:  # noqa: BLE001 — any failure becomes a persistent error entry
             log.exception("runner download failed")
-            self._download_state = {"status": "error", "modelId": model_id, "detail": "",
-                                    "error": str(exc), "downloaded": 0, "total": 0}
+            with self._lock:
+                self._download_states[model_id] = {"status": "error", "modelId": model_id,
+                                                   "detail": "", "error": str(exc),
+                                                   "downloaded": 0, "total": 0}
+        finally:
+            # Release the admission slot + wake the next queued worker; drop this model's
+            # thread + cancel refs (the map ENTRY may persist on error, but the machinery
+            # that ran it is done). One critical section via the shared gate lock.
+            with self._download_gate:
+                self._download_cancels.pop(model_id, None)
+                self._download_threads.pop(model_id, None)
+                self._download_gate.notify_all()
 
 
 _service: RunnerService | None = None

@@ -766,6 +766,7 @@ class RunnerConfigStore:
             downloadSegmentCount=cfg.download_segment_count,
             downloadSegmentMinBytes=cfg.download_segment_min_bytes,
             downloadSegmentRetries=cfg.download_segment_retries,
+            downloadMaxConcurrent=cfg.download_max_concurrent,
             updatePolicy=policy,
             ackHwFingerprint=ack_fp,
             preferredGpu=preferred,
@@ -808,6 +809,7 @@ class RunnerConfigStore:
         seed defaults; user-added custom rows are preserved."""
         from ..runner.config import (
             DEFAULT_BINARIES,
+            DEFAULT_DOWNLOAD_MAX_CONCURRENT,
             DEFAULT_DOWNLOAD_SEGMENT_COUNT,
             DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES,
             DEFAULT_DOWNLOAD_SEGMENT_RETRIES,
@@ -834,7 +836,8 @@ class RunnerConfigStore:
                              ("download_segments_enabled", "1" if DEFAULT_DOWNLOAD_SEGMENTS_ENABLED else "0"),
                              ("download_segment_count", str(DEFAULT_DOWNLOAD_SEGMENT_COUNT)),
                              ("download_segment_min_bytes", str(DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES)),
-                             ("download_segment_retries", str(DEFAULT_DOWNLOAD_SEGMENT_RETRIES))):
+                             ("download_segment_retries", str(DEFAULT_DOWNLOAD_SEGMENT_RETRIES)),
+                             ("download_max_concurrent", str(DEFAULT_DOWNLOAD_MAX_CONCURRENT))):
                 existing = s.get(db.RunnerSetting, key)
                 if existing is None:
                     existing = db.RunnerSetting(key=key, built_in=True)
@@ -1270,6 +1273,7 @@ def build_runner_config():
     Wired into the runner service as its `config_fn` by install_llm. Falls back to
     the runner's seed defaults if the binaries haven't been seeded yet."""
     from ..runner.config import (
+        DEFAULT_DOWNLOAD_MAX_CONCURRENT,
         DEFAULT_DOWNLOAD_SEGMENT_COUNT,
         DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES,
         DEFAULT_DOWNLOAD_SEGMENT_RETRIES,
@@ -1319,6 +1323,7 @@ def build_runner_config():
             download_segment_count=_int("download_segment_count", DEFAULT_DOWNLOAD_SEGMENT_COUNT),
             download_segment_min_bytes=_int("download_segment_min_bytes", DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES),
             download_segment_retries=_int("download_segment_retries", DEFAULT_DOWNLOAD_SEGMENT_RETRIES),
+            download_max_concurrent=_int("download_max_concurrent", DEFAULT_DOWNLOAD_MAX_CONCURRENT),
         )
     finally:
         s.close()

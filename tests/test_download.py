@@ -1,47 +1,86 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Segmented downloads (DL-2) — the plan's test list, against a REAL in-process
-HTTP server (offline, deterministic): boundary math (exact cover, no overlap,
-last byte inclusive) · the fallback matrix (no accept-ranges / small file /
-disabled → the single-stream path) · per-segment retry RESUME from the bytes
-already written · post-assembly sha256 equals the single-stream digest · cancel
-stops all workers · the enabled→count collapse (download_kwargs)."""
+"""The pypdl download adapter (`stream_download`) against a REAL in-process HTTP
+server (offline, deterministic). Covers the adapter CONTRACT, not pypdl's own
+internals: multisegment bytes-identical output · single-stream fallback when the
+server has no Range support · the unlink-first guard (a stale dest is NOT blessed
+as already-downloaded) · cancel → DownloadCancelled · resume of a cancelled
+multisegment download from its part-files · a genuine failure → RuntimeError ·
+the `download_kwargs` shape + clamps. The old hand-rolled internals
+(`_segment_bounds`/`_preallocate`, the sha return) are gone with the requests
+segmenter, so their tests are gone too."""
 
 from __future__ import annotations
 
-import hashlib
 import re
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
 
+from llm_runner.runner.config import (
+    MAX_DOWNLOAD_SEGMENT_COUNT,
+    MAX_DOWNLOAD_SEGMENT_RETRIES,
+)
 from llm_runner.runner.download import (
     DownloadCancelled,
-    _preallocate,
-    _segment_bounds,
     download_kwargs,
     stream_download,
 )
 
+# ~2 MB + an odd tail so segment splits don't land on round boundaries.
 PAYLOAD = bytes((i * 31 + (i >> 8)) % 256 for i in range(2 * 1024 * 1024 + 137))
-SHA = hashlib.sha256(PAYLOAD).hexdigest()
+
+
+@pytest.fixture(autouse=True)
+def _no_proxy(monkeypatch):
+    """The dev container sets HTTPS_PROXY to the agent proxy; these tests hit 127.0.0.1, and an
+    explicit aiohttp `proxy=` IGNORES no_proxy — so neutralize proxy resolution here. (Production
+    keeps the passthrough: real downloads target HF/GitHub, which SHOULD use the proxy.)"""
+    monkeypatch.setattr("llm_runner.runner.download.getproxies", lambda: {})
 
 
 class _RangeHandler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # noqa: D102 — silence test-server chatter
         pass
 
-    def do_HEAD(self):  # noqa: N802 — http.server API
-        self.send_response(200)
+    def _meta_headers(self):
+        # A COMPLETE metadata HEAD (accept-ranges + etag + content-disposition + length) so
+        # pypdl's producer needs no fallback GET — the range GETs it records are the real
+        # segment fetches, nothing else. Stable ETag so a resumed run validates its part-files.
+        self.send_header("Content-Length", str(len(PAYLOAD)))
+        self.send_header("ETag", '"abc"')
+        self.send_header("Content-Disposition", 'attachment; filename="file.bin"')
         if self.server.ranges_enabled:
             self.send_header("Accept-Ranges", "bytes")
-        self.send_header("Content-Length", str(len(PAYLOAD)))
+
+    def _write(self, data):
+        """Write `data` in chunks, counting served bytes and honouring the server's throttle;
+        a client that closed early (a cancel) just ends the write."""
+        step = 65536
+        view = memoryview(data)
+        for i in range(0, len(view), step):
+            chunk = view[i : i + step]
+            try:
+                self.wfile.write(chunk)
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                return
+            with self.server.lock:
+                self.server.bytes_served += len(chunk)
+            if self.server.chunk_delay:
+                time.sleep(self.server.chunk_delay)
+
+    def do_HEAD(self):  # noqa: N802 — http.server API
+        self.send_response(200)
+        self._meta_headers()
         self.end_headers()
 
     def do_GET(self):  # noqa: N802 — http.server API
         rng = self.headers.get("Range")
-        self.server.requests.append(rng)
+        with self.server.lock:
+            self.server.requests.append(rng)
         if rng and self.server.ranges_enabled:
             m = re.match(r"bytes=(\d+)-(\d+)", rng)
             a, b = int(m.group(1)), int(m.group(2))
@@ -49,26 +88,31 @@ class _RangeHandler(BaseHTTPRequestHandler):
             self.send_response(206)
             self.send_header("Content-Range", f"bytes {a}-{b}/{len(PAYLOAD)}")
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Accept-Ranges", "bytes")
+            self.send_header("ETag", '"abc"')
             self.end_headers()
-            # A configured mid-range failure: send HALF the body, then drop the
-            # connection — the worker must retry and RESUME from what it wrote.
+            # A configured failure: serve HALF the body, then drop the connection — the worker
+            # must retry (and, when the fault is transient, resume past the bytes it kept).
+            fail = None
             if b in self.server.fail_once_ends:
                 self.server.fail_once_ends.discard(b)
-                self.wfile.write(body[: max(1, len(body) // 2)])
-                self.wfile.flush()
-                self.connection.close()
+                fail = True
+            elif b in self.server.always_fail_ends:
+                fail = True
+            if fail:
+                self._write(body[: max(1, len(body) // 2)])
+                try:
+                    self.connection.close()
+                except OSError:
+                    pass
                 return
-            if b in self.server.always_fail_ends:
-                self.wfile.write(body[: max(1, len(body) // 2)])
-                self.wfile.flush()
-                self.connection.close()
-                return
-            self.wfile.write(body)
+            self._write(body)
         else:
             self.send_response(200)
             self.send_header("Content-Length", str(len(PAYLOAD)))
+            self.send_header("ETag", '"abc"')
             self.end_headers()
-            self.wfile.write(PAYLOAD)
+            self._write(PAYLOAD)
 
 
 @pytest.fixture
@@ -78,6 +122,9 @@ def server():
     srv.requests = []
     srv.fail_once_ends = set()
     srv.always_fail_ends = set()
+    srv.bytes_served = 0
+    srv.chunk_delay = 0.0
+    srv.lock = threading.Lock()
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
     yield srv
@@ -92,131 +139,125 @@ def _range_gets(srv):
     return [r for r in srv.requests if r]
 
 
-# ── boundary math ─────────────────────────────────────────────────────────────
+# ── multisegment output ≡ the payload ─────────────────────────────────────────
 
-def test_segment_bounds_exact_cover():
-    for total, n in ((100, 4), (7, 3), (1, 4), (2 * 1024 * 1024 + 137, 4), (10, 10)):
-        bounds = _segment_bounds(total, n)
-        assert bounds[0][0] == 0
-        assert bounds[-1][1] == total - 1                      # last byte inclusive
-        for (a, b), (c, _d) in zip(bounds, bounds[1:]):
-            assert c == b + 1                                  # no gap, no overlap
-        assert sum(b - a + 1 for a, b in bounds) == total      # exact cover
-
-
-def test_segment_bounds_never_more_segments_than_bytes():
-    assert len(_segment_bounds(3, 8)) == 3
-    assert _segment_bounds(3, 8) == [(0, 0), (1, 1), (2, 2)]
-
-
-def test_preallocate_sizes_file_and_makes_parent(tmp_path):
-    # The segment writers need the file sized up front; _preallocate must produce exactly
-    # `total` bytes (sparse on Windows via SetEndOfFile, ftruncate on POSIX) and create the
-    # parent dir. On Windows this replaces the zero-filling truncate() that stalled ~20-50 s.
-    dest = tmp_path / "nested" / "pre.bin"
-    _preallocate(dest, 5 * 1024 * 1024)
-    assert dest.stat().st_size == 5 * 1024 * 1024
-
-
-# ── the sha contract: segmented output ≡ single-stream output ─────────────────
-
-def test_segmented_matches_single_stream_sha(server, tmp_path):
+def test_multisegment_matches_payload(server, tmp_path):
     dest = tmp_path / "seg.bin"
-    digest = stream_download(_url(server), dest, segments=4, segment_min_bytes=1024)
-    assert digest == SHA
+    stream_download(_url(server), dest, segments=4, poll_interval=0.02)
     assert dest.read_bytes() == PAYLOAD
     assert len(_range_gets(server)) == 4                       # four parallel ranges
+    # part-files + the progress json are cleaned up on success (combine_files removes them).
+    assert list(tmp_path.glob("seg.bin.*")) == []
 
 
-def test_segmented_progress_reaches_total(server, tmp_path):
+def test_multisegment_progress_reaches_total(server, tmp_path):
     seen = []
-    stream_download(_url(server), tmp_path / "p.bin", segments=4, segment_min_bytes=1024,
+    stream_download(_url(server), tmp_path / "p.bin", segments=4, poll_interval=0.02,
                     on_progress=lambda d, t: seen.append((d, t)))
-    assert seen[-1] == (len(PAYLOAD), len(PAYLOAD))
-    assert all(t == len(PAYLOAD) for _d, t in seen)
+    assert seen, "on_progress never fired"
+    last = seen[-1]
+    assert last[0] == last[1]                                # the final tick reports 100 %
+    # pypdl's reported `size` is the true size ∓1 byte (a producer quirk: its zero-init
+    # Size(0,0).value == 1). Cosmetically irrelevant on a multi-GB bar — and acquire_model
+    # substitutes the TRUE HF total anyway (it ignores pypdl's `total` arg), so this never
+    # reaches the model-download UI.
+    assert abs(last[1] - len(PAYLOAD)) <= 1
+    assert all(abs(t - len(PAYLOAD)) <= 1 for _d, t in seen)
 
 
-# ── the fallback matrix: single-stream whenever anything disqualifies ─────────
+# ── single-stream fallback when the server has no Range support ────────────────
 
 def test_falls_back_without_range_support(server, tmp_path):
     server.ranges_enabled = False
-    digest = stream_download(_url(server), tmp_path / "f.bin", segments=4, segment_min_bytes=1024)
-    assert digest == SHA
-    assert _range_gets(server) == []                           # plain GET only
+    stream_download(_url(server), tmp_path / "f.bin", segments=4, poll_interval=0.02)
+    assert (tmp_path / "f.bin").read_bytes() == PAYLOAD       # correct bytes via the single stream
 
 
-def test_small_file_stays_single_stream(server, tmp_path):
-    digest = stream_download(_url(server), tmp_path / "s.bin",
-                             segments=4, segment_min_bytes=len(PAYLOAD) + 1)
-    assert digest == SHA
-    assert _range_gets(server) == []
+def test_segments_one_is_single_stream(server, tmp_path):
+    stream_download(_url(server), tmp_path / "one.bin", segments=1, poll_interval=0.02)
+    assert (tmp_path / "one.bin").read_bytes() == PAYLOAD
+    assert _range_gets(server) == []                          # no multi-range fetch
 
 
-def test_segments_one_never_probes(server, tmp_path):
-    digest = stream_download(_url(server), tmp_path / "one.bin", segments=1)
-    assert digest == SHA
-    assert server.requests == [None]                           # one plain GET, no HEAD ranges
+# ── the unlink-first guard (BUG-A): a stale dest is NOT blessed as done ─────────
+
+def test_unlink_first_overwrites_stale_dest(server, tmp_path):
+    # pypdl's overwrite=False (needed for part-file resume) treats an existing FINAL file as
+    # already-complete (consumer.py:100). stream_download unlinks dest first, so a corrupt/
+    # partial leftover is REPLACED, never silently accepted. Without the unlink this reads back
+    # the stale bytes.
+    dest = tmp_path / "stale.bin"
+    dest.write_bytes(b"STALE" * 1000)                         # wrong content + wrong size
+    stream_download(_url(server), dest, segments=1, poll_interval=0.02)
+    assert dest.read_bytes() == PAYLOAD                       # fresh download won, not the stale file
 
 
-# ── per-segment retry + resume ────────────────────────────────────────────────
+# ── cancel → DownloadCancelled ─────────────────────────────────────────────────
 
-def test_segment_retry_resumes_from_written(server, tmp_path):
-    bounds = _segment_bounds(len(PAYLOAD), 4)
-    fail_end = bounds[2][1]                                    # third segment dies once
-    server.fail_once_ends = {fail_end}
-    digest = stream_download(_url(server), tmp_path / "r.bin",
-                             segments=4, segment_min_bytes=1024, segment_retries=3)
-    assert digest == SHA
-    # The retry's Range must RESUME past the segment's own start (bytes already
-    # written are never re-fetched) and share the same end.
-    starts = [(int(m.group(1)), int(m.group(2)))
-              for m in (re.match(r"bytes=(\d+)-(\d+)", r) for r in _range_gets(server)) if m]
-    retries = [s for s in starts if s[1] == fail_end]
-    assert len(retries) == 2
-    assert retries[1][0] > bounds[2][0]
-
-
-def test_retries_exhausted_fails_with_real_error(server, tmp_path):
-    bounds = _segment_bounds(len(PAYLOAD), 4)
-    server.always_fail_ends = {bounds[1][1]}                   # second segment never completes
-    with pytest.raises(Exception) as exc:
-        stream_download(_url(server), tmp_path / "x.bin",
-                        segments=4, segment_min_bytes=1024, segment_retries=1)
-    assert not isinstance(exc.value, DownloadCancelled)
-    assert (tmp_path / "x.bin").exists()                       # partial left for the caller
-
-
-# ── cancel stops every worker ─────────────────────────────────────────────────
-
-def test_cancel_stops_all_workers(server, tmp_path):
+def test_cancel_raises_download_cancelled(server, tmp_path):
+    server.chunk_delay = 0.01                                 # slow enough to catch mid-flight
     with pytest.raises(DownloadCancelled):
-        stream_download(_url(server), tmp_path / "c.bin",
-                        segments=4, segment_min_bytes=1024, cancel_check=lambda: True)
+        stream_download(_url(server), tmp_path / "c.bin", segments=4, poll_interval=0.01,
+                        cancel_check=lambda: True)
 
 
-# ── the enabled→count collapse (ONE place, both consumers) ────────────────────
+# ── resume a cancelled multisegment download from its part-files ───────────────
 
-def test_download_kwargs_collapse():
+def test_resume_after_cancel(server, tmp_path):
+    dest = tmp_path / "r.bin"
+    server.chunk_delay = 0.03                                 # stretch the transfer so cancel lands mid-flight
+    threshold = len(PAYLOAD) // 8                             # cancel once ~12 % has been served
+
+    with pytest.raises(DownloadCancelled):
+        stream_download(_url(server), dest, segments=4, poll_interval=0.01,
+                        cancel_check=lambda: server.bytes_served >= threshold)
+
+    # The cancel left the multisegment progress file on disk (combine_files, which deletes it,
+    # only runs on success), and some bytes were served — so the second run has state to resume.
+    assert (tmp_path / "r.bin.json").exists()
+    assert not dest.exists()                                  # no final file yet
+    assert server.bytes_served > 0
+
+    # Second run resumes: the part-files carry over, so the server serves the REMAINDER only.
+    server.chunk_delay = 0.0
+    with server.lock:
+        server.bytes_served = 0
+        server.requests = []
+    stream_download(_url(server), dest, segments=4, poll_interval=0.01)
+    assert dest.read_bytes() == PAYLOAD                       # correct final bytes
+    assert server.bytes_served < len(PAYLOAD)                 # resumed → fewer bytes than a full fetch
+
+
+# ── a genuine failure (retries exhausted) → RuntimeError, not Cancelled ────────
+
+def test_failure_after_retries_raises_runtimeerror(server, tmp_path):
+    # The single stream drops the connection on every attempt → the task exhausts its retries
+    # and pypdl records the url in `failed`; stream_download surfaces that as a RuntimeError
+    # (never a DownloadCancelled — that is only the user-cancel path).
+    server.always_fail_ends = {len(PAYLOAD) - 1}
+    with pytest.raises(RuntimeError) as exc:
+        stream_download(_url(server), tmp_path / "x.bin", segments=4, retries=1, poll_interval=0.02)
+    assert not isinstance(exc.value, DownloadCancelled)
+
+
+# ── download_kwargs — the new {segments, retries} shape + the clamps ───────────
+
+def test_download_kwargs_shape_and_collapse():
     cfg = SimpleNamespace(download_segments_enabled=True, download_segment_count=6,
-                          download_segment_min_bytes=123, download_segment_retries=2)
-    assert download_kwargs(cfg) == {"segments": 6, "segment_min_bytes": 123, "segment_retries": 2}
+                          download_segment_retries=2)
+    assert download_kwargs(cfg) == {"segments": 6, "retries": 2}   # min_bytes is RETIRED — gone from the shape
     cfg.download_segments_enabled = False
-    assert download_kwargs(cfg)["segments"] == 1               # off = the single-stream path
+    assert download_kwargs(cfg)["segments"] == 1                   # off → the single stream
 
 
-def test_download_kwargs_clamps_the_count_and_retries():
-    """#10 (2026-07-17) — the read-path belt: even a raw DB value past the ceiling can't
-    spawn 200 threads. Was UNCAPPED (a "20" spawned 20 parallel Range requests). Mirrors
-    the engine-config write clamp, so the two paths agree on the same [1, MAX] window."""
-    from llm_runner.runner.config import MAX_DOWNLOAD_SEGMENT_COUNT, MAX_DOWNLOAD_SEGMENT_RETRIES
-
+def test_download_kwargs_clamps_count_and_retries():
     over = SimpleNamespace(download_segments_enabled=True, download_segment_count=200,
-                           download_segment_min_bytes=123, download_segment_retries=99)
+                           download_segment_retries=99)
     kw = download_kwargs(over)
-    assert kw["segments"] == MAX_DOWNLOAD_SEGMENT_COUNT        # 200 → 16, not 200 threads
-    assert kw["segment_retries"] == MAX_DOWNLOAD_SEGMENT_RETRIES
-    # And the floor: a 0/negative count still yields at least the single stream.
+    assert kw["segments"] == MAX_DOWNLOAD_SEGMENT_COUNT             # 200 → the ceiling, not 200 range requests
+    assert kw["retries"] == MAX_DOWNLOAD_SEGMENT_RETRIES
+    assert "segment_min_bytes" not in kw                           # the retired knob leaks nowhere
     under = SimpleNamespace(download_segments_enabled=True, download_segment_count=0,
-                            download_segment_min_bytes=123, download_segment_retries=-5)
+                            download_segment_retries=-5)
     kw2 = download_kwargs(under)
-    assert kw2["segments"] == 1 and kw2["segment_retries"] == 0
+    assert kw2["segments"] == 1 and kw2["retries"] == 0            # floor: at least a single stream, no negative retries

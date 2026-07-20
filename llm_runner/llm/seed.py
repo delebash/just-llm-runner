@@ -15,6 +15,7 @@ from __future__ import annotations
 from . import db
 from ..runner.config import (
     DEFAULT_BINARIES,
+    DEFAULT_DOWNLOAD_MAX_CONCURRENT,
     DEFAULT_DOWNLOAD_SEGMENT_COUNT,
     DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES,
     DEFAULT_DOWNLOAD_SEGMENT_RETRIES,
@@ -459,8 +460,12 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
     # the next boot (the fill-empty seeder never clobbers user edits).
     {"key": "download_segments_enabled", "value": "1" if DEFAULT_DOWNLOAD_SEGMENTS_ENABLED else "0"},
     {"key": "download_segment_count", "value": str(DEFAULT_DOWNLOAD_SEGMENT_COUNT)},
+    # download_segment_min_bytes is RETIRED (pypdl decides single/multi itself) but the row is
+    # kept — an existing DB keeps its value and the config API still round-trips it; inert.
     {"key": "download_segment_min_bytes", "value": str(DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES)},
     {"key": "download_segment_retries", "value": str(DEFAULT_DOWNLOAD_SEGMENT_RETRIES)},
+    # CONCURRENT model downloads (2026-07-20): parallel per-model download cap.
+    {"key": "download_max_concurrent", "value": str(DEFAULT_DOWNLOAD_MAX_CONCURRENT)},
     # (reasoning_cap_default REMOVED 2026-07-16: the reasoning budget is no longer a
     # min()-clamped cap — it is a normal layered `reasoning_budget` SWITCH row resolved by
     # switch_resolve (base bundle → class tune → model tune). Existing DBs keep an orphan

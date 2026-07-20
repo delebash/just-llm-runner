@@ -18,7 +18,11 @@ from typing import Protocol
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..runner.config import MAX_DOWNLOAD_SEGMENT_COUNT, MAX_DOWNLOAD_SEGMENT_RETRIES
+from ..runner.config import (
+    MAX_DOWNLOAD_CONCURRENT,
+    MAX_DOWNLOAD_SEGMENT_COUNT,
+    MAX_DOWNLOAD_SEGMENT_RETRIES,
+)
 
 
 class RunnerBinaryRow(BaseModel):
@@ -40,8 +44,9 @@ class EngineConfig(BaseModel):
     # the min-bytes floor (and everything, when disabled) stay single-stream.
     downloadSegmentsEnabled: bool = True
     downloadSegmentCount: int = 4
-    downloadSegmentMinBytes: int = 64 * 1024 * 1024
+    downloadSegmentMinBytes: int = 64 * 1024 * 1024   # RETIRED/inert (pypdl picks single vs multi); kept for back-compat
     downloadSegmentRetries: int = 3
+    downloadMaxConcurrent: int = 4   # CONCURRENT model downloads (2026-07-20)
     # A5 (user "do", 2026-07-06): "off" | "notify". Notify = the UI surfaces "update
     # available" and the bump is a deliberate click; NEVER auto-applied — the pin is a
     # VERIFIED pin (flag semantics move between llama.cpp builds).
@@ -70,6 +75,7 @@ class EngineConfigUpdate(BaseModel):
     downloadSegmentCount: int | None = None
     downloadSegmentMinBytes: int | None = None
     downloadSegmentRetries: int | None = None
+    downloadMaxConcurrent: int | None = None
     binaries: list[RunnerBinaryRow] | None = None   # each upserted by (platform, gpu)
 
 
@@ -123,9 +129,15 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             # config, so the field snaps back to the clamped value the user sees.
             store.set_setting("download_segment_count", str(max(1, min(MAX_DOWNLOAD_SEGMENT_COUNT, int(body.downloadSegmentCount)))))
         if body.downloadSegmentMinBytes is not None:
+            # RETIRED/inert since the pypdl cutover (pypdl picks single vs multi itself) — still
+            # accepted + persisted so an existing UI/DB round-trips without a 422; nothing reads it.
             store.set_setting("download_segment_min_bytes", str(max(0, int(body.downloadSegmentMinBytes))))
         if body.downloadSegmentRetries is not None:
             store.set_setting("download_segment_retries", str(max(0, min(MAX_DOWNLOAD_SEGMENT_RETRIES, int(body.downloadSegmentRetries)))))
+        if body.downloadMaxConcurrent is not None:
+            # Clamp to [1, MAX] — same ONE-source belt as the segment knobs; the lifecycle gate
+            # re-clamps on read too, so a raw DB poke can't spawn more than MAX parallel downloads.
+            store.set_setting("download_max_concurrent", str(max(1, min(MAX_DOWNLOAD_CONCURRENT, int(body.downloadMaxConcurrent)))))
         for row in body.binaries or []:
             if not row.platform.strip() or not row.gpu.strip():
                 raise HTTPException(status_code=400, detail="each binary needs platform + gpu")

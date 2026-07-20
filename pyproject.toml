@@ -12,7 +12,8 @@ license = { text = "GPL-3.0-or-later" }
 dependencies = [
     "fastapi>=0.115",   # the mountable router (both apps mount it)
     "pydantic>=2.9",    # camelCase schema (shared contract)
-    "requests>=2.32",   # streaming downloads (binaries + GGUF)
+    "requests>=2.32",   # HF Hub JSON API calls (revision/tree/search) — NOT the file downloads
+    "pypdl>=1.5.7",     # concurrent, resumable file downloads (binaries + GGUF) — pulls aiohttp/aiofiles, no ML
     "httpx>=0.27",      # provider adapters (cloud + local chat-completions)
     # Official vendor SDKs (user ruling 2026-07-17 — the SDK pivot; versions are the
     # live-proof pins): they own each cloud's wire format + retries. Local adapters

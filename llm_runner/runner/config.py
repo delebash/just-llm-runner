@@ -69,16 +69,26 @@ DEFAULT_SLEEP_IDLE_SECONDS = 900
 # segment already wrote.
 DEFAULT_DOWNLOAD_SEGMENTS_ENABLED = True
 DEFAULT_DOWNLOAD_SEGMENT_COUNT = 4
+# RETIRED 2026-07-20 (pypdl cutover): pypdl decides single- vs multi-segment itself from
+# the server's Accept-Ranges + size, so this floor is inert. Kept as a constant (and the
+# DB row / config-API field) for back-compat — `download_kwargs` no longer reads it.
 DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES = 64 * 1024 * 1024
 DEFAULT_DOWNLOAD_SEGMENT_RETRIES = 3
-# Upper bounds for the two count knobs (#10, 2026-07-17). There was NO cap: a UI
-# "20" spawned 20 parallel Range requests (one thread each), and past ~4-8 that
-# only piles load on the CDN edge without adding speed (the comment above). 16 is a
-# generous ceiling; retries past ~10 just prolong a genuinely-dead segment. The write
-# path (engine-config PUT) and the read path (download_kwargs) both clamp to these —
-# ONE source, so a raw DB poke can't route around them either.
+# CONCURRENT model downloads (2026-07-20): how many model downloads may run in parallel —
+# clicking Download on several models now runs them at once (a per-model thread + admission
+# gate in lifecycle), instead of the old "second click is a silent no-op". Read LIVE at
+# admission so the knob is tunable without a restart; DB-editable via runner_setting.
+DEFAULT_DOWNLOAD_MAX_CONCURRENT = 4
+# Upper bounds for the count knobs (#10, 2026-07-17; concurrency added 2026-07-20). There was
+# NO segment cap: a UI "20" spawned 20 parallel Range requests (one thread each), and past
+# ~4-8 that only piles load on the CDN edge without adding speed (the comment above). 16 is a
+# generous ceiling; retries past ~10 just prolong a genuinely-dead segment; >10 concurrent
+# whole-model downloads just thrash the disk + CDN. The write path (engine-config PUT) and the
+# read paths (download_kwargs / the lifecycle admission gate) all clamp to these — ONE source,
+# so a raw DB poke can't route around them either.
 MAX_DOWNLOAD_SEGMENT_COUNT = 16
 MAX_DOWNLOAD_SEGMENT_RETRIES = 10
+MAX_DOWNLOAD_CONCURRENT = 10
 
 # Prebuilt llama-server distributions, selected by (platform, gpu). We never
 # install a CUDA toolkit — we only DETECT the system and pick the matching

@@ -428,8 +428,7 @@ def acquire_model(
     on_progress: Callable[[int, int | None], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     segments: int = 1,
-    segment_min_bytes: int = 64 * 1024 * 1024,
-    segment_retries: int = 3,
+    retries: int = 3,
 ) -> Path:
     """Download the GGUF(s) for `quant` into the HF cache; return the snapshot
     dir llama.cpp loads from (`…/snapshots/<sha>/`).
@@ -439,6 +438,11 @@ def acquire_model(
     `on_progress(cumulative, total)` receives cumulative bytes across ALL
     selected files against the summed grand total (so the caller can show one
     smooth bar); `cancel_check` is polled per file and passed to the stream.
+
+    `segments`/`retries` are pypdl's per-file knobs (parallel byte-range count +
+    per-file retries), threaded down from `download_kwargs`. `stream_download`
+    returns None now (its old sha256 return was never used here — the on-disk
+    blob size is the integrity check), so nothing is captured from it.
     """
     commit_sha, files = select_files(repo, quant, mmproj, revision)
     grand_total = sum(_entry_size(e) for e in files) or None
@@ -474,8 +478,7 @@ def acquire_model(
                 ),
                 cancel_check=cancel_check,
                 segments=segments,
-                segment_min_bytes=segment_min_bytes,
-                segment_retries=segment_retries,
+                retries=retries,
             )
 
         # snapshot/<path> -> blob. Relative symlink so the cache dir is

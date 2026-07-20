@@ -19,6 +19,7 @@ from .hardware import class_key, detect, machine_key, max_vram_mb
 from .lifecycle import get_service
 from .process import Overrides
 from .schema import (
+    DownloadCancelRequest,
     HardwareInfo,
     LoadRequest,
     ModelEntry,
@@ -113,9 +114,9 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     # case) → empty set → every model falls through to disk/available. The download-only
     # channel still overlays independently (it can run while a model is resident).
     live = {m["id"]: m.get("status") for m in service.resident(hardware).get("models", [])}
-    dl = service.download_status()
-    dl_id = dl.get("modelId") or ""
-    dl_state = dl.get("status") or "idle"
+    # Downloads are now concurrent + per-model keyed: {modelId: {status, …}}. A model absent
+    # from the map is idle on that channel (its weights are simply on disk or not).
+    downloads = service.download_status().get("downloads", {})
 
     def _status_for(model_id: str, downloaded: bool) -> str:
         s = live.get(model_id)
@@ -130,11 +131,12 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
             return "loading"
         if s in ("failed", "error"):
             return "error"
-        # A download-only op runs on its OWN channel (it can overlap a loaded model).
-        if model_id == dl_id:
-            if dl_state == "downloading":
+        # A download-only op runs on its OWN per-model channel (it can overlap a loaded model).
+        dl = downloads.get(model_id)
+        if dl is not None:
+            if dl.get("status") == "downloading":
                 return "loading"
-            if dl_state == "error":
+            if dl.get("status") == "error":
                 return "error"
         return "disk" if downloaded else "available"
 
@@ -207,17 +209,21 @@ async def download_model(body: LoadRequest) -> dict:
     return get_service().download(body.model_id)
 
 
-@router.get("/v1/llm-runner/download/status", summary="Progress of an in-flight download-only op")
+@router.get("/v1/llm-runner/download/status", summary="Progress of in-flight download-only ops")
 async def download_status() -> dict:
+    """Every in-flight/errored model download keyed by model id:
+    `{"downloads": {modelId: {status, modelId, detail, error, downloaded, total}}}`.
+    Downloads run concurrently, so a model absent from the map is idle on this channel."""
     return get_service().download_status()
 
 
-@router.post("/v1/llm-runner/download/cancel", summary="Cancel an in-flight download-only op")
-async def download_cancel() -> dict:
-    """Signal the standalone Download op to stop at the next chunk boundary. Idempotent:
-    a no-op (returns the current status) when nothing is downloading. Returns the live
-    download status — 'cancelling…' immediately, then idle once the worker unwinds."""
-    return get_service().cancel_download()
+@router.post("/v1/llm-runner/download/cancel", summary="Cancel a model download (one id, or all)")
+async def download_cancel(body: DownloadCancelRequest | None = None) -> dict:
+    """Signal a download to stop at the next chunk boundary. With `modelId` → cancel just
+    that model's download; with no body / null → cancel ALL (the back-compat path). A queued
+    download cancels before it starts. Idempotent: unknown/idle ids are no-ops. Returns the
+    live download status — the cancelled row reads 'cancelling…' briefly, then leaves the map."""
+    return get_service().cancel_download((body.model_id if body else None) or None)
 
 
 @router.get("/v1/llm-runner/status", summary="Current load/run status")

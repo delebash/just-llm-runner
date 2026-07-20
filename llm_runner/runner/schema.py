@@ -139,13 +139,17 @@ class RunnerConfig(CamelModel):
     # of the hardware preference order by binary._gpu_preference. "" = Auto (pure
     # hardware order). DB-editable via runner_setting `preferred_gpu`.
     preferred_gpu: str = ""
-    # Segmented downloads (DL-2): N parallel byte-ranges per file; files under
-    # the min-bytes floor (and everything, when disabled) stay single-stream.
-    # DB-editable via runner_setting; defaults mirror runner.config DEFAULT_*.
+    # Segmented downloads (DL-2): N parallel byte-ranges per file; everything when
+    # disabled stays single-stream. `download_segment_min_bytes` is RETIRED (pypdl
+    # picks single/multi itself) but kept for DB/back-compat. DB-editable via
+    # runner_setting; defaults mirror runner.config DEFAULT_*.
     download_segments_enabled: bool = True
     download_segment_count: int = 4
     download_segment_min_bytes: int = 64 * 1024 * 1024
     download_segment_retries: int = 3
+    # CONCURRENT model downloads (2026-07-20): how many model downloads run in parallel
+    # (the lifecycle admission gate reads this LIVE). 1 = serialize.
+    download_max_concurrent: int = 4
 
 
 # ─── Model catalog view (GET /v1/llm-runner/models) ─────────────────────
@@ -263,3 +267,15 @@ class LoadRequest(CamelModel):
     # These are transient tuning inputs (measure-only), not saved per-model — a
     # tuned config persists per-preset in engine_presets via the Lab.
     switches: dict[str, str] | None = None
+
+
+# ─── Cancel a download (POST /v1/llm-runner/download/cancel) ─────────────
+
+
+class DownloadCancelRequest(CamelModel):
+    """Body for POST /v1/llm-runner/download/cancel. `modelId` cancels just that model's
+    in-flight download; OMITTED / null cancels ALL of them (the back-compat no-id path).
+    Since model downloads are now concurrent + per-model keyed, a plain no-body POST still
+    means 'cancel everything', while the catalog's per-row Cancel targets one id."""
+
+    model_id: str | None = None

@@ -2076,14 +2076,14 @@ def test_download_acquires_both_legs_for_mtp(tmp_path):
             (snap / "MTP" / "d-Q4_0-MTP.gguf").write_bytes(b"g" * 64)
         if on_progress:
             on_progress(512, 1024)                     # a real chunk → the leg's phase writes
-        details.append(svc._download_state["detail"])
+        details.append(_dl_map(svc).get(_DRAFT_MODEL.id, {}).get("detail"))
         return real(repo, second, *a, **k)
 
     svc._acquire_model = spy
     svc.download(_DRAFT_MODEL.id)
-    svc._download_thread.join(timeout=5)
+    _await_download(svc, _DRAFT_MODEL.id)
 
-    assert svc.download_status()["status"] == "idle"   # completed cleanly
+    assert _DRAFT_MODEL.id not in _dl_map(svc)          # completed cleanly (absent == done)
     assert calls == [(_DRAFT_MODEL.hf_repo, _DRAFT_MODEL.quant),
                      (_DRAFT_MODEL.hf_repo, _DRAFT_MODEL.mtp_draft_file)]
     assert "MTP draft model" in details
@@ -2103,9 +2103,9 @@ def test_download_single_acquire_when_no_draft_wanted(tmp_path):
 
     svc._acquire_model = spy
     svc.download(_TEST_MODEL.id)
-    svc._download_thread.join(timeout=5)
+    _await_download(svc, _TEST_MODEL.id)
 
-    assert svc.download_status()["status"] == "idle"
+    assert _TEST_MODEL.id not in _dl_map(svc)
     assert calls == [(_TEST_MODEL.hf_repo, _TEST_MODEL.quant)]
 
 
@@ -2119,17 +2119,16 @@ def test_download_cancel_during_draft_leg_returns_to_idle(tmp_path):
 
     def spy(repo, second, *a, cancel_check=None, **k):
         if second == _DRAFT_MODEL.mtp_draft_file:      # the draft leg
-            svc.cancel_download()                       # the user cancels mid-draft
+            svc.cancel_download(_DRAFT_MODEL.id)         # the user cancels mid-draft
             assert cancel_check is not None and cancel_check()
             raise DownloadCancelled()
         return real(repo, second, *a, **k)
 
     svc._acquire_model = spy
     svc.download(_DRAFT_MODEL.id)
-    svc._download_thread.join(timeout=5)
+    _await_download(svc, _DRAFT_MODEL.id)
 
-    assert svc.download_status()["status"] == "idle"
-    assert svc.download_status()["error"] == ""
+    assert _DRAFT_MODEL.id not in _dl_map(svc)          # cancelled → gone (a user cancel is not an error)
 
 
 # ── model_downloaded: the badge counts the draft when the config wants it ─────────

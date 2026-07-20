@@ -25,3 +25,10 @@ Then open `/tmp/claude-config/README.md` for the local + web install instruction
 
 ## Then clean up
 Delete this `claude-config-export/` folder from just-llm-runner — it was only transport.
+
+## 2026-07-20 — bundle updated in place
+Adds `agents/executor.md` (pinned plan-executor: Opus @ medium effort,
+stop-don't-decide contract) + a "Planner/executor split" section in `CLAUDE.md`,
+and provisions the agent in `install.sh`. If the standalone claude-config repo is
+already live, re-transport this bundle (or apply those two files + the install.sh
+line by hand).

@@ -144,7 +144,7 @@ class RunnerConfig(CamelModel):
     # picks single/multi itself) but kept for DB/back-compat. DB-editable via
     # runner_setting; defaults mirror runner.config DEFAULT_*.
     download_segments_enabled: bool = True
-    download_segment_count: int = 4
+    download_segment_count: int = 8   # keep in step with config.DEFAULT_DOWNLOAD_SEGMENT_COUNT
     download_segment_min_bytes: int = 64 * 1024 * 1024
     download_segment_retries: int = 3
     # CONCURRENT model downloads (2026-07-20): how many model downloads run in parallel

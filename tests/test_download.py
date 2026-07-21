@@ -112,6 +112,15 @@ class _RangeHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(PAYLOAD)))
             self.send_header("ETag", '"abc"')
             self.end_headers()
+            if self.server.always_fail_plain:
+                # The plain (single-stream) fetch also dies mid-body — used to prove the
+                # exhausted-ladder path (multiseg degraded to 1 and THAT fails too).
+                self._write(PAYLOAD[: len(PAYLOAD) // 2])
+                try:
+                    self.connection.close()
+                except OSError:
+                    pass
+                return
             self._write(PAYLOAD)
 
 
@@ -122,6 +131,7 @@ def server():
     srv.requests = []
     srv.fail_once_ends = set()
     srv.always_fail_ends = set()
+    srv.always_fail_plain = False
     srv.bytes_served = 0
     srv.chunk_delay = 0.0
     srv.lock = threading.Lock()
@@ -182,10 +192,11 @@ def test_segments_one_is_single_stream(server, tmp_path):
 # ── the unlink-first guard (BUG-A): a stale dest is NOT blessed as done ─────────
 
 def test_unlink_first_overwrites_stale_dest(server, tmp_path):
-    # pypdl's overwrite=False (needed for part-file resume) treats an existing FINAL file as
-    # already-complete (consumer.py:100). stream_download unlinks dest first, so a corrupt/
-    # partial leftover is REPLACED, never silently accepted. Without the unlink this reads back
-    # the stale bytes.
+    # A pre-existing dest must be REPLACED, never silently accepted. stream_download unlinks
+    # dest first AND passes task-level overwrite=True (pypdl's dest-exists bless at
+    # consumer.py:100 would otherwise accept a corrupt/partial leftover — including one its
+    # own failed single-stream try just wrote; part-file resume is progress-file-governed
+    # and unaffected, see test_resume_after_cancel).
     dest = tmp_path / "stale.bin"
     dest.write_bytes(b"STALE" * 1000)                         # wrong content + wrong size
     stream_download(_url(server), dest, segments=1, poll_interval=0.02)
@@ -228,16 +239,46 @@ def test_resume_after_cancel(server, tmp_path):
     assert server.bytes_served < len(PAYLOAD)                 # resumed → fewer bytes than a full fetch
 
 
-# ── a genuine failure (retries exhausted) → RuntimeError, not Cancelled ────────
+# ── the DEGRADE LADDER: a blocked multisegment self-heals down to one stream ───
+
+def test_ladder_degrades_to_single_stream_and_completes(server, tmp_path, caplog):
+    # The origin kills every range GET whose end is the file end (the LAST segment of any
+    # multisegment split) — pypdl exhausts its retries and fails the attempt. The ladder
+    # steps 4 → 2 → 1; the plain single stream (no Range header) succeeds. This is the
+    # pypdl gap the ladder closes: pypdl itself would hard-fail the file. Asserted on the
+    # ADAPTER's contract (bytes + the degrade sequence it logs + the final plain GET) —
+    # NOT on pypdl-internal request strings, which vary with a benign cancel/resume race
+    # (a gather-cancelled segment resumes at an offset on the rung's retry).
+    server.always_fail_ends = {len(PAYLOAD) - 1}
+    dest = tmp_path / "d.bin"
+    with caplog.at_level("WARNING", logger="llm_runner.runner.download"):
+        stream_download(_url(server), dest, segments=4, retries=1, poll_interval=0.02)
+    assert dest.read_bytes() == PAYLOAD                        # completed despite the blocks
+    assert None in server.requests                             # the final, plain (rangeless) GET
+    degrades = [r.message for r in caplog.records if "degraded to" in r.message]
+    assert [m.split()[3] for m in degrades] == ["2", "1"]      # the ladder walked 4 → 2 → 1
+    # No part-file/progress litter — the honest contract: a Windows lock that outlives
+    # even the post-success sweep MAY leave one part-file, but then the adapter LOGGED
+    # that exact straggler ("still locked"); anything unlogged is a real cleanup bug.
+    assert not (tmp_path / "d.bin.json").exists()              # the progress file always clears
+    stuck = [r.message for r in caplog.records if "still locked" in r.message]
+    for leftover in tmp_path.glob("d.bin.*"):
+        assert any(leftover.name in m for m in stuck), f"unlogged litter: {leftover}"
+
+
+# ── a genuine failure (the whole ladder exhausted) → RuntimeError, not Cancelled ─
 
 def test_failure_after_retries_raises_runtimeerror(server, tmp_path):
-    # The single stream drops the connection on every attempt → the task exhausts its retries
-    # and pypdl records the url in `failed`; stream_download surfaces that as a RuntimeError
-    # (never a DownloadCancelled — that is only the user-cancel path).
+    # EVERY path dies mid-body: the last multisegment range at each rung AND the plain
+    # single stream. The ladder degrades 4 → 2 → 1, the single stream fails too, and only
+    # then does stream_download raise RuntimeError (never DownloadCancelled — that is
+    # reserved for the user-cancel path).
     server.always_fail_ends = {len(PAYLOAD) - 1}
+    server.always_fail_plain = True
     with pytest.raises(RuntimeError) as exc:
         stream_download(_url(server), tmp_path / "x.bin", segments=4, retries=1, poll_interval=0.02)
     assert not isinstance(exc.value, DownloadCancelled)
+    assert None in server.requests                             # the ladder DID reach the single stream
 
 
 # ── download_kwargs — the new {segments, retries} shape + the clamps ───────────

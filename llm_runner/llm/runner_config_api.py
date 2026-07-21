@@ -43,7 +43,7 @@ class EngineConfig(BaseModel):
     # Segmented downloads (DL-2): N parallel byte-ranges per file; files under
     # the min-bytes floor (and everything, when disabled) stay single-stream.
     downloadSegmentsEnabled: bool = True
-    downloadSegmentCount: int = 4
+    downloadSegmentCount: int = 8   # keep in step with config.DEFAULT_DOWNLOAD_SEGMENT_COUNT
     downloadSegmentMinBytes: int = 64 * 1024 * 1024   # RETIRED/inert (pypdl picks single vs multi); kept for back-compat
     downloadSegmentRetries: int = 3
     downloadMaxConcurrent: int = 4   # CONCURRENT model downloads (2026-07-20)

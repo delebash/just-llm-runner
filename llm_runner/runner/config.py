@@ -62,13 +62,14 @@ DEFAULT_SLEEP_IDLE_SECONDS = 900
 # Segmented (multithreaded) downloads (DL-2, plan 2026-07-08): split ONE file
 # into N byte ranges downloaded in parallel — one slow CDN edge stops capping
 # the whole download. DB-editable via runner_setting (the user's requirement:
-# "usually we have settings for this like number of threads ect"). Segment
-# count 4 matches hf_transfer-class tools (more mostly adds CDN load, not
-# speed); files under the min-bytes floor stay single-stream (TCP ramp-up eats
-# the win below ~64 MB); retries are per SEGMENT, resuming from the bytes that
-# segment already wrote.
+# "usually we have settings for this like number of threads ect"). Segment count
+# 8 (user default, 2026-07-21): origins that throttle PER-CONNECTION (GitHub
+# releases → Azure blob is the exhibit) hand back roughly N× with N connections,
+# so 8 beats 4 there; the cost is more CDN load, and it's a no-op when the limit
+# is per-IP or the local link. Capped at MAX_DOWNLOAD_SEGMENT_COUNT (16). Retries
+# are per SEGMENT, resuming from the bytes that segment already wrote.
 DEFAULT_DOWNLOAD_SEGMENTS_ENABLED = True
-DEFAULT_DOWNLOAD_SEGMENT_COUNT = 4
+DEFAULT_DOWNLOAD_SEGMENT_COUNT = 8
 # RETIRED 2026-07-20 (pypdl cutover): pypdl decides single- vs multi-segment itself from
 # the server's Accept-Ranges + size, so this floor is inert. Kept as a constant (and the
 # DB row / config-API field) for back-compat — `download_kwargs` no longer reads it.

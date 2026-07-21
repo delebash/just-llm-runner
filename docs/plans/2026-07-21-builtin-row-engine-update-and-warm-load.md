@@ -75,11 +75,22 @@ its model is already downloaded, warm it early and SHOW it loading. Approved des
 - `llm_runner/llm/stores.py` `get_config()` — reads the row (absent → "1"/True) and passes
   `warmDefaultOnStartup=` into `EngineConfig(...)`; `reset_to_defaults()` restores it to "1".
 
-**The toggle** — `ui/src/components/LuRunnerEngine.vue`: a `UiToggle` in `.lu-eng-knobs`
-after "Engine updates", labelled "Load the default local model into memory on startup",
-applied-on-flip (`setWarmDefaultOnStartup` → `PUT {warmDefaultOnStartup}`) exactly like the
-"Faster downloads" toggle; the draft seeds from engine-config in `loadDownloadKnobs`. Shared
-kit → the toggle also appears in JustVoice's engine settings (harmless; JV has no warm trigger).
+**The toggle** — `ui/src/components/LuRunnerEngine.vue`: a `UiToggle` labelled "Load the
+default local model into memory on startup", applied-on-flip (`setWarmDefaultOnStartup` →
+`PUT {warmDefaultOnStartup}`) exactly like the "Faster downloads" toggle; the draft seeds
+from engine-config in `loadDownloadKnobs`. Shared kit → the toggle also appears in
+JustVoice's engine settings (harmless; JV has no warm trigger).
+
+**Toggle placement (2026-07-21, user follow-up).** First shipped inside the `.lu-eng-knobs`
+group (behind the `Details ▾` fold); the user: "not good place to put it buried in engine
+settings put it after running on NVIDIA CUDA with space between" → then "not under to right
+of". MOVED out of the `showDetails` template onto the SAME row as the acceleration backend:
+a new always-rendered `.lu-eng-engrow` wrapper (`justify-content: space-between`) holds the
+`.lu-eng-backend` group at the left and the `.lu-eng-warm` toggle pushed to the RIGHT of
+"running on <backend>", with the gap between. Only the picker stays gated on
+`showBackendPicker`; the wrapper (and thus the toggle) always renders, so on a single-backend
+box the lone toggle sits at the row start — never hidden. Same binding/action; only its DOM
+home + the row CSS changed.
 
 **The client warm** — `justwrite-app/src/renderer/src/services/warmDefault.js` +
 `main.js` (fired at the boot IIFE tail, fire-and-forget, next to `startAutoRebuildWatcher`).

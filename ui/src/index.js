@@ -47,10 +47,19 @@ export { useProviderModels } from "./composables/useProviderModels.js";
 export { useResolvedRoute } from "./composables/useResolvedRoute.js";
 export { default as LuFeatureChip } from "./components/LuFeatureChip.vue";
 export { ensureEmbeddingReady, embedTexts, _resetEnsureCache } from "./services/embedApi.js";
-// The shared runner-models list's refresh — so a host surface that mutates on-disk model
-// state out-of-band (e.g. JustWrite's Storage "Clear models cache") can re-stat the
-// catalog singleton, which otherwise only re-fetches on first mount / while a load runs.
-export { refresh as refreshRunnerModels } from "./composables/useRunnerModels.js";
+// The shared runner-models singleton — `refresh` (re-stat the catalog out-of-band, e.g.
+// JustWrite's "Clear models cache") and the whole `useRunnerModels()` accessor so a host
+// can reuse the SAME load path the model catalog uses (retryLoad → POST /v1/llm-runner/load,
+// taskFor(id) → the DownloadBar-shaped live progress). JustWrite's warm-on-startup rides
+// this — no second load impl.
+export { refresh as refreshRunnerModels, useRunnerModels } from "./composables/useRunnerModels.js";
+// The shared applied-default resolver — currentDefaultId is the default LOCAL chat model
+// (empty when the default provider isn't the local runner). Same source as the catalog's
+// Default badge; the host reads it to know WHICH model to warm.
+export { useModelApply } from "./services/modelApply.js";
+// THE one download bar — a host boot/loading surface reuses it to render a model LOAD
+// (via useRunnerModels().taskFor(id)) instead of forking the control.
+export { default as DownloadBar } from "./common/components/DownloadBar.vue";
 
 // views
 export { default as ProviderForm } from "./views/ProviderForm.vue";

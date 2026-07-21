@@ -468,6 +468,11 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
     {"key": "download_segment_retries", "value": str(DEFAULT_DOWNLOAD_SEGMENT_RETRIES)},
     # CONCURRENT model downloads (2026-07-20): parallel per-model download cap.
     {"key": "download_max_concurrent", "value": str(DEFAULT_DOWNLOAD_MAX_CONCURRENT)},
+    # Warm the default local chat model into VRAM on app startup (2026-07-21, user).
+    # Default ON — but the CLIENT only warms when the routing default IS the built-in
+    # provider with a downloaded model (so a cloud-default user never triggers a load).
+    # Additive row: an existing DB gains it at the next boot (fill-empty seeder).
+    {"key": "warm_default_on_startup", "value": "1"},
     # (reasoning_cap_default REMOVED 2026-07-16: the reasoning budget is no longer a
     # min()-clamped cap — it is a normal layered `reasoning_budget` SWITCH row resolved by
     # switch_resolve (base bundle → class tune → model tune). Existing DBs keep an orphan

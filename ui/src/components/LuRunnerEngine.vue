@@ -18,6 +18,8 @@ import UiProgress from "../common/components/UiProgress.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiToggle from "../common/components/UiToggle.vue";
 import LuRunnerBinaries from "./LuRunnerBinaries.vue";
+import LuEngineInstallButton from "./LuEngineInstallButton.vue";
+import LuEngineUpdateButton from "./LuEngineUpdateButton.vue";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
 import { usePoll } from "../common/composables/usePoll.js";
@@ -29,7 +31,7 @@ import { usePoll } from "../common/composables/usePoll.js";
 // cluster, install progress/errors, and the Details drawer. Install POLLING
 // lives in the composable, so progress keeps flowing whichever surface started
 // it and whichever is mounted.
-const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, updateInfo, checkForUpdate, updateToLatest, refreshEngine, install: engInstall, cancel: engCancel, uninstall: engUninstall, setBackend, busy: engBusy } = useEngine();
+const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, updateInfo, checkForUpdate, refreshEngine, install: engInstall, cancel: engCancel, uninstall: engUninstall, setBackend, busy: engBusy } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
 // Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
@@ -84,6 +86,7 @@ const dlSegmentsEnabled = ref(null);
 const dlSegmentCount = ref(null);
 const dlSegmentMinMb = ref(null);
 const dlSegmentRetries = ref(null);
+const warmDefaultOnStartup = ref(null); // warm the default local chat model into VRAM on startup
 
 async function loadDownloadKnobs() {
   try {
@@ -92,6 +95,7 @@ async function loadDownloadKnobs() {
     if (dlSegmentCount.value === null) dlSegmentCount.value = r.downloadSegmentCount;
     if (dlSegmentMinMb.value === null) dlSegmentMinMb.value = Math.round((r.downloadSegmentMinBytes || 0) / MB);
     if (dlSegmentRetries.value === null) dlSegmentRetries.value = r.downloadSegmentRetries;
+    if (warmDefaultOnStartup.value === null) warmDefaultOnStartup.value = !!r.warmDefaultOnStartup;
   } catch {
     // transient — the drafts stay null and Save simply omits them (partial PUT)
   }
@@ -103,6 +107,17 @@ async function setDlSegmentsEnabled(v) {
   dlSegmentsEnabled.value = v;
   try {
     await request("/v1/ai/engine-config", { method: "PUT", body: { downloadSegmentsEnabled: !!v } });
+  } catch (e) {
+    knobErr.value = e.message || "Couldn't save.";
+  }
+}
+
+// Warm-on-startup (2026-07-21): same apply-on-flip precedent. Master on/off only —
+// the JW client still warms only when the built-in is the routing default + downloaded.
+async function setWarmDefaultOnStartup(v) {
+  warmDefaultOnStartup.value = v;
+  try {
+    await request("/v1/ai/engine-config", { method: "PUT", body: { warmDefaultOnStartup: !!v } });
   } catch (e) {
     knobErr.value = e.message || "Couldn't save.";
   }
@@ -209,17 +224,12 @@ onMounted(() => {
              the user's words). While an install RUNS the buttons yield to the
              progress bar below (#119 — the exe lands on disk early, so a
              mid-install `installed` flip must not swap the cluster). -->
-        <UiButton v-if="statusKnown && !installed && !installing" intent="primary" size="small"
-          :loading="engBusy" title="Download + install the llama.cpp engine for this machine"
-          @click="engInstall()">Install engine</UiButton>
+        <LuEngineInstallButton v-if="statusKnown && !installed && !installing" />
         <template v-if="installed && !installing">
           <UiButton intent="ghost" size="small"
             :loading="engBusy" title="Delete the engine binaries — models are kept"
             @click="engUninstall">Uninstall engine</UiButton>
-          <UiButton v-if="updateInfo?.updateAvailable" intent="info" size="small"
-            :loading="engBusy"
-            :title="`Update the engine to ${updateInfo.latest} (you have ${updateInfo.current}) — the old build folder is removed after the new one installs`"
-            @click="updateToLatest">Update to {{ updateInfo.latest }}</UiButton>
+          <LuEngineUpdateButton v-if="updateInfo?.updateAvailable" />
           <UiButton v-else intent="secondary" size="small"
             :loading="engBusy" title="Re-download the pinned engine build"
             @click="engInstall(true)">Reinstall</UiButton>
@@ -234,12 +244,26 @@ onMounted(() => {
          "CUDA available" label — pick which GPU backend the engine runs on; the variant
          downloads on demand and a manual restart applies it. Shown only when the box has
          a genuine choice (e.g. an NVIDIA driver exposes both CUDA and Vulkan). -->
-    <div v-if="showBackendPicker" class="lu-eng-backend">
-      <span class="lu-eng-backend-cap">Acceleration backend</span>
-      <UiSelect :model-value="st.preferredGpu || ''" width="name"
-        :options="backendOptions" :disabled="engBusy || installing"
-        @update:model-value="onPickBackend" />
-      <span v-if="activeBackendLabel" class="lu-eng-backend-active">running on {{ activeBackendLabel }}</span>
+    <!-- Backend picker + warm-on-startup share ONE row: backend group at the left, warm
+         toggle pushed to the RIGHT of "running on <backend>" (user, 2026-07-21: "put it
+         after running on NVIDIA CUDA … to right of … with space between"). The ROW always
+         renders — only the picker is gated on showBackendPicker — so the warm toggle stays
+         visible on single-backend boxes (there it sits alone at the row start). -->
+    <div class="lu-eng-engrow">
+      <div v-if="showBackendPicker" class="lu-eng-backend">
+        <span class="lu-eng-backend-cap">Acceleration backend</span>
+        <UiSelect :model-value="st.preferredGpu || ''" width="name"
+          :options="backendOptions" :disabled="engBusy || installing"
+          @update:model-value="onPickBackend" />
+        <span v-if="activeBackendLabel" class="lu-eng-backend-active">running on {{ activeBackendLabel }}</span>
+      </div>
+      <!-- Warm-on-startup (2026-07-21, user): out of the Details fold. Applies on flip; only
+           has an effect when the built-in is the default provider with a downloaded model
+           (the JW client gates the actual warm). -->
+      <label class="lu-eng-warm">
+        <UiToggle :model-value="!!warmDefaultOnStartup" @update:model-value="setWarmDefaultOnStartup" />
+        <span class="lu-eng-warm-cap">Load the default local model into memory on startup</span>
+      </label>
     </div>
 
     <!-- Progress + errors live OUTSIDE the collapse: an in-flight install or a failure
@@ -367,6 +391,12 @@ onMounted(() => {
    Vulkan) instead of filling the width="name" max-width cap — the shared trigger is
    width:100% by default, so the cap alone leaves a wide dead gap before the chevron. */
 .lu-eng-backend :deep(.ui-select-trigger) { width: fit-content; }
+/* Backend picker + warm-on-startup share one row: backend group left, warm toggle pushed
+   to the RIGHT (user, 2026-07-21: "to right of running on NVIDIA CUDA with space between").
+   space-between opens the gap; on a single-backend box the lone toggle sits at the start. */
+.lu-eng-engrow { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.lu-eng-warm { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.lu-eng-warm-cap { font-size: 12.5px; font-weight: 600; color: var(--lu-ink-2, var(--ink-2, #666)); }
 .lu-eng-err { margin: 0; font-size: 12.5px; color: var(--lu-danger, var(--danger, #b91c1c)); }
 .lu-eng-installing { display: flex; align-items: center; gap: 10px; }
 .lu-eng-installing .lu-eng-prog { flex: 1; min-width: 0; }

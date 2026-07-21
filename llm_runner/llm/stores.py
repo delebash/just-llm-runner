@@ -755,6 +755,8 @@ class RunnerConfigStore:
             ack_fp = ack_row.value if ack_row else ""
             pref_row = s.get(db.RunnerSetting, "preferred_gpu")
             preferred = (pref_row.value if pref_row else "") or ""
+            warm_row = s.get(db.RunnerSetting, "warm_default_on_startup")
+            warm = (warm_row.value if warm_row else "1") != "0"
         finally:
             s.close()
         return EngineConfig(
@@ -770,6 +772,7 @@ class RunnerConfigStore:
             updatePolicy=policy,
             ackHwFingerprint=ack_fp,
             preferredGpu=preferred,
+            warmDefaultOnStartup=warm,
             binaries=[_runner_binary_to_row(b) for b in cfg.llamacpp.binaries],
         )
 
@@ -837,7 +840,8 @@ class RunnerConfigStore:
                              ("download_segment_count", str(DEFAULT_DOWNLOAD_SEGMENT_COUNT)),
                              ("download_segment_min_bytes", str(DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES)),
                              ("download_segment_retries", str(DEFAULT_DOWNLOAD_SEGMENT_RETRIES)),
-                             ("download_max_concurrent", str(DEFAULT_DOWNLOAD_MAX_CONCURRENT))):
+                             ("download_max_concurrent", str(DEFAULT_DOWNLOAD_MAX_CONCURRENT)),
+                             ("warm_default_on_startup", "1")):
                 existing = s.get(db.RunnerSetting, key)
                 if existing is None:
                     existing = db.RunnerSetting(key=key, built_in=True)

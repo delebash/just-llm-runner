@@ -951,7 +951,11 @@ refreshApplied();
                   :loading="busy === 'redl:' + m.id"
                   title="Clear the downloaded file and fetch it again — repairs a corrupted or incomplete download. A loaded model is unloaded first. Keeps the catalog entry."
                   @click="redownload(m)">Re-download</UiButton>
-                <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
+                <!-- Gated on the honest `downloaded` flag, not a status list (2026-07-21, checker
+                     T5 parity): an errored-but-downloaded model can be freed too; a never-
+                     downloaded error can't. Hidden mid-load/unload (partial or mmap-locked file). -->
+                <UiButton v-if="m.downloaded && m.status !== 'loading' && m.status !== 'stopping'"
+                  intent="ghost" size="small"
                   :loading="busy === 'free:' + m.id"
                   title="Free the disk space its weights use — keeps the catalog entry, re-downloads on demand. A loaded model is unloaded first."
                   @click="freeDownload(m)">Free disk</UiButton>

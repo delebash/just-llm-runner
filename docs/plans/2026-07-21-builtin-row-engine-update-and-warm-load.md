@@ -81,16 +81,26 @@ default local model into memory on startup", applied-on-flip (`setWarmDefaultOnS
 from engine-config in `loadDownloadKnobs`. Shared kit → the toggle also appears in
 JustVoice's engine settings (harmless; JV has no warm trigger).
 
-**Toggle placement (2026-07-21, user follow-up).** First shipped inside the `.lu-eng-knobs`
-group (behind the `Details ▾` fold); the user: "not good place to put it buried in engine
-settings put it after running on NVIDIA CUDA with space between" → then "not under to right
-of". MOVED out of the `showDetails` template onto the SAME row as the acceleration backend:
-a new always-rendered `.lu-eng-engrow` wrapper (`justify-content: space-between`) holds the
-`.lu-eng-backend` group at the left and the `.lu-eng-warm` toggle pushed to the RIGHT of
-"running on <backend>", with the gap between. Only the picker stays gated on
-`showBackendPicker`; the wrapper (and thus the toggle) always renders, so on a single-backend
-box the lone toggle sits at the row start — never hidden. Same binding/action; only its DOM
-home + the row CSS changed.
+**Toggle placement (2026-07-21, user follow-ups).** Three moves. (1) First shipped inside the
+`.lu-eng-knobs` group behind the `Details ▾` fold. (2) User "not good place … put it after
+running on NVIDIA CUDA … to right of" → moved onto the acceleration-backend row in
+`LuRunnerEngine`. (3) User "its buried in edit put it on main local" — that whole
+`LuRunnerEngine` panel only renders *inside a provider's Edit form*, so the toggle was still
+one click deep. FINAL placement: the warm knob is a GLOBAL engine-config setting (not a
+per-provider one), so it MOVED out of the Edit panel entirely onto the **main Local page**.
+- Its state was hoisted from `LuRunnerEngine`'s local `ref` into the **`useEngine` singleton**
+  (`warmDefaultOnStartup` + `refreshWarm()` + `setWarmDefaultOnStartup()`), so every surface
+  binds ONE reactive value — the singleton's stated invariant ("surfaces can never disagree").
+- **NEW** `ui/src/components/LuWarmStartupToggle.vue` — THE shared toggle (label + `UiToggle`),
+  bound to the singleton, self-seeding via `refreshWarm()` on mount. Same convergence shape as
+  `LuEngineUpdateButton`/`LuEngineInstallButton`.
+- `AiModelsArea.vue` renders `<LuWarmStartupToggle v-if="providerScope === 'local'" />` right
+  under the `Local · free / Online · metered` segmented control, just above the local
+  providers — visible on the main page, no Edit needed.
+- `LuRunnerEngine.vue` dropped its local warm `ref`, its seed in `loadDownloadKnobs`, its
+  `setWarmDefaultOnStartup`, the template toggle, and the `.lu-eng-engrow`/`.lu-eng-warm` CSS;
+  the acceleration-backend picker is a plain standalone `.lu-eng-backend` block again. The
+  toggle now lives in exactly one place (the main page), not redundantly in the Edit form.
 
 **The client warm** — `justwrite-app/src/renderer/src/services/warmDefault.js` +
 `main.js` (fired at the boot IIFE tail, fire-and-forget, next to `startAutoRebuildWatcher`).

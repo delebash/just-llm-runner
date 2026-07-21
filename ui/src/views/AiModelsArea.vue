@@ -22,6 +22,7 @@ import ConsolePanel from "../components/ConsolePanel.vue";
 import LuBookSearchSetup from "../components/LuBookSearchSetup.vue";
 import LuEngineInstallButton from "../components/LuEngineInstallButton.vue";
 import LuEngineUpdateButton from "../components/LuEngineUpdateButton.vue";
+import LuWarmStartupToggle from "../components/LuWarmStartupToggle.vue";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import { useModelApply } from "../services/modelApply.js";
@@ -439,6 +440,11 @@ onMounted(() => {
             { value: 'local', label: 'Local · free', sublabel: 'Runs on your machine — no API key, no per-token cost' },
             { value: 'online', label: 'Online · metered', sublabel: 'Your account — API key + URL; pay per token' },
           ]" />
+        <!-- Warm-on-startup (2026-07-21, user "its buried in edit put it on main local"):
+             the global "load the default local model into VRAM on startup" knob belongs on
+             the Local scope, not inside a per-provider Edit form. THE shared control (bound
+             to the useEngine singleton), on the Local tab, just above the local providers. -->
+        <LuWarmStartupToggle v-if="providerScope === 'local'" class="lu-warmbar" />
         <template v-for="p in shownProviders" :key="p.id">
           <ProviderForm v-if="editingId === p.id" :provider="p" @saved="onSaved" @deleted="onSaved" @cancel="editingId = null" />
           <div v-else class="lu-prow">
@@ -649,6 +655,7 @@ onMounted(() => {
    so the caller owns the row width (a full-width strip over a wide provider list
    reads as a banner, not a control). */
 .lu-scope { display: flex; margin: 10px 0 4px; max-width: 520px; }
+.lu-warmbar { margin: 4px 2px 12px; }
 
 .lu-prow {
   /* 4 columns: icon · info · status · the ONE actions cell (Test/Edit + the Built-in

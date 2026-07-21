@@ -203,6 +203,30 @@ async function setBackend(family) {
 const updateInfo = ref(null); // {current, latest, updateAvailable, error} | null
 const updatePolicy = ref("notify");
 
+// Warm-on-startup (2026-07-21): warm the default local chat model into VRAM at launch.
+// A RunnerSetting on the engine config (like preferred_gpu / update_policy). Hoisted into
+// this singleton so the main Local page and any panel bind ONE reactive value — never a
+// per-surface copy that could disagree (the singleton's whole reason for being). Moved out
+// of LuRunnerEngine's local state when the toggle left the Edit panel for the main page
+// (user, 2026-07-21: "its buried in edit put it on main local").
+const warmDefaultOnStartup = ref(null); // null = not yet fetched
+async function refreshWarm() {
+  try {
+    const cfg = await request("/v1/ai/engine-config");
+    warmDefaultOnStartup.value = !!cfg.warmDefaultOnStartup;
+  } catch {
+    // leave null on a transient read — the toggle reads as off until a fetch lands
+  }
+}
+async function setWarmDefaultOnStartup(v) {
+  warmDefaultOnStartup.value = v; // apply on flip (the updatePolicy select precedent)
+  try {
+    await request("/v1/ai/engine-config", { method: "PUT", body: { warmDefaultOnStartup: !!v } });
+  } catch (e) {
+    error.value = e.message || "Couldn't save the warm-on-startup setting.";
+  }
+}
+
 async function checkForUpdate() {
   try {
     const cfg = await request("/v1/ai/engine-config");
@@ -267,6 +291,7 @@ export function useEngine() {
   return {
     engineState: st, busy, error, statusKnown, installed, installing, progressLabel,
     updateInfo, updatePolicy, checkForUpdate, setUpdatePolicy, updateToLatest,
+    warmDefaultOnStartup, refreshWarm, setWarmDefaultOnStartup,
     refreshEngine, install, cancel, uninstall, setBackend,
   };
 }

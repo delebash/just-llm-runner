@@ -86,7 +86,6 @@ const dlSegmentsEnabled = ref(null);
 const dlSegmentCount = ref(null);
 const dlSegmentMinMb = ref(null);
 const dlSegmentRetries = ref(null);
-const warmDefaultOnStartup = ref(null); // warm the default local chat model into VRAM on startup
 
 async function loadDownloadKnobs() {
   try {
@@ -95,7 +94,6 @@ async function loadDownloadKnobs() {
     if (dlSegmentCount.value === null) dlSegmentCount.value = r.downloadSegmentCount;
     if (dlSegmentMinMb.value === null) dlSegmentMinMb.value = Math.round((r.downloadSegmentMinBytes || 0) / MB);
     if (dlSegmentRetries.value === null) dlSegmentRetries.value = r.downloadSegmentRetries;
-    if (warmDefaultOnStartup.value === null) warmDefaultOnStartup.value = !!r.warmDefaultOnStartup;
   } catch {
     // transient — the drafts stay null and Save simply omits them (partial PUT)
   }
@@ -112,16 +110,6 @@ async function setDlSegmentsEnabled(v) {
   }
 }
 
-// Warm-on-startup (2026-07-21): same apply-on-flip precedent. Master on/off only —
-// the JW client still warms only when the built-in is the routing default + downloaded.
-async function setWarmDefaultOnStartup(v) {
-  warmDefaultOnStartup.value = v;
-  try {
-    await request("/v1/ai/engine-config", { method: "PUT", body: { warmDefaultOnStartup: !!v } });
-  } catch (e) {
-    knobErr.value = e.message || "Couldn't save.";
-  }
-}
 const { start: startResPoll } = usePoll(refreshResident, 2500);
 
 const residentModels = computed(() => resident.value?.models || []);
@@ -244,26 +232,15 @@ onMounted(() => {
          "CUDA available" label — pick which GPU backend the engine runs on; the variant
          downloads on demand and a manual restart applies it. Shown only when the box has
          a genuine choice (e.g. an NVIDIA driver exposes both CUDA and Vulkan). -->
-    <!-- Backend picker + warm-on-startup share ONE row: backend group at the left, warm
-         toggle pushed to the RIGHT of "running on <backend>" (user, 2026-07-21: "put it
-         after running on NVIDIA CUDA … to right of … with space between"). The ROW always
-         renders — only the picker is gated on showBackendPicker — so the warm toggle stays
-         visible on single-backend boxes (there it sits alone at the row start). -->
-    <div class="lu-eng-engrow">
-      <div v-if="showBackendPicker" class="lu-eng-backend">
-        <span class="lu-eng-backend-cap">Acceleration backend</span>
-        <UiSelect :model-value="st.preferredGpu || ''" width="name"
-          :options="backendOptions" :disabled="engBusy || installing"
-          @update:model-value="onPickBackend" />
-        <span v-if="activeBackendLabel" class="lu-eng-backend-active">running on {{ activeBackendLabel }}</span>
-      </div>
-      <!-- Warm-on-startup (2026-07-21, user): out of the Details fold. Applies on flip; only
-           has an effect when the built-in is the default provider with a downloaded model
-           (the JW client gates the actual warm). -->
-      <label class="lu-eng-warm">
-        <UiToggle :model-value="!!warmDefaultOnStartup" @update:model-value="setWarmDefaultOnStartup" />
-        <span class="lu-eng-warm-cap">Load the default local model into memory on startup</span>
-      </label>
+    <!-- Warm-on-startup moved OUT of this per-provider Edit panel onto the main Local page
+         (AiModelsArea → LuWarmStartupToggle) — it's a global engine-config knob, not a
+         per-provider one (user, 2026-07-21: "its buried in edit put it on main local"). -->
+    <div v-if="showBackendPicker" class="lu-eng-backend">
+      <span class="lu-eng-backend-cap">Acceleration backend</span>
+      <UiSelect :model-value="st.preferredGpu || ''" width="name"
+        :options="backendOptions" :disabled="engBusy || installing"
+        @update:model-value="onPickBackend" />
+      <span v-if="activeBackendLabel" class="lu-eng-backend-active">running on {{ activeBackendLabel }}</span>
     </div>
 
     <!-- Progress + errors live OUTSIDE the collapse: an in-flight install or a failure
@@ -391,12 +368,6 @@ onMounted(() => {
    Vulkan) instead of filling the width="name" max-width cap — the shared trigger is
    width:100% by default, so the cap alone leaves a wide dead gap before the chevron. */
 .lu-eng-backend :deep(.ui-select-trigger) { width: fit-content; }
-/* Backend picker + warm-on-startup share one row: backend group left, warm toggle pushed
-   to the RIGHT (user, 2026-07-21: "to right of running on NVIDIA CUDA with space between").
-   space-between opens the gap; on a single-backend box the lone toggle sits at the start. */
-.lu-eng-engrow { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.lu-eng-warm { display: flex; align-items: center; gap: 10px; cursor: pointer; }
-.lu-eng-warm-cap { font-size: 12.5px; font-weight: 600; color: var(--lu-ink-2, var(--ink-2, #666)); }
 .lu-eng-err { margin: 0; font-size: 12.5px; color: var(--lu-danger, var(--danger, #b91c1c)); }
 .lu-eng-installing { display: flex; align-items: center; gap: 10px; }
 .lu-eng-installing .lu-eng-prog { flex: 1; min-width: 0; }

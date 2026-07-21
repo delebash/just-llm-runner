@@ -479,11 +479,19 @@ def _looks_like_unfixable(text: str) -> bool:
     """A load failure that re-emitting the model with EXPLICIT placement cannot fix — so the
     1b-F4 fit-placed retry must fail fast rather than restart the engine (a bounce that knocks
     down + reloads every healthy co-resident model) for nothing. The signatures are llama.cpp's
-    own stderr, verified against common/arg.cpp + the model loader (2026-07-21): a rejected CLI
-    flag ("error: invalid argument:", "error while handling argument") — a bad extra_flags
-    passthrough re-sends identically — and an architecture the engine doesn't know ("unknown
-    model architecture"). Kept deliberately TIGHT: a false NEGATIVE is only today's single
-    bounce, but a false POSITIVE would wrongly refuse a #18066 fixable fit-bug, so bare
+    own stderr, verified 2026-07-21 against the master source (llama.cpp is NOT vendored —
+    re-verify at an engine bump):
+      - "error: invalid argument:" — common/arg.cpp raises std::invalid_argument("error: invalid
+        argument: %s") on an unrecognized flag; a rejected `--ngl` prints "error: invalid
+        argument: --ngl" (github.com/ggml-org/llama.cpp/issues/23739).
+      - "error while handling argument" — common/arg.cpp raises 'error while handling argument
+        "%s": %s' when a known flag's value is rejected.
+      - "unknown model architecture" — the loader emits "unknown model architecture: '<name>'"
+        for an arch this build doesn't know (github.com/ggml-org/llama.cpp/issues/21320).
+    A bad extra_flags passthrough re-sends identically, so the retry can't fix it. Kept TIGHT:
+    a false NEGATIVE is only today's single bounce; a false POSITIVE cannot wrongly refuse a
+    #18066 fixable fit-bug (the fit vs explicit-retry argv differ ONLY by added ngl/ncmoe lines,
+    and all three signatures are parse-/load-time errors independent of placement), so bare
     "invalid argument" (also a CUDA runtime error, not an arg reject) is NOT matched."""
     t = (text or "").lower()
     return any(s in t for s in (

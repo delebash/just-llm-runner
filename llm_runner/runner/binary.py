@@ -11,6 +11,8 @@ alongside the exe — those are fetched too.
 from __future__ import annotations
 
 import logging
+import re
+import subprocess
 import sys
 import tarfile
 import zipfile
@@ -141,12 +143,42 @@ def _on_disk_builds(cache_root: Path) -> list[str]:
 
 
 def build_of_exe(cache_root: Path, exe: Path) -> str | None:
-    """The build dir an installed exe lives under (`llamacpp/<build>/…`) — how
-    engine_status reports the version actually on disk (QC-13)."""
+    """The build DIR an installed exe lives under (`llamacpp/<build>/…`). NOTE: this is
+    the folder NAME, which can LIE — a rolling asset unpacked into a pin-named dir makes
+    it disagree with the binary's real build (see `exe_build_number`)."""
     try:
         return exe.relative_to(cache_root / "llamacpp").parts[0]
     except ValueError:
         return None
+
+
+_EXE_BUILD_CACHE: dict[str, str] = {}
+
+
+def exe_build_number(exe: Path, *, run: Callable[[], object] | None = None) -> str | None:
+    """The build the BINARY itself reports (`<exe> --version` → "version: NNNN (commit)"),
+    as "bNNNN" — the TRUTH, vs `build_of_exe` which only reads the DIR name. They diverge
+    when a rolling asset is unpacked into a pin-named dir (observed on-box 2026-07-21:
+    b9993 binaries inside a `b10069` dir), which silently mislabels engine_status and
+    poisons the bench's engine-drift flags. Cached by path (an exe is immutable once
+    installed); only successful reads are cached, so a transient failure (exe mid-install /
+    locked) retries. `run` injects the subprocess in tests. Never raises — None when it
+    can't be probed. (The `version: NNNN` format matches llama.cpp's `--version`; the exact
+    on-box output is confirmed by the first real read.)"""
+    key = str(exe)
+    if key in _EXE_BUILD_CACHE:
+        return _EXE_BUILD_CACHE[key]
+    try:
+        proc = run() if run else subprocess.run(
+            [str(exe), "--version"], capture_output=True, text=True, timeout=10)
+        text = f"{getattr(proc, 'stdout', '') or ''}\n{getattr(proc, 'stderr', '') or ''}"
+        m = re.search(r"\bversion:\s*(\d+)", text) or re.search(r"\bbuild(?:\s*number)?[:\s]+(\d{3,})", text)
+        build = f"b{m.group(1)}" if m else None
+    except Exception:  # noqa: BLE001 — a version probe must NEVER break status
+        build = None
+    if build is not None:
+        _EXE_BUILD_CACHE[key] = build
+    return build
 
 
 def _find_server_exe(root: Path, exe_name: str) -> Path | None:

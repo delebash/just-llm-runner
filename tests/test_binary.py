@@ -243,6 +243,41 @@ def test_acquired_exe_prefers_pinned_build_when_both_on_disk(tmp_path):
     assert binmod.build_of_exe(tmp_path, exe) == pinned
 
 
+def test_exe_build_number_reads_binary_version_not_dir(tmp_path):
+    # The on-box 2026-07-21 divergence: b9993 binaries inside a `b10069` dir.
+    # exe_build_number parses the BINARY's --version, independent of the folder name.
+    binmod._EXE_BUILD_CACHE.clear()
+    exe = tmp_path / "b10069" / "cuda12" / "llama-server.exe"
+
+    class _Proc:
+        stdout = "version: 9993 (2969d6d15)\nbuilt with MSVC 19\n"
+        stderr = ""
+
+    assert binmod.exe_build_number(exe, run=lambda: _Proc()) == "b9993"
+
+    def _poison():
+        raise AssertionError("re-ran despite a cached build")
+
+    # cached — the second call must NOT re-run the probe
+    assert binmod.exe_build_number(exe, run=_poison) == "b9993"
+
+
+def test_exe_build_number_failure_returns_none_and_is_not_cached(tmp_path):
+    binmod._EXE_BUILD_CACHE.clear()
+    exe = tmp_path / "x" / "llama-server.exe"
+
+    def _boom():
+        raise OSError("exe locked mid-install")
+
+    assert binmod.exe_build_number(exe, run=_boom) is None  # not cached
+
+    class _Proc:
+        stdout = ""
+        stderr = "version: 10101 (deadbeef)\n"  # also reads --version off stderr
+
+    assert binmod.exe_build_number(exe, run=lambda: _Proc()) == "b10101"
+
+
 def test_acquire_binary_targets_pin_not_disk_build(monkeypatch, tmp_path):
     # The WRITE path stays pin-keyed: a pin-bump Update must download the new
     # build even while the superseded one is still on disk — resolving here

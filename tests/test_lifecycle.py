@@ -1294,7 +1294,7 @@ def test_measure_probes_running_model(tmp_path):
     svc.load(_TEST_MODEL.id)
     svc._thread.join(timeout=5)
     out = svc.measure(
-        probe=lambda url, p, n, model_id="": (256, 2000.0),  # 256 tokens in 2.0s → 128 tok/s
+        probe=lambda url, p, n, model_id="": (256, 2000.0, None),  # 256 tokens in 2.0s → 128 tok/s
         sample=lambda: {"vramTotalMb": 8000, "ramTotalMb": 32000},
     )
     assert out["ok"] is True
@@ -1304,13 +1304,29 @@ def test_measure_probes_running_model(tmp_path):
     assert out["vramTotalMb"] == 8000 and out["ramTotalMb"] == 32000
 
 
+def test_measure_surfaces_draft_acceptance(tmp_path):
+    # T3: when the probe reports draft timings (speculative decoding ran), measure exposes
+    # draftN / draftNAccepted / draftAcceptance; absent draft → those keys are absent, not 0.
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    out = svc.measure(
+        probe=lambda url, p, n, model_id="": (200, 1000.0, {"n": 173, "accepted": 104}),
+        sample=dict,
+    )
+    assert out["draftN"] == 173 and out["draftNAccepted"] == 104
+    assert out["draftAcceptance"] == round(104 / 173, 4)
+    out2 = svc.measure(probe=lambda *a, **k: (200, 1000.0, None), sample=dict)
+    assert "draftAcceptance" not in out2
+
+
 def test_measure_passes_model_id(tmp_path):
     # Router mode: the probe body carries the model id so the router dispatches right.
     seen = {}
 
     def probe(url, p, n, model_id=""):
         seen["mid"] = model_id
-        return (1, 1000.0)
+        return (1, 1000.0, None)
 
     svc = _service_for(tmp_path)
     svc.load(_TEST_MODEL.id)
@@ -1321,7 +1337,7 @@ def test_measure_passes_model_id(tmp_path):
 
 def test_measure_requires_running_model(tmp_path):
     svc = _service_for(tmp_path)  # never loaded → idle
-    out = svc.measure(probe=lambda *a, **k: (1, 1.0), sample=dict)
+    out = svc.measure(probe=lambda *a, **k: (1, 1.0, None), sample=dict)
     assert out["ok"] is False and "no model running" in out["error"]
 
 
@@ -1672,6 +1688,33 @@ def test_engine_status_follows_disk_when_pin_reverted(tmp_path):
 
     assert es["installed"] is True
     assert es["build"] == disk_build
+
+
+def test_engine_status_reports_binary_build_and_flags_mismatch(tmp_path):
+    # T4: the dir NAME can lie (on-box 2026-07-21: b9993 binaries in a b10069 dir).
+    # engine_status reports the BINARY's self-reported build + flags the mismatch, so
+    # neither the UI nor the bench reports a folder name as the engine version.
+    from llm_runner import default_config
+    from llm_runner.runner import binary as binmod
+    from llm_runner.runner.binary import acquired_server_exe, build_num, variant_dir
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe
+    dir_build = f"b{build_num(default_config().llamacpp.pinned_build) + 30}"
+    d = variant_dir(svc.cache_root, dir_build, "cuda12")
+    d.mkdir(parents=True)
+    exe = d / "llama-server.exe"
+    exe.write_bytes(b"MZ")
+    # Pre-seed the version cache so engine_status doesn't spawn a real process; the binary
+    # self-reports a DIFFERENT build than its folder.
+    binmod._EXE_BUILD_CACHE[str(exe)] = "b9993"
+    try:
+        es = svc.engine_status()
+        assert es["build"] == dir_build        # the folder name (which can lie)
+        assert es["binaryBuild"] == "b9993"    # the truth from --version
+        assert es["buildMismatch"] is True
+    finally:
+        binmod._EXE_BUILD_CACHE.pop(str(exe), None)
 
 
 def test_engine_uninstall_removes_disk_build_when_pin_reverted(tmp_path):

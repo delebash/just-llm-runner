@@ -744,6 +744,27 @@ async function redownload(m) {
     await download(m.id); // re-fetch from Hugging Face (own progress channel + refresh)
   } catch (e) { error.value = e.message || "Re-download failed."; } finally { busy.value = ""; }
 }
+
+// Free a model's downloaded weights while KEEPING its catalog entry (the disk-reclaim
+// counterpart to Delete, which also removes the row, and to Re-download, which re-fetches
+// after). models-cache/delete KEEPS the catalog row, so the model returns to "not downloaded"
+// and re-downloads on demand. A RESIDENT model is unloaded FIRST (its GGUF is mmap-locked),
+// exactly as redownload does; on unload failure the error surfaces and nothing is deleted.
+async function freeDownload(m) {
+  const ok = await confirmDialog({
+    title: `Free the disk space used by "${m.name || m.id}"?`,
+    message: "Deletes its downloaded weights from disk. The model stays in your catalog and re-downloads on demand. A loaded model is unloaded first.",
+    confirmLabel: "Free disk",
+  });
+  if (!ok) return;
+  busy.value = `free:${m.id}`; // own namespace so its spinner ≠ Delete's / Re-download's / the row load spinner
+  error.value = "";
+  try {
+    if (m.status === "loaded") await stopModel(m);
+    await request("/v1/llm-runner/models-cache/delete", { method: "POST", body: { modelId: m.id } });
+    await refresh(); // re-pull so the row flips to "Not downloaded" and this button hides
+  } catch (e) { error.value = e.message || "Couldn't free the download."; } finally { busy.value = ""; }
+}
 async function resetCatalog() {
   const ok = await confirmDialog({ title: "Reset the model catalog to factory?", message: "Restores the built-in models. Your added models are kept." });
   if (!ok) return;
@@ -930,6 +951,10 @@ refreshApplied();
                   :loading="busy === 'redl:' + m.id"
                   title="Clear the downloaded file and fetch it again — repairs a corrupted or incomplete download. A loaded model is unloaded first. Keeps the catalog entry."
                   @click="redownload(m)">Re-download</UiButton>
+                <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
+                  :loading="busy === 'free:' + m.id"
+                  title="Free the disk space its weights use — keeps the catalog entry, re-downloads on demand. A loaded model is unloaded first."
+                  @click="freeDownload(m)">Free disk</UiButton>
                 <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
                   title="Tune engine flags &amp; measure decode speed" @click="tuning = m">Tune</UiButton>
                 <UiButton v-if="m.status === 'loaded'" intent="ghost" size="small"

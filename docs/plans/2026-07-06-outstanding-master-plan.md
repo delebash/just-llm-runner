@@ -244,10 +244,12 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   KEEP table. Full record: the queue doc tail "I1 JUDGMENT LEGS BUILD RECORD"; the plan
   is committed at `justwrite-app/docs/plans/2026-07-12-i1-css-popup-voicedrift.md`.
   versionDiff's no-strip stays (correct — it diffs raw stored content).
-  **STILL REMAINING in I1:** three small recorded follow-ups (SettingsView's pre-existing `.wb-search*`
-  fragment → fold into `.entity-*` · CommandPalette entity creates lack the `?new` focus parity ·
-  promote the popup-probe from the session scratchpad to `scripts/` if a standing guard
-  is wanted). **`useEntityCrudView` — ⛔ DECIDED NOT DOING (user, 2026-07-12: "just leave it
+  **I1 TAIL — legs 1+2 SHIPPED 2026-07-21, leg 3 dropped:** (1) SettingsView's `.wb-*`
+  fragment REMOVED — it was dead CSS (no template reference; only the ⌘F label survives), a
+  delete not a repoint, the shared `.entity-*` family is the live source; (2) CommandPalette
+  entity creates now pass `?new=1` (character/location/object/note/strand; worldbuilding
+  excluded — popup-kept, no `?new` watch); (3) popup-probe → `scripts/` DROPPED (user).
+  Verified: build:vite + headless smoke (0 JS errors). **`useEntityCrudView` — ⛔ DECIDED NOT DOING (user, 2026-07-12: "just leave it
   as is and take it off list").** Grounded this session: `LocationsView:24-146` ≡
   `ObjectsView:24-146`, but only the `?new` focus-watch is 7/7 byte-identical —
   `WorldbuildingView:40-73` (async popup-add) + `NotesView` (no status, singular `r.tag`) make a
@@ -276,7 +278,9 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   (`GET /v1/disk/usage`; JV inherits by mounting the same factory), runner reclaim endpoints
   (spawn-logs clear · models-cache clear with the unload-first refusal), and the JW
   Settings→Storage "Disk usage" card. Full record: the queue doc's I4 DESIGN + I4 BUILD
-  RECORD. Deliberate follow-up, not v1: per-model GGUF delete on the catalog surface.
+  RECORD. Deliberate follow-up, not v1: per-model GGUF delete on the catalog surface —
+  **SHIPPED 2026-07-21** as the "Free disk" row action (`LuModelCatalog.vue` `freeDownload`:
+  unload-first → models-cache/delete KEEPS the row → refresh; re-downloads on demand).
   **UI follow-up SHIPPED (2026-07-15):** the catalog **Re-download** (repair) action now
   renders on a **loaded** row too — not just `error`/`disk` (`LuModelCatalog.vue:890`
   `v-if` gains `|| m.status === 'loaded'`) — and `redownload()` **unloads first** when the

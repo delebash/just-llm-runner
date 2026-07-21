@@ -80,11 +80,20 @@ browser sees them (the 2026-07-19 wire-strip incident).
 **Acceptance:** a wire test (mirror `test_draft_floor_flag_survives_the_wire_model`) proves
 both fields survive the `classify → ListFilesResponse` hop.
 
-### T5 — Client pre-pick filters to loadable (`LuModelCatalog.vue:416-420`)
+### T5 — Extract a PURE, testable pre-pick helper + consume it (`LuModelCatalog.vue:416-420`)
 
-Filter `r.drafts` to `d.loadable !== false` BEFORE the 4-bit ranking; empty → no pre-pick,
-so `mtp` stays off (no built-in MTP for the Bonsai). Comment: loadability is the floor
-BELOW the 4-bit floor — the engine can't load the arch, so it is never a candidate.
+The kit has **no vitest harness**, so the pre-pick decision is extracted to a pure kit
+module so JustWrite's vitest can exercise it (JW's alias-subpath convention —
+`@delebash/llm-ui/services/embedApi.js` precedent):
+
+- NEW `ui/src/draftSelect.js` — `pickDefaultDraftPath(drafts)` (filter `loadable !==
+  false`, then the existing 4-bit-floor + smallest sort, return the path or `""`) and
+  `allDraftsUnloadable(drafts)` (drafts non-empty AND every row `loadable === false`). No
+  Vue, no I/O — pure over the row arrays.
+- `LuModelCatalog.vue:416-420` — the pre-pick calls `pickDefaultDraftPath(r.drafts)`; empty
+  → no pre-pick, so `mtp` stays off (no built-in MTP for the Bonsai). Comment: loadability
+  is the floor BELOW the 4-bit floor — the engine can't load the arch, so it is never a
+  candidate.
 
 ### T6 — Dropdown annotates the unloadable option (`draftOptions`, `LuModelCatalog.vue:377-383`)
 
@@ -100,25 +109,54 @@ draft uses an architecture your engine can't load (dspark) — MTP left off." Pr
 silent gap for a model whose card advertises MTP (JV design rule: show the resolved truth,
 never an unexplained empty state).
 
+### T9 — Lab draft A/B sweep excludes unloadable alternates (`autotune.py:_draft_alternates`, `:307`)
+
+The rules-checker caught a THIRD offering site: `_draft_alternates` (`:285-309`) enumerates
+`list_repo_ggufs(repo)["drafts"]` and, via `_draft_phase` (`:334`), DOWNLOADS + fail-loads
+each alternate as a Lab trial — a dspark sibling would still be fetched. Add
+`and d.get("loadable") is not False` to the `alts` comprehension (`:307`), reusing the SAME
+flag T2 stamps (one source). Extend the docstring.
+
+**Acceptance:** given a drafts list with a dspark alternate, it is excluded from the A/B set.
+
 ### T8 — Docs (same change, T11)
 
 - Close `justwrite-app/docs/IDEAS.md:107` (Fix C shipped → this doc).
 - One user-facing line in `justwrite-app/docs/models.md` MTP material: a draft whose
   architecture the engine can't load (e.g. dspark) is left off, not silently armed.
 
-## Tests (`tests/test_models.py`)
+## Tests
 
+**Server (`tests/test_models.py`):**
 - Extend `test_classify_bonsai_dspark_drafters` — assert `loadable`/`unsupportedArch` on
   the dspark rows and a `loadable=True` control.
 - Rewrite `test_drafter_picks_dspark_over_f16` → `test_drafter_skips_unsupported_dspark`
-  (None) + a "dspark beside a loadable quant → the quant" case.
+  (None) + a "dspark beside a loadable quant → the quant" case. (The fp16-vs-quant
+  preference it incidentally proved stays covered by `test_drafter_fp16_filter_fires_alone`
+  at `:261`, so the flip loses no coverage.)
 - New `test_loadable_flag_survives_the_wire_model` mirroring the q4OrBetter wire test.
+
+**Server (`tests/test_autotune.py`):** a `_draft_alternates` test asserting a dspark
+alternate is excluded from the A/B set (T9).
+
+**Client (`justwrite-app` vitest — the kit has none):**
+`src/renderer/src/services/__tests__/draftSelect.test.js`, importing the pure helper via
+`@delebash/llm-ui/draftSelect.js` (the alias-subpath convention): `pickDefaultDraftPath`
+skips a dspark row, honours the 4-bit floor among loadable rows, returns `""` when all
+unloadable; `allDraftsUnloadable` true only when every row is unloadable.
 
 ## Verify
 
-`python -m pytest tests/test_models.py` then full `python -m pytest` (runner) — the three
-documented known-bad Windows failures only. `npm run build:vite` from `justwrite-app` (kit
-compiles). ONE rules-checker on the plan, ONE on the final diff.
+- `python -m pytest tests/test_models.py tests/test_autotune.py` then full `python -m
+  pytest` (runner) — the three documented known-bad Windows failures only.
+- **`npm run test:unit`** (JW vitest — the new `draftSelect` suite + no regressions).
+- **`npm run build:vite`** from `justwrite-app` (kit compiles through the alias) — a COMPILE
+  check only; per `justwrite-app/CLAUDE.md` it does NOT clear a renderer change.
+- **THE renderer gate — `node scripts/headless-smoke.js`** (boot the server on :17495 +
+  `npm run dev:vite` on :1420 first, per JW CLAUDE.md): the Add-model form + new
+  `onlyUnsupportedDrafts` note + annotated dropdown mount with ZERO JS errors.
+- ONE rules-checker on the plan (done — 2 FAILs folded in as T5-rework + T9), ONE on the
+  final diff.
 
 ## What reverses it
 

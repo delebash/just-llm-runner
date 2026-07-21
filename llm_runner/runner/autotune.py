@@ -286,7 +286,10 @@ class AutoTuner:
         """The OTHER draft GGUFs this model's draft repo ships — the D4 A/B candidates.
 
         Empty unless the resolved config actually speculates (`spec_type=draft-mtp`).
-        The CONFIGURED draft is excluded: the baseline trial already measures it.
+        The CONFIGURED draft is excluded: the baseline trial already measures it. Files
+        whose architecture the engine can't load are excluded too (`loadable` is False,
+        e.g. dspark) — the same one-source flag `classify_gguf_entries` stamps — so a
+        sweep never DOWNLOADS + fail-loads a draft that can only fail at spawn.
         Ordered by the SHARED pick rule the form and the tier-C suggestion use — the
         `q4OrBetter` floor first, then smallest — and capped at `_DRAFT_ALT_CAP` so a
         repo shipping a dozen quants can't turn a tune into an all-night download.
@@ -304,7 +307,8 @@ class AutoTuner:
         except Exception:  # noqa: BLE001 — advisory: never break a sweep on discovery
             log.warning("draft A/B listing failed for %s", model_id, exc_info=True)
             return []
-        alts = [d for d in drafts if d.get("path") and d.get("path") != configured]
+        alts = [d for d in drafts if d.get("path") and d.get("path") != configured
+                and d.get("loadable") is not False]  # skip arches our engine can't load (e.g. dspark)
         alts.sort(key=lambda d: (0 if d.get("q4OrBetter") else 1, d.get("sizeMb") or 0))
         return [dict(d, repo=repo) for d in alts[:_DRAFT_ALT_CAP]]
 

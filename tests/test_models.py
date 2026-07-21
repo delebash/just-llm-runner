@@ -194,6 +194,12 @@ def test_classify_bonsai_dspark_drafters():
     # BOTH dspark files are detected as drafts (name-keyed, quant OR bf16)…
     assert "Ternary-Bonsai-27B-dspark-Q4_1.gguf" in draft_paths
     assert "Ternary-Bonsai-27B-dspark-bf16.gguf" in draft_paths
+    # …and flagged UNLOADABLE (dspark = an arch our engine can't load), token named, so the
+    # form never pre-picks / auto-enables MTP on them (2026-07-21 loadability guard).
+    by_path = {d["path"]: d for d in out["drafts"]}
+    for p in ("Ternary-Bonsai-27B-dspark-Q4_1.gguf", "Ternary-Bonsai-27B-dspark-bf16.gguf"):
+        assert by_path[p]["loadable"] is False
+        assert by_path[p]["unsupportedArch"] == "dspark"
     # …and NEITHER leaks into the quant dropdown
     quant_paths = {q["quant"] for q in out["quants"]}
     assert "Q4_1" not in quant_paths
@@ -232,16 +238,21 @@ def test_drafter_none_when_only_shards_and_mmproj(monkeypatch):
     assert models._gguf_drafter_in_repo("owner/repo") is None
 
 
-def test_drafter_picks_dspark_over_f16(monkeypatch):
-    # The Bonsai shape: a small dspark-Q4_1 drafter beside a huge full-precision F16.
-    # F16 is full precision (excluded); the quantized single-file dspark is the pick.
+def test_drafter_skips_unsupported_dspark(monkeypatch):
+    # Fix C (2026-07-21): a dspark drafter is an arch our engine CANNOT load, so the tier-C
+    # picker must never suggest it — the exact inverse of the pre-guard behaviour. dspark-Q4_1
+    # beside a huge F16: dspark excluded (arch), F16 excluded (full precision) → None.
     tree = [
         {"type": "file", "path": "Ternary-Bonsai-27B-dspark-Q4_1.gguf", "oid": "a", "lfs": {"oid": "l1", "size": int(1.95 * _GB)}},
         {"type": "file", "path": "Ternary-Bonsai-27B-F16.gguf", "oid": "b", "lfs": {"oid": "l2", "size": int(53.8 * _GB)}},
     ]
     monkeypatch.setattr(models.requests, "get", _make_get(tree))
+    assert models._gguf_drafter_in_repo("owner/repo") is None
+    # But the guard skips ONLY the unloadable arch: a loadable quant beside the dspark wins.
+    tree2 = [*tree, {"type": "file", "path": "assistant-Q4_K_M.gguf", "oid": "c", "lfs": {"oid": "l3", "size": int(3 * _GB)}}]
+    monkeypatch.setattr(models.requests, "get", _make_get(tree2))
     got = models._gguf_drafter_in_repo("owner/repo")
-    assert got == {"repo": "owner/repo", "file": "Ternary-Bonsai-27B-dspark-Q4_1.gguf", "quant": "Q4_1"}
+    assert got == {"repo": "owner/repo", "file": "assistant-Q4_K_M.gguf", "quant": "Q4_K_M"}
 
 
 def test_drafter_shard_filter_fires_alone(monkeypatch):
@@ -311,6 +322,23 @@ def test_draft_floor_flag_survives_the_wire_model():
     rows = ListFilesResponse(**data).model_dump()["drafts"]
     assert {r["path"]: r["q4OrBetter"] for r in rows} == {
         "MTP/m-Q2_K-MTP.gguf": False, "MTP/m-Q4_0-MTP.gguf": True}
+
+
+def test_loadable_flag_survives_the_wire_model():
+    # SAME wire-strip guard as q4OrBetter, for the loadability fields (2026-07-21): if
+    # `loadable`/`unsupportedArch` aren't declared on RepoDraftRow, Pydantic's extra="ignore"
+    # drops them and the browser pre-pick silently re-arms MTP on an unloadable dspark draft.
+    from llm_runner.llm.model_catalog_api import ListFilesResponse
+
+    data = models.classify_gguf_entries([
+        {"type": "file", "path": "MTP/m-Q4_0-MTP.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 9}},
+        {"type": "file", "path": "m-dspark-Q4_1.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 5}},
+    ])
+    rows = {r["path"]: r for r in ListFilesResponse(**data).model_dump()["drafts"]}
+    assert rows["MTP/m-Q4_0-MTP.gguf"]["loadable"] is True
+    assert rows["MTP/m-Q4_0-MTP.gguf"]["unsupportedArch"] == ""
+    assert rows["m-dspark-Q4_1.gguf"]["loadable"] is False
+    assert rows["m-dspark-Q4_1.gguf"]["unsupportedArch"] == "dspark"
 
 
 def test_drafter_floor_fires_alone_over_a_smaller_low_bit_quant(monkeypatch):

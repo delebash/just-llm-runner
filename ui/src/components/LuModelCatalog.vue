@@ -17,6 +17,7 @@ import { useRunnerModels } from "../composables/useRunnerModels.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { applyPreview, useModelApply } from "../services/modelApply.js";
 import { FIT_RUNNABLE, pickBestEmbedId, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
+import { allDraftsUnloadable, pickDefaultDraftPath } from "../draftSelect.js";
 import { TUNE_BADGES, fetchTuneState, tuneBadgeOf } from "../tuneState.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
@@ -378,9 +379,15 @@ const draftOptions = computed(() => [
   { value: "", label: "None" },
   ...(listing.value?.drafts || []).map((d) => ({
     value: d.path,
-    label: `${d.path}${d.quant ? ` · ${d.quant}` : ""}${d.sizeMb ? ` · ${gb(d.sizeMb)} GB` : ""}`,
+    // An unloadable draft (arch the engine can't load) stays selectable — a forced pick
+    // hits the load-time "unknown model architecture" fail-fast — but its label says so,
+    // so it never reads as a normal option (UiSelect has no per-option disable).
+    label: `${d.path}${d.quant ? ` · ${d.quant}` : ""}${d.sizeMb ? ` · ${gb(d.sizeMb)} GB` : ""}${d.loadable === false ? ` — ${d.unsupportedArch || "arch"} not supported by your engine` : ""}`,
   })),
 ]);
+// The repo ships draft(s) but the engine can load NONE — the form leaves MTP off and says
+// why (a model whose card advertises MTP must not show a silent unexplained gap).
+const onlyUnsupportedDrafts = computed(() => allDraftsUnloadable(listing.value?.drafts));
 async function loadRepoFiles({ autopick = true } = {}) {
   const e = editing.value;
   if (!e?.hfRepo?.trim()) return;
@@ -402,21 +409,19 @@ async function loadRepoFiles({ autopick = true } = {}) {
       const fitting = vramMb.value ? r.quants.filter((q) => q.sizeMb <= vramMb.value) : [];
       e.quant = (fitting.length ? fitting[fitting.length - 1] : r.quants[0]).quant;
     }
-    // detect pre-select (D9): a repo shipping an MTP draft pre-picks the smallest one
-    // AT THE FLOOR when the model has none configured. A draft only affects SPEED (the
-    // main model verifies every proposed token, so draft bits buy acceptance rate, never
-    // quality) while each drafted token re-reads its weights spec_n_max times per cycle
-    // and its weights+KV take VRAM from the main model's layers — so small wins on every
-    // box, big card included. `q4OrBetter` (server-side, one predicate shared with the
-    // tier-C suggestion) is the floor under that: below 4-bit, lost acceptance can cost
-    // more than the saved bytes. Repos with nothing at the floor fall back to smallest
-    // overall by construction. Bigger-is-better holds only ACROSS drafters of different
-    // parameter counts — machine-dependent, so Tune & measure times it rather than us
-    // guessing (docs/plans/2026-07-19-draft-fit-floor-and-lab-measure.md). "None" stays.
+    // detect pre-select (D9): a repo shipping an MTP draft pre-picks the smallest one AT
+    // THE FLOOR when the model has none configured — but ONLY among drafts the engine can
+    // load. Loadability is the floor BELOW the 4-bit floor: a draft whose arch our engine
+    // can't load (e.g. dspark; server-side `loadable` flag) can only fail at spawn, so it
+    // is never a candidate and MTP is not auto-armed on it. Among loadable drafts, small
+    // wins (a draft only affects SPEED — the main model verifies every token — while its
+    // weights+KV re-read each cycle and take VRAM from main layers), and `q4OrBetter` is
+    // the bit-width floor under that. The rule (filter + rank) is the shared pure helper so
+    // JW's vitest can exercise it; bigger-is-better across drafter sizes is machine-
+    // dependent, timed by Tune & measure (docs/plans/2026-07-19-draft-fit-floor-and-lab-measure.md).
     if (r.drafts.length && !e.mtpDraftFile) {
-      const ranked = [...r.drafts].sort(
-        (a, b) => (b.q4OrBetter ? 1 : 0) - (a.q4OrBetter ? 1 : 0) || (a.sizeMb || 0) - (b.sizeMb || 0));
-      onDraftPick(ranked[0].path);
+      const pick = pickDefaultDraftPath(r.drafts);
+      if (pick) onDraftPick(pick);
     }
   } catch (err) {
     listing.value = null;
@@ -1086,6 +1091,10 @@ refreshApplied();
             <span>Embedding <span class="lu-muted">— a RAG/search model, not a chat LLM</span></span>
           </UiCheckbox>
         </div>
+        <!-- Honest gap (2026-07-21): a repo whose only draft uses an arch the engine can't
+             load (e.g. dspark) leaves MTP off — say WHY, so a model whose card advertises
+             MTP doesn't read as a silent unexplained blank. Built-in MTP needs no draft. -->
+        <div v-if="onlyUnsupportedDrafts && !editing.mtpBuiltin" class="lu-mm-note"><span class="lu-muted">MTP left off — this repo's draft uses an architecture your engine can't load<template v-if="listing?.drafts?.[0]?.unsupportedArch"> ({{ listing.drafts[0].unsupportedArch }})</template>.</span></div>
 
         <!-- Consistency (2026-07-13, decision A): each capability checkbox REVEALS +
              owns its config below, in checkbox order (MoE · MTP · Embedding); uncheck

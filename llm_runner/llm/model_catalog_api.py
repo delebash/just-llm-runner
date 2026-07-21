@@ -144,6 +144,13 @@ class RepoDraftRow(BaseModel):
     qat: bool = False
     # The shared 4-bit pick floor (`_q4_or_better`) — the form's pre-select orders by it.
     q4OrBetter: bool = False
+    # Can our pinned engine load this draft's ARCHITECTURE? False for a known-unsupported
+    # arch (`unsupportedArch` names the token, e.g. dspark); the form must NOT pre-pick or
+    # auto-enable MTP on it, and the Lab sweep must not A/B it. Additive + backward-
+    # compatible (default True/""); like q4OrBetter above it MUST be declared here or
+    # Pydantic's extra="ignore" strips it before the browser sees it (the 2026-07-19 miss).
+    loadable: bool = True
+    unsupportedArch: str = ""
 
 
 class ListFilesResponse(BaseModel):

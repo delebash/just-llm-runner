@@ -393,6 +393,25 @@ def test_draft_phase_measures_spec_off_and_each_alternate(monkeypatch):
     assert svc.events.index("acquire:MTP/alt-BF16-MTP.gguf") < svc.events.index("load:/cache/MTP/alt-BF16-MTP.gguf")
 
 
+def test_draft_phase_skips_an_unloadable_dspark_alternate(monkeypatch):
+    # T9 (2026-07-21): an alternate whose arch the engine can't load (loadable=False, e.g.
+    # dspark) must never be A/B'd — it would only DOWNLOAD then fail-load. The same one-source
+    # `loadable` flag classify_gguf_entries stamps gates the Lab sweep too, so a dspark sibling
+    # is never fetched. (Rows without the key stay included — backward-compatible.)
+    _listing(monkeypatch, [
+        {"path": "MTP/alt-Q4_0-MTP.gguf", "sizeMb": 100, "q4OrBetter": True, "loadable": True},
+        {"path": "repo-dspark-Q4_1.gguf", "sizeMb": 90, "q4OrBetter": True,
+         "loadable": False, "unsupportedArch": "dspark"},
+    ])
+    svc = DraftService(tps_by_ncmoe={"21": 30.0, "23": 20.0, "19": 20.0})
+    st = _run_to_end(_tuner(svc), "m", _MTP_BASE)
+    assert st["status"] == "done"
+    labels = [t["label"] for t in st["trials"]]
+    assert "draft alt-Q4_0-MTP.gguf (0.1 GB)" in labels        # the loadable alternate runs
+    assert not any("dspark" in lbl for lbl in labels)          # the dspark one is never trialed
+    assert all("dspark" not in f for _r, f in svc.acquired)    # …and never downloaded
+
+
 def test_no_draft_phase_without_spec_draft_mtp(monkeypatch):
     _listing(monkeypatch, [{"path": "MTP/alt-Q4_0-MTP.gguf", "sizeMb": 100, "q4OrBetter": True}])
     svc = DraftService(tps_by_ncmoe={"21": 30.0, "23": 20.0, "19": 20.0})

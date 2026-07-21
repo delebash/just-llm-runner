@@ -162,6 +162,26 @@ def _q4_or_better(quant: str) -> bool:
     return bool(m) and int(m.group(1)) >= 4
 
 
+# Architectures our pinned llama.cpp build (config.py) cannot load. A DENY-set, not an
+# allow-set: we can't durably enumerate every arch the engine DOES support (it moves with
+# the build, and an allow-list would false-block every future arch), but we CAN record the
+# ones proven to fail — add a line when a new one surfaces. Exhibit: `dspark` (Ternary-
+# Bonsai's own drafter) → the loader aborts with "unknown model architecture: 'dspark'"
+# (process.py:489; the card claims the speedup on the CUDA serving path only). Detected
+# here from the FILENAME token (the publisher's `-dspark-` convention), which keeps this a
+# PURE, network-free classifier; reading each draft's GGUF header arch is the general
+# upgrade if a mis-named unsupported drafter ever appears (the row carries the matched
+# token, so that swap is drop-in).
+_ENGINE_UNSUPPORTED_ARCHS = ("dspark",)
+
+
+def _unsupported_arch_in_name(path: str) -> str:
+    """The engine-unsupported arch token embedded in `path` (case-insensitive), or "" —
+    so a draft row can carry WHY it won't load, not merely that it won't."""
+    low = (path or "").lower()
+    return next((a for a in _ENGINE_UNSUPPORTED_ARCHS if a in low), "")
+
+
 def classify_gguf_entries(entries: list[dict]) -> dict:
     """PURE classification of an HF tree listing for the Add/Edit form (Plan B D9):
     the quant dropdown + MTP-draft detection, one `_tree` call parsed two ways.
@@ -176,10 +196,14 @@ def classify_gguf_entries(entries: list[dict]) -> dict:
       * drafts — draft files (`MTP/` dir or `-MTP.gguf`, the observed MTP
         convention; plus `dspark` in the name, the own-repo drafter convention —
         exhibit prism-ml/Ternary-Bonsai-27B-gguf's `-dspark-Q4_1.gguf`), each its
-        own row ({path, quant, sizeMb, qat, q4OrBetter}) since a draft is picked by
-        exact path (its quant rides along). `q4OrBetter` is the shared pick FLOOR
-        (`_q4_or_better`) the form's pre-select orders by — one predicate, server-side,
-        so the UI and the tier-C suggestion below can never disagree about it.
+        own row ({path, quant, sizeMb, qat, q4OrBetter, loadable, unsupportedArch})
+        since a draft is picked by exact path (its quant rides along). `q4OrBetter`
+        is the shared pick FLOOR (`_q4_or_better`) the form's pre-select orders by;
+        `loadable` is False (with `unsupportedArch` naming the token) when the arch is
+        one our engine can't load (`_unsupported_arch_in_name`, e.g. dspark) — the
+        floor BELOW the bit-width floor, so the form/tier-C/Lab sweep never pre-pick,
+        offer, or A/B a draft that can only fail at spawn. One predicate, server-side,
+        so every consumer agrees.
     """
     quants: dict[str, dict] = {}
     drafts: list[dict] = []
@@ -197,8 +221,10 @@ def classify_gguf_entries(entries: list[dict]) -> dict:
         qat = "qat" in low
         is_draft = low.endswith("-mtp.gguf") or "/mtp/" in low or low.startswith("mtp/") or "dspark" in low
         if is_draft:
+            bad_arch = _unsupported_arch_in_name(path)
             drafts.append({"path": path, "quant": quant, "sizeMb": size_mb, "qat": qat,
-                           "q4OrBetter": _q4_or_better(quant)})
+                           "q4OrBetter": _q4_or_better(quant),
+                           "loadable": not bad_arch, "unsupportedArch": bad_arch})
             continue
         if not quant:
             continue  # no recognizable token → free-type territory, not a dropdown row
@@ -311,10 +337,11 @@ def _gguf_drafter_in_repo(repo: str, revision: str = "main") -> dict | None:
     weights+KV occupy VRAM the main model's layers would otherwise use. `_q4_or_better`
     is the floor under that rule (a 2/3-bit draft can lose more to rejected proposals
     than it saves in bytes): the smallest candidate AT the floor wins, and only if none
-    clears it does the smallest overall win. Split shards and full-precision
-    (BF16/F16/F32) files are excluded outright: a drafter is purely a speed device, and
-    an fp16 shard tail (the smallest FILE, but not a loadable model) is exactly the
-    wrong pick. Bigger-is-better is a real effect only ACROSS drafters of different
+    clears it does the smallest overall win. Split shards, full-precision
+    (BF16/F16/F32) files, and files whose architecture our engine can't load
+    (`_unsupported_arch_in_name`, e.g. dspark — Fix C) are excluded outright: a drafter
+    is purely a speed device, and an fp16 shard tail (the smallest FILE, but not a
+    loadable model) or an unloadable-arch file is exactly the wrong pick. Bigger-is-better is a real effect only ACROSS drafters of different
     parameter counts, which is machine-dependent — measured by Tune & measure's draft
     trials, not guessed here (`docs/plans/2026-07-19-draft-fit-floor-and-lab-measure.md`)."""
     try:
@@ -336,6 +363,8 @@ def _gguf_drafter_in_repo(repo: str, revision: str = "main") -> dict | None:
         q = token.upper().removeprefix("UD-")
         if not (q.startswith("IQ") or "Q" in q):
             continue  # BF16/F16/F32 → full precision, not a quantized drafter
+        if _unsupported_arch_in_name(path):
+            continue  # engine can't load this arch (e.g. dspark) — never suggest it (Fix C)
         candidates.append((e, token))
     if not candidates:
         return None

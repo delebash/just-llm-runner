@@ -20,6 +20,7 @@ import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
 import ConsolePanel from "../components/ConsolePanel.vue";
 import LuBookSearchSetup from "../components/LuBookSearchSetup.vue";
+import LuEngineUpdateButton from "../components/LuEngineUpdateButton.vue";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import { useModelApply } from "../services/modelApply.js";
@@ -32,7 +33,10 @@ import { usePoll } from "../common/composables/usePoll.js";
 // live on the Local-engine panel inside the built-in provider's ProviderForm —
 // reached by Edit on its row since 2026-07-19; same shared useEngine state, so
 // no surface can disagree.
-const { engineState: engState, checkForUpdate, refreshEngine } = useEngine();
+// `updateInfo` gates the row's engine-update affordance (LuEngineUpdateButton owns
+// the label/title/action, bound to the same useEngine singleton — one control, two
+// surfaces, can't drift).
+const { engineState: engState, checkForUpdate, refreshEngine, updateInfo: engineUpdateInfo } = useEngine();
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
 // own AI-domain settings (e.g. JustWrite's "Writing AI" — voice canon, RAG
@@ -449,6 +453,12 @@ onMounted(() => {
                 <!-- 2026-07-19: the built-in is a normal row now, so the ONE thing that
                      still marks it out is this tag (same .lu-cap badge, no new style). -->
                 <span v-if="isBuiltin(p)" class="lu-cap">Built-in</span>
+                <!-- 2026-07-21 (user): the built-in provider is collapsed to a row, so an
+                     available engine update was only visible after Edit. Surface it here too,
+                     next to the tag — the SAME control the panel uses (LuEngineUpdateButton,
+                     bound to the useEngine singleton), so the two can never disagree in look
+                     OR wording. Intentional redundancy (row + panel), okayed by the user. -->
+                <LuEngineUpdateButton v-if="isBuiltin(p) && engineUpdateInfo?.updateAvailable" />
                 <!-- The default indicator is the right-aligned green "Default ✓" button
                      in the actions cell (2026-07-17); the left "Default" tag was removed
                      so it lives in one place, consistent with the model catalog. -->

@@ -18,6 +18,7 @@ import UiProgress from "../common/components/UiProgress.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiToggle from "../common/components/UiToggle.vue";
 import LuRunnerBinaries from "./LuRunnerBinaries.vue";
+import LuEngineUpdateButton from "./LuEngineUpdateButton.vue";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
 import { usePoll } from "../common/composables/usePoll.js";
@@ -29,7 +30,7 @@ import { usePoll } from "../common/composables/usePoll.js";
 // cluster, install progress/errors, and the Details drawer. Install POLLING
 // lives in the composable, so progress keeps flowing whichever surface started
 // it and whichever is mounted.
-const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, updateInfo, checkForUpdate, updateToLatest, refreshEngine, install: engInstall, cancel: engCancel, uninstall: engUninstall, setBackend, busy: engBusy } = useEngine();
+const { engineState: st, error, statusKnown, installed, installing, progressLabel, updatePolicy, setUpdatePolicy, updateInfo, checkForUpdate, refreshEngine, install: engInstall, cancel: engCancel, uninstall: engUninstall, setBackend, busy: engBusy } = useEngine();
 const showLog = ref(false);
 const logText = ref("");
 // Collapsed by default (user, 2026-07-06: "collapse the engine panel … click to
@@ -216,10 +217,7 @@ onMounted(() => {
           <UiButton intent="ghost" size="small"
             :loading="engBusy" title="Delete the engine binaries — models are kept"
             @click="engUninstall">Uninstall engine</UiButton>
-          <UiButton v-if="updateInfo?.updateAvailable" intent="info" size="small"
-            :loading="engBusy"
-            :title="`Update the engine to ${updateInfo.latest} (you have ${updateInfo.current}) — the old build folder is removed after the new one installs`"
-            @click="updateToLatest">Update to {{ updateInfo.latest }}</UiButton>
+          <LuEngineUpdateButton v-if="updateInfo?.updateAvailable" />
           <UiButton v-else intent="secondary" size="small"
             :loading="engBusy" title="Re-download the pinned engine build"
             @click="engInstall(true)">Reinstall</UiButton>

@@ -20,6 +20,7 @@ import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
 import ConsolePanel from "../components/ConsolePanel.vue";
 import LuBookSearchSetup from "../components/LuBookSearchSetup.vue";
+import LuEngineInstallButton from "../components/LuEngineInstallButton.vue";
 import LuEngineUpdateButton from "../components/LuEngineUpdateButton.vue";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
@@ -36,7 +37,7 @@ import { usePoll } from "../common/composables/usePoll.js";
 // `updateInfo` gates the row's engine-update affordance (LuEngineUpdateButton owns
 // the label/title/action, bound to the same useEngine singleton — one control, two
 // surfaces, can't drift).
-const { engineState: engState, checkForUpdate, refreshEngine, updateInfo: engineUpdateInfo } = useEngine();
+const { engineState: engState, checkForUpdate, refreshEngine, updateInfo: engineUpdateInfo, statusKnown: engineStatusKnown, installed: engineInstalled, installing: engineInstalling } = useEngine();
 
 // Host-contributed tab: an app passes a label + fills the #app-tab slot with its
 // own AI-domain settings (e.g. JustWrite's "Writing AI" — voice canon, RAG
@@ -459,6 +460,12 @@ onMounted(() => {
                      bound to the useEngine singleton), so the two can never disagree in look
                      OR wording. Intentional redundancy (row + panel), okayed by the user. -->
                 <LuEngineUpdateButton v-if="isBuiltin(p) && engineUpdateInfo?.updateAvailable" />
+                <!-- 2026-07-21 (user): "we moved the update button but not the install
+                     button move it now" — the engine isn't installed until the user acts,
+                     and that was only reachable via Edit. Surface Install on the row too,
+                     the SAME shared control the panel uses (LuEngineInstallButton, bound to
+                     the useEngine singleton). Same gate as the panel's inline button. -->
+                <LuEngineInstallButton v-if="isBuiltin(p) && engineStatusKnown && !engineInstalled && !engineInstalling" />
                 <!-- The default indicator is the right-aligned green "Default ✓" button
                      in the actions cell (2026-07-17); the left "Default" tag was removed
                      so it lives in one place, consistent with the model catalog. -->

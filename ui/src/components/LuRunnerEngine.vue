@@ -18,6 +18,7 @@ import UiProgress from "../common/components/UiProgress.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiToggle from "../common/components/UiToggle.vue";
 import LuRunnerBinaries from "./LuRunnerBinaries.vue";
+import LuEngineInstallButton from "./LuEngineInstallButton.vue";
 import LuEngineUpdateButton from "./LuEngineUpdateButton.vue";
 import { request } from "../client.js";
 import { useEngine } from "../composables/useEngine.js";
@@ -223,9 +224,7 @@ onMounted(() => {
              the user's words). While an install RUNS the buttons yield to the
              progress bar below (#119 — the exe lands on disk early, so a
              mid-install `installed` flip must not swap the cluster). -->
-        <UiButton v-if="statusKnown && !installed && !installing" intent="primary" size="small"
-          :loading="engBusy" title="Download + install the llama.cpp engine for this machine"
-          @click="engInstall()">Install engine</UiButton>
+        <LuEngineInstallButton v-if="statusKnown && !installed && !installing" />
         <template v-if="installed && !installing">
           <UiButton intent="ghost" size="small"
             :loading="engBusy" title="Delete the engine binaries — models are kept"

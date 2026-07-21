@@ -105,3 +105,40 @@ no-ops in-container (engine not installed), proving the CI-safe gate.
 model" task) only happens with the engine installed + the model downloaded + built-in as
 default — verify on your box: launch with those true and confirm the model is resident by
 first chat, with the task visible during load; toggle it off and confirm a cold start.
+
+## Part 3 — INSTALL button on the built-in row too (SHIPPED)
+
+**What & why.** Part 1 surfaced the *update* affordance on the collapsed built-in row but
+left *install* behind — a fresh box (engine not yet installed) still had to open Edit to
+find "Install engine". User: "we collapsed the built in but we moved the update button but
+not the install button move it now". So: mirror Part 1 exactly for install.
+
+**Change.** Same convergence as `LuEngineUpdateButton` — one shared component, two surfaces:
+- **NEW** `ui/src/components/LuEngineInstallButton.vue` — THE "Install engine" control.
+  Binds the `useEngine()` singleton (`install`/`busy`), renders `<UiButton intent="primary"
+  size="small" :loading="busy">Install engine</UiButton>` with the shared `:title`
+  ("Download + install the llama.cpp engine for this machine"). The **caller** gates
+  visibility on `statusKnown && !installed && !installing` (the panel's original inline
+  gate). Label/title/intent/action live here ONCE — the row and panel can never disagree.
+- `LuRunnerEngine.vue` — replaced its inline install `<UiButton>` (the `v-if="statusKnown
+  && !installed && !installing"` one) with `<LuEngineInstallButton v-if="statusKnown &&
+  !installed && !installing" />`; imported the component. `engInstall`/`engBusy` stay in the
+  destructure — still used by Reinstall (`engInstall(true)`), Uninstall, and the backend picker.
+- `AiModelsArea.vue` — extended the `useEngine()` destructure to also pull `statusKnown`
+  (→ `engineStatusKnown`), `installed` (→ `engineInstalled`), `installing` (→ `engineInstalling`),
+  and renders `<LuEngineInstallButton v-if="isBuiltin(p) && engineStatusKnown &&
+  !engineInstalled && !engineInstalling" />` right after the update button, next to the
+  `Built-in` tag. `checkForUpdate()`/`refreshEngine()` already run on mount, so status is populated.
+
+Install and update are mutually exclusive lifecycle states (can't have an update available
+when the engine isn't installed), so at most one of the two row buttons ever shows.
+
+**Note (this pass).** Shipped fast at the user's explicit request — "no rules checker code
+and push", "no tests no gate no nothing just code and push". No rules-checker agent, no
+build/smoke this round; the change is a mechanical mirror of the already-verified Part 1
+convergence (LuEngineInstallButton is LuEngineUpdateButton's twin), committed as trivial.
+
+**Your-box check.** With the engine uninstalled, the built-in row shows "Install engine"
+next to the tag; clicking it runs the same install as the panel (shared singleton), and the
+in-flight progress bar still lives in the panel (open Edit to watch it) — same as the update
+button's behaviour. Give the row a look on a fresh box + confirm `build:vite` compiles.

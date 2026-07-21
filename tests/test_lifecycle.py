@@ -2355,6 +2355,31 @@ def test_fit_placed_failure_falls_back_then_fails_fast_on_non_oom(tmp_path):
     assert spawns["n"] == 2   # the initial spawn + the ONE explicit-retry bounce, no more
 
 
+def test_fit_placed_unfixable_fails_fast_without_bounce(tmp_path):
+    # 1b-F4 guard: a FIT-PLACED load whose spawn log shows an UNFIXABLE error (a rejected CLI
+    # flag / unknown architecture) must fail FAST — re-emitting with explicit placement can't
+    # fix it, and a bounce would knock down every healthy co-resident model. So the engine
+    # spawns EXACTLY ONCE (no retry bounce), unlike the empty-tail case above (which bounces once).
+    spawns = {"n": 0}
+
+    def unfixable_router(*a, **k):
+        spawns["n"] += 1
+        lp = k.get("log_path")
+        if lp:
+            Path(lp).parent.mkdir(parents=True, exist_ok=True)
+            Path(lp).write_text("error: invalid argument: --no-such-flag")
+        return _fake_router()
+
+    def always_failed(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "failed"}}]}
+
+    svc = _service_for(tmp_path, start_router=unfixable_router, router_models=always_failed)
+    svc.load(_TEST_MODEL.id)  # fit-placed (ngl omitted)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "error"
+    assert spawns["n"] == 1   # spawned once, NO fit-placed retry bounce on an unfixable failure
+
+
 def test_engine_uninstall_removes_build_dir(tmp_path):
     # Providers-surface redesign item 3 (2026-07-06): uninstall deletes the pinned
     # build's binary dir (every per-GPU variant) and resets the engine state; the

@@ -475,6 +475,22 @@ def _looks_like_draft_failure(text: str) -> bool:
     return "failed to load draft model" in (text or "").lower()
 
 
+def _looks_like_unfixable(text: str) -> bool:
+    """A load failure that re-emitting the model with EXPLICIT placement cannot fix — so the
+    1b-F4 fit-placed retry must fail fast rather than restart the engine (a bounce that knocks
+    down + reloads every healthy co-resident model) for nothing. The signatures are llama.cpp's
+    own stderr, verified against common/arg.cpp + the model loader (2026-07-21): a rejected CLI
+    flag ("error: invalid argument:", "error while handling argument") — a bad extra_flags
+    passthrough re-sends identically — and an architecture the engine doesn't know ("unknown
+    model architecture"). Kept deliberately TIGHT: a false NEGATIVE is only today's single
+    bounce, but a false POSITIVE would wrongly refuse a #18066 fixable fit-bug, so bare
+    "invalid argument" (also a CUDA runtime error, not an arg reject) is NOT matched."""
+    t = (text or "").lower()
+    return any(s in t for s in (
+        "error: invalid argument:", "error while handling argument", "unknown model architecture",
+    ))
+
+
 def _default_health(url: str) -> bool:
     try:
         return requests.get(url + "/health", timeout=2).status_code == 200

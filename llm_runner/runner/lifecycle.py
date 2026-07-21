@@ -53,6 +53,7 @@ from .process import (
     _BACKOFF_STEP,
     _looks_like_draft_failure,
     _looks_like_oom,
+    _looks_like_unfixable,
     _tail_file,
     compute_fit,
     emit_models_ini,
@@ -2208,6 +2209,21 @@ class RunnerService:
             # (today's exact path); the ordinary OOM-shed/fail-fast below then governs
             # the now-explicit entry. Never worse than the pre-1b behavior.
             if entry.n_gpu_layers is None:
+                # 1b-F4 guard (2026-07-21): the fit-placed retry exists to fix #18066 —
+                # barely-fits placement bugs that exit NON-OOM, which explicit placement
+                # repairs. But an UNFIXABLE non-OOM failure (a rejected engine flag, an
+                # unknown model architecture) re-emits the SAME flags/model, so the retry
+                # cannot help — and each _bounce_router knocks down + reloads EVERY healthy
+                # co-resident model. Fail FAST on those (no emit, no bounce). Draft-load
+                # crashes are EXEMPT: they keep the retry so their solo-escalation path
+                # below is reached once placement is explicit.
+                _tail = _tail_file(self._last_log_path) if self._last_log_path else ""
+                if _looks_like_unfixable(_tail) and not _looks_like_draft_failure(_tail):
+                    raise RuntimeError(
+                        f"model {entry.model_id!r} failed to load (status={outcome}) with an "
+                        f"unfixable error — not retrying, since a retry would restart the engine "
+                        f"and disrupt other loaded models: {_tail[-600:]}"
+                    )
                 log.warning("router child %s failed under engine fit (%s) — retrying with "
                             "explicit computed placement ngl=%d ncmoe=%d",
                             entry.model_id, outcome, fit.n_gpu_layers, fit.n_cpu_moe)

@@ -369,8 +369,10 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
      # context_shift + cache_reuse REMOVED from the base (user, 2026-07-07, on-box tested):
      # Gemma 4's iSWA context supports neither KV shifting nor prefix reuse (llama.cpp
      # auto-disables both with a warning), and context_shift measured as a net loss; the Qwen
-     # config omits both too. Neither is a safe UNIVERSAL default → they stay per-model knobs
-     # in knob_catalog, enable per model where they actually help.
+     # config omits both too. Neither is a safe UNIVERSAL default. (They were later REMOVED
+     # from knob_catalog ENTIRELY — QC-11, user 2026-07-09, pinned by test_knob_catalog.py:79-80:
+     # Gemma iSWA supports neither, so they aren't offered as knobs at all; a one-off A/B can
+     # still ride the transient LoadRequest field, which the emitter still honors.)
      "switches": {"flash_attn": "on", "cache_type_k": "q8_0", "cache_type_v": "q8_0",
                   "mlock": "true", "reasoning_budget": "1024"}},
     {"id": "moe", "label": "MoE (mixture-of-experts)", "applies_to": "moe", "position": 1,

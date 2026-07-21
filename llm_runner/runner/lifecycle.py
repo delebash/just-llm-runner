@@ -31,6 +31,7 @@ from .binary import (
     build_num,
     build_of_exe,
     concrete_gpu,
+    exe_build_number,
     gpu_family,
     select_binary,
 )
@@ -134,10 +135,12 @@ def _default_profile_switches_fn(job_id: str) -> dict[str, str]:  # noqa: ARG001
     return {}
 
 
-def _default_measure_probe(url: str, prompt: str, max_tokens: int, model_id: str = "") -> tuple[int, float]:
-    """POST a fixed prompt to the running llama-server → (completion_tokens,
-    decode_ms). In router mode the body carries `"model"` so the router dispatches to
-    the right resident child. A real network call to the live model — injected in tests."""
+def _default_measure_probe(url: str, prompt: str, max_tokens: int, model_id: str = "") -> tuple[int, float, dict | None]:
+    """POST a fixed prompt to the running llama-server → (completion_tokens, decode_ms,
+    draft). `draft` is {"n", "accepted"} read from the response `timings` when speculative
+    decoding actually ran (llama.cpp `draft_n` / `draft_n_accepted`), else None — the MTP
+    acceptance signal (T3). In router mode the body carries `"model"` so the router
+    dispatches to the right resident child. A real network call — injected in tests."""
     body: dict = {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "stream": False}
     if model_id:
         body["model"] = model_id
@@ -145,8 +148,14 @@ def _default_measure_probe(url: str, prompt: str, max_tokens: int, model_id: str
     resp = requests.post(url.rstrip("/") + "/v1/chat/completions", json=body, timeout=120)
     ms = (time.monotonic() - t0) * 1000
     resp.raise_for_status()
-    usage = (resp.json() or {}).get("usage") or {}
-    return int(usage.get("completion_tokens") or 0), ms
+    payload = resp.json() or {}
+    usage = payload.get("usage") or {}
+    timings = payload.get("timings") or {}
+    # `draft_n` is present ONLY when a draft model / built-in MTP head actually speculated.
+    draft = ({"n": int(timings.get("draft_n") or 0),
+              "accepted": int(timings.get("draft_n_accepted") or 0)}
+             if "draft_n" in timings else None)
+    return int(usage.get("completion_tokens") or 0), ms, draft
 
 
 def _default_measure_sample() -> dict:
@@ -542,14 +551,21 @@ class RunnerService:
             f for f in ("cuda", "rocm", "vulkan", "metal")
             if runtimes.get(f) and f in fams_with_binary
         ]
+        dir_build = (build_of_exe(self.cache_root, exe) if exe else None) or config.llamacpp.pinned_build
+        bin_build = exe_build_number(exe) if exe else None
         return {
             "installed": exe is not None,
             "serverExe": str(exe) if exe else "",
-            # QC-13: the build actually ON DISK (the exe's dir), which a reverted
-            # pin may not name; the pin is only reported when nothing is installed
-            # (it is then the build an install would fetch).
-            "build": (build_of_exe(self.cache_root, exe) if exe else None)
-            or config.llamacpp.pinned_build,
+            # QC-13: the build DIR on disk (the exe's folder), which a reverted pin may not
+            # name; the pin is reported only when nothing is installed (then it's the build
+            # an install would fetch). The dir NAME can LIE — see binaryBuild.
+            "build": dir_build,
+            # T4 (2026-07-21): the build the BINARY self-reports (`--version`) — the TRUTH
+            # when a rolling asset was unpacked into a pin-named dir. `buildMismatch` flags
+            # dir!=binary so neither status nor the bench reports a folder name as the
+            # version. binaryBuild is None when the exe couldn't be probed.
+            "binaryBuild": bin_build,
+            "buildMismatch": bool(bin_build and bin_build != dir_build),
             "gpu": asset.gpu if asset else "",
             "platform": hardware.platform,
             "hasRuntime": has_runtime,
@@ -1082,15 +1098,23 @@ class RunnerService:
         probe = probe or _default_measure_probe
         sample = sample or _default_measure_sample
         try:
-            ct, ms = probe(router.url, prompt, max_tokens, model_id=mid)
+            ct, ms, draft = probe(router.url, prompt, max_tokens, model_id=mid)
         except Exception as exc:  # noqa: BLE001 — surface the probe error, don't crash
             return {"ok": False, "error": str(exc)}
         tps = round(ct / (ms / 1000), 1) if ms > 0 and ct else 0.0
         self._arbiter.touch(mid)  # a measure is a use — keep it warm in the LRU
-        return {
+        out = {
             "ok": True, "modelId": mid,
             "tokensPerSec": tps, "completionTokens": ct, "ms": round(ms, 1), **sample(),
         }
+        # Speculative-decoding acceptance (MTP, T3): present ONLY when the probe's
+        # completion carried draft timings (spec actually ran). draftN==0 while a model is
+        # MTP-configured is the "configured but not engaging" signal the bench flags.
+        if draft is not None:
+            n, acc = draft["n"], draft["accepted"]
+            out["draftN"], out["draftNAccepted"] = n, acc
+            out["draftAcceptance"] = round(acc / n, 4) if n > 0 else 0.0
+        return out
 
     def tokenize(self, *, text: str, probe=None, model_id: str | None = None) -> dict:
         """Exact token count for `text` via a RESIDENT model's own tokenizer (b1/E2 — the
@@ -1942,9 +1966,14 @@ class RunnerService:
                         # A CORNER case now (cancelled mid-draft / hand-deleted / a
                         # pre-fix download) — no longer the normal downloaded-but-not-
                         # yet-loaded state. Strip spec LOUDLY: no network in the ini
-                        # emitter, and `spec-type = draft-mtp` without a `model-draft`
-                        # line would hand llama-server a broken preset on a router
-                        # bounce. The first ACTIVE load re-acquires the draft (fail-loud).
+                        # emitter, and for a DECLARED-DRAFTER model (this branch runs ONLY
+                        # when `_wants_draft` is True, i.e. `m.mtp_draft_file` is set),
+                        # `spec-type = draft-mtp` without a `model-draft` line would hand
+                        # llama-server a broken preset on a router bounce. (A BUILT-IN-MTP
+                        # model — no `mtp_draft_file`, e.g. qwen3.6-35b-a3b-mtp — legitimately
+                        # runs spec-type with NO model-draft, self-drafting from the main
+                        # GGUF, and never reaches this branch — verified working on-box
+                        # 2026-07-21.) The first ACTIVE load re-acquires the draft (fail-loud).
                         log.warning(
                             "model %s wants MTP (draft-mtp) but its draft %r is not "
                             "downloaded — MTP is OFF for this router section; Re-download "

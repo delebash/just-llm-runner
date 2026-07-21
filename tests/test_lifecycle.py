@@ -461,17 +461,27 @@ def test_router_load_oom_backoff(tmp_path):
         value = "loaded" if posts["n"] >= 3 else "failed"
         return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": value}}]}
 
+    paths = {}
+
     def oom_router(*a, **k):
-        # The shed only fires on an OOM-looking spawn log — write one to the log the service
-        # tails. _spawn_router passes the per-spawn log_path here (a fresh one per bounce).
-        lp = k.get("log_path")
-        if lp:
-            Path(lp).parent.mkdir(parents=True, exist_ok=True)
-            Path(lp).write_text("CUDA error: out of memory")
+        # Stash the per-spawn log path; the OOM text is appended at POST time below —
+        # the tail read is WATERMARKED per attempt (2026-07-21), so a spawn-time write
+        # would land before the watermark and never match (as a real stale line shouldn't).
+        paths["log"] = k.get("log_path")
         return _fake_router()
 
+    def oom_load(url, mid):
+        count_load(url, mid)
+        # The child's OOM text lands DURING the attempt (after this POST's watermark),
+        # exactly as the real child writes it.
+        lp = paths.get("log")
+        if lp:
+            Path(lp).parent.mkdir(parents=True, exist_ok=True)
+            with open(lp, "a", encoding="utf-8") as f:
+                f.write("CUDA error: out of memory\n")
+
     svc = _service_for(tmp_path, start_router=oom_router,
-                       router_load=count_load, router_models=failed_until_third)
+                       router_load=oom_load, router_models=failed_until_third)
     svc.load(_TEST_MODEL.id, overrides=Overrides(n_gpu_layers=20))
     svc._thread.join(timeout=5)
     assert svc.status()["status"] == "running"
@@ -2362,22 +2372,57 @@ def test_fit_placed_unfixable_fails_fast_without_bounce(tmp_path):
     # spawns EXACTLY ONCE (no retry bounce), unlike the empty-tail case above (which bounces once).
     spawns = {"n": 0}
 
+    paths = {}
+
     def unfixable_router(*a, **k):
         spawns["n"] += 1
-        lp = k.get("log_path")
+        paths["log"] = k.get("log_path")
+        return _fake_router()
+
+    def reject_load(url, mid):
+        # The engine rejects the flag DURING this attempt — after the POST watermark
+        # (a spawn-time write would be pre-watermark and correctly ignored).
+        lp = paths.get("log")
         if lp:
             Path(lp).parent.mkdir(parents=True, exist_ok=True)
-            Path(lp).write_text("error: invalid argument: --no-such-flag")
+            with open(lp, "a", encoding="utf-8") as f:
+                f.write("error: invalid argument: --no-such-flag\n")
+
+    def always_failed(url):
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "failed"}}]}
+
+    svc = _service_for(tmp_path, start_router=unfixable_router,
+                       router_load=reject_load, router_models=always_failed)
+    svc.load(_TEST_MODEL.id)  # fit-placed (ngl omitted)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "error"
+    assert spawns["n"] == 1   # spawned once, NO fit-placed retry bounce on an unfixable failure
+
+
+def test_fit_placed_stale_log_line_does_not_suppress_retry(tmp_path):
+    # Watermark fires-proof (2026-07-21): an unfixable-looking line ALREADY in the router
+    # log (an earlier model's failure, written before this attempt's POST watermark) must
+    # NOT suppress the fit-placed explicit retry — only THIS attempt's appended lines
+    # count. On the pre-watermark code this FAILS: the whole-log tail matched the stale
+    # line and the load fail-fasted with spawns == 1.
+    spawns = {"n": 0}
+
+    def stale_router(*a, **k):
+        spawns["n"] += 1
+        lp = k.get("log_path")
+        if lp and spawns["n"] == 1:  # the STALE line exists before the first POST
+            Path(lp).parent.mkdir(parents=True, exist_ok=True)
+            Path(lp).write_text("error: invalid argument: --from-a-previous-model\n")
         return _fake_router()
 
     def always_failed(url):
         return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "failed"}}]}
 
-    svc = _service_for(tmp_path, start_router=unfixable_router, router_models=always_failed)
-    svc.load(_TEST_MODEL.id)  # fit-placed (ngl omitted)
+    svc = _service_for(tmp_path, start_router=stale_router, router_models=always_failed)
+    svc.load(_TEST_MODEL.id)  # fit-placed
     svc._thread.join(timeout=5)
     assert svc.status()["status"] == "error"
-    assert spawns["n"] == 1   # spawned once, NO fit-placed retry bounce on an unfixable failure
+    assert spawns["n"] == 2   # the explicit retry STILL happened — the stale line was ignored
 
 
 def test_engine_uninstall_removes_build_dir(tmp_path):
@@ -2906,11 +2951,22 @@ def _mtp_fit():
                    ctx_explicit=True)
 
 
-def _draft_crash_log(tmp_path):
-    p = tmp_path / "router.log"
-    p.write_text("E llama_model_load: error loading model: invalid vector subscript\n"
-                 "E srv load_model: failed to load draft model, '/x/mtp-draft.gguf'\n")
-    return p
+_DRAFT_CRASH_TEXT = ("E llama_model_load: error loading model: invalid vector subscript\n"
+                     "E srv load_model: failed to load draft model, '/x/mtp-draft.gguf'\n")
+
+
+def _draft_crash_loader(holder):
+    """router_load fake: the child crashes on its draft DURING the attempt, so the crash
+    text lands AFTER this POST's watermark (the tail read is per-attempt since 2026-07-21;
+    the old pre-written-log seeding would sit before the watermark and never match).
+    `holder["svc"]` is filled after construction; appends to the CURRENT log path so a
+    stage-2 restart's rotated log still receives the signature."""
+    def _load(url, mid):
+        p = holder["svc"]._last_log_path
+        Path(p).parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(_DRAFT_CRASH_TEXT)
+    return _load
 
 
 def test_draft_crash_unloads_coresident_and_keeps_mtp(tmp_path):
@@ -2933,11 +2989,14 @@ def test_draft_crash_unloads_coresident_and_keeps_mtp(tmp_path):
             state["embed_up"] = False
 
     arb = VramArbiter()
+    holder = {}
     svc = _service_for(tmp_path, catalog=[_GEMMA_MTP, _EMBED_CPU], arbiter=arb,
                        router_models=models, router_unload=unload,
+                       router_load=_draft_crash_loader(holder),
                        hardware_fn=lambda: _fake_hw(8192), sleep=lambda s: None)
+    holder["svc"] = svc
     svc._router = _fake_router()
-    svc._last_log_path = _draft_crash_log(tmp_path)
+    svc._last_log_path = tmp_path / "router.log"
     svc._resident[_GEMMA_MTP.id] = {"status": "starting"}
     svc._resident[_EMBED_CPU.id] = {"status": "running"}
     arb.reserve(_EMBED_CPU.id, 44)
@@ -2968,12 +3027,15 @@ def test_draft_crash_escalates_to_restart_keeping_mtp(tmp_path):
         return _fake_router()
 
     arb = VramArbiter()
+    holder = {}
     svc = _service_for(tmp_path, catalog=[_GEMMA_MTP], arbiter=arb,
                        router_models=models, start_router=start_router,
+                       router_load=_draft_crash_loader(holder),
                        hardware_fn=lambda: _fake_hw(8192), sleep=lambda s: None)
+    holder["svc"] = svc
     svc._router = _fake_router()
     svc._active_server_exe = tmp_path / "llama-server"
-    svc._last_log_path = _draft_crash_log(tmp_path)
+    svc._last_log_path = tmp_path / "router.log"
     svc._resident[_GEMMA_MTP.id] = {"status": "starting"}
 
     entry = _mtp_entry()
@@ -2990,15 +3052,18 @@ def test_draft_crash_solo_still_fails_raises_never_drops_mtp(tmp_path):
     def models(_url):
         return {"object": "list", "data": [{"id": _GEMMA_MTP.id, "status": {"value": "failed"}}]}
 
+    holder = {}
     svc = _service_for(tmp_path, catalog=[_GEMMA_MTP], router_models=models,
                        start_router=lambda *a, **k: _fake_router(),
+                       router_load=_draft_crash_loader(holder),
                        hardware_fn=lambda: _fake_hw(8192), sleep=lambda s: None)
+    holder["svc"] = svc
     svc._router = _fake_router()
     svc._active_server_exe = tmp_path / "llama-server"
-    crash_log = _draft_crash_log(tmp_path)
+    crash_log = tmp_path / "router.log"
     svc._last_log_path = crash_log
-    # The stage-2 restart rotates the log via _router_log_path; pin it so the (still
-    # crashing) draft signature survives the restart and the draft-specific raise fires.
+    # The stage-2 restart rotates the log via _router_log_path; pin it so the loader's
+    # per-POST crash appends keep landing where the (post-restart) attempt tails from.
     svc._router_log_path = lambda: crash_log
     svc._resident[_GEMMA_MTP.id] = {"status": "starting"}
 

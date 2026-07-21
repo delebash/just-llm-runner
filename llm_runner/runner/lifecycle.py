@@ -2158,21 +2158,27 @@ class RunnerService:
         except OSError:
             return 0
 
-    def _child_exited_since(self, model_id: str, offset: int) -> bool:
-        """The fail-fast death signal (2026-07-11): the router logs a crashed child as
-        `instance name=<id> exited with status N` but can keep reporting the id as
-        still-`loading` (the brick). Scan only the bytes appended after `offset` (this
-        load's POST watermark). Same log-tail technique the OOM gate already uses."""
+    def _log_appended_since(self, offset: int) -> str:
+        """The router-log bytes appended after `offset` (this attempt's POST watermark).
+        THE one per-attempt log read (2026-07-21): every failure-signature check —
+        child-exit, OOM shed, draft crash, the 1b-F4 unfixable gate — reads THIS, never
+        an unwatermarked whole-log tail, so a stale line from a previous attempt or an
+        earlier model's failure in the shared router log can never trigger a match."""
         path = self._last_log_path
         if not path:
-            return False
+            return ""
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 f.seek(max(0, offset))
-                appended = f.read()
+                return f.read()
         except OSError:
-            return False
-        return f"instance name={model_id} exited with status" in appended
+            return ""
+
+    def _child_exited_since(self, model_id: str, offset: int) -> bool:
+        """The fail-fast death signal (2026-07-11): the router logs a crashed child as
+        `instance name=<id> exited with status N` but can keep reporting the id as
+        still-`loading` (the brick). Scans only this attempt's appended bytes."""
+        return f"instance name={model_id} exited with status" in self._log_appended_since(offset)
 
     def _router_load_with_backoff(self, entry: ModelIniEntry, fit, server_exe, config) -> None:
         """`POST /models/load` the model, then CONFIRM it went resident by polling `GET /models`
@@ -2217,7 +2223,7 @@ class RunnerService:
                 # co-resident model. Fail FAST on those (no emit, no bounce). Draft-load
                 # crashes are EXEMPT: they keep the retry so their solo-escalation path
                 # below is reached once placement is explicit.
-                _tail = _tail_file(self._last_log_path) if self._last_log_path else ""
+                _tail = self._log_appended_since(log_offset)  # THIS attempt's lines only
                 if _looks_like_unfixable(_tail) and not _looks_like_draft_failure(_tail):
                     raise RuntimeError(
                         f"model {entry.model_id!r} failed to load (status={outcome}) with an "
@@ -2239,7 +2245,11 @@ class RunnerService:
                 continue
             # failed / timeout: shed GPU layers ONLY on a genuine CUDA-OOM in the spawn log —
             # never on a non-OOM failure (shedding can't fix it and a bounce disrupts residents).
-            tail = _tail_file(self._last_log_path) if self._last_log_path else ""
+            # Watermarked (2026-07-21): only THIS attempt's appended lines. The old
+            # whole-log _tail_file read could match a STALE line — a previous model's
+            # OOM shedding this one's layers, or a previous attempt's draft crash
+            # re-triggering solo-escalation on an unrelated failure.
+            tail = self._log_appended_since(log_offset)
             # MTP/spec draft-load crash (2026-07-12): llama.cpp's router crashes the DRAFT
             # model ('invalid vector subscript') when it loads WHILE another child is loading —
             # a transient SCHEDULING race (e.g. an embed switch bounced Gemma + the embed in

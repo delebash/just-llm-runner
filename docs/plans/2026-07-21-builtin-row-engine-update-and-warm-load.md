@@ -106,16 +106,29 @@ per-provider one), so it MOVED out of the Edit panel entirely onto the **main Lo
   the acceleration-backend picker is a plain standalone `.lu-eng-backend` block again. The
   toggle now lives in exactly one place (the main page), not redundantly in the Edit form.
 
-**The client warm** — `justwrite-app/src/renderer/src/services/warmDefault.js` +
-`main.js` (fired at the boot IIFE tail, fire-and-forget, next to `startAutoRebuildWatcher`).
-`warmDefaultModel()` gates on, in order: (1) `warmDefaultOnStartup` on; (2)
-`getRoutingPrefs().defaultLlmId === "local-llamacpp"` with a non-empty `defaultModel`;
-(3) engine installed AND the model row `downloaded` AND not already resident (so a fresh
-box / CI NEVER triggers a pull or a redundant load). Then `POST /v1/llm-runner/load` and
-poll `/v1/llm-runner/resident` until `loaded|sleeping`, shown as an AI task ("Loading your
-writing model") via the exported `useAiTasksStore` — the same visibility surface
-`ensureEmbeddingReady` uses (TitleBar AI chip + status panel). No new kit export, no App.vue
-surface. Chat model only (embed already warms on-demand).
+**The client warm — REUSE rewrite (2026-07-21, user: "just call the same function as the load
+button … delete warmDefault … reuse that loading control … put it below the loading circle on
+front page").** The first cut (`services/warmDefault.js`) hand-rolled its own `POST
+/v1/llm-runner/load` + `/resident` poll AND resolved the model from
+`getRoutingPrefs().defaultModel` — which is EMPTY for the built-in (its chat model lives in the
+engine PRESETS, not `routing.default.model`; AiModelsArea resolves it via `currentDefaultId`,
+not `defaultModel`). So the `!modelId` gate returned early every boot → **nothing ever loaded**.
+Deleted and replaced with reuse:
+- **`services/warmStartup.js`** (`startWarmOnBoot`) — no poll loop. Gates: (1) `warmDefaultOnStartup`
+  on; (2) `useModelApply().refreshApplied()` → `currentDefaultId` (the SAME resolver the catalog's
+  Default badge uses; empty ⇒ default provider isn't the local runner ⇒ no-op); (3) `refreshRunnerModels()`
+  then the catalog row is `downloaded` and not already resident (never a boot-time pull). Then it sets
+  `warmModelId` and calls **`useRunnerModels().retryLoad(modelId)`** — the SAME `POST /v1/llm-runner/load`
+  the catalog's "Load now" runs, which drives the singleton's own load poll + progress.
+- **Boot overlay** — `main.js` calls `await startWarmOnBoot()` BEFORE `app.mount` (so App comes up
+  with the overlay already showing, a seamless hand-off from the static `index.html` `#app-boot`
+  splash). `App.vue` renders a full-screen `.jw-bootwarm` (spinner + "JustWrite", styled to match the
+  splash) with the shared **`DownloadBar`** below the circle, bound to `useRunnerModels().taskFor(warmModelId)`
+  — the SAME control + live task the engine panel uses. It auto-dismisses when the model goes resident
+  (`loaded|sleeping`); a "Continue without waiting" link + the bar's own Cancel/Retry mean a slow or
+  failed load never traps the user (the load keeps running in the background either way).
+- **New kit exports** (`ui/src/index.js`): `useRunnerModels`, `useModelApply`, `DownloadBar` — promoted
+  to the shared surface so the host reuses them instead of forking. Chat model only (embed warms on-demand).
 
 **Verify.** Backend round-trips live (`GET` warmDefaultOnStartup=True seeded; `PUT` false→false,
 true→true) and the runner suite is green (645 passed; the 4 `test_lifecycle` fails are
@@ -123,8 +136,9 @@ pre-existing/VRAM-in-container, reproduced with these changes stashed). Toggle r
 the engine panel (screenshot). `build:vite` clean; headless smoke 0 JS errors — the warm
 no-ops in-container (engine not installed), proving the CI-safe gate.
 
-**Reverse.** Delete `warmDefault.js` + its `main.js` call (client), and drop the
-`warm_default_on_startup` wiring (server/toggle); an existing DB keeps an inert row.
+**Reverse.** Delete `warmStartup.js` + its `main.js` call + the `App.vue` `.jw-bootwarm` overlay
+(client), revert the three kit `index.js` exports, and drop the `warm_default_on_startup` wiring
+(server/toggle); an existing DB keeps an inert row.
 
 **Your-box check.** The actual warm (a real load into VRAM + the "Loading your writing
 model" task) only happens with the engine installed + the model downloaded + built-in as

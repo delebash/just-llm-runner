@@ -752,9 +752,9 @@ async function redownload(m) {
 // exactly as redownload does; on unload failure the error surfaces and nothing is deleted.
 async function freeDownload(m) {
   const ok = await confirmDialog({
-    title: `Free the disk space used by "${m.name || m.id}"?`,
+    title: `Delete the downloaded model "${m.name || m.id}"?`,
     message: "Deletes its downloaded weights from disk. The model stays in your catalog and re-downloads on demand. A loaded model is unloaded first.",
-    confirmLabel: "Free disk",
+    confirmLabel: "Delete downloaded model",
   });
   if (!ok) return;
   busy.value = `free:${m.id}`; // own namespace so its spinner ≠ Delete's / Re-download's / the row load spinner
@@ -957,8 +957,8 @@ refreshApplied();
                 <UiButton v-if="m.downloaded && m.status !== 'loading' && m.status !== 'stopping'"
                   intent="ghost" size="small"
                   :loading="busy === 'free:' + m.id"
-                  title="Free the disk space its weights use — keeps the catalog entry, re-downloads on demand. A loaded model is unloaded first."
-                  @click="freeDownload(m)">Free disk</UiButton>
+                  title="Delete the downloaded model — keeps the catalog entry, re-downloads on demand. A loaded model is unloaded first."
+                  @click="freeDownload(m)">Delete downloaded model</UiButton>
                 <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
                   title="Tune engine flags &amp; measure decode speed" @click="tuning = m">Tune</UiButton>
                 <UiButton v-if="m.status === 'loaded'" intent="ghost" size="small"

@@ -279,7 +279,7 @@ folded 2026-07-08 recommendation the user approved; reopen only on a user ask. A
   (spawn-logs clear · models-cache clear with the unload-first refusal), and the JW
   Settings→Storage "Disk usage" card. Full record: the queue doc's I4 DESIGN + I4 BUILD
   RECORD. Deliberate follow-up, not v1: per-model GGUF delete on the catalog surface —
-  **SHIPPED 2026-07-21** as the "Free disk" row action (`LuModelCatalog.vue` `freeDownload`:
+  **SHIPPED 2026-07-21** as the "Delete downloaded model" row action (`LuModelCatalog.vue` `freeDownload`:
   unload-first → models-cache/delete KEEPS the row → refresh; re-downloads on demand).
   **UI follow-up SHIPPED (2026-07-15):** the catalog **Re-download** (repair) action now
   renders on a **loaded** row too — not just `error`/`disk` (`LuModelCatalog.vue:890`

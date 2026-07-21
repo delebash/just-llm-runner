@@ -31,7 +31,6 @@ from .binary import (
     build_num,
     build_of_exe,
     concrete_gpu,
-    exe_build_number,
     gpu_family,
     select_binary,
 )
@@ -384,7 +383,6 @@ class RunnerService:
         sleep=time.sleep,
         arbiter=None,
         latest_build_fn=None,
-        save_pin=None,
     ):
         self._cache_root = Path(cache_root)
         self._config_fn = config_fn
@@ -447,11 +445,6 @@ class RunnerService:
         # spawn may differ from the preferred build; bounces must reuse the
         # PROVEN exe, never re-try the broken preferred one mid-session.
         self._active_server_exe = None
-        # QC-25: the host's pin WRITER (None in standalone mode → no healing).
-        # The pin heals upward onto a newer on-disk build at BOOT (here) and
-        # POST-INSTALL only — never on a status poll (see _heal_pin_upward).
-        self._save_pin = save_pin
-        self._heal_pin_upward()
 
     @property
     def cache_root(self) -> Path:
@@ -488,33 +481,11 @@ class RunnerService:
     #    model (a load REQUIRES the engine present; see _run_load). ──────────────
     def _installed_build(self, config) -> str | None:
         """The build actually ON DISK (the installed exe's dir), or None when
-        nothing is installed. QC-13/QC-25: status, uninstall, the update check
-        and the pin heal all report/act on the disk truth — a DB-reset-reverted
-        pin must never masquerade as the current version."""
+        nothing is installed. QC-13: status, uninstall and the update check
+        report/act on the disk truth — what is installed is a fact of the disk,
+        while the pin is the user's CHOICE of what an install should fetch."""
         exe = self._acquired_exe(self.cache_root, config, self._hardware_fn())
         return build_of_exe(self.cache_root, exe) if exe else None
-
-    def _heal_pin_upward(self) -> None:
-        """QC-25: converge the PIN onto a NEWER build already on disk — at BOOT
-        and POST-INSTALL only, never on a status poll (a poll heal would clobber
-        a DELIBERATE downgrade: the user pins an older build and the poll would
-        rewrite it before they click Reinstall). Closes the reinstall-downgrade
-        hole: a DB reset reverts the pin to the seed while a newer engine sits
-        on disk — a pin-keyed Reinstall would fetch the OLD build and the
-        stale-build sweep (_run_install) would then delete the newer one.
-        No-op without a save_pin writer (standalone mode), when nothing is
-        installed, or when the disk build isn't newer than the pin. Best-effort:
-        healing must never make boot or an install fail."""
-        if self._save_pin is None:
-            return
-        try:
-            config = self._config_fn()
-            disk = self._installed_build(config)
-            if disk and build_num(disk) > build_num(config.llamacpp.pinned_build):
-                self._save_pin(disk)
-                log.info("engine pin healed upward to on-disk build %s", disk)
-        except Exception:  # noqa: BLE001 — healing is best-effort, never fatal
-            log.warning("engine pin heal failed", exc_info=True)
 
     def engine_status(self) -> dict:
         """Is the llama.cpp engine installed for THIS box? Reports the installed
@@ -552,21 +523,15 @@ class RunnerService:
             f for f in ("cuda", "rocm", "vulkan", "metal")
             if runtimes.get(f) and f in fams_with_binary
         ]
-        dir_build = (build_of_exe(self.cache_root, exe) if exe else None) or config.llamacpp.pinned_build
-        bin_build = exe_build_number(exe) if exe else None
         return {
             "installed": exe is not None,
             "serverExe": str(exe) if exe else "",
-            # QC-13: the build DIR on disk (the exe's folder), which a reverted pin may not
-            # name; the pin is reported only when nothing is installed (then it's the build
-            # an install would fetch). The dir NAME can LIE — see binaryBuild.
-            "build": dir_build,
-            # T4 (2026-07-21): the build the BINARY self-reports (`--version`) — the TRUTH
-            # when a rolling asset was unpacked into a pin-named dir. `buildMismatch` flags
-            # dir!=binary so neither status nor the bench reports a folder name as the
-            # version. binaryBuild is None when the exe couldn't be probed.
-            "binaryBuild": bin_build,
-            "buildMismatch": bool(bin_build and bin_build != dir_build),
+            # QC-13: the build actually ON DISK (the exe's dir), which the pin may not
+            # name; the pin is reported only when nothing is installed (then it's the
+            # build an install would fetch). Folder and binary agree because the UI keeps
+            # every stored download URL in lock-step with the pin.
+            "build": (build_of_exe(self.cache_root, exe) if exe else None)
+            or config.llamacpp.pinned_build,
             "gpu": asset.gpu if asset else "",
             "platform": hardware.platform,
             "hasRuntime": has_runtime,
@@ -806,10 +771,9 @@ class RunnerService:
         that would have DOWNGRADED): `current` is the build actually ON DISK —
         the same resolve engine_status reports — with the pin only as the
         nothing-installed fallback (it is then the build an install would fetch).
-        This method never writes the pin (no poll heal — a deliberate downgrade
-        pin must survive until the user clicks Reinstall); the heal runs at boot
-        + post-install only (_heal_pin_upward). A network failure reports as an
-        `error`, never as updateAvailable."""
+        This method never writes the pin — NOTHING does except the user (the
+        engine-config PUT / the update flow's deliberate click). A network
+        failure reports as an `error`, never as updateAvailable."""
         config = self._config_fn()
         current = self._installed_build(config) or config.llamacpp.pinned_build
         try:
@@ -1094,8 +1058,27 @@ class RunnerService:
         mid = model_id or self._last_id
         st = self._resident.get(mid)
         router = self._router
-        if router is None or not router.is_alive() or st is None or st.get("status") != "running":
+        if router is None or not router.is_alive() or not mid:
             return {"ok": False, "error": "no model running — load one first"}
+        if st is None or st.get("status") != "running":
+            # The internal ledger can be stale/reconciled while the child serves on —
+            # observed 2026-07-21: BOTH bench legs' measures refused ("no model running")
+            # while the router was serving every feature run fine, which is why the
+            # summary's MTP-acceptance table came back empty. The ROUTER is the authority
+            # on residency (the same source `resident()` reports and the bench polls), so
+            # consult it before refusing; loaded OR sleeping counts (a sleeper wakes on
+            # the probe request, exactly as it does for a real feature run).
+            try:
+                live = _parse_router_models(self._router_models(router.url))
+            except Exception:  # noqa: BLE001 — router GET failed → the refusal stands
+                live = {}
+            live_status = str((live.get(mid) or {}).get("value") or "").lower()
+            if live_status not in ("loaded", "sleeping"):
+                return {"ok": False, "error": "no model running — load one first"}
+            log.info(
+                "measure: internal ledger says %r for %s but the router reports %r — "
+                "proceeding on the router's authority",
+                (st or {}).get("status"), mid, live_status)
         probe = probe or _default_measure_probe
         sample = sample or _default_measure_sample
         try:
@@ -1486,12 +1469,6 @@ class RunnerService:
                     self._arbiter.release(mid)
             if stale_errors:
                 log.info("engine install: cleared %d stale model error state(s)", len(stale_errors))
-            # QC-25 post-install heal — AFTER the sweep on purpose: a deliberate
-            # downgrade (pin edited older + Reinstall) must complete as pinned;
-            # this only converges the pin when a NEWER build survived on disk
-            # (e.g. a Windows file-lock defeated the sweep), so status/update
-            # stay consistent with what is actually installed.
-            self._heal_pin_upward()
             self._engine_state = {"status": "installed", "detail": "", "error": "",
                                   "downloaded": 0, "total": 0}
         except DownloadCancelled:
@@ -2431,7 +2408,6 @@ def configure_service(
     default_llm_id_fn=None,
     config_fn=None,
     hardware_fn=None,
-    save_pin_fn=None,
     cache_root: str | None = None,
 ) -> RunnerService:
     """Host hook to construct the singleton with DB-backed catalog/switches/config
@@ -2456,8 +2432,6 @@ def configure_service(
         kwargs["config_fn"] = config_fn
     if hardware_fn is not None:
         kwargs["hardware_fn"] = hardware_fn
-    if save_pin_fn is not None:
-        kwargs["save_pin"] = save_pin_fn
     _service = RunnerService(root, **kwargs)
     return _service
 

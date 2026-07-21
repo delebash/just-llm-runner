@@ -377,20 +377,11 @@ def _wire_runner_catalog(data_dir=None) -> None:
             samplers_fallback=lambda meta: fetch_generation_config_samplers(meta.base_repo_url),
         )
 
-    def save_pin_fn(build: str) -> None:
-        # QC-25: the pin WRITER the runner's boot/post-install heal uses to
-        # converge the DB pin onto a newer build already on disk (a DB reset
-        # reverts the pin to the seed; the heal keeps Reinstall from fetching
-        # the old build and sweep-deleting the newer one). Same row the
-        # engine-config API writes (runner_config_api PUT pinnedBuild).
-        stores.get_runner_config_store().set_setting("pinned_build", build)
-
     configure_service(
         catalog_fn=catalog_fn, switches_fn=switches_fn,
         identify_fn=identify_fn, embedding_ids_fn=embedding_ids_fn,
         default_llm_id_fn=default_llm_id_fn,
         config_fn=stores.build_runner_config,
-        save_pin_fn=save_pin_fn,
         cache_root=(str(Path(data_dir) / "ai-cache") if data_dir else None),
     )
 
@@ -398,8 +389,8 @@ def _wire_runner_catalog(data_dir=None) -> None:
     # to the bundled runner (chat / features / Lab) makes its model resident BEFORE
     # dispatch — the server-side twin of the kit's ensure-embedding — so a cold router
     # no longer surfaces as "Connection refused". The llm/ dispatch never imports
-    # runner/; this closure over ensure_model_ready IS the injected seam (like save_pin
-    # above / configure_service). get_service() is resolved at call time so it always
+    # runner/; this closure over ensure_model_ready IS the injected seam (like the
+    # configure_service fns above). get_service() is resolved at call time so it always
     # hits the configured singleton.
     def _ensure_local_model(model_id: str) -> None:
         get_service().ensure_model_ready(model_id)

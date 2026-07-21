@@ -353,10 +353,13 @@ async def models_cache_delete(body: LoadRequest) -> dict:
 
 
 @router.post("/v1/llm-runner/measure", summary="Probe the running model → decode tok/s + resource context")
-async def measure_model(prompt: str = "Write one vivid paragraph about the sea.", max_tokens: int = 128) -> dict:
+async def measure_model(prompt: str = "Write one vivid paragraph about the sea.", max_tokens: int = 128,
+                        model_id: str | None = None) -> dict:
     """#20 'Tune & measure': run a fixed probe against the loaded model and return
-    decode tok/s + the box's VRAM/RAM context. Requires a model running."""
-    return get_service().measure(prompt=prompt, max_tokens=max_tokens)
+    decode tok/s + the box's VRAM/RAM context. Requires a model running. `model_id`
+    names the model explicitly (the bench names its leg's model); omitted → the
+    primary (most-recently loaded)."""
+    return get_service().measure(prompt=prompt, max_tokens=max_tokens, model_id=model_id)
 
 
 @router.post("/v1/llm-runner/tokenize", summary="Exact token count for text via the running model")

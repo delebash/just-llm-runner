@@ -95,7 +95,10 @@ MAX_DOWNLOAD_CONCURRENT = 10
 # prebuilt build; the Windows CUDA builds additionally need the separate cudart
 # runtime DLLs (`runtime_url`), unpacked alongside the exe. Windows assets are
 # `.zip`, macOS/Linux are `.tar.gz`. Filenames carry the build tag, so bumping
-# DEFAULT_PINNED_BUILD rewrites every URL (single source of truth).
+# DEFAULT_PINNED_BUILD produces the concrete URLs for that build (this seeds fresh
+# installs + "reset to defaults"; after boot the UI re-points every stored URL to
+# the pin whenever the pin changes — the server never composes a URL, it fetches
+# whatever concrete URL is stored).
 #
 # Every filename below was verified against the release's own asset list
 # (GET api.github.com/repos/ggml-org/llama.cpp/releases/tags/<build>) — do NOT

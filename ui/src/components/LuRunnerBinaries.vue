@@ -8,11 +8,12 @@
 // user paste a corrected URL from the llama.cpp releases page if an asset ever moves
 // or is renamed — config is data, nothing is hardcoded. Collapsed by default;
 // lazy-loads on first open.
-import { ref } from "vue";
+import { ref, watch } from "vue";
 
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import { confirmDialog } from "../common/services/dialog.js";
+import { applyBuildToUrl } from "../common/services/engineUrl.js";
 import { openExternal } from "../common/services/external.js";
 import { request } from "../client.js";
 
@@ -25,10 +26,26 @@ const error = ref("");
 const busy = ref(""); // the row key (or "__settings"/"__add"/"__reset") saving
 const draft = ref({ platform: "", gpu: "", assetUrl: "", serverExe: "llama-server" });
 
+// Reactivity: the pinned build is the source; every row's download URL derives from
+// it. When the pin changes (even mid-typing), each URL re-points to the REAL path for
+// that build, so the fields always show the actual URL — never a placeholder. Editing
+// a URL by hand (a moved asset) still works; the next pin change re-derives from
+// whatever tag it carries. This and the update-to-latest flow share the SAME
+// applyBuildToUrl helper, so the panel and the auto-update can't drift.
+function _resolveRowsToPin() {
+  const b = (pinnedBuild.value || "").trim();
+  for (const r of rows.value) {
+    r.assetUrl = applyBuildToUrl(r.assetUrl, b);
+    r.runtimeUrl = applyBuildToUrl(r.runtimeUrl, b);
+  }
+}
+watch(pinnedBuild, _resolveRowsToPin);
+
 function _apply(d) {
   rows.value = (d.binaries || []).map((r) => ({ ...r }));
   pinnedBuild.value = d.pinnedBuild || "";
   safetyMarginMb.value = d.safetyMarginMb || 0;
+  _resolveRowsToPin(); // show real paths for the current pin on load (never a placeholder)
 }
 
 async function load() {
@@ -113,7 +130,8 @@ async function reset() {
 
     <div class="lu-engbin-body">
       <p class="lu-muted lu-engbin-help">
-        The app auto-detects your system and downloads the matching llama.cpp build. If a
+        The app auto-detects your system and downloads the matching llama.cpp build. Change the
+        pinned build and every download URL below re-points to that build automatically. If a
         download fails because a release asset moved or was renamed, paste the correct URL
         from the
         <a class="lu-mlink" href="https://github.com/ggml-org/llama.cpp/releases" target="_blank" rel="noopener"

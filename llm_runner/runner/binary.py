@@ -11,8 +11,6 @@ alongside the exe — those are fetched too.
 from __future__ import annotations
 
 import logging
-import re
-import subprocess
 import sys
 import tarfile
 import zipfile
@@ -143,42 +141,15 @@ def _on_disk_builds(cache_root: Path) -> list[str]:
 
 
 def build_of_exe(cache_root: Path, exe: Path) -> str | None:
-    """The build DIR an installed exe lives under (`llamacpp/<build>/…`). NOTE: this is
-    the folder NAME, which can LIE — a rolling asset unpacked into a pin-named dir makes
-    it disagree with the binary's real build (see `exe_build_number`)."""
+    """The build an installed exe IS — read from the dir it lives under (`llamacpp/<build>/…`).
+    Reliable because the install names the folder for the pin AND downloads the concrete URL
+    stored for that pin (the UI keeps every stored URL in lock-step with the pin), so the folder
+    name and the binary always agree. (The `--version` cross-check + mismatch flag that briefly
+    lived here were a band-aid for the old decoupling — removed once the URL followed the pin.)"""
     try:
         return exe.relative_to(cache_root / "llamacpp").parts[0]
     except ValueError:
         return None
-
-
-_EXE_BUILD_CACHE: dict[str, str] = {}
-
-
-def exe_build_number(exe: Path, *, run: Callable[[], object] | None = None) -> str | None:
-    """The build the BINARY itself reports (`<exe> --version` → "version: NNNN (commit)"),
-    as "bNNNN" — the TRUTH, vs `build_of_exe` which only reads the DIR name. They diverge
-    when a rolling asset is unpacked into a pin-named dir (observed on-box 2026-07-21:
-    b9993 binaries inside a `b10069` dir), which silently mislabels engine_status and
-    poisons the bench's engine-drift flags. Cached by path (an exe is immutable once
-    installed); only successful reads are cached, so a transient failure (exe mid-install /
-    locked) retries. `run` injects the subprocess in tests. Never raises — None when it
-    can't be probed. (The `version: NNNN` format matches llama.cpp's `--version`; the exact
-    on-box output is confirmed by the first real read.)"""
-    key = str(exe)
-    if key in _EXE_BUILD_CACHE:
-        return _EXE_BUILD_CACHE[key]
-    try:
-        proc = run() if run else subprocess.run(
-            [str(exe), "--version"], capture_output=True, text=True, timeout=10)
-        text = f"{getattr(proc, 'stdout', '') or ''}\n{getattr(proc, 'stderr', '') or ''}"
-        m = re.search(r"\bversion:\s*(\d+)", text) or re.search(r"\bbuild(?:\s*number)?[:\s]+(\d{3,})", text)
-        build = f"b{m.group(1)}" if m else None
-    except Exception:  # noqa: BLE001 — a version probe must NEVER break status
-        build = None
-    if build is not None:
-        _EXE_BUILD_CACHE[key] = build
-    return build
 
 
 def _find_server_exe(root: Path, exe_name: str) -> Path | None:
@@ -355,6 +326,9 @@ def acquire_binary(
         _unpack(archive, dest)
         archive.unlink(missing_ok=True)
 
+    # The stored URL is the CONCRETE download for the pinned build (the UI re-points every
+    # stored URL whenever the pin changes); the folder above is named for that same pin, so
+    # folder and binary agree. The server does NOT compose a URL — it fetches what is stored.
     _fetch(asset.asset_url)
     # CUDA builds ship the cudart runtime DLLs separately — unpack alongside the exe.
     if asset.runtime_url:

@@ -1320,6 +1320,29 @@ def test_measure_surfaces_draft_acceptance(tmp_path):
     assert "draftAcceptance" not in out2
 
 
+def test_measure_falls_back_to_router_authority_when_ledger_stale(tmp_path):
+    # 2026-07-21 (bench run 06-45-46): BOTH legs' measures refused ("no model running")
+    # while the router was serving every feature run fine — the internal ledger had gone
+    # stale/reconciled. Measure now consults the router's live view (the same authority
+    # `resident()` reports) before refusing: loaded/sleeping → the probe proceeds; a model
+    # the router doesn't list → the refusal stands.
+    svc = _service_for(tmp_path)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    # Stale ledger: the entry claims "starting" though the child serves fine.
+    svc._resident[_TEST_MODEL.id]["status"] = "starting"
+    svc._router_models = lambda url: {
+        "object": "list",
+        "data": [{"id": _TEST_MODEL.id, "status": {"value": "loaded"}}],
+    }
+    out = svc.measure(probe=lambda *a, **k: (100, 1000.0, None), sample=dict)
+    assert out["ok"] is True and out["modelId"] == _TEST_MODEL.id
+    # Truly absent from the router → still refused.
+    svc._router_models = lambda url: {"object": "list", "data": []}
+    out2 = svc.measure(probe=lambda *a, **k: (1, 1.0, None), sample=dict)
+    assert out2["ok"] is False and "no model running" in out2["error"]
+
+
 def test_measure_passes_model_id(tmp_path):
     # Router mode: the probe body carries the model id so the router dispatches right.
     seen = {}
@@ -1688,33 +1711,6 @@ def test_engine_status_follows_disk_when_pin_reverted(tmp_path):
 
     assert es["installed"] is True
     assert es["build"] == disk_build
-
-
-def test_engine_status_reports_binary_build_and_flags_mismatch(tmp_path):
-    # T4: the dir NAME can lie (on-box 2026-07-21: b9993 binaries in a b10069 dir).
-    # engine_status reports the BINARY's self-reported build + flags the mismatch, so
-    # neither the UI nor the bench reports a folder name as the engine version.
-    from llm_runner import default_config
-    from llm_runner.runner import binary as binmod
-    from llm_runner.runner.binary import acquired_server_exe, build_num, variant_dir
-
-    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
-    svc._acquired_exe = acquired_server_exe
-    dir_build = f"b{build_num(default_config().llamacpp.pinned_build) + 30}"
-    d = variant_dir(svc.cache_root, dir_build, "cuda12")
-    d.mkdir(parents=True)
-    exe = d / "llama-server.exe"
-    exe.write_bytes(b"MZ")
-    # Pre-seed the version cache so engine_status doesn't spawn a real process; the binary
-    # self-reports a DIFFERENT build than its folder.
-    binmod._EXE_BUILD_CACHE[str(exe)] = "b9993"
-    try:
-        es = svc.engine_status()
-        assert es["build"] == dir_build        # the folder name (which can lie)
-        assert es["binaryBuild"] == "b9993"    # the truth from --version
-        assert es["buildMismatch"] is True
-    finally:
-        binmod._EXE_BUILD_CACHE.pop(str(exe), None)
 
 
 def test_engine_uninstall_removes_disk_build_when_pin_reverted(tmp_path):
@@ -2602,57 +2598,11 @@ def test_update_check_deliberate_pin_bump_still_reports(tmp_path):
     assert out["updateAvailable"] is True
 
 
-def test_pin_heals_upward_at_boot(tmp_path):
-    # QC-25 heal, the BOOT leg: construction with a save_pin writer converges a
-    # reverted pin up onto the newer on-disk build — Reinstall then targets what
-    # is actually installed instead of re-fetching the reset seed.
-    from llm_runner import default_config
-    from llm_runner.runner.binary import acquired_server_exe
-    from llm_runner.runner.lifecycle import RunnerService
-
-    disk_build = _newer_disk_build(tmp_path)
-    state = {"pin": default_config().llamacpp.pinned_build}
-
-    def cfg():
-        c = default_config()
-        c.llamacpp.pinned_build = state["pin"]
-        return c
-
-    svc = RunnerService(
-        tmp_path, config_fn=cfg, hardware_fn=_win_cuda_hw,
-        acquired_exe=acquired_server_exe,
-        save_pin=lambda b: state.update(pin=b),
-    )
-
-    assert state["pin"] == disk_build          # healed at construction
-    assert svc.engine_status()["build"] == disk_build
-
-
-def test_pin_heal_never_on_status_poll(tmp_path):
-    # The second-pass law: a poll heal would clobber a DELIBERATE downgrade
-    # (the user pins an older build; the poll would rewrite it before they click
-    # Reinstall). status + update_check REPORT the disk truth but never write.
-    from llm_runner.runner.binary import acquired_server_exe
-
-    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)   # save_pin=None at boot
-    svc._acquired_exe = acquired_server_exe
-    disk_build = _newer_disk_build(svc.cache_root)
-    calls = []
-    svc._save_pin = calls.append               # writer appears mid-session
-    svc._latest_build_fn = lambda: disk_build
-
-    svc.engine_status()
-    svc.update_check()
-    svc.engine_status()
-
-    assert calls == []                          # polls never healed the pin
-
-
 def test_deliberate_downgrade_survives_install(tmp_path):
     # The user deliberately pins an OLDER build and clicks Reinstall: the
-    # install fetches the pin, the sweep removes the newer dir, and the
-    # post-install heal (which only converges onto a SURVIVING newer build)
-    # must leave the downgrade pin untouched.
+    # install fetches the pin, the sweep removes the newer dir, and NOTHING
+    # rewrites the pin behind the user's back (the QC-25 heal is GONE —
+    # 2026-07-21, the one-source collapse: the pin is only ever user-written).
     from llm_runner import default_config
     from llm_runner.runner.binary import acquired_server_exe, build_num, variant_dir
 
@@ -2668,8 +2618,6 @@ def test_deliberate_downgrade_survives_install(tmp_path):
         return c
 
     svc._config_fn = cfg
-    calls = []
-    svc._save_pin = lambda b: (calls.append(b), state.update(pin=b))
 
     def fake_acquire(cache_root, config, hardware, on_progress=None, gpu=None, cancel_check=None):
         d = variant_dir(cache_root, config.llamacpp.pinned_build, "cuda12")
@@ -2682,35 +2630,9 @@ def test_deliberate_downgrade_survives_install(tmp_path):
     svc._engine_thread.join(timeout=5)
 
     assert svc._engine_state["status"] == "installed"
-    assert state["pin"] == older and calls == []                   # downgrade survived
+    assert state["pin"] == older                                   # downgrade survived
     assert not (svc.cache_root / "llamacpp" / newer).exists()      # sweep removed the newer
     assert svc.engine_status()["build"] == older
-
-
-def test_post_install_heal_converges_on_surviving_newer_build(tmp_path):
-    # The POST-INSTALL leg: _run_install invokes the heal after the sweep (spy),
-    # and the heal itself converges the pin when a newer build is on disk with a
-    # writer present — the odd-state belt (e.g. a Windows file-lock defeats the
-    # sweep and the newer dir survives).
-    from llm_runner.runner.binary import acquired_server_exe
-
-    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
-    heal_calls = []
-    svc._heal_pin_upward = lambda: heal_calls.append(True)
-    svc._acquire_binary = lambda *a, **k: tmp_path / "llama-server"
-    svc.install_engine()
-    svc._engine_thread.join(timeout=5)
-    assert heal_calls, "_run_install must invoke the heal after the sweep"
-
-    # the heal unit itself: pin < disk + writer → converge; no writer → no-op.
-    svc2 = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
-    svc2._acquired_exe = acquired_server_exe
-    disk_build = _newer_disk_build(svc2.cache_root)
-    svc2._heal_pin_upward()                     # save_pin=None → strict no-op
-    calls = []
-    svc2._save_pin = calls.append
-    svc2._heal_pin_upward()
-    assert calls == [disk_build]
 
 
 # ── #274 half 2 (2026-07-11): the embed CPU-placement guarantee ───────────────

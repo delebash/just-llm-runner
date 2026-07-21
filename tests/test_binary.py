@@ -130,6 +130,22 @@ def test_acquire_windows_cuda_downloads_cudart_companion(monkeypatch, tmp_path):
     assert binmod.acquire_binary(tmp_path, m, hw) == exe
 
 
+def test_acquire_fetches_stored_url_into_pin_folder(monkeypatch, tmp_path):
+    # 2026-07-21: URLs are CONCRETE in the DB (the UI keeps every stored URL in lock-step
+    # with the pin); the server does NOT compose — acquire fetches exactly the stored
+    # asset_url and unpacks into the pinned build's folder, so folder and binary agree.
+    m = default_config()  # concrete seed URLs at DEFAULT_PINNED_BUILD
+    build = m.llamacpp.pinned_build
+    hw = _hw("windows", {"cuda": True})
+    calls: list[str] = []
+    monkeypatch.setattr(binmod, "stream_download", _make_stream(calls, "llama-server.exe"))
+
+    exe = binmod.acquire_binary(tmp_path, m, hw)
+    assert binmod.build_of_exe(tmp_path, exe) == build             # lands in the pin's folder
+    assert calls and all(f"/download/{build}/" in u for u in calls)  # fetches the stored URL
+    assert not any("{build}" in u for u in calls)                  # no template placeholder leaks
+
+
 def test_acquire_tar_gz_macos(monkeypatch, tmp_path):
     # macOS/Linux assets are .tar.gz — _unpack must handle them (was zip-only).
     m = default_config()
@@ -241,41 +257,6 @@ def test_acquired_exe_prefers_pinned_build_when_both_on_disk(tmp_path):
         (d / "llama-server.exe").write_bytes(b"MZ " + build.encode())
     exe = binmod.acquired_server_exe(tmp_path, m, hw)
     assert binmod.build_of_exe(tmp_path, exe) == pinned
-
-
-def test_exe_build_number_reads_binary_version_not_dir(tmp_path):
-    # The on-box 2026-07-21 divergence: b9993 binaries inside a `b10069` dir.
-    # exe_build_number parses the BINARY's --version, independent of the folder name.
-    binmod._EXE_BUILD_CACHE.clear()
-    exe = tmp_path / "b10069" / "cuda12" / "llama-server.exe"
-
-    class _Proc:
-        stdout = "version: 9993 (2969d6d15)\nbuilt with MSVC 19\n"
-        stderr = ""
-
-    assert binmod.exe_build_number(exe, run=lambda: _Proc()) == "b9993"
-
-    def _poison():
-        raise AssertionError("re-ran despite a cached build")
-
-    # cached — the second call must NOT re-run the probe
-    assert binmod.exe_build_number(exe, run=_poison) == "b9993"
-
-
-def test_exe_build_number_failure_returns_none_and_is_not_cached(tmp_path):
-    binmod._EXE_BUILD_CACHE.clear()
-    exe = tmp_path / "x" / "llama-server.exe"
-
-    def _boom():
-        raise OSError("exe locked mid-install")
-
-    assert binmod.exe_build_number(exe, run=_boom) is None  # not cached
-
-    class _Proc:
-        stdout = ""
-        stderr = "version: 10101 (deadbeef)\n"  # also reads --version off stderr
-
-    assert binmod.exe_build_number(exe, run=lambda: _Proc()) == "b10101"
 
 
 def test_acquire_binary_targets_pin_not_disk_build(monkeypatch, tmp_path):

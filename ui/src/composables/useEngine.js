@@ -14,6 +14,7 @@ import { computed, ref } from "vue";
 import { request } from "../client.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import { createRateTracker, progressCaption, rateSuffix } from "../common/services/downloadRate.js";
+import { applyBuildToUrl } from "../common/services/engineUrl.js";
 
 const st = ref(null); // engine_status() payload
 const busy = ref(false); // an install/uninstall POST in flight
@@ -240,7 +241,16 @@ async function updateToLatest() {
     // folder once the new install lands (a hand-maintained models.ini inside it
     // is carried over first).
     const previous = updateInfo.value?.current || st.value?.build || "";
-    await request("/v1/ai/engine-config", { method: "PUT", body: { pinnedBuild: latest } });
+    // The pin drives the URLs: bump the pin AND re-point every stored download URL to the
+    // new build (the SAME applyBuildToUrl the Binaries panel uses), so the DB holds the real
+    // URL for `latest` and the install folder (named for the pin) matches the binary.
+    const cfg = await request("/v1/ai/engine-config");
+    const binaries = (cfg.binaries || []).map((b) => ({
+      ...b,
+      assetUrl: applyBuildToUrl(b.assetUrl, latest),
+      runtimeUrl: applyBuildToUrl(b.runtimeUrl, latest),
+    }));
+    await request("/v1/ai/engine-config", { method: "PUT", body: { pinnedBuild: latest, binaries } });
     await request("/v1/llm-runner/engine/install", {
       method: "POST", body: { force: true, replaceBuild: previous },
     });

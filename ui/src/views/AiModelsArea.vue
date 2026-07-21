@@ -440,11 +440,6 @@ onMounted(() => {
             { value: 'local', label: 'Local · free', sublabel: 'Runs on your machine — no API key, no per-token cost' },
             { value: 'online', label: 'Online · metered', sublabel: 'Your account — API key + URL; pay per token' },
           ]" />
-        <!-- Warm-on-startup (2026-07-21, user "its buried in edit put it on main local"):
-             the global "load the default local model into VRAM on startup" knob belongs on
-             the Local scope, not inside a per-provider Edit form. THE shared control (bound
-             to the useEngine singleton), on the Local tab, just above the local providers. -->
-        <LuWarmStartupToggle v-if="providerScope === 'local'" class="lu-warmbar" />
         <template v-for="p in shownProviders" :key="p.id">
           <ProviderForm v-if="editingId === p.id" :provider="p" @saved="onSaved" @deleted="onSaved" @cancel="editingId = null" />
           <div v-else class="lu-prow">
@@ -477,6 +472,11 @@ onMounted(() => {
                      so it lives in one place, consistent with the model catalog. -->
               </div>
               <div class="lu-prow-url">{{ p.baseUrl }}</div>
+              <!-- Warm-on-startup (2026-07-21, user "in the card below http"): the
+                   load-default-model-into-VRAM knob lives INSIDE the built-in provider's
+                   card, right under its URL — not in Edit, not above the card. Built-in
+                   only (it's the local engine's knob). Shared control bound to useEngine. -->
+              <LuWarmStartupToggle v-if="isBuiltin(p)" class="lu-warmbar" />
               <!-- ONE meta line for every row. The built-in needs no API key, so the key
                    clause is the ONE part it drops — "no key" on a provider that requires
                    none reads as a missing setting rather than a fact. Separators LEAD each
@@ -655,7 +655,7 @@ onMounted(() => {
    so the caller owns the row width (a full-width strip over a wide provider list
    reads as a banner, not a control). */
 .lu-scope { display: flex; margin: 10px 0 4px; max-width: 520px; }
-.lu-warmbar { margin: 4px 2px 12px; }
+.lu-warmbar { margin: 6px 0 0; }
 
 .lu-prow {
   /* 4 columns: icon · info · status · the ONE actions cell (Test/Edit + the Built-in

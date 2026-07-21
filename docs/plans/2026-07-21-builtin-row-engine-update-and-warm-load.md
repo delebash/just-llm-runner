@@ -94,9 +94,13 @@ per-provider one), so it MOVED out of the Edit panel entirely onto the **main Lo
 - **NEW** `ui/src/components/LuWarmStartupToggle.vue` — THE shared toggle (label + `UiToggle`),
   bound to the singleton, self-seeding via `refreshWarm()` on mount. Same convergence shape as
   `LuEngineUpdateButton`/`LuEngineInstallButton`.
-- `AiModelsArea.vue` renders `<LuWarmStartupToggle v-if="providerScope === 'local'" />` right
-  under the `Local · free / Online · metered` segmented control, just above the local
-  providers — visible on the main page, no Edit needed.
+- `AiModelsArea.vue` renders `<LuWarmStartupToggle v-if="isBuiltin(p)" class="lu-warmbar" />`
+  INSIDE the built-in provider's card — in `.lu-prow-info`, right under the `.lu-prow-url`
+  line (`http://127.0.0.1:8080/v1`) and above the meta line — gated to the built-in row only
+  (it's the local engine's own knob). First cut placed it above the card under the segmented
+  control; the user corrected: "in the card below http … in card not in edit not above card
+  on main local card". `.lu-warmbar { margin: 6px 0 0; }` tucks it under the URL. No Edit
+  needed — the knob is visible on the built-in card itself.
 - `LuRunnerEngine.vue` dropped its local warm `ref`, its seed in `loadDownloadKnobs`, its
   `setWarmDefaultOnStartup`, the template toggle, and the `.lu-eng-engrow`/`.lu-eng-warm` CSS;
   the acceleration-backend picker is a plain standalone `.lu-eng-backend` block again. The

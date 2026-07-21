@@ -58,15 +58,50 @@ untouched, so removing the row button loses nothing but the row-level shortcut.
 "update available" state (pinned build behind upstream) only happens on your box —
 give it one look when llama.cpp next tags a release.
 
-## Part 2 — warm the default local model into VRAM on startup (PENDING)
+## Part 2 — warm the default local model into VRAM on startup (SHIPPED)
 
-Approved design (opt-in, visible, cancellable — see the session's recommendation):
-warm only when the routing default is the built-in provider with a chat model AND a
-persisted `warm_default_on_startup` setting is on (default: on-when-built-in-is-default);
-client-driven on app boot, reusing `createDownloadTask(modelLoadChannel(...))` +
-`DownloadBar` / the AI-task panel for visibility; chat model only (embed already warms
-on-demand via `ensureEmbeddingReady`). Server pieces already exist
-(`RunnerService.ensure_model_ready` — `lifecycle.py:1240`; the default signal via the
-routing default row / `default_llm_id_fn` — `install.py:345`); the net-new work is the
-persisted toggle + the startup warm trigger + the boot-load progress surface. Touch-list
-to be filled in when built.
+**What & why.** The bundled runner starts cold — the first AI run after launch pays the
+full spawn + load-into-VRAM latency. When the built-in provider is the user's default and
+its model is already downloaded, warm it early and SHOW it loading. Approved design:
+**opt-in, visible, self-gated** — never a silent surprise.
+
+**The persisted setting `warm_default_on_startup` (default "1").** API-surface-only (a
+`RunnerSetting` row, like `update_policy`/`preferred_gpu` — NOT part of `RunnerConfig`):
+- `llm_runner/llm/seed.py` `DEFAULT_RUNNER_SETTINGS` — added the row (default "1"; the
+  fill-empty seeder adds it to existing DBs without clobbering).
+- `llm_runner/llm/runner_config_api.py` — `EngineConfig.warmDefaultOnStartup: bool = True`,
+  `EngineConfigUpdate.warmDefaultOnStartup: bool | None = None`, a PUT block
+  (`"1"/"0"`), and the Protocol `set_setting` key-list docstring.
+- `llm_runner/llm/stores.py` `get_config()` — reads the row (absent → "1"/True) and passes
+  `warmDefaultOnStartup=` into `EngineConfig(...)`; `reset_to_defaults()` restores it to "1".
+
+**The toggle** — `ui/src/components/LuRunnerEngine.vue`: a `UiToggle` in `.lu-eng-knobs`
+after "Engine updates", labelled "Load the default local model into memory on startup",
+applied-on-flip (`setWarmDefaultOnStartup` → `PUT {warmDefaultOnStartup}`) exactly like the
+"Faster downloads" toggle; the draft seeds from engine-config in `loadDownloadKnobs`. Shared
+kit → the toggle also appears in JustVoice's engine settings (harmless; JV has no warm trigger).
+
+**The client warm** — `justwrite-app/src/renderer/src/services/warmDefault.js` +
+`main.js` (fired at the boot IIFE tail, fire-and-forget, next to `startAutoRebuildWatcher`).
+`warmDefaultModel()` gates on, in order: (1) `warmDefaultOnStartup` on; (2)
+`getRoutingPrefs().defaultLlmId === "local-llamacpp"` with a non-empty `defaultModel`;
+(3) engine installed AND the model row `downloaded` AND not already resident (so a fresh
+box / CI NEVER triggers a pull or a redundant load). Then `POST /v1/llm-runner/load` and
+poll `/v1/llm-runner/resident` until `loaded|sleeping`, shown as an AI task ("Loading your
+writing model") via the exported `useAiTasksStore` — the same visibility surface
+`ensureEmbeddingReady` uses (TitleBar AI chip + status panel). No new kit export, no App.vue
+surface. Chat model only (embed already warms on-demand).
+
+**Verify.** Backend round-trips live (`GET` warmDefaultOnStartup=True seeded; `PUT` false→false,
+true→true) and the runner suite is green (645 passed; the 4 `test_lifecycle` fails are
+pre-existing/VRAM-in-container, reproduced with these changes stashed). Toggle renders in
+the engine panel (screenshot). `build:vite` clean; headless smoke 0 JS errors — the warm
+no-ops in-container (engine not installed), proving the CI-safe gate.
+
+**Reverse.** Delete `warmDefault.js` + its `main.js` call (client), and drop the
+`warm_default_on_startup` wiring (server/toggle); an existing DB keeps an inert row.
+
+**Your-box check.** The actual warm (a real load into VRAM + the "Loading your writing
+model" task) only happens with the engine installed + the model downloaded + built-in as
+default — verify on your box: launch with those true and confirm the model is resident by
+first chat, with the task visible during load; toggle it off and confirm a cold start.

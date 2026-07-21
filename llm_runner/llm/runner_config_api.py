@@ -60,6 +60,11 @@ class EngineConfig(BaseModel):
     # active engine backend ("cuda" | "vulkan" | "rocm" | "metal"; "" = Auto / hardware
     # order). The runner moves it to the front of its build-preference order.
     preferredGpu: str = ""
+    # Warm the default local chat model into VRAM on app startup (2026-07-21). The
+    # CLIENT gates the actual warm on "built-in is the routing default + model
+    # downloaded"; this flag is the user's on/off master. API-surface-only (read
+    # from the setting row), like updatePolicy/preferredGpu.
+    warmDefaultOnStartup: bool = True
     binaries: list[RunnerBinaryRow]
 
 
@@ -76,6 +81,7 @@ class EngineConfigUpdate(BaseModel):
     downloadSegmentMinBytes: int | None = None
     downloadSegmentRetries: int | None = None
     downloadMaxConcurrent: int | None = None
+    warmDefaultOnStartup: bool | None = None   # warm the default local chat model into VRAM on startup
     binaries: list[RunnerBinaryRow] | None = None   # each upserted by (platform, gpu)
 
 
@@ -84,7 +90,7 @@ class RunnerConfigStore(Protocol):
 
     def get_config(self) -> EngineConfig: ...
     def upsert_binary(self, row: RunnerBinaryRow) -> None: ...      # by (platform, gpu)
-    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | models_max | sleep_idle_seconds | preferred_gpu | download_segment*
+    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | models_max | sleep_idle_seconds | preferred_gpu | download_segment* | warm_default_on_startup
     def reset_to_defaults(self) -> None: ...
 
 
@@ -138,6 +144,8 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             # Clamp to [1, MAX] — same ONE-source belt as the segment knobs; the lifecycle gate
             # re-clamps on read too, so a raw DB poke can't spawn more than MAX parallel downloads.
             store.set_setting("download_max_concurrent", str(max(1, min(MAX_DOWNLOAD_CONCURRENT, int(body.downloadMaxConcurrent)))))
+        if body.warmDefaultOnStartup is not None:
+            store.set_setting("warm_default_on_startup", "1" if body.warmDefaultOnStartup else "0")
         for row in body.binaries or []:
             if not row.platform.strip() or not row.gpu.strip():
                 raise HTTPException(status_code=400, detail="each binary needs platform + gpu")

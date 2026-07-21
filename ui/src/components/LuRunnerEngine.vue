@@ -85,6 +85,7 @@ const dlSegmentsEnabled = ref(null);
 const dlSegmentCount = ref(null);
 const dlSegmentMinMb = ref(null);
 const dlSegmentRetries = ref(null);
+const warmDefaultOnStartup = ref(null); // warm the default local chat model into VRAM on startup
 
 async function loadDownloadKnobs() {
   try {
@@ -93,6 +94,7 @@ async function loadDownloadKnobs() {
     if (dlSegmentCount.value === null) dlSegmentCount.value = r.downloadSegmentCount;
     if (dlSegmentMinMb.value === null) dlSegmentMinMb.value = Math.round((r.downloadSegmentMinBytes || 0) / MB);
     if (dlSegmentRetries.value === null) dlSegmentRetries.value = r.downloadSegmentRetries;
+    if (warmDefaultOnStartup.value === null) warmDefaultOnStartup.value = !!r.warmDefaultOnStartup;
   } catch {
     // transient — the drafts stay null and Save simply omits them (partial PUT)
   }
@@ -104,6 +106,17 @@ async function setDlSegmentsEnabled(v) {
   dlSegmentsEnabled.value = v;
   try {
     await request("/v1/ai/engine-config", { method: "PUT", body: { downloadSegmentsEnabled: !!v } });
+  } catch (e) {
+    knobErr.value = e.message || "Couldn't save.";
+  }
+}
+
+// Warm-on-startup (2026-07-21): same apply-on-flip precedent. Master on/off only —
+// the JW client still warms only when the built-in is the routing default + downloaded.
+async function setWarmDefaultOnStartup(v) {
+  warmDefaultOnStartup.value = v;
+  try {
+    await request("/v1/ai/engine-config", { method: "PUT", body: { warmDefaultOnStartup: !!v } });
   } catch (e) {
     knobErr.value = e.message || "Couldn't save.";
   }
@@ -296,6 +309,13 @@ onMounted(() => {
             <UiSelect :model-value="updatePolicy" width="token"
               :options="[{ value: 'notify', label: 'Notify' }, { value: 'off', label: 'Off' }]"
               @update:model-value="setUpdatePolicy" />
+          </label>
+          <!-- Warm-on-startup (2026-07-21, user): keep the default local model ready.
+               Applies on flip. Only has an effect when the built-in is the default
+               provider with a downloaded model (the JW client gates the actual warm). -->
+          <label class="lu-eng-knob">
+            <span class="lu-eng-knob-cap">Load the default local model into memory on startup</span>
+            <UiToggle :model-value="!!warmDefaultOnStartup" @update:model-value="setWarmDefaultOnStartup" />
           </label>
           <!-- Segmented downloads (DL-2; #9 2026-07-17): its own sub-group so the
                "Faster downloads" master toggle reads as a SECTION HEADER above the three

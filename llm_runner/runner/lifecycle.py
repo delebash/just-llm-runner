@@ -1385,12 +1385,12 @@ class RunnerService:
                                       "downloaded": 0, "total": 0}
                 return
 
-            if force:
-                d = binary_dir(self.cache_root, config.llamacpp.pinned_build)
-                if d.exists():
-                    shutil.rmtree(d, ignore_errors=True)
+            # NO pre-delete of the live build on force (2026-07-21): acquire_binary now stages
+            # the download, launch-verifies it, and only ATOMICALLY swaps it in on success — so
+            # a failed/broken update can no longer wipe a working engine and strand the box on a
+            # build that won't launch. `force` makes it re-fetch even when a variant exists.
             self._acquire_binary(self.cache_root, config, hardware, on_progress=_progress,
-                                 cancel_check=self._engine_cancel.is_set)
+                                 cancel_check=self._engine_cancel.is_set, force=force)
             # A3-REVISED (user, 2026-07-07: "you are downloading cpu version when i have
             # nvidia card, we do not even use cpu version"): the CPU build is NO LONGER
             # pre-downloaded as a universal fallback — a multi-hundred-MB download the

@@ -2223,7 +2223,7 @@ def test_run_install_plants_fallback_builds(tmp_path):
 
     calls = []
 
-    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None):
+    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None, force=False):
         calls.append(gpu)
         return tmp_path / "x"
 
@@ -2255,7 +2255,7 @@ def test_run_install_extra_failure_is_best_effort(tmp_path):
 
     calls = []
 
-    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None):
+    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None, force=False):
         calls.append(gpu)
         if gpu == "vulkan":
             raise RuntimeError("mirror down")
@@ -2298,7 +2298,7 @@ def test_run_install_replace_build_carries_ini_and_deletes_old(tmp_path):
     old_dir.mkdir(parents=True)
     (old_dir / "models.ini").write_text("[hand-tuned]\nmodel = x.gguf\n")
 
-    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None):
+    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None, force=False):
         new_dir.mkdir(parents=True, exist_ok=True)
         return new_dir
 
@@ -2619,7 +2619,7 @@ def test_deliberate_downgrade_survives_install(tmp_path):
 
     svc._config_fn = cfg
 
-    def fake_acquire(cache_root, config, hardware, on_progress=None, gpu=None, cancel_check=None):
+    def fake_acquire(cache_root, config, hardware, on_progress=None, gpu=None, cancel_check=None, force=False):
         d = variant_dir(cache_root, config.llamacpp.pinned_build, "cuda12")
         d.mkdir(parents=True, exist_ok=True)
         (d / "llama-server.exe").write_bytes(b"MZ")

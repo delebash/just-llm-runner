@@ -11,6 +11,8 @@ alongside the exe — those are fetched too.
 from __future__ import annotations
 
 import logging
+import shutil
+import subprocess
 import sys
 import tarfile
 import zipfile
@@ -261,6 +263,53 @@ def _unpack(archive: Path, dest: Path) -> None:
             zf.extractall(dest)
 
 
+def _verify_exe_launches(exe: Path, platform: str, *, run: Callable[[], object] | None = None) -> None:
+    """Confirm a freshly-unpacked llama-server actually STARTS — the check a file-existence
+    test can't do. Runs `<exe> --version` (no model, ~instant): a RUNTIME-LOADER failure
+    (a missing DLL on Windows / a missing `.so` on Linux — the binary never reaches user
+    code) raises RuntimeError so the caller discards the staged build and leaves the working
+    engine untouched. Born 2026-07-21: an engine update landed a build whose cudart companion
+    was absent; the exe FILE was present so the install "succeeded", the old build was swept,
+    and every launch then died with exit 3221225781 (0xC0000135 STATUS_DLL_NOT_FOUND) —
+    permanent until a manual reinstall. `run` injects the subprocess in tests."""
+    try:
+        proc = run() if run else subprocess.run(  # noqa: S603 — a trusted, just-unpacked release exe
+            [str(exe), "--version"], capture_output=True, timeout=60)
+        rc = int(getattr(proc, "returncode", 0) or 0)
+    except OSError as e:                       # the OS could not even start the image
+        raise RuntimeError(f"engine binary {exe} could not start: {e}") from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"engine binary {exe} hung on --version: {e}") from e
+    # A loader failure has a distinctive exit: an NTSTATUS error on Windows (>= 0xC0000000,
+    # e.g. 0xC0000135 = missing DLL) or 127 on Unix (missing shared library). ANY other code
+    # — including a non-zero APP exit — means the process RAN, so its libraries loaded.
+    loader_failed = rc >= 0xC0000000 if platform == "windows" else rc == 127
+    if loader_failed:
+        raise RuntimeError(
+            f"engine binary {exe} failed to launch (exit {rc}"
+            + (f" / 0x{rc & 0xFFFFFFFF:08X}" if platform == "windows" else "")
+            + ") — a required runtime library is missing")
+
+
+def _swap_into_place(staging: Path, dest: Path) -> None:
+    """Atomically replace `dest` with the verified `staging` dir: retire the old dir to a
+    sibling backup, move the new one in, then delete the backup — so the working engine only
+    ever vanishes for the microsecond between two same-volume renames, and a mid-swap failure
+    restores it. Windows can't rename onto an existing dir, so the old one is moved aside
+    first. Both dirs are siblings under `<build>/`, so the renames stay on one volume."""
+    backup = dest.parent / f".old-{dest.name}"
+    shutil.rmtree(backup, ignore_errors=True)
+    if dest.exists():
+        dest.rename(backup)
+    try:
+        staging.rename(dest)
+    except OSError:
+        if backup.exists() and not dest.exists():
+            backup.rename(dest)                # roll back — the working engine is restored
+        raise
+    shutil.rmtree(backup, ignore_errors=True)
+
+
 def acquire_binary(
     cache_root: Path,
     config: RunnerConfig,
@@ -268,19 +317,23 @@ def acquire_binary(
     on_progress: Callable[[int, int | None], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     gpu: str | None = None,
+    force: bool = False,
 ) -> Path:
     """Ensure llama-server is on disk for the detected hardware; return path.
 
-    Idempotent. Downloads + unpacks the github asset (`.zip` or `.tar.gz`) into
-    the asset's VARIANT dir (`<build>/<gpu>/` — variants coexist for the A3 spawn
-    fallback chain; a pre-variant install at the build root still satisfies the
-    SELECTED asset); if the asset declares a `runtime_url` companion (the Windows
-    CUDA cudart DLLs) it is fetched + unpacked into the SAME dir so the exe can
-    launch. `gpu` overrides selection to install a SPECIFIC variant (the engine
-    install uses it to plant the CPU/Vulkan fallbacks). Docker sources raise —
-    they are never auto-selected (see `select_binary`), and forcing one via
-    `gpu=` explains the pin story (no pin-faithful image exists for the pinned
-    build; the route returns when a digest is captured at a pin bump).
+    ATOMIC + VERIFIED (2026-07-21): the download + unpack happen in a STAGING dir, the
+    unpacked exe is launch-verified (`_verify_exe_launches`), and only then is it swapped
+    into the live variant dir (`_swap_into_place`). A failed/partial/broken download — or a
+    build missing a runtime DLL — never touches the working engine, and the caller's
+    stale-build sweep runs only AFTER a good build is in place. Idempotent unless `force` (an
+    update / reinstall re-fetches even when a variant is already present).
+
+    Downloads the github asset (`.zip`/`.tar.gz`) into the asset's VARIANT dir
+    (`<build>/<gpu>/` — variants coexist for the A3 spawn fallback chain; a pre-variant
+    install at the build root still satisfies the SELECTED asset); a `runtime_url` companion
+    (the Windows CUDA cudart DLLs) is unpacked into the SAME dir. `gpu` overrides selection to
+    install a SPECIFIC variant. Docker sources raise (never auto-selected — see
+    `select_binary`; forcing one via `gpu=` explains the pin story).
     """
     if gpu is None:
         asset = select_binary(config, hardware)
@@ -297,12 +350,13 @@ def acquire_binary(
         )
 
     selected = select_binary(config, hardware)
-    existing = _find_variant_exe(
-        cache_root, config, asset,
-        legacy_root=selected is not None and asset.gpu == selected.gpu,
-    )
-    if existing is not None:
-        return existing
+    if not force:
+        existing = _find_variant_exe(
+            cache_root, config, asset,
+            legacy_root=selected is not None and asset.gpu == selected.gpu,
+        )
+        if existing is not None:
+            return existing
     dest = variant_dir(cache_root, config.llamacpp.pinned_build, asset.gpu)
 
     if asset.source == "docker" or not asset.asset_url:
@@ -315,28 +369,41 @@ def acquire_binary(
             "pin bump."
         )
 
-    dest.mkdir(parents=True, exist_ok=True)
+    # STAGE: download + unpack into a sibling temp dir, never the live variant — the working
+    # engine stays intact until a verified build is ready to swap in. Clear a crashed run's
+    # leftover staging first.
+    staging = dest.parent / f".staging-{asset.gpu}"
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True, exist_ok=True)
 
     def _fetch(url: str) -> None:
         suffix = ".tar.gz" if url.lower().endswith((".tar.gz", ".tgz")) else ".zip"
-        archive = dest / f"_download{suffix}"
+        archive = staging / f"_download{suffix}"
         log.info("downloading llama.cpp %s/%s from %s", asset.platform, asset.gpu, url)
         stream_download(url, archive, on_progress=on_progress, cancel_check=cancel_check,
                         **download_kwargs(config))
-        _unpack(archive, dest)
+        _unpack(archive, staging)
         archive.unlink(missing_ok=True)
 
-    # The stored URL is the CONCRETE download for the pinned build (the UI re-points every
-    # stored URL whenever the pin changes); the folder above is named for that same pin, so
-    # folder and binary agree. The server does NOT compose a URL — it fetches what is stored.
-    _fetch(asset.asset_url)
-    # CUDA builds ship the cudart runtime DLLs separately — unpack alongside the exe.
-    if asset.runtime_url:
-        _fetch(asset.runtime_url)
+    try:
+        # The stored URL is the CONCRETE download for the pinned build (the UI re-points every
+        # stored URL when the pin changes); the folder is named for that same pin. The server
+        # does NOT compose a URL — it fetches what is stored.
+        _fetch(asset.asset_url)
+        # CUDA builds ship the cudart runtime DLLs separately — unpack alongside the exe.
+        if asset.runtime_url:
+            _fetch(asset.runtime_url)
 
-    exe = _find_server_exe(dest, asset.server_exe)
-    if exe is None:
-        raise RuntimeError(f"{asset.server_exe} not found in unpacked archive at {dest}")
-    if hardware.platform != "windows":
-        exe.chmod(exe.stat().st_mode | 0o111)
-    return exe
+        exe = _find_server_exe(staging, asset.server_exe)
+        if exe is None:
+            raise RuntimeError(f"{asset.server_exe} not found in unpacked archive at {staging}")
+        if hardware.platform != "windows":
+            exe.chmod(exe.stat().st_mode | 0o111)
+        _verify_exe_launches(exe, hardware.platform)   # catches a missing runtime DLL/.so
+        _swap_into_place(staging, dest)                # atomic — `dest` untouched until here
+    finally:
+        # Success renamed staging → dest (this is a no-op); any failure leaves it, so clean it
+        # up and let the exception propagate with the live engine (`dest`) intact.
+        shutil.rmtree(staging, ignore_errors=True)
+
+    return _find_server_exe(dest, asset.server_exe)

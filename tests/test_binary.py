@@ -14,6 +14,16 @@ from llm_runner import default_config, select_binary
 from llm_runner.runner import binary as binmod
 from llm_runner.runner.schema import GpuInfo, HardwareInfo
 
+# The real launch-verify, captured BEFORE the autouse stub below replaces it: the acquire
+# tests unpack a fake 'MZ fake' exe that cannot really run, so they bypass the real
+# `<exe> --version` check; the check's own behaviour is tested directly via this ref.
+_REAL_VERIFY = binmod._verify_exe_launches
+
+
+@pytest.fixture(autouse=True)
+def _stub_launch_verify(monkeypatch):
+    monkeypatch.setattr(binmod, "_verify_exe_launches", lambda *a, **k: None)
+
 
 def _hw(platform_name, runtimes, gpus=None):
     return HardwareInfo(
@@ -144,6 +154,87 @@ def test_acquire_fetches_stored_url_into_pin_folder(monkeypatch, tmp_path):
     assert binmod.build_of_exe(tmp_path, exe) == build             # lands in the pin's folder
     assert calls and all(f"/download/{build}/" in u for u in calls)  # fetches the stored URL
     assert not any("{build}" in u for u in calls)                  # no template placeholder leaks
+
+
+# ── the ATOMIC + launch-verified install (2026-07-21: the update-brick fix) ────────
+
+def test_verify_exe_launches_flags_a_missing_runtime_dll():
+    from types import SimpleNamespace
+    exe = binmod.Path("llama-server.exe")
+    # exit 0 (or ANY app exit) → the process RAN, its libraries loaded → OK, no raise.
+    _REAL_VERIFY(exe, "windows", run=lambda: SimpleNamespace(returncode=0))
+    _REAL_VERIFY(exe, "windows", run=lambda: SimpleNamespace(returncode=1))
+    _REAL_VERIFY(exe, "linux", run=lambda: SimpleNamespace(returncode=2))
+    # a Windows loader failure — 0xC0000135 (3221225781) STATUS_DLL_NOT_FOUND → raises.
+    with pytest.raises(RuntimeError, match="runtime library is missing"):
+        _REAL_VERIFY(exe, "windows", run=lambda: SimpleNamespace(returncode=3221225781))
+    # a Unix missing-.so (exit 127) → raises.
+    with pytest.raises(RuntimeError, match="runtime library is missing"):
+        _REAL_VERIFY(exe, "linux", run=lambda: SimpleNamespace(returncode=127))
+    # the OS can't start the image at all → raises.
+    def _boom():
+        raise OSError("not a valid Win32 application")
+    with pytest.raises(RuntimeError, match="could not start"):
+        _REAL_VERIFY(exe, "windows", run=_boom)
+
+
+def _seed_working_engine(tmp_path, m, gpu="cuda12"):
+    """A pre-existing, complete engine variant on disk — the 'working engine'."""
+    d = binmod.variant_dir(tmp_path, m.llamacpp.pinned_build, gpu)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "llama-server.exe").write_bytes(b"GOOD-OLD-ENGINE")
+    return d
+
+
+def _no_staging_litter(tmp_path, m):
+    bd = binmod.binary_dir(tmp_path, m.llamacpp.pinned_build)
+    return not list(bd.glob(".staging-*")) and not list(bd.glob(".old-*"))
+
+
+def test_acquire_atomic_a_failed_download_leaves_the_working_engine(monkeypatch, tmp_path):
+    # THE BRICK THIS FIXES: a force re-download that FAILS must NOT wipe the working engine.
+    m = default_config()
+    good = _seed_working_engine(tmp_path, m)
+
+    def boom(*a, **k):
+        raise RuntimeError("network died mid-download")
+    monkeypatch.setattr(binmod, "stream_download", boom)
+
+    with pytest.raises(RuntimeError, match="network died"):
+        binmod.acquire_binary(tmp_path, m, _hw("windows", {"cuda": True}), force=True)
+    assert (good / "llama-server.exe").read_bytes() == b"GOOD-OLD-ENGINE"   # untouched
+    assert _no_staging_litter(tmp_path, m)
+
+
+def test_acquire_atomic_a_build_that_fails_launch_is_discarded(monkeypatch, tmp_path):
+    # A downloaded build whose exe won't launch (missing DLL) is discarded; the old one stays.
+    m = default_config()
+    good = _seed_working_engine(tmp_path, m)
+    monkeypatch.setattr(binmod, "stream_download", _make_stream([], "llama-server.exe"))
+
+    def _fail_verify(*a, **k):
+        raise RuntimeError("a required runtime library is missing")
+    monkeypatch.setattr(binmod, "_verify_exe_launches", _fail_verify)  # overrides the autouse stub
+
+    with pytest.raises(RuntimeError, match="runtime library is missing"):
+        binmod.acquire_binary(tmp_path, m, _hw("windows", {"cuda": True}), force=True)
+    assert (good / "llama-server.exe").read_bytes() == b"GOOD-OLD-ENGINE"   # untouched
+    assert _no_staging_litter(tmp_path, m)
+
+
+def test_acquire_force_reinstalls_and_swaps_even_when_present(monkeypatch, tmp_path):
+    # force=True re-fetches over an existing variant (an update / reinstall) via the staged
+    # swap — NOT the idempotent skip — and the fresh build lands in place.
+    m = default_config()
+    _seed_working_engine(tmp_path, m)
+    calls: list[str] = []
+    monkeypatch.setattr(binmod, "stream_download", _make_stream(calls, "llama-server.exe"))
+
+    exe = binmod.acquire_binary(tmp_path, m, _hw("windows", {"cuda": True}), force=True)
+    assert calls                                                 # it DID re-download
+    assert exe.read_bytes() == b"MZ fake"                        # the fresh build swapped in
+    assert binmod.build_of_exe(tmp_path, exe) == m.llamacpp.pinned_build
+    assert _no_staging_litter(tmp_path, m)
 
 
 def test_acquire_tar_gz_macos(monkeypatch, tmp_path):

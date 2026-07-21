@@ -60,10 +60,11 @@
   Box observation from the screenshot: the user's TurboLLM runs llama.cpp b9608 < our pin b9870 <
   upstream b9888 (2026-07-06) — an update check would have surfaced exactly this skew.
 - **A5-1 — the engine "Update available" button must show WHICH version it updates to (user,
-  2026-07-15):** the engine-row affordance currently reads only "Update available" — it must
-  name the target build ("Update available · bNNNN → bMMMM", the TurboLLM shape) so the user
-  sees what a click installs before committing. Small copy/data addition on A5's existing
-  update-check surface.
+  2026-07-15): ✅ DONE (verified in code 2026-07-21).** The engine row already names the target
+  build — `LuRunnerEngine.vue:222` renders "Update to {updateInfo.latest}" with the tooltip
+  "Update the engine to {latest} (you have {current})" (`:221`), and the row's "Installed ·
+  {current}" subtitle carries the current build. The goal (see the target before committing) is
+  met; the literal "Update available · bNNNN → bMMMM" one-string shape was never needed.
 
 ## B. Model-surface — the two remainders
 

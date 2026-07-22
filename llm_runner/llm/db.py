@@ -344,6 +344,13 @@ class ModelTune(LlmBase):
     hw_key = Column(String, primary_key=True)
     flag_name = Column(String, primary_key=True)
     flag_value = Column(Text, nullable=False, default="")
+    # Pass 2 (2026-07-22): the engine FAMILY this tune was measured on ("cuda"…);
+    # "" = legacy (cuda-era, pre-column) and reads as "cuda" (switch_resolve.
+    # tune_row_applies). NON-PK deliberately: the PK stays (model, hw, flag), so a
+    # re-tune under a different backend REPLACES the set (wholesale `replace`
+    # semantics unchanged) — per-backend CO-EXISTING tunes would widen the PK,
+    # which is a reset (deferred; additive columns can't change a PK).
+    backend = Column(String, nullable=False, default="")
 
 
 class ModelTuneBaseline(LlmBase):
@@ -438,6 +445,10 @@ class ModelMeasurement(LlmBase):
     tokens_per_sec = Column(Float, nullable=False, default=0.0)
     vram_total_mb = Column(Integer, nullable=False, default=0)
     at = Column(Integer, nullable=False, default=0)          # epoch ms
+    # Pass 2 (2026-07-22): the engine family the number was measured on; "" = legacy
+    # (cuda-era). History is append-only, so the stamp makes cross-backend numbers
+    # distinguishable instead of silently comparable.
+    backend = Column(String, nullable=False, default="")
 
 
 class MeasurementSwitch(LlmBase):
@@ -655,6 +666,8 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("engine_presets", "think", "BOOLEAN NOT NULL DEFAULT 0"),
     # Pass 2 (2026-07-22, backend-honest resolution):
     ("knob_catalog", "backends", "VARCHAR NOT NULL DEFAULT ''"),
+    ("model_tunes", "backend", "VARCHAR NOT NULL DEFAULT ''"),
+    ("model_measurements", "backend", "VARCHAR NOT NULL DEFAULT ''"),
 )
 
 

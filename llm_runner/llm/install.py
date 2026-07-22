@@ -399,3 +399,10 @@ def _wire_runner_catalog(data_dir=None) -> None:
         get_service().ensure_model_ready(model_id)
 
     set_ensure_local_model(_ensure_local_model)
+
+    # Pass 2 (2026-07-22): the ACTIVE engine family reaches the llm-side tune layers
+    # (stamp at save, filter at resolve/display) through the same injected-closure
+    # pattern — the llm/ package never imports runner/.
+    from .switch_resolve import set_active_backend_fn
+
+    set_active_backend_fn(lambda: get_service()._active_backend())

@@ -205,3 +205,68 @@ def test_class_key_bands_to_gb():
     assert class_key(_H(32768, [_G(8188)])) == "vram8|ram32"
     assert class_key(_H(32768, [_G(8192)])) == "vram8|ram32"
     assert class_key(_H(16384, [])) == "cpu|ram16"          # no GPU
+
+
+# ── Pass 2 (2026-07-22): backend-stamped tunes ────────────────────────────────
+
+
+def test_tune_row_applies_matrix():
+    # "" row = legacy (cuda-era) → cuda-only; no active context → everything applies.
+    f = switch_resolve.tune_row_applies
+    assert f("", "cuda") is True
+    assert f("", "vulkan") is False
+    assert f("vulkan", "vulkan") is True
+    assert f("vulkan", "cuda") is False
+    assert f("cuda", "") is True          # unknown/unwired context → legacy behavior
+    assert f("", "") is True
+
+
+def test_backend_stamp_and_filter_roundtrip(configured):
+    # A tune saved under cuda is stamped, applies under cuda, and is REFUSED (resolve,
+    # display) under a different family — the qwen ctx-131072 incident's product fix.
+    from llm_runner.llm.model_tunes_api import ModelTuneFlag
+    from llm_runner.llm.stores import get_model_tune_store
+
+    store = get_model_tune_store()
+    mid, hw = "qwen3.6-35b-a3b-mtp", "BOX|8192|8c|32g"
+    try:
+        switch_resolve.set_active_backend_fn(lambda: "cuda")
+        store.replace(mid, hw, [ModelTuneFlag(flagName="ctx_len", flagValue="131072")])
+        s = db.session()
+        row = s.query(db.ModelTune).filter(db.ModelTune.model_id == mid).one()
+        assert row.backend == "cuda"
+        s.close()
+        merged, origins = switch_resolve.resolve_model_switches_with_origins(mid, hw_key=hw)
+        assert merged["ctx_len"] == "131072" and origins["ctx_len"] == "tune"
+        assert [r.flagName for r in store.get(mid, hw)] == ["ctx_len"]
+
+        switch_resolve.set_active_backend_fn(lambda: "cpu")
+        merged, origins = switch_resolve.resolve_model_switches_with_origins(mid, hw_key=hw)
+        assert "ctx_len" not in merged                # the cuda tune does NOT follow
+        assert store.get(mid, hw) == []               # nor display as applied
+
+        switch_resolve.set_active_backend_fn(None)    # unwired → legacy behavior
+        merged, _ = switch_resolve.resolve_model_switches_with_origins(mid, hw_key=hw)
+        assert merged["ctx_len"] == "131072"
+    finally:
+        switch_resolve.set_active_backend_fn(None)
+
+
+def test_legacy_unstamped_tune_reads_as_cuda(configured):
+    # A pre-Pass-2 row (backend "") applies under cuda, not under vulkan.
+    s = db.session()
+    s.add(db.ModelTune(model_id="qwen3.6-35b-a3b-mtp", hw_key="H", flag_name="threads",
+                       flag_value="8"))
+    s.commit()
+    s.close()
+    try:
+        switch_resolve.set_active_backend_fn(lambda: "cuda")
+        merged, _ = switch_resolve.resolve_model_switches_with_origins(
+            "qwen3.6-35b-a3b-mtp", hw_key="H")
+        assert merged["threads"] == "8"
+        switch_resolve.set_active_backend_fn(lambda: "vulkan")
+        merged, _ = switch_resolve.resolve_model_switches_with_origins(
+            "qwen3.6-35b-a3b-mtp", hw_key="H")
+        assert "threads" not in merged
+    finally:
+        switch_resolve.set_active_backend_fn(None)

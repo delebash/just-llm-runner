@@ -868,12 +868,21 @@ class ModelTuneStore:
     (the verbatim-snapshot semantics, D5); empty flag names are dropped."""
 
     def get(self, model_id: str, hw_key: str) -> list[ModelTuneFlag]:
+        # Pass 2 (2026-07-22): only rows applicable under the ACTIVE backend show as
+        # "your applied config" — a cuda-measured tune must not display (or apply)
+        # under vulkan/cpu. Legacy "" rows read as cuda; unwired context → all rows
+        # (pre-Pass-2 behavior). Same predicate the resolution layer uses.
+        from .switch_resolve import active_backend, tune_row_applies
+        act = active_backend()
         s = db.session()
         try:
             rows = s.query(db.ModelTune).filter(
                 db.ModelTune.model_id == model_id, db.ModelTune.hw_key == hw_key
             ).order_by(db.ModelTune.flag_name).all()
-            return [ModelTuneFlag(flagName=r.flag_name, flagValue=r.flag_value) for r in rows]
+            return [
+                ModelTuneFlag(flagName=r.flag_name, flagValue=r.flag_value)
+                for r in rows if tune_row_applies(getattr(r, "backend", ""), act)
+            ]
         finally:
             s.close()
 
@@ -888,6 +897,11 @@ class ModelTuneStore:
             s.query(db.ModelTune).filter(
                 db.ModelTune.model_id == model_id, db.ModelTune.hw_key == hw_key
             ).delete()
+            # Pass 2 (2026-07-22): stamp the backend the tune was measured on, so
+            # resolution can refuse it under a different engine family. Unwired
+            # context stamps "" (legacy semantics: reads as cuda).
+            from .switch_resolve import active_backend
+            backend = active_backend()
             seen: set[str] = set()
             for r in rows:
                 name = (r.flagName or "").strip()
@@ -895,7 +909,8 @@ class ModelTuneStore:
                     continue
                 seen.add(name)
                 s.add(db.ModelTune(model_id=model_id, hw_key=hw_key,
-                                   flag_name=name, flag_value=r.flagValue or ""))
+                                   flag_name=name, flag_value=r.flagValue or "",
+                                   backend=backend))
             s.query(db.ModelTuneBaseline).filter(
                 db.ModelTuneBaseline.model_id == model_id, db.ModelTuneBaseline.hw_key == hw_key
             ).delete()
@@ -1123,11 +1138,13 @@ class ModelMeasurementStore:
                rows: list[MeasurementFlag]) -> int:
         s = db.session()
         try:
+            from .switch_resolve import active_backend
             m = db.ModelMeasurement(
                 model_id=model_id, machine_key=machine_key or "",
                 source=source or "tune", label=label or "",
                 tokens_per_sec=float(tokens_per_sec or 0),
                 vram_total_mb=int(vram_total_mb or 0), at=int(at or 0),
+                backend=active_backend(),  # Pass 2: which engine family measured it
             )
             s.add(m)
             s.flush()  # assigns the autoincrement id the children key on

@@ -5,7 +5,7 @@
 // Phase 3, so a card-override probe can't construct the two side-by-side deterministically.
 // This does, purely and re-runnably.
 //   Run:  node scripts/verify-model-pick.mjs      (exit 0 = all pass, 1 = any fail)
-import { pickByClassMap, pickBestEmbedId, pickBestModel, pickLowestQuality, recommendedModelId } from "../ui/src/common/services/modelPick.js";
+import { FIT_GPU, pickBestEmbedId, pickBestModel, pickByClassConfig, pickLowestQuality, recommendedModelId } from "../ui/src/common/services/modelPick.js";
 
 // A tiny test model. fit ∈ ok|tight|cpu|no|unknown; type ∈ dense|moe.
 const M = (id, fit, type, quality, extra = {}) =>
@@ -95,38 +95,53 @@ check("lowestQuality: lowest rank wins", lq([M("a", "ok", "dense", 30), M("b", "
 check("lowestQuality: tie → better fit", lq([M("t", "tight", "dense", 20), M("o", "ok", "dense", 20)]), "o");
 check("lowestQuality: empty → ''", lq([]), "");
 
-// ── Phase 3: pickByClassMap (the class→model map, consulted before the §10 rule) ──
-const picks = [
-  { minVramMb: 6000, modelId: "map-6gb" },
-  { minVramMb: 24000, modelId: "map-24gb" },
+// ── §9 (2026-07-22): pickByClassConfig — the visible class-config library IS the
+//    recommendation (replaces the deleted hidden class→model pick table). A model
+//    with a config for THIS box's class wins, ranked by the shared comparator and
+//    guarded by the §10 candidate rules; no config for the class → "" (§10 decides). ──
+const REFS = [
+  { modelId: "cfg-a", classKey: "vram8|ram32" },
+  { modelId: "cfg-b", classKey: "vram8|ram32" },
+  { modelId: "cfg-x", classKey: "vram24|ram64" },
 ];
-const world = (fitting) => ({
-  exists: (id) => id.startsWith("map-"),
-  fits: (id) => fitting.includes(id),
+const cc = (refs, myKey, models, fitSet) => pickByClassConfig(refs, myKey, models, {
+  fitSet,
+  qualityOf: (m) => m.quality,
+  isEmbed: (m) => m.embed,
+  isUseLimited: (m) => m.useLimited,
 });
-check("classMap: hit at 8GB (largest eligible row)", pickByClassMap(picks, 8192, world(["map-6gb", "map-24gb"])), "map-6gb");
-check("classMap: bigger card climbs the ladder", pickByClassMap(picks, 24576, world(["map-6gb", "map-24gb"])), "map-24gb");
-check("classMap: unfitting row falls down-ladder", pickByClassMap(picks, 24576, world(["map-6gb"])), "map-6gb");
-check("classMap: below-ladder → '' (the §10 fallback)", pickByClassMap(picks, 4096, world(["map-6gb"])), "");
-check("classMap: nothing fits → ''", pickByClassMap(picks, 8192, world([])), "");
-check("classMap: empty map → ''", pickByClassMap([], 8192, world(["map-6gb"])), "");
+check("classConfig: my class's configs win, lowest quality among them",
+  cc(REFS, "vram8|ram32", [M("cfg-a", "ok", "moe", 20), M("cfg-b", "ok", "dense", 10), M("other", "ok", "dense", 1)]), "cfg-b");
+check("classConfig: another class's config does not apply",
+  cc(REFS, "vram16|ram64", [M("cfg-a", "ok", "moe", 20)]), "");
+check("classConfig: unknown class ('') → ''",
+  cc(REFS, "", [M("cfg-a", "ok", "moe", 20)]), "");
+check("classConfig: ref model not runnable (fit no) → ''",
+  cc(REFS, "vram8|ram32", [M("cfg-a", "no", "moe", 20)]), "");
+check("classConfig: ref model absent from the list → ''",
+  cc(REFS, "vram8|ram32", [M("other", "ok", "dense", 1)]), "");
+check("classConfig: embed + use-limited refs are never auto-picked (§10 guards)",
+  cc(REFS, "vram8|ram32", [M("cfg-a", "ok", "dense", 5, { embed: true }), M("cfg-b", "ok", "dense", 9, { useLimited: true })]), "");
+check("classConfig: a narrowed fitSet applies (FIT_GPU drops a cpu-fit config)",
+  cc(REFS, "vram8|ram32", [M("cfg-a", "cpu", "moe", 20)], FIT_GPU), "");
+check("classConfig: empty refs → ''", cc([], "vram8|ram32", [M("cfg-a", "ok", "moe", 20)]), "");
 
-// The composed rule (recommendedModelId): a class-map hit wins; an empty/over-VRAM/unfitting
-// map falls through to the §10 pick. Providers-surface redesign item 2 (2026-07-06) —
-// QuickSetup's pick AND the catalog's "Recommended for this PC" badge both call THIS.
+// The composed rule (recommendedModelId): a class-config hit for MY class wins; no
+// config for my class falls through to the §10 pick. Providers-surface redesign item 2
+// (2026-07-06; re-based §9 2026-07-22) — QuickSetup's pick AND the catalog's
+// "Recommended for this PC" badge both call THIS.
 {
   const models = [M("champ", "ok", "dense", 10), M("mapped", "tight", "moe", 20)];
-  const byId = Object.fromEntries(models.map((m) => [m.id, m]));
   const acc = {
     typeOf: (m) => m.type, qualityOf: (m) => m.quality,
     isEmbed: (m) => m.embed, isUseLimited: (m) => m.useLimited,
   };
-  check("recommended: class-map hit wins over §10",
-    recommendedModelId(models, { classPicks: [{ minVramMb: 6000, modelId: "mapped" }], vramMb: 8192, byId, ...acc }), "mapped");
-  check("recommended: empty map → the §10 pick",
-    recommendedModelId(models, { classPicks: [], vramMb: 8192, byId, ...acc }), "champ");
-  check("recommended: map row above this VRAM → the §10 pick",
-    recommendedModelId(models, { classPicks: [{ minVramMb: 99999, modelId: "mapped" }], vramMb: 8192, byId, ...acc }), "champ");
+  check("recommended: a config for MY class wins over §10",
+    recommendedModelId(models, { classTuneRefs: [{ modelId: "mapped", classKey: "vram8|ram32" }], myClassKey: "vram8|ram32", ...acc }), "mapped");
+  check("recommended: no refs at all → the §10 pick",
+    recommendedModelId(models, { classTuneRefs: [], myClassKey: "vram8|ram32", ...acc }), "champ");
+  check("recommended: config for another class only → the §10 pick",
+    recommendedModelId(models, { classTuneRefs: [{ modelId: "mapped", classKey: "vram24|ram64" }], myClassKey: "vram8|ram32", ...acc }), "champ");
 }
 
 // ── #274: pickBestEmbedId — the leftover-VRAM embed rule. The embed CO-RESIDES with
@@ -165,6 +180,6 @@ check("unrunnable embeds (fit \"no\") are excluded even with the best rank",
 check("no embeds at all → ''", pe([M("chat", "ok", "dense", 1)], 5000), "");
 check("empty input → ''", pe([], 5000), "");
 
-console.log(`\n§10 + class-map + composed-pick + #274-embed truth-table: ${pass} passed, ${fail} failed.`);
+console.log(`\n§10 + class-config + composed-pick + #274-embed truth-table: ${pass} passed, ${fail} failed.`);
 process.exit(fail ? 1 : 0);
 

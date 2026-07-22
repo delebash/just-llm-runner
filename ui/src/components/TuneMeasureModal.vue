@@ -1,7 +1,8 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// THE one launch-switch editor (§7.1, locked 2026-07-08) — Quick tune (#20 → Plan B
-// 2026-07-05), extracted from LuModelCatalog; opened from the model catalog's per-row
+// THE one launch-switch editor (§7.1, locked 2026-07-08) — "Tune & measure" (its UI
+// title; the canonical name since the 2026-07-22 rename — formerly "Quick tune", #20 →
+// Plan B 2026-07-05), extracted from LuModelCatalog; opened from the model catalog's per-row
 // Tune action AND from a Lab column's "Engine switches ↗" link (launch config lives on
 // the MODEL — one editor, everywhere). Loads the model with ad-hoc Plane-1 engine
 // flags + probes decode tok/s on this box.

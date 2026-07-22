@@ -23,7 +23,7 @@ import UiInput from "../common/components/UiInput.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiTag from "../common/components/UiTag.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
-import { confirmDialog } from "../common/services/dialog.js";
+import { confirmDialog, promptDialog } from "../common/services/dialog.js";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import { classKeyLabel, deleteClassTune, listClassTunes, putClassTune } from "../classTunes.js";
@@ -52,7 +52,9 @@ const directEdit = computed(() => props.expanded && !globalMode.value);
 const loaded = ref(false);
 const loading = ref(false);
 const error = ref("");
-const myClassKey = ref(""); // the CURRENT box's class (server-derived)
+const myClassKey = ref(""); // the CURRENT box's class (server-derived, override-aware)
+const overrideKey = ref(""); // the class_key_override setting ("" = auto-detect)
+const allKeys = ref([]);    // every distinct class key in the library (Add suggestions)
 const tunes = ref([]);      // this mode's configs (all, or one model's)
 const models = ref([]);     // catalog rows (global mode: names + the Add picker)
 const ownCatalog = ref({}); // self-loaded knob labels when no `catalog` prop
@@ -76,14 +78,26 @@ const rowId = (t) => `${t.modelId}|${t.classKey}`;
 
 function _apply(res) {
   myClassKey.value = res.classKey || "";
-  tunes.value = (res.tunes || []).filter((t) => !props.modelId || t.modelId === props.modelId);
+  const all = res.tunes || [];
+  // Distinct keys across the WHOLE library (before the per-model filter) — the
+  // Add form suggests them so a shared class isn't re-typed with a typo.
+  allKeys.value = [...new Set(all.map((t) => t.classKey))];
+  tunes.value = all.filter((t) => !props.modelId || t.modelId === props.modelId);
 }
+const keySuggestions = computed(() =>
+  [...new Set([myClassKey.value, ...allKeys.value].filter(Boolean))],
+);
 
 async function reload() {
   loading.value = true;
   error.value = "";
   try {
     _apply(await listClassTunes());
+    // The override state (§9, "detection proposes, never dictates") — enrichment:
+    // a failed read just hides the "set manually" tag; the line still renders.
+    try {
+      overrideKey.value = (await request("/v1/ai/engine-config")).classKeyOverride || "";
+    } catch { /* enrichment only */ }
     if (globalMode.value && !models.value.length) {
       // Model names + the Add picker; a failure just leaves raw ids (enrichment).
       try {
@@ -181,6 +195,37 @@ async function removeTune(t) {
   }
 }
 
+// The class-key override (§9, 2026-07-22 — "detection proposes, never dictates"):
+// which class this MACHINE files under. Stored server-side (class_key_override
+// runner setting) and applied at the ONE accessor every consumer reads, so the
+// library match, the recommendation, and the badges all follow it together.
+async function changeClassKey() {
+  const key = await promptDialog({
+    title: "Which PC class should this machine use?",
+    message: "Detection proposes a class from your video memory and RAM. Setting it here makes this machine use a different class's configs — for when detection is wrong, or you want a specific library entry. Key form: vram<GB>|ram<GB>.",
+    label: "Class key",
+    defaultValue: myClassKey.value,
+    confirmLabel: "Use this class",
+  });
+  if (!key) return; // cancelled (or emptied — clearing lives on "Use auto-detect")
+  error.value = "";
+  try {
+    await request("/v1/ai/engine-config", { method: "PUT", body: { classKeyOverride: key } });
+    await reload();
+  } catch (e) {
+    error.value = e.message || "Couldn't set the class override.";
+  }
+}
+async function clearClassKeyOverride() {
+  error.value = "";
+  try {
+    await request("/v1/ai/engine-config", { method: "PUT", body: { classKeyOverride: "" } });
+    await reload();
+  } catch (e) {
+    error.value = e.message || "Couldn't clear the class override.";
+  }
+}
+
 // Copy/Import — ONE JSON shape both ways, so a config travels between users:
 // { "modelId": …, "classKey": "vram8|ram32", "switches": { "n_cpu_moe": "21", … } }
 async function copyTune(t) {
@@ -198,6 +243,15 @@ async function copyTune(t) {
     importText.value = blob;
   }
 }
+// Copy from the EDITOR view (§9 evening addition — "Copy wherever a config is
+// visible": the per-model popup opens straight into the editor, so the table's
+// Copy never renders there). Copies the SAVED row — save first to share edits.
+function copyEditing() {
+  const e = editing.value;
+  const t = e && tunes.value.find((x) => x.modelId === e.modelId && x.classKey === e.classKey);
+  if (t) copyTune(t);
+}
+
 async function runImport() {
   error.value = "";
   let parsed;
@@ -256,6 +310,20 @@ const hasRows = computed(() => tunes.value.length > 0);
         <b>Models with an applied config keep their saved values</b> — a change here reaches
         them only when you refresh or remove their applied config in Tune &amp; measure.
       </p>
+
+      <!-- §9 (2026-07-22): this PC's class in PLAIN WORDS (the raw key beside it),
+           with the override affordance — detection proposes, never dictates. -->
+      <div v-if="loaded" class="lu-ct-mine">
+        <span class="lu-ct-minetxt">Your PC:
+          <b>{{ myClassKey ? classKeyLabel(myClassKey) : "class not detected" }}</b>
+          <code v-if="myClassKey" class="lu-ct-mykey">{{ myClassKey }}</code>
+          <UiTag v-if="overrideKey" intent="info">set manually</UiTag>
+        </span>
+        <span class="lu-ct-mineact">
+          <UiButton intent="secondary" size="small" @click="changeClassKey">Change…</UiButton>
+          <UiButton v-if="overrideKey" intent="secondary" size="small" @click="clearClassKeyOverride">Use auto-detect</UiButton>
+        </span>
+      </div>
 
       <div v-if="error" class="lu-error">{{ error }}</div>
       <div v-if="loading" class="lu-muted">Loading…</div>
@@ -318,10 +386,21 @@ const hasRows = computed(() => tunes.value.length > 0);
           </label>
           <label class="lu-ct-field">
             <span class="lu-ct-cap">Class key <span class="lu-muted">(vram&lt;GB&gt;|ram&lt;GB&gt; — this PC is {{ myClassKey }})</span></span>
-            <UiInput v-model="editing.classKey" :disabled="editing.keyLocked" width="token" />
+            <!-- Suggests the library's existing keys while typing (free text still
+                 allowed) so a shared class isn't fragmented by a typo — the user's
+                 approved addition, 2026-07-22. -->
+            <UiInput v-model="editing.classKey" :disabled="editing.keyLocked" width="token" list="lu-ct-key-suggestions" />
+            <datalist id="lu-ct-key-suggestions">
+              <option v-for="k in keySuggestions" :key="k" :value="k">{{ classKeyLabel(k) }}</option>
+            </datalist>
           </label>
           <KnobGrid v-model="editing.rows" :catalog="catalogMap" />
           <div class="lu-ct-edact">
+            <!-- Copy in the editor too (§9: Copy wherever a config is visible) —
+                 renders once the row is saved (keyLocked); copies the saved rows. -->
+            <UiButton v-if="editing.keyLocked" intent="ghost" size="small" @click="copyEditing">
+              {{ copiedKey === `${editing.modelId}|${editing.classKey}` ? "Copied ✓" : "Copy" }}
+            </UiButton>
             <!-- directEdit: the popup's own close is the way out — no Cancel to a
                  list that isn't there. -->
             <UiButton v-if="!directEdit" intent="ghost" size="small" @click="editing = null">Cancel</UiButton>
@@ -342,6 +421,10 @@ const hasRows = computed(() => tunes.value.length > 0);
 .lu-ct-title { font-weight: 700; font-size: 12.5px; color: var(--ink); }
 .lu-ct-body { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
 .lu-ct-help { font-size: 11.5px; line-height: 1.5; margin: 0; }
+.lu-ct-mine { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--ink); flex-wrap: wrap; }
+.lu-ct-minetxt { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lu-ct-mykey { font-size: 10.5px; color: var(--muted); }
+.lu-ct-mineact { display: inline-flex; gap: 6px; }
 .lu-ct-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
 .lu-ct-tbl th { text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 3px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .lu-ct-tbl td { padding: 5px 6px; border-bottom: 1px solid var(--border-soft, var(--border)); vertical-align: top; }

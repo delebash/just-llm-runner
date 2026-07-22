@@ -12,7 +12,10 @@ import { computed, ref } from "vue";
 import { request } from "../client.js";
 
 const rows = ref([]); // raw /v1/ai/model-catalog rows
-const classPicksRef = ref([]); // the class→model map rows riding the same response (Phase 3)
+// The (model, class) config pairs + THIS box's class riding the same response
+// (§9, 2026-07-22): the visible class-tunes library IS the recommendation source.
+const classTuneRefsRef = ref([]);
+const myClassKeyRef = ref("");
 
 export const catalogRows = rows;
 export const qualityById = computed(() =>
@@ -81,15 +84,17 @@ export async function refresh() {
   try {
     const d = await request("/v1/ai/model-catalog");
     rows.value = d.rows || [];
-    classPicksRef.value = d.classPicks || []; // the class→model map (Phase 3)
+    classTuneRefsRef.value = d.classTuneRefs || []; // the class-config pairs (§9)
+    myClassKeyRef.value = d.myClassKey || ""; // this box's class (override-aware)
   } catch {
     rows.value = [];
-    classPicksRef.value = [];
+    classTuneRefsRef.value = [];
+    myClassKeyRef.value = "";
   }
 }
 
 /** Shared model-catalog meta. Every consumer gets the SAME refs; call refresh() on open
  *  or after a catalog edit to (re)populate the one shared source. */
 export function useCatalogMeta() {
-  return { catalogRows, classPicks: classPicksRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, hfRepoById, notesById, sizeBytesById, minVramById, tierById, refresh };
+  return { catalogRows, classTuneRefs: classTuneRefsRef, myClassKey: myClassKeyRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, hfRepoById, notesById, sizeBytesById, minVramById, tierById, refresh };
 }

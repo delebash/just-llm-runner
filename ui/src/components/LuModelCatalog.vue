@@ -221,7 +221,7 @@ function mtpOf(m) { return mtpById.value[m.id] === true; }
 // Model catalog meta (license / use-limited / description — the fit-shaped /models view
 // doesn't carry them). Shared with QuickSetup through the useCatalogMeta singleton (one
 // source, no drift); loadCatalogMeta (its refresh) re-pulls after a catalog edit.
-const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, hfRepoById, notesById, sizeBytesById, minVramById, tierById, classPicks, refresh: loadCatalogMeta } = useCatalogMeta();
+const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, hfRepoById, notesById, sizeBytesById, minVramById, tierById, classTuneRefs, myClassKey, refresh: loadCatalogMeta } = useCatalogMeta();
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
 function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
 function notesOf(m) { return notesById.value[m.id] || ""; }
@@ -278,19 +278,19 @@ const defaultGone = computed(() =>
   !loading.value && !!currentDefaultId.value && !modelById.value[currentDefaultId.value]);
 const embeddingGone = computed(() =>
   !loading.value && !!currentEmbeddingId.value && !modelById.value[currentEmbeddingId.value]);
-// TOTAL card VRAM — the SAME input QuickSetup feeds the shared rule. The checker
-// caught the original version feeding useRunnerModels' vramMb, which is the
-// budget-aware REMAINING VRAM (the /models endpoint subtracts the resident set) —
-// with a model loaded, the badge could mark a SMALLER class than the wizard picks.
-// One rule needs one input: both call sites read gpus[0].vramMb from /hardware.
+// TOTAL card VRAM — feeds the embed-leftover pick below (leftover = the card minus
+// the chat pick's floor). NOT useRunnerModels' vramMb: that is the budget-aware
+// REMAINING VRAM (the /models endpoint subtracts the resident set) — with a model
+// loaded it would shrink the leftover math. Read gpus[0].vramMb from /hardware.
+// (The model recommendation itself no longer takes VRAM — §9, 2026-07-22: it keys
+// on this box's CLASS via the catalog response's classTuneRefs + myClassKey.)
 const totalVramMb = ref(0);
 request("/v1/llm-runner/hardware")
   .then((h) => { totalVramMb.value = (h?.gpus && h.gpus[0]?.vramMb) || 0; })
-  .catch(() => {}); // no hardware read → 0 → the map yields "" and §10 decides
+  .catch(() => {}); // no hardware read → 0 → leftover 0 → CPU-band embeds only
 const recommendedId = computed(() => recommendedModelId(models.value, {
-  classPicks: classPicks.value,
-  vramMb: totalVramMb.value,
-  byId: modelById.value,
+  classTuneRefs: classTuneRefs.value,
+  myClassKey: myClassKey.value,
   typeOf,
   qualityOf,
   isEmbed: embeddingOf,
@@ -1144,7 +1144,7 @@ refreshApplied();
              hides it. MoE/MTP change resolved switches via switch_resolve; Embedding
              drives placement + pooling (its own plane) — same interaction, uniform. -->
         <template v-if="editing.type === 'moe'">
-          <div class="lu-mm-note"><b>MoE</b> <span class="lu-muted">— experts offload to system RAM; the launch pins layers on GPU and frees VRAM via CPU MoE layers (adds <code>no_mmap</code> at load). Tune <code>n_cpu_moe</code> per box in Quick tune.</span></div>
+          <div class="lu-mm-note"><b>MoE</b> <span class="lu-muted">— experts offload to system RAM; the launch pins layers on GPU and frees VRAM via CPU MoE layers (adds <code>no_mmap</code> at load). Tune <code>n_cpu_moe</code> per box in Tune &amp; measure.</span></div>
         </template>
 
         <template v-if="editing.mtp">

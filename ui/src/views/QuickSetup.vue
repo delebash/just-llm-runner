@@ -74,7 +74,7 @@ const pick = ref({ default: "", embeddingId: "", embeddingModel: "" });
 // The /v1/llm-runner/models view is fit-shaped and carries none of these; the catalog does.
 // `type` (dense|moe) + `embedding` drive the §10 speed-floor pick. Shared with LuModelCatalog
 // through the useCatalogMeta singleton (one source, no drift — the useRunnerModels precedent).
-const { classPicks, qualityById, typeById, embeddingById, useLimitedById, descriptionById, minVramById, tierById, refresh: refreshCatalogMeta } = useCatalogMeta();
+const { classTuneRefs, myClassKey, qualityById, typeById, embeddingById, useLimitedById, descriptionById, minVramById, tierById, refresh: refreshCatalogMeta } = useCatalogMeta();
 function qualityOf(m) { return qualityById.value[m.id] ?? 100; }
 function typeOf(m) { return typeById.value[m.id] || "dense"; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
@@ -154,14 +154,13 @@ function fitOf(id) {
 // the floor. The pure rule lives in modelPick.js (Node-verifiable); here we bind the
 // catalog-join accessors (type / quality / embedding / use-limited).
 function bestFittingId() {
-  // Delegates to the ONE composed rule in modelPick.js (class map first, §10
-  // speed-floor fallback) — the catalog's "Recommended for this PC" badge calls
-  // the same function, so the wizard and the badge can never disagree.
-  const vramMb = (hw.value?.gpus && hw.value.gpus[0]?.vramMb) || 0;
+  // Delegates to the ONE composed rule in modelPick.js (a class CONFIG for this
+  // box's class first — §9, 2026-07-22 — then the §10 speed-floor fallback); the
+  // catalog's "Recommended for this PC" badge calls the same function, so the
+  // wizard and the badge can never disagree.
   return recommendedModelId(fitting.value, {
-    classPicks: classPicks.value,
-    vramMb,
-    byId: modelById.value,
+    classTuneRefs: classTuneRefs.value,
+    myClassKey: myClassKey.value,
     typeOf,
     qualityOf,
     isEmbed,
@@ -463,7 +462,7 @@ async function apply() {
 const optState = ref(null); // null (not started) | the GET payload
 const tunedAlready = ref(false); // (model, THIS machine) already has measured tune rows
 const classTuned = ref(false);   // a hardware-class tune matched this box + model at load
-// The ~2-min quick pass (user: "both lab and 2 min sweep") — the SAME sweep with a
+// The 2-minute pass (user: "both lab and 2 min sweep") — the SAME sweep with a
 // server-side time box; the run stops with the best result so far. optQuick drives
 // the honest copy (a capped pass phrases its running/done text differently).
 const QUICK_TUNE_SECONDS = 120;
@@ -719,7 +718,7 @@ defineExpose({ openWizard });
         <div v-if="pick.default" class="lu-qs-opt">
           <!-- The truth ladder (ROUND 8 Task B remainder): own measured tune >
                a matching hardware-class tune > the engine's computed fit. The
-               wholly-untuned branch offers BOTH the ~2-min quick pass and the
+               wholly-untuned branch offers BOTH the 2-minute pass and the
                full sweep (user: "both lab and 2 min sweep"); the deeper path is
                the model's Tune dialog. -->
           <template v-if="!optState">
@@ -735,21 +734,21 @@ defineExpose({ openWizard });
             <template v-else>
               <span class="lu-muted">No measured settings for this PC yet — it runs on the engine's automatic memory fitting, which works but may not be the fastest.</span>
               <div class="lu-qs-opt-btns">
-                <UiButton intent="secondary" size="small" @click="startOptimize(QUICK_TUNE_SECONDS)">Quick optimize (~2 min)</UiButton>
+                <UiButton intent="secondary" size="small" @click="startOptimize(QUICK_TUNE_SECONDS)">2-minute optimize</UiButton>
                 <UiButton intent="secondary" size="small" @click="startOptimize()">Full optimize</UiButton>
               </div>
-              <span class="lu-muted">Quick tries the most likely settings within about 2 minutes and keeps the best; Full keeps measuring (10 minutes or more) and is often several times faster to first token. Deeper control lives in the model's Tune dialog. Other AI features pause while a sweep runs.</span>
+              <span class="lu-muted">The 2-minute pass tries the most likely settings and keeps the best; Full keeps measuring (10 minutes or more) and is often several times faster to first token. Both are the same measured sweep as the model's Tune &amp; measure, with the winner saved automatically. Other AI features pause while a sweep runs.</span>
             </template>
           </template>
           <template v-else-if="optRunning">
             <div class="lu-qs-opt-run">
               <div class="lu-qs-opt-line">
-                <b class="lu-qs-opt-title">{{ optQuick ? "Quick optimize — measuring…" : "Optimizing for this PC…" }}</b>
+                <b class="lu-qs-opt-title">{{ optQuick ? "2-minute optimize — measuring…" : "Optimizing for this PC…" }}</b>
                 <span class="lu-qs-opt-elapsed">{{ optElapsedLabel }} elapsed</span>
               </div>
               <UiProgress :label="optRunLabel" />
               <p class="lu-muted lu-qs-opt-eta">
-                <template v-if="optQuick">This quick pass is time-boxed to about 2 minutes — it
+                <template v-if="optQuick">This pass is time-boxed to about 2 minutes — it
                   tries the most likely settings and keeps the best one found. Your GPU is busy
                   while it runs, so other AI features pause until it finishes or you stop it.</template>
                 <template v-else>This runs a sequence of load-and-measure trials and can take 10
@@ -770,7 +769,7 @@ defineExpose({ openWizard });
             </div>
           </template>
           <template v-else-if="optState.status === 'done' && optState.best">
-            <!-- Self-diagnosing quick pass (ROUND 8): a capped run that saved nothing
+            <!-- Self-diagnosing 2-minute pass (ROUND 8): a capped run that saved nothing
                  routes the user deeper (the full sweep / the Tune dialog) instead of
                  reading like a verdict — 2 minutes is a probe, not proof. -->
             <span class="lu-qs-opt-ok">Optimized ✓ {{ fmtTps(optState.best.tokensPerSec) }} —
@@ -778,7 +777,7 @@ defineExpose({ openWizard });
                 ? "saved for this machine."
                 : (optState.best.label === "baseline"
                     ? (optQuick
-                        ? "the quick pass found nothing faster — Full optimize or the model's Tune dialog can search deeper."
+                        ? "the 2-minute pass found nothing faster — Full optimize or the model's Tune dialog can search deeper."
                         : "your current launch is already the fastest — nothing needed saving.")
                     : "save failed — open Tune & measure to save it.") }}</span>
           </template>

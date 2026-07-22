@@ -70,22 +70,6 @@ export function pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited
  * @param {Object} accessors  { qualityOf(m) → number, LOWER = better }
  * @returns {string} the chosen model's id, or "" if the list is empty.
  */
-// The class→model map (model-per-hardware plan Phase 3): `picks` = the seeded
-// [{minVramMb, modelId}] rows off the catalog response. The row with the LARGEST
-// minVramMb <= vramMb whose model EXISTS in the catalog AND FITS this box wins;
-// no matching row → "" (the caller falls back to the §10 speed-floor rule below).
-// Pure + truth-table-testable (verify-model-pick.mjs); contents are research-
-// refreshed seed DATA (ledger C9), never logic.
-export function pickByClassMap(picks, vramMb, { exists, fits }) {
-  const eligible = (picks || [])
-    .filter((p) => Number(p.minVramMb) <= Number(vramMb || 0))
-    .sort((a, b) => Number(b.minVramMb) - Number(a.minVramMb));
-  for (const p of eligible) {
-    if (exists(p.modelId) && fits(p.modelId)) return p.modelId;
-  }
-  return "";
-}
-
 export function pickLowestQuality(models, { qualityOf }) {
   if (!models || !models.length) return "";
   return [...models].sort((a, b) => {
@@ -94,6 +78,33 @@ export function pickLowestQuality(models, { qualityOf }) {
     if (qa !== qb) return qa - qb; // lower quality_rank = more capable
     return (FIT_RANK[a.fit] ?? 9) - (FIT_RANK[b.fit] ?? 9); // tie-break: better fit
   })[0].id;
+}
+
+/**
+ * The class-CONFIG pick (§9 final ruled shape, 2026-07-22 — replaces the deleted
+ * hidden class→model pick table): the recommendation IS the visible class-tunes
+ * library. Candidates = models that HAVE a config for THIS box's class (the
+ * `classTuneRefs` pairs off the catalog response — the SAME rows the user sees,
+ * copies, and shares in the class panel), passed through the §10 candidate guards
+ * (runnable fit · not the embedding model · not use-limited — "never an
+ * auto-default", the seeded license law); ranked by the ONE shared comparator
+ * (`pickLowestQuality`). No config for this class → "" (the caller falls back to
+ * the §10 speed-floor rule). Pure + truth-table-testable (verify-model-pick.mjs).
+ * @param {Array}  refs    [{modelId, classKey}] — the (model, class) config pairs
+ * @param {string} myClassKey  this box's class key (override-aware, server-derived)
+ * @param {Array}  models  fit-annotated rows ([{id, fit, …}])
+ * @param {Object} accessors  { fitSet, qualityOf, isEmbed, isUseLimited }
+ */
+export function pickByClassConfig(refs, myClassKey, models, { fitSet, qualityOf, isEmbed, isUseLimited }) {
+  if (!myClassKey) return "";
+  const ids = new Set(
+    (refs || []).filter((r) => r.classKey === myClassKey).map((r) => r.modelId),
+  );
+  if (!ids.size) return "";
+  const candidates = (models || []).filter(
+    (m) => ids.has(m.id) && (fitSet || FIT_RUNNABLE).has(m.fit) && !isEmbed(m) && !isUseLimited(m),
+  );
+  return pickLowestQuality(candidates, { qualityOf });
 }
 
 /**
@@ -136,20 +147,19 @@ export function pickBestEmbedId(models, { leftoverMb, qualityOf, isEmbed, minVra
 /**
  * The ONE composed auto-pick rule — QuickSetup's pick AND the catalog's
  * "Recommended for this PC" badge call THIS (one source, no drift; extracted
- * 2026-07-06, providers-surface redesign item 2): the class→model map is
- * consulted FIRST (largest minVramMb <= this box's VRAM whose model exists +
- * fits), no matching row → the §10 speed-floor rule (pickBestModel).
+ * 2026-07-06, providers-surface redesign item 2; re-based 2026-07-22 onto the
+ * §9 final ruled shape): a model with a class CONFIG for this box's class is
+ * consulted FIRST (`pickByClassConfig` — the visible library IS the
+ * recommendation), none → the §10 speed-floor rule (pickBestModel).
  * @param {Array}  models  catalog rows ([{id, fit, …}])
- * @param {Object} opts    { classPicks, vramMb, byId: {id → row},
- *                           typeOf, qualityOf, isEmbed, isUseLimited }
+ * @param {Object} opts    { classTuneRefs, myClassKey,
+ *                           typeOf, qualityOf, isEmbed, isUseLimited, runnable }
  * @returns {string} the recommended model's id, or "" when nothing fits.
  */
-export function recommendedModelId(models, { classPicks, vramMb, byId, typeOf, qualityOf, isEmbed, isUseLimited, runnable }) {
-  const fitSet = runnable || FIT_RUNNABLE;
-  const mapped = pickByClassMap(classPicks || [], vramMb || 0, {
-    exists: (id) => !!byId[id],
-    fits: (id) => fitSet.has(byId[id]?.fit),
+export function recommendedModelId(models, { classTuneRefs, myClassKey, typeOf, qualityOf, isEmbed, isUseLimited, runnable }) {
+  const mine = pickByClassConfig(classTuneRefs || [], myClassKey || "", models, {
+    fitSet: runnable || FIT_RUNNABLE, qualityOf, isEmbed, isUseLimited,
   });
-  if (mapped) return mapped;
+  if (mine) return mine;
   return pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited });
 }

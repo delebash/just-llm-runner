@@ -15,12 +15,15 @@ JustVoice repo for the full architecture + decision history.
 
 ## How a model's launch config derives (the 4-tier doctrine, 2026-07-06)
 
-**Which model QuickSetup picks (Phase 3):** the wizard first consults the seeded
-**class→model map** (`model_class_picks`, served as `classPicks` on
-`GET /v1/ai/model-catalog`) — the row with the largest `min_vram_mb ≤` the detected
-VRAM whose model exists and fits wins; with no matching row it falls back to the §10
-speed-floor rule (most capable model that still streams fast). The map's contents are
-research-refreshed seed data (ledger C9), never logic.
+**Which model QuickSetup picks (§9 final ruled shape, 2026-07-22):** a model with a
+**class config for THIS box's class** wins — the visible class-tunes library IS the
+recommendation (the distinct `(model, class)` pairs ride `GET /v1/ai/model-catalog`
+as `classTuneRefs` + `myClassKey`; candidates pass the §10 guards and rank by the
+shared quality comparator). No config for the class → the §10 speed-floor rule (most
+capable model that still streams fast). The box's class is `vram<GB>|ram<GB>`,
+detection overridable via `classKeyOverride` on `/v1/ai/engine-config` ("detection
+proposes, never dictates"). The old hidden `model_class_picks` table is deleted —
+one visible table answers both "which model" and "which launch config".
 
 Every local llama-server launch resolves its flags in four tiers, strongest last:
 

@@ -53,11 +53,16 @@ def _current_hw_key() -> str:
 
 
 def _current_class_key() -> str:
-    """The memoized coarse hardware-CLASS key (`vram<GB>|ram<GB>`) the seeded/editable
-    `class_tunes` layer is matched on (2026-07-07). Lazy import, runner-side detect."""
+    """The coarse hardware-CLASS key (`vram<GB>|ram<GB>`) the seeded/editable
+    `class_tunes` layer is matched on (2026-07-07). The user's `class_key_override`
+    setting wins over detection — "detection proposes, never dictates" (user ruling
+    2026-07-22, after the ram0 sensor bug orphaned every class row): a wrong sensor
+    must cost one setting, not a dead subsystem. "" = auto. This is THE choke point —
+    every class-key consumer (resolve layers, class-tunes router, catalog response,
+    tune badges) reads through it. Lazy import, runner-side detect."""
     from ..runner.hardware import current_class_key
 
-    return current_class_key()
+    return stores.get_class_key_override() or current_class_key()
 
 
 def install_llm(
@@ -176,7 +181,11 @@ def install_llm(
 
     app.include_router(make_catalog_router(
         stores.get_model_catalog_store,
-        class_picks_fn=stores.list_class_picks,
+        # §9 final ruled shape (2026-07-22): the catalog response carries the
+        # (model, class) config pairs + THIS box's class — the recommendation IS
+        # the visible class-config list; the hidden pick table is gone.
+        class_tune_refs_fn=stores.list_class_tune_refs,
+        class_key_fn=_current_class_key,
         # Keyed to THIS machine so resolved-defaults (what the Tune modal + Lab
         # pre-fill from) shows the SAME truth the load path uses — including the
         # hardware + per-(model, machine) tune layers (Plan B, D4; seen = run).

@@ -309,20 +309,13 @@ class RoutingConfigRow(LlmBase):
 # create_all never drops. The per-MACHINE `hw_key` lives on under `model_tunes`.)
 
 
-class ModelClassPick(LlmBase):
-    """One hardware-class row of the class→model map (model-per-hardware plan Phase 3):
-    QuickSetup's pick consults the row with the LARGEST `min_vram_mb <= detected VRAM`
-    whose model exists + fits; no matching row → the §10 speed-floor rule (the
-    unchanged fallback). Seed-refreshable rows (the model research refills them); a
-    user-editable surface arrives with the class-system redesign (2026-07-22 recovery
-    doc §9 — the earlier "never a GUI" note here was agent editorial, not a recorded
-    ruling, and the map re-keys onto the tunes' class_key identity in that redesign)."""
-
-    __tablename__ = "model_class_picks"
-
-    min_vram_mb = Column(Integer, primary_key=True)
-    model_id = Column(String, nullable=False)
-    built_in = Column(Boolean, nullable=False, default=False)
+# (The hidden class→model pick table `model_class_picks` was DELETED 2026-07-22 —
+# the §9 final ruled shape: the recommendation IS the visible class-tunes library
+# (`ClassTune` rows); a model with a config for YOUR class is the recommendation,
+# no match → the §10 speed-floor rule. A second invisible table answering "which
+# model for this hardware" duplicated what the user sees + shares in the class
+# panel. An existing dev DB keeps the orphaned table until the next reset —
+# create_all never drops, same as the retired `hardware_switches` above.)
 
 
 class ModelTune(LlmBase):

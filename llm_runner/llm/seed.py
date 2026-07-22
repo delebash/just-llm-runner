@@ -386,19 +386,11 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
      "switches": {"spec_type": "draft-mtp", "spec_n_max": "2"}},
 ]
 
-# The class→model map (model-per-hardware plan Phase 3) — the row with the largest
-# `min_vram_mb <= detected VRAM` whose model exists + fits wins QuickSetup's pick;
-# no matching row → the §10 speed-floor rule. PLACEHOLDER CONTENTS, deliberately
-# EQUAL to what §10 already picks (the C2-cited global best at ≥6 GB): the map is
-# the EXPRESSION POINT the model research (ledger C9) refills with evidence-backed
-# per-class picks — rows are data, never code.
-DEFAULT_MODEL_CLASS_PICKS: list[dict] = [
-    # 2026-07-06 lineup decision: the ≥6 GB pick = the user-tested Gemma 26B-A4B
-    # (JustWrite seeds that row as its app extra; a host WITHOUT it — JustVoice —
-    # fails pickByClassMap's exists() check and falls through to the §10 rule,
-    # which lands on qwen3.6-35b-a3b-mtp there. Graceful by construction.)
-    {"min_vram_mb": 6000, "model_id": "gemma-4-26b-a4b-qat"},
-]
+# (The hidden class→model pick map `DEFAULT_MODEL_CLASS_PICKS` was DELETED 2026-07-22 —
+# the §9 final ruled shape: the recommendation IS the visible class-tunes library
+# (`DEFAULT_CLASS_TUNES` below + user rows); a model with a config for YOUR class is
+# the recommendation, no match → the §10 speed-floor rule. A second, invisible table
+# duplicating "which model for this hardware" was the defect, not a feature.)
 
 # The seeded + EDITABLE hardware-CLASS tune library (2026-07-07) — a measured launch
 # config keyed by (model_id, class_key = `vram<GB>|ram<GB>`), portable to every box of
@@ -432,19 +424,6 @@ def seed_default_class_tunes(s) -> int:
         for fname, fval in row["switches"].items():
             s.add(db.ClassTune(model_id=mid, class_key=ckey,
                                flag_name=fname, flag_value=str(fval), built_in=True))
-        added += 1
-    return added
-
-
-def seed_default_class_picks(s) -> int:
-    """Seed the class→model map rows (merge-by-key; a user-edited row is never clobbered)."""
-    existing = {r.min_vram_mb for r in s.query(db.ModelClassPick.min_vram_mb).all()}
-    added = 0
-    for row in DEFAULT_MODEL_CLASS_PICKS:
-        if int(row["min_vram_mb"]) in existing:
-            continue
-        s.add(db.ModelClassPick(min_vram_mb=int(row["min_vram_mb"]),
-                                model_id=str(row["model_id"]), built_in=True))
         added += 1
     return added
 
@@ -1206,7 +1185,6 @@ def seed_llm(s=None) -> None:
         seed_default_runner_settings(s)
         seed_model_list_rules(s)
         seed_default_knobs(s)
-        seed_default_class_picks(s)
         seed_default_class_tunes(s)
         seed_default_embed_templates(s)
         seed_default_feature_prompts(s)

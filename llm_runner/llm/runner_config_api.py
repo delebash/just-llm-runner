@@ -60,6 +60,12 @@ class EngineConfig(BaseModel):
     # active engine backend ("cuda" | "vulkan" | "rocm" | "metal"; "" = Auto / hardware
     # order). The runner moves it to the front of its build-preference order.
     preferredGpu: str = ""
+    # Hardware-class override (§9, 2026-07-22): the class key the box FILES UNDER for
+    # the class-tunes layer + recommendation ("" = auto-detect). "Detection proposes,
+    # never dictates" — a wrong sensor costs one setting, not a dead subsystem. Free
+    # text, same as the class-tunes library's keys (the user authors classes they
+    # don't own hardware for).
+    classKeyOverride: str = ""
     # Warm the default local chat model into VRAM on app startup (2026-07-21). The
     # CLIENT gates the actual warm on "built-in is the routing default + model
     # downloaded"; this flag is the user's on/off master. API-surface-only (read
@@ -73,6 +79,7 @@ class EngineConfigUpdate(BaseModel):
     updatePolicy: str | None = None     # "off" | "notify"
     ackHwFingerprint: str | None = None  # the acknowledged gpu|vram fingerprint (Task E)
     preferredGpu: str | None = None      # backend override family ("" = Auto; cuda|vulkan|rocm|metal)
+    classKeyOverride: str | None = None  # hardware-class override ("" = auto-detect; free text)
     safetyMarginMb: int | None = None
     modelsMax: int | None = None
     sleepIdleSeconds: int | None = None
@@ -90,7 +97,7 @@ class RunnerConfigStore(Protocol):
 
     def get_config(self) -> EngineConfig: ...
     def upsert_binary(self, row: RunnerBinaryRow) -> None: ...      # by (platform, gpu)
-    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | models_max | sleep_idle_seconds | preferred_gpu | download_segment* | warm_default_on_startup
+    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | models_max | sleep_idle_seconds | preferred_gpu | class_key_override | download_segment* | warm_default_on_startup
     def reset_to_defaults(self) -> None: ...
 
 
@@ -121,6 +128,10 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             if pg not in ("", "cuda", "vulkan", "rocm", "metal"):
                 raise HTTPException(status_code=400, detail="preferredGpu must be blank (Auto) or one of: cuda, vulkan, rocm, metal")
             store.set_setting("preferred_gpu", pg)
+        if body.classKeyOverride is not None:
+            # Free text, trimmed — the class-tunes library accepts free-typed keys
+            # (class_tunes_api PUT), so the override does too; "" = auto-detect.
+            store.set_setting("class_key_override", body.classKeyOverride.strip())
         if body.safetyMarginMb is not None:
             store.set_setting("safety_margin_mb", str(int(body.safetyMarginMb)))
         if body.modelsMax is not None:

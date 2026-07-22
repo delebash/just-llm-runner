@@ -154,6 +154,21 @@ def test_engine_config_put_knobs_only_does_not_clobber_binaries_or_build():
     assert after["modelsMax"] == 4
 
 
+def test_engine_config_put_round_trips_class_key_override():
+    # §9 (2026-07-22): the hardware-class override — free text ("" = auto-detect),
+    # trimmed at the PUT boundary, served back on GET, cleared by reset.
+    _fresh_db()
+    client = _engine_config_client()
+    assert client.get("/v1/ai/engine-config").json()["classKeyOverride"] == ""
+    body = client.put(
+        "/v1/ai/engine-config", json={"classKeyOverride": "  vram20|ram100  "}
+    ).json()
+    assert body["classKeyOverride"] == "vram20|ram100"
+    assert stores.get_class_key_override() == "vram20|ram100"
+    stores.get_runner_config_store().reset_to_defaults()
+    assert stores.get_class_key_override() == ""
+
+
 def test_reset_restores_router_knobs():
     _fresh_db()
     store = stores.get_runner_config_store()

@@ -77,17 +77,22 @@ class CatalogRow(BaseModel):
     builtIn: bool = False
 
 
-class ClassPickRow(BaseModel):
-    """One class→model map row (Phase 3): the largest minVramMb <= detected VRAM whose
-    model exists + fits wins QuickSetup's pick; no match → the §10 fallback."""
-    minVramMb: int
+class ClassTuneRef(BaseModel):
+    """One (model, class) pair that HAS a class config — the §9 final ruled shape
+    (user, 2026-07-22): the recommendation IS the visible class-config list. A model
+    with a config for YOUR class outranks the §10 formula; no match → §10 fallback.
+    Replaces the deleted hidden class→model pick table (ClassPickRow)."""
     modelId: str
+    classKey: str
 
 
 class CatalogResponse(BaseModel):
     rows: list[CatalogRow]
-    # The class→model map rides the catalog response (one fetch, no extra endpoint).
-    classPicks: list[ClassPickRow] = []
+    # The (model, class) config pairs + THIS box's class ride the catalog response
+    # (one fetch, no extra endpoint) — QuickSetup's recommendation reads the SAME
+    # rows the user sees in the class panel (§9 final ruled shape, 2026-07-22).
+    classTuneRefs: list[ClassTuneRef] = []
+    myClassKey: str = ""
 
 
 class InspectResponse(BaseModel):
@@ -210,7 +215,8 @@ def make_catalog_router(
     resolve_switches: Callable[[str], dict[str, str]] | None = None,
     inspect_fn: Callable[[str, str, str], dict] | None = None,
     list_files_fn: Callable[[str, str], dict] | None = None,
-    class_picks_fn: Callable[[], list[dict]] | None = None,
+    class_tune_refs_fn: Callable[[], list[dict]] | None = None,
+    class_key_fn: Callable[[], str] | None = None,
     preview_fit_fn: Callable[[str], dict] | None = None,
     resolve_origins: Callable[[str], tuple[dict[str, str], dict[str, str]]] | None = None,
     # §7.6 (2026-07-08): the LAYER baseline — the same resolve WITHOUT the machine
@@ -230,8 +236,9 @@ def make_catalog_router(
     router = APIRouter(tags=["ai"], prefix="/v1/ai")
 
     def _list() -> CatalogResponse:
-        picks = [ClassPickRow(**r) for r in (class_picks_fn() if class_picks_fn else [])]
-        return CatalogResponse(rows=get_store().list(), classPicks=picks)
+        refs = [ClassTuneRef(**r) for r in (class_tune_refs_fn() if class_tune_refs_fn else [])]
+        return CatalogResponse(rows=get_store().list(), classTuneRefs=refs,
+                               myClassKey=(class_key_fn() if class_key_fn else ""))
 
     @router.get("/model-catalog", response_model=CatalogResponse)
     async def list_catalog() -> CatalogResponse:

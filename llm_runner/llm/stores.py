@@ -772,6 +772,7 @@ class RunnerConfigStore:
             updatePolicy=policy,
             ackHwFingerprint=ack_fp,
             preferredGpu=preferred,
+            classKeyOverride=get_class_key_override(),
             warmDefaultOnStartup=warm,
             binaries=[_runner_binary_to_row(b) for b in cfg.llamacpp.binaries],
         )
@@ -836,6 +837,7 @@ class RunnerConfigStore:
                              ("models_max", str(DEFAULT_MODELS_MAX)),
                              ("sleep_idle_seconds", str(DEFAULT_SLEEP_IDLE_SECONDS)),
                              ("preferred_gpu", ""),
+                             ("class_key_override", ""),
                              ("download_segments_enabled", "1" if DEFAULT_DOWNLOAD_SEGMENTS_ENABLED else "0"),
                              ("download_segment_count", str(DEFAULT_DOWNLOAD_SEGMENT_COUNT)),
                              ("download_segment_min_bytes", str(DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES)),
@@ -1307,13 +1309,29 @@ def reset_model_list_rules() -> None:
 def get_model_catalog_store() -> ModelCatalogStore: return _model_catalog
 
 
-def list_class_picks() -> list[dict]:
-    """The class→model map rows (Phase 3), ascending min_vram_mb — served on the
-    catalog response (one fetch, no extra endpoint; useCatalogMeta maps them)."""
+def list_class_tune_refs() -> list[dict]:
+    """The (model, class) pairs that HAVE a class config — served on the catalog
+    response (one fetch). THE §9 final ruled shape (user, 2026-07-22): the hidden
+    class→model pick table is DELETED; the recommendation IS the visible class-config
+    list ("the config that matches your hardware names your model"), so QuickSetup
+    reads exactly the rows the user sees in the panel."""
     s = db.session()
     try:
-        rows = s.query(db.ModelClassPick).order_by(db.ModelClassPick.min_vram_mb).all()
-        return [{"minVramMb": int(r.min_vram_mb), "modelId": r.model_id} for r in rows]
+        rows = s.query(db.ClassTune.model_id, db.ClassTune.class_key).distinct().all()
+        return [{"modelId": m, "classKey": c} for m, c in rows]
+    finally:
+        s.close()
+
+
+def get_class_key_override() -> str:
+    """The user's class override ("" = auto-detect) — 'detection proposes, never
+    dictates' (user ruling 2026-07-22): a wrong sensor must cost one setting, not a
+    dead subsystem (the ram0 incident). Stored as an ordinary runner_setting row,
+    the preferred_gpu precedent."""
+    s = db.session()
+    try:
+        row = s.get(db.RunnerSetting, "class_key_override")
+        return (row.value if row else "") or ""
     finally:
         s.close()
 def get_pricing_store() -> PricingStore: return _pricing

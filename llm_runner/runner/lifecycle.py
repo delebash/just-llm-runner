@@ -442,6 +442,7 @@ class RunnerService:
         sleep=time.sleep,
         arbiter=None,
         latest_build_fn=None,
+        knob_backends_fn=None,
     ):
         self._cache_root = Path(cache_root)
         self._config_fn = config_fn
@@ -465,6 +466,10 @@ class RunnerService:
         self._router_unload = router_unload
         self._router_models = router_models
         self._used_vram_fn = used_vram_fn
+        # Pass 2 (2026-07-22): {flag_name → "cuda,rocm,…"} for knobs NOT applicable on
+        # every engine family (host-wired from knob_catalog; None = no filtering —
+        # standalone/tests unchanged). Consumed by _apply_backend_applicability.
+        self._knob_backends_fn = knob_backends_fn
         self._now = now
         self._sleep = sleep
         self._load_poll_timeout = _LOAD_POLL_TIMEOUT
@@ -1782,7 +1787,8 @@ class RunnerService:
             ov = _merge_overrides(_switches_to_overrides(base_switches), overrides)
             if switches:
                 ov = _merge_overrides(ov, _switches_to_overrides(switches))
-            ov = _strip_inert_mlock(ov)  # the (b) rule — after the FULL merge
+            # After the FULL merge: backend applicability (Pass 2) then the (b) rule.
+            ov = _strip_inert_mlock(self._apply_backend_applicability(ov))
 
             def _progress(downloaded: int, total: int | None) -> None:
                 # Live byte counters the GUI polls via status() to draw a bar. The PHASE
@@ -2098,6 +2104,49 @@ class RunnerService:
     # ── Router: emit the .ini from the DB → spawn/bounce → load a model by id ──
     #    All of these assume the caller holds `_router_lock` (they mutate `_router`).
 
+    def _active_backend(self) -> str:
+        """The engine FAMILY the next child will run on ("cuda" | "rocm" | "vulkan" |
+        "metal" | "cpu"; "" unknown) — the same derivation engine_status uses: the
+        running router's exe matched against the acquired variants, else the variant
+        select_binary would pick. Best-effort: any failure returns "" (no filtering)."""
+        try:
+            config = self._config_fn()
+            hardware = self._hardware_fn()
+            acquired = self._acquired_exes(self.cache_root, config, hardware)
+            variant = ""
+            if self._active_server_exe:
+                variant = next(
+                    (g for g, e in acquired if str(e) == str(self._active_server_exe)), "")
+            if not variant:
+                asset = select_binary(config, hardware)
+                variant = asset.gpu if asset else ""
+                if not variant and acquired:
+                    variant = acquired[0][0]  # e.g. a hand-registered variant on disk
+            return gpu_family(variant) if variant else ""
+        except Exception:  # noqa: BLE001 — applicability is best-effort, never load-fatal
+            return ""
+
+    def _apply_backend_applicability(self, ov):
+        """Pass 2 (2026-07-22): drop typed launch knobs the ACTIVE engine family can't
+        use — the knob_catalog's `backends` column, host-wired via knob_backends_fn
+        ({flag: "cuda,rocm,…"}; absent flag = applies everywhere). A dropped knob is
+        simply OMITTED (fit-by-omission: the child's own default governs), which is
+        what un-applied CUDA tuning should mean on a cpu engine — the 2026-07-22
+        incident shipped no_mmap/placement flags onto the cpu band's children."""
+        rules = self._knob_backends_fn() if self._knob_backends_fn else None
+        if not rules:
+            return ov
+        backend = self._active_backend()
+        if not backend:
+            return ov
+        for flag, spec in rules.items():
+            allowed = {p.strip() for p in str(spec).split(",") if p.strip()}
+            if allowed and backend not in allowed and getattr(ov, flag, None) is not None:
+                log.info("knob %s is not applicable on the %s engine — omitting it "
+                         "(backends=%s)", flag, backend, spec)
+                setattr(ov, flag, None)
+        return ov
+
     def _resolve_ini_entries(self, override: ModelIniEntry | None) -> list[ModelIniEntry]:
         """One `ModelIniEntry` per ON-DISK catalog model, IN CATALOG ORDER (a STABLE
         `.ini` text so a co-resident load doesn't spuriously bounce — the text only
@@ -2133,7 +2182,8 @@ class RunnerService:
             if gguf is None:
                 continue  # not on disk → no section (a section needs the file for compute_fit)
             try:
-                ov = _strip_inert_mlock(_switches_to_overrides(self._switches_fn(m.id) or {}))
+                ov = _strip_inert_mlock(self._apply_backend_applicability(
+                    _switches_to_overrides(self._switches_fn(m.id) or {})))
                 # Plan B D7 (diff-checker fold): the auto-mtp layer can put `draft-mtp`
                 # on a PASSIVE co-resident section too. Point it at the CACHED draft —
                 # which Download now fetches (2026-07-19 one-acquire change), so it
@@ -2642,6 +2692,7 @@ def configure_service(
     config_fn=None,
     hardware_fn=None,
     cache_root: str | None = None,
+    knob_backends_fn=None,
 ) -> RunnerService:
     """Host hook to construct the singleton with DB-backed catalog/switches/config
     (and any other injections). Call ONCE at boot, before `get_service()`.
@@ -2665,6 +2716,8 @@ def configure_service(
         kwargs["config_fn"] = config_fn
     if hardware_fn is not None:
         kwargs["hardware_fn"] = hardware_fn
+    if knob_backends_fn is not None:
+        kwargs["knob_backends_fn"] = knob_backends_fn
     _service = RunnerService(root, **kwargs)
     return _service
 

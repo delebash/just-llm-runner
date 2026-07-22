@@ -54,7 +54,8 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
                  router_unload=None, router_models=None, now=None, sleep=None,
                  identify_fn=None, switches_fn=None, profile_switches_fn=None,
                  embedding_ids_fn=None, default_llm_id_fn=None, arbiter=None,
-                 acquired_exes=None, used_vram_fn=None, hardware_fn=None, seed_cache=True):
+                 acquired_exes=None, used_vram_fn=None, hardware_fn=None, seed_cache=True,
+                 knob_backends_fn=None):
     """A RunnerService with the router + download IO injected. Every catalog model is
     seeded into a fake HF cache (`<root>/hf/models--<repo>/snapshots/sha/<file>.gguf`)
     so both `cached_gguf_path` (the .ini emitter) and the injected `acquire_model`
@@ -132,6 +133,8 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         kw["now"] = now
     if sleep is not None:
         kw["sleep"] = sleep
+    if knob_backends_fn is not None:
+        kw["knob_backends_fn"] = knob_backends_fn
     return RunnerService(
         tmp_path,
         catalog_fn=lambda: models,
@@ -471,6 +474,44 @@ def test_mlock_no_mmap_pair_kept_off_windows(tmp_path, monkeypatch):
     svc._thread.join(timeout=5)
     sec = _section(_ini(svc), _TEST_MODEL.id)
     assert "mlock = true" in sec and "no-mmap = true" in sec
+
+
+_GPU_ONLY = {"n_gpu_layers": "cuda,rocm,vulkan,metal", "no_mmap": "cuda,rocm,vulkan,metal"}
+
+
+def test_backend_filter_drops_gpu_knobs_on_cpu_engine(tmp_path):
+    # Pass 2 (2026-07-22): knobs whose knob_catalog `backends` excludes the ACTIVE
+    # engine family are OMITTED from the section (fit-by-omission) — the incident
+    # shipped the CUDA-tuned no_mmap/placement flags onto the cpu band's children
+    # (no_mmap alone held qwen's full 22.8 GB resident for zero offload benefit).
+    svc = _service_for(
+        tmp_path,
+        switches_fn=lambda mid: {"n_gpu_layers": "99", "no_mmap": "true", "ctx_len": "4096"},
+        knob_backends_fn=lambda: dict(_GPU_ONLY),
+    )
+    svc._active_backend = lambda: "cpu"
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    sec = _section(_ini(svc), _TEST_MODEL.id)
+    assert "ctx-size = 4096" in sec            # universal knob untouched
+    assert "n-gpu-layers" not in sec           # GPU placement dropped on cpu
+    assert "no-mmap" not in sec                # the RAM-copy flag dropped on cpu
+
+
+def test_backend_filter_keeps_gpu_knobs_on_cuda(tmp_path):
+    svc = _service_for(
+        tmp_path,
+        # ngl 12: BELOW the fake meta's 24 layers, so compute_fit passes it through
+        # unclamped and the assertion is unambiguous.
+        switches_fn=lambda mid: {"n_gpu_layers": "12", "no_mmap": "true"},
+        knob_backends_fn=lambda: dict(_GPU_ONLY),
+    )
+    svc._active_backend = lambda: "cuda"
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    sec = _section(_ini(svc), _TEST_MODEL.id)
+    assert "n-gpu-layers = 12" in sec
+    assert "no-mmap = true" in sec
 
 
 def test_stopped_model_entry_pruned_back_to_db_section(tmp_path):

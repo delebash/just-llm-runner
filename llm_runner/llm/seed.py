@@ -501,7 +501,7 @@ DEFAULT_KNOBS: list[dict] = [
      "help": "Compress the K side of the KV cache to save VRAM. q8_0 is near-lossless; q4_0 saves more but can cost quality. Accepts f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1."},
     {"flag_name": "cache_type_v", "kind": "string", "plane": 1, "tier": "common",
      "help": "Compress the V side of the KV cache to save VRAM. q8_0 is near-lossless. Accepts f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1."},
-    {"flag_name": "n_cpu_moe", "kind": "int", "plane": 1, "applies_to": "moe", "tier": "common",
+    {"flag_name": "n_cpu_moe", "backends": "cuda,rocm,vulkan,metal", "kind": "int", "plane": 1, "applies_to": "moe", "tier": "common",
      "help": "Expert layers to run on CPU — frees VRAM (MoE only). Auto-fit sets it; pin the fast value here."},
     # ── Plane 1 — load switches: ADVANCED ──
     # n_gpu_layers ADDED 2026-07-07 (user bug report): it was always a valid Overrides
@@ -510,13 +510,13 @@ DEFAULT_KNOBS: list[dict] = [
     # (the MoE pattern: all layers on GPU, offload via n_cpu_moe) and the Tune grid
     # badged the resolved row "unrecognized". The knob row makes it a first-class,
     # labelled switch; the seeder merges by flag_name so existing DBs gain it on boot.
-    {"flag_name": "n_gpu_layers", "kind": "int", "plane": 1, "tier": "advanced",
+    {"flag_name": "n_gpu_layers", "backends": "cuda,rocm,vulkan,metal", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many model layers run on the GPU (the rest run on CPU). Auto-fit sets it when unset; MoE tunes pin every layer on GPU (99) and free VRAM with CPU MoE layers instead."},
     {"flag_name": "mlock", "kind": "bool", "plane": 1, "tier": "advanced",
      "help": "Keep the model locked in RAM so the OS can't swap it out (steadier speed). Turn off if RAM is tight. Values: true or false."},
-    {"flag_name": "no_mmap", "kind": "bool", "plane": 1, "applies_to": "moe", "tier": "advanced",
+    {"flag_name": "no_mmap", "backends": "cuda,rocm,vulkan,metal", "kind": "bool", "plane": 1, "applies_to": "moe", "tier": "advanced",
      "help": "Read the whole model into RAM instead of memory-mapping it. Needed for MoE CPU-offload; otherwise leave off. Values: true or false."},
-    {"flag_name": "no_kv_offload", "kind": "bool", "plane": 1, "tier": "advanced",
+    {"flag_name": "no_kv_offload", "backends": "cuda,rocm,vulkan,metal", "kind": "bool", "plane": 1, "tier": "advanced",
      "help": "Keep the KV cache in system RAM instead of VRAM — frees VRAM but is slower. Values: true or false."},
     {"flag_name": "batch_size", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many prompt tokens are processed together (throughput vs memory)."},
@@ -1113,6 +1113,7 @@ def seed_default_knobs(s) -> int:
                 row.applies_to = str(k.get("applies_to") or "all")
                 row.tier = str(k.get("tier") or "common")
                 row.per_request = bool(k.get("per_request") or False)
+                row.backends = str(k.get("backends") or "")  # Pass 2: backend applicability
                 row.position = i
                 seeded_opts = {str(o["value"]) for o in (k.get("options") or [])}
                 for opt in s.query(db.KnobOption).filter(db.KnobOption.flag_name == k["flag_name"]).all():
@@ -1124,7 +1125,7 @@ def seed_default_knobs(s) -> int:
             default_value=str(k.get("default_value") or ""), help=str(k.get("help") or ""),
             plane=int(k.get("plane") or 1), applies_to=str(k.get("applies_to") or "all"),
             tier=str(k.get("tier") or "common"), per_request=bool(k.get("per_request") or False),
-            position=i, built_in=True,
+            backends=str(k.get("backends") or ""), position=i, built_in=True,
         ))
         s.flush()
         for j, opt in enumerate(k.get("options") or []):

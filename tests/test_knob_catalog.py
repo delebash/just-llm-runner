@@ -41,6 +41,31 @@ def test_seed_populates_knob_catalog(wired):
     assert planes == sorted(planes)
 
 
+def test_backend_applicability_seeded_and_healed(wired):
+    """Pass 2 (2026-07-22): the four GPU-only knobs carry `backends`; universal knobs
+    carry ""; `list_knob_backends()` returns exactly the exception rows; and the
+    boot sync HEALS a row whose backends drifted (existing DBs gain the values)."""
+    by_name = {k["flagName"]: k for k in stores.list_knob_catalog()}
+    gpu_set = "cuda,rocm,vulkan,metal"
+    for flag in ("n_gpu_layers", "n_cpu_moe", "no_mmap", "no_kv_offload"):
+        assert by_name[flag]["backends"] == gpu_set, flag
+    assert by_name["ctx_len"]["backends"] == ""      # universal
+    assert by_name["mlock"]["backends"] == ""        # the pair issue is the strip rule
+    assert stores.list_knob_backends() == {
+        "n_gpu_layers": gpu_set, "n_cpu_moe": gpu_set,
+        "no_mmap": gpu_set, "no_kv_offload": gpu_set,
+    }
+    # Heal: wipe one row's backends (an existing pre-Pass-2 DB), reseed → restored.
+    s = db.session()
+    s.query(db.KnobCatalog).filter(db.KnobCatalog.flag_name == "no_mmap").one().backends = ""
+    s.commit()
+    seed.seed_default_knobs(s)
+    s.commit()
+    assert s.query(db.KnobCatalog).filter(
+        db.KnobCatalog.flag_name == "no_mmap").one().backends == gpu_set
+    s.close()
+
+
 def test_knob_tiers_and_expanded_set(wired):
     """The Common/Advanced tier split + the expanded knob set (with cited defaults)."""
     by_name = {k["flagName"]: k for k in stores.list_knob_catalog()}

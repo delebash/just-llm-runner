@@ -383,6 +383,9 @@ def _wire_runner_catalog(data_dir=None) -> None:
         default_llm_id_fn=default_llm_id_fn,
         config_fn=stores.build_runner_config,
         cache_root=(str(Path(data_dir) / "ai-cache") if data_dir else None),
+        # Pass 2 (2026-07-22): per-knob backend applicability from knob_catalog —
+        # the runner drops launch flags the active engine family can't use.
+        knob_backends_fn=stores.list_knob_backends,
     )
 
     # QC-43b: wire the dispatch ensure-local hook to the runner service. A run routed

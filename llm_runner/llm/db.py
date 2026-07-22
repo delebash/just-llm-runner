@@ -508,6 +508,13 @@ class KnobCatalog(LlmBase):
     # applies immediately with no reload (reasoning_budget). Additive column — create_all
     # picks it up on an existing DB, no reset. Default False = a normal launch switch.
     per_request = Column(Boolean, nullable=False, default=False)
+    # Backend applicability (Pass 2, 2026-07-22): comma-list of engine FAMILIES this
+    # knob is meaningful on ("cuda,rocm,vulkan,metal"); "" = every backend. The runner
+    # drops inapplicable flags at section construction (the 2026-07-22 incident: the
+    # CUDA-tuned no_mmap/placement knobs followed the models onto the cpu engine —
+    # no_mmap alone forced qwen's full 22.8 GB resident for zero offload benefit).
+    # Additive column (see _ADDED_COLUMNS); the knob seeder syncs it on boot.
+    backends = Column(String, nullable=False, default="")
     position = Column(Integer, nullable=False, default=0)
     built_in = Column(Boolean, nullable=False, default=False)
 
@@ -646,6 +653,8 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # U2-T2 (2026-07-14, thinking/reasoning system):
     ("model_catalog", "thinking", "BOOLEAN NOT NULL DEFAULT 0"),
     ("engine_presets", "think", "BOOLEAN NOT NULL DEFAULT 0"),
+    # Pass 2 (2026-07-22, backend-honest resolution):
+    ("knob_catalog", "backends", "VARCHAR NOT NULL DEFAULT ''"),
 )
 
 

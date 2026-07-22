@@ -1326,10 +1326,26 @@ def list_knob_catalog() -> list[dict]:
                 "flagName": k.flag_name, "kind": k.kind,
                 "default": k.default_value, "help": k.help, "plane": k.plane,
                 "appliesTo": k.applies_to, "tier": k.tier, "perRequest": k.per_request,
-                "options": opts.get(k.flag_name, []),
+                "backends": k.backends, "options": opts.get(k.flag_name, []),
             }
             for k in rows
         ]
+    finally:
+        s.close()
+
+
+def list_knob_backends() -> dict[str, str]:
+    """Backend applicability per knob (Pass 2, 2026-07-22): {flag_name: "cuda,rocm,…"}
+    for knobs that are NOT applicable everywhere ("" rows are omitted — absent = all).
+    Injected into the runner (`knob_backends_fn`) so its section construction can drop
+    a flag the ACTIVE engine family can't use; the llm/ package stays decoupled."""
+    s = db.session()
+    try:
+        return {
+            k.flag_name: k.backends
+            for k in s.query(db.KnobCatalog).all()
+            if (k.backends or "").strip()
+        }
     finally:
         s.close()
 

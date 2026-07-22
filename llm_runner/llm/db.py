@@ -313,8 +313,10 @@ class ModelClassPick(LlmBase):
     """One hardware-class row of the class→model map (model-per-hardware plan Phase 3):
     QuickSetup's pick consults the row with the LARGEST `min_vram_mb <= detected VRAM`
     whose model exists + fits; no matching row → the §10 speed-floor rule (the
-    unchanged fallback). SEED DATA (the expression point) — the map's CONTENTS are
-    replaceable rows refreshed by the model research (ledger C9), never a GUI."""
+    unchanged fallback). Seed-refreshable rows (the model research refills them); a
+    user-editable surface arrives with the class-system redesign (2026-07-22 recovery
+    doc §9 — the earlier "never a GUI" note here was agent editorial, not a recorded
+    ruling, and the map re-keys onto the tunes' class_key identity in that redesign)."""
 
     __tablename__ = "model_class_picks"
 

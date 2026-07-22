@@ -406,6 +406,97 @@ def test_load_applies_adhoc_switches(tmp_path):
     assert "top-n-sigma = 2" in ini             # unknown → passthrough into the .ini
 
 
+def _section(ini: str, model_id: str) -> str:
+    """The `[model_id]` section's text (up to the next section header)."""
+    assert f"[{model_id}]" in ini, ini
+    return ini.split(f"[{model_id}]")[1].split("\n[")[0]
+
+
+def test_coload_preserves_resident_ephemeral_section(tmp_path):
+    # Defect C (2026-07-22 pass-1 plan T3): model A loads with an EPHEMERAL ctx
+    # (ad-hoc switches — the bench-leg / Lab-tune path); model B then co-loads. The
+    # re-emitted ini must render A's section from the entry A was LOADED WITH — the
+    # old fresh-from-DB derivation reverted A to its tune ctx on any later emit
+    # (8192 → 131072 on the 2026-07-22 CPU bench = the ~21 GB RAM exhaustion), and
+    # the text change bounce-respawned A's child at the wrong config.
+    # DB base ctx SMALL (4096) so both models co-fit the fixture's VRAM budget — a fat
+    # base ctx makes the arbiter EVICT A to admit B (verified while writing this test),
+    # which is the eviction path, not the co-residence this test pins.
+    svc = _service_for(tmp_path, catalog=[_TEST_MODEL, _MODEL_B],
+                       switches_fn=lambda mid: {"ctx_len": "4096"})
+    svc.load(_TEST_MODEL.id, switches={"ctx_len": "8192"})
+    svc._thread.join(timeout=5)
+    assert "ctx-size = 8192" in _section(_ini(svc), _TEST_MODEL.id)
+    svc.load(_MODEL_B.id)
+    svc._thread.join(timeout=5)
+    assert svc._resident.get(_TEST_MODEL.id, {}).get("status") == "running"  # co-resident, not evicted
+    ini = _ini(svc)
+    assert "ctx-size = 8192" in _section(ini, _TEST_MODEL.id)      # loaded-with survives
+    assert "ctx-size = 4096" in _section(ini, _MODEL_B.id)         # DB base as ever
+
+
+def test_windows_strips_mlock_beside_no_mmap(tmp_path, monkeypatch):
+    # The (b) rule (user decision 2026-07-22, pass-1 plan T7 options): on Windows the
+    # seeded base(mlock) × moe(no_mmap) composition ships a flag that can NEVER lock
+    # (llama.cpp VirtualLock 998 on the no-mmap buffer) — strip mlock from the pair
+    # at the merge so the emitted ini is truthful.
+    import llm_runner.runner.lifecycle as _lc
+    monkeypatch.setattr(_lc, "_IS_WINDOWS", True)
+    svc = _service_for(tmp_path, switches_fn=lambda mid: {"mlock": "true", "no_mmap": "true"})
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    sec = _section(_ini(svc), _TEST_MODEL.id)
+    assert "no-mmap = true" in sec
+    # flag-line form: the tmp path itself contains this test's name (…mlock…)
+    assert "mlock = " not in sec
+
+
+def test_mlock_alone_stays_on_windows(tmp_path, monkeypatch):
+    # mlock WITHOUT no-mmap genuinely locks on Windows (proven standalone + through
+    # the router, 2026-07-22) — the strip must not touch it.
+    import llm_runner.runner.lifecycle as _lc
+    monkeypatch.setattr(_lc, "_IS_WINDOWS", True)
+    svc = _service_for(tmp_path, switches_fn=lambda mid: {"mlock": "true"})
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert "mlock = true" in _section(_ini(svc), _TEST_MODEL.id)
+
+
+def test_mlock_no_mmap_pair_kept_off_windows(tmp_path, monkeypatch):
+    # Non-Windows is untouched: Linux with IPC_LOCK plausibly locks the pair.
+    import llm_runner.runner.lifecycle as _lc
+    monkeypatch.setattr(_lc, "_IS_WINDOWS", False)
+    svc = _service_for(tmp_path, switches_fn=lambda mid: {"mlock": "true", "no_mmap": "true"})
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    sec = _section(_ini(svc), _TEST_MODEL.id)
+    assert "mlock = true" in sec and "no-mmap = true" in sec
+
+
+def test_stopped_model_entry_pruned_back_to_db_section(tmp_path):
+    # T3 prune: once A leaves residency its loaded-with entry stops rendering — the
+    # next emit derives A's section from DB again (no per-site mirror pops; the
+    # emitter's prune against _resident is the one convergence point).
+    unloaded = []
+
+    def router_view(url):
+        data = [{"id": mid, "status": {"value": "loaded"}}
+                for mid in (_TEST_MODEL.id, _MODEL_B.id) if mid not in unloaded]
+        return {"object": "list", "data": data}
+
+    svc = _service_for(tmp_path, catalog=[_TEST_MODEL, _MODEL_B],
+                       router_models=router_view,
+                       router_unload=lambda url, mid: unloaded.append(mid),
+                       switches_fn=lambda mid: {"ctx_len": "4096"})
+    svc.load(_TEST_MODEL.id, switches={"ctx_len": "8192"})
+    svc._thread.join(timeout=5)
+    svc.stop(_TEST_MODEL.id)
+    assert _TEST_MODEL.id not in svc._resident
+    svc.load(_MODEL_B.id)
+    svc._thread.join(timeout=5)
+    assert "ctx-size = 4096" in _section(_ini(svc), _TEST_MODEL.id)  # back to DB
+
+
 # ── co-residence + stop-by-id (the router keeps N models resident) ────────────
 
 def test_two_models_co_resident(tmp_path):
@@ -427,8 +518,19 @@ def test_two_models_co_resident(tmp_path):
 
 
 def test_stop_by_id_unloads_one(tmp_path):
+    # The router view REFLECTS the unload (the child exits → gone from GET /models):
+    # under the defect-E contract (2026-07-22) a router that kept listing the child
+    # would honestly keep the entry at "stopping" — this test's point is the happy
+    # path, one model stopped + the other untouched, so its fake must let the child die.
     unloaded = []
+
+    def router_view(url):
+        data = [{"id": mid, "status": {"value": "loaded"}}
+                for mid in (_TEST_MODEL.id, _MODEL_B.id) if mid not in unloaded]
+        return {"object": "list", "data": data}
+
     svc = _service_for(tmp_path, catalog=[_TEST_MODEL, _MODEL_B],
+                       router_models=router_view,
                        router_unload=lambda url, mid: unloaded.append(mid))
     svc.load(_TEST_MODEL.id)
     svc._thread.join(timeout=5)
@@ -864,22 +966,119 @@ def test_cancel_during_download_leaves_no_ledger_entry(tmp_path):
     assert svc.status().get("status") != "error"     # a cancel is never a failure
 
 
-def test_stop_resident_confirm_unload_timeout_pops_and_warns(tmp_path, caplog):
-    # Pathological branch: the router keeps reporting the model loaded after a
-    # successful unload POST. The ledger must not wedge: bounded poll → WARNING → pop.
+def test_stop_resident_confirm_unload_timeout_keeps_stopping_then_reconcile_pops(tmp_path, caplog):
+    # Pathological branch (contract CHANGED by defect E, 2026-07-22 pass-1 plan T5):
+    # the router keeps reporting the model loaded after the unload POST. The OLD
+    # "popping anyway" made the ledger say gone while the child served on — the drift
+    # that later answered a load with 400 "already running". NOW: the entry STAYS at
+    # "stopping" (bounded poll → WARNING), and resident()'s self-heal pops it the
+    # moment the router agrees the child is gone.
     clock = {"t": 0.0}
+    live = {"loaded": True}
 
-    def always_loaded(url):
-        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loaded"}}]}
+    def router_view(url):
+        if live["loaded"]:
+            return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loaded"}}]}
+        return {"object": "list", "data": []}
 
-    svc = _service_for(tmp_path, router_models=always_loaded,
+    svc = _service_for(tmp_path, router_models=router_view,
                        now=lambda: clock["t"], sleep=lambda s: clock.__setitem__("t", clock["t"] + s))
     svc.load(_TEST_MODEL.id)
     svc._thread.join(timeout=5)
     with caplog.at_level(logging.WARNING, logger="llm_runner.runner.lifecycle"):
         svc.stop(_TEST_MODEL.id)
-    assert _TEST_MODEL.id not in svc._resident
     assert any("confirm-unload timeout" in r.message for r in caplog.records)
+    # Router still lists the child → the ledger honestly keeps "stopping".
+    assert svc._resident.get(_TEST_MODEL.id, {}).get("status") == "stopping"
+    # The child finally dies → the next resident() read converges the ledger.
+    live["loaded"] = False
+    svc.resident()
+    assert _TEST_MODEL.id not in svc._resident
+
+
+def test_router_load_already_running_adopts_instead_of_erroring(tmp_path):
+    # Defect E (2026-07-22 pass-1 plan T5): a ledger↔router drift where the router
+    # already runs the model must ADOPT (confirm + reconcile), never error the load —
+    # the 04:36:41 incident: RuntimeError '/models/load … model is already running'.
+    def load_already_running(url, model_id):
+        raise RuntimeError(
+            f"/models/load {model_id!r} failed [400]: "
+            '{"error":{"code":400,"message":"model is already running","type":"invalid_request_error"}}'
+        )
+
+    svc = _service_for(tmp_path, router_load=load_already_running)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    st = svc._resident.get(_TEST_MODEL.id) or {}
+    assert st.get("status") == "running", st
+    assert not st.get("error")
+
+
+def _svc_with_dying_children(tmp_path, clock):
+    """A service whose fake router view REFLECTS unloads (children die on stop) and
+    whose clock is virtual — the defect-D tombstone tests need both."""
+    unloaded = []
+
+    def router_view(url):
+        if _TEST_MODEL.id in unloaded:
+            return {"object": "list", "data": []}
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": "loaded"}}]}
+
+    return _service_for(
+        tmp_path, router_models=router_view,
+        router_unload=lambda url, mid: unloaded.append(mid),
+        now=lambda: clock["t"], sleep=lambda s: clock.__setitem__("t", clock["t"] + s),
+    ), unloaded
+
+
+def test_ensure_refuses_a_just_stopped_model(tmp_path):
+    # Defect D (2026-07-22 pass-1 plan T4): the 07:00 incident — stop qwen, and ten
+    # seconds later a zombie request's ensure re-loaded it. Inside the tombstone
+    # window the ensure RAISES instead of re-loading.
+    clock = {"t": 100.0}
+    svc, _ = _svc_with_dying_children(tmp_path, clock)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    svc.stop(_TEST_MODEL.id)
+    assert _TEST_MODEL.id not in svc._resident
+    with pytest.raises(RuntimeError, match="just stopped"):
+        svc.ensure_model_ready(_TEST_MODEL.id)
+
+
+def test_direct_load_clears_the_tombstone(tmp_path):
+    # User intent wins: stop → the user loads it again from the app → the tombstone
+    # is popped, and ensure works normally afterwards.
+    clock = {"t": 100.0}
+    svc, unloaded = _svc_with_dying_children(tmp_path, clock)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    svc.stop(_TEST_MODEL.id)
+    unloaded.clear()                       # the router lists it again on reload
+    svc.load(_TEST_MODEL.id)               # direct load = fresh intent
+    svc._thread.join(timeout=5)
+    assert svc._resident[_TEST_MODEL.id]["status"] == "running"
+    svc.ensure_model_ready(_TEST_MODEL.id)  # resident + no tombstone → returns
+
+
+def test_tombstone_expires(tmp_path):
+    # Past _STOP_TOMBSTONE_S the ensure auto-load behaves exactly as before. The
+    # virtual clock makes ensure's own 180 s wait race the REAL background load
+    # thread, so this asserts the GUARD precisely: no "just stopped" raise, and
+    # load() was reached (its entry-seed is synchronous — lifecycle.py:885).
+    from llm_runner.runner.lifecycle import _STOP_TOMBSTONE_S
+    clock = {"t": 100.0}
+    svc, unloaded = _svc_with_dying_children(tmp_path, clock)
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    svc.stop(_TEST_MODEL.id)
+    clock["t"] += _STOP_TOMBSTONE_S + 1.0
+    unloaded.clear()
+    try:
+        svc.ensure_model_ready(_TEST_MODEL.id, timeout_s=5.0)
+    except RuntimeError as exc:
+        assert "just stopped" not in str(exc)   # expired → the guard no longer fires
+    assert _TEST_MODEL.id in svc._resident      # the ensure proceeded into load()
+    svc._thread.join(timeout=5)
 
 
 def test_stop_compare_and_pop_spares_a_concurrent_fresh_load(tmp_path):

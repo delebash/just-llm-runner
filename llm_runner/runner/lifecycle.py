@@ -195,10 +195,18 @@ def _default_router_load(url: str, model_id: str) -> None:
 
 def _default_router_unload(url: str, model_id: str) -> None:
     """POST {url}/models/unload {"model": id} — free a resident model's VRAM (the
-    arbiter drives this explicitly; auto-sleep is unreliable). Injected in tests."""
+    arbiter drives this explicitly; auto-sleep is unreliable). Injected in tests.
+    Idempotent (defect E, 2026-07-22): a 404 / "not found|running|loaded" answer means
+    the goal state already holds — the router's truth wins, never an error (the call
+    site swallows exceptions anyway; this keeps the log free of false failures)."""
     resp = requests.post(url.rstrip("/") + "/models/unload", json={"model": model_id}, timeout=120)
     if resp.status_code >= 400:
-        raise RuntimeError(f"/models/unload {model_id!r} failed [{resp.status_code}]: {resp.text[:800]}")
+        body = (resp.text or "")[:800]
+        low = body.lower()
+        if resp.status_code == 404 or "not found" in low or "not running" in low or "not loaded" in low:
+            log.info("router unload %s: already gone [%s] — adopting", model_id, resp.status_code)
+            return
+        raise RuntimeError(f"/models/unload {model_id!r} failed [{resp.status_code}]: {body}")
 
 
 def _default_router_models(url: str) -> dict:
@@ -302,6 +310,26 @@ def _switches_to_overrides(switches: dict[str, str]) -> Overrides:
     return ov
 
 
+_IS_WINDOWS = os.name == "nt"  # patchable seam for the strip-rule tests
+
+
+def _strip_inert_mlock(ov):
+    """THE (b) decision (user, 2026-07-22 — pass-1 plan T7 options; no upstream report):
+    on Windows, --mlock combined with --no-mmap can NEVER lock — llama.cpp's no-mmap
+    heap buffer is not VirtualLock-able (998 ERROR_NOACCESS; standalone A/B in the
+    recovery doc §9: mlock alone locks, the pair fails). The seeded base bundle
+    (mlock, every model) and the MoE bundle (no_mmap) compose exactly this pair on
+    every MoE model, shipping an inert flag + warning spam. Strip mlock from the
+    combination HERE — the flag merge is code's domain (house rules) and this is a
+    COMBINATION fact, not per-knob applicability. mlock ALONE stays honored (it works,
+    proven); non-Windows is untouched (Linux + IPC_LOCK plausibly locks the pair)."""
+    if _IS_WINDOWS and ov.no_mmap and ov.mlock:
+        log.info("mlock is inert beside no-mmap on Windows (upstream VirtualLock 998) — "
+                 "stripping it from this section")
+        ov.mlock = None
+    return ov
+
+
 def _wants_draft(ov, model) -> bool:
     """THE one needs-its-draft predicate: does this resolved config call for an EXTERNAL
     MTP draft that isn't already pinned to a path? True only when the merged overrides
@@ -335,6 +363,14 @@ def _fetch_latest_llamacpp_tag() -> str:
     )
     r.raise_for_status()
     return str(r.json().get("tag_name") or "")
+
+
+# Defect D (2026-07-22 pass-1 plan T4, flagged default 1 — user-blessed): how long an
+# EXPLICIT stop outranks a zombie request's auto-reload. `ensure_model_ready` (the
+# dispatch's ensure — trigger=ensure-ready) refuses to re-load a model stopped within
+# this window; a direct user load() clears it (user intent wins). Protocol semantics
+# (like retry counts), deliberately NOT a DB row.
+_STOP_TOMBSTONE_S = 30.0
 
 
 def _engine_idle() -> dict:
@@ -440,6 +476,19 @@ class RunnerService:
         self._resident: dict[str, dict] = {}   # model_id → back-compat state dict
         self._last_id: str = ""                 # primary for the back-compat status()
         self._last_ini_text: str = ""           # re-emit / bounce only on a real change
+        # Defect D (2026-07-22 pass-1 plan T4): {model_id → self._now() at its last
+        # EXPLICIT stop}. ensure_model_ready refuses a re-load inside the window;
+        # a direct load() pops the stamp (user intent wins).
+        self._stop_tombstones: dict[str, float] = {}
+        # Defect C (2026-07-22 pass-1 plan T3): {model_id → the ModelIniEntry it was
+        # ACTUALLY loaded with} — the single truth for HOW a resident model runs. The
+        # emitter renders a resident co-model's section from THIS (never re-derived
+        # from DB switch rows, which silently reverted ephemeral launch configs on any
+        # later emit — the ctx-8192→131072 RAM exhaustion). Recorded at the confirmed
+        # load (the FINAL entry, after any fit-retry/OOM-shed rebind); pruned against
+        # `_resident` inside the emitter, so every removal path converges without
+        # per-site mirror pops.
+        self._active_entries: dict[str, ModelIniEntry] = {}
         self._engine_state = _engine_idle()
         self._lock = threading.Lock()           # resident-set queue mutations
         self._router_lock = threading.Lock()    # serialize router spawn/bounce/emit/load
@@ -861,6 +910,10 @@ class RunnerService:
         # respawn hunt needs the asks that DIDN'T start a load too.
         log.info("load %s (trigger=%s)", model_id, trigger)
         with self._lock:
+            # Defect D (T4): a direct load is fresh intent — it clears the model's
+            # stop-tombstone. (ensure_model_ready checks the tombstone BEFORE calling
+            # load(), so this pop cannot defeat the ensure guard.)
+            self._stop_tombstones.pop(model_id, None)
             cur = self._resident.get(model_id)
             if cur is not None and cur.get("status") in ("downloading", "starting"):
                 return dict(cur)  # THIS model's load is already in flight
@@ -995,6 +1048,10 @@ class RunnerService:
         # at click time (2026-07-17 — timeline correlation was impossible before).
         log.info("stop %s", model_id or "<full teardown>")
         if model_id:
+            # Defect D (T4): an EXPLICIT stop tombstones the model — ensure-ready
+            # (a possibly-zombie request's auto-load) must not undo it for
+            # _STOP_TOMBSTONE_S; a direct user load() pops the stamp.
+            self._stop_tombstones[model_id] = self._now()
             st = (self._resident.get(model_id) or {}).get("status")
             if st in ("downloading", "starting"):
                 ev = self._cancel_events.get(model_id)
@@ -1010,6 +1067,7 @@ class RunnerService:
             self._touch(model_id, status="stopping", detail="")
             with self._router_lock:
                 router = self._router
+                router_still_live = False  # timeout with the child still listed live (defect E)
                 if router is not None and router.is_alive():
                     try:
                         self._router_unload(router.url, model_id)
@@ -1028,13 +1086,20 @@ class RunnerService:
                         if (live.get(model_id) or {}).get("value") not in ("loaded", "sleeping", "loading"):
                             break
                         if self._now() >= deadline:
+                            # Defect E (2026-07-22, pass-1 plan T5): do NOT pop while the
+                            # router still lists the child live — a ledger that says gone
+                            # while the child serves on is the drift that later surfaces
+                            # as "/models/load … already running". Keep the entry at
+                            # "stopping"; resident()'s self-heal pops it the moment the
+                            # router agrees the child is gone (its compare-and-pop).
+                            router_still_live = True
                             log.warning("confirm-unload timeout: router still reports %s "
-                                        "after unload — popping anyway", model_id)
+                                        "after unload — keeping 'stopping' for the reconcile", model_id)
                             break
                         self._sleep(self._load_poll_interval)
                 with self._lock:
                     cur = self._resident.get(model_id)
-                    if cur is not None and cur.get("status") == "stopping":
+                    if cur is not None and cur.get("status") == "stopping" and not router_still_live:
                         self._resident.pop(model_id, None)
                         if self._last_id == model_id:
                             self._last_id = next(iter(self._resident), "")
@@ -1044,6 +1109,10 @@ class RunnerService:
                 self._arbiter.release(model_id)
         else:
             with self._router_lock:
+                # Defect D (T4): a full teardown tombstones every resident model.
+                now = self._now()
+                for mid in list(self._resident):
+                    self._stop_tombstones[mid] = now
                 router = self._router
                 if router is not None:
                     try:
@@ -1054,6 +1123,7 @@ class RunnerService:
                 self._resident.clear()
                 self._cancel_events.clear()
                 self._arbiter.clear()  # full teardown → drop the whole VRAM ledger
+                self._active_entries.clear()  # T3: nothing resident → no loaded-with configs
                 self._last_ini_text = ""
                 self._last_id = ""
         return self.status()
@@ -1239,6 +1309,20 @@ class RunnerService:
             # router confirms it's gone, drop it here so the UI clears at once (the router's own
             # "unloaded" row, if present, stays → the catalog renders it Downloaded/idle, correct).
             if s == "stopping" and not router_live:
+                # …and CONVERGE THE LEDGER (defect E, 2026-07-22 pass-1 plan T5):
+                # stop()'s confirm-unload timeout now KEEPS the entry at "stopping"
+                # instead of popping while the router still lists the child (the old
+                # "popping anyway" — the drift that later answered a load with
+                # "already running"). Once the router agrees the child is gone, THIS
+                # is the one cleanup. Compare-and-pop under the lock: a concurrent
+                # fresh load() has already overwritten the entry ("downloading"), so
+                # the guard refuses and nothing is lost.
+                with self._lock:
+                    cur = self._resident.get(mid)
+                    if cur is not None and cur.get("status") == "stopping":
+                        self._resident.pop(mid, None)
+                        if self._last_id == mid:
+                            self._last_id = next(iter(self._resident), "")
                 continue
             if row is None:
                 models.append({"id": mid, "status": s, "vram_mb": self._arbiter.reserved_mb(mid)})
@@ -1298,6 +1382,18 @@ class RunnerService:
             return
         if self._resident_ready(model_id):
             return
+        # Defect D (2026-07-22 pass-1 plan T4): an EXPLICIT stop outranks a zombie
+        # request. The 07:00 incident: the bench client died mid-chat, its server-side
+        # dispatch kept retrying, and every user stop was answered ten seconds later by
+        # this ensure re-loading a 21 GB model. Inside the tombstone window the ensure
+        # REFUSES instead — the user starts the model again from the app if they meant to
+        # (any direct load() clears the stamp; expiry is _STOP_TOMBSTONE_S).
+        ts = self._stop_tombstones.get(model_id)
+        if ts is not None and (self._now() - ts) < _STOP_TOMBSTONE_S:
+            raise RuntimeError(
+                f'the local model "{model_id}" was just stopped — '
+                f"start it again from the app to use it"
+            )
         # Same path ensure_embedding uses: download-if-needed + lazy-spawn the router
         # + reserve, on the background load thread. A re-load of an already-in-flight /
         # running model is idempotent inside load() (and its router-liveness gate
@@ -1686,6 +1782,7 @@ class RunnerService:
             ov = _merge_overrides(_switches_to_overrides(base_switches), overrides)
             if switches:
                 ov = _merge_overrides(ov, _switches_to_overrides(switches))
+            ov = _strip_inert_mlock(ov)  # the (b) rule — after the FULL merge
 
             def _progress(downloaded: int, total: int | None) -> None:
                 # Live byte counters the GUI polls via status() to draw a bar. The PHASE
@@ -2013,15 +2110,30 @@ class RunnerService:
         hf_cache = self._cache_root / "hf"
         entries: list[ModelIniEntry] = []
         catalog = list(self.catalog())
+        # Defect C (2026-07-22 pass-1 plan T3): prune loaded-with entries for models
+        # that left residency — THE one convergence point, so no removal site needs a
+        # mirror pop. Snapshot-read of _resident (same GIL-atomicity argument as
+        # resident()'s overlay); caller holds `_router_lock`.
+        self._active_entries = {
+            k: v for k, v in self._active_entries.items() if k in self._resident
+        }
         for m in catalog:
             if override is not None and m.id == override.model_id:
                 entries.append(override)  # this load's exact section, in the model's slot
+                continue
+            kept = self._active_entries.get(m.id)
+            if kept is not None:
+                # A RESIDENT co-model renders the entry it was LOADED WITH — never a
+                # fresh DB derivation, which silently reverted ephemeral launch configs
+                # on any later co-load's emit and bounce-respawned the child at the
+                # wrong config (defect C: ctx 8192 → tune's 131072 → ~21 GB on CPU).
+                entries.append(kept)
                 continue
             gguf = cached_gguf_path(m.hf_repo, m.quant, cache_root=hf_cache, mmproj=m.mmproj)
             if gguf is None:
                 continue  # not on disk → no section (a section needs the file for compute_fit)
             try:
-                ov = _switches_to_overrides(self._switches_fn(m.id) or {})
+                ov = _strip_inert_mlock(_switches_to_overrides(self._switches_fn(m.id) or {}))
                 # Plan B D7 (diff-checker fold): the auto-mtp layer can put `draft-mtp`
                 # on a PASSIVE co-resident section too. Point it at the CACHED draft —
                 # which Download now fetches (2026-07-19 one-acquire change), so it
@@ -2301,9 +2413,25 @@ class RunnerService:
             # The log watermark is captured per attempt (a bounce swaps the log file), so the
             # confirm's child-death scan only sees THIS attempt's lines (fail-fast, 2026-07-11).
             log_offset = self._router_log_size()
-            self._router_load(self._router.url, entry.model_id)
+            try:
+                self._router_load(self._router.url, entry.model_id)
+            except RuntimeError as exc:
+                # Idempotent adopt (defect E, 2026-07-22 pass-1 plan T5): the router
+                # answering "already running" is TRUTH, not a failure — the ledger had
+                # drifted (e.g. an unload the child outlived). Fall through to
+                # _confirm_load, which verifies the resident child like any other load.
+                # Caught HERE (not in _default_router_load) so injected router_load
+                # fakes get the same tolerance and the behavior is unit-testable.
+                if "already running" not in str(exc).lower():
+                    raise
+                log.info("router says %s is already running — adopting", entry.model_id)
             outcome = self._confirm_load(entry.model_id, log_offset=log_offset)
             if outcome == "loaded":
+                # Defect C (T3): record the entry AS FINALLY LOADED — after any
+                # explicit-placement retry / OOM-shed rebind above — so re-emits and
+                # bounce-reloads reproduce THIS config, not a DB-derived one. Caller
+                # holds `_router_lock` (serialized with every other emit).
+                self._active_entries[entry.model_id] = entry
                 return
             # 1b-F4: a FIT-PLACED entry (ngl omitted → the child's own `--fit` placed
             # tensors) that fails for ANY reason — the barely-fits fit bugs present as

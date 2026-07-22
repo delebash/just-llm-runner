@@ -41,6 +41,13 @@ include = ["llm_runner*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    # The real-router integration smoke (2026-07-22 pass-1 plan T8): runs the REAL
+    # installed engine + router + one small on-disk model. Env-gated — every test
+    # self-skips unless JW_REALROUTER=1 and JUSTWRITE_DATA_DIR point at a data root
+    # with an engine + the smoke model. Run: python -m pytest -m realrouter -n 0 -v
+    "realrouter: real-engine/router integration smoke (env-gated, never in default runs)",
+]
 
 [tool.ruff]
 line-length = 100

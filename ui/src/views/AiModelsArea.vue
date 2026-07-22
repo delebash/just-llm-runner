@@ -128,6 +128,10 @@ let _loadedSig = "";
 const { start: startResPoll } = usePoll(async () => {
   try {
     resident.value = await request("/v1/llm-runner/resident");
+    // ONE workflow (2026-07-21): a model-load button can now install the engine (retryLoad) — so
+    // keep the engine panel live while it's NOT yet installed, so that install shows here too, not
+    // just on the boot splash. Once installed, useEngine's own poll owns any further transitions.
+    if (!engineInstalled.value) refreshEngine();
     const sig = (resident.value?.models || [])
       .filter((m) => m.status === "loaded" || m.status === "sleeping")
       .map((m) => m.id)

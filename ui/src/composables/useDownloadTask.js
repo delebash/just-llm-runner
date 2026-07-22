@@ -35,9 +35,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * }
  *
  * Returns a reactive task: { state, phase, done, total, rateText, error, label,
- *   start(), cancel(), retry(), waiting(phase), fail(message) }.
+ *   start(), cancel(), retry(), waiting(phase), fail(message), arm(phase), apply(reading) }.
  * `state` ∈ "" | "running" | "done" | "error" | "cancelled". The poll loop exits the
  * moment `state` leaves "running", so cancel() (which flips state FIRST) stops it at once.
+ *
+ * TWO ways to drive it, ONE machine (2026-07-21): start() self-polls (QuickSetup, the engine
+ * bar — the initiator owns the loop). OR an external poller arms it then feeds it readings:
+ * arm(phase) → running, apply(reading) → advance/terminate — the catalog's useRunnerModels does
+ * this from its ONE /models poll, because a model can be loading server-side (a feature run,
+ * warm-boot) with no local start() to own a loop. apply() no-ops unless running, so a cancel or
+ * terminal that already fired is never overwritten (that is what freezes the bar on cancel).
  */
 export function createDownloadTask(channel) {
   const {
@@ -59,8 +66,18 @@ export function createDownloadTask(channel) {
     total: 0,
     rateText: "",
     error: "",
-    // The caption computed off the live fields via the ONE shared formatter.
-    label: computed(() => progressCaption(task.phase || "Working", task.done, task.total, task.rateText)),
+    // A cancel that's issued but not yet CONFIRMED by the server (the model is still tearing
+    // down). While true, the bar keeps Retry DISABLED — clicking Retry mid-teardown re-races the
+    // load (the user's out-of-state bug, 2026-07-21). The driver clears it once the op is truly
+    // gone (the catalog does this by resetting the task when the model leaves loading/stopping).
+    finalizing: false,
+    // The caption. A cancel-in-flight reads "Cancelling…" while it's still finalizing (the
+    // teardown isn't done — Retry is still disabled); "Cancelled" only once it's confirmed.
+    // Otherwise the ONE shared formatter off the live fields.
+    label: computed(() => {
+      if (task.state === "cancelled") return task.finalizing ? "Cancelling…" : "Cancelled";
+      return progressCaption(task.phase || "Working", task.done, task.total, task.rateText);
+    }),
   });
 
   function _arm(phase) {
@@ -70,7 +87,40 @@ export function createDownloadTask(channel) {
     task.total = 0;
     task.rateText = "";
     task.error = "";
+    task.finalizing = false;
     rate.reset();
+  }
+
+  // Apply ONE status reading (a channel read() result) to the task — the state machine's step,
+  // EXTRACTED so both drivers share it: the self-poll loop below AND an external poller
+  // (useRunnerModels feeds its per-model tasks from its ONE /models poll). No-ops unless
+  // running, so a cancel/terminal that already fired is never overwritten — the freeze-on-cancel.
+  function apply(reading) {
+    if (task.state !== "running") return;
+    const r = reading || {};
+    if (r.terminal === "error") {
+      task.state = "error";
+      task.error = r.error || "It failed.";
+      return;
+    }
+    if (r.terminal === "cancelled") {
+      // The channel itself reports the cancel terminal (idle-after-cancel). cancel()
+      // usually flips our state first, so this is the belt-and-braces path.
+      task.state = "cancelled";
+      task.phase = "Cancelled";
+      task.rateText = "";
+      return;
+    }
+    if (r.terminal === "done") {
+      task.state = "done";
+      task.phase = "Ready";
+      task.rateText = "";
+      return;
+    }
+    task.phase = friendly(r.detail, r.status);
+    task.done = Number(r.done) || 0;
+    task.total = Number(r.total) || 0;
+    task.rateText = rateSuffix(rate.update(task.done), task.done, task.total);
   }
 
   async function _poll() {
@@ -82,31 +132,8 @@ export function createDownloadTask(channel) {
       } catch {
         return; // transient — stop quietly; a retry re-arms the loop
       }
-      if (task.state !== "running") return;
-      const r = read(st) || {};
-      if (r.terminal === "error") {
-        task.state = "error";
-        task.error = r.error || "It failed.";
-        return;
-      }
-      if (r.terminal === "cancelled") {
-        // The channel itself reports the cancel terminal (idle-after-cancel). cancel()
-        // usually flips our state first, so this is the belt-and-braces path.
-        task.state = "cancelled";
-        task.phase = "Cancelled";
-        task.rateText = "";
-        return;
-      }
-      if (r.terminal === "done") {
-        task.state = "done";
-        task.phase = "Ready";
-        task.rateText = "";
-        return;
-      }
-      task.phase = friendly(r.detail, r.status);
-      task.done = Number(r.done) || 0;
-      task.total = Number(r.total) || 0;
-      task.rateText = rateSuffix(rate.update(task.done), task.done, task.total);
+      apply(read(st));
+      if (task.state !== "running") return; // apply reached a terminal
       await sleep(pollMs);
     }
   }
@@ -163,6 +190,7 @@ export function createDownloadTask(channel) {
     task.total = 0;
     task.rateText = "";
     task.error = "";
+    task.finalizing = false;
     rate.reset();
   }
 
@@ -172,6 +200,10 @@ export function createDownloadTask(channel) {
   task.waiting = waiting;
   task.fail = fail;
   task.reset = reset;
+  // The external-feed pair (the catalog's fed-task path): arm() → a running bar with no poll of
+  // its own, apply(reading) → advance it from the singleton's shared /models poll.
+  task.arm = _arm;
+  task.apply = apply;
   return task;
 }
 

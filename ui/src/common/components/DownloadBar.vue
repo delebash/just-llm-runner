@@ -1,11 +1,14 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// THE one download bar (2026-07-15, the ONE-DOWNLOADER consolidation). Renders a reactive
-// download task (createDownloadTask) as a titled card: a header row (title · muted role ·
-// spacer · Cancel-while-running / Retry-on-cancelled|error / "Ready ✓"-on-done) + the shared
-// UiProgress + an error line. The single visual control the user asked to reuse across every
-// download (engine · model · embed). QuickSetup mounts three of these; the styles moved here
-// from QuickSetup's .lu-qs-bar* so there is ONE bar, not a copy per surface.
+// THE one download bar (2026-07-15, the ONE-DOWNLOADER consolidation; single control confirmed
+// 2026-07-21 — user: "use same control, same, no matter size in grid — same same same"). Renders
+// a reactive download task (createDownloadTask, or any object with the same shape) as ONE control
+// — the header carries the state action (Cancel-while-running / Retry-on-cancelled|error /
+// "Ready ✓") and the shared UiProgress carries % · size · speed · ETA (from the task's `label`).
+// This is THE control the user asked to reuse across EVERY download/load surface (engine · model ·
+// embed · QuickSetup · boot · the catalog rows) — ONE component, ONE look, sized by its container;
+// there is deliberately NO compact/variant fork (that was the "why does every download look
+// different" complaint).
 import UiButton from "./UiButton.vue";
 import UiProgress from "./UiProgress.vue";
 
@@ -20,18 +23,20 @@ defineProps({
 
 <template>
   <div class="lu-dlbar">
+    <!-- A titled header row whose right side is the state action. -->
     <div class="lu-dlbar-h">
       <b class="lu-dlbar-title">{{ title }}</b>
       <span v-if="role" class="lu-muted lu-dlbar-role">{{ role }}</span>
       <span class="lu-dlbar-spacer" />
-      <!-- Cancel renders only when the task CAN cancel (T3: a "stopping" adapter task
-           is running but supplies no cancel — an unload isn't cancellable; without the
-           guard the button would render and crash on click). -->
       <UiButton v-if="task.state === 'running' && task.cancel" intent="secondary" size="small" @click="task.cancel()">Cancel</UiButton>
-      <UiButton v-else-if="task.state === 'cancelled' || task.state === 'error'" intent="secondary" size="small" @click="task.retry()">Retry</UiButton>
+      <!-- Retry stays DISABLED while the cancel is still finalizing (the model is tearing down) —
+           clicking it mid-teardown re-races the load. It enables once the teardown completes. -->
+      <UiButton v-else-if="task.state === 'cancelled' || task.state === 'error'" intent="secondary" size="small" :disabled="task.finalizing" @click="task.retry()">Retry</UiButton>
       <span v-else-if="task.state === 'done'" class="lu-dlbar-ok">Ready ✓</span>
     </div>
+
     <UiProgress :value="task.done" :max="task.total" :label="task.label" />
+
     <p v-if="task.error" class="lu-error lu-dlbar-err">{{ task.error }}</p>
   </div>
 </template>

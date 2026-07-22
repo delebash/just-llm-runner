@@ -27,7 +27,6 @@ import UiSelect from "../common/components/UiSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiTag from "../common/components/UiTag.vue";
-import UiProgress from "../common/components/UiProgress.vue";
 import DownloadBar from "../common/components/DownloadBar.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { openExternal } from "../common/services/external.js";
@@ -39,12 +38,13 @@ import {
 // Shared runner-models state (models / status / load / progress) — one source for the
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
 const {
-  models, vramMb, loading, error, loadErr, loadingId,
-  downloadingIds, cancellingIds,
-  needsEngine, fmtBytes, FIT_LABEL, refresh, download, cancelDownload, cancelLoad, taskFor,
+  models, vramMb, loading, error, loadingId,
+  fmtBytes, FIT_LABEL, refresh, download, retryLoad, taskFor,
 } = useRunnerModels();
-// (barFor is gone — T3: its channel choice lives in the shared taskFor adapter, the
-// ONE per-model projection both the rows and the slot cards render from.)
+// ONE mechanism (2026-07-21, the user's ruling "same mech, same function"): the rows + slot
+// cards render the SAME createDownloadTask via taskFor(id), fed by the singleton's poll —
+// Cancel/Retry live IN the bar (no per-row Cancel buttons, no separate downloadingIds/
+// cancellingIds gating), and every load trigger routes through retryLoad (engine check first).
 
 // Search + sort + fit-grouping (design §4): ONE visible list — models that FIT the machine
 // grouped first, the rest below — with a search box and a sort control (replaces the old
@@ -148,8 +148,10 @@ async function makeDefault(m) {
     await setAsDefault(LOCAL_RUNNER_ID, m.id);
     // "LOAD as default" (user, 2026-07-07): the button loads the model too — before
     // the rename it only re-pointed the task presets and nothing entered VRAM until
-    // first use. Fire-and-forget: the shared poller renders the row's loading→loaded.
-    await request("/v1/llm-runner/load", { method: "POST", body: { modelId: m.id } });
+    // first use. Through retryLoad (ONE workflow, 2026-07-21): the engine check +
+    // install-if-missing run first, so a no-engine box installs then loads (this
+    // also covers the General dropdown, which routes here via pickSlot).
+    await retryLoad(m.id);
     refresh();
   } catch (e) { error.value = e.message || "Couldn't set the default."; }
   finally { applyingId.value = ""; }
@@ -188,8 +190,10 @@ async function makeEmbedding(m) {
 async function loadAssigned(m, isEmbed) {
   applyingId.value = m.id;
   try {
+    // Chat leg through retryLoad → the engine check runs first (ONE workflow, 2026-07-21).
+    // Embed stays lazy on its own ensure-embedding endpoint (untouched — the user's ruling).
     if (isEmbed) await request("/v1/llm-runner/ensure-embedding", { method: "POST" });
-    else await request("/v1/llm-runner/load", { method: "POST", body: { modelId: m.id } });
+    else await retryLoad(m.id);
     refresh();
   } catch (e) { error.value = e.message || "Couldn't load."; }
   finally { applyingId.value = ""; }
@@ -382,12 +386,20 @@ const mtpFact = computed(() => {
   const e = editing.value || {};
   const builtin = inspected.value ? inspected.value.mtpBuiltin : e.mtpBuiltin;
   if (builtin) return "built-in — in-file prediction heads";
-  // An external draft that ships in the model's OWN repo (no separate draft-repo).
+  // An OWN draft (same repo) the built-in engine can load — auto-picked → CERTAIN, MTP on.
   if (e.mtpDraftFile && !e.mtpDraftRepo) return "separate — external draft file (separate download)";
-  // A draft from ANOTHER repo — the tier-C official family drafter (persisted as a
-  // draft-repo), or one discovered live but not yet applied. Borrowed, not shipped.
-  if ((e.mtpDraftFile && e.mtpDraftRepo) || inspected.value?.mtpInheritedFile)
-    return "separate — borrows the base family's assistant draft (separate download)";
+  // Own drafts present but NONE the built-in engine can load (e.g. dspark) → the model IS
+  // MTP-capable, just not for our engine. Conservative (the user's rule, 2026-07-21): MTP stays
+  // OFF, its own drafts stay in the dropdown (labeled), the user can check MTP + paste a
+  // compatible one. NO borrow substitution (it ships its own).
+  if (allDraftsUnloadable(listing.value?.drafts))
+    return "this model ships an MTP draft, but none the built-in engine can load — check MTP below to paste a compatible draft";
+  // A draft from ANOTHER repo: applied by the user → describe it; the PRE-FILLED tier-C guess
+  // (MTP off) → say it may work and point at the opt-in.
+  if (e.mtpDraftFile && e.mtpDraftRepo)
+    return e.mtp
+      ? "separate — external draft from another repo (separate download)"
+      : "the base family may support MTP — a drafter is pre-filled; check MTP below to try it or paste your own";
   return "not available";
 });
 
@@ -493,16 +505,24 @@ async function inspectLink() {
     // MTP split (2026-07-13): identity reads the header BUILT-IN truth (`mtpBuiltin`),
     // never the enable flag — so the download read can no longer clobber the box.
     e.mtpBuiltin = !!r.mtpBuiltin;
-    // Tier-C: no draft chosen but an OFFICIAL companion drafter was discovered → borrow
-    // it (verified to resolve server-side) so a StyleTune-style model can run MTP too.
-    if (!e.mtpDraftFile && r.mtpInheritedFile) {
+    // Enable MTP only when CERTAIN (the user's rule, 2026-07-21) — built-in heads, or an OWN
+    // draft the built-in engine can LOAD (the loadable auto-pick in loadRepoFiles set
+    // e.mtpDraftFile). Capture that BEFORE pre-filling the borrow below.
+    const ownLoadableDraft = !!e.mtpDraftFile;
+    // PRE-FILL a discovered base-family drafter (the tier-C "borrow") ONLY when the model ships
+    // NO draft of its own — a model with own drafts (even ones this engine can't load, e.g.
+    // dspark) is MTP-capable just not for our machine: never substitute a guessed borrow. With
+    // no own drafts, the borrow pre-fills (repo/file) so the fields are READY if the user
+    // enables MTP — but it is a GUESS, so it never auto-enables; the user opts in and can
+    // paste a different repo per normal.
+    const hasOwnDrafts = (listing.value?.drafts || []).length > 0;
+    if (!e.mtpDraftFile && r.mtpInheritedFile && !hasOwnDrafts) {
       e.mtpDraftRepo = r.mtpInheritedRepo || "";
       e.mtpDraftFile = r.mtpInheritedFile || "";
       e.mtpDraftQuant = r.mtpInheritedQuant || "";
     }
-    // Auto-CHECK on detect (user-agreed): MTP is on when the model is built-in capable
-    // OR a draft (its own or the inherited one) is configured. The user can uncheck.
-    e.mtp = !!r.mtpBuiltin || !!e.mtpDraftFile;
+    // Auto-CHECK only the CERTAIN cases: built-in, or an own LOADABLE draft already picked.
+    e.mtp = !!r.mtpBuiltin || ownLoadableDraft;
     e.trainedCtx = r.trainedCtx ?? null;
     if (r.totalParams) e.totalParams = r.totalParams; // file-derived (dense); MoE stays curated
     if (!e.minVramMb && r.estVramMb) e.minVramMb = r.estVramMb;
@@ -840,10 +860,10 @@ refreshApplied();
         </div>
         <div v-if="defaultModel && !defaultGone" class="lu-setup-live">
           <span v-if="slotState(defaultModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
-          <!-- T3: THE shared control (QuickSetup's bar — phases, Cancel, one wording)
-               replaces the bare "↓ working…" word; "stopping" renders it too
-               ("Unloading…", no Cancel — an unload isn't cancellable). -->
-          <DownloadBar v-else-if="slotState(defaultModel) === 'working' || slotState(defaultModel) === 'stopping'"
+          <!-- Unload isn't a download — a plain "Unloading…" indicator, not the bar. -->
+          <span v-else-if="slotState(defaultModel) === 'stopping'" class="lu-muted">Unloading…</span>
+          <!-- THE shared control (QuickSetup's bar — same createDownloadTask, phases, Cancel). -->
+          <DownloadBar v-else-if="slotState(defaultModel) === 'working'"
             class="lu-setup-dlbar" :title="defaultName" role="General model" :task="taskFor(defaultModel.id)" />
           <span v-else-if="slotState(defaultModel) === 'error'" class="lu-error-inline">load failed — see its row below</span>
           <span v-else-if="slotState(defaultModel) === 'idle'" class="lu-muted">○ loads on first use</span>
@@ -875,7 +895,8 @@ refreshApplied();
         </div>
         <div v-if="embeddingModel && !embeddingGone" class="lu-setup-live">
           <span v-if="slotState(embeddingModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
-          <DownloadBar v-else-if="slotState(embeddingModel) === 'working' || slotState(embeddingModel) === 'stopping'"
+          <span v-else-if="slotState(embeddingModel) === 'stopping'" class="lu-muted">Unloading…</span>
+          <DownloadBar v-else-if="slotState(embeddingModel) === 'working'"
             class="lu-setup-dlbar" :title="embeddingName" role="Embedding model" :task="taskFor(embeddingModel.id)" />
           <span v-else-if="slotState(embeddingModel) === 'error'" class="lu-error-inline">load failed — see its row below</span>
           <span v-else-if="slotState(embeddingModel) === 'idle'" class="lu-muted">○ loads on first search</span>
@@ -977,59 +998,40 @@ refreshApplied();
               </td>
               <td>
                 <span v-if="m.status === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
-                <!-- T3: the row keeps its COMPACT bar (density rule) but everything it
-                     shows — channel choice, friendly words — comes from the same
-                     taskFor adapter the cards render. -->
-                <UiProgress v-else-if="m.status === 'loading'" class="lu-mprog"
-                  :value="taskFor(m.id).done" :max="taskFor(m.id).total" :label="taskFor(m.id).label" />
                 <span v-else-if="m.status === 'stopping'" class="lu-mstat">Unloading…</span>
-                <span v-else-if="m.status === 'error'" class="lu-mstat lu-mstat--err"
-                  :title="needsEngine ? 'Install the engine first — see Local engine above' : (loadErr || 'Load failed')">
-                  {{ needsEngine ? "install engine ↑" : (loadErr || "failed") }}
-                </span>
+                <!-- THE one shared DownloadBar for every in-flight / failed row — the SAME
+                     control + SAME createDownloadTask as the panels + cards (ONE mechanism,
+                     2026-07-21), Cancel/Retry built into the bar; a load error renders in the
+                     bar's error line with its Retry running the engine-check workflow. -->
+                <DownloadBar v-else-if="m.status === 'loading' || m.status === 'error'"
+                  class="lu-mgrid-dlbar" :title="m.name" :task="taskFor(m.id)" />
                 <span v-else-if="m.status === 'disk'" class="lu-pill lu-pill--disk">Downloaded</span>
                 <span v-else class="lu-mstat">Not downloaded</span>
               </td>
               <td class="lu-mact">
                 <div class="lu-macts">
                   <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
-                <template v-if="m.status === 'loading'">
-                  <!-- BOTH channels cancel. The standalone Download row stops via
-                       /download/cancel; a spawn-LOAD row aborts via /stop — a true abort
-                       in every phase (T2 cancel token), the partial GGUF kept. -->
-                  <UiButton v-if="downloadingIds.has(m.id)" intent="ghost" size="small"
-                    :loading="cancellingIds.has(m.id)" title="Stop this download — the partial file stays cached"
-                    @click="cancelDownload(m.id)">Cancel</UiButton>
-                  <UiButton v-else intent="ghost" size="small"
-                    title="Stop loading this model — the download aborts and its VRAM is freed"
-                    @click="cancelLoad(m.id)">Cancel</UiButton>
+                <!-- Cancel lives IN the status-cell DownloadBar now (task.cancel — one control,
+                     both channels: a spawn-LOAD aborts via /stop, a download via /download/cancel).
+                     So the load/download CTAs simply HIDE while loading; no per-row Cancel button. -->
+                <template v-if="m.status !== 'loading'">
+                  <UiButton v-if="m.status === 'available'" intent="primary" size="small"
+                    :loading="loadingId === m.id" @click="download(m.id)">Download</UiButton>
+                  <!-- Green when it IS the default (2026-07-17, user: "make it green when default
+                       is true"); disabled greys out, so the default stays ENABLED + clickable
+                       (re-apply is idempotent). Embed vs general differ only in the TARGET. -->
+                  <UiButton v-else-if="embeddingOf(m)" :intent="m.id === currentEmbeddingId ? 'success' : 'primary'" size="small"
+                    :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
+                    title="Make this the embedding model (semantic search + grounded chat) and load it now, alongside your chat model"
+                    @click="makeEmbedding(m)">
+                    {{ m.id === currentEmbeddingId ? "Default ✓" : "Load as default" }}
+                  </UiButton>
+                  <UiButton v-else :intent="m.id === currentDefaultId ? 'success' : 'primary'" size="small"
+                    :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
+                    title="Make this the default model for every task and load it now" @click="makeDefault(m)">
+                    {{ m.id === currentDefaultId ? "Default ✓" : "Load as default" }}
+                  </UiButton>
                 </template>
-                <UiButton v-else-if="m.status === 'available'" intent="primary" size="small"
-                  :loading="loadingId === m.id" @click="download(m.id)">Download</UiButton>
-                <!-- Load-state on the row stays with the STATUS column's "● loaded" pill +
-                     the ghost Unload above (user, 2026-07-07 follow-up: "i forgot you have
-                     status of loaded and button already says load as default, but we do
-                     need unload button" — the label stays plain; Unload renders on any
-                     loaded row, incl. the default). -->
-                <!-- Same intent as the general branch below — parity (user, 2026-07-07 +
-                     re-flagged 2026-07-15: "how can the load as default button be styled
-                     different for embed vs main"). Only the TARGET differs: this writes
-                     the embedding default; the other writes the general default. -->
-                <!-- Green when it IS the default (2026-07-17, user: "make it green when
-                     default is true… more obvious"); a disabled button greys out whatever
-                     the intent, so the default state stays ENABLED + clickable (re-apply is
-                     idempotent) — matching the provider "Default ✓" which is clickable too. -->
-                <UiButton v-else-if="embeddingOf(m)" :intent="m.id === currentEmbeddingId ? 'success' : 'primary'" size="small"
-                  :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
-                  title="Make this the embedding model (semantic search + grounded chat) and load it now, alongside your chat model"
-                  @click="makeEmbedding(m)">
-                  {{ m.id === currentEmbeddingId ? "Default ✓" : "Load as default" }}
-                </UiButton>
-                <UiButton v-else :intent="m.id === currentDefaultId ? 'success' : 'primary'" size="small"
-                  :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
-                  title="Make this the default model for every task and load it now" @click="makeDefault(m)">
-                  {{ m.id === currentDefaultId ? "Default ✓" : "Load as default" }}
-                </UiButton>
                   <!-- ⋯ overflow — the secondary actions, portaled so the menu escapes the
                        list's overflow:auto clip (Reka DropdownMenu: focus/Esc/click-outside built in).
                        "Load into memory" is NOT here — loading a model IS setting it default
@@ -1151,7 +1153,10 @@ refreshApplied();
             <template v-else>runs via an external speculative-decode draft file (a separate download). </template>
             Enabling adds <code>spec_type=draft-mtp</code> at load; uncheck to turn MTP off.</span></div>
           <label class="lu-mm-l">Draft file <span class="lu-muted">{{ editing.mtpBuiltin ? "optional — built-in MTP" : "the speculative-decode model (feeds --model-draft)" }}</span>
-            <UiSelect v-if="listing?.drafts?.length" :model-value="editing.mtpDraftFile"
+            <!-- Dropdown = THIS repo's own drafts. When a DIFFERENT draft repo is set (a pre-filled
+                 base-family guess, or one the user pasted), its file lives in that other repo — not
+                 in this repo's listing — so it's a free-type field the user can edit. -->
+            <UiSelect v-if="listing?.drafts?.length && !editing.mtpDraftRepo" :model-value="editing.mtpDraftFile"
               :options="draftOptions" @update:model-value="onDraftPick" />
             <UiInput v-else v-model="editing.mtpDraftFile" placeholder="MTP/…-Q4_0-MTP.gguf" />
           </label>
@@ -1260,8 +1265,9 @@ refreshApplied();
 
 /* .lu-pill* moved to shared common/styles.css (used by the grid too). */
 .lu-mstat { font-size: 11px; color: var(--muted); }
-.lu-mstat--err { color: var(--danger); font-size: 11px; display: inline-block; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
-.lu-mprog { min-width: 150px; }
+/* The SAME shared DownloadBar inside a grid STATUS cell — drop the card top-margin, give it
+   room, and re-allow wrapping (the grid td is nowrap). */
+.lu-mgrid-dlbar { margin-top: 0; min-width: 210px; white-space: normal; }
 
 .lu-mcat-foot { font-size: 11px; margin-top: 7px; }
 .lu-mlink { color: var(--accent-ink, var(--accent)); }

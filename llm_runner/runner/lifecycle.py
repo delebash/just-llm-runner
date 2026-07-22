@@ -11,6 +11,7 @@ injectable, so the state machine itself is fully testable offline.
 
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import shutil
@@ -342,6 +343,28 @@ def _engine_idle() -> dict:
     return {"status": "idle", "detail": "", "error": "", "downloaded": 0, "total": 0}
 
 
+# How long uninstall waits for an in-flight install thread to unwind after signalling
+# cancel. The install's download polls its cancel_check every ~0.3 s and raises promptly,
+# so this is generous; a slower-than-this unwind returns a "still cancelling" message
+# rather than hanging the request.
+ENGINE_INSTALL_JOIN_TIMEOUT = 20.0
+
+
+def _rmtree_with_retry(path: Path, *, attempts: int = 5, delay: float = 0.2) -> bool:
+    """Remove a directory tree, returning True iff it is gone afterwards. Windows can hold
+    a just-released exe/DLL open for a moment after the process that used it exits, so a first
+    rmtree can fail silently; retry a few times with a short `gc.collect()`-backed pause.
+    Best-effort — it never raises; the caller checks the return and reports an honest error on
+    a stuck dir."""
+    for _ in range(attempts):
+        shutil.rmtree(path, ignore_errors=True)
+        if not path.exists():
+            return True
+        gc.collect()          # nudge any lingering handle's finalizer (frees the Windows lock)
+        time.sleep(delay)
+    return not path.exists()
+
+
 class RunnerService:
     """Owns the long-lived llama-server ROUTER + the resident-model set.
 
@@ -587,23 +610,53 @@ class RunnerService:
         return {"path": str(path), "text": _tail_file(path, tail)}
 
     def uninstall_engine(self) -> dict:
-        """Remove the INSTALLED llama.cpp engine binaries (the whole build dir —
-        every per-GPU variant incl. the A3 fallback chain IS the engine). The
-        build is resolved from the DISK (QC-13): remove what `engine_status`
-        reports installed, which a reverted pin may not name; fall back to the
-        pin's dir when nothing resolves. Models in the HF cache are untouched.
-        Stops any running model first: a live llama-server holds its exe open,
-        and Windows cannot delete an open exe. Refused while an install is in
-        flight (the installer thread is writing into the very dir)."""
+        """Remove EVERY installed llama.cpp engine build (each build dir under `llamacpp/`,
+        every per-GPU variant incl. the A3 fallback chain — the whole engine). Models in the
+        HF cache are untouched; `logs/` and the loose `models.ini` are kept.
+
+        Three fixes over the old one-dir version (all seen on the user's box, 2026-07-21):
+        • It deleted only ONE resolved build — with two builds on disk (e.g. a b9993 left
+          beside a b10075) it removed one, status re-resolved the other, and the UI stayed
+          "Installed" (the button appeared to do nothing). Now it sweeps them ALL.
+        • `shutil.rmtree(..., ignore_errors=True)` swallowed Windows lock failures silently
+          (the "still present after cleanup (files in use?)" race). Now each delete retries
+          the lock-release lag and, if a dir is STILL there, the call returns an honest
+          `error` naming it instead of a false success.
+        • It refused outright while an install was "installing" ("wait for it to finish") —
+          during a crawling download that is never. Now it CANCELS the in-flight install and
+          joins its thread (bounded) before deleting.
+
+        Stops any running model first: a live llama-server holds its exe open, and Windows
+        cannot delete an open exe."""
+        # Cancel + join an in-flight install BEFORE touching the dirs it writes into. Signal
+        # under the lock, join OUTSIDE it (the installer thread takes self._lock at its
+        # checkpoints — joining while holding it would deadlock).
+        install_thread = None
         with self._lock:
             if self._engine_state["status"] == "installing":
-                return {**self._engine_state, "error": "install in progress — wait for it to finish"}
-        self.stop()
-        config = self._config_fn()
-        build = self._installed_build(config) or config.llamacpp.pinned_build
-        shutil.rmtree(binary_dir(self.cache_root, build), ignore_errors=True)
+                self._engine_cancel.set()
+                install_thread = self._engine_thread
+        if install_thread is not None and install_thread.is_alive():
+            install_thread.join(timeout=ENGINE_INSTALL_JOIN_TIMEOUT)
+            if install_thread.is_alive():
+                return {**self.engine_status(),
+                        "error": "an install is still cancelling — try again in a moment"}
+        self.stop()  # free the exe locks (a live llama-server holds its exe open on Windows)
+        root = self.cache_root / "llamacpp"
+        removed: list[str] = []
+        stuck: list[str] = []
+        if root.is_dir():
+            for d in [d for d in root.iterdir() if d.is_dir() and d.name != "logs"]:
+                (removed if _rmtree_with_retry(d) else stuck).append(d.name)
         with self._lock:
             self._engine_state = _engine_idle()
+        if removed:
+            log.info("engine uninstall: removed build(s) %s", ", ".join(sorted(removed)))
+        if stuck:
+            log.warning("engine uninstall: build(s) still locked after retry: %s", ", ".join(sorted(stuck)))
+            return {**self.engine_status(),
+                    "error": f"could not remove {', '.join(sorted(stuck))} — files in use; "
+                             "close any running model and try again"}
         return self.engine_status()
 
     # ── Reclaim disk: the runner owns its cache, so it owns these deletes (the
@@ -1177,15 +1230,22 @@ class RunnerService:
             if s not in ("downloading", "starting", "error", "cancelling", "stopping"):
                 continue
             row = by_id.get(mid)
+            router_live = row is not None and row["status"] in ("loaded", "sleeping", "loading")
+            # SELF-HEAL a stuck "Unloading…" (2026-07-21): a "stopping" model the ROUTER no longer
+            # reports as live (gone from its list, or listed as "unloaded") has ACTUALLY unloaded —
+            # do NOT keep painting a phantom "Unloading…". Its ledger entry is cleaned by stop()'s
+            # compare-and-pop, but that runs AFTER stop() acquires `_router_lock`, which a slow/hung
+            # load can hold — so a cancelled/evicted model showed "Unloading…" indefinitely. Once the
+            # router confirms it's gone, drop it here so the UI clears at once (the router's own
+            # "unloaded" row, if present, stays → the catalog renders it Downloaded/idle, correct).
+            if s == "stopping" and not router_live:
+                continue
             if row is None:
                 models.append({"id": mid, "status": s, "vram_mb": self._arbiter.reserved_mb(mid)})
             elif s == "stopping" or row["status"] not in ("loaded", "sleeping", "loading"):
-                # T2b: "stopping" overrides even an ACTIVE router listing — the ONE
-                # exception to the 4c53a08 precedence (active child state wins). The
-                # child is being torn down on OUR order; the router keeps reporting
-                # "loaded" until it has exited, and painting that would re-invite the
-                # second Unload click. Bounded: stop()'s compare-and-pop removes the
-                # entry when the router agrees (or at the confirm timeout).
+                # T2b: while the child is genuinely tearing down (router still "loaded"),
+                # "stopping" overrides that active listing so a stale "● loaded" can't re-invite
+                # a second Unload click. Bounded: cleared the moment the router agrees (above).
                 row["status"] = s
         out["models"] = models
         return out
@@ -1451,8 +1511,12 @@ class RunnerService:
                                 break
                     for d in stale:
                         self._engine_state["detail"] = f"removing old build {d.name}"
-                        shutil.rmtree(d, ignore_errors=True)
-                        if d.exists():
+                        # Same robust delete as uninstall (ONE source): a just-superseded build's
+                        # exe/DLL can stay locked for a moment on Windows after the router exits,
+                        # so a bare rmtree warns spuriously (the user's log showed exactly this
+                        # "still present after cleanup" line for b9993). Retry the lock lag; only a
+                        # genuine survivor warns. Best-effort — a straggler never fails the install.
+                        if not _rmtree_with_retry(d):
                             log.warning("old engine build %s still present after cleanup (files in use?)", d.name)
                 except Exception:  # noqa: BLE001 — cleanup is best-effort, never install-fatal
                     log.warning("old engine build cleanup failed", exc_info=True)
@@ -1486,7 +1550,8 @@ class RunnerService:
                                   "downloaded": 0, "total": 0}
 
     def _acquire_and_identify(self, model_id: str, on_progress, cancel_check=None,
-                              *, overrides=None, on_progress_draft=None, reset_progress=None):
+                              *, overrides=None, on_progress_draft=None, reset_progress=None,
+                              skip_if_cached=False):
         """Shared download IO for load + download (ONE source, main + draft): resolve the
         catalog model, fetch its GGUF into the cache, ground the catalog `type` (moe|dense)
         from the file, and — when `_wants_draft(overrides, model)` — fetch the model's
@@ -1501,6 +1566,30 @@ class RunnerService:
         model = next((m for m in self.catalog() if m.id == model_id), None)
         if model is None:
             raise ValueError(f"unknown model {model_id!r}")
+
+        # FAST PATH (2026-07-21, LOAD only — the user's "don't rerun what we don't have to"):
+        # the weights are already on disk → skip the HF resolve (select_files' two API
+        # round-trips: revision-sha + tree) AND the download. The load never needs their output —
+        # the GGUF is resolved by _main_gguf's on-disk rglob and the router .ini takes the ABSOLUTE
+        # path; only the download DECISION + upstream-freshness used the API, and an on-disk model
+        # needs neither (Re-download forces a refresh). Gated to the LOAD via `skip_if_cached`; the
+        # DOWNLOAD endpoint always does the full acquire (that's its whole job). The gate matches
+        # the "Downloaded ✓" badge's OWN parts (cached_gguf_path + the draft check) so the two can
+        # never disagree; _verify_gguf below stays the integrity gate — a corrupt/partial cache
+        # still fails loud → purge → re-download.
+        if skip_if_cached:
+            hf_cache = self._cache_root / "hf"
+            wants_draft = _wants_draft(overrides, model)
+            cached_gguf = cached_gguf_path(model.hf_repo, model.quant, cache_root=hf_cache, mmproj=model.mmproj)
+            cached_draft = self._cached_draft_path(model, hf_cache) if wants_draft else None
+            if cached_gguf is not None and (not wants_draft or cached_draft is not None):
+                self._verify_gguf(model, cached_gguf)
+                try:
+                    self._identify_fn(model_id, cached_gguf)
+                except Exception:  # noqa: BLE001 — identification is advisory only
+                    log.warning("model type auto-detect failed for %s", model_id, exc_info=True)
+                return model, cached_gguf, (cached_draft if wants_draft else None)
+
         # Pass cancel_check ONLY when supplied (the download-only path) so the load
         # path's call signature is unchanged — it never cancels through here.
         cancel_kw = {"cancel_check": cancel_check} if cancel_check is not None else {}
@@ -1634,7 +1723,8 @@ class RunnerService:
                 model_id, _progress,
                 cancel_check=lambda: self._cancelled(model_id) or model_id not in self._resident,
                 overrides=ov, on_progress_draft=_progress_draft,
-                reset_progress=lambda: self._touch(model_id, detail="preparing", downloaded=0, total=0))
+                reset_progress=lambda: self._touch(model_id, detail="preparing", downloaded=0, total=0),
+                skip_if_cached=True)
             if draft_path:
                 ov.model_draft = str(draft_path)
 
@@ -2230,11 +2320,26 @@ class RunnerService:
                 # crashes are EXEMPT: they keep the retry so their solo-escalation path
                 # below is reached once placement is explicit.
                 _tail = self._log_appended_since(log_offset)  # THIS attempt's lines only
-                if _looks_like_unfixable(_tail) and not _looks_like_draft_failure(_tail):
+                # An UNFIXABLE failure (rejected flag / unknown architecture) can't be repaired by a
+                # retry OR the solo-escalation below — fail fast (no bounce that disrupts other
+                # models). This now covers an unfixable DRAFT crash too (e.g. an unknown/unsupported
+                # MTP-draft architecture like dspark): the solo path exists for the TRANSIENT co-load
+                # RACE ("invalid vector subscript", which is NOT unfixable), never for a draft the
+                # engine simply can't load — so a permanently-bad draft no longer wastes two engine
+                # restarts before erroring. When a draft is configured, the message names MTP so the
+                # user knows to turn it off or set a compatible draft (2026-07-21, the user's ask).
+                if _looks_like_unfixable(_tail):
+                    _has_draft = bool(entry.overrides.model_draft) or (
+                        entry.overrides.spec_type not in (None, "none"))
+                    _hint = (
+                        " If this is the MTP draft (an unsupported/unknown draft architecture), turn "
+                        "MTP off for this model or set a draft the built-in engine can load."
+                        if _has_draft else ""
+                    )
                     raise RuntimeError(
                         f"model {entry.model_id!r} failed to load (status={outcome}) with an "
-                        f"unfixable error — not retrying, since a retry would restart the engine "
-                        f"and disrupt other loaded models: {_tail[-600:]}"
+                        f"unfixable error — not retrying, since a retry would restart the engine and "
+                        f"disrupt other loaded models.{_hint} Details: {_tail[-600:]}"
                     )
                 log.warning("router child %s failed under engine fit (%s) — retrying with "
                             "explicit computed placement ngl=%d ncmoe=%d",

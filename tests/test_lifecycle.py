@@ -54,7 +54,7 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
                  router_unload=None, router_models=None, now=None, sleep=None,
                  identify_fn=None, switches_fn=None, profile_switches_fn=None,
                  embedding_ids_fn=None, default_llm_id_fn=None, arbiter=None,
-                 acquired_exes=None, used_vram_fn=None, hardware_fn=None):
+                 acquired_exes=None, used_vram_fn=None, hardware_fn=None, seed_cache=True):
     """A RunnerService with the router + download IO injected. Every catalog model is
     seeded into a fake HF cache (`<root>/hf/models--<repo>/snapshots/sha/<file>.gguf`)
     so both `cached_gguf_path` (the .ini emitter) and the injected `acquire_model`
@@ -73,11 +73,31 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
     injects its own reading sequence."""
     models = list(catalog or [_TEST_MODEL])
     snaps = {}
+    _quant_for = {}
     for m in models:
         d = tmp_path / "hf" / ("models--" + m.hf_repo.replace("/", "--")) / "snapshots" / "sha"
         d.mkdir(parents=True, exist_ok=True)
-        (d / f"model-{m.quant}.gguf").write_bytes(b"x" * 1024)
+        # seed_cache=True (default): the weights are already on disk — the cached-model case,
+        # which the LOAD fast path (skip_if_cached) takes. seed_cache=False: NOT downloaded yet;
+        # the fake acquire below WRITES the file when called, so a download-during-load test
+        # actually exercises the download (the fast path finds nothing, so acquire runs).
+        if seed_cache:
+            (d / f"model-{m.quant}.gguf").write_bytes(b"x" * 1024)
         snaps[m.hf_repo] = d
+        _quant_for[m.hf_repo] = m.quant
+
+    def _fake_acquire_model(repo, *a, **k):
+        # Return the snapshot dir (as the original fake did) and — for the not-pre-seeded case —
+        # ensure the MAIN gguf exists, so _main_gguf resolves after a simulated download (faithful
+        # to production, where acquire writes the file). Keyed on the repo's REGISTERED quant, never
+        # the passed 2nd arg (the MTP draft leg calls acquire with the draft file PATH there).
+        d = snaps[repo]
+        q = _quant_for.get(repo)
+        if q:
+            f = d / f"model-{q}.gguf"
+            if not f.exists():
+                f.write_bytes(b"x" * 1024)
+        return d
 
     # The default router view is REACTIVE to unload (T2, 2026-07-17): stop()'s
     # confirm-unload polls GET /models until the model stops reading loaded — a static
@@ -117,7 +137,7 @@ def _service_for(tmp_path, *, catalog=None, start_router=None, router_load=None,
         catalog_fn=lambda: models,
         acquire_binary=lambda *a, **k: tmp_path / "llama-server",
         acquired_exe=lambda *a, **k: tmp_path / "llama-server",
-        acquire_model=lambda repo, *a, **k: snaps[repo],
+        acquire_model=_fake_acquire_model,
         read_meta=lambda p: SimpleNamespace(block_count=24, embedding_length=2048, is_moe=False, n_kv_heads=8),
         start_router=start_router or (lambda *a, **k: _fake_router()),
         # A re-load of a previously-unloaded id flips it back to loaded (as the router does).
@@ -156,6 +176,27 @@ def test_load_emits_ini_section(tmp_path):
     ini = _ini(svc)
     assert f"[{_TEST_MODEL.id}]" in ini
     assert "model = " in ini and "model-Q4_K_M.gguf" in ini
+
+
+def test_cached_load_skips_the_hf_resolve(tmp_path):
+    # FAST PATH (2026-07-21): when the weights are already on disk, a LOAD skips acquire_model
+    # entirely (no select_files / HF round-trips) — it resolves the cached GGUF and reaches
+    # running. This is the "don't rerun what we don't have to" win; the download endpoint is
+    # unaffected (it always does the full acquire).
+    svc = _service_for(tmp_path)  # seed_cache=True (default) → model-Q4_K_M.gguf already on disk
+    called = {"n": 0}
+    orig = svc._acquire_model
+
+    def spy(*a, **k):
+        called["n"] += 1
+        return orig(*a, **k)
+
+    svc._acquire_model = spy
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert called["n"] == 0                       # acquire (→ select_files → HF) was NOT called
+    assert svc.status()["status"] == "running"
+    assert "model-Q4_K_M.gguf" in _ini(svc)        # still emitted the .ini for the cached gguf
 
 
 def test_reserve_trues_up_with_measured_vram_delta(tmp_path):
@@ -421,7 +462,7 @@ def test_stop_during_load_leaves_no_ghost(tmp_path):
         spawns["n"] += 1
         return _fake_router()
 
-    svc = _service_for(tmp_path, start_router=spy_start)
+    svc = _service_for(tmp_path, start_router=spy_start, seed_cache=False)  # NOT cached → download runs
     orig = svc._acquire_model
 
     def blocking_acquire(*a, **k):
@@ -699,7 +740,7 @@ def test_cached_model_never_announces_a_download(tmp_path):
 
 
 def test_real_download_still_announces_model_weights(tmp_path):
-    svc = _service_for(tmp_path)
+    svc = _service_for(tmp_path, seed_cache=False)  # NOT cached → the load actually downloads
     real_acquire = svc._acquire_model
 
     def acquiring_with_chunks(repo, *a, on_progress=None, **k):
@@ -811,7 +852,7 @@ def test_cancel_during_download_leaves_no_ledger_entry(tmp_path):
         assert cancel_check is not None and cancel_check()
         raise DownloadCancelled()
 
-    svc = _service_for(tmp_path)
+    svc = _service_for(tmp_path, seed_cache=False)  # NOT cached → the load's download runs (+ cancels)
     svc._acquire_model = cancelling_acquire
     svc_ref["svc"] = svc
     svc.load(_TEST_MODEL.id)
@@ -1790,7 +1831,7 @@ def test_stop_during_load_download_aborts_without_error(tmp_path):
             time.sleep(0.005)
         raise DownloadCancelled()
 
-    svc = _service_for(tmp_path)
+    svc = _service_for(tmp_path, seed_cache=False)  # NOT cached → the download actually runs
     svc._acquire_model = blocking_acquire
     svc.load(_TEST_MODEL.id)
     assert started.wait(timeout=5)                        # the load is blocked mid-download
@@ -2438,6 +2479,47 @@ def test_fit_placed_unfixable_fails_fast_without_bounce(tmp_path):
     assert spawns["n"] == 1   # spawned once, NO fit-placed retry bounce on an unfixable failure
 
 
+def test_unfixable_draft_arch_fails_fast_with_mtp_hint(tmp_path):
+    # 2026-07-21 (the user's ask): an UNKNOWN-ARCHITECTURE draft (e.g. dspark) is unfixable — it
+    # must fail FAST (the co-load-race solo-escalation is for the TRANSIENT "invalid vector
+    # subscript" crash, not a draft the engine can't load, so a permanently-bad draft never wastes
+    # two engine restarts) AND the error must name MTP so the user knows to turn it off or set a
+    # compatible draft. A chat surfaces this via ensure_model_ready → "failed to load: <this>".
+    spawns = {"n": 0}
+    paths = {}
+
+    def unfixable_router(*a, **k):
+        spawns["n"] += 1
+        paths["log"] = k.get("log_path")
+        return _fake_router()
+
+    def bad_draft_arch_load(url, mid):
+        lp = paths.get("log")
+        if lp:
+            Path(lp).parent.mkdir(parents=True, exist_ok=True)
+            with open(lp, "a", encoding="utf-8") as f:
+                # BOTH the loader's unknown-arch line AND the router's draft wrapper — the old
+                # `and not _looks_like_draft_failure` guard would (wrongly) route this to the
+                # co-load-race restart detour; it must fail fast instead.
+                f.write("llama_model_load: error: unknown model architecture: 'dspark'\n")
+                f.write("srv load_model: failed to load draft model, '/x/dspark.gguf'\n")
+
+    def always_failed(url):
+        return {"object": "list", "data": [{"id": _DRAFT_MODEL.id, "status": {"value": "failed"}}]}
+
+    svc = _service_for(tmp_path, catalog=[_DRAFT_MODEL], start_router=unfixable_router,
+                       router_load=bad_draft_arch_load, router_models=always_failed)
+    snap = tmp_path / "hf" / "models--org--draft-GGUF" / "snapshots" / "sha"
+    (snap / "MTP").mkdir(parents=True, exist_ok=True)
+    (snap / "MTP" / "d-Q4_0-MTP.gguf").write_bytes(b"g" * 64)
+    svc.load(_DRAFT_MODEL.id, switches={"spec_type": "draft-mtp"})  # fit-placed + a draft configured
+    svc._thread.join(timeout=5)
+    st = svc.status()
+    assert st["status"] == "error"
+    assert spawns["n"] == 1                              # failed FAST — no co-load-race restart detour
+    assert "turn mtp off" in st["error"].lower()         # the actionable MTP guidance reaches the user
+
+
 def test_fit_placed_stale_log_line_does_not_suppress_retry(tmp_path):
     # Watermark fires-proof (2026-07-21): an unfixable-looking line ALREADY in the router
     # log (an earlier model's failure, written before this attempt's POST watermark) must
@@ -2485,20 +2567,85 @@ def test_engine_uninstall_removes_build_dir(tmp_path):
     assert out["status"] == "idle"
 
 
-def test_engine_uninstall_refused_while_installing(tmp_path):
-    from llm_runner import default_config
-    from llm_runner.runner.binary import binary_dir
+def test_engine_uninstall_removes_every_build(tmp_path):
+    # THE USER'S BUG (2026-07-21): two builds on disk (a stale one left beside the current) — the
+    # old uninstall removed only ONE, status re-resolved the other, and the UI stayed "Installed"
+    # (the button appeared to do nothing). Now it sweeps them ALL. `logs/` and a loose `models.ini`
+    # are kept.
+    from llm_runner.runner.binary import acquired_server_exe, variant_dir
 
-    svc = _service_for(tmp_path)
-    d = binary_dir(svc.cache_root, default_config().llamacpp.pinned_build)
-    d.mkdir(parents=True, exist_ok=True)
-    svc._engine_state = {"status": "installing", "detail": "llama.cpp engine",
-                         "error": "", "downloaded": 0, "total": 0}
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe  # the REAL disk probe (the factory stubs it) — so
+    #                                          `installed` reflects the swept disk, not a fixed stub
+    root = svc.cache_root / "llamacpp"
+    for build in ("b0001", "b0002"):
+        d = variant_dir(svc.cache_root, build, "cuda12")
+        d.mkdir(parents=True)
+        (d / "llama-server.exe").write_bytes(b"MZ")
+    (root / "logs").mkdir(parents=True, exist_ok=True)
+    (root / "logs" / "keep.log").write_bytes(b"log")
+    (root / "models.ini").write_bytes(b"ini")
 
     out = svc.uninstall_engine()
 
-    assert "install in progress" in out["error"]
-    assert d.exists()  # nothing deleted while the installer thread owns the dir
+    assert not (root / "b0001").exists() and not (root / "b0002").exists()   # BOTH removed
+    assert (root / "logs" / "keep.log").exists()          # logs kept
+    assert (root / "models.ini").exists()                 # loose models.ini kept
+    assert out["status"] == "idle" and out["installed"] is False and not out.get("error")
+
+
+def test_engine_uninstall_cancels_a_live_install(tmp_path):
+    # NEW behaviour, replacing the old "refused while installing → wait for it to finish": during a
+    # crawling download that wait is never, so uninstall CANCELS the in-flight install, joins its
+    # thread, THEN removes the builds. Proven with a blocking acquire that only returns on cancel.
+    from llm_runner.runner.binary import variant_dir
+
+    started = threading.Event()
+
+    def blocking_acquire(*a, cancel_check=None, **k):
+        started.set()
+        while not (cancel_check and cancel_check()):
+            time.sleep(0.005)
+        raise DownloadCancelled()
+
+    svc = _service_for(tmp_path)
+    svc._acquire_binary = blocking_acquire
+    d = variant_dir(svc.cache_root, "b0001", "cuda12")
+    d.mkdir(parents=True)
+    (d / "llama-server.exe").write_bytes(b"MZ")
+
+    svc.install_engine()
+    assert started.wait(timeout=5)                        # the installer is mid-download
+    assert svc.engine_status()["status"] == "installing"
+
+    out = svc.uninstall_engine()                          # cancels it, joins, then sweeps
+
+    assert svc._engine_thread is None or not svc._engine_thread.is_alive()
+    assert not d.exists()                                 # the build was removed after the cancel
+    assert out["status"] == "idle" and not out.get("error")
+
+
+def test_engine_uninstall_reports_a_locked_build_honestly(tmp_path, monkeypatch):
+    # A Windows file-lock that survives the retry must NOT be swallowed (the old
+    # ignore_errors=True hid the "still present after cleanup (files in use?)" race). The stuck
+    # dir is named in an honest error, and the removable builds still go.
+    from llm_runner.runner import lifecycle as lc
+    from llm_runner.runner.binary import variant_dir
+
+    svc = _service_for(tmp_path)
+    for build in ("b0001", "b0002"):
+        d = variant_dir(svc.cache_root, build, "cuda12")
+        d.mkdir(parents=True)
+        (d / "llama-server.exe").write_bytes(b"MZ")
+
+    real = lc._rmtree_with_retry
+    monkeypatch.setattr(lc, "_rmtree_with_retry",
+                        lambda path, **k: False if path.name == "b0002" else real(path, **k))
+
+    out = svc.uninstall_engine()
+
+    assert "b0002" in out["error"]                        # the stuck dir is named, not hidden
+    assert not (svc.cache_root / "llamacpp" / "b0001").exists()   # the removable one still went
 
 
 def test_update_check_reports_newer_build(tmp_path):

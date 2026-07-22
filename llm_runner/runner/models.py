@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
@@ -96,8 +97,15 @@ def select_files(
     FileNotFoundError when nothing matches (bad quant/repo — fail loud, never
     silently download the wrong thing).
     """
-    commit_sha = _revision_sha(repo, revision)
-    entries = _tree(repo, revision)
+    # The two HF API round-trips (commit sha + file tree) are INDEPENDENT — both key ONLY on
+    # `revision`, neither needs the other's result — so run them CONCURRENTLY to halve the
+    # pre-download resolve latency (2026-07-21: the user's "Getting ready" wait before a byte
+    # ever moves). Same results, same errors (a bad repo/quant still raises from .result()).
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        sha_fut = ex.submit(_revision_sha, repo, revision)
+        tree_fut = ex.submit(_tree, repo, revision)
+        commit_sha = sha_fut.result()
+        entries = tree_fut.result()
 
     selected = [
         e for e in entries

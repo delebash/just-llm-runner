@@ -377,9 +377,22 @@ def acquire_binary(
     staging.mkdir(parents=True, exist_ok=True)
 
     def _fetch(url: str) -> None:
+        # GUARD: a stored URL still carrying a `{…}` placeholder never composes to a real
+        # asset — it 404s N times then fails (seen in the wild: a legacy `{build}` row 404'd an
+        # install). The URL is meant to be the CONCRETE download (the pin drives it, the UI
+        # re-points every stored URL on a pin change); refuse it up front with a clear message
+        # instead of a silent retry storm.
+        if "{" in url or "}" in url:
+            raise RuntimeError(
+                f"engine asset URL has an unresolved placeholder: {url} — re-save the engine "
+                "binary rows so the URL is concrete (the pinned build drives it)"
+            )
         suffix = ".tar.gz" if url.lower().endswith((".tar.gz", ".tgz")) else ".zip"
         archive = staging / f"_download{suffix}"
         log.info("downloading llama.cpp %s/%s from %s", asset.platform, asset.gpu, url)
+        # ONE downloader, ONE config — the same chunk-queue download the models use (no per-host
+        # special cases; the work-stealing design in download.py is what makes N connections safe
+        # on every CDN, because a slow connection can only delay one chunk, never the file).
         stream_download(url, archive, on_progress=on_progress, cancel_check=cancel_check,
                         **download_kwargs(config))
         _unpack(archive, staging)

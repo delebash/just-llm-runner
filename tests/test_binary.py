@@ -237,6 +237,26 @@ def test_acquire_force_reinstalls_and_swaps_even_when_present(monkeypatch, tmp_p
     assert _no_staging_litter(tmp_path, m)
 
 
+def test_acquire_refuses_a_placeholder_url(monkeypatch, tmp_path):
+    # A stored URL still carrying a `{…}` placeholder (a legacy row) 404s N times then fails.
+    # `_fetch` refuses it up front with a clear message; stream_download is stubbed to blow up
+    # so we prove the guard fires BEFORE any network call.
+    m = default_config()
+    hw = _hw("windows", {"cuda": True})
+    asset = select_binary(m, hw)          # same object that lives in m.llamacpp.binaries
+    asset.asset_url = (
+        "https://github.com/ggml-org/llama.cpp/releases/download/{build}/"
+        "llama-{build}-bin-win-cuda-12.4-x64.zip"
+    )
+
+    def boom(*a, **k):
+        raise AssertionError("stream_download must not be called for a placeholder URL")
+    monkeypatch.setattr(binmod, "stream_download", boom)
+
+    with pytest.raises(RuntimeError, match="unresolved placeholder"):
+        binmod.acquire_binary(tmp_path, m, hw)
+
+
 def test_acquire_tar_gz_macos(monkeypatch, tmp_path):
     # macOS/Linux assets are .tar.gz — _unpack must handle them (was zip-only).
     m = default_config()

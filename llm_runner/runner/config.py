@@ -59,19 +59,16 @@ DEFAULT_SAFETY_MARGIN_MB = 1024
 DEFAULT_MODELS_MAX = 2
 DEFAULT_SLEEP_IDLE_SECONDS = 900
 
-# Segmented (multithreaded) downloads (DL-2, plan 2026-07-08): split ONE file
-# into N byte ranges downloaded in parallel — one slow CDN edge stops capping
-# the whole download. DB-editable via runner_setting (the user's requirement:
-# "usually we have settings for this like number of threads ect"). Segment count
-# 8 (user default, 2026-07-21): origins that throttle PER-CONNECTION (GitHub
-# releases → Azure blob is the exhibit) hand back roughly N× with N connections,
-# so 8 beats 4 there; the cost is more CDN load, and it's a no-op when the limit
-# is per-IP or the local link. Capped at MAX_DOWNLOAD_SEGMENT_COUNT (16). Retries
-# are per SEGMENT, resuming from the bytes that segment already wrote.
+# Concurrent downloads — N connections pull fixed-size CHUNKS off a shared work queue
+# (download.py; the IDM/aria2 "dynamic segmentation" design). ONE setting for EVERY download
+# (engine + models, no per-host special cases): work-stealing means a slow connection only
+# delays the single chunk it holds, so N connections are safe on any CDN — hosts that reward
+# parallel (HuggingFace) run ~N× faster, hosts that don't still run at full single-connection
+# speed. DB-editable via runner_setting; capped at MAX_DOWNLOAD_SEGMENT_COUNT (16).
 DEFAULT_DOWNLOAD_SEGMENTS_ENABLED = True
 DEFAULT_DOWNLOAD_SEGMENT_COUNT = 8
-# RETIRED 2026-07-20 (pypdl cutover): pypdl decides single- vs multi-segment itself from
-# the server's Accept-Ranges + size, so this floor is inert. Kept as a constant (and the
+# RETIRED 2026-07-20: the downloader decides single- vs multi-connection itself from the
+# server's Range support + size, so this floor is inert. Kept as a constant (and the
 # DB row / config-API field) for back-compat — `download_kwargs` no longer reads it.
 DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES = 64 * 1024 * 1024
 DEFAULT_DOWNLOAD_SEGMENT_RETRIES = 3

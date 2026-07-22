@@ -44,7 +44,7 @@ class EngineConfig(BaseModel):
     # the min-bytes floor (and everything, when disabled) stay single-stream.
     downloadSegmentsEnabled: bool = True
     downloadSegmentCount: int = 8   # keep in step with config.DEFAULT_DOWNLOAD_SEGMENT_COUNT
-    downloadSegmentMinBytes: int = 64 * 1024 * 1024   # RETIRED/inert (pypdl picks single vs multi); kept for back-compat
+    downloadSegmentMinBytes: int = 64 * 1024 * 1024   # RETIRED/inert (the downloader falls back itself); kept for back-compat
     downloadSegmentRetries: int = 3
     downloadMaxConcurrent: int = 4   # CONCURRENT model downloads (2026-07-20)
     # A5 (user "do", 2026-07-06): "off" | "notify". Notify = the UI surfaces "update
@@ -135,7 +135,7 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             # config, so the field snaps back to the clamped value the user sees.
             store.set_setting("download_segment_count", str(max(1, min(MAX_DOWNLOAD_SEGMENT_COUNT, int(body.downloadSegmentCount)))))
         if body.downloadSegmentMinBytes is not None:
-            # RETIRED/inert since the pypdl cutover (pypdl picks single vs multi itself) — still
+            # RETIRED/inert (the downloader falls back to single-stream itself) — still
             # accepted + persisted so an existing UI/DB round-trips without a 422; nothing reads it.
             store.set_setting("download_segment_min_bytes", str(max(0, int(body.downloadSegmentMinBytes))))
         if body.downloadSegmentRetries is not None:
@@ -149,6 +149,15 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
         for row in body.binaries or []:
             if not row.platform.strip() or not row.gpu.strip():
                 raise HTTPException(status_code=400, detail="each binary needs platform + gpu")
+            # The URL must be CONCRETE — a `{…}` placeholder never composes to a real asset and
+            # would 404 at install time (the pin drives the URL; the UI re-points it on a pin
+            # change). Reject it at the save boundary so a bad row can't reach the DB.
+            for label, val in (("assetUrl", row.assetUrl), ("runtimeUrl", row.runtimeUrl)):
+                if val and ("{" in val or "}" in val):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{row.platform}/{row.gpu} {label} still has a placeholder: {val}",
+                    )
             store.upsert_binary(row)
         return store.get_config()
 

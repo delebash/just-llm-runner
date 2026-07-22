@@ -139,10 +139,10 @@ class RunnerConfig(CamelModel):
     # of the hardware preference order by binary._gpu_preference. "" = Auto (pure
     # hardware order). DB-editable via runner_setting `preferred_gpu`.
     preferred_gpu: str = ""
-    # Segmented downloads (DL-2): N parallel byte-ranges per file; everything when
-    # disabled stays single-stream. `download_segment_min_bytes` is RETIRED (pypdl
-    # picks single/multi itself) but kept for DB/back-compat. DB-editable via
-    # runner_setting; defaults mirror runner.config DEFAULT_*.
+    # Concurrent downloads: N connections pull chunks off a work queue per file
+    # (download.py); disabled = a plain single stream. `download_segment_min_bytes`
+    # is RETIRED (the downloader falls back to single-stream itself) but kept for
+    # DB/back-compat. DB-editable via runner_setting; defaults mirror runner.config.
     download_segments_enabled: bool = True
     download_segment_count: int = 8   # keep in step with config.DEFAULT_DOWNLOAD_SEGMENT_COUNT
     download_segment_min_bytes: int = 64 * 1024 * 1024

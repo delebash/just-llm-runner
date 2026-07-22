@@ -203,3 +203,17 @@ def test_detect_amd_wins_over_intel_arc(monkeypatch):
     assert info.runtimes.get("rocm") is True
     assert info.runtimes.get("vulkan") is True
     assert _gpu_preference(info)[0] == "rocm"
+
+
+def test_ram_mb_positive_on_every_supported_platform():
+    # 2026-07-22: _ram_mb returned 0 on EVERY Windows box for the system's entire
+    # life (psutil absent + os.sysconf does not exist on Windows), so the detected
+    # class key was vram8|ram0 and the seeded vram8|ram32 class config never matched
+    # the very PC it was measured on — the user's hand tune silently un-applied.
+    # The Windows GlobalMemoryStatusEx arm fixes it; this pins "RAM detection works
+    # HERE, wherever here is" (Windows exercises the ctypes arm when psutil is
+    # absent; POSIX uses sysconf/psutil).
+    from llm_runner.runner.hardware import _ram_mb
+
+    ram = _ram_mb()
+    assert ram > 1024, f"_ram_mb() returned {ram} — RAM detection is broken on this platform"

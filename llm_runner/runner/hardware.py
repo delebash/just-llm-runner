@@ -362,15 +362,45 @@ def _vulkan_available() -> bool:
 
 
 def _ram_mb() -> int:
+    """Total physical RAM (MiB). Order: psutil (when a host ships it — it is NOT a
+    declared dependency) → Windows GlobalMemoryStatusEx via ctypes → POSIX sysconf
+    → 0. The Windows arm was MISSING until 2026-07-22: psutil absent + no sysconf
+    on Windows meant every Windows box detected ram=0 for its entire life —
+    "MEMORY —" in the header, class key vram8|ram0 — so the seeded vram8|ram32
+    class config never matched the very PC it was measured on."""
     try:
         import psutil  # type: ignore
 
         return int(psutil.virtual_memory().total // (1024 * 1024))
     except Exception:  # noqa: BLE001
+        pass
+    if os.name == "nt":
         try:
-            return int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // (1024 * 1024))
-        except (ValueError, AttributeError, OSError):
-            return 0
+            import ctypes
+
+            class _MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_uint32),
+                    ("dwMemoryLoad", ctypes.c_uint32),
+                    ("ullTotalPhys", ctypes.c_uint64),
+                    ("ullAvailPhys", ctypes.c_uint64),
+                    ("ullTotalPageFile", ctypes.c_uint64),
+                    ("ullAvailPageFile", ctypes.c_uint64),
+                    ("ullTotalVirtual", ctypes.c_uint64),
+                    ("ullAvailVirtual", ctypes.c_uint64),
+                    ("ullAvailExtendedVirtual", ctypes.c_uint64),
+                ]
+
+            st = _MEMORYSTATUSEX()
+            st.dwLength = ctypes.sizeof(_MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+                return int(st.ullTotalPhys // (1024 * 1024))
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        return int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") // (1024 * 1024))
+    except (ValueError, AttributeError, OSError):
+        return 0
 
 
 def detect() -> HardwareInfo:

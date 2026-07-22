@@ -31,6 +31,10 @@ import UiProgress from "../common/components/UiProgress.vue";
 import DownloadBar from "../common/components/DownloadBar.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { openExternal } from "../common/services/external.js";
+import {
+  DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal,
+  DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
+} from "reka-ui";
 
 // Shared runner-models state (models / status / load / progress) — one source for the
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
@@ -46,15 +50,27 @@ const {
 // grouped first, the rest below — with a search box and a sort control (replaces the old
 // installed-first "Your models / Browse catalog" toggle).
 const query = ref("");
-const sortBy = ref("quality");
-// "Benchmark score", not "Quality" (user, 2026-07-06): quality_rank orders by PUBLISHED
-// GENERAL-purpose benchmarks — it measures neither creative writing nor this machine.
-// The honest per-box answer is the "Recommended for this PC" badge below.
-const SORT_OPTIONS = [
-  { value: "quality", label: "Sort: Benchmark score" },
-  { value: "name", label: "Sort: Name" },
-  { value: "size", label: "Sort: Size" },
+// Column-header sorting (user, 2026-07-22 — replaces the Sort dropdown): each column is
+// click-to-sort with a direction toggle + arrow. `quality` = the published GENERAL-purpose
+// benchmark rank (lower = better; the "Bench" column) — it measures neither creative writing
+// nor this machine; the honest per-box answer is the "Recommended for this PC" badge below.
+const sortKey = ref("quality");
+const sortDir = ref("asc"); // quality asc = best (lowest rank) first
+// The sortable columns, in render order. `num` = right-aligned numeric; `defDir` = the
+// natural FIRST-click direction (all read best ascending here).
+const COLUMNS = [
+  { key: "name", label: "Model", defDir: "asc" },
+  { key: "type", label: "Type", defDir: "asc" },
+  { key: "license", label: "License", defDir: "asc" },
+  { key: "quality", label: "Bench", num: true, defDir: "asc" },
+  { key: "fit", label: "Fit", defDir: "asc" },
+  { key: "status", label: "Status", defDir: "asc" },
 ];
+function toggleSort(key) {
+  if (sortKey.value === key) { sortDir.value = sortDir.value === "asc" ? "desc" : "asc"; return; }
+  sortKey.value = key;
+  sortDir.value = COLUMNS.find((c) => c.key === key)?.defDir || "asc";
+}
 function paramsNum(p) {
   const n = Number.parseFloat(String(p || "").replace(/[^0-9.]/g, ""));
   return Number.isFinite(n) ? n : 999;
@@ -64,15 +80,28 @@ function matchesQuery(m) {
   if (!q) return true;
   return (m.name || "").toLowerCase().includes(q) || (m.id || "").toLowerCase().includes(q);
 }
+// Sort value per column — strings compare with localeCompare, numbers ascend (lower first).
+const FIT_SORT = { ok: 0, tight: 1, cpu: 2, no: 3, unknown: 4 };
+const STATUS_SORT = { loaded: 0, loading: 1, stopping: 2, disk: 3, error: 4, available: 5 };
+function sortVal(m, key) {
+  if (key === "name") return (m.name || "").toLowerCase();
+  if (key === "type") return typeOf(m) === "moe" ? 1 : 0;             // Dense before MoE
+  if (key === "license") return (licenseOf(m) || "~~~").toLowerCase(); // blank sorts last
+  if (key === "quality") return qualityOf(m);                          // lower rank = better
+  if (key === "size") return sizeBytesById.value[m.id] || paramsNum(m.params) * 1e9;
+  if (key === "fit") return FIT_SORT[m.fit] ?? 9;
+  if (key === "status") return STATUS_SORT[m.status] ?? 9;
+  return 0;
+}
 function sortModels(list) {
-  const by = sortBy.value;
+  const key = sortKey.value;
+  const dir = sortDir.value === "desc" ? -1 : 1;
   return [...list].sort((a, b) => {
-    if (by === "name") return (a.name || "").localeCompare(b.name || "");
-    if (by === "size") return paramsNum(b.params) - paramsNum(a.params); // largest first
-    const qa = qualityOf(a); // quality (default): lower quality_rank = better, first
-    const qb = qualityOf(b);
-    if (qa !== qb) return qa - qb;
-    return (a.name || "").localeCompare(b.name || "");
+    const va = sortVal(a, key);
+    const vb = sortVal(b, key);
+    let c = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+    if (c === 0) c = (a.name || "").localeCompare(b.name || ""); // stable name tiebreak
+    return c * dir;
   });
 }
 const filtered = computed(() => models.value.filter(matchesQuery));
@@ -195,15 +224,15 @@ function notesOf(m) { return notesById.value[m.id] || ""; }
 // The sort fields, VISIBLE on the rows (#146 — sorting by an invisible column is
 // opaque): the benchmark rank (100 = unranked) + the size (file size when known,
 // else the params label riding the fit view).
+// Row meta = the download SIZE only now; the benchmark rank moved to its own sortable
+// Bench column (2026-07-22), so it no longer rides this line.
 function rowMeta(m) {
-  const bits = [];
-  const q = qualityOf(m);
-  bits.push(q >= 100 ? "unranked" : `rank ${q}`);
   const sz = sizeBytesById.value[m.id];
-  if (sz) bits.push(fmtBytes(sz));
-  else if (m.params) bits.push(m.params);
-  return bits.join(" · ");
+  if (sz) return fmtBytes(sz);
+  return m.params || "";
 }
+// The Bench column cell: the published benchmark rank, or "—" when unranked (100).
+function benchLabel(m) { const q = qualityOf(m); return q >= 100 ? "—" : String(q); }
 // The model's Hugging Face card URL (user, 2026-07-07: "open full detail in there web
 // browser") — huggingface.co/<repo>; "" (no repo → no link) for hand-added local rows.
 function cardUrlOf(m) { const repo = hfRepoById.value[m.id] || ""; return repo ? `https://huggingface.co/${repo}` : ""; }
@@ -870,8 +899,6 @@ refreshApplied();
     <div class="lu-mcat-title">Model Catalog</div>
     <div class="lu-mcat-bar">
       <UiInput v-model="query" class="lu-mcat-search" placeholder="Search models…" />
-      <UiSelect v-model="sortBy" :options="SORT_OPTIONS" class="lu-mcat-sort"
-        title="Benchmark score = published general-purpose benchmark order — not writing-specific, and it doesn't know your hardware. The “Recommended for this PC” badge is the per-machine answer." />
       <span class="lu-mcat-spacer" />
       <UiButton intent="secondary" size="small" @click="resetCatalog">Reset catalog</UiButton>
       <UiButton intent="primary" size="small" @click="startAdd"><template #icon>＋</template>Add model</UiButton>
@@ -887,12 +914,22 @@ refreshApplied();
     <div v-else class="lu-mcat-wrap">
       <table class="lu-mgrid">
         <thead>
-          <tr><th>Model</th><th>Type</th><th>License</th><th>Fit</th><th>Status</th><th /></tr>
+          <tr>
+            <th v-for="col in COLUMNS" :key="col.key"
+              :class="{ 'lu-th-num': col.num, 'lu-th-on': sortKey === col.key }">
+              <button type="button" class="lu-th-btn" @click="toggleSort(col.key)"
+                :title="`Sort by ${col.label.toLowerCase()}`">
+                <span>{{ col.label }}</span>
+                <span class="lu-th-arr">{{ sortKey === col.key ? (sortDir === 'asc' ? '▲' : '▼') : '↕' }}</span>
+              </button>
+            </th>
+            <th class="lu-th-act">Actions</th>
+          </tr>
         </thead>
         <tbody>
           <template v-for="m in groupedRows" :key="m.__key || m.id">
-            <tr v-if="m.__section" class="lu-msection"><td colspan="6"><b>{{ m.__section }}</b><span class="lu-muted"> — {{ m.hint }}</span></td></tr>
-            <tr v-else-if="m.__divider" class="lu-mgroup"><td colspan="6">Doesn't fit this machine — {{ m.count }} more</td></tr>
+            <tr v-if="m.__section" class="lu-msection"><td colspan="7"><b>{{ m.__section }}</b><span class="lu-muted"> — {{ m.hint }}</span></td></tr>
+            <tr v-else-if="m.__divider" class="lu-mgroup"><td colspan="7">Doesn't fit this machine — {{ m.count }} more</td></tr>
             <tr v-else>
               <td class="lu-mn">
                 <span class="lu-mn-name">{{ m.name }}</span>
@@ -911,7 +948,7 @@ refreshApplied();
                   :title="tuneBadge(m).title">{{ tuneBadge(m).label }}</UiTag>
                 <div class="lu-mid">{{ m.id }}</div>
                 <!-- The sort fields, visible (#146): benchmark rank + size. -->
-                <div class="lu-mrowmeta lu-muted" title="Benchmark rank (lower = better; published general-purpose tests) · download size">{{ rowMeta(m) }}</div>
+                <div class="lu-mrowmeta lu-muted" title="Download size">{{ rowMeta(m) }}</div>
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
                 <div v-if="notesOf(m)" class="lu-mnotes">Your notes: {{ notesOf(m) }}</div>
                 <a v-if="cardUrlOf(m)" class="lu-mlink lu-mcardlink" :href="cardUrlOf(m)"
@@ -930,6 +967,10 @@ refreshApplied();
                   <template v-if="useLimitedOf(m)">⚠ </template>{{ licenseOf(m) }}
                 </span>
                 <span v-else class="lu-muted">—</span>
+              </td>
+              <td class="lu-mnum">
+                <span :class="['lu-bench', { 'lu-bench-none': qualityOf(m) >= 100 }]"
+                  title="Published general-purpose benchmark rank (lower = better); “—” = unranked">{{ benchLabel(m) }}</span>
               </td>
               <td>
                 <span class="lu-fit" :class="`lu-fit--${m.fit}`" :title="fitTitle(m)">{{ fitLabel(m) }}</span>
@@ -950,26 +991,8 @@ refreshApplied();
                 <span v-else class="lu-mstat">Not downloaded</span>
               </td>
               <td class="lu-mact">
-                <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
-                <UiButton intent="ghost" size="small" title="Remove from catalog and delete its downloaded weights" :loading="busy === 'del:' + m.id" @click="deleteModel(m)">Delete</UiButton>
-                <UiButton v-if="m.status === 'error' || m.status === 'disk' || m.status === 'loaded'" intent="secondary" size="small"
-                  :loading="busy === 'redl:' + m.id"
-                  title="Clear the downloaded file and fetch it again — repairs a corrupted or incomplete download. A loaded model is unloaded first. Keeps the catalog entry."
-                  @click="redownload(m)">Re-download</UiButton>
-                <!-- Gated on the honest `downloaded` flag, not a status list (2026-07-21, checker
-                     T5 parity): an errored-but-downloaded model can be freed too; a never-
-                     downloaded error can't. Hidden mid-load/unload (partial or mmap-locked file). -->
-                <UiButton v-if="m.downloaded && m.status !== 'loading' && m.status !== 'stopping'"
-                  intent="ghost" size="small"
-                  :loading="busy === 'free:' + m.id"
-                  title="Delete the downloaded model — keeps the catalog entry, re-downloads on demand. A loaded model is unloaded first."
-                  @click="freeDownload(m)">Delete downloaded model</UiButton>
-                <UiButton v-if="m.status === 'loaded' || m.status === 'disk'" intent="ghost" size="small"
-                  title="Tune engine flags &amp; measure decode speed" @click="tuning = m">Tune</UiButton>
-                <UiButton v-if="m.status === 'loaded'" intent="ghost" size="small"
-                  :loading="busy === 'unload:' + m.id"
-                  title="Unload from memory — frees VRAM; it loads again on Load as default or next use"
-                  @click="unloadModel(m)">Unload</UiButton>
+                <div class="lu-macts">
+                  <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
                 <template v-if="m.status === 'loading'">
                   <!-- BOTH channels cancel. The standalone Download row stops via
                        /download/cancel; a spawn-LOAD row aborts via /stop — a true abort
@@ -1007,6 +1030,24 @@ refreshApplied();
                   title="Make this the default model for every task and load it now" @click="makeDefault(m)">
                   {{ m.id === currentDefaultId ? "Default ✓" : "Load as default" }}
                 </UiButton>
+                  <!-- ⋯ overflow — the secondary actions, portaled so the menu escapes the
+                       list's overflow:auto clip (Reka DropdownMenu: focus/Esc/click-outside built in).
+                       "Load into memory" is NOT here — loading a model IS setting it default
+                       (makeDefault), which is the inline toggle above (user, 2026-07-22). -->
+                  <DropdownMenuRoot>
+                    <DropdownMenuTrigger class="lu-mkebab" aria-label="More actions" title="More actions">⋯</DropdownMenuTrigger>
+                    <DropdownMenuPortal>
+                      <DropdownMenuContent class="lu-mmenu" align="end" :side-offset="4" :collision-padding="8">
+                        <DropdownMenuItem v-if="m.status === 'loaded' || m.status === 'disk'" class="lu-mmi" @select="tuning = m">Tune &amp; measure</DropdownMenuItem>
+                        <DropdownMenuItem v-if="m.status === 'loaded'" class="lu-mmi" @select="unloadModel(m)">Unload from memory</DropdownMenuItem>
+                        <DropdownMenuItem v-if="m.status === 'error' || m.status === 'disk' || m.status === 'loaded'" class="lu-mmi" @select="redownload(m)">Re-download</DropdownMenuItem>
+                        <DropdownMenuSeparator v-if="m.status === 'loaded' || m.status === 'disk' || m.status === 'error'" class="lu-mmsep" />
+                        <DropdownMenuItem v-if="m.downloaded && m.status !== 'loading' && m.status !== 'stopping'" class="lu-mmi lu-mmi-danger" @select="freeDownload(m)">Delete downloaded model</DropdownMenuItem>
+                        <DropdownMenuItem class="lu-mmi lu-mmi-danger" @select="deleteModel(m)">Delete from catalog</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenuPortal>
+                  </DropdownMenuRoot>
+                </div>
               </td>
             </tr>
           </template>
@@ -1165,15 +1206,32 @@ refreshApplied();
 .lu-mcat-err { margin-bottom: 8px; }
 .lu-mcat-empty { font-size: 12.5px; color: var(--muted); padding: 14px; text-align: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); }
 .lu-mcat-wrap { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-sm, 8px); background: var(--surface); }
-.lu-mgrid { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.lu-mgrid th {
-  position: sticky; top: 0; z-index: 1; background: var(--surface-2); text-align: left;
-  font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
-  font-weight: 700; padding: 7px 11px; border-bottom: 1px solid var(--border);
-}
-.lu-mgrid td { padding: 8px 11px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+/* Fit-to-data (user, 2026-07-22 — "too wide, fit the data"): the table sizes to its
+   CONTENT, not a forced width:100% stretch. Narrow columns shrink (nowrap); only the
+   Model column grows, wrapping its description within a cap. */
+.lu-mgrid { width: auto; border-collapse: collapse; font-size: 12.5px; }
+.lu-mgrid th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); border-bottom: 1px solid var(--border); padding: 0; }
+.lu-mgrid td { padding: 8px 11px; border-bottom: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
 .lu-mgrid tr:last-child td { border-bottom: 0; }
-.lu-mn { font-weight: 600; color: var(--ink); min-width: 150px; }
+/* Sortable header buttons — click to sort; the arrow shows the active column + direction. */
+.lu-th-btn {
+  all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 4px; width: 100%;
+  cursor: pointer; padding: 7px 11px; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .04em; font-weight: 700; color: var(--muted);
+}
+.lu-th-btn:hover { color: var(--ink-2); }
+.lu-th-on .lu-th-btn { color: var(--accent); }
+.lu-th-arr { font-size: 8px; opacity: .35; }
+.lu-th-btn:hover .lu-th-arr { opacity: .6; }
+.lu-th-on .lu-th-arr { opacity: 1; }
+.lu-th-num .lu-th-btn { justify-content: flex-end; }
+.lu-th-act { text-align: right; padding: 7px 11px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; color: var(--muted); }
+/* Bench column — right-aligned, tabular. */
+.lu-mnum { text-align: right; font-variant-numeric: tabular-nums; }
+.lu-bench { font-weight: 600; color: var(--ink-2); }
+.lu-bench-none { color: var(--muted); font-weight: 400; }
+/* Model is the ONE column that grows; its text wraps within a cap so the table stays tidy. */
+.lu-mn { font-weight: 600; color: var(--ink); min-width: 160px; max-width: 320px; white-space: normal; }
 .lu-mid { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px; }
 .lu-mrowmeta { font-size: 10.5px; font-weight: 400; margin-top: 1px; }
 .lu-mdesc { font-size: 11px; color: var(--ink-2); font-weight: 400; margin-top: 3px; max-width: 46ch; line-height: 1.4; }
@@ -1183,7 +1241,17 @@ refreshApplied();
 .lu-mbadge { margin-left: 6px; vertical-align: middle; }
 .lu-mgroup td { background: var(--surface-2); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; padding: 5px 11px; }
 .lu-mm { color: var(--ink-2); white-space: nowrap; }
-.lu-mact { text-align: right; white-space: nowrap; }
+.lu-mact { text-align: right; }
+.lu-macts { display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; }
+/* ⋯ overflow trigger + the portaled Reka menu (escapes the list's overflow:auto clip). */
+.lu-mkebab { all: unset; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 7px; border-radius: 6px; color: var(--muted); }
+.lu-mkebab:hover, .lu-mkebab[data-state="open"] { background: var(--surface-2); color: var(--ink); }
+.lu-mmenu { background: var(--surface); border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 10px 34px rgba(30, 25, 20, .18); padding: 5px; min-width: 196px; z-index: 60; }
+.lu-mmi { display: flex; align-items: center; font-size: 12.5px; color: var(--ink-2); padding: 7px 10px; border-radius: 6px; cursor: pointer; outline: none; user-select: none; }
+.lu-mmi[data-highlighted] { background: var(--surface-2); color: var(--ink); }
+.lu-mmi-danger { color: var(--warn, #b4560f); }
+.lu-mmi-danger[data-highlighted] { background: color-mix(in oklab, var(--warn, #b4560f) 12%, transparent); color: var(--warn, #b4560f); }
+.lu-mmsep { height: 1px; background: var(--border); margin: 4px; }
 
 /* License badge — neutral for permissive (Apache/MIT), a gold warning chip for
    use-limited licenses (Llama-Community, *-Research, Gemma terms). */
@@ -1255,7 +1323,6 @@ refreshApplied();
 .lu-mcat-title { font-weight: 700; font-size: 14px; color: var(--ink); margin-top: 14px; }
 .lu-mcat-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; margin-bottom: 8px; }
 .lu-mcat-search { flex: 0 1 220px; }
-.lu-mcat-sort { flex: 0 0 auto; }
 .lu-mcat-spacer { flex: 1; }
 .lu-mm-form { display: flex; flex-direction: column; gap: 12px; }
 .lu-mm-l { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--ink-2); font-weight: 600; }

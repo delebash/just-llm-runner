@@ -6,10 +6,29 @@
 // shared module instead of three fetch copies).
 import { request } from "./client.js";
 
-// The whole library + the CURRENT box's class key (server-derived):
-// { classKey, tunes: [{ modelId, classKey, builtIn, rows: [{flagName, flagValue}] }] }
+// The whole library + the CURRENT box's class key (server-derived, override-aware):
+// { classKey, classes: [{classKey, vramGb, ramGb, name, builtIn}],
+//   tunes: [{ modelId, classKey, builtIn, rows: [{flagName, flagValue}] }] }
 export async function listClassTunes() {
   return request("/v1/ai/class-tunes");
+}
+
+// Add/edit a NAMED hardware class (2026-07-22, type-first). The server DERIVES the
+// classKey from memType+vramGb+ramGb; `origClassKey` (edit only) lets a change relocate
+// the class's configs. `memType` = discrete | integrated | unified (discrete uses
+// vramGb+ramGb; the one-pool types use ramGb as the memory). Returns the whole library.
+export async function saveHardwareClass({ name = "", memType = "discrete", vramGb, ramGb, origClassKey = "" }) {
+  return request("/v1/ai/hardware-class", {
+    method: "PUT",
+    body: { name, memType, vramGb: Number(vramGb) || 0, ramGb: Number(ramGb) || 0, origClassKey },
+  });
+}
+
+// Delete a hardware class AND its model-configs. Returns the updated library.
+export async function deleteHardwareClass(classKey) {
+  return request(`/v1/ai/hardware-class?classKey=${encodeURIComponent(classKey)}`, {
+    method: "DELETE",
+  });
 }
 
 // Replace one (model, class) config wholesale. `classKey` omitted/"" → the current
@@ -41,13 +60,19 @@ export async function deleteClassTune(modelId, classKey) {
   return request(`/v1/ai/class-tunes?${q}`, { method: "DELETE" });
 }
 
-// `vram8|ram32` → "8 GB VRAM · 32 GB RAM" (the user-facing name for a hardware
-// class — no internal key syntax in copy); `cpu|ram16` → "No GPU · 16 GB RAM".
-// An unrecognized shape renders verbatim rather than lying.
-export function classKeyLabel(key) {
-  const m = /^vram(\d+)\|ram(\d+)$/.exec(key || "");
+// The user-facing name for a hardware class. A non-blank `name` (the free label,
+// 2026-07-22) wins; else the plain-words hardware from the type-first key —
+// `dgpu-vram8|ram32` → "8 GB VRAM · 32 GB RAM", `igpu-mem16` → "Integrated GPU · 16 GB",
+// `unified-mem192` → "Unified memory · 192 GB". No internal key syntax in copy; an
+// unrecognized shape renders verbatim rather than lying. Callers passing only `key`
+// keep the plain-words behavior (name defaults blank).
+export function classKeyLabel(key, name = "") {
+  if (name && name.trim()) return name.trim();
+  let m = /^dgpu-vram(\d+)\|ram(\d+)$/.exec(key || "");
   if (m) return `${m[1]} GB VRAM · ${m[2]} GB RAM`;
-  const c = /^cpu\|ram(\d+)$/.exec(key || "");
-  if (c) return `No GPU · ${c[1]} GB RAM`;
+  m = /^unified-mem(\d+)$/.exec(key || "");
+  if (m) return `Unified memory · ${m[1]} GB`;
+  m = /^igpu-mem(\d+)$/.exec(key || "");
+  if (m) return `Integrated GPU · ${m[1]} GB`;
   return key || "";
 }

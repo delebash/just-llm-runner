@@ -43,6 +43,29 @@ def test_mem_arch_from_platform_and_vendor():
     assert mem_arch(_H(gpus=[_G(16384, "Radeon RX 7800")])) == "discrete"   # >=4 GB dGPU
     assert mem_arch(_H(gpus=[_G(0, "Intel UHD")])) == "integrated"  # iGPU (no dedicated VRAM)
     assert mem_arch(_H()) == "integrated"                           # no GPU → one-pool fallback
+    # THE LAPTOP SHAPE (detect-facts 2026-07-23): registry name "Intel(R) Graphics",
+    # qwMemorySize ABSENT (vram None) → integrated. And the name-regex kill: an iGPU
+    # whose DriverDesc DOES say Arc(TM) (Lunar Lake style) with no dedicated VRAM must
+    # classify integrated — a name is marketing, not architecture. A discrete Arc
+    # still classifies via its real board VRAM.
+    assert mem_arch(_H(gpus=[_G(None, "Intel(R) Graphics")])) == "integrated"
+    assert mem_arch(_H(gpus=[_G(None, "Intel(R) Arc(TM) Graphics")])) == "integrated"
+    assert mem_arch(_H(gpus=[_G(16384, "Intel(R) Arc(TM) A770 Graphics")])) == "discrete"
+
+
+def test_snap_ram_gb_standard_ladder():
+    from llm_runner.runner.hardware import snap_ram_gb
+
+    # THE FRAGMENTATION CASE (2026-07-23): the Core Ultra laptop reports 31.5 GB
+    # (33777467392 bytes) and the desktop 31.9 GB (34280230912 bytes) — raw rounding
+    # split two nominal-32 GB machines into mem31 vs ram32. Both snap to 32.
+    assert snap_ram_gb(33777467392 // (1024 * 1024)) == 32   # the laptop, exact bytes
+    assert snap_ram_gb(34280230912 // (1024 * 1024)) == 32   # the desktop, exact bytes
+    assert snap_ram_gb(16384) == 16
+    assert snap_ram_gb(15872) == 16       # 15.5 GB (OEM reserve) → 16
+    assert snap_ram_gb(65536) == 64
+    assert snap_ram_gb(196608) == 192     # Mac Studio pool
+    assert snap_ram_gb(0) == 2            # degenerate floor: the lowest rung
 
 
 @pytest.fixture

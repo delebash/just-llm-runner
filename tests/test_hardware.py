@@ -161,15 +161,29 @@ def test_detect_intel_arc_routes_vulkan(monkeypatch):
     assert info.gpus == [row]
 
 
-def test_detect_intel_igpu_stays_cpu(monkeypatch):
-    # iGPU-only Intel box: the recorded A2 scope is ARC DISCRETE — no GPU runtime.
-    row = GpuInfo(vendor="Intel", name="Intel(R) Iris(R) Xe Graphics", vram_mb=None)
+def test_detect_intel_igpu_routes_vulkan(monkeypatch):
+    # A2 WIDENED (2026-07-23): ANY Intel GPU + the loader → the Vulkan runtime. The
+    # old Arc-name gate left the Core Ultra 7 (registry name plain "Intel(R)
+    # Graphics", qwMemorySize absent) CPU/online-only while its Vulkan device served
+    # an 18 GB shared pool (detect-facts 2026-07-23).
+    row = GpuInfo(vendor="Intel", name="Intel(R) Graphics", vram_mb=None)
     _no_nvidia(monkeypatch, scan=[row])
     monkeypatch.setattr(hw, "_amd_gpu_present", lambda: False)
     monkeypatch.setattr(hw, "_vulkan_available", lambda: True)
     info = hw.detect()
+    assert info.runtimes.get("vulkan") is True
+    assert info.gpus == [row]
+
+
+def test_detect_intel_igpu_no_loader_stays_cpu(monkeypatch):
+    # The loader still gates: no vulkan-1.dll → no vulkan runtime (the box takes
+    # the online-provider path rather than a doomed engine install).
+    row = GpuInfo(vendor="Intel", name="Intel(R) Graphics", vram_mb=None)
+    _no_nvidia(monkeypatch, scan=[row])
+    monkeypatch.setattr(hw, "_amd_gpu_present", lambda: False)
+    monkeypatch.setattr(hw, "_vulkan_available", lambda: False)
+    info = hw.detect()
     assert not any(info.runtimes.values())
-    assert info.gpus == [row]  # the row still exists (name in the UI, key in tunes)
 
 
 def test_detect_nvidia_records_vulkan_fact(monkeypatch):

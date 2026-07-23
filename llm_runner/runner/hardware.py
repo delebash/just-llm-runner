@@ -6,9 +6,10 @@ DETECT what the user has (platform, GPU vendor, NVIDIA compute capability +
 driver, AMD/ROCm, Intel Arc, Vulkan) and pick the matching prebuilt build. For
 NVIDIA the `compute_cap` chooses the CUDA build (Blackwell needs 13.x, older
 cards 12.x); for AMD we prefer ROCm/HIP when its runtime is present, else
-Vulkan (user decision 2026-07-01); Intel ARC discrete GPUs route to the Vulkan
-build (iGPU-only Intel boxes stay CPU). The only prerequisite is the GPU's own
-driver, which the user already has if the GPU works.
+Vulkan (user decision 2026-07-01); any detected Intel GPU routes to the Vulkan
+build when the loader is present (A2 widened 2026-07-23 — the old Arc-name gate
+left Core Ultra iGPUs CPU-only with a working Vulkan device idle). The only
+prerequisite is the GPU's own driver, which the user already has if the GPU works.
 
 AMD/Intel rows come from a per-platform scan (only run when no NVIDIA GPU was
 found, so the NVIDIA fast-path pays nothing): on Linux the kernel's own sysfs
@@ -107,12 +108,15 @@ def parse_class_key(key: str) -> tuple[str, int, int]:
 
 
 def _is_discrete_gpu(g) -> bool:
-    """Best-effort: is this scanned AMD/Intel GPU a DISCRETE card, not an iGPU? Intel
-    Arc by name; else a dedicated-VRAM signal (>= 4 GB reported — an iGPU carves little
-    from system RAM, a discrete card reports its full board memory). Heuristic, and the
-    'Use for this PC' override corrects a miss."""
-    if _INTEL_ARC_RE.search(g.name or ""):
-        return True
+    """Is this scanned AMD/Intel GPU a DISCRETE card, not an iGPU? The PHYSICAL signal
+    only — dedicated VRAM >= 4 GB reported (a discrete card reports its full board
+    memory; an iGPU reports little or NOTHING — the Core Ultra 7 laptop's registry
+    reported `qwMemorySize: (absent)` for its "Intel(R) Graphics", detect-facts
+    2026-07-23). NO name matching: Intel reuses "Arc" for integrated graphics, so the
+    old `_INTEL_ARC_RE` arm would misclass any iGPU whose DriverDesc says Arc(TM) as
+    discrete — a name is marketing, not architecture. Discrete Arc cards (A770, B580)
+    still classify correctly via their real board VRAM. The 'Use for this PC' override
+    corrects any residual miss."""
     return (g.vram_mb or 0) >= 4096
 
 
@@ -124,7 +128,7 @@ def mem_arch(hw: HardwareInfo) -> str:
     and is corrected by the override, a device-name list being the future refinement):
         macOS                    → unified   (Apple Silicon; fixes the Mac-as-CPU bug)
         NVIDIA (cuda runtime)    → discrete
-        Intel Arc / a >=4 GB GPU → discrete
+        a >=4 GB-dedicated GPU   → discrete  (the physical signal — no name matching)
         any other GPU / no GPU   → integrated (iGPU or the GPU-less one-pool fallback)"""
     if hw.platform == "macos":
         return "unified"
@@ -135,14 +139,33 @@ def mem_arch(hw: HardwareInfo) -> str:
     return "integrated"
 
 
+# The standard RAM capacities machines actually ship with. Detection SNAPS system
+# RAM to the nearest rung (2026-07-23, user's rec): OEMs reserve different slivers
+# (firmware/iGPU carve), so raw rounding fragmented identical nominal hardware —
+# the Core Ultra laptop reported 31.5 GB (→31) while the desktop's 31.9 GB →32,
+# landing two "32 GB" machines in different classes. VRAM is NOT snapped (cards
+# report their true board memory; 10/11/20 GB cards are real sizes).
+_RAM_LADDER = (2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024)
+
+
+def snap_ram_gb(ram_mb: int) -> int:
+    """System RAM (MiB) → the nearest standard capacity in GB (ties take the lower
+    rung — never overstate a box's memory). Above the ladder → plain rounding."""
+    gb = (ram_mb or 0) / 1024
+    if gb > _RAM_LADDER[-1]:
+        return round(gb)
+    return min(_RAM_LADDER, key=lambda v: (abs(v - gb), v))
+
+
 def class_key(hw: HardwareInfo) -> str:
     """The COARSE hardware-CLASS key the seeded/editable class library is matched on —
     memory-architecture-first (2026-07-22). Discrete keys on VRAM + RAM (the offload
-    split); integrated/unified key on the single memory pool. VRAM + RAM round to the
-    NEAREST GB (absorbs the just-under a card reports, e.g. 8188 MB → 8 GB). GPU NAME +
-    CPU CORES are EXCLUDED (placement is memory-fit-bound, not compute-bound)."""
+    split); integrated/unified key on the single memory pool. VRAM rounds to the
+    NEAREST GB (absorbs the just-under a card reports, e.g. 8188 MB → 8 GB); system
+    RAM snaps to the standard-capacity ladder (see snap_ram_gb — OEM-reserve jitter).
+    GPU NAME + CPU CORES are EXCLUDED (placement is memory-fit-bound, not compute-bound)."""
     arch = mem_arch(hw)
-    ram_gb = round((hw.ram_mb or 0) / 1024)
+    ram_gb = snap_ram_gb(hw.ram_mb or 0)
     if arch == "discrete":
         gpu = max(hw.gpus, key=lambda g: g.vram_mb or 0) if hw.gpus else None
         vram_gb = round((gpu.vram_mb or 0) / 1024) if gpu else 0
@@ -236,10 +259,11 @@ def _nvidia_gpus() -> list[GpuInfo]:
 # nvidia-smi stays the single NVIDIA authority (no smi = no usable CUDA anyway).
 _PCI_VENDOR_TO_NAME = {"0x1002": "AMD", "0x8086": "Intel"}
 
-# Intel DISCRETE detection by adapter name: "Arc" (A- and B-series retail names,
-# Windows DriverDesc "Intel(R) Arc(TM) …", Linux lspci "… [Arc A770]") plus the
-# DG1/DG2/Battlemage silicon names some lspci databases use instead.
-_INTEL_ARC_RE = re.compile(r"\barc\b|dg1|dg2|battlemage", re.IGNORECASE)
+# (The Intel-Arc NAME regex was DELETED 2026-07-23: Intel reuses "Arc" for
+# integrated graphics, so name-matching misclassed iGPUs as discrete and gated
+# Vulkan off boxes whose registry says plain "Intel(R) Graphics". Classification
+# now keys on dedicated VRAM (_is_discrete_gpu); the Vulkan runtime gates on any
+# detected Intel/AMD GPU + the loader being present.)
 
 
 def _lspci_names() -> dict[str, str]:
@@ -502,9 +526,15 @@ def detect() -> HardwareInfo:
                 runtimes["rocm"] = True
             if _vulkan_available():
                 runtimes["vulkan"] = True
-        elif any(_INTEL_ARC_RE.search(g.name or "") for g in intel):
-            # A2: Intel ARC discrete GPUs auto-route to the Vulkan build. iGPU-only
-            # Intel boxes deliberately stay CPU (the recorded scope is Arc discrete).
+        elif intel:
+            # A2 WIDENED (2026-07-23, user's rec on the laptop evidence): ANY detected
+            # Intel GPU gets the Vulkan runtime when the loader is present — the old
+            # gate required "Arc" in the name, but the Core Ultra 7's registry says
+            # plain "Intel(R) Graphics" while its Vulkan device serves an 18 GB shared
+            # pool (detect-facts 2026-07-23); the Arc-name gate left that iGPU
+            # CPU/online-only with a working GPU idle. The loader check still gates
+            # (no vulkan-1.dll → no vulkan runtime → the online-provider path), and
+            # the A3 spawn chain falls back if the build won't run on a weak iGPU.
             if _vulkan_available():
                 runtimes["vulkan"] = True
     if plat == "macos":

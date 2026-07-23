@@ -25,7 +25,7 @@ def client():
     db.configure_storage(sessionmaker(bind=eng, autoflush=False))
     app = FastAPI()
     # class_key_fn injected — the SERVER derives the box's class (one source).
-    app.include_router(make_class_tunes_router(stores.get_class_tune_store, lambda: "vram8|ram32"))
+    app.include_router(make_class_tunes_router(stores.get_class_tune_store, lambda: "dgpu-vram8|ram32"))
     return TestClient(app)
 
 
@@ -40,10 +40,10 @@ def test_put_defaults_to_the_current_class_and_round_trips(client):
     # Omitted classKey → the box's own class (the Tune modal's "Save for hardware
     # class" path). The response is the whole library + the current class.
     r = _put(client, "m1", {"n_cpu_moe": "21", "ctx_len": "32768"})
-    assert r["classKey"] == "vram8|ram32"
+    assert r["classKey"] == "dgpu-vram8|ram32"
     assert len(r["tunes"]) == 1
     t = r["tunes"][0]
-    assert (t["modelId"], t["classKey"], t["builtIn"]) == ("m1", "vram8|ram32", False)
+    assert (t["modelId"], t["classKey"], t["builtIn"]) == ("m1", "dgpu-vram8|ram32", False)
     assert {(x["flagName"], x["flagValue"]) for x in t["rows"]} == {
         ("n_cpu_moe", "21"), ("ctx_len", "32768")}
 
@@ -62,7 +62,7 @@ def test_delete_removes_one_config_only(client):
     _put(client, "m1", {"threads": "4"}, class_key="cpu|ram16")
     r = client.delete("/v1/ai/class-tunes",
                       params={"modelId": "m1", "classKey": "cpu|ram16"}).json()
-    assert [(t["modelId"], t["classKey"]) for t in r["tunes"]] == [("m1", "vram8|ram32")]
+    assert [(t["modelId"], t["classKey"]) for t in r["tunes"]] == [("m1", "dgpu-vram8|ram32")]
 
 
 def test_validation_400s(client):
@@ -78,7 +78,7 @@ def test_builtin_flag_reads_seeded_rows_and_edit_takes_ownership(client):
     # writes it; the library reports builtIn until a PUT replaces it as user rows.
     s = db.session()
     try:
-        s.add(db.ClassTune(model_id="m9", class_key="vram8|ram32",
+        s.add(db.ClassTune(model_id="m9", class_key="dgpu-vram8|ram32",
                            flag_name="n_cpu_moe", flag_value="21", built_in=True))
         s.commit()
     finally:
@@ -100,7 +100,7 @@ def test_seeder_never_clobbers_an_edited_config(client):
         s.commit()
         rows = s.query(db.ClassTune).filter(
             db.ClassTune.model_id == "gemma-4-26b-a4b-qat",
-            db.ClassTune.class_key == "vram8|ram32",
+            db.ClassTune.class_key == "dgpu-vram8|ram32",
         ).all()
         assert {(r.flag_name, r.flag_value) for r in rows} == {("n_cpu_moe", "19")}
         assert all(r.built_in is False for r in rows)

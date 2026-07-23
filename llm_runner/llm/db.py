@@ -396,6 +396,29 @@ class TestSampleVar(LlmBase):
     value = Column(Text, nullable=False, default="")
 
 
+class HardwareClass(LlmBase):
+    """A NAMED hardware class (2026-07-22, user redesign) — the sidecar that gives a
+    class its human NAME + its editable whole-GB VRAM/RAM fields. The `class_key`
+    (`vram<GB>|ram<GB>` / `cpu|ram<GB>`) stays the identity + the join to `class_tunes`
+    and is DERIVED from `vram_gb`/`ram_gb` on save ("i reverse that vram and ram is
+    key"), so `switch_resolve` + matching + the Pass-4 override are unchanged; this row
+    only adds the label + the integer fields the add/edit form binds to. `name` is a
+    free label ("but name can be anything"), NOT the identity and never matched on;
+    blank → the UI shows the plain-words VRAM/RAM. `built_in` marks the seeded class so
+    a reseed refreshes it while user-added classes are kept. One row per (VRAM, RAM)."""
+
+    __tablename__ = "hardware_classes"
+
+    class_key = Column(String, primary_key=True)
+    # discrete | integrated | unified (2026-07-22 type-first redesign). Discrete uses
+    # vram_gb + ram_gb; integrated/unified use ram_gb as the one memory pool (vram_gb 0).
+    mem_type = Column(String, nullable=False, default="discrete")
+    vram_gb = Column(Integer, nullable=False, default=0)
+    ram_gb = Column(Integer, nullable=False, default=0)
+    name = Column(Text, nullable=False, default="")
+    built_in = Column(Boolean, nullable=False, default=False)
+
+
 class ClassTune(LlmBase):
     """A seeded + EDITABLE per-(model, HARDWARE-CLASS) tune — the class-seed layer
     (2026-07-07). Unlike ModelTune (a machine's OWN measured tune, never seeded),
@@ -406,7 +429,8 @@ class ClassTune(LlmBase):
     count are EXCLUDED from the key (placement is memory-fit-bound, not compute-bound).
     Resolved in `switch_resolve` BELOW a machine's own ModelTune (more specific wins)
     and ABOVE base/type/mtp. `built_in` marks seeded rows so a reseed refreshes them
-    while user-added / Lab-measured rows are kept."""
+    while user-added / Lab-measured rows are kept. Its class_key joins to
+    HardwareClass (the name + VRAM/RAM sidecar, 2026-07-22)."""
 
     __tablename__ = "class_tunes"
 

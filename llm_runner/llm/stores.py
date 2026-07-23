@@ -1027,7 +1027,88 @@ class ClassTuneStore:
             s.close()
 
 
+class HardwareClassStore:
+    """The NAMED hardware-class sidecar (2026-07-22 user redesign) — name + editable
+    whole-GB VRAM/RAM per `class_key`. The class_key stays the identity + join to
+    `class_tunes`; this store owns only the label + the integer fields the add/edit
+    form binds to. See db.HardwareClass. The class_key is DERIVED from vram/ram by the
+    caller (the API, via hardware.format_class_key) — this store takes it explicit."""
+
+    def list_all(self) -> list[dict]:
+        s = db.session()
+        try:
+            rows = s.query(db.HardwareClass).order_by(
+                db.HardwareClass.mem_type, db.HardwareClass.vram_gb,
+                db.HardwareClass.ram_gb, db.HardwareClass.class_key
+            ).all()
+            return [{"classKey": r.class_key, "memType": r.mem_type or "discrete",
+                     "vramGb": r.vram_gb, "ramGb": r.ram_gb,
+                     "name": r.name or "", "builtIn": r.built_in} for r in rows]
+        finally:
+            s.close()
+
+    def save(self, class_key: str, mem_type: str, vram_gb: int, ram_gb: int, name: str,
+             orig_key: str = "") -> None:
+        """Upsert a class. One class per key (VRAM+RAM for discrete, memory for the
+        one-pool types): a duplicate `class_key` is rejected UNLESS it is the row being
+        edited (`orig_key == class_key`). When the edit MOVED the key (type/VRAM/RAM
+        changed → a new class_key), the model-configs cascade onto the new key and the
+        old sidecar row is dropped. A user save takes ownership (`built_in=False`)."""
+        s = db.session()
+        try:
+            orig = (orig_key or "").strip()
+            if s.get(db.HardwareClass, class_key) is not None and orig != class_key:
+                raise ValueError(f"a hardware class for {class_key} already exists")
+            if orig and orig != class_key:
+                for t in s.query(db.ClassTune).filter(db.ClassTune.class_key == orig).all():
+                    t.class_key = class_key
+                old = s.get(db.HardwareClass, orig)
+                if old is not None:
+                    s.delete(old)
+            row = s.get(db.HardwareClass, class_key)
+            if row is None:
+                row = db.HardwareClass(class_key=class_key)
+                s.add(row)
+            row.mem_type = mem_type
+            row.vram_gb = int(vram_gb)
+            row.ram_gb = int(ram_gb)
+            row.name = (name or "").strip()
+            row.built_in = False
+            s.commit()
+        finally:
+            s.close()
+
+    def ensure(self, class_key: str, mem_type: str, vram_gb: int, ram_gb: int) -> None:
+        """Create a blank-named sidecar row for `class_key` if none exists — the
+        Tune-modal 'Save for hardware class' path saves a config for the box's class
+        before any class form ran. No-op when the class already exists (never clobbers
+        a name)."""
+        s = db.session()
+        try:
+            if s.get(db.HardwareClass, class_key) is None:
+                s.add(db.HardwareClass(class_key=class_key, mem_type=mem_type,
+                                       vram_gb=int(vram_gb), ram_gb=int(ram_gb),
+                                       name="", built_in=False))
+                s.commit()
+        finally:
+            s.close()
+
+    def delete(self, class_key: str) -> None:
+        """Delete the class AND all its model-configs (a config is meaningless without
+        its class)."""
+        s = db.session()
+        try:
+            s.query(db.ClassTune).filter(db.ClassTune.class_key == class_key).delete()
+            row = s.get(db.HardwareClass, class_key)
+            if row is not None:
+                s.delete(row)
+            s.commit()
+        finally:
+            s.close()
+
+
 _class_tune = ClassTuneStore()
+_hardware_class = HardwareClassStore()
 
 
 class TestSampleStore:
@@ -1343,6 +1424,7 @@ def get_engine_preset_store() -> EnginePresetStore: return _engine_preset
 def get_feature_preset_ref_store() -> FeaturePresetRefStore: return _feature_preset_ref
 def get_model_tune_store() -> ModelTuneStore: return _model_tune
 def get_class_tune_store() -> ClassTuneStore: return _class_tune
+def get_hardware_class_store() -> HardwareClassStore: return _hardware_class
 def get_model_measurement_store() -> ModelMeasurementStore: return _model_measurement
 def get_test_sample_store() -> TestSampleStore: return _test_sample
 

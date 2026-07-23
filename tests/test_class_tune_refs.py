@@ -32,22 +32,22 @@ def test_refs_are_distinct_model_class_pairs(configured):
     # The seeded Gemma config holds SEVERAL flag rows — exactly ONE ref comes out
     # (distinct (model, class) pairs, not one ref per flag).
     assert stores.list_class_tune_refs() == [
-        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "vram8|ram32"}]
+        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram8|ram32"}]
 
 
 def test_a_manually_authored_class_becomes_a_ref(configured):
     # §9: manual class authoring is first-class — a config saved for hardware the
-    # author does NOT own (vram20|ram100) is a recommendation ref like any other.
+    # author does NOT own (a discrete 20 GB / 100 GB box) is a recommendation ref.
     s = db.session()
     try:
         for fname, fval in (("n_gpu_layers", "99"), ("ctx_len", "65536")):
-            s.add(db.ClassTune(model_id="m-big", class_key="vram20|ram100",
+            s.add(db.ClassTune(model_id="m-big", class_key="dgpu-vram20|ram100",
                                flag_name=fname, flag_value=fval, built_in=False))
         s.commit()
     finally:
         s.close()
     refs = stores.list_class_tune_refs()
-    assert {"modelId": "m-big", "classKey": "vram20|ram100"} in refs
+    assert {"modelId": "m-big", "classKey": "dgpu-vram20|ram100"} in refs
     assert len(refs) == 2
 
 
@@ -55,11 +55,11 @@ def test_catalog_response_carries_refs_and_my_class(configured):
     from llm_runner.llm.model_catalog_api import CatalogResponse, ClassTuneRef
 
     resp = CatalogResponse(
-        rows=[], myClassKey="vram8|ram32",
+        rows=[], myClassKey="dgpu-vram8|ram32",
         classTuneRefs=[ClassTuneRef(**r) for r in stores.list_class_tune_refs()])
-    assert resp.myClassKey == "vram8|ram32"
+    assert resp.myClassKey == "dgpu-vram8|ram32"
     ref = resp.classTuneRefs[0]
-    assert (ref.modelId, ref.classKey) == ("gemma-4-26b-a4b-qat", "vram8|ram32")
+    assert (ref.modelId, ref.classKey) == ("gemma-4-26b-a4b-qat", "dgpu-vram8|ram32")
 
 
 def test_override_absent_or_blank_means_auto(configured):
@@ -72,6 +72,6 @@ def test_override_wins_at_the_choke_point(configured):
     # A set override short-circuits detection entirely — no hardware probe runs.
     from llm_runner.llm.install import _current_class_key
 
-    stores.get_runner_config_store().set_setting("class_key_override", "vram20|ram100")
-    assert stores.get_class_key_override() == "vram20|ram100"
-    assert _current_class_key() == "vram20|ram100"
+    stores.get_runner_config_store().set_setting("class_key_override", "dgpu-vram20|ram100")
+    assert stores.get_class_key_override() == "dgpu-vram20|ram100"
+    assert _current_class_key() == "dgpu-vram20|ram100"

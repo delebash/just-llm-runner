@@ -392,6 +392,31 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
 # the recommendation, no match → the §10 speed-floor rule. A second, invisible table
 # duplicating "which model for this hardware" was the defect, not a feature.)
 
+# The seeded NAMED hardware classes (2026-07-22 redesign) — the sidecar giving each
+# class its label + editable VRAM/RAM. ONE seeded class: the author's 8 GB VRAM /
+# 32 GB RAM box, under which the Gemma config below lives. name="" → the UI shows the
+# plain-words "8 GB VRAM · 32 GB RAM" (the user flagged not owning a seeded name string).
+DEFAULT_HARDWARE_CLASSES: list[dict] = [
+    {"class_key": "dgpu-vram8|ram32", "mem_type": "discrete",
+     "vram_gb": 8, "ram_gb": 32, "name": ""},
+]
+
+
+def seed_default_hardware_classes(s) -> int:
+    """Seed the built-in hardware-class rows (merge-by-key: a user-edited class is never
+    clobbered). Called BEFORE seed_default_class_tunes so a seeded config's class exists."""
+    existing = {r.class_key for r in s.query(db.HardwareClass.class_key).all()}
+    added = 0
+    for row in DEFAULT_HARDWARE_CLASSES:
+        if row["class_key"] in existing:
+            continue
+        s.add(db.HardwareClass(class_key=row["class_key"], mem_type=row["mem_type"],
+                               vram_gb=int(row["vram_gb"]), ram_gb=int(row["ram_gb"]),
+                               name=row.get("name", ""), built_in=True))
+        added += 1
+    return added
+
+
 # The seeded + EDITABLE hardware-CLASS tune library (2026-07-07) — a measured launch
 # config keyed by (model_id, class_key = `vram<GB>|ram<GB>`), portable to every box of
 # that class (the user's argument: re-tune is only needed on hardware change, so the
@@ -402,7 +427,7 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
 # 8 GB / 32 GB class (n_cpu_moe 21 — the tested floor; 20 OOMs on a 2070S; the sweep's 23
 # is safer/slower). NO context_shift / cache_reuse (Gemma iSWA supports neither).
 DEFAULT_CLASS_TUNES: list[dict] = [
-    {"model_id": "gemma-4-26b-a4b-qat", "class_key": "vram8|ram32", "switches": {
+    {"model_id": "gemma-4-26b-a4b-qat", "class_key": "dgpu-vram8|ram32", "switches": {
         "n_gpu_layers": "99", "n_cpu_moe": "21", "ctx_len": "32768",
         "batch_size": "512", "ubatch_size": "512", "threads": "8",
         "reasoning_budget": "1024",  # cont_batching dropped: equals llama's default (on)
@@ -1185,6 +1210,7 @@ def seed_llm(s=None) -> None:
         seed_default_runner_settings(s)
         seed_model_list_rules(s)
         seed_default_knobs(s)
+        seed_default_hardware_classes(s)  # before class-tunes: the config's class must exist
         seed_default_class_tunes(s)
         seed_default_embed_templates(s)
         seed_default_feature_prompts(s)

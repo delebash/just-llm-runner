@@ -68,19 +68,86 @@ def machine_key(hw: HardwareInfo) -> str:
     return f"{gpu.name}|{gpu.vram_mb or 0}|{hw.cpu_cores}c|{ram_gb}g"
 
 
+# The hardware memory-architecture classes (2026-07-22 redesign, user). The offload
+# story — what makes the launch config differ — splits three ways:
+#   discrete   — dedicated VRAM + system RAM; tune the GPU/CPU layer split.
+#   integrated — an iGPU sharing ONE system-RAM pool; nothing to offload to.
+#   unified    — an SoC ONE high-bandwidth pool (Apple Silicon / DGX Spark).
+MEM_TYPES = ("discrete", "integrated", "unified")
+
+
+def format_class_key(mem_type: str, vram_gb: int, ram_gb: int) -> str:
+    """The class_key string convention — ONE source, type-first (2026-07-22):
+    `dgpu-vram<V>|ram<R>` (discrete) · `unified-mem<M>` · `igpu-mem<M>` (integrated /
+    the GPU-less fallback). For the one-pool types `ram_gb` IS the pool. BOTH detection
+    (`class_key(hw)`) and the llm-side hardware-class store derive through this, so the
+    format can never drift."""
+    if mem_type == "discrete":
+        return f"dgpu-vram{vram_gb}|ram{ram_gb}"
+    if mem_type == "unified":
+        return f"unified-mem{ram_gb}"
+    return f"igpu-mem{ram_gb}"
+
+
+def parse_class_key(key: str) -> tuple[str, int, int]:
+    """Inverse of `format_class_key` → (mem_type, vram_gb, ram_gb). For the one-pool
+    types vram_gb is 0 and ram_gb is the pool; an unrecognized shape → ('integrated',
+    0, 0). Used by the hardware-class store's `ensure` (the Tune-modal 'Save for
+    hardware class' path knows only the class_key)."""
+    m = re.fullmatch(r"dgpu-vram(\d+)\|ram(\d+)", key or "")
+    if m:
+        return "discrete", int(m.group(1)), int(m.group(2))
+    m = re.fullmatch(r"unified-mem(\d+)", key or "")
+    if m:
+        return "unified", 0, int(m.group(1))
+    m = re.fullmatch(r"igpu-mem(\d+)", key or "")
+    if m:
+        return "integrated", 0, int(m.group(1))
+    return "integrated", 0, 0
+
+
+def _is_discrete_gpu(g) -> bool:
+    """Best-effort: is this scanned AMD/Intel GPU a DISCRETE card, not an iGPU? Intel
+    Arc by name; else a dedicated-VRAM signal (>= 4 GB reported — an iGPU carves little
+    from system RAM, a discrete card reports its full board memory). Heuristic, and the
+    'Use for this PC' override corrects a miss."""
+    if _INTEL_ARC_RE.search(g.name or ""):
+        return True
+    return (g.vram_mb or 0) >= 4096
+
+
+def mem_arch(hw: HardwareInfo) -> str:
+    """This box's memory architecture — `discrete` | `integrated` | `unified`. Platform
+    + vendor, NO heavy deps (2026-07-22; verified against NVIDIA docs that no single CUDA
+    attribute cleanly flags unified — `concurrent_managed_access` is 1 on ordinary
+    discrete Linux GPUs too — so a unified-NVIDIA superchip (DGX Spark) falls to discrete
+    and is corrected by the override, a device-name list being the future refinement):
+        macOS                    → unified   (Apple Silicon; fixes the Mac-as-CPU bug)
+        NVIDIA (cuda runtime)    → discrete
+        Intel Arc / a >=4 GB GPU → discrete
+        any other GPU / no GPU   → integrated (iGPU or the GPU-less one-pool fallback)"""
+    if hw.platform == "macos":
+        return "unified"
+    if hw.runtimes.get("cuda"):
+        return "discrete"
+    if any(_is_discrete_gpu(g) for g in hw.gpus):
+        return "discrete"
+    return "integrated"
+
+
 def class_key(hw: HardwareInfo) -> str:
-    """The COARSE hardware-CLASS key the seeded/editable `class_tunes` layer is matched
-    on — `vram<GB>|ram<GB>` (VRAM band + RAM band), the "similar systems" bucket (user,
-    2026-07-07). Unlike `machine_key`, GPU NAME and CPU CORES are EXCLUDED: the optimal
-    layer placement is set by memory fit (VRAM + RAM), not GPU compute or core count, so
-    two 8 GB / 32 GB boxes want the same config even with different GPUs. VRAM + RAM round
-    to the NEAREST GB (absorbs the just-under a card reports, e.g. 8188 MB → the 8 GB
-    class). No GPU → `cpu|ram<GB>`."""
+    """The COARSE hardware-CLASS key the seeded/editable class library is matched on —
+    memory-architecture-first (2026-07-22). Discrete keys on VRAM + RAM (the offload
+    split); integrated/unified key on the single memory pool. VRAM + RAM round to the
+    NEAREST GB (absorbs the just-under a card reports, e.g. 8188 MB → 8 GB). GPU NAME +
+    CPU CORES are EXCLUDED (placement is memory-fit-bound, not compute-bound)."""
+    arch = mem_arch(hw)
     ram_gb = round((hw.ram_mb or 0) / 1024)
-    gpu = max(hw.gpus, key=lambda g: g.vram_mb or 0) if hw.gpus else None
-    if gpu is None or not (gpu.vram_mb or 0):
-        return f"cpu|ram{ram_gb}"
-    return f"vram{round((gpu.vram_mb or 0) / 1024)}|ram{ram_gb}"
+    if arch == "discrete":
+        gpu = max(hw.gpus, key=lambda g: g.vram_mb or 0) if hw.gpus else None
+        vram_gb = round((gpu.vram_mb or 0) / 1024) if gpu else 0
+        return format_class_key("discrete", vram_gb, ram_gb)
+    return format_class_key(arch, 0, ram_gb)  # integrated / unified — one pool
 
 
 @cache

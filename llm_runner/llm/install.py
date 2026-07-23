@@ -233,10 +233,19 @@ def install_llm(
         class_key_fn=_current_class_key,
         class_configs_fn=lambda: stores.get_class_tune_store().list_all(),
     ))
-    # The editable hardware-class tune library (ROUND 8 Task C, 2026-07-07) — the
-    # class-key twin of the model-tunes router; `_current_class_key` badges +
-    # defaults saves to THIS box's class.
-    app.include_router(make_class_tunes_router(stores.get_class_tune_store, _current_class_key))
+    # The editable hardware-class library (ROUND 8 Task C, 2026-07-07; NAMED-class
+    # redesign 2026-07-22) — the class-key twin of the model-tunes router;
+    # `_current_class_key` badges + defaults saves to THIS box's class. The
+    # hardware-class sidecar (name + editable VRAM/RAM) + the class_key format/parse
+    # convention are wired through the DI seam (llm/ never imports runner/ directly).
+    from ..runner.hardware import format_class_key, parse_class_key
+
+    app.include_router(make_class_tunes_router(
+        stores.get_class_tune_store, _current_class_key,
+        hw_class_store=stores.get_hardware_class_store,
+        derive_key_fn=format_class_key,
+        parse_key_fn=parse_class_key,
+    ))
     # The persistent measurement history (#142 rows 5+6, 2026-07-07): the Tune
     # modal POSTs its "Load & measure" results here; the auto-tune sink below
     # writes every OK trial; DELETE is the Clear-history button.

@@ -179,7 +179,7 @@ def test_seed_default_class_tunes_seeds_the_gemma_row(configured):
     assert seed.seed_default_class_tunes(s) == 1
     s.commit()
     rows = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
-        db.ClassTune.model_id == "gemma-4-26b-a4b-qat", db.ClassTune.class_key == "vram8|ram32").all()}
+        db.ClassTune.model_id == "gemma-4-26b-a4b-qat", db.ClassTune.class_key == "dgpu-vram8|ram32").all()}
     s.close()
     assert rows["n_cpu_moe"] == "21"          # the tested floor (20 OOMs), not the sweep's 23
     assert rows["ctx_len"] == "32768"
@@ -196,15 +196,21 @@ def test_class_key_bands_to_gb():
     from llm_runner.runner.hardware import class_key
 
     class _G:
-        def __init__(self, vram_mb): self.vram_mb = vram_mb
+        def __init__(self, vram_mb, name="GPU"): self.vram_mb, self.name = vram_mb, name
 
     class _H:
-        def __init__(self, ram_mb, gpus): self.ram_mb, self.gpus = ram_mb, gpus
+        def __init__(self, ram_mb, gpus, platform="linux", runtimes=None):
+            self.ram_mb, self.gpus = ram_mb, gpus
+            self.platform, self.runtimes = platform, runtimes or {}
 
-    # 2070 SUPER reports ~8188 MB (just under 8 GB) → the 8 GB class; RAM rounds to GB.
-    assert class_key(_H(32768, [_G(8188)])) == "vram8|ram32"
-    assert class_key(_H(32768, [_G(8192)])) == "vram8|ram32"
-    assert class_key(_H(16384, [])) == "cpu|ram16"          # no GPU
+    cuda = {"cuda": True}
+    # 2070 SUPER reports ~8188 MB (just under 8 GB) → the 8 GB DISCRETE class; RAM rounds to GB.
+    assert class_key(_H(32768, [_G(8188)], runtimes=cuda)) == "dgpu-vram8|ram32"
+    assert class_key(_H(32768, [_G(8192)], runtimes=cuda)) == "dgpu-vram8|ram32"
+    # no GPU → the integrated one-pool fallback (keyed on the single memory number).
+    assert class_key(_H(16384, [])) == "igpu-mem16"
+    # macOS → unified one-pool (Apple Silicon); fixes the old Mac-as-CPU mis-key.
+    assert class_key(_H(196608, [], platform="macos")) == "unified-mem192"
 
 
 # ── Pass 2 (2026-07-22): backend-stamped tunes ────────────────────────────────

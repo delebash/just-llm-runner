@@ -174,18 +174,27 @@ def test_model_tune_overrides_class_tune(configured):
     assert sw["n_cpu_moe"] == "23"
 
 
-def test_seed_default_class_tunes_seeds_the_gemma_row(configured):
+def test_seed_default_class_tunes_seeds_the_gemma_rows(configured):
     s = db.session()
-    assert seed.seed_default_class_tunes(s) == 1
+    assert seed.seed_default_class_tunes(s) == 2   # discrete 8 GB + integrated 32 GB
     s.commit()
-    rows = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
+    dgpu = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
         db.ClassTune.model_id == "gemma-4-26b-a4b-qat", db.ClassTune.class_key == "dgpu-vram8|ram32").all()}
+    igpu = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
+        db.ClassTune.model_id == "gemma-4-26b-a4b-qat", db.ClassTune.class_key == "igpu-mem32").all()}
     s.close()
-    assert rows["n_cpu_moe"] == "21"          # the tested floor (20 OOMs), not the sweep's 23
-    assert rows["ctx_len"] == "32768"
-    assert rows["batch_size"] == "512"
-    assert rows["reasoning_budget"] == "1024"
-    assert "context_shift" not in rows and "cache_reuse" not in rows   # Gemma iSWA: never
+    assert dgpu["n_cpu_moe"] == "21"          # the tested floor (20 OOMs), not the sweep's 23
+    assert dgpu["ctx_len"] == "32768"
+    assert dgpu["batch_size"] == "512"
+    assert dgpu["reasoning_budget"] == "1024"
+    assert "context_shift" not in dgpu and "cache_reuse" not in dgpu   # Gemma iSWA: never
+    # The integrated-GPU class (kit matrix): UMA one pool -> no expert offload, and
+    # flash-attn OFF (it hurts this iGPU; overrides the base bundle's "on", right only for CUDA).
+    assert igpu["n_gpu_layers"] == "99"
+    assert igpu["n_cpu_moe"] == "0"
+    assert igpu["flash_attn"] == "off"
+    assert igpu["ubatch_size"] == "512"
+    assert "threads" not in igpu             # machine-specific — derived per box, not class-baked
     # idempotent (merge-by-(model, class)) — a re-seed adds nothing
     s = db.session()
     assert seed.seed_default_class_tunes(s) == 0

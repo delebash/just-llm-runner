@@ -399,6 +399,10 @@ DEFAULT_SWITCH_PRESETS: list[dict] = [
 DEFAULT_HARDWARE_CLASSES: list[dict] = [
     {"class_key": "dgpu-vram8|ram32", "mem_type": "discrete",
      "vram_gb": 8, "ram_gb": 32, "name": ""},
+    # The 32 GB integrated-GPU class (e.g. the Core Ultra 7 laptop's Arc iGPU). ONE
+    # memory pool → vram_gb 0. name="" → the UI shows "Integrated GPU · 32 GB shared RAM".
+    {"class_key": "igpu-mem32", "mem_type": "integrated",
+     "vram_gb": 0, "ram_gb": 32, "name": ""},
 ]
 
 
@@ -431,6 +435,20 @@ DEFAULT_CLASS_TUNES: list[dict] = [
         "n_gpu_layers": "99", "n_cpu_moe": "21", "ctx_len": "32768",
         "batch_size": "512", "ubatch_size": "512", "threads": "8",
         "reasoning_budget": "1024",  # cont_batching dropped: equals llama's default (on)
+    }},
+    # Row #2 = the on-box-measured Gemma 26B-A4B config for the 32 GB INTEGRATED-GPU
+    # class (Core Ultra 7 / Arc iGPU, Vulkan; kit matrix 2026-07-23, recovery doc §6+§14+§16).
+    # It's a UMA one-pool box, so NO expert offload (n_cpu_moe 0 — the ncmoe sweep proved
+    # every offload step loses on BOTH prefill and decode) and flash_attn OFF (it HURTS
+    # this iGPU's prefill badly, and overrides the base bundle's "on" which is right only
+    # for CUDA — class_tunes resolve above the bundles). ngl 99 / ub 512 = the matrix
+    # winner. threads OMITTED (machine-specific — derived per box from cpu_cores, since the
+    # class spans machines with different core counts); the engine backend (Vulkan) comes
+    # from detection, not this row.
+    {"model_id": "gemma-4-26b-a4b-qat", "class_key": "igpu-mem32", "switches": {
+        "n_gpu_layers": "99", "n_cpu_moe": "0", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "flash_attn": "off",
+        "reasoning_budget": "1024",
     }},
 ]
 

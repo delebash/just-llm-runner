@@ -29,10 +29,12 @@ def configured():
 
 
 def test_refs_are_distinct_model_class_pairs(configured):
-    # The seeded Gemma config holds SEVERAL flag rows — exactly ONE ref comes out
-    # (distinct (model, class) pairs, not one ref per flag).
+    # Each seeded Gemma config holds SEVERAL flag rows — exactly ONE ref per
+    # (model, class) comes out (distinct pairs, not one ref per flag). Two seeded
+    # classes now: the 8 GB discrete box and the 32 GB integrated-GPU box.
     assert stores.list_class_tune_refs() == [
-        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram8|ram32"}]
+        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram8|ram32"},
+        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "igpu-mem32"}]
 
 
 def test_a_manually_authored_class_becomes_a_ref(configured):
@@ -48,7 +50,7 @@ def test_a_manually_authored_class_becomes_a_ref(configured):
         s.close()
     refs = stores.list_class_tune_refs()
     assert {"modelId": "m-big", "classKey": "dgpu-vram20|ram100"} in refs
-    assert len(refs) == 2
+    assert len(refs) == 3   # 2 seeded (8 GB discrete + 32 GB iGPU) + the manual one
 
 
 def test_catalog_response_carries_refs_and_my_class(configured):

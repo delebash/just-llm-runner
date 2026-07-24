@@ -74,6 +74,38 @@ def test_fit_small_gpu_moe_offloads_rest():
     assert fit.n_cpu_moe == 10 - fit.n_gpu_layers    # the rest offloads to CPU
 
 
+def test_fit_ncmoe_discounts_the_reservation():
+    """The ncmoe-aware reservation (2026-07-24 — the 2026-07-11 incident's item 2):
+    an ncmoe'd MoE reserves what actually lands on the GPU, not the whole file
+    (Gemma 26B at ngl 30/ncmoe 21 booked 20.6 GB against a measured ~6.5 GB, so
+    every admission cried "over budget"). Same explicit split with vs without the
+    expert dims in the header — the discounted reservation must be a small
+    fraction; a header without expert dims keeps the exact old (undiscounted)
+    number, and an ncmoe-0 MoE is untouched."""
+    from llm_runner.runner.process import Overrides
+
+    ov = Overrides(n_gpu_layers=30, n_cpu_moe=21, ctx_len=4096)
+    expert_meta = GgufMeta(
+        architecture="g", block_count=48, embedding_length=2048, expert_count=128,
+        head_count=16, head_count_kv=4, expert_feed_forward_length=1024,
+    )
+    nodims_meta = GgufMeta(
+        architecture="g", block_count=48, embedding_length=2048, expert_count=128,
+        head_count=16, head_count_kv=4,
+    )
+    discounted = compute_fit(expert_meta, 13_300_000_000, _hw(vram_mb=8192), ov)
+    undiscounted = compute_fit(nodims_meta, 13_300_000_000, _hw(vram_mb=8192), ov)
+    assert discounted.n_gpu_layers == undiscounted.n_gpu_layers == 30
+    # e > 0.9 and 21/30 layers stripped → the weight term collapses to ~1/3;
+    # the old number is the full-file booking (the 20.6-GB class of estimate).
+    assert discounted.vram_mb < undiscounted.vram_mb * 0.55
+    assert undiscounted.vram_mb > 8000   # the old fiction: far over an 8 GB card
+    # ncmoe 0 → byte-identical to the undiscounted estimate (no behavior change).
+    ov0 = Overrides(n_gpu_layers=30, n_cpu_moe=0, ctx_len=4096)
+    assert compute_fit(expert_meta, 13_300_000_000, _hw(vram_mb=8192), ov0).vram_mb == \
+        compute_fit(nodims_meta, 13_300_000_000, _hw(vram_mb=8192), ov0).vram_mb
+
+
 def test_fit_overrides_win():
     fit = compute_fit(
         _meta(block_count=40, expert_count=8), _TEN_GB, _hw(vram_mb=24000),

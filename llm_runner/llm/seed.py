@@ -555,8 +555,17 @@ DEFAULT_KNOBS: list[dict] = [
     # context_shift + cache_reuse REMOVED from the catalog (QC-11, user 2026-07-09
     # "remove from catalog" — they were also pulled from the shipped bundles
     # 2026-07-07 as a measured net loss). Still typeable as custom switches.
+    # spec_type carries OPTIONS (2026-07-24, the user's go after the "nobe" incident: a
+    # typo'd value kills the load with the error visible only in the router log — the
+    # server refuses unknown spec types). This deliberately AMENDS QC-18 ("switch values
+    # are plain text boxes, never a dropdown") for option-carrying knobs only; knobs
+    # without options stay free text.
     {"flag_name": "spec_type", "kind": "string", "plane": 1, "tier": "advanced",
-     "help": "Draft-model speculative decode; gains are machine-dependent — measure. Values: none, draft-mtp, draft-dflash, draft-eagle3, ngram-mod. draft-mtp auto-uses the catalog's MTP sidecar; dflash/eagle3 need model_draft pointing at a matching trained drafter GGUF (engine >= b10094)."},
+     "help": "Draft-model speculative decode; gains are machine-dependent — measure. draft-mtp auto-uses the catalog's MTP sidecar; dflash/eagle3 need model_draft pointing at a matching trained drafter GGUF (engine >= b10094).",
+     "options": [
+         {"value": "none"}, {"value": "draft-mtp"}, {"value": "draft-dflash"},
+         {"value": "draft-eagle3"}, {"value": "ngram-mod"},
+     ]},
     {"flag_name": "spec_n_max", "kind": "int", "plane": 1, "tier": "advanced",
      "help": "How many tokens the draft proposes per step. Measured best: 2 for draft-mtp (2026-07-05); the DFlash author's guidance is 6."},
     # model_draft promoted to a first-class knob (2026-07-24, the DFlash test setup):
@@ -1121,8 +1130,10 @@ def seed_default_knobs(s) -> int:
     default_value — the app stopped storing the engine's own defaults), built-in
     rows dropped from the seed are DELETED (QC-11: context_shift + cache_reuse;
     their KnobOption rows cascade), and built-in option rows the seed no longer
-    carries are deleted too (QC-18: switch values are plain text/number boxes —
-    no seeded enum lists remain on plane 1)."""
+    carries are deleted too (QC-18: switch values are plain text/number boxes;
+    AMENDED 2026-07-24 — spec_type carries options again, the sanctioned enum
+    exception after the "nobe" typo killed a load: the server refuses unknown
+    spec types, so a dropdown is the honest input there)."""
     existing = {r.flag_name: r for r in s.query(db.KnobCatalog).all()}
     seeded_names = {k["flag_name"] for k in DEFAULT_KNOBS}
     added = 0

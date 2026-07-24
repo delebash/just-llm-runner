@@ -31,6 +31,13 @@ def _kv_u32_array(key: str, vals: list[int]) -> bytes:
     return _gstr(key) + struct.pack("<I", 9) + body
 
 
+def _kv_bool_array(key: str, vals: list[bool]) -> bytes:
+    # type 9 = ARRAY; subtype 7 = BOOL (1 byte each).
+    body = struct.pack("<I", 7) + struct.pack("<Q", len(vals))
+    body += b"".join(struct.pack("<?", v) for v in vals)
+    return _gstr(key) + struct.pack("<I", 9) + body
+
+
 def _build_gguf(kvs: list[bytes]) -> bytes:
     header = b"GGUF" + struct.pack("<I", 3) + struct.pack("<Q", 0) + struct.pack("<Q", len(kvs))
     return header + b"".join(kvs)
@@ -61,6 +68,10 @@ def test_read_moe_model_skipping_an_array_kv(tmp_path):
         _kv_u32_array("qwen3moe.some_array", [10, 20, 30, 40]),
         _kv_u32("qwen3moe.embedding_length", 2048),
         _kv_u32("qwen3moe.expert_count", 128),
+        # The FFN dims the ncmoe-aware fit reads (2026-07-24).
+        _kv_u32("qwen3moe.feed_forward_length", 6144),
+        _kv_u32("qwen3moe.expert_feed_forward_length", 768),
+        _kv_u32("qwen3moe.expert_shared_feed_forward_length", 768),
     ]))
     m = read_gguf_metadata(p)
     assert m.architecture == "qwen3moe"
@@ -68,6 +79,83 @@ def test_read_moe_model_skipping_an_array_kv(tmp_path):
     assert m.embedding_length == 2048
     assert m.expert_count == 128
     assert m.is_moe
+    assert m.feed_forward_length == 6144
+    assert m.expert_feed_forward_length == 768
+    assert m.expert_shared_feed_forward_length == 768
+
+
+def test_read_iswa_per_layer_facts(tmp_path):
+    """The two allowlisted per-layer arrays are MATERIALISED (everything else still
+    skips); the per-layer head_count_kv array must not corrupt the scalar field.
+    Mirrors the real Gemma-4 26B header shape (2026-07-24)."""
+    p = tmp_path / "iswa.gguf"
+    p.write_bytes(_build_gguf([
+        _kv_str("general.architecture", "gemma4"),
+        _kv_u32("gemma4.block_count", 6),
+        _kv_u32("gemma4.embedding_length", 2816),
+        _kv_u32_array("gemma4.attention.head_count_kv", [8, 8, 2, 8, 8, 2]),
+        _kv_u32("gemma4.attention.sliding_window", 1024),
+        _kv_bool_array("gemma4.attention.sliding_window_pattern",
+                       [True, True, False, True, True, False]),
+        _kv_u32("gemma4.attention.key_length", 512),
+        _kv_u32("gemma4.attention.value_length", 512),
+        _kv_u32("gemma4.attention.key_length_swa", 256),
+        _kv_u32("gemma4.attention.value_length_swa", 256),
+        _kv_u32_array("gemma4.unrelated_array", [1, 2, 3]),  # still skipped
+    ]))
+    m = read_gguf_metadata(p)
+    assert m.head_count_kv_per_layer == [8, 8, 2, 8, 8, 2]
+    assert m.head_count_kv == 0            # the array never poses as the scalar
+    assert m.sliding_window == 1024
+    assert m.sliding_window_pattern == [True, True, False, True, True, False]
+    assert (m.key_length, m.value_length, m.key_length_swa, m.value_length_swa) == (512, 512, 256, 256)
+
+    # kv_mb_at_ctx: windowed layers hold min(ctx, window) tokens at the swa dims;
+    # global layers the full ctx at the full dims — hand-summed.
+    ctx, bits = 32768, 8
+    windowed = 4 * (8 * (256 + 256) * 1024 * 1.0)      # 4 layers × heads×(k+v)×tokens×1B
+    global_ = 2 * (2 * (512 + 512) * ctx * 1.0)
+    assert abs(m.kv_mb_at_ctx(ctx, bits) - (windowed + global_) / 1e6) < 1e-6
+
+    # Guards: no pattern / mismatched pattern → None (the regression term stays).
+    import dataclasses
+    assert dataclasses.replace(m, sliding_window=0).kv_mb_at_ctx(ctx, bits) is None
+    assert dataclasses.replace(m, sliding_window_pattern=[True]).kv_mb_at_ctx(ctx, bits) is None
+    assert dataclasses.replace(m, key_length=0).kv_mb_at_ctx(ctx, bits) is None
+
+
+def test_expert_byte_share():
+    from llm_runner.runner.gguf import GgufMeta
+
+    # Dense → 0; MoE WITHOUT expert dims in the header → honest 0 (no guessing).
+    dense = GgufMeta(architecture="x", block_count=48, embedding_length=4096, expert_count=0)
+    assert dense.expert_byte_share() == 0.0
+    nodims = GgufMeta(architecture="x", block_count=48, embedding_length=4096, expert_count=128)
+    assert nodims.expert_byte_share() == 0.0
+
+    # Expert-dominated MoE (GQA 4/16): experts = 3·n_embd·ff_exp·E,
+    # attention = n_embd²·(2 + 2·kv_ratio) — the structural formula, verbatim.
+    moe = GgufMeta(architecture="x", block_count=48, embedding_length=2048,
+                   expert_count=128, head_count=16, head_count_kv=4,
+                   expert_feed_forward_length=1024)
+    experts = 3 * 2048 * 1024 * 128
+    attention = 2048 * 2048 * (2 + 2 * (4 / 16))
+    assert abs(moe.expert_byte_share() - experts / (experts + attention)) < 1e-9
+    assert moe.expert_byte_share() > 0.9  # experts dominate the bytes
+
+    # A shared-expert FFN sits in the NON-discounted bucket (n-cpu-moe moves only
+    # the routed *_exps tensors) → the share drops.
+    shared = GgufMeta(architecture="x", block_count=48, embedding_length=2048,
+                      expert_count=128, head_count=16, head_count_kv=4,
+                      expert_feed_forward_length=1024,
+                      expert_shared_feed_forward_length=1024)
+    assert 0.0 < shared.expert_byte_share() < moe.expert_byte_share()
+
+    # Missing head counts → MHA fallback (kv_ratio 1) — MORE attention bytes,
+    # SMALLER share: the conservative direction (books more VRAM, never less).
+    nohc = GgufMeta(architecture="x", block_count=48, embedding_length=2048,
+                    expert_count=128, expert_feed_forward_length=1024)
+    assert 0.0 < nohc.expert_byte_share() < moe.expert_byte_share()
 
 
 def test_bad_magic_raises(tmp_path):

@@ -17,18 +17,22 @@ export async function fetchKnobCatalog() {
 }
 
 // The Plane-1 map KnobGrid's add-row mode takes as `catalog`:
-// flagName -> { help, kind, perRequest }. QC-18 (user, 2026-07-09): switch values
-// are plain text/number boxes everywhere — no options-driven dropdowns; the HELP
-// carries what a switch does + its accepted values. `kind` (int|float|…) only
-// picks text vs number for the value box. No friendly `label` — the UI shows the
-// EXACT switch name only (user ruling 2026-07-16). `perRequest` (the labeling law,
-// 2026-07-16: "a row in a switches surface must be a real engine switch or SAY it
-// isn't") carries the knob's per_request flag through to KnobGrid's one note site,
-// so a JSON-per-request knob (reasoning_budget) can't read as a launch flag.
+// flagName -> { help, kind, perRequest, options }. QC-18 (user, 2026-07-09) made
+// switch values plain text/number boxes everywhere; AMENDED 2026-07-24 (the user's
+// go, after a typo'd spec_type value — "nobe" — killed a load with the error
+// visible only in the router log): a knob that DECLARES seeded options renders a
+// dropdown; every other knob stays a free text/number box, so a NEW llama.cpp
+// param still needs no code. `kind` (int|float|…) picks text vs number. No
+// friendly `label` — the UI shows the EXACT switch name only (user ruling
+// 2026-07-16). `perRequest` (the labeling law, 2026-07-16) carries the knob's
+// per_request flag through to KnobGrid's one note site.
 export function plane1SwitchCatalog(knobs) {
   return Object.fromEntries(
     (knobs || [])
       .filter((k) => k.plane === 1)
-      .map((k) => [k.flagName, { help: k.help, kind: k.kind, perRequest: k.perRequest }]),
+      .map((k) => [k.flagName, {
+        help: k.help, kind: k.kind, perRequest: k.perRequest,
+        options: (k.options || []).map((o) => ({ value: o.value, label: o.label || o.value })),
+      }]),
   );
 }

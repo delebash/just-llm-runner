@@ -412,11 +412,34 @@ def compute_fit(
     # formula's ~1.5 GB base offset, which represents an in-use GPU. A draft rides ON TOP: the
     # arbiter must reserve what the process actually holds, or a co-resident admission
     # over-books by the draft's size (the very miss this term exists to close).
+    #
+    # THE ncmoe TERM (2026-07-24, the 2026-07-11 incident's item 2 — the last unbuilt root):
+    # `--n-cpu-moe` keeps the expert tensors of the first N layers in system RAM, but this
+    # forward estimate booked the FULL file size per GPU layer — Gemma 26B (ngl 30/ncmoe 21)
+    # reserved 20.6 GB against a measured ~6.5 GB, so every admission cried "over budget" and
+    # co-load decisions ran on fiction. The size term is now scaled by `moe_gpu_size_share`
+    # (expert share from the GGUF header; 0 → the exact old estimate). The INVERSE split
+    # (`max_gpu_layers` above) deliberately stays undiscounted: for an untuned MoE it would
+    # push MORE layers onto the GPU — a behavior change that needs its own measurement round,
+    # while this reservation fix is pure accounting (the true-up still corrects post-load).
+    # ... and its sibling (same date): for an iSWA model (Gemma 3/4 — most layers hold
+    # only a small KV window) the header's per-layer facts give the REAL KV size;
+    # `kv_mb_at_ctx` returns None on every other model → the fitted term as ever.
+    # Together on the real Gemma-4 26B (ngl 30/ncmoe 21/ctx 32k): 19.8 GB → ~7 GB
+    # against a measured 6.5-7.9 GB.
     if n_gpu > 0:
+        # getattr-guarded like `context_length` above: tests + duck-typed callers pass
+        # minimal meta objects without the 2026-07-24 methods → 0/None → the old estimate.
+        share_fn = getattr(meta, "expert_byte_share", None)
+        kv_fn = getattr(meta, "kv_mb_at_ctx", None)
+        moe_share = fit.moe_gpu_size_share(
+            n_layers=n_layers, gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe,
+            expert_share=share_fn() if (meta.is_moe and callable(share_fn)) else 0.0,
+        )
         vram_mb = int(fit.estimate_vram_mb(
-            size_mb=total_weight_bytes / 1e6, n_layers=n_layers, n_kv_heads=n_kv_heads,
+            size_mb=total_weight_bytes / 1e6 * moe_share, n_layers=n_layers, n_kv_heads=n_kv_heads,
             embedding_dim=meta.embedding_length, ctx_size=ctx_len, cache_type=cache_type,
-            gpu_layers=n_gpu,
+            gpu_layers=n_gpu, kv_mb=kv_fn(ctx_len, cache_type) if callable(kv_fn) else None,
         ) + draft_marginal_mb)
     elif draft_full_mb > 0:
         # Main fell fully to CPU, but the draft still lands on the GPU — it is then the

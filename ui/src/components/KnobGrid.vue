@@ -6,12 +6,15 @@
 // model + the SAME commit/patch/remove helpers (no forked logic):
 //
 //   • DEFAULT (add-a-row) — `catalog` is an object map (name -> {help, kind,
-//     perRequest}). You add a blank row, type a name + value, remove (✕) — a row
-//     present is a flag sent; absent = the engine's own behavior (the user's
+//     perRequest, options}). You add a blank row, type a name + value, remove (✕) —
+//     a row present is a flag sent; absent = the engine's own behavior (the user's
 //     command-line model, QC-17/18 2026-07-09). Values are PLAIN text/number
-//     boxes (`kind` only picks the input type); the help (hover) carries what a
-//     switch does + its accepted values — never an options dropdown. So a NEW
-//     llama.cpp param needs no code — just a row. A `perRequest` knob renders THE
+//     boxes (`kind` only picks the input type) — EXCEPT a knob that declares
+//     seeded options, which renders a dropdown (QC-18 amended 2026-07-24, the
+//     user's go after the "nobe" spec_type typo killed a load with the error
+//     visible only in the router log; enum knobs get a select, everything else
+//     stays free text). So a NEW llama.cpp param still needs no code — just a
+//     row. A `perRequest` knob renders THE
 //     one per-request note under its row (the labeling law, 2026-07-16 — a row here
 //     must be a real launch switch or say it isn't). Used by the Global launch
 //     defaults bundles, the Hardware/model class editor, AND the Tune & measure grid.
@@ -104,6 +107,12 @@ function meta(name) {
 function valueType(name) {
   const kind = meta(name)?.kind;
   return kind === "int" || kind === "float" ? "number" : "text";
+}
+// QC-18 amendment (2026-07-24): a knob that declares seeded options renders a
+// dropdown in add-row mode too (the checklist mode always did — same rule now).
+function valueOptions(name) {
+  const opts = meta(name)?.options;
+  return Array.isArray(opts) && opts.length ? opts : null;
 }
 // ── add-row sections ──
 // Always a section list (one unlabeled section when no `groups`), each row keeping
@@ -278,7 +287,15 @@ const displayRows = computed(() => {
             />
             <span v-if="!groups.length && origins[r.name]" class="ui-kg-origin" title="Where this value comes from">{{ origins[r.name] }}</span>
           </div>
+          <UiSelect
+            v-if="valueOptions(r.name)"
+            :model-value="r.value"
+            :options="valueOptions(r.name)"
+            :title="meta(r.name)?.help || ''"
+            @update:model-value="patch(i, 'value', $event)"
+          />
           <UiInput
+            v-else
             :model-value="r.value"
             :placeholder="valuePlaceholder"
             :type="valueType(r.name)"

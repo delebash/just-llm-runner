@@ -92,12 +92,20 @@ def test_plane1_carries_no_engine_default_claims(wired):
     """QC-17 + QC-18 (user, 2026-07-09): plane-1 switches carry NO default_value
     (the app stopped storing the engine's own defaults) and NO options (values are
     plain text/number boxes; the HELP names the accepted values). Plane-2 sampler
-    prefills are untouched."""
+    prefills are untouched.
+
+    QC-18 AMENDED 2026-07-24 (the user's go, after the "nobe" typo killed a load
+    with the error visible only in the router log): spec_type is the sanctioned
+    enum exception — the server REFUSES unknown spec types, so a dropdown is the
+    honest input; every other plane-1 knob stays free text."""
     knobs = stores.list_knob_catalog()
     for k in knobs:
-        if k["plane"] == 1:
+        if k["plane"] == 1 and k["flagName"] != "spec_type":
             assert k["default"] == "", f'{k["flagName"]} still stores a default claim'
             assert k["options"] == [], f'{k["flagName"]} still carries options'
+    spec = next(k for k in knobs if k["flagName"] == "spec_type")
+    assert [o["value"] for o in spec["options"]] == [
+        "none", "draft-mtp", "draft-dflash", "draft-eagle3", "ngram-mod"]
     by_name = {k["flagName"]: k for k in knobs}
     assert "f32, f16, bf16, q8_0, q4_0, q4_1, iq4_nl, q5_0, q5_1" in by_name["cache_type_k"]["help"]
     assert "on, off, auto" in by_name["flash_attn"]["help"]

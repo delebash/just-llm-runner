@@ -137,15 +137,26 @@ def kv_bytes_per_token(n_kv_heads: int, cache_type: int) -> float:
 
 
 def _slope_offset(
-    size_mb: float, n_layers: int, n_kv_heads: int, embedding_dim: int, ctx_size: int, cache_type: int
+    size_mb: float, n_layers: int, n_kv_heads: int, embedding_dim: int, ctx_size: int, cache_type: int,
+    kv_mb: float | None = None,
 ) -> tuple[float, float, float]:
-    """(A, B, C) for the linear-in-gpu_layers model  vram = A·(gpu_layers + B) + C."""
+    """(A, B, C) for the linear-in-gpu_layers model  vram = A·(gpu_layers + B) + C.
+
+    `kv_mb` (2026-07-24, the iSWA-honest KV): when the caller computed the model's
+    REAL whole-model KV size from per-layer header facts (`GgufMeta.kv_mb_at_ctx` —
+    interleaved sliding-window models, where the regression's uniform full-ctx KV
+    projection overbooks by GBs), it replaces the fitted `_C1` KV term with
+    `kv_mb / n_layers` per layer. None (every non-iSWA model) → the fitted term,
+    byte-identical to before."""
     n_layers = max(1, n_layers)
     ctx_size = max(1, ctx_size)
     size_per_layer = size_mb / n_layers
-    kv_cache_factor = kv_bytes_per_token(n_kv_heads, cache_type) * ctx_size
+    if kv_mb is not None:
+        kv_per_layer = kv_mb / n_layers
+    else:
+        kv_per_layer = _C1 * kv_bytes_per_token(n_kv_heads, cache_type) * ctx_size
     embedding_per_context = embedding_dim / ctx_size
-    a = size_per_layer - _C0 + _C1 * kv_cache_factor
+    a = size_per_layer - _C0 + kv_per_layer
     b = max(_C2, cache_type - (math.floor(_C3 * embedding_per_context) + _C4))
     return a, b, _C5
 
@@ -180,10 +191,12 @@ def kv_affordable(*, vram_budget_mb: float, n_layers: int, n_kv_heads: int, cach
 
 def estimate_vram_mb(
     *, size_mb: float, n_layers: int, n_kv_heads: int, embedding_dim: int,
-    ctx_size: int, cache_type: int, gpu_layers: int,
+    ctx_size: int, cache_type: int, gpu_layers: int, kv_mb: float | None = None,
 ) -> float:
-    """Predicted VRAM (MiB) to offload `gpu_layers` of this GGUF at `ctx_size`."""
-    a, b, c = _slope_offset(size_mb, n_layers, n_kv_heads, embedding_dim, ctx_size, cache_type)
+    """Predicted VRAM (MiB) to offload `gpu_layers` of this GGUF at `ctx_size`.
+    `kv_mb`: the precise whole-model KV size when the header supports it (iSWA
+    models — see `_slope_offset`); None → the fitted KV term as ever."""
+    a, b, c = _slope_offset(size_mb, n_layers, n_kv_heads, embedding_dim, ctx_size, cache_type, kv_mb)
     return a * (gpu_layers + b) + c
 
 
@@ -208,6 +221,31 @@ def marginal_vram_mb(
         embedding_dim=embedding_dim, ctx_size=ctx_size, cache_type=cache_type,
         gpu_layers=gpu_layers,
     ) - _C5)
+
+
+def moe_gpu_size_share(
+    *, n_layers: int, gpu_layers: int, n_cpu_moe: int, expert_share: float,
+) -> float:
+    """Multiplier on the WHOLE-FILE weight size so the regression's per-layer size term
+    reflects what `--n-cpu-moe` actually leaves on the GPU (2026-07-24; the arbiter
+    over-booking defect — item 2 of the 2026-07-11 incident, the one root left unbuilt:
+    Gemma 26B at ngl 30 / ncmoe 21 booked 20.6 GB against a measured ~6.5 GB, so every
+    admission warned "over budget" and co-load admissions ran on fiction).
+
+    Model: of the `gpu_layers` offloaded layers, the first `n_cpu_moe` keep only their
+    non-expert bytes on the GPU (attention/dense/shared; share `1 - expert_share`); the
+    rest carry full layers. Overlap = min(n_cpu_moe, gpu_layers) — the box-measured
+    semantics (ngl 30 / ncmoe 21 ≈ 6.5 GB real fits overlap 21, not the 3 the
+    last-layers-first reading would give). `expert_share` comes from the GGUF header
+    (`GgufMeta.expert_byte_share`); 0 (dense / unknown dims / ncmoe 0) → 1.0, the exact
+    pre-2026-07-24 estimate. Pure math — the caller scales `size_mb` by this before
+    `estimate_vram_mb`; the KV term rides the layer count, deliberately untouched."""
+    g = min(max(0, gpu_layers), max(1, n_layers))
+    if g <= 0 or expert_share <= 0:
+        return 1.0
+    stripped = min(max(0, n_cpu_moe), g)          # GPU layers whose experts sit in RAM
+    share = (g - stripped * expert_share) / g
+    return max(0.0, min(1.0, share))
 
 
 def max_gpu_layers(

@@ -88,6 +88,32 @@ def test_estimate_vram_monotonic():
     assert vrams == sorted(vrams)  # more layers on GPU ⇒ more VRAM
 
 
+def test_moe_gpu_size_share():
+    # No discount cases: dense/unknown share, no GPU layers, ncmoe 0 — all 1.0
+    # (byte-identical to the pre-2026-07-24 estimate).
+    assert fit.moe_gpu_size_share(n_layers=48, gpu_layers=30, n_cpu_moe=21, expert_share=0.0) == 1.0
+    assert fit.moe_gpu_size_share(n_layers=48, gpu_layers=0, n_cpu_moe=21, expert_share=0.9) == 1.0
+    assert fit.moe_gpu_size_share(n_layers=48, gpu_layers=30, n_cpu_moe=0, expert_share=0.9) == 1.0
+    # The incident shape (Gemma 26B, ngl 30 / ncmoe 21): 21 of the 30 GPU layers
+    # keep only their non-expert bytes → (30 − 21·e)/30.
+    share = fit.moe_gpu_size_share(n_layers=48, gpu_layers=30, n_cpu_moe=21, expert_share=0.9)
+    assert abs(share - (30 - 21 * 0.9) / 30) < 1e-9
+    # ncmoe beyond the GPU layer count clamps to the GPU layers.
+    clamped = fit.moe_gpu_size_share(n_layers=48, gpu_layers=10, n_cpu_moe=99, expert_share=0.9)
+    assert abs(clamped - (10 - 10 * 0.9) / 10) < 1e-9
+    # Always a sane multiplier.
+    assert 0.0 <= clamped <= 1.0
+
+
+def test_estimate_kv_override():
+    # kv_mb=None → byte-identical to the fitted KV term; a small REAL KV (iSWA
+    # models, computed from per-layer header facts) undercuts the projection.
+    cfg = _cfg()
+    base = fit.estimate_vram_mb(gpu_layers=16, **cfg)
+    assert fit.estimate_vram_mb(gpu_layers=16, kv_mb=None, **cfg) == base
+    assert fit.estimate_vram_mb(gpu_layers=16, kv_mb=450.0, **cfg) < base
+
+
 def test_max_gpu_layers_inverts_estimate():
     cfg = _cfg()
     budget = 4000.0

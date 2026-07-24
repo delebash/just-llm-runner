@@ -556,9 +556,14 @@ DEFAULT_KNOBS: list[dict] = [
     # "remove from catalog" — they were also pulled from the shipped bundles
     # 2026-07-07 as a measured net loss). Still typeable as custom switches.
     {"flag_name": "spec_type", "kind": "string", "plane": 1, "tier": "advanced",
-     "help": "Draft-model speculative decode. MTP GGUF only; gains are machine-dependent — measure. Values: none, draft-mtp, ngram-mod."},
+     "help": "Draft-model speculative decode; gains are machine-dependent — measure. Values: none, draft-mtp, draft-dflash, draft-eagle3, ngram-mod. draft-mtp auto-uses the catalog's MTP sidecar; dflash/eagle3 need model_draft pointing at a matching trained drafter GGUF (engine >= b10094)."},
     {"flag_name": "spec_n_max", "kind": "int", "plane": 1, "tier": "advanced",
-     "help": "How many tokens the draft proposes per step."},
+     "help": "How many tokens the draft proposes per step. Measured best: 2 for draft-mtp (2026-07-05); the DFlash author's guidance is 6."},
+    # model_draft promoted to a first-class knob (2026-07-24, the DFlash test setup):
+    # it was always an Overrides field reachable as a raw switch row (the power-user
+    # escape, process.py) — surfacing it with help beats making users guess the name.
+    {"flag_name": "model_draft", "kind": "string", "plane": 1, "tier": "advanced",
+     "help": "Path to an explicit speculative-draft GGUF (--model-draft). Normally auto-filled from the catalog's MTP sidecar; set by hand to test an alternate drafter (e.g. DFlash) together with spec_type=draft-dflash. The draft is charged to the VRAM fit."},
     {"flag_name": "reasoning_budget", "kind": "int", "plane": 1, "per_request": True, "tier": "advanced",
      "help": "Thinking-token budget for this model, layered like any switch (global → hardware class → your applied config) — but NOT a launch flag: it is sent with EVERY request as JSON and applies immediately, no reload. -1 = unlimited (can think until the context fills), 0 = thinking off, N = at most N thinking tokens."},
     # ── Plane 2 — per-request samplers: COMMON ──

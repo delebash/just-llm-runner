@@ -2588,12 +2588,15 @@ class RunnerService:
                 # Solo AND a clean restart both still crashed on the draft → NOT the co-load
                 # race: the draft itself is the problem (corrupt/mismatched draft GGUF, or it
                 # genuinely doesn't fit). Surface the real error — never silently degrade to
-                # no-MTP. The user can re-download the draft or turn MTP off in the tune.
+                # no-MTP. Ordered by likelihood (2026-07-24, user report): the common cause is
+                # a tune that lowered n_cpu_moe (more experts on the GPU → no room left for the
+                # draft), so raising it back is the FIRST fix; re-download / MTP-off follow.
                 raise RuntimeError(
                     f"model {entry.model_id!r} could not load its speculative-decoding (MTP) draft "
-                    f"even on its own (status={outcome}). The draft file may be corrupt or too "
-                    f"large for VRAM — re-download it, or turn MTP off in the model's tune. "
-                    f"Details: {tail[-400:]}"
+                    f"even on its own (status={outcome}). Most often the tune left too little VRAM "
+                    f"for the draft — raise n_cpu_moe (fewer experts on the GPU) in the model's "
+                    f"tune. Otherwise the draft may be corrupt (re-download it) or you can turn MTP "
+                    f"off. Details: {tail[-400:]}"
                 )
             if ngl > 0 and _looks_like_oom(tail):
                 ngl = max(0, ngl - _BACKOFF_STEP)

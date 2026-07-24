@@ -191,6 +191,18 @@ button:not(.ui-btn) { color: inherit; }
 .ui-select-item[data-disabled] { opacity: .5; pointer-events: none; }
 .ui-select-indicator { display: inline-flex; align-items: center; justify-content: center; color: var(--accent); flex-shrink: 0; }
 
+/* ⋯ overflow menu (Reka DropdownMenu) — the model-catalog row's secondary actions.
+   GLOBAL, like .ui-select-content above, and for the SAME reason: both are Reka-
+   PORTALED to <body>, where a component's <style scoped> hash does NOT reach — a
+   scoped background silently dropped and the menu rendered see-through (user,
+   2026-07-24). Same surface + border + stacking as the select popover (its sibling). */
+.lu-mmenu { z-index: 999; min-width: 196px; padding: 5px; background: var(--surface); border: 1px solid var(--border-strong, var(--border)); border-radius: 9px; box-shadow: var(--shadow-2, 0 10px 34px rgba(30, 25, 20, .18)); }
+.lu-mmi { display: flex; align-items: center; font-size: 12.5px; color: var(--ink-2); padding: 7px 10px; border-radius: 6px; cursor: pointer; outline: none; user-select: none; }
+.lu-mmi[data-highlighted] { background: var(--surface-3, var(--surface-2)); color: var(--ink); }
+.lu-mmi-danger { color: var(--warn, #b4560f); }
+.lu-mmi-danger[data-highlighted] { background: color-mix(in oklab, var(--warn, #b4560f) 12%, transparent); color: var(--warn, #b4560f); }
+.lu-mmsep { height: 1px; background: var(--border); margin: 4px; }
+
 /* ── Table (UiTable — TanStack headless; flat editorial look) ── */
 .ui-table-wrap { display: flex; flex-direction: column; width: 100%; font-family: var(--font-ui, inherit); color: var(--ink); }
 .ui-table { width: 100%; border-collapse: collapse; font-size: 13px; }

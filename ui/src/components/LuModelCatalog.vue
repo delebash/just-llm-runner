@@ -1248,15 +1248,14 @@ refreshApplied();
 .lu-mm { color: var(--ink-2); white-space: nowrap; }
 .lu-mact { text-align: right; }
 .lu-macts { display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; }
-/* ⋯ overflow trigger + the portaled Reka menu (escapes the list's overflow:auto clip). */
+/* ⋯ overflow trigger — NOT portaled (it lives in the row), so it stays scoped. The
+   portaled menu CONTENT (.lu-mmenu / .lu-mmi / .lu-mmsep) moved to common/styles.css
+   beside .ui-select-content: Reka teleports the content to <body>, where a component's
+   <style scoped> hash doesn't reach — the background/border silently dropped and the
+   menu rendered see-through (user, 2026-07-24). UiSelect learned this same lesson (its
+   content styles are global, not scoped); this restores the parity. */
 .lu-mkebab { all: unset; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 7px; border-radius: 6px; color: var(--muted); }
 .lu-mkebab:hover, .lu-mkebab[data-state="open"] { background: var(--surface-2); color: var(--ink); }
-.lu-mmenu { background: var(--surface); border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 10px 34px rgba(30, 25, 20, .18); padding: 5px; min-width: 196px; z-index: 60; }
-.lu-mmi { display: flex; align-items: center; font-size: 12.5px; color: var(--ink-2); padding: 7px 10px; border-radius: 6px; cursor: pointer; outline: none; user-select: none; }
-.lu-mmi[data-highlighted] { background: var(--surface-2); color: var(--ink); }
-.lu-mmi-danger { color: var(--warn, #b4560f); }
-.lu-mmi-danger[data-highlighted] { background: color-mix(in oklab, var(--warn, #b4560f) 12%, transparent); color: var(--warn, #b4560f); }
-.lu-mmsep { height: 1px; background: var(--border); margin: 4px; }
 
 /* License badge — neutral for permissive (Apache/MIT), a gold warning chip for
    use-limited licenses (Llama-Community, *-Research, Gemma terms). */

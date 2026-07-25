@@ -115,6 +115,32 @@ def test_plane1_carries_no_engine_default_claims(wired):
     assert by_name["temperature"]["default"] == "0.7"
 
 
+def test_option_sync_reaches_an_existing_db(wired):
+    """The 2026-07-25 audit defect: `seed_default_knobs`' existing-row branch DELETED
+    stale options but never INSERTED newly-seeded ones, so when QC-18's amendment gave
+    spec_type its options back (2026-07-24), a fresh DB got the dropdown and every
+    EXISTING DB — where QC-18 had deleted all option rows — got none, forever. Proven
+    by probe (fresh-seed 5 options, resync-on-existing 0) before the fix. This test
+    simulates the pre-amendment DB (knob row present, zero option rows), re-runs the
+    boot seeder, and the seeded options must appear; a user's own option row must
+    survive and not be duplicated."""
+    s = db.session()
+    for opt in s.query(db.KnobOption).filter(db.KnobOption.flag_name == "spec_type").all():
+        s.delete(opt)
+    # a user's own option row for a seeded value — never deleted, never duplicated
+    s.add(db.KnobOption(flag_name="spec_type", value="ngram-mod", label="my ngram",
+                        position=9, built_in=False))
+    s.commit()
+    seed.seed_default_knobs(s)
+    s.commit()
+    s.close()
+    spec = next(k for k in stores.list_knob_catalog() if k["flagName"] == "spec_type")
+    assert sorted(o["value"] for o in spec["options"]) == sorted(
+        ["none", "draft-mtp", "draft-dflash", "draft-eagle3", "ngram-mod"])
+    # the user's row is the one that survived for its value (label proves identity)
+    assert next(o["label"] for o in spec["options"] if o["value"] == "ngram-mod") == "my ngram"
+
+
 def test_seed_curates_existing_dbs(wired):
     """Existing DBs converge on boot (the seeder SYNCS built-in rows — the catalog
     is app-owned, GET-only): a QC-11 removed row is deleted, its options go with

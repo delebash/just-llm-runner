@@ -129,21 +129,32 @@ def test_seed_heals_known_stale_value_only(configured):
     """QC-43a (2026-07-10): a seeded FACT that later proved wrong can't self-heal
     through fill-empty (the wrong value isn't empty), so `STALE_SEED_VALUES` records
     the exact historically-seeded path and the seeder swaps it for the CURRENT seed
-    value — but ONLY on an exact stale match; a user/inspect value or None is left be."""
+    value — but ONLY on an exact stale match; a user/inspect value or None is left be.
+
+    Exhibit (2026-07-25): StyleTune's fatal drafter TRIO — every install seeded between
+    2026-07-06 and 2026-07-25 carries Radamanthys11's assistant head, which made the model
+    unloadable (engine exit 1). The repoint (74102f5) fixed DEFAULT_CATALOG only; the audit
+    proved by probe that an existing DB kept the fatal trio through a resync, so all three
+    fields carry heal entries and this test simulates that exact pre-fix DB state."""
     from llm_runner.llm import db as _db
 
-    mid = "gemma-4-26b-a4b-uncensored"
-    stale = "MTP/gemma-4-26B-A4B-it-Q4_0-MTP.gguf"
-    current = "mtp-gemma-4-26B-A4B-it.gguf"
+    mid = "gryphe-styletune-v2"
+    stale = "gemma-4-26B-A4B-it-assistant-Q8_0.gguf"
+    stale_repo = "Radamanthys11/Gemma-4-26B-A4B-it-assistant-GGUF"
+    current = "MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf"
 
     s = _db.session()
     try:
-        # 1) the exact historically-seeded stale path → healed to the current fact
-        s.query(_db.ModelCatalog).get(mid).mtp_draft_file = stale
+        # 1) the exact historically-seeded stale trio → healed to the current facts
+        row = s.query(_db.ModelCatalog).get(mid)
+        row.mtp_draft_repo, row.mtp_draft_file, row.mtp_draft_quant = stale_repo, stale, "Q8_0"
         s.commit()
         seed.seed_default_catalog(s)
         s.commit()
-        assert s.query(_db.ModelCatalog).get(mid).mtp_draft_file == current
+        row = s.query(_db.ModelCatalog).get(mid)
+        assert row.mtp_draft_file == current
+        assert row.mtp_draft_repo == "unsloth/gemma-4-26B-A4B-it-qat-GGUF"
+        assert row.mtp_draft_quant == "Q4_0"
 
         # 2) a user/inspect value that is NOT the stale one → left untouched
         s.query(_db.ModelCatalog).get(mid).mtp_draft_file = "my/custom-draft.gguf"

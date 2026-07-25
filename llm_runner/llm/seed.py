@@ -831,6 +831,17 @@ STALE_SEED_VALUES = {
         ("MTP/gemma-4-12B-it-Q4_0-MTP.gguf",),
     ("gemma-4-31b-qat", "mtp_draft_file"):
         ("MTP/gemma-4-31B-it-Q4_0-MTP.gguf",),
+    # StyleTune's fatal drafter (2026-07-25 audit): the row seeded Radamanthys11's
+    # assistant head from 2026-07-06 to 2026-07-25, and that combination made the model
+    # UNLOADABLE (engine exit 1). The repoint (74102f5) fixed DEFAULT_CATALOG only —
+    # fill-empty can't touch a non-empty wrong value, so without these entries every
+    # existing DB kept the fatal trio forever (proven by probe before adding this).
+    ("gryphe-styletune-v2", "mtp_draft_repo"):
+        ("Radamanthys11/Gemma-4-26B-A4B-it-assistant-GGUF",),
+    ("gryphe-styletune-v2", "mtp_draft_file"):
+        ("gemma-4-26B-A4B-it-assistant-Q8_0.gguf",),
+    ("gryphe-styletune-v2", "mtp_draft_quant"):
+        ("Q8_0",),
 }
 
 
@@ -1181,11 +1192,14 @@ def seed_default_knobs(s) -> int:
     tier/position refresh from the seed (QC-17, 2026-07-09: plane-1 rows carry NO
     default_value — the app stopped storing the engine's own defaults), built-in
     rows dropped from the seed are DELETED (QC-11: context_shift + cache_reuse;
-    their KnobOption rows cascade), and built-in option rows the seed no longer
-    carries are deleted too (QC-18: switch values are plain text/number boxes;
-    AMENDED 2026-07-24 — spec_type carries options again, the sanctioned enum
-    exception after the "nobe" typo killed a load: the server refuses unknown
-    spec types, so a dropdown is the honest input there)."""
+    their KnobOption rows cascade), and built-in OPTION rows sync in BOTH
+    directions — ones the seed no longer carries are deleted (QC-18: switch
+    values are plain text/number boxes; AMENDED 2026-07-24 — spec_type carries
+    options again, the sanctioned enum exception after the "nobe" typo killed a
+    load: the server refuses unknown spec types, so a dropdown is the honest
+    input there) and newly-seeded ones are INSERTED (2026-07-25 audit: the
+    insert half was missing, so existing DBs never received spec_type's
+    options — a sync that only deletes is not a sync)."""
     existing = {r.flag_name: r for r in s.query(db.KnobCatalog).all()}
     seeded_names = {k["flag_name"] for k in DEFAULT_KNOBS}
     added = 0
@@ -1205,10 +1219,25 @@ def seed_default_knobs(s) -> int:
                 row.per_request = bool(k.get("per_request") or False)
                 row.backends = str(k.get("backends") or "")  # Pass 2: backend applicability
                 row.position = i
+                # Option SYNC — BOTH halves (the 2026-07-25 audit defect): stale built-in
+                # options are deleted AND newly-seeded ones are INSERTED. The insert half
+                # was missing — this branch only deleted, so when QC-18's amendment gave
+                # spec_type its options back (2026-07-24) a fresh DB got 5 option rows and
+                # every EXISTING DB (where QC-18 had deleted them all) got none: the
+                # typo-proof dropdown never reached a real install. A user's own option
+                # rows (built_in=False) are never deleted and block no insert dedupe.
                 seeded_opts = {str(o["value"]) for o in (k.get("options") or [])}
+                have = set()
                 for opt in s.query(db.KnobOption).filter(db.KnobOption.flag_name == k["flag_name"]).all():
                     if opt.built_in and opt.value not in seeded_opts:
                         s.delete(opt)
+                    else:
+                        have.add(opt.value)
+                for j, o in enumerate(k.get("options") or []):
+                    if str(o["value"]) not in have:
+                        s.add(db.KnobOption(flag_name=k["flag_name"], value=str(o["value"]),
+                                            label=str(o.get("label") or o["value"]),
+                                            position=j, built_in=True))
             continue
         s.add(db.KnobCatalog(
             flag_name=k["flag_name"], kind=str(k.get("kind") or "string"),

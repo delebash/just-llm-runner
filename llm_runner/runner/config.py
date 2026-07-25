@@ -59,12 +59,15 @@ DEFAULT_SAFETY_MARGIN_MB = 1024
 DEFAULT_MODELS_MAX = 2
 DEFAULT_SLEEP_IDLE_SECONDS = 900
 
-# Concurrent downloads — N connections pull fixed-size CHUNKS off a shared work queue
-# (download.py; the IDM/aria2 "dynamic segmentation" design). ONE setting for EVERY download
-# (engine + models, no per-host special cases): work-stealing means a slow connection only
-# delays the single chunk it holds, so N connections are safe on any CDN — hosts that reward
-# parallel (HuggingFace) run ~N× faster, hosts that don't still run at full single-connection
-# speed. DB-editable via runner_setting; capped at MAX_DOWNLOAD_SEGMENT_COUNT (16).
+# Concurrent downloads — N connections pull CHUNKS off a shared work queue (download.py;
+# the IDM/aria2 "dynamic segmentation" design). ONE setting for EVERY download (engine +
+# models, no per-host special cases): work-stealing means a slow connection only delays the
+# single chunk it holds. CORRECTED 2026-07-24 (the StyleTune 429): "safe on any CDN" was
+# only true for BANDWIDTH — HuggingFace rate-limits by REQUEST COUNT (anonymous: 3,000
+# resolver hits per 5-min window/IP), so chunk COUNT is now bounded in stream_download
+# (≤ segments × 4 requests per file) and 429/503 park all connections on a shared gate for
+# the server-declared wait. DB-editable via runner_setting; capped at
+# MAX_DOWNLOAD_SEGMENT_COUNT (16).
 DEFAULT_DOWNLOAD_SEGMENTS_ENABLED = True
 DEFAULT_DOWNLOAD_SEGMENT_COUNT = 8
 # RETIRED 2026-07-20: the downloader decides single- vs multi-connection itself from the

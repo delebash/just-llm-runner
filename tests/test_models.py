@@ -33,7 +33,7 @@ class _Resp:
 
 
 def _make_get(tree, sha="abc1234"):
-    def _get(url, params=None, timeout=None):
+    def _get(url, params=None, timeout=None, headers=None):
         if "/revision/" in url:
             return _Resp({"sha": sha})
         if "/tree/" in url:

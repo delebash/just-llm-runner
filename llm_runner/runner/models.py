@@ -44,6 +44,18 @@ _HF_BASE = "https://huggingface.co"
 _API_TIMEOUT = 30
 
 
+def _hf_headers() -> dict:
+    """Bearer auth from the standard env convention (HF_TOKEN, or huggingface_hub's older
+    HUGGING_FACE_HUB_TOKEN) — HF's rate-limits doc calls the missing token "the number one
+    reason users get rate limited": anonymous per-IP windows are 3,000 resolver / 500 API
+    requests per 5 min; any free account raises them (huggingface.co/docs/hub/rate-limits).
+    Optional — no token still works, just at the anonymous limits. Applied to EVERY
+    huggingface.co call in this module: metadata (the tight API bucket) and file downloads
+    (the resolver bucket) alike."""
+    tok = (os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN") or "").strip()
+    return {"Authorization": f"Bearer {tok}"} if tok else {}
+
+
 def hf_cache_root() -> Path:
     """HF hub cache root, matching huggingface_hub's resolution order
     (HF_HUB_CACHE -> $HF_HOME/hub -> ~/.cache/huggingface/hub) without
@@ -58,7 +70,8 @@ def hf_cache_root() -> Path:
 
 
 def _revision_sha(repo: str, revision: str) -> str:
-    r = requests.get(f"{_HF_BASE}/api/models/{repo}/revision/{revision}", timeout=_API_TIMEOUT)
+    r = requests.get(f"{_HF_BASE}/api/models/{repo}/revision/{revision}", timeout=_API_TIMEOUT,
+                     headers=_hf_headers())
     r.raise_for_status()
     return r.json()["sha"]
 
@@ -68,6 +81,7 @@ def _tree(repo: str, revision: str) -> list[dict]:
         f"{_HF_BASE}/api/models/{repo}/tree/{revision}",
         params={"recursive": "true"},
         timeout=_API_TIMEOUT,
+        headers=_hf_headers(),
     )
     r.raise_for_status()
     return [e for e in r.json() if e.get("type") == "file"]
@@ -265,7 +279,8 @@ _OFFICIAL_ORGS = ("google/", "qwen/", "deepseek-ai/")    # trust the vendor's ow
 
 
 def _model_card(repo: str, revision: str = "main") -> dict:
-    r = requests.get(f"{_HF_BASE}/api/models/{repo}/revision/{revision}", timeout=_API_TIMEOUT)
+    r = requests.get(f"{_HF_BASE}/api/models/{repo}/revision/{revision}", timeout=_API_TIMEOUT,
+                     headers=_hf_headers())
     r.raise_for_status()
     return r.json()
 
@@ -326,7 +341,7 @@ def _official_base_candidates(repo: str, base_repo_url: str, revision: str) -> l
 
 def _search_models(query: str, limit: int = 15) -> list[str]:
     r = requests.get(f"{_HF_BASE}/api/models", params={"search": query, "limit": limit},
-                     timeout=_API_TIMEOUT)
+                     timeout=_API_TIMEOUT, headers=_hf_headers())
     r.raise_for_status()
     return [str(m.get("id") or m.get("modelId") or "") for m in r.json()]
 
@@ -516,6 +531,7 @@ def acquire_model(
                 cancel_check=cancel_check,
                 segments=segments,
                 retries=retries,
+                headers=_hf_headers(),
             )
 
         # snapshot/<path> -> blob. Relative symlink so the cache dir is

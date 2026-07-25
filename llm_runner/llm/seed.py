@@ -540,6 +540,23 @@ DEFAULT_CLASS_TUNES: list[dict] = [
     {"model_id": "gryphe-styletune-v2", "class_key": "dgpu-vram8|ram32", "switches": {
         "spec_type": "none",
     }},
+    # Row #4 = E4B on the 16 GB INTEGRATED-GPU class (i7-1355U / Iris Xe, Vulkan; the
+    # user's decided model for this box — "16 GB Iris Xe = E4B", 2026-07-24). MEASURED on
+    # that laptop's own speed-kit run (b10099, 2026-07-24, results shared 2026-07-25):
+    # E4B quick screen 9.8 tok/s decode at ngl 99 (the model generates cleanly — quality
+    # probe non-empty; the 12B probe on the same box is EMPTY and 12B fell below the kit's
+    # 7 tok/s cutoff, confirming E4B as the top viable rung). flash_attn OFF + ubatch 512:
+    # the box's own full matrix (run on the dense Ternary-8B, same Vulkan/Iris-Xe backend —
+    # cross-model transfer of a backend property, stated honestly): at pp8192 fa-off wins
+    # 53.5 vs 40.2 tok/s, and ub 2048 collapses depth to 22.7 — same signature the Arc
+    # igpu-mem32 matrix showed, and long-context prefill is THE manuscript workload.
+    # ctx 32768 / batch 512 / reasoning_budget 1024 mirror the blessed rows (the
+    # igpu-mem32 precedent). Dense model → no n_cpu_moe; threads machine-derived, omitted.
+    {"model_id": "gemma-4-e4b-qat", "class_key": "igpu-mem16", "switches": {
+        "n_gpu_layers": "99", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "flash_attn": "off",
+        "reasoning_budget": "1024",
+    }},
 ]
 
 

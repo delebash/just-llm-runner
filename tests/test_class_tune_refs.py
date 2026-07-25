@@ -30,14 +30,16 @@ def configured():
 
 def test_refs_are_distinct_model_class_pairs(configured):
     # Each seeded Gemma config holds SEVERAL flag rows — exactly ONE ref per
-    # (model, class) comes out (distinct pairs, not one ref per flag). Three seeded
+    # (model, class) comes out (distinct pairs, not one ref per flag). Four seeded
     # rows now: the flagship on the 8 GB discrete box and the 32 GB integrated-GPU box,
-    # plus StyleTune's single-flag spec_type=none row on 8 GB discrete (2026-07-25) —
-    # which also proves a ONE-flag config still yields exactly one ref, same as a
-    # seven-flag one.
+    # StyleTune's single-flag spec_type=none row on 8 GB discrete (2026-07-25 — which
+    # also proves a ONE-flag config still yields exactly one ref, same as a seven-flag
+    # one), and E4B on the 16 GB integrated-GPU box (2026-07-25, the laptop's own
+    # kit measurements — the ref IS the box's model recommendation, §9 ruled shape).
     assert stores.list_class_tune_refs() == [
         {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram8|ram32"},
         {"modelId": "gemma-4-26b-a4b-qat", "classKey": "igpu-mem32"},
+        {"modelId": "gemma-4-e4b-qat", "classKey": "igpu-mem16"},
         {"modelId": "gryphe-styletune-v2", "classKey": "dgpu-vram8|ram32"}]
 
 
@@ -54,7 +56,7 @@ def test_a_manually_authored_class_becomes_a_ref(configured):
         s.close()
     refs = stores.list_class_tune_refs()
     assert {"modelId": "m-big", "classKey": "dgpu-vram20|ram100"} in refs
-    assert len(refs) == 4   # 3 seeded (flagship x2 + StyleTune spec_type) + the manual one
+    assert len(refs) == 5   # 4 seeded (flagship x2 + StyleTune + E4B/igpu-16) + the manual one
 
 
 def test_catalog_response_carries_refs_and_my_class(configured):

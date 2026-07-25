@@ -192,8 +192,10 @@ def test_borrow_only_row_seeds_inherited_drafter(configured):
     assert row.mtpDraftRepo == "unsloth/gemma-4-26B-A4B-it-qat-GGUF"
     assert row.mtpDraftFile == "MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf"
     # A model that ships its OWN draft is untouched by the borrow (own, not borrowed).
-    assert _row("gemma-4-26b-a4b-uncensored").mtpDraftRepo == ""
-    assert _row("gemma-4-26b-a4b-uncensored").mtpDraftFile == "mtp-gemma-4-26B-A4B-it.gguf"
+    # Exhibit moved to the 12B QAT row 2026-07-25 — the previous exhibit (the HauhauCS
+    # uncensored row) left the catalog when the A/B settled for EZForever.
+    assert _row("gemma-4-12b-qat").mtpDraftRepo == ""
+    assert _row("gemma-4-12b-qat").mtpDraftFile == "MTP/mtp-gemma-4-12B-it-Q4_0.gguf"
 
 
 def test_fill_inherited_draft_backfills_existing_draftless_row(configured):

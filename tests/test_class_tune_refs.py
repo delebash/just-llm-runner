@@ -36,7 +36,19 @@ def test_refs_are_distinct_model_class_pairs(configured):
     # also proves a ONE-flag config still yields exactly one ref, same as a seven-flag
     # one), and E4B on the 16 GB integrated-GPU box (2026-07-25, the laptop's own
     # kit measurements — the ref IS the box's model recommendation, §9 ruled shape).
+    # …plus the eight dGPU BAND recommendations (2026-07-25, Part 2 of the per-band
+    # survey): the 12B dense on the 12-band rungs + vram16|ram16 (the flagship's ~24 GB
+    # RAM appetite excludes ram16 boxes), the flagship on 16-band ram32/64 and on the
+    # 24-band rungs. Order = SQLite DISTINCT's (model_id, class_key) sort.
     assert stores.list_class_tune_refs() == [
+        {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram12|ram16"},
+        {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram12|ram32"},
+        {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram12|ram64"},
+        {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram16|ram16"},
+        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram16|ram32"},
+        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram16|ram64"},
+        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram24|ram32"},
+        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram24|ram64"},
         {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram8|ram32"},
         {"modelId": "gemma-4-26b-a4b-qat", "classKey": "igpu-mem32"},
         {"modelId": "gemma-4-e4b-qat", "classKey": "igpu-mem16"},
@@ -56,7 +68,7 @@ def test_a_manually_authored_class_becomes_a_ref(configured):
         s.close()
     refs = stores.list_class_tune_refs()
     assert {"modelId": "m-big", "classKey": "dgpu-vram20|ram100"} in refs
-    assert len(refs) == 5   # 4 seeded (flagship x2 + StyleTune + E4B/igpu-16) + the manual one
+    assert len(refs) == 13   # 12 seeded (4 pre-band + the 8 dGPU band recs) + the manual one
 
 
 def test_catalog_response_carries_refs_and_my_class(configured):
@@ -66,8 +78,11 @@ def test_catalog_response_carries_refs_and_my_class(configured):
         rows=[], myClassKey="dgpu-vram8|ram32",
         classTuneRefs=[ClassTuneRef(**r) for r in stores.list_class_tune_refs()])
     assert resp.myClassKey == "dgpu-vram8|ram32"
-    ref = resp.classTuneRefs[0]
-    assert (ref.modelId, ref.classKey) == ("gemma-4-26b-a4b-qat", "dgpu-vram8|ram32")
+    # The wire shape is what's under test — the measured flagship/8 GB pair rides the
+    # response. (It was index 0 until the 2026-07-25 band recommendations; DISTINCT's
+    # sort now puts the 12B band rows first, so membership, not position.)
+    assert ("gemma-4-26b-a4b-qat", "dgpu-vram8|ram32") in [
+        (r.modelId, r.classKey) for r in resp.classTuneRefs]
 
 
 def test_override_absent_or_blank_means_auto(configured):

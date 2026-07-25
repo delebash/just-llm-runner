@@ -478,6 +478,23 @@ DEFAULT_HARDWARE_CLASSES: list[dict] = [
     # future tune to.
     {"class_key": "igpu-mem16", "mem_type": "integrated",
      "vram_gb": 0, "ram_gb": 16, "name": ""},
+    # The dGPU BAND classes (2026-07-25, Part 2 of the per-band survey — the user's
+    # ruling that every band resolves to appropriate models; keys are BANDS since the
+    # same-day band ruling, so exact match covers 10/11 GB cards under vram12's floor
+    # sibling vram8, a 20 GB card under vram16, and a 4090/5090 alike under vram24).
+    # One row per (band × real RAM rung); the rung duplication is the accepted cost of
+    # exact-match simplicity ("two identical rows beat a matching engine").
+    # vram8|ram16 (the budget build) is deliberately NOT seeded: its pick is a genuine
+    # quality-vs-speed call (12B offloaded vs E4B resident) with zero measurements —
+    # the user's future word, recorded in the survey doc.
+    {"class_key": "dgpu-vram12|ram16", "mem_type": "discrete", "vram_gb": 12, "ram_gb": 16, "name": ""},
+    {"class_key": "dgpu-vram12|ram32", "mem_type": "discrete", "vram_gb": 12, "ram_gb": 32, "name": ""},
+    {"class_key": "dgpu-vram12|ram64", "mem_type": "discrete", "vram_gb": 12, "ram_gb": 64, "name": ""},
+    {"class_key": "dgpu-vram16|ram16", "mem_type": "discrete", "vram_gb": 16, "ram_gb": 16, "name": ""},
+    {"class_key": "dgpu-vram16|ram32", "mem_type": "discrete", "vram_gb": 16, "ram_gb": 32, "name": ""},
+    {"class_key": "dgpu-vram16|ram64", "mem_type": "discrete", "vram_gb": 16, "ram_gb": 64, "name": ""},
+    {"class_key": "dgpu-vram24|ram32", "mem_type": "discrete", "vram_gb": 24, "ram_gb": 32, "name": ""},
+    {"class_key": "dgpu-vram24|ram64", "mem_type": "discrete", "vram_gb": 24, "ram_gb": 64, "name": ""},
 ]
 
 
@@ -556,6 +573,55 @@ DEFAULT_CLASS_TUNES: list[dict] = [
         "n_gpu_layers": "99", "ctx_len": "32768",
         "batch_size": "512", "ubatch_size": "512", "flash_attn": "off",
         "reasoning_budget": "1024",
+    }},
+    # ── The dGPU BAND recommendations (2026-07-25, Part 2 of the per-band survey; the
+    # ref IS the recommendation — §9 ruled shape). Models are CARRIED, TESTED rows only
+    # (an untested outside candidate never becomes a recommendation — the A/B law);
+    # the survey's candidates for future testing live in
+    # justwrite-app docs/plans/2026-07-25-per-band-model-survey.md.
+    # HONESTY ON UNOWNED HARDWARE: nobody has measured these bands, so rows carry only
+    # what is defensible without a box — the mirrors (ctx 32768 / batch 512 / ub 512 /
+    # reasoning_budget 1024, the blessed-row values) plus placement ONLY where the
+    # estimator settles it: the 24-band flagship rows set ngl 99 / ncmoe 0 because the
+    # whole 26B MoE (est ~17.7 GB) fits a 24 GB card outright — which also sidesteps
+    # upstream #24350 (--fit + a gemma4_mtp draft fails to create a context; tracked).
+    # The 16-band flagship rows set NO placement flags: the model needs SOME expert
+    # offload there and the honest amount is unmeasured — the engine's --fit places it
+    # (those users can hit #24350 with MTP on until upstream fixes land; that exposure
+    # exists with or without this row and is tracked in TASKS.md).
+    # 12-band + vram16|ram16 → the 12B dense: fully resident (est ~10.7 GB), RAM-light —
+    # ram16 boxes can NOT carry the flagship (its ~24 GB RAM appetite, min_ram 24000).
+    {"model_id": "gemma-4-12b-qat", "class_key": "dgpu-vram12|ram16", "switches": {
+        "n_gpu_layers": "99", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "reasoning_budget": "1024",
+    }},
+    {"model_id": "gemma-4-12b-qat", "class_key": "dgpu-vram12|ram32", "switches": {
+        "n_gpu_layers": "99", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "reasoning_budget": "1024",
+    }},
+    {"model_id": "gemma-4-12b-qat", "class_key": "dgpu-vram12|ram64", "switches": {
+        "n_gpu_layers": "99", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "reasoning_budget": "1024",
+    }},
+    {"model_id": "gemma-4-12b-qat", "class_key": "dgpu-vram16|ram16", "switches": {
+        "n_gpu_layers": "99", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "reasoning_budget": "1024",
+    }},
+    {"model_id": "gemma-4-26b-a4b-qat", "class_key": "dgpu-vram16|ram32", "switches": {
+        "ctx_len": "32768", "batch_size": "512", "ubatch_size": "512",
+        "reasoning_budget": "1024",
+    }},
+    {"model_id": "gemma-4-26b-a4b-qat", "class_key": "dgpu-vram16|ram64", "switches": {
+        "ctx_len": "32768", "batch_size": "512", "ubatch_size": "512",
+        "reasoning_budget": "1024",
+    }},
+    {"model_id": "gemma-4-26b-a4b-qat", "class_key": "dgpu-vram24|ram32", "switches": {
+        "n_gpu_layers": "99", "n_cpu_moe": "0", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "reasoning_budget": "1024",
+    }},
+    {"model_id": "gemma-4-26b-a4b-qat", "class_key": "dgpu-vram24|ram64", "switches": {
+        "n_gpu_layers": "99", "n_cpu_moe": "0", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "reasoning_budget": "1024",
     }},
 ]
 

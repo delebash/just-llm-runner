@@ -181,6 +181,41 @@ DEFAULT_CATALOG: list[dict] = [
      "size_label": "12B", "size_bytes": 6716355328,
      "description": "12B model · 256k context · MTP draft for faster generation · UD-Q4_K_XL (QAT)",
      "notes": "The small-card rung of the writing-first ladder; runs fully on a 10-12 GB GPU (tight on 8)."},
+    # ── The E-series small rungs (added 2026-07-25 on the user's go; the last "missing
+    # catalog rows" tracker item). E4B is the DECIDED model for the 16 GB integrated-GPU
+    # box (user, 2026-07-24: "16 GB Iris Xe = E4B"); its (E4B, igpu-mem16) class tune is
+    # a FUTURE row once the speed-kit benches that laptop (recovery doc §17: "a smaller
+    # model for igpu-mem16 is a future row once benched" — the seed principle: no
+    # un-measured tune). E2B is the smallest rung, CPU-viable; the desktop quick screen
+    # read 97.8 tok/s decode at b10107 (bench/speed-kit/quick-summary.txt, 2070S).
+    # Both share position 0 with the 12B rung (order within a position is by id — the
+    # small-dense band reads together; renumbering the ladder would disturb the JW
+    # extras' relative order at position 20). Header-derived facts (size/arch/ctx/mtp/
+    # drafter) filled by scripts/refresh-seed-facts.py — seed == file, same code path
+    # as Read-from-link. min_vram/min_ram floors follow the 12B row's file-size ratios.
+    # DRAFTERS RECORDED BUT OFF (`mtp: False` — the ONE deliberate divergence from what
+    # Read-from-link would configure, which is borrow + enable): unsloth's E-repos ship
+    # no MTP head, so the tier-C probe finds only THIRD-PARTY assistant heads (E2B:
+    # Radamanthys11 — the same publisher and `-it-assistant-Q8_0` naming as StyleTune's
+    # seeded drafter that made THAT model UNLOADABLE for 19 days, fixed 2026-07-25; E4B:
+    # AtomicChat). Neither head has ever been loaded against these weights. Flip mtp
+    # True only after a verified load on a real box; a future refresh-seed-facts
+    # --write will mechanically propose `mtp: True` again — do NOT accept that without
+    # the load (the script reports before it writes; this comment is the stop sign).
+    {"id": "gemma-4-e2b-qat", "mtp": False, "mtp_draft_quant": "Q8_0", "mtp_draft_file": "gemma-4-E2B-it-assistant-Q8_0.gguf", "mtp_draft_repo": "Radamanthys11/Gemma-4-E2B-it-assistant-GGUF", "est_vram_mb": 3711, "size_bytes": 2620370976, "size_label": "4.6B", "trained_ctx": 131072, "name": "Gemma 4 E2B (QAT)",
+     "hf_repo": "unsloth/gemma-4-E2B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "E2B",
+     "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
+     "min_ram_mb": 6000, "min_vram_mb": 3500, "tier": "cpu", "license": "Apache-2.0", "position": 0,
+     "quality_rank": 24, "architecture": "gemma4", "experts": 0,
+     "description": "E2B model · 128k context · UD-Q4_K_XL (QAT)",
+     "notes": "The smallest rung — CPU-viable and quick on any GPU (97.8 tok/s decode on the author's 8 GB card). For low-memory boxes; prose depth is a step below E4B."},
+    {"id": "gemma-4-e4b-qat", "mtp": False, "mtp_draft_quant": "Q4_K_S", "mtp_draft_file": "gemma-4-E4B-it-assistant.Q4_K_S.gguf", "mtp_draft_repo": "AtomicChat/gemma-4-E4B-it-assistant-GGUF", "est_vram_mb": 5411, "size_bytes": 4215695776, "size_label": "7.5B", "trained_ctx": 131072, "name": "Gemma 4 E4B (QAT)",
+     "hf_repo": "unsloth/gemma-4-E4B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "E4B",
+     "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
+     "min_ram_mb": 8000, "min_vram_mb": 6000, "tier": "mid", "license": "Apache-2.0", "position": 0,
+     "quality_rank": 23, "architecture": "gemma4", "experts": 0,
+     "description": "E4B model · 128k context · UD-Q4_K_XL (QAT)",
+     "notes": "The efficient mid-small rung and the pick for 16 GB integrated-GPU laptops (one shared memory pool). QAT holds 4-bit quality; its igpu-mem16 tuned config lands once that box is benched."},
     {"id": "gemma-4-31b-qat", "name": "Gemma 4 31B (QAT)",
      "hf_repo": "unsloth/gemma-4-31B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "31B",
      "mtp": True, "est_vram_mb": 26038, "mtp_draft_file": "MTP/mtp-gemma-4-31B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
@@ -433,6 +468,16 @@ DEFAULT_HARDWARE_CLASSES: list[dict] = [
     # memory pool → vram_gb 0. name="" → the UI shows "Integrated GPU · 32 GB shared RAM".
     {"class_key": "igpu-mem32", "mem_type": "integrated",
      "vram_gb": 0, "ram_gb": 32, "name": ""},
+    # The 16 GB integrated-GPU class (the i7-1355U / Iris Xe laptop; added 2026-07-25 —
+    # the "integrated-16 class seed" tracker item). The class row only: its decided model
+    # is E4B (user, 2026-07-24), but the (E4B, igpu-mem16) class TUNE is deliberately NOT
+    # seeded — no measurement exists yet on that box (recovery doc §17: "a future row once
+    # benched"; the seed principle: the seed ships facts and rules, the machine supplies
+    # measurements). Detection already classifies the box to this key with or without the
+    # row (format_class_key); seeding it gives the class a library entry to attach that
+    # future tune to.
+    {"class_key": "igpu-mem16", "mem_type": "integrated",
+     "vram_gb": 0, "ram_gb": 16, "name": ""},
 ]
 
 

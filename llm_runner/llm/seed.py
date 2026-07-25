@@ -487,6 +487,21 @@ DEFAULT_CLASS_TUNES: list[dict] = [
         "batch_size": "512", "ubatch_size": "512", "flash_attn": "off",
         "reasoning_budget": "1024",
     }},
+    # Row #3 = StyleTune V2 on the 8 GB discrete class: speculative decode OFF.
+    # MEASURED 2026-07-25 (2070S, b10107, --fit off, -ngl 8, 200-token generations, three
+    # seeds per arm): with the MTP draft 10.85 / 11.52 / 11.71 tok/s (mean 11.36) vs
+    # without 10.89 / 11.88 / 11.50 (mean 11.42). No-draft is nominally FASTER, and the
+    # within-arm spread swamps the difference — the draft earns nothing here while costing
+    # 0.23 GB on a card where this 16 GB model already fits only 8 of 30 layers.
+    # WHY the model still keeps `mtp: True` and a working drafter: the cause is that an MTP
+    # head predicts its BASE model's tokens and this finetune moved the weights too far
+    # (contrast the ez row, a lighter merge, at 60.5% acceptance) — but the measurement
+    # above was taken under HEAVY CPU offload, which is an 8 GB-class condition. On a card
+    # that holds all 30 layers, speculative decode behaves differently and may well pay.
+    # So this is scoped to the class that was measured, NOT made a global default.
+    {"model_id": "gryphe-styletune-v2", "class_key": "dgpu-vram8|ram32", "switches": {
+        "spec_type": "none",
+    }},
 ]
 
 

@@ -176,7 +176,7 @@ def test_model_tune_overrides_class_tune(configured):
 
 def test_seed_default_class_tunes_seeds_the_gemma_rows(configured):
     s = db.session()
-    assert seed.seed_default_class_tunes(s) == 2   # discrete 8 GB + integrated 32 GB
+    assert seed.seed_default_class_tunes(s) == 3   # flagship: 8 GB discrete + 32 GB iGPU; StyleTune: 8 GB discrete
     s.commit()
     dgpu = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
         db.ClassTune.model_id == "gemma-4-26b-a4b-qat", db.ClassTune.class_key == "dgpu-vram8|ram32").all()}

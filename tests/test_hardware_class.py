@@ -15,7 +15,8 @@ from fastapi.testclient import TestClient
 
 from llm_runner.llm import db, stores
 from llm_runner.llm.class_tunes_api import make_class_tunes_router
-from llm_runner.runner.hardware import format_class_key, mem_arch, parse_class_key
+from llm_runner.runner.hardware import (
+    banded_class_key, class_key, format_class_key, mem_arch, parse_class_key)
 
 
 # ── the class_key convention: ONE source, type-first, round-trips ─────────────
@@ -66,6 +67,48 @@ def test_snap_ram_gb_standard_ladder():
     assert snap_ram_gb(65536) == 64
     assert snap_ram_gb(196608) == 192     # Mac Studio pool
     assert snap_ram_gb(0) == 2            # degenerate floor: the lowest rung
+
+
+def test_class_key_bands_discrete():
+    """THE BAND RULING (user, 2026-07-25: "I never thought exact matches should be
+    used"): the discrete class key IS the band, so plain exact-match lookup covers
+    every real card without fallback machinery — 10/11 GB cards are the 8 band,
+    20 → 16, and everything ≥ 24 (a 4090's 24, a 5090's 32) is ONE 24+ band. RAM
+    down-snaps the coarse rungs (24 → 16, 48 → 32, 96 → 64). DOWN on both dimensions
+    because it can never overstate a box — a config keyed at the band floor fits
+    every box above it, never the reverse (the 26B flagship's ~24 GB RAM appetite
+    on a 16 GB box is the miss this direction prevents). Sub-band values pass
+    through: a 6 GB card is honestly sub-band and matches no band seed."""
+    class _G:
+        def __init__(self, vram_mb): self.vram_mb, self.name = vram_mb, "GPU"
+
+    class _H:
+        def __init__(self, vram_mb, ram_gb):
+            self.platform, self.runtimes = "windows", {"cuda": True}
+            self.gpus, self.ram_mb = [_G(vram_mb)], ram_gb * 1024
+
+    assert class_key(_H(8192, 32)) == "dgpu-vram8|ram32"    # the 2070S box — unchanged
+    assert class_key(_H(8188, 32)) == "dgpu-vram8|ram32"    # jitter round FIRST, then band
+    assert class_key(_H(10240, 32)) == "dgpu-vram8|ram32"   # 3080 10 GB → the 8 band
+    assert class_key(_H(11264, 32)) == "dgpu-vram8|ram32"   # 2080 Ti 11 GB → the 8 band
+    assert class_key(_H(12288, 32)) == "dgpu-vram12|ram32"
+    assert class_key(_H(20480, 32)) == "dgpu-vram16|ram32"  # 20 GB → the 16 band
+    assert class_key(_H(24576, 32)) == "dgpu-vram24|ram32"  # 4090
+    assert class_key(_H(32768, 32)) == "dgpu-vram24|ram32"  # 5090 — the SAME 24+ band
+    assert class_key(_H(6144, 32)) == "dgpu-vram6|ram32"    # sub-band passes through
+    assert class_key(_H(8192, 16)) == "dgpu-vram8|ram16"
+    assert class_key(_H(8192, 24)) == "dgpu-vram8|ram16"    # 24 GB RAM → the 16 rung
+    assert class_key(_H(8192, 48)) == "dgpu-vram8|ram32"
+    assert class_key(_H(8192, 96)) == "dgpu-vram8|ram64"
+
+
+def test_banded_class_key_builder():
+    """The one banded builder (detection + the panel's create-class derive share it):
+    discrete numbers band; one-pool types pass straight through to the raw formatter."""
+    assert banded_class_key("discrete", 10, 48) == "dgpu-vram8|ram32"
+    assert banded_class_key("discrete", 8, 32) == "dgpu-vram8|ram32"   # band values: identity
+    assert banded_class_key("integrated", 0, 16) == "igpu-mem16"       # untouched
+    assert banded_class_key("unified", 0, 192) == "unified-mem192"     # untouched
 
 
 @pytest.fixture
@@ -162,7 +205,9 @@ def client(configured):
     app.include_router(make_class_tunes_router(
         stores.get_class_tune_store, lambda: "dgpu-vram8|ram32",
         hw_class_store=stores.get_hardware_class_store,
-        derive_key_fn=format_class_key, parse_key_fn=parse_class_key))
+        # the BANDED derive, mirroring install.py (2026-07-25): typed numbers land
+        # in their band, so a hand-made class always matches what detection emits.
+        derive_key_fn=banded_class_key, parse_key_fn=parse_class_key))
     return TestClient(app)
 
 
@@ -171,6 +216,17 @@ def test_put_discrete_class_derives_key(client):
         "name": "My PC", "memType": "discrete", "vramGb": 16, "ramGb": 16}).json()
     cls = next(c for c in r["classes"] if c["classKey"] == "dgpu-vram16|ram16")
     assert (cls["name"], cls["memType"], cls["vramGb"], cls["ramGb"]) == ("My PC", "discrete", 16, 16)
+
+
+def test_put_discrete_class_bands_typed_numbers(client):
+    """A hand-typed micro-class lands in its BAND (the derive is banded_class_key,
+    mirroring install.py) — otherwise a user typing their card's true 10 GB would
+    mint a class detection can never match. The stored row's numbers are re-read
+    FROM the banded key, so row and key can never disagree."""
+    r = client.put("/v1/ai/hardware-class", json={
+        "name": "3080 rig", "memType": "discrete", "vramGb": 10, "ramGb": 48}).json()
+    cls = next(c for c in r["classes"] if c["classKey"] == "dgpu-vram8|ram32")
+    assert (cls["vramGb"], cls["ramGb"]) == (8, 32)   # key-derived, not the typed 10/48
 
 
 def test_put_unified_class_zeroes_vram_and_keys_on_memory(client):

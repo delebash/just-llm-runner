@@ -143,8 +143,11 @@ def mem_arch(hw: HardwareInfo) -> str:
 # RAM to the nearest rung (2026-07-23, user's rec): OEMs reserve different slivers
 # (firmware/iGPU carve), so raw rounding fragmented identical nominal hardware —
 # the Core Ultra laptop reported 31.5 GB (→31) while the desktop's 31.9 GB →32,
-# landing two "32 GB" machines in different classes. VRAM is NOT snapped (cards
-# report their true board memory; 10/11/20 GB cards are real sizes).
+# landing two "32 GB" machines in different classes. (This fine ladder is the
+# FIRST-stage RAM snap. The discrete CLASS key then down-snaps to the coarse
+# _DGPU_RAM_RUNGS, and VRAM — jitter-rounded to the nearest GB — down-snaps the
+# _VRAM_BANDS ladder: the 2026-07-25 band ruling, see class_key below. An earlier
+# comment here said "VRAM is NOT snapped"; that described the pre-band design.)
 _RAM_LADDER = (2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024)
 
 
@@ -157,19 +160,58 @@ def snap_ram_gb(ram_mb: int) -> int:
     return min(_RAM_LADDER, key=lambda v: (abs(v - gb), v))
 
 
+# The discrete BANDS (2026-07-25, the user's ruling — "I never thought exact matches
+# should be used"): the class key IS the band, so plain exact-match lookup covers every
+# real card without any fallback machinery. VRAM snaps DOWN this ladder after the
+# nearest-GB jitter round (10/11 GB cards → the 8 band; 20 → 16; everything ≥ 24 —
+# a 4090's 24, a 5090's 32 — IS the 24+ band). Discrete system RAM snaps DOWN the
+# coarse rungs after snap_ram_gb's fine jitter snap (24 → 16, 48 → 32, 96 → 64):
+# down-snap on both dimensions because it can never overstate a box — a config keyed
+# at the band floor fits every box above it, never the reverse (the 26B flagship's
+# ~24 GB RAM appetite on a 16 GB box is exactly the miss this direction prevents).
+# Below the ladder floor the (jitter-snapped) value passes through unchanged — those
+# boxes are honestly sub-band and will simply match no band seed. Integrated/unified
+# keys are untouched: the pool is the identity (igpu-mem16 stays igpu-mem16).
+# Per-machine measurement fidelity is NOT lost — it never lived here (the exact
+# machine_key → model_tunes layer owns it); this key's own charter says COARSE.
+_VRAM_BANDS = (4, 6, 8, 12, 16, 24)
+_DGPU_RAM_RUNGS = (16, 32, 64, 128)
+
+
+def _band(gb: int, ladder: tuple) -> int:
+    """Largest ladder value ≤ `gb`; below the floor the value passes through."""
+    fits = [v for v in ladder if v <= gb]
+    return max(fits) if fits else gb
+
+
+def banded_class_key(mem_type: str, vram_gb: int, ram_gb: int) -> str:
+    """`format_class_key` with the discrete BAND snap applied — THE key builder for
+    anything that creates or matches a class identity (detection below, and the
+    panel's create-class derive via install.py), so a hand-typed vram 10 lands in
+    the 8 band instead of minting an unmatchable micro-class. One-pool types pass
+    straight through to the raw formatter."""
+    if mem_type == "discrete":
+        return format_class_key("discrete", _band(int(vram_gb or 0), _VRAM_BANDS),
+                                _band(int(ram_gb or 0), _DGPU_RAM_RUNGS))
+    return format_class_key(mem_type, 0, ram_gb)
+
+
 def class_key(hw: HardwareInfo) -> str:
     """The COARSE hardware-CLASS key the seeded/editable class library is matched on —
-    memory-architecture-first (2026-07-22). Discrete keys on VRAM + RAM (the offload
-    split); integrated/unified key on the single memory pool. VRAM rounds to the
-    NEAREST GB (absorbs the just-under a card reports, e.g. 8188 MB → 8 GB); system
-    RAM snaps to the standard-capacity ladder (see snap_ram_gb — OEM-reserve jitter).
-    GPU NAME + CPU CORES are EXCLUDED (placement is memory-fit-bound, not compute-bound)."""
+    memory-architecture-first (2026-07-22), BAND-grained on the discrete side
+    (2026-07-25, see _VRAM_BANDS above). Discrete keys on VRAM band + RAM rung (the
+    offload split); integrated/unified key on the single memory pool. VRAM first
+    rounds to the NEAREST GB (absorbs the just-under a card reports, e.g. 8188 MB →
+    8 GB) and then down-snaps the band ladder; system RAM snaps the fine standard-
+    capacity ladder (snap_ram_gb — OEM-reserve jitter) and then down-snaps the coarse
+    rungs. GPU NAME + CPU CORES are EXCLUDED (placement is memory-fit-bound, not
+    compute-bound)."""
     arch = mem_arch(hw)
     ram_gb = snap_ram_gb(hw.ram_mb or 0)
     if arch == "discrete":
         gpu = max(hw.gpus, key=lambda g: g.vram_mb or 0) if hw.gpus else None
         vram_gb = round((gpu.vram_mb or 0) / 1024) if gpu else 0
-        return format_class_key("discrete", vram_gb, ram_gb)
+        return banded_class_key("discrete", vram_gb, ram_gb)
     return format_class_key(arch, 0, ram_gb)  # integrated / unified — one pool
 
 

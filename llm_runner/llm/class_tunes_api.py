@@ -165,6 +165,12 @@ def make_class_tunes_router(
             if mem_type != "discrete":
                 vram = 0  # one-pool types carry no separate VRAM
             class_key = derive_key_fn(mem_type, vram, ram)
+            if parse_key_fn:
+                # The stored numbers come FROM the derived key (2026-07-25): derive is
+                # now the BANDED builder (a typed vram 10 keys as the 8 band), and a row
+                # whose own numbers disagreed with its key would lie to every
+                # parse_class_key consumer. With an un-banded derive this is identity.
+                mem_type, vram, ram = parse_key_fn(class_key)
             try:
                 hw_class_store().save(class_key, mem_type, vram, ram,
                                       body.name or "", body.origClassKey or "")

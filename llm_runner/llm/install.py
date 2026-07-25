@@ -238,12 +238,15 @@ def install_llm(
     # `_current_class_key` badges + defaults saves to THIS box's class. The
     # hardware-class sidecar (name + editable VRAM/RAM) + the class_key format/parse
     # convention are wired through the DI seam (llm/ never imports runner/ directly).
-    from ..runner.hardware import format_class_key, parse_class_key
+    # derive = the BANDED builder (2026-07-25): a hand-typed vram 10 lands in the 8
+    # band, matching what detection emits — an exact-number derive would mint an
+    # unmatchable micro-class now that detection keys on bands.
+    from ..runner.hardware import banded_class_key, parse_class_key
 
     app.include_router(make_class_tunes_router(
         stores.get_class_tune_store, _current_class_key,
         hw_class_store=stores.get_hardware_class_store,
-        derive_key_fn=format_class_key,
+        derive_key_fn=banded_class_key,
         parse_key_fn=parse_class_key,
     ))
     # The persistent measurement history (#142 rows 5+6, 2026-07-07): the Tune

@@ -22,9 +22,13 @@ from __future__ import annotations
 
 from typing import Any, Iterator
 
-import anthropic
+from ._lazy import lazy_module
 
-from .base import (
+# Deferred: `import anthropic` here cost ~584 ms on every server boot. Imported on first
+# attribute access instead; every `anthropic.X` below is unchanged. See _lazy.py.
+anthropic = lazy_module("anthropic")
+
+from .base import (  # noqa: E402 — kept below the lazy shim so the deferral reads in order
     LLMMessage,
     LLMResponse,
     StreamDelta,

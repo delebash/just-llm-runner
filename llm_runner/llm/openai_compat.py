@@ -74,7 +74,33 @@ class OpenAICompatAdapter:
                 f"and no default available — set base_url in the provider config"
             )
 
-        self._client = httpx.Client(timeout=timeout_seconds)
+        self._timeout_seconds = timeout_seconds
+        self.__client: httpx.Client | None = None
+
+    @property
+    def _client(self) -> httpx.Client:
+        """The HTTP client, built on FIRST USE — never at construction (2026-07-24).
+
+        Measured: `httpx.Client()` loads the system CA bundle in its constructor
+        (`ssl.create_default_context` → `load_verify_locations`, ~210 ms on the author's
+        box), and `registry.load_from_configs()` constructs an adapter for EVERY configured
+        provider during `seed_workspace()` at server start. Four of these adapters cost
+        ~845 ms of a ~3.8 s cold start — about a fifth of the wait before the app's window
+        can talk to its own server — spent loading TLS roots that this adapter, which by
+        charter targets LOCAL http://127.0.0.1 servers (llama.cpp / LM Studio / vLLM),
+        never uses. Deferring costs a provider that IS used the same ~210 ms once, on its
+        first request, off the startup path. Mirrors the #16 lazy-client treatment the
+        cloud SDK adapters already got."""
+        if self.__client is None:
+            self.__client = httpx.Client(timeout=self._timeout_seconds)
+        return self.__client
+
+    @_client.setter
+    def _client(self, client) -> None:
+        """Assignable, because it always was: before this became lazy it was a plain
+        attribute, and callers (the adapter tests' fake stream clients) set it directly.
+        A getter-only property silently broke that contract."""
+        self.__client = client
 
     def _headers(self) -> dict[str, str]:
         h: dict[str, str] = {"content-type": "application/json"}

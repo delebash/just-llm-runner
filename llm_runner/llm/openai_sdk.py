@@ -35,9 +35,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterator
 
-import openai
+from ._lazy import lazy_module
 
-from .base import (
+# Deferred: `import openai` here cost ~586 ms on EVERY server boot (the registry builds an
+# adapter for every configured provider), for an SDK most sessions never call. The proxy
+# imports it on first attribute access, so every `openai.X` below is unchanged. See _lazy.py.
+openai = lazy_module("openai")
+
+from .base import (  # noqa: E402 — kept below the lazy shim so the deferral reads in order
     LLMMessage,
     LLMResponse,
     StreamDelta,

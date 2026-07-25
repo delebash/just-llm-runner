@@ -46,7 +46,26 @@ class OllamaAdapter:
         self.default_model = default_model or DEFAULT_MODEL
         # Local model loads can be slow; give them more headroom than the
         # cloud-adapter default.
-        self._client = httpx.Client(timeout=timeout_seconds)
+        self._timeout_seconds = timeout_seconds
+        self.__client: httpx.Client | None = None
+
+    @property
+    def _client(self) -> httpx.Client:
+        """Built on FIRST USE, not at construction — the same boot-cost fix as
+        `openai_compat.OpenAICompatAdapter._client` (see its docstring for the measurement):
+        an `httpx.Client()` constructor loads the system CA bundle, and every configured
+        provider gets an adapter at server start, so eager clients put hundreds of
+        milliseconds of TLS-root loading on the cold-start path for a local Ollama that
+        speaks plain HTTP to localhost."""
+        if self.__client is None:
+            self.__client = httpx.Client(timeout=self._timeout_seconds)
+        return self.__client
+
+    @_client.setter
+    def _client(self, client) -> None:
+        """Assignable — see the twin in `openai_compat.py`: it was a plain attribute before
+        it became lazy, and callers/tests inject their own client."""
+        self.__client = client
 
     def _headers(self) -> dict[str, str]:
         h: dict[str, str] = {"content-type": "application/json"}

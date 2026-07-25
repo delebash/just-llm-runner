@@ -29,11 +29,18 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterator
 
-from google import genai
-from google.genai import errors as gerrors
-from google.genai import types as gtypes
+from ._lazy import lazy_module
 
-from .base import (
+# Deferred: importing google-genai here cost ~918 ms on every server boot — the largest single
+# item in the ~4.1 s cold start — for an SDK most sessions never call. Each proxy imports its
+# module on first attribute access, so every `genai.` / `gtypes.` / `gerrors.` use below is
+# unchanged (annotations are strings under `from __future__ import annotations`, so the
+# `-> list[gtypes.Content]` signature never forces the import either). See _lazy.py.
+genai = lazy_module("google.genai")
+gerrors = lazy_module("google.genai.errors")
+gtypes = lazy_module("google.genai.types")
+
+from .base import (  # noqa: E402 — kept below the lazy shim so the deferral reads in order
     LLMMessage,
     LLMResponse,
     StreamDelta,

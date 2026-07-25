@@ -260,6 +260,27 @@ DEFAULT_CATALOG: list[dict] = [
      "size_label": "128x9.4B", "size_bytes": 67721071872,
      "description": "106B mixture-of-experts model · 128k context · MTP for faster generation · UD-Q4_K_XL",
      "notes": "Heavyweight structured extraction + reasoning on a high-RAM rig (64 GB+ RAM); published evals now trail Qwen3.6-35B-A3B."},
+    # The 24 GB-band tier-native option (2026-07-25, the user's ruling: "the goal is to
+    # have a model available to download for the users hardware" — the 70B/GLM precedent:
+    # research-grounded rows for hardware we don't own, so bigger boxes have something to
+    # download). Dense 27B, Apache-2.0, 262K ctx, MTP trained in; fully resident on a
+    # 24 GB card at this quant. HONEST CAVEAT baked into rank + notes: Qwen markets it on
+    # coding/agentic work and its PROSE is untested here — it ranks at the bottom of the
+    # chat rows until a real writing trial moves it; the 24-band class recommendation
+    # stays with the flagship (our best-rated writer) meanwhile.
+    # hf_repo is the -MTP- variant DELIBERATELY (the qwen35 row's exact shape): unsloth
+    # ships the 27B twice, and the plain repo made the tier-C probe "borrow" a 15 GB
+    # full-model IQ4_XS from the MTP sibling as a "draft" — absurd (a draft the size of
+    # the model; caught before commit). The MTP repo bakes the nextn layers in →
+    # mtp_builtin, no external draft, ~1.5-2x decode per its card.
+    {"id": "qwen3.6-27b", "mtp": True, "mtp_builtin": True, "est_vram_mb": 19594, "size_bytes": 17909097600, "size_label": "27B", "trained_ctx": 262144, "name": "Qwen3.6 27B (MTP)",
+     "hf_repo": "unsloth/Qwen3.6-27B-MTP-GGUF", "quant": "UD-Q4_K_XL",
+     "total_params": "27B",
+     "samplers": {"top_k": "20", "top_p": "0.95", "temperature": "1"},
+     "min_vram_mb": 20000, "min_ram_mb": 24000, "tier": "high", "license": "Apache-2.0", "position": 3,
+     "quality_rank": 14, "architecture": "qwen35", "experts": 0,
+     "description": "27B model · 256k context · MTP for faster generation · UD-Q4_K_XL",
+     "notes": "The 24 GB-card native option — dense 27B, fully resident there. Strong published general evals; marketed on coding/agentic work, prose UNTESTED in this app — try it against the default before adopting it. Never auto-picked."},
     # ── Community writing tunes (user-added 2026-07-06; NEVER auto-picked — ranked below the
     # trusted set until a Lab A/B; each row license-verified through its base_model chain) ──
     # DRAFTER REPOINTED 2026-07-25 (measured, 2070S / b10107). This row seeded

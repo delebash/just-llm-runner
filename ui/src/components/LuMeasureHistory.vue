@@ -11,6 +11,7 @@
 // open drawer stays live.
 import { computed, ref } from "vue";
 
+import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiTag from "../common/components/UiTag.vue";
 import { confirmDialog } from "../common/services/dialog.js";
@@ -74,8 +75,14 @@ async function clearHistory() {
 <template>
   <details class="lu-mh" @toggle="onToggle">
     <summary class="lu-mh-summary">
-      <span class="lu-mh-title">Measurement history</span>
-      <span class="lu-muted">every measured speed for this model, saved across restarts</span>
+      <Icon name="ChevRight" :size="15" class="lu-mh-caret" />
+      <span class="lu-mh-text">
+        <span class="lu-mh-title">
+          Measurement history
+          <span v-if="loaded && hasRows" class="lu-mh-count">{{ rows.length }}</span>
+        </span>
+        <span class="lu-muted">every measured speed for this model, saved across restarts</span>
+      </span>
     </summary>
 
     <div class="lu-mh-body">
@@ -118,8 +125,28 @@ async function clearHistory() {
 
 <style scoped>
 .lu-mh { border-top: 1px solid var(--border); padding-top: 10px; }
-.lu-mh-summary { cursor: pointer; display: flex; flex-direction: column; gap: 2px; user-select: none; }
-.lu-mh-title { font-weight: 700; font-size: 12.5px; color: var(--ink); }
+/* A real disclosure affordance (the user: "you can't tell you have to click it to
+   open"): a rotating caret + a hover row so it reads as an expandable control, not a
+   heading. `display:flex` already hides the native marker in Chromium/WebView2; the
+   list-style/webkit rules keep it hidden on other engines too. */
+.lu-mh-summary {
+  cursor: pointer; display: flex; align-items: flex-start; gap: 8px; user-select: none;
+  list-style: none; padding: 6px 8px; margin: 0 -8px;
+  border-radius: var(--r-sm, 8px); transition: background .12s ease;
+}
+.lu-mh-summary::-webkit-details-marker { display: none; }
+.lu-mh-summary::marker { content: ""; }
+.lu-mh-summary:hover { background: var(--surface-2); }
+.lu-mh-summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lu-mh-caret { flex: none; margin-top: 1px; color: var(--muted); transition: transform .15s ease; }
+.lu-mh[open] .lu-mh-caret { transform: rotate(90deg); }
+.lu-mh-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lu-mh-title { font-weight: 700; font-size: 12.5px; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+.lu-mh-count {
+  font-size: 10.5px; font-weight: 700; color: var(--muted);
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 0 6px; line-height: 16px;
+}
 .lu-mh-body { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
 .lu-mh-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
 .lu-mh-tbl th { text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 3px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }

@@ -58,14 +58,27 @@ const sortKey = ref("quality");
 const sortDir = ref("asc"); // quality asc = best (lowest rank) first
 // The sortable columns, in render order. `num` = right-aligned numeric; `defDir` = the
 // natural FIRST-click direction (all read best ascending here).
+// `w` = the column's SHARE of the table, not a pixel size. With `table-layout: fixed`
+// (see the style block) the browser divides the container by these proportions, so the
+// grid always fits its panel at any window size and each column's text wraps inside its
+// own column. Percentages replaced a scatter of hand-guessed px/ch caps (max-width 320px,
+// 46ch, min-width 210px…), each of which was a guess that held at one window width and
+// truncated at another — the 2026-07-24 truncation bug, three times over. Retune by
+// changing a share here; nothing else needs to know a width.
 const COLUMNS = [
-  { key: "name", label: "Model", defDir: "asc" },
-  { key: "type", label: "Type", defDir: "asc" },
-  { key: "license", label: "License", defDir: "asc" },
-  { key: "quality", label: "Bench", num: true, defDir: "asc" },
-  { key: "fit", label: "Fit", defDir: "asc" },
-  { key: "status", label: "Status", defDir: "asc" },
+  // Tuned 2026-07-24 on the user's read: Model was taking more than it needed (its prose
+  // wraps happily, so a narrower share just means another line), and Bench held a two-digit
+  // number in a column sized for far more. Bench's floor is its own HEADER — the word
+  // "Bench" plus the sort caret — not the data, which is why it can't go below ~5%.
+  { key: "name", label: "Model", defDir: "asc", w: "29%" },
+  { key: "type", label: "Type", defDir: "asc", w: "11%" },
+  { key: "license", label: "License", defDir: "asc", w: "11%" },
+  { key: "quality", label: "Bench", num: true, defDir: "asc", w: "5%" },
+  { key: "fit", label: "Fit", defDir: "asc", w: "7%" },
+  { key: "status", label: "Status", defDir: "asc", w: "17%" },
 ];
+// The un-sortable Actions column takes the remainder. Shares total 100%.
+const ACTIONS_W = "20%";
 function toggleSort(key) {
   if (sortKey.value === key) { sortDir.value = sortDir.value === "asc" ? "desc" : "asc"; return; }
   sortKey.value = key;
@@ -936,7 +949,7 @@ refreshApplied();
       <table class="lu-mgrid">
         <thead>
           <tr>
-            <th v-for="col in COLUMNS" :key="col.key"
+            <th v-for="col in COLUMNS" :key="col.key" :style="{ width: col.w }"
               :class="{ 'lu-th-num': col.num, 'lu-th-on': sortKey === col.key }">
               <button type="button" class="lu-th-btn" @click="toggleSort(col.key)"
                 :title="`Sort by ${col.label.toLowerCase()}`">
@@ -944,7 +957,7 @@ refreshApplied();
                 <span class="lu-th-arr">{{ sortKey === col.key ? (sortDir === 'asc' ? '▲' : '▼') : '↕' }}</span>
               </button>
             </th>
-            <th class="lu-th-act">Actions</th>
+            <th class="lu-th-act" :style="{ width: ACTIONS_W }">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -1210,13 +1223,36 @@ refreshApplied();
 .lu-mcat-head b { color: var(--ink-2); }
 .lu-mcat-err { margin-bottom: 8px; }
 .lu-mcat-empty { font-size: 12.5px; color: var(--muted); padding: 14px; text-align: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm, 8px); }
-.lu-mcat-wrap { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-sm, 8px); background: var(--surface); }
+/* The list scroller. 260px showed barely one-and-a-half of the tall (description +
+   notes) rows — the "cramped" read (user, 2026-07-24). Sized to the window with a cap,
+   the AppModal.vue:221 precedent for a vh-bounded scroller. */
+/* Viewport-relative, not a pixel guess: the list gets a share of the window height and
+   scrolls past it (the old fixed 260px showed barely one-and-a-half of the taller rows). */
+.lu-mcat-wrap { max-height: 58vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-sm, 8px); background: var(--surface); }
 /* Fit-to-data (user, 2026-07-22 — "too wide, fit the data"): the table sizes to its
    CONTENT, not a forced width:100% stretch. Narrow columns shrink (nowrap); only the
    Model column grows, wrapping its description within a cap. */
-.lu-mgrid { width: auto; border-collapse: collapse; font-size: 12.5px; }
+/* PROPORTIONAL, not hand-measured (user, 2026-07-24: "hardcoding px width height is bad
+   coding" — and they were right; this table had accumulated max-width 320px, 46ch,
+   min-width 160px, min-width 210px and a 260px scroller, each a guess that held at one
+   window size and truncated at another).
+   `table-layout: fixed` + `width: 100%` + the per-column SHARES in COLUMNS: the browser
+   divides the container, so the grid can never exceed its panel (the old `width: auto`
+   grew to 1238px inside a 1106px wrap and pushed Status/Actions out of sight) and every
+   cell's text wraps inside its own column with no cap to maintain. */
+.lu-mgrid { table-layout: fixed; width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .lu-mgrid th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); border-bottom: 1px solid var(--border); padding: 0; }
-.lu-mgrid td { padding: 8px 11px; border-bottom: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
+/* TOP-aligned, not middle (user, 2026-07-24 — the columns "read misaligned"): the Model
+   cell runs 5-7 lines (name · id · size · description · notes · card link) while Type /
+   License / Bench / Fit / Status / Actions are one line each, so centering floated every
+   badge in the middle of a tall row, level with nothing. Top-aligned, each cell lines up
+   with the model NAME — the row's anchor. */
+/* Cells WRAP. `nowrap` here is what forced the table wider than its panel: every column
+   demanded its full single-line width and the grid grew past the container, clipping the
+   right-hand end. Top-aligned so one-line cells sit level with the model NAME instead of
+   floating mid-row against a 5-7 line Model cell. Chips keep their own `nowrap` below, so
+   a badge still never breaks mid-word. */
+.lu-mgrid td { padding: 9px 11px; border-bottom: 1px solid var(--border); vertical-align: top; white-space: normal; overflow-wrap: anywhere; }
 .lu-mgrid tr:last-child td { border-bottom: 0; }
 /* Sortable header buttons — click to sort; the arrow shows the active column + direction. */
 .lu-th-btn {
@@ -1236,18 +1272,30 @@ refreshApplied();
 .lu-bench { font-weight: 600; color: var(--ink-2); }
 .lu-bench-none { color: var(--muted); font-weight: 400; }
 /* Model is the ONE column that grows; its text wraps within a cap so the table stays tidy. */
-.lu-mn { font-weight: 600; color: var(--ink); min-width: 160px; max-width: 320px; white-space: normal; }
+/* No width here at all — the Model column's share is declared once in COLUMNS. */
+.lu-mn { font-weight: 600; color: var(--ink); }
 .lu-mid { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px; }
 .lu-mrowmeta { font-size: 10.5px; font-weight: 400; margin-top: 1px; }
-.lu-mdesc { font-size: 11px; color: var(--ink-2); font-weight: 400; margin-top: 3px; max-width: 46ch; line-height: 1.4; }
-.lu-mnotes { font-size: 10.5px; color: var(--muted); font-weight: 400; font-style: italic; margin-top: 2px; max-width: 46ch; line-height: 1.4; }
+/* No max-width: the description and notes simply fill the Model column and wrap in it.
+   Under `table-layout: fixed` the column owns the width, so these need no cap of their
+   own — the previous attempts put one on the <td> (ignored under `table-layout: auto`)
+   and then on these children (a number to keep in sync forever). */
+.lu-mdesc { font-size: 11px; color: var(--ink-2); font-weight: 400; margin-top: 3px; line-height: 1.4; }
+.lu-mnotes { font-size: 10.5px; color: var(--muted); font-weight: 400; font-style: italic; margin-top: 2px; line-height: 1.4; }
 .lu-setup-pick { margin-top: 7px; }
 /* Default / Embedding badges sit inline after the model name; the fit-group divider row. */
 .lu-mbadge { margin-left: 6px; vertical-align: middle; }
 .lu-mgroup td { background: var(--surface-2); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; padding: 5px 11px; }
-.lu-mm { color: var(--ink-2); white-space: nowrap; }
+/* The Type cell holds chips: let them WRAP onto a second line when the column is narrow
+   (each chip stays intact via its own nowrap) rather than widening the table. */
+.lu-mm { color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px; }
+.lu-typetag, .lu-mm :deep(.ui-tag) { white-space: nowrap; }
 .lu-mact { text-align: right; }
-.lu-macts { display: inline-flex; align-items: center; gap: 4px; justify-content: flex-end; }
+/* WRAPS. Measured at the app's minimum window (1000px, tauri.conf.json): the button
+   cluster needed +31px more than its cell and overran it on 14 rows. Wrapping lets the
+   buttons stack on a narrow window instead of spilling out of the column — no width to
+   maintain, and it stays a single row at every wider size. */
+.lu-macts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; justify-content: flex-end; }
 /* ⋯ overflow trigger — NOT portaled (it lives in the row), so it stays scoped. The
    portaled menu CONTENT (.lu-mmenu / .lu-mmi / .lu-mmsep) moved to common/styles.css
    beside .ui-select-content: Reka teleports the content to <body>, where a component's
@@ -1259,14 +1307,23 @@ refreshApplied();
 
 /* License badge — neutral for permissive (Apache/MIT), a gold warning chip for
    use-limited licenses (Llama-Community, *-Research, Gemma terms). */
-.lu-lic { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 700; border: 1px solid var(--border-strong); color: var(--ink-2); background: var(--surface); white-space: nowrap; }
+/* The badge WRAPS rather than forcing its column wider: the longest license name
+   ("Llama-Community") needed +28px past its cell at the 1000px minimum window. Two lines
+   inside the pill is better than a clipped column. */
+.lu-lic { display: inline-flex; align-items: center; border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 700; border: 1px solid var(--border-strong); color: var(--ink-2); background: var(--surface); text-align: center; }
 .lu-lic--warn { background: var(--gold-soft, #f5edda); border-color: var(--gold-line, #e2d2b0); color: var(--gold, #b08a3e); }
 
 /* .lu-pill* moved to shared common/styles.css (used by the grid too). */
 .lu-mstat { font-size: 11px; color: var(--muted); }
 /* The SAME shared DownloadBar inside a grid STATUS cell — drop the card top-margin, give it
-   room, and re-allow wrapping (the grid td is nowrap). */
-.lu-mgrid-dlbar { margin-top: 0; min-width: 210px; white-space: normal; }
+   room, and re-allow wrapping (the grid td is nowrap). BOUNDED 2026-07-24: a failed download
+   renders the server's message, which for an HF error carries a ~120-character UNBROKEN url;
+   with a min-width that string forced the Status column far past it and swamped the row
+   (user screenshot, the StyleTune 429). The bar now simply FILLS its column — the column's
+   share governs, so there is no width here to keep in sync — and break-anywhere keeps a
+   long error URL readable inside it. */
+.lu-mgrid-dlbar { margin-top: 0; width: 100%; white-space: normal; }
+.lu-mgrid-dlbar :deep(*) { overflow-wrap: anywhere; }
 
 .lu-mcat-foot { font-size: 11px; margin-top: 7px; }
 .lu-mlink { color: var(--accent-ink, var(--accent)); }

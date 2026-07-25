@@ -252,6 +252,28 @@ DEFAULT_CATALOG: list[dict] = [
      "size_label": "26B-A4B", "size_bytes": 16796015520,
      "description": "26B mixture-of-experts model · 256k context · MTP draft for faster generation · Q4_K_M",
      "notes": "Refusal-ablated Gemma 4 26B-A4B QAT — the option for fiction whose dark, gory, or adult scenes hit stock refusals. Never auto-picked; you choose it. Carries the repo's own Gemma-terms tag (its Google base is Apache-2.0)."},
+    # A/B CANDIDATE row (user ruling 2026-07-24: "test both, keep the winner" — the bench
+    # battery on both uncensored rows decides which one stays; the loser's row is REMOVED).
+    # EZForever's UD-merge grafts llmfan46's heretic-abliterated tensors onto unsloth's own
+    # QAT GGUF — the SAME base repo the JW flagship rides — Apache-2.0 end to end (HF API
+    # read 2026-07-24), with PUBLISHED deltas vs base (card table read 2026-07-24 —
+    # Q4_K_XXL: KL-divergence 0.0291, MMLU-val 81.06%, refusal 16% vs the BF16 base's own
+    # 17%). XXL keeps abliterated tensors at Q8_0; the XL variant's 33% refusal defeats the
+    # row's purpose, so XXL is the pinned quant. Drafter: unsloth's own MTP file per the
+    # card's instruction — identical to the flagship's. size_label/est_vram_mb deliberately
+    # unseeded: download-time inspect fills them from the real file (the fill-empty path).
+    # position duplicates 6 on purpose — a temporary A/B twin sits beside its rival.
+    {"id": "gemma-4-26b-a4b-uncensored-ez", "name": "Gemma 4 26B-A4B Uncensored (EZForever heretic) — A/B",
+     "hf_repo": "EZForever/gemma-4-26B-A4B-it-qat-uncensored-heretic-UDmerge-GGUF", "quant": "Q4_K_XXL",
+     "total_params": "26B", "active_params": "4B", "type": "moe",
+     "mtp": True, "mtp_draft_repo": "unsloth/gemma-4-26B-A4B-it-qat-GGUF",
+     "mtp_draft_file": "MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
+     "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
+     "min_vram_mb": 4000, "min_ram_mb": 24000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 6,
+     "quality_rank": 14, "architecture": "gemma4", "experts": 128,
+     "size_bytes": 14329791488,
+     "description": "26B mixture-of-experts model · 256k context · MTP draft for faster generation · Q4_K_XXL (QAT, refusal-ablated)",
+     "notes": "A/B candidate vs the HauhauCS row — refusal-ablated Gemma 4 26B-A4B QAT (EZForever's UD-merge of the heretic abliteration onto unsloth's QAT GGUF). Never auto-picked. Card-published quality: KL 0.0291 vs base, refusal 16%. The 2026-07-24 bench battery decides which uncensored row stays."},
     # ── Embeddings (build the RAG / semantic-search index — CPU-fine) ──────────────────────
     # (The tiny CPU pipeline-test model is deliberately NOT in this seed — user, 2026-07-06:
     # "real seed should not have it". Dev containers/CI add it via the user-facing catalog

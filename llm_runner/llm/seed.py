@@ -227,7 +227,22 @@ DEFAULT_CATALOG: list[dict] = [
      "notes": "Heavyweight structured extraction + reasoning on a high-RAM rig (64 GB+ RAM); published evals now trail Qwen3.6-35B-A3B."},
     # ── Community writing tunes (user-added 2026-07-06; NEVER auto-picked — ranked below the
     # trusted set until a Lab A/B; each row license-verified through its base_model chain) ──
-    {"id": "gryphe-styletune-v2", "mtp": True, "mtp_draft_quant": "Q8_0", "mtp_draft_file": "gemma-4-26B-A4B-it-assistant-Q8_0.gguf", "mtp_draft_repo": "Radamanthys11/Gemma-4-26B-A4B-it-assistant-GGUF", "est_vram_mb": 20771, "name": "Gemma 4 26B-A4B StyleTune V2 (Gryphe)",
+    # DRAFTER REPOINTED 2026-07-25 (measured, 2070S / b10107). This row seeded
+    # Radamanthys11's `gemma-4-26B-A4B-it-assistant-Q8_0.gguf`, and that made the model
+    # UNLOADABLE FOR EVERY USER: the engine exited status 1 ("exiting due to model
+    # loading error"), which is why the row had never once been benched since it was
+    # added on 2026-07-06. It now borrows unsloth's `mtp-…-Q4_0.gguf` head — the exact
+    # file `gemma-4-26b-a4b-uncensored-ez` already borrows at 60.5% acceptance — which
+    # loads cleanly against these weights. The borrow stays ENABLED so the tier-C
+    # mechanism (and its tests) behave as designed.
+    # Honest note on the value, so nobody re-measures it: for THIS model the draft earns
+    # ~nothing — same prompt/seed/-ngl/--fit off, 10.77 tok/s with it vs 10.56 without
+    # (2%, noise), because an MTP head predicts its BASE model's tokens and StyleTune's
+    # finetune moved the weights too far (the ez row, a much lighter merge, is the
+    # contrast). On an 8 GB card, where this model fits only 8/30 layers, a 0.23 GB draft
+    # is probably net-negative — but that is a PER-HARDWARE call and belongs in a
+    # class tune, not in a global seed that also serves 24 GB boxes.
+    {"id": "gryphe-styletune-v2", "mtp": True, "mtp_draft_quant": "Q4_0", "mtp_draft_file": "MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf", "mtp_draft_repo": "unsloth/gemma-4-26B-A4B-it-qat-GGUF", "est_vram_mb": 20771, "name": "Gemma 4 26B-A4B StyleTune V2 (Gryphe)",
      "hf_repo": "mradermacher/Gemma-4-26B-A4B-StyleTune-V2-GGUF", "quant": "Q4_K_M",
      "total_params": "26B", "active_params": "4B", "type": "moe",
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},

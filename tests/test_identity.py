@@ -172,8 +172,14 @@ def test_borrow_only_row_seeds_inherited_drafter(configured):
     row = _row("gryphe-styletune-v2")
     assert row.mtpBuiltin is False           # header carries no in-file MTP
     assert row.mtp is True                    # …yet MTP is enabled via the borrow
-    assert row.mtpDraftRepo == "Radamanthys11/Gemma-4-26B-A4B-it-assistant-GGUF"
-    assert row.mtpDraftFile == "gemma-4-26B-A4B-it-assistant-Q8_0.gguf"
+    # The pinned drafter moved 2026-07-25: the previous borrow (Radamanthys11's
+    # `…-it-assistant-Q8_0.gguf`) made this model UNLOADABLE — the engine exited status 1
+    # — so the row was never benchable. unsloth's `mtp-…-Q4_0.gguf` head loads cleanly
+    # against these weights, and is the same file the ez row already borrows at 60.5%
+    # acceptance. What is under test is the MECHANISM (borrow-only row ⇒ drafter + mtp
+    # enabled); the exact repo is pinned so a silent re-point is caught.
+    assert row.mtpDraftRepo == "unsloth/gemma-4-26B-A4B-it-qat-GGUF"
+    assert row.mtpDraftFile == "MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf"
     # A model that ships its OWN draft is untouched by the borrow (own, not borrowed).
     assert _row("gemma-4-26b-a4b-uncensored").mtpDraftRepo == ""
     assert _row("gemma-4-26b-a4b-uncensored").mtpDraftFile == "mtp-gemma-4-26B-A4B-it.gguf"
@@ -202,8 +208,8 @@ def test_fill_inherited_draft_backfills_existing_draftless_row(configured):
 
     healed = _row("gryphe-styletune-v2")
     assert healed.mtp is True
-    assert healed.mtpDraftFile == "gemma-4-26B-A4B-it-assistant-Q8_0.gguf"
-    assert healed.mtpDraftRepo == "Radamanthys11/Gemma-4-26B-A4B-it-assistant-GGUF"
+    assert healed.mtpDraftFile == "MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf"
+    assert healed.mtpDraftRepo == "unsloth/gemma-4-26B-A4B-it-qat-GGUF"
     # the user's own draft survived (empty-only never overwrites an existing draft)
     assert _row("gemma-4-12b-qat").mtpDraftFile == "my/own-draft.gguf"
 

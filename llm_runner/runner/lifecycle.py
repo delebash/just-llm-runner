@@ -2219,7 +2219,7 @@ class RunnerService:
                         # when `_wants_draft` is True, i.e. `m.mtp_draft_file` is set),
                         # `spec-type = draft-mtp` without a `model-draft` line would hand
                         # llama-server a broken preset on a router bounce. (A BUILT-IN-MTP
-                        # model — no `mtp_draft_file`, e.g. qwen3.6-35b-a3b-mtp — legitimately
+                        # model — no `mtp_draft_file`, e.g. qwen3.6-27b — legitimately
                         # runs spec-type with NO model-draft, self-drafting from the main
                         # GGUF, and never reaches this branch — verified working on-box
                         # 2026-07-21.) The first ACTIVE load re-acquires the draft (fail-loud).

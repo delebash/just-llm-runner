@@ -19,6 +19,7 @@ import { applyPreview, useModelApply } from "../services/modelApply.js";
 import { FIT_RUNNABLE, pickBestEmbedId, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
 import { allDraftsUnloadable, pickDefaultDraftPath } from "../draftSelect.js";
 import { TUNE_BADGES, fetchTuneState, tuneBadgeOf } from "../tuneState.js";
+import { classKeyLabel } from "../classTunes.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -390,7 +391,15 @@ function tuneBadge(m) {
     hand: "This PC runs your applied config — hand-set in Tune & measure",
     class: "No applied config on this PC — it starts from the Hardware/model class default for your PC class",
   };
-  return { ...TUNE_BADGES[id], title: titles[id] };
+  const badge = { ...TUNE_BADGES[id], title: titles[id] };
+  // The class badge names the ACTUAL class (user, 2026-07-25: "say somewhere what the
+  // hardware class is" — the bare label left the class a mystery). Appended in the
+  // shared human words (classKeyLabel — the classes panel's own formatter), e.g.
+  // "Hardware/model class default · 8 GB VRAM · 32 GB RAM".
+  if (id === "class" && tuneState.value?.classKey) {
+    badge.label = `${badge.label} · ${classKeyLabel(tuneState.value.classKey)}`;
+  }
+  return badge;
 }
 function closeTuneModal() {
   tuning.value = null;

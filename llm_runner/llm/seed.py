@@ -180,42 +180,34 @@ DEFAULT_CATALOG: list[dict] = [
      "quality_rank": 22, "architecture": "gemma4", "experts": 0,
      "size_label": "12B", "size_bytes": 6716355328,
      "description": "12B model · 256k context · MTP draft for faster generation · UD-Q4_K_XL (QAT)",
-     "notes": "The small-card rung of the writing-first ladder; runs fully on a 10-12 GB GPU (tight on 8)."},
-    # ── The E-series small rungs (added 2026-07-25 on the user's go; the last "missing
-    # catalog rows" tracker item). E4B is the DECIDED model for the 16 GB integrated-GPU
-    # box (user, 2026-07-24: "16 GB Iris Xe = E4B"); its (E4B, igpu-mem16) class tune is
-    # a FUTURE row once the speed-kit benches that laptop (recovery doc §17: "a smaller
-    # model for igpu-mem16 is a future row once benched" — the seed principle: no
-    # un-measured tune). E2B is the smallest rung, CPU-viable; the desktop quick screen
-    # read 97.8 tok/s decode at b10107 (bench/speed-kit/quick-summary.txt, 2070S).
-    # Both share position 0 with the 12B rung (order within a position is by id — the
-    # small-dense band reads together; renumbering the ladder would disturb the JW
-    # extras' relative order at position 20). Header-derived facts (size/arch/ctx/mtp/
-    # drafter) filled by scripts/refresh-seed-facts.py — seed == file, same code path
-    # as Read-from-link. min_vram/min_ram floors follow the 12B row's file-size ratios.
-    # DRAFTERS RECORDED BUT OFF (`mtp: False` — the ONE deliberate divergence from what
-    # Read-from-link would configure, which is borrow + enable): unsloth's E-repos ship
-    # no MTP head, so the tier-C probe finds only THIRD-PARTY assistant heads (E2B:
-    # Radamanthys11 — the same publisher and `-it-assistant-Q8_0` naming as StyleTune's
-    # seeded drafter that made THAT model UNLOADABLE for 19 days, fixed 2026-07-25; E4B:
-    # AtomicChat). Neither head has ever been loaded against these weights. Flip mtp
-    # True only after a verified load on a real box; a future refresh-seed-facts
-    # --write will mechanically propose `mtp: True` again — do NOT accept that without
-    # the load (the script reports before it writes; this comment is the stop sign).
-    {"id": "gemma-4-e2b-qat", "mtp": False, "mtp_draft_quant": "Q8_0", "mtp_draft_file": "gemma-4-E2B-it-assistant-Q8_0.gguf", "mtp_draft_repo": "Radamanthys11/Gemma-4-E2B-it-assistant-GGUF", "est_vram_mb": 3711, "size_bytes": 2620370976, "size_label": "4.6B", "trained_ctx": 131072, "name": "Gemma 4 E2B (QAT)",
-     "hf_repo": "unsloth/gemma-4-E2B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "E2B",
-     "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
-     "min_ram_mb": 6000, "min_vram_mb": 3500, "tier": "cpu", "license": "Apache-2.0", "position": 0,
-     "quality_rank": 24, "architecture": "gemma4", "experts": 0,
-     "description": "E2B model · 128k context · UD-Q4_K_XL (QAT)",
-     "notes": "The smallest rung — CPU-viable and quick on any GPU (97.8 tok/s decode on the author's 8 GB card). For low-memory boxes; prose depth is a step below E4B."},
+     "notes": "The lighter, faster pick — runs fully on a 10-12 GB graphics card (tight on 8 GB) and needs little system RAM."},
+    # ── The E-series small rung (added 2026-07-25 on the user's go; E2B was added the
+    # same morning and REMOVED the same evening in the user's catalog trim — see the
+    # note below). E4B is the DECIDED model for the 16 GB integrated-GPU box (user,
+    # 2026-07-24: "16 GB Iris Xe = E4B"); its (E4B, igpu-mem16) class tune seeded from
+    # that laptop's own kit run. Shares position 0 with the 12B rung (order within a
+    # position is by id; renumbering the ladder would disturb the JW extras' relative
+    # order at position 20). Header-derived facts (size/arch/ctx/mtp/drafter) filled by
+    # scripts/refresh-seed-facts.py — seed == file, same code path as Read-from-link.
+    # min_vram/min_ram floors follow the 12B row's file-size ratios.
+    # DRAFTER RECORDED BUT OFF (`mtp: False` — the ONE deliberate divergence from what
+    # Read-from-link would configure, which is borrow + enable): unsloth's E-repo ships
+    # no MTP head, so the tier-C probe finds only a THIRD-PARTY assistant head
+    # (AtomicChat), never loaded against these weights. Flip mtp True only after a
+    # verified load on a real box; a future refresh-seed-facts --write will mechanically
+    # propose `mtp: True` again — do NOT accept that without the load (the script
+    # reports before it writes; this comment is the stop sign).
+    # (E2B REMOVED 2026-07-25, the user's same-day trim: every served box has ≥16 GB
+    # RAM and runs E4B — the CPU-only band E2B might have served was already ruled
+    # "not viable for interactive book-chat". Its kit measurements survive under
+    # justwrite-app bench/results/; the speed-kit still benches it as test infra.)
     {"id": "gemma-4-e4b-qat", "mtp": False, "mtp_draft_quant": "Q4_K_S", "mtp_draft_file": "gemma-4-E4B-it-assistant.Q4_K_S.gguf", "mtp_draft_repo": "AtomicChat/gemma-4-E4B-it-assistant-GGUF", "est_vram_mb": 5411, "size_bytes": 4215695776, "size_label": "7.5B", "trained_ctx": 131072, "name": "Gemma 4 E4B (QAT)",
      "hf_repo": "unsloth/gemma-4-E4B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "E4B",
      "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
      "min_ram_mb": 8000, "min_vram_mb": 6000, "tier": "mid", "license": "Apache-2.0", "position": 0,
      "quality_rank": 23, "architecture": "gemma4", "experts": 0,
      "description": "E4B model · 128k context · UD-Q4_K_XL (QAT)",
-     "notes": "The efficient mid-small rung and the pick for 16 GB integrated-GPU laptops (one shared memory pool). QAT holds 4-bit quality; its igpu-mem16 tuned config lands once that box is benched."},
+     "notes": "Made for laptops with integrated graphics, where the GPU shares system memory. Small and quick, and holds its quality well for the size."},
     {"id": "gemma-4-31b-qat", "name": "Gemma 4 31B (QAT)",
      "hf_repo": "unsloth/gemma-4-31B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "31B",
      "mtp": True, "est_vram_mb": 26038, "mtp_draft_file": "MTP/mtp-gemma-4-31B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
@@ -224,7 +216,7 @@ DEFAULT_CATALOG: list[dict] = [
      "quality_rank": 7, "architecture": "gemma4", "experts": 0,
      "size_label": "31B", "size_bytes": 17287668064,
      "description": "31B model · 256k context · MTP draft for faster generation · UD-Q4_K_XL (QAT)",
-     "notes": "The 24 GB-card rung; the family's strongest, with vision. Writing rank pending a Lab A/B against the 26B-A4B."},
+     "notes": "The biggest Gemma — the family's strongest quality, with image understanding. Wants a 24 GB-class graphics card."},
     {"id": "llama-3.3-70b-q4_k_m", "est_vram_mb": 45768, "name": "Llama 3.3 70B Instruct · Q4_K_M",
      "hf_repo": "unsloth/Llama-3.3-70B-Instruct-GGUF", "quant": "Q4_K_M", "total_params": "70B",
      "trained_ctx": 131072,
@@ -232,23 +224,17 @@ DEFAULT_CATALOG: list[dict] = [
      "quality_rank": 11, "architecture": "llama", "experts": 0,
      "size_label": "70B", "size_bytes": 42520398432,
      "description": "70B model · 128k context · Q4_K_M",
-     "notes": "~42 GB split GGUF — the best all-round local creative-writing model for a ~48 GB rig; use-limited Llama license (never an auto-default)."},
+     "notes": "The heavyweight for a big rig (48 GB+ memory) — excellent all-round writing. Its Llama license limits some uses, so it is never selected automatically."},
     # ── MoE (experts offload to system RAM — higher quality, slower, needs RAM) ────────────
-    {"id": "qwen3.6-35b-a3b-mtp", "name": "Qwen3.6 35B-A3B (MTP)",
-     "hf_repo": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF", "quant": "UD-Q4_K_XL",
-     "total_params": "35B", "active_params": "3.6B", "mtp": True, "est_vram_mb": 24501, "mtp_builtin": True, "type": "moe",
-     "trained_ctx": 262144, "samplers": {"top_k": "20", "top_p": "0.95", "temperature": "1"},
-     "min_vram_mb": 6000, "min_ram_mb": 32000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 3,
-     "quality_rank": 8, "architecture": "qwen35moe", "experts": 256,
-     "size_label": "35B-A3B", "size_bytes": 22853663008,
-     "description": "35B mixture-of-experts model · 256k context · MTP for faster generation · UD-Q4_K_XL",
-     "notes": "~32B-class quality on a small GPU + system RAM via CPU expert offload; the smart all-round alternative."},
-    # quality_rank swap (2026-07-06 benchmark re-grounding, C2): Qwen3.6-35B-A3B
-    # publishes higher scores than GLM-4.5-Air on every shared instrument
-    # (MMLU-Pro 85.2 vs 81.4, IFEval 88.2 vs 86.3 — each vendor's own card) and
-    # the INDEPENDENT Artificial Analysis harness agrees (GPQA-Diamond 84.1 vs
-    # 73.3), so the ladder now puts Qwen3.6 (8) above GLM-4.5-Air (10).
-    # Evidence table + URLs: docs/plans/2026-07-06-a-to-e-execution.md §C2.
+    # (Qwen3.6-35B-A3B REMOVED 2026-07-25, the user's catalog trim: its "smart
+    # all-round alternative" job no longer existed — on the author's 8 GB box it
+    # measured uniformly ~2x slower than the flagship (chat 23.4s vs 12.7s, entity
+    # sweep 100.9s vs 39.4s, decode 6.9 vs 13.4 tok/s — stored campaign legs), it was
+    # the model the stall-detector was built around, and the dense 27B below now
+    # covers the Qwen-family slot for 24 GB rigs. The C2 rank note that lived here —
+    # the 35B's published evals beating GLM-4.5-Air's on every shared instrument,
+    # evidence in docs/plans/2026-07-06-a-to-e-execution.md §C2 — is why GLM still
+    # ranks 10 despite its size.)
     {"id": "glm-4.5-air", "name": "GLM-4.5-Air (106B-A12B MoE)",
      "hf_repo": "unsloth/GLM-4.5-Air-GGUF", "quant": "UD-Q4_K_XL",
      "total_params": "106B", "active_params": "12B", "type": "moe",
@@ -259,7 +245,7 @@ DEFAULT_CATALOG: list[dict] = [
      "quality_rank": 10, "architecture": "glm4moe", "experts": 128,
      "size_label": "128x9.4B", "size_bytes": 67721071872,
      "description": "106B mixture-of-experts model · 128k context · MTP for faster generation · UD-Q4_K_XL",
-     "notes": "Heavyweight structured extraction + reasoning on a high-RAM rig (64 GB+ RAM); published evals now trail Qwen3.6-35B-A3B."},
+     "notes": "A very large model for high-memory machines (64 GB+ RAM). Strong at structured analysis and long documents."},
     # The 24 GB-band tier-native option (2026-07-25, the user's ruling: "the goal is to
     # have a model available to download for the users hardware" — the 70B/GLM precedent:
     # research-grounded rows for hardware we don't own, so bigger boxes have something to
@@ -268,7 +254,7 @@ DEFAULT_CATALOG: list[dict] = [
     # coding/agentic work and its PROSE is untested here — it ranks at the bottom of the
     # chat rows until a real writing trial moves it; the 24-band class recommendation
     # stays with the flagship (our best-rated writer) meanwhile.
-    # hf_repo is the -MTP- variant DELIBERATELY (the qwen35 row's exact shape): unsloth
+    # hf_repo is the -MTP- variant DELIBERATELY (the shape the since-removed 35B row used): unsloth
     # ships the 27B twice, and the plain repo made the tier-C probe "borrow" a 15 GB
     # full-model IQ4_XS from the MTP sibling as a "draft" — absurd (a draft the size of
     # the model; caught before commit). The MTP repo bakes the nextn layers in →
@@ -280,7 +266,7 @@ DEFAULT_CATALOG: list[dict] = [
      "min_vram_mb": 20000, "min_ram_mb": 24000, "tier": "high", "license": "Apache-2.0", "position": 3,
      "quality_rank": 14, "architecture": "qwen35", "experts": 0,
      "description": "27B model · 256k context · MTP for faster generation · UD-Q4_K_XL",
-     "notes": "The 24 GB-card native option — dense 27B, fully resident there. Strong published general evals; marketed on coding/agentic work, prose UNTESTED in this app — try it against the default before adopting it. Never auto-picked."},
+     "notes": "Built for 24 GB graphics cards — runs fully on one. A strong general model; its fiction writing is untried in this app, so compare it with the default before switching. Never selected automatically."},
     # ── Community writing tunes (user-added 2026-07-06; NEVER auto-picked — ranked below the
     # trusted set until a Lab A/B; each row license-verified through its base_model chain) ──
     # DRAFTER REPOINTED 2026-07-25 (measured, 2070S / b10107). This row seeded
@@ -306,7 +292,7 @@ DEFAULT_CATALOG: list[dict] = [
      "quality_rank": 12, "architecture": "gemma4", "experts": 128,
      "size_label": "26B-A4B", "size_bytes": 17211252288,
      "description": "26B mixture-of-experts model · 256k context · Q4_K_M",
-     "notes": "Gryphe's prose style-tune of Gemma 4 26B-A4B — same hardware class as the default. Community tune (reputable maker), quantized by mradermacher; no MTP draft in the quant repo. Pick it deliberately; a Lab A/B decides its real rank."},
+     "notes": "A community re-tune of the standard 26B aimed at richer, more stylized prose. Same hardware needs as the default, a little slower. Try it when you want a different voice."},
     # The user's use-policy word, verbatim (2026-07-06): "i want uncensored as option for
     # fiction i dont want writers blocked when they have gory or fantasy sex scenes" — an
     # OPTION, chosen deliberately; never a default.
@@ -337,52 +323,24 @@ DEFAULT_CATALOG: list[dict] = [
      "quality_rank": 13, "architecture": "gemma4", "experts": 128,
      "size_bytes": 14329791488,
      "description": "26B mixture-of-experts model · 256k context · MTP draft for faster generation · Q4_K_XXL (QAT, refusal-ablated)",
-     "notes": "Refusal-ablated Gemma 4 26B-A4B QAT — the option for fiction whose dark, gory, or adult scenes hit stock refusals; never auto-picked, you choose it. EZForever's UD-merge of the heretic abliteration onto unsloth's QAT GGUF, Apache-2.0 end to end. Card-published deltas vs base: KL 0.0291, refusal 16%. Kept over the HauhauCS row in the 2026-07-25 A/B (the loser deflected like stock)."},
+     "notes": "The uncensored option — for fiction whose dark, violent, or adult scenes hit refusals on the standard models. Quality stays close to the standard 26B. Never selected automatically; you choose it."},
     # ── Embeddings (build the RAG / semantic-search index — CPU-fine) ──────────────────────
     # (The tiny CPU pipeline-test model is deliberately NOT in this seed — user, 2026-07-06:
     # "real seed should not have it". Dev containers/CI add it via the user-facing catalog
     # CRUD with scripts/dev-seed-test-model.py.)
-    {"id": "nomic-embed-text", "est_vram_mb": 1535, "name": "Nomic Embed Text v1.5",
-     "hf_repo": "nomic-ai/nomic-embed-text-v1.5-GGUF", "quant": "Q4_K_M", "total_params": "137M",
-     "trained_ctx": 2048,
-     "min_vram_mb": 1000, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 7,
-     "embedding": True, "pooling": "mean",
-     "quality_rank": 70, "architecture": "nomic-bert", "experts": 0,
-     # no size_label: this file's header carries no general.size_label (inspected 2026-07-08)
-     "size_bytes": 84106624,
-     "description": "137M embedding model · 2k context · Q4_K_M",
-     "notes": "The English CPU embedding floor; mean pooling."},
-    {"id": "qwen3-embedding-0.6b", "est_vram_mb": 2613, "name": "Qwen3 Embedding 0.6B",
-     "hf_repo": "Qwen/Qwen3-Embedding-0.6B-GGUF", "quant": "Q8_0", "total_params": "0.6B",
-     "trained_ctx": 32768,
-     "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "Apache-2.0", "position": 8,
-     "embedding": True, "pooling": "last",
-     # rank 58 (was 65 — #274): the CPU band's best. MTEB retrieval puts the 0.6B above
-     # bge-m3 and this row's own note calls it "The default local embed", but at 65 it
-     # LOST to bge (60) — under the #274 leftover rule that inversion would have quietly
-     # made bge the small-card default. Reaches existing DBs only via reset
-     # (insert-if-missing seeder).
-     "quality_rank": 58, "architecture": "qwen3", "experts": 0,
-     "size_label": "0.6B", "size_bytes": 639150592,
-     "description": "0.6B embedding model · 32k context · Q8_0",
-     "notes": "The default local embed (stronger multilingual / MTEB than nomic, still tiny ~0.6 GB); last-token pooling."},
-    {"id": "bge-m3", "est_vram_mb": 3171, "name": "BGE-M3 (multilingual)",
-     "hf_repo": "gpustack/bge-m3-GGUF", "quant": "Q4_K_M", "total_params": "567M",
-     "trained_ctx": 8192,
-     "min_vram_mb": 1500, "min_ram_mb": 4000, "tier": "cpu", "license": "MIT", "position": 9,
-     "embedding": True, "pooling": "cls",
-     "quality_rank": 60, "architecture": "bert", "experts": 0,
-     "size_label": "567M", "size_bytes": 437778496,
-     "description": "567M embedding model · 8k context · Q4_K_M",
-     "notes": "Multilingual embeddings across 100+ languages; CLS pooling; CPU-fine."},
+    # (EMBED TRIM 2026-07-25, the user's ruling after the fresh survey: nomic v1.5,
+    # the 0.6B, and BGE-M3 REMOVED. Every served class has ≥16 GB RAM and runs the 4B —
+    # which beat the 0.6B in the 2026-07-12 on-box A/B; nomic is a 2024-generation
+    # 137M floor for boxes the app does not serve; the Qwen3 family is itself top-tier
+    # multilingual, so BGE-M3 added nothing. Two rows + the 2026 contender below
+    # replace the old five.)
     # The DEFAULT local embed for a capable box (2026-07-12, reversing #274's "should be
-    # 0.6B"): near-8B retrieval quality at ~2.5 GB, on-box A/B beats the 0.6B on thematic
-    # retrieval. tier "cpu" — an embed runs on CPU by policy (the GPU stays for the chat
-    # model), so it is judged on RAM (8 GB floor), NOT the VRAM leftover; that makes it
-    # ALWAYS-eligible in the embed pick and, being higher quality than the 0.6B (rank 55 <
-    # 58), it wins Quick Setup on any box that clears its RAM floor. A box below 8 GB RAM
-    # gets coarse_fit "no" and falls back to the 0.6B automatically (the ladder self-sorts:
-    # <8 GB RAM → 0.6B; ≥8 GB RAM → 4B on CPU; a big GPU whose leftover covers the 8B → 8B).
+    # 0.6B"): near-8B retrieval quality at ~2.5 GB — the 2026-07-12 on-box A/B beat the
+    # (since-removed) 0.6B on thematic retrieval, which is what made this THE default.
+    # tier "cpu" — an embed runs on CPU by policy (the GPU stays for the chat model), so
+    # it is judged on RAM (8 GB floor), NOT the VRAM leftover; that makes it
+    # ALWAYS-eligible in the embed pick, and it wins Quick Setup on every served box
+    # (all classes carry ≥16 GB RAM; a big GPU whose leftover covers the 8B gets the 8B).
     # min_vram 4500 stays the honest GPU-fit figure (the FIT badge only — eligibility comes
     # from the tier, placement forces CPU via lifecycle._apply_embed_placement).
     {"id": "qwen3-embedding-4b", "est_vram_mb": 4636, "name": "Qwen3 Embedding 4B",
@@ -393,7 +351,7 @@ DEFAULT_CATALOG: list[dict] = [
      "quality_rank": 55, "architecture": "qwen3", "experts": 0,
      "size_label": "4B", "size_bytes": 2496703776,
      "description": "4B embedding model · 40k context · Q4_K_M",
-     "notes": "The default local embed on a capable box (≥8 GB RAM) — near-8B retrieval quality at ~2.5 GB, runs on CPU; last-token pooling."},
+     "notes": "The recommended embedding model — strong search quality at a small size. Runs on the CPU, so it never competes with your writing model."},
     {"id": "qwen3-embedding-8b", "est_vram_mb": 6874, "name": "Qwen3 Embedding 8B",
      "hf_repo": "Qwen/Qwen3-Embedding-8B-GGUF", "quant": "Q4_K_M", "total_params": "8B",
      "trained_ctx": 40960,
@@ -402,7 +360,29 @@ DEFAULT_CATALOG: list[dict] = [
      "quality_rank": 50, "architecture": "qwen3", "experts": 0,
      "size_label": "8B", "size_bytes": 4676804928,
      "description": "8B embedding model · 40k context · Q4_K_M",
-     "notes": "The #1 multilingual MTEB embed (~4.7 GB, ~7 GB VRAM) for a big card; last-token pooling."},
+     "notes": "The bigger embedding option for powerful machines — the best of its family. Runs on the CPU."},
+    # The 2026 CONTENDER row (added 2026-07-25, the user's availability ruling — the
+    # 27B-chat-row precedent: research-grounded availability for capable hardware,
+    # recommendation only after a trial). Tencent's KaLM-Embedding-Gemma3-12B-2511 tops
+    # the May-2026 MMTEB v2 snapshot; card facts verified 2026-07-25: last-token
+    # pooling, instruct-style query prompt (the same shape as the Qwen3 rows),
+    # Matryoshka dims to 64; the HEADER says ctx 131072 and arch `gemma-embedding` —
+    # a dedicated embed arch, so llama.cpp support is first-class, not incidental.
+    # GGUF is mradermacher's static quant (the user found it;
+    # an Ollama listing proves llama.cpp-land serving). rank 52 — deliberately BELOW
+    # the proven 8B (50) so the pick rule never auto-recommends an untested model;
+    # available to download, "try it against the 8B". license: Gemma terms propagate
+    # from the google/gemma-3-12b-pt base. Embeds run CPU by placement policy — a 12B
+    # embedder means SLOW index builds; for strong boxes, deliberately chosen.
+    {"id": "kalm-embedding-gemma3-12b", "est_vram_mb": 9700, "size_bytes": 7300777920, "size_label": "12B", "name": "KaLM Embedding Gemma3 12B",
+     "hf_repo": "mradermacher/KaLM-Embedding-Gemma3-12B-2511-GGUF", "quant": "Q4_K_M", "total_params": "12B",
+     "trained_ctx": 131072,
+     "min_vram_mb": 10000, "min_ram_mb": 12000, "tier": "high", "license": "Gemma", "position": 12,
+     "license_reviewed": "base is google/gemma-3-12b-pt — Gemma terms propagate to the finetune; checked 2026-07-25",
+     "embedding": True, "pooling": "last",
+     "quality_rank": 52, "architecture": "gemma-embedding", "experts": 0,
+     "description": "12B embedding model · 128k context · Q4_K_M",
+     "notes": "A newer, larger embedding model that currently leads public quality rankings. Untried in this app, and index building is slow on most machines — for powerful PCs and the curious. Never selected automatically."},
 ]
 
 # ── Embedding task templates (Move 0, RAG build 2026-07-11) ────────────────────
@@ -422,11 +402,12 @@ _QWEN3_EMBED_QUERY = (
     "bible entries that answer it\nQuery: {text}"
 )
 DEFAULT_EMBED_TEMPLATES: list[dict] = [
-    {"id": "nomic-embed-text",
-     "document": "search_document: {text}", "query": "search_query: {text}"},
-    {"id": "qwen3-embedding-0.6b", "document": "", "query": _QWEN3_EMBED_QUERY},
     {"id": "qwen3-embedding-4b", "document": "", "query": _QWEN3_EMBED_QUERY},
     {"id": "qwen3-embedding-8b", "document": "", "query": _QWEN3_EMBED_QUERY},
+    # KaLM is instruction-aware on the query side in the SAME "Instruct: …\nQuery:"
+    # format as Qwen3-Embedding (its card's own default prompt, verified 2026-07-25),
+    # so it shares the house novel-task instruction; documents encode plain.
+    {"id": "kalm-embedding-gemma3-12b", "document": "", "query": _QWEN3_EMBED_QUERY},
 ]
 
 

@@ -30,10 +30,11 @@ def configured():
 
 
 def test_mtp_model_auto_enables_draft_mtp(configured):
-    # 35B-A3B is type=moe AND mtp=True → base + moe + the GATED mtp preset:
+    # GLM-4.5-Air is type=moe AND mtp=True → base + moe + the GATED mtp preset:
     # spec_type=draft-mtp + the measured spec_n_max=2 auto-apply (Plan B D3 —
     # auto-on because the model is built-in capable; the user can uncheck).
-    sw = switch_resolve.resolve_model_switches("qwen3.6-35b-a3b-mtp")
+    # (Exhibit was the 35B-A3B until the 2026-07-25 catalog trim removed it.)
+    sw = switch_resolve.resolve_model_switches("glm-4.5-air")
     assert sw["spec_type"] == "draft-mtp"
     assert sw["spec_n_max"] == "2"         # the user-measured seed (≠ knob default 3)
     assert sw["no_mmap"] == "true"         # the one genuinely MoE-specific flag
@@ -109,14 +110,14 @@ def test_origins_track_the_writing_layer(configured):
     # wrote each key — base for the bundle rows, class for a class-tune row, tune
     # for the machine's own saved value (later layers overwrite earlier origins).
     s = db.session()
-    s.add(db.ClassTune(model_id="qwen3.6-35b-a3b-mtp", class_key="vram8|ram32",
+    s.add(db.ClassTune(model_id="glm-4.5-air", class_key="vram8|ram32",
                        flag_name="n_cpu_moe", flag_value="21", built_in=True))
-    s.add(db.ModelTune(model_id="qwen3.6-35b-a3b-mtp", hw_key="k1",
+    s.add(db.ModelTune(model_id="glm-4.5-air", hw_key="k1",
                        flag_name="threads", flag_value="8"))
     s.commit()
     s.close()
     sw, origins = switch_resolve.resolve_model_switches_with_origins(
-        "qwen3.6-35b-a3b-mtp", hw_key="k1", class_key="vram8|ram32")
+        "glm-4.5-air", hw_key="k1", class_key="vram8|ram32")
     assert origins["flash_attn"] == "base"
     assert origins["spec_type"] == "mtp"        # the gated auto-MTP layer
     assert origins["n_cpu_moe"] == "class"
@@ -124,7 +125,7 @@ def test_origins_track_the_writing_layer(configured):
     assert sw["n_cpu_moe"] == "21" and sw["threads"] == "8"
     # the plain resolver stays the values-only view of the same walk
     assert switch_resolve.resolve_model_switches(
-        "qwen3.6-35b-a3b-mtp", hw_key="k1", class_key="vram8|ram32") == sw
+        "glm-4.5-air", hw_key="k1", class_key="vram8|ram32") == sw
 
 
 def test_unknown_model_empty(configured):

@@ -101,16 +101,17 @@ def test_seed_ships_size_facts_and_reseed_fills_empty_only(configured):
     when EMPTY — a download-derived value is never clobbered."""
     from llm_runner.llm import db as _db
 
-    # seeded rows carry the facts (spot-check a dense, a MoE, and an embed)
+    # seeded rows carry the facts (spot-check a dense, a MoE, and an embed —
+    # exhibits moved off the 0.6b/bge rows when the 2026-07-25 embed trim cut them)
     assert _row("gemma-4-12b-qat").sizeLabel == "12B"
     assert _row("gemma-4-12b-qat").sizeBytes == 6716355328
     assert _row("glm-4.5-air").sizeLabel == "128x9.4B"
-    assert _row("qwen3-embedding-0.6b").sizeBytes == 639150592
+    assert _row("qwen3-embedding-4b").sizeBytes == 2496703776
 
     s = _db.session()
     try:
         # simulate a pre-#12b row (empty facts) + a download-derived row (real file)
-        blank = s.query(_db.ModelCatalog).get("bge-m3")
+        blank = s.query(_db.ModelCatalog).get("kalm-embedding-gemma3-12b")
         blank.size_label, blank.size_bytes = "", None
         derived = s.query(_db.ModelCatalog).get("gemma-4-31b-qat")
         derived.size_bytes = 12345  # "the local file said so" — must survive reseed
@@ -120,8 +121,8 @@ def test_seed_ships_size_facts_and_reseed_fills_empty_only(configured):
         s.commit()
     finally:
         s.close()
-    assert _row("bge-m3").sizeBytes == 437778496       # …but the empty row was filled
-    assert _row("bge-m3").sizeLabel == "567M"
+    assert _row("kalm-embedding-gemma3-12b").sizeBytes == 7300777920  # …the empty row was filled
+    assert _row("kalm-embedding-gemma3-12b").sizeLabel == "12B"
     assert _row("gemma-4-31b-qat").sizeBytes == 12345  # the derived value was preserved
 
 
@@ -274,11 +275,13 @@ def test_embedding_flag_seeded_on_embeds_not_llms(configured):
     # reads it for the Set-as-embedding action + the QuickSetup embed picker — replacing the
     # fragile /embed/i name guess (bge-m3's id has no "embed" substring).
     by_id = {r.id: r for r in stores.get_model_catalog_store().list()}
-    for embed in ("nomic-embed-text", "qwen3-embedding-0.6b", "bge-m3", "qwen3-embedding-8b"):
+    # (exhibits track the 2026-07-25 trim: nomic/0.6b/bge and the 35B chat row left)
+    for embed in ("qwen3-embedding-4b", "qwen3-embedding-8b", "kalm-embedding-gemma3-12b"):
         assert by_id[embed].embedding is True, embed
-    for llm in ("gemma-4-12b-qat", "gemma-4-31b-qat", "qwen3.6-35b-a3b-mtp", "glm-4.5-air"):
+    for llm in ("gemma-4-12b-qat", "gemma-4-31b-qat", "qwen3.6-27b", "glm-4.5-air"):
         assert by_id[llm].embedding is False, llm
-    assert "embed" not in "bge-m3"  # classified by the flag, not the name regex
+    # (classified by the flag, never a name regex — the historical exhibit was bge-m3,
+    # whose id carried no "embed" substring; the flag mechanism is unchanged.)
 
 
 def test_inspect_model_from_link(monkeypatch):

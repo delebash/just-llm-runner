@@ -126,22 +126,24 @@ def test_seed_rows_match_model_cards():
     s.commit()
     s.close()
     st = stores.get_embed_template_store()
-    nomic = st.get("nomic-embed-text")
-    assert nomic.documentTemplate == "search_document: {text}"
-    assert nomic.queryTemplate == "search_query: {text}"
-    for mid in ("qwen3-embedding-0.6b", "qwen3-embedding-4b", "qwen3-embedding-8b"):
+    # The 2026-07-25 trim: the seeded set is the two Qwen3 rows + the KaLM contender,
+    # all instruction-aware on the QUERY side only (each card verified) — document
+    # side passes through plain. The removed rows (nomic/0.6b/bge) seed nothing.
+    for mid in ("qwen3-embedding-4b", "qwen3-embedding-8b", "kalm-embedding-gemma3-12b"):
         row = st.get(mid)
         assert row.documentTemplate == "" and row.queryTemplate.startswith("Instruct: ")
         assert "{text}" in row.queryTemplate
-    assert st.get("bge-m3") is None  # needs no templates → no row
+    assert st.get("nomic-embed-text") is None  # trimmed 2026-07-25 → no seeded row
+    assert st.get("bge-m3") is None            # never needed templates, now also trimmed
 
 
 def test_embed_catalog_ladder_and_the_4b_row():
-    """The seeded embed ladder (2026-07-12, reversing #274's "small card → 0.6B"). Embeds
-    run on CPU by policy, so they are judged on RAM, not the VRAM leftover: the 4B joins the
-    CPU band (tier "cpu" → ALWAYS eligible) and, being higher quality than the 0.6B, wins the
-    pick on any box that clears its 8 GB RAM floor — while a box below that floor gets
-    coarse_fit "no" and falls back to the 0.6B. The 8B stays a VRAM-gated (non-cpu) tier."""
+    """The seeded embed ladder — trimmed 2026-07-25 (the user's ruling after the fresh
+    survey) to three rows with distinct jobs: the 4B default (CPU-tier → always eligible;
+    won the 2026-07-12 on-box A/B vs the since-removed 0.6B), the proven 8B big-card rung,
+    and the KaLM-Gemma3-12B contender (2026 board leader, untested here — ranked BELOW
+    the 8B on purpose so the pick rule never auto-recommends it). Embeds run on CPU by
+    policy, so eligibility is judged on RAM, not the VRAM leftover."""
     rows = {r["id"]: r for r in seed.DEFAULT_CATALOG}
     b4 = rows["qwen3-embedding-4b"]
     assert b4["embedding"] is True and b4["pooling"] == "last"
@@ -150,22 +152,24 @@ def test_embed_catalog_ladder_and_the_4b_row():
 
     embeds = {rid: r for rid, r in rows.items() if r.get("embedding")}
     ranks = {rid: r["quality_rank"] for rid, r in embeds.items()}
+    # The trimmed ladder (2026-07-25): the proven 8B outranks the untested KaLM
+    # contender ON PURPOSE — rank is what the pick rule reads, so an untested model
+    # must never outrank the proven one (availability ≠ recommendation); the 4B is
+    # the always-eligible CPU-tier default below both.
     assert (
         ranks["qwen3-embedding-8b"]
+        < ranks["kalm-embedding-gemma3-12b"]
         < ranks["qwen3-embedding-4b"]
-        < ranks["qwen3-embedding-0.6b"]
-        < ranks["bge-m3"]
-        < ranks["nomic-embed-text"]
     )
-    # The CPU band (always eligible — judged on RAM, not VRAM leftover) is the tiny trio
-    # PLUS the 4B; only the 8B stays a VRAM-gated tier (the big-GPU rung).
-    for rid in ("nomic-embed-text", "qwen3-embedding-0.6b", "bge-m3", "qwen3-embedding-4b"):
-        assert embeds[rid]["tier"] == "cpu"
+    assert set(embeds) == {"qwen3-embedding-4b", "qwen3-embedding-8b", "kalm-embedding-gemma3-12b"}
+    # The 4B is the ONE CPU-band embed (always eligible — judged on RAM, not VRAM
+    # leftover); the 8B and the KaLM stay VRAM-gated tiers (the big-GPU rungs).
+    assert embeds["qwen3-embedding-4b"]["tier"] == "cpu"
     assert embeds["qwen3-embedding-8b"]["tier"] != "cpu"
-    # The ladder law: the 4B is the higher-quality CPU embed gated by a HIGHER RAM floor,
-    # so ≥8 GB-RAM boxes default to the 4B and boxes below its floor fall back to the 0.6B.
+    assert embeds["kalm-embedding-gemma3-12b"]["tier"] != "cpu"
+    # Every served hardware class carries ≥16 GB RAM, so the 4B's 8 GB floor makes it
+    # the default everywhere the app runs.
     assert b4["min_ram_mb"] == 8000
-    assert b4["min_ram_mb"] > embeds["qwen3-embedding-0.6b"]["min_ram_mb"]
     # The 4B rides the same instruct query template as its Qwen3 siblings.
     tpl = {t["id"]: t for t in seed.DEFAULT_EMBED_TEMPLATES}
     assert tpl["qwen3-embedding-4b"]["document"] == ""
@@ -179,12 +183,12 @@ def test_seed_never_clobbers_user_edit():
     s.commit()
     s.close()
     st = stores.get_embed_template_store()
-    st.upsert(EmbedTemplateRow(modelId="nomic-embed-text", documentTemplate="my: {text}", queryTemplate=""))
+    st.upsert(EmbedTemplateRow(modelId="qwen3-embedding-4b", documentTemplate="my: {text}", queryTemplate=""))
     s = db.session()
     seed.seed_default_embed_templates(s)  # reseed = merge-by-id
     s.commit()
     s.close()
-    assert st.get("nomic-embed-text").documentTemplate == "my: {text}"
+    assert st.get("qwen3-embedding-4b").documentTemplate == "my: {text}"
 
 
 def test_router_crud_round_trip():

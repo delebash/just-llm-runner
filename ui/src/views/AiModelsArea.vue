@@ -14,6 +14,7 @@ import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
+import UiTable from "../common/components/UiTable.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
@@ -185,6 +186,16 @@ async function copyDebugInfo() {
 }
 
 const fmtUsd = (n) => (n ? `$${Number(n).toFixed(n < 1 ? 4 : 2)}` : "$0");
+// The usage breakdowns (by feature, by provider) are the same five columns with a different
+// first-column label — one config, used twice, instead of the same <table> written out twice.
+// Every column sorts: the panel exists to answer "what is costing me the most".
+const usageColumns = (firstLabel) => [
+  { id: "key", accessorKey: "key", header: firstLabel, sortable: true },
+  { id: "calls", accessorKey: "calls", header: "Calls", sortable: true },
+  { id: "prompt", accessorKey: "prompt", header: "Prompt", sortable: true },
+  { id: "completion", accessorKey: "completion", header: "Completion", sortable: true },
+  { id: "cost", accessorKey: "cost", header: "Cost", sortable: true },
+];
 // The full ledger view (rollup + by-feature + by-provider) from /v1/ai-usage —
 // cost is server-computed (the host sink prices each row), so this renders
 // identically in any app that mounts the area. Null until something's recorded.
@@ -577,27 +588,29 @@ onMounted(() => {
           <div class="lu-card lu-ucard"><div class="lu-uval">{{ usageView.completion.toLocaleString() }}</div><div class="lu-ulabel">completion</div></div>
           <div class="lu-card lu-ucard"><div class="lu-uval">{{ fmtUsd(usageView.cost) }}</div><div class="lu-ulabel">est. cost</div></div>
         </div>
+        <!-- Both breakdowns are the SAME table with a different first-column label, so they
+             share one column config (usageColumns) on the shared UiTable rather than being
+             two hand-rolled copies. Sorting comes with it — "which feature costs the most"
+             is the question this panel exists to answer, and it used to need a spreadsheet. -->
         <div class="lu-usage-section">
           <div class="lu-usage-h">By feature</div>
-          <table class="lu-utable">
-            <thead><tr><th>Feature</th><th>Calls</th><th>Prompt</th><th>Completion</th><th>Cost</th></tr></thead>
-            <tbody>
-              <tr v-for="f in usageView.feat" :key="f.key">
-                <td>{{ f.key }}</td><td>{{ f.calls.toLocaleString() }}</td><td>{{ f.prompt.toLocaleString() }}</td><td>{{ f.completion.toLocaleString() }}</td><td>{{ fmtUsd(f.cost) }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <UiTable class="lu-utable" :data="usageView.feat" :columns="usageColumns('Feature')"
+            data-key="key" :default-sort="{ id: 'calls', desc: true }">
+            <template #calls="{ row }">{{ row.calls.toLocaleString() }}</template>
+            <template #prompt="{ row }">{{ row.prompt.toLocaleString() }}</template>
+            <template #completion="{ row }">{{ row.completion.toLocaleString() }}</template>
+            <template #cost="{ row }">{{ fmtUsd(row.cost) }}</template>
+          </UiTable>
         </div>
         <div class="lu-usage-section">
           <div class="lu-usage-h">By provider</div>
-          <table class="lu-utable">
-            <thead><tr><th>Provider</th><th>Calls</th><th>Prompt</th><th>Completion</th><th>Cost</th></tr></thead>
-            <tbody>
-              <tr v-for="p in usageView.prov" :key="p.key">
-                <td>{{ p.key }}</td><td>{{ p.calls.toLocaleString() }}</td><td>{{ p.prompt.toLocaleString() }}</td><td>{{ p.completion.toLocaleString() }}</td><td>{{ fmtUsd(p.cost) }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <UiTable class="lu-utable" :data="usageView.prov" :columns="usageColumns('Provider')"
+            data-key="key" :default-sort="{ id: 'calls', desc: true }">
+            <template #calls="{ row }">{{ row.calls.toLocaleString() }}</template>
+            <template #prompt="{ row }">{{ row.prompt.toLocaleString() }}</template>
+            <template #completion="{ row }">{{ row.completion.toLocaleString() }}</template>
+            <template #cost="{ row }">{{ fmtUsd(row.cost) }}</template>
+          </UiTable>
         </div>
       </template>
       <div v-else class="lu-card lu-usage-empty lu-muted">No usage recorded yet.</div>
@@ -701,10 +714,14 @@ onMounted(() => {
 .lu-usage-empty { text-align: center; font-size: 12.5px; }
 .lu-usage-section { margin-top: 20px; }
 .lu-usage-h { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
-.lu-utable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.lu-utable th { text-align: right; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; padding: 6px 10px; border-bottom: 1px solid var(--border); }
-.lu-utable th:first-child, .lu-utable td:first-child { text-align: left; }
-.lu-utable td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.lu-utable td:first-child { color: var(--ink); font-weight: 600; }
-.lu-utable tbody tr:last-child td { border-bottom: 0; }
+/* These two breakdowns are the shared UiTable now, so the table mechanics (layout, header
+   chrome, sort caret) come from common/styles.css. What is left here is what is specific to a
+   usage ledger: figures right-aligned and tabular so digits line up down the column, with the
+   name column left and emphasised. `:deep` because the table markup belongs to UiTable. */
+.lu-utable :deep(.ui-table) { font-size: 12.5px; }
+.lu-utable :deep(th) { text-align: right; }
+.lu-utable :deep(th:first-child), .lu-utable :deep(td:first-child) { text-align: left; }
+.lu-utable :deep(tbody td) { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--border); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.lu-utable :deep(tbody td:first-child) { color: var(--ink); font-weight: 600; }
+.lu-utable :deep(tbody tr:last-child td) { border-bottom: 0; }
 </style>

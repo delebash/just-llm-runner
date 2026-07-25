@@ -155,7 +155,7 @@ async function reset() {
         </div>
 
         <div class="lu-engbin-scroll">
-          <table class="lu-engbin-tbl">
+          <table class="ui-formgrid lu-engbin-tbl">
             <thead>
               <tr><th>Platform</th><th>GPU</th><th>Asset URL</th><th>Runtime URL (cudart)</th><th>Server exe</th><th /></tr>
             </thead>
@@ -168,7 +168,7 @@ async function reset() {
                 <td><UiInput v-model="r.serverExe" width="name" /></td>
                 <td><UiButton intent="primary" size="small" :loading="busy === rowKey(r)" @click="saveRow(r)">Save</UiButton></td>
               </tr>
-              <tr class="lu-engbin-addrow">
+              <tr class="ui-formgrid-add lu-engbin-addrow">
                 <td><UiInput v-model="draft.platform" placeholder="linux" width="name" /></td>
                 <td><UiInput v-model="draft.gpu" placeholder="vulkan" width="name" /></td>
                 <td><UiInput v-model="draft.assetUrl" placeholder="https://…" /></td>
@@ -198,10 +198,9 @@ async function reset() {
 .lu-engbin-settings { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .lu-engbin-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
 .lu-engbin-scroll { overflow-x: auto; }
-.lu-engbin-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.lu-engbin-tbl th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-.lu-engbin-tbl td { padding: 5px 8px; border-bottom: 1px solid var(--border-soft, var(--border)); vertical-align: middle; }
+/* Mechanics come from the shared .ui-formgrid; the nowrap is this table's own —
+   platform/GPU headers must not wrap inside a horizontally scrolling row. */
+.lu-engbin-tbl th { white-space: nowrap; }
 .lu-engbin-k { font-family: var(--font-mono, monospace); color: var(--ink); white-space: nowrap; }
-.lu-engbin-addrow td { border-bottom: 0; padding-top: 10px; }
 .lu-engbin-foot { display: flex; justify-content: flex-start; }
 </style>

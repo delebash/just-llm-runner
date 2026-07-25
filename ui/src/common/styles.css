@@ -225,6 +225,38 @@ button:not(.ui-btn) { color: inherit; }
 .ui-table-sort:not(.desc) { transform: rotate(180deg); }
 .ui-table tbody td { padding: 9px 10px; border-bottom: 1px solid var(--border-soft, var(--border)); vertical-align: middle; }
 .ui-table-hover .ui-table-row:hover { background: var(--surface-2); cursor: pointer; }
+/* OPT-IN table looks (2026-07-24). Each is off by default, so every existing table renders
+   exactly as before; a consumer adds the class it needs. These began as three hand-rolled
+   copies in the model catalog — the shape any real data grid eventually wants, which is why
+   they belong here once rather than in each component.
+   fixed  — column widths become SHARES of the container instead of content-driven demands,
+            so the grid can never outgrow its panel and every cell wraps inside its column.
+            (`max-width` on a td is only advisory under the default `auto` layout.)
+   sticky — the header stays put while the body scrolls.
+   top    — cells align to the top, for rows whose first column is a tall stack (name, id,
+            description, notes) while the rest are one-liners: centred, those one-liners
+            float mid-row level with nothing. */
+/* FORM GRIDS — the other half of the 2026-07-24 table sweep. PricingEditor, LuRunnerBinaries
+   and LuClassTunes lay editable rows out in a table: every cell is an input, each row has its
+   own Save, and a trailing row adds a new entry. They are FORMS, not data — no sort, no
+   filter, no pagination, a handful of rows — so routing them through a headless data-table
+   library would buy indirection and cost the inline add-row. What they actually needed was to
+   stop looking different from each other, which is a stylesheet's job: this class gives them
+   the same header treatment, rhythm and rules as .ui-table without the machinery. */
+.ui-formgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ui-formgrid th {
+  text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--muted); padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.ui-formgrid td { padding: 6px 10px; border-bottom: 1px solid var(--border-soft, var(--border)); vertical-align: middle; }
+/* The add-row is a form, not a record: no rule under it, and a little air above to separate
+   it from the saved rows. */
+.ui-formgrid tr.ui-formgrid-add td { border-bottom: 0; padding-top: 10px; }
+
+.ui-table-fixed .ui-table { table-layout: fixed; }
+.ui-table-sticky .ui-table thead th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); }
+.ui-table-top .ui-table tbody td { vertical-align: top; }
 .ui-table-empty-row td { padding: 22px 10px; text-align: center; font-style: italic; color: var(--muted); }
 .ui-table-pager {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;

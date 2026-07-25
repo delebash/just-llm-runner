@@ -9,16 +9,44 @@
 //   :data                  row array
 //   :columns               { id, accessorKey, header, sortable, headerStyle,
 //                            cellStyle, enableGlobalFilter, meta }
+//                          `sortable` needs an `accessorKey` even when the consumer does the
+//                          sorting: TanStack's getCanSort() is `enableSorting && accessorFn`,
+//                          so an id-only column renders as a dead, unclickable header.
 //   data-key               id field on rows (drives :key)
 //   :global-filter         text to match across global-filter-fields
 //   :global-filter-fields  column accessors to search (default: all)
 //   :pagination            false | { pageSize, pageSizeOptions }
 //   :default-sort          { id, desc } applied on mount
 //   row-hover              hover highlight
+//   :full-width-row        (row) => falsy | true | "class-name" — rows that span EVERY column
+//                          instead of rendering cells (section headers, group dividers),
+//                          rendered through the `full-row` slot. Returning a STRING also puts
+//                          that class on the <tr>, so one list can carry two kinds of banner
+//                          row with different looks. Omit the prop and nothing changes.
+//   :manual-sorting        the CONSUMER sorts :data; this table owns only the sort STATE and
+//                          the header UI (TanStack's documented `manualSorting`). For lists
+//                          whose order is not a plain column sort — the model catalog groups
+//                          into sections and sorts WITHIN each, which a row-model sort would
+//                          flatten. Pair with @update:sort.
+//   :disable-sort-removal  a third click re-reverses instead of clearing the sort (default:
+//                          clearing, TanStack's default).
+//   @update:sort           { id, desc } whenever the header changes the sort state
 //   @row-click             emits { data, originalEvent }
+//
+// Opt-in LOOK modifiers — plain classes on the component (visual variants are CSS, per the
+// three-tier rule), defined in common/styles.css. Absent = today's look, so no existing
+// table moves: `ui-table-fixed` (table-layout: fixed — column widths become SHARES the
+// browser divides, so the grid can never outgrow its container), `ui-table-sticky` (header
+// pinned while the body scrolls), `ui-table-top` (cells top-aligned, for rows whose first
+// column is a tall stack and the rest are one-liners).
 //
 // Cell rendering: a slot named after column.id — <template #title="{ row, value }">.
 // #empty — shown when the filtered row set is empty.
+// #full-row — content for a row matched by :full-width-row (receives { row }). Added
+//   2026-07-24 for the model catalog, whose section headers and "doesn't fit this machine"
+//   divider are single cells spanning the grid. Without it those components could not adopt
+//   this table at all, which is how six hand-rolled copies of a sort/width table came to
+//   exist beside it.
 
 import { computed, ref, watch, useSlots } from "vue";
 import {
@@ -34,14 +62,20 @@ import Icon from "./Icon.vue";
 const props = defineProps({
   data:               { type: Array, default: () => [] },
   columns:            { type: Array, required: true },
-  dataKey:            { type: String, default: "id" },
+  // A String names the row's id field; a Function resolves it — needed when one list mixes
+  // record rows with section/divider sentinels that carry no id.
+  dataKey:            { type: [String, Function], default: "id" },
   globalFilter:       { type: String, default: "" },
   globalFilterFields: { type: Array, default: () => [] },
   pagination:         { type: [Boolean, Object], default: false },
   defaultSort:        { type: Object, default: null }, // { id, desc }
   rowHover:           { type: Boolean, default: false },
+  // Predicate over the ORIGINAL row object; true → render one full-width cell via #full-row.
+  fullWidthRow:       { type: Function, default: null },
+  manualSorting:      { type: Boolean, default: false },
+  disableSortRemoval: { type: Boolean, default: false },
 });
-const emit = defineEmits(["row-click"]);
+const emit = defineEmits(["row-click", "update:sort"]);
 const slots = useSlots();
 
 const sorting = ref(props.defaultSort ? [props.defaultSort] : []);
@@ -68,6 +102,9 @@ const tableColumns = computed(() =>
     header: c.header,
     enableSorting: !!c.sortable,
     enableGlobalFilter: c.enableGlobalFilter !== false,
+    // Carried through so the header can read meta.headerClass — the template already
+    // referenced it, but this mapping used to drop it, so the class never arrived.
+    meta: c.meta,
   })),
 );
 
@@ -94,8 +131,11 @@ const table = useVueTable({
     get globalFilter() { return filtering.value; },
     get pagination() { return paginationState.value; },
   },
+  manualSorting: props.manualSorting,
+  enableSortingRemoval: !props.disableSortRemoval,
   onSortingChange: (updater) => {
     sorting.value = typeof updater === "function" ? updater(sorting.value) : updater;
+    emit("update:sort", sorting.value[0] || null);
   },
   onGlobalFilterChange: (v) => { filtering.value = v; },
   onPaginationChange: (updater) => {
@@ -114,7 +154,17 @@ function onHeaderClick(header) {
 }
 
 function rowKey(row) {
+  if (typeof props.dataKey === "function") return props.dataKey(row.original) ?? row.id;
   return row.original?.[props.dataKey] ?? row.id;
+}
+
+// false = an ordinary record row. Anything else = a full-width banner row; a string also
+// becomes its class, so sections and dividers can look different.
+function fullRowClass(original) {
+  if (!props.fullWidthRow) return false;
+  const r = props.fullWidthRow(original);
+  if (!r) return false;
+  return typeof r === "string" ? r : "";
 }
 
 function onRowClick(row, event) {
@@ -162,24 +212,29 @@ function setPageSize(n) {
             <slot name="empty"><span>No results.</span></slot>
           </td>
         </tr>
-        <tr
-          v-for="row in table.getRowModel().rows"
-          :key="rowKey(row)"
-          class="ui-table-row"
-          @click="onRowClick(row, $event)"
-        >
-          <td
-            v-for="cell in row.getVisibleCells()"
-            :key="cell.id"
-            :style="props.columns.find(c => (c.id || c.accessorKey) === cell.column.id)?.cellStyle"
-          >
-            <slot
-              :name="cell.column.id"
-              :row="row.original"
-              :value="cell.getValue()"
-            >{{ cell.getValue() }}</slot>
-          </td>
-        </tr>
+        <template v-for="row in table.getRowModel().rows" :key="rowKey(row)">
+          <!-- A full-width row spans the grid instead of rendering cells (section header,
+               group divider). Not clickable: it carries no record. -->
+          <tr v-if="fullRowClass(row.original) !== false"
+            class="ui-table-fullrow" :class="fullRowClass(row.original)">
+            <td :colspan="props.columns.length">
+              <slot name="full-row" :row="row.original" />
+            </td>
+          </tr>
+          <tr v-else class="ui-table-row" @click="onRowClick(row, $event)">
+            <td
+              v-for="cell in row.getVisibleCells()"
+              :key="cell.id"
+              :style="props.columns.find(c => (c.id || c.accessorKey) === cell.column.id)?.cellStyle"
+            >
+              <slot
+                :name="cell.column.id"
+                :row="row.original"
+                :value="cell.getValue()"
+              >{{ cell.getValue() }}</slot>
+            </td>
+          </tr>
+        </template>
       </tbody>
     </table>
 

@@ -27,6 +27,7 @@ import UiSelect from "../common/components/UiSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiTag from "../common/components/UiTag.vue";
+import UiTable from "../common/components/UiTable.vue";
 import DownloadBar from "../common/components/DownloadBar.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { openExternal } from "../common/services/external.js";
@@ -79,10 +80,45 @@ const COLUMNS = [
 ];
 // The un-sortable Actions column takes the remainder. Shares total 100%.
 const ACTIONS_W = "20%";
-function toggleSort(key) {
-  if (sortKey.value === key) { sortDir.value = sortDir.value === "asc" ? "desc" : "asc"; return; }
-  sortKey.value = key;
-  sortDir.value = COLUMNS.find((c) => c.key === key)?.defDir || "asc";
+// The shared UiTable's column config, derived from COLUMNS above so the shares stay declared
+// ONCE. UiTable owns the header markup, the sort state and the sort arrow; this component
+// keeps the ORDERING, because the list is grouped (sections + a doesn't-fit divider) and
+// sorted within each group — a plain row-model sort would flatten the sections away. That is
+// what `manual-sorting` means on the table below.
+const TABLE_COLUMNS = computed(() => [
+  ...COLUMNS.map((c) => ({
+    id: c.key,
+    // An accessor is REQUIRED for a sortable column even though nothing here sorts by it:
+    // TanStack's getCanSort() is `enableSorting && !!accessorFn`, so an id-only column
+    // silently renders as unsortable — the header stops responding to clicks. The value it
+    // reads is never used (every cell comes from a slot, and the ORDER comes from
+    // sortModels() under `manual-sorting`).
+    accessorKey: c.key,
+    header: c.label,
+    sortable: true,
+    headerStyle: { width: c.w },
+    meta: { headerClass: c.num ? "lu-th-num" : "" },
+  })),
+  { id: "actions", header: "Actions", sortable: false, headerStyle: { width: ACTIONS_W }, meta: { headerClass: "lu-th-act" } },
+]);
+// UiTable emits { id, desc }; the two refs above stay the source of truth for sortModels().
+// A header click that CLEARS the sort (null) is impossible here — the table is mounted with
+// `disable-sort-removal`, since an unsorted catalog has no meaningful order.
+function onSortChange(s) {
+  if (!s) return;
+  sortKey.value = s.id;
+  sortDir.value = s.desc ? "desc" : "asc";
+}
+// Section headers and the doesn't-fit divider span the whole grid instead of rendering cells;
+// the returned class is what keeps the accent-edged section band and the quiet divider apart.
+function isFullWidthRow(m) {
+  if (m.__section) return "lu-msection";
+  if (m.__divider) return "lu-mgroup";
+  return false;
+}
+// Mixed list: model rows key on their id, sentinels on their own __key.
+function rowKeyOf(m) {
+  return m.__key || m.id;
 }
 function paramsNum(p) {
   const n = Number.parseFloat(String(p || "").replace(/[^0-9.]/g, ""));
@@ -946,26 +982,30 @@ refreshApplied();
     </div>
 
     <div v-else class="lu-mcat-wrap">
-      <table class="lu-mgrid">
-        <thead>
-          <tr>
-            <th v-for="col in COLUMNS" :key="col.key" :style="{ width: col.w }"
-              :class="{ 'lu-th-num': col.num, 'lu-th-on': sortKey === col.key }">
-              <button type="button" class="lu-th-btn" @click="toggleSort(col.key)"
-                :title="`Sort by ${col.label.toLowerCase()}`">
-                <span>{{ col.label }}</span>
-                <span class="lu-th-arr">{{ sortKey === col.key ? (sortDir === 'asc' ? '▲' : '▼') : '↕' }}</span>
-              </button>
-            </th>
-            <th class="lu-th-act" :style="{ width: ACTIONS_W }">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="m in groupedRows" :key="m.__key || m.id">
-            <tr v-if="m.__section" class="lu-msection"><td colspan="7"><b>{{ m.__section }}</b><span class="lu-muted"> — {{ m.hint }}</span></td></tr>
-            <tr v-else-if="m.__divider" class="lu-mgroup"><td colspan="7">Doesn't fit this machine — {{ m.count }} more</td></tr>
-            <tr v-else>
-              <td class="lu-mn">
+      <!-- The shared UiTable (2026-07-24) — this grid used to be one of six hand-rolled
+           copies of "a table with sortable headers and hand-guessed widths". UiTable owns the
+           header markup, the sort state and the sort arrow; the ORDERING stays here because
+           the list is grouped into sections and sorted within each, which a plain row-model
+           sort would flatten (hence `manual-sorting`). The three look modifiers are the kit's
+           opt-in classes: shares-not-content widths, a pinned header, top-aligned cells. -->
+      <UiTable
+        class="lu-mgrid ui-table-fixed ui-table-sticky ui-table-top"
+        :data="groupedRows"
+        :columns="TABLE_COLUMNS"
+        :data-key="rowKeyOf"
+        :full-width-row="isFullWidthRow"
+        :default-sort="{ id: sortKey, desc: sortDir === 'desc' }"
+        manual-sorting
+        disable-sort-removal
+        @update:sort="onSortChange"
+      >
+        <template #full-row="{ row: m }">
+          <template v-if="m.__section"><b>{{ m.__section }}</b><span class="lu-muted"> — {{ m.hint }}</span></template>
+          <template v-else>Doesn't fit this machine — {{ m.count }} more</template>
+        </template>
+
+        <template #name="{ row: m }">
+              <div class="lu-mn">
                 <span class="lu-mn-name">{{ m.name }}</span>
                 <!-- The DEFAULT indicator is the right-aligned green "Default ✓" button
                      (below) — one place, aligned with the provider rows (2026-07-17). The
@@ -988,28 +1028,38 @@ refreshApplied();
                 <a v-if="cardUrlOf(m)" class="lu-mlink lu-mcardlink" :href="cardUrlOf(m)"
                   target="_blank" rel="noopener" title="Open the model's Hugging Face page — full details, files, license"
                   @click.prevent="openExternal(cardUrlOf(m))">Model card ↗</a>
-              </td>
-              <td class="lu-mm lu-mtype">
+              </div>
+        </template>
+
+        <template #type="{ row: m }">
+              <div class="lu-mm lu-mtype">
                 <!-- Params column REPLACED (Plan B — the count already rides name/description).
                      Architecture + capabilities: Dense/MoE is the type; MTP/Embed are flags. -->
                 <UiTag intent="secondary" class="lu-typetag">{{ typeOf(m) === "moe" ? "MoE" : "Dense" }}</UiTag>
                 <UiTag v-if="mtpOf(m)" intent="info" class="lu-typetag" title="Multi-token prediction — speculative decode enables by default">MTP</UiTag>
                 <UiTag v-if="embeddingOf(m)" intent="accent2" class="lu-typetag" title="Embedding model — powers semantic search + grounded chat">Embed</UiTag>
-              </td>
-              <td>
+              </div>
+        </template>
+
+        <template #license="{ row: m }">
                 <span v-if="licenseOf(m)" class="lu-lic" :class="{ 'lu-lic--warn': useLimitedOf(m) }" :title="licenseTitle(m)">
                   <template v-if="useLimitedOf(m)">⚠ </template>{{ licenseOf(m) }}
                 </span>
                 <span v-else class="lu-muted">—</span>
-              </td>
-              <td class="lu-mnum">
+        </template>
+
+        <template #quality="{ row: m }">
+              <div class="lu-mnum">
                 <span :class="['lu-bench', { 'lu-bench-none': qualityOf(m) >= 100 }]"
                   title="Published general-purpose benchmark rank (lower = better); “—” = unranked">{{ benchLabel(m) }}</span>
-              </td>
-              <td>
+              </div>
+        </template>
+
+        <template #fit="{ row: m }">
                 <span class="lu-fit" :class="`lu-fit--${m.fit}`" :title="fitTitle(m)">{{ fitLabel(m) }}</span>
-              </td>
-              <td>
+        </template>
+
+        <template #status="{ row: m }">
                 <span v-if="m.status === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
                 <span v-else-if="m.status === 'stopping'" class="lu-mstat">Unloading…</span>
                 <!-- THE one shared DownloadBar for every in-flight / failed row — the SAME
@@ -1020,8 +1070,9 @@ refreshApplied();
                   class="lu-mgrid-dlbar" :title="m.name" :task="taskFor(m.id)" />
                 <span v-else-if="m.status === 'disk'" class="lu-pill lu-pill--disk">Downloaded</span>
                 <span v-else class="lu-mstat">Not downloaded</span>
-              </td>
-              <td class="lu-mact">
+        </template>
+
+        <template #actions="{ row: m }">
                 <div class="lu-macts">
                   <UiButton intent="ghost" size="small" title="Edit catalog fields" @click="startEdit(m)">Edit</UiButton>
                 <!-- Cancel lives IN the status-cell DownloadBar now (task.cancel — one control,
@@ -1063,11 +1114,8 @@ refreshApplied();
                     </DropdownMenuPortal>
                   </DropdownMenuRoot>
                 </div>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
+        </template>
+      </UiTable>
     </div>
 
     <div class="lu-muted lu-mcat-foot">
@@ -1240,8 +1288,13 @@ refreshApplied();
    divides the container, so the grid can never exceed its panel (the old `width: auto`
    grew to 1238px inside a 1106px wrap and pushed Status/Actions out of sight) and every
    cell's text wraps inside its own column with no cap to maintain. */
-.lu-mgrid { table-layout: fixed; width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.lu-mgrid th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); border-bottom: 1px solid var(--border); padding: 0; }
+/* `table-layout: fixed`, the pinned header and the top-aligned cells now come from the kit's
+   opt-in classes on the component (`ui-table-fixed ui-table-sticky ui-table-top`) — the three
+   behaviours this table needed are ones any data grid eventually wants, so they live in
+   common/styles.css rather than being re-declared per component. What stays here is what is
+   genuinely this catalog's own: its slightly smaller type and its cell contents. */
+.lu-mgrid :deep(.ui-table) { font-size: 12.5px; }
+.lu-mgrid :deep(.ui-table thead th) { border-bottom: 1px solid var(--border); }
 /* TOP-aligned, not middle (user, 2026-07-24 — the columns "read misaligned"): the Model
    cell runs 5-7 lines (name · id · size · description · notes · card link) while Type /
    License / Bench / Fit / Status / Actions are one line each, so centering floated every
@@ -1252,21 +1305,16 @@ refreshApplied();
    right-hand end. Top-aligned so one-line cells sit level with the model NAME instead of
    floating mid-row against a 5-7 line Model cell. Chips keep their own `nowrap` below, so
    a badge still never breaks mid-word. */
-.lu-mgrid td { padding: 9px 11px; border-bottom: 1px solid var(--border); vertical-align: top; white-space: normal; overflow-wrap: anywhere; }
-.lu-mgrid tr:last-child td { border-bottom: 0; }
-/* Sortable header buttons — click to sort; the arrow shows the active column + direction. */
-.lu-th-btn {
-  all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 4px; width: 100%;
-  cursor: pointer; padding: 7px 11px; font-size: 10px; text-transform: uppercase;
-  letter-spacing: .04em; font-weight: 700; color: var(--muted);
-}
-.lu-th-btn:hover { color: var(--ink-2); }
-.lu-th-on .lu-th-btn { color: var(--accent); }
-.lu-th-arr { font-size: 8px; opacity: .35; }
-.lu-th-btn:hover .lu-th-arr { opacity: .6; }
-.lu-th-on .lu-th-arr { opacity: 1; }
-.lu-th-num .lu-th-btn { justify-content: flex-end; }
-.lu-th-act { text-align: right; padding: 7px 11px; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; color: var(--muted); }
+/* Cells WRAP: `nowrap` is what once forced the grid wider than its panel, every column
+   demanding its full single-line width until the right-hand end clipped. Chips keep their own
+   nowrap below, so a badge still never breaks mid-word. */
+.lu-mgrid :deep(.ui-table tbody td) { padding: 9px 11px; border-bottom: 1px solid var(--border); white-space: normal; overflow-wrap: anywhere; }
+.lu-mgrid :deep(.ui-table tbody tr:last-child td) { border-bottom: 0; }
+/* The numeric + actions headers align right; the kit's header handles the rest (click to
+   sort, the caret on the active column, the hover and active colours). */
+.lu-mgrid :deep(th.lu-th-num) .ui-table-th-inner,
+.lu-mgrid :deep(th.lu-th-act) .ui-table-th-inner { justify-content: flex-end; }
+.lu-mgrid :deep(th.lu-th-num), .lu-mgrid :deep(th.lu-th-act) { text-align: right; }
 /* Bench column — right-aligned, tabular. */
 .lu-mnum { text-align: right; font-variant-numeric: tabular-nums; }
 .lu-bench { font-weight: 600; color: var(--ink-2); }
@@ -1285,12 +1333,11 @@ refreshApplied();
 .lu-setup-pick { margin-top: 7px; }
 /* Default / Embedding badges sit inline after the model name; the fit-group divider row. */
 .lu-mbadge { margin-left: 6px; vertical-align: middle; }
-.lu-mgroup td { background: var(--surface-2); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; padding: 5px 11px; }
+.lu-mgrid :deep(.lu-mgroup td) { background: var(--surface-2); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; padding: 5px 11px; }
 /* The Type cell holds chips: let them WRAP onto a second line when the column is narrow
    (each chip stays intact via its own nowrap) rather than widening the table. */
 .lu-mm { color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 4px; }
 .lu-typetag, .lu-mm :deep(.ui-tag) { white-space: nowrap; }
-.lu-mact { text-align: right; }
 /* WRAPS. Measured at the app's minimum window (1000px, tauri.conf.json): the button
    cluster needed +31px more than its cell and overran it on 14 rows. Wrapping lets the
    buttons stack on a narrow window instead of spilling out of the column — no width to
@@ -1370,14 +1417,14 @@ refreshApplied();
    at. QC-39 (the user's mockup pick): the band's FILL is neutral surface-2 —
    the page-scale accent-soft wash is gone — and the pronouncement is the 3px
    accent edge (chip-scale accent). */
-.lu-msection td {
+.lu-mgrid :deep(.lu-msection td) {
   padding: 9px 11px 8px;
   font-size: 12.5px;
   background: var(--surface-2, #f0f0f0);
   border-left: 3px solid var(--accent, #3a7d63);
   border-bottom: 1px solid var(--lu-border, var(--border, #e2e2e2));
 }
-.lu-msection b { color: var(--ink); }
+.lu-mgrid :deep(.lu-msection b) { color: var(--ink); }
 
 /* Manager: heading (#10) + header bar (search → sort → spacer → actions) + the add/edit
    modal form (#30). The heading's margin-top keeps the 2026-07-07 breathing room between

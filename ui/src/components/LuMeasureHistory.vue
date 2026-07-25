@@ -13,9 +13,23 @@ import { computed, ref } from "vue";
 
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
+import UiTable from "../common/components/UiTable.vue";
 import UiTag from "../common/components/UiTag.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { clearMeasurements, listMeasurements } from "../measurements.js";
+
+// The shared UiTable's column config (2026-07-24 migration off a hand-rolled <table>).
+// Deliberately NOT sortable: this table never had sorting and the migration is meant to be
+// behaviour-preserving — sorting can be switched on per column later by adding `sortable`.
+const HISTORY_COLUMNS = [
+  { id: "when", accessorKey: "startedAt", header: "When" },
+  { id: "run", accessorKey: "label", header: "Run" },
+  { id: "settings", accessorKey: "id", header: "Settings" },
+  { id: "tps", accessorKey: "tokensPerSec", header: "tok/s",
+    headerStyle: { textAlign: "right" }, cellStyle: { textAlign: "right", whiteSpace: "nowrap" } },
+  { id: "vram", accessorKey: "vramTotalMb", header: "VRAM",
+    headerStyle: { textAlign: "right" }, cellStyle: { textAlign: "right", whiteSpace: "nowrap" } },
+];
 
 const props = defineProps({
   modelId: { type: String, required: true },
@@ -90,24 +104,19 @@ async function clearHistory() {
       <div v-if="loading" class="lu-muted">Loading…</div>
 
       <template v-else-if="loaded">
-        <table v-if="hasRows" class="lu-mh-tbl">
-          <thead>
-            <tr><th>When</th><th>Run</th><th>Settings</th><th class="lu-mh-num">tok/s</th><th class="lu-mh-num">VRAM</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="m in rows" :key="m.id">
-              <td class="lu-mh-when">{{ whenOf(m) }}</td>
-              <td class="lu-mh-run">
-                <UiTag v-if="m.source === 'autotune'" intent="info">auto-tune</UiTag>
-                <span v-if="m.label">{{ m.label }}</span>
-                <span v-else-if="m.source !== 'autotune'">measured</span>
-              </td>
-              <td class="lu-mh-sum">{{ settingsOf(m) }}</td>
-              <td class="lu-mh-num"><b>{{ m.tokensPerSec }}</b></td>
-              <td class="lu-mh-num">{{ m.vramTotalMb ? `${gb(m.vramTotalMb)} GB` : "—" }}</td>
-            </tr>
-          </tbody>
-        </table>
+        <UiTable v-if="hasRows" class="lu-mh-tbl" :data="rows" :columns="HISTORY_COLUMNS" data-key="id">
+          <template #when="{ row }"><span class="lu-mh-when">{{ whenOf(row) }}</span></template>
+          <template #run="{ row }">
+            <span class="lu-mh-run">
+              <UiTag v-if="row.source === 'autotune'" intent="info">auto-tune</UiTag>
+              <span v-if="row.label">{{ row.label }}</span>
+              <span v-else-if="row.source !== 'autotune'">measured</span>
+            </span>
+          </template>
+          <template #settings="{ row }"><span class="lu-mh-sum">{{ settingsOf(row) }}</span></template>
+          <template #tps="{ row }"><b class="lu-mh-tps">{{ row.tokensPerSec }}</b></template>
+          <template #vram="{ row }">{{ row.vramTotalMb ? `${gb(row.vramTotalMb)} GB` : "—" }}</template>
+        </UiTable>
         <p v-else class="lu-muted lu-mh-empty">
           Nothing measured yet — every “Load &amp; measure” result and auto-tune trial is
           recorded here automatically.
@@ -148,14 +157,13 @@ async function clearHistory() {
   border-radius: 999px; padding: 0 6px; line-height: 16px;
 }
 .lu-mh-body { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
-.lu-mh-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
-.lu-mh-tbl th { text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 3px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-.lu-mh-tbl td { padding: 5px 6px; border-bottom: 1px solid var(--border-soft, var(--border)); vertical-align: top; }
+/* The grid itself is the shared UiTable now (2026-07-24) — no table CSS here. What remains
+   styles CELL CONTENT, which is this component's business, not the table's. */
+.lu-mh-tbl { font-size: 12px; }
 .lu-mh-when { white-space: nowrap; color: var(--ink-2); }
-.lu-mh-run { white-space: nowrap; color: var(--ink); display: flex; align-items: center; gap: 6px; }
+.lu-mh-run { white-space: nowrap; color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
 .lu-mh-sum { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--ink-2); word-break: break-word; }
-.lu-mh-num { text-align: right; white-space: nowrap; }
-.lu-mh-num b { color: var(--accent-ink, var(--accent)); }
+.lu-mh-tps { color: var(--accent-ink, var(--accent)); }
 .lu-mh-empty { margin: 0; font-size: 12px; }
 .lu-mh-bar { display: flex; justify-content: flex-end; }
 </style>

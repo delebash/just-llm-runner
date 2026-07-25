@@ -64,7 +64,7 @@ onMounted(load);
     </div>
     <div v-if="error" class="lu-error">{{ error }}</div>
     <div v-if="loading" class="lu-muted">Loading…</div>
-    <table v-else class="lu-price-tbl">
+    <table v-else class="ui-formgrid lu-price-tbl">
       <thead>
         <tr><th>Model id</th><th>Input $/1M</th><th>Output $/1M</th><th /></tr>
       </thead>
@@ -78,7 +78,7 @@ onMounted(load);
             <UiButton intent="ghost" size="small" title="Remove" @click="delRow(r)">✕</UiButton>
           </td>
         </tr>
-        <tr class="lu-price-add">
+        <tr class="ui-formgrid-add lu-price-add">
           <td><UiInput v-model="draft.modelId" placeholder="e.g. gpt-5-mini" /></td>
           <td><UiInput v-model="draft.inputPerM" type="number" placeholder="0" width="token" /></td>
           <td><UiInput v-model="draft.outputPerM" type="number" placeholder="0" width="token" /></td>
@@ -92,10 +92,8 @@ onMounted(load);
 <style scoped>
 .lu-pricing { margin-top: 18px; }
 .lu-pricing-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
-.lu-price-tbl { width: 100%; border-collapse: collapse; font-size: 13px; max-width: 620px; }
-.lu-price-tbl th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 4px 8px; border-bottom: 1px solid var(--border); }
-.lu-price-tbl td { padding: 5px 8px; border-bottom: 1px solid var(--border-soft, var(--border)); vertical-align: middle; }
+/* Table mechanics come from the shared .ui-formgrid; only the width cap is this editor's. */
+.lu-price-tbl { max-width: 620px; }
 .lu-price-id { font-family: var(--font-mono, monospace); color: var(--ink); }
 .lu-price-act { display: flex; gap: 6px; justify-content: flex-end; }
-.lu-price-add td { border-bottom: 0; padding-top: 10px; }
 </style>

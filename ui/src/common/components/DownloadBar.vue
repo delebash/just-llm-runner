@@ -3,7 +3,7 @@
 // THE one download bar (2026-07-15, the ONE-DOWNLOADER consolidation; single control confirmed
 // 2026-07-21 — user: "use same control, same, no matter size in grid — same same same"). Renders
 // a reactive download task (createDownloadTask, or any object with the same shape) as ONE control
-// — the header carries the state action (Cancel-while-running / Retry-on-cancelled|error /
+// — the header carries the state action (Cancel-while-running / Retry+Dismiss-on-cancelled|error /
 // "Ready ✓") and the shared UiProgress carries % · size · speed · ETA (from the task's `label`).
 // This is THE control the user asked to reuse across EVERY download/load surface (engine · model ·
 // embed · QuickSetup · boot · the catalog rows) — ONE component, ONE look, sized by its container;
@@ -16,7 +16,7 @@ defineProps({
   title: { type: String, default: "" },
   role: { type: String, default: "" },
   // A createDownloadTask instance (or any object with the same shape:
-  // { state, done, total, label, error, cancel(), retry() }).
+  // { state, done, total, label, error, cancel(), retry(), dismiss() }).
   task: { type: Object, required: true },
 });
 </script>
@@ -32,6 +32,10 @@ defineProps({
       <!-- Retry stays DISABLED while the cancel is still finalizing (the model is tearing down) —
            clicking it mid-teardown re-races the load. It enables once the teardown completes. -->
       <UiButton v-else-if="task.state === 'cancelled' || task.state === 'error'" intent="secondary" size="small" :disabled="task.finalizing" @click="task.retry()">Retry</UiButton>
+      <!-- …and a way OUT of a terminal state. Without this a failed download was permanent:
+           Retry was the only action, and the server kept the errored row so the bar came
+           back on every poll (user, 2026-07-24: "no way to cancel"). -->
+      <UiButton v-if="(task.state === 'cancelled' || task.state === 'error') && task.dismiss" intent="ghost" size="small" :disabled="task.finalizing" @click="task.dismiss()">Dismiss</UiButton>
       <span v-else-if="task.state === 'done'" class="lu-dlbar-ok">Ready ✓</span>
     </div>
 

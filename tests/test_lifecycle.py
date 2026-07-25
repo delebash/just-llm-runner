@@ -1825,6 +1825,41 @@ def test_download_cancel_returns_to_idle(tmp_path):
     assert svc.status()["status"] == "idle"                # run-state never touched
 
 
+def test_cancel_download_drops_an_errored_row(tmp_path):
+    # An ERRORED download has no worker left to signal, so cancelling it used to be a pure
+    # no-op: the dead row stayed in _download_states forever, download_status() kept returning
+    # it, and the catalog's downloadingSet (which matches "downloading" OR "error") never
+    # reaped its task — the row was stuck showing a failure whose only action was Retry
+    # (user, 2026-07-24: "no way to cancel"). Cancelling a terminal row now DROPS it, which
+    # is what makes the UI's Dismiss real.
+    def boom(*a, **k):
+        raise RuntimeError("nope")
+
+    svc = _service_for(tmp_path)
+    svc._acquire_model = boom
+    svc.download(_TEST_MODEL.id)
+    entry = _await_download(svc, _TEST_MODEL.id)
+    assert entry is not None and entry["status"] == "error"   # the dead row exists
+
+    left = svc.cancel_download(_TEST_MODEL.id)["downloads"]
+    assert _TEST_MODEL.id not in left                          # …and cancelling clears it
+    assert _TEST_MODEL.id not in _dl_map(svc)
+
+
+def test_cancel_download_all_clears_errored_rows_too(tmp_path):
+    # The no-id "cancel everything" form walked only the live cancel tokens, so errored rows
+    # survived a cancel-all. It now sweeps terminal rows as well, or "cancel everything"
+    # leaves the UI still rendering failures.
+    def boom(*a, **k):
+        raise RuntimeError("nope")
+
+    svc = _service_for(tmp_path)
+    svc._acquire_model = boom
+    svc.download(_TEST_MODEL.id)
+    assert _await_download(svc, _TEST_MODEL.id)["status"] == "error"
+    assert svc.cancel_download()["downloads"] == {}
+
+
 def test_cancel_download_noop_when_idle(tmp_path):
     # Nothing downloading → cancel is a harmless no-op returning the (empty) map — both the
     # cancel-all (no id) and the per-id form.

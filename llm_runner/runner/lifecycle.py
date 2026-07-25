@@ -1011,15 +1011,34 @@ class RunnerService:
         no-id path any engine-panel 'cancel everything' uses). Idempotent: unknown/idle ids
         are no-ops. Returns the full download_status() snapshot."""
         with self._lock:
-            targets = ([model_id] if model_id is not None
-                       else list(self._download_cancels.keys()))
+            if model_id is not None:
+                targets = [model_id]
+            else:
+                # ALL: every live cancel token PLUS any terminal (errored) row, so a
+                # "cancel everything" genuinely empties the map instead of leaving dead
+                # rows behind for the UI to keep rendering.
+                targets = list(self._download_cancels.keys()) + [
+                    mid for mid, e in self._download_states.items()
+                    if e.get("status") == "error"
+                ]
             for mid in targets:
                 ev = self._download_cancels.get(mid)
                 if ev is not None:
                     ev.set()
                 e = self._download_states.get(mid)
-                if e is not None and e.get("status") == "downloading":
+                if e is None:
+                    continue
+                if e.get("status") == "downloading":
                     e["detail"] = "cancelling…"
+                elif e.get("status") == "error":
+                    # DROP a dead row (2026-07-24). An errored download has no worker to
+                    # signal, so cancelling it used to be a pure no-op and the row stayed in
+                    # the map forever — download_status() kept returning it, the UI's
+                    # downloadingSet (which matches "downloading" OR "error") never reaped its
+                    # task, and the catalog row was stuck showing a failure whose only action
+                    # was Retry. Removing it here is what makes "dismiss" real. Only terminal
+                    # rows are dropped; a live download is signalled, never deleted.
+                    self._download_states.pop(mid, None)
             self._download_gate.notify_all()   # wake any parked (queued) workers to re-check
         return self.download_status()
 

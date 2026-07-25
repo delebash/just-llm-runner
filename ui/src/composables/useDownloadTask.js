@@ -35,7 +35,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * }
  *
  * Returns a reactive task: { state, phase, done, total, rateText, error, label,
- *   start(), cancel(), retry(), waiting(phase), fail(message), arm(phase), apply(reading) }.
+ *   start(), cancel(), retry(), dismiss(), waiting(phase), fail(message), arm(phase),
+ *   apply(reading) }.
  * `state` ∈ "" | "running" | "done" | "error" | "cancelled". The poll loop exits the
  * moment `state` leaves "running", so cancel() (which flips state FIRST) stops it at once.
  *
@@ -76,6 +77,10 @@ export function createDownloadTask(channel) {
     // Otherwise the ONE shared formatter off the live fields.
     label: computed(() => {
       if (task.state === "cancelled") return task.finalizing ? "Cancelling…" : "Cancelled";
+      // An errored task keeps whatever phase it died in, so the caption used to read e.g.
+      // "Getting ready" directly above a failure message (2026-07-24, the user's screenshot).
+      // The error line below carries the detail; the caption just states the outcome.
+      if (task.state === "error") return "Failed";
       return progressCaption(task.phase || "Working", task.done, task.total, task.rateText);
     }),
   });
@@ -168,6 +173,21 @@ export function createDownloadTask(channel) {
     return start();
   }
 
+  // Clear a FINISHED-BADLY task and tell the server to forget it too (2026-07-24). Before
+  // this there was no way out of a failed download: the bar offered only Retry, and the
+  // server kept the errored row in its status map forever, so the catalog re-armed a task
+  // for it on every poll and the row was stuck. dismiss() is deliberately terminal-only —
+  // a RUNNING task must go through cancel(), which is a different promise (stop the work).
+  async function dismiss() {
+    if (task.state === "running" || task.state === "") return;
+    try {
+      await doCancel();   // best-effort: drops the dead row server-side so it stops coming back
+    } catch {
+      /* the local clear below still stands */
+    }
+    reset();
+  }
+
   // Held display: running-but-not-polling, an indeterminate bar, for a task blocked on a
   // prerequisite (QuickSetup's chat waiting on the engine). No server call is made.
   function waiting(phase) {
@@ -197,6 +217,7 @@ export function createDownloadTask(channel) {
   task.start = start;
   task.cancel = cancel;
   task.retry = retry;
+  task.dismiss = dismiss;
   task.waiting = waiting;
   task.fail = fail;
   task.reset = reset;

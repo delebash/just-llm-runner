@@ -508,6 +508,9 @@ DEFAULT_HARDWARE_CLASSES: list[dict] = [
     # vram8|ram16 (the budget build) is deliberately NOT seeded: its pick is a genuine
     # quality-vs-speed call (12B offloaded vs E4B resident) with zero measurements —
     # the user's future word, recorded in the survey doc.
+    # vram8|ram16 (the common budget build) joined 2026-07-25 after its MEASURED
+    # decision — no longer the "deliberately not seeded" holdout described above.
+    {"class_key": "dgpu-vram8|ram16", "mem_type": "discrete", "vram_gb": 8, "ram_gb": 16, "name": ""},
     {"class_key": "dgpu-vram12|ram16", "mem_type": "discrete", "vram_gb": 12, "ram_gb": 16, "name": ""},
     {"class_key": "dgpu-vram12|ram32", "mem_type": "discrete", "vram_gb": 12, "ram_gb": 32, "name": ""},
     {"class_key": "dgpu-vram12|ram64", "mem_type": "discrete", "vram_gb": 12, "ram_gb": 64, "name": ""},
@@ -612,6 +615,15 @@ DEFAULT_CLASS_TUNES: list[dict] = [
     # exists with or without this row and is tracked in TASKS.md).
     # 12-band + vram16|ram16 → the 12B dense: fully resident (est ~10.7 GB), RAM-light —
     # ram16 boxes can NOT carry the flagship (its ~24 GB RAM appetite, min_ram 24000).
+    # vram8|ram16 (the budget build) → the 12B, MEASURED 2026-07-25 on the author's
+    # actual 8 GB card (2070S, b10107 quick screen): 12B decodes 39.1 tok/s at ngl 99
+    # (6.7 GB file — nearly resident; E4B did 82.3 but the rule was the house
+    # quality-first precedent: the 8|32 class accepts ~13 tok/s for the better writer,
+    # and 12B clears that bar 3x). RAM-light (dense, ~1-2 GB spill) → honest at ram16.
+    {"model_id": "gemma-4-12b-qat", "class_key": "dgpu-vram8|ram16", "switches": {
+        "n_gpu_layers": "99", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "reasoning_budget": "1024",
+    }},
     {"model_id": "gemma-4-12b-qat", "class_key": "dgpu-vram12|ram16", "switches": {
         "n_gpu_layers": "99", "ctx_len": "32768",
         "batch_size": "512", "ubatch_size": "512", "reasoning_budget": "1024",

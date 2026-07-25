@@ -45,6 +45,7 @@ def test_refs_are_distinct_model_class_pairs(configured):
         {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram12|ram32"},
         {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram12|ram64"},
         {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram16|ram16"},
+        {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram8|ram16"},
         {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram16|ram32"},
         {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram16|ram64"},
         {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram24|ram32"},
@@ -68,7 +69,7 @@ def test_a_manually_authored_class_becomes_a_ref(configured):
         s.close()
     refs = stores.list_class_tune_refs()
     assert {"modelId": "m-big", "classKey": "dgpu-vram20|ram100"} in refs
-    assert len(refs) == 13   # 12 seeded (4 pre-band + the 8 dGPU band recs) + the manual one
+    assert len(refs) == 14   # 13 seeded (4 pre-band + 9 dGPU band recs incl. vram8|ram16) + the manual one
 
 
 def test_catalog_response_carries_refs_and_my_class(configured):

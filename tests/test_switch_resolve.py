@@ -176,7 +176,7 @@ def test_model_tune_overrides_class_tune(configured):
 
 def test_seed_default_class_tunes_seeds_the_gemma_rows(configured):
     s = db.session()
-    assert seed.seed_default_class_tunes(s) == 12   # 4 pre-band + the 8 dGPU band recommendations
+    assert seed.seed_default_class_tunes(s) == 13   # 4 pre-band + 9 dGPU band recs (incl. the measured vram8|ram16)
     s.commit()
     dgpu = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
         db.ClassTune.model_id == "gemma-4-26b-a4b-qat", db.ClassTune.class_key == "dgpu-vram8|ram32").all()}

@@ -405,8 +405,10 @@ function tuneBadge(m) {
   const badge = { ...TUNE_BADGES[id], title: titles[id] };
   // The class badge names the ACTUAL class (user, 2026-07-25: "say somewhere what the
   // hardware class is" — the bare label left the class a mystery). Appended in the
-  // shared human words (classKeyLabel — the classes panel's own formatter), e.g.
-  // "Hardware/model class default · 8 GB VRAM · 32 GB RAM".
+  // shared human words. Deliberately the SHORT `classKeyLabel`, not the classes panel's
+  // range form (`classKeyRangeLabel`, 2026-07-26 — the user's call): a badge is the
+  // tightest spot on the page and "· 24 GB VRAM and above · 128 GB RAM and above" would
+  // swamp it. So: "Hardware/model class default · 8 GB VRAM · 32 GB RAM".
   if (id === "class" && tuneState.value?.classKey) {
     badge.label = `${badge.label} · ${classKeyLabel(tuneState.value.classKey)}`;
   }

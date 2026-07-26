@@ -76,3 +76,64 @@ export function classKeyLabel(key, name = "") {
   if (m) return `Integrated GPU · ${m[1]} GB`;
   return key || "";
 }
+
+// ── the BAND ladders — DESCRIBING a key, never computing one ──────────────────
+// Copies of `runner/hardware.py:151,177,178` (`_RAM_LADDER`, `_VRAM_BANDS`,
+// `_DGPU_RAM_RUNGS`). A discrete class key is COARSE by charter (hardware.py:200):
+// VRAM rounds to the nearest GB and then DOWN-snaps `VRAM_BANDS`, while system RAM
+// snaps the fine `RAM_LADDER` (OEM-reserve jitter) and then down-snaps
+// `DGPU_RAM_RUNGS` — so one key stands for a RANGE of machines, and the short label
+// above prints only that range's floor. A 10 GB RTX 3080 keying to `vram8` reads
+// "8 GB VRAM", a number BELOW the user's own card; that is what the range label
+// below exists to stop.
+// Python remains the only place a key is COMPUTED — these numbers merely describe a
+// key already computed there, so drift can mislabel but can never misroute. Drift is
+// caught in the repo where hardware.py changes: `tests/test_class_label_ladders.py`
+// reads THIS file and fails if the three ladders disagree.
+export const VRAM_BANDS = [4, 6, 8, 12, 16, 24];
+export const DGPU_RAM_RUNGS = [16, 32, 64, 128];
+export const RAM_LADDER = [2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024];
+
+// The largest rung <= gb; below the floor the value passes through (hardware.py:181-184).
+export function bandOf(gb, ladder) {
+  const fits = ladder.filter((v) => v <= gb);
+  return fits.length ? Math.max(...fits) : gb;
+}
+
+// VRAM: one snap, so the band covers a contiguous run of whole GB — 8 covers 8…11.
+function vramPhrase(gb) {
+  if (!VRAM_BANDS.includes(gb)) return `${gb} GB VRAM`;   // below the floor — an exact, unbanded key
+  const next = VRAM_BANDS.find((v) => v > gb);
+  if (next === undefined) return `${gb} GB VRAM and above`;
+  return next - gb === 1 ? `${gb} GB VRAM` : `${gb}–${next - 1} GB VRAM`;
+}
+
+// RAM: TWO snaps (nearest ladder rung, THEN down-snap), so `ram32` holds both 32 GB
+// and 48 GB boxes. Naming the nominal capacities beats printing the raw interval —
+// people know their machine as "48 GB", not as "somewhere between 28 and 56"
+// (the user's call, 2026-07-26).
+function ramPhrase(gb) {
+  if (!DGPU_RAM_RUNGS.includes(gb)) return `${gb} GB RAM`;
+  const next = DGPU_RAM_RUNGS.find((v) => v > gb);
+  if (next === undefined) return `${gb} GB RAM and above`;
+  const members = RAM_LADDER.filter((v) => v >= gb && v < next);
+  return members.length > 1 ? `${members.join(" or ")} GB RAM` : `${gb} GB RAM`;
+}
+
+// The class label that says out loud that a class is a RANGE, for the surfaces where
+// the user reasons about classes (the classes panel and its editor). The short
+// `classKeyLabel` stays the form for tight spots — a badge, or a running sentence.
+//
+// i18n NOTE (deliberate, for the kit's later vue-i18n batch — the peer-dep decision in
+// justwrite-app/docs/plans/2026-07-26-i18n-phase1-coverage-plan.md:6): each phrase above
+// is a COMPLETE sentence per form — "and above" is its own message, never a suffix glued
+// onto another one (Ruling 6, that plan :151-158). The two halves are joined by " · " as
+// a LIST of two noun phrases, so the conversion is `{vram} · {ram}` taking pre-rendered
+// parts — a named choice, not an accident: the alternative is nine whole-label messages
+// for every range/top/exact combination, which buys nothing here.
+export function classKeyRangeLabel(key, name = "") {
+  if (name && name.trim()) return name.trim();
+  const m = /^dgpu-vram(\d+)\|ram(\d+)$/.exec(key || "");
+  if (m) return `${vramPhrase(Number(m[1]))} · ${ramPhrase(Number(m[2]))}`;
+  return classKeyLabel(key);   // igpu/unified are ONE exact pool — never banded (hardware.py:193-196)
+}

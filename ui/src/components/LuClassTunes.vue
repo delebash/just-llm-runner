@@ -25,8 +25,8 @@ import { confirmDialog } from "../common/services/dialog.js";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import {
-  classKeyLabel, deleteClassTune, deleteHardwareClass, listClassTunes,
-  putClassTune, saveHardwareClass,
+  bandOf, classKeyRangeLabel, deleteClassTune, deleteHardwareClass, DGPU_RAM_RUNGS,
+  listClassTunes, putClassTune, saveHardwareClass, VRAM_BANDS,
 } from "../classTunes.js";
 import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
 
@@ -73,8 +73,11 @@ const configsByClass = computed(() => {
   for (const t of tunes.value) (map[t.classKey] ||= []).push(t);
   return map;
 });
-const classLabel = (c) => classKeyLabel(c.classKey, c.name); // name if set, else plain-words
-const classHardware = (c) => classKeyLabel(c.classKey);      // plain-words hardware only
+// This panel is where the user REASONS about classes, so it uses the range form — a
+// class holds a run of machines, and the short form printed only the run's floor
+// (a 10 GB card reading "8 GB VRAM"). Tight spots elsewhere keep `classKeyLabel`.
+const classLabel = (c) => classKeyRangeLabel(c.classKey, c.name); // name if set, else plain-words
+const classHardware = (c) => classKeyRangeLabel(c.classKey);      // plain-words hardware only
 const summaryOf = (t) => t.rows.map((r) => `${r.flagName}=${r.flagValue}`).join(" · ");
 
 // Editors — ONE at a time (the editor REPLACES the list, never stacks below).
@@ -153,11 +156,31 @@ function startEditClass(c) {
     vramGb: c.vramGb || null, ramGb: c.ramGb || null,
   };
 }
+// The number box hands back a raw STRING, so a typed "3.5" would otherwise reach the
+// key template and print `dgpu-vram3.5|ram16` verbatim (no regex matches a fractional
+// key) and then 422 on the server's int field. Truncate exactly the way Python does
+// (`int()`, hardware.py:194) so the preview and the save can never disagree.
+const wholeGb = (v) => Math.trunc(Number(v) || 0);
+
+// What the typed numbers will ACTUALLY be saved as. The server bands a hand-typed
+// discrete class exactly this way (`banded_class_key`, runner/hardware.py:193-196 —
+// the detection-only `snap_ram_gb` does NOT apply to typed numbers), so typing 10 and
+// getting the 8-band class stops being a surprise discovered after saving. One-pool
+// types are never banded, so there is nothing to warn about and the line stays hidden.
+const editorClassPreview = computed(() => {
+  const e = editingClass.value;
+  if (!e || e.memType !== "discrete") return "";
+  const vram = wholeGb(e.vramGb);
+  const ram = wholeGb(e.ramGb);
+  if (vram <= 0 || ram <= 0) return "";
+  return classKeyRangeLabel(`dgpu-vram${bandOf(vram, VRAM_BANDS)}|ram${bandOf(ram, DGPU_RAM_RUNGS)}`);
+});
+
 async function saveClass() {
   const e = editingClass.value;
   if (!e) return;
-  const ram = Number(e.ramGb) || 0;
-  const vram = e.memType === "discrete" ? (Number(e.vramGb) || 0) : 0;
+  const ram = wholeGb(e.ramGb);
+  const vram = e.memType === "discrete" ? wholeGb(e.vramGb) : 0;
   if (ram <= 0) { error.value = "Enter the memory in whole GB."; return; }
   if (e.memType === "discrete" && vram <= 0) { error.value = "Enter the VRAM in whole GB."; return; }
   saving.value = true; error.value = "";
@@ -282,7 +305,7 @@ async function runImport() {
 
     <div class="lu-ct-body">
       <p class="lu-muted lu-ct-help">
-        A hardware class is a machine profile (its memory) that holds one launch config
+        A hardware class is a memory RANGE that holds one launch config
         per model — used automatically on any PC of that class, unless the machine has its
         own applied config. <b>Detection proposes your class; you can override it below.</b>
       </p>
@@ -293,7 +316,7 @@ async function runImport() {
       <!-- PER-MODEL popup: the config editor only (no list). -->
       <template v-else-if="loaded && directEdit && editingConfig">
         <div class="lu-ct-editor">
-          <div class="lu-ct-forrow">This PC's class · <b>{{ classKeyLabel(editingConfig.classKey) }}</b></div>
+          <div class="lu-ct-forrow">This PC's class · <b>{{ classKeyRangeLabel(editingConfig.classKey) }}</b></div>
           <KnobGrid v-model="editingConfig.rows" :catalog="catalogMap" />
           <div class="lu-ct-edact">
             <UiButton intent="ghost" size="small" @click="copyEditingConfig">
@@ -308,7 +331,7 @@ async function runImport() {
       <template v-else-if="loaded">
         <!-- This PC — plain words; the matching class is tagged in the list below. -->
         <div class="lu-ct-mine">
-          <span>This PC · <b>{{ myClassKey ? classKeyLabel(myClassKey) : "not detected" }}</b>
+          <span>This PC · <b>{{ myClassKey ? classKeyRangeLabel(myClassKey) : "not detected" }}</b>
             <UiTag v-if="overrideKey" intent="info">set manually</UiTag></span>
           <UiButton v-if="overrideKey" intent="secondary" size="small" @click="useAutoDetect">Use auto-detect</UiButton>
         </div>
@@ -333,6 +356,12 @@ async function runImport() {
               <UiInput v-model="editingClass.ramGb" type="number" width="token" />
             </label>
           </div>
+          <!-- The snap, said BEFORE the save: typing 10 GB saves the 8-band class, and
+               finding that out afterwards reads as the app losing your number. -->
+          <div v-if="editorClassPreview" class="lu-muted lu-ct-snap">
+            Saved as <b>{{ editorClassPreview }}</b> — one class covers a range of machines,
+            so nearby sizes share a config.
+          </div>
           <div class="lu-ct-edact">
             <UiButton intent="ghost" size="small" @click="editingClass = null">Cancel</UiButton>
             <UiButton intent="primary" size="small" :loading="saving" @click="saveClass">Save class</UiButton>
@@ -341,7 +370,7 @@ async function runImport() {
 
         <!-- The CONFIG editor (a model + switches, under a class) -->
         <div v-else-if="editingConfig" class="lu-ct-editor">
-          <div class="lu-ct-forrow">For class · <b>{{ classKeyLabel(editingConfig.classKey) }}</b></div>
+          <div class="lu-ct-forrow">For class · <b>{{ classKeyRangeLabel(editingConfig.classKey) }}</b></div>
           <label class="lu-ct-field">
             <span class="lu-ct-cap">Model</span>
             <span v-if="editingConfig.modelLocked" class="lu-ct-fixed">{{ modelName(editingConfig.modelId) }}</span>
@@ -445,5 +474,6 @@ async function runImport() {
 .lu-ct-mrow { display: flex; gap: 10px; flex-wrap: wrap; }
 .lu-ct-cap { font-size: 11px; color: var(--muted); }
 .lu-ct-fixed { font-size: 12px; color: var(--ink-2); }
+.lu-ct-snap { font-size: 11px; line-height: 1.4; }
 .lu-ct-edact { display: flex; justify-content: flex-end; gap: 8px; }
 </style>

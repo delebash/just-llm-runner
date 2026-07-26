@@ -102,5 +102,14 @@ export async function refresh() {
 /** Shared model-catalog meta. Every consumer gets the SAME refs; call refresh() on open
  *  or after a catalog edit to (re)populate the one shared source. */
 export function useCatalogMeta() {
-  return { catalogRows, classTuneRefs: classTuneRefsRef, myClassKey: myClassKeyRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, hfRepoById, notesById, sizeBytesById, minVramById, tierById, refresh };
+  // estVramById was MISSING here until 2026-07-26 while being defined and module-exported
+  // above — so QuickSetup.vue:77's destructure bound it to `undefined` and
+  // wizardLeftoverMb() (QuickSetup.vue:130) threw "Cannot read properties of undefined
+  // (reading 'value')" out of the openWizard reconcile, exactly where the embed default is
+  // filled. Visible symptom: the wizard's error banner plus a permanently EMPTY embedding
+  // dropdown. Nothing catches a missing key here — a destructure of an absent name is
+  // `undefined`, never a build or lint error — so the contract is pinned by a test in the
+  // host app (justwrite-app useCatalogMeta.contract.test.js): every name any consumer
+  // destructures must appear in this object. Add the key here when you add the export.
+  return { catalogRows, classTuneRefs: classTuneRefsRef, myClassKey: myClassKeyRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, hfRepoById, notesById, sizeBytesById, minVramById, estVramById, tierById, refresh };
 }

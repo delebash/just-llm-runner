@@ -18,7 +18,7 @@ import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { applyPreview, useModelApply } from "../services/modelApply.js";
 import { FIT_RUNNABLE, pickBestEmbedId, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
 import { allDraftsUnloadable, pickDefaultDraftPath } from "../draftSelect.js";
-import { TUNE_BADGES, fetchTuneState, tuneBadgeOf } from "../tuneState.js";
+import { TUNE_BADGES, fetchTuneState, isUntunedHere, tuneBadgeIdOf } from "../tuneState.js";
 import { classKeyLabel, classKeyRangeLabel } from "../classTunes.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
@@ -278,7 +278,10 @@ function fitTitle(m) {
   // no-floor / embed-placement returns above are already whole sentences, and appending a
   // fragment to them would splice (Ruling 6).
   const have = vramMb.value ? ` · you have ${gb(vramMb.value)} GB` : "";
-  const untested = !embeddingOf(m) && tuneBadgeOf(tuneState.value, m.id) === ""
+  // isUntunedHere, NOT `=== ""` — "" now means only "the state fetch failed", and the
+  // untuned case became two named states (2026-07-26). The old equality check would
+  // have gone permanently false here and silently dropped this sentence.
+  const untested = !embeddingOf(m) && isUntunedHere(tuneBadgeIdOf(tuneState.value, m.id, otherClassCount(m.id)))
     ? " · not yet tested on your PC class" : "";
   return `Estimated — needs ~${gb(m.minVramMb)} GB VRAM${have}${untested}`;
 }
@@ -306,12 +309,21 @@ function notesOf(m) { return notesById.value[m.id] || ""; }
 // PC but would UNDERSTATE a requirement. Both floors or neither (a half-stated requirement
 // invites the wrong conclusion). Embedding rows are excluded: their placement story (CPU
 // by policy) is what their line has to tell, not a VRAM floor.
-function rowMeta(m) {
+// Split out of a single `rowMeta` 2026-07-26: the line carries TWO facts of different
+// weight — how big the download is, and what hardware the model needs — and the second
+// is the one the user scans for ("the main thing i want to know is what hardware it can
+// run on"). One function returning both concatenated could not give them different
+// emphasis, and its name described neither.
+function rowSize(m) {
   const sz = sizeBytesById.value[m.id];
-  const base = sz ? fmtBytes(sz) : (m.params || "");
-  if (embeddingOf(m) || !m.minVramMb || !m.minRamMb) return base;
-  const floors = `needs ~${gb(m.minVramMb)} GB VRAM + ${gb(m.minRamMb)} GB RAM`;
-  return base ? `${base} · ${floors}` : floors;
+  return sz ? fmtBytes(sz) : (m.params || "");
+}
+/** The model's own hardware floor. "" when it has none to state — embedding rows tell a
+ *  placement story instead (CPU by policy), and a row missing either floor stays silent
+ *  rather than half-stating a requirement. */
+function rowNeeds(m) {
+  if (embeddingOf(m) || !m.minVramMb || !m.minRamMb) return "";
+  return `needs ~${gb(m.minVramMb)} GB VRAM + ${gb(m.minRamMb)} GB RAM`;
 }
 // The Bench column cell: the published benchmark rank, or "—" when unranked (100).
 function benchLabel(m) { const q = qualityOf(m); return q >= 100 ? "—" : String(q); }
@@ -411,9 +423,27 @@ async function loadTuneState() {
   tuneState.value = await fetchTuneState();
 }
 loadTuneState();
+// How many OTHER classes carry switches for this model — the fact that separates
+// "nobody has ever tuned this" from "tuned, just not for your box". Derived from the
+// classTuneRefs already on the catalog response (no extra fetch); this box's own class
+// is excluded, because that case is the stronger `class` state above it.
+function otherClassCount(modelId) {
+  const mine = tuneState.value?.classKey || "";
+  return new Set(
+    (classTuneRefs.value || [])
+      .filter((r) => r.modelId === modelId && r.classKey && r.classKey !== mine)
+      .map((r) => r.classKey),
+  ).size;
+}
 function tuneBadge(m) {
-  const id = tuneBadgeOf(tuneState.value, m.id);
-  if (!id) return null; // untuned rows carry NO badge — absence reads untuned (flagged in the §7.6 record)
+  const others = otherClassCount(m.id);
+  const id = tuneBadgeIdOf(tuneState.value, m.id, others);
+  if (!id) return null; // state unavailable (fetch failed) — a tag would be a guess
+  // An embedding row's story is PLACEMENT (CPU by policy), not tuning, so it does not
+  // get told it is "Not tuned" — the same exclusion the fit hover already makes
+  // (fitTitle's `!embeddingOf(m)`). It DOES keep a tag when genuinely tuned, because
+  // then the fact is real and worth showing.
+  if (embeddingOf(m) && isUntunedHere(id)) return null;
   const classRange = classKeyRangeLabel(tuneState.value?.classKey || "");
   const titles = {
     auto: "This PC runs your applied config — produced by the auto-tune sweep",
@@ -422,17 +452,19 @@ function tuneBadge(m) {
     // classKeyRangeLabel("") returns "" (classTunes.js:134-138) and "for your class ()"
     // would read as a bug.
     class: `No applied config on this PC — launches start from the PC class config for your class${classRange ? ` (${classRange})` : ""}`,
+    elsewhere: `Nothing tuned for your PC class${classRange ? ` (${classRange})` : ""} — but this model has a PC class config on ${others} other ${others === 1 ? "class" : "classes"}. Launches use the layered defaults.`,
+    untuned: "Nobody has tuned this model on any PC class yet — launches use the layered defaults.",
   };
   const badge = { ...TUNE_BADGES[id], title: titles[id] };
-  // The class badge names the ACTUAL class (user, 2026-07-25: "say somewhere what the
-  // hardware class is" — the bare label left the class a mystery). Appended in the
-  // shared human words. Deliberately the SHORT `classKeyLabel`, not the classes panel's
-  // range form (`classKeyRangeLabel`, 2026-07-26 — the user's call): a badge is the
-  // tightest spot on the page and "· 24 GB VRAM and above · 128 GB RAM and above" would
-  // swamp it. So: "PC class config · 8 GB VRAM · 32 GB RAM". The HOVER has room, so it
-  // spends it on the range form — the badge says which class, the title says how wide.
-  if (id === "class" && tuneState.value?.classKey) {
-    badge.label = `${badge.label} · ${classKeyLabel(tuneState.value.classKey)}`;
+  // The COUNT is what makes "not tuned here" worth saying — bare, it is the absence
+  // this change exists to kill. The class NAME is deliberately NOT appended any more
+  // (2026-07-26, the user: "as a user i see 'PC class config · 8 GB VRAM · 32 GB RAM'
+  // and i think that is what hardware it runs under"): rendering your machine's spec
+  // inside a tuning tag, one line from the model's OWN hardware requirement, made the
+  // two read as contradictory numbers about the same thing. Your class is now stated
+  // once above the table instead of on every row.
+  if (id === "elsewhere") {
+    badge.label = `${badge.label} — ${others} other PC ${others === 1 ? "class" : "classes"}`;
   }
   return badge;
 }
@@ -1011,6 +1043,13 @@ refreshApplied();
 
     <!-- #10 (user, 2026-07-08): a real section heading over the catalog. -->
     <div class="lu-mcat-title">Model Catalog</div>
+    <!-- THIS PC, stated ONCE (2026-07-26). It used to be appended to every class
+         badge, where it sat beside each model's own VRAM/RAM requirement and read as
+         a second, contradictory requirement. It is the same for every row — so it
+         belongs above the table, not in it. -->
+    <div v-if="tuneState?.classKey" class="lu-mcat-thispc lu-muted">
+      This PC · <b>{{ classKeyLabel(tuneState.classKey) }}</b>
+    </div>
     <div class="lu-mcat-bar">
       <UiInput v-model="query" class="lu-mcat-search" placeholder="Search models…" />
       <span class="lu-mcat-spacer" />
@@ -1060,14 +1099,21 @@ refreshApplied();
                 <UiTag v-if="m.id === recommendedId" intent="accent2" class="lu-mbadge"
                   title="What Quick Setup would pick for this machine — a model with a PC class config for your class first, then the speed-floor rule">
                   Recommended for this PC</UiTag>
-                <!-- §7.6 (B3-4): the tune-provenance badge — Auto-tuned / Hand-tuned /
-                     PC class config; untuned rows carry none. -->
+                <!-- §7.6: the tune-provenance tag. FIVE named states since 2026-07-26 —
+                     every row carries one, because a blank row could not distinguish
+                     "tuned on five other classes" from "never tuned anywhere". -->
                 <UiTag v-if="tuneBadge(m)" :intent="tuneBadge(m).intent" class="lu-mbadge"
                   :title="tuneBadge(m).title">{{ tuneBadge(m).label }}</UiTag>
                 <div class="lu-mid">{{ m.id }}</div>
                 <!-- The sort fields, visible (#146): the download size, plus the hardware
-                     floor the row runs on (2026-07-26 — see rowMeta). -->
-                <div class="lu-mrowmeta lu-muted" title="Download size, and the minimum hardware it runs on">{{ rowMeta(m) }}</div>
+                     floor the row runs on (2026-07-26 — see rowNeeds). The floor is the
+                     answer to "what would I need to run this", so it is NOT muted like
+                     the rest of the meta line (user, 2026-07-26: "that doesnt stand out"). -->
+                <div class="lu-mrowmeta lu-muted" title="Download size, and the minimum hardware it runs on">
+                  <span v-if="rowSize(m)">{{ rowSize(m) }}</span>
+                  <span v-if="rowSize(m) && rowNeeds(m)"> · </span>
+                  <span v-if="rowNeeds(m)" class="lu-mneeds">{{ rowNeeds(m) }}</span>
+                </div>
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
                 <div v-if="notesOf(m)" class="lu-mnotes">Your notes: {{ notesOf(m) }}</div>
                 <a v-if="cardUrlOf(m)" class="lu-mlink lu-mcardlink" :href="cardUrlOf(m)"
@@ -1369,6 +1415,10 @@ refreshApplied();
 .lu-mn { font-weight: 600; color: var(--ink); }
 .lu-mid { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px; }
 .lu-mrowmeta { font-size: 10.5px; font-weight: 400; margin-top: 1px; }
+/* The hardware floor is the row's headline fact, so it is not muted with the rest of
+   the meta line (2026-07-26 — "that doesnt stand out"). Ink + weight only: no colour
+   of its own, so it never competes with the Fit chip's verdict. */
+.lu-mneeds { color: var(--ink-2); font-weight: 600; }
 /* No max-width: the description and notes simply fill the Model column and wrap in it.
    Under `table-layout: fixed` the column owns the width, so these need no cap of their
    own — the previous attempts put one on the <td> (ignored under `table-layout: auto`)
@@ -1475,6 +1525,7 @@ refreshApplied();
    modal form (#30). The heading's margin-top keeps the 2026-07-07 breathing room between
    the "Your setup" strip cards and this block. */
 .lu-mcat-title { font-weight: 700; font-size: 14px; color: var(--ink); margin-top: 14px; }
+.lu-mcat-thispc { font-size: 11.5px; margin-top: 2px; }
 .lu-mcat-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; margin-bottom: 8px; }
 .lu-mcat-search { flex: 0 1 220px; }
 .lu-mcat-spacer { flex: 1; }

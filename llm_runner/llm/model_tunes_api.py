@@ -22,9 +22,11 @@ the Protocol over its DB (`stores.ModelTuneStore`).
   trial IS that sweep's winner applied unedited; anything else was hand-shaped.
   No schema change: the history already carries the facts.
 - **GET /model-tunes/state**: the per-machine badge summary for the catalog —
-  every tuned model with its source, plus the models that have a hardware-class
-  default for THIS box's class (the §7.6 badge family: Auto-tuned / Hand-tuned /
-  Class default / untuned-by-absence).
+  every tuned model with its source, plus the models that have a PC class config
+  for THIS box's class. The client turns that into the five-state badge family
+  (2026-07-26): Tuned by auto-tune / by hand / by PC class config / Not tuned here
+  (configs exist for other classes) / Not tuned. Untuned is NAMED, not implied by
+  an absent badge.
 """
 
 from __future__ import annotations
@@ -63,7 +65,10 @@ class ModelTunesState(BaseModel):
     hwKey: str
     classKey: str = ""
     tuned: dict[str, str] = Field(default_factory=dict)   # modelId -> "auto" | "hand"
-    classDefault: list[str] = Field(default_factory=list)  # modelIds with a class config for THIS class
+    # modelIds that HAVE a PC class config for THIS box's class. Renamed from
+    # `classDefault` 2026-07-26: "default" is the triple-booked word that rename
+    # retired, and this was never a default — it is a config's existence.
+    classConfigured: list[str] = Field(default_factory=list)
 
 
 class ModelTuneStore(Protocol):
@@ -177,15 +182,15 @@ def make_model_tunes_router(
         if list_fn is not None:
             for mid, rows in (list_fn(hw) or {}).items():
                 tuned[mid] = _source_of(mid, rows) or "hand"
-        class_default: list[str] = []
+        class_configured: list[str] = []
         if cls and class_configs_fn is not None:
             try:
-                class_default = sorted({
+                class_configured = sorted({
                     c.modelId for c in (class_configs_fn() or [])
                     if getattr(c, "classKey", "") == cls and getattr(c, "rows", None)
                 })
             except Exception:  # noqa: BLE001 — the summary is an enrichment
-                class_default = []
-        return ModelTunesState(hwKey=hw, classKey=cls, tuned=tuned, classDefault=class_default)
+                class_configured = []
+        return ModelTunesState(hwKey=hw, classKey=cls, tuned=tuned, classConfigured=class_configured)
 
     return router

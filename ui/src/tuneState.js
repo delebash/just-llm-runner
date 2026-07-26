@@ -7,7 +7,7 @@
 // PC-class membership = a PC class config exists for this box's class.
 import { request } from "./client.js";
 
-// { hwKey, classKey, tuned: { modelId: "auto"|"hand" }, classDefault: [modelId] }
+// { hwKey, classKey, tuned: { modelId: "auto"|"hand" }, classConfigured: [modelId] }
 // — null on failure (badges are an enrichment; every surface must keep working).
 export async function fetchTuneState() {
   try {
@@ -30,20 +30,54 @@ export const CLASS_LAYER_LABEL = "PC class config";
 // "we keep getting it wrong" — a chooser surface was speaking a tuner's word and
 // "default" was triple-booked on one screen); the QC-1 law itself is UNCHANGED, and
 // still holds because the library button/dialog renamed in the same pass.
+// All five labels answer ONE question in the same grammar — "how is this tuned?"
+// (the user, 2026-07-26: "we used in tune and measure say what the model is tuned
+// by, ie tuned by autotune, my hand, by class config … should be consistent").
+// Before this, three named a MECHANISM ("Auto-tuned") and one named an ENTITY
+// ("PC class config"), which is why the class badge did not read as tuning at all —
+// it read as a hardware spec. The class label COMPOSES on CLASS_LAYER_LABEL rather
+// than restating it, so the one-source law above still holds and QC-1 is satisfied
+// (the tag still contains the real editor name).
 export const TUNE_BADGES = {
-  auto: { label: "Auto-tuned", intent: "success" },
-  hand: { label: "Hand-tuned", intent: "success" },
-  class: { label: CLASS_LAYER_LABEL, intent: "secondary" },
-  untuned: { label: "Untuned", intent: "secondary" },
+  auto: { label: "Tuned by auto-tune", intent: "success" },
+  hand: { label: "Tuned by hand", intent: "success" },
+  class: { label: `Tuned by ${CLASS_LAYER_LABEL}`, intent: "secondary" },
+  // Tuned — just not for THIS box's class. The caller appends the count.
+  elsewhere: { label: "Not tuned here", intent: "secondary" },
+  untuned: { label: "Not tuned", intent: "secondary" },
 };
 
-// One model's badge id under a fetched state — "auto" | "hand" | "class" | "".
-// Empty = untuned (the catalog renders NO badge for untuned rows — absence
-// reads as untuned; a tag on every row would be noise. The Tune modal header
-// DOES render the explicit Untuned state — it's the one-model surface).
-export function tuneBadgeOf(state, modelId) {
-  if (!state || !modelId) return "";
+/**
+ * One model's badge id: "auto" | "hand" | "class" | "elsewhere" | "untuned",
+ * or NULL when the state fetch failed (badges are an enrichment — a surface with
+ * no state renders no tag rather than claiming "Not tuned"). Null, not "": the
+ * empty string used to MEAN untuned, so reusing it for "unknown" would leave every
+ * existing `=== ""` caller quietly wrong instead of loudly broken.
+ *
+ * 2026-07-26 — the fifth state, and why "" stopped meaning untuned. The catalog
+ * used to render NOTHING for an untuned row, on the theory that absence reads as
+ * untuned. It does not: it made a model tuned on five OTHER classes look identical
+ * to one nobody has ever run (the user: "if i see a bunch of models with nothing
+ * indicating what it runs on that is confusing"). Worse, "not in a PC class config"
+ * and "in one with no switches" are the SAME state in storage — class_tunes is keyed
+ * (model_id, class_key, flag_name) with no parent row (db.py:435-441) — so a blank
+ * row could not even be interrogated. Naming all five says what the row actually knows.
+ *
+ * @param {number} otherClassCount  how many OTHER classes have switches for this
+ *   model; callers derive it from the catalog's classTuneRefs (no extra fetch).
+ */
+export function tuneBadgeIdOf(state, modelId, otherClassCount = 0) {
+  if (!state || !modelId) return null;
   const src = state.tuned?.[modelId];
   if (src) return src === "auto" ? "auto" : "hand";
-  return state.classDefault?.includes(modelId) ? "class" : "";
+  if (state.classConfigured?.includes(modelId)) return "class";
+  return otherClassCount > 0 ? "elsewhere" : "untuned";
+}
+
+/** True when nothing is tuned for THIS box — the two "not for you" states.
+ *  Use this instead of comparing the id yourself: before 2026-07-26 callers tested
+ *  the (then differently-named) resolver against `""`, which now means "state
+ *  unavailable" and would answer false for every row. */
+export function isUntunedHere(badgeId) {
+  return badgeId === "untuned" || badgeId === "elsewhere";
 }

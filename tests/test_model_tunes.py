@@ -136,7 +136,7 @@ def test_source_auto_when_rows_equal_an_autotune_trial_else_hand():
     assert r2["source"] == "hand"
 
 
-def test_state_summarizes_tuned_and_class_default_models():
+def test_state_summarizes_tuned_and_class_configured_models():
     from types import SimpleNamespace as NS
 
     trial = NS(source="autotune", switches=[NS(flagName="threads", flagValue="8")])
@@ -154,7 +154,7 @@ def test_state_summarizes_tuned_and_class_default_models():
     assert st["hwKey"] == "test-key" and st["classKey"] == "vram8|ram32"
     assert st["tuned"] == {"m1": "auto", "m2": "hand"}
     # Only the config matching THIS box's class counts; the vram24 row does not.
-    assert st["classDefault"] == ["gemma"]
+    assert st["classConfigured"] == ["gemma"]
 
 
 # ── machine_key (D2 — whole machine, not GPU-only) ───────────────────────────

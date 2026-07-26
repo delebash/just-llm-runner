@@ -130,7 +130,10 @@ const headerBadge = computed(() => {
       label: fam ? `${fam.label} on this PC ✓` : "Applied on this PC ✓",
     };
   }
-  return { intent: TUNE_BADGES.untuned.intent, label: "Untuned — using the layered defaults" };
+  // Same five-state vocabulary as the catalog row (2026-07-26, the user: "should be
+  // consistent") — the label comes from the shared family, never a local literal, so
+  // the two surfaces cannot drift into two words for one state.
+  return { intent: TUNE_BADGES.untuned.intent, label: `${TUNE_BADGES.untuned.label} — using the layered defaults` };
 });
 const driftCount = computed(() => savedTune.value?.driftCount || 0);
 

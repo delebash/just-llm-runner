@@ -19,7 +19,7 @@ import { applyPreview, useModelApply } from "../services/modelApply.js";
 import { FIT_RUNNABLE, pickBestEmbedId, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
 import { allDraftsUnloadable, pickDefaultDraftPath } from "../draftSelect.js";
 import { TUNE_BADGES, fetchTuneState, tuneBadgeOf } from "../tuneState.js";
-import { classKeyLabel } from "../classTunes.js";
+import { classKeyLabel, classKeyRangeLabel } from "../classTunes.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -271,8 +271,16 @@ function fitTitle(m) {
   if (m.fit === "cpu") return "No GPU detected — runs on CPU (slower).";
   if (m.fit === "unknown") return "VRAM requirement unknown for this model.";
   if (!m.minVramMb) return "";
+  // The fit grade is a CURATED FLOOR compared against this card — never a measurement on
+  // your box, so it says "Estimated" (2026-07-26, the user: "long as we present user with
+  // correct info"). An untuned row adds the second honest fact: nobody has actually run it
+  // at your class yet. ONLY this branch takes the prefix/suffix — the cpu / unknown /
+  // no-floor / embed-placement returns above are already whole sentences, and appending a
+  // fragment to them would splice (Ruling 6).
   const have = vramMb.value ? ` · you have ${gb(vramMb.value)} GB` : "";
-  return `needs ~${gb(m.minVramMb)} GB VRAM${have}`;
+  const untested = !embeddingOf(m) && tuneBadgeOf(tuneState.value, m.id) === ""
+    ? " · not yet tested on your PC class" : "";
+  return `Estimated — needs ~${gb(m.minVramMb)} GB VRAM${have}${untested}`;
 }
 // Grid TYPE tags (Plan B — the Params column is REPLACED: the params count already
 // rides the name/description, the user wants the space for architecture/role).
@@ -289,12 +297,21 @@ function notesOf(m) { return notesById.value[m.id] || ""; }
 // The sort fields, VISIBLE on the rows (#146 — sorting by an invisible column is
 // opaque): the benchmark rank (100 = unranked) + the size (file size when known,
 // else the params label riding the fit view).
-// Row meta = the download SIZE only now; the benchmark rank moved to its own sortable
-// Bench column (2026-07-22), so it no longer rides this line.
+// The benchmark rank moved to its own sortable Bench column (2026-07-22), so it no longer
+// rides this line; the line carries the download SIZE plus, since 2026-07-26, the row's
+// hardware floor.
+// 2026-07-26 (the user: "when i look at list i have no idea what hardware it might run
+// on"): the row STATES its hardware floor instead of hiding it in the Fit chip's hover.
+// RAW numbers, never the class key — a class band rounds DOWN, which is safe describing a
+// PC but would UNDERSTATE a requirement. Both floors or neither (a half-stated requirement
+// invites the wrong conclusion). Embedding rows are excluded: their placement story (CPU
+// by policy) is what their line has to tell, not a VRAM floor.
 function rowMeta(m) {
   const sz = sizeBytesById.value[m.id];
-  if (sz) return fmtBytes(sz);
-  return m.params || "";
+  const base = sz ? fmtBytes(sz) : (m.params || "");
+  if (embeddingOf(m) || !m.minVramMb || !m.minRamMb) return base;
+  const floors = `needs ~${gb(m.minVramMb)} GB VRAM + ${gb(m.minRamMb)} GB RAM`;
+  return base ? `${base} · ${floors}` : floors;
 }
 // The Bench column cell: the published benchmark rank, or "—" when unranked (100).
 function benchLabel(m) { const q = qualityOf(m); return q >= 100 ? "—" : String(q); }
@@ -397,10 +414,14 @@ loadTuneState();
 function tuneBadge(m) {
   const id = tuneBadgeOf(tuneState.value, m.id);
   if (!id) return null; // untuned rows carry NO badge — absence reads untuned (flagged in the §7.6 record)
+  const classRange = classKeyRangeLabel(tuneState.value?.classKey || "");
   const titles = {
     auto: "This PC runs your applied config — produced by the auto-tune sweep",
     hand: "This PC runs your applied config — hand-set in Tune & measure",
-    class: "No applied config on this PC — it starts from the Hardware/model class default for your PC class",
+    // The range is dropped, not printed empty, when the box's class is unknown:
+    // classKeyRangeLabel("") returns "" (classTunes.js:134-138) and "for your class ()"
+    // would read as a bug.
+    class: `No applied config on this PC — launches start from the PC class config for your class${classRange ? ` (${classRange})` : ""}`,
   };
   const badge = { ...TUNE_BADGES[id], title: titles[id] };
   // The class badge names the ACTUAL class (user, 2026-07-25: "say somewhere what the
@@ -408,7 +429,8 @@ function tuneBadge(m) {
   // shared human words. Deliberately the SHORT `classKeyLabel`, not the classes panel's
   // range form (`classKeyRangeLabel`, 2026-07-26 — the user's call): a badge is the
   // tightest spot on the page and "· 24 GB VRAM and above · 128 GB RAM and above" would
-  // swamp it. So: "Hardware/model class default · 8 GB VRAM · 32 GB RAM".
+  // swamp it. So: "PC class config · 8 GB VRAM · 32 GB RAM". The HOVER has room, so it
+  // spends it on the range form — the badge says which class, the title says how wide.
   if (id === "class" && tuneState.value?.classKey) {
     badge.label = `${badge.label} · ${classKeyLabel(tuneState.value.classKey)}`;
   }
@@ -1036,15 +1058,16 @@ refreshApplied();
                      chat default). -->
                 <UiTag v-if="m.id === currentEmbeddingId" intent="info" class="lu-mbadge">Embedding</UiTag>
                 <UiTag v-if="m.id === recommendedId" intent="accent2" class="lu-mbadge"
-                  title="What Quick Setup would pick for this machine — the curated hardware-class map first, then the speed-floor rule">
+                  title="What Quick Setup would pick for this machine — a model with a PC class config for your class first, then the speed-floor rule">
                   Recommended for this PC</UiTag>
                 <!-- §7.6 (B3-4): the tune-provenance badge — Auto-tuned / Hand-tuned /
-                     Class default; untuned rows carry none. -->
+                     PC class config; untuned rows carry none. -->
                 <UiTag v-if="tuneBadge(m)" :intent="tuneBadge(m).intent" class="lu-mbadge"
                   :title="tuneBadge(m).title">{{ tuneBadge(m).label }}</UiTag>
                 <div class="lu-mid">{{ m.id }}</div>
-                <!-- The sort fields, visible (#146): benchmark rank + size. -->
-                <div class="lu-mrowmeta lu-muted" title="Download size">{{ rowMeta(m) }}</div>
+                <!-- The sort fields, visible (#146): the download size, plus the hardware
+                     floor the row runs on (2026-07-26 — see rowMeta). -->
+                <div class="lu-mrowmeta lu-muted" title="Download size, and the minimum hardware it runs on">{{ rowMeta(m) }}</div>
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
                 <div v-if="notesOf(m)" class="lu-mnotes">Your notes: {{ notesOf(m) }}</div>
                 <a v-if="cardUrlOf(m)" class="lu-mlink lu-mcardlink" :href="cardUrlOf(m)"

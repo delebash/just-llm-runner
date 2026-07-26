@@ -20,7 +20,7 @@
 // SWITCHES NOTE (§7.1, locked 2026-07-08): the column edits NO launch switches — a
 // loaded model is one process with one set of launch flags shared by every task, so
 // launch config is owned by the MODEL (Tune & measure over the switch_resolve stack:
-// global bundles → class default → this machine's tune). The "Engine switches ↗"
+// global bundles → PC class config → this machine's tune). The "Engine switches ↗"
 // link under the model picker opens THE one editor (TuneMeasureModal) for the
 // column's model; the column itself carries only what a TASK owns: samplers, tokens,
 // JSON, reasoning. The old per-column switch grid wrote preset rows that nothing
@@ -224,7 +224,7 @@ function onTuneClosed() {
 
 // ── the resolved LOCAL thinking budget for THIS column's pinned route (2026-07-16)
 // The Reasoning select is the ASK. On a LOCAL route the emitted budget is NOT a task
-// value: it is the model's layered `reasoning_budget` switch (base bundle → class tune
+// value: it is the model's layered `reasoning_budget` switch (base bundle → PC class config
 // → applied tune), same as every other launch-adjacent value the column only READS
 // (§7.1). So the column shows what resolves + which layer it came from, and never
 // offers to edit it here — Tune & measure (the "Engine switches ↗" link above) is
@@ -612,7 +612,7 @@ defineExpose({ run, cancel });
          lives) rather than inside that field — .cc-reason is capped at 120px and would
          wrap this to a column of fragments. -->
     <div v-if="localBudgetLine" class="cc-localbudget lu-muted"
-      title="The model's layered reasoning_budget on this PC (Global launch defaults → hardware class → your applied config) — edit it in Tune &amp; measure">{{ localBudgetLine }}</div>
+      title="The model's layered reasoning_budget on this PC (Global launch defaults → PC class config → your applied config) — edit it in Tune &amp; measure">{{ localBudgetLine }}</div>
 
     <!-- Plane-2 long-tail samplers (KnobGrid checklist). temperature + top_p are
          excluded — they are edited in the per-call params row above. #35 (B4-3,

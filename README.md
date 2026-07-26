@@ -16,7 +16,7 @@ JustVoice repo for the full architecture + decision history.
 ## How a model's launch config derives (the 4-tier doctrine, 2026-07-06)
 
 **Which model QuickSetup picks (§9 final ruled shape, 2026-07-22):** a model with a
-**class config for THIS box's class** wins — the visible class-tunes library IS the
+**PC class config for THIS box's class** wins — the visible PC-class-config library IS the
 recommendation (the distinct `(model, class)` pairs ride `GET /v1/ai/model-catalog`
 as `classTuneRefs` + `myClassKey`; candidates pass the §10 guards and rank by the
 shared quality comparator). No config for the class → the §10 speed-floor rule (most

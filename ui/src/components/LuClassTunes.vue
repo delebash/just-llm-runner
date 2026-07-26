@@ -1,14 +1,17 @@
 <script setup>
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The editable hardware-class library — TWO-LEVEL, TYPE-FIRST (2026-07-22 user
-// redesign). A hardware class is a NAMED bucket (free label) identified by its
+// The editable PC-class library — TWO-LEVEL, TYPE-FIRST (2026-07-22 user
+// redesign). USER-FACING NAME (2026-07-26): a class is a "PC class" and the thing it
+// holds per model is a "PC class config"; the INTERNALS keep the hardware-class
+// vocabulary throughout (class_key, /v1/ai/hardware-class, saveHardwareClass) — the
+// rename was copy-only. A PC class is a NAMED bucket (free label) identified by its
 // memory architecture + memory: discrete (VRAM + RAM), integrated (one shared
 // pool), unified (one SoC pool). Each class HOLDS several model-configs (a model +
 // launch switches). Auto-detect matches the box's class; "Use for this PC" overrides
 // a wrong sensor. TWO mounts over one component (no fork):
 //   • GLOBAL (`modelId` empty) — the full library: classes, each holding its configs.
 //   • PER-MODEL (`modelId` set, in a model's Tune modal) — opens straight into the
-//     config editor for THIS model at the box's class (the 'Save for hardware class'
+//     config editor for THIS model at the box's class (the 'Save for PC class'
 //     path; the class is auto-created if new).
 // TWO in-place editors, each serving add AND edit, NO popup (the QC-15 no-naming-popup
 // law): the CLASS editor (Name · Type · VRAM/RAM) and the CONFIG editor (Model +
@@ -29,6 +32,7 @@ import {
   listClassTunes, putClassTune, saveHardwareClass, VRAM_BANDS,
 } from "../classTunes.js";
 import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
+import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 
 const props = defineProps({
   // "" = GLOBAL mode (the whole library); set = that model's config editor only.
@@ -59,7 +63,16 @@ const myClassKey = ref("");   // the CURRENT box's class (detected or overridden
 const overrideKey = ref("");  // the class_key_override setting ("" = auto-detect)
 const classes = ref([]);      // the hardware classes [{classKey, memType, vramGb, ramGb, name, builtIn}]
 const tunes = ref([]);        // the model-configs [{modelId, classKey, builtIn, rows}]
-const models = ref([]);       // catalog rows (model names + the Add-config picker)
+// The catalog rows (model names · the Add-config picker · the not-tested list) come from
+// the SHARED useCatalogMeta singleton, not a second /v1/ai/model-catalog fetch of our own
+// (2026-07-26). This component needs both the ROWS and the strict `embedding` FLAG, and
+// holding a private copy of the rows while reading the flag from the singleton would be
+// two live copies of one wire response driving one derived list — the exact drift shape
+// the singleton exists to prevent. `refresh()` is called below only when the shared rows
+// are empty, so the fetch count is unchanged and the component no longer depends on a
+// sibling (LuModelCatalog) having mounted first to populate the flag map.
+const { catalogRows, embeddingById, refresh: refreshCatalogMeta } = useCatalogMeta();
+const models = catalogRows;
 const ownCatalog = ref({});
 const catalogMap = computed(() =>
   Object.keys(props.catalog).length ? props.catalog : ownCatalog.value);
@@ -73,6 +86,35 @@ const configsByClass = computed(() => {
   for (const t of tunes.value) (map[t.classKey] ||= []).push(t);
   return map;
 });
+// EVERY chat model is addressable under EVERY class (2026-07-26, the user: show them all,
+// "just for those not tested they have no switches"). A config is only per-switch rows
+// keyed (model_id, class_key, flag_name) — there is no config-level entity — so "not
+// tested" IS the stored truth for a model with no rows, and listing it creates nothing.
+// Only the CONFIG'D models were visible before, which made the panel look like the class
+// held a short fixed roster. Embedding models are excluded: policy places them on the CPU,
+// so listing them under a VRAM class would invite a switch set that never applies. The
+// predicate is the catalog's own strict flag (useCatalogMeta embeddingById) — never an
+// /embed/i name guess, which bge-m3 defeats (useCatalogMeta.js:30-36).
+// GLOBAL mount only: in the per-model mount `tunes` is filtered to one model, so every
+// OTHER model would falsely read as untested.
+const untestedByClass = computed(() => {
+  const map = {};
+  if (!globalMode.value) return map;
+  for (const c of classes.value) {
+    const have = new Set((configsByClass.value[c.classKey] || []).map((t) => t.modelId));
+    map[c.classKey] = models.value
+      .filter((m) => !have.has(m.id) && embeddingById.value[m.id] !== true)
+      .map((m) => ({ id: m.id, name: m.name || m.id }));
+  }
+  return map;
+});
+// Collapsed by default, per class: the tested configs stay the headline, the rest is one
+// quiet line you can open.
+const showUntested = ref({});
+function toggleUntested(classKey) {
+  showUntested.value = { ...showUntested.value, [classKey]: !showUntested.value[classKey] };
+}
+
 // This panel is where the user REASONS about classes, so it uses the range form — a
 // class holds a run of machines, and the short form printed only the run's floor
 // (a 10 GB card reading "8 GB VRAM"). Tight spots elsewhere keep `classKeyLabel`.
@@ -105,8 +147,7 @@ async function reload() {
       overrideKey.value = (await request("/v1/ai/engine-config")).classKeyOverride || "";
     } catch { /* enrichment only */ }
     if (!models.value.length) {
-      try { models.value = (await request("/v1/ai/model-catalog")).rows || []; }
-      catch { /* ids render verbatim */ }
+      await refreshCatalogMeta(); // shared + self-swallowing: on failure the rows stay [] and ids render verbatim
     }
     if (!Object.keys(props.catalog).length && !Object.keys(ownCatalog.value).length) {
       ownCatalog.value = plane1SwitchCatalog(await fetchKnobCatalog());
@@ -119,7 +160,7 @@ async function reload() {
         !mine);
     }
   } catch (e) {
-    error.value = e.message || "Couldn't load the class library.";
+    error.value = e.message || "Couldn't load the PC class library.";
   } finally {
     loading.value = false;
   }
@@ -190,25 +231,32 @@ async function saveClass() {
     }));
     editingClass.value = null;
   } catch (err) {
-    error.value = err.message || "Couldn't save the hardware class.";
+    error.value = err.message || "Couldn't save the PC class.";
   } finally { saving.value = false; }
 }
 async function removeClass(c) {
   const ok = await confirmDialog({
-    title: "Delete this hardware class?",
-    message: `Remove "${classLabel(c)}" and all of its model configs? PCs of that class go back to the engine's automatic settings.`,
+    title: "Delete this PC class?",
+    message: `Remove "${classLabel(c)}" and all of its PC class configs? PCs of that class go back to the engine's automatic settings.`,
     confirmLabel: "Delete",
   });
   if (!ok) return;
   error.value = "";
   try { _apply(await deleteHardwareClass(c.classKey)); }
-  catch (e) { error.value = e.message || "Couldn't delete the hardware class."; }
+  catch (e) { error.value = e.message || "Couldn't delete the PC class."; }
 }
 
 // ── the CONFIG editor (Model + switches, under a class) ────────────────────────
-function startAddConfig(classKey) {
+// `modelId` prefills the picker — the not-tested list's "Add switches" opens THIS same
+// editor already pointed at (model, class) instead of a second flow (2026-07-26). The
+// picker stays UNLOCKED when prefilled this way: the user picked the row, not the app, so
+// changing their mind in place must still work; only the per-model mount locks it.
+function startAddConfig(classKey, modelId = "") {
   showImport.value = false; editingClass.value = null;
-  editingConfig.value = { classKey, modelId: props.modelId || "", modelLocked: !!props.modelId, rows: [] };
+  editingConfig.value = {
+    classKey, modelId: props.modelId || modelId || "",
+    modelLocked: !!props.modelId, rows: [],
+  };
 }
 function startConfigEdit(t, isNew = false) {
   showImport.value = false; editingClass.value = null;
@@ -231,7 +279,7 @@ async function saveConfig() {
     if (directEdit.value) {
       const saved = tunes.value.find((t) => t.modelId === mid && t.classKey === e.classKey);
       if (saved) startConfigEdit(saved);
-      pushToast({ message: "Hardware class config saved ✓" });
+      pushToast({ message: "PC class config saved ✓" });
     } else {
       editingConfig.value = null;
     }
@@ -241,8 +289,8 @@ async function saveConfig() {
 }
 async function removeConfig(t) {
   const ok = await confirmDialog({
-    title: "Delete this model config?",
-    message: `Remove ${modelName(t.modelId)}'s launch settings for this class?`,
+    title: "Delete this PC class config?",
+    message: `Remove ${modelName(t.modelId)}'s launch settings for this PC class?`,
     confirmLabel: "Delete",
   });
   if (!ok) return;
@@ -299,13 +347,13 @@ async function runImport() {
 <template>
   <component :is="expanded ? 'div' : 'details'" class="lu-ct" :class="{ 'lu-ct--expanded': expanded }" @toggle="onToggle">
     <summary v-if="!expanded" class="lu-ct-summary">
-      <span class="lu-ct-title">Hardware classes</span>
-      <span class="lu-muted">named hardware profiles — each holds the launch config per model</span>
+      <span class="lu-ct-title">PC classes</span>
+      <span class="lu-muted">named PC profiles — each holds the PC class config per model</span>
     </summary>
 
     <div class="lu-ct-body">
       <p class="lu-muted lu-ct-help">
-        A hardware class is a memory RANGE that holds one launch config
+        A PC class is a memory RANGE that holds one PC class config
         per model — used automatically on any PC of that class, unless the machine has its
         own applied config. <b>Detection proposes your class; you can override it below.</b>
       </p>
@@ -399,8 +447,8 @@ async function runImport() {
         <!-- The CLASS LIST (each class holds its model-configs) -->
         <template v-else>
           <p v-if="!classes.length" class="lu-muted lu-ct-empty">
-            No hardware classes yet — add one for your PC, or measure a config in a model's
-            Tune dialog and use "Save for hardware class".
+            No PC classes yet — add one for your PC, or measure a config in a model's
+            Tune dialog and use "Save for PC class".
           </p>
           <div v-for="c in classes" :key="c.classKey" class="lu-ct-class">
             <div class="lu-ct-chead">
@@ -431,13 +479,35 @@ async function runImport() {
                 </tr>
               </tbody>
             </table>
+            <!-- Every OTHER chat model, said out loud instead of silently omitted
+                 (2026-07-26). Collapsed, because the tested configs are the headline;
+                 open, each row states the honest truth — no switches — and offers the
+                 one action that changes it. -->
+            <template v-if="(untestedByClass[c.classKey] || []).length">
+              <button type="button" class="lu-ct-untbtn lu-muted" @click="toggleUntested(c.classKey)">
+                {{ showUntested[c.classKey] ? "▾" : "▸" }}
+                {{ untestedByClass[c.classKey].length }} more
+                {{ untestedByClass[c.classKey].length === 1 ? "model" : "models" }} — not tested on this class
+              </button>
+              <table v-if="showUntested[c.classKey]" class="lu-ct-tbl">
+                <tbody>
+                  <tr v-for="m in untestedByClass[c.classKey]" :key="m.id">
+                    <td class="lu-ct-model">{{ m.name }}</td>
+                    <td class="lu-ct-sum lu-muted">no switches</td>
+                    <td class="lu-ct-act">
+                      <UiButton intent="ghost" size="small" @click="startAddConfig(c.classKey, m.id)">Add switches</UiButton>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
             <div class="lu-ct-addcfg">
               <UiButton intent="ghost" size="small" @click="startAddConfig(c.classKey)">＋ Add model to this class</UiButton>
             </div>
           </div>
 
           <div class="lu-ct-bar">
-            <UiButton intent="secondary" size="small" @click="startAddClass">＋ Add hardware class</UiButton>
+            <UiButton intent="secondary" size="small" @click="startAddClass">＋ Add PC class</UiButton>
             <UiButton intent="secondary" size="small" @click="startImport">Import config…</UiButton>
           </div>
         </template>
@@ -466,6 +536,12 @@ async function runImport() {
 .lu-ct-sum { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--ink-2); word-break: break-word; width: 100%; }
 .lu-ct-act { white-space: nowrap; text-align: right; }
 .lu-ct-addcfg { padding: 4px 8px 8px; }
+/* The not-tested disclosure: a quiet full-width row, not a button-looking control —
+   it reveals a list, it doesn't change anything. */
+.lu-ct-untbtn { display: block; width: 100%; text-align: left; padding: 5px 10px; border: none;
+  border-top: 1px solid var(--border-soft, var(--border)); background: none; font: inherit;
+  font-size: 11.5px; cursor: pointer; }
+.lu-ct-untbtn:hover { background: var(--surface-2); }
 .lu-ct-empty { margin: 0; font-size: 12px; }
 .lu-ct-bar { display: flex; gap: 8px; }
 .lu-ct-editor { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--border); border-radius: var(--r-sm, 8px); background: var(--surface-2); }

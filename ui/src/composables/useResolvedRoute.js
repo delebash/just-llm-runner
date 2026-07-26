@@ -39,16 +39,21 @@
 import { reactive } from "vue";
 
 import { onRequestWrite, request } from "../client.js";
+import { CLASS_LAYER_LABEL } from "../tuneState.js";
 
 // THE source-label map (2026-07-16): a resolved-route `valueSource` → the user
 // language every thinking-budget surface says it in — the feature chip's popover
 // AND the Lab column's line. ONE export so the two can never drift into two
 // vocabularies for the same layer. Cloud's "map" and the no-value "" carry no
 // label on purpose: the budget line is a LOCAL-route surface.
+// 2026-07-26: that one-source law now reaches ACROSS families too — the class layer's
+// words are imported from tuneState.js (CLASS_LAYER_LABEL), the badge family's home,
+// because this map and the catalog badge had silently drifted into two spellings of
+// the same layer. Change the words there, not here.
 export const RESOLVED_SOURCE_LABELS = {
   preset: "this preset", // the feature's own ask (2026-07-16 preset tier)
   tune: "your applied config",
-  class: "hardware class default",
+  class: CLASS_LAYER_LABEL,
   base: "global default",
   default: "built-in default",
   invalid: "invalid value",

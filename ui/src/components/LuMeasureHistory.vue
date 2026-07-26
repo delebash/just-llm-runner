@@ -70,7 +70,7 @@ const gb = (mb) => (mb / 1024).toFixed(1);
 async function clearHistory() {
   const ok = await confirmDialog({
     title: "Clear measurement history?",
-    message: "Delete every recorded measurement for this model? Saved tunes and class configs are not touched — this only clears the history of measured speeds.",
+    message: "Delete every recorded measurement for this model? Saved tunes and PC class configs are not touched — this only clears the history of measured speeds.",
     confirmLabel: "Clear history",
   });
   if (!ok) return;
@@ -124,7 +124,7 @@ async function clearHistory() {
 
         <div v-if="hasRows" class="lu-mh-bar">
           <UiButton intent="ghost" size="small" :loading="clearing"
-            title="Delete this model's recorded measurements — saved tunes and class configs are kept"
+            title="Delete this model's recorded measurements — saved tunes and PC class configs are kept"
             @click="clearHistory">Clear history</UiButton>
         </div>
       </template>

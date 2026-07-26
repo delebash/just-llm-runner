@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Shared client for the hardware-class tune library (/v1/ai/class-tunes — ROUND 8
 // Task C). ONE source for the endpoint paths + the class-key display label, used by
-// the Tune modal's "Save for hardware class" action, its LuClassTunes drawer, and
+// the Tune modal's "Save for PC class" action, its LuClassTunes drawer, and
 // QuickSetup's class-tune-matched check (the modelDefaults.js precedent: a small
 // shared module instead of three fetch copies).
 import { request } from "./client.js";
@@ -32,7 +32,7 @@ export async function deleteHardwareClass(classKey) {
 }
 
 // Replace one (model, class) config wholesale. `classKey` omitted/"" → the current
-// box's class (the "Save for hardware class" path). `switches` = { name: value }.
+// box's class (the "Save for PC class" path). `switches` = { name: value }.
 export async function putClassTune(modelId, switches, classKey = "") {
   return request("/v1/ai/class-tunes", {
     method: "PUT",
@@ -60,7 +60,8 @@ export async function deleteClassTune(modelId, classKey) {
   return request(`/v1/ai/class-tunes?${q}`, { method: "DELETE" });
 }
 
-// The user-facing name for a hardware class. A non-blank `name` (the free label,
+// The user-facing name for a PC class (the 2026-07-26 copy noun; the internal key and
+// the /v1/ai/hardware-class route keep the hardware-class vocabulary). A non-blank `name` (the free label,
 // 2026-07-22) wins; else the plain-words hardware from the type-first key —
 // `dgpu-vram8|ram32` → "8 GB VRAM · 32 GB RAM", `igpu-mem16` → "Integrated GPU · 16 GB",
 // `unified-mem192` → "Unified memory · 192 GB". No internal key syntax in copy; an

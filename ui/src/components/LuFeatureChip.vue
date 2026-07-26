@@ -218,7 +218,7 @@ async function loadLevelMap() {
 // (2026-07-16 preset tier): a picked level is the preset's own ask (the local resolver
 // reads it via the map, source "preset"); "default" stores an EMPTY level — think on,
 // follow the selected model's layered budget, nothing copied. No layer rows are ever
-// written from here: the hardware class default stays product data (the Tune & measure
+// written from here: the PC class config stays product data (the Tune & measure
 // libraries edit it), your applied config stays what Apply wrote.
 async function save() {
   if (!presetRow.value) { saveErr.value = "No preset to edit."; return; }

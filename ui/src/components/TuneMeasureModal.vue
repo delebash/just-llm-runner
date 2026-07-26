@@ -10,11 +10,11 @@
 // §7.6 (2026-07-08) + QC-17/18/10 (2026-07-09, the user: "the tune and measure
 // works like global and hardware you have an x by each row … just like the way we
 // do it on the command line"): the grid is the SAME free-row editor as the Global
-// launch defaults / Hardware/model class editors — ONLY the switches that carry a value
+// launch defaults / PC class config editors — ONLY the switches that carry a value
 // render, each a name box + a plain text/number value box + ✕ (remove = the flag
 // isn't sent = the engine does its own thing; the app never claims to know the
 // engine's defaults), "+ Add switch" to include one — grouped under a heading per
-// source layer (Your applied config · Hardware/model class default · Global launch
+// source layer (Your applied config · PC class config · Global launch
 // defaults · Computed for this PC). Set rows pre-fill from the model's RESOLVED
 // defaults INCLUDING the fit-computed values ("Add to grid" is retired). **Apply**
 // is a SNAPSHOT: the model takes ownership of every set row (PUT /v1/ai/model-tunes;
@@ -35,7 +35,7 @@ import { classKeyLabel, listClassTunes, putClassTune } from "../classTunes.js";
 import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
 import { recordMeasurement } from "../measurements.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
-import { TUNE_BADGES } from "../tuneState.js";
+import { CLASS_LAYER_LABEL, TUNE_BADGES } from "../tuneState.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import { pushToast } from "../common/services/toastBridge.js";
 import { fmtSeconds, fmtTokens, fmtTps } from "../common/services/runStats.js";
@@ -87,7 +87,10 @@ const tuneBusy = computed(() => tunePhase.value === "loading" || tunePhase.value
 // caught new rows rendering at the top), so "＋ Add switch" appends at the
 // visual bottom (KnobGrid's add() already appends within a section).
 const TUNE_GROUPS = [
-  { key: "class", label: "Hardware/model class default" },
+  // The layer's words come from the ONE source (tuneState.js CLASS_LAYER_LABEL) — this
+  // grid heading, the catalog badge and the budget line all name the same layer, and
+  // two of them had already drifted before the 2026-07-26 rename converged them.
+  { key: "class", label: CLASS_LAYER_LABEL },
   { key: "global", label: "Global launch defaults" },
   { key: "computed", label: "Computed for this PC" },
   { key: "applied", label: "Your applied config" },
@@ -308,8 +311,8 @@ async function resetTuneSwitches() {
   }
 }
 
-// ── "Save for hardware class" (ROUND 8 Task C): keep a measured config as the
-// DEFAULT for every PC of this box's class — writes a class-tune row via the
+// ── "Save for PC class" (ROUND 8 Task C; renamed 2026-07-26): keep a measured config as
+// the PC CLASS CONFIG for every PC of this box's class — writes a class-tune row via the
 // shared library client (the server derives the class when omitted). Offered ON
 // a result (per the spec): you save what you just measured, not a blind grid.
 const myClassKey = ref("");
@@ -341,7 +344,7 @@ async function saveForClass() {
     classSaveState.value = "saved";
     classTunesRef.value?.reload?.();
   } catch (e) {
-    classSaveErr.value = e.message || "Couldn't save the class config.";
+    classSaveErr.value = e.message || "Couldn't save the PC class config.";
     classSaveState.value = "";
   }
 }
@@ -501,7 +504,7 @@ onBeforeUnmount(stopAutoPoll);
       </p>
 
       <!-- #16 + B3-4: the tune state reads BIG — the §7.6 badge family (Auto-tuned /
-           Hand-tuned / Class default / Untuned); Remove lives in the footer beside
+           Hand-tuned / PC class config / Untuned); Remove lives in the footer beside
            Apply ("move it next to save button so you can see it"). -->
       <div class="lu-tune-saved">
         <UiTag :intent="headerBadge.intent" class="lu-tune-savedtag">{{ headerBadge.label }}</UiTag>
@@ -539,8 +542,8 @@ onBeforeUnmount(stopAutoPoll);
              stranded on each line -->
         <span class="lu-tune-libs">
           <UiButton intent="secondary" size="small"
-            title="This model's per-PC-class launch configs — the shared starting points a machine without its own applied config uses"
-            @click="showClassLib = true">Hardware/model class defaults ↗</UiButton>
+            title="This model's PC class configs — the shared starting points a machine without its own applied config uses"
+            @click="showClassLib = true">PC class configs ↗</UiButton>
           <UiButton intent="secondary" size="small"
             title="The always-on switch bundles (all models · MoE · dense · speculative decode) underneath every tune"
             @click="showGlobalLib = true">Global launch defaults ↗</UiButton>
@@ -581,13 +584,13 @@ onBeforeUnmount(stopAutoPoll);
              result": you share what you measured, not a blind grid). -->
         <div v-if="myClassKey" class="lu-tune-clsrow">
           <template v-if="classSaveState === 'saved'">
-            <span class="lu-muted">Saved as the default for PCs like this one ({{ myClassLabel }}) ✓</span>
+            <span class="lu-muted">Saved as the PC class config for PCs like this one ({{ myClassLabel }}) ✓</span>
           </template>
           <template v-else>
             <span class="lu-muted">Works well? Make it the starting point for every PC like
               this one ({{ myClassLabel }}) — machines with their own saved tune keep it.</span>
             <UiButton intent="secondary" size="small" :loading="classSaveState === 'saving'"
-              @click="saveForClass">Save for hardware class</UiButton>
+              @click="saveForClass">Save for PC class</UiButton>
           </template>
         </div>
         <div v-if="classSaveErr" class="lu-error">{{ classSaveErr }}</div>
@@ -598,7 +601,7 @@ onBeforeUnmount(stopAutoPoll);
 
     <!-- #19: the library popups — the SAME shared components the Edit view's
          buttons open (B2-4), here scoped to this model where it applies. -->
-    <AppModal v-if="showClassLib" :title="`Hardware/model class defaults — ${model.name || model.id}`"
+    <AppModal v-if="showClassLib" :title="`PC class configs — ${model.name || model.id}`"
       :max-width="'700px'" @close="showClassLib = false">
       <LuClassTunes ref="classTunesRef" expanded :model-id="model.id" :catalog="switchCatalog" />
     </AppModal>

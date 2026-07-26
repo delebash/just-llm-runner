@@ -91,7 +91,7 @@ async function savePreset(p) {
 async function reset() {
   const ok = await confirmDialog({
     title: "Reset the launch defaults?",
-    message: "Restores the shipped switch bundles (all models · MoE · dense · speculative decode). Your class configs and saved machine tunes are not touched.",
+    message: "Restores the shipped switch bundles (all models · MoE · dense · speculative decode). Your PC class configs and saved machine tunes are not touched.",
     confirmLabel: "Reset",
   });
   if (!ok) return;
@@ -123,7 +123,7 @@ const ordered = computed(() =>
            caption; the layer-mechanics explainer lives in docs/models.md and on
            the Tune grid's own origin tags. -->
       <p class="lu-muted lu-gsw-help">
-        These bundles are the first layer of every model's launch — a Hardware/model class default
+        These bundles are the first layer of every model's launch — a PC class config
         or an applied config overrides them per value.
         <b>Models with an applied config keep their saved values</b> — a change here reaches
         them only when you refresh or remove their applied config in Tune &amp; measure.

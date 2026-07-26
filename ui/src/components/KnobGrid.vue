@@ -17,7 +17,7 @@
 //     row. A `perRequest` knob renders THE
 //     one per-request note under its row (the labeling law, 2026-07-16 — a row here
 //     must be a real launch switch or say it isn't). Used by the Global launch
-//     defaults bundles, the Hardware/model class editor, AND the Tune & measure grid.
+//     defaults bundles, the PC class config editor, AND the Tune & measure grid.
 //     Pass `groups` (+ per-name `rowGroups`) to render the SAME rows under
 //     section headings (QC-10: "heading for each section instead") — the Tune
 //     grid groups by which layer each value came from; rows added here land in
@@ -306,7 +306,7 @@ const displayRows = computed(() => {
         </div>
         <!-- The labeling law (user, 2026-07-16): a row in a switches surface must be a
              real engine switch or SAY it isn't. THE one note site — it rides the catalog
-             flag, so all three add-row grids (Tune & measure · class defaults · global
+             flag, so all three add-row grids (Tune & measure · PC class configs · global
              bundles) get it from here; no per-grid copy. Full-width (not in the namecell)
              so the sentence stays one legible line. -->
         <div v-if="meta(r.name)?.perRequest" class="ui-kg-perreq">

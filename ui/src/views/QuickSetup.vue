@@ -264,6 +264,12 @@ async function loadEngineStatus() {
 }
 
 // ── open / close ────────────────────────────────────────────────────────────
+// The detect phase's own deadline (2026-07-26). It bounds the WHOLE load rather than
+// each fetch, so it holds no matter which call stalls — including refreshCatalogMeta,
+// which this file doesn't own. 20s is generous for a cold GPU probe on a slow box;
+// past that the honest answer is an error the user can act on, not a spinner.
+const DETECT_TIMEOUT_MS = 20000;
+
 async function openWizard() {
   open.value = true;
   step.value = "detect";
@@ -273,40 +279,60 @@ async function openWizard() {
   tunedAlready.value = false;
   classTuned.value = false;
   optQuick.value = false;
-  await Promise.all([
-    loadAll(),
-    loadRouting(),
-    loadEngineStatus(),
-    // D4-1 (a)+(c): the change preview — computed by the SAME dominantOf the Apply
-    // writer uses (modelApply.applyPreview), so the changelist can never drift.
-    applyPreview().then((p) => { previewState.value = p; }).catch(() => { previewState.value = null; }),
-  ]);
-  // Reconcile AFTER all resolve (order-safe — the catalog is loaded here):
-  // 1. The wizard opens ON the applied setup (user, 2026-07-06: "if model is already
-  //    applied then drop down should select that model") — the dropdown starts at the
-  //    CURRENT default when it still exists in the catalog, so re-opening the wizard
-  //    proposes NO change; the recommendation is only the fresh-box/fallback pick.
-  // 2. Dead references never preselect (a deleted model must not be silently kept —
-  //    the round-2 dangling-refs honesty): a routing embed pointing at a model no
-  //    longer in the catalog falls back to the best fitting embed, or none.
-  const dom = previewState.value?.dominant;
-  if (dom && modelById.value[dom]) pick.value.default = dom;
-  // 3. The embed default fills LAST, once the chat default above is FINAL (#274: the
-  //    pick fits the card's leftover beside the chat model, so it must see the model
-  //    that will actually run). A routing-saved embed that still exists is the user's
-  //    choice and is kept; empty or dead → the leftover-aware best pick.
-  if (pick.value.embeddingModel && !modelById.value[pick.value.embeddingModel]) {
-    pick.value.embeddingId = "";
-    pick.value.embeddingModel = "";
-  }
-  if (!pick.value.embeddingModel) {
-    const best = bestEmbedId();
-    if (best) {
-      pick.value.embeddingId = LOCAL_RUNNER_ID;
-      pick.value.embeddingModel = best;
+  // THE SPINNER MUST ALWAYS END (2026-07-26 — reported stuck on "Probing your hardware…"
+  // after a workspace reset). The step advance used to be this function's LAST statement,
+  // so anything that threw in the reconcile below, or any request that never settled,
+  // pinned the modal on `detect` forever — and silently, because the error banner only
+  // renders once `confirm` is reached. Three guards, each closing one hole: the race
+  // bounds a hang, the catch records WHY, and the finally guarantees the step advances
+  // so whatever went wrong is actually readable. Every loader already swallows its own
+  // rejection, so the catch here is for the reconcile and the deadline.
+  try {
+    await Promise.race([
+      Promise.all([
+        loadAll(),
+        loadRouting(),
+        loadEngineStatus(),
+        // D4-1 (a)+(c): the change preview — computed by the SAME dominantOf the Apply
+        // writer uses (modelApply.applyPreview), so the changelist can never drift.
+        applyPreview().then((p) => { previewState.value = p; }).catch(() => { previewState.value = null; }),
+      ]),
+      new Promise((_, reject) => setTimeout(
+        () => reject(new Error(`the server didn't answer within ${Math.round(DETECT_TIMEOUT_MS / 1000)}s`)),
+        DETECT_TIMEOUT_MS,
+      )),
+    ]);
+    // Reconcile AFTER all resolve (order-safe — the catalog is loaded here):
+    // 1. The wizard opens ON the applied setup (user, 2026-07-06: "if model is already
+    //    applied then drop down should select that model") — the dropdown starts at the
+    //    CURRENT default when it still exists in the catalog, so re-opening the wizard
+    //    proposes NO change; the recommendation is only the fresh-box/fallback pick.
+    // 2. Dead references never preselect (a deleted model must not be silently kept —
+    //    the round-2 dangling-refs honesty): a routing embed pointing at a model no
+    //    longer in the catalog falls back to the best fitting embed, or none.
+    const dom = previewState.value?.dominant;
+    if (dom && modelById.value[dom]) pick.value.default = dom;
+    // 3. The embed default fills LAST, once the chat default above is FINAL (#274: the
+    //    pick fits the card's leftover beside the chat model, so it must see the model
+    //    that will actually run). A routing-saved embed that still exists is the user's
+    //    choice and is kept; empty or dead → the leftover-aware best pick.
+    if (pick.value.embeddingModel && !modelById.value[pick.value.embeddingModel]) {
+      pick.value.embeddingId = "";
+      pick.value.embeddingModel = "";
     }
+    if (!pick.value.embeddingModel) {
+      const best = bestEmbedId();
+      if (best) {
+        pick.value.embeddingId = LOCAL_RUNNER_ID;
+        pick.value.embeddingModel = best;
+      }
+    }
+  } catch (e) {
+    // Don't overwrite a more specific message a loader already recorded.
+    if (!error.value) error.value = `Couldn't finish reading your setup — ${e.message}`;
+  } finally {
+    step.value = "confirm"; // confirm renders the empty-state when nothing fits
   }
-  step.value = "confirm"; // confirm renders the empty-state when nothing fits
 }
 function onModalClose() {
   open.value = false;

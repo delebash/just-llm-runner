@@ -6731,3 +6731,42 @@ flag F9 — no new abstraction ahead of the useEntityCrudView decision); they
 RIDE that decision and must not quietly persist if it stalls. (4) The
 popup-probe lives in the session scratchpad, not committed — promote to
 scripts/ if the flows need a standing guard.
+
+## QUICK SETUP STUCK ON "Probing your hardware…" — FIXED 2026-07-26 (user-reported)
+
+**The report.** After a workspace reset the user's AI page sat on the Quick Setup modal
+reading *"Probing your hardware… / Reading GPU + model catalog…"* and never moved. The
+screenshot's own evidence contradicted the message: the hardware bar BEHIND the modal was
+fully populated (RTX 2070 SUPER, 8 GB, "CUDA (in use)"), so the probe had already
+succeeded. The stall was the wizard's step machine, not the hardware read.
+
+**Root cause (`ui/src/views/QuickSetup.vue`, `openWizard`).** `step.value = "confirm"` was
+the function's LAST statement, after four awaited loads and a reconcile block. Nothing
+guaranteed it ran. Two independent ways to lose it: a THROW anywhere in the reconcile
+(`previewState`/`modelById`/`bestEmbedId` → `pickBestEmbedId`), or a request that never
+SETTLES — `request` comes from `client.js`, which has no timeout and no in-flight dedupe,
+so a server that accepts the socket and never answers hangs the `Promise.all` forever.
+Either way the modal is pinned on `detect`.
+
+**Why it was silent, which is the worse half.** Every loader already swallows its own
+rejection (`loadAll` :225, `loadRouting` :247, `loadEngineStatus` :261, `applyPreview` has
+a `.catch`), so a failure records into `error` rather than propagating — and the error
+banner renders INSIDE the `confirm` branch (:623), a step the crashed function can never
+reach. The failure hid its own message and presented as an eternal spinner.
+
+**The fix — three guards, one per hole.** A `Promise.race` bounds the whole detect phase
+with `DETECT_TIMEOUT_MS` (20 s); a `catch` records the reason into `error` without
+overwriting a loader's more specific message; a `finally` guarantees `step` advances so the
+message is readable. The deadline deliberately wraps the WHOLE load rather than each fetch,
+because that also covers `refreshCatalogMeta`, which this file does not own. A per-request
+timeout in the shared `client.js` was CONSIDERED and rejected for now: engine install and
+auto-tune POSTs are legitimately long, and a blanket deadline would abort them — if that is
+ever wanted it belongs as an opt-in `timeoutMs` option, not a default.
+
+**Verify:** `npm run build:vite` clean, `test:unit` 433 passed, and the headless smoke drove
+all 25 routes plus all five AI sub-tabs with ZERO JS errors (isolated server on a temp data
+dir, `JUSTWRITE_DATA_DIR`). The smoke's one red surface, `provider-form search=false`, is
+**pre-existing** — proven by re-running the identical smoke with this change stashed, same
+failure. **Reverse:** restore the plain `await Promise.all(...)` and move the step advance
+back to the last statement. **Open:** 20 s is my number, not the user's — say the word and
+it changes; and the pre-existing `provider-form` smoke red still needs its own look.

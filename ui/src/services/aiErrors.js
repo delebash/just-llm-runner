@@ -20,9 +20,15 @@ const PROVIDER_HINTS = {
 };
 
 function pickHint(msg, status) {
+  // The SPECIFIC transport cause beats the generic status text (2026-07-26). A dead
+  // local engine comes back as OUR server's 502, and status-first turned "the target
+  // machine actively refused it" into "Bad gateway — the provider's upstream is
+  // unreachable", which tells a novelist nothing about what to do. WinError 10061 is
+  // Windows' own refused-connection code and does not contain the word "refused" in
+  // every locale, so it is matched explicitly.
+  if (/connection.*refused|ECONNREFUSED|10061/i.test(msg))
+    return "The local AI engine isn't running — pick your models in AI Settings, or press Load now.";
   if (status && PROVIDER_HINTS[status]) return PROVIDER_HINTS[status];
-  if (/connection.*refused|ECONNREFUSED/i.test(msg))
-    return "Connection refused — is the LLM server running?";
   if (/ENOTFOUND|getaddrinfo|DNS/i.test(msg))
     return "Couldn't resolve the host — check the Base URL.";
   if (/timed out|timeout/i.test(msg))

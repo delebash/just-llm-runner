@@ -81,6 +81,11 @@ class LlamacppSpec(CamelModel):
 
 class RecommendedFor(CamelModel):
     min_vram_mb: int | None = None
+    # What the model WANTS resident (the catalog's est_vram_mb), vs min_vram_mb's
+    # bare floor-to-run. The embed-placement leftover subtracts THIS when present
+    # (2026-07-25): the floor made mid cards too generous to a GPU embed — a 16 GB
+    # card computed 12 GB "left" beside a flagship that wants ~17.7 GB.
+    est_vram_mb: int | None = None
 
 
 class ModelEntry(CamelModel):
@@ -171,6 +176,13 @@ class RunnerModelInfo(CamelModel):
     fit: str                        # "ok" | "tight" | "no" | "cpu" | "unknown"
     status: str                     # "loaded" | "loading" | "stopping" | "error" | "disk" | "available"
     downloaded: bool = False
+    # EMBEDDING rows only (2026-07-25, the honest-badge fix): where the placement
+    # POLICY puts this embed on THIS box — "cpu" | "gpu" (chat rows: ""). Computed by
+    # the same service rule the loader enforces, so the UI can never promise a
+    # placement the load then refuses. embed_leftover_mb = the static VRAM leftover
+    # beside the chat default that the decision was made against.
+    embed_placement: str = ""
+    embed_leftover_mb: int | None = None
 
 
 class RunnerModelsResponse(CamelModel):

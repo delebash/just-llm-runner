@@ -147,6 +147,13 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     models: list[RunnerModelInfo] = []
     for m in catalog:
         downloaded = service.model_downloaded(m, hf_cache)  # main weights AND the MTP draft when wanted
+        # Embedding rows carry the placement TRUTH (2026-07-25): the same service rule
+        # the loader enforces, so the badge never claims a GPU fit the load then refuses
+        # (the old chip graded raw-card VRAM for models the policy puts on CPU).
+        # Placement reflects THIS box — the card-chooser vram_mb override re-scores
+        # `fit` only (placement on a hypothetical card would be fiction: the leftover
+        # depends on which chat model this box actually defaults to).
+        place, left = service.embed_placement(m, hardware) if m.embedding else ("", 0)
         models.append(
             RunnerModelInfo(
                 id=m.id,
@@ -159,6 +166,8 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
                 fit=_fit(m, gpu_vram, hardware.ram_mb, margin),
                 status=_status_for(m.id, downloaded),
                 downloaded=downloaded,
+                embed_placement=place,
+                embed_leftover_mb=(left if place else None),
             )
         )
 

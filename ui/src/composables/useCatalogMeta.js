@@ -74,6 +74,12 @@ export const sizeBytesById = computed(() =>
 export const minVramById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, r.minVramMb || 0])),
 );
+// What the model WANTS resident (est_vram_mb) — the chat-first baseline for the
+// wizard's embed leftover (2026-07-25): subtracting the bare floor made mid cards
+// too generous to a GPU embed. Falls back to minVram at the call site when absent.
+export const estVramById = computed(() =>
+  Object.fromEntries(rows.value.map((r) => [r.id, r.estVramMb || 0])),
+);
 export const tierById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, r.tier || "mid"])),
 );

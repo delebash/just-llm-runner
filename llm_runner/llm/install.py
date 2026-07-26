@@ -345,7 +345,7 @@ def _wire_runner_catalog(data_dir=None) -> None:
                 total_params=r.totalParams or None, active_params=r.activeParams or None, mtp=r.mtp,
                 mtp_draft_repo=r.mtpDraftRepo, mtp_draft_file=r.mtpDraftFile, mtp_draft_quant=r.mtpDraftQuant,
                 pooling=r.pooling, embedding=r.embedding, min_ram_mb=r.minRamMb,
-                recommended_for=RecommendedFor(min_vram_mb=r.minVramMb),
+                recommended_for=RecommendedFor(min_vram_mb=r.minVramMb, est_vram_mb=r.estVramMb),
             )
             for r in stores.get_model_catalog_store().list()
         ]

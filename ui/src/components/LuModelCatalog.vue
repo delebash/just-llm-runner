@@ -254,9 +254,20 @@ const busy = ref(""); // CATALOG-op id in flight (delete) — distinct from the 
 // ── Fit + size display ─
 const gb = (mb) => (mb >= 10240 ? `${Math.round(mb / 1024)}` : `${(mb / 1024).toFixed(1)}`);
 function fitLabel(m) {
+  // Embedding rows show WHERE THE POLICY PUTS THEM, not a raw-card VRAM grade
+  // (2026-07-25, the user's catch: the old chip said "Fits · needs ~6.8 GB VRAM"
+  // for a model the loader forces onto the CPU). The field comes from the server's
+  // own placement rule, so chip and load can never disagree. `m.fit` itself is
+  // untouched underneath — section grouping / FIT_RUNNABLE still read it.
+  if (m.embedPlacement) return m.embedPlacement === "gpu" ? "GPU" : "CPU";
   return FIT_LABEL[m.fit] || "—";
 }
 function fitTitle(m) {
+  if (m.embedPlacement === "cpu")
+    return "Runs on the CPU on this PC — the GPU stays with your writing model. Needs "
+      + (m.minRamMb ? `~${gb(m.minRamMb)} GB RAM.` : "system RAM, not VRAM.");
+  if (m.embedPlacement === "gpu")
+    return `Runs on your GPU here — it fits the ~${gb(m.embedLeftoverMb || 0)} GB left beside your writing model.`;
   if (m.fit === "cpu") return "No GPU detected — runs on CPU (slower).";
   if (m.fit === "unknown") return "VRAM requirement unknown for this model.";
   if (!m.minVramMb) return "";

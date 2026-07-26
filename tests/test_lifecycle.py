@@ -3070,7 +3070,10 @@ _EMBED_MID = ModelEntry(id="embed-4b", name="Mid Embed", tier="mid",
                         embedding=True, recommended_for=RecommendedFor(min_vram_mb=4500))
 _CHAT_26B = ModelEntry(id="chat-26b", name="Chat", tier="low-vram-moe",
                        hf_repo="org/chat-GGUF", quant="Q4_K_XL",
-                       recommended_for=RecommendedFor(min_vram_mb=6000))
+                       # min = the bare floor-to-run; est = what it WANTS resident (the
+                       # real flagship's shape). The leftover subtracts EST when known
+                       # (2026-07-25): the floor made mid cards too generous to the embed.
+                       recommended_for=RecommendedFor(min_vram_mb=6000, est_vram_mb=17713))
 
 
 def test_embed_tier_cpu_forced_to_ngl0(tmp_path):
@@ -3096,17 +3099,43 @@ def test_embed_leftover_gates_gpu_placement(tmp_path):
                             default_llm_id_fn=lambda: _CHAT_26B.id,
                             hardware_fn=lambda: _fake_hw(vram_mb))
 
-    svc = build(8192)   # leftover 8192-6000 = 2192 < 4500 → CPU
+    svc = build(8192)   # leftover 8192-17713 → 0 < 4500 → CPU
     svc.load(_EMBED_MID.id)
     svc._thread.join(timeout=5)
     section = _ini(svc).split(f"[{_EMBED_MID.id}]", 1)[1].split("\n[", 1)[0]
     assert "n-gpu-layers = 0" in section
 
-    svc = build(24576)  # leftover 18576 >= 4500 → GPU (fit-placed → NO explicit ngl)
+    # THE 2026-07-25 refinement's proof case: under the old min_vram baseline a 16 GB
+    # card computed 16384-6000 = 10384 of "leftover" and handed this embed the GPU —
+    # on a card the chat model (est ~17.7 GB) wants in full. est-based: leftover 0 → CPU.
+    svc = build(16384)
+    svc.load(_EMBED_MID.id)
+    svc._thread.join(timeout=5)
+    section = _ini(svc).split(f"[{_EMBED_MID.id}]", 1)[1].split("\n[", 1)[0]
+    assert "n-gpu-layers = 0" in section
+
+    svc = build(24576)  # leftover 24576-17713 = 6863 >= 4500 → GPU (fit-placed → NO explicit ngl)
     svc.load(_EMBED_MID.id)
     svc._thread.join(timeout=5)
     section = _ini(svc).split(f"[{_EMBED_MID.id}]", 1)[1].split("\n[", 1)[0]
     assert "n-gpu-layers" not in section
+
+
+def test_embed_placement_is_the_one_source(tmp_path):
+    # `embed_placement()` is what BOTH the loader and the models endpoint read
+    # (2026-07-25, the honest-badge fix) — pin its verdicts so the display rule can
+    # never drift from the enforcement the tests above prove.
+    svc = _service_for(tmp_path, catalog=[_EMBED_CPU, _EMBED_MID, _CHAT_26B],
+                       embedding_ids_fn=lambda: {_EMBED_CPU.id, _EMBED_MID.id},
+                       default_llm_id_fn=lambda: _CHAT_26B.id,
+                       hardware_fn=lambda: _fake_hw(24576))
+    hw = _fake_hw(24576)
+    place, left = svc.embed_placement(_EMBED_CPU, hw)
+    assert place == "cpu"                      # cpu-tier NEVER claims the GPU
+    place, left = svc.embed_placement(_EMBED_MID, hw)
+    assert place == "gpu" and left == 24576 - 17713   # est-based leftover, floor fits
+    place, left = svc.embed_placement(_EMBED_MID, _fake_hw(16384))
+    assert place == "cpu" and left == 0        # chat-first: the flagship wants the card
 
 
 def test_embed_explicit_tune_ngl_wins_over_policy(tmp_path):

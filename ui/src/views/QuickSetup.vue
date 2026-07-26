@@ -74,7 +74,7 @@ const pick = ref({ default: "", embeddingId: "", embeddingModel: "" });
 // The /v1/llm-runner/models view is fit-shaped and carries none of these; the catalog does.
 // `type` (dense|moe) + `embedding` drive the §10 speed-floor pick. Shared with LuModelCatalog
 // through the useCatalogMeta singleton (one source, no drift — the useRunnerModels precedent).
-const { classTuneRefs, myClassKey, qualityById, typeById, embeddingById, useLimitedById, descriptionById, minVramById, tierById, refresh: refreshCatalogMeta } = useCatalogMeta();
+const { classTuneRefs, myClassKey, qualityById, typeById, embeddingById, useLimitedById, descriptionById, minVramById, estVramById, tierById, refresh: refreshCatalogMeta } = useCatalogMeta();
 function qualityOf(m) { return qualityById.value[m.id] ?? 100; }
 function typeOf(m) { return typeById.value[m.id] || "dense"; }
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
@@ -122,12 +122,31 @@ const embedOptions = computed(() =>
 // card is the wrong fit input (the 8GB/8B bug). CPU-band embeds always qualify (the
 // ROUND-4 law — deliberately CPU on the user's own box). The rule lives ONCE in
 // modelPick.js; the catalog's recommendedEmbedId calls the same function.
-function bestEmbedId() {
+// The wizard's leftover baseline is the chat pick's CLAIM — est_vram (what it wants)
+// over min_vram (its bare floor) — 2026-07-25, matching the loader's own
+// `_embed_gpu_leftover_mb` semantics so the pick and the load can't disagree.
+function wizardLeftoverMb() {
   const cardMb = (hw.value?.gpus && hw.value.gpus[0]?.vramMb) || 0;
-  const leftoverMb = Math.max(0, cardMb - (minVramById.value[pick.value.default] ?? 0));
-  return pickBestEmbedId(models.value, { leftoverMb, qualityOf, isEmbed, minVramOf, tierOf });
+  const claim = estVramById.value[pick.value.default] || minVramById.value[pick.value.default] || 0;
+  return Math.max(0, cardMb - claim);
+}
+function bestEmbedId() {
+  return pickBestEmbedId(models.value, { leftoverMb: wizardLeftoverMb(), qualityOf, isEmbed, minVramOf, tierOf });
 }
 function onEmbedChange() { pick.value.embeddingId = LOCAL_RUNNER_ID; } // all embed options are local
+// Where the SELECTED embed will actually run beside the wizard's chat pick (the
+// honest-placement line, 2026-07-25): same rule shape as the loader — CPU-tier
+// never claims the GPU; others only when their floor fits the leftover.
+const embedPlaceLine = computed(() => {
+  const id = pick.value.embeddingModel;
+  if (!id) return "";
+  const cardMb = (hw.value?.gpus && hw.value.gpus[0]?.vramMb) || 0;
+  const gpuOk = cardMb > 0 && tierById.value[id] !== "cpu"
+    && (minVramById.value[id] || 0) > 0 && minVramById.value[id] <= wizardLeftoverMb();
+  return gpuOk
+    ? "It will run on your GPU alongside the writing model."
+    : "It runs on the CPU on this PC — the GPU stays with your writing model.";
+});
 
 const embedName = computed(() => {
   const e = models.value.find((m) => m.id === pick.value.embeddingModel);
@@ -644,7 +663,7 @@ defineExpose({ openWizard });
         <section v-if="fitting.length && embedOptions.length" class="lu-qs-sec">
           <div class="lu-qs-k">Embedding</div>
           <UiSelect v-model="pick.embeddingModel" :options="embedOptions" @update:model-value="onEmbedChange" />
-          <p class="lu-muted lu-qs-hint">Powers semantic search + grounded chat. Runs on the bundled runner alongside your chat model; a smaller embed is fine.</p>
+          <p class="lu-muted lu-qs-hint">Powers semantic search + grounded chat. {{ embedPlaceLine || "Runs on the bundled runner alongside your chat model; a smaller embed is fine." }}</p>
         </section>
 
         <!-- What will happen on Apply. -->

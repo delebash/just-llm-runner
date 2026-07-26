@@ -1985,7 +1985,8 @@ class RunnerService:
 
     def _embed_gpu_leftover_mb(self, hardware) -> int:
         """The STATIC VRAM leftover an embedding child may claim: card total minus the
-        LOCAL chat default's curated floor (`min_vram_mb`). Static — NOT live free VRAM —
+        LOCAL chat default's claim (`est_vram_mb` when known, else `min_vram_mb` —
+        the 2026-07-25 chat-first baseline). Static — NOT live free VRAM —
         because the ask flow loads the embed BEFORE the chat model; a live reading would
         see an empty card, place the embed on GPU, and the chat load then can't fit (the
         2026-07-11 co-load crash). Baseline resolution, in order: the routing default's
@@ -2002,21 +2003,29 @@ class RunnerService:
             chat_id = self._default_llm_id_fn() or ""
         except Exception:  # noqa: BLE001 — a routing-store hiccup must never kill a load
             chat_id = ""
+        # The chat baseline is what the model WANTS (est_vram_mb) when the catalog knows
+        # it, falling back to the bare floor (min_vram_mb) — 2026-07-25, the user's
+        # design review: the floor made mid cards too generous to the embed (a 16 GB
+        # card computed 12 GB of "leftover" beside a flagship whose est is ~17.7 GB,
+        # handing the 8B embed a GPU claim on a card the chat model wants in full).
+        def _chat_claim(m) -> int:
+            rec = m.recommended_for
+            return (rec.est_vram_mb or rec.min_vram_mb) or 0
         if chat_id:
             row = next((m for m in self.catalog() if m.id == chat_id), None)
-            floor = (row.recommended_for.min_vram_mb if row is not None else None) or 0
-            return max(0, card - floor) if floor > 0 else 0
-        floors = [
-            (m.recommended_for.min_vram_mb or 0)
+            claim = _chat_claim(row) if row is not None else 0
+            return max(0, card - claim) if claim > 0 else 0
+        claims = [
+            _chat_claim(m)
             for m in self.catalog()
             if not getattr(m, "embedding", False)
-            and (m.recommended_for.min_vram_mb or 0) > 0
+            and _chat_claim(m) > 0
             and cached_gguf_path(m.hf_repo, m.quant, cache_root=self._cache_root / "hf",
                                  mmproj=m.mmproj) is not None
         ]
-        if not floors:
+        if not claims:
             return card
-        return max(0, card - max(floors))
+        return max(0, card - max(claims))
 
     def _apply_embed_placement(self, model, ov, meta, hardware) -> None:
         """#274's missing half — the embed CPU-placement GUARANTEE. The pick rule
@@ -2039,13 +2048,24 @@ class RunnerService:
             ov.ctx_len = min(trained, _EMBED_CTX_CAP) if trained > 0 else _EMBED_CTX_CAP
         if ov.n_gpu_layers is not None:
             return
-        if (getattr(model, "tier", "") or "") == "cpu":
+        placement, _left = self.embed_placement(model, hardware)
+        if placement != "gpu":
             ov.n_gpu_layers = 0
-            return
+
+    def embed_placement(self, model, hardware) -> tuple[str, int]:
+        """Where the POLICY puts this embedding model on this box — ("cpu"|"gpu",
+        static leftover MB). THE one source (2026-07-25): the load-time enforcement
+        (`_apply_embed_placement`) and the models-endpoint display both read this,
+        so the catalog badge can never promise a placement the loader then refuses.
+        tier "cpu" never claims the GPU (the ROUND-4 law); anything else only when
+        its curated floor fits the static leftover beside the chat default. An
+        explicit tune ngl still overrides at load time — the power-user escape."""
+        left = self._embed_gpu_leftover_mb(hardware)
+        if (getattr(model, "tier", "") or "") == "cpu":
+            return ("cpu", left)
         rec = getattr(model, "recommended_for", None)
         need = (rec.min_vram_mb if rec is not None else None) or 0
-        if need <= 0 or need > self._embed_gpu_leftover_mb(hardware):
-            ov.n_gpu_layers = 0
+        return ("gpu" if 0 < need <= left else "cpu", left)
 
     def _admit(self, model_id: str, vram_mb: int, models_max: int, hardware,
                *, ngl_explicit: bool = False, is_moe: bool = False,

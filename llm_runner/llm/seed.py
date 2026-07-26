@@ -208,15 +208,17 @@ DEFAULT_CATALOG: list[dict] = [
      "quality_rank": 23, "architecture": "gemma4", "experts": 0,
      "description": "E4B model · 128k context · UD-Q4_K_XL (QAT)",
      "notes": "Made for laptops with integrated graphics, where the GPU shares system memory. Small and quick, and holds its quality well for the size."},
-    {"id": "gemma-4-31b-qat", "name": "Gemma 4 31B (QAT)",
-     "hf_repo": "unsloth/gemma-4-31B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "31B",
-     "mtp": True, "est_vram_mb": 26038, "mtp_draft_file": "MTP/mtp-gemma-4-31B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
-     "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
-     "min_ram_mb": 24000, "min_vram_mb": 20000, "tier": "high", "license": "Apache-2.0", "position": 1,
-     "quality_rank": 7, "architecture": "gemma4", "experts": 0,
-     "size_label": "31B", "size_bytes": 17287668064,
-     "description": "31B model · 256k context · MTP draft for faster generation · UD-Q4_K_XL (QAT)",
-     "notes": "The biggest Gemma — the family's strongest quality, with image understanding. Wants a 24 GB-class graphics card."},
+    # (gemma-4-31b-qat REMOVED 2026-07-26, the user's "your rec" on the full-catalog
+    # campaign — bench doc §34 recommendation 1. It was TESTED, not assumed: across six hq
+    # captures its quality TIED the flagship on both §7 hard keys and it missed the one
+    # inference StyleTune found; the prose edge was small and confined to `continue`. At
+    # 24 GB the flagship is also fully resident AND far faster (MoE ~4B active vs a dense
+    # 31B touching every weight), and the band already holds the flagship (recommended)
+    # plus the tier-native 27B (availability, seeded 2026-07-25). Being the same family as
+    # the flagship with no measured advantage, it could not lean on the availability keep
+    # that covers the 70B/GLM rows. NOTE: the catalog seeder is insert/fill-only — it does
+    # NOT prune — so this removes the row from FRESH installs only; a DB that already
+    # carries it keeps it until deleted in the catalog UI.)
     {"id": "llama-3.3-70b-q4_k_m", "est_vram_mb": 45768, "name": "Llama 3.3 70B Instruct · Q4_K_M",
      "hf_repo": "unsloth/Llama-3.3-70B-Instruct-GGUF", "quant": "Q4_K_M", "total_params": "70B",
      "trained_ctx": 131072,
@@ -962,8 +964,10 @@ STALE_SEED_VALUES = {
     # the extended seed-facts audit's draft-in-tree check). Heal the exact old value.
     ("gemma-4-12b-qat", "mtp_draft_file"):
         ("MTP/gemma-4-12B-it-Q4_0-MTP.gguf",),
-    ("gemma-4-31b-qat", "mtp_draft_file"):
-        ("MTP/gemma-4-31B-it-Q4_0-MTP.gguf",),
+    # (The 31B's twin heal entry left with its row 2026-07-26 — §34 rec 1 removed it from
+    # DEFAULT_CATALOG, and a heal only ever applies to a row the seeder still carries.
+    # Same disposition as the HauhauCS entry above. A DB that kept its 31B row keeps the
+    # stale draft path too; deleting the row in the catalog UI is the intended exit.)
     # StyleTune's fatal drafter (2026-07-25 audit): the row seeded Radamanthys11's
     # assistant head from 2026-07-06 to 2026-07-25, and that combination made the model
     # UNLOADABLE (engine exit 1). The repoint (74102f5) fixed DEFAULT_CATALOG only —

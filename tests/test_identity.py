@@ -113,7 +113,9 @@ def test_seed_ships_size_facts_and_reseed_fills_empty_only(configured):
         # simulate a pre-#12b row (empty facts) + a download-derived row (real file)
         blank = s.query(_db.ModelCatalog).get("kalm-embedding-gemma3-12b")
         blank.size_label, blank.size_bytes = "", None
-        derived = s.query(_db.ModelCatalog).get("gemma-4-31b-qat")
+        # (was the 31B until its row was removed 2026-07-26 — any row with a seeded
+        # size_bytes exercises the same "download-derived value survives reseed" path)
+        derived = s.query(_db.ModelCatalog).get("gemma-4-12b-qat")
         derived.size_bytes = 12345  # "the local file said so" — must survive reseed
         s.commit()
 
@@ -123,7 +125,7 @@ def test_seed_ships_size_facts_and_reseed_fills_empty_only(configured):
         s.close()
     assert _row("kalm-embedding-gemma3-12b").sizeBytes == 7300777920  # …the empty row was filled
     assert _row("kalm-embedding-gemma3-12b").sizeLabel == "12B"
-    assert _row("gemma-4-31b-qat").sizeBytes == 12345  # the derived value was preserved
+    assert _row("gemma-4-12b-qat").sizeBytes == 12345  # the derived value was preserved
 
 
 def test_seed_heals_known_stale_value_only(configured):
@@ -278,7 +280,8 @@ def test_embedding_flag_seeded_on_embeds_not_llms(configured):
     # (exhibits track the 2026-07-25 trim: nomic/0.6b/bge and the 35B chat row left)
     for embed in ("qwen3-embedding-4b", "qwen3-embedding-8b", "kalm-embedding-gemma3-12b"):
         assert by_id[embed].embedding is True, embed
-    for llm in ("gemma-4-12b-qat", "gemma-4-31b-qat", "qwen3.6-27b", "glm-4.5-air"):
+    # (the 31B left the catalog 2026-07-26, §34 rec 1 — the flag exhibits stand without it)
+    for llm in ("gemma-4-12b-qat", "qwen3.6-27b", "glm-4.5-air"):
         assert by_id[llm].embedding is False, llm
     # (classified by the flag, never a name regex — the historical exhibit was bge-m3,
     # whose id carried no "embed" substring; the flag mechanism is unchanged.)

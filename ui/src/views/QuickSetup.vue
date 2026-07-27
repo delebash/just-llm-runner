@@ -24,6 +24,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import { request } from "../client.js";
+import { useHardware } from "../composables/useHardware.js";
 import { listClassTunes } from "../classTunes.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { recommendedModelId, pickBestEmbedId, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
@@ -54,7 +55,10 @@ const step = ref("detect"); // detect | confirm | apply | done
 const loading = ref(true);
 const error = ref("");
 
-const hw = ref(null);
+// The box probe, SHARED (2026-07-27). `mainGpu` is the LARGEST GPU — the server's own
+// rule (hardware.py:45); the two `gpus[0]` reads this file used to make scored the
+// wizard against the iGPU on any laptop that enumerates it first.
+const { hardwareInfo: hw, mainGpu, maxVramMb, refresh: refreshHardware } = useHardware();
 const models = ref([]);
 // The "Plan for card" what-if selector was REMOVED (model-per-hardware plan Phase 2,
 // user decision #7): the wizard configures THIS machine — Apply always lands on the real
@@ -126,7 +130,7 @@ const embedOptions = computed(() =>
 // over min_vram (its bare floor) — 2026-07-25, matching the loader's own
 // `_embed_gpu_leftover_mb` semantics so the pick and the load can't disagree.
 function wizardLeftoverMb() {
-  const cardMb = (hw.value?.gpus && hw.value.gpus[0]?.vramMb) || 0;
+  const cardMb = maxVramMb.value;
   const claim = estVramById.value[pick.value.default] || minVramById.value[pick.value.default] || 0;
   return Math.max(0, cardMb - claim);
 }
@@ -140,7 +144,7 @@ function onEmbedChange() { pick.value.embeddingId = LOCAL_RUNNER_ID; } // all em
 const embedPlaceLine = computed(() => {
   const id = pick.value.embeddingModel;
   if (!id) return "";
-  const cardMb = (hw.value?.gpus && hw.value.gpus[0]?.vramMb) || 0;
+  const cardMb = maxVramMb.value;
   const gpuOk = cardMb > 0 && tierById.value[id] !== "cpu"
     && (minVramById.value[id] || 0) > 0 && minVramById.value[id] <= wizardLeftoverMb();
   return gpuOk
@@ -156,7 +160,7 @@ const embedName = computed(() => {
 const hwLine = computed(() => {
   const h = hw.value;
   if (!h) return "";
-  const g = h.gpus && h.gpus[0];
+  const g = mainGpu.value;
   const vram = g?.vramMb ? ` · ${Math.round(g.vramMb / 1024)} GB VRAM` : "";
   const ram = h.ramMb ? ` · ${Math.round(h.ramMb / 1024)} GB RAM` : "";
   const os = h.platform ? ` · ${h.platform}` : "";
@@ -214,12 +218,11 @@ async function loadAll() {
   loading.value = true;
   error.value = "";
   try {
-    const [h, m] = await Promise.all([
-      request("/v1/llm-runner/hardware"),
+    const [, m] = await Promise.all([
+      refreshHardware(),
       request("/v1/llm-runner/models"),
       refreshCatalogMeta(), // shared catalog-meta maps (quality / use-limited / description)
     ]);
-    hw.value = h;
     models.value = m.models || [];
     prefillPick();
   } catch (e) {

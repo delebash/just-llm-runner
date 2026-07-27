@@ -14,7 +14,7 @@ adds ONE ladder value") therefore fails HERE, naming the JS file to update.
 import re
 from pathlib import Path
 
-from llm_runner.runner.hardware import _DGPU_RAM_RUNGS, _RAM_LADDER, _VRAM_BANDS
+from llm_runner.runner.hardware import _DGPU_RAM_RUNGS, _VRAM_BANDS
 
 CLASS_TUNES_JS = Path(__file__).resolve().parents[1] / "ui" / "src" / "classTunes.js"
 
@@ -36,7 +36,13 @@ def test_kit_label_ladders_match_hardware_py():
 
     assert _js_int_array(src, "VRAM_BANDS") == list(_VRAM_BANDS)
     assert _js_int_array(src, "DGPU_RAM_RUNGS") == list(_DGPU_RAM_RUNGS)
-    # RAM_LADDER is load-bearing for the label too: system RAM takes TWO snaps (nearest
-    # ladder rung, then the coarse down-snap), which is why `ram32` covers both 32 and
-    # 48 GB boxes and the label names them rather than printing a raw interval.
-    assert _js_int_array(src, "RAM_LADDER") == list(_RAM_LADDER)
+    # RAM_LADDER used to be copied into the kit as well, because the RANGE label named the
+    # nominal capacities inside a rung ("32 or 48 GB RAM"). That label is gone (2026-07-26,
+    # the user ruled the floor form), the JS copy went with it, and only Python still snaps
+    # with `_RAM_LADDER` — so there is no second copy left to drift. If a kit label ever
+    # needs those capacities again, re-copy the ladder AND restore an assertion here.
+    # Match a DECLARATION, not the bare word: the kit's comments still explain why the
+    # ladder left, and a substring test flagged that prose as a re-copy on the first run.
+    assert not re.search(r"export const RAM_LADDER\s*=", src), (
+        "the kit re-declared RAM_LADDER — restore the equality assertion against _RAM_LADDER"
+    )

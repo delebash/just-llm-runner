@@ -26,6 +26,7 @@ import LuEngineUpdateButton from "../components/LuEngineUpdateButton.vue";
 import LuWarmStartupToggle from "../components/LuWarmStartupToggle.vue";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
+import { useHardware } from "../composables/useHardware.js";
 import { useModelApply } from "../services/modelApply.js";
 import { useEngine } from "../composables/useEngine.js";
 import { refresh as refreshRunnerModels } from "../composables/useRunnerModels.js";
@@ -69,7 +70,10 @@ const tab = ref("providers");
 // deliberately NOT named `tab`, which is the page subnav above.
 const providerScope = ref(props.initialProviderScope === "online" ? "online" : "local");
 const providers = ref([]);
-const hardware = ref(null);
+// The box probe comes from the SHARED singleton (2026-07-27) — this file used to hold
+// TWO independent fetches of /v1/llm-runner/hardware, the strip below and the change
+// detector, alongside three more across the kit.
+const { hardwareInfo: hardware, refresh: refreshHardware } = useHardware();
 const usage = ref(null);
 const loading = ref(true);
 const error = ref("");
@@ -223,7 +227,7 @@ async function loadProviders() {
   providers.value = r.providers || [];
 }
 async function loadHardware() {
-  try { hardware.value = await request("/v1/llm-runner/hardware"); } catch { hardware.value = null; }
+  await refreshHardware(); // self-swallowing → null, which the strip already renders as blanks
 }
 async function loadUsage() {
   try { usage.value = await request("/v1/ai-usage"); } catch { usage.value = null; }
@@ -350,7 +354,9 @@ function sdEditProvider() {
 }
 async function checkHardwareChange() {
   try {
-    const h = await request("/v1/llm-runner/hardware");
+    // A FRESH read on purpose: this compares against the stored fingerprint, so reading a
+    // cached value could miss the very change it exists to notice.
+    const h = await refreshHardware();
     const g = (h?.gpus && h.gpus[0]) || null;
     const fp = g ? `${g.name}|${g.vramMb || 0}` : "cpu|0";
     const cfg = await request("/v1/ai/engine-config");

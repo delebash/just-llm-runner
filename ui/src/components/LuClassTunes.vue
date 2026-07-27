@@ -19,6 +19,7 @@
 import { computed, ref } from "vue";
 
 import KnobGrid from "./KnobGrid.vue";
+import LuModelTypeTag from "./LuModelTypeTag.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
 import UiSelect from "../common/components/UiSelect.vue";
@@ -28,11 +29,12 @@ import { confirmDialog } from "../common/services/dialog.js";
 import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import {
-  bandOf, classKeyRangeLabel, deleteClassTune, deleteHardwareClass, DGPU_RAM_RUNGS,
+  bandOf, classKeyLabel, deleteClassTune, deleteHardwareClass, DGPU_RAM_RUNGS,
   listClassTunes, modelBelongsToClass, putClassTune, saveHardwareClass, VRAM_BANDS,
 } from "../classTunes.js";
 import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
-import { useCatalogMeta } from "../composables/useCatalogMeta.js";
+import { modelTypeLabel, useCatalogMeta } from "../composables/useCatalogMeta.js";
+import { useHardware } from "../composables/useHardware.js";
 
 const props = defineProps({
   // "" = GLOBAL mode (the whole library); set = that model's config editor only.
@@ -59,6 +61,14 @@ const MEM_TYPE_LABEL = {
 const loaded = ref(false);
 const loading = ref(false);
 const error = ref("");
+// THIS MACHINE's own numbers, never its class band (the user, 2026-07-26: "This PC ·
+// 8-11 GB VRAM · 32 or 48 GB RAM wrong this pc is what it is that is all"). A class is a
+// bucket that a RANGE of machines falls into; printing the bucket where the user expects
+// their own hardware is what made the line read as nonsense. The class label survives
+// only as the FALLBACK when detection gives nothing, so the line is never blank.
+// The phrase itself comes from the shared probe (2026-07-27) — the same sentence appears
+// above the model catalog, and a class FLOOR is only honest beside it while both agree.
+const { hardwareLabel: myHardware, refresh: refreshHardware } = useHardware();
 const myClassKey = ref("");   // the CURRENT box's class (detected or overridden)
 const overrideKey = ref("");  // the class_key_override setting ("" = auto-detect)
 const classes = ref([]);      // the hardware classes [{classKey, memType, vramGb, ramGb, name, builtIn}]
@@ -71,25 +81,52 @@ const tunes = ref([]);        // the model-configs [{modelId, classKey, builtIn,
 // the singleton exists to prevent. `refresh()` is called below only when the shared rows
 // are empty, so the fetch count is unchanged and the component no longer depends on a
 // sibling (LuModelCatalog) having mounted first to populate the flag map.
-const { catalogRows, embeddingById, refresh: refreshCatalogMeta } = useCatalogMeta();
+const { catalogRows, embeddingById, typeById, refresh: refreshCatalogMeta } = useCatalogMeta();
 const models = catalogRows;
+// Dense vs MoE, everywhere a model is named here (2026-07-26, the user: "we need
+// distinction of moe vs dense"). It is the fact that explains why a 26B MoE is the sane
+// pick on hardware a 12B dense strains — the MoE runs a fraction of its parameters per
+// token. Same word, same tag as the catalog row (LuModelTypeTag).
+const typeOf = (id) => typeById.value[id] || "dense";
 const ownCatalog = ref({});
 const catalogMap = computed(() =>
   Object.keys(props.catalog).length ? props.catalog : ownCatalog.value);
 const modelName = (id) => models.value.find((m) => m.id === id)?.name || id;
-// The add-config picker offers only MEMBERS of the class being edited (same
-// membership rule as everywhere, 2026-07-26) — offering a model the class can't
-// run invites a switch set that never applies. Embeds excluded as before. The
-// already-picked model stays listed even if data changed under it, so an open
-// editor never shows a blank select.
+// The add-config picker offers EVERY chat model, unfiltered (2026-07-26 — it briefly
+// filtered to the class's members, and that was wrong twice over). This is an AUTHORING
+// control in a maintainer tool, not a presentation: the membership rule exists to stop the
+// class LIST claiming a 70B runs on a laptop, and the list still enforces it. Deciding to
+// write down a config the estimate doubts is the author's call — the floors are estimates,
+// and `min_ram_mb` is very often simply BLANK, since only `minVramMb` auto-fills (from the
+// inspect result, LuModelCatalog.vue:686). A filtered picker therefore made every
+// hand-added model unconfigurable: no floors → member of nothing → offered nowhere.
+// The honest half of the trade is `pickedShortfall` below, which states the gap in words
+// AFTER a pick. Embeds stay out — CPU by policy, not a class idea.
 const modelOptions = computed(() =>
   models.value
     .filter((m) => embeddingById.value[m.id] !== true)
-    .filter((m) => !editingConfig.value?.classKey
-      || m.id === editingConfig.value.modelId
-      || modelBelongsToClass(m.minVramMb, m.minRamMb,
-           classes.value.find((c) => c.classKey === editingConfig.value.classKey)))
-    .map((m) => ({ label: m.name || m.id, value: m.id })));
+    // The type rides in the LABEL, not as a tag: UiSelect renders SelectItemText
+    // (UiSelect.vue:99), which is text only. Same " · X" suffix shape the catalog's own
+    // pickers use (LuModelCatalog.vue:779's " · Recommended").
+    .map((m) => ({ label: `${m.name || m.id} · ${modelTypeLabel(typeOf(m.id))}`, value: m.id })));
+
+/** The picked model doesn't clear this class — said in WORDS, after the pick.
+ *  Deliberately not a mark inside the option label: UiSelect renders text only and is
+ *  width-capped, so a reason clause truncates, and a bare "⚠" is a glyph you would have to
+ *  already know (the same defect as an unexplained bold). Here there is room for a
+ *  sentence. It never blocks Save — it informs, and the author decides. Silent when the
+ *  floors are unknown, because "claim nothing" is what unknown floors mean everywhere
+ *  else (classTunes.js:124). */
+const pickedShortfall = computed(() => {
+  const e = editingConfig.value;
+  if (!e?.modelId || !e.classKey) return "";
+  const m = models.value.find((x) => x.id === e.modelId);
+  const c = classes.value.find((x) => x.classKey === e.classKey);
+  if (!m || !c || !m.minVramMb || !m.minRamMb) return "";
+  if (modelBelongsToClass(m.minVramMb, m.minRamMb, c)) return "";
+  const asGb = (mb) => Math.round(mb / 1024);
+  return `${m.name || m.id} needs about ${asGb(m.minVramMb)} GB VRAM and ${asGb(m.minRamMb)} GB RAM — more than this PC class has. You can still save a config for it.`;
+});
 
 // The model-configs grouped under their class key.
 const configsByClass = computed(() => {
@@ -136,8 +173,12 @@ function toggleUntested(classKey) {
 // This panel is where the user REASONS about classes, so it uses the range form — a
 // class holds a run of machines, and the short form printed only the run's floor
 // (a 10 GB card reading "8 GB VRAM"). Tight spots elsewhere keep `classKeyLabel`.
-const classLabel = (c) => classKeyRangeLabel(c.classKey, c.name); // name if set, else plain-words
-const classHardware = (c) => classKeyRangeLabel(c.classKey);      // plain-words hardware only
+// FLOOR labels, never ranges (the user, 2026-07-26: "it should be 8gb and 16gb we list good
+// floor", and then "23gb vram no card has that"). The range form printed `next_band - 1`, so
+// the 16 band rendered "16–23 GB VRAM" — 23 is arithmetic, not hardware; no card ships it.
+// The stored floor is the honest label, and a spec is read as a minimum.
+const classLabel = (c) => classKeyLabel(c.classKey, c.name); // name if set, else the floor
+const classHardware = (c) => classKeyLabel(c.classKey);      // the floor, always
 const summaryOf = (t) => t.rows.map((r) => `${r.flagName}=${r.flagValue}`).join(" · ");
 
 // Editors — ONE at a time (the editor REPLACES the list, never stacks below).
@@ -164,6 +205,7 @@ async function reload() {
     try {
       overrideKey.value = (await request("/v1/ai/engine-config")).classKeyOverride || "";
     } catch { /* enrichment only */ }
+    await refreshHardware(); // self-swallowing; on failure the line falls back to the class label
     if (!models.value.length) {
       await refreshCatalogMeta(); // shared + self-swallowing: on failure the rows stay [] and ids render verbatim
     }
@@ -232,7 +274,7 @@ const editorClassPreview = computed(() => {
   const vram = wholeGb(e.vramGb);
   const ram = wholeGb(e.ramGb);
   if (vram <= 0 || ram <= 0) return "";
-  return classKeyRangeLabel(`dgpu-vram${bandOf(vram, VRAM_BANDS)}|ram${bandOf(ram, DGPU_RAM_RUNGS)}`);
+  return classKeyLabel(`dgpu-vram${bandOf(vram, VRAM_BANDS)}|ram${bandOf(ram, DGPU_RAM_RUNGS)}`);
 });
 
 async function saveClass() {
@@ -371,9 +413,10 @@ async function runImport() {
 
     <div class="lu-ct-body">
       <p class="lu-muted lu-ct-help">
-        A PC class is a memory RANGE that holds one PC class config
-        per model — used automatically on any PC of that class, unless the machine has its
-        own applied config. <b>Detection proposes your class; you can override it below.</b>
+        A PC class groups PCs with similar memory. Each class stores one set of launch
+        switches per model, used automatically on every PC in that class — unless that
+        machine has its own tuned config.
+        <b>Detection picks your class; you can override it below.</b>
       </p>
 
       <div v-if="error" class="lu-error">{{ error }}</div>
@@ -382,7 +425,14 @@ async function runImport() {
       <!-- PER-MODEL popup: the config editor only (no list). -->
       <template v-else-if="loaded && directEdit && editingConfig">
         <div class="lu-ct-editor">
-          <div class="lu-ct-forrow">This PC's class · <b>{{ classKeyRangeLabel(editingConfig.classKey) }}</b></div>
+          <!-- The MACHINE's own numbers lead here too. This mount (a model's Tune modal →
+               "Save for PC class") renders the editor ALONE — no This-PC line above it, and
+               TuneMeasureModal never prints VRAM/RAM either — so before this, a 10 GB card
+               owner read "8 GB VRAM" with nothing on the panel to say it is a bucket floor
+               rather than a misread of their card. That is §23's exact failure case, and it
+               is the one place the floor-label ruling would otherwise still bite. -->
+          <div class="lu-ct-forrow">This PC · <b>{{ myHardware || "hardware not detected" }}</b></div>
+          <div class="lu-ct-forrow">Saving to PC class · <b>{{ classKeyLabel(editingConfig.classKey) }}</b></div>
           <KnobGrid v-model="editingConfig.rows" :catalog="catalogMap" />
           <div class="lu-ct-edact">
             <UiButton intent="ghost" size="small" @click="copyEditingConfig">
@@ -395,10 +445,11 @@ async function runImport() {
 
       <!-- GLOBAL: the class list, or an editor (one at a time). -->
       <template v-else-if="loaded">
-        <!-- This PC — plain words; the matching class is tagged in the list below. -->
+        <!-- This PC — the machine's OWN specs, not the band it lands in. The matching
+             class is tagged in the list below, so the class is not repeated here. -->
         <div class="lu-ct-mine">
-          <span>This PC · <b>{{ myClassKey ? classKeyRangeLabel(myClassKey) : "not detected" }}</b>
-            <UiTag v-if="overrideKey" intent="info">set manually</UiTag></span>
+          <span>This PC · <b>{{ myHardware || (myClassKey ? classKeyLabel(myClassKey) : "not detected") }}</b>
+            <UiTag v-if="overrideKey" intent="info">Set manually</UiTag></span>
           <UiButton v-if="overrideKey" intent="secondary" size="small" @click="useAutoDetect">Use auto-detect</UiButton>
         </div>
 
@@ -436,12 +487,13 @@ async function runImport() {
 
         <!-- The CONFIG editor (a model + switches, under a class) -->
         <div v-else-if="editingConfig" class="lu-ct-editor">
-          <div class="lu-ct-forrow">For class · <b>{{ classKeyRangeLabel(editingConfig.classKey) }}</b></div>
+          <div class="lu-ct-forrow">For class · <b>{{ classKeyLabel(editingConfig.classKey) }}</b></div>
           <label class="lu-ct-field">
             <span class="lu-ct-cap">Model</span>
             <span v-if="editingConfig.modelLocked" class="lu-ct-fixed">{{ modelName(editingConfig.modelId) }}</span>
             <UiSelect v-else v-model="editingConfig.modelId" :options="modelOptions" width="name" />
           </label>
+          <p v-if="pickedShortfall" class="lu-muted lu-ct-shortfall">{{ pickedShortfall }}</p>
           <KnobGrid v-model="editingConfig.rows" :catalog="catalogMap" />
           <div class="lu-ct-edact">
             <UiButton v-if="editingConfig.modelLocked" intent="ghost" size="small" @click="copyEditingConfig">
@@ -473,8 +525,11 @@ async function runImport() {
               <span class="lu-ct-cname">
                 <b>{{ classLabel(c) }}</b>
                 <span v-if="c.name" class="lu-muted lu-ct-chw">{{ classHardware(c) }}</span>
-                <UiTag v-if="c.classKey === myClassKey" intent="success">this PC</UiTag>
-                <UiTag v-if="c.builtIn" intent="info">built-in</UiTag>
+                <!-- Sentence case, like every other tag on this page — and `Built-in`
+                     matches the provider row's own tag (AiModelsArea.vue:472) so one
+                     word does not render two ways on one screen. -->
+                <UiTag v-if="c.classKey === myClassKey" intent="success">This PC</UiTag>
+                <UiTag v-if="c.builtIn" intent="info">Built-in</UiTag>
               </span>
               <span class="lu-ct-cact">
                 <UiButton v-if="c.classKey !== myClassKey" intent="secondary" size="small" @click="setForThisPC(c.classKey)">Use for this PC</UiButton>
@@ -485,7 +540,10 @@ async function runImport() {
             <table v-if="(configsByClass[c.classKey] || []).length" class="lu-ct-tbl">
               <tbody>
                 <tr v-for="t in configsByClass[c.classKey]" :key="t.modelId">
-                  <td class="lu-ct-model">{{ modelName(t.modelId) }}</td>
+                  <td class="lu-ct-model">
+                    {{ modelName(t.modelId) }}
+                    <LuModelTypeTag :type="typeOf(t.modelId)" class="lu-ct-mtype" />
+                  </td>
                   <td class="lu-ct-sum">{{ summaryOf(t) }}</td>
                   <td class="lu-ct-act">
                     <UiButton intent="ghost" size="small" @click="startConfigEdit(t)">Edit</UiButton>
@@ -512,7 +570,10 @@ async function runImport() {
               <table v-if="showUntested[c.classKey]" class="lu-ct-tbl">
                 <tbody>
                   <tr v-for="m in unconfiguredMembersByClass[c.classKey]" :key="m.id">
-                    <td class="lu-ct-model">{{ m.name }}</td>
+                    <td class="lu-ct-model">
+                      {{ m.name }}
+                      <LuModelTypeTag :type="typeOf(m.id)" class="lu-ct-mtype" />
+                    </td>
                     <td class="lu-ct-sum lu-muted">no switches</td>
                     <td class="lu-ct-act">
                       <UiButton intent="ghost" size="small" @click="startAddConfig(c.classKey, m.id)">Add switches</UiButton>
@@ -553,6 +614,9 @@ async function runImport() {
 .lu-ct-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
 .lu-ct-tbl td { padding: 5px 10px; border-top: 1px solid var(--border-soft, var(--border)); vertical-align: top; }
 .lu-ct-model { color: var(--ink); white-space: nowrap; }
+/* One tag after the name — nowrap above is safe here because it is exactly one short
+   tag, not a list that could outgrow the column. */
+.lu-ct-mtype { margin-left: 6px; }
 .lu-ct-sum { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--ink-2); word-break: break-word; width: 100%; }
 .lu-ct-act { white-space: nowrap; text-align: right; }
 .lu-ct-addcfg { padding: 4px 8px 8px; }
@@ -571,5 +635,6 @@ async function runImport() {
 .lu-ct-cap { font-size: 11px; color: var(--muted); }
 .lu-ct-fixed { font-size: 12px; color: var(--ink-2); }
 .lu-ct-snap { font-size: 11px; line-height: 1.4; }
+.lu-ct-shortfall { margin: 0; font-size: 11px; line-height: 1.4; }
 .lu-ct-edact { display: flex; justify-content: flex-end; gap: 8px; }
 </style>

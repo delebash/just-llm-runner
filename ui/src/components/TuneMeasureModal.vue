@@ -531,7 +531,7 @@ onBeforeUnmount(stopAutoPoll);
         <KnobGrid v-model="tuneRows" :catalog="switchCatalog"
           :groups="TUNE_GROUPS" :row-groups="rowGroups" fallback-group="applied" />
         <div v-if="unknownNames.size" class="lu-tune-unk lu-muted">
-          <UiTag intent="danger">unrecognized</UiTag>
+          <UiTag intent="danger">Unrecognized</UiTag>
           <span>{{ [...unknownNames].join(", ") }} — not a known engine flag (mistyped, or dropped
             by an engine update). Remove or fix it, or prefix with “--” for a raw flag.</span>
         </div>

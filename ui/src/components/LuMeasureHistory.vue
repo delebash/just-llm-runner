@@ -108,7 +108,7 @@ async function clearHistory() {
           <template #when="{ row }"><span class="lu-mh-when">{{ whenOf(row) }}</span></template>
           <template #run="{ row }">
             <span class="lu-mh-run">
-              <UiTag v-if="row.source === 'autotune'" intent="info">auto-tune</UiTag>
+              <UiTag v-if="row.source === 'autotune'" intent="info">Auto-tune</UiTag>
               <span v-if="row.label">{{ row.label }}</span>
               <span v-else-if="row.source !== 'autotune'">measured</span>
             </span>

@@ -27,6 +27,16 @@ export const qualityById = computed(() =>
 export const typeById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, r.type || "dense"])),
 );
+// THE user-facing word for that type, in ONE place (2026-07-26). It lived as an inline
+// ternary in the catalog's row template and nowhere else; the PC-class library and its
+// add-model picker now say it too, and three copies of `type === "moe" ? … : …` is the
+// extraction-vs-copies shape we keep paying for. The picker needs the bare STRING
+// (UiSelect renders SelectItemText, text only — UiSelect.vue:99), the two tag sites need
+// it inside a UiTag, so the WORD is a function and the TAG is LuModelTypeTag.vue over it.
+export const MODEL_TYPE_LABEL = { moe: "MoE", dense: "Dense" };
+export function modelTypeLabel(type) {
+  return MODEL_TYPE_LABEL[type] || MODEL_TYPE_LABEL.dense; // catalog default, as above
+}
 // Is this an EMBEDDING model (RAG index), not a chat LLM? The explicit editable catalog flag
 // (CatalogRow.embedding, model_catalog_api.py:50 "replaces the /embed/i guess") — REQUIRED
 // because bge-m3 has no "embed" in its id/name, so the name regex alone would leak it into

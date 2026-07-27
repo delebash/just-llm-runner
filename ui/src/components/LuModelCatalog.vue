@@ -15,12 +15,14 @@ import { computed, ref } from "vue";
 import { request } from "../client.js";
 import { useRunnerModels } from "../composables/useRunnerModels.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
+import { useHardware } from "../composables/useHardware.js";
 import { applyPreview, useModelApply } from "../services/modelApply.js";
 import { FIT_RUNNABLE, pickBestEmbedId, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
 import { allDraftsUnloadable, pickDefaultDraftPath } from "../draftSelect.js";
 import { TUNE_BADGES, fetchTuneState, isUntunedHere, tuneBadgeIdOf } from "../tuneState.js";
-import { classKeyLabel, classKeyRangeLabel, listClassTunes, memberClassesOf, shortClassLabel } from "../classTunes.js";
+import { classKeyLabel, listClassTunes, memberClassesOf } from "../classTunes.js";
 import AppModal from "../common/components/AppModal.vue";
+import LuModelTypeTag from "./LuModelTypeTag.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
 import UiInput from "../common/components/UiInput.vue";
@@ -322,13 +324,14 @@ function rowClasses(m) {
   if (embeddingOf(m)) return [];
   return memberClassesOf(m.minVramMb, m.minRamMb, hwClasses.value);
 }
-/** The Runs-on hover: the full class names plus the raw floors the line is derived
- *  from — the engineer numbers live here, one hover away, instead of on the row. */
+/** The hover over the row's "Needs …" line: the shipped PC classes this model covers.
+ *  The floors are NOT repeated here — as of 2026-07-27 the row states them in plain
+ *  words, and the hover carries the thing the row deliberately stopped enumerating.
+ *  Empty when no shipped class clears the floors, so the hover never claims coverage
+ *  that isn't there. */
 function runsOnTitle(m) {
-  const names = rowClasses(m).map((c) => classKeyRangeLabel(c.classKey, c.name)).join(" · ");
-  const floors = m.minVramMb && m.minRamMb
-    ? ` (needs ~${gb(m.minVramMb)} GB VRAM + ${gb(m.minRamMb)} GB RAM)` : "";
-  return `PC classes this model runs on: ${names}${floors}`;
+  const names = rowClasses(m).map((c) => classKeyLabel(c.classKey, c.name)).join(" · ");
+  return names ? `PC classes this model runs on: ${names}` : "";
 }
 // The Bench column cell: the published benchmark rank, or "—" when unranked (100).
 function benchLabel(m) { const q = qualityOf(m); return q >= 100 ? "—" : String(q); }
@@ -379,10 +382,12 @@ const embeddingGone = computed(() =>
 // loaded it would shrink the leftover math. Read gpus[0].vramMb from /hardware.
 // (The model recommendation itself no longer takes VRAM — §9, 2026-07-22: it keys
 // on this box's CLASS via the catalog response's classTuneRefs + myClassKey.)
-const totalVramMb = ref(0);
-request("/v1/llm-runner/hardware")
-  .then((h) => { totalVramMb.value = (h?.gpus && h.gpus[0]?.vramMb) || 0; })
-  .catch(() => {}); // no hardware read → 0 → leftover 0 → CPU-band embeds only
+// The box's card, from the SHARED probe (2026-07-27). This used to be a private fetch
+// reading `gpus[0].vramMb`, which is the wrong GPU on a laptop that enumerates its iGPU
+// first — the composable applies the server's own largest-GPU rule (hardware.py:45).
+// No hardware read → 0 → leftover 0 → CPU-band embeds only, as before.
+const { maxVramMb: totalVramMb, hardwareLabel, refresh: refreshHardware } = useHardware();
+refreshHardware();
 const recommendedId = computed(() => recommendedModelId(models.value, {
   classTuneRefs: classTuneRefs.value,
   myClassKey: myClassKey.value,
@@ -476,12 +481,12 @@ function tuneBadge(m) {
   // (fitTitle's `!embeddingOf(m)`). It DOES keep a tag when genuinely tuned, because
   // then the fact is real and worth showing.
   if (embeddingOf(m) && isUntunedHere(id)) return null;
-  const classRange = classKeyRangeLabel(tuneState.value?.classKey || "");
+  const classRange = classKeyLabel(tuneState.value?.classKey || "");
   const titles = {
     auto: "This PC runs your applied config — produced by the auto-tune sweep",
     hand: "This PC runs your applied config — hand-set in Tune & measure",
     // The range is dropped, not printed empty, when the box's class is unknown:
-    // classKeyRangeLabel("") returns "" (classTunes.js:134-138) and "for your class ()"
+    // classKeyLabel("") returns "" (classTunes.js:134-138) and "for your class ()"
     // would read as a bug.
     class: `No applied config on this PC — launches start from the PC class config for your class${classRange ? ` (${classRange})` : ""}`,
     elsewhere: `Nothing tuned for your PC class${classRange ? ` (${classRange})` : ""} — but this model has a PC class config on ${others} other ${others === 1 ? "class" : "classes"}. Launches use the layered defaults.`,
@@ -1078,9 +1083,17 @@ refreshApplied();
     <!-- THIS PC, stated ONCE (2026-07-26). It used to be appended to every class
          badge, where it sat beside each model's own VRAM/RAM requirement and read as
          a second, contradictory requirement. It is the same for every row — so it
-         belongs above the table, not in it. -->
-    <div v-if="tuneState?.classKey" class="lu-mcat-thispc lu-muted">
-      This PC · <b>{{ classKeyLabel(tuneState.classKey) }}</b>
+         belongs above the table, not in it.
+         It states the MACHINE, not its class (2026-07-27 — the user's ruling, applied
+         here on its third instance): this printed `classKeyLabel(tuneState.classKey)`,
+         i.e. the class FLOOR under a "This PC" heading. On a box whose hardware happens
+         to equal its floor that is invisible; on a 10 GB / 48 GB machine it stated
+         "8 GB VRAM · 32 GB RAM" and was wrong on both numbers. The class still shows,
+         after the hardware, because it is what every row's Runs-on hover is keyed to. -->
+    <div v-if="hardwareLabel || tuneState?.classKey" class="lu-mcat-thispc lu-muted">
+      This PC · <b>{{ hardwareLabel || classKeyLabel(tuneState.classKey) }}</b>
+      <span v-if="hardwareLabel && tuneState?.classKey">
+        — PC class {{ classKeyLabel(tuneState.classKey) }}</span>
     </div>
     <div class="lu-mcat-bar">
       <UiInput v-model="query" class="lu-mcat-search" placeholder="Search models…" />
@@ -1134,24 +1147,33 @@ refreshApplied();
                   <UiTag v-for="t in rowTags(m)" :key="t.key" :intent="t.intent"
                     class="lu-mbadge" :title="t.title">{{ t.label }}</UiTag>
                 </div>
-                <div class="lu-mid">{{ m.id }}</div>
+                <!-- The catalog id line was REMOVED 2026-07-26 (the user: "Qwen3.6 27B
+                     (MTP) / qwen3.6-27b diplicate name"). On a chooser row the id restates
+                     the name in slug form; it is still shown and editable in the model's
+                     Edit form, which is where you need it to match a config or a repo. -->
                 <!-- Two labelled facts, each on its own line (the user's final shape,
                      2026-07-26): the download size, then the model's PC classes — the
                      answer to "what hardware does this run on" (see rowClasses). -->
                 <div v-if="rowSize(m)" class="lu-mrowmeta lu-muted" title="Download size on disk">
                   Size on disk · {{ rowSize(m) }}
                 </div>
-                <!-- The model's PC classes — what hardware it runs on, in the same
-                     vocabulary as the This-PC line and the class library. The user's
-                     own class renders bold. Hover: full class names + the raw floors. -->
-                <div v-if="rowClasses(m).length" class="lu-mrowmeta lu-muted lu-mruns" :title="runsOnTitle(m)">
-                  Runs on:
-                  <span v-for="c in rowClasses(m)" :key="c.classKey"
-                    class="lu-mruns-c" :class="{ 'is-mine': c.classKey === tuneState?.classKey }">
-                    {{ shortClassLabel(c) }}</span>
+                <!-- WHAT HARDWARE THIS NEEDS, in plain words on the row; the enumeration
+                     of PC classes moved to the hover (2026-07-27, the user's call after
+                     seeing both). The floors answer the question actually being asked —
+                     "will this run on my PC" — and compare directly against the VRAM/RAM
+                     the AI page header states for this box. The class LIST answers a
+                     different, maintainer-shaped question ("which of the shipped classes
+                     cover it"), and enumerating it on the row cost either readability
+                     (eight full labels) or plain English (the cryptic "8|32" form).
+                     Keyed on the FLOORS, not on rowClasses(): a model whose floors clear
+                     no shipped class still has known requirements and must state them
+                     rather than fall through to "unknown". -->
+                <div v-if="!embeddingOf(m) && m.minVramMb && m.minRamMb"
+                  class="lu-mrowmeta lu-muted" :title="runsOnTitle(m)">
+                  Needs {{ gb(m.minVramMb) }} GB VRAM · {{ gb(m.minRamMb) }} GB RAM
                 </div>
                 <div v-else-if="!embeddingOf(m)" class="lu-mrowmeta lu-muted">
-                  Runs on: unknown — edit the model to set its requirements
+                  Hardware needs unknown — edit the model to set its requirements
                 </div>
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
                 <div v-if="notesOf(m)" class="lu-mnotes">Your notes: {{ notesOf(m) }}</div>
@@ -1165,7 +1187,7 @@ refreshApplied();
               <div class="lu-mm lu-mtype">
                 <!-- Params column REPLACED (Plan B — the count already rides name/description).
                      Architecture + capabilities: Dense/MoE is the type; MTP/Embed are flags. -->
-                <UiTag intent="secondary" class="lu-typetag">{{ typeOf(m) === "moe" ? "MoE" : "Dense" }}</UiTag>
+                <LuModelTypeTag :type="typeOf(m)" class="lu-typetag" />
                 <UiTag v-if="mtpOf(m)" intent="info" class="lu-typetag" title="Multi-token prediction — speculative decode enables by default">MTP</UiTag>
                 <UiTag v-if="embeddingOf(m)" intent="accent2" class="lu-typetag" title="Embedding model — powers semantic search + grounded chat">Embed</UiTag>
               </div>
@@ -1452,14 +1474,11 @@ refreshApplied();
 /* Model is the ONE column that grows; its text wraps within a cap so the table stays tidy. */
 /* No width here at all — the Model column's share is declared once in COLUMNS. */
 .lu-mn { font-weight: 600; color: var(--ink); }
-.lu-mid { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px; }
 .lu-mrowmeta { font-size: 10.5px; font-weight: 400; margin-top: 1px; }
-/* The Runs-on class list — the row's hardware headline (2026-07-26). Separators via
-   CSS so the markup stays a plain span list; the user's OWN class reads bold (ink,
-   no colour of its own — it must never compete with the Fit chip's verdict). */
-.lu-mruns-c { color: var(--ink-2); }
-.lu-mruns-c + .lu-mruns-c::before { content: " · "; color: var(--muted); font-weight: 400; }
-.lu-mruns-c.is-mine { color: var(--ink); font-weight: 700; }
+/* The row's hardware line needs no rules of its own — it is one short sentence in the
+   shared .lu-mrowmeta/.lu-muted treatment, like "Size on disk · …" above it. The chip
+   styling that briefly lived here (2026-07-26) went with the class enumeration when that
+   moved to the hover; recover it from git if a chip list is ever wanted again. */
 /* No max-width: the description and notes simply fill the Model column and wrap in it.
    Under `table-layout: fixed` the column owns the width, so these need no cap of their
    own — the previous attempts put one on the <td> (ignored under `table-layout: auto`)

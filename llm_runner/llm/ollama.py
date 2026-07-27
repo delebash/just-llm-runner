@@ -98,9 +98,18 @@ class OllamaAdapter:
     @staticmethod
     def _apply_reasoning(body: dict, think: bool, effort: str) -> None:
         """Ollama's `think` takes a bool OR a level string (low/medium/high/max) —
-        so the effort maps straight through. think off → omit (model default)."""
+        so the effort maps straight through. think OFF sends an explicit `false`
+        (changed 2026-07-27; it used to omit the field and inherit the model's own
+        default). Omitting is wrong for a model that thinks BY DEFAULT: the user turns
+        thinking off in the UI, we send nothing, and the model reasons anyway — the
+        control says off while the behaviour is on. `think: false` is a documented
+        top-level field on both /api/chat and /api/generate, and the same omission bug
+        was fixed in other Ollama clients (openclaw #50741). This matches the Anthropic
+        adapter, which already sends an explicit disabled state rather than omitting."""
         if think:
             body["think"] = effort if effort in ("low", "medium", "high", "max") else True
+        else:
+            body["think"] = False
 
     def chat(
         self,

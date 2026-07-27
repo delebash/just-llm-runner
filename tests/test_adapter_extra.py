@@ -80,7 +80,10 @@ def test_ollama_reasoning_maps_level_or_bool():
     assert b["think"] is True            # on, no level → bool true
     b = {}
     OllamaAdapter._apply_reasoning(b, False, "high")
-    assert "think" not in b              # off → omit
+    # off → an EXPLICIT false, not omission (changed 2026-07-27). Omitting inherits the
+    # model's own default, so a thinking-BY-DEFAULT model kept reasoning while the UI
+    # control said off. The level word is ignored when off — `false`, never "high".
+    assert b["think"] is False
 
 
 def test_anthropic_reasoning_legacy_vs_new_model():

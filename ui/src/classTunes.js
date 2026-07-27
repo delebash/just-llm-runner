@@ -151,10 +151,10 @@ export function memberClassesOf(minVramMb, minRamMb, classes) {
       || (a.ramGb || 0) - (b.ramGb || 0));
 }
 
-/** The compact per-row form of a class name — "8|32" (8 GB VRAM · 32 GB RAM) for
- *  discrete, "iGPU 32" for integrated. The catalog row lists up to a dozen classes,
- *  where the full range labels would swamp the line; hovers carry the long form. */
-export function shortClassLabel(cls) {
-  return cls.memType === "integrated" ? `iGPU ${cls.ramGb}` : `${cls.vramGb}|${cls.ramGb}`;
-}
+// (`shortClassLabel` — the compact "8|32" / "iGPU 32" row form — was deleted
+// 2026-07-27. It lost its last product consumer when the catalog row swapped its
+// class enumeration for the model's plain-words floors (§25 addendum 6), leaving a
+// function alive only because a test mapped through it. That test now asserts the
+// real `classKey`, which pins display order more directly than a display string.
+// `git show 6c5179e:ui/src/classTunes.js` has it if a compact form is ever wanted.)
 

@@ -101,6 +101,55 @@ export function bandOf(gb, ladder) {
   return fits.length ? Math.max(...fits) : gb;
 }
 
+// ── Class MEMBERSHIP — which PC classes can a model run on (2026-07-26) ──────
+// The user's model of the whole system, in one sentence: "for the models we ship
+// we put them in hardware class so the user at least has an idea of what hardware
+// they need to run the model" — and "all models have class, all of them". A model
+// BELONGS to every class whose hardware clears its usability floors; TUNED (has
+// switch rows there) is a separate axis. The two surfaces both read THIS function —
+// the catalog row lists a model's classes, the PC-class-configs library lists a
+// class's models — so they can never disagree (before this, the library listed
+// EVERY model under EVERY class, which put a 70B under "Integrated GPU · 32 GB"
+// as merely "not tested").
+//
+// The thresholds are the FIT ENGINE's, not new ones (llm_runner/runner/fit.py
+// coarse_fit): RAM is a hard gate (fit.py:101 — a MoE offloads experts to RAM, so
+// too-little RAM is a no regardless of card); VRAM allows the same 1.5× slack fit
+// calls "tight" (fit.py:109 — the 12B at 8.5 GB need on an 8 GB card measured
+// 39 tok/s, so tight is genuinely runnable); the TOP VRAM band is open-ended
+// ("24 GB and above", vramPhrase below), so a 48 GB card lands in a vram24 class
+// and the 70B belongs exactly there; an integrated class is ONE memory pool, so
+// both floors must fit inside it.
+export function modelBelongsToClass(minVramMb, minRamMb, cls) {
+  if (!minVramMb || !minRamMb || !cls) return false; // unknown floors → claim nothing
+  const ramMb = (cls.ramGb || 0) * 1024;
+  if (cls.memType === "integrated") {
+    return minVramMb <= ramMb && minRamMb <= ramMb;
+  }
+  if (minRamMb > ramMb) return false;
+  const topBand = VRAM_BANDS[VRAM_BANDS.length - 1];
+  if ((cls.vramGb || 0) >= topBand) return true;
+  return minVramMb / ((cls.vramGb || 0) * 1024 || 1) <= 1.5;
+}
+
+/** A model's member classes, DISPLAY-ORDERED: discrete first (by VRAM, then RAM),
+ *  integrated last (by pool). Input: the `classes` array `listClassTunes()` returns. */
+export function memberClassesOf(minVramMb, minRamMb, classes) {
+  return (classes || [])
+    .filter((c) => modelBelongsToClass(minVramMb, minRamMb, c))
+    .sort((a, b) =>
+      (a.memType === "integrated") - (b.memType === "integrated")
+      || (a.vramGb || 0) - (b.vramGb || 0)
+      || (a.ramGb || 0) - (b.ramGb || 0));
+}
+
+/** The compact per-row form of a class name — "8|32" (8 GB VRAM · 32 GB RAM) for
+ *  discrete, "iGPU 32" for integrated. The catalog row lists up to a dozen classes,
+ *  where the full range labels would swamp the line; hovers carry the long form. */
+export function shortClassLabel(cls) {
+  return cls.memType === "integrated" ? `iGPU ${cls.ramGb}` : `${cls.vramGb}|${cls.ramGb}`;
+}
+
 // VRAM: one snap, so the band covers a contiguous run of whole GB — 8 covers 8…11.
 function vramPhrase(gb) {
   if (!VRAM_BANDS.includes(gb)) return `${gb} GB VRAM`;   // below the floor — an exact, unbanded key

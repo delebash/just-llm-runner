@@ -19,7 +19,7 @@ import { applyPreview, useModelApply } from "../services/modelApply.js";
 import { FIT_RUNNABLE, pickBestEmbedId, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
 import { allDraftsUnloadable, pickDefaultDraftPath } from "../draftSelect.js";
 import { TUNE_BADGES, fetchTuneState, isUntunedHere, tuneBadgeIdOf } from "../tuneState.js";
-import { classKeyLabel, classKeyRangeLabel } from "../classTunes.js";
+import { classKeyLabel, classKeyRangeLabel, listClassTunes, memberClassesOf, shortClassLabel } from "../classTunes.js";
 import AppModal from "../common/components/AppModal.vue";
 import TuneMeasureModal from "./TuneMeasureModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -302,28 +302,33 @@ function notesOf(m) { return notesById.value[m.id] || ""; }
 // else the params label riding the fit view).
 // The benchmark rank moved to its own sortable Bench column (2026-07-22), so it no longer
 // rides this line; the line carries the download SIZE plus, since 2026-07-26, the row's
-// hardware floor.
-// 2026-07-26 (the user: "when i look at list i have no idea what hardware it might run
-// on"): the row STATES its hardware floor instead of hiding it in the Fit chip's hover.
-// RAW numbers, never the class key — a class band rounds DOWN, which is safe describing a
-// PC but would UNDERSTATE a requirement. Both floors or neither (a half-stated requirement
-// invites the wrong conclusion). Embedding rows are excluded: their placement story (CPU
-// by policy) is what their line has to tell, not a VRAM floor.
-// Split out of a single `rowMeta` 2026-07-26: the line carries TWO facts of different
-// weight — how big the download is, and what hardware the model needs — and the second
-// is the one the user scans for ("the main thing i want to know is what hardware it can
-// run on"). One function returning both concatenated could not give them different
-// emphasis, and its name described neither.
+// hardware story.
+// 2026-07-26, the user's final shape after a full day of iterations: the row answers
+// "what hardware does this run on" with the model's PC CLASSES — "for the models we
+// ship we put them in hardware class so the user at least has an idea of what hardware
+// they need" — NOT raw floor numbers (those read as engineer-speak, nearly duplicated
+// the Fit hover, and once sat beside a class badge as two contradictory-looking
+// figures). Size gets its OWN labelled line ("the 16gb should be size on disk its own
+// row"). The raw floors survive in the Runs-on line's hover.
 function rowSize(m) {
   const sz = sizeBytesById.value[m.id];
   return sz ? fmtBytes(sz) : (m.params || "");
 }
-/** The model's own hardware floor. "" when it has none to state — embedding rows tell a
- *  placement story instead (CPU by policy), and a row missing either floor stays silent
- *  rather than half-stating a requirement. */
-function rowNeeds(m) {
-  if (embeddingOf(m) || !m.minVramMb || !m.minRamMb) return "";
-  return `needs ~${gb(m.minVramMb)} GB VRAM + ${gb(m.minRamMb)} GB RAM`;
+/** The model's member PC classes, display-ordered (kit classTunes.js — the SAME
+ *  membership rule the PC-class-configs library uses, so the two surfaces can never
+ *  disagree). [] for embedding rows (placement story, not classes) and for rows with
+ *  unknown floors (claim nothing rather than guess). */
+function rowClasses(m) {
+  if (embeddingOf(m)) return [];
+  return memberClassesOf(m.minVramMb, m.minRamMb, hwClasses.value);
+}
+/** The Runs-on hover: the full class names plus the raw floors the line is derived
+ *  from — the engineer numbers live here, one hover away, instead of on the row. */
+function runsOnTitle(m) {
+  const names = rowClasses(m).map((c) => classKeyRangeLabel(c.classKey, c.name)).join(" · ");
+  const floors = m.minVramMb && m.minRamMb
+    ? ` (needs ~${gb(m.minVramMb)} GB VRAM + ${gb(m.minRamMb)} GB RAM)` : "";
+  return `PC classes this model runs on: ${names}${floors}`;
 }
 // The Bench column cell: the published benchmark rank, or "—" when unranked (100).
 function benchLabel(m) { const q = qualityOf(m); return q >= 100 ? "—" : String(q); }
@@ -423,6 +428,12 @@ async function loadTuneState() {
   tuneState.value = await fetchTuneState();
 }
 loadTuneState();
+// The hardware-class list, for the per-row "Runs on:" membership line (2026-07-26).
+// One fetch at mount; classes change only through the PC-class-configs library, and
+// its editors reload the whole panel — a stale minute here costs a label, not data.
+// [] on failure: rows then render no Runs-on line rather than a wrong one.
+const hwClasses = ref([]);
+listClassTunes().then((res) => { hwClasses.value = res.classes || []; }).catch(() => {});
 // How many OTHER classes carry switches for this model — the fact that separates
 // "nobody has ever tuned this" from "tuned, just not for your box". Derived from the
 // classTuneRefs already on the catalog response (no extra fetch); this box's own class
@@ -434,6 +445,27 @@ function otherClassCount(modelId) {
       .filter((r) => r.modelId === modelId && r.classKey && r.classKey !== mine)
       .map((r) => r.classKey),
   ).size;
+}
+// Every tag a row carries, in one list, so the template renders them as ONE group on
+// their own line (2026-07-26, the user: "have both recommended and tuned by on same
+// line but underneath the name"). They used to be inline siblings of the model name,
+// so a row with two tags wrapped mid-flow and the second one landed under the first —
+// ragged, and it read as if the tags belonged to different things. Built here rather
+// than as four v-ifs in the markup so the row is also computed once, not per tag.
+function rowTags(m) {
+  const tags = [];
+  if (m.id === currentEmbeddingId.value) {
+    tags.push({ key: "embed", intent: "info", label: "Embedding" });
+  }
+  if (m.id === recommendedId.value) {
+    tags.push({
+      key: "rec", intent: "accent2", label: "Recommended for this PC",
+      title: "What Quick Setup would pick for this machine — a model with a PC class config for your class first, then the speed-floor rule",
+    });
+  }
+  const tune = tuneBadge(m);
+  if (tune) tags.push({ key: "tune", ...tune });
+  return tags;
 }
 function tuneBadge(m) {
   const others = otherClassCount(m.id);
@@ -1090,29 +1122,36 @@ refreshApplied();
         <template #name="{ row: m }">
               <div class="lu-mn">
                 <span class="lu-mn-name">{{ m.name }}</span>
-                <!-- The DEFAULT indicator is the right-aligned green "Default ✓" button
-                     (below) — one place, aligned with the provider rows (2026-07-17). The
-                     left "Default" tag was removed; the Embedding badge stays (it is NOT
-                     the default indicator, and a model can be the embed without being the
-                     chat default). -->
-                <UiTag v-if="m.id === currentEmbeddingId" intent="info" class="lu-mbadge">Embedding</UiTag>
-                <UiTag v-if="m.id === recommendedId" intent="accent2" class="lu-mbadge"
-                  title="What Quick Setup would pick for this machine — a model with a PC class config for your class first, then the speed-floor rule">
-                  Recommended for this PC</UiTag>
-                <!-- §7.6: the tune-provenance tag. FIVE named states since 2026-07-26 —
-                     every row carries one, because a blank row could not distinguish
-                     "tuned on five other classes" from "never tuned anywhere". -->
-                <UiTag v-if="tuneBadge(m)" :intent="tuneBadge(m).intent" class="lu-mbadge"
-                  :title="tuneBadge(m).title">{{ tuneBadge(m).label }}</UiTag>
+                <!-- The row's tags on their OWN line, all together (see rowTags): the
+                     Embedding marker, the Quick-Setup recommendation, and the §7.6
+                     tune-provenance tag (five named states since 2026-07-26 — a blank
+                     row could not distinguish "tuned on five other classes" from "never
+                     tuned anywhere"). The DEFAULT indicator is NOT here: it is the
+                     right-aligned green "Default ✓" button, one place, aligned with the
+                     provider rows (2026-07-17). `:empty` hides the line on a row with no
+                     tags, so it costs no space rather than needing a v-if. -->
+                <div class="lu-mtags">
+                  <UiTag v-for="t in rowTags(m)" :key="t.key" :intent="t.intent"
+                    class="lu-mbadge" :title="t.title">{{ t.label }}</UiTag>
+                </div>
                 <div class="lu-mid">{{ m.id }}</div>
-                <!-- The sort fields, visible (#146): the download size, plus the hardware
-                     floor the row runs on (2026-07-26 — see rowNeeds). The floor is the
-                     answer to "what would I need to run this", so it is NOT muted like
-                     the rest of the meta line (user, 2026-07-26: "that doesnt stand out"). -->
-                <div class="lu-mrowmeta lu-muted" title="Download size, and the minimum hardware it runs on">
-                  <span v-if="rowSize(m)">{{ rowSize(m) }}</span>
-                  <span v-if="rowSize(m) && rowNeeds(m)"> · </span>
-                  <span v-if="rowNeeds(m)" class="lu-mneeds">{{ rowNeeds(m) }}</span>
+                <!-- Two labelled facts, each on its own line (the user's final shape,
+                     2026-07-26): the download size, then the model's PC classes — the
+                     answer to "what hardware does this run on" (see rowClasses). -->
+                <div v-if="rowSize(m)" class="lu-mrowmeta lu-muted" title="Download size on disk">
+                  Size on disk · {{ rowSize(m) }}
+                </div>
+                <!-- The model's PC classes — what hardware it runs on, in the same
+                     vocabulary as the This-PC line and the class library. The user's
+                     own class renders bold. Hover: full class names + the raw floors. -->
+                <div v-if="rowClasses(m).length" class="lu-mrowmeta lu-muted lu-mruns" :title="runsOnTitle(m)">
+                  Runs on:
+                  <span v-for="c in rowClasses(m)" :key="c.classKey"
+                    class="lu-mruns-c" :class="{ 'is-mine': c.classKey === tuneState?.classKey }">
+                    {{ shortClassLabel(c) }}</span>
+                </div>
+                <div v-else-if="!embeddingOf(m)" class="lu-mrowmeta lu-muted">
+                  Runs on: unknown — edit the model to set its requirements
                 </div>
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
                 <div v-if="notesOf(m)" class="lu-mnotes">Your notes: {{ notesOf(m) }}</div>
@@ -1415,10 +1454,12 @@ refreshApplied();
 .lu-mn { font-weight: 600; color: var(--ink); }
 .lu-mid { font-family: var(--font-mono, monospace); font-size: 10.5px; color: var(--muted); font-weight: 400; margin-top: 1px; }
 .lu-mrowmeta { font-size: 10.5px; font-weight: 400; margin-top: 1px; }
-/* The hardware floor is the row's headline fact, so it is not muted with the rest of
-   the meta line (2026-07-26 — "that doesnt stand out"). Ink + weight only: no colour
-   of its own, so it never competes with the Fit chip's verdict. */
-.lu-mneeds { color: var(--ink-2); font-weight: 600; }
+/* The Runs-on class list — the row's hardware headline (2026-07-26). Separators via
+   CSS so the markup stays a plain span list; the user's OWN class reads bold (ink,
+   no colour of its own — it must never compete with the Fit chip's verdict). */
+.lu-mruns-c { color: var(--ink-2); }
+.lu-mruns-c + .lu-mruns-c::before { content: " · "; color: var(--muted); font-weight: 400; }
+.lu-mruns-c.is-mine { color: var(--ink); font-weight: 700; }
 /* No max-width: the description and notes simply fill the Model column and wrap in it.
    Under `table-layout: fixed` the column owns the width, so these need no cap of their
    own — the previous attempts put one on the <td> (ignored under `table-layout: auto`)
@@ -1428,6 +1469,13 @@ refreshApplied();
 .lu-setup-pick { margin-top: 7px; }
 /* Default / Embedding badges sit inline after the model name; the fit-group divider row. */
 .lu-mbadge { margin-left: 6px; vertical-align: middle; }
+/* The tag line sits UNDER the model name and keeps every tag together (2026-07-26).
+   flex + wrap so two long tags wrap as a GROUP instead of the second one drifting up
+   beside the name; `gap` owns the spacing, so the inline margin above is cancelled
+   here. `:empty` collapses the line entirely on a row that has no tags. */
+.lu-mtags { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 3px; }
+.lu-mtags:empty { display: none; }
+.lu-mtags .lu-mbadge { margin-left: 0; }
 .lu-mgrid :deep(.lu-mgroup td) { background: var(--surface-2); color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; padding: 5px 11px; }
 /* The Type cell holds chips: let them WRAP onto a second line when the column is narrow
    (each chip stays intact via its own nowrap) rather than widening the table. */

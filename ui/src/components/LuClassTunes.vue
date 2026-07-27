@@ -29,7 +29,7 @@ import { pushToast } from "../common/services/toastBridge.js";
 import { request } from "../client.js";
 import {
   bandOf, classKeyRangeLabel, deleteClassTune, deleteHardwareClass, DGPU_RAM_RUNGS,
-  listClassTunes, putClassTune, saveHardwareClass, VRAM_BANDS,
+  listClassTunes, modelBelongsToClass, putClassTune, saveHardwareClass, VRAM_BANDS,
 } from "../classTunes.js";
 import { fetchKnobCatalog, plane1SwitchCatalog } from "../knobCatalog.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
@@ -77,8 +77,19 @@ const ownCatalog = ref({});
 const catalogMap = computed(() =>
   Object.keys(props.catalog).length ? props.catalog : ownCatalog.value);
 const modelName = (id) => models.value.find((m) => m.id === id)?.name || id;
+// The add-config picker offers only MEMBERS of the class being edited (same
+// membership rule as everywhere, 2026-07-26) — offering a model the class can't
+// run invites a switch set that never applies. Embeds excluded as before. The
+// already-picked model stays listed even if data changed under it, so an open
+// editor never shows a blank select.
 const modelOptions = computed(() =>
-  models.value.map((m) => ({ label: m.name || m.id, value: m.id })));
+  models.value
+    .filter((m) => embeddingById.value[m.id] !== true)
+    .filter((m) => !editingConfig.value?.classKey
+      || m.id === editingConfig.value.modelId
+      || modelBelongsToClass(m.minVramMb, m.minRamMb,
+           classes.value.find((c) => c.classKey === editingConfig.value.classKey)))
+    .map((m) => ({ label: m.name || m.id, value: m.id })));
 
 // The model-configs grouped under their class key.
 const configsByClass = computed(() => {
@@ -97,13 +108,20 @@ const configsByClass = computed(() => {
 // /embed/i name guess, which bge-m3 defeats (useCatalogMeta.js:30-36).
 // GLOBAL mount only: in the per-model mount `tunes` is filtered to one model, so every
 // OTHER model would falsely read as untested.
-const untestedByClass = computed(() => {
+// MEMBERS only (the user's ruling, 2026-07-26, after seeing a 70B listed under
+// "Integrated GPU · 32 GB" as merely "not tested"): a class lists the models that can
+// actually RUN on its hardware — modelBelongsToClass, the same rule the catalog row's
+// "Runs on:" line reads — and of those, this map holds the ones with no switches yet.
+// A model that cannot run on the class simply is not there; "no switches yet" is only
+// ever said where Add switches would make sense.
+const unconfiguredMembersByClass = computed(() => {
   const map = {};
   if (!globalMode.value) return map;
   for (const c of classes.value) {
     const have = new Set((configsByClass.value[c.classKey] || []).map((t) => t.modelId));
     map[c.classKey] = models.value
-      .filter((m) => !have.has(m.id) && embeddingById.value[m.id] !== true)
+      .filter((m) => !have.has(m.id) && embeddingById.value[m.id] !== true
+        && modelBelongsToClass(m.minVramMb, m.minRamMb, c))
       .map((m) => ({ id: m.id, name: m.name || m.id }));
   }
   return map;
@@ -479,19 +497,21 @@ async function runImport() {
                 </tr>
               </tbody>
             </table>
-            <!-- Every OTHER chat model, said out loud instead of silently omitted
-                 (2026-07-26). Collapsed, because the tested configs are the headline;
-                 open, each row states the honest truth — no switches — and offers the
-                 one action that changes it. -->
-            <template v-if="(untestedByClass[c.classKey] || []).length">
+            <!-- The class's OTHER members — models that can run on this hardware but
+                 carry no switches yet (2026-07-26; membership-filtered, so a model
+                 that could never run here is not listed at all). Collapsed, because
+                 the configured models are the headline; open, each row states the
+                 honest truth — no switches yet — and offers the one action that
+                 changes it. -->
+            <template v-if="(unconfiguredMembersByClass[c.classKey] || []).length">
               <button type="button" class="lu-ct-untbtn lu-muted" @click="toggleUntested(c.classKey)">
                 {{ showUntested[c.classKey] ? "▾" : "▸" }}
-                {{ untestedByClass[c.classKey].length }} more
-                {{ untestedByClass[c.classKey].length === 1 ? "model" : "models" }} — not tested on this class
+                {{ unconfiguredMembersByClass[c.classKey].length }} more
+                {{ unconfiguredMembersByClass[c.classKey].length === 1 ? "model" : "models" }} in this class — no switches yet
               </button>
               <table v-if="showUntested[c.classKey]" class="lu-ct-tbl">
                 <tbody>
-                  <tr v-for="m in untestedByClass[c.classKey]" :key="m.id">
+                  <tr v-for="m in unconfiguredMembersByClass[c.classKey]" :key="m.id">
                     <td class="lu-ct-model">{{ m.name }}</td>
                     <td class="lu-ct-sum lu-muted">no switches</td>
                     <td class="lu-ct-act">

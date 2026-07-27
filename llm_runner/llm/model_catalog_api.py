@@ -113,6 +113,10 @@ class InspectResponse(BaseModel):
     samplers: dict[str, str] = Field(default_factory=dict)  # recommended samplers (read-only fact)
     sizeBytes: int = 0          # real total weight size (summed shards) — the download size
     estVramMb: int | None = None  # est. VRAM to fully offload at 8K ctx (real header + size)
+    # est. system RAM floor from the download size (file + 4 GB, snapped to a real RAM
+    # rung). Declared HERE because this response_model would otherwise silently strip
+    # it — the Add form's Min RAM would stay blank and the model would match no PC class.
+    estRamMb: int | None = None
     # Tier-C (2026-07-13): a borrowable OFFICIAL companion drafter, discovered when the
     # model has no built-in MTP and none in its own repo — "" when none was found.
     mtpInheritedRepo: str = ""

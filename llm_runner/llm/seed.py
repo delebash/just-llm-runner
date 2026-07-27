@@ -154,6 +154,18 @@ DEFAULT_PROVIDERS: list[dict] = [
 # total). The tuning UI (#20) measures real. `use_limited` is auto-derived from `license`
 # (a use-limited model — e.g. the Llama Community license — is carried as a FLAG, never an
 # auto-default). `embedding` marks an embed model; `pooling` is intrinsic per embed model.
+# FLOORS ARE BINARY MB OF A REAL MEMORY SIZE — 8 GB is 8192, never 8000 (the UI divides by
+# 1024, so a decimal-thousands value renders as "7.8 GB"/"23 GB", the exact odd numbers the
+# user banned 2026-07-27: "vram and ram usually only come in even sizes and certainly not 8.5").
+# The three judgment calls in that 2026-07-27 snap, so nobody re-derives them by arithmetic:
+# the 12B's VRAM 8500→8192 (the user's own bench — 39.1 tok/s at ngl 99 on their 8 GB card;
+# it is the vram8|ram16 band pick, so a floor ABOVE 8 GB contradicted that ruling); the 70B's
+# VRAM 46000→49152 (48 GB is a real workstation card, 46 GB is nothing); the 27B's VRAM
+# 20000→20480 (20 GB cards exist — RTX 4000 Ada, RX 7900 XT). GLM's RAM floor was normalized
+# 64000→65536 only; whether it should be 96 GB is an open user call, not settled here.
+# EMBED rows keep their decimal floors deliberately: they are never displayed on a row
+# (LuModelCatalog gates the Needs-line with !embeddingOf(m)) and they steer wizard placement,
+# so changing them is behavior risk for zero display gain.
 DEFAULT_CATALOG: list[dict] = [
     # ── Curated hardware ladder — GEMMA-FIRST for writing (user decision 2026-07-06 night:
     # "make the gemma lineup instead of qwen" + "add gryphe and ye" + "add auhauCS/Gemma4-26B",
@@ -176,7 +188,7 @@ DEFAULT_CATALOG: list[dict] = [
      "hf_repo": "unsloth/gemma-4-12B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "12B",
      "mtp": True, "est_vram_mb": 10721, "mtp_draft_file": "MTP/mtp-gemma-4-12B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
-     "min_ram_mb": 12000, "min_vram_mb": 8500, "tier": "mid", "license": "Apache-2.0", "position": 0,
+     "min_ram_mb": 12288, "min_vram_mb": 8192, "tier": "mid", "license": "Apache-2.0", "position": 0,
      "quality_rank": 22, "architecture": "gemma4", "experts": 0,
      "size_label": "12B", "size_bytes": 6716355328,
      "description": "12B model · 256k context · MTP draft for faster generation · UD-Q4_K_XL (QAT)",
@@ -204,7 +216,7 @@ DEFAULT_CATALOG: list[dict] = [
     {"id": "gemma-4-e4b-qat", "mtp": False, "mtp_draft_quant": "Q4_K_S", "mtp_draft_file": "gemma-4-E4B-it-assistant.Q4_K_S.gguf", "mtp_draft_repo": "AtomicChat/gemma-4-E4B-it-assistant-GGUF", "est_vram_mb": 5411, "size_bytes": 4215695776, "size_label": "7.5B", "trained_ctx": 131072, "name": "Gemma 4 E4B (QAT)",
      "hf_repo": "unsloth/gemma-4-E4B-it-qat-GGUF", "quant": "UD-Q4_K_XL", "total_params": "E4B",
      "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
-     "min_ram_mb": 8000, "min_vram_mb": 6000, "tier": "mid", "license": "Apache-2.0", "position": 0,
+     "min_ram_mb": 8192, "min_vram_mb": 6144, "tier": "mid", "license": "Apache-2.0", "position": 0,
      "quality_rank": 23, "architecture": "gemma4", "experts": 0,
      "description": "E4B model · 128k context · UD-Q4_K_XL (QAT)",
      "notes": "Made for laptops with integrated graphics, where the GPU shares system memory. Small and quick, and holds its quality well for the size."},
@@ -222,7 +234,7 @@ DEFAULT_CATALOG: list[dict] = [
     {"id": "llama-3.3-70b-q4_k_m", "est_vram_mb": 45768, "name": "Llama 3.3 70B Instruct · Q4_K_M",
      "hf_repo": "unsloth/Llama-3.3-70B-Instruct-GGUF", "quant": "Q4_K_M", "total_params": "70B",
      "trained_ctx": 131072,
-     "min_ram_mb": 48000, "min_vram_mb": 46000, "tier": "high-ram", "license": "Llama-Community", "position": 2,
+     "min_ram_mb": 49152, "min_vram_mb": 49152, "tier": "high-ram", "license": "Llama-Community", "position": 2,
      "quality_rank": 11, "architecture": "llama", "experts": 0,
      "size_label": "70B", "size_bytes": 42520398432,
      "description": "70B model · 128k context · Q4_K_M",
@@ -243,7 +255,7 @@ DEFAULT_CATALOG: list[dict] = [
      # mtp True: the GGUF header carries nextn_predict_layers (live header read 2026-07-07
      # — the seed said False; the strict-diff caught it). Built-in MTP, no external draft.
      "mtp": True, "est_vram_mb": 71354, "mtp_builtin": True, "trained_ctx": 131072,
-     "min_vram_mb": 12000, "min_ram_mb": 64000, "tier": "high-ram", "license": "MIT", "position": 4,
+     "min_vram_mb": 12288, "min_ram_mb": 65536, "tier": "high-ram", "license": "MIT", "position": 4,
      "quality_rank": 10, "architecture": "glm4moe", "experts": 128,
      "size_label": "128x9.4B", "size_bytes": 67721071872,
      "description": "106B mixture-of-experts model · 128k context · MTP for faster generation · UD-Q4_K_XL",
@@ -265,7 +277,7 @@ DEFAULT_CATALOG: list[dict] = [
      "hf_repo": "unsloth/Qwen3.6-27B-MTP-GGUF", "quant": "UD-Q4_K_XL",
      "total_params": "27B",
      "samplers": {"top_k": "20", "top_p": "0.95", "temperature": "1"},
-     "min_vram_mb": 20000, "min_ram_mb": 24000, "tier": "high", "license": "Apache-2.0", "position": 3,
+     "min_vram_mb": 20480, "min_ram_mb": 24576, "tier": "high", "license": "Apache-2.0", "position": 3,
      "quality_rank": 14, "architecture": "qwen35", "experts": 0,
      "description": "27B model · 256k context · MTP for faster generation · UD-Q4_K_XL",
      "notes": "Built for 24 GB graphics cards — runs fully on one. A strong general model; its fiction writing is untried in this app, so compare it with the default before switching. Never selected automatically."},
@@ -290,7 +302,7 @@ DEFAULT_CATALOG: list[dict] = [
      "hf_repo": "mradermacher/Gemma-4-26B-A4B-StyleTune-V2-GGUF", "quant": "Q4_K_M",
      "total_params": "26B", "active_params": "4B", "type": "moe",
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
-     "min_vram_mb": 4000, "min_ram_mb": 24000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 5,
+     "min_vram_mb": 4096, "min_ram_mb": 24576, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 5,
      "quality_rank": 12, "architecture": "gemma4", "experts": 128,
      "size_label": "26B-A4B", "size_bytes": 17211252288,
      "description": "26B mixture-of-experts model · 256k context · Q4_K_M",
@@ -321,7 +333,7 @@ DEFAULT_CATALOG: list[dict] = [
      "mtp": True, "mtp_draft_repo": "unsloth/gemma-4-26B-A4B-it-qat-GGUF",
      "mtp_draft_file": "MTP/mtp-gemma-4-26B-A4B-it-Q4_0.gguf", "mtp_draft_quant": "Q4_0",
      "trained_ctx": 262144, "samplers": {"top_k": "64", "top_p": "0.95", "temperature": "1"},
-     "min_vram_mb": 4000, "min_ram_mb": 24000, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 6,
+     "min_vram_mb": 4096, "min_ram_mb": 24576, "tier": "low-vram-moe", "license": "Apache-2.0", "position": 6,
      "quality_rank": 13, "architecture": "gemma4", "experts": 128,
      "size_bytes": 14329791488,
      "description": "26B mixture-of-experts model · 256k context · MTP draft for faster generation · Q4_K_XXL (QAT, refusal-ablated)",

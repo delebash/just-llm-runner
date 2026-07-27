@@ -254,7 +254,10 @@ async function loadAssigned(m, isEmbed) {
 const busy = ref(""); // CATALOG-op id in flight (delete) — distinct from the shared loadingId
 
 // ── Fit + size display ─
-const gb = (mb) => (mb >= 10240 ? `${Math.round(mb / 1024)}` : `${(mb / 1024).toFixed(1)}`);
+// Sub-10 GB keeps one decimal for a genuine half (4.5), but the unary + drops a trailing
+// ".0" so a real 8 GB floor reads "8", not "8.0" (2026-07-27, same ruling that snapped the
+// seed floors to binary MB: "vram and ram usually only come in even sizes").
+const gb = (mb) => (mb >= 10240 ? `${Math.round(mb / 1024)}` : `${+(mb / 1024).toFixed(1)}`);
 function fitLabel(m) {
   // Embedding rows show WHERE THE POLICY PUTS THEM, not a raw-card VRAM grade
   // (2026-07-25, the user's catch: the old chip said "Fits · needs ~6.8 GB VRAM"
@@ -688,6 +691,10 @@ async function inspectLink() {
     e.trainedCtx = r.trainedCtx ?? null;
     if (r.totalParams) e.totalParams = r.totalParams; // file-derived (dense); MoE stays curated
     if (!e.minVramMb && r.estVramMb) e.minVramMb = r.estVramMb;
+    // The RAM floor's mirror (2026-07-27): nothing ever filled Min RAM, so a hand-added
+    // model kept an empty floor and belonged to NO PC class (classTunes.js:132 needs
+    // BOTH). Fill-when-blank only — a typed value is never touched.
+    if (!e.minRamMb && r.estRamMb) e.minRamMb = r.estRamMb;
     // Identity facts persist on the row (#141 — Edit-open == Read-from-link):
     e.architecture = r.architecture || "";
     e.experts = r.experts || 0;
@@ -1384,7 +1391,7 @@ refreshApplied();
           <label class="lu-mm-l">Query template <span class="lu-muted">applied to questions/searches</span><UiTextarea v-model="editingTpl.queryTemplate" placeholder="search_query: {text}" /></label>
         </template>
 
-        <div class="lu-mm-note"><b>Fit estimate</b> — a pre-download guess so the list can show “will it fit?”; once downloaded the GGUF sets the real fit.</div>
+        <div class="lu-mm-note"><b>Fit estimate</b> — a pre-download guess, filled in from the file when you Read from link, so the list can show “will it fit?”. Both numbers stay yours to edit.</div>
         <div class="lu-mm-row">
           <label class="lu-mm-l">Total params<UiInput v-model="editing.totalParams" placeholder="14B" /></label>
           <label class="lu-mm-l">Active params <span class="lu-muted">MoE only</span><UiInput v-model="editing.activeParams" placeholder="3.6B" /></label>

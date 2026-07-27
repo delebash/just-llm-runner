@@ -299,6 +299,25 @@ def test_inspect_model_from_link(monkeypatch):
     assert out["samplers"] == {"temperature": "1", "top_k": "20"}  # canonicalized + number-cleaned
     assert out["sizeBytes"] == 17_000_000_000
     assert out["estVramMb"] and out["estVramMb"] > 0  # estimate_vram_mb fed the REAL header + size
+    # The Min-RAM floor's pre-download guess rides the SAME payload (2026-07-27) —
+    # 17 GB file + 4 GB headroom snaps to the 24 GB rung.
+    assert out["estRamMb"] == 24 * 1024
+
+
+def test_est_ram_mb_from_bytes_snaps_to_real_ram_rungs():
+    """The size-only RAM rule (seed.py:151-154: dense = weights + overhead, MoE = the
+    whole file in RAM) — file MB + 4096, snapped UP to a rung a real PC ships."""
+    assert identity.est_ram_mb_from_bytes(None) is None
+    assert identity.est_ram_mb_from_bytes(0) is None
+    assert identity.est_ram_mb_from_bytes(1_500_000_000) == 8 * 1024  # small file → floor rung
+    # Exact-rung boundary: 4.096 GB + 4096 MB headroom == 8192 MB, must NOT climb.
+    assert identity.est_ram_mb_from_bytes(4_096_000_000) == 8 * 1024
+    assert identity.est_ram_mb_from_bytes(4_096_000_001) == 10 * 1024  # one byte over → next rung
+    # The seeded exhibits (calibration, 2026-07-27): the 12B and the 26B-A4B flagship.
+    assert identity.est_ram_mb_from_bytes(6_716_355_328) == 12 * 1024
+    assert identity.est_ram_mb_from_bytes(17_211_252_288) == 24 * 1024
+    # Past the top rung (128 GB) the ladder ends → round up to the next 32 GB.
+    assert identity.est_ram_mb_from_bytes(200_000_000_000) == 224 * 1024
 
 
 def test_inspect_uses_generation_config_fallback(monkeypatch):

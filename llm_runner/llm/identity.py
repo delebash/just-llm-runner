@@ -16,6 +16,8 @@ GLM headers both carry `<arch>.nextn_predict_layers`).
 
 from __future__ import annotations
 
+import math
+
 from ..runner.fit import parse_params
 from ..runner.gguf import GgufMeta, read_gguf_metadata
 from . import stores
@@ -181,6 +183,71 @@ def est_vram_mb_from_meta(meta, total_bytes) -> int | None:
     ))
 
 
+# The real-RAM ladder a PC actually ships (GB) — the rungs the Add form's Min RAM
+# floor is allowed to land on, so a hand-added model names a REAL machine size
+# rather than an odd number no class ever matches.
+_RAM_RUNGS_GB = (8, 10, 12, 16, 24, 32, 48, 64, 96, 128)
+# OS + engine + KV + working set on top of the weights (the seeded rows' "overhead").
+_RAM_HEADROOM_MB = 4096
+
+
+def est_ram_mb_from_bytes(total_bytes) -> int | None:
+    """The Add-form Min-RAM estimate, from the download size ALONE (hence
+    `from_bytes`, not `from_meta`: nothing in the GGUF header enters the rule, so no
+    unused parameter pretends otherwise).
+
+    The rule, transcribed from the seeded catalog's own documented basis
+    (`llm_runner/llm/seed.py:151-154` — dense: weights-in-RAM + overhead; MoE: the
+    FULL model in RAM because experts offload to RAM): ONE formula covers both,
+    because both end up holding the whole file. So: file size in MB (decimal, the
+    same 1e6 convention `est_vram_mb_from_meta` uses) + 4096 MB headroom, snapped UP
+    to the first rung of `_RAM_RUNGS_GB` (returned in MB). Past the top rung there is
+    no ladder left, so the computed need is rounded up to the next 32 GB. Falsy size
+    (unknown/unread) → None: the form leaves the field blank rather than guess.
+
+    CALIBRATION (re-checked 2026-07-27 AFTER the floors were snapped to binary MB,
+    against all ten seeded rows that carry both `min_ram_mb` and `size_bytes`): 8/10
+    land on the seeded RUNG. Five of those eight — every CHAT row that matches:
+    `gemma-4-12b-qat` 12288, `llama-3.3-70b-q4_k_m` 49152, `qwen3.6-27b`,
+    `gryphe-styletune-v2` and `gemma-4-26b-a4b-uncensored-ez` 24576 — are now
+    BYTE-equal to the rule's output, because the snap put the chat floors on the same
+    binary rungs this ladder returns. The other three (the embed rows: 8000/10000/12000
+    against 8192/10240/12288) match at the rung but not to the byte, deliberately: embed
+    floors were left decimal in the 2026-07-27 snap (never displayed on a row, and they
+    steer wizard placement). `gemma-4-e4b-qat` is the one genuine miss: seeded 8 GB where
+    the rule says 10, erring toward MORE RAM, which is the safe direction for a floor.
+
+    KNOWN BLIND SPOT — `glm-4.5-air`, and it is THIS FUNCTION that is wrong there, not the
+    seed (user's call, 2026-07-27, after the two-pool arithmetic was put to them). The rule
+    reads the file size ALONE, so it charges the WHOLE model to RAM. That holds on a
+    CPU-only box and breaks on any row that also carries a VRAM floor, where part of the
+    weights live on the card. GLM declares 12 GB VRAM beside its 64 GB RAM (seed.py:258):
+    12 + 64 = 76 GB of memory for a 67.7 GB model, so ~56 GB plus overhead in RAM is
+    coherent and 64 GB stands. The rule says 96 only because it ignores the 12 GB on the
+    GPU. GLM is the only seeded row big enough for that gap to cross a rung, which is why
+    it is the one that exposes this.
+
+    The blind spot is left IN PLACE deliberately: a hand-added model has no VRAM floor yet
+    when this runs (the user types that field, or it arrives from `est_vram_mb_from_meta`
+    in the same read), and over-stating a floor is the safe error for a number whose job is
+    to say "this will not fit". Fixing it means deciding how much of a file to charge to
+    VRAM — a real design call, not a tweak. NOT proven by anyone running GLM on a 64 GB
+    box; nobody here owns one. This is arithmetic across two pools plus the seed author's
+    original judgement, which the user declined to overturn.
+
+    The seeded rows are NOT re-derived from this function — it only fills a BLANK field on
+    the Add/Edit form.
+    """
+    if not total_bytes:
+        return None
+    need_mb = math.ceil(total_bytes / 1e6) + _RAM_HEADROOM_MB
+    for rung_gb in _RAM_RUNGS_GB:
+        if need_mb <= rung_gb * 1024:
+            return rung_gb * 1024
+    step = 32 * 1024
+    return math.ceil(need_mb / step) * step
+
+
 def inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> dict:
     """PRE-download: range-read the GGUF header from the HF link (no weights) and
     return the file-derived catalog facts + the real download size + a VRAM estimate,
@@ -223,6 +290,10 @@ def inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> di
         "trainedCtx": fields["trained_ctx"], "experts": meta.expert_count,
         "sizeLabel": meta.size_label, "totalParams": fields["total_params"] or "",
         "samplers": fields["samplers"], "sizeBytes": int(total), "estVramMb": est_vram_mb,
+        # The Min-RAM floor's pre-download guess (size-only rule — see
+        # est_ram_mb_from_bytes); the VRAM estimate's mirror, so BOTH class floors
+        # arrive filled and a hand-added model can belong to a PC class at all.
+        "estRamMb": est_ram_mb_from_bytes(total),
         # Tier-C: a borrowable OFFICIAL drafter when the model has no MTP of its own.
         "mtpInheritedRepo": (inherited or {}).get("repo", ""),
         "mtpInheritedFile": (inherited or {}).get("file", ""),

@@ -14,11 +14,14 @@
 // purpose, which calls refresh() itself.
 //
 // `hardware` is exposed RAW as well as through the accessors, because two consumers need
-// fields no accessor should guess at: QuickSetup renders the whole probe, and
-// AiModelsArea builds a change fingerprint from `gpus[0]` — deliberately left on the first
-// GPU rather than corrected to the largest, since changing that rule would mismatch every
-// stored `ackHwFingerprint` once and fire a spurious "your graphics hardware changed"
-// toast at every user. Fixing it is a separate change with a migration question attached.
+// fields no accessor should guess at: QuickSetup renders the whole probe, and AiModelsArea
+// fingerprints a FRESH response (see `largestGpu` below for why that one is pure).
+//
+// This header used to say AiModelsArea's fingerprint was "deliberately left on gpus[0],
+// with a migration question attached". That is no longer true — it was corrected the next
+// day (2026-07-27, the user's go), and the accepted cost is one spurious "your graphics
+// hardware changed" toast, ONCE, on machines whose first-listed GPU is not their largest.
+// Nothing in the kit reads `gpus[0]` any more; a grep that finds it is finding prose.
 import { computed, ref } from "vue";
 
 import { request } from "../client.js";
@@ -30,17 +33,24 @@ const hardware = ref(null);
  *  do not cover. */
 export const hardwareInfo = hardware;
 
-/** THE GPU this box serves from: the LARGEST, which is the server's own rule
- *  (`max_vram_mb`, hardware.py:45, and the class-key builder at :212). Never `gpus[0]` —
- *  that names the iGPU on laptops that enumerate it first, and every consumer here that
- *  reached for `gpus[0]` meant "this machine's card". null on a CPU-only box. */
-export const mainGpu = computed(() => {
-	const gpus = hardware.value?.gpus || [];
-	if (!gpus.length) return null;
-	return gpus.reduce((best, g) =>
-		(g.vramMb || 0) > (best.vramMb || 0) ? g : best,
-	);
-});
+/** THE rule, as a PURE function over a gpus array: the LARGEST GPU wins, which is the
+ *  server's own rule (`max_vram_mb`, hardware.py:45, and the class-key builder at :212).
+ *  Never `gpus[0]` — that names the iGPU on laptops that enumerate it first, and every
+ *  consumer here that reached for `gpus[0]` meant "this machine's card". null on a
+ *  CPU-only box.
+ *
+ *  Pure, rather than only the computed below, because ONE caller legitimately holds a
+ *  response the ref has not been read from yet — AiModelsArea's change detector compares
+ *  a FRESH probe against the stored fingerprint. Without this it would re-implement the
+ *  max, which is exactly how the three call sites drifted apart in the first place. */
+export function largestGpu(gpus) {
+	const list = gpus || [];
+	if (!list.length) return null;
+	return list.reduce((best, g) => ((g.vramMb || 0) > (best.vramMb || 0) ? g : best));
+}
+
+/** THE GPU this box serves from, reactively. */
+export const mainGpu = computed(() => largestGpu(hardware.value?.gpus));
 
 /** VRAM of that GPU, in MB; 0 when unknown, which every consumer already treats as
  *  "CPU only". */
@@ -76,7 +86,9 @@ export async function refresh() {
 	return hardware.value;
 }
 
-/** Shared hardware. Every consumer gets the SAME refs; call refresh() on open. */
+/** Shared hardware. Every consumer gets the SAME refs; call refresh() on open.
+ *  `largestGpu` rides along so a consumer can destructure it here rather than adding a
+ *  second import line — and so the contract test polices it like every other name. */
 export function useHardware() {
-	return { hardwareInfo, mainGpu, maxVramMb, ramMb, hardwareLabel, refresh };
+	return { hardwareInfo, mainGpu, largestGpu, maxVramMb, ramMb, hardwareLabel, refresh };
 }

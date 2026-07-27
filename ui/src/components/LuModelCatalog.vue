@@ -379,7 +379,7 @@ const embeddingGone = computed(() =>
 // TOTAL card VRAM — feeds the embed-leftover pick below (leftover = the card minus
 // the chat pick's floor). NOT useRunnerModels' vramMb: that is the budget-aware
 // REMAINING VRAM (the /models endpoint subtracts the resident set) — with a model
-// loaded it would shrink the leftover math. Read gpus[0].vramMb from /hardware.
+// loaded it would shrink the leftover math.
 // (The model recommendation itself no longer takes VRAM — §9, 2026-07-22: it keys
 // on this box's CLASS via the catalog response's classTuneRefs + myClassKey.)
 // The box's card, from the SHARED probe (2026-07-27). This used to be a private fetch

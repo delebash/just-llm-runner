@@ -73,7 +73,7 @@ const providers = ref([]);
 // The box probe comes from the SHARED singleton (2026-07-27) — this file used to hold
 // TWO independent fetches of /v1/llm-runner/hardware, the strip below and the change
 // detector, alongside three more across the kit.
-const { hardwareInfo: hardware, refresh: refreshHardware } = useHardware();
+const { hardwareInfo: hardware, mainGpu, largestGpu, refresh: refreshHardware } = useHardware();
 const usage = ref(null);
 const loading = ref(true);
 const error = ref("");
@@ -96,7 +96,10 @@ const shownProviders = computed(() => (providerScope.value === "online" ? cloudP
 const hwLabel = computed(() => {
   const h = hardware.value;
   if (!h) return null;
-  const gpu = h.gpus && h.gpus[0];
+  // The LARGEST GPU, not the first: on a laptop that enumerates its iGPU first, `gpus[0]`
+  // made this strip name the wrong card (fixed 2026-07-27 — the rule now lives once, in
+  // useHardware, and matches the server's own `max_vram_mb`).
+  const gpu = mainGpu.value;
   // Every detected runtime, with the one the engine actually uses marked (priority =
   // select_binary's pick order: cuda → rocm → vulkan → cpu). A bare "CUDA / VULKAN"
   // read as a question (user, 2026-07-06) — both APIs ship with the ONE GPU driver;
@@ -357,7 +360,16 @@ async function checkHardwareChange() {
     // A FRESH read on purpose: this compares against the stored fingerprint, so reading a
     // cached value could miss the very change it exists to notice.
     const h = await refreshHardware();
-    const g = (h?.gpus && h.gpus[0]) || null;
+    // The LARGEST GPU, matching the strip and the server's own `max_vram_mb` rule. Read
+    // through the shared pure helper rather than the reactive accessor, so the fingerprint
+    // is built from THIS response and cannot depend on when the ref was last read.
+    // Changing this rule (2026-07-27, the user's go — "but it is ok, continue") makes the
+    // fingerprint DIFFER on any box whose first-listed GPU is not its largest, so one
+    // stale `ackHwFingerprint` fires a single "your graphics hardware changed" toast that
+    // no hardware change caused. Accepted knowingly: it is one notice, once, on multi-GPU
+    // machines only, against a strip and a fit calculation that were naming the wrong card
+    // permanently.
+    const g = largestGpu(h?.gpus);
     const fp = g ? `${g.name}|${g.vramMb || 0}` : "cpu|0";
     const cfg = await request("/v1/ai/engine-config");
     const stored = (cfg?.ackHwFingerprint || "").trim();

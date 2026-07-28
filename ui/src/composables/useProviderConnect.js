@@ -16,6 +16,10 @@ export const PROVIDER_PRESETS = [
   ["Local engine", "http://localhost:8080/v1", "openai-compat", true],
   ["Ollama", "http://localhost:11434", "ollama", true],
   ["LM Studio", "http://localhost:1234/v1", "openai-compat", true],
+  // Unsloth Studio speaks OpenAI-compatible; port from its own docs' curl example
+  // (8888), which is the one it prints — see the seed row's comment for why it is
+  // NOT in detect-local (it requires a Bearer key on every request).
+  ["Unsloth Studio", "http://localhost:8888/v1", "openai-compat", true],
   ["OpenAI", "https://api.openai.com/v1", "openai", false],
   ["Anthropic", "https://api.anthropic.com", "anthropic", false],
   ["Gemini", "https://generativelanguage.googleapis.com", "gemini", false],

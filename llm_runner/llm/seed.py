@@ -129,6 +129,23 @@ DEFAULT_PROVIDERS: list[dict] = [
     # LM Studio's NATIVE surface (/api/v0, JIT model loading) is ever wanted.
     {"id": "lmstudio", "name": "LM Studio (local)",
      "provider_type": "openai-compat", "base_url": "http://localhost:1234/v1", "local": True},
+    # Unsloth Studio (user, 2026-07-28: "add unsloth provider"). Same treatment as LM
+    # Studio above and for the same reasons: it speaks OpenAI-compatible, so the generic
+    # `openai-compat` adapter is right and a dedicated type would buy a label while
+    # costing ~8 parallel type lists. Base URL is from Unsloth's OWN curl example
+    # (https://unsloth.ai/docs/basics/api — `curl http://localhost:8888/v1/models`);
+    # their docs also say "typically 8000 or 8888" and never name one authoritative
+    # default, so a user serving on 8000 must edit this row. Flagged, not guessed.
+    # DELIBERATELY NOT ADDED to detect-local (provider_api.py:230-235): that probe GETs
+    # /v1/models with no key, and Unsloth requires `Authorization: Bearer sk-unsloth-…`
+    # on EVERY request with no documented way to disable it — so the probe could only
+    # ever 401, i.e. it would be dead code that implies a capability we do not have.
+    # This does NOT replace the bundled engine: we run raw llama-server because
+    # --n-cpu-moe is the deciding switch and the GUI runners do not reliably expose it
+    # (docs/plans/2026-06-24-llamacpp-switches.md:488-495). Unsloth Studio is an
+    # OPTIONAL provider a user may already run, never the engine layer.
+    {"id": "unsloth", "name": "Unsloth Studio (local)",
+     "provider_type": "openai-compat", "base_url": "http://localhost:8888/v1", "local": True},
     {"id": "openai", "name": "OpenAI",
      "provider_type": "openai", "base_url": "https://api.openai.com/v1", "local": False},
     {"id": "claude", "name": "Claude (Anthropic)",

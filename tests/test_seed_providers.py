@@ -27,6 +27,11 @@ _EXPECTED = {
     # LM Studio rides the generic openai-compat adapter (2026-07-19) — seeded so it is
     # PRESENT out of the box like Ollama, not merely reachable via the preset chip.
     "lmstudio": ("openai-compat", "http://localhost:1234/v1"),
+    # Unsloth Studio joins on the same terms (2026-07-28) — generic openai-compat
+    # adapter, seeded so it is PRESENT out of the box. Port is from Unsloth's own
+    # documented curl example; it is deliberately absent from detect-local because
+    # its API requires a Bearer key that an unauthenticated probe cannot supply.
+    "unsloth": ("openai-compat", "http://localhost:8888/v1"),
     "openai": ("openai", "https://api.openai.com/v1"),
     "claude": ("anthropic", "https://api.anthropic.com"),
     "gemini": ("gemini", "https://generativelanguage.googleapis.com"),

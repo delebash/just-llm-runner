@@ -101,7 +101,10 @@ pip install -e ../just-llm-runner
 ## Status
 The shared stack is live in both apps (JustWrite fully; JustVoice pending
 convergence). Current state + open work: the outstanding master plan in
-`docs/plans/` (kept twice-verified). The test suite runs with
-`python -m pytest` — several hundred tests, all green at every commit.
+`docs/plans/` (kept twice-verified). The test suite is ~710 tests and runs on
+JustWrite's venv (this repo has none of its own — see `CLAUDE.md`):
+`../justwrite-app/.venv/Scripts/python.exe -m pytest -q`. All green except one
+known-bad on Windows, `test_hardware.py::test_pci_gpus_linux_lspci_name_match`,
+which exercises a Linux `lspci` path.
 
 SPDX-License-Identifier: GPL-3.0-or-later

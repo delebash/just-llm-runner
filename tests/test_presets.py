@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The engine-preset router + resolver — CRUD, the default/per-action-ref assignment
 layers, the ref → default resolve (2026-07-15 one-source; the task tier is gone), the
 dangling fall-through, and the factory resets, over an in-memory DB."""

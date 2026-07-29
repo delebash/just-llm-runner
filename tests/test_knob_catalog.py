@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """knob_catalog — the friendly KnobGrid metadata (C1): seed, the options join,
 and the /v1/ai/knob-catalog endpoint."""
 

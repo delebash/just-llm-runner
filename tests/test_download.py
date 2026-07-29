@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The chunk-queue downloader (`stream_download`) against a REAL in-process HTTP server
 (offline, deterministic). Covers the contract: chunked (work-stealing) output is
 bytes-identical · single-stream fallback when the server has no Range support ·

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // THE one phase vocabulary for MODEL load / download / unload progress (T3,
 // 2026-07-17 approved plan — the user: the integrated UI speaks "terms with
 // quicksetup"). MOVED VERBATIM from QuickSetup.vue's local block (the 2026-07-15

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """GGUF identity auto-detect → model_catalog.type (design S3 / D17). Pure logic +
 the catalog write; the GGUF read is injected, so no real GGUF bytes are needed."""
 

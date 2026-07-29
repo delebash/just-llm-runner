@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared imperative, promise-based dialog API — replaces the browser's built-in
 // prompt() / confirm() (which leak "from localhost" chrome in dev and look out of
 // place in a packaged Tauri shell). App-agnostic; the host component (the shared

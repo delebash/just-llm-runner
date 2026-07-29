@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Mountable FastAPI router for the storage-free LLM endpoints.
 
 These endpoints need NO per-app persistence — they operate purely on the

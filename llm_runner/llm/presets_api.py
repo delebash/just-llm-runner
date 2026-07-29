@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared engine-preset router — the 2026-06-29 lab + preset model, narrowed by
 the §7.1 switches⇄params lock (2026-07-08).
 

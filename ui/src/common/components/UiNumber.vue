@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <script setup>
 // Shared number input — Intl.NumberFormat for locale-aware thousands separator
 // and decimal punctuation. While the user types, the raw value is preserved (so

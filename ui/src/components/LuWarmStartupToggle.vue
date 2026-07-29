@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <!--
   LuWarmStartupToggle — THE one "load the default local model into VRAM on startup"
   control. Bound to the shared useEngine() module singleton (warmDefaultOnStartup +

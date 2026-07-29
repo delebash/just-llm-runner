@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Hardware detection: NVIDIA compute-capability parse (+ old-driver fallback),
 the AMD ROCm-first / Vulkan-fallback routing, the sysfs/registry AMD-Intel scan
 (A1: rows with VRAM where the platform exposes it), and the Intel-Arc → Vulkan

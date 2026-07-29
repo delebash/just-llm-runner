@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared segmented radio control — a row of mutually-exclusive buttons.
 // Supersedes JwSegmented/JvSegmented/LuSegmented. Provides role="radiogroup" +
 // roving tabindex + arrow/Home/End nav + type-ahead, a "connected" variant, and

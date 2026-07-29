@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Dev/container-only: add the tiny CPU pipeline-test model to a RUNNING dev server's
 catalog — deliberately NOT part of any product seed (user, 2026-07-06: "no the catalog
 does not get a tiny cpu loaded model, not in its seed … you can seed that sperately for

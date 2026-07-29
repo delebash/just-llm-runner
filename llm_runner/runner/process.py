@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """P1.4 — spawn `llama-server` with a VRAM-fit flag set + probe-and-back-off.
 
 Three pieces:

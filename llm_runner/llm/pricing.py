@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Cloud pricing for the usage ledger. The AUTHORITATIVE source is the DB
 `model_pricing` table (seeded from `DEFAULT_PRICING` below, editable via
 `/v1/ai/pricing`); `DEFAULT_PRICING` is only the seed source + a no-DB fallback,

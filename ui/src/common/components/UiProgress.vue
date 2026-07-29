@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared progress bar. Determinate when `max > 0` (fills to value/max and shows
 // a %); indeterminate (animated sweep) when the total is unknown. Token-styled
 // so it renders native in either app. The kit had no progress bar before this.

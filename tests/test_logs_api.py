@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """make_logs_router — the ring feeds /tail + /download; the per-day files feed
 /days, /day, DELETE /day, DELETE /all; /clear empties the ring (Logs phase)."""
 

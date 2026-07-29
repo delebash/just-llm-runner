@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """make_disk_router — GET /v1/disk/usage sums the DB (+ its WAL/SHM sidecars),
 app logs, and the ai-cache buckets under the data dir, holds the spawn-logs subdir
 OUT of engineBuilds, reports free/total space, and treats missing dirs as 0."""

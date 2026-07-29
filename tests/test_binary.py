@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Binary selection + acquisition. HardwareInfo passed explicitly (no real
 detection) and network mocked, so tests run anywhere."""
 

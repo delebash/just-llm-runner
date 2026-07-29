@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """llama.cpp binary acquisition — select + download + unpack.
 
 Self-contained (uses this package's own hardware + download), so it runs

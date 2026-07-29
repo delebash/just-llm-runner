@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """P1.3 — GGUF model acquisition: quant-based file selection + HF cache write.
 Network (HF Hub API + file stream) is mocked, so the test runs anywhere."""
 

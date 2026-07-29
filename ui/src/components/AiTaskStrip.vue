@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Slim inline progress strip for a single in-flight AI task. Reads from
 // the global aiTasks store and renders elapsed, first-token latency,
 // tokens, tokens/s, stall freshness, plus Cancel and Details (opens the

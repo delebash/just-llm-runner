@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared knob-catalog client (C1's /v1/ai/knob-catalog) — ONE source for the
 // fetch + the Plane-1 switch-catalog map every KnobGrid consumer builds from it
 // (TuneMeasureModal and the LuClassTunes global mount both need it; the

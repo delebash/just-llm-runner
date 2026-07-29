@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Model identity auto-detection — read a model's GGUF header and ground its
 catalog capability fields in the FILE rather than a hand-typed guess: `type`
 (moe|dense from `expert_count`), `mtp` (from `nextn_predict_layers`), `trained_ctx`

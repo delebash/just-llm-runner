@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared switch-style boolean — visually distinct from a checkbox (use for
 // standalone on/off settings; use UiCheckbox for row/multi-select booleans).
 // Self-contained: scoped styles driven by the host's design tokens (safe

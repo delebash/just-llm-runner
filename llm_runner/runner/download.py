@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """File downloads (engine binaries + model GGUFs) — the industry-standard CHUNK-QUEUE design.
 
 HOW PROFESSIONAL DOWNLOADERS WORK (IDM "dynamic segmentation", aria2, Steam, hf_transfer):

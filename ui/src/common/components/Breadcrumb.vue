@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <script setup>
 // Shared breadcrumb trail. Each segment is { label, to?, onClick? }: a segment
 // with a `to` route or an `onClick` handler is clickable; the trailing (current)

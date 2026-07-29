@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The shared storage-free LLM router (classify-tier / usage / ping / models)."""
 
 from __future__ import annotations

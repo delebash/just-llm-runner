@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The hardware-class tune library (ROUND 8 Task C): the /v1/ai/class-tunes CRUD
 (server-derived current class via the injected class_key_fn; PUT replaces the
 (model, class) set wholesale and marks it user-owned) and the seeder's

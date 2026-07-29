@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared LLM provider/dispatch layer for JustVoice + JustWrite.
 
 The whole AI backend spine — provider adapters (cloud + local), a

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """install_llm — drop the ENTIRE shared LLM stack into any FastAPI app with ONE
 call. The app provides only its DB (engine + session factory) and its feature
 seed DATA; install_llm creates the LLM tables, wires storage, mounts every

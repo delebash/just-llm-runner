@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """AI usage ledger — tokens + duration per feature.
 
 Every dispatch.chat() call records one entry: feature, model, prompt /

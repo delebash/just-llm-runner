@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """OpenAI + OpenAI-shaped clouds — the official ``openai`` SDK (the 2026-07-17 SDK pivot,
 #15 C4).
 

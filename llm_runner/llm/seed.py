@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared LLM seed data + seeders + the per-app registration hook.
 
 SHARED seed data (identical for every app, shipped here): default providers, the

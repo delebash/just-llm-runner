@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Read a model's GGUF metadata from its HuggingFace link, BEFORE downloading
 the multi-GB weights (Phase 1, `docs/plans/2026-07-02-gguf-grounded-model-layer.md`).
 

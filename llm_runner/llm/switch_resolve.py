@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Resolve a model's effective spawn-flag switches by LAYERING the data-driven
 switch tables (design §6 + Plan B 2026-07-05). A pure read over the shared
 session; returns a `{flag_name: flag_value}` dict the runner turns into

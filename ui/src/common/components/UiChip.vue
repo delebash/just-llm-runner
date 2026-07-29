@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared selectable chip — a pill-shaped button (or link/span via `as`). Use one
 // for an on/off toggle or a status indicator; use a v-for of them for a
 // single-select filter group (caller owns the selected logic). For a *connected*

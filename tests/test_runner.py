@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """VRAM-fit, flag composition, and spawn + probe-and-back-off. The subprocess
 and health probe are injected, so this runs anywhere (no GPU, no llama-server
 binary, no model).

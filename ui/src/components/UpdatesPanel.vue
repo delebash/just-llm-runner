@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared Updates / Changelog panel — current version + rendered release notes.
 // The host passes its version and pre-rendered changelog HTML (the changelog
 // source + markdown renderer stay app-side; the presentation is shared). The

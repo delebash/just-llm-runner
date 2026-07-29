@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared in-app Help open-state + host configuration. App-agnostic: the kit
 // owns the drawer open-state (so HelpDrawer + every HelpTrigger share ONE
 // reactive source), while the host app supplies the CONTENT adapter

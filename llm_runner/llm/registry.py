@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """LLM provider registry.
 
 A singleton LLMRegistry holds the live adapter instances keyed by

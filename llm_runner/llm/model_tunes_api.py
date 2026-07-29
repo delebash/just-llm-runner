@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared model-tunes router — a user's MEASURED per-(model, machine) engine tune
 (Plan B, 2026-07-05). The persistence behind Tune & measure's Apply: a verbatim
 snapshot of the tuned switch grid, keyed by (model_id, hw_key), applied LAST by

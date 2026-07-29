@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // The bundled-runner model catalog — mounted under Providers → Built-in (next to the
 // Local engine panel). ONE fit-grouped list (fitting → divider → non-fitting) with
 // search + sort + Add-your-own-GGUF. Each row shows a hardware Fit estimate +

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """camelCase schemas — the shared contract for the runner.
 
 Two groups:

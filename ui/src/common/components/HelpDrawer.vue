@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <!--
   HelpDrawer — shared right-side slide-in help panel. Mounted ONCE in the host's
   App.vue; opens when helpState.slug !== null (set by openHelp(), which every

@@ -1,10 +1,10 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 [project]
 name = "llm-runner"
 version = "0.1.0"
 description = "Shared local-LLM runner core for JustVoice + JustWrite — detects hardware, manages/recommends GGUF models, downloads the right prebuilt llama.cpp (CUDA bundled), and spawns llama-server (OpenAI-compatible). Internal library; not published to PyPI."
 requires-python = ">=3.10"
-license = { text = "GPL-3.0-or-later" }
+license = { text = "MIT" }
 # Deliberately light deps — still NO ML (torch/transformers), so the JustWrite
 # sidecar bundle stays small. The three vendor SDKs below (the 2026-07-17 SDK pivot)
 # add ~15-25 MB installed (google-genai pulls google-auth + websockets) — no ML;

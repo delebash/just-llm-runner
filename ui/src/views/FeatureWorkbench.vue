@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Feature Workbench — "Routing by feature". The unit is the ACTION; "feature"
 // (writerAI, critique, …) is the visual group its actions live under. The LEFT list
 // groups actions by their nav `group` (display-only) and, per action, shows the engine

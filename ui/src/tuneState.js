@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared tune-provenance client (§7.6, 2026-07-08 — the B3-4 badge family).
 // ONE source for the /v1/ai/model-tunes/state fetch AND the badge wording, so
 // the model catalog's row badges and the Tune modal's header tag can never

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared platform (non-AI) server building blocks for same-stack apps.
 
 `llm_runner` is the shared backend kit both apps already depend on; this

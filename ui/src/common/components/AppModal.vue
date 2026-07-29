@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <!--
   AppModal — shared generic modal wrapper (Reka UI Dialog). Same API both apps
   call: eyebrow / title / wide / noPadding / closable / closeLabel props +

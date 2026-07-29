@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // useResolvedRoute — THE shared cache over GET /v1/ai/resolved-route (B5-1,
 // §7.2): what a run of a feature/action routes to RIGHT NOW (task preset →
 // dispatch fallback), computed SERVER-side by the run path's own functions so

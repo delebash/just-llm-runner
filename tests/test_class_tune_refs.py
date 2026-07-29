@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The class-config recommendation refs + the class-key override (§9 final ruled
 shape, 2026-07-22): the hidden class→model pick table is DELETED — the
 recommendation IS the visible class-tunes library. `list_class_tune_refs()`

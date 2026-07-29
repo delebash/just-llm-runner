@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // ConfigColumn — the FULL editor for ONE AI action's run config, and the reusable
 // unit behind BOTH surfaces (Decision 23, 2026-06-24: "the Feature view's editor
 // pane already IS one Compare column"). Rendered ×1 in Routing-by-feature (the

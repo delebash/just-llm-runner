@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared test-samples router (§7.3, 2026-07-08; re-keyed per ACTION 2026-07-15 —
 the task tier is gone) — the canned per-ACTION Lab samples ("sample data we have in
 database", the user's #30). GET lists (all, or one action's) for the Lab's Sample

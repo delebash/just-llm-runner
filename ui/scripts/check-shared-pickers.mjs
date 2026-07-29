@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // check-shared-pickers — the STRUCTURAL "use the shared component, don't hand-code
 // it each time" gate (jobs design §17.1).
 //

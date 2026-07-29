@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """P1.3 — GGUF model acquisition from HuggingFace.
 
 Resolves the real GGUF filename(s) for a model by matching its `quant`

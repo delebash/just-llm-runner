@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // The measurement HISTORY drawer (#142 rows 5+6, 2026-07-07) — a collapsed
 // `<details>` inside a model's Tune modal (the LuClassTunes drawer precedent,
 // per-model only). Every real decode-speed result persists in the DB — the Tune

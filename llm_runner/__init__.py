@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """just-llm-runner — shared local-LLM runner core for JustVoice + JustWrite.
 
 Detects hardware, manages/recommends GGUF models, downloads the right

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared provider-CRUD router behind a host-supplied storage boundary.
 
 Unlike `api.py` (storage-free endpoints over the shared registry/ledger), the

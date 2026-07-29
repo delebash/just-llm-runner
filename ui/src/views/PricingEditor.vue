@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Editor for cloud model pricing (the usage-ledger cost source). Backed by the
 // shared /v1/ai/pricing CRUD (llm_runner/llm/pricing_api.py), persisted in the
 // host DB's model_pricing table (seeded from pricing.DEFAULT_PRICING). Prices

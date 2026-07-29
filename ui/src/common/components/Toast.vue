@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <!--
   Shared Toast host — mount once in the host's App.vue. vue-sonner positions
   toasts in a portal and handles stacking, timing, and hover-pause. The bridge

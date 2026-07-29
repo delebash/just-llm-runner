@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Online-provider model-list cleanup (#8, 2026-07-20).
 
 Three layers: the pure rule ENGINE (classify / anchored-regex drops / dated-collapse /

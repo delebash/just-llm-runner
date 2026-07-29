@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Runner config — engine DEFAULTS + the standalone fallback.
 
 There is NO `runner-manifest.json` anymore (user decree 2026-06-27: config is

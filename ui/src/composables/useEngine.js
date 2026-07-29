@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // The ONE engine install/update/uninstall state + actions — module singleton shared by
 // the Built-in provider LIST ROW (AiModelsArea) and the Local-engine panel
 // (LuRunnerEngine), so the row buttons and the panel can never disagree (user,

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Per-model embedding task templates (Move 0, RAG build 2026-07-11):
 /v1/ai/embeddings wraps inputs with the model's catalog template per taskType
 (nomic prefixes both sides, Qwen3 instructs the query side; no row = raw), the

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared model-measurements router — the persistent MEASUREMENT HISTORY
 (#142 rows 5+6, 2026-07-07: 'save all data, nothing temporary' + 'add a clear
 button to clear history'). One append-only ledger of every real decode-speed

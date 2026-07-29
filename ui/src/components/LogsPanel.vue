@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared server-logs viewer (Logs phase, 2026-07-05 — "easier to read + clear/
 // delete + per-day + delete-all"). Live mode tails the in-memory ring
 // (/v1/logs/tail); the day picker reads a stored day's FILE (/v1/logs/day,

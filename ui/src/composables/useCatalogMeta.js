@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared model-catalog META — ONE source of the /v1/ai/model-catalog rows + the by-id
 // lookups (quality rank / license / use-limited / description) that the fit-shaped
 // /v1/llm-runner/models view does NOT carry. Consumed by the model-catalog list (badges)

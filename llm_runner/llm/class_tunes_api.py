@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared hardware-class library router — the editable HARDWARE-CLASS library.
 
 TWO levels (2026-07-22 user redesign — "a named hardware class that holds several

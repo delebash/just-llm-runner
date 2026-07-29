@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """CRUD for per-model embedding task templates (Move 0 of the RAG build).
 
 Embedding models differ in the task instruction they REQUIRE around the raw

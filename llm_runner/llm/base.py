@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """LLM adapter contract — every provider implements this.
 
 Structurally typed (Protocol) so third-party provider packages can

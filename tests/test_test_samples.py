@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The §7.3 Lab test samples: /v1/ai/test-samples CRUD (keyed per ACTION, 2026-07-15)
 + the fill-if-empty seed with author-once fan-out."""
 

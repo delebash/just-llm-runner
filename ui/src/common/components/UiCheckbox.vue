@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared binary checkbox — custom box that tints with the accent; native input
 // stays the source of truth + in the tab order. Visual rules in
 // common/styles.css (.ui-checkbox*). Supersedes JwCheckbox/JvCheckbox/UiCheckbox.

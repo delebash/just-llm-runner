@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Layered switch resolver (design §6 + Plan B 2026-07-05) — the model-level merge:
 base → type (moe|dense) → GATED auto-mtp → per-hardware → per-(model, machine)
 tune (`model_tunes`, always wins). The auto-mtp layer is the 2026-07-05 USER

@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-License-Identifier: MIT */
 /* Shared UI-primitive styles for ALL apps (the future @delebash/ui). Every rule
    is token-driven with a SAFE FALLBACK so a primitive renders even before a host
    refines it; the host's tokens.css (+ appearance.js) tune the look per app.

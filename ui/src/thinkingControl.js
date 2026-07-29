@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // THE Thinking-control vocabulary (2026-07-16, the user's B ruling extended EVERYWHERE:
 // "all same everywhere") — ONE source for the control-value ↔ preset-wire mapping,
 // imported by every surface that renders or saves the control (LuFeatureChip,

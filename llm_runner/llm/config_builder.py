@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """build_llm_config — the dispatch-time `LLMConfig`, built from the shared stores.
 Replaces BOTH apps' per-app `config.py`. Reads the providers into the dispatch view.
 `prefer_local_features` is the only optional per-app input (the set of features that

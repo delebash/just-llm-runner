@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared test doubles for the official-SDK adapters (#15 C2/C3/C4). ONE kwargs-capture
 base + ONE fixture loader, so each per-SDK fake (gemini / openai / anthropic) is a thin
 subclass rather than a third inline pattern (C2.4 reuse consolidation)."""

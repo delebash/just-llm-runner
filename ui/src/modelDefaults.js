@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared resolver for a model's layered run DEFAULTS — Plane-1 engine switches
 // (base -> type -> per-hardware, from `switch_presets` via `resolve_model_switches`;
 // NO auto-mtp layer — MTP is opt-in/measurable, Phase 3) PLUS the model's Plane-2

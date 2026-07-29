@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared button for ALL apps — one `intent` prop encodes role + visual style
 // (no separate severity/outlined/text booleans). Visual rules live in
 // common/styles.css (.ui-btn*), driven by the host's design tokens (with safe

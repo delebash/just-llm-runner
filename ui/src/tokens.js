@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Token-count + prompt-assembly helpers for the Lab's prompt preview (b1/E2).
 //
 // estimateTokens is an instant, provider-agnostic HEURISTIC (~chars/3.5, rounded

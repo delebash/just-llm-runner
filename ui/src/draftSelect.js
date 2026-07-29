@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Pure draft-pick helpers for the Add-model form's listing pre-select. Extracted from
 // LuModelCatalog.vue so the loadability + 4-bit-floor rule is unit-testable: the kit has
 // no vitest harness, but JustWrite's vitest imports this via the alias subpath

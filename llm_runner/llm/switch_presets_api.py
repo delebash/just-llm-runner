@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared switch-presets router — the capability/type switch bundles
 (`base`/`moe`/`dense`) the resolver layers (see `switch_resolve`). Seeded +
 user-editable + reset-to-factory, exactly like the model catalog. A preset is a

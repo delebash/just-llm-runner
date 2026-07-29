@@ -107,4 +107,4 @@ JustWrite's venv (this repo has none of its own — see `CLAUDE.md`):
 known-bad on Windows, `test_hardware.py::test_pci_gpus_linux_lspci_name_match`,
 which exercises a Linux `lspci` path.
 
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT

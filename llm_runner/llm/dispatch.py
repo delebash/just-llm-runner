@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Feature → provider dispatch.
 
 Every app feature (Compose, Speaker-attribution, Critique, …) resolves

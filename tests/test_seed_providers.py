@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Pin the seeded DEFAULT_PROVIDERS to their NATIVE provider types (#15 C1, the
 2026-07-17 SDK pivot). Official SDK adapters back claude/gemini/ollama now, so the
 seed rows carry the real types + the SDK-native base URLs: no `/v1` on the native

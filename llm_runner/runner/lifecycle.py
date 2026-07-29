@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Load/run lifecycle for the built-in runner — the "choose → load on demand →
 use" half of the shared model (see the JustWrite server-side-LLM decision doc).
 

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The shared provider-CRUD router factory (over an in-memory ProviderStore)."""
 
 from __future__ import annotations

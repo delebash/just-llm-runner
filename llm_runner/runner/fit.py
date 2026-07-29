@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """VRAM-fit math for the local runner — pure functions, no I/O.
 
 Two estimates, for two moments:

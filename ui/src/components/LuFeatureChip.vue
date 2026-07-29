@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // LuFeatureChip — the "runs on" chip for ONE AI feature/action (C5; the GUI
 // moved from JustWrite's AiFeatureChip). Two modes:
 //

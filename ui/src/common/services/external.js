@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared "open a URL outside the app" — THE seam for external links (#12a).
 // Plain target=_blank anchors (and window.open) are swallowed by the Tauri
 // webview, so kit components must route external clicks through here; the host

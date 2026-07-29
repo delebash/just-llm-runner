@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Dispatch precedence + tier classification for the shared LLM layer.
 
 No network: a FakeAdapter stands in for a provider. Verifies the

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared feature-routing router behind a host-supplied storage boundary.
 
 The Routing tab of the shared AI UI edits the global **default** LLM (+ embedding)

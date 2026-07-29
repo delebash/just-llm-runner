@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared per-feature prompt subsystem — store contract, template renderer, and
 the editor + execution routers, behind a host-supplied storage boundary.
 

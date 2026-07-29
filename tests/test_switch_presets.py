@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """switch_presets store — seeded + editable + reset-to-factory (design §6.5)."""
 
 import sqlalchemy as sa

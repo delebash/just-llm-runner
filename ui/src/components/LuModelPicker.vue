@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // LuModelPicker — the ONE provider+model (route) picker for the shared AI UI.
 // A "pin" is { providerId, model }: pick a provider, then its model; the empty
 // fallback (null) inherits the default. Used by the routing defaults, the

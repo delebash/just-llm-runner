@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Pin the four shared adapter helpers promoted to base.py (#15 C2.0): the OpenAI-shape
 message builder, the system-sweep, the sampler allowlist filter, and the one-place D10
 error formatter. The compat/ollama migration to build_chat_messages is proven by their

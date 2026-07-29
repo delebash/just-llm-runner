@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared catalog + switches routers behind a host-supplied storage boundary.
 
 The downloadable llama.cpp model catalog moved off `runner-manifest.json` into

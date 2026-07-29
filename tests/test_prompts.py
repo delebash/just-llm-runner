@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The shared prompt subsystem — render, the editor router, and the
 feature-execution router (all over an in-memory PromptStore)."""
 

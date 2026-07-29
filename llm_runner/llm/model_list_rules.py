@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Online-provider model-list cleanup — the config-driven ruleset (#8, 2026-07-20).
 
 An online provider's `/v1/models` dump is mostly noise for a writing/voice app: OpenAI

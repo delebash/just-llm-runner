@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Right-side slide-in panel showing all in-flight AI tasks + recent history.
 //
 // Per running task: feature/label, status phase (connecting / streaming /

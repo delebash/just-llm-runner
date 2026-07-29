@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <!--
   ConnectionError — shown in place of the whole app when the server can't be
   reached at boot. The renderer holds no data of its own, so rather than render

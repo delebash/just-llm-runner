@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // "Global launch defaults" — the switch BUNDLES the resolver applies underneath
 // every class/machine tune (the user's 2026-07-07 switch-provenance ask: "we dont
 // have the global switches … how does the user know"). One collapsed drawer (the

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // THE one panel-dismiss behaviour: Esc + click-outside closes a slide-in panel.
 // Extracted from JustWrite's ChatPanel (2026-07-19) so every panel — Ask-the-book,
 // AI tasks, and any future one — dismisses identically instead of each re-deriving

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared client for the measurement history (/v1/ai/model-measurements — #142
 // rows 5+6, 2026-07-07). ONE source for the endpoint paths, used by the Tune
 // modal's "Load & measure" recorder and its history drawer (the classTunes.js

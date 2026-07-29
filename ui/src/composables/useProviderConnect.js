@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared provider-connect — the ONE source of the known-provider PRESETS + the connect
 // endpoints (probe-models · create · list-models), consumed by ProviderForm (add/edit a
 // provider — the one place providers are set up; QuickSetup is LOCAL-ONLY per the 2026-07-06

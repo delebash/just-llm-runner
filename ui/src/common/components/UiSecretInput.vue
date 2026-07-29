@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Secret text input — WRAPS <UiInput> (never re-forks it) and flips its type
 // password ↔ text via an in-field eye toggle. For API keys / passwords that must be
 // masked by default but revealable + editable in place (#12). Border, focus ring, and

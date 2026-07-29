@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The two reclaim endpoints on the runner router:
 - POST /v1/llm-runner/spawn-logs/clear removes the per-spawn *.log files (dir kept).
 - POST /v1/llm-runner/models-cache/clear wipes the HF cache, but REFUSES while a

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Auto-tune sweep (runner/autotune.py) — offline: the service is faked, so the
 candidate ladder, winner pick, failure-skip, cancel, save and busy-guard logic
 test without a GPU or a llama-server."""

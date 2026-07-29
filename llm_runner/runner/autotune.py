@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Auto-tune — a small measured sweep that finds a model's fastest launch config
 on THIS box (2026-07-06, from the JW llamacpp tuning session — the manual
 methodology in justwrite-app/docs/plans/2026-07-06-llamacpp-config-tuning-2070s.md,

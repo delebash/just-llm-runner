@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // @delebash/ui (for now housed inside @delebash/llm-ui at ui/src/common/) —
 // general, app-agnostic UI primitives shared by ALL Vue apps. Token-driven; the
 // host app defines the design tokens (this layer ships safe fallbacks). When this

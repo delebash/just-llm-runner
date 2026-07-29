@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <!--
   EmptyState — centred "nothing here yet" placeholder: icon + title + body
   + optional primary action. Used inside cards, modal bodies, and full-pane

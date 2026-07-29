@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <!--
   LuEngineUpdateButton — THE one "Update to {build}" control for the bundled
   llama.cpp engine. Bound to the shared useEngine() module singleton, so the

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Client for the shared embeddings endpoint (POST /v1/ai/embeddings). The server
 // holds the key + the live registry adapter; we pass the embedding provider id
 // (the routing default) + model. Returns one vector per input, in order.

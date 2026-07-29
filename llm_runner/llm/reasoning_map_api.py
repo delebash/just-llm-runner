@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """CRUD for the per-provider reasoning-level map (U2-T2, 2026-07-14). The level→value
 table the ONE resolver (`llm/reasoning.py`) reads to turn a task's Low/Medium/High/
 XHigh/Max "ask" into what each provider actually speaks. Generation-aware: each row

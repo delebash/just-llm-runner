@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared data-management router — backup / restore / reset over a host's
 SQLite database + asset directories.
 

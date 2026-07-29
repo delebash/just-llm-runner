@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared tag chip — same single-intent API as UiButton. Renders as <span> so it
 // composes inline. Visual rules in common/styles.css (.ui-tag*). Supersedes
 // JwTag/JvTag.

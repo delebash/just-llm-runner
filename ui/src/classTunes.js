@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared client for the hardware-class tune library (/v1/ai/class-tunes — ROUND 8
 // Task C). ONE source for the endpoint paths + the class-key display label, used by
 // the Tune modal's "Save for PC class" action, its LuClassTunes drawer, and

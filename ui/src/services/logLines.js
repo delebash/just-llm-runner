@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared log-line grammar for the kit's log surfaces — LogsPanel's live/day tail
 // AND ConsolePanel's server/engine follow. ONE source for the level regex, the
 // group-aware row parse, and the level→CSS-class map, so a second component

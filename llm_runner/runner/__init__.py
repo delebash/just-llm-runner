@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The local llama.cpp runner subsystem — hardware detection, prebuilt-binary
 acquisition, GGUF download/metadata, VRAM-fit, runner lifecycle/spawn, and the
 mountable runner router.

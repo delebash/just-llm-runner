@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // useRouting — the shared routing document (default LLM + embedding) load/save/
 // mutations, so the routing surfaces don't each re-implement it
 // (RULE #7: extract, don't copy). Each consumer calls useRouting() and gets its

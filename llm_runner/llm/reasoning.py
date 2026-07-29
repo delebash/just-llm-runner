@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The ONE reasoning resolver (U2-T3, 2026-07-14; house-layering 2026-07-16; the preset
 tier added the same day — the user's "feature is the end of the line"). Turns a task's
 Reasoning ask (think on/off + an optional Low/Medium/High/XHigh/Max level) into the value

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The concrete LLM stores — ONE shared implementation of every storage Protocol
 (provider / routing / routing-presets / feature-presets / prompts / recommendations
 / model-catalog / model-switches) over the shared session

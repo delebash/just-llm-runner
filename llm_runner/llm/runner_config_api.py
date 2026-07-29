@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Edit the bundled llama.cpp engine config — the per-(platform, gpu) download
 URLs, the pinned build, the VRAM safety margin, and the two router residency
 knobs (`models_max` = how many models stay co-resident; `sleep_idle_seconds` =

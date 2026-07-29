@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The persistent measurement history (#142 rows 5+6): the model_measurements
 store + the /v1/ai/model-measurements GET/POST/DELETE surface (server-stamped
 machineKey + at, per-model + clear-all semantics) and the auto-tune record seam

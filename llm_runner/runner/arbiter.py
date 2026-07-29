@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """P2 — the thin in-process VRAM-budget arbiter (design 2026-07-04-serving-vram-manager §5b/§7).
 
 Router mode's `--models-max` caps the co-resident CHILD COUNT but is NOT VRAM-aware, and nothing

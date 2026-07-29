@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Public entry for @delebash/llm-ui — the shared LLM provider / prompt / usage
 // UI for JustVoice + JustWrite. Plain JS + Vue SFCs, consumed via a Vite alias
 // to this src/ in both apps. Self-contained: the views call the SAME server

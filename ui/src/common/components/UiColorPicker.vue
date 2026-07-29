@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <script setup>
 // Compact color picker — a small colored swatch trigger that opens a floating
 // popover with preset squares + a "Custom color" affordance that fires the

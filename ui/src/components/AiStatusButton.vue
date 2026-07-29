@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Header chip + slide-in status panel for global AI task tracking.
 //
 // Idle:    quiet icon ("AI") — opens the panel for a peek at history.

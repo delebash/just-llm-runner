@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """DbUsageSink — persists the shared LLM usage ledger to the shared `llm_usage`
 table (wired via `set_ledger`, done by `install_llm`). Any app that installs the
 shared LLM stack gets DB-backed usage that survives restarts — nothing per-app.

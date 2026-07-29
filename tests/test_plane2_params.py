@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Per-request Plane-2 `extra` (2026-07-15 one-source): json_mode is the action's
 CONTRACT (on the spec); top_p / reasoning / long-tail samplers come from the resolved
 PRESET; body values override ephemerally. The feature-sampler store read is gone."""

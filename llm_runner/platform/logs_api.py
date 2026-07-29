@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared server-logs router — an in-memory ring (the UI tail) plus PER-DAY log
 files (survive a crash/boot-hang, when on-disk logs matter most).
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared model-apply service — the ONE place that (a) reads the current default LLM + the
 // current embedding (the catalog's Default / Embedding badges) and (b) applies a model as the
 // default (written onto the presets features point at, non-clobber) or as the embedding

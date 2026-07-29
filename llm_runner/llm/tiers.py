@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """LLM tier classification — Guided / Direct / Reasoned.
 
 Ported from JustWrite's modelMeta.js with the same heuristic-match-on-

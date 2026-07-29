@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <script setup>
 // Shared data table — TanStack Vue Table for headless sort/filter/pagination
 // state; visuals are global .ui-table* in common/styles.css. Supersedes JwTable.

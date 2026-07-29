@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Anthropic Claude adapter — the official ``anthropic`` SDK (the 2026-07-17 SDK pivot,
 #15 C3).
 

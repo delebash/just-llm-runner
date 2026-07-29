@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Origin-aware HTTP client for the shared LLM UI.
 //
 // The host calls configureLlmUi({ baseUrl }) ONCE at boot with its already-

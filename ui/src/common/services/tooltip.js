@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared v-tooltip directive. Floating UI handles positioning (flip + shift
 // fallbacks) so a tooltip near the viewport edge bounces to a side that fits.
 // Delay-debounced show on hover OR focus, instant hide on click. App-agnostic

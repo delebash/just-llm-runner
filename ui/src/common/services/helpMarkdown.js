@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared `marked` renderer for the in-app Help surfaces (HelpDrawer + any
 // full-pane HelpView). Both render the same docs/*.md corpus, so the rewrite
 // logic for intra-doc links + the heading-id slugger live here. App-agnostic;

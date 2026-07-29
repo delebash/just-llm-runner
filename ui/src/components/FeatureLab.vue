@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // FeatureLab — the shared "test + tune" pane for ONE action, extracted from
 // FeatureWorkbench (2026-07-02); since 2026-07-15 the Workbench is its only mount. Given an action + its prompt it builds the {{variables}} test input and feeds
 // <CompareStrip> N engine-config columns you Run and Save as presets.

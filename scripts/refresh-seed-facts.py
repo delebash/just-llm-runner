@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """refresh-seed-facts.py — regenerate the seed's HEADER-DERIVED facts from Hugging Face.
 
 Runs the ACTUAL load-from-HF method (`identity.inspect_model_from_link` — the exact

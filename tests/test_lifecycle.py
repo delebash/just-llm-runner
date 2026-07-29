@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """RunnerService state machine (ROUTER mode) — the download + router IO is injected
 so the orchestration (status transitions, DB→.ini emission, co-residence, OOM
 back-off, error handling) tests offline. The real default RunnerConfig + compute_fit

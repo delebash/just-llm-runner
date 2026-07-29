@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Editable engine config (runner_binary + runner_setting via /v1/ai/engine-config):
 get / upsert / set-setting / reset round-trip over an in-memory DB."""
 

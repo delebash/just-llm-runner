@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The per-(model, machine) tune surface (Plan B): the /v1/ai/model-tunes CRUD
 (server-derived hw_key; PUT replaces the whole set — verbatim-snapshot D5) and
 the whole-machine `machine_key` (gpu|vram|cores|ramGB — D2)."""

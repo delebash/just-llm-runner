@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """MANUAL tool — run it yourself, it never runs automatically (user, 2026-07-06:
 "keep it in seed i can run manually"): restores the author box's measured tunes after
 a data reset. NOT part of any product seed (tunes are measurements owned by each

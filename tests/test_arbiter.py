@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """VramArbiter — the in-process VRAM-budget ledger (P2). Pure unit tests: a fake hardware_fn
 supplies a fixed VRAM total so committed/remaining/eviction are deterministic (no GPU needed)."""
 

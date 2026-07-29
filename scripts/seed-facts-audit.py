@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Seed-facts audit — verify the seeded model catalogs against live Hugging Face facts.
 
 Per seeded catalog row (model-per-hardware plan §Phase 5 + amendment A4):

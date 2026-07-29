@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The shared LLM storage stack in isolation — configure_storage + create_all +
 seed + store round-trips + build_llm_config, on an in-memory SQLite. Proves the
 drop-in works with NO host app (any app that calls install_llm gets this)."""

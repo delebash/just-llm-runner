@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <!--
   AppDialog — shared singleton host for promptDialog() / confirmDialog()
   (../services/dialog.js). Mount ONCE at the top of App.vue. Supersedes the

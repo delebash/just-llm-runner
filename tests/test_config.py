@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Runner config (A7 — was runner-manifest.json, now DB + engine defaults).
 
 Covers the standalone `default_config()`, the camelCase /v1/llm-runner/config

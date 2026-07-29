@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <!-- Shared inline SVG icon set. App-agnostic (just a name→path map). Supersedes
      the per-app Icon.vue forks (JustVoice + JustWrite shipped identical copies). -->
 <script setup>

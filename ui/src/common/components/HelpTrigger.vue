@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- SPDX-License-Identifier: MIT -->
 <!--
   HelpTrigger — the small "?" affordance that opens the shared HelpDrawer
   scoped to a doc slug. Rendered automatically by a pane header (its `helpKey`

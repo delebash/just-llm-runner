@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Convert raw fetch / HTTP errors from an LLM provider into a single
 // short, user-readable line. Every aiFeature run/stream call (and the
 // hosts' RAG/chat services) wraps its failures with

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared disk-usage router — a READ-ONLY size breakdown of the app's on-disk
 footprint so a Settings "reclaim disk" panel can show WHERE the space went and
 offer the reclaim actions. This router only MEASURES; the actual deletes are the

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Minimal GGUF header reader — the metadata the model layer needs, from the
 KV header only (never the tensor data).
 

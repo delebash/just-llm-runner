@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared select — Reka UI headless Select primitives (focus management,
 // arrow-key nav, type-ahead, Esc-to-close, screen-reader support, Floating-UI
 // positioning). Supersedes JwSelect/JvSelect. Visuals are global .ui-select-*

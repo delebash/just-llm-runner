@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Editable llama.cpp engine config — the binary download URL per (platform, gpu),
 // the pinned build, and the VRAM safety margin. Backed by the shared
 // /v1/ai/engine-config CRUD (llm_runner/llm/runner_config_api.py), persisted in the

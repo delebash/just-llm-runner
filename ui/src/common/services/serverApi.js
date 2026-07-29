@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared server transport — the single fetch layer for the FastAPI server both
 // apps run. App standard: serverUrl() + request/safeRequest/postForm
 // + verbs (get/post/patch/put/del), in-flight GET dedupe, a reactive lastError,

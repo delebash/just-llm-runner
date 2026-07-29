@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Mountable FastAPI router — the shared LLM-runner REST surface.
 
 Both apps mount this on their FastAPI app so the GUI talks to an identical

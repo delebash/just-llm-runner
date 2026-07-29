@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared textarea — adds auto-resize. Shares .ui-input + .ui-textarea in
 // common/styles.css. Supersedes JwTextarea/JvTextarea/UiTextarea.
 import { computed, nextTick, onMounted, ref, watch } from "vue";

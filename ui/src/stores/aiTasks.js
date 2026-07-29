@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Global registry for in-flight AI chat-stream calls (the shared AI task
 // queue — Decision 22; moved verbatim from JustWrite, transport-agnostic).
 //

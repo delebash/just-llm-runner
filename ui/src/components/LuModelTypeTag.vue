@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // THE Dense/MoE tag (2026-07-26). Extracted, not copied: the words lived as an inline
 // ternary in LuModelCatalog's row template and the PC-class library needed the same
 // thing, so this owns the word (via `modelTypeLabel`), the intent, and the explanation.

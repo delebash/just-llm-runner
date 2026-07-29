@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Unit tests for the runner VRAM-fit math (llm_runner.runner.fit).
 
 Covers the coarse pre-download band, the ported oobabooga VRAM formula

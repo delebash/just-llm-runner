@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // THE one download bar (2026-07-15, the ONE-DOWNLOADER consolidation; single control confirmed
 // 2026-07-21 — user: "use same control, same, no matter size in grid — same same same"). Renders
 // a reactive download task (createDownloadTask, or any object with the same shape) as ONE control

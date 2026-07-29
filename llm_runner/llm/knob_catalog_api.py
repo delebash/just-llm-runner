@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Knob-catalog endpoint — friendly metadata for the shared KnobGrid (C1).
 
 Turns a raw switch/sampler key into a typed input: the KnobGrid takes a

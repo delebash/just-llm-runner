@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Resolve the ENGINE PRESET an action runs — the ONE-SOURCE model (2026-07-15:
 the task tier is gone; the preset is the truth). Resolution is now just
 

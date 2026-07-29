@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared HARDWARE probe — ONE source for `/v1/llm-runner/hardware` across the AI surfaces
 // (2026-07-27). Before this, FIVE independent fetches of the same endpoint lived in four
 // files — LuClassTunes, LuModelCatalog, AiModelsArea (twice: the hardware strip and the

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared appearance / theming engine. `applyAppearance(config, { extraApply })`
 // owns colour-mode resolution (incl. the system-preference listener) plus all
 // the GENERIC design-token overrides the user drives from Settings → Appearance:

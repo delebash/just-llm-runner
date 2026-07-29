@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // QC-43c — the live server console (a tab under the AI settings area). Two
 // live-follow sources: the app server's in-memory log RING (/v1/logs/tail,
 // level-coloured — the same grammar LogsPanel renders) and the ENGINE child's

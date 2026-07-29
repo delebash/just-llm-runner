@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // The Lab test-data registry (§7.3, 2026-07-08; rebuilt per QC-35, 2026-07-09):
 // the HOST app registers (a) named SOURCES of listable book material — JW:
 // chapters/characters; JV later: game lines/podcast segments — and (b) a

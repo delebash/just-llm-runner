@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // LuBookSearchSetup — the "Book search" section of the Set-as-default dialog for an
 // ONLINE provider that carries no embedding model of its own (the 2026-07-18 plan:
 // the wizard SUGGESTS book search + says why it makes chat smarter; the user can

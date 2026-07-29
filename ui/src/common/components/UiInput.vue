@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared text input — thin <input> wrapper (v-model + standard attrs). Visual
 // rules in common/styles.css (.ui-input). Supersedes JwInput/JvInput/UiInput.
 import { computed, ref } from "vue";

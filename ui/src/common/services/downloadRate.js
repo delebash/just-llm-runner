@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Download speed + ETA for the progress bars (queue doc §8 DL-1, user-decided):
 // PURE client-side math over the byte counts the status polls already deliver —
 // no server change. ONE tracker shared by the engine-install bar (useEngine, ~0.8 s

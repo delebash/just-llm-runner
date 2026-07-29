@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Edit the online-provider model-list ruleset (#8) — GET/PUT + reset on
 `/v1/ai/model-list-rules`. The rules are ONE seeded JSON document in the runner-settings
 store (host-supplied via the store closures below), keyed by provider TYPE. Same

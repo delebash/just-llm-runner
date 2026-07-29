@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // CompareStrip — Compare MODE for the Feature Workbench (Decision 23, 2026-06-24:
 // "Compare is a MODE of the Features test panel, not a parallel surface"). Renders
 // N shared <ConfigColumn>s for ONE action over a SHARED test input (a fair

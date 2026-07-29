@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared runner-models state: ONE source of the /v1/llm-runner/models catalog list + its
 // LIVE load/download status, consumed by the model catalog so there is ONE poller and ONE
 // status truth (no double-fetch, no drift). A module singleton — the modelDefaults.js /

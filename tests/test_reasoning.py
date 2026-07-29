@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The ONE reasoning resolver (house-layering 2026-07-16 + the preset tier, same day):
 the ask (think + optional level) → what each provider/model emits. LOCAL, level SET →
 the preset's own ask (the local map's tokens, source "preset" — "feature is the end of

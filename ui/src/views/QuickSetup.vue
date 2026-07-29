@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared Quick Setup — the intuitive FRONT DOOR for local models. A modal wizard
 // (detect → confirm → apply → done) that picks ONE good model that fits your box and
 // wires it as the shared default across every task, plus the always-on embedding.

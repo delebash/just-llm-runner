@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // "Local engine" panel — INSTALL the llama.cpp engine as its OWN step, separate
 // from downloading a model (a model load requires the engine present; see the
 // runner's _run_load). Shows install status + the selected build/gpu, an

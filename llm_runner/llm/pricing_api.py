@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """CRUD for cloud model pricing (the usage-ledger cost source). Replaces the
 hardcoded `pricing.py` dict — the DB `model_pricing` table is seeded from
 `pricing.DEFAULT_PRICING` and edited here. GET/PUT/DELETE on `/v1/ai/pricing`."""

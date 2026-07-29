@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Deferred module imports for the heavy cloud-vendor SDKs.
 
 WHY THIS EXISTS (measured 2026-07-24). `registry.load_from_configs()` constructs an adapter

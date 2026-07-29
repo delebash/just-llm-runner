@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """make_data_router — backup → mutate → restore round-trips data + assets;
 reset wipes to the host's seed. Schema-agnostic over a tiny SQLite app."""
 

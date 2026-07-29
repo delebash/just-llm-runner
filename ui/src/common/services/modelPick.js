@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // The §10 speed-floor auto-pick — "the most capable model that still streams faster than
 // you read" (design 2026-07-03 §10, LOCKED; refined 2026-07-04 §15). PURE logic, NO Vue
 // imports, so the kit's has-no-JS-test-runner gap is covered by a Node truth-table

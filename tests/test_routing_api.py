@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """make_routing_router — GET merges catalog + the global default; PUT persists the
 default. Per-feature pins were removed 2026-07-15 (the preset is the one source)."""
 

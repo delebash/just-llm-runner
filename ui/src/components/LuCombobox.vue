@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared model picker — a free-text input (type any model id) + a dropdown of
 // fetched models + a Fetch button. The ONE consistent chat/embedding picker in
 // the provider form (mirrors the mock's cb() / JustWrite's Combobox). Visual

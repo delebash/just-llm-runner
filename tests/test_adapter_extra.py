@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Per-call `extra` routing into Ollama / Gemini backend shapes — previously the
 adapters did body/payload.update(extra), which left sampling params top-level and
 the backends ignored them (so top_p / response_format / the long-tail samplers all

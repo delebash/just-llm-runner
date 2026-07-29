@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared labelled form row. Two layouts:
 //   inline (default) — 160px label / 1fr control
 //   block            — uppercase eyebrow label above the control

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """GET /v1/llm-runner/models — the catalog view with hardware Fit + status.
 
 Hardware / runner-service are injected (the endpoint reads them via module-level

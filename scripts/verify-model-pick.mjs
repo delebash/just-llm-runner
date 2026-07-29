@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Node truth-table for the §10 speed-floor auto-pick (ui/src/common/services/modelPick.js).
 // The kit has no JS test runner, and a browser render-smoke can't isolate §10's crux branch
 // (a dense+tight EXCLUDED while a moe+tight is KEPT) — CARD_OPTIONS is capped at 24 GB until

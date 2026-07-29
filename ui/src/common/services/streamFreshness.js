@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // THE one freshness classifier for a streaming AI task's last-token gap (#5, 2026-07-17).
 //
 // Was duplicated as absolute 3s/10s thresholds in AiTaskStrip.vue AND AiStatusPanel.vue

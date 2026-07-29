@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // KnobGrid — ONE generic key/value editor for BOTH Plane-1 engine switches and
 // Plane-2 samplers (design D15). v-model is an array of { name, value }; a row
 // present = that knob is set/sent. It has TWO opt-in presentations over the SAME

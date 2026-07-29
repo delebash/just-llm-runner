@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The NAMED, TYPE-FIRST hardware class (2026-07-22 redesign): a class is identified by
 its memory architecture + memory — discrete (VRAM + RAM, the offload split), integrated
 (one shared pool), unified (one SoC pool). Covers the format/parse convention (ONE

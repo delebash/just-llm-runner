@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // The shared "AI / Models" area (from the shared-ai-models mock) — ONE UI for
 // both apps: Providers & models · Features · Usage, with a hardware strip. Built
 // in plain-JS Vue on the shared client; the host mounts it at a top-level route

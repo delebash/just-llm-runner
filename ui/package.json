@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "description": "Shared Vue LLM provider/prompt/usage UI for JustVoice + JustWrite. Plain JS + Vue SFCs, consumed via a Vite alias to src/; the views call the same server endpoints both apps mount and ship their own token-driven styles.",
-  "license": "GPL-3.0-or-later",
+  "license": "MIT",
   "type": "module",
   "main": "./src/index.js",
   "scripts": {

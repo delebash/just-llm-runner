@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Client wrapper for SERVER-SIDE AI features. Feature calls POST to the shared
 // /v1/ai/run + /v1/ai/stream endpoints both apps mount, where the server
 // renders the action's prompt template and dispatches through the shared

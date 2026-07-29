@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // The editable PC-class library — TWO-LEVEL, TYPE-FIRST (2026-07-22 user
 // redesign). USER-FACING NAME (2026-07-26): a class is a "PC class" and the thing it
 // holds per model is a "PC class config"; the INTERNALS keep the hardware-class

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Shared LLM storage — the SINGLE home for every LLM table, on its own
 SQLAlchemy declarative base (`LlmBase`). Any host app drops the shared LLM stack
 in and gets these tables; the host owns only its session factory (it has its own

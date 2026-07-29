@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // The ONE place the pin → download-URL substitution lives (reused by the engine
 // Binaries panel's reactive rewrite AND the update-to-latest flow, so the two never
 // drift). The DB stores CONCRETE URLs; when the pinned build changes, this swaps the

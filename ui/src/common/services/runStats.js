@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // runStats — ONE source for how a run's numbers are printed, so every surface (the Lab
 // result readout, the AI task strip, the Compare ranking) shows the SAME stat the SAME
 // way (#304). Before this the Lab said "24823 ms" + total tokens while the task strip said

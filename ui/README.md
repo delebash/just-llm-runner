@@ -32,4 +32,4 @@ import { SERVER_BASE } from "./services/serverApi.js";
 configureLlmUi({ baseUrl: SERVER_BASE });
 ```
 
-SPDX-License-Identifier: GPL-3.0-or-later
+SPDX-License-Identifier: MIT

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Cloud pricing moved to the DB (#75): price_for reads the live model_pricing
 table (seeded from DEFAULT_PRICING), and operator edits take effect — no
 hardcoded runtime dict."""

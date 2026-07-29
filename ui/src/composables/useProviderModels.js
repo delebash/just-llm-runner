@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // useProviderModels — THE shared per-provider model-list cache (C5): one
 // module-scoped cache over the one endpoint accessor
 // (useProviderConnect.listModels → GET /v1/llm-providers/{id}/models), so

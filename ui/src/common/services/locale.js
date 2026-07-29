@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared UI locale — the BCP-47 tag kit components use for locale-aware
 // formatting (currently UiNumber's Intl.NumberFormat grouping/decimals). Kept
 // here so the kit stays decoupled from any one i18n library: the host calls

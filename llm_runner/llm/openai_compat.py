@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """OpenAI-compatible adapter — shared by OpenAI / DeepSeek / OpenRouter
 and any other provider speaking the chat-completions shape.
 

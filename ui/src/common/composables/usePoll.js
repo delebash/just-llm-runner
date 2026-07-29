@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // A single-interval poller shared by the runner panels (model catalog, engine
 // install). `start()` runs `fn` every `intervalMs`; a second `start()` while
 // already running is a no-op; `stop()` clears it; it auto-stops on unmount. One

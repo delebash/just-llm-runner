@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Google Gemini adapter — the official ``google-genai`` SDK (the 2026-07-17 SDK pivot,
 #15 C2).
 

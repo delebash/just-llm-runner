@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // THE one download-task orchestrator (2026-07-15, the ONE-DOWNLOADER consolidation —
 // user: "reuse the control … stop repeating code … if component exists to do this
 // already use it instead of writing your own").

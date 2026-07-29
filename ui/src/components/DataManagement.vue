@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Shared Data & Storage controls — backup / restore / reset over the host's
 // SQLite DB via the shared /v1/data/* router (llm_runner.platform.make_data_router).
 // Identical in every same-stack app; the host only passes its appName for the

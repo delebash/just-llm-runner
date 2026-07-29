@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Self-contained hardware detection → HardwareInfo.
 
 Drives binary + model selection. No CUDA toolkit is ever required — we only

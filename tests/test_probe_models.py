@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """The draft-model-probe endpoint — lists a provider's models from an UNSAVED
 draft (the Add/Edit form's "Fetch models" before the provider is registered)."""
 

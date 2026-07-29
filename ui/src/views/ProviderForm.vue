@@ -1,5 +1,5 @@
 <script setup>
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 // Add/Edit an AI provider — the shared form from the shared-ai-models mock:
 // presets · Where-it-runs (Local/Online) · name · base URL · API key (hidden for
 // local) · provider type (adapter, Decision 20) · chat + embedding model

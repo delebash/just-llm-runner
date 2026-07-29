@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: MIT
 """Ollama adapter.
 
 Local-first: defaults to http://localhost:11434. Speaks Ollama's native

@@ -64,6 +64,10 @@ marked.setOptions({ renderer, gfm: true, breaks: false });
 // header bar.
 export function renderHelpMarkdown(md) {
   if (!md) return "";
-  const stripped = md.replace(/^#\s+.+\n+/, "");
+  // `[^\r\n]*` rather than `.+`: JS treats \r as a line terminator, so `.` will
+  // not cross it. With a CRLF checkout (git core.autocrlf on Windows) the H1
+  // never stripped and every doc rendered its title twice — once in the host's
+  // header bar, once at the top of the prose.
+  const stripped = md.replace(/^#\s+[^\r\n]*\r?\n+/, "");
   return marked.parse(stripped);
 }

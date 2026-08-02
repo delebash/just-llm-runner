@@ -159,3 +159,19 @@ def test_no_data_dir_warns_about_the_user_cache(hermetic, tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="llm_runner.llm.install"):
         install_llm(app, engine=engine, session_factory=SessionLocal)
     assert any("data_dir" in r.message for r in caplog.records)
+
+
+def test_headless_boot_app_none_wires_everything_but_mounts_nothing(hermetic, tmp_path):
+    """app=None — the CLI door's boot (2026-08-02). The first consumer to need this
+    re-implemented install_llm's storage half against PRIVATE imports; headless is
+    first-class now so that drift class cannot recur. Everything but routes: storage,
+    seeds registration, the ledger, the runner-catalog wiring."""
+    engine, SessionLocal = hermetic
+    install_llm(None, engine=engine, session_factory=SessionLocal, data_dir=tmp_path)
+    seed_llm()
+
+    assert len(stores.get_provider_store().list()) > 0, "seeded through the same path"
+    assert len(stores.get_model_catalog_store().list()) > 0
+    # The runner catalog is WIRED (the CLI's make_send needs the stores AND the runner).
+    assert lifecycle.get_service().catalog_wired is True
+    assert str(lifecycle.get_service().cache_root) == str(tmp_path / "ai-cache")

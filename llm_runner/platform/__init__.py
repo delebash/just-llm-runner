@@ -6,16 +6,39 @@ subpackage holds the stack-level, app-agnostic server pieces (data
 backup/restore/reset, …) behind host-supplied hooks — same router-factory
 pattern as `llm_runner.llm.*`. See the consuming app's
 docs/plans/2026-06-24-shared-platform-settings.md.
+
+LAZY FOR THE SAME REASON AS `llm/__init__.py` (2026-08-01). Of the three modules here only
+`data_api` needs SQLAlchemy — it reflects the host's tables to back up and restore them.
+`disk_api` and `logs_api` are pure stdlib. Because this file imported all three eagerly, a
+host with no SQLAlchemy could not reach the log ring or the disk-usage router either: the
+clean-venv audit recorded `llm_runner.platform` failing outright with
+`ModuleNotFoundError: No module named 'sqlalchemy'`, for two routers that never needed it.
 """
 
-from .data_api import make_data_router
-from .disk_api import make_disk_router
-from .logs_api import install_file_log, install_log_ring, make_logs_router
+from __future__ import annotations
 
-__all__ = [
-    "make_data_router",
-    "make_disk_router",
-    "make_logs_router",
-    "install_log_ring",
-    "install_file_log",
-]
+import importlib
+
+_EXPORTS = {
+    "make_data_router": "data_api",   # the SQLAlchemy one — reflects host tables
+    "make_disk_router": "disk_api",
+    "make_logs_router": "logs_api",
+    "install_log_ring": "logs_api",
+    "install_file_log": "logs_api",
+}
+
+__all__ = sorted(_EXPORTS)
+
+
+def __getattr__(name: str):
+    """PEP 562 — resolve an export to its module on first access, then cache it."""
+    module = _EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(f".{module}", __name__), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(__all__)

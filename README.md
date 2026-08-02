@@ -47,10 +47,13 @@ Every local llama-server launch resolves its flags in four tiers, strongest last
 
 ## What's here (Python core)
 - `llm_runner.router` — mountable FastAPI router (both apps `include_router`).
-- `runner-manifest.json` (camelCase) — the shared, drift-prone data: pinned
-  llama.cpp build, per-platform binary assets, GGUF model catalog, flag
-  presets, VRAM-fit recipe.
-- `schema.py` — camelCase pydantic contract (`RunnerManifest`, `HardwareInfo`).
+- `runner/config.py` — the engine DEFAULTS as module constants: pinned llama.cpp build,
+  per-platform binary assets, VRAM safety margin, download knobs. A host seeds these into
+  its DB where they become user-editable; `default_config()` serves them straight for
+  standalone use. (This was `runner-manifest.json` until A7 — config is data, and data
+  belongs in the DB. The file is gone; the *model catalog* half of it is host-owned now,
+  which is why an unwired `/models` is empty.)
+- `schema.py` — camelCase pydantic contract (`RunnerConfig`, `ModelEntry`, `HardwareInfo`).
 - `hardware.py` — self-contained detection (platform, NVIDIA GPU+driver+VRAM,
   AMD/Intel rows via sysfs/registry, RAM, runtimes). No CUDA toolkit needed —
   detection only.
@@ -90,13 +93,78 @@ cache — one cache + one endpoint accessor kit-wide), the presentational
 
 ## Consume it
 ```toml
-# pyproject.toml of JustVoice / JustWrite sidecar
+# pyproject.toml of the consuming app / sidecar
 dependencies = ["llm-runner @ git+https://github.com/delebash/just-llm-runner.git@v0.1.0"]
 ```
 ```bash
 # dev: editable
 pip install -e ../just-llm-runner
 ```
+
+### Three mounting tiers — pick the smallest one that does what you need
+
+The library is not all-or-nothing, and the tier decides what you must supply.
+
+**1. Runner only** — hardware detection, engine install, model download/spawn. No storage,
+no host wiring:
+
+```python
+import llm_runner
+app.include_router(llm_runner.router)          # /v1/llm-runner/*
+```
+
+Working immediately: `/hardware`, `/config`, `/engine/*`. **`/models` returns an empty list**,
+because the model catalog is host-owned and nothing has supplied one — the response says so
+via `catalogWired: false` and the server logs it once. This is the only tier with no
+SQLAlchemy anywhere in its path.
+
+**2. Runner + your own catalog** — the above, plus models you can actually download and load,
+with the catalog coming from wherever you keep it (JSON, TOML, a dict — any callable):
+
+```python
+from llm_runner.runner.lifecycle import configure_service
+from llm_runner.runner.schema import ModelEntry, RecommendedFor
+
+configure_service(
+    catalog_fn=lambda: [ModelEntry(id="…", name="…", hf_repo="…", quant="…",
+                                   recommended_for=RecommendedFor())],
+    cache_root=str(my_data_dir / "ai-cache"),   # ALWAYS pass this — see below
+)
+```
+
+Call it ONCE at boot, before the first `get_service()`. Every host-specific input is an
+injected callable, so no database is implied.
+
+**3. The whole stack, one call** — providers, dispatch, prompts, presets, tunes, usage
+ledger, the DB-backed catalog. This is what JustWrite mounts:
+
+```python
+from llm_runner.llm import install_llm
+install_llm(app, engine=…, session_factory=…, feature_catalog=…, feature_prompts=…,
+            data_dir=my_data_dir)
+```
+
+**Tier 3 requires your app to be a SQLAlchemy app.** `engine` and `session_factory` are
+SQLAlchemy objects, and the shipped stores are the only implementation — each router factory
+takes a Protocol, so a non-SQLAlchemy host *can* implement its own store per router, but it
+is writing those itself (JustVoice does exactly this, for `ProviderStore` alone). Tiers 1
+and 2 carry no such requirement.
+
+**Always pass `cache_root` / `data_dir`.** With neither, the engine and every downloaded GGUF
+land in `~/.cache/just-llm-runner` — outside your app's data root, so a user who deletes your
+app leaves tens of GB behind, and a backup of your data dir silently misses the models.
+
+### After changing dependencies or any `__init__.py`
+
+```bash
+python scripts/check-clean-install.py     # ~40 s, builds a throwaway venv
+```
+
+The suite runs on JustWrite's interpreter, where every host dependency already exists, so it
+**cannot** see a missing dependency or an eager storage import. This script can: it installs
+the package alone with only its declared dependencies and imports every module, then removes
+SQLAlchemy and asserts the storage-free core still imports. Both halves have been watched
+failing. Not CI — a script you run.
 
 ## Status
 The shared stack is live in both apps (JustWrite fully; JustVoice pending

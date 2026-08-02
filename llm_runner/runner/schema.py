@@ -2,8 +2,10 @@
 """camelCase schemas — the shared contract for the runner.
 
 Two groups:
-  - The `runner-manifest.json` shapes (RunnerManifest etc.) — the
-    data-only, drift-prone catalog both apps read.
+  - The engine/catalog shapes (RunnerConfig, ModelEntry, BinaryAsset …) — the
+    data-only, drift-prone config both apps read. These were `runner-manifest.json`
+    shapes until A7 moved the data into the host DB (see runner/config.py); the file
+    is gone, the shapes are not.
   - HardwareInfo — what `hardware.detect()` returns; drives binary +
     model selection.
 
@@ -190,6 +192,12 @@ class RunnerModelsResponse(CamelModel):
     ram_mb: int = 0
     safety_margin_mb: int = 1024
     models: list[RunnerModelInfo] = []
+    # Did a HOST supply the catalog, or is this the standalone default? (2026-08-01)
+    # `models: []` alone cannot say, and the two mean opposite things: an empty wired
+    # catalog is "download something", an unwired one is "this app never called
+    # configure_service(catalog_fn=…)". Additive + defaulted, so every existing client
+    # and every RunnerModelsResponse() construction is unaffected.
+    catalog_wired: bool = True
 
 
 # ─── Resident set (GET /v1/llm-runner/resident) ─────────────────────────

@@ -14,6 +14,17 @@ dependencies = [
     "pydantic>=2.9",    # camelCase schema (shared contract)
     "requests>=2.32",   # HF Hub JSON API + THE file downloader (chunk-queue, runner/download.py)
     "httpx>=0.27",      # provider adapters (cloud + local chat-completions)
+    # ADDED 2026-08-01 after a clean-venv audit. `llm/db.py` and `platform/data_api.py`
+    # import SQLAlchemy, and `install_llm` — the headline "one call" entry point — takes an
+    # engine + session_factory, so this is a REAL dependency of the documented path, never
+    # optional. It was missing for the repo's whole life and nothing caught it: JustWrite and
+    # JustVoice each declare `sqlalchemy>=2.0` themselves, so the import always resolved by
+    # coincidence of the HOST's dependency list, and the suite runs on JustWrite's venv
+    # (CLAUDE.md) where it is present. Measured in a venv holding only the deps above:
+    # `llm_runner.llm` and `llm_runner.platform` both died with ModuleNotFoundError, taking
+    # 11,773 of the package's 19,720 lines with them. `scripts/check-clean-install.py` is the
+    # tripwire that now fails if this regresses.
+    "sqlalchemy>=2.0",  # llm/db.py tables + platform/data_api.py reflection; install_llm's contract
     # Official vendor SDKs (user ruling 2026-07-17 — the SDK pivot; versions are the
     # live-proof pins): they own each cloud's wire format + retries. Local adapters
     # (llama.cpp/Ollama/generic compat) deliberately stay on httpx.
@@ -36,8 +47,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["llm_runner*"]
 
-[tool.setuptools.package-data]
-"llm_runner.runner" = ["runner-manifest.json"]
+# NOTE: there is no `package-data` block. It used to ship `llm_runner/runner/runner-manifest.json`,
+# a file deleted with A7 (config is data, it belongs in the DB — see runner/config.py). The entry
+# outlived the file by months and only survives in the stale `build/` tree. If you re-add package
+# data, confirm the file exists on disk first.
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

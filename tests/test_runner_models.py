@@ -48,7 +48,7 @@ def _model(mid, min_vram_mb, *, min_ram_mb=None, total_params="14B"):
 
 
 class _FakeService:
-    def __init__(self, models, *, resident=None, status=None):
+    def __init__(self, models, *, resident=None, status=None, catalog_wired=True):
         self._models = list(models or [])
         # get_models reads the resident set (P1f) for per-model status; router-down/empty
         # by default → every model falls through to disk/available. (Fit no longer reads
@@ -56,6 +56,9 @@ class _FakeService:
         self._resident = resident or {"router": False, "modelsMax": 2, "sleepIdleSeconds": 900, "models": []}
         self._status = status or {"status": "idle", "modelId": "", "url": "", "detail": "", "error": ""}
         self.cache_root = Path("/nonexistent-cache-root")
+        # Did a host wire a catalog source? These tests all supply one, so True by default;
+        # the unwired case has its own test at the bottom of this file (2026-08-01).
+        self.catalog_wired = catalog_wired
 
     def status(self):
         return self._status
@@ -92,9 +95,12 @@ def _resident(*ids_and_statuses):
     }
 
 
-def _patch(monkeypatch, *, hardware, models, resident=None):
+def _patch(monkeypatch, *, hardware, models, resident=None, catalog_wired=True):
     monkeypatch.setattr(api, "detect", lambda: hardware)
-    monkeypatch.setattr(api, "get_service", lambda: _FakeService(models, resident=resident))
+    monkeypatch.setattr(
+        api, "get_service",
+        lambda: _FakeService(models, resident=resident, catalog_wired=catalog_wired),
+    )
 
 
 def test_fit_bands_on_a_12gb_gpu(monkeypatch):
@@ -297,3 +303,42 @@ def test_ensure_embedding_endpoint_not_configured(monkeypatch):
     monkeypatch.setattr(api, "get_service", lambda: _FakeService([]))
     body = _client().post("/v1/llm-runner/ensure-embedding").json()
     assert body["ok"] is False
+
+
+# ── catalogWired: telling "nothing downloaded yet" from "no catalog wired" ──────
+# Both states return `models: []`, and until 2026-08-01 the endpoint could not tell them
+# apart — a new consumer mounting the router saw an empty list and no reason for it.
+# JustVoice sat in the unwired state for months without anyone noticing.
+
+
+def test_models_reports_catalog_wired_when_a_host_supplied_one(monkeypatch):
+    hw = HardwareInfo(os="Linux", platform="linux", cpu_cores=8, ram_mb=16000, gpus=[])
+    _patch(monkeypatch, hardware=hw, models=[_model("a", 4000)], catalog_wired=True)
+    assert _client().get("/v1/llm-runner/models").json()["catalogWired"] is True
+
+
+def test_models_says_catalog_unwired_and_an_EMPTY_wired_catalog_does_not(monkeypatch):
+    """The bite: an empty list alone must not be read as 'unwired'. A host that wired a
+    catalog which happens to hold nothing reports wired=True — the two states are
+    distinguishable in BOTH directions, which is the entire point of the field."""
+    hw = HardwareInfo(os="Linux", platform="linux", cpu_cores=8, ram_mb=16000, gpus=[])
+
+    _patch(monkeypatch, hardware=hw, models=[], catalog_wired=False)
+    unwired = _client().get("/v1/llm-runner/models").json()
+    assert unwired["models"] == [] and unwired["catalogWired"] is False
+
+    _patch(monkeypatch, hardware=hw, models=[], catalog_wired=True)
+    wired_but_empty = _client().get("/v1/llm-runner/models").json()
+    assert wired_but_empty["models"] == [] and wired_but_empty["catalogWired"] is True
+
+
+def test_real_service_knows_whether_a_catalog_was_wired(monkeypatch):
+    """Against the REAL RunnerService, not the double: the standalone default reports
+    unwired, and configure_service(catalog_fn=…) flips it. This is what the endpoint's
+    answer is derived from, so it is the claim that actually has to hold."""
+    monkeypatch.setattr(lifecycle, "_service", None)
+    assert lifecycle.get_service().catalog_wired is False, "standalone default must read unwired"
+
+    monkeypatch.setattr(lifecycle, "_service", None)
+    svc = lifecycle.configure_service(catalog_fn=lambda: [])
+    assert svc.catalog_wired is True, "a host-supplied catalog_fn must read wired"

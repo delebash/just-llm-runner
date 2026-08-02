@@ -12,6 +12,8 @@ download, spawn/status, provider config.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException
 
 from . import fit
@@ -29,7 +31,27 @@ from .schema import (
     RunnerResidentResponse,
 )
 
+log = logging.getLogger(__name__)
+
 router = APIRouter(tags=["llm-runner"])
+
+_warned_catalog_unwired = False
+
+
+def _warn_catalog_unwired() -> None:
+    """Once per process: this router is mounted but no host catalog was ever wired.
+
+    Not an error — the runner is legitimately usable for hardware detection and engine
+    install alone — but it IS the difference between "nothing to download yet" and
+    "downloading anything is impossible here", and it was previously invisible."""
+    global _warned_catalog_unwired
+    if not _warned_catalog_unwired:
+        _warned_catalog_unwired = True
+        log.warning(
+            "llm-runner: /models is empty because no catalog source is wired. Call "
+            "configure_service(catalog_fn=...) at boot (llm_runner.llm.install_llm does "
+            "this for you), or the engine has nothing it can download or load."
+        )
 
 
 def _fit(model: ModelEntry, gpu_vram_mb: int, ram_mb: int, margin_mb: int) -> str:
@@ -140,9 +162,17 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
                 return "error"
         return "disk" if downloaded else "available"
 
-    # Catalog is HOST-OWNED (DB-backed via service.catalog()). Falls through
-    # to manifest.models inside service.catalog() for standalone runner use.
+    # Catalog is HOST-OWNED (DB-backed via service.catalog()). There is NO fallback:
+    # a host that never called `configure_service(catalog_fn=…)` gets an EMPTY list.
+    # (This comment claimed a fall-through "to manifest.models for standalone runner
+    # use" until 2026-08-01. That file was deleted with A7 — see runner/config.py's
+    # opening line — so the sentence described a path that had not existed for months,
+    # and a clean-mount audit measured what actually happens: `{"models": []}`.)
     catalog = service.catalog()
+    if not service.catalog_wired:
+        # Say it once per process rather than per request: silence here is what let
+        # JustVoice mount this router and serve an empty catalog unnoticed.
+        _warn_catalog_unwired()
 
     models: list[RunnerModelInfo] = []
     for m in catalog:
@@ -176,6 +206,7 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
         ram_mb=hardware.ram_mb,
         safety_margin_mb=margin,
         models=models,
+        catalog_wired=service.catalog_wired,
     )
 
 

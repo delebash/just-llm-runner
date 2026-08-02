@@ -536,6 +536,19 @@ class RunnerService:
         is gone (A7)."""
         return self._catalog_fn()
 
+    @property
+    def catalog_wired(self) -> bool:
+        """Did a host actually supply a catalog source, or is this the standalone default?
+
+        The two states LOOK identical from `catalog()` — both return `[]` — and that
+        ambiguity is a real trap for a new consumer (2026-08-01 audit): mount the router,
+        call `/v1/llm-runner/models`, get `{"models": []}`, and there is nothing to
+        distinguish "you never called `configure_service(catalog_fn=…)`" from "your catalog
+        is genuinely empty". JustVoice has been in the first state for months without
+        noticing, because nothing in its UI reads the endpoint. Exposed so the endpoint can
+        say which one it is instead of shrugging."""
+        return self._catalog_fn is not _default_catalog_fn
+
     def config(self):
         """The runner config (binaries + VRAM margin): DB-backed in the host (via
         the injected config_fn), or the seed defaults standalone."""

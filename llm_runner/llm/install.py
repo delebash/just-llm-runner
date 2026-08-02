@@ -70,8 +70,8 @@ def install_llm(
     *,
     engine,
     session_factory,
-    feature_catalog,
-    feature_prompts,
+    feature_catalog=(),
+    feature_prompts=None,
     engine_presets=None,
     feature_presets=None,
     default_preset_id="",
@@ -84,7 +84,37 @@ def install_llm(
     data_dir=None,
     allow_key_reveal: bool = False,
 ) -> None:
-    """Wire + mount the whole shared LLM stack onto `app`. Idempotent table create."""
+    """Wire + mount the whole shared LLM stack onto `app`. Idempotent table create.
+
+    THE MINIMAL CONTRACT (2026-08-01): `install_llm(app, engine=…, session_factory=…,
+    data_dir=…)` is a complete, legal call. `feature_catalog`/`feature_prompts` default to
+    empty because an app with no per-action AI features is a first-class consumer — the
+    "any Python app" half of the shared-package goal. The bare call is enforced by
+    `tests/test_install_llm.py` AND by check 3 of `scripts/check-clean-install.py`, which
+    runs it in a venv holding only the declared dependencies; if a change here breaks the
+    stranger's app, one of those fails before a host's luck can hide it.
+
+    STORAGE CAVEAT: this call starts a daemon thread (catalog-derive-backfill) that opens
+    a DB session at boot. Hand it a session factory whose sessions get their OWN
+    connections — any real file-backed DB does. A single-shared-connection test DB
+    (in-memory SQLite on StaticPool) lets that thread's transaction interleave with a
+    seed pass on the one connection and silently roll its inserts back; measured
+    2026-08-01, 0 of 11 seeded providers surviving one run and 2 of 11 the next."""
+    # Normalize the optional feature data. Empty — never None — reaches
+    # configure_app_seed, because None there means "leave any prior registration
+    # in place" (a stale-state hazard for the second install in one process).
+    feature_catalog = list(feature_catalog or ())
+    feature_prompts = dict(feature_prompts or {})
+    if data_dir is None:
+        # Loud, once per install: without a data_dir the runner's engine + every
+        # downloaded GGUF land in ~/.cache/just-llm-runner — OUTSIDE the app's data
+        # root, so uninstalling the app strands the weights and a data-dir backup
+        # silently misses them. Every real host should pass its data dir.
+        logging.getLogger(__name__).warning(
+            "install_llm: no data_dir passed — the LLM engine and model downloads will "
+            "land in the user cache (~/.cache/just-llm-runner), outside your app's data "
+            "root. Pass data_dir=<your app's data dir> unless that is deliberate."
+        )
     # 1. storage — the app's own engine/session back every shared table.
     db.configure_storage(session_factory)
     db.create_all(engine)

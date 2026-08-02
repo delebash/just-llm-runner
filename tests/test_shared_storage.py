@@ -1,7 +1,14 @@
 # SPDX-License-Identifier: MIT
 """The shared LLM storage stack in isolation — configure_storage + create_all +
-seed + store round-trips + build_llm_config, on an in-memory SQLite. Proves the
-drop-in works with NO host app (any app that calls install_llm gets this)."""
+seed + store round-trips + build_llm_config, on an in-memory SQLite.
+
+NOT the drop-in test. This file wires the storage layer by hand and never calls
+`install_llm`; until 2026-08-01 its docstring claimed it proved "the drop-in works
+with no host app", which nothing here exercised — the entry point itself had zero
+direct coverage while this sentence said otherwise. The actual drop-in (routers
+mounted, singletons wired, the bare minimal call, the double-seed no-op) is
+`tests/test_install_llm.py`, and check 3 of `scripts/check-clean-install.py` runs
+the same bare call in a venv holding only the declared dependencies."""
 
 from __future__ import annotations
 

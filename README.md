@@ -101,70 +101,83 @@ dependencies = ["llm-runner @ git+https://github.com/delebash/just-llm-runner.gi
 pip install -e ../just-llm-runner
 ```
 
-### Three mounting tiers — pick the smallest one that does what you need
+### The standard: `install_llm` — one call, the whole stack
 
-The library is not all-or-nothing, and the tier decides what you must supply.
-
-**1. Runner only** — hardware detection, engine install, model download/spawn. No storage,
-no host wiring:
+Every app in the family (JustWrite today; JustVoice and just-ai-i18n at convergence)
+adopts the same way. Three lines of wiring:
 
 ```python
 import llm_runner
-app.include_router(llm_runner.router)          # /v1/llm-runner/*
+from llm_runner.llm import install_llm, seed_llm
+
+app.include_router(llm_runner.router)                       # the runner's process API
+install_llm(app, engine=engine, session_factory=SessionLocal, data_dir=my_data_dir)
+seed_llm()                                                  # idempotent, insert-if-missing
 ```
 
-Working immediately: `/hardware`, `/config`, `/engine/*`. **`/models` returns an empty list**,
-because the model catalog is host-owned and nothing has supplied one — the response says so
-via `catalogWired: false` and the server logs it once. This is the only tier with no
-SQLAlchemy anywhere in its path.
-
-**2. Runner + your own catalog** — the above, plus models you can actually download and load,
-with the catalog coming from wherever you keep it (JSON, TOML, a dict — any callable):
+That is a COMPLETE call — **the minimal contract**. `feature_catalog`/`feature_prompts`
+default to empty, because an app with no per-action AI features is a first-class consumer.
+An app *with* features registers them in the same call, JustWrite-style:
 
 ```python
-from llm_runner.runner.lifecycle import configure_service
-from llm_runner.runner.schema import ModelEntry, RecommendedFor
-
-configure_service(
-    catalog_fn=lambda: [ModelEntry(id="…", name="…", hf_repo="…", quant="…",
-                                   recommended_for=RecommendedFor())],
-    cache_root=str(my_data_dir / "ai-cache"),   # ALWAYS pass this — see below
-)
+install_llm(app, engine=…, session_factory=…, data_dir=…,
+            feature_catalog=[FeatureCatalogEntry(key="translate", label="Translate"), …],
+            feature_prompts={…},          # or {} — build prompts yourself, dispatch directly
+            engine_presets=…, feature_presets=…)
 ```
 
-Call it ONCE at boot, before the first `get_service()`. Every host-specific input is an
-injected callable, so no database is implied.
+You get: provider CRUD + registry, dispatch with per-feature routing, engine presets
+(temperature/topP/samplers/think), the model catalog, tunes + autotune, the knob catalog,
+the usage ledger, and the bundled runner wired to the DB catalog. Requirements: your app is
+FastAPI + SQLAlchemy (`engine`/`session_factory` are SQLAlchemy objects, and the shipped
+stores are the only storage implementation) — which is every app in this family.
 
-**3. The whole stack, one call** — providers, dispatch, prompts, presets, tunes, usage
-ledger, the DB-backed catalog. This is what JustWrite mounts:
+**Always pass `data_dir`.** Without it the engine and every downloaded GGUF land in
+`~/.cache/just-llm-runner` — outside your app's data root, so uninstalling the app strands
+the weights and a data-dir backup silently misses them. The install logs a warning if you
+omit it.
 
-```python
-from llm_runner.llm import install_llm
-install_llm(app, engine=…, session_factory=…, feature_catalog=…, feature_prompts=…,
-            data_dir=my_data_dir)
-```
+The bare call is enforced twice: `tests/test_install_llm.py` in the suite, and check 3 of
+`scripts/check-clean-install.py`, which runs it in a venv holding ONLY the declared
+dependencies — the environment a non-family app actually is.
 
-**Tier 3 requires your app to be a SQLAlchemy app.** `engine` and `session_factory` are
-SQLAlchemy objects, and the shipped stores are the only implementation — each router factory
-takes a Protocol, so a non-SQLAlchemy host *can* implement its own store per router, but it
-is writing those itself (JustVoice does exactly this, for `ProviderStore` alone). Tiers 1
-and 2 carry no such requirement.
+**Subset: runner only.** An app that wants local model management and nothing else mounts
+just `llm_runner.router` — hardware, engine install, download/spawn, no storage anywhere in
+its path. `/models` answers with `catalogWired: false` until a catalog source is wired
+(`configure_service(catalog_fn=…, cache_root=…)` — any callable, called once at boot).
 
-**Always pass `cache_root` / `data_dir`.** With neither, the engine and every downloaded GGUF
-land in `~/.cache/just-llm-runner` — outside your app's data root, so a user who deletes your
-app leaves tens of GB behind, and a backup of your data dir silently misses the models.
+**Library mode (no server, no DB).** The storage-free core imports without SQLAlchemy —
+adapters, `dispatch`, `registry`, `tiers`, `schema`. A CLI or script builds an `LLMConfig`
+by hand and calls `dispatch.chat(config=…, feature=…)`, or drives `RunnerService` directly.
+Documented, enforced by check 2 of the clean-install script, and deliberately WITHOUT
+helper machinery — it is an escape hatch, not a second standard.
 
-### After changing dependencies or any `__init__.py`
+### Pin or editable?
+
+**Pin the tag unless you routinely run that consumer's test suite.** JustWrite uses a live
+editable link and that is fine *because* its suite runs constantly against it — drift fails
+a test within hours. JustVoice consumed the same way without a running suite and silently
+broke for weeks when a shared symbol was deleted. A pinned consumer stays green and meets
+the change at bump time, with attention on it.
+
+### After changing dependencies, any `__init__.py`, or `install_llm`
 
 ```bash
-python scripts/check-clean-install.py     # ~40 s, builds a throwaway venv
+python scripts/check-clean-install.py     # ~60 s, builds a throwaway venv
+python scripts/check-consumers.py         # resolves every consumer's llm_runner imports
 ```
 
 The suite runs on JustWrite's interpreter, where every host dependency already exists, so it
-**cannot** see a missing dependency or an eager storage import. This script can: it installs
-the package alone with only its declared dependencies and imports every module, then removes
-SQLAlchemy and asserts the storage-free core still imports. Both halves have been watched
-failing. Not CI — a script you run.
+**cannot** see a missing dependency, an eager storage import, or a broken minimal contract.
+The first script can: declared-deps import census, then the bare `install_llm` call on
+declared deps only, then the storage-free core with SQLAlchemy removed. All three checks
+have been watched failing. The second resolves every `llm_runner` symbol the sibling apps
+import, so deleting a shared symbol fails loudly instead of rotting a consumer that isn't
+running its tests. Not CI — scripts you run.
+
+**Not yet proven at runtime:** an engine download + model load driven end-to-end from a
+non-JustWrite host. The i18n rewrite's first boot is that proof; until then the claim stops
+at "the stack mounts, seeds and answers".
 
 ## Status
 The shared stack is live in both apps (JustWrite fully; JustVoice pending

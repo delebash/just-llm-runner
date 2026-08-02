@@ -20,16 +20,21 @@ so its suite runs on that interpreter:
 
 ```bash
 cd E:/Dev/Web/just-llm-runner
-../justwrite-app/.venv/Scripts/python.exe -m pytest -q      # 713 pass, ~45s
+../justwrite-app/.venv/Scripts/python.exe -m pytest -q      # 717 pass, ~50s
 ../justwrite-app/.venv/Scripts/python.exe -m ruff check .   # lint (line-length 100, py310)
-python scripts/check-clean-install.py                       # ~40s — run after ANY dep or __init__ change
+python scripts/check-clean-install.py                       # ~60s — after ANY dep, __init__, or install_llm change
+../justwrite-app/.venv/Scripts/python.exe scripts/check-consumers.py  # after ANY shared-export change
 ```
 
 **The suite runs where every host dependency already exists, so it is blind to a whole class
-of defect.** `check-clean-install.py` is the counterpart: it builds a throwaway venv, installs
-this package with ONLY its declared dependencies, imports every module, then removes
-SQLAlchemy and asserts the storage-free core still imports. Both halves have been watched
-failing.
+of defect.** `check-clean-install.py` is the counterpart: a throwaway venv, the package with
+ONLY its declared dependencies, three checks — every module imports; the bare
+`install_llm(app, engine=…, session_factory=…, data_dir=…)` call yields a working stack
+(the minimal contract); the storage-free core survives with SQLAlchemy removed. All three
+watched failing. `check-consumers.py` closes the other blind spot: it resolves every
+`llm_runner` symbol the sibling apps import, so deleting a shared export fails HERE instead
+of silently breaking a consumer whose tests aren't running — which is exactly how JustVoice
+broke for weeks (`LLMRolesSettings`, deleted by `7232214`).
 
 `python -m pytest` with a bare interpreter picks up whatever is first on PATH — on this box a
 stock `F:\Python312` with none of the dependencies — and dies at collection with
@@ -46,7 +51,8 @@ alias, not a build — there is no publish step to run.
 - **Dependencies stay light — no ML.** No torch, no transformers. The JustWrite sidecar bundle size depends on it; the three vendor SDKs (openai, anthropic, google-genai) were an explicit ruling, not a precedent for adding more.
 - **`pyproject.toml` must list what the code imports — and only `check-clean-install.py` can tell you.** `sqlalchemy` was missing for the repo's whole life. Nothing caught it because nothing could: both host apps declare it themselves, so the import always resolved by coincidence of the HOST's dependency list, and the suite runs on JustWrite's venv. Measured cost when it was finally tested in a clean venv: `llm_runner.llm` and `llm_runner.platform` both failed to import, taking **11,773 of 19,720 lines** with them. A library's real environment is a fresh app, not its biggest consumer.
 - **A package `__init__` must never eagerly import the storage layer.** `llm/db.py` and `platform/data_api.py` are the ONLY files here that touch SQLAlchemy, but the `__init__`s pulled them in on the way to everything else — so one dependency made the adapters, dispatch, registry, tiers and schema unimportable, none of which touch storage. Both `__init__`s resolve exports lazily via PEP 562 `__getattr__` now, and check 2 of the clean-install script fails if that regresses.
-- **Three mounting tiers, and only tier 3 needs a database** (README "Consume it"): the runner router alone · runner + your own `catalog_fn` via `configure_service` · the whole stack via `install_llm`. `install_llm` takes a SQLAlchemy engine + session factory and the shipped stores are the only implementation, so "drop it into any Python app" is true of tiers 1–2 and conditional at tier 3. Do not describe the one-call install as the only path.
+- **`install_llm` is THE standard, and its minimal contract is enforced.** `install_llm(app, engine=…, session_factory=…, data_dir=…)` is a complete call — `feature_catalog`/`feature_prompts` default to empty because an app with no per-action features is a first-class consumer, and nothing in the family exercises that shape, so only the checks protect it (`tests/test_install_llm.py` + clean-install check 3). The runner-router-alone subset and the storage-free library mode are documented in README "Consume it"; neither gets helper machinery — that way lies the second store backend that was explicitly ruled out (2026-08-01).
+- **Never hand `install_llm` a single-shared-connection test DB.** It starts the catalog-derive-backfill daemon thread, which opens a DB session at boot; on in-memory SQLite + StaticPool that thread's transaction interleaves with a seed pass on the ONE connection and silently rolls its inserts back — measured 2026-08-01: 0 of 11 seeded providers on one run, 2 of 11 on the next, no error either time. File-backed SQLite in tests; `test_install_llm.py`'s docstring records the incident.
 - **An unwired catalog is not an empty one.** `catalog_fn` defaults to returning `[]`, which made "no host wired a catalog" and "your catalog is empty" indistinguishable at `/v1/llm-runner/models`. JustVoice mounted the router and sat in the first state for months unnoticed. The response now carries `catalogWired` and the server logs the unwired case once.
 - **Always pass `cache_root` / `data_dir`.** With neither, engine + GGUFs land in `~/.cache/just-llm-runner`, outside the host's data root — so uninstalling the app strands tens of GB and a data-dir backup silently misses the models.
 - **`schema.py` is a camelCase pydantic contract** shared with two apps' front ends. Renaming a field is a breaking wire change in both.

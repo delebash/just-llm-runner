@@ -14,7 +14,7 @@ A missing dependency is invisible to a test suite that runs where the dependency
 this does the only thing that can see it — builds a throwaway venv, installs the package with
 ONLY its declared dependencies, and imports every module inside it.
 
-Two checks, and both must bite:
+Three checks, and each must bite:
   1. FULL     — with the declared dependencies installed, EVERY module imports. This is the
                 one that fails if a dependency is missing from pyproject.toml.
   2. STORAGE-FREE — with SQLAlchemy deliberately REMOVED, the storage-free core still
@@ -22,6 +22,16 @@ Two checks, and both must bite:
                 stdlib platform routers). This is the one that fails if a package `__init__`
                 regresses to an eager `from .db import ...` — the exact shape of the original
                 defect, which made one optional-feeling import fatal for the whole package.
+  3. STRANGER'S APP — runs BEFORE check 2 removes SQLAlchemy: the bare minimal call,
+                `install_llm(app, engine=…, session_factory=…, data_dir=…)` with NO feature
+                data, on a bare FastAPI + file-backed SQLite, then seed_llm and the
+                representative endpoints. `tests/test_install_llm.py` runs the same call in
+                the family venv, where an accidental import of some package the venv happens
+                to carry passes silently — the exact blind-spot class that hid the missing
+                sqlalchemy for the repo's whole life. THIS run holds only the declared
+                dependencies, so it is the one that proves the minimal contract for an app
+                that is not JustWrite. Each of the three consumption modes has its check:
+                declared deps → 1, library mode → 2, the install_llm standard → 3.
 
 NO CI (repo rule): this is a script a human runs, like `seed-facts-audit.py`. Run it after
 touching pyproject.toml, any package `__init__.py`, or any module's import block.
@@ -110,6 +120,50 @@ for mod, attr in entries:
 print("__RESULT__" + json.dumps({"bad": bad}))
 """
 
+# Check 3 — the stranger's app, executed where only the declared contract exists.
+# argv[1] is a scratch dir for the SQLite file and the runner cache root.
+STRANGER = r"""
+import json, sys
+from pathlib import Path
+out = {"bad": {}}
+try:
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import llm_runner
+    from llm_runner.llm.install import install_llm
+    from llm_runner.llm.seed import seed_llm
+
+    scratch = Path(sys.argv[1])
+    engine = create_engine(f"sqlite:///{scratch / 'app.db'}")
+    SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+
+    app = FastAPI()
+    app.include_router(llm_runner.router)   # the host's line
+    install_llm(app, engine=engine, session_factory=SessionLocal, data_dir=scratch)
+    seed_llm()
+
+    client = TestClient(app)
+    checks = {
+        "providers seeded": lambda: len(client.get("/v1/llm-providers").json()["providers"]) > 0,
+        "routing answers": lambda: client.get("/v1/ai/routing").status_code == 200,
+        "usage ledger wired": lambda: client.get("/v1/ai-usage").status_code == 200,
+        "runner catalog wired": lambda: client.get("/v1/llm-runner/models").json()["catalogWired"] is True,
+        "catalog non-empty": lambda: len(client.get("/v1/llm-runner/models").json()["models"]) > 0,
+    }
+    for label, fn in checks.items():
+        try:
+            if not fn():
+                out["bad"][label] = "assertion returned false"
+        except BaseException as e:
+            out["bad"][label] = f"{type(e).__name__}: {e}"
+except BaseException as e:
+    out["bad"]["install_llm bare call"] = f"{type(e).__name__}: {e}"
+print("__RESULT__" + json.dumps(out))
+"""
+
 
 def run(*cmd: str, **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, **kw)
@@ -148,7 +202,7 @@ def main() -> int:
             return 2
 
         # ── check 1: with the declared deps, EVERYTHING must import ──────────────
-        print("\n[1/2] full import census (declared dependencies present)")
+        print("\n[1/3] full import census (declared dependencies present)")
         res = payload(run(str(py), "-c", CENSUS))
         print(f"      {len(res['ok'])} modules imported, {len(res['bad'])} failed")
         for name, err in sorted(res["bad"].items()):
@@ -161,8 +215,19 @@ def main() -> int:
         if not res["bad"] and not entry["bad"]:
             print("      OK — every module and every documented entry point imports")
 
+        # ── check 3 (RUN SECOND — before sqlalchemy is removed): the stranger's app ──
+        print("\n[2/3] the stranger's app — bare install_llm + seed + endpoints")
+        scratch = tmp / "stranger-scratch"
+        scratch.mkdir()
+        res = payload(run(str(py), "-c", STRANGER, str(scratch)))
+        for name, err in sorted(res["bad"].items()):
+            print(f"      FAIL {name}\n           {err}")
+            failures.append(f"[stranger-app] {name}: {err}")
+        if not res["bad"]:
+            print("      OK — the bare minimal call yields a working stack on declared deps only")
+
         # ── check 2: without SQLAlchemy, the storage-free core must survive ──────
-        print("\n[2/2] storage-free core (SQLAlchemy deliberately removed)")
+        print("\n[3/3] storage-free core (SQLAlchemy deliberately removed)")
         r = run(str(py), "-m", "pip", "uninstall", "-y", "-q", "sqlalchemy")
         if r.returncode != 0:
             print(f"FATAL: could not uninstall sqlalchemy\n{r.stderr}", file=sys.stderr)
@@ -185,6 +250,8 @@ def main() -> int:
         for f in failures:
             print(f"  · {f}")
         print("\nA [declared-deps] failure means pyproject.toml is missing a dependency.")
+        print("A [stranger-app] failure means the minimal install_llm contract broke —")
+        print("the bare call every non-family app makes (see llm/install.py's docstring).")
         print("A [storage-free] failure means a package __init__ regressed to an eager")
         print("storage import — see the note at the top of llm_runner/llm/__init__.py.")
         return 1

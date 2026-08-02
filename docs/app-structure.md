@@ -58,8 +58,14 @@ the project name in BOTH:
 Bare `server/src/` with modules directly inside is **not a layout PyPA describes as
 valid** and is not used here.
 
-**The family ruling: flat.** All three apps already comply; consistency across the family
-outranks src-layout's library-oriented advantages, and a migration would buy nothing.
+**The family ruling: flat — the USER's explicit decision, 2026-08-02**, made with both
+options and their full costs surfaced (src-layout everywhere was offered as a ~1-hour
+4-repo migration and declined). Not a session's assumption. The reasoning: all four repos
+already comply; src-layout's advantages target published libraries and none of these are
+ever published (the servers are PyInstaller-frozen applications; llm-runner is
+deliberately git-consumed, never on PyPI); and the ecosystem itself is split at the top
+tier (pip/Poetry/Flask are src; FastAPI/Django/NumPy are flat), so neither choice is
+"more professional" — consistency is the value, and flat is where the family already is.
 
 ## The server's non-negotiables (established elsewhere, indexed here)
 

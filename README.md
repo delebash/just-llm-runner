@@ -137,6 +137,11 @@ stores are the only storage implementation) — which is every app in this famil
 the weights and a data-dir backup silently misses them. The install logs a warning if you
 omit it.
 
+**Headless (CLI doors):** `install_llm(None, …)` runs everything except the router
+mounts — same storage/seed/runner wiring, no FastAPI app needed. A CLI that resolves
+presets boots through this, never by re-implementing the storage half (2026-08-02:
+the first consumer to need it did exactly that, against private imports).
+
 The bare call is enforced twice: `tests/test_install_llm.py` in the suite, and check 3 of
 `scripts/check-clean-install.py`, which runs it in a venv holding ONLY the declared
 dependencies — the environment a non-family app actually is.

@@ -189,9 +189,11 @@ load_from_configs(stores.get_provider_store().list()) # registry from the DB
 - **App-owned settings** (reviewer name, etc.): the host's OWN table on its OWN
   declarative Base, same engine/session — one database, two Bases (the pattern
   llm-runner's db.py documents; `appmeta.py` in i18n-docgen is the reference).
-- **A routeless door** (CLI) boots the same stack via a `boot_llm_stack()` helper —
-  storage, seeds, registry, runner wiring, no FastAPI. Presets resolve through the
-  stores; nothing works before storage is configured.
+- **A routeless door** (CLI) boots the same stack with `install_llm(None, …)` —
+  first-class headless: storage, seeds, registry, runner wiring, no routes. Presets
+  resolve through the stores; nothing works before storage is configured. (The first
+  consumer re-implemented this against private imports; the capability went upstream
+  instead — 2026-08-02.)
 - **API namespace: EVERYTHING under `/v1/*`** — app routes beside the shared stack's.
 - **Tests**: never hand `install_llm` an in-memory StaticPool DB (the backfill daemon
   thread silently rolls seeding back) — file-backed SQLite; reset `lifecycle._service`

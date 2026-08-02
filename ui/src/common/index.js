@@ -14,6 +14,9 @@ export { default as UiCheckbox } from "./components/UiCheckbox.vue";
 export { default as UiTag } from "./components/UiTag.vue";
 export { default as UiChip } from "./components/UiChip.vue";
 export { default as UiSelect } from "./components/UiSelect.vue";
+// Multi-select on Popover+Listbox — born for the i18n target-languages picker,
+// generic on purpose (2026-08-02 ruling: new capabilities land in the KIT, never an app).
+export { default as UiMultiSelect } from "./components/UiMultiSelect.vue";
 export { default as UiNumber } from "./components/UiNumber.vue";
 export { default as UiTable } from "./components/UiTable.vue";
 export { default as UiColorPicker } from "./components/UiColorPicker.vue";

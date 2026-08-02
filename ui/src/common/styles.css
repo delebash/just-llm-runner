@@ -356,3 +356,66 @@ button:not(.ui-btn) { color: inherit; }
 .lu-logline--err { color: var(--danger-ink, #b42318); }
 .lu-logline--warn { color: var(--warning-ink, #b54708); }
 .lu-logline--dim { opacity: 0.6; }
+
+/* ── MultiSelect (Reka Popover + Listbox) ───────────────────── */
+/* Born for just-ai-i18n-docgen's target-languages picker (2026-08-02);
+   generic like UiSelect. Same token contract, same trigger family. */
+.ui-mselect-trigger {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; min-height: 32px;
+  padding: 4px 8px 4px var(--input-pad-x, 10px);
+  font: 500 var(--input-font-size, 13.5px)/1.2 var(--font-ui, inherit);
+  color: var(--ink); background: var(--surface);
+  border: 1px solid var(--border, var(--line)); border-radius: var(--r-sm, 6px);
+  cursor: pointer; outline: none; transition: border-color .12s, box-shadow .12s;
+  text-align: left;
+}
+.ui-mselect-trigger:hover:not(:disabled) { border-color: var(--border-strong, var(--border)); }
+.ui-mselect-trigger[data-state="open"],
+.ui-mselect-trigger:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ui-mselect-trigger:disabled { opacity: .55; cursor: not-allowed; background: var(--surface-2); }
+.ui-mselect-placeholder { color: var(--muted, var(--ink-3)); flex: 1; }
+.ui-mselect-chips { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.ui-mselect-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 4px 2px 8px; border-radius: var(--r-sm, 6px);
+  background: var(--surface-2); border: 1px solid var(--border, var(--line));
+  font-size: 12.5px; line-height: 1.3; white-space: nowrap;
+}
+.ui-mselect-chip-x {
+  display: inline-grid; place-items: center; width: 16px; height: 16px;
+  border-radius: 4px; color: var(--muted, var(--ink-3)); cursor: pointer;
+}
+.ui-mselect-chip-x:hover { background: var(--surface-3, var(--surface-2)); color: var(--ink-2, var(--ink)); }
+.ui-mselect-content {
+  min-width: var(--reka-popover-trigger-width, 220px);
+  max-height: min(320px, var(--reka-popover-content-available-height, 320px));
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--border, var(--line));
+  border-radius: var(--r-sm, 6px); box-shadow: var(--shadow-2, 0 8px 24px rgba(0,0,0,.18));
+  overflow: hidden; z-index: 60;
+}
+.ui-mselect-filter {
+  margin: 6px; padding: 6px 8px;
+  font: 500 var(--input-font-size, 13.5px)/1.2 var(--font-ui, inherit);
+  color: var(--ink); background: var(--surface-2);
+  border: 1px solid var(--border, var(--line)); border-radius: var(--r-sm, 6px);
+  outline: none;
+}
+.ui-mselect-filter:focus-visible { border-color: var(--accent); }
+.ui-mselect-list { overflow: auto; padding: 4px; }
+.ui-mselect-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: var(--r-sm, 6px);
+  font-size: 13px; color: var(--ink); cursor: pointer; user-select: none;
+}
+.ui-mselect-item[data-highlighted] { background: var(--surface-2); }
+.ui-mselect-item[data-state="checked"] { color: var(--accent); }
+.ui-mselect-box {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; flex-shrink: 0;
+  border: 1px solid var(--border-strong, var(--border)); border-radius: 4px;
+  background: var(--surface);
+}
+.ui-mselect-item[data-state="checked"] .ui-mselect-box { background: var(--accent); border-color: var(--accent); }
+.ui-mselect-tick { display: inline-flex; color: var(--on-accent, #fff); }
+.ui-mselect-empty { padding: 10px; font-size: 12.5px; color: var(--muted, var(--ink-3)); }

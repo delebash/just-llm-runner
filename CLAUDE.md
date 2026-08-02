@@ -66,6 +66,7 @@ alias, not a build — there is no publish step to run.
 
 | For | Read |
 |---|---|
+| **THE family app structure — every Tauri+Vue+Python app, current and future** | `docs/app-structure.md` (ruled 2026-08-02; the layout, the naming, the server shape, the JS-vs-Python trap answered once) |
 | What this is, how flags derive, what each module does | `README.md` (dense and current) |
 | Open AI-stack work — THE ledger | `docs/plans/2026-07-06-outstanding-master-plan.md` (§A–J, twice-verified) |
 | The current routing/preset model | `docs/plans/2026-07-15-preset-one-source-rewrite.md` (one-source: an action points at ONE engine preset that owns the model and every tunable) |

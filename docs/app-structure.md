@@ -151,6 +151,15 @@ server/
   ../../just-llm-runner`, so a git pull is live), pinned tag in a `bundle` extra
   (JW's pyproject comment is the canonical text). Pin instead when you do NOT run that
   consumer's suite routinely.
+- **Error envelope + CORS, in that order** (JW's `app.py` is the canonical text): a
+  catch-all `@app.middleware("http")` that turns unhandled exceptions into JSON 500s,
+  registered BEFORE `CORSMiddleware` (allow-all fallback), so errors flow OUT through
+  CORS. Both are load-bearing for the browser dev loop: the kit's origin-aware resolver
+  hits the server port DIRECTLY from Vite dev, so a server without CORS fails silently —
+  and no TestClient test can see it (same-origin). The test that bites sends an
+  `Origin:` header and asserts `access-control-allow-origin` comes back. Found live
+  2026-08-02: the i18n rewrite shipped 126 green tests and zero working browser
+  requests.
 
 ## 7 · Why `server/<name>/` repeats the app name (the JS-vs-Python trap)
 
@@ -212,7 +221,70 @@ shared schema (JV's `feature_prompts` → `jv_feature_prompts`); (6) stand up a 
 suite — convergence without one just resets the rot clock. JustVoice commits
 `14b3ea7`/`aa1363f` are the worked example.
 
-## 10 · Definition of done — a new app ships when every box checks
+## 10 · The e2e harness — the real webview is the acceptance surface
+
+A Chrome tab on the vite port is a PROXY: the app ships in WebView2, and "it looks
+right" claims are made against the window, never the proxy (user-ruled 2026-08-02,
+after exactly that mistake). JustWrite's `e2e/` is the canonical harness — copy its
+SHAPE verbatim; only the app binary path changes:
+
+```
+e2e/
+├── package.json            # zero deps; postinstall = scripts/fetch-driver.js
+├── lib/driver.js           # ~190-line raw W3C WebDriver wrapper (verbatim from JW)
+├── scripts/fetch-driver.js # Edge-version-matched msedgedriver download (verbatim)
+├── tests/*.test.js         # node --test smoke suite against the REAL app
+├── capture-direct.js       # screenshot every surface → e2e/shots/ (gitignored)
+└── drivers/                # msedgedriver.exe (gitignored, version-coupled)
+```
+
+- **How it works**: `tauri-driver` (cargo-installed, :4444) + `msedgedriver` attach a
+  normal WebDriver session to the WebView2 inside the real window — navigate, exec,
+  click, screenshot. Direct HTTP, no WebdriverIO (JW measured v8 AND v9 failing the
+  session handshake; ~120 lines of fetch is deterministic).
+- **Root scripts**: `"test": "npm test --prefix e2e"`, `"screenshots": "node
+  e2e/capture-direct.js"` — same names in every app.
+- **It drives `target/release/`** — build with `npm run tauri build -- --no-bundle`
+  first; the binary is whatever was last built.
+- **Hermetic by default**: the smoke suite sets `<ABBR>_DEV_NO_SIDECAR=1` so a test
+  run never evicts your dev server or spawns strays; capture does the same so shots
+  can use a demo-data server you started deliberately.
+- **What smoke asserts is the CONTRACT, not pixels**: shell mounts, nav works, and
+  any user-ruled UI behaviour holds (e.g. i18n's "the whole Setup form is visible with
+  an explicit Check-path button") — rulings become assertions so they cannot silently
+  regress.
+
+## 11 · The standard app chrome — every app carries these, no exceptions
+
+Ruled 2026-08-03 after the i18n rewrite shipped its workflow with NONE of this — the
+user had to ask "are you bringing in the data directory, the style changer, the ai
+progress cancel, the logs?" The answer must never again be no. Each row names its
+canonical implementation; all of it is kit/platform code — the app writes wiring only.
+
+| Chrome | Canonical | App writes |
+|---|---|---|
+| **AI area** (providers CRUD, model catalog + downloads, presets, usage/tokens) | kit `AiModelsArea` (JW `AiView.vue` = that + one app tab) | one route (`/ai`), one component |
+| **Global AI progress + cancel** | kit `AiStatusButton` → `AiStatusPanel` (JW: TitleBar; no-titlebar shells: sidebar footer) | one mount |
+| **Settings page** | JW `/settings/:section?` pattern | sections rail + panels below |
+| — Appearance | kit engine + catalogs (`UI_FONTS`, `ACCENT_PRESETS`, `UI_SCALES`); JV panel shape | mode/font/accent/scale controls over `setAppearance` |
+| — Storage | shell `storage_get_root`/`storage_relocate` (§5) + shared `make_disk_router(data_dir)` | path display, relocate control, usage table |
+| — Logs | platform `install_log_ring()` + `install_file_log()` + `make_logs_router(name)`; kit `LogsPanel` | 3 server lines, one component |
+| — About | version, headless URL, repo | one panel |
+| Backup/restore/reset | platform `make_data_router` + kit `DataManagement` | when adopted — record if deferred |
+
+Server wiring is JW's exact lines, ring BEFORE app construction:
+
+```python
+install_log_ring()
+install_file_log(data_dir / "logs" / "<kebab-name>.log")
+app.include_router(make_logs_router(PRODUCT))
+app.include_router(make_disk_router(data_dir))
+```
+
+And the test is CONTENT, not mounting: log a marker line, fetch `/v1/logs/tail`,
+assert the marker (a 200 from an empty ring proves nothing).
+
+## 12 · Definition of done — a new app ships when every box checks
 
 - [ ] `npm run dev` opens the DESKTOP APP with the server spawned by the shell
 - [ ] `npm run dev:vite` + `npm run server` = the browser loop at :1420 via the proxy
@@ -224,5 +296,10 @@ suite — convergence without one just resets the rot clock. JustVoice commits
 - [ ] All routes under `/v1/*`; wire shape camelCase
 - [ ] Kit-first UI; any new control landed in `@delebash/llm-ui`
 - [ ] `install_llm` + seeds + registry boot per §8; presets own every tunable
+- [ ] Error envelope + CORS per §6, with the Origin-header test that bites
+- [ ] `e2e/` harness per §10; `npm test` (smoke, real webview) green against the
+      release build; `npm run screenshots` captures every surface
+- [ ] The standard app chrome per §11: `/ai` area, AiStatusButton, Settings with
+      appearance/storage/logs/about, log ring + file + router with the content test
 - [ ] CLAUDE.md present, first Where-to-look row → this document
 - [ ] Any deviation: flagged to the user AND recorded here

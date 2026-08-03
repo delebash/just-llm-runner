@@ -12,7 +12,17 @@
 // manage their own models, so they keep the Fetch-models combobox instead of this table.
 import { computed, ref } from "vue";
 
-import { request } from "../client.js";
+import { catalogCopyConfig, request } from "../client.js";
+
+// Host-voiced copy tokens with JW's words as defaults (see configureLlmUi).
+const CC = {
+  showEmbedding: true,
+  chatSectionLabel: "Chat & writing models",
+  chatSectionHint: "write prose, chat, extract — pick one as your General model",
+  generalUse: "Writes prose, chats, extracts",
+  slotsFootnote: "The app runs these two side by side — the General model writes and chats; the Embedding model powers search. Each loads automatically the first time it's needed; Load now just skips that first wait.",
+  ...catalogCopyConfig(),
+};
 import { useRunnerModels } from "../composables/useRunnerModels.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { useHardware } from "../composables/useHardware.js";
@@ -174,10 +184,10 @@ const groupedRows = computed(() => {
   const chatFit = fits(chatRows.value);
   const embedFit = fits(embedRows.value);
   if (chatFit.length) {
-    rows.push({ __section: "Chat & writing models", hint: "write prose, chat, extract — pick one as your General model", __key: "sec-chat" });
+    rows.push({ __section: CC.chatSectionLabel, hint: CC.chatSectionHint, __key: "sec-chat" });
     rows.push(...chatFit);
   }
-  if (embedFit.length) {
+  if (CC.showEmbedding && embedFit.length) {
     rows.push({ __section: "Embedding models", hint: "power semantic search + grounded chat — pick one as your Embedding model", __key: "sec-embed" });
     rows.push(...embedFit);
   }
@@ -1022,10 +1032,10 @@ refreshApplied();
           {{ defaultGone
             ? "Your tasks still point at it, but it's gone — pick a replacement here."
             : defaultName
-              ? "Writes prose, chats, extracts — every task uses it unless you override a task. Changing it swaps the loaded model."
+              ? `${CC.generalUse} — every task uses it unless you override a task. Changing it swaps the loaded model.`
               : recommendedId
-                ? `Writes prose, chats, extracts — we recommend ${nameOf(recommendedId)} for this PC.`
-                : "Writes prose, chats, extracts — pick one to get started." }}
+                ? `${CC.generalUse} — we recommend ${nameOf(recommendedId)} for this PC.`
+                : `${CC.generalUse} — pick one to get started.` }}
         </div>
         <div v-if="defaultModel && !defaultGone" class="lu-setup-live">
           <span v-if="slotState(defaultModel) === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
@@ -1047,7 +1057,7 @@ refreshApplied();
             @click="unloadModel(defaultModel)">Unload</UiButton>
         </div>
       </div>
-      <div class="lu-setup-card" :class="{ 'lu-setup-card--empty': !embeddingName || embeddingGone }">
+      <div v-if="CC.showEmbedding" class="lu-setup-card" :class="{ 'lu-setup-card--empty': !embeddingName || embeddingGone }">
         <div class="lu-setup-role">Embedding model</div>
         <div v-if="embeddingGone" class="lu-setup-val">{{ currentEmbeddingId }} — removed from the catalog</div>
         <UiSelect v-if="embedSlotOptions.length" class="lu-setup-pick"
@@ -1081,9 +1091,7 @@ refreshApplied();
         </div>
       </div>
     </div>
-    <p class="lu-setup-cap lu-muted">The app runs these two side by side — the General model
-      writes and chats; the Embedding model powers search. Each loads automatically the first
-      time it's needed; Load now just skips that first wait.</p>
+    <p class="lu-setup-cap lu-muted">{{ CC.slotsFootnote }}</p>
 
     <!-- #10 (user, 2026-07-08): a real section heading over the catalog. -->
     <div class="lu-mcat-title">Model Catalog</div>

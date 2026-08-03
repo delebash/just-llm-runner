@@ -42,6 +42,7 @@ const error = ref("");
 const message = ref("");
 
 const selAction = ref("");
+const selFeature = ref(""); // a promptless feature's routing-only selection
 
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
 
@@ -51,7 +52,11 @@ const navGroups = computed(() => {
   const byGroup = {};
   for (const f of routing.value?.features || []) {
     const actions = prompts.value.filter((p) => p.feature === f.key);
-    if (!actions.length) continue;
+    // A feature with NO prompt rows still ROUTES (feature -> engine preset). Apps
+    // that build their own prompts (i18n: feature_prompts={} because shielding owns
+    // the request body) register features with zero actions - dropping them here
+    // rendered "Routing by feature" EMPTY for the whole app (found live 2026-08-03).
+    // They stay, and select a routing-only pane instead of a FeatureLab.
     const grp = f.group || GROUP_FALLBACK;
     if (!(grp in byGroup)) { byGroup[grp] = []; order.push(grp); }
     byGroup[grp].push({ key: f.key, label: f.label, actions });
@@ -84,7 +89,8 @@ const navRows = computed(() => {
     for (const f of grp.features) {
       if (grp.merged) pushActions(f, 1);
       else if (f.actions.length > 1) { rows.push({ type: "ghead", label: f.label, indent: 1 }); pushActions(f, 1); }
-      else rows.push({ type: "card", action: f.actions[0], indent: 1 });
+      else if (f.actions.length === 1) rows.push({ type: "card", action: f.actions[0], indent: 1 });
+      else rows.push({ type: "feature", featureKey: f.key, label: f.label, indent: 1 });
     }
   }
   return rows;
@@ -141,7 +147,12 @@ async function load() {
   }
 }
 
+function selectFeature(key) {
+  selFeature.value = key;
+  selAction.value = "";
+}
 function selectAction(key) {
+  selFeature.value = "";
   selAction.value = key;
   message.value = "";
 }
@@ -252,6 +263,12 @@ onMounted(load);
               <div class="lu-fw-gname">{{ row.label }}</div>
             </div>
             <div v-else-if="row.type === 'sub'" class="lu-fw-sublabel" :style="ml(row.indent)">{{ row.label }}</div>
+            <button v-else-if="row.type === 'feature'" type="button" class="lu-fw-card" :style="ml(row.indent)"
+              :class="{ 'is-active': row.featureKey === selFeature }" @click="selectFeature(row.featureKey)">
+              <div class="lu-fw-card-label">{{ featMeta[row.featureKey]?.label || row.label }}</div>
+              <div v-if="featMeta[row.featureKey]?.hint" class="lu-fw-card-desc">{{ featMeta[row.featureKey].hint }}</div>
+              <div class="lu-fw-card-model" title="engine preset for this feature">→ {{ featurePresetLabel(row.featureKey) }}</div>
+            </button>
             <button v-else type="button" class="lu-fw-card" :style="ml(row.indent)"
               :class="{ 'is-active': row.action.key === selAction }" @click="selectAction(row.action.key)">
               <div class="lu-fw-card-label">{{ actionLabel(row.action) }}</div>
@@ -285,6 +302,28 @@ onMounted(load);
             :production-preset-id="selResolvedPreset"
             @use-production="onUseProduction" @presets-changed="onPresetsChanged"
             @prompt-changed="onPromptChanged" />
+        </section>
+        <section v-else-if="selFeature" class="lu-fw-edit">
+          <div class="lu-fw-h">
+            <b>{{ featMeta[selFeature]?.label || selFeature }}</b>
+            <span class="lu-fw-spacer" />
+            <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
+          </div>
+          <p v-if="featMeta[selFeature]?.hint" class="lu-muted" style="margin:0 0 12px">{{ featMeta[selFeature].hint }}</p>
+          <div class="lu-fw-route">
+            <label class="lu-fw-route-label" :for="`fw-route-${selFeature}`">Engine preset</label>
+            <select :id="`fw-route-${selFeature}`" class="lu-input" style="max-width:340px"
+              :value="refPid(selFeature) || ''"
+              @change="(e) => setFeaturePreset(selFeature, e.target.value || null)">
+              <option value="">Default preset ({{ presetName(presetAssign.defaultPresetId) }})</option>
+              <option v-for="p in enginePresets" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
+            </select>
+            <p class="lu-muted" style="font-size:12px;margin:8px 0 0">
+              This app builds this feature's prompt itself — routing picks WHICH engine
+              preset (provider · model · every switch) runs it. Edit presets under a
+              provider's row on Providers &amp; models.
+            </p>
+          </div>
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
       </div>

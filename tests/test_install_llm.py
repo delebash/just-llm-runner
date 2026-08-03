@@ -161,6 +161,31 @@ def test_no_data_dir_warns_about_the_user_cache(hermetic, tmp_path, caplog):
     assert any("data_dir" in r.message for r in caplog.records)
 
 
+def test_catalog_optout_seeds_only_the_hosts_rows(hermetic, tmp_path):
+    """seed_default_model_catalog=False (2026-08-03, the i18n app): a host whose
+    domain the writing-curated DEFAULT_CATALOG does not fit seeds ONLY its own
+    rows. Default stays True — the bare-call test above proves the default
+    catalog still seeds for everyone else."""
+    engine, SessionLocal = hermetic
+    app = FastAPI()
+    install_llm(
+        app, engine=engine, session_factory=SessionLocal, data_dir=tmp_path,
+        model_catalog_extra=[{
+            "id": "host-only-model", "name": "Host Only",
+            "hf_repo": "example/host-only-GGUF", "quant": "Q4_K_M",
+            "total_params": "7B", "type": "dense", "min_vram_mb": 4096,
+            "min_ram_mb": 8192, "tier": "small", "license": "Apache-2.0",
+            "position": 0, "quality_rank": 1, "architecture": "llama", "experts": 0,
+        }],
+        seed_default_model_catalog=False,
+    )
+    seed_llm()
+    rows = stores.get_model_catalog_store().list()
+    ids = {r.id for r in rows}
+    assert ids == {"host-only-model"}, (
+        f"opt-out must suppress DEFAULT_CATALOG entirely — got {sorted(ids)[:5]}…")
+
+
 def test_headless_boot_app_none_wires_everything_but_mounts_nothing(hermetic, tmp_path):
     """app=None — the CLI door's boot (2026-08-02). The first consumer to need this
     re-implemented install_llm's storage half against PRIVATE imports; headless is

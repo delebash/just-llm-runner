@@ -34,6 +34,7 @@ _APP: dict = {"feature_catalog": [], "feature_prompts": {},
 def configure_app_seed(*, feature_catalog=None, feature_prompts=None,
                        engine_presets=None, feature_presets=None,
                        default_preset_id=None, model_catalog_extra=None,
+                       seed_default_model_catalog=None,
                        model_tunes_seed=None, hw_key_fn=None,
                        test_samples=None, feature_prompt_heals=None) -> None:
     """The host registers its feature DATA once at boot (install_llm does this):
@@ -61,6 +62,11 @@ def configure_app_seed(*, feature_catalog=None, feature_prompts=None,
     # promise only held for fresh-DB boots.)
     if model_catalog_extra is not None:
         _APP["model_catalog_extra"] = list(model_catalog_extra)
+    if seed_default_model_catalog is not None:
+        # An app whose domain the writing-curated DEFAULT_CATALOG does not fit (the
+        # i18n app: translation-measured models only, no embeds) opts out and seeds
+        # its whole catalog via model_catalog_extra. Default True — JW/JV unchanged.
+        _APP["seed_default_model_catalog"] = bool(seed_default_model_catalog)
     if model_tunes_seed is not None:
         _APP["model_tunes_seed"] = list(model_tunes_seed)
     if hw_key_fn is not None:
@@ -1482,7 +1488,8 @@ def seed_llm(s=None) -> None:
         seed_default_providers(s)
         seed_default_reasoning_map(s)  # after providers exist (same-session autoflush)
         seed_default_routing(s)
-        seed_default_catalog(s)
+        if _APP.get("seed_default_model_catalog", True):
+            seed_default_catalog(s)
         seed_default_pricing(s)
         seed_default_switch_presets(s)
         seed_default_engine_presets(s)

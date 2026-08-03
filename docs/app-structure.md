@@ -93,9 +93,22 @@ kit is consumed as source from the sibling clone — no publish step exists).
   built IN THE KIT** on reka-ui primitives with the one-`intent` design contract —
   never app-local (UiMultiSelect is the precedent: born for i18n-docgen, owned by all).
 - **Transport**: the kit's `configureServerApi` + `makeOriginAwareResolver({ devPorts:
-  ["1420"], fallback: "http://127.0.0.1:<PORT>" })`, called once in `main.js` with
-  `configureLlmUi({})`. Never hand-rolled fetch helpers.
+  ["1420"], fallback: "http://127.0.0.1:<PORT>" })`, called once in `main.js` — and the
+  SAME resolved base into **`configureLlmUi({ baseUrl: resolveBase() })`**: with no
+  baseUrl the kit falls back to `window.location.origin`, which is `tauri.localhost` in
+  the packaged webview, and every kit LLM view renders empty IN PRODUCTION ONLY (found
+  live 2026-08-03). Also `configureExternal` (Tauri swallows `_blank` — without it every
+  external link is silently dead in the desktop app). Never hand-rolled fetch helpers.
 - **Wire shape: camelCase** — matching the shared stack's `CamelModel` contract.
+- **NAME YOUR DONOR** (user-ruled 2026-08-03, after a hand-rolled disk-usage panel
+  shipped beside JW's canonical one): before writing ANY UI element, name where it
+  already exists — a kit export, a JW section, a JV section. Hand-writing is allowed
+  only after that search comes up empty, and the new piece is then usually born in the
+  kit. Copy donors WHOLE — strings, confirms, loading states — never a lookalike.
+- **TitleBar** (JW `components/TitleBar.vue` is the donor): an in-app toolbar above the
+  content — back/forward over the router's history state, the current title, the mode
+  control and `AiStatusButton` on the right. Every app carries one; a shell without a
+  native-feel title row was ruled a divergence (2026-08-03).
 
 ## 5 · The Tauri shell
 
@@ -151,6 +164,11 @@ server/
   ../../just-llm-runner`, so a git pull is live), pinned tag in a `bundle` extra
   (JW's pyproject comment is the canonical text). Pin instead when you do NOT run that
   consumer's suite routinely.
+- **Bearer auth for the headless path** (JW `auth.py` is the donor, storage seam per
+  app): headless serving is a first-class way to run every server — so every server
+  carries the token middleware (OFF while the token list is empty; loopback exempt
+  unless required) + a Settings → Server section to manage tokens. Added BEFORE CORS
+  so CORS wraps auth's 401/403.
 - **Error envelope + CORS, in that order** (JW's `app.py` is the canonical text): a
   catch-all `@app.middleware("http")` that turns unhandled exceptions into JSON 500s,
   registered BEFORE `CORSMiddleware` (allow-all fallback), so errors flow OUT through
@@ -264,12 +282,14 @@ canonical implementation; all of it is kit/platform code — the app writes wiri
 | Chrome | Canonical | App writes |
 |---|---|---|
 | **AI area** (providers CRUD, model catalog + downloads, presets, usage/tokens) | kit `AiModelsArea` (JW `AiView.vue` = that + one app tab) | one route (`/ai`), one component |
-| **Global AI progress + cancel** | kit `AiStatusButton` → `AiStatusPanel` (JW: TitleBar; no-titlebar shells: sidebar footer) | one mount |
+| **Global AI progress + cancel** | kit `AiStatusButton` → `AiStatusPanel` in the TitleBar, PLUS a sidebar nav row "AI tasks" toggling the same panel with a count/error badge (JW `Sidebar.vue:148`) | one mount + one nav row |
+| **TitleBar** | JW `components/TitleBar.vue` | back/forward, title, mode, status chip |
 | **Settings page** | JW `/settings/:section?` pattern | sections rail + panels below |
 | — Appearance | kit engine + catalogs (`UI_FONTS`, `ACCENT_PRESETS`, `UI_SCALES`); JV panel shape | mode/font/accent/scale controls over `setAppearance` |
 | — Storage | shell `storage_get_root`/`storage_relocate` (§5) + shared `make_disk_router(data_dir)` | path display, relocate control, usage table |
 | — Logs | platform `install_log_ring()` + `install_file_log()` + `make_logs_router(name)`; kit `LogsPanel` | 3 server lines, one component |
-| — About | version, headless URL, repo | one panel |
+| — Server | JW's headless/auth section: headless URL + bearer tokens over the app's auth endpoints | one panel |
+| — About | version, repo | one panel |
 | Backup/restore/reset | platform `make_data_router` + kit `DataManagement` | when adopted — record if deferred |
 
 Server wiring is JW's exact lines, ring BEFORE app construction:
@@ -280,6 +300,11 @@ install_file_log(data_dir / "logs" / "<kebab-name>.log")
 app.include_router(make_logs_router(PRODUCT))
 app.include_router(make_disk_router(data_dir))
 ```
+
+**Setup wizards**: machinery in the kit (`useCatalogMeta`, `useRunnerModels`,
+`useModelApply`, `DownloadBar`), the wizard VIEW per app (steps + words) — JV's TTS
+wizard was always app-local, i18n's translate wizard follows, and `AiModelsArea`'s
+`wizard` prop mounts it. JW's `QuickSetup` (embedding woven through) stays JW's.
 
 And the test is CONTENT, not mounting: log a marker line, fetch `/v1/logs/tail`,
 assert the marker (a 200 from an empty ring proves nothing).

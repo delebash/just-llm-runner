@@ -59,6 +59,11 @@ const props = defineProps({
   // Online tab (JW's first-run AI setup dialog, "Connect an online provider", via
   // ?providers=online). Anything else — including the default "" — starts on Local.
   initialProviderScope: { type: String, default: "" },
+  // The setup-wizard seam (2026-08-03): an app passes its OWN thin wizard component
+  // (must expose openWizard(), emit changed/closed, accept `inline`) and the whole
+  // local-setup band renders it instead of the default QuickSetup. Machinery stays
+  // in the kit composables; the wizard's steps and words belong to the app.
+  wizard: { type: [Object, Function], default: null },
 });
 const emit = defineEmits(["quick-setup-closed"]);
 
@@ -451,7 +456,7 @@ onMounted(() => {
            would unmount the wizard on the Online tab and turn both into silent
            optional-chain no-ops. -->
       <div v-show="providerScope === 'local'" class="lu-qs-band">
-        <QuickSetup ref="qsRef" inline @changed="loadProviders" @closed="onQuickSetupClosed" />
+        <component :is="props.wizard || QuickSetup" ref="qsRef" inline @changed="loadProviders" @closed="onQuickSetupClosed" />
       </div>
 
       <div class="lu-providers">

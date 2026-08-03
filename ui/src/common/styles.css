@@ -150,6 +150,11 @@ button:not(.ui-btn) { color: inherit; }
    Both used by JustVoice's status pills. */
 .ui-tag--solid { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
 .ui-tag--ghost { background: transparent; color: var(--ink-2, var(--ink)); }
+/* removable tag ✕ (UiTag `removable`) — inherits the intent's text colour */
+.ui-tag__x { border: none; background: transparent; color: inherit; font: inherit;
+  font-size: 0.85em; line-height: 1; padding: 0 0 0 2px; margin-right: -2px;
+  cursor: pointer; opacity: 0.65; }
+.ui-tag__x:hover { opacity: 1; }
 
 /* ── Select (Reka headless) ─────────────────────────────────── */
 .ui-select-trigger {

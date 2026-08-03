@@ -45,6 +45,10 @@ export { default as AiStatusButton } from "./components/AiStatusButton.vue";
 // for the bundled runner + POST /v1/ai/embeddings).
 export { useProviderModels } from "./composables/useProviderModels.js";
 export { useResolvedRoute } from "./composables/useResolvedRoute.js";
+// The catalog-meta composable (quality order, PC-class configs, VRAM fit) — exported so
+// an APP-LOCAL setup wizard can rank models without forking QuickSetup (2026-08-03: the
+// i18n app's thin wizard; the family pattern is machinery in the kit, wizards per app).
+export { useCatalogMeta } from "./composables/useCatalogMeta.js";
 export { default as LuFeatureChip } from "./components/LuFeatureChip.vue";
 export { ensureEmbeddingReady, embedTexts, _resetEnsureCache } from "./services/embedApi.js";
 // The shared runner-models singleton — `refresh` (re-stat the catalog out-of-band, e.g.

@@ -12,6 +12,8 @@ clobber user edits (the `seed_default_providers` pattern).
 
 from __future__ import annotations
 
+import logging
+
 from . import db
 from ..runner.config import (
     DEFAULT_BINARIES,
@@ -25,6 +27,8 @@ from ..runner.config import (
     DEFAULT_SAFETY_MARGIN_MB,
     DEFAULT_SLEEP_IDLE_SECONDS,
 )
+
+log = logging.getLogger(__name__)
 
 # ── per-app registration (the ONLY per-app inputs) ────────────────────────────
 _APP: dict = {"feature_catalog": [], "feature_prompts": {},
@@ -675,6 +679,90 @@ DEFAULT_CLASS_TUNES: list[dict] = [
         "batch_size": "512", "ubatch_size": "512", "reasoning_budget": "1024",
     }},
 ]
+
+
+# WHAT THE SEEDED TUNES WERE MEASURED ON — the model's real identity, not the id some
+# host happened to choose. A class tune is the most expensive knowledge in this package
+# (somebody sat at a box and measured it), and it was addressable ONLY by `model_id`: an
+# app that seeds the same GGUF under its own id inherited nothing, silently, while its
+# catalog card read "Nobody has tuned this model on any PC class yet".
+#
+# Measured 2026-08-03 on the i18n app: its row is `gemma-4-26b-a4b-qat-xl` —
+# unsloth/gemma-4-26B-A4B-it-qat-GGUF @ UD-Q4_K_XL, byte-for-byte the file JustWrite
+# calls `gemma-4-26b-a4b-qat` — so the 8 GB/32 GB row below (measured on the author's
+# own 2070 SUPER) never applied and the model launched on automatic fit: ctx 16384 with
+# NO n_cpu_moe, against a measured ctx 32768 + n_cpu_moe 21.
+#
+# This also makes the package honest with itself: `gemma-4-26b-a4b-qat` is NOT in
+# DEFAULT_CATALOG — 6 of the 13 seeded tune rows resolve only because JustWrite adds
+# that catalog row app-side (justwrite_server/seed_presets.py:113). Every other adopter
+# has been shipping them as dead weight.
+DEFAULT_CLASS_TUNE_IDENTITY: dict[str, dict] = {
+    "gemma-4-26b-a4b-qat": {"hf_repo": "unsloth/gemma-4-26B-A4B-it-qat-GGUF",
+                            "quant": "UD-Q4_K_XL"},
+    "gemma-4-12b-qat": {"hf_repo": "unsloth/gemma-4-12B-it-qat-GGUF",
+                        "quant": "UD-Q4_K_XL"},
+    "gemma-4-e4b-qat": {"hf_repo": "unsloth/gemma-4-E4B-it-qat-GGUF",
+                        "quant": "UD-Q4_K_XL"},
+    "gryphe-styletune-v2": {"hf_repo": "mradermacher/Gemma-4-26B-A4B-StyleTune-V2-GGUF",
+                            "quant": "Q4_K_M"},
+}
+
+
+def _identity_key(hf_repo, quant) -> tuple[str, str]:
+    return ((hf_repo or "").strip().lower(), (quant or "").strip().lower())
+
+
+def link_class_tunes_to_catalog(s) -> int:
+    """Make measured tunes reachable from whatever id THIS app's catalog uses.
+
+    Runs LAST in seed_llm — after the default catalog AND the host's extra rows — and
+    copies the rows of any tune whose `model_id` has no catalog row onto the catalog row
+    with the same identity (hf_repo + quant). Insert-if-missing, so a tune already
+    present for that (model, class) is never touched and a host that names the model the
+    same way is a no-op. A tune that matches NOTHING is logged: dead weight should say
+    so rather than sit there looking like coverage."""
+    # FLUSH FIRST: every row this seed pass just added — the default catalog, the host's
+    # extras, the tunes themselves — is still pending, and a host session is built with
+    # `autoflush=False` (test_install_llm's fixture mirrors the documented shape). Without
+    # this the query sees an empty catalog and binds nothing, silently.
+    s.flush()
+    catalog = {r.id: r for r in s.query(db.ModelCatalog).all()}
+    by_identity: dict[tuple[str, str], str] = {}
+    for r in catalog.values():
+        by_identity.setdefault(_identity_key(r.hf_repo, r.quant), r.id)
+
+    tuned_ids = {mid for (mid,) in s.query(db.ClassTune.model_id).distinct().all()}
+    linked = 0
+    for mid in sorted(tuned_ids):
+        if mid in catalog:
+            continue  # the host names it the same way — nothing to do
+        identity = DEFAULT_CLASS_TUNE_IDENTITY.get(mid)
+        target = (by_identity.get(_identity_key(identity.get("hf_repo"), identity.get("quant")))
+                  if identity else None)
+        if not target:
+            log.warning(
+                "class tunes for %r match no model in this catalog — they cannot apply. "
+                "Add a catalog row for it, or register its hf_repo+quant in "
+                "DEFAULT_CLASS_TUNE_IDENTITY so it can bind by identity.", mid)
+            continue
+        rows = s.query(db.ClassTune).filter(db.ClassTune.model_id == mid).all()
+        copied = 0
+        for ckey in sorted({r.class_key for r in rows}):
+            if s.query(db.ClassTune).filter(
+                db.ClassTune.model_id == target, db.ClassTune.class_key == ckey
+            ).first():
+                continue
+            for r in [x for x in rows if x.class_key == ckey]:
+                s.add(db.ClassTune(model_id=target, class_key=ckey,
+                                   flag_name=r.flag_name, flag_value=r.flag_value,
+                                   built_in=True))
+            copied += 1
+        if copied:
+            log.info("linked %d measured class-tune row(s) %r → %r (same hf_repo + quant)",
+                     copied, mid, target)
+        linked += copied
+    return linked
 
 
 def seed_default_class_tunes(s) -> int:
@@ -1513,6 +1601,10 @@ def seed_llm(s=None) -> None:
             # seed is imported by stores' API-model siblings; keep boot order free).
             from . import stores as _stores
             _stores.get_test_sample_store().seed_fill(s, _APP["test_samples"])
+        # LAST, because it needs the whole catalog — defaults AND the host's extras:
+        # bind measured class tunes to the id THIS app gave the same GGUF, and say so
+        # when a tune can bind to nothing.
+        link_class_tunes_to_catalog(s)
         s.commit()
     finally:
         if own:

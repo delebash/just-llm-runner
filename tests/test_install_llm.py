@@ -200,3 +200,74 @@ def test_headless_boot_app_none_wires_everything_but_mounts_nothing(hermetic, tm
     # The runner catalog is WIRED (the CLI's make_send needs the stores AND the runner).
     assert lifecycle.get_service().catalog_wired is True
     assert str(lifecycle.get_service().cache_root) == str(tmp_path / "ai-cache")
+
+
+def test_measured_class_tunes_bind_to_the_HOSTS_id_for_the_same_gguf(hermetic, tmp_path, caplog):
+    """The most expensive knowledge in this package is a measured class tune, and it was
+    addressable only by `model_id`. An app that seeds the SAME GGUF under its own id
+    inherited nothing — silently — while its catalog card said "Nobody has tuned this
+    model on any PC class yet".
+
+    Measured 2026-08-03: the i18n app's `gemma-4-26b-a4b-qat-xl` IS
+    unsloth/gemma-4-26B-A4B-it-qat-GGUF @ UD-Q4_K_XL, byte-for-byte what JustWrite calls
+    `gemma-4-26b-a4b-qat` — so the 8 GB/32 GB row measured on the author's own 2070 SUPER
+    never applied, and the model launched on automatic fit (ctx 16384, no n_cpu_moe)
+    instead of the measured ctx 32768 + n_cpu_moe 21."""
+    import logging
+
+    from llm_runner.llm import db as _db
+
+    engine, SessionLocal = hermetic
+    install_llm(
+        None, engine=engine, session_factory=SessionLocal, data_dir=tmp_path,
+        model_catalog_extra=[{
+            "id": "gemma-4-26b-a4b-qat-xl", "name": "Gemma 4 26B-A4B (QAT)",
+            # the SAME artifact the seeded tunes were measured on, under another id
+            "hf_repo": "unsloth/gemma-4-26B-A4B-it-qat-GGUF", "quant": "UD-Q4_K_XL",
+            "total_params": "26B", "type": "moe", "min_vram_mb": 4096,
+            "min_ram_mb": 24576, "tier": "low-vram-moe", "license": "Apache-2.0",
+            "position": 0, "quality_rank": 1, "architecture": "gemma4", "experts": 128,
+        }],
+        seed_default_model_catalog=False,
+    )
+    with caplog.at_level(logging.WARNING, logger="llm_runner.llm.seed"):
+        seed_llm()
+
+    s = SessionLocal()
+    try:
+        rows = s.query(_db.ClassTune).filter(
+            _db.ClassTune.model_id == "gemma-4-26b-a4b-qat-xl",
+            _db.ClassTune.class_key == "dgpu-vram8|ram32",
+        ).all()
+        got = {r.flag_name: r.flag_value for r in rows}
+    finally:
+        s.close()
+    assert got, "the measured tune must bind to the id THIS catalog uses"
+    # The two knobs that were actually missing on the user's box.
+    assert got.get("n_cpu_moe") == "21", f"expected the measured expert offload, got {got}"
+    assert got.get("ctx_len") == "32768"
+
+
+def test_a_class_tune_that_can_bind_to_nothing_says_so(hermetic, tmp_path, caplog):
+    """Dead weight must announce itself. With a catalog that contains none of the tuned
+    models, every seeded tune is unusable — and shipping it silently is how 6 of 13 rows
+    sat orphaned in this package (their id is absent from DEFAULT_CATALOG; they resolve
+    only because JustWrite adds that row app-side)."""
+    import logging
+
+    engine, SessionLocal = hermetic
+    install_llm(
+        None, engine=engine, session_factory=SessionLocal, data_dir=tmp_path,
+        model_catalog_extra=[{
+            "id": "something-else", "name": "Unrelated",
+            "hf_repo": "example/unrelated-GGUF", "quant": "Q4_K_M",
+            "total_params": "7B", "type": "dense", "min_vram_mb": 4096,
+            "min_ram_mb": 8192, "tier": "small", "license": "MIT",
+            "position": 0, "quality_rank": 1, "architecture": "llama", "experts": 0,
+        }],
+        seed_default_model_catalog=False,
+    )
+    with caplog.at_level(logging.WARNING, logger="llm_runner.llm.seed"):
+        seed_llm()
+    assert any("match no model in this catalog" in r.message for r in caplog.records), \
+        "an unbindable tune must warn — silence reads as coverage"

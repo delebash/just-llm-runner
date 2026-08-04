@@ -154,6 +154,21 @@ def test_two_installs_of_one_app_do_not_erase_each_other(tmp_path, family_home):
     assert len(cache_registry.discover(exclude=tmp_path / "mine")) == 2
 
 
+def test_an_install_that_switches_cache_leaves_no_ghost_row(tmp_path, family_home):
+    """Seen live: after one switch and one switch back, the registry listed the app
+    against BOTH roots — one of which it no longer used. The install (data dir) is the
+    thing that has a cache; the root is only what it currently says about itself."""
+    own = tmp_path / "mine" / "ai-cache"
+    sibling = tmp_path / "jw" / "ai-cache"
+    own.mkdir(parents=True)
+    sibling.mkdir(parents=True)
+    cache_registry.register("Mine", own, tmp_path / "mine")
+    cache_registry.register("Mine", sibling, tmp_path / "mine")   # the user shares
+
+    rows = cache_registry.discover(exclude=tmp_path / "elsewhere")
+    assert [Path(r["root"]) for r in rows] == [sibling]
+
+
 def test_a_suite_that_forgets_the_override_writes_NOTHING(tmp_path, monkeypatch):
     """The bite for the incident itself: without this guard, three repos' pytest runs
     wrote `pytest-of-<user>/…` paths into the author's real machine-wide registry."""

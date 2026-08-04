@@ -103,21 +103,26 @@ def register(product: str, cache_root, data_dir=None) -> None:
     """Record (or refresh) this app's cache location. Best-effort by contract — a
     read-only or missing family home must not stop a boot.
 
-    Keyed by (product, cacheRoot), NOT product alone: one app legitimately has more
-    than one install — a dev build and a release build have different data dirs — and
-    keying on the name alone let whichever booted last ERASE the other's row. That is
-    how a pytest run with a tmp data dir replaced the real JustWrite entry."""
+    KEYED BY (product, dataDir) — the INSTALL, which is the thing that has one cache.
+
+    Not product alone: a dev build and a release build are two installs of one app, and
+    that key let whichever booted last erase the other's row (which is how a pytest run
+    with a tmp data dir replaced the real JustWrite entry). Not (product, cacheRoot)
+    either, though it was the first fix: an install that RE-POINTS its cache then leaves
+    its old row behind, claiming to cache somewhere it no longer does — seen live, one
+    app listed against two roots after a single switch. The data dir identifies the
+    install; the cache root is only what that install currently says about itself."""
     if not product or not cache_root or not _writes_allowed():
         return
-    root = str(Path(cache_root))
+    where = str(Path(data_dir)) if data_dir else ""
     entry = {
         "product": product,
-        "cacheRoot": root,
-        "dataDir": str(Path(data_dir)) if data_dir else "",
+        "cacheRoot": str(Path(cache_root)),
+        "dataDir": where,
         "lastSeen": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
     apps = [e for e in _read()
-            if not (e.get("product") == product and str(Path(e["cacheRoot"])) == root)]
+            if not (e.get("product") == product and (e.get("dataDir") or "") == where)]
     apps.append(entry)
     path = _registry_path()
     try:

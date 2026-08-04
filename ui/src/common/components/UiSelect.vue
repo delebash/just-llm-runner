@@ -73,7 +73,14 @@ function clear(e) { e.stopPropagation(); emit("update:modelValue", null); }
       class="ui-select-trigger"
       :class="[width && `ui-w-${width}`, { 'is-empty': !selectedLabel }]"
     >
-      <SelectValue :placeholder="placeholder">{{ selectedLabel }}</SelectValue>
+      <!-- Reka's SelectValue falls back to `placeholder` ONLY when it has no slot
+           content — and a slot rendering an empty string still counts as content, so
+           passing `{{ selectedLabel }}` unconditionally made the placeholder prop dead
+           family-wide: an unset select was a blank box with a chevron and no hint of
+           what it was for (seen 2026-08-03 as the i18n review page's mystery second
+           dropdown). Bind the slot only when there IS a label. -->
+      <SelectValue v-if="selectedLabel" :placeholder="placeholder">{{ selectedLabel }}</SelectValue>
+      <SelectValue v-else :placeholder="placeholder" />
       <span class="ui-select-icons">
         <button
           v-if="showClear && modelValue != null && modelValue !== ''"

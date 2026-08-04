@@ -41,6 +41,13 @@
 // column is a tall stack and the rest are one-liners).
 //
 // Cell rendering: a slot named after column.id — <template #title="{ row, value }">.
+// HEADER rendering: `head-<column.id>` — <template #head-sel>. Added 2026-08-03: cells
+//   had slots and headers did not, so a control that belongs in a header (the canonical
+//   place for a select-all checkbox, above its column of row checkboxes) had nowhere to
+//   go. The i18n dashboard parked its select-all in a footer strip instead — a workaround
+//   in an app for a gap in the kit. The sort affordance still wraps whatever the slot
+//   renders, so a sortable column keeps its caret; put interactive controls in
+//   non-sortable columns (a click on the header also toggles sorting).
 // #empty — shown when the filtered row set is empty.
 // #full-row — content for a row matched by :full-width-row (receives { row }). Added
 //   2026-07-24 for the model catalog, whose section headers and "doesn't fit this machine"
@@ -198,7 +205,8 @@ function setPageSize(n) {
             @click="onHeaderClick(header)"
           >
             <span class="ui-table-th-inner">
-              <FlexRender :render="header.column.columnDef.header" :props="header.getContext()" />
+              <slot v-if="slots[`head-${header.column.id}`]" :name="`head-${header.column.id}`" />
+              <FlexRender v-else :render="header.column.columnDef.header" :props="header.getContext()" />
               <span v-if="header.column.getIsSorted()" class="ui-table-sort" :class="{ desc: header.column.getIsSorted() === 'desc' }">
                 <Icon name="ChevDown" :size="11" />
               </span>

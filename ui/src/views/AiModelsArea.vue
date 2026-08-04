@@ -498,7 +498,15 @@ onMounted(() => {
                      next to the tag — the SAME control the panel uses (LuEngineUpdateButton,
                      bound to the useEngine singleton), so the two can never disagree in look
                      OR wording. Intentional redundancy (row + panel), okayed by the user. -->
-                <LuEngineUpdateButton v-if="isBuiltin(p) && engineUpdateInfo?.updateAvailable" />
+                <!-- `installed` is part of the gate, exactly as the panel has it
+                     (LuRunnerEngine.vue:227). update_check answers updateAvailable even
+                     with NOTHING installed — by design, `current` then falls back to the
+                     pinned build, i.e. "an install would fetch something newer"
+                     (lifecycle.py:893). Without the installed clause this row offered
+                     "Update to b10246" beside "Install engine": update what? -->
+                <LuEngineUpdateButton
+                  v-if="isBuiltin(p) && engineInstalled && !engineInstalling && engineUpdateInfo?.updateAvailable"
+                />
                 <!-- 2026-07-21 (user): "we moved the update button but not the install
                      button move it now" — the engine isn't installed until the user acts,
                      and that was only reachable via Edit. Surface Install on the row too,

@@ -712,3 +712,70 @@ def test_stop_closes_the_retained_job_handle(monkeypatch):
                         job_handle=sentinel)
     h.stop()
     assert closed == [sentinel]
+
+
+# ── the spawn seam's retry (2026-08-03) ────────────────────────────────────────
+# Measured on the i18n app: Quick Setup installed the engine, the load fired, and
+# CreateProcess raised WinError 2 for a path that existed and whose exe ran by hand —
+# a virus scanner still holding a freshly installed binary. The spawn now retries a
+# transient Windows error and, when it truly cannot start, raises RunnerStartError so
+# `_spawn_router_with_fallback` can chain to another installed backend (it catches
+# RunnerStartError only, so a bare OSError skipped the chain AND reached the user as a
+# raw "[WinError 2] The system cannot find the file specified").
+
+
+def _winerr(code):
+    e = OSError(code, "The system cannot find the file specified")
+    e.winerror = code
+    return e
+
+
+def test_spawn_retries_a_transient_windows_error_then_succeeds(monkeypatch):
+    from llm_runner.runner import process as proc_mod
+
+    monkeypatch.setattr(proc_mod.sys, "platform", "win32")
+    monkeypatch.setattr(proc_mod, "_win_job_for_child", lambda p: None)
+    calls = {"n": 0}
+
+    def flaky_popen(argv, **kw):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise _winerr(2)
+        return "the-process"
+
+    proc, _job = proc_mod._spawn_child(flaky_popen, ["llama-server.exe"], None,
+                                       _sleep=lambda s: None)
+    assert proc == "the-process"
+    assert calls["n"] == 3, "it must actually retry, not swallow the first failure"
+
+
+def test_a_spawn_that_never_starts_raises_RunnerStartError_not_OSError(monkeypatch):
+    from llm_runner.runner import process as proc_mod
+
+    monkeypatch.setattr(proc_mod.sys, "platform", "win32")
+
+    def always_fails(argv, **kw):
+        raise _winerr(2)
+
+    with pytest.raises(RunnerStartError) as ei:
+        proc_mod._spawn_child(always_fails, [r"C:\nope\llama-server.exe"], None,
+                              _sleep=lambda s: None)
+    # The message must name the binary and say which of the two cases this is.
+    assert "llama-server.exe" in str(ei.value)
+    assert "missing" in str(ei.value), "an absent binary must say so, not blame the scanner"
+
+
+def test_a_non_transient_spawn_error_is_not_retried(monkeypatch):
+    """A bad argv (WinError 87) is a bug, not a scanner — report it at once."""
+    from llm_runner.runner import process as proc_mod
+
+    monkeypatch.setattr(proc_mod.sys, "platform", "win32")
+    calls = {"n": 0}
+
+    def bad(argv, **kw):
+        calls["n"] += 1
+        raise _winerr(87)
+
+    with pytest.raises(RunnerStartError):
+        proc_mod._spawn_child(bad, ["llama-server.exe"], None, _sleep=lambda s: None)
+    assert calls["n"] == 1, "only a transient (not-found / access-denied) error retries"

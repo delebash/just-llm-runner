@@ -660,15 +660,63 @@ def _close_job(job) -> None:
         pass
 
 
-def _spawn_child(popen, argv, logf):
+# A spawn that fails because the OS cannot SEE a binary we know is on disk is retried:
+# on Windows a freshly installed engine is routinely still held by the real-time virus
+# scanner, and CreateProcess then answers ERROR_FILE_NOT_FOUND (2) or
+# ERROR_ACCESS_DENIED (5) for a file that exists and runs fine a moment later. Measured
+# 2026-08-03 on the i18n app: Quick Setup installed b9993, the load fired, and
+# CreateProcess raised WinError 2 against …\b9993\cuda12\llama-server.exe — a path that
+# existed, whose exe ran by hand, and whose router started normally on the next attempt.
+_SPAWN_ATTEMPTS = 4
+_SPAWN_RETRY_SECONDS = 0.6
+_TRANSIENT_SPAWN_WINERRORS = {2, 5}  # not found / access denied
+
+
+def _is_transient_spawn_error(e: OSError) -> bool:
+    """A spawn failure worth retrying rather than reporting. Windows only: on POSIX a
+    missing exe is a missing exe, and retrying would only delay an honest error."""
+    if sys.platform != "win32":
+        return False
+    return getattr(e, "winerror", None) in _TRANSIENT_SPAWN_WINERRORS
+
+
+def _spawn_child(popen, argv, logf, _sleep=time.sleep):
     """The ONE spawn seam every llama-server child goes through (A3): the shared
     stdout/stderr wiring + the Windows Job Object enclosure. Returns
-    `(proc, job_handle)` — the caller stores the handle on its _ServerHandle."""
-    if logf is not None:
-        proc = popen(argv, stdout=logf, stderr=subprocess.STDOUT)
-    else:
-        proc = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    return proc, _win_job_for_child(proc)
+    `(proc, job_handle)` — the caller stores the handle on its _ServerHandle.
+
+    Raises `RunnerStartError` — never a bare OSError — when the binary cannot be
+    launched. That matters upstream: `_spawn_router_with_fallback` chains across the
+    OTHER installed backends on RunnerStartError, so an OSError escaping here both
+    skipped that chain and reached the user as a raw "[WinError 2] The system cannot
+    find the file specified", which says nothing about what to do next."""
+    last: OSError | None = None
+    for attempt in range(_SPAWN_ATTEMPTS):
+        try:
+            if logf is not None:
+                proc = popen(argv, stdout=logf, stderr=subprocess.STDOUT)
+            else:
+                proc = popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            if attempt:
+                log.info("spawned %s on attempt %d (%d earlier attempt(s) could not see it)",
+                         argv[0], attempt + 1, attempt)
+            return proc, _win_job_for_child(proc)
+        except OSError as e:
+            last = e
+            if not _is_transient_spawn_error(e) or attempt == _SPAWN_ATTEMPTS - 1:
+                break
+            log.warning("spawn of %s failed (%s) — retrying in %.1fs",
+                        argv[0], e, _SPAWN_RETRY_SECONDS * (attempt + 1))
+            _sleep(_SPAWN_RETRY_SECONDS * (attempt + 1))
+    exe = str(argv[0]) if argv else "?"
+    on_disk = Path(exe).exists()
+    raise RunnerStartError(
+        f"Couldn't start the engine binary ({last}). Path: {exe} — "
+        + ("the file IS on disk, so this is usually a virus scanner still holding a "
+           "freshly installed binary. Try again in a moment."
+           if on_disk else
+           "that file is missing — reinstall the engine from the AI page.")
+    ) from last
 
 
 @dataclass

@@ -64,6 +64,16 @@ export { useModelApply } from "./services/modelApply.js";
 // THE one download bar — a host boot/loading surface reuses it to render a model LOAD
 // (via useRunnerModels().taskFor(id)) instead of forking the control.
 export { default as DownloadBar } from "./common/components/DownloadBar.vue";
+// The task machinery BEHIND that bar — createDownloadTask + the server channels. An
+// app-local setup wizard must drive the same tasks the kit's own QuickSetup drives:
+// start() self-polls to a TERMINAL state (done | error | cancelled), which is what makes
+// every outcome visible. Exported 2026-08-03 because the i18n wizard could not reach it
+// and invented a model-status watcher instead — that version hung on an already-resident
+// model, a failed/cancelled engine install, and a cancelled download, because a derived
+// status cannot report those three.
+export {
+  createDownloadTask, engineInstallChannel, modelDownloadChannel, modelLoadChannel,
+} from "./composables/useDownloadTask.js";
 
 // views
 export { default as ProviderForm } from "./views/ProviderForm.vue";

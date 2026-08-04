@@ -301,10 +301,32 @@ app.include_router(make_logs_router(PRODUCT))
 app.include_router(make_disk_router(data_dir))
 ```
 
+**PORTING A DONOR MEANS PORTING ITS STATES, NOT ITS SHAPE.** Naming the donor in a
+comment is not checking it. Before writing a surface that copies one, read the donor's
+answers to these and copy them or record a deviation:
+
+- what happens on **error**, on **cancel**, and when the work is **already done**?
+- what is **clickable while the work runs** — and what does the donor deliberately
+  disable or omit then?
+- which of its calls are **awaited to a terminal state** vs watched?
+
+The i18n wizard (2026-08-03) is the cautionary case: it named the kit's `QuickSetup`
+in its header, copied the look, and invented its own completion — a `busy` flag plus a
+watch on a derived model status. That has one happy path, so an already-resident model,
+a failed or cancelled engine install and a cancelled download each left "Working…"
+forever, and a footer Cancel sat beside the bar's own Cancel meaning something else.
+The donor answered all four questions already. Reading it took ten minutes; not reading
+it cost a rewrite and shipped a routing-corrupting bug behind a success toast.
+
 **Setup wizards**: machinery in the kit (`useCatalogMeta`, `useRunnerModels`,
-`useModelApply`, `DownloadBar`), the wizard VIEW per app (steps + words) — JV's TTS
-wizard was always app-local, i18n's translate wizard follows, and `AiModelsArea`'s
-`wizard` prop mounts it. JW's `QuickSetup` (embedding woven through) stays JW's.
+`useModelApply`, `DownloadBar`, `createDownloadTask` + the three channels), the wizard
+VIEW per app (steps + words) — JV's TTS wizard was always app-local, i18n's translate
+wizard follows, and `AiModelsArea`'s `wizard` prop mounts it. JW's `QuickSetup`
+(embedding woven through) stays JW's. The SHAPE to copy is its step machine: advance on
+TERMINAL TASK STATES (`done` | `error` | `cancelled` from `createDownloadTask`), never
+on a watched model status — a derived status cannot report three of those four
+outcomes. During a run the footer carries no buttons and the modal is `:closable="false"`,
+so each `DownloadBar`'s own Cancel is the only cancel on screen.
 Trap, found live (i18n 2026-08-03): `setAsDefault(providerId, modelId)` — the FIRST
 argument is the PROVIDER (`setAsDefault(LOCAL_RUNNER_ID, id)`, QuickSetup.vue:466).
 Passing the model alone rewrites every task preset's `providerId` to a model id and

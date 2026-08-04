@@ -17,7 +17,7 @@ The holding pen for unscheduled ideas about the shared stack — same charter as
   opportunistically at the next pin bump.
 - **2026-08-04 · The labeling law (lift into the kit's design contract):** a row in
   a switches surface must be a real engine switch or SAY it isn't. Ruled in
-  `docs/plans/2026-07-16-reasoning-budget-house-layering.md:631`; currently lives
+  `docs/plans/archive/2026-07-16-reasoning-budget-house-layering.md:631`; currently lives
   only in that plan doc.
 - **2026-08-04 · Dismissal + drag invariants (kit-wide, lift from build records):**
   panels get outside-click/Esc dismissal, modals never do

@@ -71,8 +71,9 @@ alias, not a build — there is no publish step to run.
 | **THE family app structure — every Tauri+Vue+Python app, current and future** | `docs/app-structure.md` (ruled 2026-08-02; the layout, the naming, the server shape, the JS-vs-Python trap answered once) |
 | What this is, how flags derive, what each module does | `README.md` (dense and current) |
 | Open work — THE live tracker for this repo (kit + shared server) | `docs/dev/TASKS.md`; unscheduled ideas in `docs/dev/IDEAS.md` |
-| Per-item ledger detail (§A–J history + evidence) | `docs/plans/2026-07-06-outstanding-master-plan.md` (history; its open tail was extracted to the tracker 2026-08-04) |
-| The current routing/preset model | `docs/plans/2026-07-15-preset-one-source-rewrite.md` (one-source: an action points at ONE engine preset that owns the model and every tunable) |
+| Model verdicts, licensing laws, measured serving numbers (distilled) | `docs/dev/model-research.md` · `docs/dev/serving-design.md` |
+| Per-item ledger detail (§A–J history + evidence) | `docs/plans/archive/2026-07-06-outstanding-master-plan.md` (history; its open tail was extracted to the tracker 2026-08-04) |
+| The current routing/preset model | `docs/feature-model-system.md` (one-source: an action points at ONE engine preset that owns the model and every tunable; §0 carries the why — the rewrite plan itself is archived) |
 | App-side open work | `../justwrite-app/docs/dev/TASKS.md` (JW) · `../JustVioce/docs/dev/TASKS.md` (JV) |
 | Per-task history and evidence | `docs/plans/*` — history unless a doc says otherwise; `archive/2026-06-28-MASTER-PLAN.md` is fully historical |
 

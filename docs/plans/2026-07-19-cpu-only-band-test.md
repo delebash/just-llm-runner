@@ -57,8 +57,7 @@ already under the data root's models folder for anything the app has downloaded.
 llama-bench -m <model.gguf> -ngl 0 -t <physical-cores> -p 512,2048,8192 -n 128
 ```
 
-~~`-ngl 0` forces pure CPU even on the CUDA build.~~ **CORRECTED 2026-07-22 (pass-1
-plan T10): that claim was wrong** — the 2026-07-06 on-box measurement
+~~`-ngl 0` forces pure CPU~~ **(recipe v1 + plan T10): that claim was wrong** — the 2026-07-06 on-box measurement
 (`justwrite-app/docs/plans/archive/2026-07-06-llamacpp-config-tuning-2070s.md:176`) shows a
 CUDA-build child at ngl 0 still GPU-offloads large-batch matmuls (bulk-embed 3.2 s vs
 22–33 s with `--device none`), so prefill reads falsely fast. A true pure-CPU

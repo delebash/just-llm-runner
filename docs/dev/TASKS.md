@@ -26,22 +26,34 @@
   actually containing the model.
 - **Phase 5 — residency knobs BEFORE engine install [verified]** —
   `ui/src/components/LuRunnerEngine.vue:275` still gates `modelsMax`/idle-sleep
-  behind `v-if="installed"`. Plan: `docs/plans/2026-07-05-model-surface-build.md`.
+  behind `v-if="installed"`. Plan: `docs/plans/archive/2026-07-05-model-surface-build.md`.
 - **Phase-4 remainder — auto-composed model description [attributed:
   2026-07-05-model-surface-build.md]** — never built.
-- **SVM P4 — resident-set + TTL UI [attributed: 2026-07-04-serving-vram-manager.md
-  :11 "NEXT (needs a fresh go)"]** — plus its two pending on-box checks (P3 §3d
-  end-to-end; P1g router-flag confirm).
+- **SVM remainder — CORRECTED (docs campaign): P4 is NOT open.** The design doc's
+  header ("P4 NEXT, needs a fresh go") was stale — the implementation doc records
+  **4a SHIPPED + VERIFIED** and **4b CLOSED-DROPPED** ("not deferred"). What
+  genuinely remains: the two on-box checks (P3 §3d end-to-end · P1g router-flag
+  confirm). Design distilled: `docs/dev/serving-design.md`.
+- **Multi-click unload/reload — observe once, REPORT BACK, don't fix blind** (the
+  load-cancel plan's own Q3 ruling): one timestamped observation decides between
+  (a) the router lock, (b) UI refresh racing the poller, (c) idle-sleep timing.
+- **`DEFAULT_MODEL_CLASS_PICKS` points at `qwen3.6-35b-a3b-mtp` — a model no longer
+  in `DEFAULT_CATALOG`** [verified], and its refill source (ledger C9) is
+  user-ruled NOT DOING. Decide: retire the seed row or repoint it.
+- **Stopping a host server can ORPHAN its router child on Windows** (holds :8080;
+  the on-box A/B incident) — candidate fix: Job-Object/process-group teardown in
+  the spawn path.
 - **T5 — real VRAM-load percentage [attributed:
   2026-07-17-load-cancel-and-one-progress-control.md:149 "NOT BUILT"]** — the load
   bar's model-load leg has no true progress source.
 - **I2 — cloud prompt caching: research pass, then the user's build/skip call**
   [verified 2026-07-26: the Anthropic + Gemini adapters send no caching hints].
   Output = a recommendation with numbers. Ledger §I2. (Moved from JW's tracker.)
-- **Big-batch tail triage [attributed]** — `docs/plans/2026-07-08-big-batch-queue.md`
-  header claims batches 4–6 carry a standing go (§8) and "B2-9 NOT covered"; extract
-  what is genuinely still open from the 510 KB doc, line-item it here, then banner
-  the doc. Until then the doc is an implicit backlog nothing reads.
+- **Big-batch triage DONE (docs campaign 2026-08-04)** — the 510 KB doc's header
+  was stale: B2-9, DL-2, B5-4, the QC clusters and E2 all shipped per its own build
+  records; batches 4-6 have nothing open. The genuinely-live extractions became
+  lines here and in JW's tracker (§7.1 sub-questions, I1 follow-ups, the doorway
+  label, the box checks); the doc is banner'd + archived.
 - **llama.cpp adoption review is stale** — `docs/llama-cpp-watch.md` last reviewed
   2026-07-14 (b9993); the CUDA Q2_0 watch item (#25707) has never been re-checked.
   Trigger phrase: "check llama.cpp since our last update".

@@ -1,5 +1,7 @@
 # The 2026-07-08 big batch — organization of the user's 52-item list (discussion first, then gos)
 
+> ✅ **CLOSED (docs campaign 2026-08-04, triaged).** The header below is STALE — B2-9, DL-2, B5-4, the QC clusters and E2 all shipped per this doc's own build records; batches 4-6 carry NOTHING open and the "standing go" is spent. The genuinely-live extractions became tracker lines (runner + JW `docs/dev/TASKS.md`). History only.
+
 **STATUS: §7.1 DECIDED+BUILT · BATCHES 1+2+3 BUILT · ALL DISCUSSIONS DECIDED 2026-07-08
 (B→§7.2 · C→§7.3 · D→§7.4 · F→§7.5 · E parked · the Batch-3 remainder B3-4+B3-10→§7.6, BUILT —
 see the B3-REMAINDER BUILD RECORD under §7.6) · B1-2 CLOSED 2026-07-08 by the user's own

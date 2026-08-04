@@ -3,7 +3,39 @@
 **Purpose:** ONE grounded reference for how features pick their model/preset, so we
 stop re-deciding it and stop working from stale memory. Every claim is cited to the
 CURRENT code (`ee0f669`+). When something changes, update THIS doc in the same change.
-Origin of the model: `docs/plans/2026-07-15-preset-one-source-rewrite.md`.
+Origin of the model: `plans/archive/2026-07-15-preset-one-source-rewrite.md` — its
+rationale + provenance are distilled into §0 below (docs campaign 2026-08-04).
+
+## 0. Why one-source (the rationale, distilled from the rewrite plan)
+
+- **The pre-rewrite routing was FOUR sources deep and lying to the user**: the
+  feature→task→preset chain + an override tier; hidden per-action params on the
+  prompt rows blended in by `_effective_spec` with per-field-INCONSISTENT rules
+  (temperature/max_tokens fell back; top_p/json/think clobbered) and no editor
+  mounted anywhere; a dormant per-action sampler layer; a pins tier write-orphaned
+  in JW. Demonstrated failure: the Lab flattening trap — change only Reasoning on
+  one action, Update preset, and six of eight judgment actions silently re-tuned.
+- **The task tier was pure indirection** (id/label/position consumed only for
+  lookup and labels) — deleted with no legacy fallback on the user's word: "the
+  main source is that a feature is the base, it has a preset, that is the truth."
+  `default_preset_id` relocated to a `RunnerSetting` row (its only prior
+  persistence was inside the deleted table).
+- **No-preset behavior is DEFINED, not invented**: an action with no ref and an
+  empty default dispatches on the provider-default route with NO tunables sent and
+  think OFF — params are never invented client- or server-side.
+- **Effective think = `preset.think AND NOT (body.jsonMode ?? action.json_mode)`**
+  — the guardrail reads two facts, no overlay (llama.cpp drops JSON-schema
+  enforcement when thinking is on).
+- **The pins tier is KEPT, not deleted — it just never fires in JW**
+  (`FeaturePinConfig` / `LLMConfig.feature_pins` are JV-live). Cross-repo fact;
+  don't "clean it up".
+- **One routing surface**: the separate Presets page is DELETED; "Routing by
+  feature" + the Lab's preset bar are the only preset controls; the production verb
+  is "Use in production" / "● in production".
+- Known seeded quirk: `voiceDrift` seeds `json_mode: True` but its prompt returns
+  plain prose and its consumer never parses — carried byte-for-byte on purpose.
+- Schema changes ship by drop-and-reseed (pre-release; no migrations) — the same
+  family DB policy JW's ARCHITECTURE states.
 
 ## 1. How a feature gets its model + params
 - A **feature = an action** (e.g. `chat`, `critique`, `writerAI.tighten`). It points at

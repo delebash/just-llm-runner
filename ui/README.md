@@ -14,7 +14,7 @@ identical endpoints, so the UI talks to them directly.)
 **Plain JS — no TypeScript, no build step.** Consumed via a Vite alias to
 `ui/src` in both apps (each app's own Vite bundles this source directly), so
 there's no `dist/`, no `tsc`, no lib build. Current reference:
-`docs/feature-model-system.md` + `docs/plans/2026-07-15-preset-one-source-rewrite.md`;
+`docs/feature-model-system.md` + `docs/plans/archive/2026-07-15-preset-one-source-rewrite.md`;
 open work in `docs/dev/TASKS.md`. (The old "authoritative" 2026-06-20 shared-ai-stack
 plan is history — JW's copy archived, JV's superseded.)
 

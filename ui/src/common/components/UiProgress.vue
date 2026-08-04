@@ -9,6 +9,10 @@ const props = defineProps({
   value: { type: Number, default: 0 }, // current amount (e.g. bytes downloaded)
   max: { type: Number, default: 0 }, // total (0 / unknown → indeterminate)
   label: { type: String, default: "" }, // caption shown at the left
+  // Track only — no label/% head row. For dense per-row cells (a dashboard grid)
+  // where the numbers already live beside the bar. Added 2026-08-04, replacing
+  // the second hand-rolled bar the export gap had forced on a consumer.
+  bare: { type: Boolean, default: false },
 });
 
 const pct = computed(() => {
@@ -19,7 +23,7 @@ const pct = computed(() => {
 
 <template>
   <div class="ui-progress">
-    <div v-if="label || pct !== null" class="ui-progress-head">
+    <div v-if="!bare && (label || pct !== null)" class="ui-progress-head">
       <span class="ui-progress-label">{{ label }}</span>
       <span v-if="pct !== null" class="ui-progress-pct">{{ pct }}%</span>
     </div>

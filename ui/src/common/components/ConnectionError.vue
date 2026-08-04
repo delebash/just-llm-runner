@@ -8,7 +8,10 @@
   Supersedes the per-app ConnectionError.vue forks.
 -->
 <script setup>
-defineProps({
+import { computed } from "vue";
+import { FAMILY_LABELS } from "../familyContract.js";
+
+const props = defineProps({
   appName: { type: String, default: "the app" },
   serverUrl: { type: String, default: "" },
   // The clause after "{appName} needs its server to ___".
@@ -17,6 +20,8 @@ defineProps({
   devHint: { type: String, default: "" },
 });
 const isDev = import.meta.env.DEV;
+const L = FAMILY_LABELS.connectionError; // canon words — one source, every app
+const title = computed(() => L.title.replace("{appName}", props.appName));
 function retry() { location.reload(); }
 </script>
 
@@ -24,13 +29,13 @@ function retry() { location.reload(); }
   <div class="conn-err">
     <div class="conn-err__card">
       <div class="conn-err__icon">⚠️</div>
-      <h1>Can't reach the {{ appName }} server</h1>
+      <h1>{{ title }}</h1>
       <p>
         {{ appName }} needs its server to {{ need }}. It isn't responding at
         <code>{{ serverUrl }}</code>.
       </p>
       <p v-if="isDev && devHint" class="conn-err__hint">{{ devHint }}</p>
-      <button class="conn-err__btn" type="button" @click="retry">Retry</button>
+      <button class="conn-err__btn" type="button" @click="retry">{{ L.retry }}</button>
     </div>
   </div>
 </template>

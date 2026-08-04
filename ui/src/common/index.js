@@ -19,6 +19,10 @@ export { default as UiSelect } from "./components/UiSelect.vue";
 export { default as UiMultiSelect } from "./components/UiMultiSelect.vue";
 export { default as UiNumber } from "./components/UiNumber.vue";
 export { default as UiTable } from "./components/UiTable.vue";
+// The shared progress bar — was kit-internal only (DownloadBar/QuickSetup), which
+// forced consumers to hand-roll their own (found 2026-08-04: two differing local
+// bars in one app). Exported so no app ever needs a private progress control.
+export { default as UiProgress } from "./components/UiProgress.vue";
 export { default as UiColorPicker } from "./components/UiColorPicker.vue";
 export { default as UiSegmented } from "./components/UiSegmented.vue";
 export { default as UiToggle } from "./components/UiToggle.vue";
@@ -27,6 +31,11 @@ export { default as UiField } from "./components/UiField.vue";
 // shared app-shell components + services (app-agnostic; host provides tokens/router)
 export { default as Icon } from "./components/Icon.vue";
 export { default as Breadcrumb } from "./components/Breadcrumb.vue";
+// The eyebrow+H1 pane header (lifted from JW 2026-08-04 — both apps had invented
+// their own). helpKey pins the "?" HelpTrigger far right.
+export { default as PaneHeader } from "./components/PaneHeader.vue";
+// The Settings chrome — top tab strip + content (the family shape; lifted from JW).
+export { default as SettingsShell } from "./components/SettingsShell.vue";
 export { promptDialog, confirmDialog, dialogState, _resolveDialog, configureDialog, dialogLabels } from "./services/dialog.js";
 export { tooltipDirective } from "./services/tooltip.js";
 

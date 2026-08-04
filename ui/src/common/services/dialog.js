@@ -25,11 +25,14 @@ export const dialogState = reactive({
 // localizes its dialogs calls configureDialog({ labels }) once at boot — and
 // again on locale change — to inject translated strings. Apps that ship one
 // locale (the common case) get these generic English defaults for free.
+// The VERBS come from the family contract — one canon, every app.
+import { FAMILY_LABELS } from "../familyContract.js";
+
 export const dialogLabels = reactive({
   defaultTitle: "Are you sure?",
-  confirmLabel: "Confirm",
-  okLabel: "OK",
-  cancelLabel: "Cancel",
+  confirmLabel: FAMILY_LABELS.dialog.confirm,
+  okLabel: FAMILY_LABELS.dialog.ok,
+  cancelLabel: FAMILY_LABELS.dialog.cancel,
   closeLabel: "Close",
 });
 

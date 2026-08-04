@@ -381,6 +381,32 @@ its offer is a modal dialog, fired ONCE ever via the persisted `aiSetupPrompted`
 setting. Pick one deliberately: once-ever flag for an intrusive surface, live
 no-default-at-all gating for a strip that only exists on the boot screen (i18n).
 
+**The boot splash + warm start** (2026-08-04, born from a real divergence): the splash
+PAGE is per-app — the brand plate, where the load group sits on it — but everything
+INSIDE the load group is the kit's `<BootModelLoad />` (engine bar → model bar **titled
+with the model name**, one Continue, auto-dismiss on resident), driven by the kit's
+`startWarmOnBoot()` which the app **awaits BEFORE `app.mount()`** (JW main.js is the
+donor; pass `skip` for boots that must never warm, e.g. JW's bench). The app's overlay
+`v-if`s on the kit's `warmModelId`. `index.html`'s static pre-JS layer shows the SAME
+plate image with the same fit — no spinner, ever — so boot is one continuous image:
+static plate → Vue splash → shell. Hand-copying the load group per app is how one
+consumer got a model-ID title divergence, a spinner-then-plate double splash, and a
+shell flash between them; the control exists so none of that can be rebuilt.
+
+**Prompt ownership + the Lab** (2026-08-04): the ENGINE PRESET — provider · model ·
+every ask-param — and its whole editing surface (the Feature Workbench's Lab, columns,
+Save-as-preset, "Use in production") are the KIT's. The FEATURE LIST is the app's, and
+every feature is one of two kinds: **prompt-row-owned** (JW's writing actions — editable
+system/user templates that save and apply) or **pipeline-owned** (`feature_prompts={}` —
+the app builds the real prompt in code each run). A pipeline-owned app implements the
+family contract `POST /v1/ai/prompt-preview {feature, lang?, keys?} → {system, user,
+sample}` — the REAL builders over a small live sample, loud NAMED 400s when there is
+nothing to sample — and the kit's Lab shows it read-only (unlockable per-column copies,
+ephemeral, never saved) above the same preset columns every app gets. `jsonMode` is
+prompt-row state, so pipeline-owned features carry no JSON toggle: the app's adapters
+own `response_format` (the 6-keys-exhausted lesson). A registered feature that never
+calls the engine is a LIE on the routing surface — register it the day it routes.
+
 And the test is CONTENT, not mounting: log a marker line, fetch `/v1/logs/tail`,
 assert the marker (a 200 from an empty ring proves nothing).
 
@@ -395,6 +421,8 @@ assert the marker (a 200 from an empty ring proves nothing).
 - [ ] Closing the window kills the Python process (no orphan on :PORT)
 - [ ] All routes under `/v1/*`; wire shape camelCase
 - [ ] Kit-first UI; any new control landed in `@delebash/llm-ui`
+- [ ] Boot: static index.html plate (no spinner) → pre-mount `startWarmOnBoot()` →
+      app splash hosting the kit `<BootModelLoad />` — ONE continuous splash
 - [ ] `install_llm` + seeds + registry boot per §8; presets own every tunable
 - [ ] Error envelope + CORS per §6, with the Origin-header test that bites
 - [ ] `e2e/` harness per §10; `npm test` (smoke, real webview) green against the

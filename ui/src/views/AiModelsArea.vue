@@ -16,6 +16,9 @@ import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
 import UiTable from "../common/components/UiTable.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
+import { FAMILY_LABELS } from "../common/familyContract.js";
+
+const TAB_LABELS = FAMILY_LABELS.aiTabs;
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
@@ -430,13 +433,15 @@ onMounted(() => {
         @click="copyDebugInfo">{{ debugCopied ? "Copied ✓" : "Copy debug info" }}</UiButton>
     </div>
 
+    <!-- Tab words come from the FAMILY CONTRACT (one canon, every app); only the
+         5th tab is host voice via appTabLabel. -->
     <nav class="lu-subnav">
-      <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">Providers &amp; models</a>
-      <a :class="{ on: tab === 'features' }" @click="tab = 'features'">Routing by feature</a>
+      <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">{{ TAB_LABELS.providers }}</a>
+      <a :class="{ on: tab === 'features' }" @click="tab = 'features'">{{ TAB_LABELS.routing }}</a>
       <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
-      <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">Usage</a>
+      <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">{{ TAB_LABELS.usage }}</a>
       <!-- QC-43c: live server-console tab — the server log ring + the engine child's output. -->
-      <a :class="{ on: tab === 'console' }" @click="tab = 'console'">Server console</a>
+      <a :class="{ on: tab === 'console' }" @click="tab = 'console'">{{ TAB_LABELS.console }}</a>
     </nav>
 
     <div v-if="error" class="lu-error" style="margin-top:14px">{{ error }}</div>

@@ -215,6 +215,34 @@ async function onUseProduction(presetId) {
   await setFeaturePreset(selAction.value, presetId);
 }
 
+// ── Promptless features: the app's pipeline owns the prompt (2026-08-04) ──
+// The Lab shows the REAL generated prompt from the app's /v1/ai/prompt-preview
+// (the family contract) so tuning runs what production runs. An app or feature
+// without a preview fails LOUD into the assignment-only fallback — routing still
+// picks the engine preset; nothing renders blank.
+const builtPrompt = ref(null);   // {system, user} from the app's builder
+const builtMeta = ref("");       // names the sample ("6 pending key(s) · es")
+const previewErr = ref("");
+const previewLoading = ref(false);
+const selFeatureResolved = computed(() => refPid(selFeature.value) || presetAssign.value.defaultPresetId || "");
+async function loadPreview(key) {
+  builtPrompt.value = null;
+  builtMeta.value = "";
+  previewErr.value = "";
+  if (!key) return;
+  previewLoading.value = true;
+  try {
+    const r = await request("/v1/ai/prompt-preview", { method: "POST", body: { feature: key } });
+    builtPrompt.value = { system: r.system || "", user: r.user || "" };
+    builtMeta.value = r.sample || "";
+  } catch (e) {
+    previewErr.value = e?.message || "The app's prompt preview is unavailable.";
+  } finally {
+    previewLoading.value = false;
+  }
+}
+watch(selFeature, (k) => { if (k) loadPreview(k); });
+
 const navCollapsed = ref(false);
 
 // Per-feature "Reset to default" — the original affordance (the user's word: a COMPLETE
@@ -310,7 +338,24 @@ onMounted(load);
             <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
           </div>
           <p v-if="featMeta[selFeature]?.hint" class="lu-muted" style="margin:0 0 12px">{{ featMeta[selFeature].hint }}</p>
-          <div class="lu-fw-route">
+
+          <!-- The full Lab over the app-built prompt: model · params · Save as preset ·
+               Use in production — the SAME preset surface prompt-row apps get. The
+               preset row inside the Lab is THE assignment control (one source). -->
+          <FeatureLab v-if="builtPrompt" :key="`${selFeature}:${labEpoch}`"
+            :action="selFeature" :prompt="null"
+            :built-prompt="builtPrompt" :built-meta="builtMeta"
+            :providers="providers" :presets="enginePresets"
+            :sampler-catalog-list="samplerCatalogList"
+            :production-preset-id="selFeatureResolved"
+            @use-production="(id) => setFeaturePreset(selFeature, id)"
+            @presets-changed="onPresetsChanged"
+            @refresh-preview="loadPreview(selFeature)" />
+          <div v-else-if="previewLoading" class="lu-muted">Building the prompt preview…</div>
+
+          <!-- No preview from the app → LOUD, with assignment still possible. -->
+          <div v-else class="lu-fw-route">
+            <p class="lu-error" style="font-size:12px;margin:0 0 8px">{{ previewErr }}</p>
             <label class="lu-fw-route-label" :for="`fw-route-${selFeature}`">Engine preset</label>
             <select :id="`fw-route-${selFeature}`" class="lu-input" style="max-width:340px"
               :value="refPid(selFeature) || ''"
@@ -320,8 +365,7 @@ onMounted(load);
             </select>
             <p class="lu-muted" style="font-size:12px;margin:8px 0 0">
               This app builds this feature's prompt itself — routing picks WHICH engine
-              preset (provider · model · every switch) runs it. Edit presets under a
-              provider's row on Providers &amp; models.
+              preset (provider · model · every switch) runs it.
             </p>
           </div>
         </section>

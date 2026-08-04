@@ -25,12 +25,23 @@ import { presetToThinkingControl, thinkingControlToWire } from "../thinkingContr
 const props = defineProps({
   action: { type: String, default: "" },
   prompt: { type: Object, default: null },      // the action's prompt row (read to run)
+  // PROMPTLESS mode (2026-08-04): the app's pipeline builds the real prompt per run —
+  // `builtPrompt` {system, user} is that prompt over a live sample (the app's
+  // /v1/ai/prompt-preview), shown read-only as the one truth. Columns hide their
+  // prompt boxes until the explicit unlock reveals ephemeral test copies; nothing
+  // typed here is ever saved or applied. `builtMeta` names the sample.
+  builtPrompt: { type: Object, default: null },
+  builtMeta: { type: String, default: "" },
   providers: { type: Array, default: () => [] },
   presets: { type: Array, default: () => [] },
   samplerCatalogList: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },
 });
-const emit = defineEmits(["use-production", "presets-changed", "prompt-changed"]);
+const emit = defineEmits(["use-production", "presets-changed", "prompt-changed", "refresh-preview"]);
+
+const promptless = computed(() => !props.prompt && !!props.builtPrompt);
+const promptUnlocked = ref(false); // reveal per-column editable copies (test-only)
+const previewEpoch = ref(0);       // re-keys the strip so columns re-seed on Refresh
 
 const draft = ref(null);       // editable copy of the prompt (ephemeral test edits)
 const vars = reactive({});
@@ -117,8 +128,23 @@ async function saveJson(v) {
   }
 }
 
-// Reset the local test state whenever the parent selects a different action.
-watch(() => props.prompt, (p) => { draft.value = p ? { ...p } : null; buildVars(); }, { immediate: true });
+// Reset the local test state whenever the parent selects a different action — or, in
+// promptless mode, whenever the app rebuilds the generated prompt (Refresh). No
+// buildVars() for a built prompt: it is COMPLETE text, not a {{variables}} template,
+// and the fallback user_content var would render a bogus input box.
+watch([() => props.prompt, () => props.builtPrompt], ([p, bp]) => {
+  if (p) {
+    draft.value = { ...p };
+    buildVars();
+  } else if (bp) {
+    draft.value = { system: bp.system || "", userTemplate: bp.user || "" };
+    for (const k of Object.keys(vars)) delete vars[k];
+    promptUnlocked.value = false;
+    previewEpoch.value += 1;
+  } else {
+    draft.value = null;
+  }
+}, { immediate: true });
 
 // ── Test data (§7.3, rebuilt per QC-35 2026-07-09): per-ACTION affordances ──
 // The host declares, per action, which pickers apply, whether a "From this book" compose
@@ -226,8 +252,33 @@ const columnConfig = computed(() => {
 
 <template>
   <div class="lu-fw-tune">
-    <div class="lu-fw-tune-h"><b>Tune presets</b><span class="lu-muted">run this feature's prompt on a test input · Save a column as a preset (it appears in the dropdowns)</span></div>
-    <div class="lu-fw-testin">
+    <div class="lu-fw-tune-h"><b>Tune presets</b><span class="lu-muted">{{ promptless
+      ? "run this feature's REAL generated prompt · Save a column as a preset (it appears in the dropdowns)"
+      : "run this feature's prompt on a test input · Save a column as a preset (it appears in the dropdowns)" }}</span></div>
+
+    <!-- Promptless: the ONE truth — the prompt the app built for a live sample. -->
+    <div v-if="promptless" class="lu-fw-testin lu-fw-genprompt">
+      <div class="lu-fw-testin-h">
+        <b>Generated prompt</b>
+        <span class="lu-muted">built by the app for every real run — test only; nothing here is saved or applied</span>
+        <span class="lu-fw-gen-spacer" />
+        <span v-if="builtMeta" class="lu-muted">{{ builtMeta }}</span>
+        <UiButton intent="secondary" size="small"
+          title="Rebuild the prompt from the project's current data (context · glossary · notes)"
+          @click="emit('refresh-preview')">Refresh</UiButton>
+        <UiButton intent="ghost" size="small"
+          :title="promptUnlocked
+            ? 'Hide the editable copies in the columns'
+            : 'Reveal editable prompt copies in the columns — they run once and are never saved; every real run rebuilds its own prompt'"
+          @click="promptUnlocked = !promptUnlocked">{{ promptUnlocked ? "Lock copies" : "Edit copies for this test" }}</UiButton>
+      </div>
+      <div class="lu-field"><label>System — generated</label>
+        <UiTextarea :model-value="draft?.system || ''" readonly auto-resize :max-height-px="240" :rows="3" /></div>
+      <div class="lu-field"><label>User — generated</label>
+        <UiTextarea :model-value="draft?.userTemplate || ''" readonly auto-resize :max-height-px="240" :rows="3" /></div>
+    </div>
+
+    <div v-else class="lu-fw-testin">
       <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
       <div v-if="pickers.length || decl?.compose || actionSamples.length" class="lu-fw-testin-fill">
         <template v-for="p in pickers" :key="p.source">
@@ -247,9 +298,11 @@ const columnConfig = computed(() => {
         <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
       </div>
     </div>
-    <CompareStrip :key="action"
+    <CompareStrip :key="promptless ? `${action}:${previewEpoch}` : action"
       :action="action" :base-config="columnConfig" :providers="providers"
       :sampler-catalog-list="samplerCatalogList"
+      :prompt-editable="!promptless || promptUnlocked"
+      :json-toggle="!promptless"
       :vars="vars" :presets="presets" :production-preset-id="productionPresetId"
       @save-as="saveAs"
       @update-preset="updatePreset"
@@ -267,6 +320,9 @@ const columnConfig = computed(() => {
 .lu-fw-testin { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
 .lu-fw-testin-h { display: flex; align-items: baseline; gap: 10px; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
 .lu-fw-testin-fill { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lu-fw-genprompt .lu-fw-testin-h { flex-wrap: wrap; }
+.lu-fw-gen-spacer { flex: 1; }
+.lu-fw-genprompt textarea { font-family: var(--font-mono, monospace); font-size: 11.5px; }
 .lu-field { display: flex; flex-direction: column; gap: 5px; }
 .lu-field > label { font-size: 12px; color: var(--muted); }
 </style>

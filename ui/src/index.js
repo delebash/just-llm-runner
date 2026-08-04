@@ -20,6 +20,11 @@ export { configureLlmUi, llmUiBase, llmUiUrl, requestBlob, postForm } from "./cl
 // functions by hand: each of those was a step a host had to KNOW about, and every
 // omission failed silently.
 export { installLlmUi, llmUiCapabilities } from "./installLlmUi.js";
+// THE FAMILY SURFACE CONTRACT — the machine-readable canon (labels + shapes) every
+// app's contract test asserts against. Kit components read their own defaults from it.
+// Lives in common/ so common-layer components may import it (nothing in common/ may
+// import from the llm layer — the graduation rule).
+export { FAMILY_LABELS } from "./common/familyContract.js";
 export { default as LlmUiHosts } from "./components/LlmUiHosts.vue";
 export { useAiTasksNav } from "./composables/useAiTasksNav.js";
 
@@ -74,6 +79,14 @@ export { useModelApply } from "./services/modelApply.js";
 // THE one download bar — a host boot/loading surface reuses it to render a model LOAD
 // (via useRunnerModels().taskFor(id)) instead of forking the control.
 export { default as DownloadBar } from "./common/components/DownloadBar.vue";
+// THE boot-time loading-model control + the warm-boot service behind it (2026-08-04:
+// both consumers carried private copies of this pattern and they drifted — the model
+// bar is TITLED WITH THE MODEL NAME as shared behavior now). The host owns the splash
+// PAGE (plate + layout, per-app branding), v-ifs it on `warmModelId`, mounts
+// <BootModelLoad /> inside it, and calls startWarmOnBoot() BEFORE app.mount() so the
+// splash is up on the first Vue paint (the hand-off from the static index.html plate).
+export { default as BootModelLoad } from "./components/BootModelLoad.vue";
+export { startWarmOnBoot, warmModelId } from "./services/warmBoot.js";
 // The task machinery BEHIND that bar — createDownloadTask + the server channels. An
 // app-local setup wizard must drive the same tasks the kit's own QuickSetup drives:
 // start() self-polls to a TERMINAL state (done | error | cancelled), which is what makes

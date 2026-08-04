@@ -11,6 +11,9 @@
 // different" complaint).
 import UiButton from "./UiButton.vue";
 import UiProgress from "./UiProgress.vue";
+import { FAMILY_LABELS } from "../familyContract.js";
+
+const L = FAMILY_LABELS.downloadBar; // canon words — one source, every app
 
 defineProps({
   title: { type: String, default: "" },
@@ -28,15 +31,15 @@ defineProps({
       <b class="lu-dlbar-title">{{ title }}</b>
       <span v-if="role" class="lu-muted lu-dlbar-role">{{ role }}</span>
       <span class="lu-dlbar-spacer" />
-      <UiButton v-if="task.state === 'running' && task.cancel" intent="secondary" size="small" @click="task.cancel()">Cancel</UiButton>
+      <UiButton v-if="task.state === 'running' && task.cancel" intent="secondary" size="small" @click="task.cancel()">{{ L.cancel }}</UiButton>
       <!-- Retry stays DISABLED while the cancel is still finalizing (the model is tearing down) —
            clicking it mid-teardown re-races the load. It enables once the teardown completes. -->
-      <UiButton v-else-if="task.state === 'cancelled' || task.state === 'error'" intent="secondary" size="small" :disabled="task.finalizing" @click="task.retry()">Retry</UiButton>
+      <UiButton v-else-if="task.state === 'cancelled' || task.state === 'error'" intent="secondary" size="small" :disabled="task.finalizing" @click="task.retry()">{{ L.retry }}</UiButton>
       <!-- …and a way OUT of a terminal state. Without this a failed download was permanent:
            Retry was the only action, and the server kept the errored row so the bar came
            back on every poll (user, 2026-07-24: "no way to cancel"). -->
-      <UiButton v-if="(task.state === 'cancelled' || task.state === 'error') && task.dismiss" intent="ghost" size="small" :disabled="task.finalizing" @click="task.dismiss()">Dismiss</UiButton>
-      <span v-else-if="task.state === 'done'" class="lu-dlbar-ok">Ready ✓</span>
+      <UiButton v-if="(task.state === 'cancelled' || task.state === 'error') && task.dismiss" intent="ghost" size="small" :disabled="task.finalizing" @click="task.dismiss()">{{ L.dismiss }}</UiButton>
+      <span v-else-if="task.state === 'done'" class="lu-dlbar-ok">{{ L.ready }}</span>
     </div>
 
     <UiProgress :value="task.done" :max="task.total" :label="task.label" />

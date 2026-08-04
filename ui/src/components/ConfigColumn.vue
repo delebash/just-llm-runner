@@ -86,6 +86,10 @@ const props = defineProps({
   // Show the system/user prompt editors. Features ×1 = true; Compare may pass false
   // to compare engines on a shared (locked) prompt, true for prompt A/B.
   promptEditable: { type: Boolean, default: true },
+  // Hide the "Output as JSON" checkbox for PROMPTLESS features (2026-08-04): jsonMode is
+  // the prompt ROW's contract, and a pipeline-owned feature has no row to save it to —
+  // its app decides the response format in code (the response_format war story).
+  jsonToggle: { type: Boolean, default: true },
   // Model context window (tokens) for the budget guard. 0 → the column shows an
   // editable default the user can set to their model's window.
   contextWindow: { type: Number, default: 0 },
@@ -603,7 +607,7 @@ defineExpose({ run, cancel });
         <UiSelect :model-value="modelValue?.reasoningEffort || ''" :options="REASONING_OPTIONS"
           @update:model-value="patch('reasoningEffort', $event)" /></div>
       <div class="cc-field cc-json">
-        <label class="cc-chk" title="Output as JSON — the model must return valid JSON for this feature. Turn on when the app needs the result as structured data instead of prose. Saved for this feature."><UiCheckbox :model-value="!!modelValue?.jsonMode" @update:model-value="onJsonToggle" /><span>Output as JSON</span></label>
+        <label v-if="jsonToggle" class="cc-chk" title="Output as JSON — the model must return valid JSON for this feature. Turn on when the app needs the result as structured data instead of prose. Saved for this feature."><UiCheckbox :model-value="!!modelValue?.jsonMode" @update:model-value="onJsonToggle" /><span>Output as JSON</span></label>
       </div>
     </div>
 

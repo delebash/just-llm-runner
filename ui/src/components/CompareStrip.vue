@@ -26,6 +26,11 @@ const props = defineProps({
   vars: { type: Object, default: () => ({}) },
   presets: { type: Array, default: () => [] },
   productionPresetId: { type: String, default: "" },  // the feature's in-production preset
+  // Promptless mode (2026-08-04): the app's pipeline owns the prompt. The columns'
+  // prompt boxes stay hidden until the Lab's explicit unlock (ephemeral test copies),
+  // and the per-action JSON contract checkbox is absent (no prompt row to save to).
+  promptEditable: { type: Boolean, default: true },
+  jsonToggle: { type: Boolean, default: true },
 });
 const emit = defineEmits(["save-as", "update-preset", "delete-preset", "use-production", "save-json"]);
 
@@ -152,7 +157,8 @@ onMounted(() => {
         <ConfigColumn :ref="(el) => setColRef(col.id, el)"
           v-model="col.config" :action="action" :providers="providers"
           :sampler-catalog-list="samplerCatalogList"
-          :vars="vars" :presets="presets" :prompt-editable="true"
+          :vars="vars" :presets="presets" :prompt-editable="promptEditable"
+          :json-toggle="jsonToggle"
           :production-preset-id="productionPresetId"
           :run-stream="null" :busy="runningAll" :removable="columns.length > 1"
           :label="`Config ${i + 1}`" inherit-label="— pick a model —"

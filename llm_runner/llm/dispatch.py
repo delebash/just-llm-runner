@@ -54,6 +54,29 @@ def get_ensure_local_model() -> Callable[[str], None] | None:
     return _ensure_local_model
 
 
+# ── optional host-injected local-router base URL (2026-08-03) ───────────────
+# The bundled runner's port is ALLOCATED at spawn, not fixed, because every family
+# app used to spawn its router on :8080 and the second app's requests then reached
+# the FIRST app's process (see runner/process.find_free_port for the measured
+# incident). That makes the `local-llamacpp` provider's stored `baseUrl` a guess,
+# and this seam the truth: install.py points it at RunnerService.router_url. Same
+# shape as the ensure hook above — llm/ still never imports runner/. None
+# (standalone host, adapter unit tests) → the adapter keeps its configured base_url.
+_local_runner_base_url: Callable[[], str] | None = None
+
+
+def set_local_runner_base_url(fn: Callable[[], str] | None) -> None:
+    """Host wiring at boot: a callable returning the LIVE router base URL
+    (`http://127.0.0.1:<allocated port>`), or "" when no router is running."""
+    global _local_runner_base_url
+    _local_runner_base_url = fn
+
+
+def get_local_runner_base_url() -> Callable[[], str] | None:
+    """The configured local-router URL resolver, or None when no host wired one."""
+    return _local_runner_base_url
+
+
 class LLMNotConfiguredError(RuntimeError):
     """Raised when a feature is invoked but no provider is pinned (or
     the pinned provider isn't registered). The API layer maps this to

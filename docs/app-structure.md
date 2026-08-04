@@ -25,7 +25,9 @@ npm create tauri-app@latest   # Vue, JavaScript — take the scaffolder's layout
   (`server/<snake_name>/`) because Python imports by NAME where JS imports by path —
   the full reasoning + PyPA citation is §7.
 - **Port registry** (a new app claims the next): JW **17495** · JV **8741** ·
-  i18n-docgen **8742**.
+  i18n-docgen **8742**. The app's OWN server port is the only one it claims — the
+  bundled engine's router port is **allocated at spawn**, never registered and never
+  assumed (§8), so two family apps can run at once.
 - **Identifier**: `com.<kebab-name>.app`.
 - **Env vars**: data dir `<SNAKE_NAME_UPPER>_DATA_DIR` (e.g. `JUSTWRITE_DATA_DIR`);
   python override for scripts `<ABBR>_PYTHON` (e.g. `JW_PYTHON`, `JAID_PYTHON`).
@@ -221,6 +223,13 @@ load_from_configs(stores.get_provider_store().list()) # registry from the DB
   resolve through the stores; nothing works before storage is configured. (The first
   consumer re-implemented this against private imports; the capability went upstream
   instead — 2026-08-02.)
+- **The engine's port is allocated, so never print, probe or configure `:8080`.**
+  `find_free_port` binds the first free port from 8080 up; the live URL is
+  `RunnerService.router_url()` and it is what `/v1/llm-runner/status` reports. Nothing
+  app-side may rebuild that URL — the `local-llamacpp` provider row's `baseUrl` is a
+  seeded fallback that the running engine overrules. This exists because every app
+  hardcoded 8080 and the second app's traffic silently reached the first app's engine
+  (the 2026-08-03 JustWrite "corrupt install" that was neither).
 - **API namespace: EVERYTHING under `/v1/*`** — app routes beside the shared stack's.
 - **Tests**: never hand `install_llm` an in-memory StaticPool DB (the backfill daemon
   thread silently rolls seeding back) — file-backed SQLite; reset `lifecycle._service`

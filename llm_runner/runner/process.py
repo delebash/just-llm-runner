@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -37,12 +38,61 @@ log = logging.getLogger(__name__)
 
 DEFAULT_CTX = 4096
 DEFAULT_HOST = "127.0.0.1"
+# The PREFERRED router port — never a promised one. See find_free_port.
 DEFAULT_PORT = 8080
+_PORT_SCAN_SPAN = 64  # how far past the preferred port to look before giving up
 _BACKOFF_STEP = 4  # GPU layers shed per OOM retry
 
 
 class RunnerStartError(RuntimeError):
     """llama-server never became healthy (and it wasn't a recoverable OOM)."""
+
+
+class NoFreePortError(RunnerStartError):
+    """Nothing in the scanned range could be bound — the box is genuinely full."""
+
+
+def _port_is_free(host: str, port: int) -> bool:
+    """Can WE bind (host, port) right now? A connect-probe would answer a different
+    question — 'is anyone listening' — and would call a port held by a non-listening
+    socket free. SO_REUSEADDR is deliberately NOT set: on Windows it lets a second
+    socket steal a bound port, which is exactly the confusion this guards against."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+        except OSError:
+            return False
+    return True
+
+
+def find_free_port(
+    host: str = DEFAULT_HOST,
+    preferred: int = DEFAULT_PORT,
+    span: int = _PORT_SCAN_SPAN,
+    _is_free: Callable[[str, int], bool] | None = None,
+) -> int:
+    """The first bindable port at or after `preferred`.
+
+    The router port is the one resource a family of apps genuinely CANNOT share, and
+    it was the one thing they all hardcoded. Every app spawned its router on :8080, so
+    the second app's llama-server could not bind — and `_wait_until_healthy` passed
+    anyway, because `GET /health` on that port was answered by the FIRST app's router.
+    The load then went to a stranger's process and 404'd on a model id it had never
+    heard of (measured 2026-08-03: JustWrite's `gemma-4-26b-a4b-qat` against
+    just_ai_i18n_docgen's router, 404 in 31 ms — indistinguishable from a corrupt
+    install). Health-by-port is not identity, so take a port nobody else holds.
+
+    Binding is the test, immediately before the spawn: a stray router from a crashed
+    run, a sibling app, or the user's own llama.cpp all fail it equally.
+    """
+    is_free = _is_free or _port_is_free
+    for port in range(preferred, preferred + max(1, span)):
+        if is_free(host, port):
+            return port
+    raise NoFreePortError(
+        f"no free port for the engine in {preferred}-{preferred + span - 1} on {host} — "
+        f"something is holding the whole range"
+    )
 
 
 @dataclass

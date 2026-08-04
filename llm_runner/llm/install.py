@@ -386,7 +386,7 @@ def _wire_runner_catalog(data_dir=None) -> None:
     from ..runner.lifecycle import configure_service, get_service
     from ..runner.schema import ModelEntry, RecommendedFor
 
-    from .dispatch import set_ensure_local_model
+    from .dispatch import set_ensure_local_model, set_local_runner_base_url
 
     def catalog_fn():
         return [
@@ -470,6 +470,13 @@ def _wire_runner_catalog(data_dir=None) -> None:
         get_service().ensure_model_ready(model_id)
 
     set_ensure_local_model(_ensure_local_model)
+
+    # 2026-08-03: the twin seam for WHERE that model answers. The router binds a free
+    # port at spawn (two apps both assuming :8080 sent one app's chat to the other's
+    # engine), so the `local-llamacpp` adapter must ask the live service per request
+    # rather than trust the baseUrl stored on the provider row. Same closure shape,
+    # same call-time get_service().
+    set_local_runner_base_url(lambda: get_service().router_url())
 
     # Pass 2 (2026-07-22): the ACTIVE engine family reaches the llm-side tune layers
     # (stamp at save, filter at resolve/display) through the same injected-closure

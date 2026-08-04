@@ -58,6 +58,7 @@ from .process import (
     _tail_file,
     compute_fit,
     emit_models_ini,
+    find_free_port as _find_free_port,
     start_router as _start_router,
 )
 from .schema import ModelEntry
@@ -434,6 +435,7 @@ class RunnerService:
         acquire_model=_acquire_model,
         read_meta=_read_gguf_metadata,
         start_router=_start_router,
+        find_port=_find_free_port,
         router_load=_default_router_load,
         router_unload=_default_router_unload,
         router_models=_default_router_models,
@@ -462,6 +464,7 @@ class RunnerService:
         self._latest_build_fn = latest_build_fn or _fetch_latest_llamacpp_tag
         self._read_meta = read_meta
         self._start_router = start_router
+        self._find_port = find_port
         self._router_load = router_load
         self._router_unload = router_unload
         self._router_models = router_models
@@ -566,6 +569,19 @@ class RunnerService:
         if st.get("status") == "running" and (router is None or not router.is_alive()):
             st.update(status="error", error="llama-server router exited")
         return dict(st)
+
+    def router_url(self) -> str:
+        """Where the bundled engine is ACTUALLY listening (`http://host:port`, no
+        `/v1`), or "" when no router is up.
+
+        THE one answer to that question. The port is allocated at spawn
+        (`find_free_port`), so a stored provider `baseUrl` — seeded with the preferred
+        port — is a guess, and acting on a guess is how one app's chat request reached
+        another app's router. `install_llm` points the dispatch seam here so the
+        `local-llamacpp` adapter resolves per request instead of freezing a string at
+        registry-build time."""
+        router = self._router
+        return router.url if router is not None and router.is_alive() else ""
 
     # ── Engine install — its OWN once-per-machine step, separate from loading a
     #    model (a load REQUIRES the engine present; see _run_load). ──────────────
@@ -2337,13 +2353,22 @@ class RunnerService:
         bounces reuse it rather than re-trying a preferred build that failed to launch."""
         log_path = self._router_log_path()
         self._last_log_path = log_path
+        # The port is ALLOCATED here, never assumed: a sibling family app, a stray
+        # router from a crashed run, or the user's own llama.cpp may already hold the
+        # preferred one, and a health probe cannot tell their server from ours
+        # (find_free_port carries the measured incident). Callers must read the live
+        # URL off the handle — or `router_url()` — not rebuild it from DEFAULT_PORT.
+        port = self._find_port(DEFAULT_HOST, DEFAULT_PORT)
+        if port != DEFAULT_PORT:
+            log.info("engine port %d is taken — starting the router on %d instead",
+                     DEFAULT_PORT, port)
         self._router = self._start_router(
             server_exe,
             models_dir=self._cache_root / "hf",
             models_preset=self._cache_root / "llamacpp" / "models.ini",
             models_max=config.models_max,
             sleep_idle_seconds=config.sleep_idle_seconds,
-            host=DEFAULT_HOST, port=DEFAULT_PORT, log_path=log_path,
+            host=DEFAULT_HOST, port=port, log_path=log_path,
         )
         self._active_server_exe = server_exe
 

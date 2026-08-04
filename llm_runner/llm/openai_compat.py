@@ -33,9 +33,11 @@ PROVIDER_DEFAULTS = {
         "default_model": "llama3.2",
     },
     "local-llamacpp": {
-        # The built-in llama.cpp runner spawns llama-server on loopback
-        # (default port 8080). default_model is empty — the model is whatever
-        # GGUF the runner loaded; llama-server accepts any model id.
+        # A FALLBACK for a host with no runner service wired (standalone use, adapter
+        # tests). When one IS wired the live router URL wins — the port is allocated at
+        # spawn, so this number is the preferred one, not the actual one (`_api_base`).
+        # default_model is empty — the model is whatever GGUF the runner loaded;
+        # llama-server accepts any model id.
         "base_url": "http://127.0.0.1:8080/v1",
         "default_model": "",
     },
@@ -108,6 +110,37 @@ class OpenAICompatAdapter:
             h["authorization"] = f"Bearer {self._api_key}"
         return h
 
+    @property
+    def _api_base(self) -> str:
+        """The base URL for THIS request — resolved every time for the bundled runner.
+
+        `local-llamacpp` does not listen on a fixed port: the router binds a free one
+        at spawn (`runner/process.find_free_port`), because two family apps both
+        assuming :8080 meant the second app's traffic reached the first app's engine.
+        A base_url frozen at registry-build time therefore cannot be trusted — the host
+        wires `set_local_runner_base_url` to the running service and we ask it per call.
+
+        Every other provider type (`openai-compat` — LM Studio, vLLM, a self-hosted
+        box) keeps its configured URL untouched: that one IS a user-chosen endpoint.
+        With no resolver wired (standalone host, adapter unit tests) the configured
+        value stands, so nothing changes off the runner path."""
+        if self.provider_type != "local-llamacpp":
+            return self._base_url
+        from .dispatch import get_local_runner_base_url  # local: llm/ has no import cycle to spare
+
+        resolver = get_local_runner_base_url()
+        if resolver is None:
+            return self._base_url
+        live = (resolver() or "").rstrip("/")
+        if not live:
+            # Deliberately NOT falling back to the configured port. That fallback is
+            # the original defect: :8080 may well answer — as somebody else's engine.
+            raise RuntimeError(
+                "the bundled llama.cpp engine isn't running — load a model first "
+                "(POST /v1/llm-runner/load), then retry"
+            )
+        return f"{live}/v1"
+
     def _apply_reasoning(self, body: dict, think: bool, effort: str, budget: int | None) -> None:
         """Emit this LOCAL server's native reasoning control from the RESOLVED values
         (U2-T5). The bundled local llama.cpp runner gets the explicit `chat_template_kwargs.
@@ -168,7 +201,7 @@ class OpenAICompatAdapter:
         self._adapt_response_format(body)
         self._apply_reasoning(body, think, effort, budget)
 
-        url = f"{self._base_url}/chat/completions"
+        url = f"{self._api_base}/chat/completions"
         try:
             r = self._client.post(url, json=body, headers=self._headers())
         except httpx.HTTPError as e:
@@ -228,7 +261,7 @@ class OpenAICompatAdapter:
         self._adapt_response_format(body)
         self._apply_reasoning(body, think, effort, budget)
 
-        url = f"{self._base_url}/chat/completions"
+        url = f"{self._api_base}/chat/completions"
         pt = ct = 0
         with self._client.stream("POST", url, json=body, headers=self._headers()) as r:
             if r.status_code >= 400:
@@ -269,7 +302,7 @@ class OpenAICompatAdapter:
     def models(self) -> list[str]:
         """GET /models — most OpenAI-compat servers expose this."""
         try:
-            r = self._client.get(f"{self._base_url}/models", headers=self._headers())
+            r = self._client.get(f"{self._api_base}/models", headers=self._headers())
             if r.status_code >= 400:
                 return []
             payload = r.json()
@@ -286,7 +319,7 @@ class OpenAICompatAdapter:
         is accepted and IGNORED — the OpenAI embeddings API has no task-side concept
         (the `think` kwarg precedent; #15 C5)."""
         body = {"model": model or self.default_model, "input": list(texts)}
-        url = f"{self._base_url}/embeddings"
+        url = f"{self._api_base}/embeddings"
         try:
             r = self._client.post(url, json=body, headers=self._headers())
         except httpx.HTTPError as e:
@@ -299,7 +332,7 @@ class OpenAICompatAdapter:
     def ping(self) -> bool:
         try:
             r = self._client.get(
-                f"{self._base_url}/models", headers=self._headers(), timeout=5.0
+                f"{self._api_base}/models", headers=self._headers(), timeout=5.0
             )
             return r.status_code < 500
         except httpx.HTTPError:

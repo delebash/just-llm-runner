@@ -94,13 +94,34 @@ kit is consumed as source from the sibling clone — no publish step exists).
   `UiSelect`, `UiMultiSelect`, `UiCheckbox`, `Toast`…). **A missing capability is
   built IN THE KIT** on reka-ui primitives with the one-`intent` design contract —
   never app-local (UiMultiSelect is the precedent: born for i18n-docgen, owned by all).
-- **Transport**: the kit's `configureServerApi` + `makeOriginAwareResolver({ devPorts:
-  ["1420"], fallback: "http://127.0.0.1:<PORT>" })`, called once in `main.js` — and the
-  SAME resolved base into **`configureLlmUi({ baseUrl: resolveBase() })`**: with no
-  baseUrl the kit falls back to `window.location.origin`, which is `tauri.localhost` in
-  the packaged webview, and every kit LLM view renders empty IN PRODUCTION ONLY (found
-  live 2026-08-03). Also `configureExternal` (Tauri swallows `_blank` — without it every
-  external link is silently dead in the desktop app). Never hand-rolled fetch helpers.
+- **`installLlmUi(app, …)` in `main.js` — the UI twin of `install_llm`** (2026-08-04).
+  ONE call resolves the origin-aware base and feeds it to BOTH transports, wires the
+  external opener, declares `capabilities`, and registers `<LlmUiHosts />`. Do not call
+  `configureServerApi` / `configureLlmUi` / `configureExternal` by hand: each was a step
+  a host had to know about, and every omission failed SILENTLY — the two base URLs
+  disagreeing made every kit LLM view render empty IN PRODUCTION ONLY (`configureLlmUi`
+  with no baseUrl falls back to `window.location.origin` = `tauri.localhost` in the
+  packaged webview, found live 2026-08-03).
+
+  ```js
+  installLlmUi(app, {
+    devPorts: ["1420"], fallbackBase: "http://127.0.0.1:<PORT>",
+    capabilities: { embeddings: false },        // what this app's stack does
+    catalogCopy: { … },                          // this app's words
+    external: async (url) => (await import("@tauri-apps/plugin-opener")).openUrl(url),
+  });
+  ```
+
+  The opener stays the APP's — `@tauri-apps/plugin-opener` is a Tauri dependency and
+  importing it inside the kit breaks every non-Tauri consumer's build (measured
+  2026-08-04). Tauri swallows `target=_blank`, so a desktop app that passes none has
+  silently dead external links; the kit warns loudly in a webview when that happens.
+- **`<LlmUiHosts />` in the shell, and the AI-tasks row from `useAiTasksNav()`.** The
+  hosts are one tag because the failure mode was mounting SOME of them: with no
+  `<AppDialog/>`, `confirmDialog()`'s promise never settles and every confirmed action
+  is a dead button. The nav row is a composable, not a component (each app styles its
+  own nav) — spread its `navAttrs` so the row cannot be rebuilt without
+  `data-panel-toggle`, whose absence made the panel open and instantly close.
 - **Wire shape: camelCase** — matching the shared stack's `CamelModel` contract.
 - **NAME YOUR DONOR** (user-ruled 2026-08-03, after a hand-rolled disk-usage panel
   shipped beside JW's canonical one): before writing ANY UI element, name where it

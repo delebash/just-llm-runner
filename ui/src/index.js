@@ -13,6 +13,16 @@ import "./styles.css";
 // imports; the public `request` is the shared serverApi transport below.)
 export { configureLlmUi, llmUiBase, llmUiUrl, requestBlob, postForm } from "./client.js";
 
+// THE UI-side installer — the twin of the server's install_llm (2026-08-04). One call
+// resolves the base for BOTH transports (they disagreed once, and every kit view
+// rendered empty in production only), wires external links, declares this app's
+// capabilities and registers <LlmUiHosts />. Prefer it to calling the configure*
+// functions by hand: each of those was a step a host had to KNOW about, and every
+// omission failed silently.
+export { installLlmUi, llmUiCapabilities } from "./installLlmUi.js";
+export { default as LlmUiHosts } from "./components/LlmUiHosts.vue";
+export { useAiTasksNav } from "./composables/useAiTasksNav.js";
+
 // shared general primitives + shells + services — the future @delebash/ui
 // (housed in ./common for now): Ui* primitives, Icon/Breadcrumb, dialog/tooltip,
 // the Help system, Toast, EmptyState, ConnectionError, the serverApi transport,

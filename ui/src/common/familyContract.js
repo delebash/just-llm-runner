@@ -33,11 +33,15 @@ export const FAMILY_LABELS = {
     help: "Help",
   },
 
-  // Dialog verbs — the confirm vocabulary every app passes (or maps via locale).
+  // Dialog verbs + the host AppDialog's fallback words — the confirm vocabulary
+  // every app passes (or maps via locale). Folded 2026-08-04 from dialog.js's own
+  // defaults: one store for every family word, or the drift disease returns.
   dialog: {
     confirm: "Confirm",
     ok: "OK",
     cancel: "Cancel",
+    defaultTitle: "Are you sure?",
+    close: "Close",
   },
 
   // The AI area's tab strip (the 5th tab is host-supplied app voice).

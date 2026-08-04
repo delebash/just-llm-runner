@@ -16,9 +16,9 @@ import UiCheckbox from "../common/components/UiCheckbox.vue";
 import UiSegmented from "../common/components/UiSegmented.vue";
 import UiTable from "../common/components/UiTable.vue";
 import FeatureWorkbench from "./FeatureWorkbench.vue";
-import { FAMILY_LABELS } from "../common/familyContract.js";
+import { familyLabels } from "../common/services/familyLabels.js";
 
-const TAB_LABELS = FAMILY_LABELS.aiTabs;
+const TAB_LABELS = familyLabels.aiTabs; // reactive canon — group capture is safe, the door assigns in place
 import ProviderForm from "./ProviderForm.vue";
 import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";

@@ -20,24 +20,33 @@ export const dialogState = reactive({
   _resolve: null,
 });
 
-// Default labels the host AppDialog falls back to when a call omits them. Kept
-// here (not inside the component) so the kit stays i18n-agnostic: an app that
-// localizes its dialogs calls configureDialog({ labels }) once at boot — and
-// again on locale change — to inject translated strings. Apps that ship one
-// locale (the common case) get these generic English defaults for free.
-// The VERBS come from the family contract — one canon, every app.
-import { FAMILY_LABELS } from "../familyContract.js";
+// Default labels the host AppDialog falls back to when a call omits them. The
+// words live in the ONE reactive family store (familyLabels.dialog) — folded
+// 2026-08-04; two stores with one meaning is how the drift started. This export
+// is a read-through VIEW keeping the property names AppDialog reads (template
+// reads stay reactive: the getters read the reactive store), and configureDialog
+// stays as a thin alias over the one door so existing hosts keep working.
+import { configureFamilyLabels, familyLabels } from "./familyLabels.js";
 
-export const dialogLabels = reactive({
-  defaultTitle: "Are you sure?",
-  confirmLabel: FAMILY_LABELS.dialog.confirm,
-  okLabel: FAMILY_LABELS.dialog.ok,
-  cancelLabel: FAMILY_LABELS.dialog.cancel,
-  closeLabel: "Close",
-});
+export const dialogLabels = {
+  get defaultTitle() { return familyLabels.dialog.defaultTitle; },
+  get confirmLabel() { return familyLabels.dialog.confirm; },
+  get okLabel() { return familyLabels.dialog.ok; },
+  get cancelLabel() { return familyLabels.dialog.cancel; },
+  get closeLabel() { return familyLabels.dialog.close; },
+};
 
 export function configureDialog({ labels } = {}) {
-  if (labels) Object.assign(dialogLabels, labels);
+  if (!labels) return;
+  configureFamilyLabels({
+    dialog: {
+      defaultTitle: labels.defaultTitle,
+      confirm: labels.confirmLabel,
+      ok: labels.okLabel,
+      cancel: labels.cancelLabel,
+      close: labels.closeLabel,
+    },
+  });
 }
 
 function openDialog(kind, options) {

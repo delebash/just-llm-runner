@@ -9,7 +9,7 @@
 -->
 <script setup>
 import { computed } from "vue";
-import { FAMILY_LABELS } from "../familyContract.js";
+import { familyLabels } from "../services/familyLabels.js";
 
 const props = defineProps({
   appName: { type: String, default: "the app" },
@@ -20,7 +20,7 @@ const props = defineProps({
   devHint: { type: String, default: "" },
 });
 const isDev = import.meta.env.DEV;
-const L = FAMILY_LABELS.connectionError; // canon words — one source, every app
+const L = familyLabels.connectionError; // reactive canon — group capture is safe, the door assigns in place
 const title = computed(() => L.title.replace("{appName}", props.appName));
 function retry() { location.reload(); }
 </script>

@@ -37,6 +37,10 @@ export { default as PaneHeader } from "./components/PaneHeader.vue";
 // The Settings chrome — top tab strip + content (the family shape; lifted from JW).
 export { default as SettingsShell } from "./components/SettingsShell.vue";
 export { promptDialog, confirmDialog, dialogState, _resolveDialog, configureDialog, dialogLabels } from "./services/dialog.js";
+// THE one reactive labels store behind kit chrome (dialog verbs, AI tabs, download-bar
+// actions, connection-error copy) + its ONE door. An i18n'd host re-feeds it at boot
+// and on every locale switch; single-locale hosts never call it (English canon).
+export { familyLabels, configureFamilyLabels } from "./services/familyLabels.js";
 export { tooltipDirective } from "./services/tooltip.js";
 
 // shared in-app Help system — drawer + "?" trigger + open-state/config + the

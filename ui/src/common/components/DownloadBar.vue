@@ -11,9 +11,12 @@
 // different" complaint).
 import UiButton from "./UiButton.vue";
 import UiProgress from "./UiProgress.vue";
-import { FAMILY_LABELS } from "../familyContract.js";
+import { familyLabels } from "../services/familyLabels.js";
 
-const L = FAMILY_LABELS.downloadBar; // canon words — one source, every app
+// Canon words via the ONE reactive store — capturing the group ref is safe: the
+// door deep-assigns in place (the invariant in familyLabels.js), so a host's
+// locale re-feed reaches this mounted bar live.
+const L = familyLabels.downloadBar;
 
 defineProps({
   title: { type: String, default: "" },

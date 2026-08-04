@@ -305,6 +305,18 @@ app.include_router(make_disk_router(data_dir))
 `useModelApply`, `DownloadBar`), the wizard VIEW per app (steps + words) — JV's TTS
 wizard was always app-local, i18n's translate wizard follows, and `AiModelsArea`'s
 `wizard` prop mounts it. JW's `QuickSetup` (embedding woven through) stays JW's.
+Trap, found live (i18n 2026-08-03): `setAsDefault(providerId, modelId)` — the FIRST
+argument is the PROVIDER (`setAsDefault(LOCAL_RUNNER_ID, id)`, QuickSetup.vue:466).
+Passing the model alone rewrites every task preset's `providerId` to a model id and
+then toasts success; no smoke test catches it, because none completes a model load.
+
+**The boot-splash first-run offer** (a strip on the splash: "set up local AI"): gate
+it on NO DEFAULT PROVIDER AT ALL (`currentDefaultProviderId` empty). Gating on
+`currentDefaultId` is wrong — that value is local-gated, so an online-default box
+reads as "no AI" and gets nagged every boot. JW's shape is different and also fine:
+its offer is a modal dialog, fired ONCE ever via the persisted `aiSetupPrompted`
+setting. Pick one deliberately: once-ever flag for an intrusive surface, live
+no-default-at-all gating for a strip that only exists on the boot screen (i18n).
 
 And the test is CONTENT, not mounting: log a marker line, fetch `/v1/logs/tail`,
 assert the marker (a 200 from an empty ring proves nothing).

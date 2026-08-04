@@ -1,5 +1,7 @@
 # 2026-07-19 — The built-in provider collapses into the Local list
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — shipped; partially reversed by 2026-07-21-builtin-row-engine-update-and-warm-load (QC-39(b)). History/evidence only; live work: `docs/dev/TASKS.md`.
+
 A build record. Five questions: what changed · why · where · how to verify · what reverses it.
 
 ## The user's rulings (verbatim in substance, recorded as given)

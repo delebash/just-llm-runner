@@ -1,5 +1,7 @@
 # Providers-surface redesign — five user decisions (2026-07-06 night)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — nothing open on this surface (its own words); the rounds 9-19 box checks are tracked in JW's docs/dev/TASKS.md. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 > **STATUS: LIVE TRACKER — ROUNDS 1–19 SHIPPED AND VERIFIED (2026-07-06 → 2026-07-07). Each
 > `## ROUND N` section below is the full record of its go; a later round supersedes an
 > earlier round's "queued/deferred" claims (the chronology IS the tracker).** Born from the
@@ -345,7 +347,7 @@ Built-in server -- llama.cpp, in quick setup popup change Recommended setup to R
 -- for local built in server only, Below that line put Requirements: Video card with at least 8GB
 VRAM and 32GB of System RAM, personally even though some models technically can run on cpu, for
 our use case i dont think we should support it it would be to slow, do you agree? Remove header
-Local LLM"* + *"remove (docs/plans/2026-07-06-llamacpp-config-tuning-2070s.md)."* + *"yes on
+Local LLM"* + *"remove (justwrite-app/docs/plans/archive/2026-07-06-llamacpp-config-tuning-2070s.md)."* + *"yes on
 embeding"*.
 
 - **Run Quick Setup = just the button, centered on the Built-in card** level with the /v1 line

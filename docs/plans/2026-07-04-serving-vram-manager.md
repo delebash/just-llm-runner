@@ -1,5 +1,7 @@
 # Plan — Serving / VRAM manager (router mode + a thin budget arbiter)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — design reference for the shipped SVM; open P4 (resident-set + TTL UI) + two on-box checks live in the tracker. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 > **⚠ SLEEPING-CHILD CAUTION (on-box incident 1, 2026-07-06 — recorded per the model-per-hardware
 > plan Phase 4):** a SLEEPING router child is NOT VRAM-free — on the 2070S a sleeping qwen3.6 child
 > held enough CUDA footprint to OOM a book-chat load twice. IN-APP the arbiter's `_admit` evicts
@@ -8,7 +10,7 @@
 > sleeping third model can push a maxed profile over the OOM edge. Mitigations for manual use:
 > `POST /models/unload` first, or wait out `sleep-idle-seconds`.
 
-> ⛔ **LIVE STATUS: DESIGN APPROVED + IN BUILD — P1 + P2 + P3 SHIPPED (2026-07-04); P4 (resident-set + TTL UI) NEXT (needs a fresh "go").** This is the DESIGN REFERENCE; the executable task plan + AS-BUILT tracker (current state, per-phase deviations, verification) is **`2026-07-04-serving-vram-manager-implementation.md`** — read THAT for where the build stands. Shipped so far (runner `just-llm-runner`, JW `justwrite-app`, branch `claude/admiring-galileo-il3q0o`): P1 router mode + DB→`.ini` emission; P2 the thin VRAM arbiter (`runner/arbiter.py`) + budget-aware fit; **P3 co-resident embeddings — the first user-verifiable ship: local RAG works out of the box on the bundled runner (pinned nomic, lazy on first RAG use)**, closing the §12 embedding gap this doc's §5e/§8.1 designed. Two runtime checks await the user's Windows box (neither blocks P4): P3 §3d end-to-end + P1g router-flag confirm. **Model-surface #104–112 UNBLOCKS now.** Original decision (2026-07-04): **(b) design this manager FIRST — the model-surface build (`2026-07-03-model-setup-simplification.md`, #104–112) waits/couples to it**; **adopt llama.cpp router mode**; **DB stays the source of truth, the `.ini` is a generated artifact written only when needed.** Anchor task: **#29**.
+> ⛔ **LIVE STATUS: DESIGN APPROVED + IN BUILD — P1 + P2 + P3 SHIPPED (2026-07-04); P4 (resident-set + TTL UI) NEXT (needs a fresh "go").** This is the DESIGN REFERENCE; the executable task plan + AS-BUILT tracker (current state, per-phase deviations, verification) is **`2026-07-04-serving-vram-manager-implementation.md`** — read THAT for where the build stands. Shipped so far (runner `just-llm-runner`, JW `justwrite-app`, branch `claude/admiring-galileo-il3q0o`): P1 router mode + DB→`.ini` emission; P2 the thin VRAM arbiter (`runner/arbiter.py`) + budget-aware fit; **P3 co-resident embeddings — the first user-verifiable ship: local RAG works out of the box on the bundled runner (pinned nomic, lazy on first RAG use)**, closing the §12 embedding gap this doc's §5e/§8.1 designed. Two runtime checks await the user's Windows box (neither blocks P4): P3 §3d end-to-end + P1g router-flag confirm. **Model-surface #104–112 UNBLOCKS now.** Original decision (2026-07-04): **(b) design this manager FIRST — the model-surface build (`archive/2026-07-03-model-setup-simplification.md`, #104–112) waits/couples to it**; **adopt llama.cpp router mode**; **DB stays the source of truth, the `.ini` is a generated artifact written only when needed.** Anchor task: **#29**.
 
 ---
 
@@ -19,11 +21,11 @@ The app runs MULTIPLE model servers that contend for the same VRAM, and nothing 
 - **JustVoice:** the shared LLM (speaker attribution etc. — JV's own `qwen3_llm` engine is being replaced by the shared `just-llm-runner`, per both CLAUDE.mds "only TTS and each app's feature catalog differ") **+ its own TTS/STT engines** (kokoro, chatterbox, dia, moss_tts, luxtts, whisper — JV-local, NOT shared). The user's framing: JV runs "TTS and LLM but not at the same time," and the TTS server is a different kind of server. **VERIFIED 2026-07-04 (grep of the JV codebase): JV uses NO embeddings** — zero embed call sites (`embedTexts` / `/v1/ai/embeddings` / `.embed(` / `embed_texts` → none anywhere; `extraction/` has no "embed"); the LLM does **speaker extraction** (`extraction/` pipeline: identify/segmentation/anchors/prompts) + **refinement / rewriting** (`refinement.py`) only. So the two apps have DIFFERENT co-residence profiles: **JW = shared LLM (big) + a tiny embed (co-resident), NO TTS; JV = shared LLM (big) XOR TTS (some GB), NO embed.**
 
 Three concrete pains, all one root problem:
-1. **The embedding gap** (`2026-07-03-model-setup-simplification.md` §12): the bundled runner is stop-to-switch, one model at a time, launched WITHOUT `--embeddings`, and its local provider has no embed model set — so RAG's "Build index" fails with *"Provider … has no embedding model set"* (`IndexBuildModal.vue:77`). Locally, embeddings simply don't work unless a separate provider (Ollama/cloud) supplies them.
+1. **The embedding gap** (`archive/2026-07-03-model-setup-simplification.md` §12): the bundled runner is stop-to-switch, one model at a time, launched WITHOUT `--embeddings`, and its local provider has no embed model set — so RAG's "Build index" fails with *"Provider … has no embedding model set"* (`IndexBuildModal.vue:77`). Locally, embeddings simply don't work unless a separate provider (Ollama/cloud) supplies them.
 2. **Per-task / future-routing model swap:** switching the loaded model is a full kill+respawn+reload (slow for a big model — see §4), so per-task models thrash; a box with enough VRAM should keep several loaded instead.
 3. **JV TTS ↔ LLM co-residence / swap:** the shared LLM runner and JV's own TTS engine manager don't know about each other's VRAM, so on one GPU they can collide (OOM) or must blindly swap.
 
-Our own 2026-06-25 deep-research already concluded the fix (`2026-06-25-serving-architecture-research.md` §"The one thing NO tool does — we must build it"): **true VRAM-budget arbitration** — no existing tool does it (all are count-based or operator-declared). The user re-derived this same conclusion on 2026-07-04 ("we might really need a manager that stops and starts servers as needed to manage VRAM, and that may change how we calculate fit").
+Our own 2026-06-25 deep-research already concluded the fix (`archive/2026-06-25-serving-architecture-research.md` §"The one thing NO tool does — we must build it"): **true VRAM-budget arbitration** — no existing tool does it (all are count-based or operator-declared). The user re-derived this same conclusion on 2026-07-04 ("we might really need a manager that stops and starts servers as needed to manage VRAM, and that may change how we calculate fit").
 
 ## 2 · The decision (user-approved 2026-07-04)
 
@@ -51,7 +53,7 @@ Verified via the llama.cpp **server README** (primary) + corroborating 2026 writ
 
 **GPUStack v0.x (precedent):** a working "TTS + LLM + embedding sharing one GPU" coordinator (llama-box + vox-box). Study, don't lift.
 
-Sources: [llama.cpp server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) · [New in llama.cpp: Model Management (HF)](https://huggingface.co/blog/ggml-org/model-management-in-llamacpp) · [router-mode write-up (glukhov)](https://www.glukhov.org/llm-hosting/llama-cpp/llama-server-router-mode/) · [llama-swap config](https://github.com/mostlygeek/llama-swap/blob/main/docs/configuration.md) · [llama.cpp embeddings](https://software.land/working-with-llama-cpp-embeddings/) · prior research `2026-06-25-serving-architecture-research.md`.
+Sources: [llama.cpp server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) · [New in llama.cpp: Model Management (HF)](https://huggingface.co/blog/ggml-org/model-management-in-llamacpp) · [router-mode write-up (glukhov)](https://www.glukhov.org/llm-hosting/llama-cpp/llama-server-router-mode/) · [llama-swap config](https://github.com/mostlygeek/llama-swap/blob/main/docs/configuration.md) · [llama.cpp embeddings](https://software.land/working-with-llama-cpp-embeddings/) · prior research `archive/2026-06-25-serving-architecture-research.md`.
 
 ## 4 · Verified current state (code, file:line — the baseline we change)
 
@@ -112,7 +114,7 @@ RESPONSE QUALITY (soft read — all three hit `finish_reason:"length"` at the 80
 NET (design impact, recorded — no decision changed): the measurements VALIDATE the model-setup §10 speed-floor rule as written (keep usable-MoE, exclude slow dense-partial-offload, rank the survivors by `quality_rank`) and DEBUNK the prefill-blocker fear. The one newly-quantified consideration — prefill/TTFT favours a dense-on-GPU model for prompt-heavy short-output work — is flagged for the user as a possible future auto-pick refinement (e.g. a per-task-shape hint), NOT actioned here.
 3. **Per-model `--embeddings`/pooling accepted in the `.ini`** (part of #1).
 
-## 9 · Impact on the model-surface plan (`2026-07-03-model-setup-simplification.md`)
+## 9 · Impact on the model-surface plan (`archive/2026-07-03-model-setup-simplification.md`)
 - The **embedding half** (§12 gap; §14 items 2/5/6 + the embed fit numbers) is **subsumed here** — it resolves via router-mode co-residence, not a bolt-on.
 - The **LLM half** (speed-floor pick, visible catalog, Set-as-default, Add flow) is technically independent, but per the user's **(b)** choice the whole model-surface build **waits/couples** to this manager design. Recorded as the coupling; revisit if the user later decouples.
 
@@ -127,4 +129,4 @@ Indicative phases, to be turned into a rules-checked task plan when we finalize:
 - **Chosen:** llama.cpp router mode (native multi-model + `.ini` + TTL) + a thin VRAM-budget arbiter (fit.py-driven, cross-subsystem) with DB→`.ini` emission.
 
 ## 12 · Cross-refs
-`2026-07-03-model-setup-simplification.md` (§10 speed-floor pick, §12 embedding gap — this manager resolves it) · `2026-06-25-serving-architecture-research.md` (the adopt-vs-build research; router/llama-swap/Ollama/GPUStack) · `2026-06-24-small-vram-multimodel-research.md` (low-level mechanisms) · task **#29** (anchor) · #28 (measured swap-speed/benchmarks).
+`archive/2026-07-03-model-setup-simplification.md` (§10 speed-floor pick, §12 embedding gap — this manager resolves it) · `archive/2026-06-25-serving-architecture-research.md` (the adopt-vs-build research; router/llama-swap/Ollama/GPUStack) · `archive/2026-06-24-small-vram-multimodel-research.md` (low-level mechanisms) · task **#29** (anchor) · #28 (measured swap-speed/benchmarks).

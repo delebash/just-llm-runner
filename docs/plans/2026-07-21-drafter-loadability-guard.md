@@ -1,5 +1,7 @@
 # Drafter loadability guard — don't offer/auto-enable an MTP draft our engine can't load (2026-07-21)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — landed (models.py loadable/unsupportedArch). History/evidence only; live work: `docs/dev/TASKS.md`.
+
 Builds the deferred **Fix C** (`justwrite-app/docs/IDEAS.md:107` "Tier-C drafter
 loadability guard"), and closes the wider gap the user actually hit: the
 **"Load model info from HF"** inspect path auto-pre-picks a repo's own draft and

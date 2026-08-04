@@ -1,5 +1,7 @@
 # Plan — Connect model → engine switches + simplify the model/tune surface (JustWrite AI)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — all phases shipped; the "LIVE STATUS" header below is historical. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 > Scope: shared kit `just-llm-runner/ui` + runner, consumed by JustWrite. **JustVoice is out** (user directive). Branch `claude/admiring-galileo-il3q0o`. No PR unless asked.
 >
 > **Validated by a 3-checker rules panel (architecture-fit · reuse/convergence · grounding).** All three confirmed the macro shape ("connect, don't collapse") is correct and the grounding claims verify (T2 all-true). Their FAILs — the preset-clobber guard (T1), shared-helper extraction (T3), the switch-presets-editor gap (T5), the backend copy-sweep (T6), and docs (T11) — are folded below and marked 【panel】.
@@ -10,7 +12,7 @@ Branch `claude/admiring-galileo-il3q0o`; verified per phase (build:vite · headl
 - **Phase 1 — connect model → switches: SHIPPED** (`2b0543f`). New shared `ui/src/switchResolve.js`; `ConfigColumn` seeds the switch KnobGrid from the model's resolved baseline on the model-STRING change, guarded by a `switchesSource` tag (`'model'|'preset'|'user'`) + async token + post-await re-checks (no preset/user clobber, no loop); `CompareStrip.presetToConfig` tags `'preset'`; `LuModelCatalog.fetchResolved` delegates to the helper. Probe: dense=6 / MoE=8 switches, differ, seedReqCount=2. rules-checker PASS (T1 guard + T3 single source).
 - **Phase 2 — Tune & measure: kept, relabelled.** No separate code — it now shares `switchResolve.js` (Phase 1) and its "Routing by job/Profile" copy was fixed in Phase 0.
 - **Phase 3 — trim the model Edit form + surface mtp: SHIPPED** (`22827f7`). `LuModelCatalog` Edit form restructured — download-source note (repo+quant = the one thing you must set), fit-estimate note (pre-download guess; the GGUF sets the real fit), `type` relabeled "auto-detected at download" + demoted into a "Capability flags" Advanced disclosure, new `mtp` `UiCheckbox` (rides the existing catalog PUT — `mtp` round-trips: `stores.py:345,372`). Probe + a live PUT round-trip green.
-- **Phase 4 — final docs + verify: SHIPPED** (JW `f76cb9c`). Plan persisted (+ this LIVE STATUS marking all phases done); the historical `justwrite-app/docs/plans/2026-06-27-switch-and-preset-architecture.md` bannered with the 2026-07-02 evolution; the runner `ai-state-grid.md:42` stale row fixed (Phase 1); the JW `MORNING_RECAP.md` current-state entry added. Final verify all green: runner ruff + **202 pytest** · `build:vite` · `headless-smoke` **0 JS errors**. **✅ FEATURE COMPLETE — Phases 0–4 shipped + pushed** (runner `b0a9f09`→`2b0543f`→`22827f7`; JW `f76cb9c`).
+- **Phase 4 — final docs + verify: SHIPPED** (JW `f76cb9c`). Plan persisted (+ this LIVE STATUS marking all phases done); the historical `justwrite-app/docs/plans/archive/2026-06-27-switch-and-preset-architecture.md` bannered with the 2026-07-02 evolution; the runner `ai-state-grid.md:42` stale row fixed (Phase 1); the JW `MORNING_RECAP.md` current-state entry added. Final verify all green: runner ruff + **202 pytest** · `build:vite` · `headless-smoke` **0 JS errors**. **✅ FEATURE COMPLETE — Phases 0–4 shipped + pushed** (runner `b0a9f09`→`2b0543f`→`22827f7`; JW `f76cb9c`).
 - **Decision 4 (open):** after deleting the orphaned editor, the `switch_presets` baseline is seed/reset/API-only by design; the full `/v1/ai/switch-presets` router removal is a shared-shapes/test cascade — deferred + flagged, kept as API surface. QuickSetup `/v1/ai/jobs` copy = the separate deferred #100.
 
 ## Context (why this change)
@@ -48,7 +50,7 @@ Walking the Providers → AI surface, the user hit a real architectural disconne
   - Keep **Add model** (bring-your-own GGUF) primary.
 
 ## Phase 4 — Docs (ship in the same change) 【panel T11, unanimous】
-- Update the switch/preset **architecture doc** `justwrite-app/docs/plans/2026-06-27-switch-and-preset-architecture.md` (referenced by `identity.py:5`) + the stale row in `just-llm-runner/docs/plans/2026-06-28-ai-state-grid.md:42` ("LuSwitchPresets.vue editor (moved to Routing-by-job)") + any MASTER-PLAN ref: LuSwitchPresets deleted, the Lab now seeds switches from the model, `switch_presets` is baseline-only (see Decision 4).
+- Update the switch/preset **architecture doc** `justwrite-app/docs/plans/archive/2026-06-27-switch-and-preset-architecture.md` (referenced by `identity.py:5`) + the stale row in `just-llm-runner/docs/plans/archive/2026-06-28-ai-state-grid.md:42` ("LuSwitchPresets.vue editor (moved to Routing-by-job)") + any MASTER-PLAN ref: LuSwitchPresets deleted, the Lab now seeds switches from the model, `switch_presets` is baseline-only (see Decision 4).
 - **Persist THIS plan** to `just-llm-runner/docs/plans/2026-07-02-model-switch-connect.md` (project rule) + refresh the active-plan map in `just-llm-runner/MORNING_RECAP.md` and note it in `justwrite-app/MORNING_RECAP.md`.
 
 ## Files (representative touch-list — reuse first)

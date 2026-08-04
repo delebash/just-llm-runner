@@ -1,5 +1,7 @@
 # reasoning_budget → the house switch layering (2026-07-16)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — landed (the per-request knob flag exists in knob_catalog_api.py); the labeling law was lifted to docs/dev/IDEAS.md. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 **The user's design, settled over 2026-07-16 (full decision trail: the JW session's
 memory `thinking-cap-plan-2026-07-16` + this doc):** `reasoning_budget` is a NORMAL row
 in the existing switch layer system — Global launch defaults (base bundle, re-seeded

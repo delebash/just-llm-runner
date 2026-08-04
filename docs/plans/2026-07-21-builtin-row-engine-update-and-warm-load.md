@@ -1,5 +1,7 @@
 # 2026-07-21 — Built-in provider row: engine-update affordance + warm-load on startup
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — shipped; NOTE: the Part-2 warm-load described here was re-homed into the kit (ui/src/services/warmBoot.js, 2026-08-04). History/evidence only; live work: `docs/dev/TASKS.md`.
+
 User-driven, this session. Two related asks about the **built-in llama.cpp provider**
 now that it's collapsed to a normal list row (reverses QC-39(b), 2026-07-19).
 

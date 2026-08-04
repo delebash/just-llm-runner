@@ -10,6 +10,19 @@ canonical implementations are **justwrite-app** (the richest shell) and
 A deviation is allowed only when flagged to the user AND recorded here in the same
 change. Unflagged deviations are how this document came to exist.
 
+Scope note (2026-08-04): this standard governs the family's Tauri APPS. The repo
+hosting it (`just-llm-runner`) is the shared LIBRARY — it follows §13 (docs) and its
+own CLAUDE.md/README contract, and is exempt from the app-shaped sections
+(§1/§2/§5/§10/§12).
+
+**Recorded deviations (2026-08-04, found by the docs campaign):** JustWrite predates
+§4's boot rules and still hand-wires `configureLlmUi`/`configureServerApi`/
+`configureExternal` (`main.js:41-59`), mounts `<Toast />` + `<AppDialog />`
+individually instead of `<LlmUiHosts />`, and hand-builds its AI-tasks nav row
+(`Sidebar.vue:148`) instead of `useAiTasksNav()`. Convergence is tracked in JW's
+`docs/dev/TASKS.md`; new apps follow §4 as written. JW also has no `lint` script and
+its console script is `justwrite_server.cli`, not `<snake>.serve` (grandfathered).
+
 ---
 
 ## 1 · Creating the app
@@ -24,8 +37,11 @@ npm create tauri-app@latest   # Vue, JavaScript — take the scaffolder's layout
   console scripts `kebab-case`. The Python package REPEATS the app name one level down
   (`server/<snake_name>/`) because Python imports by NAME where JS imports by path —
   the full reasoning + PyPA citation is §7.
-- **Port registry** (a new app claims the next): JW **17495** · JV **8741** ·
-  i18n-docgen **8742**. The app's OWN server port is the only one it claims — the
+- **Port registry** (a new app claims the next): JW **17495** · JV **17494** ·
+  i18n-docgen **8742**. (This registry said "JV 8741" until 2026-08-04 while JV's
+  `lib.rs` listened on 17494 — the registry records reality, verify against the
+  app's `SERVER_PORT` const before repeating it.) The app's OWN server port is the
+  only one it claims — the
   bundled engine's router port is **allocated at spawn**, never registered and never
   assumed (§8), so two family apps can run at once.
 - **Identifier**: `com.<kebab-name>.app`.
@@ -326,7 +342,7 @@ canonical implementation; all of it is kit/platform code — the app writes wiri
 | **Global AI progress + cancel** | kit `AiStatusButton` → `AiStatusPanel` in the TitleBar, PLUS a sidebar nav row "AI tasks" toggling the same panel with a count/error badge (JW `Sidebar.vue:148`) | one mount + one nav row |
 | **TitleBar** | JW `components/TitleBar.vue` | back/forward, title, mode, status chip |
 | **Settings page** | JW `/settings/:section?` pattern | sections rail + panels below |
-| — Appearance | kit engine + catalogs (`UI_FONTS`, `ACCENT_PRESETS`, `UI_SCALES`); JV panel shape | mode/font/accent/scale controls over `setAppearance` |
+| — Appearance | kit engine + catalogs (`UI_FONTS`, `ACCENT_PRESETS`, `UI_SCALES`); JV panel shape | mode/font/accent/scale controls over `applyAppearance` |
 | — Storage | shell `storage_get_root`/`storage_relocate` (§5) + shared `make_disk_router(data_dir)` | path display, relocate control, usage table |
 | — Logs | platform `install_log_ring()` + `install_file_log()` + `make_logs_router(name)`; kit `LogsPanel` | 3 server lines, one component |
 | — Server | JW's headless/auth section: headless URL + bearer tokens over the app's auth endpoints | one panel |
@@ -401,7 +417,8 @@ system/user templates that save and apply) or **pipeline-owned** (`feature_promp
 the app builds the real prompt in code each run). A pipeline-owned app implements the
 family contract `POST /v1/ai/prompt-preview {feature, lang?, keys?} → {system, user,
 sample}` — the REAL builders over a small live sample, loud NAMED 400s when there is
-nothing to sample — and the kit's Lab shows it read-only (unlockable per-column copies,
+nothing to sample. (`lang`/`keys` are server-accepted extras; the kit's Workbench
+sends only `{feature}` today — `FeatureWorkbench.vue:235`.) The kit's Lab shows it read-only (unlockable per-column copies,
 ephemeral, never saved) above the same preset columns every app gets. `jsonMode` is
 prompt-row state, so pipeline-owned features carry no JSON toggle: the app's adapters
 own `response_format` (the 6-keys-exhausted lesson). A registered feature that never
@@ -430,4 +447,29 @@ assert the marker (a 200 from an empty ring proves nothing).
 - [ ] The standard app chrome per §11: `/ai` area, AiStatusButton, Settings with
       appearance/storage/logs/about, log ring + file + router with the content test
 - [ ] CLAUDE.md present, first Where-to-look row → this document
+- [ ] `docs/dev/TASKS.md` + `docs/dev/IDEAS.md` present per §13
 - [ ] Any deviation: flagged to the user AND recorded here
+
+## 13 · The docs convention — every repo, including this one
+
+Ruled by the user 2026-08-04 (modeled on JustWrite; enforced family-wide by the
+docs campaign the same day):
+
+- **`docs/dev/TASKS.md` is THE live open-work tracker** — one line per open item plus
+  a pointer to its detail doc; the depth lives in the linked doc, never in the
+  tracker. **Close = delete**: when an item ships and its QC is done, its line leaves
+  the file — git and the plan docs keep history. A tracker line is a CLAIM, not
+  evidence — verify against code before repeating it.
+- **An item lives where the code that closes it lives** — kit/shared-server work in
+  this repo's tracker, app work in the app's. One item, one home; cross-repo
+  interest is a pointer, not a copy.
+- **`docs/dev/IDEAS.md`** holds unscheduled ideas — adding one is never starting it.
+- **`docs/plans/*.md` keep history**: a completed plan gets a loud ✅ CLOSED /
+  SUPERSEDED banner at the top (or moves to `docs/plans/archive/`); before a plan
+  closes, any still-open item or durable ruling inside it is extracted to its real
+  home (TASKS / IDEAS / a dev doc). A stale `file:line` in a tracker or plan is NOT
+  a fixed bug — correct the pointer; close only when the underlying issue is
+  verified dead in code.
+- **CLAUDE.md stays small** — rules and pointers, never tasks or status.
+- User-facing docs (where an app has them) update in the SAME change that alters
+  anything a user sees.

@@ -1,5 +1,7 @@
 # pypdl cutover + concurrent model downloads (2026-07-20)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — done - shipped. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 **Status: DONE — shipped.** Two changes land together: (1) the hand-rolled
 `requests`+thread-pool file segmenter is replaced by **pypdl**, and (2) model
 downloads become **concurrent** (clicking Download on several models runs them in

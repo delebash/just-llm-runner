@@ -1,5 +1,7 @@
 # A–E execution batch — the ledger's open build/research items, JustVoice excluded (2026-07-06)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — the A-E batch completed. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 > **MANDATE (user, 2026-07-06): "do a-e do not do just voice go".** This doc is the LIVE tracker for executing
 > every open item in sections A, B, C, and E of the twice-verified outstanding master plan
 > (`2026-07-06-outstanding-master-plan.md`). Section D is already empty (D1 + D3 decided 2026-07-06, D2 refuted
@@ -1235,7 +1237,7 @@ grounding for the cut itself:
   "loads/unloads" describes the removed buttons — both stale in one paragraph, both fixed.
 - Bundled into the same series at the user's word ("no 9b quick setup"): the never-decided
   fast-9B QuickSetup optional is now **DECIDED NO** — annotated where it lives
-  (`2026-07-03-model-setup-simplification.md` §Open items) so it cannot resurface as open.
+  (`archive/2026-07-03-model-setup-simplification.md` §Open items) so it cannot resurface as open.
 
 **Verify plan:** build:vite · vitest (29/29 expected — no test touches these) · the FULL headless
 smoke (renderer-gate rule for any kit change) · greps: no `\bload\(`/`\bunload\(` references to the

@@ -18,24 +18,25 @@ Say **"check llama.cpp since our last update"**. The reviewer (me) then:
 **repo-scoping**, not the network policy: `curl`, the `api.github.com` REST path,
 and the scoped GitHub MCP all return **403** for `ggml-org` (the proxy injects a
 token scoped to the delebash repos — `api.github.com` root is 200, the ggml-org
-path is 403; `llm_runner/runner/lifecycle.py:299` predates this finding). **But the
+path is 403; `_fetch_latest_llamacpp_tag` in `llm_runner/runner/lifecycle.py` predates this finding). **But the
 WebFetch tool reads the releases page fine** — it routes through Anthropic's fetch
 infra, bypassing that github proxy — so the review CAN run from this environment:
 - `WebFetch https://github.com/ggml-org/llama.cpp/releases` — newest ~10 builds;
   page older windows with `?page=2`, `?page=3`, … back to the `since` tag.
 - `.../compare/<since>...<latest>` lists raw commits (finer-grained, much longer).
-- The runner's *own* in-app check (`lifecycle.py:296`, plain `requests`) still needs
+- The runner's *own* in-app check (`_fetch_latest_llamacpp_tag`, plain `requests`) still needs
   the user's box — it goes through the local proxy, so it 403s here.
 
 ## Current state
 
-- **Pinned build:** `b9993` — `llm_runner/runner/config.py:39` (`DEFAULT_PINNED_BUILD`).
+- **Pinned build:** `b9993` — `DEFAULT_PINNED_BUILD` in `llm_runner/runner/config.py`
+  (line anchors in this doc went stale once — cite the SYMBOL, grep for the line).
   Bumped from `b9899` on 2026-07-14 (Unit 2 engine bump; every `DEFAULT_BINARIES` filename
   re-verified against b9993's real asset list via `gh api releases/tags/b9993`). Upstream
   latest at the bump was `b10012` (unreviewed — b9993 chosen deliberately).
 - **In-app binary-bump check already exists** (separate from this ledger): the app,
   running on the user's box, calls `_fetch_latest_llamacpp_tag()`
-  (`llm_runner/runner/lifecycle.py:296-306` → `releases/latest`) and `update_check`
+  (`llm_runner/runner/lifecycle.py` → `releases/latest`) and `update_check`
   (A5) compares it to the pin and offers an "update" in the UI. That answers
   "is there a newer binary"; THIS ledger answers "is there anything worth adopting
   in our code".
@@ -58,8 +59,8 @@ pinnable build that we want to be told about the moment they land.
   - **Then:** promote the IDEAS item → a **2070S Lab A/B vs Gemma 26B-A4B** for the 8 GB
     class (evidence-not-press-release — the catalog law). 27B-class quality resident on an
     8 GB card would be a real contender for that rung.
-  - **Cross-ref:** `justwrite-app/docs/IDEAS.md` → "Ternary Bonsai-27B" · the
-    whole-system tracker `justwrite-app/docs/TASKS.md`.
+  - **Cross-ref:** this repo's `docs/dev/IDEAS.md` → "Ternary Bonsai / Q2_0" (the
+    runner owns the catalog; moved from JW's tracker in the 2026-08-04 campaign).
 
 ## Baseline — capabilities we already rely on (as of the b9899 pin)
 
@@ -110,7 +111,7 @@ None forces a code change; ranked by value to our surfaces. Only builds **>b9899
 
 **1. Bump the engine build `b9899` → `b9993` (highest leverage).** One pin bump pulls
 in every backend perf + correctness fix below for free — same mechanism as the last
-bump (`DEFAULT_PINNED_BUILD`, `llm_runner/runner/config.py:39`; precedent = the b9899
+bump (`DEFAULT_PINNED_BUILD`, `llm_runner/runner/config.py`; precedent = the b9899
 bump). Needs a box test (binary download + a load). NOT done here — flagged for your word.
 
 **2. Reasoning / thinking — strongest cluster, with a real gap it fixes.** Our

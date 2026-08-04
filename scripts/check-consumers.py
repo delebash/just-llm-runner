@@ -42,9 +42,12 @@ warnings.filterwarnings("ignore", category=SyntaxWarning)
 REPO = Path(__file__).resolve().parent.parent
 
 # Default consumer roots: the sibling apps, when they exist. Explicit args override.
+# just_ai_i18n_docgen added 2026-08-04 — the docs campaign found the newest consumer
+# missing from exactly the check that exists to catch silent consumer breakage.
 DEFAULT_ROOTS = [
     REPO.parent / "justwrite-app" / "server",
     REPO.parent / "JustVioce" / "server",
+    REPO.parent / "just_ai_i18n_docgen" / "server",
 ]
 
 # Directory names that are never live consumer source.

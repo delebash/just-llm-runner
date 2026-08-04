@@ -1,5 +1,7 @@
 # 2026-07-26 — "PC class config": the rename + every-model class visibility
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — executed 2026-07-26. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 **Status: EXECUTED 2026-07-26 (planner diff-review passed same day). The record lives in
 justwrite-app `docs/plans/2026-07-22-igpu-research-and-cpu-band-recovery.md` §24 — including
 the two claims below that §24 corrects: the "TASKS.md #214" item named in touch item 8 never

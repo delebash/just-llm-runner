@@ -1,5 +1,7 @@
 # AI / LLM-Stack — State & Decisions Grid (reference snapshot, 2026-06-28)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — a 2026-06-28 orientation snapshot; its '5 menus' description is two redesigns old (today: 3 areas - AiModelsArea.vue header). History/evidence only; live work: `docs/dev/TASKS.md`.
+
 > **What this is:** a plain reference for the shared AI/LLM stack — for every piece:
 > what it **WAS** (the original design/instruction), what it **IS** now (verified in
 > code this session), what it's **SUPPOSED to do**, and which calls are still **YOURS**

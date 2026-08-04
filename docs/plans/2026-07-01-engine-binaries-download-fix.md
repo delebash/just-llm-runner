@@ -1,5 +1,7 @@
 # Engine binary download — root-cause fix, chip-aware selection, progress, editable config (2026-07-01)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — shipped 2026-07-06 (ledger A3). History/evidence only; live work: `docs/dev/TASKS.md`.
+
 ## Why this change exists
 A user on Windows with an RTX 2070 SUPER (CUDA) reported that clicking **Download &
 load** on a model failed: the status pill went "llama.cpp binary" → "failed", with

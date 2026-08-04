@@ -1,5 +1,7 @@
 # One acquire path — Download fetches the MTP draft too (2026-07-19)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — shipped. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 ## What changed
 
 The catalog **Download** button now acquires a model's external MTP draft GGUF, not

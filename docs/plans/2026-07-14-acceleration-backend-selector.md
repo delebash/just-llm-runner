@@ -1,5 +1,7 @@
 # Acceleration-backend selector (user-choosable CUDA / Vulkan / Auto)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — implemented the same session. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 **Date:** 2026-07-14 · **Status:** implemented (this session) · **Scope:** `just-llm-runner` (runner + kit), consumed by JustWrite + JustVoice.
 
 ## Problem

@@ -1,5 +1,7 @@
 # Online-provider model-list cleanup — the config-driven ruleset (#8)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — shipped 2026-07-20 (model_list_rules.py + _api.py). History/evidence only; live work: `docs/dev/TASKS.md`.
+
 **Shipped 2026-07-20.** An online provider's `/v1/models` dump is mostly noise for a
 writing/voice app: OpenAI returns 400+ ids (image / realtime / audio / tts / whisper /
 moderation / legacy chat), Gemini returns imagen / veo / lyria / tts / image variants. The

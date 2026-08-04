@@ -1,6 +1,10 @@
 # Plan — One-source preset rewrite: delete the task tier, params live ONLY on presets
 
-> **STATUS: APPROVED (2026-07-15) — awaiting the user's explicit "go" to start the build.**
+> **STATUS: BUILT — ALL STAGES SHIPPED (see the in-doc status at the build's end; the
+> "awaiting go" line that stood here was stale, corrected by the 2026-08-04 docs
+> campaign — code agrees: no `task_kinds` anywhere, `llm_runner/llm/preset_resolve.py`
+> is the two-source resolver). This doc remains THE reference for the current
+> routing/preset model (CLAUDE.md points here).**
 > Approved by the user via plan-mode approval after the full checker discipline: a 3-lens
 > rules-checker PANEL (architecture-fit · reuse/convergence · grounding — 6 real findings, all
 > folded: the 21-row sample count, the defaultPresetId→RunnerSetting relocation found

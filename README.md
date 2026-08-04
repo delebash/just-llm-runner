@@ -10,7 +10,7 @@ both apps, so detection/recommendation/flags never drift.
 **Internal library — NOT published to PyPI/npm.** Consumed as a **git
 dependency** (pinned tag) or via editable/path install during dev. The end
 user never installs it: it's frozen into each app's bundle (PyInstaller →
-Tauri sidecar). See `docs/plans/2026-06-16-builtin-llm-runner.md` in the
+Tauri sidecar). See `docs/plans/archive/2026-06-16-builtin-llm-runner.md` in the
 JustVoice repo for the full architecture + decision history.
 
 ## How a model's launch config derives (the 4-tier doctrine, 2026-07-06)
@@ -69,9 +69,10 @@ Every local llama-server launch resolves its flags in four tiers, strongest last
   loads from (blobs/snapshots/refs). Idempotent; no `huggingface_hub` dep.
 - `gguf.py` — minimal GGUF header reader (architecture, layer count, embedding
   dim, expert count) — the structural inputs to the VRAM-fit math.
-- `runner.py` — VRAM-fit (`-ngl` / `--n-cpu-moe` from detected VRAM), flag
-  composition from the manifest presets, and `llama-server` spawn with
-  probe-and-back-off on CUDA OOM (lifecycle: start/stop/health/url).
+- `runner/lifecycle.py` + `runner/process.py` — VRAM-fit (`-ngl` / `--n-cpu-moe`
+  from detected VRAM), flag composition from the config/DB presets, and
+  `llama-server` spawn with probe-and-back-off on CUDA OOM (lifecycle:
+  start/stop/health/url; the port is allocated, never assumed).
 - `scripts/seed-facts-audit.py` — standalone stdlib tripwire for the seeded
   model catalogs (runner `DEFAULT_CATALOG` + JustWrite's extra rows): per row
   the HF repo must exist, the seeded license must match the repo's tag AND its
@@ -186,8 +187,8 @@ at "the stack mounts, seeds and answers".
 
 ## Status
 The shared stack is live in both apps (JustWrite fully; JustVoice pending
-convergence). Current state + open work: the outstanding master plan in
-`docs/plans/` (kept twice-verified). The test suite is ~710 tests and runs on
+convergence). Open work: `docs/dev/TASKS.md` (this repo's live tracker); per-task
+history in `docs/plans/`. The test suite is 764 tests (collected 2026-08-04) and runs on
 JustWrite's venv (this repo has none of its own — see `CLAUDE.md`):
 `../justwrite-app/.venv/Scripts/python.exe -m pytest -q`. All green except one
 known-bad on Windows, `test_hardware.py::test_pci_gpus_linux_lspci_name_match`,

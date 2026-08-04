@@ -12,7 +12,7 @@ The user asked whether a no-dGPU machine can run local models well enough to wri
 with — "probably most users won't even have a dedicated gpu." A Google-AI answer
 claimed dense 7B/14B on CPU is comfortable; our fact-check found otherwise on the
 points that matter. **The full claim-by-claim verification with sources is
-`2026-07-19-cpu-inference-research.md` (same folder) — read it first.** The short
+`archive/2026-07-19-cpu-inference-research.md` (same folder) — read it first.** The short
 version:
 
 - **Generation** speeds are roughly as claimed for small/MoE models (30B-A3B-class
@@ -59,7 +59,7 @@ llama-bench -m <model.gguf> -ngl 0 -t <physical-cores> -p 512,2048,8192 -n 128
 
 ~~`-ngl 0` forces pure CPU even on the CUDA build.~~ **CORRECTED 2026-07-22 (pass-1
 plan T10): that claim was wrong** — the 2026-07-06 on-box measurement
-(`justwrite-app/docs/plans/2026-07-06-llamacpp-config-tuning-2070s.md:176`) shows a
+(`justwrite-app/docs/plans/archive/2026-07-06-llamacpp-config-tuning-2070s.md:176`) shows a
 CUDA-build child at ngl 0 still GPU-offloads large-batch matmuls (bulk-embed 3.2 s vs
 22–33 s with `--device none`), so prefill reads falsely fast. A true pure-CPU
 measurement requires the CPU engine build (the 2026-07-22 runs used

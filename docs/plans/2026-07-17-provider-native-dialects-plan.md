@@ -1,5 +1,7 @@
 # Provider layer → official vendor SDKs — 2026-07-17 plan v2 (the SDK pivot)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — the SDK pivot shipped (openai_sdk / anthropic / gemini adapters exist). History/evidence only; live work: `docs/dev/TASKS.md`.
+
 **This version SUPERSEDES the wire-dialect plan that previously lived in this file**
 (hand-rolled Interactions/Responses HTTP + SSE parsers). The user's standing ruling
 (2026-07-17, after the ecosystem survey): **adopt the official vendor SDKs** —

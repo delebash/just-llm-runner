@@ -1,5 +1,7 @@
 # One workflow: every model-load runs the engine check (2026-07-21)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — landed (useRunnerModels.js engineGateTask); its warmStartup.js citation refers to a JW file since replaced by the kit's warmBoot.js. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 **The user's ruling (verbatim):** *"whatever it is, when you click apply in quicksetup it must
 do engine check, then install or not and download, then load model. so the load model buttons —
 regular load buttons on model AND the dropdown — now all they have to do is call the same engine

@@ -1,5 +1,7 @@
 # Plan — Serving / VRAM manager (router mode + a thin budget arbiter) — IMPLEMENTATION
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — P1-P3 shipped; the open P4 lives in the tracker. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 > **Structure decision (user delegated it 2026-07-04, "you figure out what works best"):** the **serving/VRAM
 > manager is ONE plan with phases** (below) — cohesive, all sharing the `fit.py`/`lifecycle.py`/DB seam, each
 > phase shipping+verifying on its own. **The JV shared-LLM convergence is a SEPARATE plan** (captured at the end,
@@ -441,7 +443,7 @@ resident size/params vs the pre-download catalog estimate).
 
 ## P3 AS-BUILT (2026-07-04 — co-resident embeddings, the FIRST user-verifiable ship; ruff clean, 291 pytest; rules-checker pre-build FAIL(3)→folded→built)
 
-**What shipped (design §5a/§5e/§7.1; closes the embedding gap `2026-07-03-model-setup-simplification.md` §12).** Local RAG "Build index" / "Ask the book" now works OUT OF THE BOX on the bundled llama.cpp runner: a tiny embed model (nomic) is auto-downloaded, loaded co-resident with the chat model, PINNED so it is never the eviction victim, and served at `/v1/embeddings` by id — no Ollama/LM Studio needed for embeddings. `/v1/ai/embeddings` (`llm/api.py:117-135`) is UNCHANGED — it already routes provider→`:8080/v1/embeddings`→router→embed child by id (proven on the user's box, design §8.1).
+**What shipped (design §5a/§5e/§7.1; closes the embedding gap `archive/2026-07-03-model-setup-simplification.md` §12).** Local RAG "Build index" / "Ask the book" now works OUT OF THE BOX on the bundled llama.cpp runner: a tiny embed model (nomic) is auto-downloaded, loaded co-resident with the chat model, PINNED so it is never the eviction victim, and served at `/v1/embeddings` by id — no Ollama/LM Studio needed for embeddings. `/v1/ai/embeddings` (`llm/api.py:117-135`) is UNCHANGED — it already routes provider→`:8080/v1/embeddings`→router→embed child by id (proven on the user's box, design §8.1).
 
 **Trigger DECIDED by the user 2026-07-04: LAZY on first RAG use** (the alternative was eager-at-boot). The embed downloads + loads + pins the FIRST time JustWrite needs local embeddings, not at boot. WHY lazy: it preserves the deliberate lazy-router design (nothing spawns at boot — P1d), and JustVoice (which uses NO embeddings and does NOT run `install_llm`) stays fully inert — it never downloads nomic or pins an embed. The ~100 MB fetch + child spawn land inside the "Build index" progress flow the user already sees. The mechanism: a runner `POST /v1/llm-runner/ensure-embedding` that JustWrite calls (through its single embed choke point) before the embed request, then polls `GET /v1/llm-runner/resident` until the embed reads `loaded`.
 

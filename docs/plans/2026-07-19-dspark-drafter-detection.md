@@ -1,5 +1,7 @@
 # dspark drafter detection + inherited-drafter shard/fp16 guard (2026-07-19)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — landed (models.py _ENGINE_UNSUPPORTED_ARCHS). History/evidence only; live work: `docs/dev/TASKS.md`.
+
 ## What changed
 
 Two edits to `llm_runner/runner/models.py`, plus tests.
@@ -150,4 +152,4 @@ wire-format change — pure matching logic.
 
 **Follow-on (2026-07-19):** the draft-pick rule this doc leaves at "smallest wins" gained
 a 4-bit FLOOR, the VRAM fit learned to charge the draft, and Tune & measure gained draft
-trials — `2026-07-19-draft-fit-floor-and-lab-measure.md`.
+trials — `archive/2026-07-19-draft-fit-floor-and-lab-measure.md`.

@@ -1,5 +1,7 @@
 # AppModal — the scrim comes off, the header becomes a drag handle (2026-07-19)
 
+> ✅ **CLOSED (docs campaign 2026-08-04)** — shipped; the drag invariants were lifted to docs/dev/IDEAS.md. History/evidence only; live work: `docs/dev/TASKS.md`.
+
 Build record for two user-ruled changes to the shared modal shell. This is a kit-wide
 primitive: every modal in BOTH JustWrite and JustVoice sits on it.
 

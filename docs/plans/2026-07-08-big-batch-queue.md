@@ -1241,7 +1241,7 @@ downloading**.
   the plan MUST carry DB-backed, user-editable settings per the nothing-hardcoded rule —
   enable on/off · connection/segment count · minimum file size worth segmenting ·
   per-segment retry count. **PLAN WRITTEN 2026-07-08 →
-  `docs/plans/2026-07-08-segmented-downloads-plan.md`** (facts verified live: the HF
+  `docs/plans/archive/2026-07-08-segmented-downloads-plan.md`** (facts verified live: the HF
   CloudFront hop answers `accept-ranges: bytes` + a real 206; container 1-vs-4 test 15.2 →
   22.9 MiB/s aggregate with byte-identical reassembly; hf_transfer cited as the official
   precedent). AWAITS THE USER'S GO before any build.
@@ -1719,7 +1719,7 @@ bookkeeping (checker verdict → commit) completes; nothing else builds.
   cont_batching on · reasoning_budget -1 · kv-offload on. PROVENANCE of the wrong values
   (the "how/when decided"): the 2026-06-24 switch research (user-reviewed) documented the
   real upstream defaults in its own table (f16 / -fa auto / mlock off,
-  2026-06-24-llamacpp-switches.md:254-257) and chose q8_0 / mlock-on / flash-attn-on as
+  archive/2026-06-24-llamacpp-switches.md:254-257) and chose q8_0 / mlock-on / flash-attn-on as
   OUR base BUNDLE — correct there, still correctly tagged "Global launch default" when
   set — but the era-1 catalog rows stored those same values in default_value; the
   2026-06-29 expansion rows were genuinely README-quoted (that day's fetch), and
@@ -2304,7 +2304,7 @@ leaves "stopping…" spinning forever. The fix work starts by reading the autotu
 the band's stop wiring and recreating a wedged/failing trial in pytest.
 
 **DL-2 BUILD RECORD (shipped 2026-07-09, unit 4 of the fourth-compact go — the
-committed plan `2026-07-08-segmented-downloads-plan.md`, built as designed; its STATUS
+committed plan `archive/2026-07-08-segmented-downloads-plan.md`, built as designed; its STATUS
 banner now says BUILT).** WHAT SHIPPED:
 (1) **download.py** — `stream_download` grew the segmented mode behind the plan's
 capability gate: with `segments > 1`, a HEAD probe must yield `Accept-Ranges: bytes`
@@ -2423,7 +2423,7 @@ compact first, so save then go") — THE PICKUP INSTRUCTIONS.**
    serve (chat; embeddings when it embeds), one flow; the overwrite choice at apply:
    ALL tasks vs keep-my-customized.
 4. **The DL-2 build** — per the committed plan
-   `docs/plans/2026-07-08-segmented-downloads-plan.md` IN FULL before building. THE
+   `docs/plans/archive/2026-07-08-segmented-downloads-plan.md` IN FULL before building. THE
    USER'S SETTINGS QUESTION ANSWERED (from the plan §1, their requirement folded):
    FOUR DB-backed, user-editable settings rows — `downloadSegmentsEnabled` (default on) ·
    `downloadSegmentCount` (default 4) · `downloadSegmentMinBytes` (small files stay
@@ -6652,7 +6652,7 @@ your rec on voice drift, do css, rule 5, you plan let opus do all the work."
 The plan was written in plan mode from two Opus Explore sweeps (the CSS
 strict-diff table and the app-wide create-flow census), panel-checked by two
 independent Opus rules-checkers (grounding + design lenses), and its committed
-copy is `justwrite-app/docs/plans/2026-07-12-i1-css-popup-voicedrift.md` —
+copy is `justwrite-app/docs/plans/archive/2026-07-12-i1-css-popup-voicedrift.md` —
 the panel FAILED the first draft twice and both rounds changed it materially:
 the CSS census undercounted FOUR times in total across the whole effort
 (4 views → 7 views → +ArchitectureView's table leaves in two waves →

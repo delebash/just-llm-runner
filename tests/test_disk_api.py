@@ -3,10 +3,26 @@
 app logs, and the ai-cache buckets under the data dir, holds the spawn-logs subdir
 OUT of engineBuilds, reports free/total space, and treats missing dirs as 0."""
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from llm_runner.platform import make_disk_router
+from llm_runner.runner import lifecycle
+
+
+@pytest.fixture(autouse=True)
+def _no_wired_service(monkeypatch):
+    """No runner service, so these measure the in-data-dir layout.
+
+    Since 2026-08-03 the engine buckets are read off the WIRED service, because the
+    cache may be shared with a sibling app and a panel that assumed `<data_dir>/
+    ai-cache` would report 0 B for 14 GB of models. That makes this suite sensitive to
+    the process-wide singleton: `test_config.py` calls `configure_service()` with no
+    cache root, and a leaked one pointed these sums at `~/.cache/just-llm-runner`
+    (green alone, red in a full run). One app per process in production; per test here.
+    `test_shared_cache.py` covers the wired case deliberately."""
+    monkeypatch.setattr(lifecycle, "_service", None)
 
 
 def _client(data_dir):

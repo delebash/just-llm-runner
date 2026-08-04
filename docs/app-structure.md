@@ -223,6 +223,17 @@ load_from_configs(stores.get_provider_store().list()) # registry from the DB
   resolve through the stores; nothing works before storage is configured. (The first
   consumer re-implemented this against private imports; the capability went upstream
   instead — 2026-08-02.)
+- **Pass `product=`, and let the user share one AI cache.** `install_llm(…,
+  product=PRODUCT)` records this app's cache location in the family registry
+  (`%LOCALAPPDATA%\just-ai\caches.json`), which is how the NEXT app's Quick Setup can
+  offer to share the engine + models already on the box instead of downloading them
+  again — the same model in two apps' caches was 14.2 GB twice, measured. The app's
+  wizard asks (`GET`/`PUT /v1/ai/engine-cache`); the answer is a recorded CHOICE and
+  never moves a file, so it is reversible in one click. What the app GENERATES —
+  `models.ini`, spawn logs — moves to `<data_dir>/ai-runtime` whenever the cache is
+  shared, because each app renders that ini from its own catalogue. Anything measuring
+  or clearing engine files must read `service.cache_root` / `service.runtime_root`
+  (via `configured_service()`), never `<data_dir>/ai-cache`.
 - **The engine's port is allocated, so never print, probe or configure `:8080`.**
   `find_free_port` binds the first free port from 8080 up; the live URL is
   `RunnerService.router_url()` and it is what `/v1/llm-runner/status` reports. Nothing

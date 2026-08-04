@@ -795,6 +795,23 @@ class RunnerConfigStore:
         finally:
             s.close()
 
+    def get_cache_root(self) -> str:
+        """The engine + model cache root the user CHOSE, or "" for this app's own
+        `<data_dir>/ai-cache`. Read at wiring time (install_llm), not at load time:
+        moving a cache under a running engine is not a thing, so a change takes
+        effect on the next start and nothing on disk is ever relocated for you."""
+        s = db.session()
+        try:
+            row = s.get(db.RunnerSetting, "cache_root")
+            return (row.value if row else "") or ""
+        finally:
+            s.close()
+
+    def set_cache_root(self, root: str) -> None:
+        """Point this app at a cache root (""` = back to its own). Records the CHOICE
+        only — no files move, so the previous cache stays exactly where it is."""
+        self.set_setting("cache_root", (root or "").strip())
+
     def set_setting(self, key: str, value: str) -> None:
         s = db.session()
         try:

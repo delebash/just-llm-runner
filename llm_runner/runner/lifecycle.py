@@ -421,6 +421,7 @@ class RunnerService:
         self,
         cache_root,
         *,
+        runtime_root=None,
         config_fn=_default_config,
         hardware_fn=_detect,
         catalog_fn=_default_catalog_fn,
@@ -447,6 +448,15 @@ class RunnerService:
         knob_backends_fn=None,
     ):
         self._cache_root = Path(cache_root)
+        # WHAT THIS APP GENERATES, split from what it merely caches. `cache_root` holds
+        # artifacts that are identical for everyone who fetches them — `hf/` weights and
+        # `llamacpp/<build>/` binaries — so it may be SHARED with a sibling family app.
+        # `runtime_root` holds what this app WRITES from its own DB: the generated
+        # `models.ini` and the per-spawn logs. Sharing THAT would have each app overwrite
+        # the other's preset file, and a router bounce would then re-read a preset
+        # describing somebody else's catalogue. Default = the legacy location inside the
+        # cache, so an app with its own cache is byte-identical to before.
+        self._runtime_root = Path(runtime_root) if runtime_root else self._cache_root / "llamacpp"
         self._config_fn = config_fn
         self._hardware_fn = hardware_fn
         self._catalog_fn = catalog_fn
@@ -530,8 +540,46 @@ class RunnerService:
     def cache_root(self) -> Path:
         """The runner's cache root (binaries + the `hf/` model cache live under
         it). Exposed so the catalog endpoint can check on-disk state without
-        reaching into a private attr."""
+        reaching into a private attr. MAY be shared with a sibling family app —
+        everything under it is content-addressed by (repo, quant, snapshot) or by
+        build number, so two apps fetching the same artifact fetch the same bytes."""
         return self._cache_root
+
+    @property
+    def runtime_root(self) -> Path:
+        """Where THIS app's generated engine state lives — `models.ini` and the
+        per-spawn `logs/`. Always app-private, even when the cache is shared."""
+        return self._runtime_root
+
+    def repoint_cache(self, cache_root, runtime_root=None) -> None:
+        """Point this service at a different cache root, live. Raises if the engine is
+        busy — the caller then tells the user it applies on the next start.
+
+        Why not "restart required, always": the choice is offered during Quick Setup,
+        BEFORE the first download, and its whole purpose is to stop a 14 GB model being
+        fetched into the wrong place. A setting that needed a restart would be recorded
+        and then immediately contradicted by the download the same wizard starts. Idle
+        is the normal state at that moment.
+
+        Nothing on disk moves. The previous cache keeps every byte it had, which is what
+        makes the choice reversible."""
+        with self._router_lock:
+            if self._router is not None and self._router.is_alive():
+                raise RuntimeError("the engine is running — unload the model first, or "
+                                   "restart the app to apply this")
+            if self._thread is not None and self._thread.is_alive():
+                raise RuntimeError("a download or load is in progress — wait for it to "
+                                   "finish, or restart the app to apply this")
+            self._cache_root = Path(cache_root)
+            self._runtime_root = Path(runtime_root) if runtime_root else self._cache_root / "llamacpp"
+            # The emitter writes only when the render differs from what it last wrote;
+            # against a NEW root that comparison is meaningless and would leave the new
+            # location with no models.ini at all. The proven exe goes for the same
+            # reason — its path pointed into the old cache.
+            self._last_ini_text = ""
+            self._active_server_exe = None
+            log.info("engine cache re-pointed to %s (this app's generated state: %s)",
+                     self._cache_root, self._runtime_root)
 
     def catalog(self) -> list[ModelEntry]:
         """Host-backed downloadable model catalog (DB via catalog_fn). Empty for
@@ -750,7 +798,7 @@ class RunnerService:
         KEPT so the next spawn can write. Best-effort: a file that won't unlink (a
         live spawn holding it open on Windows) is skipped, never fatal. Returns
         `{removed, bytes}`."""
-        logs_dir = self._cache_root / "llamacpp" / "logs"
+        logs_dir = self._runtime_root / "logs"
         removed = 0
         freed = 0
         if logs_dir.is_dir():
@@ -1561,13 +1609,13 @@ class RunnerService:
         merged stdout/stderr here (tailed on failure + by `engine_log`)."""
         safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in model_id)[:60]
         ts = time.strftime("%Y%m%d-%H%M%S")
-        return self.cache_root / "llamacpp" / "logs" / f"runner-{safe}-{ts}.log"
+        return self._runtime_root / "logs" / f"runner-{safe}-{ts}.log"
 
     def _router_log_path(self) -> Path:
         """The router's merged stdout/stderr log (tailed on a failed spawn + by
         `engine_log`; a child's CUDA-OOM abort typically surfaces here)."""
         ts = time.strftime("%Y%m%d-%H%M%S")
-        return self.cache_root / "llamacpp" / "logs" / f"router-{ts}.log"
+        return self._runtime_root / "logs" / f"router-{ts}.log"
 
     def _run_install(self, force: bool, replace_build: str = "", gpu: str = "") -> None:
         try:
@@ -2338,7 +2386,7 @@ class RunnerService:
         up). The DB is the source of truth; this `.ini` is GENERATED, never read back."""
         entries = self._resolve_ini_entries(override)
         text = emit_models_ini(entries)
-        path = self._cache_root / "llamacpp" / "models.ini"
+        path = self._runtime_root / "models.ini"
         changed = text != self._last_ini_text
         if changed:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -2365,7 +2413,7 @@ class RunnerService:
         self._router = self._start_router(
             server_exe,
             models_dir=self._cache_root / "hf",
-            models_preset=self._cache_root / "llamacpp" / "models.ini",
+            models_preset=self._runtime_root / "models.ini",
             models_max=config.models_max,
             sleep_idle_seconds=config.sleep_idle_seconds,
             host=DEFAULT_HOST, port=port, log_path=log_path,
@@ -2772,14 +2820,21 @@ def configure_service(
     config_fn=None,
     hardware_fn=None,
     cache_root: str | None = None,
+    runtime_root: str | None = None,
     knob_backends_fn=None,
 ) -> RunnerService:
     """Host hook to construct the singleton with DB-backed catalog/switches/config
     (and any other injections). Call ONCE at boot, before `get_service()`.
-    Returns the constructed singleton."""
+    Returns the constructed singleton.
+
+    `runtime_root` splits what this app GENERATES (models.ini, spawn logs) out of the
+    cache. Pass it whenever `cache_root` is shared with a sibling app — otherwise the
+    two apps overwrite each other's preset file. None keeps the legacy in-cache spot."""
     global _service
     root = cache_root or os.environ.get("LLM_RUNNER_CACHE") or str(Path.home() / ".cache" / "just-llm-runner")
     kwargs = {}
+    if runtime_root:
+        kwargs["runtime_root"] = runtime_root
     if catalog_fn is not None:
         kwargs["catalog_fn"] = catalog_fn
     if switches_fn is not None:
@@ -2811,4 +2866,15 @@ def get_service() -> RunnerService:
     if _service is None:
         root = os.environ.get("LLM_RUNNER_CACHE") or str(Path.home() / ".cache" / "just-llm-runner")
         _service = RunnerService(root)
+    return _service
+
+
+def configured_service() -> RunnerService | None:
+    """The singleton IF a host wired one — never the standalone fallback.
+
+    `get_service()` cannot answer "is the runner actually wired here?": it builds a
+    default pointed at `~/.cache/just-llm-runner` and hands it back, so a caller
+    asking only for the cache path gets a confident wrong answer in an app that
+    mounts the platform routers without the runner. Anything that MEASURES or
+    REPORTS (rather than drives) the engine should ask this and fall back itself."""
     return _service

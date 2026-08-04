@@ -10,16 +10,22 @@ root — the T3 "one source" law. The host calls `make_disk_router(data_dir)` at
 boot (the same `data_dir` it passes the runner, whose cache lives at
 `<data_dir>/ai-cache`).
 
-The measured buckets (all under the data root):
+The measured buckets:
 - `database`     — the SQLite DB file(s) at the root + each one's -wal/-shm siblings.
 - `appLogs`      — `<data_dir>/logs` (the per-day server logs; swept via /v1/logs).
-- `modelsCache`  — `<data_dir>/ai-cache/hf` (downloaded model GGUFs).
-- `engineBuilds` — `<data_dir>/ai-cache/llamacpp` EXCLUDING its `logs/` subdir (the
+- `modelsCache`  — `<cache_root>/hf` (downloaded model GGUFs).
+- `engineBuilds` — `<cache_root>/llamacpp` EXCLUDING its `logs/` subdir (the
                    llama.cpp binaries; swept on engine uninstall/update).
-- `spawnLogs`    — `<data_dir>/ai-cache/llamacpp/logs` (per-spawn llama-server logs,
-                   otherwise UNBOUNDED — the runner's spawn-logs/clear reclaims them).
+- `spawnLogs`    — `<runtime_root>/logs` (per-spawn llama-server logs, otherwise
+                   UNBOUNDED — the runner's spawn-logs/clear reclaims them).
 - `total`        — the sum of the five buckets.
 - `diskFree` / `diskTotal` — the volume's free/total bytes (`shutil.disk_usage`).
+- `cacheShared`  — true when the cache lives outside this app's data root.
+
+The last three buckets are read from the RUNNING SERVICE, not assumed to be under
+`data_dir`: the cache may be shared with a sibling app (2026-08-03), and a panel
+that measured `<data_dir>/ai-cache` regardless would report a confident 0 B for
+14 GB of models. When nothing is shared these resolve to exactly the old paths.
 
 Robustness: a missing dir counts 0 (never an error); every `stat` is guarded (a
 file can vanish mid-walk); symlinks are NOT followed — the HF cache stores real
@@ -96,6 +102,31 @@ class DiskUsageResponse(BaseModel):
     total: int = 0
     diskFree: int = 0
     diskTotal: int = 0
+    # True when the engine cache is somewhere other than `<data_dir>/ai-cache` — a
+    # panel offering "clear the models cache" needs to say WHOSE models those are.
+    cacheShared: bool = False
+
+
+def _engine_roots(data_dir: Path) -> tuple[Path, Path]:
+    """(cache_root, runtime_root) from the WIRED runner service, falling back to the
+    in-data-dir layout when no host configured one (a platform-only app, the disk
+    tests). Asking the service is what keeps this honest once a cache can be shared —
+    the sizes must describe the files the engine actually uses.
+
+    `configured_service()`, never `get_service()`: the latter invents a standalone
+    service rooted at `~/.cache/just-llm-runner` rather than admitting there is none,
+    which would have this panel confidently measure a directory the app never uses."""
+    try:
+        from ..runner.lifecycle import configured_service
+
+        svc = configured_service()
+        if svc is not None:
+            return Path(svc.cache_root), Path(svc.runtime_root)
+    except Exception:  # noqa: BLE001 — a disk panel must never fail on a wiring gap
+        log.warning("could not read the engine cache roots — measuring the data dir",
+                    exc_info=True)
+    cache = data_dir / "ai-cache"
+    return cache, cache / "llamacpp"
 
 
 def make_disk_router(data_dir) -> APIRouter:
@@ -107,9 +138,9 @@ def make_disk_router(data_dir) -> APIRouter:
 
     @router.get("/v1/disk/usage", response_model=DiskUsageResponse)
     async def disk_usage() -> DiskUsageResponse:
-        ai_cache = root / "ai-cache"
+        ai_cache, runtime = _engine_roots(root)
         llamacpp = ai_cache / "llamacpp"
-        spawn_logs_dir = llamacpp / "logs"
+        spawn_logs_dir = runtime / "logs"
 
         database = _database_bytes(root)
         app_logs = dir_size(root / "logs")
@@ -131,6 +162,7 @@ def make_disk_router(data_dir) -> APIRouter:
             database=database, appLogs=app_logs, modelsCache=models_cache,
             engineBuilds=engine_builds, spawnLogs=spawn_logs, total=total,
             diskFree=free, diskTotal=disk_total,
+            cacheShared=(ai_cache != root / "ai-cache"),
         )
 
     return router

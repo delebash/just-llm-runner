@@ -25,6 +25,7 @@ from .embed_templates_api import make_embed_templates_router
 from .model_list_rules_api import make_model_list_rules_router
 from .config_builder import build_llm_config
 from .presets_api import make_presets_router
+from .cache_api import make_cache_router
 from .knob_catalog_api import make_knob_catalog_router
 from .model_catalog_api import make_catalog_router
 from .class_tunes_api import make_class_tunes_router
@@ -65,7 +66,8 @@ def _current_class_key() -> str:
     return stores.get_class_key_override() or current_class_key()
 
 
-def _mount_llm_routers(app, *, feature_prompts, _config, allow_key_reveal: bool) -> None:
+def _mount_llm_routers(app, *, feature_prompts, _config, allow_key_reveal: bool,
+                       data_dir=None, product: str = "") -> None:
     """Every router the stack serves — the app-bound half of install_llm, split out
     (2026-08-02) so the HEADLESS boot (app=None) shares the storage/seed/wiring path
     without re-implementing it against private imports."""
@@ -89,6 +91,9 @@ def _mount_llm_routers(app, *, feature_prompts, _config, allow_key_reveal: bool)
     ))
     app.include_router(make_knob_catalog_router(stores.list_knob_catalog))
     app.include_router(make_test_samples_router(stores.get_test_sample_store))
+    # Where the engine + models are cached — offered as a CHOICE because two family
+    # apps kept the same 14 GB model twice (cache_api's docstring has the measurement).
+    app.include_router(make_cache_router(data_dir, product))
 
     def _inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> dict:
         # Pre-download GGUF inspect for the Add-a-model form (reads the header over the
@@ -260,6 +265,8 @@ def install_llm(
     prefer_local_features: Iterable[str] | None = None,
     runner_catalog: bool = True,
     data_dir=None,
+    cache_root=None,
+    product: str = "",
     allow_key_reveal: bool = False,
 ) -> None:
     """Wire + mount the whole shared LLM stack onto `app`. Idempotent table create.
@@ -344,11 +351,12 @@ def install_llm(
     # the runner wiring below run either way.
     if app is not None:
         _mount_llm_routers(app, feature_prompts=feature_prompts,
-                           _config=_config, allow_key_reveal=allow_key_reveal)
+                           _config=_config, allow_key_reveal=allow_key_reveal,
+                           data_dir=data_dir, product=product)
 
     # 6. point the bundled runner's catalog/switches at the shared DB.
     if runner_catalog:
-        _wire_runner_catalog(data_dir)
+        _wire_runner_catalog(data_dir, cache_root=cache_root, product=product)
         # 6b. Seed-vs-file self-heal (2026-07-07): re-derive catalog facts from
         # ALREADY-DOWNLOADED GGUFs whose rows never got the identify pass — a DB
         # reset re-seeds rows without samplers/derived facts, and identify only
@@ -377,16 +385,47 @@ def install_llm(
         threading.Thread(target=_backfill, daemon=True, name="catalog-derive-backfill").start()
 
 
-def _wire_runner_catalog(data_dir=None) -> None:
+def resolve_cache_roots(data_dir=None, cache_root=None, stored: str = "") -> tuple:
+    """Where the engine + model cache lives, and where THIS app's generated engine
+    state lives. Returns `(cache_root, runtime_root, shared)`; either may be None,
+    meaning "the runner's own default".
+
+    Precedence: an explicit `cache_root=` argument (a host that hard-wires it) beats
+    the user's stored choice, which beats `<data_dir>/ai-cache`.
+
+    The split matters the moment a cache is shared. `hf/` weights and
+    `llamacpp/<build>/` binaries are content-addressed — two apps fetching the same
+    thing fetch the same bytes, so sharing them saves real gigabytes (14.2 GB of one
+    model, twice, measured 2026-08-03). The generated `models.ini` and the per-spawn
+    logs are NOT that: each app renders the ini from its OWN catalogue, so a shared
+    one would have each app overwrite the other's, and the next router bounce would
+    re-read a preset describing somebody else's models. Those go under the app's own
+    data dir whenever the cache is shared — and stay exactly where they always were
+    when it isn't, so an existing install needs no migration."""
+    own = (Path(data_dir) / "ai-cache") if data_dir else None
+    chosen = cache_root or stored or None
+    root = Path(chosen) if chosen else own
+    shared = bool(root and own and root != own)
+    runtime = (Path(data_dir) / "ai-runtime") if (shared and data_dir) else None
+    return root, runtime, shared
+
+
+def _wire_runner_catalog(data_dir=None, cache_root=None, product: str = "") -> None:
     """The bundled llama.cpp runner reads its downloadable-model catalog, per-model
     switches, AND its load config (llama.cpp binaries + VRAM margin) from the
     shared DB — fully replacing runner-manifest.json (A7). When the host passes a
     `data_dir`, the runner's engine + model cache lives under `<data_dir>/ai-cache`
-    so all app data shares one portable root; None → the runner default (~/.cache)."""
+    so all app data shares one portable root; None → the runner default (~/.cache).
+
+    That cache MAY instead point at a sibling family app's (`resolve_cache_roots`),
+    which is what stops the same 14 GB model being downloaded once per app."""
+    from ..runner import cache_registry
     from ..runner.lifecycle import configure_service, get_service
     from ..runner.schema import ModelEntry, RecommendedFor
 
     from .dispatch import set_ensure_local_model, set_local_runner_base_url
+
+    log = logging.getLogger(__name__)
 
     def catalog_fn():
         return [
@@ -448,12 +487,30 @@ def _wire_runner_catalog(data_dir=None) -> None:
             samplers_fallback=lambda meta: fetch_generation_config_samplers(meta.base_repo_url),
         )
 
+    # The user's stored choice of cache (Quick Setup offers a sibling app's, so the
+    # same content-addressed gigabytes are fetched once per BOX, not once per app).
+    # Best-effort: a DB that cannot answer must not stop a boot — fall back to own.
+    try:
+        stored = stores.get_runner_config_store().get_cache_root()
+    except Exception:  # noqa: BLE001 — pre-seed / mid-migration DB
+        stored = ""
+    resolved_cache, runtime_root, shared = resolve_cache_roots(data_dir, cache_root, stored)
+    if shared:
+        log.info("engine cache SHARED at %s (this app's generated state stays in %s)",
+                 resolved_cache, runtime_root)
+    if resolved_cache and data_dir:
+        # Tell the rest of the family where this app keeps its cache, so the NEXT app
+        # installed can offer to share it instead of re-downloading. Records a path,
+        # never contents.
+        cache_registry.register(product or Path(data_dir).name, resolved_cache, data_dir)
+
     configure_service(
         catalog_fn=catalog_fn, switches_fn=switches_fn,
         identify_fn=identify_fn, embedding_ids_fn=embedding_ids_fn,
         default_llm_id_fn=default_llm_id_fn,
         config_fn=stores.build_runner_config,
-        cache_root=(str(Path(data_dir) / "ai-cache") if data_dir else None),
+        cache_root=(str(resolved_cache) if resolved_cache else None),
+        runtime_root=(str(runtime_root) if runtime_root else None),
         # Pass 2 (2026-07-22): per-knob backend applicability from knob_catalog —
         # the runner drops launch flags the active engine family can't use.
         knob_backends_fn=stores.list_knob_backends,

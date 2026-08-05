@@ -91,6 +91,11 @@ export { startWarmOnBoot, warmModelId } from "./services/warmBoot.js";
 // contact with AI setup — the host mounts it App-level behind its persisted
 // once-flag and routes on the emits; permanent setup buttons are retired.
 export { default as AiSetupOffer } from "./components/AiSetupOffer.vue";
+// The single-interval poller behind the runner panels — exported (2026-08-04)
+// so consumers stop hand-rolling setInterval guards in components.
+export { usePoll } from "./common/composables/usePoll.js";
+// The family TitleBar FRAME (JW's donor mechanics; right side = the app's slot).
+export { default as TitleBar } from "./common/components/TitleBar.vue";
 // The task machinery BEHIND that bar — createDownloadTask + the server channels. An
 // app-local setup wizard must drive the same tasks the kit's own QuickSetup drives:
 // start() self-polls to a TERMINAL state (done | error | cancelled), which is what makes

@@ -335,6 +335,10 @@ Ruled 2026-08-03 after the i18n rewrite shipped its workflow with NONE of this �
 user had to ask "are you bringing in the data directory, the style changer, the ai
 progress cancel, the logs?" The answer must never again be no. Each row names its
 canonical implementation; all of it is kit/platform code — the app writes wiring only.
+**Canonical WORDS live in `ui/src/common/familyContract.js` (FAMILY_LABELS), never in
+this document** — this section names components and shapes; the manifest is the one
+source the kit components read their own defaults from, and the contract tests
+assert. (2026-08-04: §11 stopped restating label words.)
 
 | Chrome | Canonical | App writes |
 |---|---|---|

@@ -383,27 +383,32 @@ forever, and a footer Cancel sat beside the bar's own Cancel meaning something e
 The donor answered all four questions already. Reading it took ten minutes; not reading
 it cost a rewrite and shipped a routing-corrupting bug behind a success toast.
 
-**Setup wizards**: machinery in the kit (`useCatalogMeta`, `useRunnerModels`,
-`useModelApply`, `DownloadBar`, `createDownloadTask` + the three channels), the wizard
-VIEW per app (steps + words) — JV's TTS wizard was always app-local, i18n's translate
-wizard follows, and `AiModelsArea`'s `wizard` prop mounts it. JW's `QuickSetup`
-(embedding woven through) stays JW's. The SHAPE to copy is its step machine: advance on
-TERMINAL TASK STATES (`done` | `error` | `cancelled` from `createDownloadTask`), never
-on a watched model status — a derived status cannot report three of those four
-outcomes. During a run the footer carries no buttons and the modal is `:closable="false"`,
-so each `DownloadBar`'s own Cancel is the only cancel on screen.
-Trap, found live (i18n 2026-08-03): `setAsDefault(providerId, modelId)` — the FIRST
-argument is the PROVIDER (`setAsDefault(LOCAL_RUNNER_ID, id)`, QuickSetup.vue:466).
-Passing the model alone rewrites every task preset's `providerId` to a model id and
-then toasts success; no smoke test catches it, because none completes a model load.
+**Setup wizards**: since the surgery (2026-08-04) there is ONE wizard — the kit's
+`QuickSetup` (LLM chat/embedding) — voiced per app through `quickSetupCopy` (the
+copy seam) and gated by `llmUiCapabilities` (embeddings hidden where an app has
+none); `AiModelsArea` mounts it inline and the `wizard` prop exists only for a
+DIFFERENT wizard kind (JV's TTS wizard is app-local — a different pipeline, not a
+fork). i18n's 359-line fork is DELETED; forking the kit wizard again is the
+deviation class this section exists to stop. Its step machine advances on
+TERMINAL TASK STATES (`done` | `error` | `cancelled` from `createDownloadTask`),
+never on a watched model status — a derived status cannot report three of those
+four outcomes. During a run the footer carries no buttons and the modal is
+`:closable="false"`, so each `DownloadBar`'s own Cancel is the only cancel on
+screen. Trap, found live (i18n 2026-08-03): `setAsDefault(providerId, modelId)` —
+the FIRST argument is the PROVIDER (`setAsDefault(LOCAL_RUNNER_ID, id)`).
+Passing the model alone rewrites every task preset's `providerId` to a model id
+and then toasts success; no smoke test catches it, because none completes a
+model load.
 
-**The boot-splash first-run offer** (a strip on the splash: "set up local AI"): gate
-it on NO DEFAULT PROVIDER AT ALL (`currentDefaultProviderId` empty). Gating on
-`currentDefaultId` is wrong — that value is local-gated, so an online-default box
-reads as "no AI" and gets nagged every boot. JW's shape is different and also fine:
-its offer is a modal dialog, fired ONCE ever via the persisted `aiSetupPrompted`
-setting. Pick one deliberately: once-ever flag for an intrusive surface, live
-no-default-at-all gating for a strip that only exists on the boot screen (i18n).
+**The once-ever AI offer** (ruling R3, 2026-08-04 — JW's donor is THE family
+shape; permanent "set up AI" buttons and boot-splash strips are retired): the kit
+`AiSetupOffer` modal, fired ONCE EVER off a persisted flag, at the app's
+first-project moment — JW right after the user creates/opens their first
+project, i18n at Setup's first successful save (the boot-time approximation
+popped over live dialogs and died 2026-08-05). Gate the no-AI check on
+NO DEFAULT PROVIDER AT ALL (`currentDefaultProviderId` empty) — gating on
+`currentDefaultId` is wrong: that value is local-gated, so an online-default box
+reads as "no AI" and gets nagged.
 
 **The boot splash + warm start** (2026-08-04, born from a real divergence): the splash
 PAGE is per-app — the brand plate, where the load group sits on it — but everything

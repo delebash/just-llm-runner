@@ -28,7 +28,11 @@ export function useAiTasksNav() {
   const isOpen = computed(() => aiTasks.panelOpen);
 
   function toggle() {
-    aiTasks.panelOpen = !aiTasks.panelOpen;
+    // Through the store's togglePanel, NEVER a raw panelOpen flip: openPanel is
+    // where the unseen-error badge clears (QC-37) — the raw flip left it stuck
+    // red from the sidebar row (audit 2026-08-05, the exact per-place mistake
+    // the store's own comment warns about).
+    aiTasks.togglePanel();
   }
 
   return {

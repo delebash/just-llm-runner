@@ -3,7 +3,7 @@
 //
 // The host calls configureLlmUi({ baseUrl }) ONCE at boot with its already-
 // resolved server base (each app's services/serverApi.js computes it — JW
-// :17495, JV :8741, or same-origin when the server hosts the UI). The shared
+// :17495, JV :17494, or same-origin when the server hosts the UI). The shared
 // views then call request()/requestStream() against the SAME endpoints both
 // apps mount (/v1/ai/*, /v1/llm-providers*, /v1/ai-usage). This replaces the
 // old per-app ProviderBackend adapter: one client, both apps, no forks — the

@@ -76,8 +76,10 @@ DESKTOP APP in every repo; getting this wrong is the #1 confusion):
 - **index.html** — the app's real `<title>`; the CSP comment (headers come from
   tauri.conf, a meta CSP would break the IPC bridge); no scaffold logos.
 - **.gitignore** — `node_modules`, `server/.venv`, `__pycache__`, `*.egg-info`,
-  `.pytest_cache`, `.ruff_cache`. **`dist/` is COMMITTED** — the server serves it
-  headless and a user needs no npm install.
+  `.pytest_cache`, `.ruff_cache`, **and `dist/`** — corrected 2026-08-05 (s2
+  audit): the old "dist/ is COMMITTED" line contradicted every app in the family
+  (all three gitignore it). Reality: the release exe EMBEDS dist/; headless
+  serving needs a prior `npm run build:vite` (or the bundled exe). Practice wins.
 - **CLAUDE.md** — every app has one: what it is, the command block, "what bites",
   a Where-to-look table whose FIRST row points at this document.
 
@@ -93,7 +95,13 @@ resolve: {
 server: {
   port: 1420, strictPort: true,
   fs: { allow: [resolve(__dirname), resolve(__dirname, "../just-llm-runner/ui")] },
-  proxy: { "/v1": "http://127.0.0.1:<PORT>" },   // dev rides the proxy to the server
+  // NO /v1 proxy (corrected 2026-08-05 s2 audit — this snippet used to show one):
+  // nothing requests a relative /v1. The origin-aware resolver builds ABSOLUTE
+  // URLs to the server port from dev, which is exactly why §6's CORS is
+  // load-bearing. A proxy line here is dead config that misdescribes the wire.
+  // WATCH IGNORES are part of the contract: the vite root is the repo, so guard
+  // the big non-frontend trees or chokidar walks them (JV measured 500 ms → 6.2 s
+  // to first HTML): ignored: ["**/src-tauri/**", "**/.venv/**", "**/e2e/**", "**/dist/**"]
 }
 ```
 

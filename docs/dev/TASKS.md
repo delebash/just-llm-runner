@@ -57,6 +57,11 @@
   seam (it's `start_router`); `Overrides.reasoning_budget` still documents the
   retired launch flag; arbiter's `remaining_mb` cites the reverted §5c consumer;
   `reset_feature_ref`'s docstring contradicts its own inline ruling.
+- **Authed-blob transport seam is RECORDED later-work with JV named**
+  (`serverApi.js:144-148`: client.js requestBlob/postForm are deliberately
+  AUTH-FREE; "JV authenticates on blob downloads" rides serverApi's
+  authHeaders()) — the F1 Phase-1 kit delta; additive, JW/docgen untouched.
+  Executes with JV F1 (brief: `../JustVioce/docs/dev/TASKS.md`).
 - **Half-built surfaces with no caller anywhere** (decisions, not deletions):
   the `/v1/ai/model-list-rules` editor trio; test-samples PUT/DELETE;
   switch-presets DELETE; preset-assignments/clear-features; the pre-router

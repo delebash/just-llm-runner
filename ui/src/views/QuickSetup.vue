@@ -21,17 +21,20 @@
 //
 // JustWrite mounts this kit view; JustVoice has its own (TTS) setup wizard. It replaces the
 // old jobs-based wiring (/v1/ai/jobs + a routing `jobs` map — both long retired).
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import { request } from "../client.js";
 import { useHardware } from "../composables/useHardware.js";
 import { listClassTunes } from "../classTunes.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { recommendedModelId, pickBestEmbedId, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
-import { applyPreview, modelHasTunes, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
+import { applyPreview, currentDefaultId, currentDefaultProviderId, modelHasTunes, refreshApplied, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import { fmtTps } from "../common/services/runStats.js";
 import { createDownloadTask, engineInstallChannel, modelDownloadChannel, modelLoadChannel } from "../composables/useDownloadTask.js";
+import { familyLabels } from "../common/services/familyLabels.js";
+import { quickSetupCopy } from "../common/services/quickSetupCopy.js";
+import { llmUiCapabilities } from "../installLlmUi.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiProgress from "../common/components/UiProgress.vue";
@@ -54,6 +57,78 @@ const open = ref(false);
 const step = ref("detect"); // detect | confirm | apply | done
 const loading = ref(true);
 const error = ref("");
+
+// Canon words (live labels store) + this app's VOICE (quickSetupCopy) + what the
+// host's stack can do — the surgery seams (2026-08-04) that let the fork die.
+const L = familyLabels.quickSetup;
+const QC = quickSetupCopy;
+const embedsOn = llmUiCapabilities().embeddings !== false;
+
+// ── The configured-state truth (decision A1190, restored + built 2026-08-04):
+// with a default already applied, the band stops pitching like a first run
+// ("Local AI is set up — <model> is the default · Re-run setup") and the wizard
+// opens on an "Already set up" screen offering only change-model or close. The
+// manual door stays — it just tells the truth about the state.
+const configured = computed(() => !!currentDefaultProviderId.value);
+const configuredBandLine = computed(() =>
+  L.configuredBand.replace("{model}", currentDefaultId.value || "a model"));
+onMounted(() => { refreshApplied().catch(() => {}); });
+
+// ── THE CACHE QUESTION (family behavior, ported from the docgen fork 2026-08-04 —
+// the server half was already shared: /v1/ai/engine-cache). Two family apps each
+// kept their own <data>/ai-cache, so the SAME multi-GB model sat on one PC twice.
+// The engine + weights are content-addressed: a sibling's cache IS the bytes we
+// were about to download. Detect it, ASK, let the answer be no — asked HERE
+// because the only moment it saves anything is before the download starts.
+const cacheState = ref(null);
+const cacheChoice = ref("");       // the root to use; "" = this app's own
+const cacheNote = ref("");
+// Worth asking only when a sibling actually HAS something.
+const cacheOffer = computed(() =>
+  (cacheState.value?.options || []).find(
+    (o) => o.exists && (o.models?.length || o.engineBuilds?.length),
+  ) || null,
+);
+function fmtCacheBytes(n) {
+  if (!n) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+  return `${v >= 10 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
+}
+const cacheOptions = computed(() => {
+  const o = cacheOffer.value;
+  if (!o) return [];
+  const who = o.product || "another app";
+  return [
+    { label: `Share ${who}'s AI files (${fmtCacheBytes(o.bytes || 0)} already downloaded)`, value: o.root },
+    { label: "Keep a separate copy for this app", value: cacheState.value?.ownRoot || "" },
+  ];
+});
+// Applied the moment it is chosen (switching re-points the idle engine so the model
+// list tells the truth about what still downloads). Driven by the select's EVENT,
+// never a watcher: priming pre-selects the recommendation, and a watcher couldn't
+// tell that assignment from a click.
+async function onCacheChoice(root) {
+  cacheChoice.value = root;
+  if (engineTask.state === "running" || chatTask.state === "running") return;
+  await applyCacheChoice(root);
+}
+async function applyCacheChoice(root) {
+  if (!root || root === cacheState.value?.root) return; // already there — nothing to do
+  cacheNote.value = "";
+  try {
+    const res = await request("/v1/ai/engine-cache", { method: "PUT", body: { root } });
+    if (res?.restartRequired) {
+      cacheNote.value = res.detail || "This applies the next time the app starts.";
+    }
+    await Promise.all([loadAll(), refreshCatalogMeta()]);
+    cacheState.value = await request("/v1/ai/engine-cache").catch(() => cacheState.value);
+  } catch (e) {
+    cacheNote.value = `Couldn't switch the AI files: ${e?.message || e}`;
+  }
+}
 
 // The box probe, SHARED (2026-07-27). `mainGpu` is the LARGEST GPU — the server's own
 // rule (hardware.py:45); the two `gpus[0]` reads this file used to make scored the
@@ -296,6 +371,11 @@ async function openWizard() {
         loadAll(),
         loadRouting(),
         loadEngineStatus(),
+        // The family cache-offer (surgery 2026-08-04): primed WITH everything else
+        // so the confirm step can ask before anything downloads.
+        request("/v1/ai/engine-cache")
+          .then((c) => { cacheState.value = c; })
+          .catch(() => { cacheState.value = null; }),
         // D4-1 (a)+(c): the change preview — computed by the SAME dominantOf the Apply
         // writer uses (modelApply.applyPreview), so the changelist can never drift.
         applyPreview().then((p) => { previewState.value = p; }).catch(() => { previewState.value = null; }),
@@ -323,18 +403,24 @@ async function openWizard() {
       pick.value.embeddingId = "";
       pick.value.embeddingModel = "";
     }
-    if (!pick.value.embeddingModel) {
+    if (embedsOn && !pick.value.embeddingModel) {
       const best = bestEmbedId();
       if (best) {
         pick.value.embeddingId = LOCAL_RUNNER_ID;
         pick.value.embeddingModel = best;
       }
     }
+    // Sharing is the recommendation when there is something to share — the option
+    // that does NOT download gigabytes this PC already has. The other option is
+    // right there: the ask-don't-decide half of the ruling.
+    cacheChoice.value = cacheOffer.value?.root || cacheState.value?.root || "";
   } catch (e) {
     // Don't overwrite a more specific message a loader already recorded.
     if (!error.value) error.value = `Couldn't finish reading your setup — ${e.message}`;
   } finally {
-    step.value = "confirm"; // confirm renders the empty-state when nothing fits
+    // A configured box lands on the truth screen, not the pitch; everything else
+    // (including errors) lands on confirm, which renders the empty-state.
+    step.value = (!error.value && configured.value) ? "configured" : "confirm";
   }
 }
 function onModalClose() {
@@ -435,6 +521,9 @@ async function finishApply() {
   }
   step.value = "done";
   emit("changed");
+  // The host's follow-up seam (surgery 2026-08-04) — docgen needs nothing today
+  // (setAsDefault already repoints its presets); future apps hook here.
+  try { QC.onApplied?.({ modelId: target }); } catch { /* host's problem, not the wizard's */ }
 }
 
 async function apply() {
@@ -456,6 +545,10 @@ async function apply() {
       if (!ok) return;
       await request("/v1/llm-runner/auto-tune/cancel", { method: "POST" }).catch(() => {});
     }
+    // The recommendation is pre-selected but only APPLIED here if the user left it
+    // alone — the download must land in the cache they were shown. No-op when it is
+    // already the live root.
+    await applyCacheChoice(cacheChoice.value);
     step.value = "apply";
     // The chosen chat default goes through the shared modelApply.setAsDefault — the SAME
     // writer the catalog's Set-as-default uses, so the surfaces never drift: it writes
@@ -620,26 +713,33 @@ defineExpose({ openWizard });
          one-line description to the right (user restored the caption "so people know what it
          does"); the default is the full titled strip. -->
     <template v-if="props.inline">
-      <UiButton intent="primary" @click="openWizard">Run Quick Setup</UiButton>
-      <!-- QC-42: the wizard is built-in-only — say so right of the button, bigger
-           than the description, so nobody expects it to configure an online
-           provider. Since 2026-07-19 this band sits at the top of the Local tab
-           rather than inside the built-in provider's card, so these WORDS are the
-           only thing carrying the scope — hence naming llama.cpp outright. -->
-      <span class="lu-qs-barefor">Sets up the built-in llama.cpp provider only</span>
-      <span class="lu-muted lu-qs-baresub">Detect your hardware, pick the best free local model that fits, and set it as your default.</span>
+      <!-- The configured-state truth (A1190): a set-up box is not pitched. -->
+      <template v-if="configured">
+        <UiButton intent="secondary" @click="openWizard">{{ L.rerunButton }}</UiButton>
+        <span class="lu-qs-barefor">{{ configuredBandLine }}</span>
+      </template>
+      <template v-else>
+        <UiButton intent="primary" @click="openWizard">{{ L.runButton }}</UiButton>
+        <!-- QC-42: the wizard is built-in-only — say so right of the button, bigger
+             than the description, so nobody expects it to configure an online
+             provider. Since 2026-07-19 this band sits at the top of the Local tab
+             rather than inside the built-in provider's card, so these WORDS are the
+             only thing carrying the scope — hence naming llama.cpp outright. -->
+        <span class="lu-qs-barefor">{{ L.bandScope }}</span>
+        <span class="lu-muted lu-qs-baresub">{{ QC.bandSub }}</span>
+      </template>
     </template>
     <div v-else class="lu-qs-head">
       <div>
         <b class="lu-qs-title">Quick Setup</b>
-        <span class="lu-muted lu-qs-sub">Detect your hardware, pick the best free local model that fits, and set it as your default — all editable.</span>
+        <span class="lu-muted lu-qs-sub">{{ configured ? configuredBandLine : QC.headSub }}</span>
       </div>
-      <UiButton intent="primary" size="small" @click="openWizard">Run Quick Setup</UiButton>
+      <UiButton :intent="configured ? 'secondary' : 'primary'" size="small" @click="openWizard">{{ configured ? L.rerunButton : L.runButton }}</UiButton>
     </div>
 
     <AppModal
       v-if="open"
-      :title="step === 'detect' ? 'Probing your hardware…' : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : 'Recommended setup — for the Local built-in provider only'"
+      :title="step === 'detect' ? 'Probing your hardware…' : step === 'configured' ? L.alreadyTitle : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : QC.confirmTitle"
       :max-width="'640px'"
       :closable="!optRunning && engineTask.state !== 'running' && chatTask.state !== 'running' && embedTask.state !== 'running'"
       @close="onModalClose"
@@ -647,9 +747,36 @@ defineExpose({ openWizard });
       <!-- DETECT -->
       <div v-if="step === 'detect'" class="lu-muted lu-qs-loading">Reading GPU + model catalog…</div>
 
+      <!-- ALREADY SET UP (the configured-state truth, A1190) -->
+      <template v-else-if="step === 'configured'">
+        <p style="margin: 0"><b>{{ currentDefaultId || pick.default }}</b> is the default local model — everything is set up.</p>
+        <p class="lu-muted lu-qs-hint">Change the model to walk the setup again with a different pick; nothing changes until you apply.</p>
+      </template>
+
       <!-- CONFIRM (editable) -->
       <template v-else-if="step === 'confirm'">
         <div v-if="error" class="lu-error">{{ error }}</div>
+
+        <!-- The family cache-offer, asked FIRST (ported from the docgen fork
+             2026-08-04): the answer changes what the model choice below costs —
+             a model already in a sibling app's cache downloads in 0 s. -->
+        <section v-if="cacheOffer" class="lu-qs-sec lu-qs-cache">
+          <p style="margin: 0">
+            <b>{{ cacheOffer.product || "Another app" }}</b> on this PC already has
+            {{ cacheOffer.models?.length || 0 }} AI model{{ cacheOffer.models?.length === 1 ? "" : "s" }}
+            and the engine — {{ fmtCacheBytes(cacheOffer.bytes || 0) }} downloaded.
+          </p>
+          <UiSelect
+            :model-value="cacheChoice" :options="cacheOptions" width="prose"
+            @update:model-value="onCacheChoice"
+          />
+          <p class="lu-muted lu-qs-hint">
+            Sharing means a model you already have downloads again in no time and
+            takes no extra disk. Nothing is moved or deleted either way, and you can
+            change this later under Settings.
+          </p>
+          <p v-if="cacheNote" class="lu-muted lu-qs-hint">{{ cacheNote }}</p>
+        </section>
 
         <p v-if="fitVerdict" class="lu-qs-verdict">{{ fitVerdict }}</p>
         <p class="lu-muted lu-qs-req">Requirements: a video card with at least 8 GB VRAM and 32 GB of system RAM.</p>
@@ -668,7 +795,7 @@ defineExpose({ openWizard });
               <span class="lu-fit lu-qs-fit" :class="`lu-fit--${fitOf(pick.default)}`">{{ FIT_LABEL[fitOf(pick.default)] }}</span>
             </div>
             <UiSelect v-model="pick.default" :options="modelOptions" />
-            <p class="lu-muted lu-qs-hint">One good model runs every feature — writing, chat, extraction, judgment. Per-feature choices live under Routing by feature; this sets the shared default.</p>
+            <p class="lu-muted lu-qs-hint">{{ QC.modelHint }}</p>
             <p v-if="descriptionOf(pick.default)" class="lu-qs-why">
               <b>About this model:</b> {{ descriptionOf(pick.default) }}
             </p>
@@ -689,7 +816,7 @@ defineExpose({ openWizard });
         <!-- The embedding — always LOCAL (the RAG index). Hidden when no chat model fits:
              that state routes OUT to an online provider (no local Apply happens), so the
              local embed picker + the Apply changelist below would be contradictory UI. -->
-        <section v-if="fitting.length && embedOptions.length" class="lu-qs-sec">
+        <section v-if="embedsOn && fitting.length && embedOptions.length" class="lu-qs-sec">
           <div class="lu-qs-k">Embedding</div>
           <UiSelect v-model="pick.embeddingModel" :options="embedOptions" @update:model-value="onEmbedChange" />
           <p class="lu-muted lu-qs-hint">Powers semantic search + grounded chat. {{ embedPlaceLine || "Runs on the bundled runner alongside your chat model; a smaller embed is fine." }}</p>
@@ -737,9 +864,9 @@ defineExpose({ openWizard });
         <!-- ONE bar per download (the SHARED DownloadBar over the SHARED createDownloadTask):
              the engine (only when it isn't installed yet), the chat model, and the search
              model. Each carries its own Cancel / Retry. -->
-        <DownloadBar v-if="engineTask.state" title="The engine" role="the program that runs models" :task="engineTask" />
-        <DownloadBar v-if="chatTask.state" :title="modelById[pick.default]?.name || pick.default" role="writes + chats" :task="chatTask" />
-        <DownloadBar v-if="embedTask.state" :title="embedName" role="powers search + Ask the book" :task="embedTask" />
+        <DownloadBar v-if="engineTask.state" :title="L.engineBarTitle" :role="L.engineBarRole" :task="engineTask" />
+        <DownloadBar v-if="chatTask.state" :title="modelById[pick.default]?.name || pick.default" :role="QC.chatRole" :task="chatTask" />
+        <DownloadBar v-if="embedTask.state" :title="embedName" :role="QC.embedRole" :task="embedTask" />
 
         <p class="lu-muted lu-qs-applynote">
           A model is several gigabytes, so a first run can take a few minutes — each only
@@ -754,6 +881,7 @@ defineExpose({ openWizard });
           <li>Default model · <code>{{ modelById[pick.default]?.name || pick.default }}</code></li>
           <li v-if="pick.embeddingModel">Embedding · <code>{{ embedName }}</code></li>
         </ul>
+        <p v-if="QC.doneBody" class="lu-muted">{{ QC.doneBody }}</p>
         <p v-if="embedTask.state && embedTask.state !== 'done'" class="lu-muted lu-qs-applynote">
           The search model didn't finish downloading — it downloads itself on your first
           search, or you can grab it any time from the model catalog.
@@ -841,20 +969,25 @@ defineExpose({ openWizard });
       </template>
 
       <template #footer>
-        <template v-if="step === 'confirm'">
-          <UiButton intent="ghost" @click="onModalClose">Cancel</UiButton>
+        <template v-if="step === 'configured'">
+          <UiButton intent="ghost" @click="onModalClose">{{ L.closeButton }}</UiButton>
+          <span class="lu-qs-spacer" />
+          <UiButton intent="primary" @click="step = 'confirm'">{{ L.changeModelButton }}</UiButton>
+        </template>
+        <template v-else-if="step === 'confirm'">
+          <UiButton intent="ghost" @click="onModalClose">{{ L.cancelButton }}</UiButton>
           <span class="lu-qs-spacer" />
           <!-- Nothing fits locally: the primary action routes OUT to the provider list (this
                wizard sits inside the Providers & models tab, so closing lands there). C8 holds
                — no provider-connect INSIDE the wizard; it just hands off. -->
           <UiButton v-if="!fitting.length" intent="primary" @click="onModalClose">Set up an online provider</UiButton>
           <UiButton v-else intent="primary" :disabled="applyDisabled" :loading="applying" @click="apply">
-            Apply setup
+            {{ L.applyButton }}
           </UiButton>
         </template>
         <template v-else-if="step === 'done'">
           <span class="lu-qs-spacer" />
-          <UiButton intent="primary" @click="attemptClose">Close</UiButton>
+          <UiButton intent="primary" @click="attemptClose">{{ L.closeButton }}</UiButton>
         </template>
       </template>
     </AppModal>

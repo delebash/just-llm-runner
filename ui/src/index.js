@@ -87,6 +87,10 @@ export { default as DownloadBar } from "./common/components/DownloadBar.vue";
 // splash is up on the first Vue paint (the hand-off from the static index.html plate).
 export { default as BootModelLoad } from "./components/BootModelLoad.vue";
 export { startWarmOnBoot, warmModelId } from "./services/warmBoot.js";
+// The once-ever AI offer (ruling R3 2026-08-04): the ONE family shape for first
+// contact with AI setup — the host mounts it App-level behind its persisted
+// once-flag and routes on the emits; permanent setup buttons are retired.
+export { default as AiSetupOffer } from "./components/AiSetupOffer.vue";
 // The task machinery BEHIND that bar — createDownloadTask + the server channels. An
 // app-local setup wizard must drive the same tasks the kit's own QuickSetup drives:
 // start() self-polls to a TERMINAL state (done | error | cancelled), which is what makes

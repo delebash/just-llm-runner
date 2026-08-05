@@ -91,6 +91,25 @@ export const FAMILY_LABELS = {
     closeButton: "Close",
     engineBarTitle: "The engine",
     engineBarRole: "the program that runs models",
+    // The configured-state truth (decision A1190, restored 2026-08-04): a box with
+    // a default stops being pitched like a first run.
+    configuredBand: "Local AI is set up — {model} is the default",
+    rerunButton: "Re-run setup",
+    alreadyTitle: "Already set up",
+    changeModelButton: "Change model",
+  },
+
+  // The once-ever AI offer (ruling R3, built 2026-08-04: JW's one-time modal is the
+  // ONE family shape — permanent setup buttons are retired). {appName} is the host's.
+  aiOffer: {
+    eyebrow: "Optional",
+    title: "Set up AI features",
+    body: "{appName}'s AI runs where you choose — on this PC, private and free, or through an online provider. You can set this up anytime from the AI page.",
+    quickSetup: "Run Quick Setup",
+    quickSetupSub: "Local — uses this PC, private & free",
+    connectProvider: "Connect an online provider",
+    connectProviderSub: "OpenAI-compatible endpoint",
+    skip: "Skip for now",
   },
 
   // Settings — canonical section names for concepts BOTH apps have; an app may add

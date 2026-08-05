@@ -28,7 +28,7 @@ export function configureFamilyLabels(partial = {}) {
   deepAssign(familyLabels, partial);
 }
 
-function deepAssign(target, patch) {
+export function deepAssign(target, patch) {
   for (const [key, value] of Object.entries(patch || {})) {
     if (value === undefined) continue;
     if (value && typeof value === "object" && !Array.isArray(value) && target[key] && typeof target[key] === "object") {

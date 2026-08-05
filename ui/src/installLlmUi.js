@@ -23,6 +23,7 @@
 import { configureExternal } from "./common/services/external.js";
 import { configureServerApi, makeOriginAwareResolver } from "./common/services/serverApi.js";
 import { configureLlmUi } from "./client.js";
+import { configureQuickSetupCopy } from "./common/services/quickSetupCopy.js";
 import LlmUiHosts from "./components/LlmUiHosts.vue";
 
 // What this app's LLM stack can do. Declared by the host, read by the kit — an app
@@ -67,6 +68,10 @@ function openExternal(url) {
  * @param opts.fallbackBase  loopback base for dev + the Tauri webview
  * @param opts.resolveBase   supply a resolver instead of devPorts/fallbackBase
  * @param opts.catalogCopy   this app's words on the shared model-catalog surface
+ * @param opts.quickSetupCopy this app's VOICE on the shared Quick Setup wizard
+ *                           (band caption · confirm title · model hint · bar roles ·
+ *                           done body · onApplied hook) — canon words stay in the
+ *                           labels store, never here
  * @param opts.capabilities  e.g. `{ embeddings: false }`
  * @param opts.external      your opener — `(url) => …` or `{ open }`; `false` to skip.
  *                           A Tauri app MUST pass one (see openExternal).
@@ -76,6 +81,7 @@ export function installLlmUi(app, {
   fallbackBase = "",
   resolveBase,
   catalogCopy,
+  quickSetupCopy,
   capabilities,
   external = true,
 } = {}) {
@@ -95,6 +101,7 @@ export function installLlmUi(app, {
     );
   }
   configureLlmUi({ baseUrl: base, catalogCopy: _copyFor(catalogCopy, capabilities) });
+  if (quickSetupCopy) configureQuickSetupCopy(quickSetupCopy);
 
   if (capabilities) Object.assign(_capabilities, capabilities);
   if (external !== false) {

@@ -34,6 +34,7 @@ import { useModelApply } from "../services/modelApply.js";
 import { useEngine } from "../composables/useEngine.js";
 import { refresh as refreshRunnerModels } from "../composables/useRunnerModels.js";
 import { usePoll } from "../common/composables/usePoll.js";
+import { llmUiCapabilities } from "../installLlmUi.js";
 
 // Engine state here feeds only the debug snapshot — the engine ACTIONS
 // (Install / Uninstall / Update available / Reinstall + progress + errors) all
@@ -49,6 +50,9 @@ const { engineState: engState, checkForUpdate, refreshEngine, updateInfo: engine
 // own AI-domain settings (e.g. JustWrite's "Writing AI" — voice canon, RAG
 // auto-rebuild, variations). Keeps ALL AI settings in this one shared area while
 // each app's specifics stay app-side. Empty label → no extra tab.
+// A no-embeddings host hides every embed affordance (the capability, not per-flag).
+const embedsOn = llmUiCapabilities().embeddings !== false;
+
 const props = defineProps({
   appTabLabel: { type: String, default: "" },
   // Host runner forwarded to the Feature Workbench test panel (streaming +
@@ -569,16 +573,20 @@ onMounted(() => {
           <template v-if="sdModel">
             <p class="lu-sd-line"><b>{{ setDefaultFor.name || setDefaultFor.id }}</b> becomes the default for your AI tasks — they run on <b>{{ sdModel }}</b>.</p>
             <!-- QC-21: the built-in's embedding lives in the routing default already —
-                 say so instead of the false "no embedding model set". -->
-            <p v-if="sdEmbedModel && sdIsBuiltin" class="lu-sd-line lu-muted">Your embedding (<b>{{ sdEmbedModel }}</b>) already runs here — unchanged.</p>
-            <p v-else-if="sdEmbedModel" class="lu-sd-line lu-muted">Also becomes the embeddings (search) provider: <b>{{ sdEmbedModel }}</b>.</p>
-            <!-- ONLINE row with no embedding of its own → the Book-search section
-                 (2026-07-18): truthful "unchanged" line when an embedding already
-                 routes; otherwise recommend the local setup (engine + embed model,
-                 shared DownloadBars, cancel free) / a configured Ollama / skip —
-                 skipping is passive, Apply never blocks, chat runs bible-only. -->
-            <LuBookSearchSetup v-else-if="!sdIsBuiltin" :providers="providers" />
-            <p v-else class="lu-sd-line lu-muted">Search embeddings keep their current provider — this provider has no embedding model set.</p>
+                 say so instead of the false "no embedding model set". The WHOLE embed
+                 block hides in a no-embeddings host (llmUiCapabilities — the docgen
+                 "we dont use embedding" report, gated 2026-08-04). -->
+            <template v-if="embedsOn">
+              <p v-if="sdEmbedModel && sdIsBuiltin" class="lu-sd-line lu-muted">Your embedding (<b>{{ sdEmbedModel }}</b>) already runs here — unchanged.</p>
+              <p v-else-if="sdEmbedModel" class="lu-sd-line lu-muted">Also becomes the embeddings (search) provider: <b>{{ sdEmbedModel }}</b>.</p>
+              <!-- ONLINE row with no embedding of its own → the Book-search section
+                   (2026-07-18): truthful "unchanged" line when an embedding already
+                   routes; otherwise recommend the local setup (engine + embed model,
+                   shared DownloadBars, cancel free) / a configured Ollama / skip —
+                   skipping is passive, Apply never blocks, chat runs bible-only. -->
+              <LuBookSearchSetup v-else-if="!sdIsBuiltin" :providers="providers" />
+              <p v-else class="lu-sd-line lu-muted">Search embeddings keep their current provider — this provider has no embedding model set.</p>
+            </template>
             <UiCheckbox v-model="overwriteTasks">Also overwrite presets I customized</UiCheckbox>
           </template>
           <template v-else-if="sdIsBuiltin">

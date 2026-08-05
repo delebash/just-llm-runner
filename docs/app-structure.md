@@ -341,7 +341,8 @@ canonical implementation; all of it is kit/platform code — the app writes wiri
 | **AI area** (providers CRUD, model catalog + downloads, presets, usage/tokens) | kit `AiModelsArea` (JW `AiView.vue` = that + one app tab) | one route (`/ai`), one component |
 | **Global AI progress + cancel** | kit `AiStatusButton` → `AiStatusPanel` in the TitleBar, PLUS a sidebar nav row "AI tasks" toggling the same panel with a count/error badge (JW `Sidebar.vue:148`) | one mount + one nav row |
 | **TitleBar** | JW `components/TitleBar.vue` | back/forward, title, mode, status chip |
-| **Settings page** | JW `/settings/:section?` pattern | sections rail + panels below |
+| **Settings page** | kit `SettingsShell` (TOP TABS — the contract killed the rail, 2026-08-04) over JW's `/settings/:section?` pattern | sections as data + panels below |
+| **First AI contact** | kit `AiSetupOffer` — the ONCE-EVER modal (ruling R3 2026-08-04; permanent setup buttons are retired), host persists the flag + routes the emits | one App-level mount + one flag |
 | — Appearance | kit engine + catalogs (`UI_FONTS`, `ACCENT_PRESETS`, `UI_SCALES`); JV panel shape | mode/font/accent/scale controls over `applyAppearance` |
 | — Storage | shell `storage_get_root`/`storage_relocate` (§5) + shared `make_disk_router(data_dir)` | path display, relocate control, usage table |
 | — Logs | platform `install_log_ring()` + `install_file_log()` + `make_logs_router(name)`; kit `LogsPanel` | 3 server lines, one component |

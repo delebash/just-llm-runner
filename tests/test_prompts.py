@@ -16,6 +16,7 @@ from llm_runner.llm import (
     FeaturePromptRow,
     LLMConfig,
     LLMResponse,
+    MissingTemplateVariables,
     StreamDelta,
     get_llm_registry,
     make_feature_router,
@@ -153,10 +154,19 @@ def _local_route_client(provider_id):
 
 
 # ── render ──────────────────────────────────────────────────────────────────
-def test_render_substitutes_and_blanks_missing():
+def test_render_substitutes_and_raises_on_missing():
     assert render("Hi {{name}}, you are {{role}}", {"name": "Sam", "role": "bot"}) == "Hi Sam, you are bot"
     assert render("{{ name }} spaced", {"name": "X"}) == "X spaced"
-    assert render("missing {{nope}} here", {}) == "missing  here"
+    # Present-but-empty is a caller's legitimate "nothing here" — renders "".
+    assert render("Hi {{name}}", {"name": ""}) == "Hi "
+    # ABSENT is a wiring bug — fail loud, EVERY missing name listed (2026-08-05:
+    # the silent missing→empty behavior let mis-wired prompts ship with holes).
+    with pytest.raises(MissingTemplateVariables) as ei:
+        render("{{a}} and {{b}} and {{a}}", {"a": 1})
+    assert ei.value.names == ["b"]
+    with pytest.raises(MissingTemplateVariables) as ei:
+        render("missing {{nope}} and {{gone}}", {})
+    assert ei.value.names == ["gone", "nope"]
 
 
 # ── editor router ─────────────────────────────────────────────────────────────
@@ -202,6 +212,47 @@ def test_run_renders_prompt_and_returns_content():
     # the DB template was rendered with the caller's variables before dispatch
     assert adapter.last["user"] == "Bye Sam"
     assert adapter.last["system"] == "You are bot."
+
+
+def test_run_missing_template_variable_is_400_naming_action_and_keys():
+    # The fail-loud gate (2026-08-05): a variables gap is a caller/sample bug the
+    # author must see named — never a silently blank prompt reaching the model.
+    c, adapter = _feature_client(MemPromptStore())
+    r = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "Sam"}})
+    assert r.status_code == 400
+    assert "greet" in r.json()["detail"] and "role" in r.json()["detail"]
+    assert adapter.last == {}  # nothing was dispatched
+
+
+def test_stream_missing_template_variable_is_400_pre_stream():
+    # Rendered before the stream starts → a clean HTTP 400, not an error frame.
+    c, adapter = _feature_client(MemPromptStore())
+    r = c.post("/v1/ai/stream", json={"action": "greet", "variables": {}})
+    assert r.status_code == 400
+    assert "name" in r.json()["detail"] and "role" in r.json()["detail"]
+    assert adapter.last == {}
+
+
+def test_run_action_is_directly_callable_in_server():
+    # The extracted helper (JV F1 Phase 2): an in-server feature caller runs the
+    # SAME resolve→render→overlay→dispatch path the route runs — no HTTP.
+    from llm_runner.llm import RunRequest, UnknownActionError, run_action
+
+    get_llm_registry()._adapters = {}
+    adapter = CaptureAdapter()
+    get_llm_registry().register(adapter)
+    resp = run_action(MemPromptStore(), LLMConfig(), RunRequest(
+        action="farewell", variables={"name": "Sam", "role": "bot"}))
+    assert resp.text == "answer" and adapter.last["user"] == "Bye Sam"
+    assert adapter.last["system"] == "You are bot."
+    # The explicit-system door (A922): body-supplied templates run without a row.
+    resp = run_action(MemPromptStore(), LLMConfig(), RunRequest(
+        action="composed", variables={"t": "raw"},
+        system="SYS", userTemplate="U {{t}}"))
+    assert adapter.last["system"] == "SYS" and adapter.last["user"] == "U raw"
+    # No row + no templates → UnknownActionError (the route's 404).
+    with pytest.raises(UnknownActionError):
+        run_action(MemPromptStore(), LLMConfig(), RunRequest(action="nope", variables={}))
 
 
 def test_run_applies_adhoc_samplers():
@@ -332,7 +383,7 @@ def test_run_promptless_carries_history_and_writes_no_store_row():
 
 def test_run_no_provider_501():
     c, _ = _feature_client(MemPromptStore(), register=False)
-    assert c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x"}}).status_code == 501
+    assert c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}}).status_code == 501
 
 
 def test_edit_changes_what_run_sends():
@@ -349,7 +400,7 @@ def test_edit_changes_what_run_sends():
 
 def test_stream_emits_sse_frames():
     c, adapter = _feature_client(MemPromptStore())
-    with c.stream("POST", "/v1/ai/stream", json={"action": "greet", "variables": {"name": "Sam"}}) as r:
+    with c.stream("POST", "/v1/ai/stream", json={"action": "greet", "variables": {"name": "Sam", "role": "bot"}}) as r:
         body = "".join(chunk for chunk in r.iter_text())
     assert '"delta": "ans"' in body and '"delta": "wer"' in body
     assert '"done": true' in body and '"completionTokens": 4' in body
@@ -595,7 +646,7 @@ def test_stream_ensure_failure_surfaces_as_error_frame():
 
     set_ensure_local_model(boom)
     c, _adapter = _local_route_client("local-llamacpp")
-    with c.stream("POST", "/v1/ai/stream", json={"action": "greet", "variables": {"name": "Sam"}}) as r:
+    with c.stream("POST", "/v1/ai/stream", json={"action": "greet", "variables": {"name": "Sam", "role": "bot"}}) as r:
         assert r.status_code == 200                       # the stream response itself is 200
         body = "".join(chunk for chunk in r.iter_text())
     assert '"error": "model load timed out"' in body     # ensure error → SSE error frame

@@ -68,9 +68,11 @@
   template-convergence item (decided 2026-08-05 s2; the item lives in
   docgen's TASKS): FeatureLab's promptless machinery, the Workbench preview
   plumbing + zero-actions drop (FeatureWorkbench.vue:59-60), §11's
-  two-kinds section rewritten to ONE kind; `dataLinks` KEPT. Plus the hard
-  gate BOTH conversions share: verify `render()`'s missing-placeholder
-  behavior — if silent-empty, build the fail-loud hardening FIRST.
+  two-kinds section rewritten to ONE kind; `dataLinks` KEPT. (The shared
+  hard gate is DONE 2026-08-05 s3: render() was silent-empty and now FAILS
+  LOUD — MissingTemplateVariables naming every key, both run routes → 400,
+  union across system+user via _render_pair; five incomplete-variables
+  tests fixed in runner+JW that the silence had been hiding.)
 - **Half-built surfaces with no caller anywhere** (decisions, not deletions):
   the `/v1/ai/model-list-rules` editor trio; test-samples PUT/DELETE;
   switch-presets DELETE; preset-assignments/clear-features; the pre-router

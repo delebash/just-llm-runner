@@ -176,7 +176,9 @@ the constants-only port). A new app copies it changing **exactly three constants
 - **Never spawn the unqualified app name** — the Tauri binary shares it, and Windows
   resolves it to OUR exe first: an infinite window-spawn loop (JW's lesson).
 - **Escape hatch**: `<ABBR>_DEV_NO_SIDECAR` env skips the spawn for manual-server dev.
-- **Teardown**: `WindowEvent::CloseRequested` → kill the child. Single window, no tray.
+- **Teardown**: `WindowEvent::CloseRequested` → kill the child — unless the §11
+  keep-server-running switch is ON, in which case the window hides to the tray
+  and the server stays (the family tray rides every app since 2026-08-04).
 - **Plugins**: `tauri-plugin-window-state` is standard (window geometry persists).
   `dialog`/`fs`/`http` are added when a feature needs them, not by default.
 
@@ -353,7 +355,7 @@ assert. (2026-08-04: §11 stopped restating label words.)
 | — Server | JW's headless/auth section: headless URL + bearer tokens over the app's auth endpoints | one panel |
 | — About | version, repo | one panel |
 | Backup/restore/reset | platform `make_data_router` + kit `DataManagement` | when adopted — record if deferred |
-| **Tray + keep-running** (family headless ruling 2026-08-04; JV is the donor) | tray icon (app icon), left-click toggles the window, menu = Show/Hide · Server Start/Stop/Restart · Quit; `keep_running_on_close` in the shell + `set_keep_server_running` command; Settings → Server carries "Keep server running after the app closes" — OFF ⇒ closing stops everything, ON ⇒ hide to tray, server stays; the renderer persists the flag and re-applies it every boot | the tray block + the toggle row + one persisted flag |
+| **Tray + keep-running** (family headless ruling 2026-08-04 + the full-donor ruling 2026-08-05; JV is the donor) | tray icon (app icon), left-click toggles the window, menu = the donor WHOLE with JV's emoji: 📺 Show window · 🔵 Hide window · ▶️ Start server · ⏹ Stop server · 🔄 Restart server · ⚙️ Open settings · 📋 Copy server URL · 📜 Open log file · ℹ️ About <App> · 🚪 Quit <App> (app-specific entries like JV's dictate/MCP stay that app's) — every entry WORKS: settings/about/copy show the window and ride `tray:*` renderer listeners (a focused webview's clipboard write is reliable; a hidden one's is not), Open log file opens the server's live log Rust-side, Quit kills the sidecar (JW: through its D5 drain); `keep_running_on_close` in the shell + `set_keep_server_running` command; Settings → Server carries "Keep server running after the app closes" — OFF ⇒ closing stops everything, ON ⇒ hide to tray, server stays; the renderer persists the flag and re-applies it every boot. Tray text is English in every app for now — a NOTED localization gap | the tray block + the four `tray:*` listeners + the toggle row + one persisted flag |
 
 Server wiring is JW's exact lines, ring BEFORE app construction:
 

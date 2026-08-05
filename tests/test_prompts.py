@@ -238,6 +238,28 @@ def test_run_unknown_action_404():
     assert c.post("/v1/ai/run", json={"action": "nope"}).status_code == 404
 
 
+def test_run_promptless_action_uses_body_templates():
+    """A pipeline-owned app (feature_prompts={}) has NO spec rows — the Lab's columns
+    always send the built prompt as system+userTemplate, and the run goes through
+    against the action's resolved preset (found live 2026-08-04: docgen's Lab
+    ▶ Run answered 404 "unknown AI action 'translate'")."""
+    c, adapter = _feature_client(MemPromptStore())
+    r = c.post("/v1/ai/run", json={
+        "action": "translate",  # not in the store — promptless
+        "system": "You translate.", "userTemplate": "Translate: {{text}}",
+        "variables": {"text": "hello"},
+    })
+    assert r.status_code == 200
+    assert adapter.last["user"] == "Translate: hello"
+    assert adapter.last["system"] == "You translate."
+
+
+def test_run_promptless_without_templates_stays_404():
+    """No spec AND no body templates = a genuinely unknown action — still loud."""
+    c, _ = _feature_client(MemPromptStore())
+    assert c.post("/v1/ai/run", json={"action": "translate"}).status_code == 404
+
+
 def test_run_no_provider_501():
     c, _ = _feature_client(MemPromptStore(), register=False)
     assert c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x"}}).status_code == 501

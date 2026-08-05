@@ -423,7 +423,11 @@ project — a preview that 400s because the user's work is done punishes success
 Loud NAMED 400s are for genuinely broken states only: no targets configured, an
 unknown feature, explicit keys that don't fit, a catalogue with no keys.
 (`lang`/`keys` are server-accepted extras; the kit's Workbench
-sends only `{feature}` today — `FeatureWorkbench.vue:235`.) The kit's Lab shows it read-only (unlockable per-column copies,
+sends only `{feature}` today — `FeatureWorkbench.vue:235`.) The optional
+`dataLinks` prop (`[{label, href}]`, forwarded AiModelsArea → Workbench → Lab)
+lets a pipeline app link the DATA its builder assembles — context · glossary ·
+notes — under the generated prompt ("Change what this prompt says:", manifest
+`lab.changeData`); apps that pass nothing render nothing. The kit's Lab shows it read-only (unlockable per-column copies,
 ephemeral, never saved) above the same preset columns every app gets. `jsonMode` is
 prompt-row state, so pipeline-owned features carry no JSON toggle: the app's adapters
 own `response_format` (the 6-keys-exhausted lesson). A registered feature that never

@@ -28,6 +28,9 @@ import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
   runStream: { type: Function, default: null },
+  // The app's doors to its prompt-feeding data, rendered by the promptless Lab
+  // (Option-A seam, ruling 2026-08-04). [{label, href}].
+  dataLinks: { type: Array, default: () => [] },
 });
 
 const prompts = ref([]);
@@ -348,6 +351,7 @@ onMounted(load);
           <FeatureLab v-if="builtPrompt" :key="`${selFeature}:${labEpoch}`"
             :action="selFeature" :prompt="null"
             :built-prompt="builtPrompt" :built-meta="builtMeta"
+            :data-links="props.dataLinks"
             :providers="providers" :presets="enginePresets"
             :sampler-catalog-list="samplerCatalogList"
             :production-preset-id="selFeatureResolved"

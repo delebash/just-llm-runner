@@ -33,6 +33,10 @@ const props = defineProps({
   // typed here is ever saved or applied. `builtMeta` names the sample.
   builtPrompt: { type: Object, default: null },
   builtMeta: { type: String, default: "" },
+  // Option-A seam (ruling 2026-08-04): the app's doors to the DATA that feeds its
+  // generated prompt (context · glossary · notes live in app pages the kit can't
+  // know). [{label, href}] — empty = no line renders (JW passes nothing).
+  dataLinks: { type: Array, default: () => [] },
   providers: { type: Array, default: () => [] },
   presets: { type: Array, default: () => [] },
   samplerCatalogList: { type: Array, default: () => [] },
@@ -284,6 +288,11 @@ const columnConfig = computed(() => {
         <UiTextarea :model-value="draft?.system || ''" readonly auto-resize :max-height-px="240" :rows="3" /></div>
       <div class="lu-field"><label>User — generated</label>
         <UiTextarea :model-value="draft?.userTemplate || ''" readonly auto-resize :max-height-px="240" :rows="3" /></div>
+      <!-- The real home for "I want the prompt to say X": the app's data doors. -->
+      <div v-if="dataLinks.length" class="lu-fw-datalinks lu-muted">
+        {{ L.changeData }}
+        <a v-for="l in dataLinks" :key="l.label" :href="l.href">{{ l.label }}</a>
+      </div>
     </div>
 
     <div v-else class="lu-fw-testin">
@@ -331,6 +340,9 @@ const columnConfig = computed(() => {
 .lu-fw-genprompt .lu-fw-testin-h { flex-wrap: wrap; }
 .lu-fw-gen-spacer { flex: 1; }
 .lu-fw-genprompt textarea { font-family: var(--font-mono, monospace); font-size: 11.5px; }
+.lu-fw-datalinks { font-size: 11.5px; display: flex; gap: 10px; flex-wrap: wrap; }
+.lu-fw-datalinks a { color: var(--accent, var(--ink)); text-decoration: none; }
+.lu-fw-datalinks a:hover { text-decoration: underline; }
 .lu-field { display: flex; flex-direction: column; gap: 5px; }
 .lu-field > label { font-size: 12px; color: var(--muted); }
 </style>

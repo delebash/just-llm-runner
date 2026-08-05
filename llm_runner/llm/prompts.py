@@ -319,7 +319,7 @@ def _parse_sampler_value(v: str):
     return s
 
 
-def _response_format(spec: FeaturePromptRow, action: str) -> dict:
+def _response_format(spec: FeaturePromptRow | None, action: str) -> dict:
     """The response_format for a JSON action (#18 → C1). A stored schema that
     parses as a non-empty JSON OBJECT upgrades the weak json_object to
     schema-ENFORCED output, emitted in the OpenAI-standard NESTED form — each
@@ -329,7 +329,7 @@ def _response_format(spec: FeaturePromptRow, action: str) -> dict:
     injected into the prompt (recorded design: the prompt still describes the
     shape). No/invalid schema → json_object as before; an invalid one logs a
     warning and DEGRADES rather than failing the run."""
-    raw = (spec.json_schema or "").strip()
+    raw = ((spec.json_schema if spec else "") or "").strip()
     if raw:
         try:
             obj = json.loads(raw)
@@ -345,7 +345,7 @@ def _response_format(spec: FeaturePromptRow, action: str) -> dict:
     return {"type": "json_object"}
 
 
-def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict | None:
+def _plane2_extra(spec: FeaturePromptRow | None, body: RunRequest, preset=None) -> dict | None:
     """Per-request `extra` from the action's JSON CONTRACT (json_mode, on the spec) +
     the resolved PRESET's tunables (top_p, reasoning, samplers — the one source,
     2026-07-15), each overridable by the request. Precedence (highest→lowest): per-call
@@ -355,7 +355,7 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict
     reload. Safe across adapters: openai-compat sends all (cloud ignores unknown fields),
     the others map selectively. (#18 / #22 / §8)"""
     extra: dict = {}
-    json_mode = spec.json_mode if body.jsonMode is None else body.jsonMode
+    json_mode = (spec.json_mode if spec else False) if body.jsonMode is None else body.jsonMode
     if json_mode:
         extra["response_format"] = _response_format(spec, body.action)
     top_p = (preset.topP if preset else None) if body.topP is None else body.topP
@@ -411,14 +411,14 @@ def _plane2_extra(spec: FeaturePromptRow, body: RunRequest, preset=None) -> dict
     return extra or None
 
 
-def _effective_think(spec: FeaturePromptRow, body: RunRequest, preset=None) -> bool:
+def _effective_think(spec: FeaturePromptRow | None, body: RunRequest, preset=None) -> bool:
     """The think flag for this call = the PRESET's think (the one source, 2026-07-15),
     with the B3 guardrail: a reasoning block corrupts strict JSON, so think is FORCED
     off whenever json_mode is on (the request's jsonMode override, else the action's
     CONTRACT json_mode). A request `think` override still wins (a Lab column comparing
     reasoned vs direct). No preset → think off."""
     think = body.think if body.think is not None else (preset.think if preset else False)
-    json_mode = spec.json_mode if body.jsonMode is None else body.jsonMode
+    json_mode = (spec.json_mode if spec else False) if body.jsonMode is None else body.jsonMode
     return bool(think) and not json_mode
 
 
@@ -466,12 +466,18 @@ def make_feature_router(
     @router.post("/run", response_model=RunResponse)
     async def run_feature(body: RunRequest) -> RunResponse:
         spec = get_store().get(body.action)
-        if spec is None:
+        # PROMPTLESS actions (a pipeline-owned app registers feature_prompts={}) have
+        # no spec row — but the Lab's columns always carry the app-built prompt as
+        # system+userTemplate, so the run goes through against the action's resolved
+        # preset (found live 2026-08-04: docgen's Lab ▶ Run 404'd "unknown AI action").
+        # jsonMode/schema have no spec home there: body.jsonMode only, no schema.
+        if spec is None and (body.system is None or body.userTemplate is None):
             raise HTTPException(status_code=404, detail=f"unknown AI action {body.action!r}")
         # Lab candidate overrides (None → the stored prompt) so a draft/preset can
         # be tested before it's promoted to production.
-        sys_tpl = spec.system if body.system is None else body.system
-        usr_tpl = spec.user_template if body.userTemplate is None else body.userTemplate
+        feature_key = spec.feature if spec else body.action
+        sys_tpl = (spec.system if spec else "") if body.system is None else body.system
+        usr_tpl = (spec.user_template if spec else "") if body.userTemplate is None else body.userTemplate
         messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
         preset = resolve_feature_preset(body.action)
         provider_override = body.providerId or (preset.providerId if preset else "") or None
@@ -487,11 +493,11 @@ def make_feature_router(
             # for cloud/remote providers or when no ensure hook is wired; a load failure
             # propagates through this handler's existing exception path.
             await _ensure_local_ready(
-                get_config(), spec.feature, body.action, provider_override, model_override,
+                get_config(), feature_key, body.action, provider_override, model_override,
             )
             resp = chat(
                 config=get_config(),
-                feature=spec.feature,
+                feature=feature_key,
                 # The action key routes to its own model when it has one, else the
                 # feature default (per-action override cascade).
                 action=body.action,
@@ -527,10 +533,13 @@ def make_feature_router(
         `data: {"error": "..."}` (the stream has started, so we can't send an
         HTTP status)."""
         spec = get_store().get(body.action)
-        if spec is None:
+        # Same promptless rule as /run: body-supplied templates stand in for the
+        # missing spec (the §7.4 stream-first transport must work promptless too).
+        if spec is None and (body.system is None or body.userTemplate is None):
             raise HTTPException(status_code=404, detail=f"unknown AI action {body.action!r}")
-        sys_tpl = spec.system if body.system is None else body.system
-        usr_tpl = spec.user_template if body.userTemplate is None else body.userTemplate
+        feature_key = spec.feature if spec else body.action
+        sys_tpl = (spec.system if spec else "") if body.system is None else body.system
+        usr_tpl = (spec.user_template if spec else "") if body.userTemplate is None else body.userTemplate
         messages = _history_messages(body.history) + [LLMMessage(role="user", content=render(usr_tpl, body.variables))]
         system = render(sys_tpl, body.variables)
         preset = resolve_feature_preset(body.action)
@@ -548,7 +557,7 @@ def make_feature_router(
         ensure_error: str | None = None
         try:
             await _ensure_local_ready(
-                get_config(), spec.feature, body.action, provider_override, model_override,
+                get_config(), feature_key, body.action, provider_override, model_override,
             )
         except Exception as e:  # noqa: BLE001 — deferred into the SSE error frame below
             ensure_error = str(e)[:200]
@@ -561,7 +570,7 @@ def make_feature_router(
             try:
                 for delta in stream_chat(
                     config=get_config(),
-                    feature=spec.feature,
+                    feature=feature_key,
                     action=body.action,
                     messages=messages,
                     system=system,

@@ -54,6 +54,9 @@ const props = defineProps({
   // Host runner forwarded to the Feature Workbench test panel (streaming +
   // cancel + the app's batch AI list). See FeatureWorkbench `runStream`.
   runStream: { type: Function, default: null },
+  // Forwarded to the promptless Lab: the app's doors to its prompt-feeding data
+  // (Option-A seam, ruling 2026-08-04). [{label, href}].
+  dataLinks: { type: Array, default: () => [] },
   // Deep-link seam: when a host routes here to run Quick Setup (JW's welcome
   // screen, QC-46, via ?quicksetup=1), open the wizard ONCE after the first
   // load. Off by default — JustVoice inherits it inert.
@@ -606,7 +609,7 @@ onMounted(() => {
          ask-params/samplers live in the preset; launch switches live on the MODEL —
          Tune & measure, §7.1). ── -->
     <section v-show="tab === 'features'" class="lu-tab lu-tab-fill">
-      <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" />
+      <FeatureWorkbench v-if="tab === 'features'" :run-stream="props.runStream" :data-links="props.dataLinks" />
     </section>
 
     <!-- ── Usage — full ledger: rollup + by-feature + by-provider + reset ── -->

@@ -62,6 +62,7 @@ export const FAMILY_LABELS = {
     editCopies: "Edit copies for this test",
     lockCopies: "Lock copies",
     restoreGenerated: "Restore generated",
+    changeData: "Change what this prompt says:",
   },
 
   // DownloadBar's state actions — sat hardcoded + untranslatable under JW's keyed

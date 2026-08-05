@@ -353,6 +353,7 @@ assert. (2026-08-04: §11 stopped restating label words.)
 | — Server | JW's headless/auth section: headless URL + bearer tokens over the app's auth endpoints | one panel |
 | — About | version, repo | one panel |
 | Backup/restore/reset | platform `make_data_router` + kit `DataManagement` | when adopted — record if deferred |
+| **Tray + keep-running** (family headless ruling 2026-08-04; JV is the donor) | tray icon (app icon), left-click toggles the window, menu = Show/Hide · Server Start/Stop/Restart · Quit; `keep_running_on_close` in the shell + `set_keep_server_running` command; Settings → Server carries "Keep server running after the app closes" — OFF ⇒ closing stops everything, ON ⇒ hide to tray, server stays; the renderer persists the flag and re-applies it every boot | the tray block + the toggle row + one persisted flag |
 
 Server wiring is JW's exact lines, ring BEFORE app construction:
 

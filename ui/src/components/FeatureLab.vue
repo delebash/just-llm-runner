@@ -18,6 +18,7 @@ import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
+import { familyLabels } from "../common/services/familyLabels.js";
 import { mergeVariables, testDataAction, testDataSources } from "../common/services/testData.js";
 import { pushToast } from "../common/services/toastBridge.js";
 import { presetToThinkingControl, thinkingControlToWire } from "../thinkingControl.js";
@@ -42,6 +43,10 @@ const emit = defineEmits(["use-production", "presets-changed", "prompt-changed",
 const promptless = computed(() => !props.prompt && !!props.builtPrompt);
 const promptUnlocked = ref(false); // reveal per-column editable copies (test-only)
 const previewEpoch = ref(0);       // re-keys the strip so columns re-seed on Refresh
+// The promptless words come from the ONE labels store (decision 2026-08-04: no new
+// hardcoded kit English — JW feeds Spanish; the capture is live via the in-place
+// deep-assign invariant).
+const L = familyLabels.lab;
 
 const draft = ref(null);       // editable copy of the prompt (ephemeral test edits)
 const vars = reactive({});
@@ -259,18 +264,21 @@ const columnConfig = computed(() => {
     <!-- Promptless: the ONE truth — the prompt the app built for a live sample. -->
     <div v-if="promptless" class="lu-fw-testin lu-fw-genprompt">
       <div class="lu-fw-testin-h">
-        <b>Generated prompt</b>
-        <span class="lu-muted">built by the app for every real run — test only; nothing here is saved or applied</span>
+        <b>{{ L.generatedPrompt }}</b>
+        <span class="lu-muted">{{ L.generatedNote }}</span>
         <span class="lu-fw-gen-spacer" />
         <span v-if="builtMeta" class="lu-muted">{{ builtMeta }}</span>
         <UiButton intent="secondary" size="small"
           title="Rebuild the prompt from the project's current data (context · glossary · notes)"
-          @click="emit('refresh-preview')">Refresh</UiButton>
+          @click="emit('refresh-preview')">{{ L.refresh }}</UiButton>
+        <UiButton v-if="promptUnlocked" intent="ghost" size="small"
+          title="Re-seed the test columns from this generated prompt — discards the columns' test edits, no refetch"
+          @click="previewEpoch += 1">{{ L.restoreGenerated }}</UiButton>
         <UiButton intent="ghost" size="small"
           :title="promptUnlocked
             ? 'Hide the editable copies in the columns'
             : 'Reveal editable prompt copies in the columns — they run once and are never saved; every real run rebuilds its own prompt'"
-          @click="promptUnlocked = !promptUnlocked">{{ promptUnlocked ? "Lock copies" : "Edit copies for this test" }}</UiButton>
+          @click="promptUnlocked = !promptUnlocked">{{ promptUnlocked ? L.lockCopies : L.editCopies }}</UiButton>
       </div>
       <div class="lu-field"><label>System — generated</label>
         <UiTextarea :model-value="draft?.system || ''" readonly auto-resize :max-height-px="240" :rows="3" /></div>

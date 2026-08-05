@@ -12,6 +12,16 @@
 
 ## Now / near-term
 
+- **NO gate compiles-and-mounts kit views [verified live 2026-08-04]** —
+  `FeatureWorkbench.vue` used `watch` without importing it: a per-mount
+  ReferenceError that killed the whole Routing surface in BOTH consumers (Vue prod
+  swallows setup errors into console.error), caught only by docgen's real-webview
+  smoke. Import fixed same day (uncommitted, family commit pause). Close the gap:
+  a mount smoke for kit views (or biome `noUndeclaredVariables` over `ui/src`).
+- **Kit error strings show raw JSON bodies [verified live 2026-08-04]** —
+  `client.js` throws ``HTTP 400 — {"detail":...}`` and panes render it verbatim
+  (seen in the Workbench's fallback, em-dash wire-escaped too); parse `detail`
+  out for display, keep the raw text in the console log.
 - **Engine-cache `replaceBuild` deletion guard [verified live 2026-08-03/04]** — with
   a SHARED family cache, the update path's build-folder cleanup would delete builds
   under ANOTHER app's directory; guard deletion to the app's OWN cache root.

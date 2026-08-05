@@ -17,7 +17,7 @@
 // /v1/ai/preset-assignments (+ PUT /preset-assignments/feature); the engine-preset
 // library /v1/ai/engine-presets; the feature catalog (nav) /v1/ai/routing; the knob
 // catalog /v1/ai/knob-catalog.
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 
 import FeatureLab from "../components/FeatureLab.vue";
 import Icon from "../common/components/Icon.vue";
@@ -234,7 +234,10 @@ async function loadPreview(key) {
   try {
     const r = await request("/v1/ai/prompt-preview", { method: "POST", body: { feature: key } });
     builtPrompt.value = { system: r.system || "", user: r.user || "" };
-    builtMeta.value = r.sample || "";
+    // Stamp WHEN this sample was built (absolute time on purpose: a relative
+    // "2 min ago" goes stale without a ticker — the clock stays true).
+    const at = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    builtMeta.value = r.sample ? `${r.sample} · built ${at}` : "";
   } catch (e) {
     previewErr.value = e?.message || "The app's prompt preview is unavailable.";
   } finally {

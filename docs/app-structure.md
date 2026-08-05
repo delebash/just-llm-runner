@@ -416,8 +416,13 @@ every feature is one of two kinds: **prompt-row-owned** (JW's writing actions �
 system/user templates that save and apply) or **pipeline-owned** (`feature_prompts={}` —
 the app builds the real prompt in code each run). A pipeline-owned app implements the
 family contract `POST /v1/ai/prompt-preview {feature, lang?, keys?} → {system, user,
-sample}` — the REAL builders over a small live sample, loud NAMED 400s when there is
-nothing to sample. (`lang`/`keys` are server-accepted extras; the kit's Workbench
+sample}` — the REAL builders over a small live sample. The default sample is the
+BUSIEST language's pending keys, and a FINISHED language samples already-translated
+keys with `sample` saying so (ruling 2026-08-04: the Lab always renders on a healthy
+project — a preview that 400s because the user's work is done punishes success).
+Loud NAMED 400s are for genuinely broken states only: no targets configured, an
+unknown feature, explicit keys that don't fit, a catalogue with no keys.
+(`lang`/`keys` are server-accepted extras; the kit's Workbench
 sends only `{feature}` today — `FeatureWorkbench.vue:235`.) The kit's Lab shows it read-only (unlockable per-column copies,
 ephemeral, never saved) above the same preset columns every app gets. `jsonMode` is
 prompt-row state, so pipeline-owned features carry no JSON toggle: the app's adapters

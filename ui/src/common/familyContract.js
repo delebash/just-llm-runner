@@ -52,6 +52,18 @@ export const FAMILY_LABELS = {
     console: "Server console",
   },
 
+  // The promptless Lab's words (decision 2026-08-04: every NEW kit string rides this
+  // door — JW's i18n gates can't see kit files, so hardcoded English here would leak
+  // into its Spanish routing page; found dropped by the audit, wired same day).
+  lab: {
+    generatedPrompt: "Generated prompt",
+    generatedNote: "built by the app for every real run — test only; nothing here is saved or applied",
+    refresh: "Refresh",
+    editCopies: "Edit copies for this test",
+    lockCopies: "Lock copies",
+    restoreGenerated: "Restore generated",
+  },
+
   // DownloadBar's state actions — sat hardcoded + untranslatable under JW's keyed
   // titles until this file existed.
   downloadBar: {

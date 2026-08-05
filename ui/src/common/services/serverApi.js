@@ -172,10 +172,20 @@ export async function safeRequest(path, fallback = null, opts = {}) {
 // Boot-time reachability check — the renderer is a thin client; with no server
 // we must NOT boot (empty stores that silently fail to save). Retries briefly so
 // a still-starting server (e.g. the Tauri sidecar) isn't falsely reported down.
-export async function checkServer({ tries = 8, delayMs = 500 } = {}) {
+export async function checkServer({ tries = 8, delayMs = 500, probeTimeoutMs = 500 } = {}) {
   for (let i = 0; i < tries; i++) {
     try {
-      const res = await fetch(serverUrl("/v1/health"), { headers: authHeaders(), cache: "no-store" });
+      // Per-try abort: a refused connection takes ~1s inside the production
+      // webview (measured 2026-08-05), stretching a dead-server boot to ~12s
+      // of splash before ConnectionError; the abort caps it at ~7.5s
+      // (8×500ms + the sleeps). 500ms, not lower: this same probe serves the
+      // HEADLESS browser door over real networks, and a health round-trip on
+      // a slow link must not read as "server down". A local sidecar answers
+      // in milliseconds either way.
+      const res = await fetch(serverUrl("/v1/health"), {
+        headers: authHeaders(), cache: "no-store",
+        signal: AbortSignal.timeout(probeTimeoutMs),
+      });
       if (res.ok) return true;
     } catch {
       /* server not up yet */

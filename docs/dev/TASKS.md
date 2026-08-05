@@ -71,11 +71,6 @@
   two-kinds section rewritten to ONE kind; `dataLinks` KEPT. Plus the hard
   gate BOTH conversions share: verify `render()`'s missing-placeholder
   behavior — if silent-empty, build the fail-loud hardening FIRST.
-- **Authed-blob transport seam is RECORDED later-work with JV named**
-  (`serverApi.js:144-148`: client.js requestBlob/postForm are deliberately
-  AUTH-FREE; "JV authenticates on blob downloads" rides serverApi's
-  authHeaders()) — the F1 Phase-1 kit delta; additive, JW/docgen untouched.
-  Executes with JV F1 (brief: `../JustVioce/docs/dev/TASKS.md`).
 - **Half-built surfaces with no caller anywhere** (decisions, not deletions):
   the `/v1/ai/model-list-rules` editor trio; test-samples PUT/DELETE;
   switch-presets DELETE; preset-assignments/clear-features; the pre-router

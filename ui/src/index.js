@@ -9,9 +9,11 @@
 import "./styles.css";
 
 // client — the host calls configureLlmUi({ baseUrl }) once at boot. (request/
-// requestStream stay internal to the kit's LLM views via ./client.js relative
-// imports; the public `request` is the shared serverApi transport below.)
-export { configureLlmUi, llmUiBase, llmUiUrl, requestBlob, postForm } from "./client.js";
+// requestStream/requestBlob/postForm stay internal to the kit's LLM views via
+// ./client.js relative imports; the public `request`/`requestBlob`/`postForm`
+// are the shared serverApi transport below — path-first + authed, so a bearer
+// token rides blob downloads too. Both resolve the SAME base via installLlmUi.)
+export { configureLlmUi, llmUiBase, llmUiUrl } from "./client.js";
 
 // THE UI-side installer — the twin of the server's install_llm (2026-08-04). One call
 // resolves the base for BOTH transports (they disagreed once, and every kit view

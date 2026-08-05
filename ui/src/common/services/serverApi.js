@@ -141,11 +141,28 @@ export function del(path, opts = {}) {
   return request(path, { ...opts, method: "DELETE" });
 }
 
-// requestBlob lives in client.js (path-first — THE public `@delebash/llm-ui` export,
-// index.js:14). Do NOT re-add a method-first requestBlob here: the old one was dead +
-// shadowed by the client.js export and its wrong arg order caused real bugs (unified 2026-07-12).
-// NOTE for the JV integration: the surviving client.js requestBlob/postForm are AUTH-FREE;
-// serverApi's authHeaders() stays for that later work (JV authenticates on blob downloads).
+// The PUBLIC `@delebash/llm-ui` blob/form pair lives HERE since 2026-08-05 (the JV
+// integration's recorded later-work): path-first + authed via authHeaders(), so a thin
+// client with a bearer token (JV's `jt:server` remote mode) can download backups and
+// exports. client.js keeps auth-free twins for the kit's own relative imports — same
+// base once installLlmUi feeds both transports, no token → no header, so JW/docgen
+// behavior is unchanged. Do NOT re-add a method-first requestBlob anywhere: the old
+// one was dead + shadowed and its wrong arg order caused real bugs (unified 2026-07-12).
+export async function requestBlob(path, { method = "GET", body, headers } = {}) {
+  const h = authHeaders(headers);
+  const opts = { method, headers: h };
+  if (body !== undefined) {
+    h["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(serverUrl(path), opts);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${res.status} ${res.statusText}: ${text}`.trim());
+  }
+  return res.blob();
+}
+
 export async function postForm(path, formData, opts = {}) {
   const headers = authHeaders(opts.headers);
   const res = await fetch(serverUrl(path), { ...opts, method: "POST", headers, body: formData });

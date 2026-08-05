@@ -60,6 +60,11 @@ function httpError(status, raw) {
   try {
     const j = JSON.parse(raw);
     if (j && typeof j.detail === "string") human = j.detail;
+    // FastAPI 422s ship detail as an ARRAY of {loc, msg} — join the messages
+    // (2026-08-05: those still rendered as raw JSON).
+    else if (j && Array.isArray(j.detail)) {
+      human = j.detail.map((d) => d?.msg || JSON.stringify(d)).join("; ");
+    }
   } catch { /* not JSON — the raw text IS the message */ }
   return new Error(`HTTP ${status}${human ? ` — ${human}` : ""}`);
 }

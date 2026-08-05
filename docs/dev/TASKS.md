@@ -10,6 +10,58 @@
 > Items extracted from plan docs are marked **[verified]** (code-checked at
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
+## Found by the 2026-08-05 family audit [spot-verified by hand]
+
+- **`GET /v1/ai/knob-catalog` silently strips `backends`** — stores serves it per
+  knob row for "friendly KnobGrid metadata" (`stores.py:1449-1466`) but the wire
+  model `KnobMeta` (`knob_catalog_api.py:23-32`) doesn't declare the field, so
+  Pydantic drops it — the exact silently-dropped-field class this repo already
+  documented at `model_catalog_api.py:140-148`; the UI can never gray out
+  backend-inapplicable knobs. Its test asserts the stores dict, not the HTTP
+  shape — which is why it stays green.
+- **"llm/ must not import runner/" is violated five ways** (`seed.py:18`,
+  `identity.py:21-22`, `reasoning.py:89-93`, `stores.py:831,1492`,
+  `cache_api.py:25` — all module-level) while `dispatch.py:37-38` and
+  `switch_resolve.py:48-50` still state the invariant; either fix the imports or
+  fix the claim.
+- **Promptless run-route test gaps (the 2026-08-04 change is SOUND; pin it):**
+  `/v1/ai/stream` promptless parity untested; promptless + `jsonMode:true`
+  (`_response_format(None,…)` → json_object) unpinned; `_effective_think(None,…)`
+  unpinned; `RunRequest.history`/`_history_messages` has ZERO tests on either
+  endpoint; the feature_key fallback's ledger/route side-effects unasserted.
+  Wire limitation recorded: promptless can never get schema-enforced JSON
+  (RunRequest carries jsonMode but no jsonSchema).
+- **Adapter drift set:** ollama comment claims think-blocks are stripped, code
+  returns content verbatim (`ollama.py:147-149`); the legacy `/api/embeddings`
+  fallback posts OUTSIDE the try so transport errors escape the RuntimeError
+  contract (`ollama.py:236-243`); `adapter_http_error` claims one D10 format
+  while openai_compat + ollama hand-build the same strings in three places;
+  anthropic's legacy budget enforces only the max_tokens half; openai_sdk's
+  stream ignores `response.incomplete` (truncated stream ends silently with
+  zero token counts, unlike the non-stream `finish="length"`).
+- **Stale class-key format in five places** (README:23, db.py:401,425-427,
+  class_tunes_api.py:8-9, switch_resolve.py:17, install.py:57-58) — the real
+  format since 2026-07-22 is `dgpu-vram<V>|ram<R>` / `igpu-mem<M>` /
+  `unified-mem<M>`; `parse_class_key` knows no `cpu|` form.
+- **`tokenize` vs `measure` residency-authority split** — measure got the
+  2026-07-21 router-authority fallback; tokenize still refuses on the stale
+  internal ledger (`lifecycle.py:1327-1343` vs `:1287-1305`).
+- **Docstring drift set:** RunRequest temp/think comments predate the preset
+  tier; reasoningEffort vocabulary missing xhigh|max; schema.py points at a
+  nonexistent `prompts._resolve_preset`; lifecycle names `start_runner` as the
+  seam (it's `start_router`); `Overrides.reasoning_budget` still documents the
+  retired launch flag; arbiter's `remaining_mb` cites the reverted §5c consumer;
+  `reset_feature_ref`'s docstring contradicts its own inline ruling.
+- **Half-built surfaces with no caller anywhere** (decisions, not deletions):
+  the `/v1/ai/model-list-rules` editor trio; test-samples PUT/DELETE;
+  switch-presets DELETE; preset-assignments/clear-features; the pre-router
+  `Runner`/`start_runner` spawn API; `LoadRequest.job_id`; arbiter snapshot
+  reservations nobody reads.
+- **README staleness:** frames the family as two apps while docgen is the
+  standard's reference implementation; the "not yet proven from a non-JustWrite
+  host" caveat is stale (docgen booted the stack live 2026-08-02/03);
+  app-structure §11's FeatureWorkbench line number drifted (235→238).
+
 ## Now / near-term
 
 - **Engine-cache `replaceBuild` deletion guard [verified live 2026-08-03/04]** — with

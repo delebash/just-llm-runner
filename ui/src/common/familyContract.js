@@ -94,7 +94,9 @@ export const FAMILY_LABELS = {
     // The configured-state truth (decision A1190, restored 2026-08-04): a box with
     // a default stops being pitched like a first run.
     configuredBand: "Local AI is set up — {model} is the default",
-    rerunButton: "Re-run setup",
+    // The feature's name is never dropped (user QC ruling 2026-08-04:
+    // "the name is Quick Setup not just setup").
+    rerunButton: "Re-run Quick Setup",
     alreadyTitle: "Already set up",
     changeModelButton: "Change model",
   },

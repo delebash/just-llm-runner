@@ -66,9 +66,9 @@ const embedsOn = llmUiCapabilities().embeddings !== false;
 
 // ── The configured-state truth (decision A1190, restored + built 2026-08-04):
 // with a default already applied, the band stops pitching like a first run
-// ("Local AI is set up — <model> is the default · Re-run setup") and the wizard
-// opens on an "Already set up" screen offering only change-model or close. The
-// manual door stays — it just tells the truth about the state.
+// ("Local AI is set up — <model> is the default · Re-run Quick Setup") and the
+// wizard opens on an "Already set up" screen offering only change-model or close.
+// The manual door stays — it just tells the truth about the state.
 const configured = computed(() => !!currentDefaultProviderId.value);
 const configuredBandLine = computed(() =>
   L.configuredBand.replace("{model}", currentDefaultId.value || "a model"));
@@ -713,10 +713,13 @@ defineExpose({ openWizard });
          one-line description to the right (user restored the caption "so people know what it
          does"); the default is the full titled strip. -->
     <template v-if="props.inline">
-      <!-- The configured-state truth (A1190): a set-up box is not pitched. -->
+      <!-- The configured-state truth (A1190): a set-up box is not pitched — but
+           the QC-42 scope line STAYS (user QC ruling 2026-08-04: the configured
+           band keeps "built-in provider only"; it was dropped once, on my own). -->
       <template v-if="configured">
         <UiButton intent="secondary" @click="openWizard">{{ L.rerunButton }}</UiButton>
         <span class="lu-qs-barefor">{{ configuredBandLine }}</span>
+        <span class="lu-muted lu-qs-baresub">{{ L.bandScope }}</span>
       </template>
       <template v-else>
         <UiButton intent="primary" @click="openWizard">{{ L.runButton }}</UiButton>
@@ -747,10 +750,12 @@ defineExpose({ openWizard });
       <!-- DETECT -->
       <div v-if="step === 'detect'" class="lu-muted lu-qs-loading">Reading GPU + model catalog…</div>
 
-      <!-- ALREADY SET UP (the configured-state truth, A1190) -->
+      <!-- ALREADY SET UP (the configured-state truth, A1190). The scope sentence
+           is the QC-42 canon line with the feature named (ruling 2026-08-04: this
+           screen's words must carry the built-in-only scope too). -->
       <template v-else-if="step === 'configured'">
         <p style="margin: 0"><b>{{ currentDefaultId || pick.default }}</b> is the default local model — everything is set up.</p>
-        <p class="lu-muted lu-qs-hint">Change the model to walk the setup again with a different pick; nothing changes until you apply.</p>
+        <p class="lu-muted lu-qs-hint">Quick Setup sets up the built-in llama.cpp provider only. Change the model to walk the setup again with a different pick; nothing changes until you apply.</p>
       </template>
 
       <!-- CONFIRM (editable) -->

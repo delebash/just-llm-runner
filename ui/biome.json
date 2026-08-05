@@ -1,0 +1,35 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.0/schema.json",
+  "files": {
+    "includes": ["src/**/*.{js,vue}"]
+  },
+  "javascript": {
+    "globals": [
+      "defineProps",
+      "defineEmits",
+      "defineExpose",
+      "defineOptions",
+      "defineModel",
+      "withDefaults"
+    ]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": false,
+      "correctness": {
+        "noUndeclaredVariables": "error"
+      }
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": false
+  }
+}

@@ -49,6 +49,21 @@ export function onRequestWrite(fn) {
   return () => writeListeners.delete(fn);
 }
 
+// A failed response → the Error surfaces the HUMAN reason, not the wire JSON.
+// FastAPI bodies are {"detail": "..."} — panes were rendering that raw (seen live
+// 2026-08-04 in the Workbench's fallback: `HTTP 400 — {"detail":"…—…"}`).
+// The status prefix stays (a caller keys on "501"); non-string details (the 409
+// needsSetup dict) and non-JSON bodies pass through raw. The console log keeps
+// the full raw text — this only changes what users read.
+function httpError(status, raw) {
+  let human = raw;
+  try {
+    const j = JSON.parse(raw);
+    if (j && typeof j.detail === "string") human = j.detail;
+  } catch { /* not JSON — the raw text IS the message */ }
+  return new Error(`HTTP ${status}${human ? ` — ${human}` : ""}`);
+}
+
 export async function request(path, { method = "GET", body, headers, signal } = {}) {
   const opts = { method, headers: { ...(headers || {}) } };
   if (signal) opts.signal = signal;
@@ -64,7 +79,7 @@ export async function request(path, { method = "GET", body, headers, signal } = 
     // a preset PUT was invisible until we added this + the server-side log). console
     // is the browser's own logger — no framework reinvented.
     console.error(`[llm-ui] ${method} ${path} -> HTTP ${res.status}`, detail?.slice?.(0, 500) || "");
-    throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+    throw httpError(res.status, detail);
   }
   if (method !== "GET") {
     for (const fn of writeListeners) {
@@ -86,7 +101,7 @@ export async function requestBlob(path, { method = "GET", body } = {}) {
   const res = await fetch(llmUiUrl(path), opts);
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+    throw httpError(res.status, detail);
   }
   return res.blob();
 }
@@ -96,7 +111,7 @@ export async function postForm(path, formData) {
   const res = await fetch(llmUiUrl(path), { method: "POST", body: formData });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+    throw httpError(res.status, detail);
   }
   const ct = res.headers.get("content-type") || "";
   return ct.includes("application/json") ? res.json() : res.text();
@@ -126,7 +141,7 @@ export async function requestStream(path, body, onDelta, { signal, onProgress } 
   const res = await fetch(llmUiUrl(path), opts);
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}${detail ? ` — ${detail}` : ""}`);
+    throw httpError(res.status, detail);
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

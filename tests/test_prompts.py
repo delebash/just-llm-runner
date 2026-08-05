@@ -97,13 +97,15 @@ class CaptureAdapter:
     def chat(self, messages, *, model=None, temperature=0.7, max_tokens=None,
              system=None, think=False, extra=None):
         self.last = {"system": system, "user": messages[-1].content, "think": think,
-                     "extra": extra, "temperature": temperature}
+                     "extra": extra, "temperature": temperature,
+                     "messages": len(messages)}
         return LLMResponse(text="answer", model=model or self.default_model,
                            prompt_tokens=3, completion_tokens=7)
 
     def stream_chat(self, messages, *, model=None, temperature=0.7, max_tokens=None,
                     system=None, think=False, extra=None):
-        self.last = {"system": system, "user": messages[-1].content, "stream": True}
+        self.last = {"system": system, "user": messages[-1].content, "stream": True,
+                     "messages": len(messages)}
         # Prompt-eval progress before the first token (§7.4 B6-2 — the builtin
         # engine's prompt_progress frames arrive as progress-only deltas).
         yield StreamDelta(progress=0.5)
@@ -258,6 +260,74 @@ def test_run_promptless_without_templates_stays_404():
     """No spec AND no body templates = a genuinely unknown action — still loud."""
     c, _ = _feature_client(MemPromptStore())
     assert c.post("/v1/ai/run", json={"action": "translate"}).status_code == 404
+
+
+def test_stream_promptless_parity_with_run():
+    """The stream door takes the SAME body-template promptless shape as /run —
+    the docgen Lab's ▶ Run streams (pinned 2026-08-05; only /run was tested
+    when the promptless change shipped)."""
+    c, adapter = _feature_client(MemPromptStore())
+    with c.stream("POST", "/v1/ai/stream", json={
+        "action": "translate",
+        "system": "You translate.", "userTemplate": "Translate: {{text}}",
+        "variables": {"text": "hola"},
+    }) as r:
+        body = "".join(chunk for chunk in r.iter_text())
+    assert '"done": true' in body
+    assert adapter.last["user"] == "Translate: hola"
+    assert adapter.last["system"] == "You translate."
+
+
+def test_stream_promptless_without_templates_stays_404():
+    """No spec AND no body templates = unknown action — the stream door is as
+    loud as /run about it."""
+    c, _ = _feature_client(MemPromptStore())
+    assert c.post("/v1/ai/stream", json={"action": "translate"}).status_code == 404
+
+
+def test_effective_think_handles_a_promptless_spec_none():
+    """The promptless path passes spec=None — pinned so a refactor can't regress
+    it into an AttributeError (the audit's named gap, 2026-08-05)."""
+    from llm_runner.llm.presets_api import EnginePresetRow
+    from llm_runner.llm.prompts import RunRequest, _effective_think
+
+    preset_on = EnginePresetRow(name="p", think=True)
+    assert _effective_think(None, RunRequest(action="x"), preset_on) is True
+    assert _effective_think(None, RunRequest(action="x", jsonMode=True), preset_on) is False
+
+
+def test_run_promptless_jsonmode_is_body_governed():
+    """No spec = no contract row: the request's jsonMode alone switches JSON —
+    response_format reaches the adapter and think gates off on the spec=None
+    path too."""
+    c, adapter = _feature_client(MemPromptStore())
+    r = c.post("/v1/ai/run", json={
+        "action": "translate", "system": "s", "userTemplate": "u",
+        "jsonMode": True, "think": True,
+    })
+    assert r.status_code == 200
+    assert (adapter.last["extra"] or {}).get("response_format") == {"type": "json_object"}
+    assert adapter.last["think"] is False, "json gates think off on the promptless path too"
+
+
+def test_run_promptless_carries_history_and_writes_no_store_row():
+    """The promptless door honours the SAME history contract as spec'd actions
+    (prior turns precede the rendered user message), and running it leaves NO
+    feature_prompts row behind — promptless is a way to RUN, never a way to
+    create specs (pinned 2026-08-05)."""
+    store = MemPromptStore()
+    c, adapter = _feature_client(store)
+    r = c.post("/v1/ai/run", json={
+        "action": "translate", "system": "s", "userTemplate": "u {{x}}",
+        "variables": {"x": "1"},
+        "history": [{"role": "user", "content": "earlier"},
+                    {"role": "assistant", "content": "reply"}],
+    })
+    assert r.status_code == 200
+    assert adapter.last["messages"] == 3, "history precedes the rendered user turn"
+    assert adapter.last["user"] == "u 1"
+    assert all(p.key != "translate" for p in store.list()), (
+        "a promptless run never creates a spec row")
 
 
 def test_run_no_provider_501():

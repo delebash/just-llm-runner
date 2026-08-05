@@ -10,6 +10,11 @@
 > Items extracted from plan docs are marked **[verified]** (code-checked at
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
+- **test_hardware.py::test_pci_gpus_linux_lspci_name_match fails with OSError
+  on this box (2026-08-05 late), on clean HEAD too** — environmental (the
+  Linux lspci path under Windows), not code; the same suite was green earlier
+  the same night. Diagnose or mark it skip-on-windows.
+
 ## Found by the 2026-08-05 family audit [spot-verified by hand]
 
 - **`GET /v1/ai/knob-catalog` silently strips `backends`** — stores serves it per

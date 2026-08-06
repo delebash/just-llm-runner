@@ -31,6 +31,10 @@ const props = defineProps({
   // The app's doors to its prompt-feeding data, rendered by the promptless Lab
   // (Option-A seam, ruling 2026-08-04). [{label, href}].
   dataLinks: { type: Array, default: () => [] },
+  // Deep-link focus (parity batch 2026-08-06 — JV's retired #speakerlab lands
+  // on its attribution action): an action key (or feature key) to select on
+  // first load instead of the first card. Unknown → the normal default.
+  initialAction: { type: String, default: "" },
 });
 
 const prompts = ref([]);
@@ -141,8 +145,16 @@ async function load() {
     catch { enginePresets.value = []; }
     try { presetAssign.value = await request("/v1/ai/preset-assignments"); }
     catch { presetAssign.value = { defaultPresetId: "", features: {} }; }
+    // Deep-link focus first; else the first card.
+    if (!action.value && props.initialAction) {
+      if (prompts.value.some((p) => p.key === props.initialAction)) {
+        selectAction(props.initialAction);
+      } else if ((routing.value?.features || []).some((f) => f.key === props.initialAction)) {
+        selectFeature(props.initialAction);
+      }
+    }
     const firstCard = navRows.value.find((rw) => rw.type === "card");
-    if (!action.value && firstCard) selectAction(firstCard.action.key);
+    if (!action.value && !selFeature.value && firstCard) selectAction(firstCard.action.key);
   } catch (e) {
     error.value = `Couldn't load: ${e.message}`;
   } finally {

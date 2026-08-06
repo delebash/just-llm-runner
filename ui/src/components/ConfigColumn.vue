@@ -96,8 +96,16 @@ const props = defineProps({
   label: { type: String, default: "" },      // column title (Compare)
   removable: { type: Boolean, default: false }, // show the ✕ remove (Compare)
   busy: { type: Boolean, default: false },     // parent disables during Run-all
+  // The feature's Lab adapter (labAdapters.js). `run` replaces the generic
+  // /v1/ai/run with the app's REAL pipeline endpoint; `configExtra` mounts the
+  // app's per-column controls (v-modeling this config's `extra`); `render` shows
+  // the structured result — with every column's results beside it, so it can
+  // mark cross-column disagreement.
+  adapter: { type: Object, default: null },
+  allResults: { type: Object, default: () => ({}) },
   // v-model: { pin:{providerId,model}|null, system, userTemplate, temperature,
-  // topP, maxTokens, reasoningEffort, jsonMode, samplers:[{name,value}] }.
+  // topP, maxTokens, reasoningEffort, jsonMode, samplers:[{name,value}],
+  // extra:{…} (adapter-owned, rides the run body) }.
   modelValue: { type: Object, default: () => ({}) },
 });
 // Below defineProps on purpose — these read `props` (declaration order, no TDZ-timing
@@ -460,6 +468,28 @@ function buildBody() {
     samplers: (c.samplers || [])
       .filter((r) => (r.name || "").trim())
       .map((r) => ({ flagName: r.name.trim(), flagValue: r.value || "" })),
+    // The adapter's per-column controls (configExtra) write here; the generic
+    // /v1/ai/run path never carries it.
+    ...(c.extra ? { extra: { ...c.extra } } : {}),
+  };
+}
+
+// The adapter path: the app's REAL pipeline endpoint stands in for /v1/ai/run.
+// Same result shape the one-shot path produces, so ranking/stats degrade
+// honestly — a pipeline that reports no token counts simply doesn't rank.
+async function runViaAdapter(body, t0) {
+  const ctrl = new AbortController();
+  testCtrl.value = ctrl;
+  const r = (await props.adapter.run(body, { signal: ctrl.signal })) || {};
+  const ms = Math.round(performance.now() - t0);
+  const out = r.completionTokens || 0;
+  return {
+    content: r.content || "", model: r.model || "", ms,
+    promptTokens: r.promptTokens || 0, outputTokens: out,
+    tps: ms > 0 && out > 0 ? +(out / (ms / 1000)).toFixed(1) : 0,
+    words: wordCount(r.content || ""),
+    cost: r.cost || 0,
+    data: r.data,   // the structured result the adapter's render consumes
   };
 }
 
@@ -472,7 +502,9 @@ async function run() {
   const t0 = performance.now();
   const o = buildBody();
   try {
-    if (props.runStream) {
+    if (props.adapter?.run) {
+      testOut.value = await runViaAdapter(o, t0);
+    } else if (props.runStream) {
       const ctrl = new AbortController();
       testCtrl.value = ctrl;
       testOut.value = { content: "", model: "", ms: 0, promptTokens: 0, outputTokens: 0, tps: 0, words: 0, cost: 0 };
@@ -585,6 +617,12 @@ defineExpose({ run, cancel });
       <span class="lu-muted">shared by every task using this model — set in Tune &amp; measure</span>
     </div>
 
+    <!-- The adapter's per-column app controls (configExtra) — e.g. attribution's
+         tier + confidence floor. Writes this config's `extra`; rides the run body. -->
+    <component :is="adapter.configExtra" v-if="adapter?.configExtra"
+      :model-value="modelValue?.extra || {}" :action="action"
+      @update:model-value="(v) => patch('extra', v)" />
+
     <!-- Prompt (system + user) -->
     <template v-if="promptEditable">
       <div class="cc-field"><label>System prompt</label>
@@ -689,7 +727,18 @@ defineExpose({ run, cancel });
     <AiTaskStrip v-if="myTask" :task="myTask" />
 
     <div v-if="testOut" class="cc-out">
-      <pre class="cc-pre">{{ testOut.content }}</pre>
+      <!-- The adapter's result component (the feature's REAL rendering — e.g. the
+           attribution table), with every column's results beside it for
+           disagreement marking; the raw model output stays viewable below. -->
+      <template v-if="adapter?.render">
+        <component :is="adapter.render" :result="testOut" :all-results="allResults"
+          :config="modelValue" :action="action" :column-label="label" />
+        <details v-if="testOut.content" class="cc-raw">
+          <summary class="cc-eyebrow">Raw model output</summary>
+          <pre class="cc-pre">{{ testOut.content }}</pre>
+        </details>
+      </template>
+      <pre v-else class="cc-pre">{{ testOut.content }}</pre>
       <div class="lu-muted cc-stats">
         <template v-if="testOut.model">model <b>{{ testOut.model }}</b> · </template>
         {{ fmtWords(testOut.words) }}<template v-if="testOut.outputTokens"> · {{ fmtTokens(testOut) }}</template><template v-if="testOut.tps"> · {{ fmtTps(testOut.tps) }}</template> · {{ fmtSeconds(testOut.ms) }} · {{ fmtCost(testOut.cost) }}
@@ -740,6 +789,7 @@ defineExpose({ run, cancel });
 .cc-run { display: flex; align-items: center; gap: 10px; }
 .cc-running { font-size: 11.5px; } .cc-err { font-size: 12px; }
 .cc-out { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 10px 12px; }
+.cc-raw { margin-top: 8px; }
 .cc-pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono, monospace); font-size: 11.5px; line-height: 1.5; max-height: 240px; overflow: auto; color: var(--ink); }
 .cc-stats { font-size: 11.5px; margin-top: 8px; }
 </style>

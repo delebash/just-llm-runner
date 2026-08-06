@@ -77,6 +77,26 @@ def get_local_runner_base_url() -> Callable[[], str] | None:
     return _local_runner_base_url
 
 
+# ── the no-model-configured guard message (family parity batch 2026-08-05) ──
+# The words a pre-setup run fails with. NEUTRAL canon by default — the old
+# hardcoded "Run Quick Setup (Settings → AI)" named a nav location that exists in
+# no family app anymore. An app whose setup wizard has its own name feeds its own
+# sentence at boot (JV: "LLM engine setup") through the same module-seam shape as
+# set_ledger / set_ensure_local_model.
+_DEFAULT_NOT_CONFIGURED_MESSAGE = (
+    "No model is set. Set up a model on the AI page — run Quick Setup to pick one "
+    "for this machine, or choose a model in the catalog (Set as default)."
+)
+_not_configured_message = _DEFAULT_NOT_CONFIGURED_MESSAGE
+
+
+def set_not_configured_message(text: str | None) -> None:
+    """Host wiring at boot: the app-voiced no-model-set guidance. None/"" restores
+    the neutral canon sentence."""
+    global _not_configured_message
+    _not_configured_message = (text or "").strip() or _DEFAULT_NOT_CONFIGURED_MESSAGE
+
+
 class LLMNotConfiguredError(RuntimeError):
     """Raised when a feature is invoked but no provider is pinned (or
     the pinned provider isn't registered). The API layer maps this to
@@ -220,11 +240,10 @@ def resolve_route(
     if not (model or "").strip():
         # Catalog-full / selections-empty factory state (user, 2026-07-06): nothing
         # is chosen by the seed, so a fresh box reaching an AI feature before setup
-        # gets guidance, not a raw provider error.
-        raise LLMNotConfiguredError(
-            "No model is set. Run Quick Setup (Settings → AI) to pick one for this "
-            "machine, or choose a model in the catalog (Set as default)."
-        )
+        # gets guidance, not a raw provider error. The words are app-configurable
+        # (set_not_configured_message) — the old hardcoded "Settings → AI" named a
+        # place that exists in NO app (family parity batch 2026-08-05).
+        raise LLMNotConfiguredError(_not_configured_message)
     return adapter, model, tier_override
 
 

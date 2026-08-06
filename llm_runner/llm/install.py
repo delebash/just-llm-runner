@@ -258,8 +258,10 @@ def install_llm(
     feature_presets=None,
     default_preset_id="",
     model_catalog_extra=None,
-    seed_default_model_catalog=None,
     model_tunes_seed=None,
+    class_tunes_seed=None,
+    class_tune_identity=None,
+    embed_templates=None,
     test_samples=None,
     feature_prompt_heals=None,
     prefer_local_features: Iterable[str] | None = None,
@@ -294,8 +296,15 @@ def install_llm(
     # Normalize the optional feature data. Empty — never None — reaches
     # configure_app_seed, because None there means "leave any prior registration
     # in place" (a stale-state hazard for the second install in one process).
+    # Same for every per-app seed registration below: an install that doesn't
+    # pass one CLEARS any prior process-state rather than inheriting it.
     feature_catalog = list(feature_catalog or ())
     feature_prompts = dict(feature_prompts or {})
+    model_catalog_extra = list(model_catalog_extra or ())
+    model_tunes_seed = list(model_tunes_seed or ())
+    class_tunes_seed = list(class_tunes_seed or ())
+    class_tune_identity = dict(class_tune_identity or {})
+    embed_templates = list(embed_templates or ())
     if data_dir is None:
         # Loud, once per install: without a data_dir the runner's engine + every
         # downloaded GGUF land in ~/.cache/just-llm-runner — OUTSIDE the app's data
@@ -317,8 +326,10 @@ def install_llm(
         engine_presets=engine_presets, feature_presets=feature_presets,
         default_preset_id=default_preset_id,
         model_catalog_extra=model_catalog_extra,
-        seed_default_model_catalog=seed_default_model_catalog,
         model_tunes_seed=model_tunes_seed,
+        class_tunes_seed=class_tunes_seed,
+        class_tune_identity=class_tune_identity,
+        embed_templates=embed_templates,
         hw_key_fn=_current_hw_key,
         test_samples=test_samples,
         feature_prompt_heals=feature_prompt_heals,

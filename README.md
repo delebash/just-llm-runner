@@ -74,7 +74,9 @@ Every local llama-server launch resolves its flags in four tiers, strongest last
   `llama-server` spawn with probe-and-back-off on CUDA OOM (lifecycle:
   start/stop/health/url; the port is allocated, never assumed).
 - `scripts/seed-facts-audit.py` — standalone stdlib tripwire for the seeded
-  model catalogs (runner `DEFAULT_CATALOG` + JustWrite's extra rows): per row
+  model catalogs (per-app since decision ④ 2026-08-05 — JustWrite's
+  `JW_CURATED_CATALOG` + extra rows; the runner's `DEFAULT_CATALOG` ships
+  empty, mechanism only): per row
   the HF repo must exist, the seeded license must match the repo's tag AND its
   declared `base_model`'s tag (de-circularized — a repackager mislabel flags
   instead of self-confirming), and the quant / MTP-draft files must be in the

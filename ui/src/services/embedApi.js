@@ -64,8 +64,8 @@ async function pollEmbedResident(modelId, signal) {
       if (READY_STATES.has(row.status)) return;
       if (row.status === "error" || row.status === "failed") {
         throw new Error(
-          `The local embedding model "${modelId}" failed to load. Open Settings → AI → ` +
-          `Built-in engine to see the model log, then try again.`,
+          `The local embedding model "${modelId}" failed to load. Open the AI page ` +
+          `and Edit the built-in provider to see the model log, then try again.`,
         );
       }
     }

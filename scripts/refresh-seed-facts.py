@@ -12,8 +12,9 @@ of all (its header truth + inherited drafter were never verified). No guessing:
 every value written here is read live from the file via the very same code path.
 
 Sources (same two the seed-facts audit walks):
-  - runner:    llm_runner/llm/seed.py         :: DEFAULT_CATALOG
+  - runner:    llm_runner/llm/seed.py         :: DEFAULT_CATALOG (empty since ④)
   - JustWrite: <sibling>/server/justwrite_server/seed_presets.py :: DEFAULT_MODEL_CATALOG_EXTRA
+                                                                  + JW_CURATED_CATALOG
 
 Scalar facts reconciled + (with --write) rewritten IN PLACE, per row:
   mtp_builtin (nextn_predict_layers>0) · type (moe|dense) · experts · architecture ·
@@ -220,10 +221,13 @@ def main() -> int:
     except (AttributeError, ValueError):
         pass
 
+    # Decision ④ (2026-08-05): the runner's DEFAULT_CATALOG is empty by design;
+    # the curated ladder refreshes from JW's seed (JW_CURATED_CATALOG) now.
     sources: list[tuple[Path, str]] = [(RUNNER_SEED, "DEFAULT_CATALOG")]
     jw_path = Path(args.jw_seed)
     if jw_path.is_file():
         sources.append((jw_path, "DEFAULT_MODEL_CATALOG_EXTRA"))
+        sources.append((jw_path, "JW_CURATED_CATALOG"))
     else:
         print(f"note: JW seed not found at {jw_path} — runner catalog only")
 

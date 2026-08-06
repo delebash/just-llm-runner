@@ -145,6 +145,24 @@ export function pickBestEmbedId(models, { leftoverMb, qualityOf, isEmbed, minVra
 }
 
 /**
+ * The wizard's CATALOG state — which confirm-screen branch renders (family parity
+ * batch 2026-08-05, decision ④: the shared DEFAULT_CATALOG is empty now, so "this
+ * app seeds no chat rows" is a REAL state; showing it the no-model-runs-on-this-
+ * machine copy would blame the user's hardware for an empty list).
+ *   "empty"    → the catalog has NO chat (non-embedding) rows at all
+ *   "none-fit" → chat rows exist but none clears the wizard's fit set
+ *   "ok"       → at least one chat row fits
+ * Pure — truth-table-tested in scripts/verify-model-pick.mjs.
+ * @param {Array}  models  fit-annotated rows ([{id, fit, …}])
+ * @param {Object} accessors  { isEmbed(m) → boolean, fitSet? (default FIT_GPU) }
+ */
+export function catalogState(models, { isEmbed, fitSet }) {
+  const chat = (models || []).filter((m) => !isEmbed(m));
+  if (!chat.length) return "empty";
+  return chat.some((m) => (fitSet || FIT_GPU).has(m.fit)) ? "ok" : "none-fit";
+}
+
+/**
  * The ONE composed auto-pick rule — QuickSetup's pick AND the catalog's
  * "Recommended for this PC" badge call THIS (one source, no drift; extracted
  * 2026-07-06, providers-surface redesign item 2; re-based 2026-07-22 onto the

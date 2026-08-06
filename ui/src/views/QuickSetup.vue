@@ -27,7 +27,7 @@ import { request } from "../client.js";
 import { useHardware } from "../composables/useHardware.js";
 import { listClassTunes } from "../classTunes.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
-import { recommendedModelId, pickBestEmbedId, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
+import { recommendedModelId, pickBestEmbedId, catalogState, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
 import { applyPreview, currentDefaultId, currentDefaultProviderId, modelHasTunes, refreshApplied, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import { fmtTps } from "../common/services/runStats.js";
@@ -270,6 +270,13 @@ function bestFittingId() {
 // Apply is enabled once there's a fitting local pick; a box with nothing that fits
 // stays disabled (the empty-state points at a bigger card / a smaller model).
 const applyDisabled = computed(() => !fitting.value.length || !pick.value.default);
+
+// Which no-model branch renders (decision ④, 2026-08-05 — the pure rule in
+// modelPick.js): "empty" = this app seeds no chat rows at all (a REAL state now
+// that the shared catalog ships empty), "none-fit" = rows exist but this machine
+// can't run them. The two need different words — the no-fit copy blames the
+// hardware, which is a lie on an empty catalog.
+const catState = computed(() => catalogState(models.value, { isEmbed }));
 
 // A friendly verdict headline (the LocalProse-comparison review, 2026-07-19): derived from
 // the REAL fit of the picked model so it never overpromises — a full-GPU fit reads "the full
@@ -784,7 +791,9 @@ defineExpose({ openWizard });
         </section>
 
         <p v-if="fitVerdict" class="lu-qs-verdict">{{ fitVerdict }}</p>
-        <p class="lu-muted lu-qs-req">Requirements: a video card with at least 8 GB VRAM and 32 GB of system RAM.</p>
+        <!-- Hardware requirements only make sense when there ARE curated models
+             to run (an empty catalog has no floor to state). -->
+        <p v-if="catState !== 'empty'" class="lu-muted lu-qs-req">Requirements: a video card with at least 8 GB VRAM and 32 GB of system RAM.</p>
 
         <section class="lu-qs-sec">
           <div class="lu-qs-k">Detected</div>
@@ -811,6 +820,15 @@ defineExpose({ openWizard });
             quality. That's how a capable model fits your card.
           </p>
         </template>
+        <!-- TWO distinct no-model states (decision ④): an EMPTY catalog is this
+             app's seed choice, not the machine's fault — say so. -->
+        <div v-else-if="catState === 'empty'" class="lu-qs-empty">
+          No curated models — add one or connect a provider. This app ships no
+          ready-made model list: add a model to the catalog (<b>Edit</b> the
+          built-in provider → <b>Add a model</b> — any Hugging Face GGUF link
+          works), or connect an <b>online provider</b>. Every AI feature works
+          either way.
+        </div>
         <div v-else class="lu-qs-empty">
           No local model can run well on this machine — generating on the CPU alone is too slow
           for writing. You can still use every AI feature by connecting an <b>online provider</b>

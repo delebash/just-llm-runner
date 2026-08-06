@@ -8,7 +8,7 @@
 // JustWrite's polished Settings → AI engines (outer card, icon, name, URL on its
 // own line, model + key on the next, status + Test + Edit). The Features routing
 // table + the per-provider local-model/Fit section are the next chunks.
-import { computed, nextTick, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 
 import AppModal from "../common/components/AppModal.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -24,6 +24,7 @@ import QuickSetup from "./QuickSetup.vue";
 import PricingEditor from "./PricingEditor.vue";
 import ConsolePanel from "../components/ConsolePanel.vue";
 import LuBookSearchSetup from "../components/LuBookSearchSetup.vue";
+import LuModelCatalog from "../components/LuModelCatalog.vue";
 import LuEngineInstallButton from "../components/LuEngineInstallButton.vue";
 import LuEngineUpdateButton from "../components/LuEngineUpdateButton.vue";
 import LuWarmStartupToggle from "../components/LuWarmStartupToggle.vue";
@@ -46,15 +47,34 @@ import { llmUiCapabilities } from "../installLlmUi.js";
 // surfaces, can't drift).
 const { engineState: engState, checkForUpdate, refreshEngine, updateInfo: engineUpdateInfo, statusKnown: engineStatusKnown, installed: engineInstalled, installing: engineInstalling } = useEngine();
 
-// Host-contributed tab: an app passes a label + fills the #app-tab slot with its
-// own AI-domain settings (e.g. JustWrite's "Writing AI" — voice canon, RAG
-// auto-rebuild, variations). Keeps ALL AI settings in this one shared area while
-// each app's specifics stay app-side. Empty label → no extra tab.
+// Host-contributed tabs: an app passes appTabLabel + #app-tab (one tab) or the
+// appTabs array + #app-tab-<id> slots (many, positioned) with its own AI-domain
+// surfaces (JW's "Writing AI"; JV's "TTS providers" / "Speech engines"). Keeps
+// ALL AI settings in this one shared area while each app's specifics stay
+// app-side. No label/entries → no extra tabs.
 // A no-embeddings host hides every embed affordance (the capability, not per-flag).
 const embedsOn = llmUiCapabilities().embeddings !== false;
 
 const props = defineProps({
   appTabLabel: { type: String, default: "" },
+  // MULTI host tabs (family parity batch 2026-08-05): [{ id, label, after? }].
+  // Each entry renders a tab whose content the host fills via the named slot
+  // `app-tab-<id>`. `after` anchors it behind a kit tab id ('providers' |
+  // 'models' | 'features' | 'usage' | 'console') or an earlier app tab id;
+  // without it the tab sits in the legacy slot (after Routing, before Usage).
+  // The single-tab `appTabLabel` + `#app-tab` API above stays back-compatible —
+  // it is exactly `appTabs: [{ id: 'app', label: appTabLabel }]`.
+  appTabs: { type: Array, default: () => [] },
+  // Deep-link seam (?tab=<id>, host-passed like the other ?-seams): land on this
+  // tab after mount. Unknown / empty → the first tab (providers).
+  initialTab: { type: String, default: "" },
+  // OPT-IN kit Models tab (decision trail: JV's console holds TWO provider kinds,
+  // so "Providers & models" stopped naming one thing there). ON → the model
+  // catalog renders as its own tab right after Providers — the SAME shared
+  // LuModelCatalog the built-in provider's Edit shows (one component, one store,
+  // two surfaces can't drift — the engine-buttons precedent). OFF (default) →
+  // JW/docgen keep the combined tab, unchanged.
+  modelsTab: { type: Boolean, default: false },
   // Host runner forwarded to the Feature Workbench test panel (streaming +
   // cancel + the app's batch AI list). See FeatureWorkbench `runStream`.
   runStream: { type: Function, default: null },
@@ -81,6 +101,49 @@ const emit = defineEmits(["quick-setup-closed"]);
 // existed only for the Tune→Tasks switch-carry handoff, removed with §7.1: engine
 // switches live on the model, so there is nothing to hand to the Lab anymore.)
 const tab = ref("providers");
+
+// ── The tab strip, as data (multi host tabs, 2026-08-05) ─────────────────────
+// Kit tabs + the host's appTabs merged into ONE ordered list. `after` inserts
+// behind the named id; entries without it take the legacy single-tab slot
+// (after Routing) so `appTabLabel` hosts render exactly as before.
+const tabDefs = computed(() => {
+  const defs = [{ id: "providers", label: TAB_LABELS.providers, kit: true }];
+  if (props.modelsTab) defs.push({ id: "models", label: TAB_LABELS.models, kit: true });
+  defs.push({ id: "features", label: TAB_LABELS.routing, kit: true });
+  const legacy = props.appTabLabel ? [{ id: "app", label: props.appTabLabel, slot: "app-tab" }] : [];
+  const anchored = [];
+  const floating = [...legacy];
+  for (const t of props.appTabs || []) {
+    if (!t?.id) continue;
+    const def = { id: t.id, label: t.label || t.id, slot: `app-tab-${t.id}` };
+    (t.after ? anchored : floating).push({ ...def, after: t.after });
+  }
+  defs.push(...floating);
+  defs.push({ id: "usage", label: TAB_LABELS.usage, kit: true });
+  defs.push({ id: "console", label: TAB_LABELS.console, kit: true });
+  for (const t of anchored) {
+    const at = defs.findIndex((d) => d.id === t.after);
+    // An unknown anchor falls back to the legacy slot's neighborhood (before
+    // Usage) rather than vanishing — a misspelled `after` must stay visible.
+    defs.splice(at >= 0 ? at + 1 : defs.findIndex((d) => d.id === "usage"), 0, t);
+  }
+  return defs;
+});
+const appTabDefs = computed(() => tabDefs.value.filter((t) => !t.kit));
+
+// Lazy mount: a host tab's content mounts on FIRST activation and stays mounted
+// after (v-show), so switching away keeps its state — same reason the provider
+// tab is v-show (the qsRef note below).
+const visitedTabs = ref(new Set(["providers"]));
+watch(tab, (id) => {
+  if (!visitedTabs.value.has(id)) {
+    visitedTabs.value = new Set([...visitedTabs.value, id]);
+  }
+}, { immediate: true });
+// ?tab= deep link: adopt it only when it names a real tab.
+if (props.initialTab && tabDefs.value.some((t) => t.id === props.initialTab)) {
+  tab.value = props.initialTab;
+}
 // Local vs Online is a TAB on the provider list (not two stacked eyebrow groups) —
 // deliberately NOT named `tab`, which is the page subnav above.
 const providerScope = ref(props.initialProviderScope === "online" ? "online" : "local");
@@ -440,15 +503,11 @@ onMounted(() => {
         @click="copyDebugInfo">{{ debugCopied ? "Copied ✓" : "Copy debug info" }}</UiButton>
     </div>
 
-    <!-- Tab words come from the FAMILY CONTRACT (one canon, every app); only the
-         5th tab is host voice via appTabLabel. -->
+    <!-- ONE strip from tabDefs: kit tab words come from the FAMILY CONTRACT (one
+         canon, every app — an app relabels via its labels feed); host tabs carry
+         the app's own words. The strip WRAPS (the fit rule) — labels never clip. -->
     <nav class="lu-subnav">
-      <a :class="{ on: tab === 'providers' }" @click="tab = 'providers'">{{ TAB_LABELS.providers }}</a>
-      <a :class="{ on: tab === 'features' }" @click="tab = 'features'">{{ TAB_LABELS.routing }}</a>
-      <a v-if="props.appTabLabel" :class="{ on: tab === 'app' }" @click="tab = 'app'">{{ props.appTabLabel }}</a>
-      <a :class="{ on: tab === 'usage' }" @click="tab = 'usage'">{{ TAB_LABELS.usage }}</a>
-      <!-- QC-43c: live server-console tab — the server log ring + the engine child's output. -->
-      <a :class="{ on: tab === 'console' }" @click="tab = 'console'">{{ TAB_LABELS.console }}</a>
+      <a v-for="t in tabDefs" :key="t.id" :class="{ on: tab === t.id }" @click="tab = t.id">{{ t.label }}</a>
     </nav>
 
     <div v-if="error" class="lu-error" style="margin-top:14px">{{ error }}</div>
@@ -613,6 +672,13 @@ onMounted(() => {
       </div>
     </section>
 
+    <!-- ── Models (opt-in split, `modelsTab`) — the SAME shared catalog surface the
+         built-in provider's Edit mounts; lazy (first visit), then kept mounted so a
+         running download's progress survives a tab switch. ── -->
+    <section v-if="props.modelsTab && visitedTabs.has('models')" v-show="tab === 'models'" class="lu-tab">
+      <LuModelCatalog />
+    </section>
+
     <!-- ── Routing by feature — the Feature Workbench: per-feature preset (model +
          ask-params/samplers live in the preset; launch switches live on the MODEL —
          Tune & measure, §7.1). ── -->
@@ -671,9 +737,11 @@ onMounted(() => {
       <ConsolePanel v-if="tab === 'console'" />
     </section>
 
-    <!-- ── App-contributed tab (host fills #app-tab; e.g. JW "Writing AI") ── -->
-    <section v-if="props.appTabLabel" v-show="tab === 'app'" class="lu-tab">
-      <slot name="app-tab" />
+    <!-- ── App-contributed tabs (host fills #app-tab / #app-tab-<id>; e.g. JW
+         "Writing AI", JV "Speech engines"). Lazy: mounted on first visit, kept
+         mounted after so tab state (an in-flight install, a scroll) survives. ── -->
+    <section v-for="t in appTabDefs" :key="t.id" v-show="tab === t.id" class="lu-tab">
+      <slot v-if="visitedTabs.has(t.id)" :name="t.slot" />
     </section>
   </div>
 </template>
@@ -696,7 +764,9 @@ onMounted(() => {
    under it. var(--surface) backing matches the host card so rows pass cleanly
    beneath; the pseudo-element bleeds the bg over the host's scroll padding so
    nothing peeks above the bar. */
-.lu-subnav { display: flex; gap: 4px; margin-top: 22px; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; background: var(--surface); }
+/* flex-wrap is the fit rule: a strip that outgrows its row WRAPS — labels never
+   clip and never overflow (the JV seven-tab console is the sizing case). */
+.lu-subnav { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 22px; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; background: var(--surface); }
 /* Cover the host card's scroll padding above the stuck bar so rows don't peek
    through. Height == the subnav's top margin so it fills that gap exactly when
    unstuck (over the same surface bg → invisible) and the padding band when stuck. */

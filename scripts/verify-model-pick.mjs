@@ -5,7 +5,7 @@
 // Phase 3, so a card-override probe can't construct the two side-by-side deterministically.
 // This does, purely and re-runnably.
 //   Run:  node scripts/verify-model-pick.mjs      (exit 0 = all pass, 1 = any fail)
-import { FIT_GPU, pickBestEmbedId, pickBestModel, pickByClassConfig, pickLowestQuality, recommendedModelId } from "../ui/src/common/services/modelPick.js";
+import { FIT_GPU, catalogState, pickBestEmbedId, pickBestModel, pickByClassConfig, pickLowestQuality, recommendedModelId } from "../ui/src/common/services/modelPick.js";
 
 // A tiny test model. fit ∈ ok|tight|cpu|no|unknown; type ∈ dense|moe.
 const M = (id, fit, type, quality, extra = {}) =>
@@ -180,6 +180,18 @@ check("unrunnable embeds (fit \"no\") are excluded even with the best rank",
 check("no embeds at all → ''", pe([M("chat", "ok", "dense", 1)], 5000), "");
 check("empty input → ''", pe([], 5000), "");
 
-console.log(`\n§10 + class-config + composed-pick + #274-embed truth-table: ${pass} passed, ${fail} failed.`);
+// ── catalogState (decision ④, 2026-08-05): the wizard's confirm branch. An app that
+//    seeds NO chat rows (the shared DEFAULT_CATALOG is empty now) must see the
+//    "empty" state — the no-fit copy would blame the machine for an empty list. ──
+const cs = (models) => catalogState(models, { isEmbed: (m) => m.embed });
+check("catalogState: no rows at all → empty", cs([]), "empty");
+check("catalogState: only embed rows → empty (no CHAT rows)",
+  cs([M("e", "ok", "dense", 50, { embed: true })]), "empty");
+check("catalogState: chat rows, none fit → none-fit",
+  cs([M("d-no", "no", "dense", 10), M("d-cpu", "cpu", "dense", 20)]), "none-fit");
+check("catalogState: a fitting chat row → ok",
+  cs([M("d-no", "no", "dense", 10), M("m-tight", "tight", "moe", 20)]), "ok");
+
+console.log(`\n§10 + class-config + composed-pick + #274-embed + catalog-state truth-table: ${pass} passed, ${fail} failed.`);
 process.exit(fail ? 1 : 0);
 

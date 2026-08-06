@@ -60,7 +60,7 @@ _EXPORTS = {
     # dispatch
     "chat": "dispatch", "stream_chat": "dispatch", "resolve_pin": "dispatch",
     "resolve_tier": "dispatch", "active_production_config": "dispatch",
-    "LLMNotConfiguredError": "dispatch",
+    "LLMNotConfiguredError": "dispatch", "set_not_configured_message": "dispatch",
     # prompts (per-feature prompt store contract + render + router factories +
     # run_action — THE non-stream run path the route and in-server callers share)
     "FeaturePromptRow": "prompts", "PromptStore": "prompts", "render": "prompts",

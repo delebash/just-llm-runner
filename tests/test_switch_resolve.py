@@ -30,10 +30,15 @@ def configured():
 
 
 def test_mtp_model_auto_enables_draft_mtp(configured):
-    # GLM-4.5-Air is type=moe AND mtp=True → base + moe + the GATED mtp preset:
+    # A type=moe row with built-in MTP → base + moe + the GATED mtp preset:
     # spec_type=draft-mtp + the measured spec_n_max=2 auto-apply (Plan B D3 —
     # auto-on because the model is built-in capable; the user can uncheck).
-    # (Exhibit was the 35B-A3B until the 2026-07-25 catalog trim removed it.)
+    # (The exhibit was the seeded GLM-4.5-Air until decision ④ emptied the shared
+    # catalog — the row is inserted here with the same shape.)
+    s = db.session()
+    s.add(db.ModelCatalog(id="glm-4.5-air", name="GLM", type="moe", mtp=True, mtp_builtin=True))
+    s.commit()
+    s.close()
     sw = switch_resolve.resolve_model_switches("glm-4.5-air")
     assert sw["spec_type"] == "draft-mtp"
     assert sw["spec_n_max"] == "2"         # the user-measured seed (≠ knob default 3)
@@ -110,6 +115,7 @@ def test_origins_track_the_writing_layer(configured):
     # wrote each key — base for the bundle rows, class for a class-tune row, tune
     # for the machine's own saved value (later layers overwrite earlier origins).
     s = db.session()
+    s.add(db.ModelCatalog(id="glm-4.5-air", name="GLM", type="moe", mtp=True, mtp_builtin=True))
     s.add(db.ClassTune(model_id="glm-4.5-air", class_key="vram8|ram32",
                        flag_name="n_cpu_moe", flag_value="21", built_in=True))
     s.add(db.ModelTune(model_id="glm-4.5-air", hw_key="k1",
@@ -175,31 +181,44 @@ def test_model_tune_overrides_class_tune(configured):
     assert sw["n_cpu_moe"] == "23"
 
 
-def test_seed_default_class_tunes_seeds_the_gemma_rows(configured):
-    s = db.session()
-    assert seed.seed_default_class_tunes(s) == 13   # 4 pre-band + 9 dGPU band recs (incl. the measured vram8|ram16)
-    s.commit()
-    dgpu = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
-        db.ClassTune.model_id == "gemma-4-26b-a4b-qat", db.ClassTune.class_key == "dgpu-vram8|ram32").all()}
-    igpu = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
-        db.ClassTune.model_id == "gemma-4-26b-a4b-qat", db.ClassTune.class_key == "igpu-mem32").all()}
-    s.close()
-    assert dgpu["n_cpu_moe"] == "21"          # the tested floor (20 OOMs), not the sweep's 23
-    assert dgpu["ctx_len"] == "32768"
-    assert dgpu["batch_size"] == "512"
-    assert dgpu["reasoning_budget"] == "1024"
-    assert "context_shift" not in dgpu and "cache_reuse" not in dgpu   # Gemma iSWA: never
-    # The integrated-GPU class (kit matrix): UMA one pool -> no expert offload, and
-    # flash-attn OFF (it hurts this iGPU; overrides the base bundle's "on", right only for CUDA).
-    assert igpu["n_gpu_layers"] == "99"
-    assert igpu["n_cpu_moe"] == "0"
-    assert igpu["flash_attn"] == "off"
-    assert igpu["ubatch_size"] == "512"
-    assert "threads" not in igpu             # machine-specific — derived per box, not class-baked
-    # idempotent (merge-by-(model, class)) — a re-seed adds nothing
-    s = db.session()
-    assert seed.seed_default_class_tunes(s) == 0
-    s.close()
+def test_seed_default_class_tunes_seeds_the_registered_app_rows(configured):
+    """Since decision ④ (2026-08-05) class tunes are the APP's registration
+    (install_llm class_tunes_seed; the gemma rows this test used to pin moved to
+    JW's seed_presets.py, where JW's own test_seed guards them). What stays under
+    test HERE is the mechanism: registered rows seed, multi-flag rows land whole,
+    a re-seed is idempotent, and a user's existing (model, class) is never
+    clobbered."""
+    seed.configure_app_seed(class_tunes_seed=[
+        {"model_id": "m-a", "class_key": "dgpu-vram8|ram32", "switches": {
+            "n_gpu_layers": "99", "n_cpu_moe": "21", "ctx_len": "32768",
+            "batch_size": "512", "reasoning_budget": "1024"}},
+        {"model_id": "m-a", "class_key": "igpu-mem32", "switches": {
+            "n_gpu_layers": "99", "n_cpu_moe": "0", "flash_attn": "off",
+            "ubatch_size": "512"}},
+    ])
+    try:
+        s = db.session()
+        # A user's PRE-EXISTING config for one of the registered (model, class)
+        # pairs — the seed must skip it whole.
+        s.add(db.ClassTune(model_id="m-a", class_key="igpu-mem32",
+                           flag_name="ctx_len", flag_value="8192", built_in=False))
+        s.commit()
+        assert seed.seed_default_class_tunes(s) == 1   # only the un-owned pair seeds
+        s.commit()
+        dgpu = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
+            db.ClassTune.model_id == "m-a", db.ClassTune.class_key == "dgpu-vram8|ram32").all()}
+        igpu = {r.flag_name: r.flag_value for r in s.query(db.ClassTune).filter(
+            db.ClassTune.model_id == "m-a", db.ClassTune.class_key == "igpu-mem32").all()}
+        s.close()
+        assert dgpu == {"n_gpu_layers": "99", "n_cpu_moe": "21", "ctx_len": "32768",
+                        "batch_size": "512", "reasoning_budget": "1024"}
+        assert igpu == {"ctx_len": "8192"}   # the user's config, untouched
+        # idempotent (merge-by-(model, class)) — a re-seed adds nothing
+        s = db.session()
+        assert seed.seed_default_class_tunes(s) == 0
+        s.close()
+    finally:
+        seed.configure_app_seed(class_tunes_seed=[])
 
 
 def test_class_key_bands_to_gb():

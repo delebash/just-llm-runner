@@ -6,7 +6,7 @@
 // show verbose "Chat stream error 500: …" to the user.
 
 const PROVIDER_HINTS = {
-  401: "Authentication failed — check the API key in Settings → AI providers.",
+  401: "Authentication failed — check the provider's API key on the AI page.",
   402: "Payment required — your provider says you're out of credit.",
   403: "Access denied — the API key may not have permission for this model.",
   404: "Endpoint not found — the Base URL or model name may be wrong.",

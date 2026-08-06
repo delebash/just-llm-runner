@@ -19,6 +19,7 @@ import UiSelect from "../common/components/UiSelect.vue";
 import UiTextarea from "../common/components/UiTextarea.vue";
 import { request } from "../client.js";
 import { familyLabels } from "../common/services/familyLabels.js";
+import { labAdapterFor } from "../services/labAdapters.js";
 import { mergeVariables, testDataAction, testDataSources } from "../common/services/testData.js";
 import { pushToast } from "../common/services/toastBridge.js";
 import { presetToThinkingControl, thinkingControlToWire } from "../thinkingControl.js";
@@ -45,6 +46,9 @@ const props = defineProps({
 const emit = defineEmits(["use-production", "presets-changed", "prompt-changed", "refresh-preview"]);
 
 const promptless = computed(() => !props.prompt && !!props.builtPrompt);
+// The feature's Lab adapter (labAdapters.js): looked up by FEATURE key — the
+// prompt row's feature, or the action itself on a promptless/feature pane.
+const labAdapter = computed(() => labAdapterFor(props.prompt?.feature || props.action));
 const promptUnlocked = ref(false); // reveal per-column editable copies (test-only)
 const previewEpoch = ref(0);       // re-keys the strip so columns re-seed on Refresh
 // The promptless words come from the ONE labels store (decision 2026-08-04: no new
@@ -317,6 +321,7 @@ const columnConfig = computed(() => {
     </div>
     <CompareStrip :key="promptless ? `${action}:${previewEpoch}` : action"
       :action="action" :base-config="columnConfig" :providers="providers"
+      :adapter="labAdapter"
       :sampler-catalog-list="samplerCatalogList"
       :prompt-editable="!promptless || promptUnlocked"
       :json-toggle="!promptless"

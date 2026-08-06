@@ -80,7 +80,14 @@ def make_data_router(
                 zf.write(f, f"{arcname}/{f.relative_to(d).as_posix()}")
 
     @router.get("/backup")
-    async def backup() -> StreamingResponse:
+    async def backup(exclude: str = "") -> StreamingResponse:
+        # `exclude` = comma-separated asset-dir ARCNAMES to leave out of this
+        # backup (the kit DataManagement's per-app options seam — decision ①,
+        # family parity batch 2026-08-05: JV skips its generated audio). Unknown
+        # names are ignored; the DB is never excludable. A restore of a backup
+        # missing a declared dir leaves the live copy of that dir untouched
+        # (the existing `bdir.is_dir()` guard below).
+        skip = {k.strip() for k in exclude.split(",") if k.strip()}
         db_path = Path(get_db_path())
         if not db_path.exists():
             raise HTTPException(status_code=404, detail="no database to back up")
@@ -97,6 +104,8 @@ def make_data_router(
             with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.write(clean, _DB_ARCNAME)
                 for arcname, d in _assets().items():
+                    if arcname in skip:
+                        continue
                     _add_dir(zf, arcname, Path(d))
             payload = buf.getvalue()
         return StreamingResponse(

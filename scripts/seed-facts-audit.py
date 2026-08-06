@@ -18,8 +18,10 @@ Per seeded catalog row (model-per-hardware plan §Phase 5 + amendment A4):
 
 Sources walked:
   - runner:    llm_runner/llm/seed.py                       :: DEFAULT_CATALOG
+               (EMPTY by design since decision ④ 2026-08-05 — kept in the walk)
   - JustWrite: seed_presets.py (--jw-seed / JW_SEED_PRESETS / the sibling-checkout
                default)                                      :: DEFAULT_MODEL_CATALOG_EXTRA
+                                                              + JW_CURATED_CATALOG
 
 Both symbols are extracted by AST literal parse — NO import of llm_runner or
 justwrite_server. Deliberate: the auditor runs with a bare python3 anywhere and
@@ -311,12 +313,16 @@ def main() -> int:
     )
     args = p.parse_args()
 
+    # Decision ④ (2026-08-05): the runner's DEFAULT_CATALOG is empty by design —
+    # kept in the walk so a row ever re-added there is still audited. The curated
+    # ladder lives in JW's seed now (JW_CURATED_CATALOG, beside its extra rows).
     rows: list[tuple[str, dict]] = [
         ("runner", r) for r in load_literal(RUNNER_SEED, "DEFAULT_CATALOG")
     ]
     jw_path = Path(args.jw_seed) if args.jw_seed else JW_SEED_SIBLING
     if jw_path.is_file():
         rows += [("jw", r) for r in load_literal(jw_path, "DEFAULT_MODEL_CATALOG_EXTRA")]
+        rows += [("jw", r) for r in load_literal(jw_path, "JW_CURATED_CATALOG")]
     else:
         print(
             f"note: JW seed not found at {jw_path} — auditing the runner catalog only "

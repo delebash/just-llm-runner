@@ -44,9 +44,14 @@ export const FAMILY_LABELS = {
     close: "Close",
   },
 
-  // The AI area's tab strip (the 5th tab is host-supplied app voice).
+  // The AI area's tab strip (host tabs are app voice via the appTabs seam).
   aiTabs: {
     providers: "Providers & models",
+    // The OPT-IN split tab (family parity batch 2026-08-05): an app that turns on
+    // `modelsTab` (JustVoice — its area also holds TTS, so "Providers & models"
+    // stopped naming one thing) renders the model catalog as its own tab. Apps on
+    // the combined tab never show this word.
+    models: "Models",
     routing: "Routing by feature",
     usage: "Usage",
     // "AI engine console" (family ruling 2026-08-05): the tab shows the AI
@@ -118,13 +123,20 @@ export const FAMILY_LABELS = {
     skip: "Skip for now",
   },
 
-  // Settings — canonical section names for concepts BOTH apps have; an app may add
+  // Settings — canonical section names for concepts the apps share; an app may add
   // its own sections (Reviewer) but shared concepts share these exact words.
+  // CANON ORDER (family parity batch 2026-08-05): the shared sections keep this
+  // RELATIVE order — General · Appearance · Backups · Storage · Server · Logs ·
+  // Updates · About — while app-own sections may lead or interleave (JW's Project
+  // stays first). Backup/restore lives in Backups (kit DataManagement), never in
+  // Storage (Storage = data location + disk usage only).
   settingsSections: {
     appearance: "Appearance",
+    backups: "Backups",
     storage: "Storage",
     server: "Server", // ruling 2026-08-04: headless access + tokens live HERE, both apps
     logs: "Logs",
+    updates: "Updates",
     about: "About",
   },
 

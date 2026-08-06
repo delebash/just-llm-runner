@@ -119,76 +119,47 @@ def _fresh_db():
     db.configure_storage(sessionmaker(bind=eng, autoflush=False))
 
 
-def test_seed_rows_match_model_cards():
+def test_shared_seed_is_empty_and_registered_app_templates_seed():
+    """Decision ④ (family parity batch 2026-08-05): an embed template describes an
+    APP's catalog row, so the shared DEFAULT_EMBED_TEMPLATES is empty and an app
+    registers its own via install_llm(embed_templates=…) — carried on both seed
+    paths by the _APP registration. (The old JW-content assertions — the Qwen3/
+    KaLM ladder facts — moved to justwrite-app's server tests with the data.)"""
+    assert seed.DEFAULT_EMBED_TEMPLATES == []
     _fresh_db()
-    s = db.session()
-    seed.seed_default_embed_templates(s)
-    s.commit()
-    s.close()
-    st = stores.get_embed_template_store()
-    # The 2026-07-25 trim: the seeded set is the two Qwen3 rows + the KaLM contender,
-    # all instruction-aware on the QUERY side only (each card verified) — document
-    # side passes through plain. The removed rows (nomic/0.6b/bge) seed nothing.
-    for mid in ("qwen3-embedding-4b", "qwen3-embedding-8b", "kalm-embedding-gemma3-12b"):
-        row = st.get(mid)
+    seed.configure_app_seed(embed_templates=[
+        {"id": "app-embed", "document": "", "query": "Instruct: app task\nQuery: {text}"},
+    ])
+    try:
+        s = db.session()
+        seed.seed_default_embed_templates(s)
+        s.commit()
+        s.close()
+        row = stores.get_embed_template_store().get("app-embed")
         assert row.documentTemplate == "" and row.queryTemplate.startswith("Instruct: ")
-        assert "{text}" in row.queryTemplate
-    assert st.get("nomic-embed-text") is None  # trimmed 2026-07-25 → no seeded row
-    assert st.get("bge-m3") is None            # never needed templates, now also trimmed
-
-
-def test_embed_catalog_ladder_and_the_4b_row():
-    """The seeded embed ladder — trimmed 2026-07-25 (the user's ruling after the fresh
-    survey) to three rows with distinct jobs: the 4B default (CPU-tier → always eligible;
-    won the 2026-07-12 on-box A/B vs the since-removed 0.6B), the proven 8B big-card rung,
-    and the KaLM-Gemma3-12B contender (2026 board leader, untested here — ranked BELOW
-    the 8B on purpose so the pick rule never auto-recommends it). Embeds run on CPU by
-    policy, so eligibility is judged on RAM, not the VRAM leftover."""
-    rows = {r["id"]: r for r in seed.DEFAULT_CATALOG}
-    b4 = rows["qwen3-embedding-4b"]
-    assert b4["embedding"] is True and b4["pooling"] == "last"
-    assert b4["hf_repo"] == "Qwen/Qwen3-Embedding-4B-GGUF" and b4["quant"] == "Q4_K_M"
-    assert b4["size_bytes"] == 2496703776 and b4["trained_ctx"] == 40960
-
-    embeds = {rid: r for rid, r in rows.items() if r.get("embedding")}
-    ranks = {rid: r["quality_rank"] for rid, r in embeds.items()}
-    # The trimmed ladder (2026-07-25): the proven 8B outranks the untested KaLM
-    # contender ON PURPOSE — rank is what the pick rule reads, so an untested model
-    # must never outrank the proven one (availability ≠ recommendation); the 4B is
-    # the always-eligible CPU-tier default below both.
-    assert (
-        ranks["qwen3-embedding-8b"]
-        < ranks["kalm-embedding-gemma3-12b"]
-        < ranks["qwen3-embedding-4b"]
-    )
-    assert set(embeds) == {"qwen3-embedding-4b", "qwen3-embedding-8b", "kalm-embedding-gemma3-12b"}
-    # The 4B is the ONE CPU-band embed (always eligible — judged on RAM, not VRAM
-    # leftover); the 8B and the KaLM stay VRAM-gated tiers (the big-GPU rungs).
-    assert embeds["qwen3-embedding-4b"]["tier"] == "cpu"
-    assert embeds["qwen3-embedding-8b"]["tier"] != "cpu"
-    assert embeds["kalm-embedding-gemma3-12b"]["tier"] != "cpu"
-    # Every served hardware class carries ≥16 GB RAM, so the 4B's 8 GB floor makes it
-    # the default everywhere the app runs.
-    assert b4["min_ram_mb"] == 8000
-    # The 4B rides the same instruct query template as its Qwen3 siblings.
-    tpl = {t["id"]: t for t in seed.DEFAULT_EMBED_TEMPLATES}
-    assert tpl["qwen3-embedding-4b"]["document"] == ""
-    assert tpl["qwen3-embedding-4b"]["query"].startswith("Instruct: ")
+    finally:
+        seed.configure_app_seed(embed_templates=[])  # never leak into sibling tests
 
 
 def test_seed_never_clobbers_user_edit():
     _fresh_db()
-    s = db.session()
-    seed.seed_default_embed_templates(s)
-    s.commit()
-    s.close()
-    st = stores.get_embed_template_store()
-    st.upsert(EmbedTemplateRow(modelId="qwen3-embedding-4b", documentTemplate="my: {text}", queryTemplate=""))
-    s = db.session()
-    seed.seed_default_embed_templates(s)  # reseed = merge-by-id
-    s.commit()
-    s.close()
-    assert st.get("qwen3-embedding-4b").documentTemplate == "my: {text}"
+    seed.configure_app_seed(embed_templates=[
+        {"id": "app-embed", "document": "", "query": "Instruct: app task\nQuery: {text}"},
+    ])
+    try:
+        s = db.session()
+        seed.seed_default_embed_templates(s)
+        s.commit()
+        s.close()
+        st = stores.get_embed_template_store()
+        st.upsert(EmbedTemplateRow(modelId="app-embed", documentTemplate="my: {text}", queryTemplate=""))
+        s = db.session()
+        seed.seed_default_embed_templates(s)  # reseed = merge-by-id
+        s.commit()
+        s.close()
+        assert st.get("app-embed").documentTemplate == "my: {text}"
+    finally:
+        seed.configure_app_seed(embed_templates=[])
 
 
 def test_router_crud_round_trip():

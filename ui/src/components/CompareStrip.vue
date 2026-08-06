@@ -31,6 +31,10 @@ const props = defineProps({
   // and the per-action JSON contract checkbox is absent (no prompt row to save to).
   promptEditable: { type: Boolean, default: true },
   jsonToggle: { type: Boolean, default: true },
+  // The feature's Lab adapter (labAdapters.js) — run/render/configExtra. Forwarded
+  // to every column; the strip also hands each column EVERY column's results so an
+  // adapter's render can highlight cross-column disagreement.
+  adapter: { type: Object, default: null },
 });
 const emit = defineEmits(["save-as", "update-preset", "delete-preset", "use-production", "save-json"]);
 
@@ -156,6 +160,7 @@ onMounted(() => {
       <div v-for="(col, i) in columns" :key="col.id" class="lu-cmp-col">
         <ConfigColumn :ref="(el) => setColRef(col.id, el)"
           v-model="col.config" :action="action" :providers="providers"
+          :adapter="adapter" :all-results="results"
           :sampler-catalog-list="samplerCatalogList"
           :vars="vars" :presets="presets" :prompt-editable="promptEditable"
           :json-toggle="jsonToggle"

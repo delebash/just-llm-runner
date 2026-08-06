@@ -14,6 +14,26 @@ import pytest
 from llm_runner.llm import db, seed, stores
 
 
+# Since decision ④ (2026-08-05) the shared DEFAULT_CLASS_TUNES is EMPTY — class
+# tunes are the APP's registration (install_llm class_tunes_seed; JW carries the
+# family's 13 measured rows). The refs MECHANISM is what this file tests, so the
+# fixture registers a small app set of its own: a seven-flag config, a second
+# class for the same model, a ONE-flag config (proving one ref per (model,
+# class), never per flag), and a second model.
+_APP_TUNES = [
+    {"model_id": "flagship", "class_key": "dgpu-vram8|ram32", "switches": {
+        "n_gpu_layers": "99", "n_cpu_moe": "21", "ctx_len": "32768",
+        "batch_size": "512", "ubatch_size": "512", "threads": "8",
+        "reasoning_budget": "1024"}},
+    {"model_id": "flagship", "class_key": "igpu-mem32", "switches": {
+        "n_gpu_layers": "99", "ctx_len": "32768", "flash_attn": "off"}},
+    {"model_id": "styletune", "class_key": "dgpu-vram8|ram32", "switches": {
+        "spec_type": "none"}},
+    {"model_id": "small", "class_key": "igpu-mem16", "switches": {
+        "n_gpu_layers": "99", "ctx_len": "32768"}},
+]
+
+
 @pytest.fixture
 def configured():
     eng = sa.create_engine(
@@ -21,39 +41,25 @@ def configured():
     )
     db.create_all(eng)
     db.configure_storage(sessionmaker(bind=eng, autoflush=False))
+    seed.configure_app_seed(class_tunes_seed=_APP_TUNES)
     s = db.session()
     seed.seed_default_class_tunes(s)
     s.commit()
     s.close()
     yield
+    seed.configure_app_seed(class_tunes_seed=[])  # never leak into sibling tests
 
 
 def test_refs_are_distinct_model_class_pairs(configured):
-    # Each seeded Gemma config holds SEVERAL flag rows — exactly ONE ref per
-    # (model, class) comes out (distinct pairs, not one ref per flag). Four seeded
-    # rows now: the flagship on the 8 GB discrete box and the 32 GB integrated-GPU box,
-    # StyleTune's single-flag spec_type=none row on 8 GB discrete (2026-07-25 — which
-    # also proves a ONE-flag config still yields exactly one ref, same as a seven-flag
-    # one), and E4B on the 16 GB integrated-GPU box (2026-07-25, the laptop's own
-    # kit measurements — the ref IS the box's model recommendation, §9 ruled shape).
-    # …plus the eight dGPU BAND recommendations (2026-07-25, Part 2 of the per-band
-    # survey): the 12B dense on the 12-band rungs + vram16|ram16 (the flagship's ~24 GB
-    # RAM appetite excludes ram16 boxes), the flagship on 16-band ram32/64 and on the
-    # 24-band rungs. Order = SQLite DISTINCT's (model_id, class_key) sort.
+    # Each registered config holds one-to-many flag rows — exactly ONE ref per
+    # (model, class) comes out (distinct pairs, not one ref per flag; the
+    # one-flag styletune row proves it). Order = SQLite DISTINCT's
+    # (model_id, class_key) sort.
     assert stores.list_class_tune_refs() == [
-        {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram12|ram16"},
-        {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram12|ram32"},
-        {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram12|ram64"},
-        {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram16|ram16"},
-        {"modelId": "gemma-4-12b-qat", "classKey": "dgpu-vram8|ram16"},
-        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram16|ram32"},
-        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram16|ram64"},
-        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram24|ram32"},
-        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram24|ram64"},
-        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "dgpu-vram8|ram32"},
-        {"modelId": "gemma-4-26b-a4b-qat", "classKey": "igpu-mem32"},
-        {"modelId": "gemma-4-e4b-qat", "classKey": "igpu-mem16"},
-        {"modelId": "gryphe-styletune-v2", "classKey": "dgpu-vram8|ram32"}]
+        {"modelId": "flagship", "classKey": "dgpu-vram8|ram32"},
+        {"modelId": "flagship", "classKey": "igpu-mem32"},
+        {"modelId": "small", "classKey": "igpu-mem16"},
+        {"modelId": "styletune", "classKey": "dgpu-vram8|ram32"}]
 
 
 def test_a_manually_authored_class_becomes_a_ref(configured):
@@ -69,7 +75,7 @@ def test_a_manually_authored_class_becomes_a_ref(configured):
         s.close()
     refs = stores.list_class_tune_refs()
     assert {"modelId": "m-big", "classKey": "dgpu-vram20|ram100"} in refs
-    assert len(refs) == 14   # 13 seeded (4 pre-band + 9 dGPU band recs incl. vram8|ram16) + the manual one
+    assert len(refs) == 5   # the 4 registered app configs + the manual one
 
 
 def test_catalog_response_carries_refs_and_my_class(configured):
@@ -79,10 +85,9 @@ def test_catalog_response_carries_refs_and_my_class(configured):
         rows=[], myClassKey="dgpu-vram8|ram32",
         classTuneRefs=[ClassTuneRef(**r) for r in stores.list_class_tune_refs()])
     assert resp.myClassKey == "dgpu-vram8|ram32"
-    # The wire shape is what's under test — the measured flagship/8 GB pair rides the
-    # response. (It was index 0 until the 2026-07-25 band recommendations; DISTINCT's
-    # sort now puts the 12B band rows first, so membership, not position.)
-    assert ("gemma-4-26b-a4b-qat", "dgpu-vram8|ram32") in [
+    # The wire shape is what's under test — a registered (model, class) pair rides
+    # the response (membership, not position — DISTINCT's sort owns the order).
+    assert ("flagship", "dgpu-vram8|ram32") in [
         (r.modelId, r.classKey) for r in resp.classTuneRefs]
 
 

@@ -5,8 +5,10 @@ in `../plans/archive/` (model-catalog-research-and-recommendations + evidence ·
 small-vram-multimodel-research · cpu-inference-research · model-per-hardware-plan ·
 speaker-attribution-llm-research). **The June per-tier picks were a reviewer panel,
 not benchmarks, and the catalog has since been re-anchored on Gemma 4** — today's
-truth is `llm_runner/llm/seed.py` `DEFAULT_CATALOG`; this doc keeps the durable
-laws, measured numbers, and the why.
+truth is JustWrite's seed (`justwrite-app/server/justwrite_server/seed_presets.py`,
+`JW_CURATED_CATALOG` + `DEFAULT_MODEL_CATALOG_EXTRA`; the runner's
+`DEFAULT_CATALOG` ships empty since decision ④ 2026-08-05 — a curated ladder is
+app data). This doc keeps the durable laws, measured numbers, and the why.
 
 ## Laws that survived every rewrite
 
@@ -70,7 +72,3 @@ GPU-hour/novel. Tier shortlist was low-confidence and mostly retired with the
 catalog re-anchor — only `glm-4.5-air` survives in today's seed; re-shortlist
 against the current catalog when F2 wakes.
 
-## Known stale seed pointer (tracked)
-
-`DEFAULT_MODEL_CLASS_PICKS` still names `qwen3.6-35b-a3b-mtp`, which is no longer
-in `DEFAULT_CATALOG` (its refill source, ledger C9, is user-ruled NOT DOING).

@@ -52,7 +52,9 @@ def test_seed_populates_shared_and_app_data(wired):
     # carries NO choices — Quick Setup or a manual pick fills them.
     assert stores.get_routing_store().get_routing().default.llmId == ""
     assert stores.get_prompt_store().get("critique") is not None  # per-app prompt seed
-    assert len(stores.get_model_catalog_store().list()) == len(seed.DEFAULT_CATALOG)
+    # Decision ④ (2026-08-05): the shared seed carries NO models — a host that
+    # registers no model_catalog_extra gets an empty catalog, by design.
+    assert len(stores.get_model_catalog_store().list()) == 0
 
 
 def test_reseed_refreshes_old_seeded_provider_name_only(wired):

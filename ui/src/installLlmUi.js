@@ -24,6 +24,7 @@ import { configureExternal } from "./common/services/external.js";
 import { configureServerApi, makeOriginAwareResolver } from "./common/services/serverApi.js";
 import { configureLlmUi } from "./client.js";
 import { configureQuickSetupCopy } from "./common/services/quickSetupCopy.js";
+import { registerLabAdapters } from "./services/labAdapters.js";
 import LlmUiHosts from "./components/LlmUiHosts.vue";
 
 // What this app's LLM stack can do. Declared by the host, read by the kit — an app
@@ -73,6 +74,9 @@ function openExternal(url) {
  *                           done body · onApplied hook) — canon words stay in the
  *                           labels store, never here
  * @param opts.capabilities  e.g. `{ embeddings: false }`
+ * @param opts.labAdapters   per-FEATURE Lab adapters `{ featureKey: { run, render,
+ *                           configExtra } }` — the app's real pipeline behind that
+ *                           feature's Lab columns (see services/labAdapters.js)
  * @param opts.external      your opener — `(url) => …` or `{ open }`; `false` to skip.
  *                           A Tauri app MUST pass one (see openExternal).
  */
@@ -83,6 +87,7 @@ export function installLlmUi(app, {
   catalogCopy,
   quickSetupCopy,
   capabilities,
+  labAdapters,
   external = true,
 } = {}) {
   const resolve = resolveBase || makeOriginAwareResolver({ devPorts, fallback: fallbackBase });
@@ -104,6 +109,7 @@ export function installLlmUi(app, {
   if (quickSetupCopy) configureQuickSetupCopy(quickSetupCopy);
 
   if (capabilities) Object.assign(_capabilities, capabilities);
+  if (labAdapters) registerLabAdapters(labAdapters);
   if (external !== false) {
     const open = typeof external === "function" ? external
       : (external && external.open) || openExternal;

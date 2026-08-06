@@ -92,13 +92,15 @@ def test_bare_minimal_call_yields_a_working_stack(hermetic, tmp_path):
     # Usage ledger: the DB sink is wired.
     assert client.get("/v1/ai-usage").status_code == 200
 
-    # The runner: catalog is WIRED (install_llm called configure_service) and the
-    # seeded catalog rows flow through to the endpoint.
+    # The runner: catalog is WIRED (install_llm called configure_service). Since
+    # decision ④ the shared seed carries no models, so the stranger's bare call
+    # legally serves an EMPTY list (hosts feed rows via model_catalog_extra — the
+    # flow-through is asserted in test_with_features_and_double_seed below).
     models = client.get("/v1/llm-runner/models")
     assert models.status_code == 200
     body = models.json()
     assert body["catalogWired"] is True
-    assert len(body["models"]) > 0, "the seeded model catalog should reach /models"
+    assert body["models"] == []
 
     # data_dir honoured: the runner's cache landed under the app's data root,
     # not the user's ~/.cache.
@@ -117,6 +119,15 @@ def test_with_features_and_double_seed_is_a_noop(hermetic, tmp_path):
                 "feature": "translate", "system": "S", "user_template": "U", "json_mode": False,
             },
         },
+        # The host's catalog row (every app seeds its own since decision ④) —
+        # also the flow-through exhibit: the row must reach /v1/llm-runner/models.
+        model_catalog_extra=[{
+            "id": "host-model", "name": "Host Model",
+            "hf_repo": "example/host-GGUF", "quant": "Q4_K_M",
+            "total_params": "7B", "type": "dense", "min_vram_mb": 4096,
+            "min_ram_mb": 8192, "tier": "small", "license": "Apache-2.0",
+            "position": 0, "quality_rank": 1, "architecture": "llama", "experts": 0,
+        }],
     )
     seed_llm()
 
@@ -124,6 +135,9 @@ def test_with_features_and_double_seed_is_a_noop(hermetic, tmp_path):
     prompts_before = len(stores.get_prompt_store().list())
     catalog_before = len(stores.get_model_catalog_store().list())
     assert providers_before > 0 and prompts_before > 0 and catalog_before > 0
+
+    # The host's row flows through the wired runner catalog to /models.
+    assert any(m["id"] == "host-model" for m in client.get("/v1/llm-runner/models").json()["models"])
 
     seed_llm()  # the double seed — JW calls seed_llm after install_llm already part-seeded
 
@@ -161,11 +175,16 @@ def test_no_data_dir_warns_about_the_user_cache(hermetic, tmp_path, caplog):
     assert any("data_dir" in r.message for r in caplog.records)
 
 
-def test_catalog_optout_seeds_only_the_hosts_rows(hermetic, tmp_path):
-    """seed_default_model_catalog=False (2026-08-03, the i18n app): a host whose
-    domain the writing-curated DEFAULT_CATALOG does not fit seeds ONLY its own
-    rows. Default stays True — the bare-call test above proves the default
-    catalog still seeds for everyone else."""
+def test_the_hosts_rows_are_the_whole_catalog(hermetic, tmp_path):
+    """Decision ④ (family parity batch 2026-08-05): the shared DEFAULT_CATALOG is
+    EMPTY — a model ladder is app data (JW's writing rows live in its own seed
+    now) — so a host's model_catalog_extra IS the whole catalog. This replaced
+    the old seed_default_model_catalog opt-out flag: with no shared content there
+    is nothing to opt out of ("the models are all JW" — the live 2026-08-03
+    finding this closes structurally)."""
+    from llm_runner.llm import seed as _seed
+
+    assert _seed.DEFAULT_CATALOG == []
     engine, SessionLocal = hermetic
     app = FastAPI()
     install_llm(
@@ -177,13 +196,12 @@ def test_catalog_optout_seeds_only_the_hosts_rows(hermetic, tmp_path):
             "min_ram_mb": 8192, "tier": "small", "license": "Apache-2.0",
             "position": 0, "quality_rank": 1, "architecture": "llama", "experts": 0,
         }],
-        seed_default_model_catalog=False,
     )
     seed_llm()
     rows = stores.get_model_catalog_store().list()
     ids = {r.id for r in rows}
     assert ids == {"host-only-model"}, (
-        f"opt-out must suppress DEFAULT_CATALOG entirely — got {sorted(ids)[:5]}…")
+        f"the host's rows must be the whole catalog — got {sorted(ids)[:5]}…")
 
 
 def test_headless_boot_app_none_wires_everything_but_mounts_nothing(hermetic, tmp_path):
@@ -196,7 +214,9 @@ def test_headless_boot_app_none_wires_everything_but_mounts_nothing(hermetic, tm
     seed_llm()
 
     assert len(stores.get_provider_store().list()) > 0, "seeded through the same path"
-    assert len(stores.get_model_catalog_store().list()) > 0
+    # Decision ④: the shared seed carries no models — a bare call gets an empty
+    # catalog by design (hosts feed their own via model_catalog_extra).
+    assert len(stores.get_model_catalog_store().list()) == 0
     # The runner catalog is WIRED (the CLI's make_send needs the stores AND the runner).
     assert lifecycle.get_service().catalog_wired is True
     assert str(lifecycle.get_service().cache_root) == str(tmp_path / "ai-cache")
@@ -212,7 +232,10 @@ def test_measured_class_tunes_bind_to_the_HOSTS_id_for_the_same_gguf(hermetic, t
     unsloth/gemma-4-26B-A4B-it-qat-GGUF @ UD-Q4_K_XL, byte-for-byte what JustWrite calls
     `gemma-4-26b-a4b-qat` — so the 8 GB/32 GB row measured on the author's own 2070 SUPER
     never applied, and the model launched on automatic fit (ctx 16384, no n_cpu_moe)
-    instead of the measured ctx 32768 + n_cpu_moe 21."""
+    instead of the measured ctx 32768 + n_cpu_moe 21.
+
+    Since decision ④ the tunes + identity are the HOST's registration
+    (class_tunes_seed / class_tune_identity) — this exercises that whole path."""
     import logging
 
     from llm_runner.llm import db as _db
@@ -222,13 +245,22 @@ def test_measured_class_tunes_bind_to_the_HOSTS_id_for_the_same_gguf(hermetic, t
         None, engine=engine, session_factory=SessionLocal, data_dir=tmp_path,
         model_catalog_extra=[{
             "id": "gemma-4-26b-a4b-qat-xl", "name": "Gemma 4 26B-A4B (QAT)",
-            # the SAME artifact the seeded tunes were measured on, under another id
+            # the SAME artifact the registered tunes were measured on, under another id
             "hf_repo": "unsloth/gemma-4-26B-A4B-it-qat-GGUF", "quant": "UD-Q4_K_XL",
             "total_params": "26B", "type": "moe", "min_vram_mb": 4096,
             "min_ram_mb": 24576, "tier": "low-vram-moe", "license": "Apache-2.0",
             "position": 0, "quality_rank": 1, "architecture": "gemma4", "experts": 128,
         }],
-        seed_default_model_catalog=False,
+        class_tunes_seed=[{
+            "model_id": "gemma-4-26b-a4b-qat", "class_key": "dgpu-vram8|ram32",
+            "switches": {"n_gpu_layers": "99", "n_cpu_moe": "21", "ctx_len": "32768",
+                         "batch_size": "512", "ubatch_size": "512", "threads": "8",
+                         "reasoning_budget": "1024"},
+        }],
+        class_tune_identity={
+            "gemma-4-26b-a4b-qat": {"hf_repo": "unsloth/gemma-4-26B-A4B-it-qat-GGUF",
+                                    "quant": "UD-Q4_K_XL"},
+        },
     )
     with caplog.at_level(logging.WARNING, logger="llm_runner.llm.seed"):
         seed_llm()
@@ -248,12 +280,17 @@ def test_measured_class_tunes_bind_to_the_HOSTS_id_for_the_same_gguf(hermetic, t
     assert got.get("ctx_len") == "32768"
 
 
-def test_a_class_tune_that_can_bind_to_nothing_says_so(hermetic, tmp_path, caplog):
-    """Dead weight must announce itself. With a catalog that contains none of the tuned
-    models, every seeded tune is unusable — and shipping it silently is how 6 of 13 rows
-    sat orphaned in this package (their id is absent from DEFAULT_CATALOG; they resolve
-    only because JustWrite adds that row app-side)."""
+def test_a_class_tune_that_can_bind_to_nothing_warns_and_is_retired(hermetic, tmp_path, caplog):
+    """Dead weight must announce itself — and then LEAVE. Pre-④, the shared seed
+    pushed all 13 measured tunes into every adopter's DB and 6 of them sat
+    orphaned (their model absent from that app's catalog). The seeders never
+    prune, so after the tunes moved per-app those rows would warn forever on
+    JV/docgen's existing DBs — retire_orphan_builtin_class_tunes removes exactly
+    the unbindable BUILT-IN residue (a user's own config is built_in=False and is
+    never touched)."""
     import logging
+
+    from llm_runner.llm import db as _db
 
     engine, SessionLocal = hermetic
     install_llm(
@@ -265,9 +302,30 @@ def test_a_class_tune_that_can_bind_to_nothing_says_so(hermetic, tmp_path, caplo
             "min_ram_mb": 8192, "tier": "small", "license": "MIT",
             "position": 0, "quality_rank": 1, "architecture": "llama", "experts": 0,
         }],
-        seed_default_model_catalog=False,
     )
+    # Simulate the pre-④ state: seeded (built_in) tunes for a model this catalog
+    # doesn't carry + a USER's own (built_in=False) row for the same absent model.
+    s = SessionLocal()
+    try:
+        s.add(_db.ClassTune(model_id="not-in-this-catalog", class_key="dgpu-vram8|ram32",
+                            flag_name="ctx_len", flag_value="32768", built_in=True))
+        s.add(_db.ClassTune(model_id="not-in-this-catalog", class_key="igpu-mem32",
+                            flag_name="ctx_len", flag_value="16384", built_in=False))
+        s.commit()
+    finally:
+        s.close()
+
     with caplog.at_level(logging.WARNING, logger="llm_runner.llm.seed"):
         seed_llm()
     assert any("match no model in this catalog" in r.message for r in caplog.records), \
         "an unbindable tune must warn — silence reads as coverage"
+
+    s = SessionLocal()
+    try:
+        rows = s.query(_db.ClassTune).filter(
+            _db.ClassTune.model_id == "not-in-this-catalog").all()
+        flags = {(r.class_key, r.built_in) for r in rows}
+    finally:
+        s.close()
+    # The seeded residue is gone; the user's own row survives untouched.
+    assert flags == {("igpu-mem32", False)}, f"got {flags}"

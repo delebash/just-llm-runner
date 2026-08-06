@@ -96,10 +96,6 @@
 - **Set-as-default embeddings note shows in no-embeddings apps [verified]** —
   gate the "Search embeddings keep their current provider…" note
   (`ui/src/views/AiModelsArea.vue:573`) on `llmUiCapabilities().embeddings`.
-- **Class-tune seed noise [verified live]** — shared seed ships JW class tunes into
-  apps that suppressed the JW catalog ("class tunes for 'gemma-4-12b-qat' match no
-  model" on every docgen boot); gate default class-tune seeding on the catalog
-  actually containing the model.
 - **Phase 5 — residency knobs BEFORE engine install [verified]** —
   `ui/src/components/LuRunnerEngine.vue:275` still gates `modelsMax`/idle-sleep
   behind `v-if="installed"`. Plan: `docs/plans/archive/2026-07-05-model-surface-build.md`.
@@ -113,9 +109,6 @@
 - **Multi-click unload/reload — observe once, REPORT BACK, don't fix blind** (the
   load-cancel plan's own Q3 ruling): one timestamped observation decides between
   (a) the router lock, (b) UI refresh racing the poller, (c) idle-sleep timing.
-- **`DEFAULT_MODEL_CLASS_PICKS` points at `qwen3.6-35b-a3b-mtp` — a model no longer
-  in `DEFAULT_CATALOG`** [verified], and its refill source (ledger C9) is
-  user-ruled NOT DOING. Decide: retire the seed row or repoint it.
 - **Stopping a host server can ORPHAN its router child on Windows** (holds :8080;
   the on-box A/B incident) — candidate fix: Job-Object/process-group teardown in
   the spawn path.

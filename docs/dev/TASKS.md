@@ -57,13 +57,6 @@
   seam (it's `start_router`); `Overrides.reasoning_budget` still documents the
   retired launch flag; arbiter's `remaining_mb` cites the reverted §5c consumer;
   `reset_feature_ref`'s docstring contradicts its own inline ruling.
-- **"AI engine console" — family-wide rename of the kit console tab (user
-  ruling 2026-08-05 s2, "your rec" on the family-wide option).** The tab
-  shows the AI ENGINE's console in every app while each app also has its own
-  server log — the generic "Server console" label is ambiguous everywhere
-  (JV worst: it also runs TTS engine processes). One manifest change
-  (familyContract.js) + JW en/es keys + both contract tests + docs mentions.
-  JW/docgen get it via the manifest; JV's half rides F1 Phase 2.
 - **Promptless-mode retirement (kit half)** — rides docgen's
   template-convergence item (decided 2026-08-05 s2; the item lives in
   docgen's TASKS): FeatureLab's promptless machinery, the Workbench preview

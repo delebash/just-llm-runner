@@ -664,7 +664,7 @@ onMounted(() => {
       <PricingEditor v-if="tab === 'usage'" />
     </section>
 
-    <!-- ── Server console — live follow of the server log ring + the engine
+    <!-- ── AI engine console — live follow of the server log ring + the engine
          child's output (QC-43c). Mounted only while active (v-if) so its poll
          stops when the reader leaves the tab. Fills its height (one scroller). ── -->
     <section v-show="tab === 'console'" class="lu-tab lu-tab-fill">

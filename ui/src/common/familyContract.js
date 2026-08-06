@@ -49,7 +49,11 @@ export const FAMILY_LABELS = {
     providers: "Providers & models",
     routing: "Routing by feature",
     usage: "Usage",
-    console: "Server console",
+    // "AI engine console" (family ruling 2026-08-05): the tab shows the AI
+    // ENGINE's console, and every app also has its own server log — the old
+    // "Server console" was ambiguous everywhere (JV worst: it also runs TTS
+    // engine processes).
+    console: "AI engine console",
   },
 
   // The promptless Lab's words (decision 2026-08-04: every NEW kit string rides this

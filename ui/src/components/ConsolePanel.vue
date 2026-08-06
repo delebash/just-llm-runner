@@ -14,6 +14,7 @@
 // .lu-logline* grammar + logLines.js — no fork of LogsPanel's line markup.
 import { computed, nextTick, onMounted, ref } from "vue";
 import { request } from "../client.js";
+import { familyLabels } from "../common/services/familyLabels.js";
 import { usePoll } from "../common/composables/usePoll.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiSelect from "../common/components/UiSelect.vue";
@@ -154,7 +155,7 @@ onMounted(async () => {
 <template>
   <div class="lu-console">
     <div class="lu-console-head">
-      <span class="lu-pcard-title">Server console</span>
+      <span class="lu-pcard-title">{{ familyLabels.aiTabs.console }}</span>
       <span class="lu-muted lu-console-sub">Live tail of the app server log and the engine child's output.</span>
       <span class="lu-console-spacer" />
       <UiSelect :model-value="minLevel" :options="LEVELS" @update:model-value="onPickLevel" />

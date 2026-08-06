@@ -11,6 +11,21 @@
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
 
+## APPROVED 2026-08-06 — the thinking CAPABILITY GATE (kit half, IN BUILD)
+
+The full approved decision text lives in `../JustVioce/docs/dev/TASKS.md`
+("APPROVED 2026-08-06" block) — read it before coding. Kit half, summary:
+effective thinking = preset's think (the task's tested want) AND the model can
+think. Server-side `model_thinks` resolver: catalog thinking flag → name
+heuristic (JV's retiring tier classifier donates it) → unknown = permit
+(never worse than today). REQUIRED: chip + Lab show "thinking on — inactive:
+this model doesn't think" when gated (rides the chip↔Lab parity test).
+BUILD ITEM: verify the catalog UI can edit the thinking flag; add if missing.
+Wording: the checkbox = "ask for thinking where the model offers the choice"
+(o1-class always-thinkers can't be gated off). JW-wide effect approved by the
+user. Sequencing: this slice FIRST (JW full suite gates it), then JV's
+Routing-by-feature rework rides on top.
+
 ## THE FAMILY PARITY BATCH — SHIPPED 2026-08-06 (all twelve slices)
 - The master plan + its BUILD LOG (deviations, guard-caught bugs, end-gate
   results): `../justwrite-app/docs/plans/2026-08-05-family-parity-batch.md`.

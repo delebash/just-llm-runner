@@ -327,6 +327,12 @@ class ResolvedRouteResponse(BaseModel):
     reasoningWord: str = ""
     value: int | None = None
     valueSource: str = ""     # local: "tune"|"class"|"base"|"default"|"invalid" · cloud: "map" · "" = none
+    # The capability gate's honest state (approved 2026-08-06): the preset WANTS
+    # thinking but the resolved model can't think, so the run is gated off.
+    # The chip + Lab MUST annotate this ("thinking on — inactive: this model
+    # doesn't think") — an invisible gate would be the magic the gate exists
+    # to kill. `think` above stays the EFFECTIVE value (False when gated).
+    thinkInactive: bool = False
     configured: bool = True
     detail: str = ""
 
@@ -716,17 +722,22 @@ def make_feature_router(
             return ResolvedRouteResponse(**base, configured=False, detail=str(e))
         # U2-T6: the SAME resolver the run path uses (the dispatch mirror), so the chip
         # shows exactly what a run emits — think/level/word + the layered budget value +
-        # its origin layer, no client math.
+        # its origin layer, no client math. The capability gate mirrors here too
+        # (approved 2026-08-06): want-on + model-can't-think serves think=False with
+        # thinkInactive=True so the chip/Lab annotate instead of lying either way.
+        from .capability import model_thinks
         from .reasoning import resolve_reasoning
+        want = preset.think if preset else False
+        gated = bool(want) and model_thinks(model) is False
         rp = resolve_reasoning(
-            think=preset.think if preset else False,
+            think=bool(want) and not gated,
             level=(preset.reasoningEffort if preset else ""),
             provider_id=adapter.provider_id, provider_type=adapter.provider_type, model_id=model,
         )
         return ResolvedRouteResponse(
             **base, providerId=adapter.provider_id, model=model,
             think=rp.think, level=rp.level, reasoningWord=rp.word,
-            value=rp.value, valueSource=rp.source,
+            value=rp.value, valueSource=rp.source, thinkInactive=gated,
         )
 
     return router

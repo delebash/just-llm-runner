@@ -305,6 +305,17 @@ const localBudgetLine = computed(() => {
   return `local: thinking budget ${r.value} — ${label || r.valueSource}`;
 });
 
+// The capability gate's honest state (approved 2026-08-06): the preset asks for
+// thinking but this column's resolved model can't think — the run goes out
+// without it, and the column MUST say so (the chip shows the same words; the
+// pair may never drift).
+const thinkInactiveNote = computed(() => {
+  const pin = props.modelValue?.pin;
+  if (!pinnedRouteKey.value) return false;
+  const r = routeFor(props.action, "", pin.providerId, pin.model);
+  return !!r?.thinkInactive;
+});
+
 // ── sampler ORDER (the reserved `samplers` entry in the samplers array) ───────
 // Off = engine default order. On = a per-request order, stored as a single
 // {name:"samplers", value:"penalties,dry,…"} row; the server splits it to an array.
@@ -655,6 +666,8 @@ defineExpose({ run, cancel });
          wrap this to a column of fragments. -->
     <div v-if="localBudgetLine" class="cc-localbudget lu-muted"
       title="The model's layered reasoning_budget on this PC (Global launch defaults → PC class config → your applied config) — edit it in Tune &amp; measure">{{ localBudgetLine }}</div>
+    <div v-if="thinkInactiveNote" class="cc-localbudget lu-muted"
+      title="The preset asks for thinking, but this model can't think — the run goes out without it. Wrong about the model? Edit its Thinking flag in the model catalog.">Thinking on — inactive: this model doesn't think</div>
 
     <!-- Plane-2 long-tail samplers (KnobGrid checklist). temperature + top_p are
          excluded — they are edited in the per-call params row above. #35 (B4-3,

@@ -23,6 +23,7 @@ from typing import Callable, Iterable, Iterator
 from .base import LLMAdapter, LLMMessage, LLMResponse, StreamDelta
 from .registry import LLMRegistry, get_llm_registry
 from .schema import LLMConfig
+from .capability import model_thinks
 from .tiers import TierSpec, spec_for
 from .usage import UsageEntry, get_ledger
 
@@ -306,6 +307,12 @@ def chat(
     )
     tier = spec_for(model, tier_override)
     eff_think = tier.think if think is None else think
+    # THE CAPABILITY GATE (approved 2026-08-06): thinking runs only where the
+    # model offers the choice — think-on to a known non-thinker sends a dead
+    # key locally and an API ERROR on cloud (reasoning_effort to gpt-4o-class).
+    # Unknown models pass through unchanged; catalog rows are the editable truth.
+    if eff_think and model_thinks(model) is False:
+        eff_think = False
     extra = _apply_reasoning(extra, adapter, model, think=eff_think)
 
     started = time.monotonic()
@@ -364,6 +371,9 @@ def stream_chat(
     )
     tier = spec_for(model, tier_override)
     eff_think = tier.think if think is None else think
+    # THE CAPABILITY GATE — same law as chat() above (one comment there).
+    if eff_think and model_thinks(model) is False:
+        eff_think = False
     extra = _apply_reasoning(extra, adapter, model, think=eff_think)
 
     started = time.monotonic()

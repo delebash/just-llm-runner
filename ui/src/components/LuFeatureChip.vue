@@ -298,6 +298,10 @@ async function save() {
 
           <div v-if="budgetLine" class="afc-pop-cap">{{ budgetLine }}</div>
           <div v-if="isUnlimited" class="afc-pop-warn">Unlimited ⚠ — this model has been observed to loop; may think until the context fills</div>
+          <!-- The capability gate's honest state (approved 2026-08-06): the preset asks
+               for thinking but the resolved model can't think, so runs go out without it.
+               REQUIRED annotation — an invisible gate would be the magic the gate kills. -->
+          <div v-if="props.route?.thinkInactive" class="afc-pop-cap">Thinking on — inactive: this model doesn't think</div>
 
           <!-- Every save is preset-sized now — the thinking level rides the preset. -->
           <div class="afc-pop-blast">

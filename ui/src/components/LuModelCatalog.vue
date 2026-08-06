@@ -1361,6 +1361,9 @@ refreshApplied();
           <UiCheckbox v-model="editing.embedding">
             <span>Embedding <span class="lu-muted">— a RAG/search model, not a chat LLM</span></span>
           </UiCheckbox>
+          <UiCheckbox v-model="editing.thinking">
+            <span>Thinking <span class="lu-muted">— can reason in think blocks; when off, thinking asks are skipped for this model (the capability gate)</span></span>
+          </UiCheckbox>
         </div>
         <!-- Honest gap (2026-07-21): a repo whose only draft uses an arch the engine can't
              load (e.g. dspark) leaves MTP off — say WHY, so a model whose card advertises

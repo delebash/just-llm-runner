@@ -11,14 +11,12 @@
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
 
-## THE FAMILY PARITY BATCH — approved 2026-08-05, THE next build
-- **The master plan (read WHOLE before coding any slice):**
-  `../justwrite-app/docs/plans/2026-08-05-family-parity-batch.md` — all
-  decisions verbatim (①-⑤, the no-escape-valve commitments, the governing
-  mechanism-vs-data principle), the 12-slice checklist, the Speaker-Lab
-  12-point acceptance inventory, the approved human copy for the 13 rows,
-  the after-batch order (UiTable → e2e harness → THE deep exhaustive audit →
-  product calls). This repo's slices are marked per-app inside it.
+## THE FAMILY PARITY BATCH — SHIPPED 2026-08-06 (all twelve slices)
+- The master plan + its BUILD LOG (deviations, guard-caught bugs, end-gate
+  results): `../justwrite-app/docs/plans/2026-08-05-family-parity-batch.md`.
+  What remains open is the after-batch order recorded there: JV UiTable
+  convergence → JV e2e harness → THE deep exhaustive audit → product calls,
+  plus the user's QC walk with the acceptance checklists.
 
 - **test_hardware.py::test_pci_gpus_linux_lspci_name_match fails with OSError
   on this box (2026-08-05 late), on clean HEAD too** — environmental (the

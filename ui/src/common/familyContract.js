@@ -149,3 +149,9 @@ export const FAMILY_LABELS = {
     clearShort: "Clear…",
   },
 };
+
+// The canon RELATIVE order of the shared settings sections (parity batch slice 11) —
+// derived from the manifest itself so words and order can never disagree. Each app's
+// contract test filters its own section ids down to these and asserts the order holds;
+// app-own sections (Project, General, Reviewer, the voice tail) sit anywhere around them.
+export const SETTINGS_SECTION_ORDER = Object.keys(FAMILY_LABELS.settingsSections);

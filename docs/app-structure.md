@@ -350,9 +350,50 @@ this document** — this section names components and shapes; the manifest is th
 source the kit components read their own defaults from, and the contract tests
 assert. (2026-08-04: §11 stopped restating label words.)
 
+**The governing principle (user's words, law — parity batch 2026-08-05):**
+*Same function ⇒ same kit surface and mechanism, in every app — including
+JustWrite.* The DATA each app feeds the mechanism (model catalogs, presets,
+prompt rows, per-app options, app-specific settings sections) is per-app BY
+DESIGN. Parity of surface is mandatory; parity of content is wrong. **No
+escape valves:** a "verify at build, else fall back" clause is not an outcome
+— if a kit surface can't host an app's need, THE KIT GROWS until it can
+(SettingsShell, UpdatesPanel, and JW tray localization were each committed
+this way; bespoke twins are the deviation class this section exists to stop).
+
+**The copy law (parity batch):** every user-facing label and description
+speaks OUTCOMES in the user's words — internal vocabulary (tier / action /
+preset / row / pipeline / variant / manifest / pin) never reaches the screen.
+Prompt-row labels live in each app's DB seed (recorded limit: vue-i18n cannot
+reach DB rows; row-label localization is a future family design).
+
+**The Settings canon (from code, 2026-08-06):** the seven family sections
+keep this RELATIVE order wherever they appear —
+**Appearance · Backups · Storage · Server · Logs · Updates · About**
+(`FAMILY_LABELS.settingsSections` is the word source). App sections may
+lead, trail, or interleave freely: JW leads with Project; JV leads with
+General and trails its voice-domain sections (Mastering → Webhooks); docgen
+interleaves Reviewer before About. Every app renders them through the kit
+`SettingsShell` (all three adopted, parity slices 3/4/6); Server is the
+headless-URL + bearer-token + keep-running section in every app.
+
+**The AI-console canon (from code, 2026-08-06):** one route (`/ai`), one kit
+`AiModelsArea`. The strip is providers · (models, via the opt-in `modelsTab`
+split) · Routing by feature · usage · console, plus the app's HOST TABS via
+`appTabs` (`[{id, label, after}]` — `after` anchors each into the strip;
+`#app-tab-<id>` slots carry the content; tabs mount lazily on first visit).
+Words relabel per app ONLY through the labels feed (`configureFamilyLabels`
+— JV says "LLM providers"/"LLM models" because it has two provider kinds;
+siblings keep the canon words). Deep links: `initialTab` (?tab=) and
+`initialFeatureAction` (?action= → the Workbench focuses that action row) —
+both one-shot, consumed off the URL on mount. The Lab runs an app's REAL
+pipeline through the `labAdapters` seam (installLlmUi option, keyed by
+FEATURE: `{run(body,{signal}), render, configExtra}`) — JV's speaker
+attribution is the reference adapter; without one, columns run the generic
+`/v1/ai/run`.
+
 | Chrome | Canonical | App writes |
 |---|---|---|
-| **AI area** (providers CRUD, model catalog + downloads, presets, usage/tokens) | kit `AiModelsArea` (JW `AiView.vue` = that + one app tab) | one route (`/ai`), one component |
+| **AI area** (providers CRUD, model catalog + downloads, presets, usage/tokens) | kit `AiModelsArea` — host tabs via `appTabs` (JV mounts two speech tabs), `modelsTab` split opt-in, `labAdapters` for real-pipeline Lab columns | one route (`/ai`), one component |
 | **Global AI progress + cancel** | kit `AiStatusButton` → `AiStatusPanel` in the TitleBar, PLUS a sidebar nav row "AI tasks" toggling the same panel with a count/error badge (JW `Sidebar.vue:148`) | one mount + one nav row |
 | **TitleBar** | JW `components/TitleBar.vue` | back/forward, title, mode, status chip |
 | **Settings page** | kit `SettingsShell` (TOP TABS — the contract killed the rail, 2026-08-04) over JW's `/settings/:section?` pattern | sections as data + panels below |
@@ -362,7 +403,8 @@ assert. (2026-08-04: §11 stopped restating label words.)
 | — Logs | platform `install_log_ring()` + `install_file_log()` + `make_logs_router(name)`; kit `LogsPanel` | 3 server lines, one component |
 | — Server | JW's headless/auth section: headless URL + bearer tokens over the app's auth endpoints | one panel |
 | — About | version, repo | one panel |
-| Backup/restore/reset | platform `make_data_router` + kit `DataManagement` | when adopted — record if deferred |
+| — Backups (backup/restore/reset) | platform `make_data_router` + kit `DataManagement` (adopted in all three, parity slices 4-6; per-app skip options via the `options` seam → `?exclude=`) | asset roots + on_replaced + option rows |
+| — Updates | kit `UpdatesPanel` (+ `#actions` slot for an app's own updater verbs) | one panel + a whats-new loader |
 | **Tray + keep-running** (family headless ruling 2026-08-04 + the full-donor ruling 2026-08-05; JV is the donor) | tray icon (app icon), left-click toggles the window, menu = the donor WHOLE with JV's emoji: 📺 Show window · 🔵 Hide window · ▶️ Start server · ⏹ Stop server · 🔄 Restart server · ⚙️ Open settings · 📋 Copy server URL · 📜 Open log file · ℹ️ About <App> · 🚪 Quit <App> (app-specific entries like JV's dictate/MCP stay that app's) — every entry WORKS: settings/about/copy show the window and ride `tray:*` renderer listeners (a focused webview's clipboard write is reliable; a hidden one's is not), Open log file opens the server's live log Rust-side, Quit kills the sidecar (JW: through its D5 drain); `keep_running_on_close` in the shell + `set_keep_server_running` command; Settings → Server carries "Keep server running after the app closes" — OFF ⇒ closing stops everything, ON ⇒ hide to tray, server stays; the renderer persists the flag and re-applies it every boot. Tray text is English in every app for now — a NOTED localization gap | the tray block + the four `tray:*` listeners + the toggle row + one persisted flag |
 
 Server wiring is JW's exact lines, ring BEFORE app construction:

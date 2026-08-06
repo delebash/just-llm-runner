@@ -24,6 +24,7 @@ import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 import { request } from "../client.js";
 import { confirmDialog } from "../common/services/dialog.js";
+import { featurePanelFor, pieceFor } from "../services/labAdapters.js";
 import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
@@ -95,7 +96,19 @@ const navRows = computed(() => {
     rows.push({ type: "group", label: grp.label });
     for (const f of grp.features) {
       if (grp.merged) pushActions(f, 1);
-      else if (f.actions.length > 1) { rows.push({ type: "ghead", label: f.label, indent: 1 }); pushActions(f, 1); }
+      else if (f.actions.length > 1) {
+        // A feature whose rows include PIECES (approved 2026-08-06) is ONE
+        // thing with parts: its own routable card leads (click → the routing
+        // pane, one chooser for every piece), the rows follow under it. A
+        // features-without-pieces group keeps the plain heading — JW's list
+        // renders exactly as before (no app registers pieces there).
+        if (f.actions.some((a) => pieceFor(a.key))) {
+          rows.push({ type: "feature", featureKey: f.key, label: f.label, indent: 1 });
+        } else {
+          rows.push({ type: "ghead", label: f.label, indent: 1 });
+        }
+        pushActions(f, 1);
+      }
       else if (f.actions.length === 1) rows.push({ type: "card", action: f.actions[0], indent: 1 });
       else rows.push({ type: "feature", featureKey: f.key, label: f.label, indent: 1 });
     }
@@ -183,16 +196,24 @@ function onPromptChanged({ key, jsonMode }) {
   if (row) row.jsonMode = !!jsonMode;
 }
 
-// resolution (2026-07-15, one source): the action's ref then the global default.
+// resolution (2026-07-15, one source; the FEATURE layer joined 2026-08-06 —
+// the pieces rework): the action's ref → its feature's ref → the global
+// default. Mirrors the server cascade (preset_resolve.py) exactly.
 const presetName = (id) => enginePresets.value.find((p) => p.id === id)?.name || "—";
 const presetExists = (id) => !!id && enginePresets.value.some((p) => p.id === id);
 function refPid(key) {
   const id = presetAssign.value.features?.[key];
   return presetExists(id) ? id : "";
 }
+function featureOfAction(key) {
+  return prompts.value.find((p) => p.key === key)?.feature || "";
+}
 function featurePresetLabel(key) {
   const pid = refPid(key);
   if (pid) return `${presetName(pid)} · assigned`;
+  const fk = featureOfAction(key);
+  const fpid = fk && fk !== key ? refPid(fk) : "";
+  if (fpid) return `${presetName(fpid)} · assigned`;
   const did = presetAssign.value.defaultPresetId;
   if (presetExists(did)) return `${presetName(did)} · default`;
   return "— none —";
@@ -225,9 +246,19 @@ async function resetPresets() {
   } catch (e) { error.value = `Reset failed: ${e.message}`; }
 }
 
-const selResolvedPreset = computed(() => refPid(selAction.value) || presetAssign.value.defaultPresetId || "");
+const selResolvedPreset = computed(() =>
+  refPid(selAction.value)
+  || refPid(featureOfAction(selAction.value))
+  || presetAssign.value.defaultPresetId
+  || "");
 async function onUseProduction(presetId) {
-  await setFeaturePreset(selAction.value, presetId);
+  // A PIECE can't carry its own production assignment — "use in production"
+  // from a piece's Lab writes THE FEATURE's ref (the one chooser its whole
+  // family follows). Normal actions write their own ref, unchanged.
+  const key = pieceFor(selAction.value)
+    ? (featureOfAction(selAction.value) || selAction.value)
+    : selAction.value;
+  await setFeaturePreset(key, presetId);
 }
 
 // ── Promptless features: the app's pipeline owns the prompt (2026-08-04) ──
@@ -259,7 +290,13 @@ async function loadPreview(key) {
     previewLoading.value = false;
   }
 }
-watch(selFeature, (k) => { if (k) loadPreview(k); });
+// A feature that HAS prompt rows and is selected as a card (a pieces parent —
+// approved 2026-08-06) is not promptless: its texts are its rows below, so
+// there is no app-built preview to fetch. Its pane is the routing home (one
+// chooser for every piece) + the app's feature panel when one is registered.
+const selFeatureHasRows = computed(() =>
+  !!selFeature.value && prompts.value.some((p) => p.feature === selFeature.value));
+watch(selFeature, (k) => { if (k && !prompts.value.some((p) => p.feature === k)) loadPreview(k); });
 
 const navCollapsed = ref(false);
 
@@ -319,7 +356,10 @@ onMounted(load);
               :class="{ 'is-active': row.action.key === selAction }" @click="selectAction(row.action.key)">
               <div class="lu-fw-card-label">{{ actionLabel(row.action) }}</div>
               <div v-if="actionDesc(row.action)" class="lu-fw-card-desc">{{ actionDesc(row.action) }}</div>
-              <div class="lu-fw-card-model" title="engine preset for this feature">→ {{ featurePresetLabel(row.action.key) }}</div>
+              <!-- A PIECE can't route alone — its relation line replaces the routing
+                   arrow (a control that accepts input and does nothing would lie). -->
+              <div v-if="pieceFor(row.action.key)" class="lu-fw-card-model">{{ pieceFor(row.action.key) }}</div>
+              <div v-else class="lu-fw-card-model" title="engine preset for this feature">→ {{ featurePresetLabel(row.action.key) }}</div>
             </button>
           </template>
           <div class="lu-fw-aside-foot">
@@ -357,10 +397,31 @@ onMounted(load);
           </div>
           <p v-if="featMeta[selFeature]?.hint" class="lu-muted" style="margin:0 0 12px">{{ featMeta[selFeature].hint }}</p>
 
+          <!-- The app's control for this feature (the featurePanels seam —
+               JV's reading-style dial). Nothing registered → nothing rendered. -->
+          <component :is="featurePanelFor(selFeature)" v-if="featurePanelFor(selFeature)"
+            :feature="selFeature" />
+
+          <!-- A pieces parent (has prompt rows): the routing home — ONE preset
+               feeds every piece below it; the texts are edited on their own rows. -->
+          <div v-if="selFeatureHasRows" class="lu-fw-route">
+            <label class="lu-fw-route-label" :for="`fw-route-${selFeature}`">Engine preset</label>
+            <select :id="`fw-route-${selFeature}`" class="lu-input" style="max-width:340px"
+              :value="refPid(selFeature) || ''"
+              @change="(e) => setFeaturePreset(selFeature, e.target.value || null)">
+              <option value="">Default preset ({{ presetName(presetAssign.defaultPresetId) }})</option>
+              <option v-for="p in enginePresets" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
+            </select>
+            <p class="lu-muted" style="font-size:12px;margin:8px 0 0">
+              One preset (provider · model · every switch) runs this whole feature —
+              its texts below follow it. Open a text row to read, edit, or test it.
+            </p>
+          </div>
+
           <!-- The full Lab over the app-built prompt: model · params · Save as preset ·
                Use in production — the SAME preset surface prompt-row apps get. The
                preset row inside the Lab is THE assignment control (one source). -->
-          <FeatureLab v-if="builtPrompt" :key="`${selFeature}:${labEpoch}`"
+          <FeatureLab v-else-if="builtPrompt" :key="`${selFeature}:${labEpoch}`"
             :action="selFeature" :prompt="null"
             :built-prompt="builtPrompt" :built-meta="builtMeta"
             :data-links="props.dataLinks"

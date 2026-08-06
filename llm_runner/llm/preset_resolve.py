@@ -44,20 +44,29 @@ def _resolve_with_source(candidates: list[tuple[str, str]]) -> tuple[EnginePrese
     return None, ""
 
 
-def resolve_feature_preset_with_source(feature_key: str) -> tuple[EnginePresetRow | None, str]:
+def resolve_feature_preset_with_source(
+    feature_key: str, feature: str | None = None,
+) -> tuple[EnginePresetRow | None, str]:
     """The preset an ACTION runs AND which tier won ("assigned" | "default" | "").
     One implementation of the cascade, shared by the run path and the resolved-route
-    provenance endpoint."""
+    provenance endpoint.
+
+    The cascade (the FEATURE layer joined 2026-08-06 — the pieces rework): the
+    action's own ref → the action's FEATURE ref (when the caller names one — a
+    pieces parent routes ALL its rows through one assignment) → the global
+    default. Backward-identical wherever no feature-level ref exists."""
     from . import stores
 
-    refs = stores.get_feature_preset_ref_store().list()   # action -> preset_id (the assignment)
-    return _resolve_with_source([
-        (refs.get(feature_key, ""), "assigned"),
-        (stores.get_default_preset_id(), "default"),
-    ])
+    refs = stores.get_feature_preset_ref_store().list()   # key -> preset_id (the assignment)
+    layers = [(refs.get(feature_key, ""), "assigned")]
+    if feature and feature != feature_key:
+        layers.append((refs.get(feature, ""), "assigned"))
+    layers.append((stores.get_default_preset_id(), "default"))
+    return _resolve_with_source(layers)
 
 
-def resolve_feature_preset(feature_key: str) -> EnginePresetRow | None:
-    """The engine preset an ACTION runs — its ref -> the global default. `feature_key`
-    is the ACTION id, so writerAI.continue and writerAI.tighten point independently."""
-    return resolve_feature_preset_with_source(feature_key)[0]
+def resolve_feature_preset(feature_key: str, feature: str | None = None) -> EnginePresetRow | None:
+    """The engine preset an ACTION runs — its ref → its feature's ref (when given)
+    → the global default. `feature_key` is the ACTION id, so writerAI.continue and
+    writerAI.tighten point independently."""
+    return resolve_feature_preset_with_source(feature_key, feature)[0]

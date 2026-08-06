@@ -540,7 +540,7 @@ def run_action(store: PromptStore, config: LLMConfig, body: RunRequest) -> LLMRe
     usr_tpl = (spec.user_template if spec else "") if body.userTemplate is None else body.userTemplate
     system_text, user_text = _render_pair(sys_tpl, usr_tpl, body.variables)
     messages = _history_messages(body.history) + [LLMMessage(role="user", content=user_text)]
-    preset = resolve_feature_preset(body.action)
+    preset = resolve_feature_preset(body.action, feature=feature_key)
     provider_override = body.providerId or (preset.providerId if preset else "") or None
     model_override = body.model or (preset.model if preset else "") or None
     # Every tunable comes from the resolved PRESET (the one source, 2026-07-15);
@@ -629,7 +629,7 @@ def make_feature_router(
         except MissingTemplateVariables as e:
             raise HTTPException(status_code=400, detail=f"{body.action}: {e}") from e
         messages = _history_messages(body.history) + [LLMMessage(role="user", content=user_text)]
-        preset = resolve_feature_preset(body.action)
+        preset = resolve_feature_preset(body.action, feature=feature_key)
         provider_override = body.providerId or (preset.providerId if preset else "") or None
         model_override = body.model or (preset.model if preset else "") or None
         # Every tunable comes from the resolved PRESET (the one source, 2026-07-15);
@@ -701,8 +701,9 @@ def make_feature_router(
         Optional `providerId`/`model` override params (mirror RunRequest) let a Lab
         column ask for ITS pinned route's reasoning cap."""
         key = action or feature
-        # The same ref → default resolution the run path uses, plus which tier won.
-        preset, preset_source = resolve_feature_preset_with_source(key)
+        # The same ref → feature-ref → default resolution the run path uses, plus
+        # which tier won.
+        preset, preset_source = resolve_feature_preset_with_source(key, feature)
         base = dict(
             feature=feature, action=action,
             presetId=preset.id if preset else "",

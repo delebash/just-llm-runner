@@ -25,6 +25,12 @@ dependencies = [
     # 11,773 of the package's 19,720 lines with them. `scripts/check-clean-install.py` is the
     # tripwire that now fails if this regresses.
     "sqlalchemy>=2.0",  # llm/db.py tables + platform/data_api.py reflection; install_llm's contract
+    # ADDED 2026-08-06 (the docgen /v1/data adoption exposed it — the sqlalchemy
+    # story above, again): platform/data_api.py's restore route takes an UploadFile,
+    # and FastAPI refuses to even BUILD that route without python-multipart. JW/JV
+    # carried it by coincidence of their own dependency lists; the third adopter's
+    # venv didn't, and every route table with make_data_router died at import.
+    "python-multipart>=0.0.18",  # platform/data_api.py restore (UploadFile form parsing)
     # Official vendor SDKs (user ruling 2026-07-17 — the SDK pivot; versions are the
     # live-proof pins): they own each cloud's wire format + retries. Local adapters
     # (llama.cpp/Ollama/generic compat) deliberately stay on httpx.

@@ -11,7 +11,8 @@
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
 
-## APPROVED 2026-08-06 — the thinking CAPABILITY GATE (kit half, IN BUILD)
+## APPROVED 2026-08-06 — the thinking CAPABILITY GATE (kit half) — BUILT
+## (`def5142` the gate · `cbdbfff` pieces/panels/cascade; awaiting the user's QC)
 
 The full approved decision text lives in `../JustVioce/docs/dev/TASKS.md`
 ("APPROVED 2026-08-06" block) — read it before coding. Kit half, summary:

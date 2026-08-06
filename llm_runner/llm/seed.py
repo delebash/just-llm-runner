@@ -1194,6 +1194,16 @@ def seed_default_feature_prompts(s) -> int:
         # system must not lose that edit to a heal.
         row.system = str(spec.get("system") or "")
         row.json_schema = str(spec.get("json_schema") or "")
+    # Nav-metadata backfill (parity batch 2026-08-06): a seed revision may ADD
+    # label/description to a row that predates them. Fill ONLY when the stored
+    # pair is entirely empty — a row anyone named keeps its name.
+    for key, spec in app_feature_prompts().items():
+        if key not in existing or not (spec.get("label") or spec.get("description")):
+            continue
+        row = s.get(db.FeaturePrompt, key)
+        if row is not None and row.built_in and not row.label and not row.description:
+            row.label = str(spec.get("label") or "")
+            row.description = str(spec.get("description") or "")
     added = 0
     for key, spec in app_feature_prompts().items():
         if key in existing:

@@ -304,11 +304,12 @@ function fitTitle(m) {
 // rides the name/description, the user wants the space for architecture/role).
 function typeOf(m) { return typeById.value[m.id] || "dense"; }
 function mtpOf(m) { return mtpById.value[m.id] === true; }
+function thinkingOf(m) { return thinkingById.value[m.id] === true; }
 
 // Model catalog meta (license / use-limited / description — the fit-shaped /models view
 // doesn't carry them). Shared with QuickSetup through the useCatalogMeta singleton (one
 // source, no drift); loadCatalogMeta (its refresh) re-pulls after a catalog edit.
-const { qualityById, typeById, mtpById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, hfRepoById, notesById, sizeBytesById, minVramById, tierById, classTuneRefs, myClassKey, refresh: loadCatalogMeta } = useCatalogMeta();
+const { qualityById, typeById, mtpById, thinkingById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, hfRepoById, notesById, sizeBytesById, minVramById, tierById, classTuneRefs, myClassKey, refresh: loadCatalogMeta } = useCatalogMeta();
 function licenseOf(m) { return licenseById.value[m.id] || ""; }
 function descriptionOf(m) { return descriptionById.value[m.id] || ""; }
 function notesOf(m) { return notesById.value[m.id] || ""; }
@@ -1205,6 +1206,7 @@ refreshApplied();
                 <LuModelTypeTag :type="typeOf(m)" class="lu-typetag" />
                 <UiTag v-if="mtpOf(m)" intent="info" class="lu-typetag" title="Multi-token prediction — speculative decode enables by default">MTP</UiTag>
                 <UiTag v-if="embeddingOf(m)" intent="accent2" class="lu-typetag" title="Embedding model — powers semantic search + grounded chat">Embed</UiTag>
+                <UiTag v-if="thinkingOf(m)" intent="info" class="lu-typetag" title="Thinking — can reason in think blocks; when off, thinking asks are skipped for this model. Edit on the row's form (the capability gate reads this flag)">Thinks</UiTag>
               </div>
         </template>
 

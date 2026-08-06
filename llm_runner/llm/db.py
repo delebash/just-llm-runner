@@ -588,6 +588,10 @@ class FeaturePrompt(LlmBase):
     label = Column(String, nullable=False, default="")
     description = Column(Text, nullable=False, default="")
     subgroup = Column(String, nullable=False, default="")  # wire field `group` (GROUP reserved)
+    # Display order within the list (2026-08-06, the attribution restore —
+    # "Guided, Direct, Reasoned" beats key-alphabetical). 0 = unordered; ties
+    # fall back to key order, so hosts that never set it render as before.
+    position = Column(Integer, nullable=False, default=0)
 
 
 # ── engine presets (the Lab's output; the SOURCE OF TRUTH for what runs — the
@@ -685,6 +689,7 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("knob_catalog", "backends", "VARCHAR NOT NULL DEFAULT ''"),
     ("model_tunes", "backend", "VARCHAR NOT NULL DEFAULT ''"),
     ("model_measurements", "backend", "VARCHAR NOT NULL DEFAULT ''"),
+    ("feature_prompts", "position", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 

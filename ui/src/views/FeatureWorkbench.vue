@@ -24,7 +24,7 @@ import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 import { request } from "../client.js";
 import { confirmDialog } from "../common/services/dialog.js";
-import { featurePanelFor, pieceFor } from "../services/labAdapters.js";
+import { featurePanelFor, featurePanelMetaFor, pieceFor } from "../services/labAdapters.js";
 import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
@@ -106,6 +106,12 @@ const navRows = computed(() => {
           rows.push({ type: "feature", featureKey: f.key, label: f.label, indent: 1 });
         } else {
           rows.push({ type: "ghead", label: f.label, indent: 1 });
+          // A LABELED feature panel (the attribution restore's "Auto" row)
+          // adds one selectable row right under the plain heading; nothing
+          // registered → nothing rendered (JW pixel-identical).
+          if (featurePanelMetaFor(f.key)?.label) {
+            rows.push({ type: "panelrow", featureKey: f.key, indent: 1 });
+          }
         }
         pushActions(f, 1);
       }
@@ -296,6 +302,17 @@ async function loadPreview(key) {
 // chooser for every piece) + the app's feature panel when one is registered.
 const selFeatureHasRows = computed(() =>
   !!selFeature.value && prompts.value.some((p) => p.feature === selFeature.value));
+// The attribution restore (2026-08-06): a feature whose panel is registered
+// WITH a label gets a nav row, and selecting it shows ONLY the panel — its
+// actions carry their own routing, so the one-chooser pane would lie there.
+// Pieces parents (cleanup) keep the routing-home pane.
+const selPanelMeta = computed(() => featurePanelMetaFor(selFeature.value));
+const selIsPiecesParent = computed(() =>
+  !!selFeature.value && prompts.value.some((p) => p.feature === selFeature.value && pieceFor(p.key)));
+const selPanelPane = computed(() =>
+  selFeatureHasRows.value && !selIsPiecesParent.value && !!selPanelMeta.value?.label);
+const selFeatureTitle = computed(() =>
+  selPanelPane.value ? selPanelMeta.value.label : (featMeta.value[selFeature.value]?.label || selFeature.value));
 watch(selFeature, (k) => { if (k && !prompts.value.some((p) => p.feature === k)) loadPreview(k); });
 
 const navCollapsed = ref(false);
@@ -352,6 +369,13 @@ onMounted(load);
               <div v-if="featMeta[row.featureKey]?.hint" class="lu-fw-card-desc">{{ featMeta[row.featureKey].hint }}</div>
               <div class="lu-fw-card-model" title="engine preset for this feature">→ {{ featurePresetLabel(row.featureKey) }}</div>
             </button>
+            <!-- A labeled feature panel's row (the attribution "Auto" row): selects
+                 the feature; its pane is the app's mechanism panel, not routing. -->
+            <button v-else-if="row.type === 'panelrow'" type="button" class="lu-fw-card" :style="ml(row.indent)"
+              :class="{ 'is-active': row.featureKey === selFeature }" @click="selectFeature(row.featureKey)">
+              <div class="lu-fw-card-label">{{ featurePanelMetaFor(row.featureKey)?.label }}</div>
+              <div class="lu-fw-card-model">{{ featurePanelMetaFor(row.featureKey)?.note }}</div>
+            </button>
             <button v-else type="button" class="lu-fw-card" :style="ml(row.indent)"
               :class="{ 'is-active': row.action.key === selAction }" @click="selectAction(row.action.key)">
               <div class="lu-fw-card-label">{{ actionLabel(row.action) }}</div>
@@ -391,14 +415,23 @@ onMounted(load);
         </section>
         <section v-else-if="selFeature" class="lu-fw-edit">
           <div class="lu-fw-h">
-            <b>{{ featMeta[selFeature]?.label || selFeature }}</b>
+            <b>{{ selFeatureTitle }}</b>
             <span class="lu-fw-spacer" />
             <span v-if="message" class="lu-muted lu-fw-msg">{{ message }}</span>
           </div>
+
+          <!-- A labeled panel row's pane (the attribution "Auto"): the app's
+               mechanism panel IS the whole pane — the feature's actions carry
+               their own routing on their own cards, so no chooser renders here. -->
+          <template v-if="selPanelPane">
+            <p v-if="selPanelMeta.note" class="lu-muted" style="margin:0 0 12px">{{ selPanelMeta.note }}</p>
+            <component :is="selPanelMeta.component" :feature="selFeature" />
+          </template>
+          <template v-else>
           <p v-if="featMeta[selFeature]?.hint" class="lu-muted" style="margin:0 0 12px">{{ featMeta[selFeature].hint }}</p>
 
-          <!-- The app's control for this feature (the featurePanels seam —
-               JV's reading-style dial). Nothing registered → nothing rendered. -->
+          <!-- The app's control for this feature (the featurePanels seam) on a
+               pieces parent / promptless feature. Nothing registered → nothing. -->
           <component :is="featurePanelFor(selFeature)" v-if="featurePanelFor(selFeature)"
             :feature="selFeature" />
 
@@ -448,6 +481,7 @@ onMounted(load);
               preset (provider · model · every switch) runs it.
             </p>
           </div>
+          </template>
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
       </div>

@@ -56,15 +56,31 @@ export function pieceFor(actionKey) {
   return (actionKey && _pieces[actionKey]) || "";
 }
 
-// ── Feature PANELS (same approval) — an app control mounted on a feature's
-// routing pane (JV's attribution reading-style dial). Keyed by FEATURE;
-// component receives { feature }. Empty by default.
+// ── Feature PANELS (same approval; row form 2026-08-06 — the attribution
+// restore) — an app control pane for a feature. Keyed by FEATURE. Registered
+// as a bare component (back-compat) or as { component, label, note }: with
+// label/note the workbench renders a NAV ROW for it under the feature's
+// heading (JV's "Auto — Picks which of the three below runs"), and selecting
+// that row shows ONLY the panel as the pane (the feature's actions carry
+// their own routing). Component receives { feature }. Empty by default — JW
+// registers nothing and renders pixel-identical.
 const _panels = {};
 
 export function registerFeaturePanels(map) {
   Object.assign(_panels, map || {});
 }
 
+function panelEntry(featureKey) {
+  const e = featureKey && _panels[featureKey];
+  if (!e) return null;
+  // A wrapper object carries `component`; anything else IS the component.
+  return typeof e === "object" && "component" in e ? e : { component: e, label: "", note: "" };
+}
+
 export function featurePanelFor(featureKey) {
-  return (featureKey && _panels[featureKey]) || null;
+  return panelEntry(featureKey)?.component || null;
+}
+
+export function featurePanelMetaFor(featureKey) {
+  return panelEntry(featureKey);
 }

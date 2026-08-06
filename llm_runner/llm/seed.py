@@ -1215,6 +1215,7 @@ def seed_default_feature_prompts(s) -> int:
             json_schema=str(spec.get("json_schema") or ""),
             label=str(spec.get("label") or ""), description=str(spec.get("description") or ""),
             subgroup=str(spec.get("group") or ""),
+            position=int(spec.get("position") or 0),
         ))
         added += 1
     return added

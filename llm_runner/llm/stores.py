@@ -177,7 +177,7 @@ class PromptStore:
     def list(self) -> list[FeaturePromptRow]:
         s = db.session()
         try:
-            return [_prompt_to_row(r) for r in s.query(db.FeaturePrompt).order_by(db.FeaturePrompt.key).all()]
+            return [_prompt_to_row(r) for r in s.query(db.FeaturePrompt).order_by(db.FeaturePrompt.position, db.FeaturePrompt.key).all()]
         finally:
             s.close()
 

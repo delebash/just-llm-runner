@@ -449,3 +449,112 @@ Every item above is a finding. None carries a recommendation, and no code has mo
 Each divergence needs its own ruling: which version wins, does it move to the kit, or
 is it renamed in place — and separately, where the standard itself is the thing that
 should change.
+
+---
+
+# ROUND 2 — CONTENTS (run 2026-08-08)
+
+**Method.** Inventory from `git ls-files` in all four repos (tracked truth, not
+directory guesses). Scope: `src/`, `server/`, `src-tauri/`, `scripts/`, `e2e/`,
+`tests/`, `llm_runner/`, `ui/src/` (normalized to `src/`), and the root configs
+(package.json, vite/vitest configs, biome.json, index.html, pyproject.toml).
+Excluded: `bench/` (JW's benchmark corpus), docs contents, assets, locks,
+generated trees. Every cross-repo pair sharing a normalized path or basename was
+byte-hashed and, where not identical, scored by line-set Jaccard (the guard's
+measure). **154 pairs compared mechanically: 4 identical · 4 near-copies ·
+15 drifted · 19 related · 112 different.** Eyes were then spent only where the
+machine found disagreement. Full pair table: generated per run by the comparison
+script (re-runnable); every claim below carries its own receipt.
+
+In scope per repo after filtering: JW 347 files · JV 371 · docgen 89 · kit 129.
+
+## R2-0 · Round-1 claims this pass OVERTURNED
+
+Both were judged from listings without opening files — the exact error B1
+already recorded once:
+
+- **A7 is wrong about docgen.** It claims docgen has "neither file". docgen has
+  BOTH `src/styles/tokens.css` (68 lines) and `src/styles/styles.css` (275) —
+  at the STANDARD's `src/styles/` location. docgen is the only conformer; JW and
+  JV keep theirs at `src/` root. A7's "correct the standard" lean inverts: one
+  app already follows §4 as written.
+- **A9 is wrong about JustWrite.** `settingsCanon.test.js` exists in all three —
+  JW keeps it at `src/views/__tests__/settingsCanon.test.js`, JV and docgen at
+  `src/views/`. A *location* divergence (JW nests `__tests__/` dirs; JV/docgen
+  put tests beside the file), not a missing test. Content: three domain variants
+  of one shape (0.52–0.65 similar pairwise).
+
+## R2-1 · Branding: JustVoice ships JustWrite's icons byte-identical
+
+Every hash equal (md5 of tracked files): `icon.png`, `icon.ico`, `icon.icns`,
+`32x32.png`, `64x64.png`, `128x128.png`, `128x128@2x.png` — JustVoice's entire
+`src-tauri/icons/` set IS JustWrite's. The installed JustVoice app carries
+JustWrite's icon in the installer, taskbar, and title bar. Only docgen has its
+own icon set. (JV also tracks a stray `icons/.gitkeep`.) User-visible, ship-
+blocking class.
+
+## R2-2 · Renderer skeletons — same lanes, inverted weight
+
+First-level `src/` shape (tracked files):
+
+| | JW | JV | docgen | kit `ui/src` |
+|---|---|---|---|---|
+| services | **119** | 11 | 3 | 7 (+54 in `common/`) |
+| stores | 6 | **17** | 4 | 1 |
+| views | 31 | 27 | 9 | 5 |
+| components | 63 | 21 | 1 | 30 |
+| composables | 3 | 1 | 0 | 10 |
+| i18n | 10 | 2 | 0 | — |
+
+- **Domain logic lives in `services/` in JW and in `stores/` in JV** — an
+  architectural inversion, not a file-count accident. JV's CLAUDE.md defends its
+  store-heavy shape as scope; no family rule says which lane domain logic
+  belongs in. Needs a ruling or an explicit "either is fine" in the standard.
+- **Test placement differs**: JW nests `__tests__/` subdirs; JV/docgen put
+  `*.test.js` beside sources. (R2-0's A9 correction is one instance.)
+- **i18n is two-and-a-half apps**: JW full (10 files, `en.json` 2548 lines),
+  JV scaffold (2 files, 75 lines), docgen none — and docgen is the i18n *tool*.
+  No standard section says whether renderer i18n is family or per-app.
+- JV alone keeps `src/config.js` (the `jt:server` override home — A5); JW alone
+  keeps `src/fonts.css` + `assets/` at scale.
+- **The kit's own root carries 12 loose modules** (tuneState.js, tokens.js,
+  thinkingControl.js, knobCatalog.js, …) beside `common/`+`components/`+
+  `views/` — the E-item "no stated rule for the kit's own structure" confirmed
+  with numbers.
+
+## R2-3 · Config layer (vite · vitest · biome · index.html)
+
+**Converged for real** (all three apps): the kit source alias
+(`../just-llm-runner/ui/src`), the dedupe list + its rationale comment, `fs.allow`
+for the sibling kit, per-repo watch-ignores, vitest node-env + per-file jsdom
+opt-in (JV and docgen both name JW as donor in their headers).
+
+**Divergent:**
+
+1. **Dev-port collision: docgen uses 1420 — JustWrite's port.** JV's config
+   comment documents the exact hazard ("with strictPort:true a collision would
+   silently leave the Tauri window pointed at JustWrite's dev server") and JV
+   moved to 1430/1431 for it. docgen sits on 1420/1421 with strictPort. Running
+   JW dev and docgen dev together reproduces the documented failure. No family
+   dev-port allocation exists (server ports ARE allocated: 17494/17495/8742).
+2. **Alias conventions**: JW `@renderer` · JV `@` AND `@renderer` · docgen
+   neither. Three import styles for "this app's src".
+3. **Build sections**: JW has per-platform targets (chrome105/safari17),
+   esbuild-minify-unless-debug, version injection via `define`; JV has
+   `target: "esnext"`, sourcemaps always; docgen has NO build section. Three
+   different production-build stories for the same shell.
+4. **biome**: JW = JV byte-identical (schema 2.4.16, lints `src/` only,
+   formatter off). docgen runs an OLDER schema (2.4.0) but a WIDER net — it
+   also lints `scripts/**` and `vite.config.js`. Neither is strictly better:
+   the family wants 2.4.16 + docgen's coverage.
+5. **index.html**: the boot-plate pattern is genuinely family (all three carry
+   the same-plate-as-Vue-splash design, adopted 2026-08-04/05; per-app brand
+   content is by design). But JW+docgen carry the load-bearing CSP comment
+   ("CSP is delivered as response headers by tauri.conf.json; a meta tag would
+   break IPC") and JV doesn't — whether JV's tauri.conf actually sets a CSP is
+   checked in R2-6. JV alone has a favicon link.
+
+## R2-4 · Server infra — PENDING (next commit)
+## R2-5 · Renderer commons — PENDING
+## R2-6 · Tauri shells — PENDING
+## R2-7 · Scripts, e2e, kit exports — PENDING

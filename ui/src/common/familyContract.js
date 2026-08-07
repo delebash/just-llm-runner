@@ -155,3 +155,15 @@ export const FAMILY_LABELS = {
 // contract test filters its own section ids down to these and asserts the order holds;
 // app-own sections (Project, General, Reviewer, the voice tail) sit anywhere around them.
 export const SETTINGS_SECTION_ORDER = Object.keys(FAMILY_LABELS.settingsSections);
+
+// THE FAMILY TASK-LINGER POLICY (ruled 2026-08-07, same in every app): how long a
+// finished task's row stays visible before archiving to history. Completed lingers 5 s
+// (the user sees "done" instead of a strip that flashes and disappears — the JustVoice
+// complaint of 2026-06-09, whose fix now belongs to everyone), cancelled 3 s, and
+// FAILED STAYS until the user dismisses it — the durable-error law (QC-37) as an
+// actual row with the error text, not just a badge count that clears on panel-open.
+// The aiTasks store uses this as its DEFAULT; a task may override per outcome, and an
+// explicit `lingerMs: {}` opts out entirely (tests use that for archive-now behavior).
+// A behavior, not a label — it lives here because it is FAMILY CANON: one line of
+// truth instead of three apps' call sites agreeing by luck.
+export const FAMILY_TASK_LINGER = { completed: 5000, cancelled: 3000, failed: null };

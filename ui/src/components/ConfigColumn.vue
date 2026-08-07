@@ -500,7 +500,9 @@ async function runViaAdapter(body, t0) {
   // startTaskHandle ORs into the task's controller, and the panel's Cancel aborts
   // that controller directly. Either way the adapter runs against effectiveSignal.
   const { handle, effectiveSignal } = startTaskHandle({
-    task: { label: `Lab test — ${props.action}`, meta: { labColId } },
+    // inline: the column renders its own strip (myTask), so a global task stack
+    // must not show this run a second time.
+    task: { label: `Lab test — ${props.action}`, meta: { labColId }, inline: true },
     action: props.action,
     signal: ctrl.signal,
   });
@@ -576,7 +578,8 @@ async function run() {
       testCtrl.value = ctrl;
       const r = await runAiFeature({
         ...o, signal: ctrl.signal,
-        task: { label: `Lab test — ${props.action}`, meta: { labColId } },
+        // inline: the column renders its own strip — see the adapter path above.
+        task: { label: `Lab test — ${props.action}`, meta: { labColId }, inline: true },
       });
       const ms = Math.round(performance.now() - t0);
       const out = r.completionTokens || 0;

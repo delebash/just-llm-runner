@@ -26,7 +26,7 @@ export { installLlmUi, llmUiCapabilities } from "./installLlmUi.js";
 // app's contract test asserts against. Kit components read their own defaults from it.
 // Lives in common/ so common-layer components may import it (nothing in common/ may
 // import from the llm layer — the graduation rule).
-export { FAMILY_LABELS, SETTINGS_SECTION_ORDER } from "./common/familyContract.js";
+export { FAMILY_LABELS, FAMILY_TASK_LINGER, SETTINGS_SECTION_ORDER } from "./common/familyContract.js";
 export { default as LlmUiHosts } from "./components/LlmUiHosts.vue";
 export { useAiTasksNav } from "./composables/useAiTasksNav.js";
 

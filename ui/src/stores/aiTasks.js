@@ -28,7 +28,17 @@
 import { defineStore } from "pinia";
 import { markRaw } from "vue";
 
-const HISTORY_LIMIT = 30;
+import { FAMILY_TASK_LINGER } from "../common/familyContract.js";
+
+// 50, not the old 30 — aligned 2026-08-07 with what JustVoice's fork kept, so its
+// conversion doesn't silently shorten the user's history (and costs the siblings
+// nothing — history rows are summaries).
+const HISTORY_LIMIT = 50;
+
+// A failed task lingers until dismissed (FAMILY_TASK_LINGER), keeping its streamed
+// preview readable for diagnosis. Cap what a SETTLED task may retain so an ignored
+// error row can't pin an entire document's worth of stream in memory indefinitely.
+const SETTLED_PREVIEW_CAP = 32_768;
 
 let nextId = 1;
 let tickHandle = null;
@@ -88,8 +98,12 @@ export const useAiTasksStore = defineStore("aiTasks", {
     // failed task with `lingerMs.failed = null` never auto-dismisses, so a
     // length-gated ticker fired forever behind a lingering error strip. Finished
     // tasks have a fixed finishedAt and need no clock.
+    //
+    // The OPEN PANEL also keeps the clock alive: its "ago" strings (`fmtAgo(...,
+    // tasks.now)`) otherwise freeze the moment the last run ends — a pre-existing
+    // staleness that failed-until-dismissed rows made impossible to ignore.
     _maybeStopTicker() {
-      if (!this.runningTasks.length && tickHandle) {
+      if (!this.runningTasks.length && !this.panelOpen && tickHandle) {
         clearInterval(tickHandle);
         tickHandle = null;
       }
@@ -108,13 +122,17 @@ export const useAiTasksStore = defineStore("aiTasks", {
     // `onRetry` — re-run the same operation; surfaces show Retry on a finished
     //   task. JustVoice's rule ("every long-running op gets progress + cancel +
     //   retry") applied family-wide; the store had no retry at all before.
-    // `lingerMs`— per-outcome dwell before archiving, e.g.
-    //   `{ completed: 5000, cancelled: 3000, failed: null }` (null = never
-    //   auto-dismiss, the user clears it). Omit for the previous behaviour:
-    //   archive on finish. This is JustVoice's fix for tasks that "flash and
-    //   disappear" (reported 2026-06-09) — opt-in so JustWrite and docgen keep
-    //   today's counts until they choose it.
-    start({ feature, label, meta, stats, onRetry, lingerMs }) {
+    // `lingerMs`— per-outcome dwell before archiving. OMITTED → the FAMILY policy
+    //   (FAMILY_TASK_LINGER: completed 5 s · cancelled 3 s · failed until dismissed;
+    //   ruled 2026-08-07, same in every app — this supersedes the opt-in framing an
+    //   earlier commit shipped). `{}` → no linger at all, the explicit opt-out
+    //   (tests use it for archive-now assertions). A partial object overrides just
+    //   those outcomes; `null` for an outcome means "stays until dismissed".
+    // `inline`  — this task's progress is rendered by the surface that started it
+    //   (a Lab column's own strip, a modal's). A GLOBAL task stack skips inline
+    //   tasks so one run never shows twice; the panel ignores the flag — it is the
+    //   registry of everything.
+    start({ feature, label, meta, stats, onRetry, lingerMs, inline }) {
       const id = `aitask-${nextId++}`;
       const now = Date.now();
       const controller = new AbortController();
@@ -124,7 +142,8 @@ export const useAiTasksStore = defineStore("aiTasks", {
         label: label || feature || "AI call",
         meta: meta || {},
         stats: Array.isArray(stats) ? [...stats] : [],
-        lingerMs: lingerMs || null,
+        lingerMs: lingerMs === undefined ? FAMILY_TASK_LINGER : lingerMs,
+        inline: !!inline,
         // Non-reactive: it is a callback, and reactivity on it buys nothing.
         _onRetry: onRetry ? markRaw(onRetry) : null,
         status: "connecting",
@@ -195,13 +214,21 @@ export const useAiTasksStore = defineStore("aiTasks", {
 
     // Re-run a finished task's operation. The surfaces show this on completed,
     // cancelled and failed entries; dismissing the old one first keeps a retry
-    // from stacking a duplicate row beside its own re-run.
+    // from stacking a duplicate row beside its own re-run. HISTORY rows retry
+    // too (JustVoice's fork always could — its archive kept the whole task; here
+    // the callback rides the summary): the history row stays as the record and
+    // the re-run appears as a fresh task.
     retry(id) {
       const t = this.tasks[id];
-      const again = t?._onRetry;
-      if (!again) return;
-      this.dismiss(id);
-      again();
+      if (t) {
+        const again = t._onRetry;
+        if (!again) return;
+        this.dismiss(id);
+        again();
+        return;
+      }
+      const h = this.history.find((x) => x.id === id);
+      h?._onRetry?.();
     },
 
     // Remove a lingering task NOW (the ✕). Running tasks are untouched — cancel
@@ -226,6 +253,10 @@ export const useAiTasksStore = defineStore("aiTasks", {
     _archiveAfterLinger(id, outcome) {
       const t = this.tasks[id];
       if (!t) return;
+      // The task has settled — cap the retained stream preview (see SETTLED_PREVIEW_CAP).
+      if (t.preview && t.preview.length > SETTLED_PREVIEW_CAP) {
+        t.preview = `${t.preview.slice(0, SETTLED_PREVIEW_CAP)}…`;
+      }
       const ms = t.lingerMs ? t.lingerMs[outcome] : undefined;
       if (ms == null) {
         // No linger configured for this outcome → today's behaviour, archive now.
@@ -358,9 +389,12 @@ export const useAiTasksStore = defineStore("aiTasks", {
         durationMs: Math.max(0, t.finishedAt - t.startedAt),
         tokensIn: t.tokensIn,
         tokensOut: t.tokensOut,
-        // The app's own numbers ("3.2 KB", "1.4s audio") — the history row is the
-        // only place a finished run's detail survives, so they ride along.
+        // The app's own numbers ("3.2 KB", "1.4s audio") — they ride into history
+        // so a finished run's detail survives the linger window.
         stats: Array.isArray(t.stats) ? [...t.stats] : [],
+        // Retry survives archival (already markRaw'd) — a failed render is
+        // re-runnable from its history row, not only during the linger.
+        _onRetry: t._onRetry || null,
         providerId: t.providerId,
         model: t.model,
         error: t.error,
@@ -382,8 +416,8 @@ export const useAiTasksStore = defineStore("aiTasks", {
     // error badge. togglePanel routes through openPanel so the clear lives in
     // ONE place — the titlebar chip AND the sidebar item both toggle, and a
     // per-place `panelOpen = true` would have left the badge stuck red.
-    openPanel()   { this.panelOpen = true; this.unseenErrors = 0; },
-    closePanel()  { this.panelOpen = false; },
+    openPanel()   { this.panelOpen = true; this.unseenErrors = 0; this._ensureTicker(); },
+    closePanel()  { this.panelOpen = false; this._maybeStopTicker(); },
     togglePanel() { this.panelOpen ? this.closePanel() : this.openPanel(); },
   },
 });

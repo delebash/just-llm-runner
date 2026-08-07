@@ -47,6 +47,27 @@ const isDone = computed(() => {
 });
 const canRetry = computed(() => isDone.value && !!props.task?._onRetry);
 
+// The finished-state layer (lifted from JustVoice's fork, 2026-08-07): a lingering
+// task must LOOK finished — before this, a completed task kept the spinning sparkle
+// and a failed one showed no error and no colour, which defeated the entire point of
+// letting failures stay on screen until read.
+const STATUS = {
+  done:      { badge: "✓", label: "done",      cls: "sts--ok" },
+  error:     { badge: "⚠", label: "failed",    cls: "sts--fail" },
+  cancelled: { badge: "⊘", label: "cancelled", cls: "sts--cancel" },
+};
+const status = computed(() => (props.task ? STATUS[props.task.status] || null : null));
+
+// Determinate progress bar from the batch counter — `{done, total}` carries its own
+// unit, which is WHY it's the contract here: JustVoice's `percent` field had one
+// writer storing a 0–1 fraction and three readers rendering `percent + '%'`, so its
+// bar topped out at 1% and nobody noticed. No unit, no unit bug.
+const progressPct = computed(() => {
+  const p = props.task?.progress;
+  if (!p || !p.total) return null;
+  return Math.min(100, Math.max(0, (p.done / p.total) * 100));
+});
+
 const elapsedSeconds = computed(() => {
   if (!props.task) return "0.0";
   return Math.max(0, (endedAt.value - props.task.startedAt) / 1000).toFixed(1);
@@ -85,14 +106,21 @@ function openPanel() { tasks.openPanel(); }
 </script>
 
 <template>
-  <div v-if="task" class="sts">
-    <Icon name="Sparkle" :size="13" class="sts-spin" />
+  <div v-if="task" class="sts" :class="status?.cls" :data-status="task.status">
+    <!-- Spinner only while it RUNS — a lingering finished task showing an
+         in-progress animation is a lie. -->
+    <Icon v-if="!isDone" name="Sparkle" :size="13" class="sts-spin" />
+    <span v-else class="sts-badge">{{ status?.badge }}</span>
     <span class="sts-label">{{ task.label }}</span>
 
     <!-- QC-31: a batch task (one entry per USER ACTION) reports n/m here. -->
     <span v-if="task.progress" class="sts-stat sts-progress"
       v-tooltip.bottom="'Batch progress — Cancel stops the whole run'">
       {{ task.progress.done }}/{{ task.progress.total }}
+    </span>
+    <!-- …and as a real bar while running. -->
+    <span v-if="progressPct != null && !isDone" class="sts-track">
+      <span class="sts-fill" :style="{ width: progressPct + '%' }" />
     </span>
     <!-- §7.4 B6-2: real prompt-eval progress (builtin engine) — fills the
          dead time before the first token; cleared when generation starts. -->
@@ -116,6 +144,12 @@ function openPanel() { tasks.openPanel(); }
          so it survives the component that started the task, and unlike the slot below
          it reaches the panel too. -->
     <span v-for="(s, i) in (task.stats || [])" :key="i" class="sts-stat">{{ s }}</span>
+
+    <!-- Outcome, once there is one: the word + (for failures) the reason. The error
+         must be READABLE here — a failure lingers until dismissed precisely so the
+         user can read it. -->
+    <span v-if="isDone" class="sts-finish-tag">{{ status?.label }}</span>
+    <span v-if="task.error" class="sts-error" :title="task.error">— {{ task.error }}</span>
 
     <!-- Feature-specific extras (e.g. a words count + usage breakdown). -->
     <slot name="extra-stats" :task="task" />
@@ -186,6 +220,50 @@ function openPanel() { tasks.openPanel(); }
 .sts-spacer { flex: 1; min-width: 4px; }
 .sts-spin { animation: sts-spin 1.2s linear infinite; }
 @keyframes sts-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+/* Finished states (JustVoice's layer): the container recolours by outcome, the
+   spinner yields to a badge, the outcome is named, a failure shows its reason. */
+.sts--fail {
+  border-color: var(--danger-line, var(--danger, #b91c1c));
+  background: var(--danger-bg, #fef2f2);
+  color: var(--danger-ink, #b91c1c);
+}
+.sts--cancel {
+  border-color: var(--line-strong, var(--border, #d4d4d8));
+  background: var(--surface-2, #f4f4f5);
+  color: var(--ink-2, #52525b);
+}
+.sts--fail .sts-stat, .sts--cancel .sts-stat { color: inherit; }
+.sts-badge {
+  display: inline-grid; place-items: center;
+  width: 17px; height: 17px; border-radius: 50%;
+  font-size: 10.5px; font-weight: 700; color: #fff; flex-shrink: 0;
+  background: var(--accent);
+}
+.sts--fail   .sts-badge { background: var(--danger-ink, #b91c1c); }
+.sts--cancel .sts-badge { background: var(--ink-3, #71717a); }
+.sts-finish-tag {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em;
+}
+.sts-error {
+  font-size: 11px; font-style: italic;
+  max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* Determinate batch progress ({done,total} — the counter carries its own unit). */
+.sts-track {
+  width: 140px; height: 4px; border-radius: 99px; overflow: hidden;
+  background: var(--surface, #fff);
+  border: 1px solid var(--accent-line);
+  display: inline-block;
+}
+.sts-fill {
+  display: block; height: 100%;
+  background: var(--accent);
+  transition: width 0.2s;
+}
 
 /* Tint the inline ghost "Details" button so it sits in the accent strip.
    (Targets the kit .ui-btn family — the pre-convergence .jw-btn selector

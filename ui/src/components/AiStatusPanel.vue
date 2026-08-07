@@ -35,6 +35,20 @@ const visibleHistory = computed(() =>
 const hiddenHistoryCount = computed(() =>
   Math.max(0, tasks.history.length - visibleHistory.value.length));
 
+// Settled-but-still-visible tasks (inside their linger window — see
+// FAMILY_TASK_LINGER). They render in RECENT, above history, never under Running:
+// JustVoice's fork had this split from day one and an earlier pass here put
+// lingering rows under the "Running" header, where the count read 0 above a
+// visible row. Running means running.
+const lingering = computed(() =>
+  tasks.visibleTasks.filter((t) => !tasks.isRunning(t.id)));
+const recentCount = computed(() => lingering.value.length + tasks.history.length);
+
+const LINGER_ICON = { done: "Check", cancelled: "Close", error: "Alert" };
+function settledDurationMs(t) {
+  return Math.max(0, (t.finishedAt || 0) - t.startedAt);
+}
+
 // Esc + click-outside dismissal comes from the shared composable (2026-07-19 —
 // this component used to carry its own near-identical copy; the toggle and
 // portal exemptions now live in ONE place). The panel needs one extra
@@ -137,33 +151,21 @@ const phaseLabel = {
           </UiButton>
         </div>
 
-        <div v-if="!tasks.visibleTasks.length" class="aip-empty">
+        <div v-if="!tasks.runningCount" class="aip-empty">
           Nothing running. Start any AI feature and you'll see it here with live status.
         </div>
 
-        <!-- visibleTasks, not runningTasks: identical unless the host asked for a
-             linger, in which case a just-finished task stays readable here for its
-             dwell instead of jumping straight into history. -->
-        <div v-for="t in tasks.visibleTasks" :key="t.id" class="aip-task">
+        <!-- Running means RUNNING — a settled task inside its linger window renders
+             under Recent below, exactly as JustVoice's fork always did. -->
+        <div v-for="t in tasks.runningTasks" :key="t.id" class="aip-task">
           <div class="aip-task-h">
             <span class="aip-task-label">{{ t.label }}</span>
             <span class="aip-task-feature">{{ t.feature }}</span>
             <span class="aip-task-spacer" />
-            <UiButton v-if="tasks.isRunning(t.id)" intent="danger" size="small" @click="tasks.cancel(t.id)">
+            <UiButton intent="danger" size="small" @click="tasks.cancel(t.id)">
               <template #icon><Icon name="Close" :size="11" /></template>
               Cancel
             </UiButton>
-            <template v-else>
-              <UiButton v-if="t._onRetry" intent="ghost" size="small" @click="tasks.retry(t.id)"
-                v-tooltip.bottom="'Run it again'">
-                <template #icon><Icon name="Refresh" :size="11" /></template>
-                Retry
-              </UiButton>
-              <UiButton intent="ghost" size="icon" @click="tasks.dismiss(t.id)"
-                v-tooltip.bottom="'Dismiss'">
-                <template #icon><Icon name="Close" :size="11" /></template>
-              </UiButton>
-            </template>
           </div>
 
           <div class="aip-task-stats">
@@ -224,19 +226,51 @@ const phaseLabel = {
         </div>
       </section>
 
-      <!-- Recent history ──────────────────────────────────────────── -->
+      <!-- Recent: settled tasks still in their linger window, then history ── -->
       <section class="aip-section">
         <div class="aip-section-h">
           <span>Recent</span>
-          <span class="aip-section-count">{{ tasks.history.length }}</span>
+          <span class="aip-section-count">{{ recentCount }}</span>
           <span class="aip-section-spacer" />
           <UiButton v-if="tasks.history.length" intent="ghost" size="small" @click="tasks.clearHistory()">
             <Icon name="Trash" :size="11" /> Clear
           </UiButton>
         </div>
 
-        <div v-if="!tasks.history.length" class="aip-empty aip-empty-small">
+        <div v-if="!recentCount" class="aip-empty aip-empty-small">
           No completed tasks yet.
+        </div>
+
+        <!-- Lingering (just settled; a failure stays here until dismissed — the
+             durable-error law as a row the user must acknowledge, error text and
+             all, not just a badge count). -->
+        <div v-for="t in lingering" :key="t.id" class="aip-hist-row" :data-status="t.status">
+          <div class="aip-hist-icon">
+            <Icon :name="LINGER_ICON[t.status] || 'Alert'" :size="11" />
+          </div>
+          <div class="aip-hist-body">
+            <div class="aip-hist-line">
+              <span class="aip-hist-label">{{ t.label }}</span>
+              <span class="aip-hist-ago">{{ fmtAgo(t.finishedAt, tasks.now) }}</span>
+            </div>
+            <div class="aip-hist-meta">
+              <span>{{ fmtSeconds(settledDurationMs(t)) }}</span>
+              <span v-if="t.tokensOut">· {{ t.tokensOut }} tok out</span>
+              <span v-for="(s, i) in (t.stats || [])" :key="`ls${i}`">· {{ s }}</span>
+              <span v-if="t.model">· <code>{{ t.model }}</code></span>
+            </div>
+            <div v-if="t.error" class="aip-hist-error">{{ t.error }}</div>
+          </div>
+          <div class="aip-hist-actions">
+            <UiButton v-if="t._onRetry" intent="ghost" size="icon" @click="tasks.retry(t.id)"
+              v-tooltip.bottom="'Run it again'">
+              <template #icon><Icon name="Refresh" :size="11" /></template>
+            </UiButton>
+            <UiButton intent="ghost" size="icon" @click="tasks.dismiss(t.id)"
+              v-tooltip.bottom="'Dismiss'">
+              <template #icon><Icon name="Close" :size="11" /></template>
+            </UiButton>
+          </div>
         </div>
 
         <div v-for="h in visibleHistory" :key="h.id" class="aip-hist-row" :data-status="h.status">
@@ -253,9 +287,19 @@ const phaseLabel = {
             <div class="aip-hist-meta">
               <span>{{ fmtSeconds(h.durationMs) }}</span>
               <span v-if="h.tokensOut">· {{ h.tokensOut }} tok out</span>
+              <span v-for="(s, i) in (h.stats || [])" :key="`hs${i}`">· {{ s }}</span>
               <span v-if="h.model">· <code>{{ h.model }}</code></span>
             </div>
             <div v-if="h.error" class="aip-hist-error">{{ h.error }}</div>
+          </div>
+          <!-- Retry survives archival — a failed run is re-runnable from its
+               history row (the callback rides the summary; JustVoice's fork
+               kept the whole task for the same reason). -->
+          <div v-if="h._onRetry" class="aip-hist-actions">
+            <UiButton intent="ghost" size="icon" @click="tasks.retry(h.id)"
+              v-tooltip.bottom="'Run it again'">
+              <template #icon><Icon name="Refresh" :size="11" /></template>
+            </UiButton>
           </div>
         </div>
 
@@ -402,13 +446,14 @@ const phaseLabel = {
   color: var(--muted);
 }
 
-/* History row */
+/* History row (also the lingering-row shape — same grid, plus an actions column) */
 .aip-hist-row {
-  display: grid; grid-template-columns: 20px 1fr;
+  display: grid; grid-template-columns: 20px 1fr auto;
   gap: 8px;
   padding: 6px 4px;
   border-bottom: 1px solid var(--border-soft);
 }
+.aip-hist-actions { display: flex; align-items: flex-start; gap: 2px; }
 .aip-hist-row:last-child { border-bottom: 0; }
 .aip-hist-icon {
   display: grid; place-items: center;

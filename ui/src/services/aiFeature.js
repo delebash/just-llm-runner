@@ -39,6 +39,13 @@ export function startTaskHandle({ task, feature, action, meta, signal }) {
     feature: feature || action,
     label: opts.label || action,
     meta: opts.meta || meta || {},
+    // Forwarded verbatim — the store owns the defaults (FAMILY_TASK_LINGER when
+    // lingerMs is omitted). `inline` marks a task whose surface renders its own
+    // strip, so a global stack never shows the same run twice.
+    stats: opts.stats,
+    onRetry: opts.onRetry,
+    lingerMs: opts.lingerMs,
+    inline: opts.inline,
   });
   if (signal) {
     if (signal.aborted) handle.cancel();

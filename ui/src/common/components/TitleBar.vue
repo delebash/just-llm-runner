@@ -34,10 +34,12 @@ onBeforeUnmount(() => stopAfterEach?.());
 
 <template>
   <header class="titlebar lu-titlebar">
-    <button class="iconbtn lu-titlebar-btn" :disabled="!canBack" title="Back" @click="router.back()">
+    <button class="iconbtn lu-titlebar-btn" :disabled="!canBack"
+      v-tooltip.bottom="canBack ? 'Back' : 'Back (no history)'" @click="router.back()">
       <Icon name="ChevLeft" :size="16" />
     </button>
-    <button class="iconbtn lu-titlebar-btn" :disabled="!canForward" title="Forward" @click="router.forward()">
+    <button class="iconbtn lu-titlebar-btn" :disabled="!canForward"
+      v-tooltip.bottom="canForward ? 'Forward' : 'Forward (no history)'" @click="router.forward()">
       <Icon name="ChevRight" :size="16" />
     </button>
     <span class="titlebar__title lu-titlebar-title"><slot name="title">{{ title }}</slot></span>
@@ -50,4 +52,20 @@ onBeforeUnmount(() => stopAfterEach?.());
 <style scoped>
 .lu-titlebar { display: flex; align-items: center; gap: 6px; }
 .lu-titlebar-spacer { flex: 1; }
+
+/* WINDOW DRAG — lifted from JustWrite 2026-08-07, the only app that had it. §11 wants a
+   native-feel title row in every app; dragging the window by it IS that feel, and docgen
+   had no app-region rule anywhere, so its bar didn't drag at all. The frame owns the
+   behaviour now and every consumer gets it.
+   `user-select: none` rides along: without it a drag selects the title text.
+   The two no-drag rules are what make this SAFE to own. The moment the frame is a drag
+   surface, anything interactive inside it stops responding unless it opts out — the
+   frame's own buttons, and whatever the host puts in the slot (JW's whole control
+   cluster, docgen's mode cycler + AiStatusButton). Adding drag without them would have
+   handed both apps a dead title bar.
+   All of it is inert outside a Tauri/Electron webview, so the headless browser path is
+   untouched in every app. */
+.lu-titlebar { -webkit-app-region: drag; user-select: none; }
+.lu-titlebar-btn { -webkit-app-region: no-drag; }
+.lu-titlebar :slotted(*) { -webkit-app-region: no-drag; }
 </style>

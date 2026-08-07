@@ -766,11 +766,11 @@ exist) is domain BY DESIGN.
 
 **Nuances found while determining:**
 
-- **Only JW installs the log feeders** — `install_file_log` + `install_log_ring`
-  are imported in JW's app.py alone; JV and docgen mount the shared `/v1/logs`
-  ROUTER without the same feeding calls. Same panel, same route, possibly
-  different (or empty) content behind it in the siblings. Needs one look and
-  one answer.
+- **All three install the log feeders** (CORRECTED during P4, 2026-08-08 —
+  this stanza originally claimed JW alone and asked for one look): the look
+  found `install_log_ring()` + `install_file_log(...)` called in every app.py
+  (JW; JV app.py:92-93; docgen create_app). Same panel, same route, same
+  content behind it. Closed.
 - **JW does not use the kit `AppearancePanel`** — JV and docgen share it (the
   2026-08-04 shared-panel ruling); JW keeps a fully private appearance UI. Its
   manuscript theming is domain, but the family rows (mode/hue/scale/fonts)

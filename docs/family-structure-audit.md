@@ -629,6 +629,125 @@ data-dir+Rust-compat layout · docgen 106 config-relative workspace paths —
 three purposes) · `cli.py` (above) · JV `engines/registry.py` vs kit
 `llm/registry.py` (TTS vs LLM). The shareable atom inside paths is
 `default_data_dir()` via platformdirs (~5 lines each).
-## R2-5 · Renderer commons — PENDING
-## R2-6 · Tauri shells — PENDING
-## R2-7 · Scripts, e2e, kit exports — PENDING
+## R2-5 · Renderer commons — two patterns working, four copy-classes, one fork left
+
+**Working as designed (the positive controls):**
+
+- `services/appearance.js` ×3 — the family model exactly: kit engine + catalogs,
+  per-app brand defaults, JW's manuscript theming via the engine's `extraApply`
+  hook. docgen's header literally cites "the JV pattern".
+- `views/settingsSections.js` ×3 + its canon test ×3 — the familyContract
+  pattern working (canon relative order in the kit, app-own lanes around it,
+  contract-tested per app). **The guard's "copy nobody promoted?" advisory is
+  wrong for these two** — the shared part already lives in the kit; the per-app
+  files are the intended app half.
+- `views/AiView.vue` ×3 — three thin hosts of the kit `AiModelsArea`, per-app
+  chrome. The intended shape.
+
+**Copy-classes (promotable or convergeable):**
+
+- `services/helpDocs.js` ×3 — three hand-copies of one adapter (JW donor, JV
+  lifted with attribution, docgen re-implemented smaller). The kit seam
+  (`configureHelp`) already exists; a kit `makeDocsHelpAdapter(glob, toc)`
+  would leave each app one line. docgen's copy also lacks the README→index
+  alias the other two have.
+- `boot.smoke.test.js` ×3 (0.62–0.83 pairwise) — one skeleton, per-app route
+  stubs. Promotable as a kit test helper with a stub map.
+- `scripts/py.js` — JV↔docgen are the SAME file (diff = env-var name + one
+  example line). JW's is different AND better: it wraps `findPython()` from
+  its shared resolver (venv-preferred, PATH fallback, with a recorded failure
+  story). Three launchers, two lineages; the better one is the unshared one.
+- **Browser/executable lookup has TWO "one homes"**: JW `tests/lib/smoke-common.js`
+  (findChrome + findPython; its own header records 19 stale copies still inside
+  JW) and JV `scripts/lib/smoke-common.js` (findChrome only; JV's CLAUDE.md
+  declares it "one place"). Both repos banned intra-repo forks of exactly the
+  thing they fork across repos. docgen has neither.
+
+**Real divergences:**
+
+- `stores/ui.js` ×3 — same name, three animals, and **three persistence layers
+  for UI prefs**: JW server `/v1/settings` (`ui` section) · JV server
+  `/v1/prefs` · docgen `localStorage` (appearance does not survive
+  reinstall/machine moves — the only app whose prefs aren't server-backed).
+  Also `useUiStore` (JW, docgen) vs `useUIStore` (JV), and THREE homes for the
+  family `keepServerRunning` flag (JW ui store · JV server store · docgen ui
+  store via localStorage).
+- **docgen's quicksetup deep-link fix propagated to JV but not JW.** The
+  wizard-reopens-on-Back bug (user-hit 2026-08-03) is fixed one-shot in docgen
+  and JV (JV's comment credits docgen); JW still binds
+  `:auto-open-quick-setup="route.query.quicksetup === '1'"` directly — the
+  exact reopening binding. JW also flings to Home on wizard close, which
+  docgen deliberately removed ("disorienting") — divergent UX rulings, each
+  documented, never reconciled.
+- i18n: JW full (en.json 2548 lines) · JV scaffold (75) · docgen none — and
+  docgen is the i18n tool. No family rule on renderer i18n.
+
+## R2-6 · Tauri shells — a real command core, and security by three postures
+
+- **Converged**: `set_keep_server_running` + `storage_get_root` +
+  `storage_relocate` exist in all three (the family platform commands);
+  `main.rs` is the same thin `*_lib::run()` shape ×3; `build.rs` identical;
+  `plugin_dialog` + `plugin_window_state` ×3; JW=docgen share a copied window
+  block (1440×900, min 1000×640, `dragDropEnabled: false`).
+- **"Open a URL" is solved three ways**: docgen `plugin_opener` (§4's named
+  choice) · JV `plugin_shell` · JW a custom `open_external` command. One
+  function, three mechanisms — §11's exact target.
+- **docgen alone ships no `plugin_http`** — its webview fetches cross-origin
+  directly, which is WHY its server needs hardcoded allow-all CORS. The R2-4
+  security row and this plugin row are one fact seen from two sides. JW/JV
+  route through the CORS-exempt Tauri HTTP plugin.
+- **Capabilities**: JW's is the only scoped one (per-URL http allowlist +
+  rationale); JV grants six flat `:default`s; docgen is minimal. JW also
+  pins the public capability schema URL; JV/docgen point at `../gen/schemas`.
+- **`"csp": null` in all three** — meaning the index.html comments in JW and
+  docgen ("CSP is delivered as response headers … configured in
+  tauri.conf.json") describe headers that are configured to NOT exist. No app
+  in the family ships a CSP.
+- JV's window block lacks `dragDropEnabled: false` (so HTML5 drag behaves
+  differently than its siblings) and its bundle lists only 2 icons (both
+  JW's artwork — R2-1) vs the siblings' 5.
+- Identifier conventions differ (`com.justwrite.app` · `dev.justvoice.app` ·
+  `com.just-ai-i18n-docgen.app`), and **no app has one version truth** — JV
+  alone carries tauri.conf 0.1.0 + package.json 0.1.0 + server VERSION 0.0.1;
+  JW pairs tauri 1.0.0 with server 0.0.1.
+
+## R2-7 · Scripts, e2e, kit surface
+
+- **e2e**: JW and docgen share the harness (fetch-driver.js IDENTICAL;
+  driver.js the same file modulo line endings — the 0.95 score is CRLF/LF
+  drift, worth a `.gitattributes` ruling); smoke tests are domain. JV has
+  none (deferred by the user's word — recorded in its tracker).
+- `scripts/smoke.js` — JW and JV each have a Playwright gate of the same
+  concept, different implementations (220 vs 121 lines). Both import their
+  own repo's smoke-common (see R2-5's two-homes finding).
+- **JW root carries a `just-ai-i18n-docgen/` workspace config** — JustWrite
+  uses docgen to translate its own `en.json` (source `../src/i18n/locales/
+  en.json` → es). Intentional dogfooding, worth knowing it's there; the kit
+  repo also tracks `.idea/` (IDE files), and JV tracks `legacy-gui/` (3
+  files) + `testdata/`.
+- **Kit export consumption** (the 49 explicit `index.js` exports swept against
+  all three apps' src): **5 have zero app consumers** (FeatureWorkbench,
+  LuModelPicker, llmUiBase, llmUiCapabilities, llmUiUrl — internal-surface or
+  dead, needs kit-side triage before deleting) and **19 are single-app, 17 of
+  them JW-only** — including `runAiFeature`/`runAiFeatureStream` themselves:
+  JW calls the runner directly, JV enters via labAdapters/aiFeature
+  internals, docgen via its jobs store + server-side `engine.make_send`.
+  Three doors into one runner. `usePoll`'s only consumer is docgen (the
+  guard's four hand-rolled-setInterval advisories are the other side of it).
+- **A4 answered** (was an open question): JW's `pyproject.toml` puts the
+  `-server` suffix in BOTH the package (`justwrite_server`) and the console
+  script (`justwrite-server`); the standard wants it on the script only.
+- **Docs-structure convention holds family-wide**: `docs/dev/` with
+  TASKS.md + IDEAS.md + README.md exists in all four repos.
+
+## R2-STATUS
+
+**Round 2 (contents) — DONE 2026-08-08** for the cross-app surface: every
+same-named/same-purposed pair across the four repos was machine-compared, and
+every non-identical pair that matters was read and classified above. Still
+deliberately NOT audited: per-app domain internals with no cross-app twin
+(JW's 119 services, JV's engines/audio stack, docgen's pipeline modules — no
+counterpart to diverge from), full CSS token values (per-app brand by design),
+and JW's two architecture docs beyond what B2/B3 already read. The E-section
+items "kit's own structure" and "Tauri shells" are now measured (R2-2, R2-6);
+"A4's console-script question" is answered (R2-7).

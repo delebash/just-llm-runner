@@ -264,6 +264,8 @@ const RETIRED = new Map([
     /justvoice\/csrf\.py\b|justvoice\.csrf\b/,
     /--no-docs\b/,
     /justvoice\.cli serve\b/,
+    // P6: the one api file off the _api naming pattern died into health_api.py.
+    /api\/health\.py\b/,
   ]],
   ["docgen", [
     /just_ai_i18n_docgen\/csrf\.py\b/,

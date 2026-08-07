@@ -25,7 +25,13 @@ import { friendlyAiError } from "./aiErrors.js";
 // Task-panel registration shared by both wrappers: `task` = true | { label,
 // meta } registers in the global AI task panel; a caller-supplied `signal` is
 // ORed with the task's own controller.
-function startTaskHandle({ task, feature, action, meta, signal }) {
+//
+// Exported 2026-08-07 for ConfigColumn's ADAPTER path, which needs the identical
+// registration but not the /v1/ai transport — see runViaAdapter. Kit-internal only:
+// index.js names `runAiFeature`/`runAiFeatureStream` from this module explicitly, so
+// this does not widen the package's public API. The adapter path must never grow its
+// own copy of the signal-ORing below.
+export function startTaskHandle({ task, feature, action, meta, signal }) {
   if (!task) return { handle: null, effectiveSignal: signal };
   const tasks = useAiTasksStore();
   const opts = (typeof task === "object" && task) || {};

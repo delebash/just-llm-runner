@@ -29,7 +29,7 @@ import { computed, onMounted, ref, watch } from "vue";
 
 import { request } from "../client.js";
 import { resolvedSourceLabel, useResolvedRoute } from "../composables/useResolvedRoute.js";
-import { runAiFeature } from "../services/aiFeature.js";
+import { runAiFeature, startTaskHandle } from "../services/aiFeature.js";
 import { LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { useAiTasksStore } from "../stores/aiTasks.js";
 import { resolveModelDefaults } from "../modelDefaults.js";
@@ -484,17 +484,58 @@ function buildBody() {
 async function runViaAdapter(body, t0) {
   const ctrl = new AbortController();
   testCtrl.value = ctrl;
-  const r = (await props.adapter.run(body, { signal: ctrl.signal })) || {};
-  const ms = Math.round(performance.now() - t0);
-  const out = r.completionTokens || 0;
-  return {
-    content: r.content || "", model: r.model || "", ms,
-    promptTokens: r.promptTokens || 0, outputTokens: out,
-    tps: ms > 0 && out > 0 ? +(out / (ms / 1000)).toFixed(1) : 0,
-    words: wordCount(r.content || ""),
-    cost: r.cost || 0,
-    data: r.data,   // the structured result the adapter's render consumes
-  };
+  // REGISTER the run, exactly as the /v1/ai/run branch below does. #36 ("no ai
+  // progress bar no task") and QC-23 ("what happend to the shared ai progress bar?")
+  // were both fixed on that branch only — this one never got it, so a feature whose
+  // app supplies its own pipeline ran, returned and rendered its result while the
+  // strip, the panel and the sidebar badge stayed empty. `myTask` above matches on
+  // meta.labColId and nothing here created a task to match.
+  //
+  // markStreaming() is not optional: an adapter run produces no token deltas, and
+  // without it the task sits in "connecting" for its whole life. i18n-docgen's
+  // stores/jobs.js is the reference — it registers server-side translation jobs the
+  // same way, calls markStreaming, and reports progress through the same handle.
+  //
+  // Cancel works from BOTH ends: the column's own button aborts `ctrl`, which
+  // startTaskHandle ORs into the task's controller, and the panel's Cancel aborts
+  // that controller directly. Either way the adapter runs against effectiveSignal.
+  const { handle, effectiveSignal } = startTaskHandle({
+    task: { label: `Lab test — ${props.action}`, meta: { labColId } },
+    action: props.action,
+    signal: ctrl.signal,
+  });
+  handle?.markStreaming();
+  try {
+    const r = (await props.adapter.run(body, { signal: effectiveSignal })) || {};
+    const ms = Math.round(performance.now() - t0);
+    const out = r.completionTokens || 0;
+    // A pipeline reporting no token counts finishes with zeros; every stat in the
+    // strip is v-if'd, so it degrades to label · elapsed · Cancel rather than "0 tok".
+    handle?.finish({
+      usage: {
+        promptTokens: r.promptTokens || 0,
+        completionTokens: out,
+        model: r.model || "",
+        cost: r.cost || 0,
+      },
+      model: r.model || "",
+    });
+    return {
+      content: r.content || "", model: r.model || "", ms,
+      promptTokens: r.promptTokens || 0, outputTokens: out,
+      tps: ms > 0 && out > 0 ? +(out / (ms / 1000)).toFixed(1) : 0,
+      words: wordCount(r.content || ""),
+      cost: r.cost || 0,
+      data: r.data,   // the structured result the adapter's render consumes
+    };
+  } catch (err) {
+    // Raw, not friendlyAiError: that wrapper reads PROVIDER errors, and this path's
+    // failures come from the app's own pipeline endpoint. docgen's jobs store does
+    // the same. A cancel lands here too, but the store deleted the task on cancel,
+    // so fail() is a no-op and no spurious error badge appears.
+    handle?.fail(err);
+    throw err;
+  }
 }
 
 // Exposed so a parent (Compare) can fire every column at once. Resolves when done.

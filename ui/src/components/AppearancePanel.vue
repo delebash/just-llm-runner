@@ -40,9 +40,7 @@ const fontOptions = UI_FONTS.map((f) => f.label);
     <div class="setting-row__head">
       <div>
         <div class="setting-row__title">Theme</div>
-        <div class="setting-row__desc">
-          Light, Dark, or Follow system. Applied immediately via CSS custom properties.
-        </div>
+        <div class="setting-row__desc">Light, Dark, or Follow system.</div>
       </div>
       <UiSelect
         :model-value="appearance.mode"

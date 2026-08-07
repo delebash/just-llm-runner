@@ -554,7 +554,81 @@ opt-in (JV and docgen both name JW as donor in their headers).
    break IPC") and JV doesn't — whether JV's tauri.conf actually sets a CSP is
    checked in R2-6. JV alone has a favicon link.
 
-## R2-4 · Server infra — PENDING (next commit)
+## R2-4 · Server infra — one policy, three copies; and a security-posture split
+
+Package top level: JW 20 modules + `api/` + dead `llm/` · JV 24 + eight domain
+subpackages · docgen 25, FLAT — **no `api/` package at all** (routes live in
+`app.py`/`service.py`). So no app follows §6 whole: JW+JV have `api/` but
+`cli.py` entries; docgen has `serve.py` but no `api/`.
+
+**The infra-copy class** (same policy, hand-maintained per app):
+
+- `auth.py` ×3 — deliberately uniform (each header cites the siblings), same
+  policy, same lockout escape. The 2026-08-05 lockout fix was applied THREE
+  times by hand — the copy cost, already paid once. Genuine per-app parts:
+  the settings read (three storage seams) and the problem-URL domain.
+  Everything else is a kit-factory candidate — IF the kit's charter grows to
+  server infra (a ruling: today `llm_runner` is "the AI stack", not "the app
+  platform").
+- `errors.py` — JW = JV's shape ("the reference") PLUS `_log_error`
+  (level-scaled logging of every handled error, 2026-07-17) and
+  RequestValidationError handling. **Neither improvement was back-ported to
+  JV**, and docgen has no errors.py at all (its problem+json exists only in
+  auth; other errors get the catch-all 500 envelope).
+- `app_state.py` — JW is a 28-line copy of JV's set_state/get_state pattern
+  (its docstring says "mirroring JustVoice"); contents are domain. docgen uses
+  module state instead. Pattern shared, mechanism unshared.
+- `version.py` — JW/JV same shape (JV adds DEFAULT_PORT); docgen has none
+  (PRODUCT lives in appmeta).
+
+**Security posture — the least-converged layer in the family:**
+
+| | CSRF middleware | CORS |
+|---|---|---|
+| JW | ✓ `csrf.py` (reject cross-site mutating /v1; reuses CORS allowlist) | settings-driven, else allow-all |
+| JV | **none** — `app.py:250` records the cost: "allow_key_reveal stays OFF: JV has no CSRF/origin middleware" (a product feature disabled to compensate) | settings-driven only (defaults carry dev+webview origins) |
+| docgen | **none** | **hardcoded allow-all** (`allow_origins=["*"]`), comment defers the lockdown |
+
+All three share the identical threat model (a loopback server any browser tab
+can address). JW hardened it 2026-07-15; the sibling ports never happened.
+
+**A latent middleware-order bug in JustVoice.** Starlette runs the LAST-added
+middleware OUTERMOST. JW and docgen add auth *then* CORS and their comments
+state the rule ("CORS ends up OUTERMOST … answers preflights before auth sees
+them; JW's exact ordering"). JV adds CORS *then* auth (`app.py:163→174`) — its
+comment claims the same intent ("Auth — after CORS so preflights succeed
+without a token") but the code achieves the inversion: **auth runs before
+CORS**. Masked today because auth defaults off; bites the moment a headless JV
+sets tokens and a cross-origin UI sends a preflight (401 with no CORS headers
+→ the browser reports a CORS failure).
+
+**Entry points — docgen's split explains the standard.** docgen's `cli.py` is
+its DOMAIN tool (translate/check/escalate…) and `serve.py` the server entry —
+exactly §6's shape. JW and JV merged the server entry INTO `cli.py` (typer),
+which is what the guard's four §6 violations measure. Also divergent: JV's
+serve reads host/port from its settings store (its own no-hardcoded-tunables
+law); JW/docgen hardcode CLI defaults. JW seeds in `cli.serve()` (deliberate —
+keeps pytest's `create_app(tmp_path)` empty); JV/docgen seed inside
+`create_app`. Same test-isolation problem, two answers.
+
+**`/v1/health` — one endpoint, three schemas.** JW hand-written camelCase dict
+(+ `dbReady`, `dataDir`; comment calls camelCase "the shared cross-app
+convention") · JV a Pydantic model carrying BOTH `apiVersion` AND `api_version`
+(dual-case legacy) + engine readiness · docgen a minimal inline route in
+app.py (the kit boot-gate contract). The kit's `checkServer()` only needs 200,
+so nothing forces convergence — but the "camelCase wire" convention is claimed
+in one app and half-followed in another.
+
+**Converged for real, verified:** the app.py middleware SKELETON — all three
+carry the identical catch-all error envelope registered before CORS, with the
+same verified-the-hard-way comment lineage (JV 2026-06-12 → JW → docgen "JW's
+exact ordering") — and the whole install_llm sequence (B5, unchanged).
+
+**Name collisions, not copies:** `paths.py` (JW 15 lines data-dir · JV 85
+data-dir+Rust-compat layout · docgen 106 config-relative workspace paths —
+three purposes) · `cli.py` (above) · JV `engines/registry.py` vs kit
+`llm/registry.py` (TTS vs LLM). The shareable atom inside paths is
+`default_data_dir()` via platformdirs (~5 lines each).
 ## R2-5 · Renderer commons — PENDING
 ## R2-6 · Tauri shells — PENDING
 ## R2-7 · Scripts, e2e, kit exports — PENDING

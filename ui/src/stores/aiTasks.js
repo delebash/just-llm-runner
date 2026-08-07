@@ -284,6 +284,7 @@ export const useAiTasksStore = defineStore("aiTasks", {
     _finish(id, result) {
       const t = this.tasks[id];
       if (!t) return;
+      if (!this.isRunning(id)) return; // first outcome wins — see _fail
       const now = Date.now();
       t.status = "done";
       t.finishedAt = now;
@@ -304,6 +305,15 @@ export const useAiTasksStore = defineStore("aiTasks", {
     _fail(id, err) {
       const t = this.tasks[id];
       if (!t) return;
+      // FIRST outcome wins. Callers overwhelmingly write
+      //   catch (e) { if (signal.aborted) cancel(); else fail(e); }
+      // and aborting also throws into that same catch, so cancel-then-fail is the
+      // NORMAL path, not an edge case. Before lingering it was invisible: cancel()
+      // archived immediately, so the task was gone by the time fail() arrived and
+      // this method no-op'd on `!t`. With a row that lingers, a task the USER
+      // cancelled would flip to "error", badge the titlebar red, and with
+      // `failed: null` never leave the panel.
+      if (!this.isRunning(id)) return;
       const now = Date.now();
       t.status = "error";
       t.error = err?.message || String(err || "Unknown error");

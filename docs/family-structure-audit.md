@@ -587,11 +587,14 @@ subpackages · docgen 25, FLAT — **no `api/` package at all** (routes live in
 | | CSRF middleware | CORS |
 |---|---|---|
 | JW | ✓ `csrf.py` (reject cross-site mutating /v1; reuses CORS allowlist) | settings-driven, else allow-all |
-| JV | **none** — `app.py:250` records the cost: "allow_key_reveal stays OFF: JV has no CSRF/origin middleware" (a product feature disabled to compensate) | settings-driven only (defaults carry dev+webview origins) |
-| docgen | **none** | **hardcoded allow-all** (`allow_origins=["*"]`), comment defers the lockdown |
+| JV | ✓ since 2026-08-08 (`bca06df`) — JW's donor with JV's seams: the one allowlist reuses settings.cors origins AND the loopback origin_regex; the middleware-order inversion below was fixed in the same commit | settings-driven only (defaults carry dev+webview origins) |
+| docgen | ✓ since 2026-08-08 (`2fbea74`) — JW's donor; with allow-all CORS this is what gates mutations | **hardcoded allow-all** (`allow_origins=["*"]`), comment defers the lockdown |
 
 All three share the identical threat model (a loopback server any browser tab
-can address). JW hardened it 2026-07-15; the sibling ports never happened.
+can address). JW hardened it 2026-07-15; **STATUS 2026-08-08 — the sibling
+ports LANDED** (tests in both suites; JV 409 · docgen 152 green). The three
+csrf.py copies are now the newest members of the infra-copy class above — the
+kit-factory consolidation supersedes them if the charter ruling lands.
 
 **A latent middleware-order bug in JustVoice.** Starlette runs the LAST-added
 middleware OUTERMOST. JW and docgen add auth *then* CORS and their comments

@@ -17,13 +17,13 @@ Dispatch reads an `LLMConfig` (this package's schema), built by the shared
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Callable, Iterable, Iterator
 
 from .base import LLMAdapter, LLMMessage, LLMResponse, StreamDelta
 from .registry import LLMRegistry, get_llm_registry
 from .schema import LLMConfig
-from .capability import model_thinks
 from .tiers import TierSpec, spec_for
 from .usage import UsageEntry, get_ledger
 
@@ -248,6 +248,25 @@ def resolve_route(
     return adapter, model, tier_override
 
 
+def _raise_with_think_hint(e: Exception, *, think_was_on: bool) -> None:
+    """The gate removal's one addition (ruled 2026-08-06): when a run that
+    carried the thinking parameter fails AND the provider's own message is
+    about that parameter, re-raise with the provider's words plus ONE
+    sentence naming the fix. No capability guessing — the match is on the
+    provider's OWN prose about the parameter we sent; every other error
+    (auth, timeout, quota) passes through untouched (the caller's bare
+    `raise` right after this call)."""
+    if not think_was_on:
+        return
+    text = str(e)
+    if not re.search(r"reasoning|thinking", text, re.IGNORECASE):
+        return
+    raise RuntimeError(
+        f"{text} — this usually means the model can't think: turn thinking off "
+        "on this feature's preset, or pick another model."
+    ) from e
+
+
 def _apply_reasoning(extra: dict | None, adapter: LLMAdapter, model: str, *, think: bool) -> dict | None:
     """Map the reasoning ASK (the raw level carried in `reasoning_effort`, injected by
     `prompts._plane2_extra`) into what the RESOLVED provider/model actually emits (U2-T3)
@@ -307,12 +326,10 @@ def chat(
     )
     tier = spec_for(model, tier_override)
     eff_think = tier.think if think is None else think
-    # THE CAPABILITY GATE (approved 2026-08-06): thinking runs only where the
-    # model offers the choice — think-on to a known non-thinker sends a dead
-    # key locally and an API ERROR on cloud (reasoning_effort to gpt-4o-class).
-    # Unknown models pass through unchanged; catalog rows are the editable truth.
-    if eff_think and model_thinks(model) is False:
-        eff_think = False
+    # NO send-time veto (the gate REMOVAL, ruled 2026-08-06: "no fancy
+    # magic"): the request carries thinking exactly as configured — the
+    # preset is the ONE thinking control. A provider that can't take the
+    # parameter answers with its own error; _think_hint adds the fix line.
     extra = _apply_reasoning(extra, adapter, model, think=eff_think)
 
     started = time.monotonic()
@@ -334,6 +351,7 @@ def chat(
                 ok=False, error=str(e)[:200], provider_id=adapter.provider_id,
             )
         )
+        _raise_with_think_hint(e, think_was_on=eff_think)
         raise
     get_ledger().record(
         UsageEntry(
@@ -371,9 +389,7 @@ def stream_chat(
     )
     tier = spec_for(model, tier_override)
     eff_think = tier.think if think is None else think
-    # THE CAPABILITY GATE — same law as chat() above (one comment there).
-    if eff_think and model_thinks(model) is False:
-        eff_think = False
+    # NO send-time veto — same law as chat() above (one comment there).
     extra = _apply_reasoning(extra, adapter, model, think=eff_think)
 
     started = time.monotonic()
@@ -403,6 +419,7 @@ def stream_chat(
                 ok=False, error=str(e)[:200], provider_id=adapter.provider_id,
             )
         )
+        _raise_with_think_hint(e, think_was_on=eff_think)
         raise
     get_ledger().record(
         UsageEntry(

@@ -52,6 +52,15 @@ const message = ref("");
 const selAction = ref("");
 const selFeature = ref(""); // a promptless feature's routing-only selection
 
+// A kept-alive host re-consumes an action deep link by updating the prop (the
+// load-time read below fires once per session — JV's #speakerlab redirect,
+// 2026-08-06). Static hosts never trigger it; an unknown key is ignored.
+watch(() => props.initialAction, (a) => {
+  if (!a) return;
+  if (prompts.value.some((p) => p.key === a)) selectAction(a);
+  else if ((routing.value?.features || []).some((f) => f.key === a)) selectFeature(a);
+});
+
 const featMeta = computed(() => Object.fromEntries((routing.value?.features || []).map((f) => [f.key, f])));
 
 const GROUP_FALLBACK = "Other";
@@ -313,7 +322,13 @@ const selPanelPane = computed(() =>
   selFeatureHasRows.value && !selIsPiecesParent.value && !!selPanelMeta.value?.label);
 const selFeatureTitle = computed(() =>
   selPanelPane.value ? selPanelMeta.value.label : (featMeta.value[selFeature.value]?.label || selFeature.value));
-watch(selFeature, (k) => { if (k && !prompts.value.some((p) => p.feature === k)) loadPreview(k); });
+// A pieces parent may ALSO serve a preview (JV's dictation cleanup, task #22
+// 2026-08-06): its pane then carries the full Lab over the REAL composed call.
+const piecesParentOf = (k) => prompts.value.some((p) => p.feature === k && pieceFor(p.key));
+watch(selFeature, (k) => {
+  if (!k) return;
+  if (!prompts.value.some((p) => p.feature === k) || piecesParentOf(k)) loadPreview(k);
+});
 
 const navCollapsed = ref(false);
 
@@ -437,7 +452,8 @@ onMounted(load);
 
           <!-- A pieces parent (has prompt rows): the routing home — ONE preset
                feeds every piece below it; the texts are edited on their own rows. -->
-          <div v-if="selFeatureHasRows" class="lu-fw-route">
+          <template v-if="selFeatureHasRows">
+          <div class="lu-fw-route">
             <label class="lu-fw-route-label" :for="`fw-route-${selFeature}`">Engine preset</label>
             <select :id="`fw-route-${selFeature}`" class="lu-input" style="max-width:340px"
               :value="refPid(selFeature) || ''"
@@ -450,6 +466,26 @@ onMounted(load);
               its texts below follow it. Open a text row to read, edit, or test it.
             </p>
           </div>
+
+          <!-- A pieces parent whose app serves the composed prompt (the family
+               prompt-preview door — JV's dictation cleanup, task #22
+               2026-08-06): the SAME full Lab as a promptless feature, over the
+               REAL composed call (the ground rules + the enabled sections), so
+               what's tuned here is exactly what a production run sends. The
+               chooser above stays THE assignment; piece texts stay edited on
+               their own rows. No preview served → nothing extra (fail-quiet
+               here: the routing home above is already a complete pane). -->
+          <FeatureLab v-if="builtPrompt" :key="`${selFeature}:${labEpoch}`"
+            :action="selFeature" :prompt="null"
+            :built-prompt="builtPrompt" :built-meta="builtMeta"
+            :data-links="props.dataLinks"
+            :providers="providers" :presets="enginePresets"
+            :sampler-catalog-list="samplerCatalogList"
+            :production-preset-id="selFeatureResolved"
+            @use-production="(id) => setFeaturePreset(selFeature, id)"
+            @presets-changed="onPresetsChanged"
+            @refresh-preview="loadPreview(selFeature)" />
+          </template>
 
           <!-- The full Lab over the app-built prompt: model · params · Save as preset ·
                Use in production — the SAME preset surface prompt-row apps get. The

@@ -1,24 +1,21 @@
 # SPDX-License-Identifier: MIT
-"""Model THINKING capability — the one resolver behind the capability gate
-(approved 2026-08-06; the decision text lives in JustVoice's TASKS).
+"""Model THINKING capability — ROUTING advice, never a send-time veto.
 
-The gate's law: effective thinking = the preset's think (the task's tested
-want) AND the model can think. This module answers the second half with
-three layers of honesty:
+The capability GATE was REMOVED by the user's ruling (2026-08-06, "no fancy
+magic" — decision text in JustVoice's TASKS): thinking is sent exactly as
+the preset asks, and a provider that can't take the parameter answers with
+its own error (dispatch adds one fix-pointer sentence). This resolver's one
+remaining consumer is JustVoice's Auto route pick ("if your model can
+think, Reasoned runs") — where a wrong reading costs a visible route
+choice, never the user's ask. Three layers:
 
   1. The model catalog row's `thinking` flag — curated/user-owned data,
      editable in the catalog UI. Trusted absolutely when a row exists.
   2. Family name patterns — for ids we have no row for (an Ollama tag, a
      cloud id typed into a provider). Both directions, unambiguous families
      only; `tiers._REASONING_FIRST` is the local-family donor knowledge.
-  3. Unknown → None — the gate PERMITS (today's behavior). The gate may only
-     ever remove asks we KNOW are dead; it must never make anything worse.
-
-Why the gate exists at all: under think-on the run attaches the provider's
-reasoning ask (OpenAI `reasoning_effort`, Anthropic budgets, …); sent to a
-non-reasoning cloud model that is an API ERROR, and locally it's a dead key.
-A model that always reasons (o1-class) cannot be gated OFF — the checkbox
-means "ask for thinking where the model offers the choice".
+  3. Unknown → None — the caller decides its own safe default (JV's Auto
+     treats unknown as "route by size", never as a yes).
 """
 
 from __future__ import annotations

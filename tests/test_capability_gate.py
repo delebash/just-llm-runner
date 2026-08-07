@@ -1,12 +1,16 @@
 # SPDX-License-Identifier: MIT
-"""The thinking CAPABILITY GATE (approved 2026-08-06 — decision text in
-JustVoice's TASKS): effective thinking = the task's want AND the model can
-think. `model_thinks` answers the second half in three layers — catalog row
-(trusted, editable) → family name patterns → unknown = None (the gate
-PERMITS; never worse than before the gate)."""
+"""Thinking is sent EXACTLY as configured (the gate REMOVAL, ruled
+2026-08-06 — "no fancy magic"; decision text in JustVoice's TASKS): no
+send-time veto exists. `model_thinks` survives as ROUTING advice only
+(JustVoice's Auto reads it) — catalog row (trusted, editable) → family name
+patterns → unknown = None. A provider that can't take the thinking
+parameter answers with its OWN error, re-raised with one fix-pointer
+sentence when (and only when) the provider's message is about the
+parameter we sent."""
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -25,21 +29,26 @@ from llm_runner.llm.capability import _name_says, model_thinks
 
 
 class FakeAdapter:
-    def __init__(self, provider_id, default_model="m-default"):
+    def __init__(self, provider_id, default_model="m-default", fail_with=None):
         self.provider_id = provider_id
         self.provider_type = "openai-compat"
         self.default_model = default_model
+        self.fail_with = fail_with
         self.calls = []
 
     def chat(self, messages, *, model=None, temperature=0.7, max_tokens=None,
              system=None, think=False, extra=None):
         self.calls.append({"model": model, "think": think, "extra": extra})
+        if self.fail_with:
+            raise ValueError(self.fail_with)
         return LLMResponse(text="ok", model=model or self.default_model,
                            prompt_tokens=3, completion_tokens=5)
 
     def stream_chat(self, messages, *, model=None, temperature=0.7, max_tokens=None,
                     system=None, think=False, extra=None):
         self.calls.append({"model": model, "think": think, "extra": extra, "stream": True})
+        if self.fail_with:
+            raise ValueError(self.fail_with)
         yield StreamDelta(text="ok")
         yield StreamDelta(done=True, prompt_tokens=1, completion_tokens=1)
 
@@ -69,7 +78,7 @@ def _fresh_db():
     db.configure_storage(sessionmaker(bind=eng, autoflush=False))
 
 
-# ── The name layer's truth table ─────────────────────────────────────
+# ── The name layer's truth table (ROUTING advice — JV's Auto) ────────
 
 def test_name_layer_truth_table():
     yes = [
@@ -92,8 +101,6 @@ def test_name_layer_truth_table():
         assert _name_says(m) is None, m
 
 
-# ── The catalog layer wins over the name layer ───────────────────────
-
 def test_catalog_flag_wins_both_ways():
     _fresh_db()
     s = db.session()
@@ -112,9 +119,12 @@ def test_catalog_flag_wins_both_ways():
     assert model_thinks("totally-unknown-7b") is None
 
 
-# ── The gate at dispatch ─────────────────────────────────────────────
+# ── Dispatch sends thinking EXACTLY as configured — no veto ──────────
 
-def test_gate_blocks_known_nonthinker():
+def test_think_is_sent_even_to_a_known_nonthinker():
+    """The removal's core law: the user's ask always goes out — even where
+    the old gate would have stripped it (gpt-4o-class). The provider is the
+    only authority that may refuse, with its own error."""
     _fresh_db()
     a = FakeAdapter("cloud")
     resp = chat(
@@ -124,45 +134,68 @@ def test_gate_blocks_known_nonthinker():
     )
     assert resp.text == "ok"
     call = a.calls[-1]
-    assert call["think"] is False
-    # _apply_reasoning strips the ask when think is off — no dead key on the wire.
-    assert not (call["extra"] or {}).get("reasoning_effort")
-    assert "reasoning_budget_tokens" not in (call["extra"] or {})
+    assert call["think"] is True
+    # The reasoning ask rides the wire (resolved to the provider's dialect).
+    assert (call["extra"] or {}).get("reasoning_effort")
 
 
-def test_gate_permits_unknown_model():
+def test_think_off_stays_off():
     _fresh_db()
-    a = FakeAdapter("cloud")
-    chat(
-        config=_cfg("acme-secret-13b"), feature="f", registry=_reg(a),
-        messages=[LLMMessage(role="user", content="hi")], think=True,
-    )
-    assert a.calls[-1]["think"] is True
-
-
-def test_gate_respects_catalog_true_on_nonthinker_name():
-    """The user flips the flag on a model our name table is wrong about —
-    the catalog wins and thinking flows."""
-    _fresh_db()
-    s = db.session()
-    try:
-        s.add(db.ModelCatalog(id="gpt-4o", name="the-exception", thinking=True))
-        s.commit()
-    finally:
-        s.close()
     a = FakeAdapter("cloud")
     chat(
         config=_cfg("gpt-4o"), feature="f", registry=_reg(a),
-        messages=[LLMMessage(role="user", content="hi")], think=True,
+        messages=[LLMMessage(role="user", content="hi")], think=False,
     )
-    assert a.calls[-1]["think"] is True
+    assert a.calls[-1]["think"] is False
 
 
-def test_gate_in_stream_path():
+def test_stream_path_sends_as_configured():
     _fresh_db()
     a = FakeAdapter("cloud")
     list(stream_chat(
         config=_cfg("gpt-4o"), feature="f", registry=_reg(a),
         messages=[LLMMessage(role="user", content="hi")], think=True,
     ))
-    assert a.calls[-1]["think"] is False
+    assert a.calls[-1]["think"] is True
+
+
+# ── The honest error: provider words + ONE fix-pointer sentence ──────
+
+def test_reasoning_rejection_carries_the_fix_pointer():
+    _fresh_db()
+    a = FakeAdapter(
+        "cloud",
+        fail_with="Unsupported parameter: 'reasoning_effort' is not supported with this model.",
+    )
+    with pytest.raises(RuntimeError) as ei:
+        chat(
+            config=_cfg("gpt-4o"), feature="f", registry=_reg(a),
+            messages=[LLMMessage(role="user", content="hi")], think=True,
+        )
+    msg = str(ei.value)
+    assert "reasoning_effort" in msg                      # the provider's own words
+    assert "turn thinking off on this feature's preset" in msg  # the one fix line
+
+
+def test_unrelated_errors_pass_through_untouched():
+    """Auth/timeout/quota errors never get the thinking hint — the hint rides
+    only when the provider's message is about the parameter we sent."""
+    _fresh_db()
+    a = FakeAdapter("cloud", fail_with="401 Unauthorized: bad api key")
+    with pytest.raises(ValueError) as ei:
+        chat(
+            config=_cfg("gpt-4o"), feature="f", registry=_reg(a),
+            messages=[LLMMessage(role="user", content="hi")], think=True,
+        )
+    assert "turn thinking off" not in str(ei.value)
+
+
+def test_think_off_errors_never_get_the_hint():
+    _fresh_db()
+    a = FakeAdapter("cloud", fail_with="model produced no reasoning output")
+    with pytest.raises(ValueError) as ei:
+        chat(
+            config=_cfg("gpt-4o"), feature="f", registry=_reg(a),
+            messages=[LLMMessage(role="user", content="hi")], think=False,
+        )
+    assert "turn thinking off" not in str(ei.value)

@@ -136,7 +136,13 @@ export async function setAsDefault(providerId, modelId, { overwrite = false } = 
   ]);
   const { dominant, dominantProviderId, taskPresets } = dominantOf(asg, pr.presets || []);
   for (const p of taskPresets) {
-    if (!overwrite && (p.model !== dominant || (p.providerId || "") !== dominantProviderId)) {
+    // A preset still in its factory state (model empty, exactly as it seeded) was never
+    // configured by anyone — a preset seeded AFTER the first setup is born this way and
+    // must adopt the default like the first setup adopted its siblings (JV's p_reason,
+    // 2026-08-06: the re-run skipped it as "hand-picked" and its feature showed no model).
+    const factoryState = !(p.model || "") && !(p.factoryModel || "");
+    if (!overwrite && !factoryState
+      && (p.model !== dominant || (p.providerId || "") !== dominantProviderId)) {
       continue; // overridden by the user — non-clobber
     }
     if (p.providerId === providerId && p.model === modelId) continue; // already the target

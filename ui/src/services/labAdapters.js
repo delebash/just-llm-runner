@@ -25,6 +25,14 @@
 //     confidence floor). v-models the column config's `extra` object; whatever it
 //     writes there rides the run body.
 //
+//   varConfig → per-VARIABLE input affordances (2026-08-06 — JV's Speaker-Lab
+//     restoration): { <varName>: { editor?: Component, hidden?: true,
+//     counters?: true } }. `editor` replaces the variable's plain textarea (a
+//     v-model:String component — it must serialize to the same string the
+//     adapter's run parses); `hidden` skips the input entirely (the adapter
+//     owns that variable at run time); `counters` adds a live words · chars ·
+//     ~tokens readout over the box. Absent → plain textareas, unchanged.
+//
 // Registered once at boot via installLlmUi({ labAdapters: { <featureKey>: … } });
 // keyed by the FEATURE key, so every action row of that feature (and the
 // promptless feature pane, whose action IS the feature key) gets the adapter.

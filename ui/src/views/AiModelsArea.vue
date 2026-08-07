@@ -147,6 +147,12 @@ watch(tab, (id) => {
 if (props.initialTab && tabDefs.value.some((t) => t.id === props.initialTab)) {
   tab.value = props.initialTab;
 }
+// A kept-alive host re-consumes a later deep link by UPDATING the prop — the
+// setup read above fires once per session (JV's #engines redirect, 2026-08-06).
+// Static hosts (JW passes a constant) never trigger it.
+watch(() => props.initialTab, (t) => {
+  if (t && tabDefs.value.some((x) => x.id === t)) tab.value = t;
+});
 // Local vs Online is a TAB on the provider list (not two stacked eyebrow groups) —
 // deliberately NOT named `tab`, which is the page subnav above.
 const providerScope = ref(props.initialProviderScope === "online" ? "online" : "local");

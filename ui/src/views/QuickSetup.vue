@@ -458,15 +458,20 @@ async function attemptClose() {
 
 // ── D4-1 (a)+(c) changelist (reactive against the live pick) ────────────────
 const previewState = ref(null);
+// Factory-state = never configured (model empty, exactly as seeded) — the writer adopts
+// these like the first setup did (modelApply.setAsDefault), so the changelist must too.
+const isFactoryState = (p) => !(p.model || "") && !(p.factoryModel || "");
 const repointedPresets = computed(() => {
   const st = previewState.value;
   if (!st || !pick.value.default) return [];
-  return st.presets.filter((p) => p.model === st.dominant && p.model !== pick.value.default);
+  return st.presets.filter(
+    (p) => (p.model === st.dominant || isFactoryState(p)) && p.model !== pick.value.default,
+  );
 });
 const keptPresets = computed(() => {
   const st = previewState.value;
   if (!st) return [];
-  return st.presets.filter((p) => p.model !== st.dominant);
+  return st.presets.filter((p) => p.model !== st.dominant && !isFactoryState(p));
 });
 
 // ── apply: one model → every preset (non-clobber) + embedding + download/load ──

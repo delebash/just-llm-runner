@@ -73,6 +73,18 @@ function humanizeVar(k) {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : k;
 }
 
+// Per-variable input affordances from the feature's adapter (labAdapters.js
+// `varConfig`, 2026-08-06): custom editor / hidden / live counters. Undeclared
+// (every feature without an adapter) → plain textareas, unchanged.
+function varCfg(k) {
+  return labAdapter.value?.varConfig?.[k] || {};
+}
+function counterText(v) {
+  const s = String(v || "");
+  const words = (s.trim().match(/\S+/g) || []).length;
+  return `${words.toLocaleString()} words · ${s.length.toLocaleString()} chars · ~${Math.round(s.length / 4).toLocaleString()} tokens`;
+}
+
 // Save-as / delete / update a tested column as an ENGINE preset. FeatureLab owns the
 // /v1/ai/engine-presets calls (one source for both hosts) and emits the refreshed list.
 function cfgToEnginePreset(name, cfg) {
@@ -315,9 +327,15 @@ const columnConfig = computed(() => {
           :title="actionSamples.length > 1 ? 'Fill with a sample from the app — click again for the next one' : 'Fill with the app\'s sample data'"
           @click="fillSample">Sample</UiButton>
       </div>
-      <div v-for="(_, k) in vars" :key="k" class="lu-field">
-        <label>{{ humanizeVar(k) }}</label><UiTextarea v-model="vars[k]" auto-resize :rows="2" />
-      </div>
+      <template v-for="(_, k) in vars" :key="k">
+        <div v-if="!varCfg(k).hidden" class="lu-field">
+          <label>{{ humanizeVar(k) }}
+            <span v-if="varCfg(k).counters" class="lu-muted lu-fw-varcount">{{ counterText(vars[k]) }}</span>
+          </label>
+          <component :is="varCfg(k).editor" v-if="varCfg(k).editor" v-model="vars[k]" />
+          <UiTextarea v-else v-model="vars[k]" auto-resize :rows="2" />
+        </div>
+      </template>
     </div>
     <CompareStrip :key="promptless ? `${action}:${previewEpoch}` : action"
       :action="action" :base-config="columnConfig" :providers="providers"
@@ -342,6 +360,7 @@ const columnConfig = computed(() => {
 .lu-fw-testin { border: 1px solid var(--border); border-radius: 10px; padding: 13px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
 .lu-fw-testin-h { display: flex; align-items: baseline; gap: 10px; } .lu-fw-testin-h b { font-size: 13px; } .lu-fw-testin-h .lu-muted { font-size: 11.5px; }
 .lu-fw-testin-fill { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lu-fw-varcount { font-size: 11px; margin-left: 8px; }
 .lu-fw-genprompt .lu-fw-testin-h { flex-wrap: wrap; }
 .lu-fw-gen-spacer { flex: 1; }
 .lu-fw-genprompt textarea { font-family: var(--font-mono, monospace); font-size: 11.5px; }

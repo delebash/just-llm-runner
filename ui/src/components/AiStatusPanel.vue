@@ -159,7 +159,7 @@ const phaseLabel = {
                 <template #icon><Icon name="Refresh" :size="11" /></template>
                 Retry
               </UiButton>
-              <UiButton intent="ghost" size="small" @click="tasks.dismiss(t.id)"
+              <UiButton intent="ghost" size="icon" @click="tasks.dismiss(t.id)"
                 v-tooltip.bottom="'Dismiss'">
                 <template #icon><Icon name="Close" :size="11" /></template>
               </UiButton>

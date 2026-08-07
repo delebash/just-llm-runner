@@ -28,8 +28,10 @@ import { fmtTokens, fmtTps } from "../common/services/runStats.js";
 import { freshnessOf } from "../common/services/streamFreshness.js";
 
 const props = defineProps({
-  // The task object (from aiTasks.runningTasks) to display, or null when
-  // nothing is running on this surface. Null hides the strip.
+  // The task to display, or null to hide the strip. Read it from
+  // `aiTasks.runningTasks` for the classic behaviour (vanishes on finish), or from
+  // `aiTasks.visibleTasks` if the host started the task with `lingerMs` and wants the
+  // result to stay readable for its dwell.
   task: { type: Object, default: null },
 });
 
@@ -137,7 +139,7 @@ function openPanel() { tasks.openPanel(); }
         <template #icon><Icon name="Refresh" :size="11" /></template>
         Retry
       </UiButton>
-      <UiButton intent="ghost" size="small" @click="onDismiss" v-tooltip.bottom="'Dismiss'">
+      <UiButton intent="ghost" size="icon" @click="onDismiss" v-tooltip.bottom="'Dismiss'">
         <template #icon><Icon name="Close" :size="11" /></template>
       </UiButton>
     </template>

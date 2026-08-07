@@ -86,7 +86,7 @@ CSRF has no seam at all — pure kit, parameterized in app.py.
 | Piece | Scope | Size |
 |---|---|---|
 | P2 | **DONE 2026-08-08** — kit `platform` grew auth/csrf/errors (JW's errors won: status-scaled logging + the 422 handler, now in all three registrants); per-app copies died to seams (`read_auth`) + aliases (§3b); `default_data_dir` DROPPED from scope on the adversarial pass (JV's resolution is Rust-compat-frozen — sharing 5 lines wasn't worth data-dir risk); docgen's problem+json handler adoption DEFERRED (6 tests assert error bodies — rides a later piece with its own audit). Gates: JW 122 · JV 409 · docgen 152 · kit 769 (1 pre-existing Linux-lspci env failure on Windows) | M |
-| P3 | serve.py in JW+JV; console-script targets; npm `server` scripts; JW cli.py dies — clears all 7 guard violations | S |
+| P3 | **DONE 2026-08-08** — serve.py in JW+JV (docgen's donor shape; JV keeps settings-derived host/port + cli.py as the domain CLI via `python -m justvoice.cli`, serve command removed — one door per purpose; JW's cli.py died with its test replaced); console scripts → `<snake>.serve:main` with the `-server` NAMES kept; npm `server` scripts + BOTH Rust `-m` fallbacks retargeted; editable reinstalls verified the installed commands run serve:main; JV gained the `screenshots` script (smoke_gui). **The guard reads ZERO violations** — first clean run since it was built. Gates: JW 122 · JV 409. Three grandfather notes closed (JW TASKS, JV TASKS, the standard). | S |
 | P4 | docgen tree: `api/` package + `app_state.py` + `version.py` | M |
 | P5 | JW tree: `database/` package + api `_api` renames + `llm/` dies | M |
 | P6 | health one shape ×3; seeding call-site move (with the JV test audit) | M |

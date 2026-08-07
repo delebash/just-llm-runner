@@ -20,8 +20,9 @@ own CLAUDE.md/README contract, and is exempt from the app-shaped sections
 `configureExternal` (`main.js:41-59`), mounts `<Toast />` + `<AppDialog />`
 individually instead of `<LlmUiHosts />`, and hand-builds its AI-tasks nav row
 (`Sidebar.vue:148`) instead of `useAiTasksNav()`. Convergence is tracked in JW's
-`docs/dev/TASKS.md`; new apps follow §4 as written. JW also has no `lint` script and
-its console script is `justwrite_server.cli`, not `<snake>.serve` (grandfathered).
+`docs/dev/TASKS.md`; new apps follow §4 as written. (JW's last two gaps closed
+2026-08-06/08: its `lint` script landed with slice 11, and target-tree P3 moved
+its console script to `justwrite_server.serve:main` — nothing is grandfathered.)
 
 ---
 

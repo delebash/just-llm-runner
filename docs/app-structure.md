@@ -152,10 +152,15 @@ kit is consumed as source from the sibling clone — no publish step exists).
   already exists — a kit export, a JW section, a JV section. Hand-writing is allowed
   only after that search comes up empty, and the new piece is then usually born in the
   kit. Copy donors WHOLE — strings, confirms, loading states — never a lookalike.
-- **TitleBar** (JW `components/TitleBar.vue` is the donor): an in-app toolbar above the
-  content — back/forward over the router's history state, the current title, the mode
-  control and `AiStatusButton` on the right. Every app carries one; a shell without a
-  native-feel title row was ruled a divergence (2026-08-03).
+- **TitleBar** — the KIT's `common/components/TitleBar.vue` frame (back/forward over
+  the router's history state with the post-nav settle, the centred title, window drag
+  with no-drag on its buttons and slotted content, disabled-reason tooltips); the app
+  fills the right side via the slot (JW: theme/mode/undo/chat cluster · docgen: mode
+  cycler + `AiStatusButton`). Every app carries one; a shell without a native-feel
+  title row was ruled a divergence (2026-08-03). JW's `components/TitleBar.vue` was
+  the donor and now WRAPS the frame like its siblings (2026-08-07) — this line named
+  it as the canonical implementation long after the kit had absorbed it, which kept
+  the donor from converting.
 
 ## 5 · The Tauri shell
 
@@ -411,8 +416,8 @@ attribution is the reference adapter; without one, columns run the generic
 | Chrome | Canonical | App writes |
 |---|---|---|
 | **AI area** (providers CRUD, model catalog + downloads, presets, usage/tokens) | kit `AiModelsArea` — host tabs via `appTabs` (JV mounts two speech tabs), `modelsTab` split opt-in, `labAdapters` for real-pipeline Lab columns | one route (`/ai`), one component |
-| **Global AI progress + cancel** | kit `AiStatusButton` → `AiStatusPanel` in the TitleBar, PLUS a sidebar nav row "AI tasks" toggling the same panel with a count/error badge (JW `Sidebar.vue:148`) | one mount + one nav row |
-| **TitleBar** | JW `components/TitleBar.vue` | back/forward, title, mode, status chip |
+| **Global AI progress + cancel** | kit `AiStatusButton` → `AiStatusPanel` in the TitleBar, PLUS a sidebar nav row "AI tasks" toggling the same panel with a count/error badge (JW `Sidebar.vue:148`). Finished tasks LINGER per `FAMILY_TASK_LINGER` (familyContract.js — completed 5 s · cancelled 3 s · failed until dismissed, the store default since 2026-08-07); the panel splits Running / Recent; failed rows carry the error + Retry until acknowledged | one mount + one nav row |
+| **TitleBar** | kit `TitleBar` frame (lifted from JW 2026-08-04; drag + tooltips folded up 2026-08-07) | the right-side slot: mode, status chip, app cluster |
 | **Settings page** | kit `SettingsShell` (TOP TABS — the contract killed the rail, 2026-08-04) over JW's `/settings/:section?` pattern | sections as data + panels below |
 | **First AI contact** | kit `AiSetupOffer` — the ONCE-EVER modal (ruling R3 2026-08-04; permanent setup buttons are retired), host persists the flag + routes the emits | one App-level mount + one flag |
 | — Appearance | kit engine + catalogs (`UI_FONTS`, `ACCENT_PRESETS`, `UI_SCALES`); JV panel shape | mode/font/accent/scale controls over `applyAppearance` |

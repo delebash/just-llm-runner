@@ -96,6 +96,15 @@ it — a small addition, not the redesign this section first proposed.
 Also noted: `markStreaming()` is what moves a task out of "connecting". Any registration
 that omits it leaves the task in the connecting state for its whole life.
 
+**STATUS 2026-08-07 — the kit half is BUILT** (`f1fa1dd` capabilities · `2579d21`
+family default + finished-state layer + Running/Recent split + retry-from-history +
+inline flag + `{done,total}` bar; JW companion `277b50d`; 15 tests in JustVoice's
+`kitTaskQueue.test.js`, mutation-checked). The linger policy is FAMILY CANON
+(`FAMILY_TASK_LINGER`, familyContract.js) — the user's ruling superseded this
+section's "opt-in so the siblings keep today's counts" framing. The JustVoice
+conversion (17 sites + the global stack + deleting the three files) is APPROVED and
+specified in `../../JustVioce/docs/dev/TASKS.md` — not started.
+
 ### A2 · The Lab adapter seam never registers its task (kit defect)
 
 `ui/src/components/ConfigColumn.vue` has three Run paths. The generic one registers
@@ -118,8 +127,12 @@ verified), so it is the only place the hole is visible — but the defect is in 
 code on a path any app reaches the moment it uses the seam, which §11 documents as
 standard practice.
 
-A fix was written and **reverted unratified on 2026-08-07**, pending this audit's view
-on where that code should live.
+A first fix was written and reverted unratified; the ratified fix is COMMITTED —
+`947f08c` (registration + `markStreaming`, which the reverted attempt missed) and
+`2579d21` (the Lab's tasks are `inline`-flagged so a global stack can't double-show
+them). Still unverified by any automated test — no suite clicks Run on an
+adapter-backed feature; the live Routing-by-feature run rides the JustVoice
+conversion's verification list.
 
 ### A3 · `serve.py` — two of three apps don't have one (§6)
 
@@ -241,8 +254,14 @@ filename alone. It isn't — it wraps the kit component. Judging by filename is 
 error this audit exists to avoid; only opening the file settled it.)*
 
 So the app the standard treats as the donor is the only one that hasn't adopted the
-shared component, and **the standard still points at the pre-kit donor.** Both the
-document and JustWrite need updating; which direction is a ruling, not a cleanup.
+shared component, and **the standard still points at the pre-kit donor.**
+
+**STATUS 2026-08-07 — CONVERGED.** The merge ran both directions: the kit frame took
+JustWrite's two better features (window drag via `-webkit-app-region` with no-drag on
+buttons AND slotted content, verified in compiled CSS; disabled-reason tooltips) in
+`e7f7b3a`, and JustWrite adopted the frame in `4002cd0`, gaining docgen's post-nav
+settle fix its copy lacked. docgen gained window-dragging it never had. The standard's
+donor references were updated the same day (§4 + §11 name the kit component now).
 
 ### B2 · There are TWO standards, in two repos, with no stated precedence
 

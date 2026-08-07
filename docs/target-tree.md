@@ -61,11 +61,31 @@ import; only the domain nouns differ.**
 | vite build | JW's shape (per-platform targets, minify-unless-debug) ×3; alias `@renderer` ×3 (JV's extra `@` dies; docgen gains) |
 | `.gitattributes` | one family answer for line endings (the e2e driver "drift" was CRLF/LF) |
 
+## 3b · The alias registry — every alias file, and the sweep scope if we dissolve them
+
+**What an alias is (and is not).** The implementation lives ONCE in the kit;
+the app keeps a file at the old import path whose entire content is a
+re-export. It is code reuse, not a workaround: there is no logic in the app
+file to drift, and the guard holds each alias to exactly its re-export shape.
+The alternative — rewriting every consumer to import the kit directly — is
+the "sweep": same end state, more churn. Each alias below lists its sweep
+scope so the user can order the sweep any time.
+
+| Alias file | Re-exports | Sweep scope (files importing via the alias) |
+|---|---|---|
+| `justvoice/errors.py` | kit `platform.errors` helpers + ApiError | ~127 files (`grep -rl "from \.\.errors import\|from \.errors import" server/justvoice`) |
+| `justwrite_server/errors.py` | same | 1 file |
+| docgen | — no alias: nothing imported its errors module | 0 |
+
+NOT aliases (real per-app seams, permanent): each app's `auth.py` holds only
+its `read_auth()` settings-read; each app's `paths.py` holds its domain paths.
+CSRF has no seam at all — pure kit, parameterized in app.py.
+
 ## 4 · Execution pieces (approved one at a time)
 
 | Piece | Scope | Size |
 |---|---|---|
-| P2 | kit `platform` grows auth/csrf/errors factories + `default_data_dir`; three apps consume; six per-app copies die | M |
+| P2 | **DONE 2026-08-08** — kit `platform` grew auth/csrf/errors (JW's errors won: status-scaled logging + the 422 handler, now in all three registrants); per-app copies died to seams (`read_auth`) + aliases (§3b); `default_data_dir` DROPPED from scope on the adversarial pass (JV's resolution is Rust-compat-frozen — sharing 5 lines wasn't worth data-dir risk); docgen's problem+json handler adoption DEFERRED (6 tests assert error bodies — rides a later piece with its own audit). Gates: JW 122 · JV 409 · docgen 152 · kit 769 (1 pre-existing Linux-lspci env failure on Windows) | M |
 | P3 | serve.py in JW+JV; console-script targets; npm `server` scripts; JW cli.py dies — clears all 7 guard violations | S |
 | P4 | docgen tree: `api/` package + `app_state.py` + `version.py` | M |
 | P5 | JW tree: `database/` package + api `_api` renames + `llm/` dies | M |

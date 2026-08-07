@@ -25,6 +25,14 @@ _EXPORTS = {
     "make_logs_router": "logs_api",
     "install_log_ring": "logs_api",
     "install_file_log": "logs_api",
+    # P2 (target-tree, 2026-08-08): the server-infra trio — one policy each,
+    # per-app copies died. Apps wire these in app.py; route files import the
+    # error HELPERS via their app's one-line alias module (see
+    # docs/target-tree.md "Alias registry").
+    "BearerAuthMiddleware": "auth",
+    "CsrfOriginMiddleware": "csrf",
+    "install_error_handlers": "errors",
+    "ApiError": "errors",
 }
 
 __all__ = sorted(_EXPORTS)

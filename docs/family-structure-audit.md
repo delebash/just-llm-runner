@@ -744,6 +744,53 @@ three purposes) · `cli.py` (above) · JV `engines/registry.py` vs kit
 - **Docs-structure convention holds family-wide**: `docs/dev/` with
   TASKS.md + IDEAS.md + README.md exists in all four repos.
 
+## R2-8 · Platform subsystems — settings · logs · backups · updates, determined not guessed
+
+Asked directly by the user 2026-08-08 ("did you determine what is common or just
+guess"): the audit had covered these only where they intersected other findings.
+This section is the explicit determination, every cell grepped.
+
+**Verified COMMON — kit mechanism + kit panel, all three apps:**
+
+| Subsystem | Server side | Renderer side |
+|---|---|---|
+| Logs | `llm_runner.platform.make_logs_router` — JW app.py:160 · JV app.py:325 · DG app.py:395 | kit `LogsPanel` ×3 |
+| Backups / data reset | `make_data_router` — JW data_admin.py:83 · JV data_admin.py:240 ("JW's data_admin.py is the donor") · DG app.py:277 | kit `DataManagement` ×3 |
+| Disk usage | `make_disk_router` ×3 | inside the Storage section ×3 |
+| Updates | (release-notes feed per app) | kit `UpdatesPanel` ×3 |
+| Settings chrome | — | kit `SettingsShell` ×3 + the sections contract (R2-5) |
+| Server/auth section | `/v1/server-auth` door ×3 (each auth.py exempts it) | JW's section shape, adopted by DG per its own header |
+
+Per-app data behind the common mechanism (what gets backed up, which sections
+exist) is domain BY DESIGN.
+
+**Nuances found while determining:**
+
+- **Only JW installs the log feeders** — `install_file_log` + `install_log_ring`
+  are imported in JW's app.py alone; JV and docgen mount the shared `/v1/logs`
+  ROUTER without the same feeding calls. Same panel, same route, possibly
+  different (or empty) content behind it in the siblings. Needs one look and
+  one answer.
+- **JW does not use the kit `AppearancePanel`** — JV and docgen share it (the
+  2026-08-04 shared-panel ruling); JW keeps a fully private appearance UI. Its
+  manuscript theming is domain, but the family rows (mode/hue/scale/fonts)
+  duplicating the kit panel is the "same function, two mechanisms" §11 case.
+
+**Verified DIVERGENT — the one big platform gap: settings/prefs architecture.**
+Three different answers to "where do settings live and how does the renderer
+reach them":
+
+| | Operator/server config | Renderer prefs | HTTP surface |
+|---|---|---|---|
+| JW | settings rows (auth/cors read them) | SAME `/v1/settings` document | `/v1/settings` (api/settings.py: "the renderer's preferences document") |
+| JV | Pydantic Settings doc via SettingsStore | separate `/v1/prefs` rows | BOTH `/v1/settings` (operator) and `/v1/prefs` (renderer) |
+| docgen | `appmeta.get/set_setting` — server-internal ONLY | localStorage (R2-5) | **none** — no settings/prefs HTTP API at all |
+
+This one divergence underpins several earlier findings at once: the three auth
+config seams (R2-4), the three CORS postures (R2-4), the prefs layer split
+(R2-5) and the three homes for `keepServerRunning`. Converging it is the
+highest-leverage single item in the platform class.
+
 ## R2-STATUS
 
 **Round 2 (contents) — DONE 2026-08-08** for the cross-app surface: every

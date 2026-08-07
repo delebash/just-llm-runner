@@ -96,14 +96,20 @@ it — a small addition, not the redesign this section first proposed.
 Also noted: `markStreaming()` is what moves a task out of "connecting". Any registration
 that omits it leaves the task in the connecting state for its whole life.
 
-**STATUS 2026-08-07 — the kit half is BUILT** (`f1fa1dd` capabilities · `2579d21`
-family default + finished-state layer + Running/Recent split + retry-from-history +
-inline flag + `{done,total}` bar; JW companion `277b50d`; 15 tests in JustVoice's
-`kitTaskQueue.test.js`, mutation-checked). The linger policy is FAMILY CANON
-(`FAMILY_TASK_LINGER`, familyContract.js) — the user's ruling superseded this
-section's "opt-in so the siblings keep today's counts" framing. The JustVoice
-conversion (17 sites + the global stack + deleting the three files) is APPROVED and
-specified in `../../JustVioce/docs/dev/TASKS.md` — not started.
+**STATUS 2026-08-07 — CLOSED, both halves.** The kit half: `f1fa1dd` capabilities ·
+`2579d21` family default + finished-state layer + Running/Recent split +
+retry-from-history + inline flag + `{done,total}` bar; JW companion `277b50d`; 15
+tests in JustVoice's `kitTaskQueue.test.js`, mutation-checked. The linger policy is
+FAMILY CANON (`FAMILY_TASK_LINGER`, familyContract.js) — the user's ruling superseded
+this section's "opt-in so the siblings keep today's counts" framing. The JustVoice
+half shipped the same day (JustVoice `5d6d912`): all 17 sites on kit handles, the
+global stack is kit `AiTaskStrip`s over `visibleTasks` minus `inline`, the three fork
+files are deleted, and the topbar pill / Overview bar / delete-all-projects guard all
+read the kit store. Gated by biome + vitest + build + smoke + this guard + JW 566 +
+docgen 3, and verified LIVE (the Routing-by-feature Lab run rendered the kit strip in
+the column, exactly once). The approved decision text lived in JustVoice's tracker
+and was closed there under close-=-delete — it survives in JustVoice commit
+`72f39a3`.
 
 ### A2 · The Lab adapter seam never registers its task (kit defect)
 
@@ -130,9 +136,16 @@ standard practice.
 A first fix was written and reverted unratified; the ratified fix is COMMITTED —
 `947f08c` (registration + `markStreaming`, which the reverted attempt missed) and
 `2579d21` (the Lab's tasks are `inline`-flagged so a global stack can't double-show
-them). Still unverified by any automated test — no suite clicks Run on an
-adapter-backed feature; the live Routing-by-feature run rides the JustVoice
-conversion's verification list.
+them).
+
+**STATUS 2026-08-07 — VERIFIED LIVE.** The Routing-by-feature run was driven in the
+real renderer against a real server (JustVoice's conversion gate): clicking ▶ Run on
+the speaker-attribution Lab rendered the kit strip in the column (status
+`streaming` — `markStreaming` doing its job), exactly one strip on the page (the
+`inline` flag kept the global stack out), and the failed run badged the ✨ button red
+and kept its error in the panel's Recent list. Still true: no *automated* suite
+clicks an adapter-backed Run — the check was a scripted live drive, not a committed
+test.
 
 ### A3 · `serve.py` — two of three apps don't have one (§6)
 
@@ -305,6 +318,12 @@ cannot measure the apps against "the standard" — there are two.
 
 A document that tells the next reader to copy a deleted file and call a deleted function
 is worse than no document, because it reads as authoritative.
+
+**STATUS 2026-08-07 — FIXED in place** (justwrite-app `da04b98`): the four claims now
+name the kit store, `AiTaskStrip`, `runAiFeature`/`runAiFeatureStream`, and the
+rate-relative freshness; the linger behaviour is documented. The rest of JustWrite's
+two architecture documents remains unexamined (see E) — this section's 4-errors-in-one
+-section rate is the reason E keeps them listed.
 
 ### B4 · A cross-repo pointer this session broke
 

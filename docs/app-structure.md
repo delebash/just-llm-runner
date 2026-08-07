@@ -296,7 +296,24 @@ load_from_configs(stores.get_provider_store().list()) # registry from the DB
 - **After any shared-export change** run llm-runner's `scripts/check-consumers.py`;
   after any dep/`__init__` change there, `scripts/check-clean-install.py`.
 
-## 9 · Adding llm-runner to an EXISTING Python app (the JV path)
+## 9 · Retrofitting an EXISTING Python app — a COMPLETED migration, not a second path
+
+> **Nothing here is outstanding. Every app in the family consumes the stack
+> identically** — code-verified 2026-08-07: JustWrite, JustVoice and i18n-docgen each
+> mount `llm_runner.router`, then call `install_llm(app, engine=…, session_factory=…,
+> feature_catalog=…, feature_prompts=…, engine_presets=…, feature_presets=…,
+> default_preset_id=…, product=PRODUCT)`, then `seed_llm()`, then the byte-identical
+> `load_from_configs(stores.get_provider_store().list())`. Only the DATA each passes
+> differs, which §11 rules is per-app BY DESIGN.
+>
+> This section was headed "the JV path" until 2026-08-07, and that name did real
+> damage: it read as though JustVoice were a permanent exception, so a structure audit
+> spent a session treating "JustVoice consumes llm-runner differently" as an open
+> question when the migration had been finished since 2026-08-05. A section describing
+> a completed one-time job must say so in its title.
+
+The recipe below stands for the NEXT app that arrives with a server already built —
+JustVoice is its worked example, not its owner.
 
 Full convergence, in order: (1) delete concepts the shared stack replaced (JV's
 `llm_roles`); (2) adopt `install_llm`, replacing à-la-carte mounts; (3) migrate

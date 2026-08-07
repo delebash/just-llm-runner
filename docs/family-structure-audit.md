@@ -301,6 +301,42 @@ JustVoice **tracker** policy, and **another repo's permanent documentation was l
 into it.** Either trackers are not link targets, or close-=-delete needs an exception for
 referenced text. That is a ruling, and not JustVoice's alone to make.
 
+### B5 · "The JV path" — a finished migration whose TITLE kept it open [CLOSED 2026-08-07]
+
+The user asked why JustVoice would consume llm-runner differently from its siblings.
+The audit had no answer, because §9 of the standard was headed *"Adding llm-runner to
+an EXISTING Python app (the JV path)"* and that name reads as a standing exception.
+
+It is not. §9 is a six-step **migration checklist** whose step 2 is literally *"adopt
+`install_llm`, replacing à-la-carte mounts"*, and it ends *"JustVoice commits
+`14b3ea7`/`aa1363f` are the worked example"* — past tense. The job finished
+2026-08-05.
+
+Verified in code, all three apps:
+
+| §8 step | JustWrite | JustVoice | docgen |
+|---|---|---|---|
+| `include_router(llm_runner.router)` before install | ✓ | ✓ | ✓ |
+| `install_llm(engine, session_factory, feature_catalog, feature_prompts, engine_presets, feature_presets, default_preset_id)` | ✓ | ✓ | ✓ |
+| `product=PRODUCT` (shared AI cache) | `app.py:223` | `app.py:249` | `app.py:299` |
+| `seed_llm()` | `seed.py` | `app.py:272` | `app.py:323` |
+| `load_from_configs(stores.get_provider_store().list())` | `seed.py:51` | `app.py:283` | `app.py:325` |
+
+That last line is byte-identical in all three. docgen's own comment says it follows
+*"JW's exact order."* Only the DATA each passes differs — JustWrite's writing catalog,
+JustVoice's voice features, docgen's translation actions — which §11 rules is per-app
+BY DESIGN.
+
+**So the Python half of the family is fully converged, and the only defect was the
+section's name.** Fixed the same day: §9 is now headed *"Retrofitting an EXISTING
+Python app — a COMPLETED migration, not a second path"*, with a status banner and the
+recipe kept for the next app that arrives with a server already built.
+
+Worth naming as a lesson, because it cost a session: **a heading describing finished
+work must say it is finished.** Two readers — the user and this audit — independently
+concluded JustVoice was a special case on the strength of four words in a title, while
+the code said otherwise the whole time.
+
 ---
 
 ## C · Divergences the standard does not cover

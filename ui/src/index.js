@@ -43,6 +43,7 @@ export { default as DataManagement } from "./components/DataManagement.vue";
 export { default as LogsPanel } from "./components/LogsPanel.vue";
 export { default as ConsolePanel } from "./components/ConsolePanel.vue";
 export { default as UpdatesPanel } from "./components/UpdatesPanel.vue";
+export { default as AppearancePanel } from "./components/AppearancePanel.vue";
 
 // the shared AI task queue (Decision 22) — the global in-flight registry
 // (Pinia; the host provides the active Pinia — `pinia` is a peer dep), the

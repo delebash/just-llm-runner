@@ -25,11 +25,12 @@ itself.
 **Round 1 (structure) — DONE.** File-tree inventory of `justwrite-app`, `JustVioce`,
 `just_ai_i18n_docgen` and `just-llm-runner/ui`, renderer and server.
 
-**Round 2 (contents) — NOT STARTED.** Same-named files have not been diffed.
-`stores/ui.js` exists in all three apps; nobody has checked whether they agree.
+**Round 2 (contents) — DONE 2026-08-08.** Every cross-repo file pair machine-
+compared, disagreements read and classified — see the ROUND 2 sections at the
+bottom (R2-0 … R2-STATUS). Two Round-1 claims were overturned (R2-0).
 
-Nothing has been changed in any repo. No decisions have been made. Every finding
-below cites a file, and findings that were not code-verified say so.
+No app or kit code has been changed by the audit. No decisions have been made.
+Every finding below cites a file, and findings that were not code-verified say so.
 
 ---
 

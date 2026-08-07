@@ -11,21 +11,19 @@
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
 
-## APPROVED 2026-08-06 — the thinking CAPABILITY GATE (kit half) — BUILT
-## (`def5142` the gate · `cbdbfff` pieces/panels/cascade; awaiting the user's QC)
+## THE THINKING GATE + THE TIER SUBSYSTEM — BOTH DEAD (kit record)
 
-The full approved decision text lives in `../JustVioce/docs/dev/TASKS.md`
-("APPROVED 2026-08-06" block) — read it before coding. Kit half, summary:
-effective thinking = preset's think (the task's tested want) AND the model can
-think. Server-side `model_thinks` resolver: catalog thinking flag → name
-heuristic (JV's retiring tier classifier donates it) → unknown = permit
-(never worse than today). REQUIRED: chip + Lab show "thinking on — inactive:
-this model doesn't think" when gated (rides the chip↔Lab parity test).
-BUILD ITEM: verify the catalog UI can edit the thinking flag; add if missing.
-Wording: the checkbox = "ask for thinking where the model offers the choice"
-(o1-class always-thinkers can't be gated off). JW-wide effect approved by the
-user. Sequencing: this slice FIRST (JW full suite gates it), then JV's
-Routing-by-feature rework rides on top.
+The capability gate was built 2026-08-06 (`def5142`) and REMOVED the same
+day by the user's ruling ("no fancy magic" — honest provider errors + one
+fix-pointer sentence). The tier-debris cleanup (approved 2026-08-07,
+decision text in `../JustVioce/docs/dev/TASKS.md`) then excised the whole
+tier subsystem: `tiers.py` and `capability.py` deleted, dispatch's
+tier-derived think fallback deleted (no explicit think = off — the preset
+is the ONE thinking control), the caller-less classify-tier endpoint
+deleted, the `tier` slot off FeaturePinConfig/ProductionConfig and
+resolve_pin/resolve_route, the catalog `thinking` column + Thinks tag +
+row-editor checkbox + seed heuristic deleted. JV owns its route floors
+locally now.
 
 ## THE FAMILY PARITY BATCH — SHIPPED 2026-08-06 (all twelve slices)
 - The master plan + its BUILD LOG (deviations, guard-caught bugs, end-gate

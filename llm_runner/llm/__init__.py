@@ -59,7 +59,7 @@ _EXPORTS = {
     "load_from_configs": "registry",
     # dispatch
     "chat": "dispatch", "stream_chat": "dispatch", "resolve_pin": "dispatch",
-    "resolve_tier": "dispatch", "active_production_config": "dispatch",
+    "active_production_config": "dispatch",
     "LLMNotConfiguredError": "dispatch", "set_not_configured_message": "dispatch",
     # prompts (per-feature prompt store contract + render + router factories +
     # run_action — THE non-stream run path the route and in-server callers share)
@@ -74,8 +74,6 @@ _EXPORTS = {
     # model catalog (the DB-backed downloadable-model source of truth)
     "CatalogRow": "model_catalog_api", "CatalogResponse": "model_catalog_api",
     "ModelCatalogStore": "model_catalog_api", "make_catalog_router": "model_catalog_api",
-    # tiers
-    "TIERS": "tiers", "TierSpec": "tiers", "classify": "tiers", "spec_for": "tiers",
     # usage
     "UsageEntry": "usage", "UsageLedger": "usage", "UsageSink": "usage",
     "get_ledger": "usage", "set_ledger": "usage",

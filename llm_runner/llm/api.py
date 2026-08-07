@@ -20,7 +20,6 @@ from pydantic import BaseModel
 from .model_list_rules import apply_rules
 from .registry import construct, get_llm_registry
 from .schema import LLMProviderConfig
-from .tiers import TIERS, classify
 from .usage import get_ledger
 
 log = logging.getLogger(__name__)
@@ -57,32 +56,6 @@ def _filtered_models(raw: list[str], provider_type: str, *, show_all: bool) -> d
     {models, embeddings, hiddenCount}. `?all=1` bypasses every rule."""
     res = apply_rules(raw, _rules_for(provider_type), show_all=show_all)
     return {"models": res.models, "embeddings": res.embeddings, "hiddenCount": res.hidden_count}
-
-
-class TierClassifyRequest(BaseModel):
-    model: str
-
-
-class TierClassifyResponse(BaseModel):
-    model: str
-    tier: str
-    system_key: str
-    think: bool
-    confidence_floor: float
-
-
-@router.post("/v1/llm-providers/classify-tier", response_model=TierClassifyResponse)
-async def classify_model_tier(body: TierClassifyRequest) -> TierClassifyResponse:
-    """Auto-classify a model id into a tier. Settings/Lab call this to show
-    "this model auto-routes to Reasoned" before the user pins a feature."""
-    spec = TIERS[classify(body.model)]
-    return TierClassifyResponse(
-        model=body.model,
-        tier=spec.name,
-        system_key=spec.system_key,
-        think=spec.think,
-        confidence_floor=spec.confidence_floor,
-    )
 
 
 def _builtin_provider_health() -> dict:

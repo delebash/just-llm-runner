@@ -59,10 +59,6 @@ class CatalogRow(BaseModel):
     license: str = ""   # SPDX id (Apache-2.0 | MIT | Llama-Community | …); "" = unknown
     useLimited: bool = False  # not free for unrestricted/commercial use → the ⚠ badge (DB-stored)
     embedding: bool = False   # is an embedding model (RAG index), not a chat LLM — explicit editable flag (replaces the /embed/i guess)
-    # Can this model THINK (reasoning blocks)? Seed/user-owned, editable in the
-    # model form — the capability gate's first knowledge layer (approved
-    # 2026-08-06): think-on runs gate off on models whose flag is False.
-    thinking: bool = False
     pooling: str = ""   # embedding pooling: "" | mean | cls | last | rank (intrinsic per-model; read-only in the model form) (#119)
     qualityRank: int = 100    # curated overall-quality order (LOWER = better); QuickSetup picks best-that-fits. 100 = unranked.
     # FILE/LINK-OWNED since 2026-07-07 (user decree): Read-from-link regenerates it.

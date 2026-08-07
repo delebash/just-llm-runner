@@ -64,13 +64,6 @@ export const poolingById = computed(() =>
 export const mtpById = computed(() =>
   Object.fromEntries(rows.value.map((r) => [r.id, !!r.mtp])),
 );
-// THINKING (the capability gate's editable catalog flag): can the model reason in
-// think blocks? The grid tag mirrors the edit-form checkbox so the flag is visible
-// without opening the row (JV QC ask, 2026-08-06: "are you adding thinking row to
-// catalog? it is not there now").
-export const thinkingById = computed(() =>
-  Object.fromEntries(rows.value.map((r) => [r.id, !!r.thinking])),
-);
 // The HF repo per model — the "Model card ↗" link (user, 2026-07-07: open the full
 // details in the browser) builds https://huggingface.co/<repo> from it.
 export const hfRepoById = computed(() =>
@@ -128,5 +121,5 @@ export function useCatalogMeta() {
   // `undefined`, never a build or lint error — so the contract is pinned by a test in the
   // host app (justwrite-app useCatalogMeta.contract.test.js): every name any consumer
   // destructures must appear in this object. Add the key here when you add the export.
-  return { catalogRows, classTuneRefs: classTuneRefsRef, myClassKey: myClassKeyRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, thinkingById, hfRepoById, notesById, sizeBytesById, minVramById, estVramById, tierById, refresh };
+  return { catalogRows, classTuneRefs: classTuneRefsRef, myClassKey: myClassKeyRef, qualityById, typeById, embeddingById, licenseById, useLimitedById, descriptionById, poolingById, mtpById, hfRepoById, notesById, sizeBytesById, minVramById, estVramById, tierById, refresh };
 }

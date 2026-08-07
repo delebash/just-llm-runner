@@ -24,7 +24,6 @@ from typing import Callable, Iterable, Iterator
 from .base import LLMAdapter, LLMMessage, LLMResponse, StreamDelta
 from .registry import LLMRegistry, get_llm_registry
 from .schema import LLMConfig
-from .tiers import TierSpec, spec_for
 from .usage import UsageEntry, get_ledger
 
 log = logging.getLogger(__name__)
@@ -117,7 +116,7 @@ def active_production_config(config: LLMConfig, feature: str):
 
 def _resolve_action_override(
     config: LLMConfig, action: str, reg: LLMRegistry
-) -> tuple[LLMAdapter, str, str | None] | None:
+) -> tuple[LLMAdapter, str] | None:
     """Resolve an ACTION's own explicit config (its production config or pin), or
     None to fall back to its feature. Deliberately stops at the action's explicit
     config: it never touches the generic feature fallbacks (job / prefer-local /
@@ -127,12 +126,12 @@ def _resolve_action_override(
     if cfg is not None:
         adapter = reg.get(cfg.providerId)
         if adapter is not None:
-            return adapter, cfg.model or adapter.default_model, cfg.tier
+            return adapter, cfg.model or adapter.default_model
     pin = next((p for p in (config.feature_pins or []) if p.feature == action), None)
     if pin is not None and pin.providerId:
         adapter = reg.get(pin.providerId)
         if adapter is not None:
-            return adapter, pin.model or adapter.default_model, pin.tier
+            return adapter, pin.model or adapter.default_model
     return None
 
 
@@ -141,8 +140,8 @@ def resolve_pin(
     feature: str,
     registry: LLMRegistry | None = None,
     action: str | None = None,
-) -> tuple[LLMAdapter, str, str | None]:
-    """Resolve the (provider, model, tier) tuple for a feature key.
+) -> tuple[LLMAdapter, str]:
+    """Resolve the (provider, model) pair for a feature key.
 
     When `action` is given (a specific action within the feature, e.g.
     "writerAI.tighten"), the action's OWN explicit config wins; if the action has
@@ -163,7 +162,7 @@ def resolve_pin(
     if cfg is not None:
         adapter = reg.get(cfg.providerId)
         if adapter is not None:
-            return adapter, cfg.model or adapter.default_model, cfg.tier
+            return adapter, cfg.model or adapter.default_model
         log.warning(
             "production config %r for %s names unregistered provider %s — falling through",
             cfg.name, feature, cfg.providerId,
@@ -179,14 +178,14 @@ def resolve_pin(
                 f"Feature {feature!r} is pinned to provider {pin.providerId!r} "
                 f"but that provider isn't registered."
             )
-        return adapter, pin.model or adapter.default_model, pin.tier
+        return adapter, pin.model or adapter.default_model
 
     # Built-in local runner is the smart default for its target features
     # (e.g. attribution) when nothing more specific is configured.
     if feature in config.prefer_local_features:
         local = reg.get(config.local_runner_provider_id)
         if local is not None:
-            return local, local.default_model, None
+            return local, local.default_model
 
     # Nothing routed yet — fall back to the first registered LLM if any.
     adapters = reg.all()
@@ -196,15 +195,7 @@ def resolve_pin(
             f"then route '{feature}' to a job (or pin it) in feature routing."
         )
     adapter = adapters[0]
-    return adapter, adapter.default_model, None
-
-
-def resolve_tier(
-    config: LLMConfig, feature: str, registry: LLMRegistry | None = None
-) -> TierSpec:
-    """Combine pin-resolution + tier auto-classify into one call."""
-    _adapter, model, tier_override = resolve_pin(config, feature, registry)
-    return spec_for(model, tier_override)
+    return adapter, adapter.default_model
 
 
 def resolve_route(
@@ -214,19 +205,19 @@ def resolve_route(
     action: str | None = None,
     provider_override: str | None = None,
     model_override: str | None = None,
-) -> tuple[LLMAdapter, str, str | None]:
-    """The full per-call (provider, model, tier) resolution `chat`/`stream_chat`
+) -> tuple[LLMAdapter, str]:
+    """The full per-call (provider, model) resolution `chat`/`stream_chat`
     run: `resolve_pin` for the feature/action, then the explicit overrides — a
     preset's provider/model, or a Lab column's — applied over it. A provider
-    override with no model override lands on that provider's default model; a
-    model override always re-derives the tier from the override. Raises
-    LLMNotConfiguredError on an unregistered override provider or when nothing
-    resolves to a model (the catalog-full / selections-empty factory state).
+    override with no model override lands on that provider's default model.
+    Raises LLMNotConfiguredError on an unregistered override provider or when
+    nothing resolves to a model (the catalog-full / selections-empty factory
+    state).
 
     This is also what GET /v1/ai/resolved-route reports, so the read-only
     "runs on" provenance chips display exactly what a run would do (§7.2)."""
     reg = _reg(registry)
-    adapter, model, tier_override = resolve_pin(config, feature, reg, action=action)
+    adapter, model = resolve_pin(config, feature, reg, action=action)
     if provider_override:
         other = reg.get(provider_override)
         if other is None:
@@ -234,10 +225,8 @@ def resolve_route(
         adapter = other
         if not model_override:
             model = other.default_model
-            tier_override = None
     if model_override:
         model = model_override
-        tier_override = None
     if not (model or "").strip():
         # Catalog-full / selections-empty factory state (user, 2026-07-06): nothing
         # is chosen by the seed, so a fresh box reaching an AI feature before setup
@@ -245,7 +234,7 @@ def resolve_route(
         # (set_not_configured_message) — the old hardcoded "Settings → AI" named a
         # place that exists in NO app (family parity batch 2026-08-05).
         raise LLMNotConfiguredError(_not_configured_message)
-    return adapter, model, tier_override
+    return adapter, model
 
 
 def _raise_with_think_hint(e: Exception, *, think_was_on: bool) -> None:
@@ -315,17 +304,16 @@ def chat(
     """One-shot LLM call for a feature key.
 
     `action` (optional) routes to the action's own model when it has one, else the
-    feature default (the per-action override cascade). `think` defaults to the
-    resolved tier's `think` flag so reasoned-tier models on Ollama emit reasoning
-    blocks without the caller knowing the tier. Pass an explicit bool to override
-    (e.g. a Lab column forcing `think: false` to compare reasoned vs direct).
+    feature default (the per-action override cascade). `think` None means OFF —
+    the preset is the ONE thinking control and the feature router always passes
+    its resolved value (the tier-derived fallback died with the tier system,
+    2026-08-07).
     """
-    adapter, model, tier_override = resolve_route(
+    adapter, model = resolve_route(
         config, feature, registry, action=action,
         provider_override=provider_override, model_override=model_override,
     )
-    tier = spec_for(model, tier_override)
-    eff_think = tier.think if think is None else think
+    eff_think = bool(think)
     # NO send-time veto (the gate REMOVAL, ruled 2026-08-06: "no fancy
     # magic"): the request carries thinking exactly as configured — the
     # preset is the ONE thinking control. A provider that can't take the
@@ -383,12 +371,11 @@ def stream_chat(
     precedence + Lab overrides as `chat`, incl. the optional `action` override),
     yields `StreamDelta` events (text deltas, then one `done` event), and records
     usage to the ledger at the end (from the `done` event's token counts)."""
-    adapter, model, tier_override = resolve_route(
+    adapter, model = resolve_route(
         config, feature, registry, action=action,
         provider_override=provider_override, model_override=model_override,
     )
-    tier = spec_for(model, tier_override)
-    eff_think = tier.think if think is None else think
+    eff_think = bool(think)
     # NO send-time veto — same law as chat() above (one comment there).
     extra = _apply_reasoning(extra, adapter, model, think=eff_think)
 

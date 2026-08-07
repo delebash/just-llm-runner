@@ -126,12 +126,6 @@ class ModelCatalog(LlmBase):
     # "embed" in its id). Drives the catalog Embedding badge + Set-as-embedding action + the
     # QuickSetup embed picker; a user can mark their own added embed model. (model-surface)
     embedding = Column(Boolean, nullable=False, default=False)
-    # Can this model REASON (chat-template thinking) at all? Seed/user-owned capability
-    # flag (the mtp/embedding precedent, :89/:127) — gates the reasoning picker in the
-    # model UI + the "this model can't reason" hint. NOT auto-detectable by Read-from-HF
-    # (it's a chat-template property, not a GGUF header field) — a documented DECREE-#143
-    # parity exception. Seeded True for reasoning chat models (Gemma), False for embed rows.
-    thinking = Column(Boolean, nullable=False, default=False)
     # Embedding pooling type ("" | mean | cls | last | rank) — INTRINSIC per-model
     # (nomic=mean, qwen3-embedding=last). DB-stored per-model because a switch CANNOT do
     # per-model (switch_resolve layers only all/type/hardware); "" = let llama.cpp read the
@@ -589,8 +583,8 @@ class FeaturePrompt(LlmBase):
     description = Column(Text, nullable=False, default="")
     subgroup = Column(String, nullable=False, default="")  # wire field `group` (GROUP reserved)
     # Display order within the list (2026-08-06, the attribution restore —
-    # "Guided, Direct, Reasoned" beats key-alphabetical). 0 = unordered; ties
-    # fall back to key order, so hosts that never set it render as before.
+    # "Guided, Direct" beats key-alphabetical). 0 = unordered; ties fall
+    # back to key order, so hosts that never set it render as before.
     position = Column(Integer, nullable=False, default=0)
 
 
@@ -682,8 +676,8 @@ def session():
 _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("model_catalog", "mtp_builtin", "BOOLEAN NOT NULL DEFAULT 0"),
     ("model_catalog", "est_vram_mb", "INTEGER"),
-    # U2-T2 (2026-07-14, thinking/reasoning system):
-    ("model_catalog", "thinking", "BOOLEAN NOT NULL DEFAULT 0"),
+    # U2-T2 (2026-07-14; the model_catalog `thinking` column died with the
+    # tier system 2026-08-07 — an old DB's leftover column is unmapped, inert):
     ("engine_presets", "think", "BOOLEAN NOT NULL DEFAULT 0"),
     # Pass 2 (2026-07-22, backend-honest resolution):
     ("knob_catalog", "backends", "VARCHAR NOT NULL DEFAULT ''"),

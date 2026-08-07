@@ -5,8 +5,8 @@ Replaces BOTH apps' per-app `config.py`. Reads the providers into the dispatch v
 should default to the local runner, e.g. JustVoice's speaker_attribution).
 
 JW no longer populates `feature_pins` (2026-07-15 — the ACTION's engine preset carries
-provider+model; the pin tier is JustVoice-only). The shared `resolve_pin` still honours
-`feature_pins` when a host supplies them, so this leaves the list empty for JW."""
+provider+model). The shared `resolve_pin` still honours `feature_pins` when a host
+supplies them, so this leaves the list empty for JW."""
 
 from __future__ import annotations
 

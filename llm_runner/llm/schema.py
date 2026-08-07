@@ -52,7 +52,6 @@ class FeaturePinConfig(BaseModel):
     feature: str
     providerId: str = ""
     model: str = ""
-    tier: str | None = None  # "guided" | "direct" | "reasoned" — null = auto-classify
 
 
 class ProductionConfig(BaseModel):
@@ -64,7 +63,6 @@ class ProductionConfig(BaseModel):
     name: str
     providerId: str
     model: str = ""
-    tier: str | None = None
     temperature: float | None = None
     systemPrompt: str | None = None
     userPrompt: str | None = None

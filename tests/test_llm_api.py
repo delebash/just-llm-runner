@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""The shared storage-free LLM router (classify-tier / usage / ping / models)."""
+"""The shared storage-free LLM router (usage / ping / models)."""
 
 from __future__ import annotations
 
@@ -34,13 +34,6 @@ def _client():
     app = FastAPI()
     app.include_router(router)
     return TestClient(app)
-
-
-def test_classify_tier():
-    r = _client().post("/v1/llm-providers/classify-tier", json={"model": "qwen3:14b"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["tier"] == "reasoned" and body["think"] is True
 
 
 def test_ping_and_models_use_registry():

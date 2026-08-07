@@ -66,7 +66,7 @@ def test_effective_think_from_preset_with_json_guardrail():
     assert _effective_think(_spec(), RunRequest(action="k"), _preset(think=False)) is False
     assert _effective_think(_spec(json_mode=True), RunRequest(action="k"), _preset(think=True)) is False
     assert _effective_think(_spec(), RunRequest(action="k", jsonMode=True), _preset(think=True)) is False
-    # a request think override wins (a Lab column comparing reasoned vs direct); no preset → off
+    # a request think override wins (a Lab column comparing think on vs off); no preset → off
     assert _effective_think(_spec(), RunRequest(action="k", think=True), None) is True
     assert _effective_think(_spec(), RunRequest(action="k"), None) is False
 

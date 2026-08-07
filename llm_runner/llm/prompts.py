@@ -448,7 +448,7 @@ def _effective_think(spec: FeaturePromptRow | None, body: RunRequest, preset=Non
     with the B3 guardrail: a reasoning block corrupts strict JSON, so think is FORCED
     off whenever json_mode is on (the request's jsonMode override, else the action's
     CONTRACT json_mode). A request `think` override still wins (a Lab column comparing
-    reasoned vs direct). No preset → think off."""
+    think on vs off). No preset → think off."""
     think = body.think if body.think is not None else (preset.think if preset else False)
     json_mode = (spec.json_mode if spec else False) if body.jsonMode is None else body.jsonMode
     return bool(think) and not json_mode
@@ -477,7 +477,7 @@ def _ensure_local_ready_sync(
     ensure = get_ensure_local_model()
     if ensure is None:
         return
-    adapter, model, _tier = resolve_route(
+    adapter, model = resolve_route(
         config, feature, action=action,
         provider_override=provider_override, model_override=model_override,
     )
@@ -708,7 +708,7 @@ def make_feature_router(
         provider_override = providerId or (preset.providerId if preset else "") or None
         model_override = model or (preset.model if preset else "") or None
         try:
-            adapter, model, _tier = resolve_route(
+            adapter, model = resolve_route(
                 get_config(), feature, action=key,
                 provider_override=provider_override,
                 model_override=model_override,

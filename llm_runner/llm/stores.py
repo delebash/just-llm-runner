@@ -213,7 +213,7 @@ def _catalog_to_wire(r: db.ModelCatalog, samplers: dict[str, str] | None = None)
         mtpDraftRepo=r.mtp_draft_repo, mtpDraftFile=r.mtp_draft_file, mtpDraftQuant=r.mtp_draft_quant,
         trainedCtx=r.trained_ctx, samplers=dict(samplers or {}),
         minVramMb=r.min_vram_mb, minRamMb=r.min_ram_mb, tier=r.tier, license=r.license,
-        useLimited=r.use_limited, embedding=r.embedding, thinking=r.thinking, pooling=r.pooling, qualityRank=r.quality_rank, description=r.description,
+        useLimited=r.use_limited, embedding=r.embedding, pooling=r.pooling, qualityRank=r.quality_rank, description=r.description,
         notes=r.notes, architecture=r.architecture, experts=r.experts,
         sizeLabel=r.size_label, sizeBytes=r.size_bytes, estVramMb=r.est_vram_mb,
         position=r.position, builtIn=r.built_in,
@@ -260,7 +260,6 @@ class ModelCatalogStore:
             existing.license = row.license or ""
             existing.use_limited = bool(row.useLimited)
             existing.embedding = bool(row.embedding)
-            existing.thinking = bool(row.thinking)
             existing.pooling = row.pooling or ""
             existing.quality_rank = row.qualityRank
             existing.description = row.description or ""

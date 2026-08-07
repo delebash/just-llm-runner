@@ -673,19 +673,6 @@ def _use_limited(license_id: str) -> bool:
     return any(t in lic for t in _USE_LIMITED_TERMS)
 
 
-# Reasoning-capable architectures (chat-template thinking) — a ONE-TIME seed helper (the
-# `_use_limited` precedent): it populates the editable per-model `thinking` flag at seed
-# time only; the flag is then DB-stored + user-editable and Read-from-HF NEVER touches it
-# (thinking is a chat-template property, not a GGUF header field — the DECREE-#143 parity
-# exception). An embedding row is always False regardless of arch (guarded in _catalog_row;
-# the qwen3 embeddings share the "qwen3" arch string with reasoning chat models).
-_REASONING_ARCHS = ("gemma4", "glm4moe", "qwen3", "qwen3moe", "qwen35moe")
-
-
-def _can_reason(architecture: str) -> bool:
-    return (architecture or "").lower() in _REASONING_ARCHS
-
-
 def _catalog_row(c: dict, *, built_in: bool) -> "db.ModelCatalog":
     """One catalog seed dict → a ModelCatalog row. Shared by the built-in seed and
     the per-APP extra rows (`seed_extra_catalog`) so the field mapping — including
@@ -703,10 +690,6 @@ def _catalog_row(c: dict, *, built_in: bool) -> "db.ModelCatalog":
         min_vram_mb=c.get("min_vram_mb"), min_ram_mb=c.get("min_ram_mb"),
         tier=str(c.get("tier") or "mid"), license=str(c.get("license") or ""),
         use_limited=_use_limited(str(c.get("license") or "")), embedding=bool(c.get("embedding") or False),
-        # thinking (U2-T2): an explicit dict value wins; else a one-time arch heuristic,
-        # never True for an embedding row. Editable per-model afterward.
-        thinking=(bool(c["thinking"]) if "thinking" in c
-                  else (not bool(c.get("embedding") or False) and _can_reason(str(c.get("architecture") or "")))),
         pooling=str(c.get("pooling") or ""),
         quality_rank=int(c.get("quality_rank") or 100), description=str(c.get("description") or ""),
         notes=str(c.get("notes") or ""),

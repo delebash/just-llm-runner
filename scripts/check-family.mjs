@@ -240,6 +240,88 @@ function checkCrossAppTwins(perApp, kitFiles) {
   }
 }
 
+// ── check 7 · retired names must not be referenced anywhere ───────────────────
+// A move or delete is finished only when nothing points at the old name — code,
+// scripts, docs, comments, anything. The convergence pieces retired the names
+// below (derived from `git log --diff-filter=DR` over the piece commits; the
+// 2026-08-08 backfill sweep). The misses this rule exists to prevent were real:
+// JW's smoke.js and bench drive.js spawned the DELETED justwrite_server.cli for
+// a day after P3, and JV's __main__.py froze the dead cli.app into the sidecar
+// entry. History is exempt (docs/plans/**, the audit ledger, the target tree);
+// RETIRED_ALLOW marks per-file provenance prose that DESCRIBES a retirement.
+const RETIRED = new Map([
+  ["JustWrite", [
+    /api\/(autosave|book_transfer|chat|health|images|projects|rag|server_auth|sessions|settings|sweep_draft|versions)\.py\b/,
+    /justwrite_server\/(models|seed|demo_seed|database|cli|csrf)\.py\b/,
+    /justwrite_server\.(models|seed|demo_seed|cli|csrf)\b/,
+    /justwrite_server\/llm\//,
+  ]],
+  ["JustVoice", [
+    /components\/TaskStrip\.vue|components\/TaskStatusPanel\.vue|stores\/renderTasks/,
+    /justvoice\/csrf\.py\b|justvoice\.csrf\b/,
+    /--no-docs\b/,
+    /justvoice\.cli serve\b/,
+  ]],
+  ["docgen", [
+    /just_ai_i18n_docgen\/csrf\.py\b/,
+    /make_workspace_router\b/,
+    /app\.state\.workspace\b/,
+  ]],
+]);
+
+const KIT_RETIRED = [
+  // Only the five form primitives died in the Ui rename — Lu* FEATURE
+  // components (LuRunnerEngine, LuModelCatalog, …) are alive and legitimate.
+  /ui\/src\/components\/Lu(Button|Input|Segmented|Textarea|Checkbox)\.vue/,
+  /ui\/src\/views\/(PromptLab|RoutingPresets)\.vue/,
+  /llm\/(tiers|feature_presets_api)\.py\b/,
+  // runner-manifest.json is NOT here: it died long before the program and the
+  // codebase deliberately documents that death in prose everywhere it matters.
+  /runner\/manifest\.py\b/,
+];
+
+// Provenance prose — a line that DESCRIBES a retirement is not a stale
+// reference. File-scoped with the reason, same contract as ALLOW above.
+const RETIRED_ALLOW = new Map([
+  ["JustVoice/server/justvoice/cli.py", "docstring records the --no-docs flag's death (P3)"],
+]);
+
+const RETIRED_SKIP = /docs[\\/]plans[\\/]|family-structure-audit\.md|target-tree\.md|check-family\.mjs/;
+const RETIRED_TEXT = new Set([".js", ".mjs", ".cjs", ".vue", ".py", ".md", ".rs", ".json",
+  ".toml", ".html", ".css", ".txt", ".yml", ".yaml", ".ps1", ".sh"]);
+const RETIRED_DIR_SKIP = new Set(["node_modules", "dist", ".git", "__pycache__", ".venv",
+  "build", "target", "samples", "coverage"]);
+
+function walkRetired(dir, out = []) {
+  if (!existsSync(dir)) return out;
+  for (const entry of readdirSync(dir)) {
+    if (RETIRED_DIR_SKIP.has(entry) || entry.endsWith(".egg-info")) continue;
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) walkRetired(full, out);
+    else out.push(full);
+  }
+  return out;
+}
+
+function checkRetired(name, dir, patterns) {
+  if (!patterns || !patterns.length) return;
+  for (const file of walkRetired(dir)) {
+    if (!RETIRED_TEXT.has(extname(file))) continue;
+    const rel = file.slice(dir.length + 1).replace(/\\/g, "/");
+    if (RETIRED_SKIP.test(rel)) continue;
+    if (RETIRED_ALLOW.has(`${name}/${rel}`)) continue;
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, i) => {
+      for (const re of patterns) {
+        if (re.test(line)) {
+          fail(name, `retired name in ${rel}:${i + 1} — ${line.trim().slice(0, 90)}`);
+          break;
+        }
+      }
+    });
+  }
+}
+
 // ── run ───────────────────────────────────────────────────────────────────────
 const exports_ = kitExports();
 const kitFiles = new Map();
@@ -255,8 +337,10 @@ for (const app of APPS) {
   checkScripts(app);
   checkServer(app);
   checkHandRolled(app, files);
+  checkRetired(app.name, app.dir, RETIRED.get(app.name));
 }
 checkCrossAppTwins(perApp, kitFiles);
+checkRetired("kit", KIT, KIT_RETIRED);
 
 const showInfo = process.argv.includes("--info");
 console.log(`\nfamily check — ${APPS.length} apps against the kit (${exports_.size} kit exports)\n`);

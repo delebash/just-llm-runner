@@ -99,3 +99,47 @@ CSRF has no seam at all — pure kit, parameterized in app.py.
 Every piece: adversarial pass → code → the app's full suite → commit/push →
 STOP for the next approval. JW is on `master`; JV pushes check the
 workflows-disabled precondition before and after.
+
+**Definition of done (tightened by the 2026-08-08 backfill, user ruling):** a
+piece is complete only when (a) the touched repos' full suites are green, (b)
+the guard is at zero INCLUDING check 7 (retired names — fed from the piece's
+own `git diff --diff-filter=DR` old-name list), and (c) the receipted
+whole-repo sweep for those names (all file types, all four repos; docs/plans +
+the two conversion records exempt as history) is recorded in the status row.
+Tests are not the end: a move is finished when NOTHING references the old name.
+
+**The 2026-08-08 backfill (P2→P5 sweep receipt).** The pieces above shipped
+with sweeps scoped to the server package — the audit had no reference
+inventory, so nothing forced completeness. The backfill swept every retired
+name from the P2→P5 diffs (+ the task-queue trio) across all four repos and
+found: **three behavioral breaks** — JW `scripts/smoke.js` + `bench/harness/
+lib/drive.js` still spawned the DELETED `justwrite_server.cli` (the renderer
+gate could not boot a server since P3), and JV `__main__.py` (the PyInstaller
+sidecar target + `python -m justvoice`) still ran `cli.app`, whose serve
+command died in P3 — a frozen sidecar would print help and exit; **one
+user-facing doc lying threefold** — JV `docs/run-modes.md` documented the
+removed `--no-docs` flag, the utility subcommands on `justvoice-server` (they
+moved to `python -m justvoice.cli`), and the then-broken `python -m
+justvoice`; **stale live-doc/comment refs** — JW `docs/dev/ARCHITECTURE.md`,
+`architecture-notes.md`, `rag-design.md`, `src/stores/ai.js`,
+`src/services/analysis/{critique,sweepDraft}.js`, `src/services/rag/
+vectorStore.js`, `scripts/py.js`, `tests/test_book_transfer.py`,
+`database/models.py` (own comments); docgen root `README.md` + `src/stores/
+review.js`; JV `scripts/py.js`; kit `ui/README.md` (still documented the dead
+Lu* primitives and PromptLab). All fixed; check 7 now guards every name.
+Classified VALID and left: docs/plans/** (history), provenance prose that
+DESCRIBES a deletion (test_serve.py, JV cli.py docstring, CONCEPTS.md,
+kitTaskQueue.test.js), the audit ledger's point-in-time records. Also
+recorded: P4's route tags changed in the OpenAPI doc (workspace → setup/
+system grouping) — wire paths and bodies unchanged; stated here because
+"byte-identical" overclaimed. Gates after the backfill: JW 124 pytest + 566
+vitest + ruff · JV 409 pytest + 28 vitest (`python -m justvoice --help` now
+prints the serve usage) · docgen 152 pytest + 3 vitest · kit 769 pytest (the
+known Windows-lspci env failure) · guard ZERO with check 7 active. Open,
+needs its own go: the repaired JW smoke boots and drives 24/24 route surfaces
+with zero JS errors, but 3 interactive probes fail deterministically (boot
+splash wait, ai-tab click, sampler-order subnav click) — unrunnable since P3
+broke its spawn, failures sit in the chrome the 2026-08-07 TitleBar commit
+changed; pre/post attribution needs a pre-P3 checkout run. JV's own `ruff
+check .` gate fails on clean HEAD with 504 findings under ruff 0.16.1's
+widened defaults (pre-existing; a lint campaign is its own decision).

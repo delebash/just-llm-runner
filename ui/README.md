@@ -23,9 +23,15 @@ plan is history — JW's copy archived, JV's superseded.)
   `configureLlmUi({ baseUrl })` once at boot. The camelCase wire shapes
   (`Provider`, `FeaturePin`, `UsageRow`, …) match the server's pydantic models.
 - `src/styles.css` — token-driven primitive + layout styles (`lu-` namespace).
-- `src/components/Lu*.vue` — primitives (Button / Input / Textarea / Checkbox).
-- `src/views/*.vue` — shared views. `PromptLab` (the per-feature prompt editor)
-  is the first; provider form / model picker / features routing / usage follow.
+- `src/common/components/Ui*.vue` — the form primitives (`UiButton`, `UiInput`,
+  `UiSelect`, `UiToggle`, `UiCheckbox`, `UiField`, `UiTag`, `UiChip`) plus the
+  shared chrome (`TitleBar`, `SettingsShell`, `HelpDrawer`, `Toast`, …). The old
+  `Lu*` primitives died with the Ui rename; `PromptLab`/`RoutingPresets` died
+  with the promptless-Lab convergence.
+- `src/views/*.vue` — shared views: `AiModelsArea`, `FeatureWorkbench`,
+  `ProviderForm`, `QuickSetup`, `PricingEditor`.
+- `src/components/*.vue` — feature components (`AiStatusButton`, `AiTaskStrip`,
+  `AppearancePanel`, …).
 
 ## The host wires it once (both apps)
 ```js

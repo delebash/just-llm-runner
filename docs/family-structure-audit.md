@@ -802,3 +802,16 @@ counterpart to diverge from), full CSS token values (per-app brand by design),
 and JW's two architecture docs beyond what B2/B3 already read. The E-section
 items "kit's own structure" and "Tauri shells" are now measured (R2-2, R2-6);
 "A4's console-script question" is answered (R2-7).
+
+**Stated limitation, learned the hard way (2026-08-08 backfill):** Round 2
+audited CONTENTS only — it never built a REFERENCE INVENTORY (who points at
+each file, from where: scripts, renderer comments, live docs, bench harnesses,
+module entry shims). So the P2–P5 moves executed with no ground truth for what
+a move orphans, and their sweeps under-covered: three behavioral breaks (JW's
+smoke.js + bench drive.js spawning the deleted `justwrite_server.cli`; JV's
+`__main__.py` freezing the dead `cli.app` into the sidecar entry) and a dozen
+stale live-doc/comment references shipped as "complete." The gap is now
+structural, not procedural: the guard's check 7 (retired names, fed from each
+piece's `git diff --diff-filter=DR`) scans all four repos, every text file
+type, on every run. The receipt for the backfill sweep lives in
+target-tree.md's backfill section.

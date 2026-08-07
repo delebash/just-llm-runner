@@ -93,7 +93,7 @@ CSRF has no seam at all — pure kit, parameterized in app.py.
 | P7 | renderer commons to kit: helpDocs, boot-smoke skeleton, py.js/resolver | M |
 | P8 | renderer tree: styles/, HomeView + KeyboardCheatsheet renames, tests placement, useUiStore casing | M |
 | P9 | settings/prefs architecture — JV's split is the family shape (`/v1/settings` operator · `/v1/prefs` renderer, kit owns the prefs router); docgen gains the API + leaves localStorage; JW maps its ui doc | L |
-| P10 | config layer (ports, biome, vite build, .gitattributes) | S |
+| P10 | config layer (ports, biome, vite build, .gitattributes, **ruff policy** — one family lint ruleset: JV pinned `select = ["E4","E7","E9","F"]` 2026-08-08 after ruff 0.16 widened its defaults to 504 overnight findings; decide here whether the family adopts the wider set, and pin JW + docgen the same way either way) | S |
 | P11 | the guard learns THIS PAGE (skeleton assertion per app) + full family gates + audit/status sync | S |
 
 Every piece: adversarial pass → code → the app's full suite → commit/push →
@@ -143,3 +143,25 @@ broke its spawn, failures sit in the chrome the 2026-08-07 TitleBar commit
 changed; pre/post attribution needs a pre-P3 checkout run. JV's own `ruff
 check .` gate fails on clean HEAD with 504 findings under ruff 0.16.1's
 widened defaults (pre-existing; a lint campaign is its own decision).
+
+**Both opens CLOSED same day (the attribution + gate-repair pass):**
+
+- *The smoke's 3 probe failures* — attributed by checkout matrix (JW@HEAD,
+  JW@P2, JW@pre-TitleBar × kit@HEAD; JW@pre-TitleBar × kit@pre-batch): the
+  SAME 3 failures at every cell → older than the program and the batch. Root
+  cause, one line: the 2026-08-04 kit `BootModelLoad` adoption replaced JW's
+  splash skip button, the smoke's escape still clicked the dead `.jw-bw-skip`,
+  the z-3000 splash overlay never cleared headless (the snapshotted REAL data
+  root carries warm-startup on), and every interactive probe timed out under
+  it — while hash-navigation route sweeps sailed through, which is why it read
+  as "3 odd failures" instead of "the overlay is up". Fixed: the escape clicks
+  `.lu-bootload__skip`; App.vue's orphaned `.jw-bw-skip:hover` skin re-hung on
+  the kit class; `/jw-bw-skip\b/` added to check 7. **The JW smoke gate is
+  fully green** — all routes, all five ai-tabs, sampler-order, provider-form,
+  zero JS errors — for the first time since at least the batch window.
+- *JV's ruff gate* — evidence-first: HEAD showed 8 findings even under the
+  written-against ruleset (5×E402 mid-file feature-section imports in
+  voices_api moved to the top block, 3×F401 dead imports removed), then the
+  ruleset was PINNED in pyproject (`[tool.ruff.lint] select`) so the gate
+  stops changing meaning when a venv upgrades. `ruff check . && pytest` is
+  green on JV again (409). The wider-ruleset adoption question is P10's.

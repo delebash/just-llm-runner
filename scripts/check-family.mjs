@@ -255,6 +255,9 @@ const RETIRED = new Map([
     /justwrite_server\/(models|seed|demo_seed|database|cli|csrf)\.py\b/,
     /justwrite_server\.(models|seed|demo_seed|cli|csrf)\b/,
     /justwrite_server\/llm\//,
+    // The splash skip died in the 2026-08-04 kit BootModelLoad adoption; the
+    // stale selector silently broke the smoke's escape for four days.
+    /jw-bw-skip\b/,
   ]],
   ["JustVoice", [
     /components\/TaskStrip\.vue|components\/TaskStatusPanel\.vue|stores\/renderTasks/,
@@ -284,6 +287,7 @@ const KIT_RETIRED = [
 // reference. File-scoped with the reason, same contract as ALLOW above.
 const RETIRED_ALLOW = new Map([
   ["JustVoice/server/justvoice/cli.py", "docstring records the --no-docs flag's death (P3)"],
+  ["JustWrite/tests/smoke/headless-smoke.js", "comment records the stale-selector incident the fix closed"],
 ]);
 
 const RETIRED_SKIP = /docs[\\/]plans[\\/]|family-structure-audit\.md|target-tree\.md|check-family\.mjs/;

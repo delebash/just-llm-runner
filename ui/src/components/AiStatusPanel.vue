@@ -7,8 +7,8 @@
 // last-token delay (the "stuck vs. processing" signal), an expandable
 // streaming preview, and a cancel button.
 //
-// Recent history shows the last 30 finished tasks with duration, tokens,
-// and outcome (done / cancelled / errored).
+// Recent history shows the last 50 finished tasks (HISTORY_LIMIT) with
+// duration, tokens, and outcome (done / cancelled / errored).
 //
 // The store ticks `now` every 500ms so every elapsed / freshness number
 // stays live without each row registering its own setInterval.

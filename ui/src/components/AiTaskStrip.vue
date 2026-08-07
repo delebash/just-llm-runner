@@ -35,9 +35,19 @@ const props = defineProps({
 
 const tasks = useAiTasksStore();
 
+// A FINISHED task measures to its own finishedAt, never the live clock. The ticker
+// stops when nothing is RUNNING, so a task lingering after completion would otherwise
+// freeze its elapsed up to 500 ms short of the truth.
+const endedAt = computed(() => props.task?.finishedAt || tasks.now);
+const isDone = computed(() => {
+  const s = props.task?.status;
+  return !!s && s !== "connecting" && s !== "streaming";
+});
+const canRetry = computed(() => isDone.value && !!props.task?._onRetry);
+
 const elapsedSeconds = computed(() => {
   if (!props.task) return "0.0";
-  return Math.max(0, (tasks.now - props.task.startedAt) / 1000).toFixed(1);
+  return Math.max(0, (endedAt.value - props.task.startedAt) / 1000).toFixed(1);
 });
 const firstTokenSeconds = computed(() => {
   if (!props.task?.firstDeltaAt) return null;
@@ -53,7 +63,7 @@ const tokensPerSecond = computed(() => {
   if (!props.task?.firstDeltaAt) return null;
   const tokens = props.task.tokensOut || Math.max(0, Math.round(props.task.chars / 4));
   if (!tokens) return null;
-  const span = Math.max(1, tasks.now - props.task.firstDeltaAt);
+  const span = Math.max(1, endedAt.value - props.task.firstDeltaAt);
   return (tokens / (span / 1000)).toFixed(1);
 });
 // #5 (2026-07-17): rate-relative — the shared classifier, not the old absolute 3s/10s
@@ -62,6 +72,12 @@ const freshness = computed(() => freshnessOf(props.task, tasks.now));
 
 function onCancel() {
   if (props.task) tasks.cancel(props.task.id);
+}
+function onRetry() {
+  if (props.task) tasks.retry(props.task.id);
+}
+function onDismiss() {
+  if (props.task) tasks.dismiss(props.task.id);
 }
 function openPanel() { tasks.openPanel(); }
 </script>
@@ -93,6 +109,12 @@ function openPanel() { tasks.openPanel(); }
       <template v-else>stuck</template>
     </span>
 
+    <!-- The app's OWN numbers, as plain strings it pushed with setStats — a render's
+         "3.2 KB · 1.4s audio", a batch's "12 / 47 lines". Data rather than a callback
+         so it survives the component that started the task, and unlike the slot below
+         it reaches the panel too. -->
+    <span v-for="(s, i) in (task.stats || [])" :key="i" class="sts-stat">{{ s }}</span>
+
     <!-- Feature-specific extras (e.g. a words count + usage breakdown). -->
     <slot name="extra-stats" :task="task" />
 
@@ -100,10 +122,25 @@ function openPanel() { tasks.openPanel(); }
     <UiButton intent="ghost" size="small" data-panel-toggle @click="openPanel" v-tooltip.bottom="'Open full status panel'">
       Details
     </UiButton>
-    <UiButton intent="danger" size="small" @click="onCancel">
+    <!-- Cancel while it runs; Retry / dismiss once it has stopped. A strip only shows
+         a finished task when the host asked for a linger (`lingerMs`), and offering
+         "Cancel" on something already done would be a lie. Retry appears only when the
+         caller supplied one — "every long-running op gets progress + cancel + retry",
+         JustVoice's rule, which this store had no answer for until now. -->
+    <UiButton v-if="!isDone" intent="danger" size="small" @click="onCancel">
       <template #icon><Icon name="Close" :size="11" /></template>
       Cancel
     </UiButton>
+    <template v-else>
+      <UiButton v-if="canRetry" intent="ghost" size="small" @click="onRetry"
+        v-tooltip.bottom="'Run it again'">
+        <template #icon><Icon name="Refresh" :size="11" /></template>
+        Retry
+      </UiButton>
+      <UiButton intent="ghost" size="small" @click="onDismiss" v-tooltip.bottom="'Dismiss'">
+        <template #icon><Icon name="Close" :size="11" /></template>
+      </UiButton>
+    </template>
   </div>
 </template>
 

@@ -137,19 +137,33 @@ const phaseLabel = {
           </UiButton>
         </div>
 
-        <div v-if="!tasks.runningCount" class="aip-empty">
+        <div v-if="!tasks.visibleTasks.length" class="aip-empty">
           Nothing running. Start any AI feature and you'll see it here with live status.
         </div>
 
-        <div v-for="t in tasks.runningTasks" :key="t.id" class="aip-task">
+        <!-- visibleTasks, not runningTasks: identical unless the host asked for a
+             linger, in which case a just-finished task stays readable here for its
+             dwell instead of jumping straight into history. -->
+        <div v-for="t in tasks.visibleTasks" :key="t.id" class="aip-task">
           <div class="aip-task-h">
             <span class="aip-task-label">{{ t.label }}</span>
             <span class="aip-task-feature">{{ t.feature }}</span>
             <span class="aip-task-spacer" />
-            <UiButton intent="danger" size="small" @click="tasks.cancel(t.id)">
+            <UiButton v-if="tasks.isRunning(t.id)" intent="danger" size="small" @click="tasks.cancel(t.id)">
               <template #icon><Icon name="Close" :size="11" /></template>
               Cancel
             </UiButton>
+            <template v-else>
+              <UiButton v-if="t._onRetry" intent="ghost" size="small" @click="tasks.retry(t.id)"
+                v-tooltip.bottom="'Run it again'">
+                <template #icon><Icon name="Refresh" :size="11" /></template>
+                Retry
+              </UiButton>
+              <UiButton intent="ghost" size="small" @click="tasks.dismiss(t.id)"
+                v-tooltip.bottom="'Dismiss'">
+                <template #icon><Icon name="Close" :size="11" /></template>
+              </UiButton>
+            </template>
           </div>
 
           <div class="aip-task-stats">
@@ -187,6 +201,10 @@ const phaseLabel = {
               <template v-else-if="freshness(t) === 'stalling'">stalling · {{ fmtSeconds(lastDeltaAgoMs(t)) }}</template>
               <template v-else>stuck · {{ fmtSeconds(lastDeltaAgoMs(t)) }}</template>
             </span>
+            <!-- The app's own numbers. The strip had a slot for these; this panel had
+                 nothing at all, so a host's stats appeared on one surface and vanished
+                 on the other — and this is the surface the sidebar row opens. -->
+            <span v-for="(s, i) in (t.stats || [])" :key="`s${i}`" class="aip-stat">{{ s }}</span>
           </div>
 
           <div v-if="t.preview" class="aip-task-preview-row">

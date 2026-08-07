@@ -32,6 +32,9 @@ const HISTORY_LIMIT = 30;
 
 let nextId = 1;
 let tickHandle = null;
+// Pending auto-dismiss timers, keyed by task id — so a ✕ (or a retry) can cancel a
+// scheduled archive instead of racing it.
+const lingerTimers = new Map();
 
 export const useAiTasksStore = defineStore("aiTasks", {
   state: () => ({
@@ -55,8 +58,17 @@ export const useAiTasksStore = defineStore("aiTasks", {
   }),
 
   getters: {
-    runningTasks: (s) => s.order.map((id) => s.tasks[id]).filter(Boolean),
+    // RUNNING ONLY — the meaning this has always had, kept deliberately. With
+    // `lingerMs` (below) `order` can also hold finished-but-still-shown tasks, so
+    // this filters by status rather than trusting `order`. Badges and counts stay
+    // exactly as they were for hosts that don't opt into lingering.
+    runningTasks: (s) => s.order
+      .map((id) => s.tasks[id])
+      .filter((t) => t && (t.status === "connecting" || t.status === "streaming")),
     runningCount() { return this.runningTasks.length; },
+    // Everything a STRIP or panel should show: running, plus anything inside its
+    // linger window. Identical to runningTasks unless a task passed `lingerMs`.
+    visibleTasks: (s) => s.order.map((id) => s.tasks[id]).filter(Boolean),
     taskById: (s) => (id) => s.tasks[id] || null,
     // True while the named task id is still running. Lets a view show
     // "task is in flight" UI without holding a local ref.
@@ -71,8 +83,13 @@ export const useAiTasksStore = defineStore("aiTasks", {
       if (tickHandle) return;
       tickHandle = setInterval(() => { this.now = Date.now(); }, 500);
     },
+    // Gate on tasks that are actually RUNNING, not on `order.length` — JustVoice's
+    // renderTasks fixed exactly this bug and the fix comes up with the store: a
+    // failed task with `lingerMs.failed = null` never auto-dismisses, so a
+    // length-gated ticker fired forever behind a lingering error strip. Finished
+    // tasks have a fixed finishedAt and need no clock.
     _maybeStopTicker() {
-      if (!this.order.length && tickHandle) {
+      if (!this.runningTasks.length && tickHandle) {
         clearInterval(tickHandle);
         tickHandle = null;
       }
@@ -81,7 +98,23 @@ export const useAiTasksStore = defineStore("aiTasks", {
     // Begin a new task. Returns a handle the caller threads into the
     // underlying chat stream: { id, signal, onDelta, markStreaming,
     // finish, fail, cancel }.
-    start({ feature, label, meta }) {
+    //
+    // `stats`   — plain strings the surfaces render beside the standard ones
+    //   ("3.2 KB", "1.4s audio", "12 / 47 lines"). Deliberately DATA, not the
+    //   callback JustVoice's renderTasks used: this store exists so a task
+    //   survives the component that started it, and a stats callback closes over
+    //   that component's scope — after unmount it reads dead refs. The caller
+    //   computes the strings and pushes them with `setStats`.
+    // `onRetry` — re-run the same operation; surfaces show Retry on a finished
+    //   task. JustVoice's rule ("every long-running op gets progress + cancel +
+    //   retry") applied family-wide; the store had no retry at all before.
+    // `lingerMs`— per-outcome dwell before archiving, e.g.
+    //   `{ completed: 5000, cancelled: 3000, failed: null }` (null = never
+    //   auto-dismiss, the user clears it). Omit for the previous behaviour:
+    //   archive on finish. This is JustVoice's fix for tasks that "flash and
+    //   disappear" (reported 2026-06-09) — opt-in so JustWrite and docgen keep
+    //   today's counts until they choose it.
+    start({ feature, label, meta, stats, onRetry, lingerMs }) {
       const id = `aitask-${nextId++}`;
       const now = Date.now();
       const controller = new AbortController();
@@ -90,6 +123,10 @@ export const useAiTasksStore = defineStore("aiTasks", {
         feature: feature || "ai",
         label: label || feature || "AI call",
         meta: meta || {},
+        stats: Array.isArray(stats) ? [...stats] : [],
+        lingerMs: lingerMs || null,
+        // Non-reactive: it is a callback, and reactivity on it buys nothing.
+        _onRetry: onRetry ? markRaw(onRetry) : null,
         status: "connecting",
         startedAt: now,
         firstDeltaAt: 0,
@@ -133,7 +170,76 @@ export const useAiTasksStore = defineStore("aiTasks", {
         setProgress: (done, total) => this._setProgress(id, done, total),
         // §7.4 B6-2: prompt-eval percent from the stream's {progress} frames.
         setPrefill: (p) => this._setPrefill(id, p),
+        // Replace the per-task stat strings. Call it whenever the numbers change —
+        // a render learning its byte count, a batch finishing another line.
+        setStats: (list) => this._setStats(id, list),
+        // Attach arbitrary result data (`{ meta: {...} }` merges into meta).
+        // A finished task is still patchable: results usually land last.
+        update: (patch) => this._update(id, patch),
       };
+    },
+
+    _setStats(id, list) {
+      const t = this.tasks[id];
+      if (!t) return;
+      t.stats = Array.isArray(list) ? [...list] : [];
+    },
+
+    _update(id, patch) {
+      const t = this.tasks[id];
+      if (!t || !patch) return;
+      const { meta, ...rest } = patch;
+      if (meta) t.meta = { ...t.meta, ...meta };
+      Object.assign(t, rest);
+    },
+
+    // Re-run a finished task's operation. The surfaces show this on completed,
+    // cancelled and failed entries; dismissing the old one first keeps a retry
+    // from stacking a duplicate row beside its own re-run.
+    retry(id) {
+      const t = this.tasks[id];
+      const again = t?._onRetry;
+      if (!again) return;
+      this.dismiss(id);
+      again();
+    },
+
+    // Remove a lingering task NOW (the ✕). Running tasks are untouched — cancel
+    // those instead, so a click cannot silently orphan work still in flight.
+    dismiss(id) {
+      const t = this.tasks[id];
+      if (!t) return;
+      if (t.status === "connecting" || t.status === "streaming") return;
+      this._clearLinger(id);
+      this._archiveAndRemove(id);
+    },
+
+    _clearLinger(id) {
+      const handle = lingerTimers.get(id);
+      if (handle) {
+        clearTimeout(handle);
+        lingerTimers.delete(id);
+      }
+    },
+
+    // Archive now, or after this outcome's dwell if the task asked for one.
+    _archiveAfterLinger(id, outcome) {
+      const t = this.tasks[id];
+      if (!t) return;
+      const ms = t.lingerMs ? t.lingerMs[outcome] : undefined;
+      if (ms == null) {
+        // No linger configured for this outcome → today's behaviour, archive now.
+        // (An explicit `null`, e.g. failed, means "stay until dismissed" — which is
+        // why the ticker gate counts RUNNING tasks, not `order.length`.)
+        if (!t.lingerMs || !(outcome in t.lingerMs)) this._archiveAndRemove(id);
+        else this._maybeStopTicker();
+        return;
+      }
+      this._maybeStopTicker();
+      lingerTimers.set(id, setTimeout(() => {
+        lingerTimers.delete(id);
+        this._archiveAndRemove(id);
+      }, ms));
     },
 
     _setProgress(id, done, total) {
@@ -187,7 +293,7 @@ export const useAiTasksStore = defineStore("aiTasks", {
       }
       if (result?.providerId) t.providerId = result.providerId;
       if (result?.model) t.model = result.model;
-      this._archiveAndRemove(id);
+      this._archiveAfterLinger(id, "completed");
       // QC-30/QC-37 (the toast law, user 2026-07-09: "no ai task complete
       // toasts we have the ai progress bar, and the que"): NO completion
       // toast — the strip on the surface + the panel history ARE the outcome
@@ -202,7 +308,7 @@ export const useAiTasksStore = defineStore("aiTasks", {
       t.status = "error";
       t.error = err?.message || String(err || "Unknown error");
       t.finishedAt = now;
-      this._archiveAndRemove(id);
+      this._archiveAfterLinger(id, "failed");
       // QC-37 (the toast law): failures signal DURABLY, not with a toast
       // that disappears — the titlebar chip badges red until the panel is
       // opened, and the history entry carries the error detail.
@@ -216,7 +322,7 @@ export const useAiTasksStore = defineStore("aiTasks", {
       try { t._controller?.abort?.(); } catch {}
       t.status = "cancelled";
       t.finishedAt = Date.now();
-      this._archiveAndRemove(id);
+      this._archiveAfterLinger(id, "cancelled");
       // No toast — the user just clicked Cancel, telling them so again
       // is noise. The history entry in the panel records it.
     },
@@ -230,6 +336,8 @@ export const useAiTasksStore = defineStore("aiTasks", {
     _archiveAndRemove(id) {
       const t = this.tasks[id];
       if (!t) return;
+      // A pending linger timer would otherwise fire against a deleted task.
+      this._clearLinger(id);
       this.history.unshift({
         id: t.id,
         feature: t.feature,
@@ -240,6 +348,9 @@ export const useAiTasksStore = defineStore("aiTasks", {
         durationMs: Math.max(0, t.finishedAt - t.startedAt),
         tokensIn: t.tokensIn,
         tokensOut: t.tokensOut,
+        // The app's own numbers ("3.2 KB", "1.4s audio") — the history row is the
+        // only place a finished run's detail survives, so they ride along.
+        stats: Array.isArray(t.stats) ? [...t.stats] : [],
         providerId: t.providerId,
         model: t.model,
         error: t.error,

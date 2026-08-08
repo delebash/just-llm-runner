@@ -264,6 +264,10 @@ const RETIRED = new Map([
     /__tests__/,
     /ShortcutCheatsheet/,
     /src\/(tokens|styles)\.css|"\.\/(tokens|styles)\.css"/,
+    // P10: the lint script covers the whole include surface; biome schema
+    // rides the pinned 2.5.x CLI.
+    /"lint": "biome check src"/,
+    /schemas\/2\.4\./,
   ]],
   ["JustVoice", [
     /components\/TaskStrip\.vue|components\/TaskStatusPanel\.vue|stores\/renderTasks/,
@@ -279,6 +283,11 @@ const RETIRED = new Map([
     /useUIStore/,
     /name: "overview"|id: "overview"|"overview":/,
     /src\/(tokens|styles)\.css|"\.\/(tokens|styles)\.css"/,
+    // P10: the extra "@" src alias died (zero imports used it); lint + schema
+    // as in JW.
+    /"@": path\.resolve|"@": resolve\(/,
+    /"lint": "biome check src"/,
+    /schemas\/2\.4\./,
   ]],
   ["docgen", [
     /just_ai_i18n_docgen\/csrf\.py\b/,
@@ -287,6 +296,12 @@ const RETIRED = new Map([
     // P9: renderer prefs left localStorage for the family /v1/prefs door —
     // the three storage keys died with the conversion.
     /jaid\.(appearance|aiOfferShown|keepServerRunning)/,
+    // P10: docgen left JW's dev port for its own 1450/1451 pair; the FLY002
+    // fixture ignore died with the family ruff pin; lint + schema as in JW.
+    /localhost:1420|127\.0\.0\.1:1420|"1420"|port: 1420|port: 1421/,
+    /FLY002/,
+    /"lint": "biome check src && /,
+    /schemas\/2\.4\./,
   ]],
 ]);
 
@@ -307,6 +322,7 @@ const RETIRED_ALLOW = new Map([
   ["JustVoice/server/justvoice/cli.py", "docstring records the --no-docs flag's death (P3)"],
   ["JustWrite/tests/smoke/headless-smoke.js", "comment records the stale-selector incident the fix closed"],
   ["JustVoice/src/router/index.js", "the /overview redirect's comment records the P8 rename it serves"],
+  ["docgen/server/pyproject.toml", "the ruff-pin comment records the wide-defaults fixture ignore it retired (P10)"],
 ]);
 
 // report/ = committed GENERATED artifacts (jscpd) — point-in-time captures,

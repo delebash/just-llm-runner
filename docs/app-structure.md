@@ -57,13 +57,13 @@ DESKTOP APP in every repo; getting this wrong is the #1 confusion):
 ```jsonc
 {
   "dev": "tauri dev",              // THE APP — window + sidecar-spawned server
-  "dev:vite": "vite",              // browser-only dev loop (:1420)
+  "dev:vite": "vite",              // browser-only dev loop (the app's OWN port — JW 1420 · JV 1430 · docgen 1450; P10)
   "build": "tauri build",
   "build:vite": "vite build",
   "preview:vite": "vite preview",
   "server": "cd server && node ../scripts/py.js -m <snake_name>.serve serve",
   "test:server": "cd server && node ../scripts/py.js -m pytest -q",
-  "lint": "biome check src",
+  "lint": "biome check .",   // biome.json includes gate the surface (src + scripts + vite config)
   "tauri": "tauri"
 }
 ```
@@ -97,7 +97,7 @@ resolve: {
            "marked", "vue-sonner", "@vueuse/core", "@tanstack/vue-table"],
 },
 server: {
-  port: 1420, strictPort: true,
+  port: 1420, strictPort: true,   // per-app pair: JW 1420 · JV 1430/1431 · docgen 1450/1451
   fs: { allow: [resolve(__dirname), resolve(__dirname, "../just-llm-runner/ui")] },
   // NO /v1 proxy (corrected 2026-08-05 s2 audit — this snippet used to show one):
   // nothing requests a relative /v1. The origin-aware resolver builds ABSOLUTE
@@ -133,7 +133,7 @@ kit is consumed as source from the sibling clone — no publish step exists).
 
   ```js
   installLlmUi(app, {
-    devPorts: ["1420"], fallbackBase: "http://127.0.0.1:<PORT>",
+    devPorts: ["<DEV_PORT>"], fallbackBase: "http://127.0.0.1:<PORT>",
     capabilities: { embeddings: false },        // what this app's stack does
     catalogCopy: { … },                          // this app's words
     external: async (url) => (await import("@tauri-apps/plugin-opener")).openUrl(url),
@@ -528,10 +528,10 @@ assert the marker (a 200 from an empty ring proves nothing).
 ## 12 · Definition of done — a new app ships when every box checks
 
 - [ ] `npm run dev` opens the DESKTOP APP with the server spawned by the shell
-- [ ] `npm run dev:vite` + `npm run server` = the browser loop at :1420 via the proxy
+- [ ] `npm run dev:vite` + `npm run server` = the browser loop on the app's OWN dev port (JW 1420 · JV 1430 · docgen 1450 — P10; the kit's origin-aware resolver hits the server directly, no proxy)
 - [ ] `npm run test:server` green from a fresh clone (`scripts/py.js` resolves the venv)
-- [ ] `npm run lint` (biome) and server `ruff check` clean
-- [ ] `npm run build:vite` clean; `dist/` committed; the server serves it headless
+- [ ] `npm run lint` (biome, the pinned family version) and server `ruff check` clean (the pinned family `select` — P10)
+- [ ] `npm run build:vite` clean (`dist/` is gitignored build output); the server serves it headless
 - [ ] tauri.conf: real productName/identifier/title; sidecar constants set; port claimed in §1
 - [ ] Closing the window kills the Python process (no orphan on :PORT)
 - [ ] All routes under `/v1/*`; wire shape camelCase

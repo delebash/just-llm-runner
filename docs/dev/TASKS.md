@@ -154,6 +154,11 @@ first.
   **4a SHIPPED + VERIFIED** and **4b CLOSED-DROPPED** ("not deferred"). What
   genuinely remains: the two on-box checks (P3 §3d end-to-end · P1g router-flag
   confirm). Design distilled: `docs/dev/serving-design.md`.
+- **`test_llm_dispatch.py::test_think_is_sent_even_to_a_known_nonthinker` fails
+  when the FILE runs alone** (RuntimeError "LLM storage not configured",
+  db.py:667 via the reasoning-levels path) but passes in the full suite —
+  order-dependent storage wiring, identical on clean HEAD (verified via stash
+  A/B, 2026-08-08). Wire the file's own storage fixture or accept and note it.
 - **Multi-click unload/reload — observe once, REPORT BACK, don't fix blind** (the
   load-cancel plan's own Q3 ruling): one timestamped observation decides between
   (a) the router lock, (b) UI refresh racing the poller, (c) idle-sleep timing.

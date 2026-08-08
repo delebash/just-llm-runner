@@ -524,6 +524,141 @@ function checkSkeletonKit() {
   }
 }
 
+// ── check 9 · the family docs standard (decided 2026-08-08, docs/dev/TASKS.md) ─
+// ADVISORY ON PURPOSE, and this is a judgement, not laziness: the backlog it
+// measures is known and large (JustWrite ships no ai-features page and no
+// troubleshooting page at all), so promoting these to fail() today would leave
+// the script exiting 1 until the whole docs program lands — which is precisely
+// how a gate stops being read. Promote to fail() once the reported gap is closed.
+//
+// What this check does NOT do, by ruling: compare prose between apps. Each app
+// writes its own pages. Every failure on record was naming, coverage or accuracy
+// — never cross-app wording — so nothing here hashes or diffs a page body.
+const DOC_REQUIRED = ["getting-started", "ai-features", "ai-providers", "troubleshooting", "whats-new"];
+
+// An app need not document a concept; if it does, it uses the family's name.
+const DOC_RENAME = new Map([
+  ["providers", "ai-providers"],
+  ["ai-setup", "ai-providers"],
+  ["backup-restore", "backups-and-data"],
+  ["import-formats", "import-and-export"],
+  ["export", "import-and-export"],
+]);
+
+// One topic, one page, PER APP. JustWrite documents Quick Setup twice in its own
+// repo (ai-providers.md + models.md) — the duplication a cross-app check can
+// never see, and the reason this one is scoped inside an app.
+const DOC_TOPICS = new Map([
+  ["Quick Setup", /^quick setup\b/],
+  ["routing by feature", /\brouting (by )?features?\b/],
+  ["the model catalog", /\bmodel catalog\b/],
+]);
+
+const docSlugs = (dir) => (existsSync(dir)
+  ? readdirSync(dir).filter((f) => f.endsWith(".md")).map((f) => basename(f, ".md"))
+  : []);
+const normHeading = (h) => h.replace(/[—–:].*$/, "").toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+
+function readToc(app) {
+  const p = join(app.dir, "docs/toc.json");
+  if (!existsSync(p)) return null;
+  try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; }
+}
+
+function checkDocs(app) {
+  const dir = join(app.dir, "docs");
+  const slugs = docSlugs(dir);
+  if (!slugs.length) return;
+
+  // Renames first: a page that exists under the wrong name is ONE finding, not
+  // two. Reporting "ai-providers.md missing" beside "providers.md should be
+  // ai-providers.md" doubles the noise and overstates the gap.
+  const renamesTo = new Set();
+  for (const slug of slugs) {
+    const canonical = DOC_RENAME.get(slug);
+    if (!canonical) continue;
+    renamesTo.add(canonical);
+    info(app.name, `docs/${slug}.md — the family name for this page is ${canonical}.md`);
+  }
+  for (const want of DOC_REQUIRED) {
+    if (slugs.includes(want) || renamesTo.has(want)) continue;
+    info(app.name, `docs/${want}.md missing — family required page (docs standard)`);
+  }
+
+  const toc = readToc(app);
+  if (!toc) { info(app.name, "docs/toc.json missing or unparseable"); return; }
+  const unnamed = toc.filter((g) => !String(g.group || "").trim()).length;
+  if (unnamed) info(app.name, `docs/toc.json has ${unnamed} unnamed group(s) — groups carry names in every app`);
+
+  // one topic, one page
+  const byTopic = new Map();
+  for (const slug of slugs) {
+    const src = readFileSync(join(dir, `${slug}.md`), "utf8");
+    for (const line of src.split("\n")) {
+      if (!line.startsWith("## ")) continue;
+      const h = normHeading(line.slice(3));
+      for (const [topic, re] of DOC_TOPICS) {
+        if (!re.test(h)) continue;
+        if (!byTopic.has(topic)) byTopic.set(topic, new Set());
+        byTopic.get(topic).add(slug);
+      }
+    }
+  }
+  for (const [topic, pages] of byTopic) {
+    if (pages.size > 1) info(app.name, `"${topic}" is documented in ${pages.size} pages — ${[...pages].join(", ")} (one topic, one page)`);
+  }
+}
+
+// A slug must mean the same thing everywhere. The toc TITLE is the derivable
+// signal: JustVoice's `presets` is titled "Render presets" (audio) while
+// JustWrite's is the LLM preset bar — same filename, different subject.
+function checkDocsCrossApp() {
+  const titles = new Map();
+  for (const app of APPS) {
+    for (const group of readToc(app) || []) {
+      for (const item of group.items || []) {
+        if (!titles.has(item.slug)) titles.set(item.slug, new Map());
+        titles.get(item.slug).set(app.name, item.title);
+      }
+    }
+  }
+  for (const [slug, perApp_] of titles) {
+    if (perApp_.size < 2) continue;
+    const distinct = new Set([...perApp_.values()].map((t) => normHeading(t)));
+    if (distinct.size > 1) {
+      const shown = [...perApp_].map(([a, t]) => `${a}="${t}"`).join(" vs ");
+      info("family", `slug "${slug}" carries different titles — ${shown} (a slug means one thing family-wide)`);
+    }
+  }
+}
+
+// ── check 10 · a tracker item carries its decision (format ruling 2026-08-08) ──
+// Twice this failed: prose that restated code and went stale, then stubs that
+// dropped the decision and made a later session excavate it from a transcript.
+// The format is six fields; the two that cannot be reconstructed from code are
+// STATE (what was decided, in the user's words) and GO. Advisory for the same
+// reason as check 9 — JustWrite's and the kit's trackers predate the ruling.
+function checkTrackerFormat() {
+  const trackers = [...APPS.map((a) => [a.name, join(a.dir, "docs/dev/TASKS.md")]), ["kit", join(KIT, "docs/dev/TASKS.md")]];
+  for (const [name, file] of trackers) {
+    if (!existsSync(file)) { info(name, "docs/dev/TASKS.md missing"); continue; }
+    let heading = null;
+    let body = [];
+    const flush = () => {
+      if (!heading) return;
+      const text = body.join("\n");
+      const missing = ["STATE", "GO"].filter((f) => !new RegExp(`^${f}:`, "m").test(text));
+      if (missing.length) info(name, `TASKS.md item "${heading.slice(0, 60)}" has no ${missing.join(" / ")} line (format ruling)`);
+    };
+    for (const line of readFileSync(file, "utf8").split("\n")) {
+      if (line.startsWith("### ")) { flush(); heading = line.slice(4).trim(); body = []; }
+      else if (line.startsWith("## ")) { flush(); heading = null; body = []; }
+      else if (heading) body.push(line);
+    }
+    flush();
+  }
+}
+
 // ── run ───────────────────────────────────────────────────────────────────────
 const exports_ = kitExports();
 const kitFiles = new Map();
@@ -541,8 +676,11 @@ for (const app of APPS) {
   checkHandRolled(app, files);
   checkRetired(app.name, app.dir, RETIRED.get(app.name));
   checkSkeleton(app);
+  checkDocs(app);
 }
 checkCrossAppTwins(perApp, kitFiles);
+checkDocsCrossApp();
+checkTrackerFormat();
 checkSkeletonCrossApp();
 checkRetired("kit", KIT, KIT_RETIRED);
 checkSkeletonKit();

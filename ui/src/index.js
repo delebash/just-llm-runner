@@ -90,6 +90,10 @@ export { default as DownloadBar } from "./common/components/DownloadBar.vue";
 // splash is up on the first Vue paint (the hand-off from the static index.html plate).
 export { default as BootModelLoad } from "./components/BootModelLoad.vue";
 export { startWarmOnBoot, warmModelId } from "./services/warmBoot.js";
+// The family /v1/prefs client (target-tree P9; the server half is
+// llm_runner.platform.make_prefs_router, JustVoice's pair was the donor):
+// bootPrefs() before mount, then readPref/writePref against the reactive cache.
+export { bootPrefs, readPref, writePref, flushPrefs } from "./services/prefs.js";
 // The once-ever AI offer (ruling R3 2026-08-04): the ONE family shape for first
 // contact with AI setup — the host mounts it App-level behind its persisted
 // once-flag and routes on the emits; permanent setup buttons are retired.

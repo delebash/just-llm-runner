@@ -7,12 +7,13 @@ backup/restore/reset, …) behind host-supplied hooks — same router-factory
 pattern as `llm_runner.llm.*`. See the consuming app's
 docs/plans/2026-06-24-shared-platform-settings.md.
 
-LAZY FOR THE SAME REASON AS `llm/__init__.py` (2026-08-01). Of the three modules here only
+LAZY FOR THE SAME REASON AS `llm/__init__.py` (2026-08-01). Of the router modules here only
 `data_api` needs SQLAlchemy — it reflects the host's tables to back up and restore them.
-`disk_api` and `logs_api` are pure stdlib. Because this file imported all three eagerly, a
-host with no SQLAlchemy could not reach the log ring or the disk-usage router either: the
-clean-venv audit recorded `llm_runner.platform` failing outright with
-`ModuleNotFoundError: No module named 'sqlalchemy'`, for two routers that never needed it.
+`disk_api`, `logs_api` and `prefs_api` are SQLAlchemy-free (prefs storage is a host hook).
+Because this file once imported everything eagerly, a host with no SQLAlchemy could not
+reach the log ring or the disk-usage router either: the clean-venv audit recorded
+`llm_runner.platform` failing outright with `ModuleNotFoundError: No module named
+'sqlalchemy'`, for routers that never needed it.
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ _EXPORTS = {
     "make_data_router": "data_api",   # the SQLAlchemy one — reflects host tables
     "make_disk_router": "disk_api",
     "make_logs_router": "logs_api",
+    # P9 (target-tree, 2026-08-08): the family /v1/prefs door — renderer
+    # document semantics once, storage a host hook.
+    "make_prefs_router": "prefs_api",
     "install_log_ring": "logs_api",
     "install_file_log": "logs_api",
     # P2 (target-tree, 2026-08-08): the server-infra trio — one policy each,

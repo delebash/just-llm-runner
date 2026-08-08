@@ -284,6 +284,9 @@ const RETIRED = new Map([
     /just_ai_i18n_docgen\/csrf\.py\b/,
     /make_workspace_router\b/,
     /app\.state\.workspace\b/,
+    // P9: renderer prefs left localStorage for the family /v1/prefs door —
+    // the three storage keys died with the conversion.
+    /jaid\.(appearance|aiOfferShown|keepServerRunning)/,
   ]],
 ]);
 

@@ -258,6 +258,12 @@ const RETIRED = new Map([
     // The splash skip died in the 2026-08-04 kit BootModelLoad adoption; the
     // stale selector silently broke the smoke's escape for four days.
     /jw-bw-skip\b/,
+    // P8: tests live BESIDE their files (the 2-of-3 convention) — the five
+    // __tests__/ dirs flattened; ShortcutCheatsheet became KeyboardCheatsheet;
+    // tokens.css + styles.css moved to src/styles/.
+    /__tests__/,
+    /ShortcutCheatsheet/,
+    /src\/(tokens|styles)\.css|"\.\/(tokens|styles)\.css"/,
   ]],
   ["JustVoice", [
     /components\/TaskStrip\.vue|components\/TaskStatusPanel\.vue|stores\/renderTasks/,
@@ -266,6 +272,13 @@ const RETIRED = new Map([
     /justvoice\.cli serve\b/,
     // P6: the one api file off the _api naming pattern died into health_api.py.
     /api\/health\.py\b/,
+    // P8: OverviewView became HomeView (route name/id "overview" → "home";
+    // /overview lives on as a redirect only); useUIStore recased to useUiStore;
+    // tokens.css + styles.css moved to src/styles/.
+    /OverviewView/,
+    /useUIStore/,
+    /name: "overview"|id: "overview"|"overview":/,
+    /src\/(tokens|styles)\.css|"\.\/(tokens|styles)\.css"/,
   ]],
   ["docgen", [
     /just_ai_i18n_docgen\/csrf\.py\b/,
@@ -290,13 +303,19 @@ const KIT_RETIRED = [
 const RETIRED_ALLOW = new Map([
   ["JustVoice/server/justvoice/cli.py", "docstring records the --no-docs flag's death (P3)"],
   ["JustWrite/tests/smoke/headless-smoke.js", "comment records the stale-selector incident the fix closed"],
+  ["JustVoice/src/router/index.js", "the /overview redirect's comment records the P8 rename it serves"],
 ]);
 
-const RETIRED_SKIP = /docs[\\/]plans[\\/]|family-structure-audit\.md|target-tree\.md|check-family\.mjs/;
+// report/ = committed GENERATED artifacts (jscpd) — point-in-time captures,
+// same standing as docs/plans history.
+const RETIRED_SKIP = /docs[\\/]plans[\\/]|report[\\/]|family-structure-audit\.md|target-tree\.md|check-family\.mjs/;
 const RETIRED_TEXT = new Set([".js", ".mjs", ".cjs", ".vue", ".py", ".md", ".rs", ".json",
   ".toml", ".html", ".css", ".txt", ".yml", ".yaml", ".ps1", ".sh"]);
+// "models" = downloaded engine/bench model artifacts (HF caches carry BPE
+// vocab.json files where every English word is a token — untracked downloads,
+// never repo references; the only tracked models/ entry family-wide is a .gitkeep).
 const RETIRED_DIR_SKIP = new Set(["node_modules", "dist", ".git", "__pycache__", ".venv",
-  "build", "target", "samples", "coverage"]);
+  "build", "target", "samples", "coverage", "models"]);
 
 function walkRetired(dir, out = []) {
   if (!existsSync(dir)) return out;

@@ -44,20 +44,12 @@ class LLMProviderConfig(BaseModel):
     extra: dict[str, str] = {}  # provider-specific extras (org id, region, etc.)
 
 
-class FeaturePinConfig(BaseModel):
-    """An explicit per-feature (or per-action) provider+model override, looked up
-    at dispatch time by feature key. A feature with no pin (and no preset) falls
-    through to the global default provider."""
-
-    feature: str
-    providerId: str = ""
-    model: str = ""
-
-
 class ProductionConfig(BaseModel):
     """A feature frozen exactly as tuned in its Lab — model AND prompts.
-    The active config beats pins and roles (precedence step 1). One per
-    feature; deleting it reverts the feature to Default (tier-resolved)."""
+    The active config is precedence step 1. One per feature; deleting it
+    reverts the feature to its preset-resolved default. (Pins retired
+    2026-08-08 — decided 2026-07-15; the ACTION's engine preset carries
+    provider+model, so nothing else competes here.)"""
 
     feature: str
     name: str
@@ -78,17 +70,17 @@ class LLMConfig:
 
         LLMConfig(
             providers=provider_store.list(),
-            feature_pins=[...explicit pins...],
             prefer_local_features={"speaker_attribution"},  # optional, per-app
         )
 
-    A feature resolves: active production config → explicit pin → prefer-local →
-    first adapter. Engine presets (each action's preset ref → default) are resolved
-    separately in `prompts._resolve_preset` and overlaid onto the call.
+    A feature resolves: active production config → prefer-local → first
+    adapter. (The feature-pin layer was retired 2026-08-08 — decided
+    2026-07-15; every app routes through engine presets.) Engine presets
+    (each action's preset ref → default) are resolved separately in
+    `prompts._resolve_preset` and overlaid onto the call.
     """
 
     providers: list[LLMProviderConfig] = field(default_factory=list)
-    feature_pins: list[FeaturePinConfig] = field(default_factory=list)
     production_configs: list[ProductionConfig] = field(default_factory=list)
     prefer_local_features: set[str] = field(default_factory=set)
     local_runner_provider_id: str = "local-llamacpp"

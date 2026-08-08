@@ -100,7 +100,9 @@ def test_build_llm_config_has_providers_no_pins(wired):
     stores.get_routing_store().set_routing(RoutingConfig(default=RoutingDefaults(llmId="openai-compat-local")))
     cfg = build_llm_config()
     assert {p.id for p in cfg.providers} >= {"local-llamacpp", "openai"}
-    assert cfg.feature_pins == []   # JW never populates pins (the preset is the one source)
+    # The pin layer is GONE (retired 2026-08-08; decided 2026-07-15) — the
+    # preset is the one source, and the config no longer even carries the slot.
+    assert not hasattr(cfg, "feature_pins")
 
 
 def test_model_catalog_quality_and_description_roundtrip(wired):

@@ -2,8 +2,9 @@
 """Dispatch precedence + the honest thinking law for the shared LLM layer.
 
 No network: a FakeAdapter stands in for a provider. Verifies the
-config → pin → prefer-local → first chain that JV relied on, and that
-thinking is sent EXACTLY as configured (no veto, no tier-derived
+production-config → prefer-local → first chain (the feature-pin layer
+retired 2026-08-08 — decided 2026-07-15; presets carry provider+model),
+and that thinking is sent EXACTLY as configured (no veto, no tier-derived
 fallback — the tier system died 2026-08-07)."""
 
 from __future__ import annotations
@@ -11,7 +12,6 @@ from __future__ import annotations
 import pytest
 
 from llm_runner.llm import (
-    FeaturePinConfig,
     LLMConfig,
     LLMMessage,
     LLMNotConfiguredError,
@@ -21,7 +21,7 @@ from llm_runner.llm import (
     StreamDelta,
     chat,
     get_ledger,
-    resolve_pin,
+    resolve_feature,
     stream_chat,
 )
 
@@ -70,32 +70,24 @@ def make_reg(*adapters):
 # ── Precedence chain ─────────────────────────────────────────────────
 
 def test_production_config_wins():
-    reg = make_reg(FakeAdapter("cloud"), FakeAdapter("local"))
+    # The active production config beats every generic fallback — here
+    # prefer-local would otherwise route critique to the local runner.
+    reg = make_reg(FakeAdapter("cloud"), FakeAdapter("local-llamacpp"))
     cfg = LLMConfig(
         production_configs=[ProductionConfig(
             feature="critique", name="strict", providerId="cloud",
             model="claude-sonnet-4-6")],
-        feature_pins=[FeaturePinConfig(feature="critique", providerId="local", model="x")],
+        prefer_local_features={"critique"},
     )
-    adapter, model = resolve_pin(cfg, "critique", reg)
+    adapter, model = resolve_feature(cfg, "critique", reg)
     assert adapter.provider_id == "cloud"
     assert model == "claude-sonnet-4-6"
-
-
-def test_explicit_pin_resolves():
-    reg = make_reg(FakeAdapter("local"), FakeAdapter("cloud"))
-    cfg = LLMConfig(
-        feature_pins=[FeaturePinConfig(feature="compose", providerId="local", model="qwen3-4b")],
-    )
-    adapter, model = resolve_pin(cfg, "compose", reg)
-    assert adapter.provider_id == "local"  # the explicit pin resolves
-    assert model == "qwen3-4b"
 
 
 def test_prefer_local_runner():
     reg = make_reg(FakeAdapter("other"), FakeAdapter("local-llamacpp", "qwen3-4b"))
     cfg = LLMConfig(prefer_local_features={"speaker_attribution"})
-    adapter, model = resolve_pin(cfg, "speaker_attribution", reg)
+    adapter, model = resolve_feature(cfg, "speaker_attribution", reg)
     assert adapter.provider_id == "local-llamacpp"
     assert model == "qwen3-4b"
 
@@ -103,58 +95,48 @@ def test_prefer_local_runner():
 def test_first_adapter_fallback():
     reg = make_reg(FakeAdapter("only", "m"))
     cfg = LLMConfig()
-    adapter, model = resolve_pin(cfg, "anything", reg)
+    adapter, model = resolve_feature(cfg, "anything", reg)
     assert adapter.provider_id == "only"
 
 
 def test_no_provider_raises():
     with pytest.raises(LLMNotConfiguredError):
-        resolve_pin(LLMConfig(), "x", LLMRegistry())
+        resolve_feature(LLMConfig(), "x", LLMRegistry())
 
 
 # ── Action-level override (per-action routing, falls back to the feature) ──
 
-def test_action_pin_beats_feature_default():
+def test_action_config_beats_feature_config():
     reg = make_reg(FakeAdapter("feat", "feat-model"), FakeAdapter("act", "act-model"))
-    cfg = LLMConfig(feature_pins=[
-        FeaturePinConfig(feature="writerAI", providerId="feat", model="feat-model"),
-        FeaturePinConfig(feature="writerAI.tighten", providerId="act", model="act-model"),
+    cfg = LLMConfig(production_configs=[
+        ProductionConfig(feature="writerAI", name="f", providerId="feat", model="feat-model"),
+        ProductionConfig(feature="writerAI.tighten", name="a", providerId="act", model="act-model"),
     ])
-    adapter, model = resolve_pin(cfg, "writerAI", reg, action="writerAI.tighten")
+    adapter, model = resolve_feature(cfg, "writerAI", reg, action="writerAI.tighten")
     assert adapter.provider_id == "act"
     assert model == "act-model"
 
 
-def test_action_without_pin_falls_back_to_feature():
+def test_action_without_config_falls_back_to_feature():
     reg = make_reg(FakeAdapter("feat", "feat-model"))
-    cfg = LLMConfig(feature_pins=[
-        FeaturePinConfig(feature="writerAI", providerId="feat", model="feat-model"),
+    cfg = LLMConfig(production_configs=[
+        ProductionConfig(feature="writerAI", name="f", providerId="feat", model="feat-model"),
     ])
     # the action has nothing of its own → inherits the feature default
-    adapter, model = resolve_pin(cfg, "writerAI", reg, action="writerAI.rewrite")
+    adapter, model = resolve_feature(cfg, "writerAI", reg, action="writerAI.rewrite")
     assert adapter.provider_id == "feat"
     assert model == "feat-model"
-
-
-def test_action_production_config_wins_over_feature():
-    reg = make_reg(FakeAdapter("feat", "x"), FakeAdapter("prod", "prod-model"))
-    cfg = LLMConfig(
-        production_configs=[ProductionConfig(
-            feature="writerAI.tighten", name="tuned", providerId="prod", model="prod-model")],
-        feature_pins=[FeaturePinConfig(feature="writerAI", providerId="feat", model="x")],
-    )
-    adapter, model = resolve_pin(cfg, "writerAI", reg, action="writerAI.tighten")
-    assert adapter.provider_id == "prod"
-    assert model == "prod-model"
 
 
 def test_action_none_is_legacy_feature_resolution():
     # action=None (every legacy caller, incl. all of JustVoice) is unchanged, and
     # action==feature is a harmless no-op that falls through to the feature.
     reg = make_reg(FakeAdapter("feat", "feat-model"))
-    cfg = LLMConfig(feature_pins=[FeaturePinConfig(feature="writerAI", providerId="feat")])
-    legacy = resolve_pin(cfg, "writerAI", reg)
-    same = resolve_pin(cfg, "writerAI", reg, action="writerAI")
+    cfg = LLMConfig(production_configs=[
+        ProductionConfig(feature="writerAI", name="f", providerId="feat"),
+    ])
+    legacy = resolve_feature(cfg, "writerAI", reg)
+    same = resolve_feature(cfg, "writerAI", reg, action="writerAI")
     assert legacy[0].provider_id == same[0].provider_id == "feat"
 
 
@@ -164,7 +146,8 @@ def test_chat_think_omitted_is_off_and_records_usage():
     get_ledger().clear()
     fake = FakeAdapter("local", "def")
     reg = make_reg(fake)
-    cfg = LLMConfig(feature_pins=[FeaturePinConfig(feature="x", providerId="local", model="qwen3:14b")])
+    cfg = LLMConfig(production_configs=[
+        ProductionConfig(feature="x", name="t", providerId="local", model="qwen3:14b")])
     resp = chat(config=cfg, feature="x", messages=[LLMMessage("user", "hi")], registry=reg)
     assert resp.text == "ok"
     # No explicit think = OFF — the preset is the one thinking control; the
@@ -179,7 +162,8 @@ def test_stream_chat_yields_deltas_and_records_usage():
     get_ledger().clear()
     fake = FakeAdapter("local", "def")
     reg = make_reg(fake)
-    cfg = LLMConfig(feature_pins=[FeaturePinConfig(feature="x", providerId="local", model="qwen3:14b")])
+    cfg = LLMConfig(production_configs=[
+        ProductionConfig(feature="x", name="t", providerId="local", model="qwen3:14b")])
     deltas = list(stream_chat(config=cfg, feature="x", messages=[LLMMessage("user", "hi")], registry=reg))
     assert "".join(d.text for d in deltas if not d.done) == "ok-stream"
     assert fake.calls[0]["think"] is False  # same law on the stream path
@@ -195,13 +179,14 @@ def test_stream_chat_yields_deltas_and_records_usage():
 # 2026-08-06; these tests lived in test_capability_gate.py until the tier
 # system + capability resolver died, 2026-08-07) ──────────────────────
 
-def _pin(model):
-    return LLMConfig(feature_pins=[FeaturePinConfig(feature="f", providerId="cloud", model=model)])
+def _prod(model):
+    return LLMConfig(production_configs=[
+        ProductionConfig(feature="f", name="t", providerId="cloud", model=model)])
 
 
 def test_think_is_sent_even_to_a_known_nonthinker():
     a = FakeAdapter("cloud")
-    resp = chat(config=_pin("gpt-4o"), feature="f", registry=make_reg(a),
+    resp = chat(config=_prod("gpt-4o"), feature="f", registry=make_reg(a),
                 messages=[LLMMessage("user", "hi")],
                 think=True, extra={"reasoning_effort": "high"})
     assert resp.text == "ok"
@@ -213,14 +198,14 @@ def test_think_is_sent_even_to_a_known_nonthinker():
 
 def test_think_off_stays_off():
     a = FakeAdapter("cloud")
-    chat(config=_pin("gpt-4o"), feature="f", registry=make_reg(a),
+    chat(config=_prod("gpt-4o"), feature="f", registry=make_reg(a),
          messages=[LLMMessage("user", "hi")], think=False)
     assert a.calls[-1]["think"] is False
 
 
 def test_stream_path_sends_as_configured():
     a = FakeAdapter("cloud")
-    list(stream_chat(config=_pin("gpt-4o"), feature="f", registry=make_reg(a),
+    list(stream_chat(config=_prod("gpt-4o"), feature="f", registry=make_reg(a),
                      messages=[LLMMessage("user", "hi")], think=True))
     assert a.calls[-1]["think"] is True
 
@@ -231,7 +216,7 @@ def test_reasoning_rejection_carries_the_fix_pointer():
         fail_with="Unsupported parameter: 'reasoning_effort' is not supported with this model.",
     )
     with pytest.raises(RuntimeError) as ei:
-        chat(config=_pin("gpt-4o"), feature="f", registry=make_reg(a),
+        chat(config=_prod("gpt-4o"), feature="f", registry=make_reg(a),
              messages=[LLMMessage("user", "hi")], think=True)
     msg = str(ei.value)
     assert "reasoning_effort" in msg                            # the provider's own words
@@ -243,7 +228,7 @@ def test_unrelated_errors_pass_through_untouched():
     only when the provider's message is about the parameter we sent."""
     a = FakeAdapter("cloud", fail_with="401 Unauthorized: bad api key")
     with pytest.raises(ValueError) as ei:
-        chat(config=_pin("gpt-4o"), feature="f", registry=make_reg(a),
+        chat(config=_prod("gpt-4o"), feature="f", registry=make_reg(a),
              messages=[LLMMessage("user", "hi")], think=True)
     assert "turn thinking off" not in str(ei.value)
 
@@ -251,7 +236,7 @@ def test_unrelated_errors_pass_through_untouched():
 def test_think_off_errors_never_get_the_hint():
     a = FakeAdapter("cloud", fail_with="model produced no reasoning output")
     with pytest.raises(ValueError) as ei:
-        chat(config=_pin("gpt-4o"), feature="f", registry=make_reg(a),
+        chat(config=_prod("gpt-4o"), feature="f", registry=make_reg(a),
              messages=[LLMMessage("user", "hi")], think=False)
     assert "turn thinking off" not in str(ei.value)
 

@@ -26,9 +26,12 @@ rationale + provenance are distilled into §0 below (docs campaign 2026-08-04).
 - **Effective think = `preset.think AND NOT (body.jsonMode ?? action.json_mode)`**
   — the guardrail reads two facts, no overlay (llama.cpp drops JSON-schema
   enforcement when thinking is on).
-- **`feature_pins` (provider+model) is KEPT** — `FeaturePinConfig` /
-  `LLMConfig.feature_pins` are honoured when a host supplies them. The pins'
-  `tier` field died with the tier subsystem (2026-08-07).
+- **The feature-pin layer is RETIRED (2026-08-08; decided 2026-07-15)** —
+  `FeaturePinConfig` and `LLMConfig.feature_pins` are deleted. No app supplied
+  pins since JW left them on 2026-07-15 and JV finished its preset conversion;
+  the resolver is `resolve_feature` (named `resolve_pin` until the layer it was
+  named for died): production config → prefer-local → first adapter. The pins'
+  `tier` field had already died with the tier subsystem (2026-08-07).
 - **One routing surface**: the separate Presets page is DELETED; "Routing by
   feature" + the Lab's preset bar are the only preset controls; the production verb
   is "Use in production" / "● in production".

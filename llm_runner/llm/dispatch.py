@@ -2,7 +2,7 @@
 """Feature → provider dispatch.
 
 Every app feature (Compose, Speaker-attribution, Critique, …) resolves
-to a provider+model through `resolve_pin` and runs via `chat`. Lifted
+to a provider+model through `resolve_feature` and runs via `chat`. Lifted
 from JustVoice `server/justvoice/engines/llm/dispatch.py` into the shared
 `llm_runner` package (2026-06-21 AI-stack convergence).
 
@@ -117,25 +117,20 @@ def active_production_config(config: LLMConfig, feature: str):
 def _resolve_action_override(
     config: LLMConfig, action: str, reg: LLMRegistry
 ) -> tuple[LLMAdapter, str] | None:
-    """Resolve an ACTION's own explicit config (its production config or pin), or
+    """Resolve an ACTION's own explicit config (its production config), or
     None to fall back to its feature. Deliberately stops at the action's explicit
-    config: it never touches the generic feature fallbacks (job / prefer-local /
-    first-adapter) — those belong to the feature, so an action with nothing of its
-    own inherits the feature default (then its job, then the global default)."""
+    config: it never touches the generic feature fallbacks (prefer-local /
+    first-adapter) — those belong to the feature, so an action with nothing of
+    its own inherits the feature's resolution."""
     cfg = active_production_config(config, action)
     if cfg is not None:
         adapter = reg.get(cfg.providerId)
         if adapter is not None:
             return adapter, cfg.model or adapter.default_model
-    pin = next((p for p in (config.feature_pins or []) if p.feature == action), None)
-    if pin is not None and pin.providerId:
-        adapter = reg.get(pin.providerId)
-        if adapter is not None:
-            return adapter, pin.model or adapter.default_model
     return None
 
 
-def resolve_pin(
+def resolve_feature(
     config: LLMConfig,
     feature: str,
     registry: LLMRegistry | None = None,
@@ -146,7 +141,10 @@ def resolve_pin(
     When `action` is given (a specific action within the feature, e.g.
     "writerAI.tighten"), the action's OWN explicit config wins; if the action has
     nothing of its own it falls back to the feature — so the cascade is
-    action → feature → job → first. `action=None` is pure feature-level resolution.
+    action → feature → prefer-local → first. `action=None` is pure feature-level
+    resolution. (Named `resolve_pin` until 2026-08-08, when the feature-pin layer
+    it was named for retired — decided 2026-07-15; the ACTION's engine preset
+    carries provider+model.)
 
     Raises LLMNotConfiguredError when nothing resolves.
     """
@@ -168,18 +166,6 @@ def resolve_pin(
             cfg.name, feature, cfg.providerId,
         )
 
-    pin = next((p for p in (config.feature_pins or []) if p.feature == feature), None)
-
-    # Explicit per-feature pin (provider+model).
-    if pin is not None and pin.providerId:
-        adapter = reg.get(pin.providerId)
-        if adapter is None:
-            raise LLMNotConfiguredError(
-                f"Feature {feature!r} is pinned to provider {pin.providerId!r} "
-                f"but that provider isn't registered."
-            )
-        return adapter, pin.model or adapter.default_model
-
     # Built-in local runner is the smart default for its target features
     # (e.g. attribution) when nothing more specific is configured.
     if feature in config.prefer_local_features:
@@ -192,7 +178,7 @@ def resolve_pin(
     if not adapters:
         raise LLMNotConfiguredError(
             f"No LLM provider registered. Add one in the AI engines tab, "
-            f"then route '{feature}' to a job (or pin it) in feature routing."
+            f"then route '{feature}' in Routing by feature."
         )
     adapter = adapters[0]
     return adapter, adapter.default_model
@@ -207,7 +193,7 @@ def resolve_route(
     model_override: str | None = None,
 ) -> tuple[LLMAdapter, str]:
     """The full per-call (provider, model) resolution `chat`/`stream_chat`
-    run: `resolve_pin` for the feature/action, then the explicit overrides — a
+    run: `resolve_feature` for the feature/action, then the explicit overrides — a
     preset's provider/model, or a Lab column's — applied over it. A provider
     override with no model override lands on that provider's default model.
     Raises LLMNotConfiguredError on an unregistered override provider or when
@@ -217,7 +203,7 @@ def resolve_route(
     This is also what GET /v1/ai/resolved-route reports, so the read-only
     "runs on" provenance chips display exactly what a run would do (§7.2)."""
     reg = _reg(registry)
-    adapter, model = resolve_pin(config, feature, reg, action=action)
+    adapter, model = resolve_feature(config, feature, reg, action=action)
     if provider_override:
         other = reg.get(provider_override)
         if other is None:

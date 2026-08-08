@@ -4,9 +4,9 @@ Replaces BOTH apps' per-app `config.py`. Reads the providers into the dispatch v
 `prefer_local_features` is the only optional per-app input (the set of features that
 should default to the local runner, e.g. JustVoice's speaker_attribution).
 
-JW no longer populates `feature_pins` (2026-07-15 — the ACTION's engine preset carries
-provider+model). The shared `resolve_pin` still honours `feature_pins` when a host
-supplies them, so this leaves the list empty for JW."""
+The feature-pin layer retired 2026-08-08 (decided 2026-07-15): the ACTION's engine
+preset carries provider+model, so the dispatch view is providers +
+`prefer_local_features` and nothing else."""
 
 from __future__ import annotations
 

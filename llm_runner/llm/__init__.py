@@ -52,13 +52,13 @@ _EXPORTS = {
     # contract
     "LLMAdapter": "base", "LLMMessage": "base", "LLMResponse": "base", "StreamDelta": "base",
     # schema
-    "LLMConfig": "schema", "LLMProviderConfig": "schema", "FeaturePinConfig": "schema",
+    "LLMConfig": "schema", "LLMProviderConfig": "schema",
     "ProductionConfig": "schema",
     # registry
     "LLMRegistry": "registry", "get_llm_registry": "registry", "construct": "registry",
     "load_from_configs": "registry",
     # dispatch
-    "chat": "dispatch", "stream_chat": "dispatch", "resolve_pin": "dispatch",
+    "chat": "dispatch", "stream_chat": "dispatch", "resolve_feature": "dispatch",
     "active_production_config": "dispatch",
     "LLMNotConfiguredError": "dispatch", "set_not_configured_message": "dispatch",
     # prompts (per-feature prompt store contract + render + router factories +

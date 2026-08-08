@@ -68,9 +68,12 @@ DESKTOP APP in every repo; getting this wrong is the #1 confusion):
 }
 ```
 
-- **`scripts/py.js`** — the venv-python resolver (copy from just_ai_i18n_docgen;
-  self-contained). Bare `python` resolves to whatever is first on PATH and the failure
-  reads as broken test config instead of a missing install.
+- **`scripts/py.js`** — the venv-python launcher: a thin adapter over the kit's
+  `scripts/lib/exec-resolve.mjs` (target-tree P7) binding the app's env override and
+  venv location (file-relative import — node scripts don't see the vite alias, so the
+  kit sibling checkout is required here too). Bare `python` resolves to whatever is
+  first on PATH and the failure reads as broken test config instead of a missing
+  install.
 - **biome.json** — copy from JW/i18n-docgen verbatim, including the `**/*.vue` override
   that turns `noUnusedImports`/`noUnusedVariables` OFF for SFCs (biome cannot see
   template usage; without the override every view file is a false positive).

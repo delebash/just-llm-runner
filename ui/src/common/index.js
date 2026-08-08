@@ -48,6 +48,7 @@ export { tooltipDirective } from "./services/tooltip.js";
 export { default as HelpDrawer } from "./components/HelpDrawer.vue";
 export { default as HelpTrigger } from "./components/HelpTrigger.vue";
 export { configureHelp, openHelp, closeHelp, toggleHelp, helpState, helpConfig } from "./services/help.js";
+export { makeDocsHelpAdapter } from "./services/helpDocs.js";
 export { renderHelpMarkdown, slugifyHeading } from "./services/helpMarkdown.js";
 
 // shared toast host + imperative bridge (vue-sonner under the hood)

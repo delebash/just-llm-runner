@@ -815,3 +815,17 @@ structural, not procedural: the guard's check 7 (retired names, fed from each
 piece's `git diff --diff-filter=DR`) scans all four repos, every text file
 type, on every run. The receipt for the backfill sweep lives in
 target-tree.md's backfill section.
+
+**Program executed (2026-08-08, the P11 close).** Every piece the target tree
+proposed off this audit ran the same day — P2 (platform auth/csrf/errors) →
+P3 (serve.py entries) → P4 (docgen's tree) → P5 (JW's tree) → P6 (health +
+seeding call-site) → P7 (renderer/tooling commons) → P8 (renderer tree) → P9
+(settings/prefs) → P10 (config layer) → P11 (this close). The normative end
+state is app-structure.md §14; the per-piece record (gates, scope calls,
+sweep receipts) is target-tree.md's status rows. The guard now holds the line
+structurally: check 7 retires every name the program killed, check 8 asserts
+the skeleton — and its first run proved the method by catching two JV
+`__tests__` files the JW-scoped P8 sweep had missed. What this audit called
+"the one big platform gap" (settings/prefs) is closed at the wire (`/v1/prefs`
+×3, one kit router); the divergences the program FOUND and deliberately left
+open are recorded in §14's closing list, not silently ridden.

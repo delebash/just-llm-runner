@@ -283,6 +283,9 @@ const RETIRED = new Map([
     /useUIStore/,
     /name: "overview"|id: "overview"|"overview":/,
     /src\/(tokens|styles)\.css|"\.\/(tokens|styles)\.css"/,
+    // P11: check 8 found the two JV __tests__ files the JW-scoped P8 pattern
+    // missed — flattened, and the name is retired HERE too.
+    /__tests__/,
     // P10: the extra "@" src alias died (zero imports used it); lint + schema
     // as in JW.
     /"@": path\.resolve|"@": resolve\(/,
@@ -366,6 +369,161 @@ function checkRetired(name, dir, patterns) {
   }
 }
 
+// ── check 8 · the family skeleton — target-tree.md §1–§3, executed P2–P10 ─────
+// The ratified page as assertions, INCLUDING its recorded N/As: docgen has no
+// database/ (domain persistence = workspace sidecars + the shared runner DB),
+// no KeyboardCheatsheet (feature absent), and — like its i18n — no composables/
+// until it has a composable. api/ may hold leading-underscore PRIVATE helpers
+// beside the `<area>_api.py` route files (JV's _persona_helpers.py).
+const SERVER_SKELETON = ["serve.py", "app.py", "app_state.py", "paths.py", "version.py", "auth.py"];
+const RENDERER_LANES = ["components", "views", "stores", "services", "router", "styles"];
+const SKELETON_FILES = [
+  "src/styles/tokens.css", "src/styles/styles.css", "src/views/HomeView.vue",
+  "src/boot.smoke.test.js", "src/services/helpDocs.js", "src/stores/ui.js",
+  "scripts/py.js", ".gitattributes", "biome.json", "vite.config.js", "vitest.config.js",
+];
+const DEV_PORTS = { JustWrite: 1420, JustVoice: 1430, docgen: 1450 };
+const APP_HAS = {
+  composables: new Set(["JustWrite", "JustVoice"]),
+  database: new Set(["JustWrite", "JustVoice"]),
+  cheatsheet: new Set(["JustWrite", "JustVoice"]),
+  errorsAlias: new Set(["JustWrite", "JustVoice"]),
+};
+const RUFF_PIN = 'select = ["E4", "E7", "E9", "F"]';
+
+// The kit-door content pins: the named file must actually ride the kit, or the
+// adapter has been re-forked in place (name intact, implementation regrown).
+const DOOR_PINS = [
+  ["src/boot.smoke.test.js", /registerBootSmoke/, "the kit bootSmoke skeleton"],
+  ["src/services/helpDocs.js", /makeDocsHelpAdapter/, "the kit helpDocs factory"],
+  ["src/stores/ui.js", /useUiStore/, "the family store name"],
+  // JW's py.js rides the kit via its ONE intra-repo door (tests/lib/smoke-common.js);
+  // JV/docgen import the kit file directly — both forms are the ratified P7 shape.
+  ["scripts/py.js", /exec-resolve\.mjs|smoke-common\.js/, "the kit exec resolver (directly or via the app's door)"],
+];
+
+function serverPkgOf(app) {
+  const serverDir = join(app.dir, "server");
+  if (!existsSync(serverDir)) return null;
+  const pkgs = readdirSync(serverDir).filter((d) => {
+    if (SKIP.has(d) || d.startsWith(".") || d.endsWith(".egg-info") || d === "tests") return false;
+    if (!statSync(join(serverDir, d)).isDirectory()) return false;
+    return existsSync(join(serverDir, d, "__init__.py"));
+  });
+  return pkgs.length === 1 ? join(serverDir, pkgs[0]) : null; // check 4 reports the !=1 case
+}
+
+function checkSkeleton(app) {
+  const name = app.name;
+  // ── server package ──
+  const pkg = serverPkgOf(app);
+  if (pkg) {
+    for (const f of SERVER_SKELETON) {
+      if (!existsSync(join(pkg, f))) fail(name, `server package has no ${f} — the skeleton (§1)`);
+    }
+    if (existsSync(join(pkg, "csrf.py"))) fail(name, "server package has csrf.py — CSRF is pure kit (P2)");
+    const errors = join(pkg, "errors.py");
+    if (APP_HAS.errorsAlias.has(name)) {
+      if (!existsSync(errors)) fail(name, "errors.py alias missing — §3b says it re-exports the platform helpers");
+      else if (!/from llm_runner\.platform/.test(readFileSync(errors, "utf8"))) {
+        fail(name, "errors.py does not import llm_runner.platform — the alias has regrown an implementation");
+      }
+    } else if (existsSync(errors)) {
+      fail(name, "errors.py appeared — the ratified state has no docgen alias (nothing imported it)");
+    }
+    const api = join(pkg, "api");
+    if (!existsSync(api)) fail(name, "no api/ package — the skeleton (§1)");
+    else {
+      for (const f of readdirSync(api)) {
+        if (!f.endsWith(".py") || f === "__init__.py" || f.startsWith("_")) continue;
+        if (!f.endsWith("_api.py")) fail(name, `api/${f} breaks the <area>_api.py naming (§1)`);
+      }
+      if (!existsSync(join(api, "health_api.py"))) fail(name, "api/ has no health_api.py (§1)");
+    }
+    const pyText = walk(pkg).filter((f) => f.endsWith(".py")).map((f) => readFileSync(f, "utf8")).join("\n");
+    if (!pyText.includes("make_prefs_router")) fail(name, "no make_prefs_router mount — the family /v1/prefs door (P9)");
+    const db = join(pkg, "database");
+    if (APP_HAS.database.has(name)) {
+      for (const f of ["session.py", "models.py", "seed.py"]) {
+        if (!existsSync(join(db, f))) fail(name, `database/${f} missing — the SQL skeleton (§1)`);
+      }
+    } else if (existsSync(db)) {
+      fail(name, "database/ appeared — docgen's ratified state is NO app-owned SQL package (§1 N/A)");
+    }
+    const proj = join(app.dir, "server", "pyproject.toml");
+    if (existsSync(proj) && !readFileSync(proj, "utf8").includes(RUFF_PIN)) {
+      fail(name, `pyproject has no family ruff pin \`${RUFF_PIN}\` (P10)`);
+    }
+  }
+  // ── renderer ──
+  for (const lane of RENDERER_LANES) {
+    if (!existsSync(join(app.dir, "src", lane))) fail(name, `src/${lane}/ lane missing (§2)`);
+  }
+  if (APP_HAS.composables.has(name) && !existsSync(join(app.dir, "src", "composables"))) {
+    fail(name, "src/composables/ lane missing (§2)");
+  }
+  for (const rel of SKELETON_FILES) {
+    if (!existsSync(join(app.dir, rel))) fail(name, `${rel} missing — the skeleton (§2/§3)`);
+  }
+  if (APP_HAS.cheatsheet.has(name) && !existsSync(join(app.dir, "src/components/KeyboardCheatsheet.vue"))) {
+    fail(name, "KeyboardCheatsheet.vue missing (§2)");
+  }
+  for (const [rel, re, what] of DOOR_PINS) {
+    const p = join(app.dir, rel);
+    if (existsSync(p) && !re.test(readFileSync(p, "utf8"))) {
+      fail(name, `${rel} no longer rides ${what} — the door has been re-forked in place`);
+    }
+  }
+  for (const f of walk(join(app.dir, "src"))) {
+    if (basename(dirname(f)) === "__tests__") { fail(name, "a src/**/__tests__/ dir is back — tests live BESIDE their files (P8)"); break; }
+  }
+  // ── config ──
+  const vite = join(app.dir, "vite.config.js");
+  if (existsSync(vite)) {
+    const text = readFileSync(vite, "utf8");
+    if (!text.includes('"@renderer"')) fail(name, "vite.config.js has no @renderer alias (§3)");
+    if (!text.includes(`port: ${DEV_PORTS[name]}`)) fail(name, `vite.config.js is not on this app's dev port ${DEV_PORTS[name]} (§3)`);
+  }
+  const vitest = join(app.dir, "vitest.config.js");
+  if (existsSync(vitest) && !readFileSync(vitest, "utf8").includes('"@renderer"')) {
+    fail(name, "vitest.config.js has no @renderer alias (§3 — vite/vitest in lock-step)");
+  }
+  const pkgJson = join(app.dir, "package.json");
+  if (existsSync(pkgJson)) {
+    const p = JSON.parse(readFileSync(pkgJson, "utf8"));
+    if (!(p.scripts?.lint || "").startsWith("biome check .")) {
+      fail(name, `"lint" is \`${p.scripts?.lint}\` — the include surface needs \`biome check .\` (P10)`);
+    }
+    const biome = p.devDependencies?.["@biomejs/biome"] || p.dependencies?.["@biomejs/biome"] || "";
+    if (/[\^~]/.test(biome)) fail(name, `@biomejs/biome "${biome}" is a RANGE — the family pins exact (P10)`);
+  }
+}
+
+// Cross-app: ONE biome config means byte-one — hash-compare the three files;
+// and the pinned biome version must be the SAME exact version everywhere.
+function checkSkeletonCrossApp() {
+  const entries = APPS.filter((a) => existsSync(join(a.dir, "biome.json")))
+    .map((a) => [a.name, hash(join(a.dir, "biome.json"))]);
+  const distinct = new Set(entries.map(([, h]) => h));
+  if (entries.length === APPS.length && distinct.size > 1) {
+    fail("family", `biome.json differs between apps (${entries.map(([n]) => n).join(" / ")}) — one config, byte-identical (P10)`);
+  }
+  const versions = new Set(APPS.map((a) => {
+    const p = join(a.dir, "package.json");
+    return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")).devDependencies?.["@biomejs/biome"] : undefined;
+  }).filter(Boolean));
+  if (versions.size > 1) fail("family", `@biomejs/biome versions differ: ${[...versions].join(" vs ")} (P10)`);
+}
+
+// Kit self: the family answers apply to this repo too.
+function checkSkeletonKit() {
+  if (!existsSync(join(KIT, ".gitattributes"))) fail("kit", ".gitattributes missing (P10)");
+  const proj = join(KIT, "pyproject.toml");
+  if (existsSync(proj) && !readFileSync(proj, "utf8").includes(RUFF_PIN)) {
+    fail("kit", `pyproject has no family ruff pin \`${RUFF_PIN}\` (P10)`);
+  }
+}
+
 // ── run ───────────────────────────────────────────────────────────────────────
 const exports_ = kitExports();
 const kitFiles = new Map();
@@ -382,9 +540,12 @@ for (const app of APPS) {
   checkServer(app);
   checkHandRolled(app, files);
   checkRetired(app.name, app.dir, RETIRED.get(app.name));
+  checkSkeleton(app);
 }
 checkCrossAppTwins(perApp, kitFiles);
+checkSkeletonCrossApp();
 checkRetired("kit", KIT, KIT_RETIRED);
+checkSkeletonKit();
 
 const showInfo = process.argv.includes("--info");
 console.log(`\nfamily check — ${APPS.length} apps against the kit (${exports_.size} kit exports)\n`);

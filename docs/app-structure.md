@@ -571,3 +571,52 @@ docs campaign the same day):
 - **CLAUDE.md stays small** — rules and pointers, never tasks or status.
 - User-facing docs (where an app has them) update in the SAME change that alters
   anything a user sees.
+
+## 14 · The family skeleton — NORMATIVE (the target tree, executed)
+
+The 2026-08-08 convergence program (docs/target-tree.md, pieces P2–P11) made the
+three apps structurally identical outside their domain code. That page is the
+program RECORD (each piece's status row carries its gates, scope calls and sweep
+receipts); THIS section is the normative end state, and `scripts/check-family.mjs`
+**check 8** asserts it structurally — apps against this list, plus the retired
+names of every rename the program performed (check 7).
+
+**Server package** (`server/<snake_name>/`): `serve.py` (the entry; console
+script `<name>-server = <snake>.serve:main`) · `app.py` · `app_state.py`
+(set_state/get_state) · `paths.py` · `version.py` · `auth.py` (the per-app
+settings-read seam) · `api/` where every route file is `<area>_api.py`
+(leading-underscore private helpers allowed beside them) with `health_api.py`
+(one base wire: `status/product/version/apiVersion` + per-app extras) and the
+family `/v1/prefs` door mounted via the kit's `make_prefs_router` ·
+`database/` (`session.py`/`models.py`/`seed.py`) where the app owns SQL — JW +
+JV; docgen deliberately has NONE (workspace sidecars + the shared runner DB) ·
+NO per-app `csrf.py` (pure kit); `errors.py` exists only as the §3b re-export
+alias (JW + JV). Seeding is SERVE-time in all three (`seed_workspace()` /
+`seed_llm_stack()`); `cli.py` stays where an app has domain subcommands.
+
+**Renderer** (`src/`): lanes `components/ views/ stores/ services/ router/
+styles/` ×3 (+ `composables/` and `i18n/` where the app has them — JW + JV
+today; docgen gains each the day it has one) · `styles/tokens.css` +
+`styles/styles.css` · `views/HomeView.vue` · `components/KeyboardCheatsheet.vue`
+where the feature exists (JW + JV) · `stores/ui.js` exporting `useUiStore`,
+prefs SERVER-backed via the kit client · tests BESIDE their files (no
+`__tests__/` dirs) with `boot.smoke.test.js` riding the kit's
+`registerBootSmoke` · `services/helpDocs.js` riding `makeDocsHelpAdapter` ·
+`scripts/py.js` riding the kit's `scripts/lib/exec-resolve.mjs` (directly, or
+through JW's `tests/lib/smoke-common.js` door).
+
+**Config layer**: dev ports JW 1420 · JV 1430/1431 · docgen 1450/1451 (tauri
+devUrl in lock-step) · ONE `biome.json`, byte-identical ×3, CLI exact-pinned
+(no ranges), lint script `biome check .` so the includes actually gate ·
+`@renderer` alias in vite AND vitest configs · build block: per-platform
+targets (chrome105 / safari17), boolean minify-unless-debug,
+sourcemap-on-debug · `.gitattributes` ×4 (`* text=auto`, `.bat/.cmd` CRLF,
+`.sh` LF) · the family ruff pin `select = ["E4", "E7", "E9", "F"]` in all four
+pyprojects.
+
+**Known, recorded, deliberately open** (not silent drift): JW + JV ride vite 8
+(rolldown) while docgen rides vite 6 (classic) — implementation alignment is
+its own decision; JW's `/v1/settings` still mixes operator rows with the
+renderer document behind the mapped `/v1/prefs` door (the deeper split is
+recorded future work); docgen's problem+json handler adoption and the §3b
+alias sweep remain parked in the target tree.

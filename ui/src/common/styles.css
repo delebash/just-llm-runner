@@ -313,25 +313,6 @@ button:not(.ui-btn) { color: inherit; }
 .lu-fw-card { box-sizing: border-box; text-align: left; font: inherit; cursor: pointer; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border); border-left: 3px solid var(--border); background: var(--surface-2); transition: border-color .12s, background .12s; min-width: 0; align-self: stretch; }
 .lu-fw-card:hover { border-color: var(--accent); background: var(--accent-soft); }
 .lu-fw-card.is-active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-/* A PIECE is part of its parent card's ONE prompt, not a feature of its own —
-   peer-sized cards said otherwise (user QC 2026-08-06, built 2026-08-08).
-   Subordinate = tighter box, lighter label, no accent rail, muted relation line.
-   Nothing is removed: the rows stay selectable, editable and Lab-testable.
-   `:not(.is-active)` on the background is load-bearing: .is-active sits ABOVE
-   these rules at equal specificity, so a plain `background: transparent` here
-   would win the cascade and strip the fill off a SELECTED piece. */
-.lu-fw-card.is-piece { padding: 5px 9px; border-left-width: 1px; }
-/* Unselected pieces drop the card chrome entirely — they are rows under a card,
-   not cards. The border stays in the box model (transparent) so nothing shifts
-   on hover or selection. `:not(.is-active)` and the :hover rule's ORDER are both
-   load-bearing: .is-active and .lu-fw-card:hover sit above at equal specificity,
-   so a bare rule here would strip the fill and border off a selected or hovered
-   piece. */
-.lu-fw-card.is-piece:not(.is-active) { background: transparent; border-color: transparent; }
-.lu-fw-card.is-piece:hover { background: var(--accent-soft); border-color: var(--accent); }
-.lu-fw-card.is-piece .lu-fw-card-label { font-size: 11.5px; font-weight: 500; }
-.lu-fw-card.is-piece .lu-fw-card-desc { margin-top: 1px; }
-.lu-fw-card.is-piece .lu-fw-card-model { font-size: 10px; font-weight: 500; color: var(--muted); margin-top: 2px; }
 /* QC-14 (user, 2026-07-08 "wrap the text better now the control are very wide"):
    the card label WRAPS within the card — never an ellipsis truncation. */
 .lu-fw-card-label { font-size: 12.5px; font-weight: 600; color: var(--ink); overflow-wrap: break-word; }

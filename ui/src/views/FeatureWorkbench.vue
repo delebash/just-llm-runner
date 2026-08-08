@@ -24,7 +24,7 @@ import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 import { request } from "../client.js";
 import { confirmDialog } from "../common/services/dialog.js";
-import { featurePanelFor, featurePanelMetaFor, pieceFor } from "../services/labAdapters.js";
+import { featurePanelFor, featurePanelMetaFor, sectionedFeature } from "../services/labAdapters.js";
 import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
@@ -106,13 +106,12 @@ const navRows = computed(() => {
     for (const f of grp.features) {
       if (grp.merged) pushActions(f, 1);
       else if (f.actions.length > 1) {
-        // A feature whose rows include PIECES (approved 2026-08-06) is ONE
-        // thing with parts: its own routable card leads (click → the routing
-        // pane, one chooser for every piece), the rows follow under it. A
-        // features-without-pieces group keeps the plain heading — JW's list
-        // renders exactly as before (no app registers pieces there).
-        const hasPieces = f.actions.some((a) => pieceFor(a.key));
-        if (hasPieces) {
+        // A SECTIONED feature (2026-08-08 — the cleanup redesign; it retired
+        // the pieces concept) is ONE thing with parts: one nav card, and its
+        // texts edit on the PANE, never as nav rows. Everything else keeps
+        // the plain heading + per-action cards — JW renders exactly as
+        // before (it registers no sectioned features).
+        if (sectionedFeature(f.key)) {
           rows.push({ type: "feature", featureKey: f.key, label: f.label, indent: 1 });
         } else {
           rows.push({ type: "ghead", label: f.label, indent: 1 });
@@ -122,12 +121,8 @@ const navRows = computed(() => {
           if (featurePanelMetaFor(f.key)?.label) {
             rows.push({ type: "panelrow", featureKey: f.key, indent: 1 });
           }
+          pushActions(f, 1);
         }
-        // Pieces sit one level IN from the card they belong to. At the parent's
-        // own indent they read as peers no matter how light the styling is
-        // (user QC 2026-08-06). Everything else keeps indent 1 — JW, which
-        // registers no pieces, renders exactly as before.
-        pushActions(f, hasPieces ? 2 : 1);
       }
       else if (f.actions.length === 1) rows.push({ type: "card", action: f.actions[0], indent: 1 });
       else rows.push({ type: "feature", featureKey: f.key, label: f.label, indent: 1 });
@@ -272,13 +267,7 @@ const selResolvedPreset = computed(() =>
   || presetAssign.value.defaultPresetId
   || "");
 async function onUseProduction(presetId) {
-  // A PIECE can't carry its own production assignment — "use in production"
-  // from a piece's Lab writes THE FEATURE's ref (the one chooser its whole
-  // family follows). Normal actions write their own ref, unchanged.
-  const key = pieceFor(selAction.value)
-    ? (featureOfAction(selAction.value) || selAction.value)
-    : selAction.value;
-  await setFeaturePreset(key, presetId);
+  await setFeaturePreset(selAction.value, presetId);
 }
 
 // ── Promptless features: the app's pipeline owns the prompt (2026-08-04) ──
@@ -310,29 +299,65 @@ async function loadPreview(key) {
     previewLoading.value = false;
   }
 }
-// A feature that HAS prompt rows and is selected as a card (a pieces parent —
-// approved 2026-08-06) is not promptless: its texts are its rows below, so
-// there is no app-built preview to fetch. Its pane is the routing home (one
-// chooser for every piece) + the app's feature panel when one is registered.
 const selFeatureHasRows = computed(() =>
   !!selFeature.value && prompts.value.some((p) => p.feature === selFeature.value));
 // The attribution restore (2026-08-06): a feature whose panel is registered
 // WITH a label gets a nav row, and selecting it shows ONLY the panel — its
-// actions carry their own routing, so the one-chooser pane would lie there.
-// Pieces parents (cleanup) keep the routing-home pane.
+// actions carry their own routing, so a one-chooser pane would lie there.
 const selPanelMeta = computed(() => featurePanelMetaFor(selFeature.value));
-const selIsPiecesParent = computed(() =>
-  !!selFeature.value && prompts.value.some((p) => p.feature === selFeature.value && pieceFor(p.key)));
+// A SECTIONED feature (2026-08-08 redesign): its rows compose into ONE call;
+// the pane edits the texts and runs the Lab over the app's composed preview.
+const selSectioned = computed(() => sectionedFeature(selFeature.value));
 const selPanelPane = computed(() =>
-  selFeatureHasRows.value && !selIsPiecesParent.value && !!selPanelMeta.value?.label);
+  selFeatureHasRows.value && !selSectioned.value && !!selPanelMeta.value?.label);
 const selFeatureTitle = computed(() =>
   selPanelPane.value ? selPanelMeta.value.label : (featMeta.value[selFeature.value]?.label || selFeature.value));
-// A pieces parent may ALSO serve a preview (JV's dictation cleanup, task #22
-// 2026-08-06): its pane then carries the full Lab over the REAL composed call.
-const piecesParentOf = (k) => prompts.value.some((p) => p.feature === k && pieceFor(p.key));
+// The base row leads; the sections follow in stored (seed) order — the same
+// order their {{…}} markers sit in the template.
+const sectionRows = computed(() => {
+  if (!selSectioned.value) return [];
+  const base = `${selFeature.value}.base`;
+  return prompts.value
+    .filter((p) => p.feature === selFeature.value)
+    .sort((a, b) => (a.key === base ? -1 : 0) - (b.key === base ? -1 : 0));
+});
+// Per-row drafts for the sectioned pane's editors. Save PUTs the row through
+// the same /v1/ai/prompts door every editor uses, then re-fetches the preview
+// — UPDATE ON SAVE (user 2026-08-08): the pane never composes unsaved text.
+const sectionDrafts = ref({});
+const sectionSaving = ref("");
+function sectionText(row) {
+  return sectionDrafts.value[row.key] ?? row.system;
+}
+function onSectionInput(row, v) {
+  sectionDrafts.value = { ...sectionDrafts.value, [row.key]: v };
+}
+function sectionDirty(row) {
+  const d = sectionDrafts.value[row.key];
+  return d !== undefined && d !== row.system;
+}
+async function saveSection(row) {
+  sectionSaving.value = row.key;
+  try {
+    await request(`/v1/ai/prompts/${encodeURIComponent(row.key)}`, {
+      method: "PUT",
+      body: { feature: row.feature, system: sectionText(row), userTemplate: row.userTemplate || "" },
+    });
+    row.system = sectionText(row);
+    const next = { ...sectionDrafts.value };
+    delete next[row.key];
+    sectionDrafts.value = next;
+    message.value = `${row.label || row.key} saved.`;
+    loadPreview(selFeature.value);
+  } catch (e) {
+    error.value = `Save failed: ${e.message}`;
+  } finally {
+    sectionSaving.value = "";
+  }
+}
 watch(selFeature, (k) => {
   if (!k) return;
-  if (!prompts.value.some((p) => p.feature === k) || piecesParentOf(k)) loadPreview(k);
+  if (!prompts.value.some((p) => p.feature === k) || sectionedFeature(k)) loadPreview(k);
 });
 
 const navCollapsed = ref(false);
@@ -396,20 +421,12 @@ onMounted(load);
               <div class="lu-fw-card-label">{{ featurePanelMetaFor(row.featureKey)?.label }}</div>
               <div class="lu-fw-card-model">{{ featurePanelMetaFor(row.featureKey)?.note }}</div>
             </button>
-            <!-- `is-piece` renders a piece SUBORDINATE to its parent card rather than
-                 peer-sized (user QC 2026-08-06, built 2026-08-08): the four dictation
-                 -cleanup texts are parts of ONE prompt sent in ONE call, and equal-
-                 weight cards said they were four independent features. Nothing is
-                 removed — the rows stay editable and Lab-testable. -->
             <button v-else type="button" class="lu-fw-card" :style="ml(row.indent)"
-              :class="{ 'is-active': row.action.key === selAction, 'is-piece': !!pieceFor(row.action.key) }"
+              :class="{ 'is-active': row.action.key === selAction }"
               @click="selectAction(row.action.key)">
               <div class="lu-fw-card-label">{{ actionLabel(row.action) }}</div>
               <div v-if="actionDesc(row.action)" class="lu-fw-card-desc">{{ actionDesc(row.action) }}</div>
-              <!-- A PIECE can't route alone — its relation line replaces the routing
-                   arrow (a control that accepts input and does nothing would lie). -->
-              <div v-if="pieceFor(row.action.key)" class="lu-fw-card-model">{{ pieceFor(row.action.key) }}</div>
-              <div v-else class="lu-fw-card-model" title="engine preset for this feature">→ {{ featurePresetLabel(row.action.key) }}</div>
+              <div class="lu-fw-card-model" title="engine preset for this feature">→ {{ featurePresetLabel(row.action.key) }}</div>
             </button>
           </template>
           <div class="lu-fw-aside-foot">
@@ -456,52 +473,41 @@ onMounted(load);
           <template v-else>
           <p v-if="featMeta[selFeature]?.hint" class="lu-muted" style="margin:0 0 12px">{{ featMeta[selFeature].hint }}</p>
 
-          <!-- The app's control for this feature (the featurePanels seam) on a
-               pieces parent / promptless feature. Nothing registered → nothing. -->
+          <!-- The app's control for this feature (the featurePanels seam) — on a
+               SECTIONED feature this is the live toggles (real settings; the
+               panel emits `changed` after a write so the preview re-fetches).
+               Nothing registered → nothing. -->
           <component :is="featurePanelFor(selFeature)" v-if="featurePanelFor(selFeature)"
-            :feature="selFeature" />
+            :feature="selFeature" @changed="loadPreview(selFeature)" />
 
-          <!-- A pieces parent (has prompt rows): the routing home — ONE preset
-               feeds every piece below it; the texts are edited on their own rows. -->
-          <template v-if="selFeatureHasRows">
-          <div class="lu-fw-route">
-            <label class="lu-fw-route-label" :for="`fw-route-${selFeature}`">Engine preset</label>
-            <select :id="`fw-route-${selFeature}`" class="lu-input" style="max-width:340px"
-              :value="refPid(selFeature) || ''"
-              @change="(e) => setFeaturePreset(selFeature, e.target.value || null)">
-              <option value="">Default preset ({{ presetName(presetAssign.defaultPresetId) }})</option>
-              <option v-for="p in enginePresets" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
-            </select>
-            <p class="lu-muted" style="font-size:12px;margin:8px 0 0">
-              One preset (provider · model · every switch) runs this whole feature —
-              its texts below follow it. Open a text row to read, edit, or test it.
-            </p>
+          <!-- SECTIONED feature (2026-08-08 — the redesign that retired the
+               pieces concept): every text edits HERE. The base row is the
+               template — its {{…}} markers place the sections, so the order is
+               visible and the user's to change. Saving re-fetches the preview:
+               UPDATE ON SAVE, the pane never composes unsaved text. -->
+          <div v-if="selSectioned" class="lu-fw-sections">
+            <div v-for="row in sectionRows" :key="row.key" class="lu-fw-secrow">
+              <div class="lu-fw-secrow-h">
+                <b>{{ actionLabel(row) }}</b>
+                <span v-if="row.description" class="lu-muted">{{ row.description }}</span>
+                <span class="lu-fw-spacer" />
+                <UiButton size="small" :intent="sectionDirty(row) ? 'primary' : 'ghost'"
+                  :disabled="!sectionDirty(row) || sectionSaving === row.key"
+                  :label="sectionSaving === row.key ? 'Saving…' : 'Save'"
+                  @click="saveSection(row)" />
+              </div>
+              <textarea class="lu-input lu-fw-sectext" :value="sectionText(row)" rows="5"
+                spellcheck="false" @input="(e) => onSectionInput(row, e.target.value)" />
+            </div>
           </div>
 
-          <!-- A pieces parent whose app serves the composed prompt (the family
-               prompt-preview door — JV's dictation cleanup, task #22
-               2026-08-06): the SAME full Lab as a promptless feature, over the
-               REAL composed call (the ground rules + the enabled sections), so
-               what's tuned here is exactly what a production run sends. The
-               chooser above stays THE assignment; piece texts stay edited on
-               their own rows. No preview served → nothing extra (fail-quiet
-               here: the routing home above is already a complete pane). -->
+          <!-- The full Lab over the app-built prompt (sectioned AND promptless
+               features): Generated prompt · model · params · Save as preset ·
+               Use in production. The preset row inside the Lab is THE
+               assignment control (one source — the 2026-06-29 ruling; the
+               resurrected per-feature chooser died with the pieces pane,
+               2026-08-08). -->
           <FeatureLab v-if="builtPrompt" :key="`${selFeature}:${labEpoch}`"
-            :action="selFeature" :prompt="null"
-            :built-prompt="builtPrompt" :built-meta="builtMeta"
-            :data-links="props.dataLinks"
-            :providers="providers" :presets="enginePresets"
-            :sampler-catalog-list="samplerCatalogList"
-            :production-preset-id="selFeatureResolved"
-            @use-production="(id) => setFeaturePreset(selFeature, id)"
-            @presets-changed="onPresetsChanged"
-            @refresh-preview="loadPreview(selFeature)" />
-          </template>
-
-          <!-- The full Lab over the app-built prompt: model · params · Save as preset ·
-               Use in production — the SAME preset surface prompt-row apps get. The
-               preset row inside the Lab is THE assignment control (one source). -->
-          <FeatureLab v-else-if="builtPrompt" :key="`${selFeature}:${labEpoch}`"
             :action="selFeature" :prompt="null"
             :built-prompt="builtPrompt" :built-meta="builtMeta"
             :data-links="props.dataLinks"
@@ -513,21 +519,11 @@ onMounted(load);
             @refresh-preview="loadPreview(selFeature)" />
           <div v-else-if="previewLoading" class="lu-muted">Building the prompt preview…</div>
 
-          <!-- No preview from the app → LOUD, with assignment still possible. -->
-          <div v-else class="lu-fw-route">
-            <p class="lu-error" style="font-size:12px;margin:0 0 8px">{{ previewErr }}</p>
-            <label class="lu-fw-route-label" :for="`fw-route-${selFeature}`">Engine preset</label>
-            <select :id="`fw-route-${selFeature}`" class="lu-input" style="max-width:340px"
-              :value="refPid(selFeature) || ''"
-              @change="(e) => setFeaturePreset(selFeature, e.target.value || null)">
-              <option value="">Default preset ({{ presetName(presetAssign.defaultPresetId) }})</option>
-              <option v-for="p in enginePresets" :key="p.id" :value="p.id">{{ p.name || p.id }}</option>
-            </select>
-            <p class="lu-muted" style="font-size:12px;margin:8px 0 0">
-              This app builds this feature's prompt itself — routing picks WHICH engine
-              preset (provider · model · every switch) runs it.
-            </p>
-          </div>
+          <!-- No preview from the app → LOUD, the error only. The picker that
+               used to sit here is gone (user ruling 2026-08-08: feature pages
+               are hand-built and never need a fallback — a working control
+               inside a bug state hides the bug). -->
+          <p v-else class="lu-error" style="font-size:12px;margin:0">{{ previewErr }}</p>
           </template>
         </section>
         <div v-else class="lu-muted" style="padding:20px">Pick an action on the left.</div>
@@ -542,4 +538,11 @@ select.lu-input { cursor: pointer; appearance: auto; }
 .lu-fw-gname { font-size: 12px; font-weight: 700; color: var(--ink-2); }
 .lu-fw-sublabel { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 6px 0 1px; }
 .lu-fw-aside-foot { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); display: flex; }
+/* The sectioned pane's text editors (2026-08-08 redesign). */
+.lu-fw-sections { display: flex; flex-direction: column; gap: 10px; margin: 0 0 14px; }
+.lu-fw-secrow { display: flex; flex-direction: column; gap: 4px; }
+.lu-fw-secrow-h { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.lu-fw-secrow-h b { font-size: 12.5px; }
+.lu-fw-secrow-h .lu-muted { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lu-fw-sectext { font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.45; resize: vertical; width: 100%; box-sizing: border-box; }
 </style>

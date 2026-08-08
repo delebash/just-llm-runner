@@ -46,22 +46,25 @@ export function labAdapterFor(featureKey) {
   return (featureKey && _adapters[featureKey]) || null;
 }
 
-// ── Feature PIECES (approved 2026-08-06 — JV's Routing-by-feature rework) ──
-// A piece is a prompt row that cannot run or route by itself in production —
-// attribution's two instruction styles (the system picks one per run), dictation
-// cleanup's four sections (they concatenate into ONE call). A piece row stays a
-// visible, editable, Lab-testable card, but shows its RELATION line instead of a
-// routing arrow — a routing control on a row that can't route would lie. The map
-// is actionKey → the relation sentence. Empty everywhere an app registers
-// nothing (JW renders pixel-identical).
-const _pieces = {};
+// ── SECTIONED features (decided 2026-08-08 — the dictation-cleanup redesign;
+// it RETIRES the 2026-08-06 pieces concept, whose nav rows carried tuning
+// surfaces that either did nothing durable or acted one level up). A sectioned
+// feature's prompt rows are PARTS of one composed call: the `<feature>.base`
+// row's system is a template whose `{{section}}` markers fill with the OTHER
+// rows' texts when the app's own toggles enable them — marker order IS paste
+// order, visible and user-editable. The feature renders as ONE nav card; its
+// pane edits every text, mounts the app's panel (the live toggles), and runs
+// the standard Lab over the app's prompt-preview — the REAL composition, so
+// the Lab mirrors production by construction (the standing premise). A set of
+// FEATURE keys; empty by default (JW/docgen render pixel-identical).
+const _sectioned = new Set();
 
-export function registerFeaturePieces(map) {
-  Object.assign(_pieces, map || {});
+export function registerSectionedFeatures(list) {
+  for (const k of list || []) _sectioned.add(k);
 }
 
-export function pieceFor(actionKey) {
-  return (actionKey && _pieces[actionKey]) || "";
+export function sectionedFeature(featureKey) {
+  return !!featureKey && _sectioned.has(featureKey);
 }
 
 // ── Feature PANELS (same approval; row form 2026-08-06 — the attribution

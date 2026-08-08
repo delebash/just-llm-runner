@@ -24,7 +24,7 @@ import { configureExternal } from "./common/services/external.js";
 import { configureServerApi, makeOriginAwareResolver } from "./common/services/serverApi.js";
 import { configureLlmUi } from "./client.js";
 import { configureQuickSetupCopy } from "./common/services/quickSetupCopy.js";
-import { registerFeaturePanels, registerFeaturePieces, registerLabAdapters } from "./services/labAdapters.js";
+import { registerFeaturePanels, registerLabAdapters, registerSectionedFeatures } from "./services/labAdapters.js";
 import LlmUiHosts from "./components/LlmUiHosts.vue";
 
 // What this app's LLM stack can do. Declared by the host, read by the kit — an app
@@ -77,10 +77,12 @@ function openExternal(url) {
  * @param opts.labAdapters   per-FEATURE Lab adapters `{ featureKey: { run, render,
  *                           configExtra } }` — the app's real pipeline behind that
  *                           feature's Lab columns (see services/labAdapters.js)
- * @param opts.featurePieces `{ actionKey: relationSentence }` — rows that can't run
- *                           or route alone in production (variants, sections): they
- *                           stay visible/editable/testable but render their relation
- *                           instead of a routing arrow (approved 2026-08-06)
+ * @param opts.sectionedFeatures array of FEATURE keys whose prompt rows compose
+ *                           into ONE call (the `<key>.base` row is the template,
+ *                           its `{{section}}` markers fill from the other rows):
+ *                           one nav card, every text edited on the pane, the Lab
+ *                           over the app's prompt-preview (decided 2026-08-08 —
+ *                           retires the 2026-08-06 pieces concept)
  * @param opts.featurePanels `{ featureKey: Component }` — an app control mounted on
  *                           that feature's routing pane (JV's reading-style dial)
  * @param opts.external      your opener — `(url) => …` or `{ open }`; `false` to skip.
@@ -94,7 +96,7 @@ export function installLlmUi(app, {
   quickSetupCopy,
   capabilities,
   labAdapters,
-  featurePieces,
+  sectionedFeatures,
   featurePanels,
   external = true,
 } = {}) {
@@ -118,7 +120,7 @@ export function installLlmUi(app, {
 
   if (capabilities) Object.assign(_capabilities, capabilities);
   if (labAdapters) registerLabAdapters(labAdapters);
-  if (featurePieces) registerFeaturePieces(featurePieces);
+  if (sectionedFeatures) registerSectionedFeatures(sectionedFeatures);
   if (featurePanels) registerFeaturePanels(featurePanels);
   if (external !== false) {
     const open = typeof external === "function" ? external

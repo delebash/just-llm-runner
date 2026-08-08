@@ -111,7 +111,8 @@ const navRows = computed(() => {
         // pane, one chooser for every piece), the rows follow under it. A
         // features-without-pieces group keeps the plain heading — JW's list
         // renders exactly as before (no app registers pieces there).
-        if (f.actions.some((a) => pieceFor(a.key))) {
+        const hasPieces = f.actions.some((a) => pieceFor(a.key));
+        if (hasPieces) {
           rows.push({ type: "feature", featureKey: f.key, label: f.label, indent: 1 });
         } else {
           rows.push({ type: "ghead", label: f.label, indent: 1 });
@@ -122,7 +123,11 @@ const navRows = computed(() => {
             rows.push({ type: "panelrow", featureKey: f.key, indent: 1 });
           }
         }
-        pushActions(f, 1);
+        // Pieces sit one level IN from the card they belong to. At the parent's
+        // own indent they read as peers no matter how light the styling is
+        // (user QC 2026-08-06). Everything else keeps indent 1 — JW, which
+        // registers no pieces, renders exactly as before.
+        pushActions(f, hasPieces ? 2 : 1);
       }
       else if (f.actions.length === 1) rows.push({ type: "card", action: f.actions[0], indent: 1 });
       else rows.push({ type: "feature", featureKey: f.key, label: f.label, indent: 1 });
@@ -391,8 +396,14 @@ onMounted(load);
               <div class="lu-fw-card-label">{{ featurePanelMetaFor(row.featureKey)?.label }}</div>
               <div class="lu-fw-card-model">{{ featurePanelMetaFor(row.featureKey)?.note }}</div>
             </button>
+            <!-- `is-piece` renders a piece SUBORDINATE to its parent card rather than
+                 peer-sized (user QC 2026-08-06, built 2026-08-08): the four dictation
+                 -cleanup texts are parts of ONE prompt sent in ONE call, and equal-
+                 weight cards said they were four independent features. Nothing is
+                 removed — the rows stay editable and Lab-testable. -->
             <button v-else type="button" class="lu-fw-card" :style="ml(row.indent)"
-              :class="{ 'is-active': row.action.key === selAction }" @click="selectAction(row.action.key)">
+              :class="{ 'is-active': row.action.key === selAction, 'is-piece': !!pieceFor(row.action.key) }"
+              @click="selectAction(row.action.key)">
               <div class="lu-fw-card-label">{{ actionLabel(row.action) }}</div>
               <div v-if="actionDesc(row.action)" class="lu-fw-card-desc">{{ actionDesc(row.action) }}</div>
               <!-- A PIECE can't route alone — its relation line replaces the routing

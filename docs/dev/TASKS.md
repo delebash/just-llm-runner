@@ -83,7 +83,10 @@ locally now.
   template-convergence item (decided 2026-08-05 s2; the item lives in
   docgen's TASKS): FeatureLab's promptless machinery, the Workbench preview
   plumbing + zero-actions drop (FeatureWorkbench.vue:59-60), §11's
-  two-kinds section rewritten to ONE kind; `dataLinks` KEPT. (The shared
+  two-kinds section rewritten to ONE kind; `dataLinks` KEPT.
+  **CARVE-OUT approved 2026-08-08:** the preview door survives SOLELY for
+  composed-call parents (JV's dictation cleanup, nothing else) — full text on
+  docgen's retirement item + this file's "Dictation cleanup redesign" item. (The shared
   hard gate is DONE 2026-08-05 s3: render() was silent-empty and now FAILS
   LOUD — MissingTemplateVariables naming every key, both run routes → 400,
   union across system+user via _render_pair; five incomplete-variables
@@ -97,6 +100,127 @@ locally now.
   standard's reference implementation; the "not yet proven from a non-JustWrite
   host" caveat is stale (docgen booted the stack live 2026-08-02/03);
   app-structure §11's FeatureWorkbench line number drifted (235→238).
+
+## The family docs standard — DECIDED 2026-08-08
+
+### Each app writes its own help pages; the kit holds one mechanism reference
+
+STATE: DECIDED 2026-08-08 — the user took the recommendation ("your rec go")
+after three adversarial passes. An earlier pass recommended a shared master with
+copy-sync; that was **reversed** and is recorded under NOT so it stays reversed.
+WHY: every documented failure is one a shared master would NOT have caught —
+JustWrite documents Quick Setup twice in its own repo (`ai-providers.md` §Quick
+setup for local AI + `models.md` §Quick Setup), JustWrite has no `ai-features.md`
+and no troubleshooting page at all, JustVoice's `mcp-server.md` was factually
+wrong until 2026-08-04, and one concept carries four names across three apps
+(`providers.md` / `ai-providers.md` / `ai-setup.md`). Cross-app prose drift never
+appeared in the failure record. Naming, coverage and accuracy did.
+NOT — shared page FILES hosted in the kit and globbed at runtime: docgen extracts
+`lede:`/`hints:` from ONE `docsDir` per project (`extract.py:80`), so a kit-hosted
+page could never carry a localized lede.
+NOT — a kit master copied into each app and hash-checked: forces app-neutral
+prose ("your features" instead of naming them), makes a one-sentence JustVoice fix
+a cross-repo edit against the standing docs law, and grows an exception list the
+moment one app needs a variation.
+BUILT: the shared Help viewer already takes each app's own glob + toc
+(`ui/src/common/services/helpDocs.js:37-44`) — no viewer change is needed for any
+of this.
+OPEN: (1) the kit's mechanism reference — `docs/feature-model-system.md` is the
+seed and does not yet cover routing, presets, thinking or Quick Setup; app pages
+get written against it, and it is dev-facing, never shipped to users. (2) the
+naming + coverage standard: one slug per concept present in every app · a slug
+means the same thing everywhere (JustVoice's `presets` renames — render presets
+there, the LLM preset bar in JustWrite) · named toc groups in a fixed order · one
+topic, one page, per app. (3) the check that enforces (2), reading filenames,
+`toc.json` and H2 headings — no hashing, no sync.
+GO: given 2026-08-08. Order: the check first, then fix what it reports, worst app
+first.
+
+## Dictation cleanup redesign — one pane, template + sections; the pieces concept retires
+
+STATE: DECIDED 2026-08-08 — user: *"yes that is premise of the lab that it
+mirrors production that is why we have use in prodduction, i accept your
+proposal for dication"*, over this presented shape, verbatim:
+
+> One card · one preset · one call · base prompt as a template with
+> `{{section}}` variables · three section text boxes on the same pane · **the
+> three Capture toggles beside them, live** · Generated prompt always showing
+> the real composition · standard CONFIG column below. Pieces machinery deleted
+> from the kit. Sections get isolation testing through real settings, never
+> through routing.
+
+The ruling that got there — **toggle ≠ route; the test is pick-one vs
+combine-any**: a ROUTE is an exclusive alternative (the system picks exactly one
+per run — attribution's Guided/Direct stay routes); a toggled SECTION is
+conjunctive (any subset runs together in ONE call — 2³ combinations, all-on the
+shipped default; a per-section preset has no owner for the combined call, and
+there is no call boundary to attach one to — the sections flatten into one
+system string). The base row alone is complete by construction (its "If no
+transformation sections follow…" line), so every combination is a valid mode.
+
+The standing premise, in the user's words: **the Lab mirrors production — that
+is why Use in production exists.** No Lab-only state: the toggles on the pane
+ARE the Capture settings, the preview IS the composition, the run IS the
+production call.
+
+WHY: the pieces apparatus existed for one feature in one app, and its piece
+panes carried a full tuning column whose controls either did nothing durable
+(per-run params) or acted one level up (Save edited the shared preset from a
+pane titled "Remove filler"). Template-with-variables is the mechanism every
+other feature uses; Lab=production becomes structural instead of promised.
+NOT: sections as routes, per-piece presets/params (above). NOT: a 3-call
+pipeline (Keep-technical is a constraint on the other edits, not a stage after
+them; "no wait —" is both filler-shaped and the correction signal; 3× latency
+on the most interactive feature). NOT: Lab-side fake toggle state.
+SUPERSEDES: "The cleanup card drops its special pane" (accepted earlier
+2026-08-08 — its two deletions fold into this build: the Engine-preset chooser +
+duplicate Lab, and the error-branch picker per the no-fallback ruling, the
+2026-06-29 `1302f88` one-control law restored). The compact piece-row styling
+built 2026-08-08 (`is-piece` + indent 2) is DELETED with the pieces nav. JV's
+display-order item dissolves — the `{{…}}` markers make the order visible and
+user-editable.
+DEPENDS: the prompt-preview door surviving for composed-call parents — the
+promptless-retirement carve-out, **APPROVED 2026-08-08** (user: "your rec
+update tracker") and written onto the retirement items here and in docgen's
+TASKS: the door survives solely for composed-call parents (JV cleanup, nothing
+else); docgen's route + builders + tests, the zero-actions machinery, the
+promptless panes and the error-branch picker die as ruled.
+BUILT: nothing.
+OPEN: kit — delete featurePieces/pieceFor, the relation lines, the nav
+special-casing, the use-production redirect, the per-piece panes, the pane
+special case, the error-branch picker; build the sectioned-feature pane
+(template box + section boxes + the app's live toggles via the featurePanels
+seam + preview + standard CONFIG column). JV — seeds only, no migration (the
+user resets): the base system gains the `{{…}}` markers, the section rows shed
+their standalone `{{transcript}}` halves; `refine_lab_api.py`'s preview stays.
+Accepted cost: standalone per-section Lab runs go away — isolation = flip the
+real toggles on the pane. Preview refresh: **update on save** (user 2026-08-08)
+— the pane always shows saved rows + real settings; it never composes unsaved
+draft text (the mirror principle; as-you-type drafts were offered and not
+taken).
+GO: build needed (the acceptance covered the decision, not the build).
+
+## The AI-tasks panel: a running-task card wider than the panel
+
+STATE: FINDING — user screenshot 2026-08-08 (JV, a Lab attribution run), cause
+code-verified same day.
+WHY: `AiStatusPanel.vue`'s running-card header row (`.aip-task-h`, flex) gives
+its label and feature chip no shrink path — no `min-width: 0`, no ellipsis, no
+wrap (`:389-394`) — so a long unbroken value like
+`Lab test — speaker_attribution.guided` + chip `speaker_attribution.guided`
+forces the card wider than the panel's 420px; `.aip-section`'s `overflow-y:
+auto` (`:354`) then computes overflow-x to auto and the section becomes a
+horizontal scroller, clipping the card's left edge behind a scrollbar. The
+smoking gun that this is a latent kit gap, not app styling: the HISTORY row in
+the same file IS hardened (`.aip-hist-body` `min-width: 0`, `.aip-hist-label`
+ellipsis, `:469-471`) — one row got the overflow armor, its sibling never did.
+JustVoice overrides nothing: zero references to any `.aip*` class in JV src
+(grep-verified). JW never fires it because its labels are short — donor-content
+blindness, the same class as the multiselect min-height bug (fixed 2026-08-08).
+NOT: fixing it in JV — the component is the kit's; a JV patch would fork it.
+OPEN: harden the running card like its history sibling — label `flex: 1;
+min-width: 0` + ellipsis, chip truncation, `min-width: 0` on `.aip-task`.
+GO: needed.
 
 ## Now / near-term
 

@@ -401,14 +401,19 @@ button:not(.ui-btn) { color: inherit; }
   overflow: hidden; z-index: 60;
 }
 .ui-mselect-filter {
-  margin: 6px; padding: 6px 8px;
+  flex: none; margin: 6px; padding: 6px 8px;
   font: 500 var(--input-font-size, 13.5px)/1.2 var(--font-ui, inherit);
   color: var(--ink); background: var(--surface-2);
   border: 1px solid var(--border, var(--line)); border-radius: var(--r-sm, 6px);
   outline: none;
 }
 .ui-mselect-filter:focus-visible { border-color: var(--accent); }
-.ui-mselect-list { overflow: auto; padding: 4px; }
+/* min-height:0 is the whole scroll. As a flex-column child the list defaults to
+   min-height:auto, so it grows to its content, never overflows ITSELF, and the
+   capped .ui-mselect-content just clips it — a hundred languages ended at Catalan
+   with no scrollbar (user, 2026-08-07). flex:1 + min-height:0 lets it shrink and
+   scroll; the filter box above it is flex:none so it stays put. */
+.ui-mselect-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 4px; }
 .ui-mselect-item {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 8px; border-radius: var(--r-sm, 6px);

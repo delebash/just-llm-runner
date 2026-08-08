@@ -351,7 +351,12 @@ const phaseLabel = {
   color: var(--muted);
 }
 
-.aip-section { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+/* overflow-x is EXPLICITLY hidden: `overflow-y: auto` alone computes the
+   unset x-axis to auto too, so any un-shrinkable child turned the whole
+   section into a horizontal scroller (the 2026-08-08 finding — a JV Lab run's
+   long feature key pushed the card wider than the panel and the card's left
+   edge scrolled out of view). */
+.aip-section { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; overflow-x: hidden; }
 .aip-section + .aip-section {
   border-top: 1px solid var(--border-soft);
   padding-top: 12px;
@@ -378,19 +383,29 @@ const phaseLabel = {
 }
 .aip-empty.aip-empty-small { padding: 8px 12px; font-size: 11.5px; }
 
-/* Running task card */
+/* Running task card. The min-width:0 + ellipsis armor mirrors the history row
+   below (.aip-hist-body / .aip-hist-label) — the running card never got it, so
+   a long unbroken label ("Lab test — speaker_attribution.guided") made the
+   flex row refuse to shrink below its content and overflow the 420px panel
+   (user screenshot, 2026-08-08). Donor-content blindness: JW's short labels
+   never fired it. */
 .aip-task {
   display: flex; flex-direction: column; gap: 6px;
   padding: 10px 12px;
   border: 1px solid var(--accent-line);
   border-radius: 9px;
   background: var(--accent-soft);
+  min-width: 0;
 }
-.aip-task-h { display: flex; align-items: center; gap: 8px; }
-.aip-task-label { font-weight: 600; font-size: 13px; color: var(--accent-ink); }
+.aip-task-h { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.aip-task-label {
+  font-weight: 600; font-size: 13px; color: var(--accent-ink);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .aip-task-feature {
   font-family: var(--font-mono, monospace); font-size: 10px;
   color: var(--muted); letter-spacing: 0.05em;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .aip-task-spacer { flex: 1; }
 

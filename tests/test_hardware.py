@@ -7,6 +7,9 @@ routing (A2). Every probe is monkeypatched, so it runs on any box with no GPU.""
 from __future__ import annotations
 
 import os
+import sys
+
+import pytest
 
 from llm_runner.runner import hardware as hw
 from llm_runner.runner.schema import GpuInfo
@@ -111,6 +114,13 @@ def test_pci_gpus_linux_rows(monkeypatch, tmp_path):
     assert gpus[0].name == "AMD GPU" and gpus[1].name == "Intel GPU"  # lspci-less fallback
 
 
+@pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="builds a real sysfs-shaped symlink tree — os.symlink needs privileges "
+    "on Windows and the code under test is the Linux scan; the standing "
+    "'one expected failure' note dies with this skip (tracked 2026-08-05, "
+    "closed 2026-08-08: 'a real skip is cleaner').",
+)
 def test_pci_gpus_linux_lspci_name_match(monkeypatch, tmp_path):
     # device is a SYMLINK to the PCI node (as in real sysfs); the lspci map is
     # keyed without the domain prefix — the scan must still match the name.

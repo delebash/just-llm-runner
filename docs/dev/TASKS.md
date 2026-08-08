@@ -144,9 +144,6 @@ first.
   under ANOTHER app's directory; guard deletion to the app's OWN cache root.
 - **Silent update-check failure [verified]** — a failed GitHub check on AI-page mount
   is swallowed (no error state, unauthenticated call every mount); surface it (kit).
-- **Set-as-default embeddings note shows in no-embeddings apps [verified]** —
-  gate the "Search embeddings keep their current provider…" note
-  (`ui/src/views/AiModelsArea.vue:573`) on `llmUiCapabilities().embeddings`.
 - **Phase 5 — residency knobs BEFORE engine install [verified]** —
   `ui/src/components/LuRunnerEngine.vue:275` still gates `modelsMax`/idle-sleep
   behind `v-if="installed"`. Plan: `docs/plans/archive/2026-07-05-model-surface-build.md`.
@@ -177,10 +174,6 @@ first.
 - **llama.cpp adoption review is stale** — `docs/llama-cpp-watch.md` last reviewed
   2026-07-14 (b9993); the CUDA Q2_0 watch item (#25707) has never been re-checked.
   Trigger phrase: "check llama.cpp since our last update".
-- **Known-bad test tracked nowhere until now [verified]** —
-  `tests/test_hardware.py::test_pci_gpus_linux_lspci_name_match` fails on Windows
-  (Linux `lspci` path). Mark it `skipif` non-Linux or accept the standing "one
-  failure is expected" note (CLAUDE.md records it; a real skip is cleaner).
 
 ## Box-gated / parked (wakes on a trigger)
 

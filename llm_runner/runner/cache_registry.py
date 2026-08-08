@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,6 +51,31 @@ def _writes_allowed() -> bool:
     and a shared port. An explicit `JUST_AI_HOME` always wins, so a test that means
     to exercise the registry still can."""
     return bool(os.environ.get(_HOME_ENV)) or "PYTEST_CURRENT_TEST" not in os.environ
+
+
+def _ephemeral(root) -> bool:
+    """True when `root` lives under the OS temp dir — a scratch install, not a cache.
+
+    Smoke gates snapshot an app into `%TEMP%` and boot a real server there, and that
+    server registers itself like any other boot. The 2026-08-08 ghost: a surviving
+    `jw-smoke-*` scratch stayed in the registry, Quick Setup offered it as a real
+    sibling ("JustWrite Server already has the engine"), pre-selected "share", and one
+    proceed click repointed a 248 GB install at a Temp dir — the next model download
+    landed there while the real cache sat full. A cache root the OS is allowed to
+    sweep is never worth registering or offering.
+
+    An explicit `JUST_AI_HOME` opts out of the check wherever it is applied: a harness
+    that redirects the family home has already isolated its registry, and the suite's
+    tests point tmp roots at a tmp home deliberately."""
+    try:
+        return Path(root).resolve().is_relative_to(Path(tempfile.gettempdir()).resolve())
+    except OSError:
+        return False
+
+
+def _ephemeral_blocked(root) -> bool:
+    """The check above, minus the `JUST_AI_HOME` escape."""
+    return not os.environ.get(_HOME_ENV) and _ephemeral(root)
 
 
 def family_home() -> Path:
@@ -80,7 +106,10 @@ def _registry_path() -> Path:
 
 
 def _read(prune: bool = True) -> list[dict]:
-    """Known entries, DROPPING any whose cache root has since been deleted.
+    """Known entries, DROPPING any whose cache root has since been deleted — or
+    lives under the OS temp dir (`_ephemeral`: a scratch row an older registry may
+    still carry; refusing them at write time is not enough for a file that already
+    has one).
 
     Pruning matters because an entry is a claim about the disk, not a subscription:
     an uninstalled app, a relocated data root, or a throwaway run leaves a path that
@@ -96,7 +125,8 @@ def _read(prune: bool = True) -> list[dict]:
         log.warning("cache registry unreadable — treating this box as having no siblings",
                     exc_info=True)
         return []
-    return [e for e in rows if not prune or Path(e["cacheRoot"]).is_dir()]
+    return [e for e in rows if not prune
+            or (Path(e["cacheRoot"]).is_dir() and not _ephemeral_blocked(e["cacheRoot"]))]
 
 
 def register(product: str, cache_root, data_dir=None) -> None:
@@ -113,6 +143,10 @@ def register(product: str, cache_root, data_dir=None) -> None:
     app listed against two roots after a single switch. The data dir identifies the
     install; the cache root is only what that install currently says about itself."""
     if not product or not cache_root or not _writes_allowed():
+        return
+    if _ephemeral_blocked(cache_root):
+        log.debug("not registering %s — a cache under the OS temp dir is a scratch "
+                  "install, not a sibling worth offering", cache_root)
         return
     where = str(Path(data_dir)) if data_dir else ""
     entry = {

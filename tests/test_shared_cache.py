@@ -184,6 +184,51 @@ def test_an_explicit_override_still_writes(tmp_path, monkeypatch):
     assert (tmp_path / "elsewhere" / "caches.json").is_file()
 
 
+def test_a_scratch_server_in_the_os_temp_dir_never_registers(tmp_path, monkeypatch):
+    """The 2026-08-08 ghost: a smoke gate snapshots the app into %TEMP% and boots a
+    real server there — and that boot registered itself like any other. The scratch
+    outlived its cleanup, Quick Setup offered it as a real sibling ("JustWrite Server
+    already has the engine"), pre-selected "share", and one proceed click repointed a
+    248 GB install's cache at a Temp dir. A root the OS is allowed to sweep is a
+    scratch install, not a cache; without an explicit JUST_AI_HOME it never enters
+    the machine-wide registry."""
+    monkeypatch.delenv("JUST_AI_HOME", raising=False)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)   # writes ON, like a real boot
+    monkeypatch.setattr(cache_registry, "family_home", lambda: tmp_path / "real")
+    monkeypatch.setattr(cache_registry.tempfile, "gettempdir", lambda: str(tmp_path / "ostmp"))
+
+    cache_registry.register("JustWrite Server",
+                            tmp_path / "ostmp" / "jw-smoke-x" / "ai-cache",
+                            tmp_path / "ostmp" / "jw-smoke-x")
+    assert not (tmp_path / "real").exists()          # refused — nothing written
+    # A durable root on the same box still registers.
+    cache_registry.register("JustWrite", tmp_path / "jw" / "ai-cache", tmp_path / "jw")
+    assert [e["product"] for e in json.loads(
+        (tmp_path / "real" / "caches.json").read_text(encoding="utf-8"))["apps"]] == ["JustWrite"]
+
+
+def test_a_temp_row_already_in_the_registry_is_pruned_on_read(tmp_path, monkeypatch):
+    """Refusing the write is not enough: a registry polluted BEFORE the guard still
+    carries the row, and the scratch dir can outlive its run — reads drop it even
+    while the dir exists."""
+    monkeypatch.delenv("JUST_AI_HOME", raising=False)
+    monkeypatch.setattr(cache_registry, "family_home", lambda: tmp_path / "real")
+    monkeypatch.setattr(cache_registry.tempfile, "gettempdir", lambda: str(tmp_path / "ostmp"))
+
+    ghost = tmp_path / "ostmp" / "jw-smoke-x" / "ai-cache"
+    ghost.mkdir(parents=True)                        # exists — the is_dir prune keeps it
+    real = tmp_path / "jw" / "ai-cache"
+    real.mkdir(parents=True)
+    (tmp_path / "real").mkdir(parents=True)
+    (tmp_path / "real" / "caches.json").write_text(json.dumps({"version": 1, "apps": [
+        {"product": "JustWrite Server", "cacheRoot": str(ghost), "dataDir": ""},
+        {"product": "JustWrite", "cacheRoot": str(real), "dataDir": ""},
+    ]}), encoding="utf-8")
+
+    assert [e["product"] for e in
+            cache_registry.discover(exclude=tmp_path / "mine")] == ["JustWrite"]
+
+
 def test_a_corrupt_registry_reads_as_an_empty_one(tmp_path, family_home):
     family_home.mkdir(parents=True)
     (family_home / "caches.json").write_text("{not json", encoding="utf-8")

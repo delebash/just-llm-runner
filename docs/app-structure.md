@@ -289,7 +289,17 @@ load_from_configs(stores.get_provider_store().list()) # registry from the DB
   `models.ini`, spawn logs — moves to `<data_dir>/ai-runtime` whenever the cache is
   shared, because each app renders that ini from its own catalogue. Anything measuring
   or clearing engine files must read `service.cache_root` / `service.runtime_root`
-  (via `configured_service()`), never `<data_dir>/ai-cache`.
+  (via `configured_service()`), never `<data_dir>/ai-cache`. Two guards keep the
+  registry honest (2026-08-08): a cache root under the OS temp dir is never registered
+  and never surfaces from a read — a smoke gate boots a real server on a `%TEMP%`
+  snapshot, and one surviving scratch got itself offered as "JustWrite Server already
+  has the engine", repointing the real install's cache at a Temp dir with one proceed
+  click (`JUST_AI_HOME` opts a harness out, which is also how the suite's tmp-rooted
+  tests keep running); and the wizard only offers a sibling cache that holds MODELS —
+  the question exists to skip model downloads, so an engine-only cache is not worth
+  switching roots for. A harness that boots a server on a scratch data dir must ALSO
+  set `JUST_AI_HOME` to the scratch (JW's `scripts/smoke.js` is the precedent), not
+  lean on the temp-dir net.
 - **The engine's port is allocated, so never print, probe or configure `:8080`.**
   `find_free_port` binds the first free port from 8080 up; the live URL is
   `RunnerService.router_url()` and it is what `/v1/llm-runner/status` reports. Nothing

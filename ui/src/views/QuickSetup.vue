@@ -83,11 +83,13 @@ onMounted(() => { refreshApplied().catch(() => {}); });
 const cacheState = ref(null);
 const cacheChoice = ref("");       // the root to use; "" = this app's own
 const cacheNote = ref("");
-// Worth asking only when a sibling actually HAS something.
+// Worth asking only when a sibling actually has MODELS. Engine builds alone don't
+// qualify (2026-08-08): a surviving smoke-gate scratch in %TEMP% held nothing but an
+// engine, was offered here as "JustWrite Server already has the engine", pre-selected,
+// and one proceed click repointed a full install's cache at a Temp dir — the wizard's
+// question exists to skip model downloads, and a cache with none to offer can't.
 const cacheOffer = computed(() =>
-  (cacheState.value?.options || []).find(
-    (o) => o.exists && (o.models?.length || o.engineBuilds?.length),
-  ) || null,
+  (cacheState.value?.options || []).find((o) => o.exists && o.models?.length) || null,
 );
 function fmtCacheBytes(n) {
   if (!n) return "0 B";

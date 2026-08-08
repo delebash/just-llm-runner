@@ -587,7 +587,10 @@ function checkDocs(app) {
 
   const toc = readToc(app);
   if (!toc) { info(app.name, "docs/toc.json missing or unparseable"); return; }
-  const unnamed = toc.filter((g) => !String(g.group || "").trim()).length;
+  // JW keys its groups `section`, JV/docgen `group` — both are named groups.
+  // (The first run of this check misread JW's key and reported 5 unnamed
+  // groups that were named all along — a checker bug, not a docs gap.)
+  const unnamed = toc.filter((g) => !String(g.group || g.section || "").trim()).length;
   if (unnamed) info(app.name, `docs/toc.json has ${unnamed} unnamed group(s) — groups carry names in every app`);
 
   // one topic, one page
@@ -610,8 +613,14 @@ function checkDocs(app) {
 }
 
 // A slug must mean the same thing everywhere. The toc TITLE is the derivable
-// signal: JustVoice's `presets` is titled "Render presets" (audio) while
-// JustWrite's is the LLM preset bar — same filename, different subject.
+// signal: JustVoice's `presets` was titled "Render presets" (audio) while
+// JustWrite's is the LLM preset bar — same filename, different subject (JV's
+// renamed to render-presets, 2026-08-08). Title comparison is a PROXY — an
+// app-voiced title over the SAME subject is legitimate, so ruled cases live in
+// TITLE_ALLOW with the reason, same contract as ALLOW above.
+const TITLE_ALLOW = new Map([
+  ["ai-providers", "same subject, app-voiced: JV's page genuinely covers TTS providers too; docgen's is its first-run setup door (2026-08-08)"],
+]);
 function checkDocsCrossApp() {
   const titles = new Map();
   for (const app of APPS) {
@@ -624,6 +633,7 @@ function checkDocsCrossApp() {
   }
   for (const [slug, perApp_] of titles) {
     if (perApp_.size < 2) continue;
+    if (TITLE_ALLOW.has(slug)) continue;
     const distinct = new Set([...perApp_.values()].map((t) => normHeading(t)));
     if (distinct.size > 1) {
       const shown = [...perApp_].map(([a, t]) => `${a}="${t}"`).join(" vs ");

@@ -25,7 +25,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -669,6 +669,35 @@ function checkTrackerFormat() {
   }
 }
 
+// ── check 11 · app code never owns a task lifecycle (AI-call convention, §8) ──
+// The day this was born (2026-08-08): 17 hand-managed task sites in JustVoice,
+// every finish() bare, no LLM task ever showed a token — while the server
+// returned usage on every response. The convention: app code calls the kit
+// runners (runAiFeature / withAiTask / runAiEndpoint) and never CREATES a task
+// itself. READING the store is free and common (App.vue's global stack, the
+// modals that hand their inline AiTaskStrip its task, dashboards, guards) — the
+// first draft of this check flagged imports and immediately proved 19 of 23
+// flagged files were readers, so the crime is the CALL, not the import:
+// `<store>.start({` in a file that imports the store. `.start()` without an
+// object stays legal (job-channel objects like an engine download task have
+// their own start()).
+const TASK_START_ALLOW = new Map([
+  // "App/file" → the human ruling. EMPTY is the healthy state; an entry means
+  // a ruled exception, and a growing list means call sites are dodging the
+  // runners, not that the code is fine.
+]);
+
+function checkTaskLifecycle(app, files) {
+  for (const f of files) {
+    if (!/\.(vue|js)$/.test(f) || f.includes(".test.")) continue;
+    const src = readFileSync(f, "utf8");
+    if (!/useAiTasksStore/.test(src) || !/\.start\(\{/.test(src)) continue;
+    const rel = relative(app.dir, f).replaceAll("\\", "/");
+    if (TASK_START_ALLOW.has(`${app.name}/${rel}`)) continue;
+    fail(app.name, `${rel} starts a task on useAiTasksStore directly — lifecycles belong to the kit runners withAiTask/runAiEndpoint/runAiFeature (app-structure §8, AI-call convention)`);
+  }
+}
+
 // ── run ───────────────────────────────────────────────────────────────────────
 const exports_ = kitExports();
 const kitFiles = new Map();
@@ -687,6 +716,7 @@ for (const app of APPS) {
   checkRetired(app.name, app.dir, RETIRED.get(app.name));
   checkSkeleton(app);
   checkDocs(app);
+  checkTaskLifecycle(app, files);
 }
 checkCrossAppTwins(perApp, kitFiles);
 checkDocsCrossApp();

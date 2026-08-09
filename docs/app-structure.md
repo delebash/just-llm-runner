@@ -315,6 +315,48 @@ load_from_configs(stores.get_provider_store().list()) # registry from the DB
 - **After any shared-export change** run llm-runner's `scripts/check-consumers.py`;
   after any dep/`__init__` change there, `scripts/check-clean-install.py`.
 
+### The AI-call convention (2026-08-08) — app code never owns a task lifecycle
+
+Born the hard way: the LLM core converged (every app runs `run_action`), the task
+store converged (2026-08-07), and still no JustVoice LLM task had ever shown a
+token — because no rule said how app code CALLS AI, so 17 sites hand-managed
+their own lifecycles and every one dropped `finish({usage})`. Ten structural
+audits passed over it; there was no contract to audit against. This section is
+that contract, and check-family's **check 11** enforces the greppable half.
+
+**The rule.** App code never calls `tasks.start()` / `finish()` / `fail()`.
+Every AI or long-task call goes through a kit runner:
+
+- **`runAiFeature` / `runAiFeatureStream`** — features whose variables are in
+  the renderer's hand (an editor selection, a chat message, fetched context
+  passed along). Posts the shared `/v1/ai/run|stream`; streaming, tokens,
+  cancel, errors all automatic. JustWrite's writer + RAG features are the
+  reference consumers.
+- **`withAiTask(opts, fn)`** (+ the `runAiEndpoint` JSON convenience) —
+  everything else: server-composed endpoints (the server gathers roster /
+  corrections / files and post-processes the answer), TTS renders and
+  generates, engine installs, exports, poll-loop jobs, batch owners (one task,
+  N sub-calls, `setProgress(n, m)`). The wrapper owns start / finish-with-usage
+  / abort-classification / error wrapping; the callback keeps full domain
+  freedom and returns `{ result, usage }` so tokens surface.
+
+The lane is chosen **per feature, never per app** — every app has both kinds.
+Where composition lives is the feature's business; the seam below it is
+identical everywhere.
+
+**Corollaries.** Every AI response carries usage (JustVoice's §16 rule,
+family-wide; `toTaskUsage` accepts snake_case and camelCase so nobody
+hand-maps). A surface shows **one** task indicator per run — a surface that
+mounts its own `AiTaskStrip` marks the task `inline: true` so the global stack
+never doubles it; hand-rolled progress banners are banned. A trigger button
+**disables** while its task runs — the strip is the spinner. Reads are free:
+chrome may observe the store (`visibleTasks`, `runningCount`) from check 11's
+per-app allowlist; creating lifecycles outside the runners is the violation.
+
+**Why a check and not just this text:** every seam that had only prose drifted;
+the seams with a canon + a gate (familyContract.js labels, the target tree)
+held. Rules that matter get a check — the doc explains why.
+
 ## 9 · Retrofitting an EXISTING Python app — a COMPLETED migration, not a second path
 
 > **Nothing here is outstanding. Every app in the family consumes the stack
@@ -554,6 +596,11 @@ assert the marker (a 200 from an empty ring proves nothing).
       release build; `npm run screenshots` captures every surface
 - [ ] The standard app chrome per §11: `/ai` area, AiStatusButton, Settings with
       appearance/storage/logs/about, log ring + file + router with the content test
+- [ ] Every AI/long-task call goes through a kit runner per §8's AI-call
+      convention — no `useAiTasksStore` import outside check 11's allowlist
+- [ ] Run an LLM feature and LOOK: tokens on the strip, one indicator total,
+      the trigger button disabled (not spinning) while it runs
+- [ ] A batch shows real n/m; a polled job's percent reaches the strip
 - [ ] CLAUDE.md present, first Where-to-look row → this document
 - [ ] `docs/dev/TASKS.md` + `docs/dev/IDEAS.md` present per §13
 - [ ] Any deviation: flagged to the user AND recorded here

@@ -139,6 +139,34 @@ first.
 
 ## Now / near-term
 
+### The AI-call convention's streaming lane + the install-progress bridge
+
+STATE: OPEN — the user's NAMED next work (2026-08-08, at the convention's go:
+"after this we will look at engine install and vram arbiter"); no go yet.
+WHY: the convention shipped family-wide 2026-08-08 (lane 2B — JSON responses
+carry usage, every app on `withAiTask`/`runAiEndpoint`, check 11 at zero;
+git holds the build record). Two deliberate remainders: long pipelines still
+give no LIVE progress (attribution's minute-plus waits are the case), and an
+engine install's download percent reaches the Engines card but not the strip
+(installs moved lifecycle-only by the approval's scope note).
+NOT: frames/SSE everywhere — overbuilt; 2B covers one-shots (ruled at approval).
+OPEN: (a) lane 2A — the pipeline endpoint speaks the family SSE frames
+(`ui/src/client.js:126-137`) and the runner drives them via `requestStream`;
+(b) the install bridge — the job-channel percent into `handle.setProgress`.
+Pairs with JV's VRAM-arbiter item.
+GO: needed.
+
+- **`UiSelect` has no option groups [verified 2026-08-08, JV-driven]** — it takes a
+  flat `options: [{label,value}]` and renders one `v-for` over `normalized`
+  (`ui/src/common/components/UiSelect.vue:21-40,101`), so a consumer cannot group a
+  long list. Found in JustVoice's import-format picker: eight adapters doing three
+  different jobs (a book, a line list, timing data from an audio editor) read as a
+  grab-bag, and grouping is the fix — *From JustWrite · Books · Scripts and line
+  lists · From audio tools · Advanced*. Deliberately NOT done as a JV one-off: form
+  primitives come from the kit, and a local grouped select would fork the primitive.
+  Scope: accept `[{label, options: […]}]` alongside the flat form (Reka supports
+  `SelectGroup`/`SelectLabel`), leaving every existing caller untouched. Gates all
+  three app suites. **GO: needed.**
 - **Engine-cache `replaceBuild` deletion guard [verified live 2026-08-03/04]** — with
   a SHARED family cache, the update path's build-folder cleanup would delete builds
   under ANOTHER app's directory; guard deletion to the app's OWN cache root.

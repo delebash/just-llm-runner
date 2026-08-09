@@ -315,6 +315,10 @@ load_from_configs(stores.get_provider_store().list()) # registry from the DB
 - **After any shared-export change** run llm-runner's `scripts/check-consumers.py`;
   after any dep/`__init__` change there, `scripts/check-clean-install.py`.
 
+> **The install SEQUENCE — both halves, step by step — is
+> `docs/dev/install-runbook.md`** (user-ruled 2026-08-08: one page a human and
+> an AI can follow into a new project). This section is the depth behind it.
+
 ### The AI-call convention (2026-08-08) — app code never owns a task lifecycle
 
 Born the hard way: the LLM core converged (every app runs `run_action`), the task

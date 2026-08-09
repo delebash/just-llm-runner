@@ -32,6 +32,10 @@ export function llmUiBase() {
 }
 
 export function llmUiUrl(path) {
+  // An absolute URL passes through — an app-endpoint stream may resolve its
+  // base through the app's own serverApi (origin-aware) rather than this one
+  // (2026-08-08, the AI-call convention's lane 2A).
+  if (/^https?:\/\//.test(path)) return path;
   return `${llmUiBase()}${path}`;
 }
 
@@ -130,11 +134,16 @@ export async function postForm(path, formData) {
  * `data: {"error": "..."}`).
  *
  * Calls onDelta(text) per chunk, onProgress(p) per progress frame, and
- * resolves with the final { promptTokens, completionTokens, model, cost }
- * from the done frame — or null when the stream ended without one (callers
- * surface usage to the UI and must be able to tell "not reported" from a real
- * zero count). Throws on an error frame. Pass { signal } to make the stream
- * abortable (the AI task queue's cancel).
+ * resolves with the FULL done frame — { done, promptTokens, completionTokens,
+ * model, cost, ...anything else the endpoint put there } — or null when the
+ * stream ended without one (callers surface usage to the UI and must be able
+ * to tell "not reported" from a real zero count). The usage names sit at the
+ * frame's top level, so pre-2026-08-08 callers that destructured
+ * { promptTokens, ... } read the same values; the widening exists so a
+ * pipeline endpoint's done frame can carry its DOMAIN result (rows, route)
+ * alongside the usage (the AI-call convention's lane 2A). Throws on an error
+ * frame. Pass { signal } to make the stream abortable (the AI task queue's
+ * cancel).
  */
 export async function requestStream(path, body, onDelta, { signal, onProgress } = {}) {
   const opts = {
@@ -178,7 +187,12 @@ export async function requestStream(path, body, onDelta, { signal, onProgress } 
         throw e;
       }
       if (frame.done) {
+        // The whole frame minus the transport's own `done` flag, usage names
+        // normalized at the top level (see the contract above) — domain
+        // fields an endpoint added ride along.
+        const { done: _done, ...payload } = frame;
         usage = {
+          ...payload,
           promptTokens: frame.promptTokens || 0,
           completionTokens: frame.completionTokens || 0,
           model: frame.model || "",

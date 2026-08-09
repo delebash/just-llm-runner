@@ -504,6 +504,54 @@ class UnknownActionError(KeyError):
     templates — nothing to run. The route maps it to 404."""
 
 
+@dataclass
+class _ResolvedAction:
+    """Everything the dispatch call needs, resolved ONCE — the shared front half
+    of run_action / stream_action / the /stream route (extracted 2026-08-08 so
+    the three could not drift; before this the route carried its own copy)."""
+
+    spec: object
+    feature_key: str
+    messages: list
+    system_text: str
+    preset: object
+    provider_override: str | None
+    model_override: str | None
+    temperature: float | None
+    max_tokens: int | None
+
+
+def _resolve_action(store: PromptStore, body: RunRequest) -> _ResolvedAction:
+    """Resolve spec → render templates (fail-loud on missing variables) →
+    resolve the engine preset → overlay request-body ephemerals. Raises
+    UnknownActionError / MissingTemplateVariables — callers map to HTTP."""
+    spec = store.get(body.action)
+    # PROMPTLESS actions (a pipeline-owned app registers feature_prompts={}) have
+    # no spec row — but the Lab's columns always carry the app-built prompt as
+    # system+userTemplate, so the run goes through against the action's resolved
+    # preset (found live 2026-08-04: docgen's Lab ▶ Run 404'd "unknown AI action").
+    if spec is None and (body.system is None or body.userTemplate is None):
+        raise UnknownActionError(body.action)
+    feature_key = spec.feature if spec else body.action
+    sys_tpl = (spec.system if spec else "") if body.system is None else body.system
+    usr_tpl = (spec.user_template if spec else "") if body.userTemplate is None else body.userTemplate
+    system_text, user_text = _render_pair(sys_tpl, usr_tpl, body.variables)
+    messages = _history_messages(body.history) + [LLMMessage(role="user", content=user_text)]
+    preset = resolve_feature_preset(body.action, feature=feature_key)
+    provider_override = body.providerId or (preset.providerId if preset else "") or None
+    model_override = body.model or (preset.model if preset else "") or None
+    # Every tunable comes from the resolved PRESET (the one source, 2026-07-15);
+    # request-body values override ephemerally. No preset → provider-default route,
+    # NO tunables sent (temperature None omits it), think off — the no-preset rule.
+    temperature = body.temperature if body.temperature is not None else (preset.temperature if preset else None)
+    max_tokens = (body.maxTokens if body.maxTokens is not None else (preset.maxTokens if preset else 0)) or None
+    return _ResolvedAction(
+        spec=spec, feature_key=feature_key, messages=messages, system_text=system_text,
+        preset=preset, provider_override=provider_override, model_override=model_override,
+        temperature=temperature, max_tokens=max_tokens,
+    )
+
+
 def run_action(store: PromptStore, config: LLMConfig, body: RunRequest) -> LLMResponse:
     """THE one non-stream run path (extracted 2026-08-05, JV F1 Phase 2): resolve
     the action's prompt row — or the body-supplied system/userTemplate, the
@@ -519,48 +567,54 @@ def run_action(store: PromptStore, config: LLMConfig, body: RunRequest) -> LLMRe
     a local model load can take seconds): async callers use asyncio.to_thread.
     Raises UnknownActionError / MissingTemplateVariables / LLMNotConfiguredError;
     usage lands in the ledger via dispatch, same as every run."""
-    spec = store.get(body.action)
-    # PROMPTLESS actions (a pipeline-owned app registers feature_prompts={}) have
-    # no spec row — but the Lab's columns always carry the app-built prompt as
-    # system+userTemplate, so the run goes through against the action's resolved
-    # preset (found live 2026-08-04: docgen's Lab ▶ Run 404'd "unknown AI action").
-    # jsonMode/schema have no spec home there: body.jsonMode only, no schema.
-    if spec is None and (body.system is None or body.userTemplate is None):
-        raise UnknownActionError(body.action)
-    # Lab candidate overrides (None → the stored prompt) so a draft/preset can
-    # be tested before it's promoted to production.
-    feature_key = spec.feature if spec else body.action
-    sys_tpl = (spec.system if spec else "") if body.system is None else body.system
-    usr_tpl = (spec.user_template if spec else "") if body.userTemplate is None else body.userTemplate
-    system_text, user_text = _render_pair(sys_tpl, usr_tpl, body.variables)
-    messages = _history_messages(body.history) + [LLMMessage(role="user", content=user_text)]
-    preset = resolve_feature_preset(body.action, feature=feature_key)
-    provider_override = body.providerId or (preset.providerId if preset else "") or None
-    model_override = body.model or (preset.model if preset else "") or None
-    # Every tunable comes from the resolved PRESET (the one source, 2026-07-15);
-    # request-body values override ephemerally. No preset → provider-default route,
-    # NO tunables sent (temperature None omits it), think off — the no-preset rule.
-    temperature = body.temperature if body.temperature is not None else (preset.temperature if preset else None)
-    max_tokens = (body.maxTokens if body.maxTokens is not None else (preset.maxTokens if preset else 0)) or None
+    r = _resolve_action(store, body)
     # QC-43b: a run routed to the bundled local runner makes its model resident
     # first (else the adapter hits a down router → "Connection refused").
-    _ensure_local_ready_sync(config, feature_key, body.action, provider_override, model_override)
+    _ensure_local_ready_sync(config, r.feature_key, body.action, r.provider_override, r.model_override)
     return chat(
         config=config,
-        feature=feature_key,
+        feature=r.feature_key,
         # The action key routes to its own model when it has one, else the
         # feature default (per-action override cascade).
         action=body.action,
-        messages=messages,
+        messages=r.messages,
         # System is templated too — most actions have no system placeholders so
         # render() returns it unchanged; e.g. plotHoles injects world rules.
-        system=system_text,
-        temperature=temperature,
-        think=_effective_think(spec, body, preset),
-        max_tokens=max_tokens,
-        provider_override=provider_override,
-        model_override=model_override,
-        extra=_plane2_extra(spec, body, preset),
+        system=r.system_text,
+        temperature=r.temperature,
+        think=_effective_think(r.spec, body, r.preset),
+        max_tokens=r.max_tokens,
+        provider_override=r.provider_override,
+        model_override=r.model_override,
+        extra=_plane2_extra(r.spec, body, r.preset),
+    )
+
+
+def stream_action(store: PromptStore, config: LLMConfig, body: RunRequest):
+    """THE streaming sibling of run_action (2026-08-08, the AI-call convention's
+    lane 2A): same resolution, same ensure, but returns `stream_chat`'s
+    StreamDelta iterator — text chunks, optional prompt-eval `progress` frames
+    (builtin engine), and a final `done=True` delta carrying token usage.
+
+    Resolution and the local-model ensure run EAGERLY (this is a plain function
+    returning a generator, not a generator function), so callers get clean
+    UnknownActionError / MissingTemplateVariables / LLMNotConfiguredError before
+    any frame exists. SYNC + BLOCKING like run_action — an in-server SSE caller
+    drives it from a worker thread and forwards frames through a queue."""
+    r = _resolve_action(store, body)
+    _ensure_local_ready_sync(config, r.feature_key, body.action, r.provider_override, r.model_override)
+    return stream_chat(
+        config=config,
+        feature=r.feature_key,
+        action=body.action,
+        messages=r.messages,
+        system=r.system_text,
+        temperature=r.temperature,
+        think=_effective_think(r.spec, body, r.preset),
+        max_tokens=r.max_tokens,
+        provider_override=r.provider_override,
+        model_override=r.model_override,
+        extra=_plane2_extra(r.spec, body, r.preset),
     )
 
 
@@ -608,28 +662,17 @@ def make_feature_router(
         /run's response carries, then `data: [DONE]`. Errors arrive as
         `data: {"error": "..."}` (the stream has started, so we can't send an
         HTTP status)."""
-        spec = get_store().get(body.action)
-        # Same promptless rule as /run: body-supplied templates stand in for the
-        # missing spec (the §7.4 stream-first transport must work promptless too).
-        if spec is None and (body.system is None or body.userTemplate is None):
-            raise HTTPException(status_code=404, detail=f"unknown AI action {body.action!r}")
-        feature_key = spec.feature if spec else body.action
-        sys_tpl = (spec.system if spec else "") if body.system is None else body.system
-        usr_tpl = (spec.user_template if spec else "") if body.userTemplate is None else body.userTemplate
+        # Resolution is the SAME front half run_action/stream_action use
+        # (_resolve_action, extracted 2026-08-08 — before that this route
+        # carried its own copy, the exact drift this package exists to prevent).
+        # Rendered BEFORE the stream starts, so a variables gap is a clean
+        # HTTP 400 naming the keys — not an in-stream error frame.
         try:
-            # Rendered BEFORE the stream starts, so a variables gap is a clean
-            # HTTP 400 naming the keys — not an in-stream error frame.
-            system, user_text = _render_pair(sys_tpl, usr_tpl, body.variables)
+            r = _resolve_action(get_store(), body)
+        except UnknownActionError:
+            raise HTTPException(status_code=404, detail=f"unknown AI action {body.action!r}")
         except MissingTemplateVariables as e:
             raise HTTPException(status_code=400, detail=f"{body.action}: {e}") from e
-        messages = _history_messages(body.history) + [LLMMessage(role="user", content=user_text)]
-        preset = resolve_feature_preset(body.action, feature=feature_key)
-        provider_override = body.providerId or (preset.providerId if preset else "") or None
-        model_override = body.model or (preset.model if preset else "") or None
-        # Every tunable comes from the resolved PRESET (the one source, 2026-07-15);
-        # request-body values override ephemerally. No preset → provider-default route.
-        temperature = body.temperature if body.temperature is not None else (preset.temperature if preset else None)
-        max_tokens = (body.maxTokens if body.maxTokens is not None else (preset.maxTokens if preset else 0)) or None
 
         # QC-43b: ensure a bundled-runner model is resident BEFORE streaming (else the
         # adapter hits a down router → "Connection refused"). Awaited here in the async
@@ -638,7 +681,7 @@ def make_feature_router(
         ensure_error: str | None = None
         try:
             await _ensure_local_ready(
-                get_config(), feature_key, body.action, provider_override, model_override,
+                get_config(), r.feature_key, body.action, r.provider_override, r.model_override,
             )
         except Exception as e:  # noqa: BLE001 — deferred into the SSE error frame below
             ensure_error = str(e)[:200]
@@ -651,16 +694,16 @@ def make_feature_router(
             try:
                 for delta in stream_chat(
                     config=get_config(),
-                    feature=feature_key,
+                    feature=r.feature_key,
                     action=body.action,
-                    messages=messages,
-                    system=system,
-                    temperature=temperature,
-                    think=_effective_think(spec, body, preset),
-                    max_tokens=max_tokens,
-                    provider_override=provider_override,
-                    model_override=model_override,
-                    extra=_plane2_extra(spec, body, preset),
+                    messages=r.messages,
+                    system=r.system_text,
+                    temperature=r.temperature,
+                    think=_effective_think(r.spec, body, r.preset),
+                    max_tokens=r.max_tokens,
+                    provider_override=r.provider_override,
+                    model_override=r.model_override,
+                    extra=_plane2_extra(r.spec, body, r.preset),
                 ):
                     if delta.done:
                         frame = {

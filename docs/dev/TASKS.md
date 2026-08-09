@@ -150,11 +150,42 @@ give no LIVE progress (attribution's minute-plus waits are the case), and an
 engine install's download percent reaches the Engines card but not the strip
 (installs moved lifecycle-only by the approval's scope note).
 NOT: frames/SSE everywhere — overbuilt; 2B covers one-shots (ruled at approval).
-OPEN: (a) lane 2A — the pipeline endpoint speaks the family SSE frames
-(`ui/src/client.js:126-137`) and the runner drives them via `requestStream`;
-(b) the install bridge — the job-channel percent into `handle.setProgress`.
-Pairs with JV's VRAM-arbiter item.
-GO: needed.
+BUILT same session (2026-08-08): (a) `stream_action` beside `run_action` on the
+extracted `_resolve_action` core (the /stream route rides it too — its inline
+copy died); JV's `stream_feature` → `analyze_scene(on_delta, on_progress)` →
+`POST /v1/scenes/{id}/analyze/stream` speaking the family frames, driven by the
+kit's new `runAiEndpointStream` (requestStream now resolves the FULL done frame,
+`done` flag stripped; llmUiUrl passes absolute URLs). (b) the bridge —
+`setProgress(done, total, text)` grew the optional text (strip+panel render it),
+and SpeechEnginesTab mirrors the job task's bytes + the ONE shared caption into
+the panel for installs AND loads. Tests: 3 SSE server tests (JV 426 pytest),
+kit 773, JW 573, JV 48 vitest, smoke 15/15, check-family zero.
+GO: given 2026-08-08 — *"fix engine install streaming lane and any others of
+your rec"*; the my-rec riders fixed at approval: `requestStream` resolves the
+FULL done frame (additive — usage fields stay top-level) so a pipeline's domain
+result rides the stream's end; a `runAiEndpointStream` runner beside
+`runAiEndpoint`; attribution is the one 2A conversion (discover/smart-assign
+stay 2B — short calls). After this the user's named STOP: the VRAM think
+(JV TASKS carries it), no arbiter build without its own go.
+
+### The install contract — one runbook a human and an AI can follow
+
+STATE: DECIDED 2026-08-08 — *"do we have a contract for how to install
+llmrunner both server and client side that a human and ai can understand, so in
+a new project both ai and human can read doc and understand how to install; if
+doc doesent exist it should be in dev docs in llmrunner"*.
+WHY: app-structure.md §8 covers adopting the stack but as part of the
+build-a-family-app narrative spread across §1–§12; nothing is the ONE
+sequenced install runbook for dropping the stack into a project.
+NOT: duplicating §8's depth — the runbook is the SEQUENCE with cites into
+app-structure for each step's detail, code-verified (function names, args).
+BUILT same session: `docs/dev/install-runbook.md` — both halves as ONE
+sequence, every function name and argument verified against the code
+(`install_llm` at `llm_runner/llm/install.py:250`, `installLlmUi` at
+`ui/src/installLlmUi.js:91`), the storage caveat and the editable-install
+lesson carried, "done when" = §12's boxes + a clean check-family run.
+Linked from app-structure §8's head.
+GO: given 2026-08-08 (same word) — built.
 
 - **`UiSelect` has no option groups [verified 2026-08-08, JV-driven]** — it takes a
   flat `options: [{label,value}]` and renders one `v-for` over `normalized`

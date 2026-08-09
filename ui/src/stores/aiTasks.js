@@ -186,7 +186,7 @@ export const useAiTasksStore = defineStore("aiTasks", {
         // handle, threads `signal` through every sub-call, and reports
         // progress here — the strip/panel render "n/m" and the one Cancel
         // aborts the whole loop through the shared controller.
-        setProgress: (done, total) => this._setProgress(id, done, total),
+        setProgress: (done, total, text) => this._setProgress(id, done, total, text),
         // §7.4 B6-2: prompt-eval percent from the stream's {progress} frames.
         setPrefill: (p) => this._setPrefill(id, p),
         // Replace the per-task stat strings. Call it whenever the numbers change —
@@ -273,10 +273,14 @@ export const useAiTasksStore = defineStore("aiTasks", {
       }, ms));
     },
 
-    _setProgress(id, done, total) {
+    _setProgress(id, done, total, text) {
       const t = this.tasks[id];
       if (!t) return;
-      t.progress = { done, total };
+      // `text` (optional) replaces the strip's raw n/m readout — a byte-scale
+      // progress (an engine download) reads as the shared caption ("42% - 512
+      // MB of 1.2 GB"), never as raw byte counts (2026-08-08, the install
+      // bridge). The bar still computes from done/total.
+      t.progress = text ? { done, total, text } : { done, total };
     },
 
     _setPrefill(id, p) {

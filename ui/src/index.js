@@ -54,7 +54,7 @@ export { runAiFeature, runAiFeatureStream } from "./services/aiFeature.js";
 // The app-task runners (family AI-call convention, 2026-08-08): server-composed
 // endpoints, TTS/long work and batch owners run through these — app code never
 // owns a task lifecycle directly (check-family check 11).
-export { runAiEndpoint, toTaskUsage, withAiTask } from "./services/appTask.js";
+export { runAiEndpoint, runAiEndpointStream, toTaskUsage, withAiTask } from "./services/appTask.js";
 export { friendlyAiError } from "./services/aiErrors.js";
 export { default as AiTaskStrip } from "./components/AiTaskStrip.vue";
 export { default as AiStatusPanel } from "./components/AiStatusPanel.vue";

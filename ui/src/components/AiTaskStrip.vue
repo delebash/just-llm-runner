@@ -116,7 +116,7 @@ function openPanel() { tasks.openPanel(); }
     <!-- QC-31: a batch task (one entry per USER ACTION) reports n/m here. -->
     <span v-if="task.progress" class="sts-stat sts-progress"
       v-tooltip.bottom="'Batch progress — Cancel stops the whole run'">
-      {{ task.progress.done }}/{{ task.progress.total }}
+      {{ task.progress.text || `${task.progress.done}/${task.progress.total}` }}
     </span>
     <!-- …and as a real bar while running. -->
     <span v-if="progressPct != null && !isDone" class="sts-track">

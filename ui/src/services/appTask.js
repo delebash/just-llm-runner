@@ -20,6 +20,7 @@
 // check 11 holds the line: only allowlisted read-only chrome may import the
 // task store directly.
 
+import { requestStream } from "../client.js";
 import { useAiTasksStore } from "../stores/aiTasks.js";
 
 /** Map a server usage object to the shape `finish()` expects. Accepts the
@@ -115,5 +116,38 @@ export async function runAiEndpoint({ request, path, body, method = "POST", task
       signal: t.signal,
     });
     return { result: r, usage: r?.usage, model: r?.usage?.model || r?.model };
+  });
+}
+
+/**
+ * The STREAMING sibling (lane 2A): drive an app endpoint that speaks the
+ * family SSE frames — `{delta}` / `{progress}` / `{done, promptTokens,
+ * completionTokens, model, ...domain fields}` / `[DONE]`, errors as
+ * `{error}`. Deltas feed the task's live tok/s + freshness; prompt-eval
+ * `progress` frames feed the prefill bar; the done frame's usage finishes the
+ * task, and the WHOLE done frame is the resolved result — a pipeline puts its
+ * domain payload (rows, route, floor) right on it.
+ *
+ * `url` may be app-resolved and absolute (`api.serverUrl + path`) — the kit
+ * client passes absolute URLs through — or a bare path against the kit base.
+ *
+ *   const done = await runAiEndpointStream({
+ *     url: `${api.serverUrl}/v1/scenes/${id}/analyze/stream`,
+ *     body: { text },
+ *     task: { feature: "speaker_attribution", label: "Speaker extraction", inline: true },
+ *   });
+ *   // done.rows, done.route_used, ... + tokens already on the strip
+ */
+export async function runAiEndpointStream({ url, body, task, onDelta }) {
+  return withAiTask(task, async (t) => {
+    const done = await requestStream(url, body, (delta) => {
+      t.onDelta(delta);
+      onDelta?.(delta);
+    }, {
+      signal: t.signal,
+      onProgress: (p) => t.setPrefill(p),
+    });
+    if (!done) throw new Error("The stream ended without a result.");
+    return { result: done, usage: done, model: done.model };
   });
 }

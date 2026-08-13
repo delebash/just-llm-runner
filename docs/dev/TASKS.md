@@ -325,14 +325,15 @@ Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
 - Post-B check DONE: embed-guard decisions UNCHANGED at 8/16/24 GB (est
   17,713→16,143: 8 GB → CPU, 16 GB → 241 MB leftover < embed floor → CPU
   (the 2026-07-25 proof case holds), 24 GB → GPU both ways).
-- MEMBERSHIP TABLE → USER (the charter pause, AWAITING BLESSING): 7 of 8
-  models IDENTICAL sets (qwen 20,516 computed vs 20,480 hand — 36 MB apart);
-  ONE change: glm-4.5-air loses its 3 ram64 classes (physics RAM floor
-  71,817 raw = 67.7 GB file + 4 GB headroom > 65,536 nominal; the curated
-  65,536 was fitted-to-class). User rules: accept the loss (GLM stays in the
-  catalog, badge per-box, still selectable per §8.23) or adjust. AFTER the
-  blessing: update classMembership.test.js FLEET literals to the computed
-  floors (+ GLM's expected set per the ruling) — then the user resets data.
+- MEMBERSHIP BLESSED (user 2026-08-13 "your rec" → plan §8.23a): 7/8 sets
+  identical; GLM's ram64 loss accepted (stays in catalog, per-box badge,
+  runnable §8.23). classMembership.test.js FLEET = the computed floors now
+  (JW c4ec055; 14/14 + test:fast 128). PHASE 2 CLOSED pending the user's
+  DATA RESET (stale rung floors misread until then — accepted §13.5).
+  NEXT: the checkpoint look (five-point list: re-add Qwen by hand · catalog
+  on all three machines · GLM band · membership · smell test), then the
+  Phase 3 go (speed bands + badge display + §8.23 veto removal + §13.17 GUI
+  pins: thresholds field, RAM-headroom field).
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

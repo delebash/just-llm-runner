@@ -68,6 +68,8 @@ read-only probes on the real GGUFs and the recorded bench rows (plan Appendix B)
 | 21 | Opus | §5.5's GLM ~1.5 tok/s reads as probe output but is a catalog-params estimate (file not on disk) | HOLDS — labelled in place |
 | 22 | user | "a user should always be able to run any model they want with any settings they want" | RULING §8.23 — the FIT_RUNNABLE picker/dropdown veto (shipped long BEFORE the redesign; consumers verified) comes out of every picker; verdicts inform, never gate; recommendations may still prefer; engine attempt stays the final authority → §13.16 |
 
+| 23 | build | Phases 0-2 executed 2026-08-13 (same day as consensus): Phase 0 quick lane · Phase 1 physics/arch-arm/oracle · Phase 2 facts-not-floors end to end. Membership re-validation: 7/8 models byte-identical to the user's hand table; the physics reproduced the curator to 36 MB on the qwen | GLM ram64 loss RULED by the user ("your rec") → §8.23a. The user's data reset remains; checkpoint before Phase 3 |
+
 ## 3. Final state
 
 - **Consensus: COMPLETE (2026-08-13).** All inter-model disputes closed, the last by

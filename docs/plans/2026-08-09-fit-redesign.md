@@ -610,6 +610,13 @@ authority + oracle; measured-performance gains the bandwidth constants.
 22. **Clear-history: one button clears all, footprints included** (same ruling —
     closes 2026-08-09's open (e)): claims fall back to computed and self-heal on the
     next load. Predictable beats clever.
+23a. **GLM's ram64 membership loss ACCEPTED** (user 2026-08-13, "your rec" — the
+    Phase 2 membership re-validation): the physics RAM floor (71,817 = 67.7 GB
+    file + headroom) honestly exceeds a 64 GB box; the curated 65,536 was
+    fitted-to-class. GLM leaves the class-recommendation chips, stays in the
+    catalog with a per-box badge, stays runnable (§8.23). The other SEVEN models'
+    computed sets came out byte-identical to the user's 2026-07-26 table —
+    the physics reproduces the curator (qwen: 36 MB apart).
 23. **Verdicts inform, never gate** (user 2026-08-13: "a user should always be able
     to run any model they want with any settings they want"): the fit verdict must
     never prevent selection or launch. `FIT_RUNNABLE` stops filtering pickers and
@@ -706,8 +713,16 @@ all five items; gates green — kit ruff + 787 pytest, JW test:fast 128, i18n, s
 details in the kit tracker). Everything committed + pushed 2026-08-13 on the
 user's "commit everything" (kit: Phase 0 + the eviction seam in one commit —
 lifecycle.py entangled them; JW: docs + the stale-test fix; JV: the Script-tab
-batch). **Phase 1 BUILT 2026-08-13** — physics booking + arch arm + oracle live
-(detail: the kit tracker); gates green. NEXT ACTION: the Phase 2 go.
+batch). **Phase 1 BUILT 2026-08-13** — physics booking + arch arm + oracle live.
+**Phase 2 BUILT + BLESSED 2026-08-13** — facts-not-floors end to end: facts
+columns + extractor (byte-identical KV pin) · three writers · computed-fresh
+floors/est through the one door · form floor inputs retired · seeds regenerated
+LIVE from HF (chat floors deleted; embeds keep) · the snap retired (raw-to-raw)
+· display ladder · membership re-validated WITH the user (7/8 identical;
+GLM ram64 loss ruled §8.23a) · embed-guard decisions verified unchanged.
+REMAINING for the user: the data reset (stale rung floors until then — accepted).
+NEXT ACTION: the checkpoint look (the five-point real-behaviour list), then the
+Phase 3 go (speed bands + badge display + §8.23's veto removal).
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

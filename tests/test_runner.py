@@ -66,12 +66,14 @@ def test_fit_large_gpu_all_layers():
 
 
 def test_fit_small_gpu_moe_offloads_rest():
-    # 10 GB model on an 8 GB GPU → only some layers fit; the oobabooga formula
-    # (incl. base CUDA overhead) sets how many, and the MoE rest offloads to CPU.
+    # 10 GB MoE on an 8 GB GPU, header without expert dims (share unknown → the
+    # physics can't credit expert stripping): the Phase 6 joint solve sends ALL
+    # experts to RAM and walks layers through the physics — expert offload
+    # before layer shed, never the old inverse's both-at-once.
     fit = compute_fit(_meta(block_count=10, expert_count=128), _TEN_GB, _hw(vram_mb=8192))
     assert fit.is_moe
-    assert 0 < fit.n_gpu_layers < 10                 # partial fit
-    assert fit.n_cpu_moe == 10 - fit.n_gpu_layers    # the rest offloads to CPU
+    assert 0 < fit.n_gpu_layers < 10     # partial fit
+    assert fit.n_cpu_moe == 10           # every expert layer offloads to CPU
 
 
 def test_fit_ncmoe_discounts_the_reservation():
@@ -152,15 +154,16 @@ def test_fit_reservation_counts_the_draft():
 
 
 def test_fit_without_a_draft_is_byte_identical():
-    # Regression pin with LITERAL values — the pre-2026-07-19 plan for a 10 GB MoE on an
-    # 8 GB card. Comparing the defaults against explicitly-passed defaults would be a
-    # tautology that could not catch an arithmetic slip; these numbers can.
-    # vram_mb re-pinned 6432 → 5545 on 2026-08-13: Phase 1 switched the forward
-    # booking from the fitted regression to the physics decomposition (weights
-    # 10000 × 4/10 + exact KV share + the cuda overhead seed). Split unchanged.
+    # Regression pin with LITERAL values — a 10 GB MoE on an 8 GB card. Comparing the
+    # defaults against explicitly-passed defaults would be a tautology that could not
+    # catch an arithmetic slip; these numbers can.
+    # Re-pinned twice, each an intended change: 2026-08-13 Phase 1 (booking →
+    # physics; 6432 → 5545) and Phase 6 (split → the joint solve: this dims-less
+    # header offloads ALL experts and keeps 5 physics-fitting layers, where the
+    # fitted inverse gave 4 + a derived ncmoe 6; 5545 → 6553 books the extra layer).
     args = (_meta(block_count=10, expert_count=128), _TEN_GB, _hw(vram_mb=8192))
     plan = compute_fit(*args)
-    assert (plan.n_gpu_layers, plan.n_cpu_moe, plan.ctx_len, plan.vram_mb) == (4, 6, 4096, 5545)
+    assert (plan.n_gpu_layers, plan.n_cpu_moe, plan.ctx_len, plan.vram_mb) == (5, 10, 4096, 6553)
     # …and a draft SIZE with no draft meta is inert (the meta is what arms the term).
     assert compute_fit(*args, draft_bytes=_ONE_GB) == plan
 
@@ -507,9 +510,46 @@ def test_start_runner_backs_off_on_oom():
         _popen=popen, _health=lambda u: state["n"] >= 2, _sleep=lambda s: None,
     )
     assert state["n"] == 2          # spawned twice
-    assert r.n_gpu_layers == 16     # 20 − 4
-    assert r.n_cpu_moe == fit.block_count - 16  # MoE offload recomputed on back-off
+    # Shed direction (fit-redesign §5.7): a MoE OOM raises n_cpu_moe first —
+    # expert bytes leave the GPU, the layers (attention + KV) STAY.
+    assert r.n_gpu_layers == 20     # unchanged
+    assert r.n_cpu_moe == 4         # 0 + the back-off step
     assert procs[0].killed          # first attempt cleaned up
+
+
+def test_start_runner_sheds_ngl_once_ncmoe_is_maxed():
+    # A MoE that still OOMs with EVERY expert in RAM finally sheds layers —
+    # and a dense model (nothing to raise) sheds layers immediately.
+    fit = FitPlan(n_gpu_layers=20, n_cpu_moe=46, ctx_len=4096, block_count=48, is_moe=True)
+    procs = [
+        _FakeProc(exit_code=1, output="ggml_cuda: CUDA error: out of memory"),  # → ncmoe 46→48
+        _FakeProc(exit_code=1, output="ggml_cuda: CUDA error: out of memory"),  # maxed → ngl 20→16
+        _FakeProc(exit_code=None),
+    ]
+    state = {"n": 0}
+
+    def popen(argv, **k):
+        p = procs[state["n"]]
+        state["n"] += 1
+        return p
+
+    r = start_runner(
+        "llama-server", "m.gguf", fit, backoff_step=4,
+        _popen=popen, _health=lambda u: state["n"] >= 3, _sleep=lambda s: None,
+    )
+    assert (r.n_gpu_layers, r.n_cpu_moe) == (16, 48)
+
+
+def test_start_runner_first_attempt_honors_the_plans_ncmoe():
+    # §1.7 hygiene: the old per-attempt `block_count - ngl` formula silently
+    # replaced the computed ncmoe on the very first spawn (fit says 21 → it ran 18).
+    fit = FitPlan(n_gpu_layers=30, n_cpu_moe=21, ctx_len=4096, block_count=30, is_moe=True)
+    r = start_runner(
+        "llama-server", "m.gguf", fit,
+        _popen=lambda argv, **k: _FakeProc(exit_code=None),
+        _health=lambda u: True, _sleep=lambda s: None,
+    )
+    assert (r.n_gpu_layers, r.n_cpu_moe) == (30, 21)
 
 
 def test_start_runner_raises_on_non_oom():
@@ -598,7 +638,8 @@ def test_start_runner_backs_off_on_oom_via_log(tmp_path):
     r = start_runner("llama-server", "m.gguf", _fit(), backoff_step=4, log_path=log_path,
                      _popen=popen, _health=lambda u: state["n"] >= 2, _sleep=lambda s: None)
     assert state["n"] == 2           # spawned twice: the log-tail OOM drove the retry
-    assert r.n_gpu_layers == 16      # 20 − 4
+    assert r.n_gpu_layers == 20      # a MoE raises ncmoe first — layers stay
+    assert r.n_cpu_moe == 4
 
 
 # ── 1b fit-by-omission: None fit knobs render nothing; ctx policy stays ours ──
@@ -673,9 +714,12 @@ def test_arch_arm_one_pool_moe_never_offloads_experts():
     assert plan.is_moe and plan.n_cpu_moe == 0
     explicit = compute_fit(moe, 14_000_000_000, igpu, Overrides(n_cpu_moe=16))
     assert explicit.n_cpu_moe == 16
-    # discrete keeps the two-pool default: layers that miss the GPU offload experts
+    # discrete keeps the two-pool default — since Phase 6's joint solve, a
+    # dims-less MoE that can't fit whole sends ALL experts to RAM (offload is
+    # the cheap knob) and walks layers by physics.
     discrete = compute_fit(moe, 14_000_000_000, _hw(vram_mb=8192))
-    assert discrete.n_cpu_moe == max(0, 30 - discrete.n_gpu_layers)
+    assert discrete.n_cpu_moe == 30
+    assert 0 < discrete.n_gpu_layers < 30
 
 
 def test_arch_arm_one_pool_booking_never_exceeds_ledger():

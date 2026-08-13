@@ -267,6 +267,53 @@ def test_estimate_guards_degenerate_negative_slope():
     assert hi == lo
 
 
+# ── Phase 6: the joint MoE solve + the §13.9 measured-marginal pin ────────────
+
+def test_expert_layer_marginal_matches_measured():
+    """§13.9 — JW docs/dev/measured-performance.md records ≈0.41 GB VRAM freed
+    per expert layer moved to RAM (the 26B ncmoe sweep, measured BEFORE the
+    redesign existed). The physics' central term — size × expert_share ÷
+    layers — must agree within ~15%. Derived through the real functions, not
+    re-typed arithmetic, so a drifted moe_gpu_size_share fails here."""
+    size_mb, layers, share = 14249.047104, 30, 0.9388753056
+    at = lambda nc: fit.physics_vram_mb(  # noqa: E731 — tiny local probe
+        size_mb=size_mb, n_layers=layers, gpu_layers=layers,
+        moe_share=fit.moe_gpu_size_share(
+            n_layers=layers, gpu_layers=layers, n_cpu_moe=nc, expert_share=share),
+        kv_mb=0.0, overhead_mb=0.0)
+    per_layer_gb = (at(20) - at(21)) / 1000.0
+    assert abs(per_layer_gb - 0.446) < 0.002          # the physics number itself
+    assert abs(per_layer_gb - 0.41) / 0.41 <= 0.15    # vs the measured 0.41
+
+
+def test_moe_joint_split_walks_the_smallest_fitting_ncmoe():
+    # The 26B shape on the margined 8 GB budget (draft already charged by the
+    # caller): all 30 layers stay on the GPU and just enough experts leave.
+    args = dict(size_mb=14249.0, n_layers=30, expert_share=0.9389,
+                kv_mb=440.4, overhead_mb=fit.PHYSICS_OVERHEAD_MB["cuda"])
+    ngl, nc = fit.moe_joint_split(budget_mb=6782.0, **args)
+    assert ngl == 30 and 21 <= nc <= 23
+    # A roomier budget needs fewer experts off; a 24 GB card needs none.
+    _, nc_roomy = fit.moe_joint_split(budget_mb=10000.0, **args)
+    assert nc_roomy < nc
+    assert fit.moe_joint_split(budget_mb=23000.0, **args) == (30, 0)
+
+
+def test_moe_joint_split_falls_back_to_layer_shed():
+    # Non-expert bytes + KV alone exceed the budget → all experts to RAM AND
+    # layers walk down through the same physics (never a stuck full pin).
+    ngl, nc = fit.moe_joint_split(
+        size_mb=14249.0, n_layers=30, expert_share=0.9389, kv_mb=440.4,
+        overhead_mb=fit.PHYSICS_OVERHEAD_MB["cuda"], budget_mb=2200.0)
+    assert nc == 30 and 0 <= ngl < 30
+    # A dims-less MoE header (expert_share 0) has nothing to strip: the walk
+    # is flat, so the fallback sheds layers directly.
+    ngl0, nc0 = fit.moe_joint_split(
+        size_mb=10000.0, n_layers=10, expert_share=0.0, kv_mb=73.4,
+        overhead_mb=fit.PHYSICS_OVERHEAD_MB["cuda"], budget_mb=7168.0)
+    assert (ngl0, nc0) == (5, 10)
+
+
 # ── Phase 3: the decode-speed model (fit-redesign §5.5 corrected + §13.8) ─────
 
 

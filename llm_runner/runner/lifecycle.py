@@ -2918,6 +2918,12 @@ class RunnerService:
         POST itself (a 4xx: unknown id / at `models-max`) is NOT an OOM — it propagates out of here
         as the load error. Caller holds `_router_lock`."""
         ngl = fit.n_gpu_layers
+        # The shed tracks BOTH knobs (fit-redesign §5.7): a MoE OOM raises ncmoe
+        # first (expert bytes leave the GPU, attention + KV stay); ngl sheds only
+        # once ncmoe is maxed. Start from the entry's own value — a tune's ncmoe
+        # (e.g. 21) must never be silently replaced by a derived one (§1.7's
+        # 21 → 4-at-ngl-26 regression, strictly worse each retry).
+        ncmoe = entry.n_cpu_moe if entry.n_cpu_moe is not None else fit.n_cpu_moe
         draft_solo_tried = False     # cheap recovery: unloaded co-residents to load the draft solo
         draft_restart_tried = False  # last resort: restarted the engine to load the draft alone
         while True:
@@ -3061,14 +3067,20 @@ class RunnerService:
                     f"tune. Otherwise the draft may be corrupt (re-download it) or you can turn MTP "
                     f"off. Details: {tail[-400:]}"
                 )
-            if ngl > 0 and _looks_like_oom(tail):
-                ngl = max(0, ngl - _BACKOFF_STEP)
-                n_cpu_moe = max(0, fit.block_count - ngl) if fit.is_moe else entry.n_cpu_moe
-                log.warning("router child %s OOM (%s) — re-emit at ngl=%d + reload",
-                            entry.model_id, outcome, ngl)
+            can_raise_ncmoe = fit.is_moe and (ncmoe or 0) < fit.block_count
+            if (ngl > 0 or can_raise_ncmoe) and _looks_like_oom(tail):
+                if can_raise_ncmoe:
+                    ncmoe = min(fit.block_count, (ncmoe or 0) + _BACKOFF_STEP)
+                    log.warning("router child %s OOM (%s) — raising n-cpu-moe to %d "
+                                "(ngl stays %d) + reload",
+                                entry.model_id, outcome, ncmoe, ngl)
+                else:
+                    ngl = max(0, ngl - _BACKOFF_STEP)
+                    log.warning("router child %s OOM (%s) — re-emit at ngl=%d + reload",
+                                entry.model_id, outcome, ngl)
                 entry = ModelIniEntry(
                     model_id=entry.model_id, gguf_path=entry.gguf_path, n_gpu_layers=ngl,
-                    n_cpu_moe=n_cpu_moe, ctx_len=entry.ctx_len, overrides=entry.overrides,
+                    n_cpu_moe=ncmoe, ctx_len=entry.ctx_len, overrides=entry.overrides,
                     embeddings=entry.embeddings, pooling=entry.pooling,
                     load_on_startup=entry.load_on_startup,
                 )

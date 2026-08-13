@@ -271,12 +271,13 @@ corrected speed constants §5.5 + Appendix B, the reasoning record
 §8.23 = verdicts inform never gate, the picker veto dies in Phase 3 per §13.16).
 EXECUTE AGAINST THE PLAN, do not re-derive. Each phase needs its own literal "go".
 
-**STATUS NOW (2026-08-13 end of session — READ THIS FIRST on resume):**
-- **Phases 0–5 are BUILT, GATED, COMMITTED, PUSHED.** The per-phase records
+**STATUS NOW (2026-08-13 — READ THIS FIRST on resume):**
+- **Phases 0–6 are BUILT, GATED, COMMITTED, PUSHED.** The per-phase records
   below (in order: 0 · 1 · 2 · checkpoint round · 3 · polish · executor
   choices · checkpoint list · 4 · 5 · checkpoint walk round 1 · the
-  topology-aware probe) carry the full detail — what each phase changed,
-  why, the test lessons, the honest limits. Nothing is code-mid-flight.
+  topology-aware probe · 6) carry the full detail — what each phase
+  changed, why, the test lessons, the honest limits. Nothing is
+  code-mid-flight.
 - **THE CHECKPOINT WALK IS MID-STREAM (desktop round 1 done, fixes
   shipped).** State of the six points: (1) desktop chips — the walk CAUGHT
   the ~slow band lie; FIXED (the probe's own calibrated factor,
@@ -288,20 +289,13 @@ EXECUTE AGAINST THE PLAN, do not re-derive. Each phase needs its own literal "go
   RESOLVED on the desktop (19.01 row verified, calibrated); laptops when
   walked. (5) knobs round-trip OK per the user + the Save toast shipped
   on their ask. (6) the data reset DONE (JV + JW).
+- **Phase 6 BUILT on this session's "compact complete go"** (the joint MoE
+  solve + shed direction + physics draft charge + the §7.2/§13.9 gates —
+  the full record is the last per-phase entry below). The untuned computed
+  split now AGREES with the measured tunes (ngl=all, ncmoe 22 on the
+  author's class) instead of the inverse's ngl 8-9.
 - **NEXT = the user's restart + flagship re-check + Tune & measure flip ·
-  the laptops walk at their pace · then the Phase 6 go.**
-- **Phase 6 spec pointers (for its go):** plan §5.7 — shed direction fix
-  (`_router_load_with_backoff`: a MoE OOM at ngl=n_layers RAISES ncmoe
-  first, sheds ngl only after ncmoe maxes; fix the dormant start_runner
-  formula as hygiene) + the joint MoE solve in `compute_fit`'s MoE arm
-  (pin ngl = n_layers, walk the smallest ncmoe whose draft-charged
-  iSWA-KV physics estimate fits the budget) + §7.2's acceptance gate (the
-  5 measured rows of §1.9 reproduced within tolerance: 26B@8GB ncmoe ∈
-  [21,23] at ctx 32768 with draft; 26B@igpu-mem32 ncmoe 0; 12B/E4B full
-  offload) + §13.9's pinned test (physics 0.446 vs measured 0.41 GB/layer,
-  ~15% tolerance). Phase 6 also retires the draft charge from the
-  regression's marginal_vram_mb to physics (the Phase 1 note: "Phase 6
-  owns both").
+  the laptops walk at their pace · then the Phase 7 go.**
 - **Phase 7 spec pointers:** §7.3 the uncurated-path acceptance test
   (fresh DB, no seeds, hand-added MoE by link on simulated 8/32 boxes,
   fake HF fixtures) · §7.4-as-ranking (evidence-keyed recommendation
@@ -666,6 +660,68 @@ user's data reset) — the stage record:
   · preview_fit claim (computed + declared arms) · embed-leftover ladder
   (computed arm + resident arm win) — declared-arm pins kept via
   seed_cache=False.
+- PHASE 6 BUILT 2026-08-13 (go: "compact complete go" — the next phase in
+  §11's order after the compact) — the joint MoE solve + the shed direction
+  + the physics draft charge + the §7.2/§13.9 gates. The build:
+  (a) THE JOINT SOLVE (§5.7): `fit.moe_joint_split` (pure, tiny monotone
+  loop) — pin ngl = n_layers, walk the SMALLEST ncmoe whose forward
+  physics estimate (iSWA-KV, draft-charged budget) fits; expert offload is
+  the cheap knob (≈0.45 GB/layer on the 26B — §13.9's measured 0.41),
+  shedding a layer moves attention + KV too. Nothing fits even at
+  ncmoe=n_layers → experts stay in RAM and ngl walks DOWN through the same
+  physics. compute_fit's untuned two-pool MoE arm calls it; explicit
+  overrides win untouched; a MoE with a tuned ncmoe-only keeps the old
+  derived ngl rule. Consumers inherited for free (reservation, preview/
+  Tune "Computed for this PC" rows, 1b-F4 retry, autotune anchors) — the
+  displayed split IS the good one now (the Apply trap §5.7 named is dead).
+  (b) PHYSICS-FULL-FIRST for every other untuned arm (dense, one-pool,
+  ncmoe-pinned): if the full-offload physics fits the budget → ngl = all;
+  else the fitted inverse exactly as before (partial dense offload stays
+  the regression's fitted domain, §7.1). NEEDED for §7.2's 12B row: the
+  fitted inverse's uniform KV projection prices iSWA KV ~9× over at 32k
+  ctx (6.3 GB projected vs 436 MB real) and stranded 11 layers a 12 GB
+  card holds (computed 37/48 where physics says all 48 fit).
+  (c) DRAFT CHARGE → PHYSICS (the Phase 1 note "Phase 6 owns both",
+  executed): the draft's whole file + its exact KV at our ctx, no base
+  offset (the main model pays the backend overhead once); main-on-CPU →
+  the solo draft pays the overhead itself. `fit.marginal_vram_mb` (the
+  regression's fitted marginal — a −18 MB/layer credit and embedding-
+  ratio slope with nothing to say about a 4-layer draft) has no callers
+  left in compute_fit. KV + overhead are HOISTED above the split — the
+  solve, the charge and the booking read the same two numbers (one
+  source, computed once).
+  (d) SHED DIRECTION (§1.7 fixed): `_router_load_with_backoff` — a MoE
+  child's OOM RAISES n-cpu-moe by the step (ngl stays; the tracked ncmoe
+  starts from the ENTRY's value so a tune's 21 is never replaced by a
+  derived number); ngl sheds only once ncmoe = block_count; dense
+  unchanged. The dormant `start_runner` mirror got the same direction AND
+  the first-attempt fix (it recomputed `block_count − ngl` on EVERY
+  attempt incl. #1, silently discarding the plan's computed ncmoe).
+  (e) GATES AS TESTS: tests/test_fit_acceptance.py = §7.2's five-row
+  measured gate on the REAL seeded physics facts (26B@vram8|ram32 with
+  draft at ctx 32768 → ngl 30, ncmoe ∈ [21,23] — computed lands 22;
+  26B@igpu-mem32 → ncmoe 0 ngl 30; 12B@vram12 → full 48/48; E4B@
+  igpu-mem16 → full 42/42) + the HONEST NEGATIVE: 12B@vram8 stays
+  partial at server ctx 32768 — its "ngl 99 · 39.1 tok/s" row was
+  llama-bench (NO -c flag, §13.13), and 6716 weights + 436 KV + 1516
+  overhead genuinely exceed the margined 7168 budget; the plan's
+  "12B full offload" is pinned on the class where physics says it fits
+  (the seeds pin ngl 99 there too). §13.9's
+  test_expert_layer_marginal_matches_measured derives 0.446 GB/layer
+  through the real functions vs the measured 0.41 (9%, inside the 15%
+  band). Joint-solve unit tests (smallest-nc walk, roomier budget →
+  fewer offloaded, fallback shed, dims-less flat-walk).
+  RE-PINS (each an intended behavior change, not a fix-up): the 10 GB
+  dims-less MoE literal (4, 6, 4096, 5545) → (5, 10, 4096, 6553) — a
+  share-0 header can't credit expert stripping, so ALL experts offload
+  and layers walk by physics; discrete untuned MoE ncmoe = n_layers −
+  ngl → n_layers; start_runner OOM tests now assert ncmoe-first.
+  Gates: kit ruff clean + 843 passed/10 skipped (was 832; +11) · JW
+  test:fast 128 · JV server 469. No renderer files touched → smoke not
+  required (the Phase 1 precedent). USER DOCS: checked models.md — the
+  "Computed for this PC" rows and the backs-off line are described
+  generically and stay TRUE (the values just got better); no stated fact
+  went stale, and the fit docs pass remains §7.6's (Phase 7).
 Downstream: JV's VRAM wiring is UNBLOCKED as of Phase 5 (2026-08-13) — both its
 claim-line sources now exist (the persisted-measured arm + the physics computed
 arm, resolved through preview_fit; claim shape {vramMb, ramMb} + provenance per

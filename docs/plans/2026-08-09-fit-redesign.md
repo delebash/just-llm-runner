@@ -538,7 +538,11 @@ within the calibrated band (dense-CUDA is its fitted domain; out-of-domain use i
 this plan removes).
 
 **7.2 The 5-row measured gate** — computed placement reproduces §1.9's measured rows
-(placement knobs only). FAILS TODAY BY DESIGN (ngl 99 vs computed 8-9) until Phase 6.
+(placement knobs only). Failed by design (ngl 99 vs computed 8-9) until Phase 6 —
+BUILT 2026-08-13 as `tests/test_fit_acceptance.py` (checked at each tune's own ctx;
+the 12B full-offload pin sits on the vram12 class per §13.13 — its vram8 "ngl 99"
+row was llama-bench, and the physics honestly says partial there; pinned as the
+honest negative).
 
 **7.3 The uncurated-path acceptance test** — fresh DB, NO seed rows, hand-add a MoE by
 link on a simulated 8 GB/32 GB box (fake HF via fixtures): assert the badge, floors, ctx,
@@ -837,6 +841,32 @@ Tune & measure flip test · the laptops walk (items 2/3 + their probe rows)
 · then Phase 6 (shed direction → joint MoE solve → the 5-row measured gate)
 and Phase 7 (evidence-keyed precedence · the uncurated-path acceptance test
 · the docs pass · the JV handoff), each on its own go.
+**Phase 6 BUILT 2026-08-13** (go: "compact complete go" — §11's next phase;
+full stage detail in the kit tracker's fit item). The shape: §5.7 executed
+whole — `fit.moe_joint_split` (ngl pinned at n_layers, smallest physics-
+fitting ncmoe, draft-charged iSWA-KV budget; no-fit → experts stay in RAM
+and ngl walks down the same physics) drives compute_fit's untuned two-pool
+MoE arm; every other untuned arm goes PHYSICS-FULL-FIRST (full offload when
+the physics fits, else the fitted inverse on its dense-partial domain —
+required by §7.2's 12B row: the inverse's uniform KV projection prices iSWA
+KV ~9× over at 32k and computed 37/48 on a card that holds all 48); the
+draft charge moved off `marginal_vram_mb` to physics (whole draft file +
+exact KV, no base offset; a solo draft pays the backend overhead itself);
+the router OOM shed raises ncmoe FIRST from the ENTRY's own value (a tuned
+21 is never replaced by a derived number), sheds ngl only once ncmoe maxes,
+and the dormant start_runner mirror also honors the plan's ncmoe from
+attempt #1 (§1.7's both fixes). GATES AS TESTS: §7.2's five-row gate on the
+REAL seeded facts (26B@8|32 with draft at ctx 32768 → ngl 30 / ncmoe 22 ∈
+[21,23]; igpu-mem32 → 30/0; 12B@vram12 → 48/48; E4B@igpu-mem16 → 42/42)
+PLUS the honest negative — 12B@vram8 stays partial at server ctx because
+its measured "ngl 99" row was llama-bench (no -c, §13.13) and the physics
+genuinely exceeds the margined budget; the full-offload pin lives on the
+class whose physics affords it (the seeds pin ngl 99 there too). §13.9's
+0.41-GB/layer pin lands (physics 0.446 via the real functions, 9% off,
+15% band). Literal re-pins recorded in the tracker (each an intended
+change). Gates: kit ruff + 843/10 (+11) · JW test:fast 128 · JV server 469
+· no renderer files → smoke not required. models.md checked — nothing
+stated went stale; the fit docs pass stays §7.6's (Phase 7).
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

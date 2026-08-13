@@ -678,6 +678,43 @@ def test_router_load_oom_backoff(tmp_path):
     assert "n-gpu-layers = 12" in _ini(svc)     # 20 → 16 → 12 (step 4)
 
 
+def test_router_moe_oom_raises_ncmoe_before_shedding_layers(tmp_path):
+    # The §5.7 shed direction, router edition: a MoE child's OOM raises n-cpu-moe by
+    # the step (expert bytes leave the GPU; the layers — attention + KV — stay at
+    # their tuned ngl). The old formula replaced a tuned ncmoe with the derived
+    # `block_count - ngl` AND shed layers, strictly worse each retry (§1.7).
+    posts = {"n": 0}
+
+    def failed_until_third(url):
+        value = "loaded" if posts["n"] >= 3 else "failed"
+        return {"object": "list", "data": [{"id": _TEST_MODEL.id, "status": {"value": value}}]}
+
+    paths = {}
+
+    def oom_router(*a, **k):
+        paths["log"] = k.get("log_path")
+        return _fake_router()
+
+    def oom_load(url, mid):
+        posts["n"] += 1
+        lp = paths.get("log")
+        if lp:
+            Path(lp).parent.mkdir(parents=True, exist_ok=True)
+            with open(lp, "a", encoding="utf-8") as f:
+                f.write("CUDA error: out of memory\n")
+
+    svc = _service_for(tmp_path, start_router=oom_router,
+                       router_load=oom_load, router_models=failed_until_third)
+    svc._read_meta = lambda p: SimpleNamespace(
+        block_count=24, embedding_length=2048, is_moe=True, n_kv_heads=8)
+    svc.load(_TEST_MODEL.id, overrides=Overrides(n_gpu_layers=20, n_cpu_moe=4))
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    assert posts["n"] == 3
+    assert "n-gpu-layers = 20" in _ini(svc)     # layers NEVER shed while ncmoe has room
+    assert "n-cpu-moe = 12" in _ini(svc)        # 4 → 8 → 12 (step 4)
+
+
 def test_non_oom_failure_does_not_shed_or_bounce(tmp_path):
     # A `failed` with NO OOM in the spawn log (a bad flag / corrupt GGUF) must fail FAST:
     # shedding can't fix it and a bounce would knock down healthy co-resident models. So the

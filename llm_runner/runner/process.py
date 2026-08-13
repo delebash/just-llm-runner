@@ -432,61 +432,121 @@ def compute_fit(
         ctx_len = min(candidates)
         ctx_explicit = False
 
+    # The main model's exact KV at the chosen ctx + the backend overhead seed —
+    # hoisted ABOVE the split (Phase 6): the joint solve, the draft charge and the
+    # booking all consume the same two numbers now (one source, computed once).
+    # KV: iSWA models keep their per-layer-window exact source (`kv_mb_at_ctx`);
+    # every other model gets exact KV via `kv_exact_mb` (§5.1's one-KV-source).
+    # getattr-guarded: tests + duck-typed callers pass minimal meta objects.
+    kv_fn = getattr(meta, "kv_mb_at_ctx", None)
+    kv_mb = kv_fn(ctx_len, cache_type) if callable(kv_fn) else None
+    if kv_mb is None:
+        kv_mb = fit.kv_exact_mb(
+            n_layers=n_layers, n_kv_heads=n_kv_heads, ctx_size=ctx_len,
+            cache_type=cache_type,
+            key_length=getattr(meta, "key_length", 0),
+            value_length=getattr(meta, "value_length", 0),
+            embedding_dim=meta.embedding_length,
+            head_count=getattr(meta, "head_count", 0),
+        )
+    overhead_mb = fit.PHYSICS_OVERHEAD_MB.get(
+        active_backend(hardware), fit.PHYSICS_OVERHEAD_MB["cuda"])
+    share_fn = getattr(meta, "expert_byte_share", None)
+    expert_share = share_fn() if (meta.is_moe and callable(share_fn)) else 0.0
+
     # The speculative-decode DRAFT's share of the budget, taken BEFORE the main split.
-    # `marginal_vram_mb` drops the regression's per-in-use-GPU base offset — the main
-    # model already pays that once — while keeping the draft's weights AND its KV at
-    # our chosen ctx. ctx itself was picked against the UNdiminished budget just above
-    # (one pass, no iteration): that leaves the ctx choice slightly optimistic — and note
-    # `kv_affordable`'s _KV_CTX_SHARE now effectively covers main + draft KV together
-    # rather than main alone — which the spawn probe-and-back-off nets, per this
-    # function's docstring. A CPU-only box (budget 0) has no GPU to charge, so the term
-    # is a no-op there.
+    # PHYSICS-CHARGED since Phase 6 (§5.7 retired the regression's `marginal_vram_mb`
+    # here — its fitted per-layer −18 MB credit and embedding-ratio slope have nothing
+    # to do with a 4-layer draft): the draft's whole file + its exact KV at our chosen
+    # ctx. No base offset — the main model pays the backend overhead once. ctx itself
+    # was picked against the UNdiminished budget just above (one pass, no iteration):
+    # that leaves the ctx choice slightly optimistic, which the spawn
+    # probe-and-back-off nets, per this function's docstring. A CPU-only box
+    # (budget 0) has no GPU to charge, so the term is a no-op there.
+    # We emit no `-ngld`, whose default is `auto` — read from the INSTALLED b10068
+    # `--help` (the PIN is b9993, config.py:49; not re-read there, and upstream's
+    # server README agrees) — so the engine sizes the draft's offload itself. Charge
+    # ALL its bytes anyway: over-reserving costs a main expert layer at worst,
+    # under-reserving is what OOMs. Same build shows NO draft-specific context flag,
+    # so the draft rides our chosen ctx.
     draft_marginal_mb = 0.0
     draft_full_mb = 0.0
     if draft_meta is not None and budget_mb > 0:
         d_layers = max(1, draft_meta.block_count)
-        d_kw = dict(
-            size_mb=draft_bytes / 1e6,
-            n_layers=d_layers,
-            n_kv_heads=draft_meta.n_kv_heads or max(1, draft_meta.embedding_length // 128),
-            embedding_dim=draft_meta.embedding_length,
-            ctx_size=ctx_len,
-            cache_type=cache_type,
-            # We emit no `-ngld`, whose default is `auto` — read from the INSTALLED
-            # b10068 `--help` (the PIN is b9993, config.py:49; not re-read there, and
-            # upstream's server README agrees) — so the engine sizes the draft's offload
-            # itself. Charge ALL its layers anyway: over-reserving costs a main layer at
-            # worst, under-reserving is what OOMs. Same build shows NO draft-specific
-            # context flag, so the draft rides our chosen ctx.
-            gpu_layers=d_layers,
-        )
-        draft_marginal_mb = fit.marginal_vram_mb(**d_kw)
-        draft_full_mb = fit.estimate_vram_mb(**d_kw)
+        d_kv_fn = getattr(draft_meta, "kv_mb_at_ctx", None)
+        d_kv = d_kv_fn(ctx_len, cache_type) if callable(d_kv_fn) else None
+        if d_kv is None:
+            d_kv = fit.kv_exact_mb(
+                n_layers=d_layers,
+                n_kv_heads=draft_meta.n_kv_heads or max(1, draft_meta.embedding_length // 128),
+                ctx_size=ctx_len, cache_type=cache_type,
+                key_length=getattr(draft_meta, "key_length", 0),
+                value_length=getattr(draft_meta, "value_length", 0),
+                embedding_dim=draft_meta.embedding_length,
+                head_count=getattr(draft_meta, "head_count", 0),
+            )
+        draft_marginal_mb = draft_bytes / 1e6 + d_kv
+        # Main fully on CPU → the draft is the GPU's only tenant and pays the
+        # backend overhead itself (the base the main model would otherwise carry).
+        draft_full_mb = draft_marginal_mb + overhead_mb
     main_budget_mb = max(0.0, budget_mb - draft_marginal_mb)
 
-    if ov.n_gpu_layers is not None:
-        n_gpu = max(0, min(n_layers, ov.n_gpu_layers))
-    else:
-        # oobabooga's fitted GGUF VRAM formula → the most GPU layers that fit.
-        n_gpu = fit.max_gpu_layers(
-            size_mb=total_weight_bytes / 1e6,
-            n_layers=n_layers,
-            n_kv_heads=n_kv_heads,
-            embedding_dim=meta.embedding_length,
-            ctx_size=ctx_len,
-            cache_type=cache_type,
-            vram_budget_mb=main_budget_mb,
+    # THE SPLIT. Explicit overrides win untouched. The untuned two-pool MoE arm is
+    # Phase 6's JOINT SOLVE (§5.7): ngl pinned at n_layers, the smallest ncmoe whose
+    # physics estimate fits — replacing the regression inverse, which computed ngl 8-9
+    # on models every measured tune runs at ngl=all (§1.9: 10 of 13 rows pin ngl 99).
+    # Every other untuned arm (dense, one-pool, MoE with a tuned ncmoe) checks
+    # physics-at-full-offload FIRST — the fitted inverse's uniform KV projection
+    # overbooks iSWA models ~9× at big ctx and strands layers a card holds (the §7.2
+    # 12B row: full offload on vram12 is the physics truth; the inverse said 37) —
+    # and only falls back to the inverse when full offload genuinely doesn't fit
+    # (partial dense offload stays the regression's fitted domain, §7.1).
+    joint = (
+        meta.is_moe and not one_pool
+        and ov.n_gpu_layers is None and ov.n_cpu_moe is None
+    )
+    if joint:
+        n_gpu, n_cpu_moe = fit.moe_joint_split(
+            size_mb=total_weight_bytes / 1e6, n_layers=n_layers,
+            expert_share=expert_share, kv_mb=kv_mb, overhead_mb=overhead_mb,
+            budget_mb=main_budget_mb,
         )
-
-    if ov.n_cpu_moe is not None:
-        n_cpu_moe = max(0, ov.n_cpu_moe)
-    elif one_pool:
-        # One pool: expert "offload" moves bytes from the pool to the pool — the
-        # Core Ultra 7 ncmoe sweep (0/8/16/24) measured it as pure loss and the
-        # seeded igpu tune pins 0. The computed default agrees now (§5.2).
-        n_cpu_moe = 0
     else:
-        n_cpu_moe = max(0, n_layers - n_gpu) if meta.is_moe else 0
+        if ov.n_gpu_layers is not None:
+            n_gpu = max(0, min(n_layers, ov.n_gpu_layers))
+        else:
+            nc_pinned = max(0, ov.n_cpu_moe) if ov.n_cpu_moe is not None else 0
+            full_mb = fit.physics_vram_mb(
+                size_mb=total_weight_bytes / 1e6, n_layers=n_layers,
+                gpu_layers=n_layers,
+                moe_share=fit.moe_gpu_size_share(
+                    n_layers=n_layers, gpu_layers=n_layers, n_cpu_moe=nc_pinned,
+                    expert_share=expert_share,
+                ),
+                kv_mb=kv_mb, overhead_mb=overhead_mb,
+            )
+            if main_budget_mb > 0 and full_mb <= main_budget_mb:
+                n_gpu = n_layers
+            else:
+                # oobabooga's fitted formula → the most GPU layers that fit.
+                n_gpu = fit.max_gpu_layers(
+                    size_mb=total_weight_bytes / 1e6,
+                    n_layers=n_layers,
+                    n_kv_heads=n_kv_heads,
+                    embedding_dim=meta.embedding_length,
+                    ctx_size=ctx_len,
+                    cache_type=cache_type,
+                    vram_budget_mb=main_budget_mb,
+                )
+        if ov.n_cpu_moe is not None:
+            n_cpu_moe = max(0, ov.n_cpu_moe)
+        elif one_pool:
+            # One pool: expert "offload" moves bytes from the pool to the pool — the
+            # Core Ultra 7 ncmoe sweep (0/8/16/24) measured it as pure loss and the
+            # seeded igpu tune pins 0. The computed default agrees now (§5.2).
+            n_cpu_moe = 0
+        else:
+            n_cpu_moe = max(0, n_layers - n_gpu) if meta.is_moe else 0
 
     # GPU-resident VRAM for the chosen split — the SAME fitted formula run forward (cost of n_gpu)
     # rather than inverse (max layers for a budget). The VRAM arbiter reserves this (P2). A
@@ -513,33 +573,16 @@ def compute_fit(
         # PHYSICS BOOKING (fit-redesign Phase 1, §5.1): the forward reservation is
         # first-principles — device weights (placement share) + exact KV riding the
         # offloaded layers + the backend overhead seed — replacing the fitted
-        # regression, which stays as the CI oracle (§7.1) and as the inverse chooser
-        # above (Phase 6's joint solve replaces that). KV: iSWA models keep their
-        # per-layer-window exact source (`kv_mb_at_ctx`); every OTHER model now gets
-        # exact KV too via `kv_exact_mb` (§5.1's one-KV-source generalization) —
-        # the fitted KV term no longer speaks anywhere in the booking.
-        # getattr-guarded like `context_length` above: tests + duck-typed callers
-        # pass minimal meta objects without the 2026-07-24 methods.
-        share_fn = getattr(meta, "expert_byte_share", None)
-        kv_fn = getattr(meta, "kv_mb_at_ctx", None)
+        # regression, which stays as the CI oracle (§7.1) and as the partial-dense
+        # inverse above. `kv_mb`/`overhead_mb` are the hoisted one-source values the
+        # split already consumed.
         moe_share = fit.moe_gpu_size_share(
             n_layers=n_layers, gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe,
-            expert_share=share_fn() if (meta.is_moe and callable(share_fn)) else 0.0,
+            expert_share=expert_share,
         )
-        kv_mb = kv_fn(ctx_len, cache_type) if callable(kv_fn) else None
-        if kv_mb is None:
-            kv_mb = fit.kv_exact_mb(
-                n_layers=n_layers, n_kv_heads=n_kv_heads, ctx_size=ctx_len,
-                cache_type=cache_type,
-                key_length=getattr(meta, "key_length", 0),
-                value_length=getattr(meta, "value_length", 0),
-                embedding_dim=meta.embedding_length,
-                head_count=getattr(meta, "head_count", 0),
-            )
         booked = fit.physics_vram_mb(
             size_mb=total_weight_bytes / 1e6, n_layers=n_layers, gpu_layers=n_gpu,
-            moe_share=moe_share, kv_mb=kv_mb,
-            overhead_mb=fit.PHYSICS_OVERHEAD_MB.get(active_backend(hardware), fit.PHYSICS_OVERHEAD_MB["cuda"]),
+            moe_share=moe_share, kv_mb=kv_mb, overhead_mb=overhead_mb,
         )
         if one_pool:
             # The arbiter's ledger is still the carve-out figure until Phase 4 makes
@@ -916,6 +959,10 @@ def start_runner(
     health = _health or _default_health
     url = f"http://{host}:{port}"
     n_gpu = fit.n_gpu_layers
+    # The plan's own split, honored from attempt #1 (fit-redesign §1.7 hygiene: the
+    # old per-attempt `block_count - ngl` formula silently discarded the computed
+    # ncmoe on the FIRST spawn and reduced expert offload on every shed).
+    n_cpu_moe = fit.n_cpu_moe if fit.is_moe else 0
     if log_path:
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -925,7 +972,6 @@ def start_runner(
     logf = open(log_path, "wb") if log_path else None
     try:
         while True:
-            n_cpu_moe = max(0, fit.block_count - n_gpu) if fit.is_moe else 0
             flags = compose_flags(
                 gguf_path, n_gpu, n_cpu_moe, fit.ctx_len, host, port, extra_flags,
                 overrides=overrides,
@@ -942,10 +988,21 @@ def start_runner(
             output = _tail_file(log_path) if log_path else _drain(proc)
             _kill(proc)
             _close_job(job)  # a failed spawn's job dies with its child
-            if n_gpu > 0 and _looks_like_oom(output):
-                n_gpu = max(0, n_gpu - backoff_step)
-                log.warning("llama-server OOM — backing off to ngl=%d", n_gpu)
-                continue
+            # SHED DIRECTION (fit-redesign §5.7): a MoE OOM raises n_cpu_moe first —
+            # each step frees an expert layer's bytes (~0.45 GB on the 26B) while
+            # keeping attention + KV on the GPU; shedding ngl moves those too and is
+            # strictly worse per retry. ngl sheds only once ncmoe is maxed (or the
+            # model is dense).
+            if _looks_like_oom(output):
+                if fit.is_moe and n_cpu_moe < fit.block_count:
+                    n_cpu_moe = min(fit.block_count, n_cpu_moe + backoff_step)
+                    log.warning("llama-server OOM — raising n-cpu-moe to %d (ngl stays %d)",
+                                n_cpu_moe, n_gpu)
+                    continue
+                if n_gpu > 0:
+                    n_gpu = max(0, n_gpu - backoff_step)
+                    log.warning("llama-server OOM — backing off to ngl=%d", n_gpu)
+                    continue
             status = "still running, killed on timeout" if rc is None else f"exit {rc}"
             where = f"  [log: {log_path}]" if log_path else ""
             raise RunnerStartError(

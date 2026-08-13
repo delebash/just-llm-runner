@@ -435,6 +435,49 @@ def physics_vram_mb(
     return weights + kv + max(0.0, overhead_mb)
 
 
+def moe_joint_split(
+    *, size_mb: float, n_layers: int, expert_share: float, kv_mb: float,
+    overhead_mb: float, budget_mb: float,
+) -> tuple[int, int]:
+    """(n_gpu_layers, n_cpu_moe) for an UNTUNED MoE on a two-pool box — the
+    Phase 6 joint solve (fit-redesign §5.7): pin ngl = n_layers and walk the
+    SMALLEST ncmoe whose forward physics estimate fits `budget_mb` (the caller
+    passes it draft-charged). Expert offload is the cheap knob — each step
+    frees `size × expert_share / n_layers` (≈0.45 GB/layer on the 26B, the
+    §13.9-measured 0.41) while keeping attention + KV on the device; shedding
+    a layer moves those too, which is why the old inverse (ngl 8-9 on the 26B)
+    never agreed with any measured tune (ngl=all, ncmoe 21). Nothing fits even
+    at ncmoe = n_layers → keep all experts in RAM and walk ngl DOWN through
+    the same physics (the spawn back-off nets residual error). Both walks are
+    monotone; a tiny loop, never a solver."""
+    n_layers = max(1, n_layers)
+    for nc in range(0, n_layers + 1):
+        share = moe_gpu_size_share(
+            n_layers=n_layers, gpu_layers=n_layers, n_cpu_moe=nc,
+            expert_share=expert_share,
+        )
+        need = physics_vram_mb(
+            size_mb=size_mb, n_layers=n_layers, gpu_layers=n_layers,
+            moe_share=share, kv_mb=kv_mb, overhead_mb=overhead_mb,
+        )
+        if need <= budget_mb:
+            return n_layers, nc
+        if expert_share <= 0:
+            break  # the walk is flat (no expert bytes to strip) — go shed layers
+    for g in range(n_layers - 1, -1, -1):
+        share = moe_gpu_size_share(
+            n_layers=n_layers, gpu_layers=g, n_cpu_moe=n_layers,
+            expert_share=expert_share,
+        )
+        need = physics_vram_mb(
+            size_mb=size_mb, n_layers=n_layers, gpu_layers=g,
+            moe_share=share, kv_mb=kv_mb, overhead_mb=overhead_mb,
+        )
+        if need <= budget_mb:
+            return g, n_layers
+    return 0, n_layers
+
+
 def max_gpu_layers(
     *, size_mb: float, n_layers: int, n_kv_heads: int, embedding_dim: int,
     ctx_size: int, cache_type: int, vram_budget_mb: float,

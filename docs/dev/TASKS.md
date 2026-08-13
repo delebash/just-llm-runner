@@ -488,8 +488,9 @@ user's data reset) — the stage record:
       probe-calibration item above — adjust bw_eff_host (a setting).
   (5) The Loaded-models knobs group shows margin · cap · RAM headroom ·
       the three band fields, and Save round-trips all of them.
-  (6) The user's data reset (JV required, JW recommended) happens before
-      or at this checkpoint — stale pre-facts rows misread until then.
+  (6) DONE 2026-08-13 (user: "jv and jw have been reset") — the data reset.
+      Both apps run on fresh seeds now (facts-not-floors rows, no legacy
+      rungs); docgen stays optional (self-heal covers its seeded rows).
 - PHASE 4 BUILT 2026-08-13 (go: "go phase 4"; the user chose to run it
   BEFORE the checkpoint — their sequencing call; the checkpoint's six
   items above stay open and now also cover the Memory-labeled budget

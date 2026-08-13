@@ -160,6 +160,23 @@ class ModelCatalog(LlmBase):
     # (#141 parity); written by identity (inspect + download) + the seed; null until
     # a header read supplies the layer count.
     est_vram_mb = Column(Integer, nullable=True)
+    # ── the physics FACTS (fit-redesign §13.11, Phase 2): immutable, config-
+    #    independent properties of the FILE, stored so every derived number
+    #    (floors, est, badge) can be computed FRESH at read — never cached.
+    #    Written by the same three writers as est_vram_mb (inspect, download
+    #    identify, seed refresh). 0 = header never read (fidelity falls back to
+    #    params×quant). The two `kv_*_bytes_per_token` scalars + `sliding_window`
+    #    reproduce `kv_mb_at_ctx` exactly:
+    #    KV(ctx,bits) = [Wb × min(ctx, window) + Gb × ctx] × bits/8  (§13.11). ──
+    block_count = Column(Integer, nullable=False, default=0)
+    n_kv_heads = Column(Integer, nullable=False, default=0)
+    head_count = Column(Integer, nullable=False, default=0)
+    embedding_length = Column(Integer, nullable=False, default=0)
+    expert_used_count = Column(Integer, nullable=False, default=0)
+    expert_byte_share = Column(Float, nullable=False, default=0.0)
+    kv_windowed_bytes_per_token = Column(Float, nullable=False, default=0.0)
+    kv_global_bytes_per_token = Column(Float, nullable=False, default=0.0)
+    sliding_window = Column(Integer, nullable=False, default=0)
     built_in = Column(Boolean, nullable=False, default=False)
     position = Column(Integer, nullable=False, default=0)
 
@@ -676,6 +693,16 @@ def session():
 _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("model_catalog", "mtp_builtin", "BOOLEAN NOT NULL DEFAULT 0"),
     ("model_catalog", "est_vram_mb", "INTEGER"),
+    # Fit-redesign Phase 2 (§13.11) — the physics facts, additive:
+    ("model_catalog", "block_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("model_catalog", "n_kv_heads", "INTEGER NOT NULL DEFAULT 0"),
+    ("model_catalog", "head_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("model_catalog", "embedding_length", "INTEGER NOT NULL DEFAULT 0"),
+    ("model_catalog", "expert_used_count", "INTEGER NOT NULL DEFAULT 0"),
+    ("model_catalog", "expert_byte_share", "REAL NOT NULL DEFAULT 0"),
+    ("model_catalog", "kv_windowed_bytes_per_token", "REAL NOT NULL DEFAULT 0"),
+    ("model_catalog", "kv_global_bytes_per_token", "REAL NOT NULL DEFAULT 0"),
+    ("model_catalog", "sliding_window", "INTEGER NOT NULL DEFAULT 0"),
     # U2-T2 (2026-07-14; the model_catalog `thinking` column died with the
     # tier system 2026-08-07 — an old DB's leftover column is unmapped, inert):
     ("engine_presets", "think", "BOOLEAN NOT NULL DEFAULT 0"),

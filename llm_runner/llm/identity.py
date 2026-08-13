@@ -61,6 +61,46 @@ def model_type_from_meta(meta: GgufMeta) -> str:
     return "moe" if meta.expert_count > 0 else "dense"
 
 
+def physics_facts_from_meta(meta: GgufMeta) -> dict:
+    """The PHYSICS FACTS (fit-redesign §13.11, Phase 2): immutable, config-
+    independent properties of the file, persisted so floors/est/badge compute
+    FRESH at read instead of being cached values that go stale. A stored fact may
+    be DERIVED (`expert_byte_share`, the KV scalars) but never config-dependent.
+
+    The two KV scalars + `sliding_window` collapse `kv_mb_at_ctx`'s per-layer
+    arrays into `KV(ctx,bits) = [Wb × min(ctx,window) + Gb × ctx] × bits/8` —
+    verified byte-identical to the loop (gguf.py:179-187), including the
+    `key_length_swa or key_length` fallback (baked into Wb here) and the uniform
+    case (no window pattern → Wb=0, every layer global)."""
+    n_layers = max(0, meta.block_count)
+    heads = meta.head_count_kv_per_layer
+    if len(heads) != n_layers:
+        heads = [meta.n_kv_heads] * n_layers
+    # Per-head dims, with the same fallbacks kv_exact_mb uses: header dims, else
+    # embedding/head_count, else 128 (the typical head_dim).
+    head_dim = (meta.embedding_length // meta.head_count) if (meta.head_count and meta.embedding_length) else 0
+    k_g = meta.key_length or head_dim or 128
+    v_g = meta.value_length or head_dim or 128
+    k_w = meta.key_length_swa or k_g
+    v_w = meta.value_length_swa or v_g
+    pattern = meta.sliding_window_pattern if (
+        meta.sliding_window > 0 and len(meta.sliding_window_pattern) == n_layers
+    ) else [False] * n_layers
+    wb = sum(heads[i] * (k_w + v_w) for i in range(n_layers) if pattern[i])
+    gb = sum(heads[i] * (k_g + v_g) for i in range(n_layers) if not pattern[i])
+    return {
+        "block_count": n_layers,
+        "n_kv_heads": int(meta.n_kv_heads or 0),
+        "head_count": int(meta.head_count or 0),
+        "embedding_length": int(meta.embedding_length or 0),
+        "expert_used_count": int(meta.expert_used_count or 0),
+        "expert_byte_share": float(meta.expert_byte_share()),
+        "kv_windowed_bytes_per_token": float(wb),
+        "kv_global_bytes_per_token": float(gb),
+        "sliding_window": int(meta.sliding_window or 0),
+    }
+
+
 def derived_fields_from_meta(meta: GgufMeta) -> dict:
     """The catalog facts grounded in one GGUF header read: capability `type`, the
     `mtp` flag, the trained context length, and the model's recommended sampler

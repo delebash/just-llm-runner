@@ -296,8 +296,27 @@ the physics gold pin (flagship config ∈ [6.5,7.9] GB measured window) · the
 §13.10 arch matrix slice · kv/physics units · one literal re-pin (6432→5545,
 the intended booking switch). Gates: ruff clean · kit 794 passed/10 skipped ·
 JW test:fast 128 (no renderer files touched — smoke not required).
-NEXT: Phase 2 go (facts-not-floors §13.11 + seeds regenerate + membership
-re-validation WITH the user + the snap retires).
+Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
+- A-1 DONE + committed: the nine facts columns on model_catalog (additive, in
+  _ADDED_COLUMNS) + `identity.physics_facts_from_meta` (Wb/Gb walk pinned
+  BYTE-IDENTICAL to kv_mb_at_ctx by test_physics_facts_reproduce_kv_mb_at_ctx).
+  Columns are DORMANT until A-2 wires writers — tracked in-flight state.
+- A-2 NEXT: writers write facts — set_derived (identity.py + stores.set_derived
+  signature) · inspect_model_from_link response + InspectResponse + CatalogRow
+  wire fields + the form PUT persists them · refresh-seed-facts emits them.
+- A-3: catalog RESPONSE computes min_vram/min_ram/est_vram FRESH from facts
+  (chat rows with block_count>0; EMBEDS keep curated §8.6; manifest-only →
+  params×quant as today). Canonical discrete floors: max-offload physics at
+  ref ctx 4096 (§8.21, seeded fact) + ram_headroom_mb seeded fact (§13.13).
+  est fresh at ref 8K (§8.20) — verify the embed-guard DECISION POINTS stay
+  unchanged (pin decisions, not the 17.7 number).
+- A-4: the Phase-0 snap in coarse_fit RETIRES (raw-to-raw) IN THE SAME CHANGE
+  as A-3 (raw floors) + display snap for the "Needs" line (ladders §8.15).
+- C: form floor INPUTS retire for chat rows (embeds keep); docs line (§7.6).
+- B: refresh-seed-facts regenerates BOTH app seeds (network; chat floors die,
+  facts land) → classMembership.test.js run → THE TABLE GOES TO THE USER
+  (its charter — Phase 2 cannot close without their blessing).
+Gates so far: ruff clean · 795 passed/10 skipped.
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

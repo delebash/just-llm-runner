@@ -126,6 +126,44 @@ def test_detect_dense_is_noop_when_already_dense(configured):
     assert _row(mid).type == "dense"
 
 
+def test_physics_facts_reproduce_kv_mb_at_ctx():
+    """§13.11's core claim, pinned: the two stored KV scalars + sliding_window
+    reproduce `kv_mb_at_ctx` BYTE-IDENTICALLY — [Wb×min(ctx,window) + Gb×ctx] ×
+    bits/8 — including per-layer head counts, the swa-dim fallback, and the
+    uniform case (Wb=0). If this drifts, stored facts stop being able to compute
+    KV and floors go silently low."""
+    iswa = GgufMeta(
+        architecture="gemma4", block_count=6, embedding_length=2816,
+        expert_count=128, head_count=16, head_count_kv=8,
+        key_length=256, value_length=256, key_length_swa=128, value_length_swa=128,
+        sliding_window=1024,
+        sliding_window_pattern=[True, True, False, True, True, False],
+        head_count_kv_per_layer=[8, 8, 4, 8, 8, 4],
+    )
+    facts = identity.physics_facts_from_meta(iswa)
+    for ctx in (512, 1024, 4096, 32768):
+        for bits in (8, 16):
+            exact = iswa.kv_mb_at_ctx(ctx, bits)
+            from_facts = (
+                facts["kv_windowed_bytes_per_token"] * min(ctx, facts["sliding_window"])
+                + facts["kv_global_bytes_per_token"] * ctx
+            ) * (bits / 8.0) / 1e6
+            assert exact is not None
+            assert abs(from_facts - exact) < 1e-9, (ctx, bits, from_facts, exact)
+    # Uniform model: no window pattern → Wb 0, every layer global.
+    uni = GgufMeta(architecture="llama", block_count=4, embedding_length=1024,
+                   expert_count=0, head_count=8, head_count_kv=8,
+                   key_length=128, value_length=128)
+    ufacts = identity.physics_facts_from_meta(uni)
+    assert ufacts["kv_windowed_bytes_per_token"] == 0.0
+    assert ufacts["sliding_window"] == 0
+    assert ufacts["kv_global_bytes_per_token"] == 4 * 8 * 256
+    # Facts mirror the meta's own share (0.0 for dense AND for a MoE header whose
+    # expert dims are absent — expert_byte_share's honest no-discount fallback).
+    assert ufacts["expert_byte_share"] == 0.0
+    assert facts["expert_byte_share"] == iswa.expert_byte_share()
+
+
 def test_derived_fields_from_meta():
     f = identity.derived_fields_from_meta(
         _meta_full(nextn=1, ctx=262144, sampling={"temp": 1.0, "top_k": 20, "penalty_repeat": 1.05})

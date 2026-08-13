@@ -13,10 +13,20 @@ the arbiter tracks a coarse last-use for LRU); co-reside additional models only 
 remaining budget allows, else swap the LRU.
 
 It USES `fit.py` (the VRAM estimate) + `hardware.py` (the one VRAM authority both apps read); it
-does NOT replace them. SHARED code: JW's runner is the only consumer today; in the future
-JV-convergence plan JV's `engines/manager.py` consults the SAME arbiter, so cross-kind (TTS↔LLM)
-budgeting is one in-process ledger with no IPC — but each app process holds its OWN instance
-(cross-APP arbitration is out of scope, design §7.2).
+does NOT replace them. SHARED code: JW's runner and — since the 2026-08-09 VRAM wiring — JV's
+`engines/manager.py` consult the SAME instance, so cross-kind (TTS↔STT↔LLM) budgeting is one
+in-process ledger with no IPC; each app process holds its OWN instance (cross-APP arbitration is
+out of scope, design §7.2).
+
+Cross-kind mechanics (the eviction-executor seam, JV vram-think §6 step 1): every reservation
+carries its `kind` ("llm" | "tts" | "stt") and an `evict_fn` — the OWNER's evictor, callable from
+any thread (the runner's re-acquires `_router_lock`, JV's takes the engine-manager locks). The
+shared `make_room` picks LRU non-pinned victims whose kind is neither protected nor BUSY and whose
+evict_fn exists, executes the owner's evictor outside the ledger lock, and releases on the attempt
+(the `_admit` termination lesson). Busy counters (`busy_begin`/`busy_end`) implement Q1's
+never-evict-busy invariant: a streaming chat protects "llm", an in-flight synth protects "tts", a
+transcription protects "stt". Count caps are kind-scoped (`count(kind=...)`) so a resident TTS
+engine never eats a `models_max` llama.cpp child slot (P5-3).
 
 The reservation VRAM is the GPU-RESIDENT portion (`fit.estimate_vram_mb` at the chosen ngl, carried
 on `FitPlan.vram_mb`), NOT the full weight size — a MoE offloads its experts to CPU RAM, so its VRAM
@@ -39,10 +49,21 @@ LIMITATIONS (recorded):
 
 from __future__ import annotations
 
+import logging
 import threading
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
+from typing import Callable
 
 from .hardware import detect as _detect, max_vram_mb as _hw_max_vram
+
+log = logging.getLogger(__name__)
+
+# A VRAM-driven eviction skips reservations holding less than this — evicting a
+# CPU-placed embed (~0–550 MB driver context) can't make a GPU model fit, but it
+# DOES kill a warm child someone wants resident (the 2026-07-11 lesson, moved
+# here from lifecycle so `make_room` and `_admit` share one threshold).
+EVICT_MIN_MB = 600
 
 
 @dataclass
@@ -50,6 +71,11 @@ class _Reservation:
     vram_mb: int
     pinned: bool
     seq: int  # monotonic use stamp — higher = more recently used (drives LRU eviction)
+    kind: str = "llm"  # owner kind: "llm" | "tts" | "stt" — drives busy protection + kind-scoped counts
+    # The OWNER's evictor — must be callable from ANY thread (it takes the owner's
+    # own locks). None = not evictable by `make_room` (foreign code has no safe way
+    # to unload it; the pre-seam ledger-corruption scenario, vram-think pass 3).
+    evict_fn: Callable[[], None] | None = field(default=None, compare=False)
 
 
 class VramArbiter:
@@ -64,6 +90,14 @@ class VramArbiter:
         self._reservations: dict[str, _Reservation] = {}
         self._seq = 0
         self._lock = threading.Lock()
+        # Busy counters per kind (never-evict-busy, Q1): >0 = an operation of
+        # that kind is in flight, so its residents are not eviction victims.
+        self._busy: dict[str, int] = {}
+        # Eviction event ring (newest last, capped) — the toast feed. Recorded
+        # by `make_room` and the runner's admission evictions; read by JV's
+        # GET /v1/engines/vram (events_since) so swaps surface as toasts.
+        self._events: list[dict] = []
+        self._event_seq = 0
 
     def _max_vram_mb(self, hw=None) -> int:
         return _hw_max_vram(hw or self._hardware_fn())
@@ -84,23 +118,38 @@ class VramArbiter:
         """Does a model needing `vram_mb` fit the remaining budget as-is (no eviction)?"""
         return vram_mb <= self.remaining_mb(hw)
 
-    def count(self) -> int:
-        """Number of reserved (resident) models — checked against `models_max`."""
+    def count(self, kind: str | None = None) -> int:
+        """Number of reserved (resident) models, optionally one kind's. The runner's
+        `models_max` cap checks `count(kind="llm")` — a resident TTS engine must not
+        eat a llama.cpp child slot (P5-3). `None` counts everything (back-compat)."""
         with self._lock:
-            return len(self._reservations)
+            if kind is None:
+                return len(self._reservations)
+            return sum(1 for r in self._reservations.values() if r.kind == kind)
 
     def is_reserved(self, key: str) -> bool:
         with self._lock:
             return key in self._reservations
 
-    def reserve(self, key: str, vram_mb: int, *, pinned: bool = False) -> bool:
+    def reserve(
+        self,
+        key: str,
+        vram_mb: int,
+        *,
+        pinned: bool = False,
+        kind: str = "llm",
+        evict_fn: Callable[[], None] | None = None,
+    ) -> bool:
         """Record (or replace) `key`'s VRAM reservation and mark it most-recently-used. A reserve
-        is an admission the caller has already made room for (via `can_coreside`/`pick_evict`); it
+        is an admission the caller has already made room for (via `can_coreside`/`make_room`); it
         always records, returning True. `pinned` protects it from eviction (the tiny always-resident
-        embed, P3)."""
+        embed, P3). `kind` tags the owner (busy protection + kind-scoped counts); `evict_fn` is the
+        owner's any-thread evictor — without one, `make_room` can never pick this reservation."""
         with self._lock:
             self._seq += 1
-            self._reservations[key] = _Reservation(vram_mb=max(0, vram_mb), pinned=pinned, seq=self._seq)
+            self._reservations[key] = _Reservation(
+                vram_mb=max(0, vram_mb), pinned=pinned, seq=self._seq, kind=kind, evict_fn=evict_fn
+            )
             return True
 
     def release(self, key: str) -> None:
@@ -128,7 +177,9 @@ class VramArbiter:
             for k, r in self._reservations.items():
                 r.pinned = k in keys
 
-    def pick_evict(self, exclude: str | None = None, min_mb: int = 0, among=None) -> str | None:
+    def pick_evict(
+        self, exclude: str | None = None, min_mb: int = 0, among=None, kind: str | None = None
+    ) -> str | None:
         """The least-recently-used NON-pinned reserved key, or None if nothing is evictable (empty,
         every reservation pinned, or only `exclude` remains). `exclude` keeps the model currently
         being (re)loaded from evicting itself.
@@ -140,30 +191,138 @@ class VramArbiter:
         0 (a child must go regardless of how little VRAM it holds).
 
         `among` (2026-07-12): restrict candidates to this key set — the embed-swap pass
-        evicts a REPLACED embed before anything else touches the chat model."""
+        evicts a REPLACED embed before anything else touches the chat model.
+
+        `kind` (2026-08-09): restrict candidates to one owner kind — the runner's count-cap
+        eviction only ever removes its OWN llama.cpp children, never a TTS/STT engine."""
         with self._lock:
             cands = [
                 (r.seq, k) for k, r in self._reservations.items()
                 if not r.pinned and k != exclude and r.vram_mb >= min_mb
                 and (among is None or k in among)
+                and (kind is None or r.kind == kind)
             ]
             return min(cands)[1] if cands else None
+
+    # ── busy protection (Q1's never-evict-busy) ───────────────────────────────
+
+    def busy_begin(self, kind: str) -> None:
+        """An operation of `kind` is in flight (a chat streaming, a line synthesizing,
+        a transcription running) — its residents are not eviction victims until the
+        matching `busy_end`. Counter semantics: overlapping operations stack."""
+        with self._lock:
+            self._busy[kind] = self._busy.get(kind, 0) + 1
+
+    def busy_end(self, kind: str) -> None:
+        with self._lock:
+            n = self._busy.get(kind, 0) - 1
+            if n > 0:
+                self._busy[kind] = n
+            else:
+                self._busy.pop(kind, None)
+
+    def busy_kinds(self) -> set[str]:
+        with self._lock:
+            return {k for k, n in self._busy.items() if n > 0}
+
+    # ── the shared admission executor (vram-think §6 step 1) ──────────────────
+
+    def make_room(
+        self,
+        needed_mb: int,
+        *,
+        exclude: str | None = None,
+        protected_kinds=(),
+        hardware=None,
+        min_mb: int = EVICT_MIN_MB,
+        reason: str = "",
+        self_kind: str | None = None,
+        self_evict: Callable[[str], None] | None = None,
+    ) -> bool:
+        """Evict LRU victims until `needed_mb` fits the remaining budget, or nothing
+        evictable remains — returns False then, and the CALLER decides
+        proceed-with-warning (the runner's MoE/fit-placed loads have spawn safety
+        nets) vs honest refusal (TTS/STT have none).
+
+        A victim must be non-pinned, hold >= `min_mb` (see `pick_evict`), be
+        evictable (carry an `evict_fn` — or belong to the CALLER's own `self_kind`,
+        whose `self_evict(key)` covers reservations recorded without one), and
+        belong to a kind that is neither in `protected_kinds` nor BUSY
+        (`busy_kinds` — the invariant is enforced here so no caller can forget it).
+        The owner's evictor runs OUTSIDE the ledger lock (it takes the owner's
+        locks); the reservation is released on the ATTEMPT, so the loop always
+        terminates (`_admit`'s 2026-07-06 lesson). `reason` names the beneficiary
+        for the eviction-event toast ("loading luxtts")."""
+        if needed_mb <= 0:
+            return True
+        hw = hardware if hardware is not None else self._hardware_fn()
+        while True:
+            if needed_mb <= self.remaining_mb(hw):
+                return True
+            protected = set(protected_kinds or ()) | self.busy_kinds()
+            with self._lock:
+                cands = [
+                    (r.seq, k, r) for k, r in self._reservations.items()
+                    if not r.pinned and k != exclude and r.vram_mb >= min_mb
+                    and r.kind not in protected
+                    and (r.evict_fn is not None
+                         or (self_evict is not None and r.kind == self_kind))
+                ]
+                victim = min(cands, key=lambda c: c[0]) if cands else None
+            if victim is None:
+                return False
+            _seq, key, res = victim
+            log.info("arbiter make_room: evict LRU %s (%s, %d MB)%s", key, res.kind,
+                     res.vram_mb, f" — {reason}" if reason else "")
+            try:
+                if res.evict_fn is not None:
+                    res.evict_fn()
+                else:
+                    self_evict(key)
+            except Exception:  # noqa: BLE001 — a failed unload usually means already gone
+                log.warning("arbiter make_room: evictor for %s failed", key, exc_info=True)
+            self.release(key)
+            self.record_eviction(key, res.kind, reason)
+
+    # ── eviction events (the toast feed, Q3: event-driven honesty) ────────────
+
+    def record_eviction(self, victim_key: str, victim_kind: str, reason: str = "") -> None:
+        """Append one eviction to the ring (cap 50). Called by `make_room` and by the
+        runner's own admission evictions so BOTH directions surface."""
+        with self._lock:
+            self._event_seq += 1
+            self._events.append({
+                "seq": self._event_seq,
+                "at": int(time.time()),
+                "victim_key": victim_key,
+                "victim_kind": victim_kind,
+                "reason": reason or "",
+            })
+            del self._events[:-50]
+
+    def events_since(self, seq: int = 0) -> list[dict]:
+        """Eviction events newer than `seq` (oldest first) — the client keeps the
+        last seq it has toasted and asks for the rest."""
+        with self._lock:
+            return [dict(e) for e in self._events if e["seq"] > seq]
 
     def snapshot(self, hw=None) -> dict:
         """The budget view for `GET /v1/llm-runner/resident`: committed + remaining VRAM + each
         reservation's footprint (least-recently-used first). Read-only."""
         with self._lock:
             reservations = [
-                {"key": k, "vram_mb": r.vram_mb, "pinned": r.pinned}
+                {"key": k, "vram_mb": r.vram_mb, "pinned": r.pinned, "kind": r.kind}
                 for k, r in sorted(self._reservations.items(), key=lambda kv: kv[1].seq)
             ]
             committed = sum(r.vram_mb for r in self._reservations.values())
+            busy = sorted(k for k, n in self._busy.items() if n > 0)
         total = self._max_vram_mb(hw)
         return {
             "vram_total_mb": total,
             "committed_mb": committed,
             "remaining_mb": max(0, total - committed),
             "reservations": reservations,
+            "busy_kinds": busy,
         }
 
     def reserved_mb(self, key: str) -> int | None:
@@ -177,6 +336,9 @@ class VramArbiter:
         with self._lock:
             self._reservations.clear()
             self._seq = 0
+            self._busy.clear()
+            self._events.clear()
+            self._event_seq = 0
 
 
 _arbiter: VramArbiter | None = None

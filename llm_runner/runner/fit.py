@@ -21,6 +21,8 @@ from __future__ import annotations
 import math
 import re
 
+from .hardware import snap_ram_gb
+
 # ── Coarse pre-download estimate: params × effective bytes/weight ────────────
 
 # Effective bytes per weight for common GGUF quants, from public bits-per-weight
@@ -88,17 +90,26 @@ def coarse_fit(
     CPU-offload that a raw weights estimate misses); otherwise computes
     params × bytes/weight — so a model needs no hand-tuned number to get a badge.
     """
+    # TEMPORARY BRIDGE (fit-redesign §13.5, deleted in its Phase 2): stored RAM
+    # floors are NOMINAL rungs (est_ram snaps up `_RAM_RUNGS_GB`) while detected RAM
+    # is physical-minus-firmware — so a 32 GB box reads 32,690 against a 32,768
+    # floor and fails FOREVER (0.24% short; shipped victims: the E4B's 8192 floor on
+    # its own target laptops). Snap detected RAM to its nominal size before
+    # comparing, rung-to-rung — the SAME `snap_ram_gb` the class key already uses,
+    # so fit and membership agree on what a "32 GB box" is. When floors go raw
+    # (Phase 2) the comparison becomes raw-to-raw and this snap is REMOVED.
+    ram_nominal_mb = snap_ram_gb(ram_mb) * 1024 if ram_mb else 0
     if vram_mb <= 0:
         # CPU-only box: runs on CPU unless RAM can't even hold the model.
         floor = min_ram_override or weights_mb(total_params, quant)
-        if floor and ram_mb and ram_mb < floor:
+        if floor and ram_nominal_mb and ram_nominal_mb < floor:
             return "no"
         return "cpu"
     # A GPU box still needs enough system RAM: a MoE offloads its experts to RAM
     # (`--n-cpu-moe`), so an 8 GB-VRAM / 16 GB-RAM box cannot run a 32–64 GB-RAM
     # MoE no matter how the active path fits VRAM. Gate on the DECLARED RAM floor
     # only (a dense model fully in VRAM sets no large floor); absent → no RAM gate.
-    if min_ram_override and ram_mb and ram_mb < min_ram_override:
+    if min_ram_override and ram_nominal_mb and ram_nominal_mb < min_ram_override:
         return "no"
     need = float(min_vram_override) if min_vram_override else weights_mb(total_params, quant)
     if not need:
@@ -197,6 +208,14 @@ def estimate_vram_mb(
     `kv_mb`: the precise whole-model KV size when the header supports it (iSWA
     models — see `_slope_offset`); None → the fitted KV term as ever."""
     a, b, c = _slope_offset(size_mb, n_layers, n_kv_heads, embedding_dim, ctx_size, cache_type, kv_mb)
+    if a <= 0:
+        # Degenerate slope — the regression run OUT OF ITS DOMAIN (a max-offload MoE
+        # strips 94-98% of each layer's bytes and the fitted −18 MB/layer credit
+        # flips the slope: the real Qwen3.6-35B header gives a = −1.24 MB/layer,
+        # fit-redesign §1.2). A negative slope claims each extra GPU layer FREES
+        # VRAM — garbage. Mirror `max_gpu_layers`'s guard: per-layer cost is noise
+        # here, so the estimate is the base offset, independent of gpu_layers.
+        return max(0.0, c)
     return a * (gpu_layers + b) + c
 
 

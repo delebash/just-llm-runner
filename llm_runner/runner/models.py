@@ -252,7 +252,12 @@ def classify_gguf_entries(entries: list[dict]) -> dict:
             continue  # no recognizable token → free-type territory, not a dropdown row
         q = quant.upper()
         kind = "IQ" if q.removeprefix("UD-").startswith("IQ") else ("Q" if "Q" in q else "special")
-        row = quants.setdefault(quant, {"quant": quant, "sizeMb": 0, "files": 0, "kind": kind, "qat": qat})
+        # `q4OrBetter` rides QUANT rows too (fit-redesign §4 0.4): the form's
+        # nothing-fits fallback prefers the smallest ≥4-bit quant over the truly
+        # smallest — the IQ1 ghost's root was handing an 8 GB box a 1-bit file.
+        # Same predicate the draft floor uses — one predicate, server-side.
+        row = quants.setdefault(quant, {"quant": quant, "sizeMb": 0, "files": 0, "kind": kind, "qat": qat,
+                                        "q4OrBetter": _q4_or_better(quant)})
         row["sizeMb"] += size_mb
         row["files"] += 1
     return {"quants": sorted(quants.values(), key=lambda r: r["sizeMb"]), "drafts": drafts}

@@ -28,7 +28,7 @@ import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { useHardware } from "../composables/useHardware.js";
 import { applyPreview, useModelApply } from "../services/modelApply.js";
 import { FIT_RUNNABLE, pickBestEmbedId, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
-import { allDraftsUnloadable, pickDefaultDraftPath } from "../draftSelect.js";
+import { allDraftsUnloadable, pickDefaultDraftPath, pickDefaultQuant } from "../draftSelect.js";
 import { TUNE_BADGES, fetchTuneState, isUntunedHere, tuneBadgeIdOf } from "../tuneState.js";
 import { classKeyLabel, listClassTunes, memberClassesOf } from "../classTunes.js";
 import AppModal from "../common/components/AppModal.vue";
@@ -618,12 +618,12 @@ async function loadRepoFiles({ autopick = true } = {}) {
     // background listing must never mutate the draft: a user who deliberately cleared
     // the draft and saved would get it silently re-picked on every reopen.
     if (!autopick) return;
-    // recommended-for-box default when no quant chosen yet (v1 heuristic: the
-    // largest quant whose file size fits the detected VRAM; else the smallest —
-    // size ≠ VRAM exactly, but it's an honest pre-pick the user can change).
+    // recommended-for-box default when no quant chosen yet (v1 heuristic: largest
+    // quant whose file size fits the detected VRAM; nothing fits → smallest ≥4-bit,
+    // only then truly smallest — the shared helper, fit-redesign §4 0.4: the old
+    // bare-smallest fallback handed an 8 GB box a 1-bit IQ1_M).
     if (!e.quant && r.quants.length) {
-      const fitting = vramMb.value ? r.quants.filter((q) => q.sizeMb <= vramMb.value) : [];
-      e.quant = (fitting.length ? fitting[fitting.length - 1] : r.quants[0]).quant;
+      e.quant = pickDefaultQuant(r.quants, vramMb.value);
     }
     // detect pre-select (D9): a repo shipping an MTP draft pre-picks the smallest one AT
     // THE FLOOR when the model has none configured — but ONLY among drafts the engine can
@@ -649,8 +649,14 @@ function onQuantPick(v) {
   quantCustom.value = false;
   editing.value.quant = v;
   // The stored download size is QUANT-SPECIFIC (#141): a different quant makes it
-  // stale — clear it; Read from link (or the next download) refreshes it live.
+  // stale — clear it; the auto re-inspect below refreshes it live.
   editing.value.sizeBytes = null;
+  // The quant IS the file (fit-redesign §4 0.3, the IQ1-ghost fix): changing it
+  // changes every derived fact, so selecting one re-reads the header — decree #143
+  // ("read from link updates all fields") applied to the one input that decides
+  // WHICH file the row describes. Snapshot-compare inside inspectLink keeps a
+  // user-typed Name/Description safe on this auto path.
+  if (editing.value.hfRepo?.trim()) inspectLink({ auto: true });
 }
 function onDraftPick(path) {
   const e = editing.value;
@@ -663,9 +669,19 @@ function onDraftPick(path) {
   e.mtp = path ? true : !!inspected.value?.mtpBuiltin;
 }
 
-async function inspectLink() {
+// Last-write-wins guard for inspect responses: a user flipping quants faster than
+// the header range-reads resolve must never get an older read's fields written over
+// a newer pick (fit-redesign §4 0.3 — the awaits complete in finish order).
+let inspectSeq = 0;
+// What composedName()/composedDescription() last produced — the snapshot the auto
+// path compares against so it regenerates ONLY untouched fields (a user-typed Name
+// is never clobbered by a quant flip; an EXPLICIT Read-from-link still regenerates
+// everything, decree #143).
+const lastComposed = { name: null, description: null };
+async function inspectLink({ auto = false } = {}) {
   const e = editing.value;
   if (!e?.hfRepo?.trim()) { inspectErr.value = "Enter the Hugging Face repo first."; return; }
+  const seq = ++inspectSeq;
   inspecting.value = true; inspectErr.value = ""; inspected.value = null;
   try {
     // ONE click fills everything: the repo listing (quant options + draft
@@ -674,6 +690,7 @@ async function inspectLink() {
     await loadRepoFiles();
     const params = new URLSearchParams({ repo: e.hfRepo.trim(), quant: e.quant || "" });
     const r = await request(`/v1/ai/model-catalog/inspect?${params}`, { method: "POST" });
+    if (seq !== inspectSeq) return;  // a newer pick's read superseded this one
     // File-derived scalar facts flow into the draft (persisted by the Save PUT);
     // the sampler set persists from the local file at download (identify → set_derived).
     e.type = r.type || "dense";
@@ -723,10 +740,18 @@ async function inspectLink() {
     // file all fields should be updated"): an explicit Read from link REGENERATES
     // it from the just-read facts. Personal text belongs in Notes below, which
     // this never touches.
-    e.description = composedDescription();
+    // Auto path (quant flip): regenerate ONLY fields still equal to what we last
+    // composed (or blank) — the user's own text survives. Explicit path: decree #143.
+    if (!auto || !e.description || e.description === lastComposed.description) {
+      e.description = composedDescription();
+      lastComposed.description = e.description;
+    }
     // The Name is model-owned the same way: Load-from-HF regenerates it from the
     // just-read repo + quant so it can't stay stale (it stays editable afterward).
-    e.name = composedName();
+    if (!auto || !e.name || e.name === lastComposed.name) {
+      e.name = composedName();
+      lastComposed.name = e.name;
+    }
   } catch (err) {
     inspectErr.value = err.message || "Couldn't read the model from the link.";
   } finally {

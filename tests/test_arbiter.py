@@ -156,3 +156,126 @@ def test_pick_evict_among_restricts_candidates():
     assert a.pick_evict(among={"stale-embed"}) == "stale-embed"
     assert a.pick_evict(among={"absent"}) is None
     assert a.pick_evict() == "chat"
+
+
+# ── the 2026-08-09 eviction-executor seam (JV vram-think §6 step 1) ─────────
+
+
+def test_count_and_pick_evict_are_kind_scoped():
+    # P5-3: a resident TTS engine must not eat a models_max llama.cpp child slot,
+    # and a count-cap eviction only ever removes the runner's OWN children.
+    a = _arb(8000)
+    a.reserve("chat", 4000)                          # kind defaults to "llm"
+    a.reserve("tts:luxtts", 1024, kind="tts", evict_fn=lambda: None)
+    assert a.count() == 2
+    assert a.count(kind="llm") == 1
+    assert a.count(kind="tts") == 1
+    assert a.pick_evict(kind="llm") == "chat"        # never the TTS engine
+    a.release("chat")
+    assert a.pick_evict(kind="llm") is None
+
+
+def test_busy_counters_stack_and_clear():
+    a = _arb(8000)
+    assert a.busy_kinds() == set()
+    a.busy_begin("tts")
+    a.busy_begin("tts")                              # overlapping synth lines stack
+    a.busy_begin("llm")
+    assert a.busy_kinds() == {"tts", "llm"}
+    a.busy_end("tts")
+    assert a.busy_kinds() == {"tts", "llm"}          # one line still in flight
+    a.busy_end("tts")
+    a.busy_end("llm")
+    assert a.busy_kinds() == set()
+    a.busy_end("llm")                                # underflow is a no-op, no crash
+    assert a.busy_kinds() == set()
+
+
+def test_make_room_executes_the_owners_evictor_lru_first():
+    a = _arb(8000)
+    killed = []
+    a.reserve("old", 5000, evict_fn=lambda: killed.append("old"))     # LRU
+    a.reserve("new", 2000, evict_fn=lambda: killed.append("new"))
+    assert a.make_room(3000) is True                 # 1000 free + 5000 from "old"
+    assert killed == ["old"]                         # LRU died; "new" untouched
+    assert a.is_reserved("new") and not a.is_reserved("old")
+
+
+def test_make_room_skips_busy_kinds():
+    # Q1's never-evict-busy: a mid-synth TTS engine is untouchable, so the
+    # admission reports False and the caller decides warn-vs-refuse.
+    a = _arb(8000)
+    a.reserve("tts:luxtts", 7000, kind="tts", evict_fn=lambda: None)
+    a.busy_begin("tts")
+    assert a.make_room(3000) is False
+    assert a.is_reserved("tts:luxtts")
+    a.busy_end("tts")
+    assert a.make_room(3000) is True                 # idle again → evictable
+
+
+def test_make_room_requires_an_evictor_for_foreign_kinds():
+    # The pass-3 ledger-corruption scenario: without a registered evictor,
+    # foreign code has NO safe way to unload a reservation — never pick it.
+    a = _arb(8000)
+    a.reserve("tts:luxtts", 7000, kind="tts")        # no evict_fn
+    assert a.make_room(3000) is False
+    assert a.is_reserved("tts:luxtts")
+
+
+def test_make_room_self_evict_covers_own_kind_without_evict_fn():
+    # The runner's _admit knows how to unload its OWN children even when a
+    # reservation predates the seam (tests, legacy rows).
+    a = _arb(8000)
+    a.reserve("chat", 7000)                          # llm, no evict_fn
+    killed = []
+    assert a.make_room(3000, self_kind="llm", self_evict=killed.append) is True
+    assert killed == ["chat"]
+    assert not a.is_reserved("chat")
+
+
+def test_make_room_releases_on_a_failed_evictor():
+    # Release-on-attempt (the _admit termination lesson): a raising evictor
+    # still frees the ledger row, so the loop can't spin on the same victim.
+    a = _arb(8000)
+
+    def _boom():
+        raise RuntimeError("child already gone")
+
+    a.reserve("old", 5000, evict_fn=_boom)
+    assert a.make_room(4000) is True
+    assert not a.is_reserved("old")
+
+
+def test_make_room_respects_protected_kinds_and_min_mb():
+    a = _arb(8000)
+    a.reserve("stt:whisper", 1500, kind="stt", evict_fn=lambda: None)
+    a.reserve("tiny", 100, kind="llm", evict_fn=lambda: None)
+    # stt protected by the caller; the tiny llm row is under EVICT_MIN_MB.
+    assert a.make_room(7000, protected_kinds={"stt"}) is False
+    assert a.is_reserved("stt:whisper") and a.is_reserved("tiny")
+
+
+def test_snapshot_carries_kind_and_busy():
+    a = _arb(8000)
+    a.reserve("chat", 5000)
+    a.reserve("tts:luxtts", 1024, kind="tts", evict_fn=lambda: None)
+    a.busy_begin("tts")
+    snap = a.snapshot()
+    kinds = {r["key"]: r["kind"] for r in snap["reservations"]}
+    assert kinds == {"chat": "llm", "tts:luxtts": "tts"}
+    assert snap["busy_kinds"] == ["tts"]
+    a.busy_end("tts")
+
+
+def test_eviction_events_ring_and_since():
+    a = _arb(8000)
+    a.reserve("old", 5000, evict_fn=lambda: None)
+    a.make_room(4000, reason="loading luxtts")
+    events = a.events_since(0)
+    assert len(events) == 1
+    e = events[0]
+    assert e["victim_key"] == "old" and e["victim_kind"] == "llm"
+    assert e["reason"] == "loading luxtts" and e["seq"] == 1
+    assert a.events_since(e["seq"]) == []            # the client's cursor advances
+    a.clear()
+    assert a.events_since(0) == []

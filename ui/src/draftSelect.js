@@ -24,6 +24,24 @@ export function pickDefaultDraftPath(drafts) {
 }
 
 /**
+ * The quant to pre-select from a repo listing's `quants` rows (size-ascending from the
+ * server), or "". The v1 heuristic stands — largest quant whose FILE SIZE fits the
+ * detected VRAM — but the nothing-fits fallback changed (fit-redesign §4 0.4): the old
+ * "else the smallest" handed an 8 GB box a 1-bit IQ1_M (file-size-vs-VRAM is MoE-blind,
+ * so on a MoE repo NOTHING "fits" and the fallback always fired). Now: smallest quant at
+ * ≥4-bit (`q4OrBetter`, the server's one predicate) — only a repo shipping nothing at
+ * 4-bit falls to the truly smallest.
+ */
+export function pickDefaultQuant(quants, vramMb) {
+  const rows = quants || [];
+  if (!rows.length) return "";
+  const fitting = vramMb ? rows.filter((q) => q.sizeMb <= vramMb) : [];
+  if (fitting.length) return fitting[fitting.length - 1].quant;
+  const atFloor = rows.find((q) => q.q4OrBetter);
+  return (atFloor || rows[0]).quant;
+}
+
+/**
  * True when the repo ships draft(s) but the engine can load NONE of them — so MTP is left
  * off and the form should say WHY (never a silent gap for a model whose card advertises it).
  */

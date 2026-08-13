@@ -136,6 +136,10 @@ class RunnerConfig(CamelModel):
 
     llamacpp: LlamacppSpec
     safety_margin_mb: int = 1024
+    # Computed-ctx ceiling for untuned launches: min(trained, KV-affordable, cap).
+    # A cap, never a pin — explicit ctx (tune/preset/request) always overrides.
+    # 0 = uncapped. Seeded from config.DEFAULT_CTX_CAP_TOKENS (fit-redesign §8.1).
+    ctx_cap_tokens: int = 32768
     # Router mode (P1e): count-based co-resident cap (`--models-max`) + native
     # idle-unload TTL in seconds (`--sleep-idle-seconds`; 0 disables). DB-editable;
     # the arbiter (P2) works WITHIN models_max.

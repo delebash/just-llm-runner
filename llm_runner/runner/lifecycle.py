@@ -23,7 +23,7 @@ import requests
 
 from dataclasses import fields as _dc_fields, replace as _dc_replace
 
-from .arbiter import get_arbiter as _get_arbiter
+from .arbiter import EVICT_MIN_MB as _ARBITER_EVICT_MIN_MB, get_arbiter as _get_arbiter
 from .binary import acquire_binary as _acquire_binary
 from .binary import (
     acquired_server_exe,
@@ -84,8 +84,9 @@ _DRIVER_CTX_MB = 549
 # VRAM-driven evictions skip victims reserving less than this (just above the driver-context
 # floor): freeing a CPU-placed embed's ~0–550 MB can't make a GPU model fit, but it kills the
 # warm embed child the RAG rail wants resident (observed live 2026-07-11). Count-cap evictions
-# ignore this — a child must go regardless of its footprint.
-_EVICT_MIN_MB = 600
+# ignore this — a child must go regardless of its footprint. The value lives in arbiter.py now
+# (2026-08-09 seam) so `make_room` and `_admit` share one threshold.
+_EVICT_MIN_MB = _ARBITER_EVICT_MIN_MB
 
 # Post-download integrity gate (the corrupt-GGUF fix, 2026-07-11). A freshly-acquired main
 # GGUF has its header parsed BEFORE spawn; a corrupt or incomplete download (a file zeroed by
@@ -509,7 +510,11 @@ class RunnerService:
         self._active_entries: dict[str, ModelIniEntry] = {}
         self._engine_state = _engine_idle()
         self._lock = threading.Lock()           # resident-set queue mutations
-        self._router_lock = threading.Lock()    # serialize router spawn/bounce/emit/load
+        # RLock since the 2026-08-09 arbiter seam: the reservation's registered evictor
+        # (_evict_from_arbiter) acquires this lock so a FOREIGN thread (a JV TTS admission
+        # running make_room) evicts safely — and the runner's own _admit → make_room path
+        # re-enters it on the same thread. Cross-thread serialization is unchanged.
+        self._router_lock = threading.RLock()   # serialize router spawn/bounce/emit/load
         # T2 (2026-07-17 approved plan): one cancel token per IN-FLIGHT load. stop() on a
         # mid-load model SETS the event and returns at once (never touching _router_lock —
         # the old stop blocked behind the load's router ops for the whole VRAM phase); the
@@ -1262,8 +1267,10 @@ class RunnerService:
                     ov.model_draft = str(cached_draft)
             meta = self._read_meta(gguf)
             draft_meta, draft_bytes = self._draft_fit_inputs(ov)
+            cfg = self._config_fn()
             f = compute_fit(meta, gguf.stat().st_size, self._hardware_fn(), ov,
-                            safety_margin_mb=self._config_fn().safety_margin_mb,
+                            safety_margin_mb=cfg.safety_margin_mb,
+                            ctx_cap_tokens=cfg.ctx_cap_tokens,
                             draft_meta=draft_meta, draft_bytes=draft_bytes)
         except Exception as exc:  # noqa: BLE001 — a preview must never raise into the sweep
             return {"ok": False, "error": str(exc)}
@@ -1936,6 +1943,7 @@ class RunnerService:
             draft_meta, draft_bytes = self._draft_fit_inputs(ov)
             fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
                               safety_margin_mb=config.safety_margin_mb,
+                              ctx_cap_tokens=config.ctx_cap_tokens,
                               draft_meta=draft_meta, draft_bytes=draft_bytes)
             # 1b fit-by-omission: only tune/preset/request-EXPLICIT placement knobs are
             # emitted; a non-explicit knob is omitted so the child's default `--fit`
@@ -1998,8 +2006,11 @@ class RunnerService:
                     return
                 # Pin the configured embed so it is NEVER the LRU eviction victim (P3): a chat co-load
                 # evicts another chat, never the embed RAG depends on. A chat model reserves unpinned.
+                # kind + evict_fn (2026-08-09 seam): a foreign-kind admission (a JV TTS load) evicts
+                # this model through make_room → _evict_from_arbiter, which takes _router_lock itself.
                 self._arbiter.reserve(model_id, self._trued_up_vram_mb(fit.vram_mb, vram_before, hardware),
-                                      pinned=model_id in embed_ids)
+                                      pinned=model_id in embed_ids, kind="llm",
+                                      evict_fn=lambda mid=model_id: self._evict_from_arbiter(mid))
                 self._resident[model_id].update(status="running", url=self._router.url,
                                                 detail="", error="", downloaded=0, total=0)
         except DownloadCancelled:
@@ -2148,52 +2159,89 @@ class RunnerService:
                *, ngl_explicit: bool = False, is_moe: bool = False,
                stale_embed_ids: set | None = None) -> None:
         """Make room for a load: evict the LRU non-pinned resident(s) until `model_id` fits the VRAM
-        budget AND the child count is under `models_max`. Accounts for `model_id`'s OWN prior
+        budget AND the llm child count is under `models_max`. Accounts for `model_id`'s OWN prior
         reservation (a re-tune replaces it, doesn't add) and never evicts `model_id`.
 
-        When nothing is evictable (only pinned models, or only `model_id` remains) and it still
-        doesn't fit: a DENSE entry with an EXPLICIT ngl is REFUSED with an actionable error
-        (2026-07-11) — the child's `--fit` auto-placement ABORTS on a user-set ngl ("n_gpu_layers
-        already set by user, abort"), so there is NO safety net and the spawn dies (observed:
-        `invalid vector subscript` on the draft load, then a 6-minute poll to timeout). Everything
-        else PROCEEDS with a warning — a MoE's fit estimate over-books (no `n-cpu-moe` term), so
-        refusing on it would block loads that actually fit; a fit-placed (ngl-omitted) entry keeps
-        the child's auto-offload as its net. Caller holds `_router_lock`; `hardware` is passed in
-        (already detected) so the arbiter doesn't re-run nvidia-smi per loop."""
+        Refactored ONTO the arbiter's shared `make_room` (2026-08-09 seam): the VRAM-fit phase runs
+        the one policy home, so a foreign-kind resident (a JV TTS engine) is evicted through ITS
+        registered evictor — never a router unload of a key the router doesn't own (the pass-3
+        ledger-corruption scenario) — and BUSY kinds are protected (never-evict-busy, which also
+        closes the old same-kind hole: loading LLM B can no longer evict mid-stream LLM A). The
+        replaced-embed preference and the count cap stay HERE — both are runner-only concerns, and
+        the count is llm-scoped now (P5-3: a resident TTS engine must not eat a child slot).
+
+        When nothing is evictable and it still doesn't fit: a DENSE entry with an EXPLICIT ngl is
+        REFUSED with an actionable error (2026-07-11) — the child's `--fit` auto-placement ABORTS on
+        a user-set ngl ("n_gpu_layers already set by user, abort"), so there is NO safety net and the
+        spawn dies. Everything else PROCEEDS with a warning — a MoE's fit estimate over-books (no
+        `n-cpu-moe` term), so refusing on it would block loads that actually fit; a fit-placed
+        (ngl-omitted) entry keeps the child's auto-offload as its net. Caller holds `_router_lock`
+        (make_room's evictor re-enters it — RLock); `hardware` is passed in (already detected) so
+        the arbiter doesn't re-run nvidia-smi per loop."""
         arb = self._arbiter
         own = arb.reserved_mb(model_id) or 0  # freeing our own reservation adds this back to the budget
-        while True:
-            fits = vram_mb <= arb.remaining_mb(hw=hardware) + own
-            n_others = arb.count() - (1 if arb.is_reserved(model_id) else 0)
-            if fits and n_others < models_max:
-                return
-            # A VRAM-driven eviction skips ~zero-VRAM victims (a CPU embed can't make a
-            # GPU model fit); a COUNT-cap eviction must remove a child regardless. A
-            # REPLACED embed (resident but no longer the routing default) goes FIRST
-            # under ANY constraint — dead weight; the embed slot swaps (2026-07-12).
-            over_count = n_others >= models_max
-            victim = None
-            if stale_embed_ids:
-                victim = arb.pick_evict(exclude=model_id, min_mb=0, among=stale_embed_ids)
+
+        def _fits() -> bool:
+            return vram_mb <= arb.remaining_mb(hw=hardware) + own
+
+        def _n_others() -> int:
+            return arb.count(kind="llm") - (1 if arb.is_reserved(model_id) else 0)
+
+        # Phase A — a REPLACED embed (resident but no longer the routing default) goes
+        # FIRST under ANY constraint: dead weight; the embed slot swaps (2026-07-12).
+        while stale_embed_ids and not (_fits() and _n_others() < models_max):
+            victim = arb.pick_evict(exclude=model_id, min_mb=0, among=stale_embed_ids)
             if victim is None:
-                victim = arb.pick_evict(exclude=model_id, min_mb=0 if over_count else _EVICT_MIN_MB)
-            if victim is None:
-                if not fits and ngl_explicit and not is_moe:
-                    others = ", ".join(sorted(k for k in self._resident if k != model_id)) or "none"
-                    raise RuntimeError(
-                        f"Not enough free VRAM to load {model_id!r}: it needs ~{vram_mb} MB but only "
-                        f"{arb.remaining_mb(hw=hardware) + own} MB remain and the resident models "
-                        f"({others}) are pinned. Unload a model, pick a smaller embedding model, or "
-                        f"lower this model's GPU layers in its tune."
-                    )
-                if not fits:
-                    log.warning(
-                        "arbiter: %s over budget (needs %d MB, %d MB remain) with nothing evictable"
-                        " — proceeding; the spawn safety nets decide",
-                        model_id, vram_mb, arb.remaining_mb(hw=hardware) + own)
-                return  # only pinned / just this model → proceed; the safety nets handle over-fit
-            log.info("arbiter: evict LRU %s to make room for %s (needs %d MB)", victim, model_id, vram_mb)
+                break
+            log.info("arbiter: evict replaced embed %s to make room for %s", victim, model_id)
             self._evict_resident(victim)
+            arb.record_eviction(victim, "llm", f"replaced embedding model (loading {model_id})")
+
+        # Phase B — the count cap, llm-scoped: only the runner's own children count,
+        # and only they are count-cap victims (min_mb=0 — a child must go regardless).
+        # Busy wins over the cap (never-evict-busy): a mid-stream child is untouchable,
+        # so the load proceeds over models_max and idle-sleep trims the excess later.
+        while _n_others() >= models_max:
+            if "llm" in arb.busy_kinds():
+                log.warning("arbiter: models_max reached but llm is busy — proceeding "
+                            "over the cap (never-evict-busy)")
+                break
+            victim = arb.pick_evict(exclude=model_id, min_mb=0, kind="llm")
+            if victim is None:
+                break
+            log.info("arbiter: evict LRU %s (models_max) to make room for %s", victim, model_id)
+            self._evict_resident(victim)
+            arb.record_eviction(victim, "llm", f"model count cap (loading {model_id})")
+
+        # Phase C — the VRAM fit, through the shared policy home. Victims may be ANY
+        # kind (an idle TTS engine on a small card); each dies by its own evictor.
+        # self_evict covers llm reservations recorded without an evict_fn (tests,
+        # pre-seam rows) — the runner knows how to unload its own children.
+        made = _fits() or arb.make_room(
+            max(0, vram_mb - own), exclude=model_id, hardware=hardware,
+            reason=f"loading {model_id}",
+            self_kind="llm", self_evict=self._evict_resident,
+        )
+        if not made:
+            if ngl_explicit and not is_moe:
+                others = ", ".join(sorted(k for k in self._resident if k != model_id)) or "none"
+                raise RuntimeError(
+                    f"Not enough free VRAM to load {model_id!r}: it needs ~{vram_mb} MB but only "
+                    f"{arb.remaining_mb(hw=hardware) + own} MB remain and the resident models "
+                    f"({others}) are pinned or busy. Unload a model, pick a smaller embedding "
+                    f"model, or lower this model's GPU layers in its tune."
+                )
+            log.warning(
+                "arbiter: %s over budget (needs %d MB, %d MB remain) with nothing evictable"
+                " — proceeding; the spawn safety nets decide",
+                model_id, vram_mb, arb.remaining_mb(hw=hardware) + own)
+
+    def _evict_from_arbiter(self, model_id: str) -> None:
+        """The evictor `make_room` executes for a runner reservation — safe from ANY
+        thread: a JV TTS admission calls it without `_router_lock`; the runner's own
+        `_admit` → `make_room` path re-enters the (R)Lock it already holds."""
+        with self._router_lock:
+            self._evict_resident(model_id)
 
     def _evict_resident(self, model_id: str) -> None:
         """Unload one co-resident model to free its VRAM for an incoming load: POST /models/unload,
@@ -2271,7 +2319,9 @@ class RunnerService:
         fit + any Lab tuning (Option A); the rest are DB-resolved from `switches_fn`. A
         model whose meta/fit fails is skipped, not fatal to the whole `.ini`."""
         hardware = self._hardware_fn()
-        margin = self._config_fn().safety_margin_mb
+        cfg = self._config_fn()
+        margin = cfg.safety_margin_mb
+        ctx_cap = cfg.ctx_cap_tokens
         hf_cache = self._cache_root / "hf"
         entries: list[ModelIniEntry] = []
         catalog = list(self.catalog())
@@ -2334,6 +2384,7 @@ class RunnerService:
                 # carries `model-draft` holds those bytes too once the router loads it.
                 draft_meta, draft_bytes = self._draft_fit_inputs(ov)
                 fit = compute_fit(meta, gguf.stat().st_size, hardware, ov, safety_margin_mb=margin,
+                                  ctx_cap_tokens=ctx_cap,
                                   draft_meta=draft_meta, draft_bytes=draft_bytes)
                 # Same 1b fit-by-omission rule as the active-load path above.
                 entries.append(ModelIniEntry(

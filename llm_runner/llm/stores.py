@@ -762,6 +762,7 @@ class RunnerConfigStore:
         return EngineConfig(
             pinnedBuild=cfg.llamacpp.pinned_build,
             safetyMarginMb=cfg.safety_margin_mb,
+            ctxCapTokens=cfg.ctx_cap_tokens,
             modelsMax=cfg.models_max,
             sleepIdleSeconds=cfg.sleep_idle_seconds,
             downloadSegmentsEnabled=cfg.download_segments_enabled,
@@ -830,7 +831,8 @@ class RunnerConfigStore:
         seed defaults; user-added custom rows are preserved."""
         from ..runner.config import (
             DEFAULT_BINARIES,
-            DEFAULT_DOWNLOAD_MAX_CONCURRENT,
+            DEFAULT_CTX_CAP_TOKENS,
+        DEFAULT_DOWNLOAD_MAX_CONCURRENT,
             DEFAULT_DOWNLOAD_SEGMENT_COUNT,
             DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES,
             DEFAULT_DOWNLOAD_SEGMENT_RETRIES,
@@ -851,6 +853,7 @@ class RunnerConfigStore:
             seed.seed_default_runner_binaries(s)
             for key, val in (("pinned_build", DEFAULT_PINNED_BUILD),
                              ("safety_margin_mb", str(DEFAULT_SAFETY_MARGIN_MB)),
+                             ("ctx_cap_tokens", str(DEFAULT_CTX_CAP_TOKENS)),
                              ("models_max", str(DEFAULT_MODELS_MAX)),
                              ("sleep_idle_seconds", str(DEFAULT_SLEEP_IDLE_SECONDS)),
                              ("preferred_gpu", ""),
@@ -1490,6 +1493,7 @@ def build_runner_config():
     Wired into the runner service as its `config_fn` by install_llm. Falls back to
     the runner's seed defaults if the binaries haven't been seeded yet."""
     from ..runner.config import (
+        DEFAULT_CTX_CAP_TOKENS,
         DEFAULT_DOWNLOAD_MAX_CONCURRENT,
         DEFAULT_DOWNLOAD_SEGMENT_COUNT,
         DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES,
@@ -1533,6 +1537,7 @@ def build_runner_config():
         return RunnerConfig(
             llamacpp=LlamacppSpec(pinned_build=settings.get("pinned_build") or DEFAULT_PINNED_BUILD, binaries=bins),
             safety_margin_mb=_int("safety_margin_mb", DEFAULT_SAFETY_MARGIN_MB),
+            ctx_cap_tokens=_int("ctx_cap_tokens", DEFAULT_CTX_CAP_TOKENS),
             models_max=_int("models_max", DEFAULT_MODELS_MAX),
             sleep_idle_seconds=_int("sleep_idle_seconds", DEFAULT_SLEEP_IDLE_SECONDS),
             preferred_gpu=(settings.get("preferred_gpu") or ""),

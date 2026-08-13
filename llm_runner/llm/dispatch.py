@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from contextlib import AbstractContextManager, nullcontext
 from typing import Callable, Iterable, Iterator
 
 from .base import LLMAdapter, LLMMessage, LLMResponse, StreamDelta
@@ -27,6 +28,11 @@ from .schema import LLMConfig
 from .usage import UsageEntry, get_ledger
 
 log = logging.getLogger(__name__)
+
+# The provider_type the bundled local runner's adapter row carries (seed.py) —
+# the busy guard below applies ONLY to calls that resolve here: a cloud chat
+# must never mark the local GPU busy.
+_LOCAL_PROVIDER_TYPE = "local-llamacpp"
 
 
 # ── optional host-injected ensure-local hook (QC-43b) ───────────────────────
@@ -75,6 +81,32 @@ def set_local_runner_base_url(fn: Callable[[], str] | None) -> None:
 def get_local_runner_base_url() -> Callable[[], str] | None:
     """The configured local-router URL resolver, or None when no host wired one."""
     return _local_runner_base_url
+
+
+# ── optional host-injected llm-busy guard (2026-08-09 VRAM wiring, step 4) ──
+# never-evict-busy's llm half: while a LOCAL-runner chat/stream runs, the
+# arbiter must not evict llm-kind residents (a TTS admission mid-generation
+# would kill the model under the stream). Lives at THIS layer so every
+# consumer — JW and JV both — inherits the protection with zero app wiring
+# (P5-2). Same injected-seam shape as set_ensure_local_model: llm/ never
+# imports runner/; install.py wires it to the arbiter's busy counters. None
+# (standalone host, adapter unit tests) → no guard, dispatch as before.
+_local_busy_guard: Callable[[], AbstractContextManager] | None = None
+
+
+def set_local_busy_guard(fn: Callable[[], AbstractContextManager] | None) -> None:
+    """Host wiring at boot: a factory returning a context manager that marks the
+    llm kind busy for its duration. Pass None to unset."""
+    global _local_busy_guard
+    _local_busy_guard = fn
+
+
+def _busy_guard(adapter: LLMAdapter) -> AbstractContextManager:
+    """The llm-busy guard for THIS call — active only when the resolved adapter
+    is the bundled local runner; cloud routes get a no-op."""
+    if _local_busy_guard is not None and getattr(adapter, "provider_type", "") == _LOCAL_PROVIDER_TYPE:
+        return _local_busy_guard()
+    return nullcontext()
 
 
 # ── the no-model-configured guard message (family parity batch 2026-08-05) ──
@@ -308,15 +340,16 @@ def chat(
 
     started = time.monotonic()
     try:
-        resp = adapter.chat(
-            list(messages),
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            system=system,
-            think=eff_think,
-            extra=extra,
-        )
+        with _busy_guard(adapter):
+            resp = adapter.chat(
+                list(messages),
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                system=system,
+                think=eff_think,
+                extra=extra,
+            )
     except Exception as e:
         get_ledger().record(
             UsageEntry(
@@ -368,22 +401,26 @@ def stream_chat(
     started = time.monotonic()
     pt = ct = 0
     try:
-        for delta in adapter.stream_chat(
-            list(messages),
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            system=system,
-            think=eff_think,
-            extra=extra,
-        ):
-            if delta.done:
-                pt, ct = delta.prompt_tokens, delta.completion_tokens
-                # Stamp the RESOLVED model on the done event (adapters leave it
-                # empty) so the SSE done frame can report model + cost (§7.4 —
-                # the stream path carries everything /run's response carries).
-                delta.model = model
-            yield delta
+        # The busy guard spans the WHOLE stream (held across yields; released by
+        # generator finalization on exhaust/close) — a mid-stream eviction is
+        # exactly what never-evict-busy exists to prevent.
+        with _busy_guard(adapter):
+            for delta in adapter.stream_chat(
+                list(messages),
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                system=system,
+                think=eff_think,
+                extra=extra,
+            ):
+                if delta.done:
+                    pt, ct = delta.prompt_tokens, delta.completion_tokens
+                    # Stamp the RESOLVED model on the done event (adapters leave it
+                    # empty) so the SSE done frame can report model + cost (§7.4 —
+                    # the stream path carries everything /run's response carries).
+                    delta.model = model
+                yield delta
     except Exception as e:
         get_ledger().record(
             UsageEntry(

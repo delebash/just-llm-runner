@@ -956,7 +956,11 @@ def test_cancel_inside_the_admit_window_never_evicts(tmp_path):
 
     def hooked_catalog():
         svc = svc_ref.get("svc")
-        if svc is not None and armed.is_set() and svc._router_lock.locked() and not fired:
+        # _is_owned(): the hook runs ON the load thread, so "this thread holds the
+        # router lock" IS "we're inside the window" (.locked() died with the RLock
+        # switch of the 2026-08-09 arbiter seam; same-thread ownership is the
+        # sharper probe anyway).
+        if svc is not None and armed.is_set() and svc._router_lock._is_owned() and not fired:
             fired.append(True)
             svc.stop(_TEST_MODEL.id)  # the cancel lands INSIDE the window
         return models

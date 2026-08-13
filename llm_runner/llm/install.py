@@ -552,3 +552,23 @@ def _wire_runner_catalog(data_dir=None, cache_root=None, product: str = "") -> N
     from .switch_resolve import set_active_backend_fn
 
     set_active_backend_fn(lambda: get_service()._active_backend())
+
+    # 2026-08-09 VRAM wiring (step 4): the llm-busy guard. A LOCAL-runner
+    # chat/stream marks the arbiter's llm kind busy for its whole duration, so
+    # a cross-kind admission (a JV TTS load) can never evict the model mid-run
+    # (never-evict-busy). Same injected-seam shape as the hooks above.
+    from contextlib import contextmanager
+
+    from ..runner.arbiter import get_arbiter
+    from .dispatch import set_local_busy_guard
+
+    @contextmanager
+    def _llm_busy():
+        arb = get_arbiter()
+        arb.busy_begin("llm")
+        try:
+            yield
+        finally:
+            arb.busy_end("llm")
+
+    set_local_busy_guard(_llm_busy)

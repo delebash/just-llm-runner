@@ -51,6 +51,15 @@ DEFAULT_PINNED_BUILD = "b9993"
 # Reserve this much VRAM headroom when computing the GPU layer split.
 DEFAULT_SAFETY_MARGIN_MB = 1024
 
+# The most context an UNTUNED model is handed automatically: computed ctx becomes
+# min(trained, KV-affordable, this cap). A CAP, never a pin — an explicit ctx from a
+# tune/preset/request always overrides, and a smaller-trained model keeps its own
+# window (fit-redesign §8.1; every measured tune on all three known machines chose
+# 32768, while the uncapped policy handed a cheap-KV MoE 131,072 — ~2.7 GB of KV
+# before any weights, the poisoned-launch defect of §1.5). 0 = uncapped.
+# DB-editable via runner_setting `ctx_cap_tokens` + the GUI field beside the margin.
+DEFAULT_CTX_CAP_TOKENS = 32768
+
 # Router mode (P1e): the count-based co-resident cap (`--models-max`; the arbiter
 # works WITHIN it) and the native idle-unload TTL (`--sleep-idle-seconds`; 0 =
 # never sleep). DB-editable via runner_setting; these are the standalone/seed
@@ -161,4 +170,5 @@ def default_config() -> RunnerConfig:
         safety_margin_mb=DEFAULT_SAFETY_MARGIN_MB,
         models_max=DEFAULT_MODELS_MAX,
         sleep_idle_seconds=DEFAULT_SLEEP_IDLE_SECONDS,
+        ctx_cap_tokens=DEFAULT_CTX_CAP_TOKENS,
     )

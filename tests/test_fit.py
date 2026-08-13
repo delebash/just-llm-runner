@@ -68,6 +68,27 @@ def test_coarse_fit_gpu_ram_gate():
                           ram_mb=16000, margin_mb=1024, min_ram_override=13000) == "ok"
 
 
+def test_coarse_fit_ram_gate_snaps_detected_to_nominal():
+    """The rung-vs-detected defect (fit-redesign §1.3): floors are NOMINAL rungs,
+    detected RAM is physical-minus-firmware, so every rung floor failed on the very
+    box it names. The gate snaps detected RAM through `snap_ram_gb` (the class key's
+    own snap) — TEMPORARY until floors go raw (§13.5)."""
+    box = dict(total_params="35B", quant="UD-Q4_K_XL", vram_mb=8192,
+               margin_mb=1024, min_vram_override=6000)
+    # The author's box: 32,690 detected vs the 32,768 rung — 78 MB short, 0.24%.
+    assert fit.coarse_fit(ram_mb=32690, min_ram_override=32768, **box) == "ok"
+    # The shipped victim: E4B floor 8192 on an 8 GB laptop reporting ~7,900 —
+    # the RAM gate must not fire (VRAM given headroom so only the gate is tested).
+    assert fit.coarse_fit(total_params="8B", quant="Q4_K_M", vram_mb=8192,
+                          ram_mb=7900, margin_mb=512, min_ram_override=8192) == "ok"
+    # The honest carve-out: ~13.7 GB usable snaps DOWN to 12 — a 16,384 floor still
+    # fails (snap never overstates a box; the one-pool arm is the real fix there).
+    assert fit.coarse_fit(ram_mb=14000, min_ram_override=16384, **box) == "no"
+    # CPU branch gets the same treatment: 32 GB box vs a 32,768 weights floor.
+    assert fit.coarse_fit(total_params="55B", quant="Q4_K_M", vram_mb=0,
+                          ram_mb=32690, margin_mb=1024, min_ram_override=32768) == "cpu"
+
+
 def _cfg(**kw):
     base = dict(size_mb=4400, n_layers=32, n_kv_heads=8, embedding_dim=4096,
                 ctx_size=4096, cache_type=16)
@@ -154,3 +175,18 @@ def test_gqa_reduces_kv_cost():
     mha = fit.max_gpu_layers(vram_budget_mb=4000, **_cfg(n_kv_heads=32))
     gqa = fit.max_gpu_layers(vram_budget_mb=4000, **_cfg(n_kv_heads=8))
     assert gqa >= mha
+
+
+def test_estimate_guards_degenerate_negative_slope():
+    """Out-of-domain guard (fit-redesign §1.2/§4 0.2): a max-offload MoE strips
+    ~94-98% of layer bytes, the fitted −18 MB/layer credit flips the slope negative
+    (the real Qwen header: a = −1.24), and the unguarded regression claimed each
+    extra GPU layer FREES VRAM. Qwen-shaped inputs: tiny per-layer size, cheap KV."""
+    qwen_shaped = _cfg(size_mb=350, n_layers=41, n_kv_heads=2, embedding_dim=2048)
+    lo = fit.estimate_vram_mb(gpu_layers=0, **qwen_shaped)
+    hi = fit.estimate_vram_mb(gpu_layers=41, **qwen_shaped)
+    assert hi >= 0
+    assert hi >= lo  # never decreasing in gpu_layers
+    # Mirrors max_gpu_layers' degenerate branch: per-layer cost is noise, the
+    # estimate is the base offset, independent of gpu_layers.
+    assert hi == lo

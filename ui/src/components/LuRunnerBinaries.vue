@@ -20,6 +20,7 @@ import { request } from "../client.js";
 const rows = ref([]);
 const pinnedBuild = ref("");
 const safetyMarginMb = ref(0);
+const ctxCapTokens = ref(0);
 const loading = ref(false);
 const loaded = ref(false);
 const error = ref("");
@@ -45,6 +46,7 @@ function _apply(d) {
   rows.value = (d.binaries || []).map((r) => ({ ...r }));
   pinnedBuild.value = d.pinnedBuild || "";
   safetyMarginMb.value = d.safetyMarginMb || 0;
+  ctxCapTokens.value = d.ctxCapTokens || 0;
   _resolveRowsToPin(); // show real paths for the current pin on load (never a placeholder)
 }
 
@@ -90,7 +92,7 @@ function saveRow(r) {
 }
 
 function saveSettings() {
-  put({ pinnedBuild: (pinnedBuild.value || "").trim(), safetyMarginMb: Number(safetyMarginMb.value) || 0 }, "__settings");
+  put({ pinnedBuild: (pinnedBuild.value || "").trim(), safetyMarginMb: Number(safetyMarginMb.value) || 0, ctxCapTokens: Number(ctxCapTokens.value) || 0 }, "__settings");
 }
 
 async function addRow() {
@@ -150,6 +152,9 @@ async function reset() {
           </label>
           <label class="lu-engbin-field">VRAM safety margin (MB)
             <UiInput v-model="safetyMarginMb" type="number" width="token" />
+          </label>
+          <label class="lu-engbin-field" title="The most context an untuned model gets automatically; a tune's explicit context always overrides. 0 = no cap.">Default context cap (tokens)
+            <UiInput v-model="ctxCapTokens" type="number" width="token" />
           </label>
           <UiButton intent="primary" size="small" :loading="busy === '__settings'" @click="saveSettings">Save</UiButton>
         </div>

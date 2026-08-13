@@ -38,6 +38,9 @@ class RunnerBinaryRow(BaseModel):
 class EngineConfig(BaseModel):
     pinnedBuild: str
     safetyMarginMb: int
+    # Computed-ctx cap for untuned launches (fit-redesign §8.1): min() ceiling,
+    # never a pin; explicit ctx from a tune/preset/request always overrides. 0 = off.
+    ctxCapTokens: int = 32768
     modelsMax: int          # router: how many models may stay co-resident (>= 1)
     sleepIdleSeconds: int   # router: idle-unload TTL in seconds (0 = never)
     # Segmented downloads (DL-2): N parallel byte-ranges per file; files under
@@ -81,6 +84,7 @@ class EngineConfigUpdate(BaseModel):
     preferredGpu: str | None = None      # backend override family ("" = Auto; cuda|vulkan|rocm|metal)
     classKeyOverride: str | None = None  # hardware-class override ("" = auto-detect; free text)
     safetyMarginMb: int | None = None
+    ctxCapTokens: int | None = None
     modelsMax: int | None = None
     sleepIdleSeconds: int | None = None
     downloadSegmentsEnabled: bool | None = None
@@ -134,6 +138,8 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             store.set_setting("class_key_override", body.classKeyOverride.strip())
         if body.safetyMarginMb is not None:
             store.set_setting("safety_margin_mb", str(int(body.safetyMarginMb)))
+        if body.ctxCapTokens is not None:
+            store.set_setting("ctx_cap_tokens", str(max(0, int(body.ctxCapTokens))))
         if body.modelsMax is not None:
             store.set_setting("models_max", str(max(1, int(body.modelsMax))))
         if body.sleepIdleSeconds is not None:

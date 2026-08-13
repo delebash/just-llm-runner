@@ -633,6 +633,24 @@ def test_computed_ctx_caps_at_trained_window():
     assert plan.ctx_len <= 8192
 
 
+def test_ctx_cap_bounds_computed_ctx_only():
+    """The ctx cap (fit-redesign §8.1/§1.5): computed ctx = min(trained, affordable,
+    cap) — the uncapped policy handed a cheap-KV MoE 131,072 (~2.7 GB of KV before
+    any weights). A CAP, never a pin: explicit ctx is untouched; 0 disables."""
+    meta = GgufMeta(architecture="llama", block_count=10, embedding_length=1000,
+                    expert_count=0, context_length=262144)
+    big = _hw(vram_mb=98304)  # affordability is not the binding constraint here
+    capped = compute_fit(meta, _TEN_GB, big)
+    assert capped.ctx_len == 32768  # the seeded default cap
+    uncapped = compute_fit(meta, _TEN_GB, big, ctx_cap_tokens=0)
+    assert uncapped.ctx_len > 32768  # trained/affordable rule, as before the cap
+    explicit = compute_fit(meta, _TEN_GB, big, Overrides(ctx_len=131072))
+    assert explicit.ctx_len == 131072  # "a tune's explicit context always overrides"
+    small_trained = GgufMeta(architecture="llama", block_count=10,
+                             embedding_length=1000, expert_count=0, context_length=8192)
+    assert compute_fit(small_trained, _TEN_GB, big).ctx_len == 8192  # cap never raises
+
+
 def test_kv_affordable_bounds_and_monotonic():
     from llm_runner.runner import fit as fitmod
     floor = fitmod.kv_affordable(vram_budget_mb=0, n_layers=30, n_kv_heads=8, cache_type=8)

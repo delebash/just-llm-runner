@@ -270,9 +270,19 @@ corrected speed constants §5.5 + Appendix B, the reasoning record
 `2026-08-09-fit-redesign-debate.md`. ALL rulings DECIDED — §8.17–23 (§9 empty;
 §8.23 = verdicts inform never gate, the picker veto dies in Phase 3 per §13.16).
 EXECUTE AGAINST THE PLAN, do not re-derive. Each phase needs its own literal "go".
-Phase 0 GO GIVEN 2026-08-13 ("then code") — quick lane: RAM gate via snap_ram_gb
-TEMPORARY per §13.5 · a<=0 guard · quant re-read + stale token · >=4-bit fallback ·
-ctx cap 32768 + GUI.
+Phase 0 BUILT 2026-08-13 (go: "then code"), all five items: RAM gate via snap_ram_gb
+(TEMPORARY per §13.5, comment marks it) · a<=0 guard in estimate_vram_mb · quant
+re-read + stale token + name snapshot-compare (LuModelCatalog) · >=4-bit fallback
+(q4OrBetter on quant rows + pickDefaultQuant in draftSelect.js) · ctx cap 32768
+(config/schema/stores/seed/api + compute_fit min-arm + GUI field in LuRunnerBinaries).
+Gates: kit ruff clean + 787 passed/10 skipped · JW test:fast 128 passed (one
+PRE-EXISTING stale test fixed: test_routing asserted the retired feature_pins attr,
+kit 1952c6a) · i18n real-MISSING 0 · headless smoke PASSED (all routes, 0 JS errors).
+JW user docs updated (models.md: quant fallback + auto re-read; engine settings gain
+the cap). COMMITTED + pushed 2026-08-13 (user: "commit everything" — one commit,
+both streams: lifecycle.py entangled Phase 0's cap edits with the eviction seam).
+Phase 1 GO GIVEN 2026-08-13 — physics module + arch arm + macOS detection honesty
++ the regression-as-oracle test (§5.1/§5.2/§7.1).
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

@@ -701,7 +701,12 @@ FULL CONSENSUS. Everything closed is in **§13** (amendments — read it WITH ea
 it amends); the corrected speed constants are in §5.5 + Appendix B. All six remaining
 rulings were DECIDED by the user 2026-08-13 → **§8.17–8.22**; §9 is empty. The
 reasoning record (who overturned what, why) lives in the companion
-`2026-08-09-fit-redesign-debate.md`. NEXT ACTION: ask for the Phase 0 go.
+`2026-08-09-fit-redesign-debate.md`. **Phase 0 BUILT 2026-08-13** (go: "then code";
+all five items; gates green — kit ruff + 787 pytest, JW test:fast 128, i18n, smoke;
+details in the kit tracker). Everything committed + pushed 2026-08-13 on the
+user's "commit everything" (kit: Phase 0 + the eviction seam in one commit —
+lifecycle.py entangled them; JW: docs + the stale-test fix; JV: the Script-tab
+batch). **Phase 1 GO GIVEN 2026-08-13.**
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

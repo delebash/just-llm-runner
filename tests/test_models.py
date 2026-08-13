@@ -160,6 +160,21 @@ def test_classify_gemma_repo_quants_and_draft():
     assert sizes == sorted(sizes)
 
 
+def test_classify_quant_rows_carry_q4_floor():
+    """`q4OrBetter` rides QUANT rows (fit-redesign §4 0.4) — the form's nothing-fits
+    fallback prefers the smallest ≥4-bit quant over the truly smallest, so an 8 GB
+    box is never handed a 1-bit IQ1_M by default (the user's screenshot #1)."""
+    tree = [
+        {"type": "file", "path": "m-UD-IQ1_M.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 10 * 1024**3}},
+        {"type": "file", "path": "m-Q3_K_M.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 15 * 1024**3}},
+        {"type": "file", "path": "m-UD-Q4_K_M.gguf", "oid": "c", "lfs": {"oid": "l3", "size": 21 * 1024**3}},
+    ]
+    by_quant = {q["quant"]: q for q in models.classify_gguf_entries(tree)["quants"]}
+    assert by_quant["UD-IQ1_M"]["q4OrBetter"] is False
+    assert by_quant["Q3_K_M"]["q4OrBetter"] is False
+    assert by_quant["UD-Q4_K_M"]["q4OrBetter"] is True
+
+
 def test_classify_plain_repo_no_drafts():
     out = models.classify_gguf_entries(TREE)
     assert out["drafts"] == []

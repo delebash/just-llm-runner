@@ -29,7 +29,7 @@ from typing import Callable, Sequence
 import requests
 
 from . import fit
-from .config import DEFAULT_SAFETY_MARGIN_MB
+from .config import DEFAULT_CTX_CAP_TOKENS, DEFAULT_SAFETY_MARGIN_MB
 from .gguf import GgufMeta
 from .hardware import max_vram_mb
 from .schema import HardwareInfo
@@ -358,6 +358,7 @@ def compute_fit(
     overrides: Overrides | None = None,
     *,
     safety_margin_mb: int = DEFAULT_SAFETY_MARGIN_MB,
+    ctx_cap_tokens: int = DEFAULT_CTX_CAP_TOKENS,
     draft_meta: GgufMeta | None = None,
     draft_bytes: int = 0,
 ) -> FitPlan:
@@ -389,20 +390,27 @@ def compute_fit(
     n_kv_heads = meta.n_kv_heads or max(1, meta.embedding_length // 128)
     budget_mb = max(0, max_vram_mb(hardware) - safety_margin_mb)
 
-    # ctx POLICY is ours (1b): an explicit override (tune/preset/request) wins; else the
-    # computed knob — the trained window capped by what the KV budget affords on this box
-    # (kv_affordable walks the ctx ladder on the regression's own KV term). DEFAULT_CTX
-    # remains the floor for headerless files (context_length=0 → min() picks the ladder
-    # floor anyway; keep the `or` so a zero trained-ctx never wins the min).
+    # ctx POLICY is ours (1b): an explicit override (tune/preset/request) wins — and is
+    # NEVER capped ("a tune's explicit context always overrides"); else the computed knob —
+    # min(trained window, KV-affordable on this box, the ctx cap). The cap (fit-redesign
+    # §8.1/§1.5) exists because affordability alone hands cheap-KV models absurd windows:
+    # the Qwen's 2 KV heads afforded ctx 131,072 — ~2.7 GB of KV spent before any weight
+    # was placed — while every measured tune pinned 32,768. A cap composes through min()
+    # and only ever lowers; 0 = uncapped. DEFAULT_CTX remains the floor for headerless
+    # files (context_length=0 → min() picks the ladder floor anyway; keep the `or` so a
+    # zero trained-ctx never wins the min).
     if ov.ctx_len:
         ctx_len = ov.ctx_len
         ctx_explicit = True
     else:
-        ctx_len = min(
+        candidates = [
             getattr(meta, "context_length", 0) or DEFAULT_CTX,
             fit.kv_affordable(vram_budget_mb=budget_mb, n_layers=n_layers,
                               n_kv_heads=n_kv_heads, cache_type=cache_type),
-        )
+        ]
+        if ctx_cap_tokens and ctx_cap_tokens > 0:
+            candidates.append(ctx_cap_tokens)
+        ctx_len = min(candidates)
         ctx_explicit = False
 
     # The speculative-decode DRAFT's share of the budget, taken BEFORE the main split.

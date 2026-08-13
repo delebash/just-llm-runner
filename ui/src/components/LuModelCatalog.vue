@@ -344,8 +344,19 @@ function rowClasses(m) {
  *  Empty when no shipped class clears the floors, so the hover never claims coverage
  *  that isn't there. */
 function runsOnTitle(m) {
+  // The "Needs" line's hover (fit-redesign §5.6): the row shows snapped TIERS,
+  // the hover keeps the RAW computed numbers — plus the class list when the
+  // model belongs to any. A model in NO shipped class (GLM after the user's
+  // 2026-08-13 ruling) previously returned "" here and lost its tooltip
+  // entirely; it now states the raw needs and says no class holds it.
+  const raw = (m.minVramMb && m.minRamMb)
+    ? `Computed from the model file: ${m.minVramMb.toLocaleString()} MB VRAM · ${m.minRamMb.toLocaleString()} MB RAM.`
+    : "";
   const names = rowClasses(m).map((c) => classKeyLabel(c.classKey, c.name)).join(" · ");
-  return names ? `PC classes this model runs on: ${names}` : "";
+  const classes = names
+    ? `PC classes this model runs on: ${names}`
+    : "No shipped PC class holds it — bigger machines than the class list covers.";
+  return [raw, classes].filter(Boolean).join(" ");
 }
 // The Bench column cell: the published benchmark rank, or "—" when unranked (100).
 function benchLabel(m) { const q = qualityOf(m); return q >= 100 ? "—" : String(q); }

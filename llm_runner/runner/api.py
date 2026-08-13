@@ -224,7 +224,8 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
         is_macos=(hardware.platform == "macos"),
         class_vram_bw_gbps=cls_vram_bw, class_ram_bw_gbps=cls_ram_bw,
         probe_gbps=service.host_probe_bw_gbps(mkey),
-        eff_device=cfg.bw_eff_device, eff_host=cfg.bw_eff_host)
+        eff_device=cfg.bw_eff_device, eff_host=cfg.bw_eff_host,
+        eff_host_probe=cfg.bw_eff_host_probe)
     overhead = fit.PHYSICS_OVERHEAD_MB.get(backend, fit.PHYSICS_OVERHEAD_MB["cuda"])
     weight_budget = max(0.0, gpu_vram - margin - overhead)
     # Newest REAL measurement per model on THIS box + backend — measurement

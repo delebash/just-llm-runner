@@ -22,6 +22,7 @@ from ..runner.config import (
     DEFAULT_BINARIES,
     DEFAULT_BW_EFF_DEVICE,
     DEFAULT_BW_EFF_HOST,
+    DEFAULT_BW_EFF_HOST_PROBE,
     DEFAULT_CTX_CAP_TOKENS,
     DEFAULT_FLOOR_CTX_TOKENS,
     DEFAULT_LOAD_ROWS_KEEP,
@@ -501,6 +502,9 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
     {"key": "band_slow_toks", "value": str(DEFAULT_BAND_SLOW_TOKS)},
     {"key": "bw_eff_device", "value": str(DEFAULT_BW_EFF_DEVICE)},
     {"key": "bw_eff_host", "value": str(DEFAULT_BW_EFF_HOST)},
+    # The RAM probe's OWN factor (§5.5 probe calibration, live 2026-08-13 —
+    # single-thread copy underruns streaming; the generic host factor lied).
+    {"key": "bw_eff_host_probe", "value": str(DEFAULT_BW_EFF_HOST_PROBE)},
     # Fit-redesign Phase 5 (§13.2): retention K for persisted load footprints —
     # keep-latest-K per (model, machine, fingerprint); a seeded fact, additive row.
     {"key": "load_rows_keep", "value": str(DEFAULT_LOAD_ROWS_KEEP)},

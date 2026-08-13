@@ -77,15 +77,28 @@ DEFAULT_BAND_FINE_TOKS = 8.0
 DEFAULT_BAND_SLOW_TOKS = 2.0
 
 # Fit-redesign Phase 3 (§5.5 corrected + §13.8) — the two EFFICIENCY FAMILIES
-# converting raw pool bandwidth (device registers / probe / class seed) into
-# effective decode bandwidth. Two families because the pools are different
-# physical processes (streamed device reads vs scattered expert gather):
-# device-compute measured ≈0.59 of spec on the author's box; host-CPU converged
-# 0.10–0.22 across three independent derivations — seeded at 0.15, the low half
+# converting raw pool bandwidth (device registers / class seed) into effective
+# decode bandwidth. Two families because the pools are different physical
+# processes (streamed device reads vs scattered expert gather): device-compute
+# measured ≈0.59 of spec on the author's box; host-CPU converged 0.10–0.22
+# across three independent derivations — seeded at 0.15, the low half
 # (err-slow, §8.17). Measurement-DERIVED bandwidth (ladder source 1) bypasses
 # these entirely. Seeded runner_setting rows; self-correct as Phase 5 learns.
 DEFAULT_BW_EFF_DEVICE = 0.6
 DEFAULT_BW_EFF_HOST = 0.15
+
+# The RAM COPY PROBE's own factor — §5.5's "the probe's efficiency factor
+# calibrated ONCE against the measured-model path". CALIBRATED LIVE 2026-08-13
+# on the author's desktop (the checkpoint's item 4, caught as a real defect:
+# the flagship's chip read "~slow"): the probe reads 19.01 GB/s there (2×-
+# traffic single-thread memcpy — it badly underruns multi-channel streaming,
+# which is WHY it cannot share the generic host factor: 19.01 × 0.15 = 2.85
+# effective → 3.3 tok/s → a band lie), while the measured-model host effective
+# window on the same box is 6.9–10.6 GB/s. 19.01 × 0.40 = 7.6 — the same
+# low-mid window position the class-seed math was designed to (51.2 × 0.15 =
+# 7.68 → the flagship's ~fine). Laptops refine via the settings row if their
+# probes sit differently; a wrong value is a settings edit, never code.
+DEFAULT_BW_EFF_HOST_PROBE = 0.40
 
 # Fit-redesign Phase 5 (§13.2): keep-latest-K persisted load footprints per
 # (model, machine, fingerprint) — without a cap, 'load' rows grow unboundedly.

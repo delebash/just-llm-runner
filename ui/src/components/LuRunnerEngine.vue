@@ -21,6 +21,7 @@ import LuRunnerBinaries from "./LuRunnerBinaries.vue";
 import LuEngineInstallButton from "./LuEngineInstallButton.vue";
 import LuEngineUpdateButton from "./LuEngineUpdateButton.vue";
 import { request } from "../client.js";
+import { pushToast } from "../common/services/toastBridge.js";
 import { useEngine } from "../composables/useEngine.js";
 import { usePoll } from "../common/composables/usePoll.js";
 
@@ -211,6 +212,10 @@ async function saveKnobs() {
     bandFineToks.value = r.bandFineToks;
     bandSlowToks.value = r.bandSlowToks;
     ramHeadroomMb.value = r.ramHeadroomMb;
+    // The user's 2026-08-13 checkpoint ask: Save must SAY it saved (the
+    // fields re-syncing silently read as nothing happening). After the await
+    // → success-only (the FeatureLab precedent).
+    pushToast({ message: "Engine settings saved.", kind: "success" });
     await refreshResident();
   } catch (e) {
     knobErr.value = e.message || "Couldn't save.";

@@ -491,6 +491,29 @@ user's data reset) — the stage record:
   (6) DONE 2026-08-13 (user: "jv and jw have been reset") — the data reset.
       Both apps run on fresh seeds now (facts-not-floors rows, no legacy
       rungs); docgen stays optional (self-heal covers its seeded rows).
+- CHECKPOINT WALK, DESKTOP ROUND 1 (user, 2026-08-13, live): item (1)
+  CAUGHT A REAL DEFECT — the flagship chip read "Fits · ~slow", not the
+  designed ~fine. Diagnosis (verified by running the probe live on the
+  same box): the RAM copy probe reads 19.01 GB/s there and SUPERSEDES the
+  class seed (ladder order working as designed), but it shared the
+  generic host factor — 19.01 × 0.15 = 2.85 GB/s effective → 3.3 tok/s →
+  a band lie (the probe's single-thread memcpy badly underruns
+  multi-channel streaming; the class-seed math 51.2 × 0.15 = 7.68 was
+  the designed position). THE FIX = §5.5's own instruction executed
+  ("the probe's efficiency factor calibrated ONCE against the
+  measured-model path"): a SEPARATE seeded factor `bw_eff_host_probe` =
+  0.40 (19.01 × 0.40 = 7.6, inside the box's measured 6.9–10.6 window),
+  wired config→schema→stores→seed→reset→ladder→api; the ladder prices
+  probe-sourced host at ITS factor, class-seeded at the generic one.
+  Pinned: test_probe_factor_calibration_pin (window membership + the
+  0.15 bug shape) + the ladder-order test updated. THE PROBE-CALIBRATION
+  OPEN ITEM IS RESOLVED FOR THE DESKTOP; the laptops' probes may sit
+  differently — refine via the settings row, never code. Item (5) OK per
+  the user but Save was silent — the knobs Save now pushes a success
+  toast ("Engine settings saved.", the FeatureLab after-the-await
+  precedent). Items (2)/(3) laptops: NOT walked yet (user: desktop only
+  for now). NEXT USER STEP: restart the app (picks up the new seed row +
+  code), flagship should read ~fine; then the Tune & measure flip test.
 - PHASE 4 BUILT 2026-08-13 (go: "go phase 4"; the user chose to run it
   BEFORE the checkpoint — their sequencing call; the checkpoint's six
   items above stay open and now also cover the Memory-labeled budget

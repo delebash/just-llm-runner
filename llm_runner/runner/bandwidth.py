@@ -259,14 +259,23 @@ def resolve_effective_bw(
     probe_gbps: float | None,
     eff_device: float,
     eff_host: float,
+    eff_host_probe: float = 0.40,
 ) -> tuple[float | None, float | None]:
     """(device_eff_gbps, host_eff_gbps) down the ladder. Source-1 numbers are
-    already effective; sources 2/3 are raw × the seeded efficiency family."""
+    already effective; sources 2/3 are raw × their efficiency factor. The RAM
+    probe carries its OWN factor (`eff_host_probe` — §5.5's probe calibration,
+    live-calibrated 2026-08-13): its single-thread copy underruns multi-channel
+    streaming, so pricing it with the generic host factor under-banded every
+    MoE on the author's box (the flagship read "~slow"; the checkpoint caught
+    it)."""
     device_raw = (apple_pool_bw_gbps() if is_macos else nvidia_mem_bw_gbps()) or (class_vram_bw_gbps or None)
     device = derive_device_bw_gbps(rows, facts_by_id, machine_key=machine_key, backend=backend) \
         or (device_raw * eff_device if device_raw else None)
-    host_raw = probe_gbps or (class_ram_bw_gbps or None)
     host = derive_host_bw_gbps(rows, facts_by_id, machine_key=machine_key, backend=backend,
-                               device_eff_gbps=device) \
-        or (host_raw * eff_host if host_raw else None)
+                               device_eff_gbps=device)
+    if host is None:
+        if probe_gbps:
+            host = probe_gbps * eff_host_probe
+        elif class_ram_bw_gbps:
+            host = class_ram_bw_gbps * eff_host
     return device, host

@@ -97,14 +97,16 @@ def test_host_derivation_prices_the_device_leg_and_solves_the_rest():
 
 def test_resolve_ladder_order_and_families(monkeypatch):
     # No measurements: device falls to nvidia-reported × the device family;
-    # host falls to the probe × the host family.
+    # host falls to the probe × the probe's OWN factor (its single-thread copy
+    # underruns streaming — the generic host factor under-banded every MoE,
+    # the 2026-08-13 checkpoint catch).
     monkeypatch.setattr(bandwidth, "nvidia_mem_bw_gbps", lambda: 448.0)
     dev, host = bandwidth.resolve_effective_bw(
         rows=[], facts_by_id={}, machine_key=_MK, backend="cuda", is_macos=False,
         class_vram_bw_gbps=224.0, class_ram_bw_gbps=51.2, probe_gbps=40.0,
-        eff_device=0.6, eff_host=0.15)
+        eff_device=0.6, eff_host=0.15, eff_host_probe=0.40)
     assert abs(dev - 448.0 * 0.6) < 0.01
-    assert abs(host - 40.0 * 0.15) < 0.01
+    assert abs(host - 40.0 * 0.40) < 0.01
     # Device unreported (AMD box): the class seed carries source 3; no probe →
     # the class RAM seed. A source-1 row outranks everything and is ALREADY
     # effective (no factor).
@@ -121,6 +123,20 @@ def test_resolve_ladder_order_and_families(monkeypatch):
         class_vram_bw_gbps=0.0, class_ram_bw_gbps=0.0, probe_gbps=None,
         eff_device=0.6, eff_host=0.15)
     assert dev is None and host is None
+
+
+def test_probe_factor_calibration_pin():
+    """The §5.5 probe calibration, done LIVE 2026-08-13 on the author's desktop
+    (the checkpoint's item 4, caught as a real band lie — the flagship read
+    ~slow): the probe there reads 19.01 GB/s; the measured-model host-effective
+    window on the same box is 6.9–10.6 GB/s. The seeded probe factor must place
+    the probe-sourced effective INSIDE that window (the generic 0.15 gave 2.85 —
+    far below it)."""
+    from llm_runner.runner.config import DEFAULT_BW_EFF_HOST_PROBE
+
+    effective = 19.01 * DEFAULT_BW_EFF_HOST_PROBE
+    assert 6.9 <= effective <= 10.6, effective
+    assert not (6.9 <= 19.01 * 0.15 <= 10.6)  # the bug this calibration fixed
 
 
 def test_apple_chip_table_matches_longest_name_first():

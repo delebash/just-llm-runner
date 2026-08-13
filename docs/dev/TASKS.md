@@ -401,6 +401,18 @@ Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
   when the app is closed, before calling Phase 3's gate fully green.
   After Phase 3: the deliberate checkpoint before Phases 4-6 (§11), each
   on its own go. Phase 3 consumed Phase 1's byte model (§13.15).
+- PHASE 3 LIVE-REVIEW POLISH (user, 2026-08-13, from the running app):
+  (1) the chip WRAPPED ("Tight · ~slow" split across two lines) — .lu-fit
+  never declared itself atomic; its content was single-word when authored,
+  so the missing rule was invisible until multi-word content arrived. FIX:
+  white-space:nowrap ON THE CHIP CLASS (both the styles.css canonical and
+  QuickSetup's scoped copy) — intent declared once, no explicit widths,
+  future content can't reintroduce it. (2) user ruling, verbatim: "change
+  painful to very slow on model catalog chip" — DISPLAY-ONLY via
+  SPEED_BAND_LABEL in modelPick.js (the FIT_LABEL value≠label precedent;
+  the wire keeps §8.14's fast/fine/slow/painful vocabulary). Docs + the
+  §7.3 test updated same-change. Gates: biome · JW vitest 5/5 · JV
+  build:vite + smoke PASS.
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

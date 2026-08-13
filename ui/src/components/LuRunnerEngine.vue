@@ -360,7 +360,7 @@ onMounted(() => {
                 <span class="lu-eng-knob-cap">Fine at ≥</span>
                 <UiInput v-model="bandFineToks" type="number" width="token" />
               </label>
-              <label class="lu-eng-knob" title="Below “fine” but at or above this the label is “slow”; anything under is “painful”.">
+              <label class="lu-eng-knob" title="Below “fine” but at or above this the label is “slow”; anything under is “very slow”.">
                 <span class="lu-eng-knob-cap">Slow at ≥</span>
                 <UiInput v-model="bandSlowToks" type="number" width="token" />
               </label>

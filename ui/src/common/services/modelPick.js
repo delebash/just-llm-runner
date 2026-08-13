@@ -34,6 +34,12 @@ export const FIT_RANK = { ok: 0, tight: 1, cpu: 2, no: 3, unknown: 4 };
 // The fit-band display vocabulary — ONE source (was duplicated in useRunnerModels + QuickSetup).
 export const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fit", unknown: "—" };
 
+// The band display vocabulary — the wire value stays the §8.14 set
+// (fast/fine/slow/painful, the FIT_LABEL precedent: value ≠ label); the
+// bottom band DISPLAYS as "very slow" (user 2026-08-13, at the Phase 3 chip
+// review: "change painful to very slow on model catalog chip").
+export const SPEED_BAND_LABEL = { fast: "fast", fine: "fine", slow: "slow", painful: "very slow" };
+
 /**
  * The SPEED half of the chip label (fit-redesign §5.4/§8.3: feasibility × band
  * ship together). "" when the server sent no band (facts or bandwidth unknown —
@@ -43,7 +49,8 @@ export const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fi
  */
 export function speedBandLabel(m) {
   if (!m || !m.speedBand) return "";
-  return m.measuredTokS ? m.speedBand : `~${m.speedBand}`;
+  const label = SPEED_BAND_LABEL[m.speedBand] || m.speedBand;
+  return m.measuredTokS ? label : `~${label}`;
 }
 
 /**

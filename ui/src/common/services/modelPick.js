@@ -34,6 +34,58 @@ export const FIT_RANK = { ok: 0, tight: 1, cpu: 2, no: 3, unknown: 4 };
 // The fit-band display vocabulary — ONE source (was duplicated in useRunnerModels + QuickSetup).
 export const FIT_LABEL = { ok: "Fits", tight: "Tight", cpu: "CPU", no: "Won't fit", unknown: "—" };
 
+/**
+ * The SPEED half of the chip label (fit-redesign §5.4/§8.3: feasibility × band
+ * ship together). "" when the server sent no band (facts or bandwidth unknown —
+ * the chip shows plain feasibility, never a guess). A PREDICTED band carries the
+ * "~" (an estimate); a band backed by a real measurement on this box drops it
+ * (measurement outranks estimate, §5.5).
+ */
+export function speedBandLabel(m) {
+  if (!m || !m.speedBand) return "";
+  return m.measuredTokS ? m.speedBand : `~${m.speedBand}`;
+}
+
+/**
+ * The honest warning for a picked "no"-fit row (§8.23 — verdicts inform, never
+ * gate: every model is selectable and launchable; this sentence is what informs).
+ * "" for anything the estimate doesn't reject.
+ */
+export function fitWarning(m) {
+  if (!m || m.fit !== "no") return "";
+  return "The estimate says this PC doesn't have the memory for it. You can still "
+    + "load it — the engine will try, and backs off if the load fails.";
+}
+
+/**
+ * The slot-card dropdown rows (the General + Embedding inline pickers) — EVERY
+ * model of the kind, NO fit veto (fit-redesign §8.23, user 2026-08-13: "a user
+ * should always be able to run any model they want with any settings they
+ * want"). The fit badge + speed band ride the label instead, so the pick is
+ * informed, not gated; recommendations still tag their row. Pure — the caller
+ * binds the catalog-join accessors (the pickBestModel precedent).
+ *
+ * @param {Array}  models   fit-annotated /models rows [{id, name, fit, speedBand, …}]
+ * @param {Object} opts     { kind (false=chat true=embed), recommendedId,
+ *                            embeddingOf(m), useLimitedOf(m), qualityOf(m) }
+ */
+export function buildSlotOptions(models, { kind, recommendedId, embeddingOf, useLimitedOf, qualityOf }) {
+  return (models || [])
+    .filter((m) => embeddingOf(m) === kind)
+    .sort((a, b) => qualityOf(a) - qualityOf(b))
+    .map((m) => {
+      const band = speedBandLabel(m);
+      // Embeds show their placement story elsewhere; chat rows annotate the
+      // fit + band so a non-fitting pick is informed at the point of choice.
+      const fitBit = kind ? "" : ` · ${FIT_LABEL[m.fit] || "—"}${band ? ` · ${band}` : ""}`;
+      return {
+        value: m.id,
+        label: `${m.name || m.id}${useLimitedOf(m) ? " ⚠" : ""}`
+          + `${m.id === recommendedId ? " · Recommended" : ""}${fitBit}`,
+      };
+    });
+}
+
 // §10 "fast enough": a dense model only clears the floor fully on the GPU (fit==ok); a MoE
 // clears it at ok OR tight (its expert-offload streams because only ~3B is active per token).
 function isFastEnough(model, type) {

@@ -311,6 +311,110 @@ def kv_exact_mb(
     return n_layers * n_kv_heads * (k + v) * ctx_size * bytes_per_elem / 1e6
 
 
+def kv_mb_from_facts(facts: dict, ctx: int, cache_bits: int = 16) -> float:
+    """KV size (MiB) at `ctx` from the STORED physics facts — the §13.11 scalar
+    formula `KV(ctx,bits) = [Wb × min(ctx,window) + Gb × ctx] × bits/8`, byte-
+    identical to `GgufMeta.kv_mb_at_ctx`'s per-layer loop (pinned by test).
+    Lives HERE (moved from llm/identity.py at Phase 3) because the runner's badge
+    speed model reads the same facts pre-download; identity delegates — one
+    source. Scalars absent (legacy row) → `kv_exact_mb`'s dim heuristics."""
+    wb = float(facts.get("kv_windowed_bytes_per_token") or 0.0)
+    gb = float(facts.get("kv_global_bytes_per_token") or 0.0)
+    window = int(facts.get("sliding_window") or 0)
+    if wb or gb:
+        return (wb * min(ctx, window if window > 0 else ctx) + gb * ctx) * (cache_bits / 8.0) / 1e6
+    return kv_exact_mb(
+        n_layers=int(facts.get("block_count") or 0),
+        n_kv_heads=int(facts.get("n_kv_heads") or 0),
+        ctx_size=ctx, cache_type=cache_bits,
+        embedding_dim=int(facts.get("embedding_length") or 0),
+        head_count=int(facts.get("head_count") or 0),
+    )
+
+
+# ── The decode-speed model (fit-redesign Phase 3, §5.5 as corrected 2026-08-13) ──
+# decode ceiling ≈ bytes touched per forward pass ÷ effective bandwidth of the
+# pool those bytes live in. Bytes/pass: dense = the whole file; MoE = non-expert
+# bytes + the ACTIVE expert share (file × expert_byte_share × used/total) — plus
+# a KV-read term at the live context (iSWA-aware). Pools are priced separately
+# (streamed device reads vs scattered host expert gather are DIFFERENT physical
+# processes — Appendix B; never one shared constant) and the per-pool times ADD:
+# the serial sum is what Appendix B's host-constant derivation solved, and it is
+# the conservative end of "slowest pool wins" (err-slow, §8.17). Speed predicts
+# UN-SPED (§13.7 — no seeded acceptance constant); a real measurement outranks
+# every prediction at display time.
+
+def active_bytes_per_pass_mb(
+    *, size_mb: float, expert_byte_share: float, experts_total: int, expert_used: int,
+) -> tuple[float, float]:
+    """(non_expert_mb, active_expert_mb) touched per forward pass. Dense (no
+    expert dims) → (whole file, 0). Appendix B pins: 26B = 871 + 836 MB;
+    12B dense = 6716 + 0 MB."""
+    size_mb = max(0.0, size_mb)
+    share = max(0.0, min(1.0, expert_byte_share))
+    if share <= 0 or experts_total <= 0 or expert_used <= 0:
+        return size_mb, 0.0
+    used = min(expert_used, experts_total)
+    return size_mb * (1.0 - share), size_mb * share * (used / experts_total)
+
+
+def speed_bytes_split(
+    *, non_expert_mb: float, active_expert_mb: float, kv_mb: float,
+    one_pool: bool, weight_budget_mb: float,
+) -> tuple[float, float]:
+    """(device_mb, host_mb) read per pass under the CANONICAL placement the
+    verdict prices (max-offload: experts in host RAM, everything else device).
+    `weight_budget_mb` = VRAM budget already net of margin + backend overhead.
+    Dense that fits → all device; dense/attention overflow spills to host by
+    byte fraction (the partial-offload trap honestly reads slow); no budget →
+    everything host; one-pool boxes put every byte in the ONE pool (device
+    slot — the caller prices it at the pool's bandwidth)."""
+    device_want = max(0.0, non_expert_mb) + max(0.0, kv_mb)
+    if one_pool:
+        return device_want + max(0.0, active_expert_mb), 0.0
+    budget = max(0.0, weight_budget_mb)
+    frac = 1.0 if device_want <= budget else (budget / device_want if device_want > 0 else 0.0)
+    device = device_want * frac
+    host = max(0.0, active_expert_mb) + device_want * (1.0 - frac)
+    return device, host
+
+
+def predict_decode_tok_s(
+    *, device_mb: float, host_mb: float,
+    device_bw_gbps: float | None, host_bw_gbps: float | None,
+) -> float | None:
+    """Predicted UN-SPED decode tok/s from the per-pool byte split and the
+    EFFECTIVE per-pool bandwidths (raw × efficiency family, or measurement-
+    derived — the caller resolves the ladder). Per-token time = Σ pool_bytes /
+    pool_bw, pools serial (see the section comment). A pool with bytes but no
+    usable bandwidth → None: an unknown may never become a number (§8.17's
+    spirit — the badge shows no band rather than a guess)."""
+    total_s = 0.0
+    for mb, bw in ((device_mb, device_bw_gbps), (host_mb, host_bw_gbps)):
+        if mb <= 0:
+            continue
+        if not bw or bw <= 0:
+            return None
+        total_s += (mb / 1000.0) / bw
+    if total_s <= 0:
+        return None
+    return 1.0 / total_s
+
+
+def speed_band(tok_s: float | None, *, fast: float, fine: float, slow: float) -> str:
+    """tok/s → band label (§8.14: fast/fine/slow/painful; the ~`fine` line is
+    reading speed). None/non-positive → "" — never a fabricated band."""
+    if not tok_s or tok_s <= 0:
+        return ""
+    if tok_s >= fast:
+        return "fast"
+    if tok_s >= fine:
+        return "fine"
+    if tok_s >= slow:
+        return "slow"
+    return "painful"
+
+
 def physics_vram_mb(
     *, size_mb: float, n_layers: int, gpu_layers: int, moe_share: float,
     kv_mb: float, overhead_mb: float,

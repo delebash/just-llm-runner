@@ -428,6 +428,13 @@ class HardwareClass(LlmBase):
     ram_gb = Column(Integer, nullable=False, default=0)
     name = Column(Text, nullable=False, default="")
     built_in = Column(Boolean, nullable=False, default=False)
+    # Fit-redesign Phase 3 (§5.5 bandwidth-ladder source 3): class-typical RAW
+    # pool bandwidths in GB/s — JEDEC arithmetic / vendor spec sheets, cited at
+    # the seed; GUI-editable in the class editor; superseded by any measurement
+    # or device-reported number. 0 = unknown (the ladder skips this source).
+    # One-pool classes carry the pool in ram_bw_gbps (vram_bw_gbps stays 0).
+    vram_bw_gbps = Column(Float, nullable=False, default=0.0)
+    ram_bw_gbps = Column(Float, nullable=False, default=0.0)
 
 
 class ClassTune(LlmBase):
@@ -703,6 +710,10 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("model_catalog", "kv_windowed_bytes_per_token", "REAL NOT NULL DEFAULT 0"),
     ("model_catalog", "kv_global_bytes_per_token", "REAL NOT NULL DEFAULT 0"),
     ("model_catalog", "sliding_window", "INTEGER NOT NULL DEFAULT 0"),
+    # Fit-redesign Phase 3 (§5.5 ladder source 3) — class-typical RAW pool
+    # bandwidths, additive; 0 = unknown (the ladder skips the source):
+    ("hardware_classes", "vram_bw_gbps", "REAL NOT NULL DEFAULT 0"),
+    ("hardware_classes", "ram_bw_gbps", "REAL NOT NULL DEFAULT 0"),
     # U2-T2 (2026-07-14; the model_catalog `thinking` column died with the
     # tier system 2026-08-07 — an old DB's leftover column is unmapped, inert):
     ("engine_presets", "think", "BOOLEAN NOT NULL DEFAULT 0"),

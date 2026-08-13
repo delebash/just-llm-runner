@@ -357,13 +357,50 @@ Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
 - CHECKPOINT STATE: desktop DONE (quant pick ✓ · 35B via the -MTP repo
   detects builtin-MTP ✓ · GLM row + hover ✓ · membership blessed).
   REMAINING: the laptops glance (E4B must read Fits on the 16 GB iGPU) ·
-  the user's data reset. THEN the Phase 3 go — speed bands + badge display
-  (feasibility × band SHIPPED TOGETHER §8.3; constants + derivation rule
-  §5.5/§13.8: device ~0.6 · host ~0.15 err-slow, seeded families) + §8.23
-  veto removal (§13.16 consumer list) + §13.17 GUI pins (band-thresholds
-  field + RAM-headroom field beside margin/cap in LuRunnerBinaries) +
-  measured-replaces-predicted display. Phase 3 consumes Phase 1's byte
-  model (§13.15). After Phase 3: the deliberate checkpoint before 4-6.
+  the user's data reset.
+- PHASE 3 BUILT 2026-08-13 (go: "compact complete go phase 3") — speed
+  bands + badge display (feasibility × band SHIPPED TOGETHER §8.3) + §8.23
+  veto removal (§13.16) + §13.17 GUI pins + measured-replaces-predicted.
+  §13.17 AMENDED at the go (user, verbatim: "move the margin and cap nd
+  the new fields under loaded models where Models kept loaded at once
+  live, not under engine binaries") — margin + ctx cap + band thresholds +
+  RAM headroom live in LuRunnerEngine's knobs group (the Loaded-models
+  card), LuRunnerBinaries keeps only pinned build + URL rows. The build:
+  (a) fit.py speed physics — active bytes/pass (Appendix-B pins 871+836 /
+  6716) · kv_mb_from_facts RELOCATED here (identity delegates, one source)
+  · speed_bytes_split (canonical placement, one-pool, dense spill, no
+  budget → all host) · predict_decode_tok_s (serial pool sum, err-slow; a
+  byte-carrying pool with no bandwidth → None, never a guess) · speed_band.
+  (b) runner/bandwidth.py (NEW) — the §5.5 ladder: measured-derived
+  (config-known, un-sped, backend+machine-matched; flagless NEVER
+  qualifies §13.14) → device-reported (nvidia-smi bus×clock×2 = 448.06 on
+  the 2070S; Apple chip table; RAM copy probe persisted as measurement row
+  __machine_ram_bw__, Clear-history → re-probes §8.22) → class-seeded
+  (hardware_classes +vram_bw_gbps/+ram_bw_gbps additive, JEDEC/vendor-
+  cited slowest-common-card seeds, class-editor fields, ensure() seeds).
+  Efficiency families runner_setting bw_eff_device 0.6 / bw_eff_host 0.15
+  (§13.8 err-slow; source-1 bypasses). Metal one-pool = device family,
+  iGPU/CPU = host family. (c) the wire — ModelEntry +size_bytes/
+  trained_ctx/experts/physics_facts; RunnerModelInfo +speedBand/predTokS/
+  measuredTokS; api.py prices the CAPPED ctx; measured (newest, this
+  box+backend) outranks predicted for value AND band; MeasurementRow
+  +backend (was DB-stamped but WIRE-STRIPPED — the documented Pydantic
+  class); configure_service +measurements_fn/class_bw_fn/record_probe_fn.
+  (d) §8.23 — slotOptions → pure buildSlotOptions (modelPick.js), NO fit
+  filter, badge+band ride labels, fitWarning under a "no" pick; QuickSetup
+  embedOptions unfiltered+annotated; grouping + all auto-picks KEPT as
+  recommendations; §7.3 pinned (JW slotOptions.test.js — a "no" row IS
+  selectable). (e) chip "Fits · ~fine" (~ = predicted, measured drops it);
+  row shows measured tok/s; hover speed sentence + §13.7 MTP rider.
+  Docs same-change: JW models.md (band + veto removal + knob move + class
+  bw fields) · JV ai-features.md (new "Picking models" section). Gates:
+  kit ruff + 813/10 · kit-ui biome · JW test:fast 128 + vitest(5) + i18n
+  benign-only + build:vite · JV build:vite + smoke PASS (0 JS errors) ·
+  check-family 0. JW smoke REFUSED — the user's running app holds port
+  1420 (the documented refusal, not a failure): RE-RUN `npm run smoke`
+  when the app is closed, before calling Phase 3's gate fully green.
+  After Phase 3: the deliberate checkpoint before Phases 4-6 (§11), each
+  on its own go. Phase 3 consumed Phase 1's byte model (§13.15).
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

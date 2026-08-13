@@ -16,7 +16,12 @@ import logging
 
 from . import db
 from ..runner.config import (
+    DEFAULT_BAND_FAST_TOKS,
+    DEFAULT_BAND_FINE_TOKS,
+    DEFAULT_BAND_SLOW_TOKS,
     DEFAULT_BINARIES,
+    DEFAULT_BW_EFF_DEVICE,
+    DEFAULT_BW_EFF_HOST,
     DEFAULT_CTX_CAP_TOKENS,
     DEFAULT_FLOOR_CTX_TOKENS,
     DEFAULT_RAM_HEADROOM_MB,
@@ -301,18 +306,50 @@ DEFAULT_HARDWARE_CLASSES: list[dict] = [
     {"class_key": "dgpu-vram24|ram64", "mem_type": "discrete", "vram_gb": 24, "ram_gb": 64, "name": ""},
 ]
 
+# Class-typical RAW pool bandwidths, GB/s (fit-redesign Phase 3, §5.5 ladder
+# source 3) — the LAST-resort fallback, cited like licenses are, GUI-editable in
+# the class editor, superseded by any measurement or device-reported number.
+# Each dGPU band seeds its SLOWEST common card (err-slow §8.17; a faster card's
+# owner gets the real number from nvidia-smi — ladder source 2 — anyway):
+#   8  → 224  (RTX 3050 8 GB: 128-bit GDDR6 @ 14 Gbps)
+#   12 → 360  (RTX 3060 12 GB: 192-bit GDDR6 @ 15 Gbps)
+#   16 → 288  (RTX 4060 Ti 16 GB: 128-bit GDDR6 @ 18 Gbps)
+#   24 → 672  (TITAN RTX: 384-bit GDDR6 @ 14 Gbps — the slowest 24 GB card;
+#              a 3090 is 936, a 4090 1008)
+_DGPU_BAND_BW_GBPS = {8: 224.0, 12: 360.0, 16: 288.0, 24: 672.0}
+# System-RAM floor for every class: JEDEC DDR4-3200 dual-channel = 51.2 GB/s
+# (a standard, not an opinion — §5.5). DDR5/LPDDR5 boxes exceed it and the RAM
+# copy probe (ladder source 2) supersedes it on first run.
+_CLASS_RAM_BW_GBPS = 51.2
+
+
+def _class_bw_seed(mem_type: str, vram_gb: int) -> tuple[float, float]:
+    """(vram_bw_gbps, ram_bw_gbps) seed for a class row — one-pool classes carry
+    the pool in ram_bw_gbps only."""
+    if mem_type == "discrete":
+        return (_DGPU_BAND_BW_GBPS.get(int(vram_gb), 0.0), _CLASS_RAM_BW_GBPS)
+    return (0.0, _CLASS_RAM_BW_GBPS)
+
 
 def seed_default_hardware_classes(s) -> int:
     """Seed the built-in hardware-class rows (merge-by-key: a user-edited class is never
-    clobbered). Called BEFORE seed_default_class_tunes so a seeded config's class exists."""
-    existing = {r.class_key for r in s.query(db.HardwareClass.class_key).all()}
+    clobbered). Called BEFORE seed_default_class_tunes so a seeded config's class exists.
+    Phase 3 self-heal: an EXISTING row still at bandwidth 0/0 (pre-Phase-3 DB — the
+    additive columns default to 0) gets the seed bandwidths filled — fill-empty only,
+    a user-entered number is never touched (the physics-facts fill precedent)."""
+    existing = {r.class_key: r for r in s.query(db.HardwareClass).all()}
     added = 0
     for row in DEFAULT_HARDWARE_CLASSES:
-        if row["class_key"] in existing:
+        vram_bw, ram_bw = _class_bw_seed(row["mem_type"], int(row["vram_gb"]))
+        cur = existing.get(row["class_key"])
+        if cur is not None:
+            if not cur.vram_bw_gbps and not cur.ram_bw_gbps:
+                cur.vram_bw_gbps, cur.ram_bw_gbps = vram_bw, ram_bw
             continue
         s.add(db.HardwareClass(class_key=row["class_key"], mem_type=row["mem_type"],
                                vram_gb=int(row["vram_gb"]), ram_gb=int(row["ram_gb"]),
-                               name=row.get("name", ""), built_in=True))
+                               name=row.get("name", ""), built_in=True,
+                               vram_bw_gbps=vram_bw, ram_bw_gbps=ram_bw))
         added += 1
     return added
 
@@ -455,6 +492,14 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
     # Fit-redesign Phase 2 floor rules (§8.21/§13.13) — additive rows:
     {"key": "floor_ctx_tokens", "value": str(DEFAULT_FLOOR_CTX_TOKENS)},
     {"key": "ram_headroom_mb", "value": str(DEFAULT_RAM_HEADROOM_MB)},
+    # Fit-redesign Phase 3 — speed-band thresholds (§8.14, tok/s minimums;
+    # GUI-editable in the Loaded-models knobs group) + the two bandwidth
+    # efficiency families (§13.8; host seeded LOW per err-slow). Additive rows.
+    {"key": "band_fast_toks", "value": str(DEFAULT_BAND_FAST_TOKS)},
+    {"key": "band_fine_toks", "value": str(DEFAULT_BAND_FINE_TOKS)},
+    {"key": "band_slow_toks", "value": str(DEFAULT_BAND_SLOW_TOKS)},
+    {"key": "bw_eff_device", "value": str(DEFAULT_BW_EFF_DEVICE)},
+    {"key": "bw_eff_host", "value": str(DEFAULT_BW_EFF_HOST)},
     # Router mode (P1e): DB-editable co-resident cap + idle-unload TTL.
     {"key": "models_max", "value": str(DEFAULT_MODELS_MAX)},
     {"key": "sleep_idle_seconds", "value": str(DEFAULT_SLEEP_IDLE_SECONDS)},

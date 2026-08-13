@@ -1,7 +1,7 @@
 <script setup>
 // SPDX-License-Identifier: MIT
-// Editable llama.cpp engine config — the binary download URL per (platform, gpu),
-// the pinned build, and the VRAM safety margin. Backed by the shared
+// Editable llama.cpp engine config — the binary download URL per (platform, gpu)
+// and the pinned build. Backed by the shared
 // /v1/ai/engine-config CRUD (llm_runner/llm/runner_config_api.py), persisted in the
 // host DB (runner_binary + runner_setting, seeded from the module defaults). The
 // app auto-detects the system and downloads the matching build; this panel lets the
@@ -19,8 +19,9 @@ import { request } from "../client.js";
 
 const rows = ref([]);
 const pinnedBuild = ref("");
-const safetyMarginMb = ref(0);
-const ctxCapTokens = ref(0);
+// The VRAM margin + ctx cap fields MOVED to LuRunnerEngine's Loaded-models knobs
+// (fit-redesign §13.17 as amended at the Phase 3 go — the user's placement
+// ruling); this panel keeps only the pinned build + the per-(platform,gpu) URLs.
 const loading = ref(false);
 const loaded = ref(false);
 const error = ref("");
@@ -45,8 +46,6 @@ watch(pinnedBuild, _resolveRowsToPin);
 function _apply(d) {
   rows.value = (d.binaries || []).map((r) => ({ ...r }));
   pinnedBuild.value = d.pinnedBuild || "";
-  safetyMarginMb.value = d.safetyMarginMb || 0;
-  ctxCapTokens.value = d.ctxCapTokens || 0;
   _resolveRowsToPin(); // show real paths for the current pin on load (never a placeholder)
 }
 
@@ -92,7 +91,7 @@ function saveRow(r) {
 }
 
 function saveSettings() {
-  put({ pinnedBuild: (pinnedBuild.value || "").trim(), safetyMarginMb: Number(safetyMarginMb.value) || 0, ctxCapTokens: Number(ctxCapTokens.value) || 0 }, "__settings");
+  put({ pinnedBuild: (pinnedBuild.value || "").trim() }, "__settings");
 }
 
 async function addRow() {
@@ -110,7 +109,7 @@ async function addRow() {
 }
 
 async function reset() {
-  if (!(await confirmDialog("Reset the engine binaries, pinned build, and VRAM margin to their shipped defaults? Custom rows you added are kept."))) return;
+  if (!(await confirmDialog("Reset the engine binaries and pinned build to their shipped defaults? Custom rows you added are kept. (Engine settings like the VRAM margin also reset — they live under Loaded models.)"))) return;
   busy.value = "__reset";
   error.value = "";
   try {
@@ -127,7 +126,7 @@ async function reset() {
   <details class="lu-engbin" @toggle="onToggle">
     <summary class="lu-engbin-summary">
       <span class="lu-engbin-title">Engine binaries</span>
-      <span class="lu-muted">llama.cpp download URLs · pinned build · VRAM margin</span>
+      <span class="lu-muted">llama.cpp download URLs · pinned build</span>
     </summary>
 
     <div class="lu-engbin-body">
@@ -149,12 +148,6 @@ async function reset() {
         <div class="lu-engbin-settings">
           <label class="lu-engbin-field">Pinned build
             <UiInput v-model="pinnedBuild" width="token" />
-          </label>
-          <label class="lu-engbin-field">VRAM safety margin (MB)
-            <UiInput v-model="safetyMarginMb" type="number" width="token" />
-          </label>
-          <label class="lu-engbin-field" title="The most context an untuned model gets automatically; a tune's explicit context always overrides. 0 = no cap.">Default context cap (tokens)
-            <UiInput v-model="ctxCapTokens" type="number" width="token" />
           </label>
           <UiButton intent="primary" size="small" :loading="busy === '__settings'" @click="saveSettings">Save</UiButton>
         </div>

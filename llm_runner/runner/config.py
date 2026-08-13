@@ -63,9 +63,29 @@ DEFAULT_CTX_CAP_TOKENS = 32768
 # Fit-redesign Phase 2 (§8.21, §13.13) — the two floor-rule seeded facts:
 # the canonical floor prices KV at MINIMAL-USABLE context ("can it run at all";
 # the fit verdict prices the real config), and the RAM floor is file + headroom.
-# Seeded runner_setting rows; GUI fields ride Phase 3's panel work (§13.17).
+# Seeded runner_setting rows; the GUI field lives in the Loaded-models knobs
+# group (§13.17 as amended at the Phase 3 go).
 DEFAULT_FLOOR_CTX_TOKENS = 4096
 DEFAULT_RAM_HEADROOM_MB = 4096
+
+# Fit-redesign Phase 3 (§8.14) — the speed-band thresholds, tok/s minimums:
+# fast ≥ 20 (well past reading speed) · fine ≥ 8 (the DECIDED "comfortable"
+# reading-speed line) · slow ≥ 2 · below = painful. Seeded runner_setting rows,
+# GUI-editable in the Loaded-models knobs group. Start values, not law.
+DEFAULT_BAND_FAST_TOKS = 20.0
+DEFAULT_BAND_FINE_TOKS = 8.0
+DEFAULT_BAND_SLOW_TOKS = 2.0
+
+# Fit-redesign Phase 3 (§5.5 corrected + §13.8) — the two EFFICIENCY FAMILIES
+# converting raw pool bandwidth (device registers / probe / class seed) into
+# effective decode bandwidth. Two families because the pools are different
+# physical processes (streamed device reads vs scattered expert gather):
+# device-compute measured ≈0.59 of spec on the author's box; host-CPU converged
+# 0.10–0.22 across three independent derivations — seeded at 0.15, the low half
+# (err-slow, §8.17). Measurement-DERIVED bandwidth (ladder source 1) bypasses
+# these entirely. Seeded runner_setting rows; self-correct as Phase 5 learns.
+DEFAULT_BW_EFF_DEVICE = 0.6
+DEFAULT_BW_EFF_HOST = 0.15
 
 # Router mode (P1e): the count-based co-resident cap (`--models-max`; the arbiter
 # works WITHIN it) and the native idle-unload TTL (`--sleep-idle-seconds`; 0 =

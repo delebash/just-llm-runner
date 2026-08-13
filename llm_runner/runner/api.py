@@ -16,8 +16,8 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from . import fit
-from .hardware import class_key, detect, machine_key, max_vram_mb
+from . import bandwidth, fit
+from .hardware import active_backend, class_key, detect, machine_key, max_vram_mb, mem_arch
 from .lifecycle import get_service
 from .process import Overrides
 from .schema import (
@@ -70,6 +70,26 @@ def _fit(model: ModelEntry, gpu_vram_mb: int, ram_mb: int, margin_mb: int) -> st
         min_vram_override=model.recommended_for.min_vram_mb,
         min_ram_override=model.min_ram_mb,
     )
+
+
+def _speed_facts(m: ModelEntry) -> dict | None:
+    """The per-model byte facts the speed model and the bandwidth derivation
+    share (fit-redesign §5.5): bytes/pass split into non-expert + active-expert
+    legs, plus the §13.11 KV scalars. None for embeds (no decode-speed story)
+    and for rows whose header was never read — those get NO band, never a guess."""
+    facts = m.physics_facts or {}
+    if m.embedding or not m.size_bytes or not facts.get("block_count"):
+        return None
+    size_mb = m.size_bytes / 1e6
+    non_expert, active_expert = fit.active_bytes_per_pass_mb(
+        size_mb=size_mb,
+        expert_byte_share=float(facts.get("expert_byte_share") or 0.0),
+        experts_total=int(m.experts or 0),
+        expert_used=int(facts.get("expert_used_count") or 0),
+    )
+    return {"n_layers": int(facts.get("block_count") or 0), "mtp": bool(m.mtp),
+            "size_mb": size_mb, "non_expert_mb": non_expert,
+            "active_expert_mb": active_expert, "kv_facts": facts}
 
 
 @router.get(
@@ -174,6 +194,77 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
         # JustVoice mount this router and serve an empty catalog unnoticed.
         _warn_catalog_unwired()
 
+    # ── The SPEED half of the badge (fit-redesign Phase 3; §5.4: feasibility ×
+    # band ship together). Bandwidth is a MACHINE property, resolved once per
+    # request down the §5.5 ladder (measurement-derived → device-reported →
+    # class-seeded); each chat row with header facts then gets its per-pass byte
+    # split priced. A row without facts, or a pool without bandwidth, keeps band
+    # "" — the chip shows plain feasibility rather than a guess (§8.17's rule).
+    cfg = service.config()
+    backend = active_backend(hardware)
+    arch = mem_arch(hardware)
+    # Same one-pool condition as compute_fit's arch arm (§13.10): a GPU-less
+    # Windows/Linux box stays the plain CPU path (budget 0 → all bytes host).
+    one_pool = arch in ("integrated", "unified") and (bool(hardware.gpus) or hardware.platform == "macos")
+    mkey = machine_key(hardware)
+    speed_facts: dict[str, dict] = {}
+    for m in catalog:
+        sf = _speed_facts(m)
+        if sf:
+            speed_facts[m.id] = sf
+    meas_plain = [{
+        "model_id": getattr(r, "modelId", ""), "machine_key": getattr(r, "machineKey", ""),
+        "backend": getattr(r, "backend", ""),
+        "tokens_per_sec": float(getattr(r, "tokensPerSec", 0) or 0),
+        "switches": {f.flagName: f.flagValue for f in (getattr(r, "switches", None) or [])},
+    } for r in service.measurement_rows()]
+    cls_vram_bw, cls_ram_bw = service.class_bw(class_key(hardware))
+    dev_bw, host_bw = bandwidth.resolve_effective_bw(
+        rows=meas_plain, facts_by_id=speed_facts, machine_key=mkey, backend=backend,
+        is_macos=(hardware.platform == "macos"),
+        class_vram_bw_gbps=cls_vram_bw, class_ram_bw_gbps=cls_ram_bw,
+        probe_gbps=service.host_probe_bw_gbps(mkey),
+        eff_device=cfg.bw_eff_device, eff_host=cfg.bw_eff_host)
+    overhead = fit.PHYSICS_OVERHEAD_MB.get(backend, fit.PHYSICS_OVERHEAD_MB["cuda"])
+    weight_budget = max(0.0, gpu_vram - margin - overhead)
+    # Newest REAL measurement per model on THIS box + backend — measurement
+    # outranks estimate at display AND for the band. Rows arrive newest-first;
+    # the RAM-probe pseudo-row never matches a catalog id.
+    measured_by_id: dict[str, float] = {}
+    for r in meas_plain:
+        if r["machine_key"] == mkey and r["backend"] == backend and r["tokens_per_sec"] > 0:
+            measured_by_id.setdefault(r["model_id"], r["tokens_per_sec"])
+
+    def _speed(m: ModelEntry) -> tuple[str, float | None, float | None]:
+        """(band, predicted tok/s, measured tok/s) for one chat row."""
+        sf = speed_facts.get(m.id)
+        if not sf:
+            return "", None, None
+        # The band prices the config the row would actually launch: capped ctx
+        # (§8.1) — larger ctx reads more KV per token, the err-slow direction.
+        cap = cfg.ctx_cap_tokens
+        ctx = min(m.trained_ctx or cap, cap) if cap else (m.trained_ctx or 4096)
+        kv = fit.kv_mb_from_facts(sf["kv_facts"], max(1, ctx))
+        dev_mb, host_mb = fit.speed_bytes_split(
+            non_expert_mb=sf["non_expert_mb"], active_expert_mb=sf["active_expert_mb"],
+            kv_mb=kv, one_pool=one_pool, weight_budget_mb=weight_budget)
+        if one_pool:
+            # The one pool is priced by ITS efficiency family (§5.5): Metal
+            # streams like a device (Apple published BW × device family); an
+            # iGPU/CPU pool gathers like a host (Appendix B's laptop rows sit
+            # in the host range — err-slow keeps them there).
+            tok = fit.predict_decode_tok_s(
+                device_mb=dev_mb, host_mb=0,
+                device_bw_gbps=(dev_bw if backend == "metal" else host_bw),
+                host_bw_gbps=None)
+        else:
+            tok = fit.predict_decode_tok_s(device_mb=dev_mb, host_mb=host_mb,
+                                           device_bw_gbps=dev_bw, host_bw_gbps=host_bw)
+        meas = measured_by_id.get(m.id)
+        band = fit.speed_band(meas or tok, fast=cfg.band_fast_toks,
+                              fine=cfg.band_fine_toks, slow=cfg.band_slow_toks)
+        return band, (round(tok, 1) if tok else None), (round(meas, 1) if meas else None)
+
     models: list[RunnerModelInfo] = []
     for m in catalog:
         downloaded = service.model_downloaded(m, hf_cache)  # main weights AND the MTP draft when wanted
@@ -184,6 +275,7 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
         # `fit` only (placement on a hypothetical card would be fiction: the leftover
         # depends on which chat model this box actually defaults to).
         place, left = service.embed_placement(m, hardware) if m.embedding else ("", 0)
+        band, pred, meas = _speed(m)
         models.append(
             RunnerModelInfo(
                 id=m.id,
@@ -198,6 +290,9 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
                 downloaded=downloaded,
                 embed_placement=place,
                 embed_leftover_mb=(left if place else None),
+                speed_band=band,
+                pred_tok_s=pred,
+                measured_tok_s=meas,
             )
         )
 

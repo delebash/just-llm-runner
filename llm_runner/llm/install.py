@@ -446,6 +446,9 @@ def _wire_runner_catalog(data_dir=None, cache_root=None, product: str = "") -> N
                 mtp_draft_repo=r.mtpDraftRepo, mtp_draft_file=r.mtpDraftFile, mtp_draft_quant=r.mtpDraftQuant,
                 pooling=r.pooling, embedding=r.embedding, min_ram_mb=r.minRamMb,
                 recommended_for=RecommendedFor(min_vram_mb=r.minVramMb, est_vram_mb=r.estVramMb),
+                # Phase 3: the file facts the badge's speed model prices (§5.5).
+                size_bytes=r.sizeBytes, trained_ctx=r.trainedCtx, experts=r.experts or 0,
+                physics_facts=r.physicsFacts,
             )
             for r in stores.get_model_catalog_store().list()
         ]
@@ -515,6 +518,19 @@ def _wire_runner_catalog(data_dir=None, cache_root=None, product: str = "") -> N
         # never contents.
         cache_registry.register(product or Path(data_dir).name, resolved_cache, data_dir)
 
+    # Fit-redesign Phase 3 (§5.5): the bandwidth ladder's host reads — the full
+    # measurement history (source-1 derivation + the persisted RAM-probe row +
+    # measured-replaces-predicted), the class-seeded bandwidths (source 3), and
+    # the probe recorder (the "machine measurement row" — a pseudo-model id, the
+    # label says GB/s; Clear-history deletes it and the probe re-runs, §8.22).
+    def _record_probe(gbps: float, machine_key_str: str, model_id: str, label: str) -> None:
+        import time as _time
+
+        stores.get_model_measurement_store().record(
+            model_id, machine_key=machine_key_str, source="probe", label=label,
+            tokens_per_sec=float(gbps), vram_total_mb=0,
+            at=int(_time.time() * 1000), rows=[])
+
     configure_service(
         catalog_fn=catalog_fn, switches_fn=switches_fn,
         identify_fn=identify_fn, embedding_ids_fn=embedding_ids_fn,
@@ -525,6 +541,9 @@ def _wire_runner_catalog(data_dir=None, cache_root=None, product: str = "") -> N
         # Pass 2 (2026-07-22): per-knob backend applicability from knob_catalog —
         # the runner drops launch flags the active engine family can't use.
         knob_backends_fn=stores.list_knob_backends,
+        measurements_fn=lambda: stores.get_model_measurement_store().list(None),
+        class_bw_fn=lambda key: stores.get_hardware_class_store().bw_for(key),
+        record_probe_fn=_record_probe,
     )
 
     # QC-43b: wire the dispatch ensure-local hook to the runner service. A run routed

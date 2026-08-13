@@ -118,6 +118,14 @@ class ModelEntry(CamelModel):
     mtp_draft_quant: str = ""       # display/selection metadata; the file path is authoritative
     min_ram_mb: int | None = None
     recommended_for: RecommendedFor = RecommendedFor()
+    # Fit-redesign Phase 3 — the file facts the badge's SPEED model reads
+    # pre-download (§5.5: bytes/pass needs size + expert dims; the KV-read term
+    # needs the §13.11 scalars). Mapped from the host catalog row; None/0 =
+    # header never read → the row simply gets no band (never a guess).
+    size_bytes: int | None = None
+    trained_ctx: int | None = None
+    experts: int = 0                # MoE expert count (0 = dense)
+    physics_facts: dict[str, float] | None = None  # §13.11 snake-key fact dict
 
 
 # ─── Runner config (binaries + the VRAM safety margin) ──────────────────
@@ -161,6 +169,16 @@ class RunnerConfig(CamelModel):
     # CONCURRENT model downloads (2026-07-20): how many model downloads run in parallel
     # (the lifecycle admission gate reads this LIVE). 1 = serialize.
     download_max_concurrent: int = 4
+    # Fit-redesign Phase 3 — the speed-band thresholds (§8.14: tok/s minimums,
+    # seeded + GUI-editable in the Loaded-models knobs group) and the two
+    # bandwidth EFFICIENCY FAMILIES (§13.8: raw pool bandwidth × family →
+    # effective; device-compute vs host-CPU are different physical processes,
+    # never one shared constant; host seeded at the low end — err-slow §8.17).
+    band_fast_toks: float = 20.0
+    band_fine_toks: float = 8.0
+    band_slow_toks: float = 2.0
+    bw_eff_device: float = 0.6
+    bw_eff_host: float = 0.15
 
 
 # ─── Model catalog view (GET /v1/llm-runner/models) ─────────────────────
@@ -189,6 +207,16 @@ class RunnerModelInfo(CamelModel):
     # beside the chat default that the decision was made against.
     embed_placement: str = ""
     embed_leftover_mb: int | None = None
+    # Fit-redesign Phase 3 (§5.4/§8.3 — feasibility × band, shipped together).
+    # CHAT rows only (embeds keep the placement story above):
+    #   speed_band     "fast" | "fine" | "slow" | "painful" | "" (unknown —
+    #                  facts or bandwidth missing; the chip shows plain fit).
+    #   pred_tok_s     the UN-SPED physics prediction behind the band (hover).
+    #   measured_tok_s the newest REAL measurement of this model on THIS box +
+    #                  backend — measurement outranks estimate at display.
+    speed_band: str = ""
+    pred_tok_s: float | None = None
+    measured_tok_s: float | None = None
 
 
 class RunnerModelsResponse(CamelModel):

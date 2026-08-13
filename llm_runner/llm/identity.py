@@ -103,22 +103,12 @@ def physics_facts_from_meta(meta: GgufMeta) -> dict:
 
 def kv_mb_from_facts(facts: dict, ctx: int, cache_bits: int = 16) -> float:
     """KV size (MiB) at `ctx` from the STORED facts — the §13.11 scalar formula,
-    byte-identical to `kv_mb_at_ctx` (pinned by test). Facts absent (all zeros) →
-    falls back to `kv_exact_mb`'s dim heuristics via the head fields."""
-    from ..runner.fit import kv_exact_mb
+    byte-identical to `kv_mb_at_ctx` (pinned by test). The formula MOVED to
+    `runner.fit.kv_mb_from_facts` at Phase 3 (the runner's badge speed model
+    reads the same facts pre-download); this delegates — one source."""
+    from ..runner.fit import kv_mb_from_facts as _kv
 
-    wb = float(facts.get("kv_windowed_bytes_per_token") or 0.0)
-    gb = float(facts.get("kv_global_bytes_per_token") or 0.0)
-    window = int(facts.get("sliding_window") or 0)
-    if wb or gb:
-        return (wb * min(ctx, window if window > 0 else ctx) + gb * ctx) * (cache_bits / 8.0) / 1e6
-    return kv_exact_mb(
-        n_layers=int(facts.get("block_count") or 0),
-        n_kv_heads=int(facts.get("n_kv_heads") or 0),
-        ctx_size=ctx, cache_type=cache_bits,
-        embedding_dim=int(facts.get("embedding_length") or 0),
-        head_count=int(facts.get("head_count") or 0),
-    )
+    return _kv(facts, ctx, cache_bits)
 
 
 def computed_row_numbers(

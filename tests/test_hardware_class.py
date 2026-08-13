@@ -126,7 +126,8 @@ def test_save_lists_and_edits_name(configured):
     st = stores.get_hardware_class_store()
     st.save("dgpu-vram8|ram32", "discrete", 8, 32, "My PC")
     assert st.list_all() == [{"classKey": "dgpu-vram8|ram32", "memType": "discrete",
-                              "vramGb": 8, "ramGb": 32, "name": "My PC", "builtIn": False}]
+                              "vramGb": 8, "ramGb": 32, "name": "My PC", "builtIn": False,
+                              "vramBwGbps": 0.0, "ramBwGbps": 0.0}]
     st.save("dgpu-vram8|ram32", "discrete", 8, 32, "Renamed", orig_key="dgpu-vram8|ram32")
     assert st.list_all()[0]["name"] == "Renamed"
 

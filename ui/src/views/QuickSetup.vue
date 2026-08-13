@@ -175,7 +175,7 @@ function paramsNum(p) {
   return Number.isFinite(n) ? n : 999;
 }
 // CHAT candidates need a GPU (user, 2026-07-06 — CPU prose is too slow to support);
-// embeds keep the CPU band (fittingEmbeds below, "yes on embeding").
+// this feeds the RECOMMENDATION only (embedOptions below lists everything — §8.23).
 const fitting = computed(() =>
   models.value
     .filter((m) => !isEmbed(m) && FIT_GPU.has(m.fit))
@@ -192,11 +192,16 @@ const modelOptions = computed(() =>
       label: `${m.name} · ${FIT_LABEL[m.fit] || "—"}${m.params ? ` · ${m.params}` : ""}`,
     })),
 );
-// Only the FITTING embed models — the editable embedding dropdown (design §3) still
-// lists every raw-card-runnable embed: a bigger manual pick is a deliberate choice.
-const fittingEmbeds = computed(() => models.value.filter((m) => isEmbed(m) && FIT_RUNNABLE.has(m.fit)));
+// The editable embedding dropdown lists EVERY embed — the fit veto came out of
+// all pickers (fit-redesign §8.23, user 2026-08-13: "a user should always be
+// able to run any model they want"); a non-runnable row says so on its label
+// instead of vanishing. The DEFAULT pick (pickBestEmbedId) still prefers what
+// fits — a recommendation, not a gate.
 const embedOptions = computed(() =>
-  fittingEmbeds.value.map((m) => ({ value: m.id, label: `${m.name}${m.params ? ` · ${m.params}` : ""}` })),
+  models.value.filter((m) => isEmbed(m)).map((m) => ({
+    value: m.id,
+    label: `${m.name}${m.params ? ` · ${m.params}` : ""}${FIT_RUNNABLE.has(m.fit) ? "" : ` · ${FIT_LABEL[m.fit] || "—"}`}`,
+  })),
 );
 // The DEFAULT embed pick (#274, the user's confirmed rule): the most capable embedding
 // that fits what's LEFT of the card after the chat pick — the two co-reside, so the raw

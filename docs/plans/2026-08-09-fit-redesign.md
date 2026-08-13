@@ -725,8 +725,55 @@ REMAINING for the user: the data reset (stale rung floors until then — accepte
 the wire-stripped q4OrBetter, the quant family order, the borrowed-MTP auto-arm,
 the 18 GB "drafter"; full detail + the Qwen -MTP-variant-repo knowledge in the
 kit tracker). Desktop items all pass. REMAINING: laptops glance + the reset.
-NEXT ACTION: the Phase 3 go (speed bands + badge display + §8.23's veto removal
-+ §13.17's GUI pins; Phase 3 consumes Phase 1's byte model per §13.15).
+**Phase 3 BUILT 2026-08-13** (go: "compact complete go phase 3") — the full
+stage detail lives in the kit tracker's fit item; the shape:
+- SPEED MODEL (§5.5 corrected/§13.8): `fit.active_bytes_per_pass_mb` (26B
+  871+836 / 12B 6716 pinned) · `fit.kv_mb_from_facts` MOVED to fit.py
+  (identity delegates — one source) · `fit.speed_bytes_split` (canonical
+  placement; one-pool; dense spill; budget-0 → all host) ·
+  `fit.predict_decode_tok_s` (serial pool sum — the conservative end of
+  "slowest pool wins", the Appendix-B derivation shape; a byte-carrying pool
+  with no bandwidth → None, NEVER a guess) · `fit.speed_band` (§8.14).
+- BANDWIDTH LADDER (`runner/bandwidth.py`, new): source 1 derived from
+  config-known un-sped measurement rows (flagless/spec/MTP rows excluded —
+  §13.14; backend+machine matched; device from full-offload dense, host by
+  pricing the device leg and solving the remainder); source 2 nvidia-smi
+  bus×clock×2 (=448.06 on a 2070S) + the Apple chip table + the RAM copy
+  probe (one-time, persisted as measurement row `__machine_ram_bw__`,
+  Clear-history → re-probes); source 3 hardware_classes additive
+  `vram_bw_gbps`/`ram_bw_gbps` (JEDEC/vendor-cited seeds, slowest common
+  card per band; class-editor editable; `ensure` seeds new classes too).
+  Efficiency families seeded runner_setting `bw_eff_device` 0.6 /
+  `bw_eff_host` 0.15 (source-1 numbers bypass them). One-pool boxes price
+  metal at the device family, iGPU/CPU at the host family.
+- WIRE: ModelEntry gains size_bytes/trained_ctx/experts/physics_facts;
+  RunnerModelInfo gains speedBand/predTokS/measuredTokS; api.py computes
+  feasibility × band together at the CAPPED ctx; measured (newest, this
+  machine+backend) outranks predicted for the value AND the band;
+  MeasurementRow gains `backend` (was DB-stamped, wire-stripped — the
+  documented Pydantic class, now declared); three new configure_service
+  seams (measurements_fn/class_bw_fn/record_probe_fn).
+- §8.23 VETO REMOVAL (§13.16): slotOptions → pure `buildSlotOptions` in
+  modelPick.js, NO fit filter, badge+band on labels, `fitWarning` copy under
+  a "no" pick; QuickSetup embedOptions unfiltered (annotated); grouping +
+  every auto-pick KEPT as recommendations. §7.3 pinned in JW vitest
+  (slotOptions.test.js — a "no" row IS in the dropdown).
+- GUI (§13.17 AS AMENDED): margin + ctx cap MOVED into LuRunnerEngine's
+  Loaded-models knobs; RAM headroom + the three band-threshold fields join
+  them (EngineConfig GET/PUT + reset defaults); LuRunnerBinaries keeps only
+  pinned build + URLs. Chip shows "Fits · ~fine" (~ = predicted; measured
+  drops it); row shows measured tok/s; hover carries the speed sentence +
+  the §13.7 MTP rider.
+- Gates: kit ruff + 813/10 · biome (kit ui) · JW test:fast 128 + vitest 5
+  (new file) + i18n benign-only + build:vite · JV build:vite + smoke PASSED
+  (all views, 0 JS errors) · check-family 0 violations. JW smoke REFUSED
+  (the user's running app holds port 1420 — not a failure; re-run when the
+  app is closed). User docs shipped same-change: JW models.md (band, veto
+  removal, knob move, class-bw fields) + JV ai-features.md (new section).
+NEXT ACTION: the user's JW-smoke re-run when their app closes · laptops
+glance · data reset · then the DELIBERATE CHECKPOINT before Phases 4-6
+(§11 — probes + arbiter arch-awareness · persistence + claim resolver ·
+shed + joint solve), each on its own go.
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 
@@ -965,6 +1012,13 @@ final authority (1b unchanged).
 - The RAM headroom seeded fact (§13.13) gets a field in the same panel, same save path.
 - The standing shape: the user INPUTS nothing required — link → read → verdict.
   Overrides = quant picker · Tune & measure (outranks everything) · the panel knobs.
+- **AMENDED at the Phase 3 go (user 2026-08-13, verbatim: "move the margin and cap
+  nd the new fields under loaded models where Models kept loaded at once live, not
+  under engine binaries")**: the home for VRAM safety margin + ctx cap + the two new
+  Phase-3 fields (band thresholds · RAM headroom) is `LuRunnerEngine`'s knobs group —
+  the Loaded-models card where "Models kept loaded at once" lives — NOT
+  `LuRunnerBinaries`. The binaries panel keeps only the pinned build + URL rows.
+  Same save path either way (`PUT /v1/ai/engine-config`, partial body).
 
 ---
 

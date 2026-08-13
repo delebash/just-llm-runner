@@ -815,12 +815,19 @@ class RunnerConfigStore:
             preferred = (pref_row.value if pref_row else "") or ""
             warm_row = s.get(db.RunnerSetting, "warm_default_on_startup")
             warm = (warm_row.value if warm_row else "1") != "0"
+            # Phase 3 GUI pin (§13.17): the RAM-headroom seeded fact rides the
+            # same panel — read via the ONE floor-config reader (Phase 2's).
+            _floor_ctx, ram_headroom = _floor_cfg_from_settings(s)
         finally:
             s.close()
         return EngineConfig(
             pinnedBuild=cfg.llamacpp.pinned_build,
             safetyMarginMb=cfg.safety_margin_mb,
             ctxCapTokens=cfg.ctx_cap_tokens,
+            bandFastToks=cfg.band_fast_toks,
+            bandFineToks=cfg.band_fine_toks,
+            bandSlowToks=cfg.band_slow_toks,
+            ramHeadroomMb=ram_headroom,
             modelsMax=cfg.models_max,
             sleepIdleSeconds=cfg.sleep_idle_seconds,
             downloadSegmentsEnabled=cfg.download_segments_enabled,
@@ -888,15 +895,21 @@ class RunnerConfigStore:
         (pinned build, VRAM margin, and the two router residency knobs) to their
         seed defaults; user-added custom rows are preserved."""
         from ..runner.config import (
+            DEFAULT_BAND_FAST_TOKS,
+            DEFAULT_BAND_FINE_TOKS,
+            DEFAULT_BAND_SLOW_TOKS,
             DEFAULT_BINARIES,
+            DEFAULT_BW_EFF_DEVICE,
+            DEFAULT_BW_EFF_HOST,
             DEFAULT_CTX_CAP_TOKENS,
-        DEFAULT_DOWNLOAD_MAX_CONCURRENT,
+            DEFAULT_DOWNLOAD_MAX_CONCURRENT,
             DEFAULT_DOWNLOAD_SEGMENT_COUNT,
             DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES,
             DEFAULT_DOWNLOAD_SEGMENT_RETRIES,
             DEFAULT_DOWNLOAD_SEGMENTS_ENABLED,
             DEFAULT_MODELS_MAX,
             DEFAULT_PINNED_BUILD,
+            DEFAULT_RAM_HEADROOM_MB,
             DEFAULT_SAFETY_MARGIN_MB,
             DEFAULT_SLEEP_IDLE_SECONDS,
         )
@@ -912,6 +925,12 @@ class RunnerConfigStore:
             for key, val in (("pinned_build", DEFAULT_PINNED_BUILD),
                              ("safety_margin_mb", str(DEFAULT_SAFETY_MARGIN_MB)),
                              ("ctx_cap_tokens", str(DEFAULT_CTX_CAP_TOKENS)),
+                             ("band_fast_toks", str(DEFAULT_BAND_FAST_TOKS)),
+                             ("band_fine_toks", str(DEFAULT_BAND_FINE_TOKS)),
+                             ("band_slow_toks", str(DEFAULT_BAND_SLOW_TOKS)),
+                             ("bw_eff_device", str(DEFAULT_BW_EFF_DEVICE)),
+                             ("bw_eff_host", str(DEFAULT_BW_EFF_HOST)),
+                             ("ram_headroom_mb", str(DEFAULT_RAM_HEADROOM_MB)),
                              ("models_max", str(DEFAULT_MODELS_MAX)),
                              ("sleep_idle_seconds", str(DEFAULT_SLEEP_IDLE_SECONDS)),
                              ("preferred_gpu", ""),
@@ -1121,12 +1140,15 @@ class HardwareClassStore:
             ).all()
             return [{"classKey": r.class_key, "memType": r.mem_type or "discrete",
                      "vramGb": r.vram_gb, "ramGb": r.ram_gb,
-                     "name": r.name or "", "builtIn": r.built_in} for r in rows]
+                     "name": r.name or "", "builtIn": r.built_in,
+                     "vramBwGbps": r.vram_bw_gbps or 0.0,
+                     "ramBwGbps": r.ram_bw_gbps or 0.0} for r in rows]
         finally:
             s.close()
 
     def save(self, class_key: str, mem_type: str, vram_gb: int, ram_gb: int, name: str,
-             orig_key: str = "") -> None:
+             orig_key: str = "", vram_bw_gbps: float | None = None,
+             ram_bw_gbps: float | None = None) -> None:
         """Upsert a class. One class per key (VRAM+RAM for discrete, memory for the
         one-pool types): a duplicate `class_key` is rejected UNLESS it is the row being
         edited (`orig_key == class_key`). When the edit MOVED the key (type/VRAM/RAM
@@ -1152,6 +1174,11 @@ class HardwareClassStore:
             row.ram_gb = int(ram_gb)
             row.name = (name or "").strip()
             row.built_in = False
+            # None = the caller didn't send the field (older client) — keep stored.
+            if vram_bw_gbps is not None:
+                row.vram_bw_gbps = max(0.0, float(vram_bw_gbps))
+            if ram_bw_gbps is not None:
+                row.ram_bw_gbps = max(0.0, float(ram_bw_gbps))
             s.commit()
         finally:
             s.close()
@@ -1160,14 +1187,33 @@ class HardwareClassStore:
         """Create a blank-named sidecar row for `class_key` if none exists — the
         Tune-modal 'Save for hardware class' path saves a config for the box's class
         before any class form ran. No-op when the class already exists (never clobbers
-        a name)."""
+        a name). A created row gets the class-typical bandwidth seeds (§5.5 source 3 —
+        same values a seeded class carries), so a detected-but-unseeded class still
+        has the ladder's last-resort source."""
         s = db.session()
         try:
             if s.get(db.HardwareClass, class_key) is None:
+                from .seed import _class_bw_seed
+
+                vram_bw, ram_bw = _class_bw_seed(mem_type, int(vram_gb))
                 s.add(db.HardwareClass(class_key=class_key, mem_type=mem_type,
                                        vram_gb=int(vram_gb), ram_gb=int(ram_gb),
-                                       name="", built_in=False))
+                                       name="", built_in=False,
+                                       vram_bw_gbps=vram_bw, ram_bw_gbps=ram_bw))
                 s.commit()
+        finally:
+            s.close()
+
+    def bw_for(self, class_key: str) -> tuple[float, float]:
+        """(vram_bw_gbps, ram_bw_gbps) for one class — the runner's ladder
+        source 3 read (injected as `class_bw_fn`). (0, 0) when the class has no
+        row or no numbers: the ladder skips the source, never fabricates."""
+        s = db.session()
+        try:
+            row = s.get(db.HardwareClass, class_key)
+            if row is None:
+                return (0.0, 0.0)
+            return (row.vram_bw_gbps or 0.0, row.ram_bw_gbps or 0.0)
         finally:
             s.close()
 
@@ -1342,7 +1388,7 @@ class ModelMeasurementStore:
                 MeasurementRow(
                     id=m.id, modelId=m.model_id, machineKey=m.machine_key,
                     source=m.source, label=m.label, tokensPerSec=m.tokens_per_sec,
-                    vramTotalMb=m.vram_total_mb, at=m.at,
+                    vramTotalMb=m.vram_total_mb, at=m.at, backend=m.backend or "",
                     switches=flags.get(m.id, []),
                 )
                 for m in ms
@@ -1551,6 +1597,11 @@ def build_runner_config():
     Wired into the runner service as its `config_fn` by install_llm. Falls back to
     the runner's seed defaults if the binaries haven't been seeded yet."""
     from ..runner.config import (
+        DEFAULT_BAND_FAST_TOKS,
+        DEFAULT_BAND_FINE_TOKS,
+        DEFAULT_BAND_SLOW_TOKS,
+        DEFAULT_BW_EFF_DEVICE,
+        DEFAULT_BW_EFF_HOST,
         DEFAULT_CTX_CAP_TOKENS,
         DEFAULT_DOWNLOAD_MAX_CONCURRENT,
         DEFAULT_DOWNLOAD_SEGMENT_COUNT,
@@ -1592,10 +1643,21 @@ def build_runner_config():
                 return False
             return default
 
+        def _float(key: str, default: float) -> float:
+            try:
+                return float(settings.get(key) or default)
+            except (TypeError, ValueError):
+                return default
+
         return RunnerConfig(
             llamacpp=LlamacppSpec(pinned_build=settings.get("pinned_build") or DEFAULT_PINNED_BUILD, binaries=bins),
             safety_margin_mb=_int("safety_margin_mb", DEFAULT_SAFETY_MARGIN_MB),
             ctx_cap_tokens=_int("ctx_cap_tokens", DEFAULT_CTX_CAP_TOKENS),
+            band_fast_toks=_float("band_fast_toks", DEFAULT_BAND_FAST_TOKS),
+            band_fine_toks=_float("band_fine_toks", DEFAULT_BAND_FINE_TOKS),
+            band_slow_toks=_float("band_slow_toks", DEFAULT_BAND_SLOW_TOKS),
+            bw_eff_device=_float("bw_eff_device", DEFAULT_BW_EFF_DEVICE),
+            bw_eff_host=_float("bw_eff_host", DEFAULT_BW_EFF_HOST),
             models_max=_int("models_max", DEFAULT_MODELS_MAX),
             sleep_idle_seconds=_int("sleep_idle_seconds", DEFAULT_SLEEP_IDLE_SECONDS),
             preferred_gpu=(settings.get("preferred_gpu") or ""),

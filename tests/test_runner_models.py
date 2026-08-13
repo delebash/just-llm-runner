@@ -85,6 +85,18 @@ class _FakeService:
         # Tests set `_ensure` to the configured shape; default is the no-local-embed case.
         return getattr(self, "_ensure", {"ok": False, "detail": "no local embedding model configured"})
 
+    # ── Phase 3 speed-badge reads (bandwidth ladder) — the unwired defaults:
+    # no measurements, no class bandwidths, no probe → every row keeps band ""
+    # (the honest-unknown shape these endpoint tests ran under before).
+    def measurement_rows(self):
+        return getattr(self, "_measurements", [])
+
+    def class_bw(self, class_key_str):
+        return getattr(self, "_class_bw", (0.0, 0.0))
+
+    def host_probe_bw_gbps(self, machine_key_str):
+        return getattr(self, "_probe_gbps", None)
+
 
 def _resident(*ids_and_statuses):
     """Build a resident-set dict (router up) from (id, status) pairs — what service.resident()
@@ -342,3 +354,92 @@ def test_real_service_knows_whether_a_catalog_was_wired(monkeypatch):
     monkeypatch.setattr(lifecycle, "_service", None)
     svc = lifecycle.configure_service(catalog_fn=lambda: [])
     assert svc.catalog_wired is True, "a host-supplied catalog_fn must read wired"
+
+
+# ── Phase 3: feasibility × speed band, shipped together (§5.4/§8.3) ───────────
+
+class _Flag:
+    def __init__(self, name, value):
+        self.flagName, self.flagValue = name, value
+
+
+class _Meas:
+    def __init__(self, model_id, tok_s, machine_key, backend="cuda", switches=()):
+        self.modelId, self.tokensPerSec = model_id, tok_s
+        self.machineKey, self.backend = machine_key, backend
+        self.switches = list(switches)
+
+
+def _moe_with_facts(mid="flagship"):
+    m = _model(mid, None, total_params="26B")
+    m.size_bytes = 14_249_000_000
+    m.trained_ctx = 131072
+    m.experts = 128
+    # The 26B shape: iSWA scalars sized so KV(32k) ≈ 881 MB (Appendix B).
+    m.physics_facts = {"block_count": 30, "n_kv_heads": 16, "expert_used_count": 8,
+                       "expert_byte_share": 0.9389,
+                       "kv_windowed_bytes_per_token": 102636.0,
+                       "kv_global_bytes_per_token": 10236.0, "sliding_window": 1024}
+    return m
+
+
+def _author_box():
+    return HardwareInfo(os="Windows", platform="windows", cpu_cores=16, ram_mb=32768,
+                        gpus=[GpuInfo(vendor="NVIDIA", name="RTX 2070 SUPER", vram_mb=8192)],
+                        runtimes={"cuda": True})
+
+
+def test_band_rides_the_fit_and_factless_rows_stay_bandless(monkeypatch):
+    hw = _author_box()
+    svc = _FakeService([_moe_with_facts(), _model("bare", 6000)])
+    svc._class_bw = (448.0, 51.2)  # ladder source 3 (no measurements, no probe)
+    monkeypatch.setattr(api, "detect", lambda: hw)
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    rows = {m["id"]: m for m in _client().get("/v1/llm-runner/models").json()["models"]}
+    # The MoE at the seeded constants: device leg ~1.75 GB @ 268.8 effective +
+    # expert leg 836 MB @ 7.68 effective → ~8.7 tok/s → "fine" (the ≥8 line).
+    band_row = rows["flagship"]
+    assert band_row["speedBand"] == "fine"
+    assert band_row["predTokS"] and 6 <= band_row["predTokS"] <= 12
+    assert band_row["measuredTokS"] is None
+    # No header facts → NO band, never a guess — the chip shows plain fit.
+    assert rows["bare"]["speedBand"] == "" and rows["bare"]["predTokS"] is None
+
+
+def test_measured_outranks_predicted_for_value_and_band(monkeypatch):
+    from llm_runner.runner.hardware import machine_key as mk
+
+    hw = _author_box()
+    svc = _FakeService([_moe_with_facts()])
+    svc._class_bw = (448.0, 51.2)
+    # A real measured run on THIS box + backend (the July campaign's 28.6): the
+    # row shows it, and the band is computed FROM it (fast ≥ 20), not from the
+    # ~8.7 prediction. Newest-first order is the store's contract.
+    svc._measurements = [_Meas("flagship", 28.6, mk(hw), "cuda",
+                               [_Flag("n-cpu-moe", "21"), _Flag("ctx-size", "16384")])]
+    monkeypatch.setattr(api, "detect", lambda: hw)
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    row = _client().get("/v1/llm-runner/models").json()["models"][0]
+    assert row["measuredTokS"] == 28.6
+    assert row["speedBand"] == "fast"
+    # A different box's measurement must NOT be claimed for this one.
+    svc._measurements = [_Meas("flagship", 28.6, "other|1|2c|4g", "cuda")]
+    row = _client().get("/v1/llm-runner/models").json()["models"][0]
+    assert row["measuredTokS"] is None and row["speedBand"] == "fine"
+
+
+def test_no_bandwidth_source_means_no_band(monkeypatch):
+    # An AMD/Intel box with no class row: nvidia-smi absent, class (0,0), no
+    # probe yet → the host pool is unpriced → band "" (§8.17: an unknown never
+    # becomes a number). Feasibility still renders.
+    hw = HardwareInfo(os="Windows", platform="windows", cpu_cores=8, ram_mb=32768,
+                      gpus=[GpuInfo(vendor="AMD", name="RX 7600", vram_mb=8192)],
+                      runtimes={"vulkan": True})
+    svc = _FakeService([_moe_with_facts()])
+    from llm_runner.runner import bandwidth as bw
+    monkeypatch.setattr(bw, "nvidia_mem_bw_gbps", lambda: None)  # hermetic — the dev box HAS nvidia-smi
+    monkeypatch.setattr(api, "detect", lambda: hw)
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    row = _client().get("/v1/llm-runner/models").json()["models"][0]
+    assert row["speedBand"] == "" and row["predTokS"] is None
+    assert row["fit"]  # feasibility unaffected

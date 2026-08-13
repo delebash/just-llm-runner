@@ -41,6 +41,13 @@ class EngineConfig(BaseModel):
     # Computed-ctx cap for untuned launches (fit-redesign §8.1): min() ceiling,
     # never a pin; explicit ctx from a tune/preset/request always overrides. 0 = off.
     ctxCapTokens: int = 32768
+    # Fit-redesign Phase 3 (§8.14 + §13.17 as amended): the speed-band tok/s
+    # thresholds and the RAM-headroom floor fact — all four edited in the
+    # Loaded-models knobs group (LuRunnerEngine), same save path as the rest.
+    bandFastToks: float = 20.0
+    bandFineToks: float = 8.0
+    bandSlowToks: float = 2.0
+    ramHeadroomMb: int = 4096
     modelsMax: int          # router: how many models may stay co-resident (>= 1)
     sleepIdleSeconds: int   # router: idle-unload TTL in seconds (0 = never)
     # Segmented downloads (DL-2): N parallel byte-ranges per file; files under
@@ -85,6 +92,10 @@ class EngineConfigUpdate(BaseModel):
     classKeyOverride: str | None = None  # hardware-class override ("" = auto-detect; free text)
     safetyMarginMb: int | None = None
     ctxCapTokens: int | None = None
+    bandFastToks: float | None = None
+    bandFineToks: float | None = None
+    bandSlowToks: float | None = None
+    ramHeadroomMb: int | None = None
     modelsMax: int | None = None
     sleepIdleSeconds: int | None = None
     downloadSegmentsEnabled: bool | None = None
@@ -101,7 +112,7 @@ class RunnerConfigStore(Protocol):
 
     def get_config(self) -> EngineConfig: ...
     def upsert_binary(self, row: RunnerBinaryRow) -> None: ...      # by (platform, gpu)
-    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | models_max | sleep_idle_seconds | preferred_gpu | class_key_override | download_segment* | warm_default_on_startup
+    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | ctx_cap_tokens | band_*_toks | ram_headroom_mb | models_max | sleep_idle_seconds | preferred_gpu | class_key_override | download_segment* | warm_default_on_startup
     def reset_to_defaults(self) -> None: ...
 
 
@@ -140,6 +151,18 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             store.set_setting("safety_margin_mb", str(int(body.safetyMarginMb)))
         if body.ctxCapTokens is not None:
             store.set_setting("ctx_cap_tokens", str(max(0, int(body.ctxCapTokens))))
+        # Phase 3 (§8.14/§13.17): band thresholds are tok/s minimums — floored at
+        # 0; ordering (fast ≥ fine ≥ slow) is NOT enforced here (the band mapper
+        # walks top-down, so a crossed pair just merges bands — harmless), the
+        # user's number is kept as typed.
+        if body.bandFastToks is not None:
+            store.set_setting("band_fast_toks", str(max(0.0, float(body.bandFastToks))))
+        if body.bandFineToks is not None:
+            store.set_setting("band_fine_toks", str(max(0.0, float(body.bandFineToks))))
+        if body.bandSlowToks is not None:
+            store.set_setting("band_slow_toks", str(max(0.0, float(body.bandSlowToks))))
+        if body.ramHeadroomMb is not None:
+            store.set_setting("ram_headroom_mb", str(max(0, int(body.ramHeadroomMb))))
         if body.modelsMax is not None:
             store.set_setting("models_max", str(max(1, int(body.modelsMax))))
         if body.sleepIdleSeconds is not None:

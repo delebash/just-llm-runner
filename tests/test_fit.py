@@ -265,3 +265,87 @@ def test_estimate_guards_degenerate_negative_slope():
     # Mirrors max_gpu_layers' degenerate branch: per-layer cost is noise, the
     # estimate is the base offset, independent of gpu_layers.
     assert hi == lo
+
+
+# ── Phase 3: the decode-speed model (fit-redesign §5.5 corrected + §13.8) ─────
+
+
+def test_active_bytes_per_pass_appendix_b_pins():
+    """The byte model's two Appendix-B pins: 26B MoE = 871 (non-expert) + 836
+    (active experts) MB/pass; 12B dense = the whole file, no expert leg."""
+    ne, ae = fit.active_bytes_per_pass_mb(
+        size_mb=14249, expert_byte_share=0.9389, experts_total=128, expert_used=8)
+    assert abs(ne - 871) < 5, ne
+    assert abs(ae - 836) < 5, ae
+    ne, ae = fit.active_bytes_per_pass_mb(
+        size_mb=6716, expert_byte_share=0.0, experts_total=0, expert_used=0)
+    assert (ne, ae) == (6716, 0.0)
+
+
+def test_kv_mb_from_facts_scalars_and_fallback():
+    # Scalar path: Wb=0 (uniform) → Gb × ctx × bits/8; windowed term clamps at window.
+    facts = {"kv_windowed_bytes_per_token": 0.0, "kv_global_bytes_per_token": 8192.0,
+             "sliding_window": 0}
+    assert abs(fit.kv_mb_from_facts(facts, 4096) - 8192 * 4096 * 2 / 1e6) < 0.01
+    windowed = {"kv_windowed_bytes_per_token": 8192.0, "kv_global_bytes_per_token": 0.0,
+                "sliding_window": 1024}
+    assert abs(fit.kv_mb_from_facts(windowed, 32768) - 8192 * 1024 * 2 / 1e6) < 0.01
+    # No scalars → the kv_exact_mb dim heuristics (same fields identity used).
+    legacy = {"block_count": 30, "n_kv_heads": 16, "embedding_length": 2048,
+              "head_count": 16}
+    assert abs(fit.kv_mb_from_facts(legacy, 4096)
+               - fit.kv_exact_mb(n_layers=30, n_kv_heads=16, ctx_size=4096,
+                                 cache_type=16, embedding_dim=2048, head_count=16)) < 0.01
+
+
+def test_speed_bytes_split_placements():
+    # MoE on a discrete box with room: non-expert + KV device, active experts host.
+    dev, host = fit.speed_bytes_split(non_expert_mb=871, active_expert_mb=836,
+                                      kv_mb=545, one_pool=False, weight_budget_mb=6000)
+    assert (dev, host) == (871 + 545, 836)
+    # Dense that fits → all device; dense over budget → spills the overflow to host.
+    dev, host = fit.speed_bytes_split(non_expert_mb=6716, active_expert_mb=0,
+                                      kv_mb=400, one_pool=False, weight_budget_mb=8000)
+    assert (dev, host) == (7116, 0)
+    dev, host = fit.speed_bytes_split(non_expert_mb=6716, active_expert_mb=0,
+                                      kv_mb=400, one_pool=False, weight_budget_mb=3558)
+    assert abs(dev - 3558) < 0.01 and abs(host - 3558) < 0.01
+    # No budget → everything host. One pool → everything in the one (device) slot.
+    dev, host = fit.speed_bytes_split(non_expert_mb=871, active_expert_mb=836,
+                                      kv_mb=545, one_pool=False, weight_budget_mb=0)
+    assert dev == 0 and abs(host - (871 + 545 + 836)) < 0.01
+    dev, host = fit.speed_bytes_split(non_expert_mb=871, active_expert_mb=836,
+                                      kv_mb=545, one_pool=True, weight_budget_mb=0)
+    assert host == 0 and abs(dev - (871 + 545 + 836)) < 0.01
+
+
+def test_predict_decode_tok_s_serial_pools_and_honesty():
+    # 12B dense fully on the author's card: 6.716 GB / (448 × 0.6 = 268.8 GB/s
+    # effective) ≈ 40 tok/s — brackets the measured 39.1 (llama-bench, §5.5).
+    t = fit.predict_decode_tok_s(device_mb=6716, host_mb=0,
+                                 device_bw_gbps=268.8, host_bw_gbps=None)
+    assert 35 <= t <= 45, t
+    # The serial sum: adding a host leg SLOWS the total (err-slow shape).
+    both = fit.predict_decode_tok_s(device_mb=1416, host_mb=836,
+                                    device_bw_gbps=268.8, host_bw_gbps=7.7)
+    only_host = fit.predict_decode_tok_s(device_mb=0, host_mb=836,
+                                         device_bw_gbps=None, host_bw_gbps=7.7)
+    assert both < only_host
+    # 26B at the app-leg shape: device 1416 MB @ 268.8 + experts 836 MB @ 7.7
+    # → ~8.8 tok/s — same order as the measured 28.6/3.3≈8.6-un-sped leg (§5.5).
+    assert 6 <= both <= 12, both
+    # A pool with bytes but NO bandwidth → None, never a guess (§8.17's spirit).
+    assert fit.predict_decode_tok_s(device_mb=100, host_mb=50,
+                                    device_bw_gbps=268.8, host_bw_gbps=None) is None
+    assert fit.predict_decode_tok_s(device_mb=0, host_mb=0,
+                                    device_bw_gbps=268.8, host_bw_gbps=7.7) is None
+
+
+def test_speed_band_thresholds():
+    kw = dict(fast=20.0, fine=8.0, slow=2.0)
+    assert fit.speed_band(39.0, **kw) == "fast"
+    assert fit.speed_band(8.0, **kw) == "fine"
+    assert fit.speed_band(7.9, **kw) == "slow"
+    assert fit.speed_band(1.5, **kw) == "painful"
+    assert fit.speed_band(None, **kw) == ""
+    assert fit.speed_band(0.0, **kw) == ""

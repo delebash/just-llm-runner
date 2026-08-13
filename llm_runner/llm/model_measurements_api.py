@@ -36,11 +36,17 @@ class MeasurementRow(BaseModel):
     id: int
     modelId: str
     machineKey: str = ""
-    source: str = "tune"      # tune | autotune
+    source: str = "tune"      # tune | autotune | probe (the machine RAM-bw probe row)
     label: str = ""           # e.g. "baseline" / "n-cpu-moe 21" (autotune trials)
     tokensPerSec: float = 0.0
     vramTotalMb: int = 0
     at: int = 0               # epoch ms, server-stamped
+    # The engine family the number was measured on ("" = legacy cuda-era row).
+    # DECLARED here since Phase 3 — the DB stamped it since Pass 2 but the wire
+    # model silently stripped it (the documented Pydantic drop class), and the
+    # bandwidth ladder's derivation rule needs it (cross-backend numbers are
+    # not comparable).
+    backend: str = ""
     switches: list[MeasurementFlag] = []
 
 

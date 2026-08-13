@@ -55,6 +55,12 @@ class HardwareClassRow(BaseModel):
     ramGb: int = 0
     name: str = ""
     builtIn: bool = False
+    # Class-typical RAW pool bandwidths, GB/s (fit-redesign Phase 3, §5.5 ladder
+    # source 3) — seeded from vendor/JEDEC arithmetic, editable here, superseded
+    # by any measurement/device-reported number. 0 = unknown. One-pool classes
+    # carry the pool in ramBwGbps only.
+    vramBwGbps: float = 0.0
+    ramBwGbps: float = 0.0
 
 
 class ClassTunesResponse(BaseModel):
@@ -79,6 +85,10 @@ class HardwareClassPut(BaseModel):
     vramGb: int = 0
     ramGb: int = 0
     origClassKey: str = ""
+    # None = leave the stored bandwidth untouched (an older client that doesn't
+    # send the fields must not zero them); 0 = the user explicitly cleared it.
+    vramBwGbps: float | None = None
+    ramBwGbps: float | None = None
 
 
 class ClassTuneStore(Protocol):
@@ -93,7 +103,8 @@ class HardwareClassStore(Protocol):
     """Persistence boundary for the named-class sidecar (HardwareClass)."""
 
     def list_all(self) -> list[dict]: ...
-    def save(self, class_key: str, mem_type: str, vram_gb: int, ram_gb: int, name: str, orig_key: str = "") -> None: ...
+    def save(self, class_key: str, mem_type: str, vram_gb: int, ram_gb: int, name: str, orig_key: str = "",
+             vram_bw_gbps: float | None = None, ram_bw_gbps: float | None = None) -> None: ...
     def ensure(self, class_key: str, mem_type: str, vram_gb: int, ram_gb: int) -> None: ...
     def delete(self, class_key: str) -> None: ...
 
@@ -173,7 +184,8 @@ def make_class_tunes_router(
                 mem_type, vram, ram = parse_key_fn(class_key)
             try:
                 hw_class_store().save(class_key, mem_type, vram, ram,
-                                      body.name or "", body.origClassKey or "")
+                                      body.name or "", body.origClassKey or "",
+                                      vram_bw_gbps=body.vramBwGbps, ram_bw_gbps=body.ramBwGbps)
             except ValueError as e:
                 raise HTTPException(status_code=409, detail=str(e)) from e
             return _response()

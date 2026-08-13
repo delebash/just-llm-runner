@@ -248,13 +248,17 @@ async function useAutoDetect() {
 // ── the CLASS editor (Name · Type · VRAM/RAM) ─────────────────────────────────
 function startAddClass() {
   showImport.value = false; editingConfig.value = null;
-  editingClass.value = { origClassKey: "", name: "", memType: "discrete", vramGb: null, ramGb: null };
+  editingClass.value = { origClassKey: "", name: "", memType: "discrete", vramGb: null, ramGb: null,
+    vramBwGbps: null, ramBwGbps: null };
 }
 function startEditClass(c) {
   showImport.value = false; editingConfig.value = null;
   editingClass.value = {
     origClassKey: c.classKey, name: c.name || "", memType: c.memType || "discrete",
     vramGb: c.vramGb || null, ramGb: c.ramGb || null,
+    // Class-typical memory bandwidths (fit-redesign §5.5 ladder source 3) —
+    // seeded, editable, superseded by any real measurement on a box.
+    vramBwGbps: c.vramBwGbps || null, ramBwGbps: c.ramBwGbps || null,
   };
 }
 // The number box hands back a raw STRING, so a typed "3.5" would otherwise reach the
@@ -288,6 +292,9 @@ async function saveClass() {
   try {
     _apply(await saveHardwareClass({
       name: e.name, memType: e.memType, vramGb: vram, ramGb: ram, origClassKey: e.origClassKey,
+      // 0 = "unknown" (the speed ladder skips the class source); the server keeps
+      // the stored value only when the field is absent, so always send numbers.
+      vramBwGbps: Number(e.vramBwGbps) || 0, ramBwGbps: Number(e.ramBwGbps) || 0,
     }));
     editingClass.value = null;
   } catch (err) {
@@ -471,6 +478,18 @@ async function runImport() {
             <label class="lu-ct-field">
               <span class="lu-ct-cap">{{ editingClass.memType === 'discrete' ? 'System RAM (GB)' : 'Memory (GB)' }}</span>
               <UiInput v-model="editingClass.ramGb" type="number" width="token" />
+            </label>
+          </div>
+          <!-- Class-typical memory bandwidths (the speed badge's LAST-resort source —
+               a measurement or the device's own report always outranks them). -->
+          <div class="lu-ct-mrow">
+            <label v-if="editingClass.memType === 'discrete'" class="lu-ct-field">
+              <span class="lu-ct-cap">VRAM bandwidth (GB/s) <span class="lu-muted">(optional — speed estimate)</span></span>
+              <UiInput v-model="editingClass.vramBwGbps" type="number" width="token" />
+            </label>
+            <label class="lu-ct-field">
+              <span class="lu-ct-cap">{{ editingClass.memType === 'discrete' ? 'RAM bandwidth (GB/s)' : 'Memory bandwidth (GB/s)' }} <span class="lu-muted">(optional)</span></span>
+              <UiInput v-model="editingClass.ramBwGbps" type="number" width="token" />
             </label>
           </div>
           <!-- The snap, said BEFORE the save: typing 10 GB saves the 8-band class, and

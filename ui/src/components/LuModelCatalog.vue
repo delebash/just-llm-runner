@@ -27,7 +27,7 @@ import { useRunnerModels } from "../composables/useRunnerModels.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { useHardware } from "../composables/useHardware.js";
 import { applyPreview, useModelApply } from "../services/modelApply.js";
-import { FIT_RUNNABLE, pickBestEmbedId, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
+import { FIT_RUNNABLE, buildSlotOptions, fitWarning, pickBestEmbedId, pickLowestQuality, recommendedModelId, speedBandLabel } from "../common/services/modelPick.js";
 import { allDraftsUnloadable, pickDefaultDraftPath, pickDefaultQuant } from "../draftSelect.js";
 import { displayRamGb, displayVramGb } from "../fitDisplay.js";
 import { TUNE_BADGES, fetchTuneState, isUntunedHere, tuneBadgeIdOf } from "../tuneState.js";
@@ -277,6 +277,20 @@ function fitLabel(m) {
   // untouched underneath — section grouping / FIT_RUNNABLE still read it.
   if (m.embedPlacement) return m.embedPlacement === "gpu" ? "GPU" : "CPU";
   return FIT_LABEL[m.fit] || "—";
+}
+// The chip's SPEED sentence (fit-redesign §5.4): a real measurement on this box
+// outranks the physics estimate; an MTP model without a measurement gets the
+// §13.7 rider (a capability note, never a seeded acceptance number).
+function speedTitle(m) {
+  if (m.embedPlacement || embeddingOf(m)) return "";
+  const bits = [];
+  if (m.measuredTokS) bits.push(`Measured on this PC: ${m.measuredTokS} tok/s.`);
+  else if (m.predTokS) bits.push(`Estimated speed: ~${m.predTokS} tok/s — a real run replaces this estimate.`);
+  if (mtpOf(m) && !m.measuredTokS) bits.push("May run faster with speculative decoding (MTP).");
+  return bits.join(" ");
+}
+function fitChipTitle(m) {
+  return [fitTitle(m), speedTitle(m)].filter(Boolean).join(" ");
 }
 function fitTitle(m) {
   if (m.embedPlacement === "cpu")
@@ -833,22 +847,26 @@ function blankModel() {
 // assign+load writers as the rows, which swap the resident model. Use-limited
 // models are pickable (a manual pick is deliberate, like the rows) but carry the
 // ⚠ in their label; the recommended pick of each kind is tagged). ──
-function slotOptions(kind /* false = chat, true = embed */, currentId) {
-  const rec = kind ? recommendedEmbedId.value : recommendedId.value;
-  const list = models.value.filter((m) => embeddingOf(m) === kind && FIT_RUNNABLE.has(m.fit));
-  // The assigned model stays pickable even if it no longer fits (a shrunk box must
-  // still SHOW the current assignment rather than a blank select).
-  const cur = modelById.value[currentId];
-  if (cur && !list.some((m) => m.id === cur.id) && embeddingOf(cur) === kind) list.push(cur);
-  return list
-    .sort((a, b) => qualityOf(a) - qualityOf(b))
-    .map((m) => ({
-      value: m.id,
-      label: `${m.name || m.id}${useLimitedOf(m) ? " ⚠" : ""}${m.id === rec ? " · Recommended" : ""}`,
-    }));
+// The FIT VETO came OUT of these pickers (fit-redesign §8.23, user 2026-08-13:
+// "a user should always be able to run any model they want with any settings
+// they want"): every model of the kind is listed, the fit badge + speed band
+// ride the label, and picking a "no" row shows the honest warning below the
+// select. The engine's own load attempt + back-off stays the final authority.
+// (The old "assigned model stays pickable" push is subsumed — with no filter,
+// every catalog model of the kind is already in the list.) The option builder
+// is PURE in modelPick.js so the §7.3 pin can test it.
+function slotOptions(kind /* false = chat, true = embed */) {
+  return buildSlotOptions(models.value, {
+    kind, recommendedId: kind ? recommendedEmbedId.value : recommendedId.value,
+    embeddingOf, useLimitedOf, qualityOf,
+  });
 }
-const chatSlotOptions = computed(() => slotOptions(false, currentDefaultId.value));
-const embedSlotOptions = computed(() => slotOptions(true, currentEmbeddingId.value));
+const chatSlotOptions = computed(() => slotOptions(false));
+const embedSlotOptions = computed(() => slotOptions(true));
+// The §8.23 honest-warning line under each slot picker, "" when the current
+// assignment isn't a "no" row (copy lives in modelPick.fitWarning — one source).
+const chatSlotWarning = computed(() => fitWarning(modelById.value[currentDefaultId.value]));
+const embedSlotWarning = computed(() => fitWarning(modelById.value[currentEmbeddingId.value]));
 function pickSlot(id, isEmbed) {
   const m = modelById.value[id];
   if (!m) return;
@@ -1074,6 +1092,8 @@ refreshApplied();
         <UiSelect v-if="chatSlotOptions.length" class="lu-setup-pick"
           :model-value="defaultGone ? '' : (currentDefaultId || '')" :options="chatSlotOptions"
           placeholder="Choose a model…" @update:model-value="pickSlot($event, false)" />
+        <!-- §8.23: a "no"-fit pick is allowed and INFORMED — the warning, never a gate. -->
+        <p v-if="chatSlotWarning" class="lu-setup-warn">{{ chatSlotWarning }}</p>
         <div class="lu-setup-hint">
           {{ defaultGone
             ? "Your tasks still point at it, but it's gone — pick a replacement here."
@@ -1109,6 +1129,7 @@ refreshApplied();
         <UiSelect v-if="embedSlotOptions.length" class="lu-setup-pick"
           :model-value="embeddingGone ? '' : (currentEmbeddingId || '')" :options="embedSlotOptions"
           placeholder="Choose an embedding model…" @update:model-value="pickSlot($event, true)" />
+        <p v-if="embedSlotWarning" class="lu-setup-warn">{{ embedSlotWarning }}</p>
         <div class="lu-setup-hint">
           {{ embeddingGone
             ? "Search still points at it, but it's gone — pick a replacement here."
@@ -1271,7 +1292,14 @@ refreshApplied();
         </template>
 
         <template #fit="{ row: m }">
-                <span class="lu-fit" :class="`lu-fit--${m.fit}`" :title="fitTitle(m)">{{ fitLabel(m) }}</span>
+                <!-- Feasibility × speed band, shipped together (§5.4/§8.3): the band
+                     rides the chip ("Fits · ~fast"); "~" marks a prediction, a
+                     measured band drops it. No band (facts/bandwidth unknown) →
+                     the plain feasibility chip, never a guess. The row states a
+                     REAL measured tok/s once one exists (outranks the estimate). -->
+                <span class="lu-fit" :class="`lu-fit--${m.fit}`" :title="fitChipTitle(m)">{{ fitLabel(m) }}<template v-if="speedBandLabel(m)"> · {{ speedBandLabel(m) }}</template></span>
+                <div v-if="m.measuredTokS" class="lu-mrowmeta lu-muted"
+                  title="Measured on this PC — replaces the estimate">{{ m.measuredTokS }} tok/s</div>
         </template>
 
         <template #status="{ row: m }">
@@ -1643,6 +1671,9 @@ refreshApplied();
 .lu-setup-val { font-weight: 600; font-size: 13.5px; margin-top: 2px; }
 .lu-setup-card--empty .lu-setup-val { color: var(--lu-warn, #b45309); }
 .lu-setup-hint { font-size: 11.5px; color: var(--lu-ink-2, var(--ink-2, #666)); margin-top: 2px; line-height: 1.4; }
+/* The §8.23 honest-warning line under a slot picker holding a "no"-fit model —
+   the warn tone the setup cards already use, sized like the hint it sits with. */
+.lu-setup-warn { font-size: 11.5px; color: var(--lu-warn, #b45309); margin: 2px 0 0; line-height: 1.4; }
 
 /* Section-header rows (Chat & writing / Embedding) inside the one table — a
    pronounced band (#11) so you always know which kind of model you're looking

@@ -447,6 +447,9 @@ class RunnerService:
         arbiter=None,
         latest_build_fn=None,
         knob_backends_fn=None,
+        measurements_fn=None,
+        class_bw_fn=None,
+        record_probe_fn=None,
     ):
         self._cache_root = Path(cache_root)
         # WHAT THIS APP GENERATES, split from what it merely caches. `cache_root` holds
@@ -484,6 +487,17 @@ class RunnerService:
         # every engine family (host-wired from knob_catalog; None = no filtering —
         # standalone/tests unchanged). Consumed by _apply_backend_applicability.
         self._knob_backends_fn = knob_backends_fn
+        # Fit-redesign Phase 3 (§5.5) — the bandwidth ladder's host-wired reads:
+        # the measurement history (source 1 derivation + the persisted RAM-probe
+        # row + the badge's measured-replaces-predicted), the class-seeded
+        # bandwidths (source 3), and the probe recorder. All None standalone —
+        # the ladder just resolves less and the badge shows no band.
+        self._measurements_fn = measurements_fn
+        self._class_bw_fn = class_bw_fn
+        self._record_probe_fn = record_probe_fn
+        self._probe_lock = threading.Lock()
+        self._probe_started = False
+        self._probe_value: float | None = None
         self._now = now
         self._sleep = sleep
         self._load_poll_timeout = _LOAD_POLL_TIMEOUT
@@ -609,6 +623,63 @@ class RunnerService:
         """The runner config (binaries + VRAM margin): DB-backed in the host (via
         the injected config_fn), or the seed defaults standalone."""
         return self._config_fn()
+
+    def measurement_rows(self) -> list:
+        """The FULL measurement history (host-wired wire rows) — the bandwidth
+        ladder's source-1 raw material + the badge's measured-replaces-predicted
+        read. [] when unwired or the store hiccups (a badge read must never 500
+        the catalog)."""
+        if self._measurements_fn is None:
+            return []
+        try:
+            return list(self._measurements_fn() or [])
+        except Exception as e:  # noqa: BLE001 — display plumbing, never fatal
+            log.debug("measurements read failed: %s", e)
+            return []
+
+    def class_bw(self, class_key_str: str) -> tuple[float, float]:
+        """(vram_bw_gbps, ram_bw_gbps) of a class row — ladder source 3.
+        (0, 0) when unwired/absent: the ladder skips, never fabricates."""
+        if self._class_bw_fn is None:
+            return (0.0, 0.0)
+        try:
+            vram_bw, ram_bw = self._class_bw_fn(class_key_str)
+            return (float(vram_bw or 0.0), float(ram_bw or 0.0))
+        except Exception as e:  # noqa: BLE001
+            log.debug("class bandwidth read failed: %s", e)
+            return (0.0, 0.0)
+
+    def host_probe_bw_gbps(self, machine_key_str: str) -> float | None:
+        """The RAM copy probe's GB/s for THIS box (§5.5 source 2, host pool).
+        Reads the persisted machine measurement row first (one-time per box);
+        absent → kicks the ~2 s probe ONCE per process on a background thread
+        (the catalog poll must never block on it) and returns None until it
+        lands. Clear-history deletes the row → the probe simply re-runs (§8.22
+        self-heal)."""
+        from .bandwidth import RAM_PROBE_LABEL, RAM_PROBE_MODEL_ID, probe_ram_copy_gbps
+
+        for r in self.measurement_rows():
+            if getattr(r, "modelId", "") == RAM_PROBE_MODEL_ID \
+                    and getattr(r, "machineKey", "") == machine_key_str:
+                return float(getattr(r, "tokensPerSec", 0) or 0) or None
+        with self._probe_lock:
+            if self._probe_started:
+                return self._probe_value
+            self._probe_started = True
+
+        def _run() -> None:
+            gbps = probe_ram_copy_gbps()
+            if not gbps:
+                return
+            self._probe_value = gbps
+            if self._record_probe_fn is not None:
+                try:
+                    self._record_probe_fn(gbps, machine_key_str, RAM_PROBE_MODEL_ID, RAM_PROBE_LABEL)
+                except Exception as e:  # noqa: BLE001 — persistence is best-effort
+                    log.debug("RAM probe record failed: %s", e)
+
+        threading.Thread(target=_run, name="llm-runner-ram-probe", daemon=True).start()
+        return None
 
     def status(self) -> dict:
         """Back-compat SINGLE-model view: the primary (most-recently-loaded) model's
@@ -2873,6 +2944,9 @@ def configure_service(
     cache_root: str | None = None,
     runtime_root: str | None = None,
     knob_backends_fn=None,
+    measurements_fn=None,
+    class_bw_fn=None,
+    record_probe_fn=None,
 ) -> RunnerService:
     """Host hook to construct the singleton with DB-backed catalog/switches/config
     (and any other injections). Call ONCE at boot, before `get_service()`.
@@ -2904,6 +2978,12 @@ def configure_service(
         kwargs["hardware_fn"] = hardware_fn
     if knob_backends_fn is not None:
         kwargs["knob_backends_fn"] = knob_backends_fn
+    if measurements_fn is not None:
+        kwargs["measurements_fn"] = measurements_fn
+    if class_bw_fn is not None:
+        kwargs["class_bw_fn"] = class_bw_fn
+    if record_probe_fn is not None:
+        kwargs["record_probe_fn"] = record_probe_fn
     _service = RunnerService(root, **kwargs)
     return _service
 

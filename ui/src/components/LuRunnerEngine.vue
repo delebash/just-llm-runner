@@ -97,6 +97,18 @@ const dlSegmentsEnabled = ref(null);
 const dlSegmentCount = ref(null);
 const dlSegmentMinMb = ref(null);
 const dlSegmentRetries = ref(null);
+// The fit/speed knobs (fit-redesign §13.17 as AMENDED at the Phase 3 go — the
+// user's word, verbatim: "move the margin and cap nd the new fields under
+// loaded models where Models kept loaded at once live, not under engine
+// binaries"): VRAM safety margin + ctx cap MOVED here from LuRunnerBinaries;
+// the speed-band thresholds (§8.14) + RAM headroom (§13.13) join them. Same
+// owned-until-Save drafts, same partial-PUT save path.
+const safetyMarginMb = ref(null);
+const ctxCapTokens = ref(null);
+const bandFastToks = ref(null);
+const bandFineToks = ref(null);
+const bandSlowToks = ref(null);
+const ramHeadroomMb = ref(null);
 
 async function loadDownloadKnobs() {
   try {
@@ -105,6 +117,12 @@ async function loadDownloadKnobs() {
     if (dlSegmentCount.value === null) dlSegmentCount.value = r.downloadSegmentCount;
     if (dlSegmentMinMb.value === null) dlSegmentMinMb.value = Math.round((r.downloadSegmentMinBytes || 0) / MB);
     if (dlSegmentRetries.value === null) dlSegmentRetries.value = r.downloadSegmentRetries;
+    if (safetyMarginMb.value === null) safetyMarginMb.value = r.safetyMarginMb;
+    if (ctxCapTokens.value === null) ctxCapTokens.value = r.ctxCapTokens;
+    if (bandFastToks.value === null) bandFastToks.value = r.bandFastToks;
+    if (bandFineToks.value === null) bandFineToks.value = r.bandFineToks;
+    if (bandSlowToks.value === null) bandSlowToks.value = r.bandSlowToks;
+    if (ramHeadroomMb.value === null) ramHeadroomMb.value = r.ramHeadroomMb;
   } catch {
     // transient — the drafts stay null and Save simply omits them (partial PUT)
   }
@@ -172,12 +190,24 @@ async function saveKnobs() {
     if (dlSegmentCount.value !== null) body.downloadSegmentCount = Number(dlSegmentCount.value);
     if (dlSegmentMinMb.value !== null) body.downloadSegmentMinBytes = Math.round(Number(dlSegmentMinMb.value) * MB);
     if (dlSegmentRetries.value !== null) body.downloadSegmentRetries = Number(dlSegmentRetries.value);
+    if (safetyMarginMb.value !== null) body.safetyMarginMb = Number(safetyMarginMb.value) || 0;
+    if (ctxCapTokens.value !== null) body.ctxCapTokens = Number(ctxCapTokens.value) || 0;
+    if (bandFastToks.value !== null) body.bandFastToks = Number(bandFastToks.value) || 0;
+    if (bandFineToks.value !== null) body.bandFineToks = Number(bandFineToks.value) || 0;
+    if (bandSlowToks.value !== null) body.bandSlowToks = Number(bandSlowToks.value) || 0;
+    if (ramHeadroomMb.value !== null) body.ramHeadroomMb = Number(ramHeadroomMb.value) || 0;
     const r = await request("/v1/ai/engine-config", { method: "PUT", body });
     modelsMax.value = r.modelsMax; // re-sync from the server (reflects the clamps)
     sleepIdleSeconds.value = r.sleepIdleSeconds;
     dlSegmentCount.value = r.downloadSegmentCount;
     dlSegmentMinMb.value = Math.round((r.downloadSegmentMinBytes || 0) / MB);
     dlSegmentRetries.value = r.downloadSegmentRetries;
+    safetyMarginMb.value = r.safetyMarginMb;
+    ctxCapTokens.value = r.ctxCapTokens;
+    bandFastToks.value = r.bandFastToks;
+    bandFineToks.value = r.bandFineToks;
+    bandSlowToks.value = r.bandSlowToks;
+    ramHeadroomMb.value = r.ramHeadroomMb;
     await refreshResident();
   } catch (e) {
     knobErr.value = e.message || "Couldn't save.";
@@ -300,6 +330,42 @@ onMounted(() => {
             <span class="lu-eng-knob-cap">Unload an idle model after (seconds · 0 = never)</span>
             <UiInput v-model="sleepIdleSeconds" type="number" width="token" />
           </label>
+          <!-- Memory + speed knobs — HERE, with the loaded-models knobs, by the
+               user's ruling at the Phase 3 go ("move the margin and cap nd the new
+               fields under loaded models…, not under engine binaries"). -->
+          <label class="lu-eng-knob" title="VRAM held back when computing how much of a model goes on the GPU — headroom for the display and other apps.">
+            <span class="lu-eng-knob-cap">VRAM safety margin (MB)</span>
+            <UiInput v-model="safetyMarginMb" type="number" width="token" />
+          </label>
+          <label class="lu-eng-knob" title="The most context an untuned model gets automatically; a tune's explicit context always overrides. 0 = no cap.">
+            <span class="lu-eng-knob-cap">Default context cap (tokens)</span>
+            <UiInput v-model="ctxCapTokens" type="number" width="token" />
+          </label>
+          <label class="lu-eng-knob" title="System RAM held back when computing a model's RAM requirement — room for the OS and your other programs.">
+            <span class="lu-eng-knob-cap">RAM headroom (MB)</span>
+            <UiInput v-model="ramHeadroomMb" type="number" width="token" />
+          </label>
+          <!-- The speed-band lines (§8.14): where the catalog's fast/fine/slow/painful
+               labels switch over, in tokens per second. ~8 is reading speed. -->
+          <div class="lu-eng-dlgroup">
+            <div class="lu-eng-dlgroup-head">
+              <span class="lu-eng-dlgroup-title">Speed bands (tokens/second)</span>
+            </div>
+            <div class="lu-eng-dlgroup-fields">
+              <label class="lu-eng-knob" title="At or above this many tokens per second a model is labeled “fast”.">
+                <span class="lu-eng-knob-cap">Fast at ≥</span>
+                <UiInput v-model="bandFastToks" type="number" width="token" />
+              </label>
+              <label class="lu-eng-knob" title="Comfortable reading speed — at or above this the label is “fine”.">
+                <span class="lu-eng-knob-cap">Fine at ≥</span>
+                <UiInput v-model="bandFineToks" type="number" width="token" />
+              </label>
+              <label class="lu-eng-knob" title="Below “fine” but at or above this the label is “slow”; anything under is “painful”.">
+                <span class="lu-eng-knob-cap">Slow at ≥</span>
+                <UiInput v-model="bandSlowToks" type="number" width="token" />
+              </label>
+            </div>
+          </div>
           <label class="lu-eng-knob">
             <span class="lu-eng-knob-cap">Engine updates</span>
             <UiSelect :model-value="updatePolicy" width="token"

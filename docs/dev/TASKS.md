@@ -256,3 +256,24 @@ GO: given 2026-08-08 (same word) — built.
 - **LICENCE flag** — Gemma-ToU propagation matters only if weights are ever BUNDLED;
   the user's call then. · **Provider SDK pivot re-opens only if funded keys appear**
   (OpenAI/xAI/Mistral ship wired, live-unverified — "close 3 i dont have keys").
+
+## Fit redesign — one physical fit truth (family-wide, runner-owned)
+
+PLAN: `docs/plans/2026-08-09-fit-redesign.md` — the FULL design, evidence index
+(file:line + probe numbers), verified consumer map, DECIDED rulings (§8, incl. the
+user's 2026-08-09 "your rec" on regeneration precedence / speed thresholds / VRAM
+ladder / kind column), the DO-NOT list (§10 + §13.14), and the 8-phase order (§11).
+Designed 2026-08-09 in a full adversarial session; that session was cut off,
+recovered from its transcript 2026-08-13, and the passes CONTINUED to FULL
+CONSENSUS — the closed amendments are §13 (read WITH the sections they amend), the
+corrected speed constants §5.5 + Appendix B, the reasoning record
+`2026-08-09-fit-redesign-debate.md`. ALL rulings DECIDED — §8.17–23 (§9 empty;
+§8.23 = verdicts inform never gate, the picker veto dies in Phase 3 per §13.16).
+EXECUTE AGAINST THE PLAN, do not re-derive. Each phase needs its own literal "go".
+Phase 0 GO GIVEN 2026-08-13 ("then code") — quick lane: RAM gate via snap_ram_gb
+TEMPORARY per §13.5 · a<=0 guard · quant re-read + stale token · >=4-bit fallback ·
+ctx cap 32768 + GUI.
+Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
+fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
+display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three
+KV scalars, not floors) + classMembership re-validation with the user.

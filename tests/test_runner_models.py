@@ -428,6 +428,27 @@ def test_measured_outranks_predicted_for_value_and_band(monkeypatch):
     assert row["measuredTokS"] is None and row["speedBand"] == "fine"
 
 
+def test_ran_here_flags_this_box_evidence(monkeypatch):
+    # §7.4-as-ranking: ANY persisted row for this machine — here a Phase 5 load
+    # FOOTPRINT (tok/s 0, so measuredTokS stays None) — flags ranHere, the
+    # evidence bit the recommendation ranking reads so the estimate can never
+    # veto a model this box has demonstrably run. Another box's row proves
+    # nothing here.
+    from llm_runner.runner.hardware import machine_key as mk
+
+    hw = _author_box()
+    svc = _FakeService([_moe_with_facts()])
+    svc._measurements = [_Meas("flagship", 0, mk(hw), "cuda",
+                               [_Flag("n_gpu_layers", "30")])]
+    monkeypatch.setattr(api, "detect", lambda: hw)
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    row = _client().get("/v1/llm-runner/models").json()["models"][0]
+    assert row["ranHere"] is True and row["measuredTokS"] is None
+    svc._measurements = [_Meas("flagship", 0, "other|1|2c|4g", "cuda")]
+    row = _client().get("/v1/llm-runner/models").json()["models"][0]
+    assert row["ranHere"] is False
+
+
 def test_no_bandwidth_source_means_no_band(monkeypatch):
     # An AMD/Intel box with no class row: nvidia-smi absent, class (0,0), no
     # probe yet → the host pool is unpriced → band "" (§8.17: an unknown never

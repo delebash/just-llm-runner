@@ -224,6 +224,12 @@ class RunnerModelInfo(CamelModel):
     speed_band: str = ""
     pred_tok_s: float | None = None
     measured_tok_s: float | None = None
+    # Phase 7 (§7.4-as-ranking): THIS-box evidence — any persisted measurement
+    # row for this machine_key (a tune, an autotune trial, or a load footprint)
+    # proves the model actually ran here. The recommendation ranking reads it so
+    # the coarse estimate can never veto a model this box has demonstrably run
+    # (evidence outranks estimate; the §8.23 spirit applied to ranking).
+    ran_here: bool = False
 
 
 class RunnerModelsResponse(CamelModel):

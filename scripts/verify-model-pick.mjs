@@ -126,6 +126,23 @@ check("classConfig: a narrowed fitSet applies (FIT_GPU drops a cpu-fit config)",
   cc(REFS, "vram8|ram32", [M("cfg-a", "cpu", "moe", 20)], FIT_GPU), "");
 check("classConfig: empty refs → ''", cc([], "vram8|ram32", [M("cfg-a", "ok", "moe", 20)]), "");
 
+// ── §7.4-as-ranking (fit-redesign Phase 7): THIS-box evidence beats the estimate's
+//    veto. `ranHere` = the server saw a persisted measurement/tune/load-footprint
+//    row for this machine_key — the box PROVABLY ran the model, so a "no" estimate
+//    may not exclude it from the recommendation. Without evidence the estimate
+//    still filters (the seeded class config alone proves nothing — extrapolations). ──
+check("classConfig §7.4: a ranHere model survives a 'no' estimate",
+  cc(REFS, "vram8|ram32", [M("cfg-a", "no", "moe", 20, { ranHere: true })]), "cfg-a");
+check("classConfig §7.4: no evidence → the 'no' estimate still filters (unchanged)",
+  cc(REFS, "vram8|ram32", [M("cfg-a", "no", "moe", 20)]), "");
+check("classConfig §7.4: evidence bypasses a narrowed fitSet too (FIT_GPU + cpu-fit)",
+  cc(REFS, "vram8|ram32", [M("cfg-a", "cpu", "moe", 20, { ranHere: true })], FIT_GPU), "cfg-a");
+check("classConfig §7.4: quality still ranks among mixed evidence/estimate candidates",
+  cc(REFS, "vram8|ram32",
+    [M("cfg-a", "no", "moe", 20, { ranHere: true }), M("cfg-b", "ok", "dense", 10)]), "cfg-b");
+check("classConfig §7.4: evidence never rescues embed/use-limited (the §10 guards hold)",
+  cc(REFS, "vram8|ram32", [M("cfg-a", "no", "dense", 5, { embed: true, ranHere: true })]), "");
+
 // The composed rule (recommendedModelId): a class-config hit for MY class wins; no
 // config for my class falls through to the §10 pick. Providers-surface redesign item 2
 // (2026-07-06; re-based §9 2026-07-22) — QuickSetup's pick AND the catalog's

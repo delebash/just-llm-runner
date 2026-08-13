@@ -235,6 +235,12 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     for r in meas_plain:
         if r["machine_key"] == mkey and r["backend"] == backend and r["tokens_per_sec"] > 0:
             measured_by_id.setdefault(r["model_id"], r["tokens_per_sec"])
+    # §7.4-as-ranking: ANY persisted row for this machine — a tune, an autotune
+    # trial, or a Phase 5 load footprint (tok/s 0, so measured_by_id skips it) —
+    # is THIS-box evidence the model ran here. Machine-keyed only (the plan's
+    # words): a backend switch changes speed, not the fact that it ran. The
+    # pseudo-rows (__machine_ram_bw__, __overhead__) never match a catalog id.
+    ran_here_ids = {r["model_id"] for r in meas_plain if r["machine_key"] == mkey}
 
     def _speed(m: ModelEntry) -> tuple[str, float | None, float | None]:
         """(band, predicted tok/s, measured tok/s) for one chat row."""
@@ -294,6 +300,7 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
                 speed_band=band,
                 pred_tok_s=pred,
                 measured_tok_s=meas,
+                ran_here=m.id in ran_here_ids,
             )
         )
 

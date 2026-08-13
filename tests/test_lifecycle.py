@@ -3343,6 +3343,30 @@ def test_admit_refuses_dense_explicit_when_only_pinned(tmp_path):
     svc._admit(_TEST_MODEL.id, 7000, 2, _fake_hw(8192), ngl_explicit=False, is_moe=False)
 
 
+def test_no_badged_model_is_launchable(tmp_path):
+    # §7.3's launchable pin (§8.23 — verdicts inform, never gate): a model whose
+    # COARSE BADGE reads "no" on this box still loads untuned — the load path
+    # consults no fit verdict; the engine's own attempt + back-off is the final
+    # authority. The floors here grade "no" on the 4 GB card (est 17.7 GB), yet
+    # the load reaches the router and goes running.
+    from llm_runner.runner import fit as fit_mod
+
+    model = ModelEntry(
+        id="too-big", name="Too Big", tier="mid", hf_repo="org/too-big-GGUF",
+        quant="Q4_K_M", total_params="26B",
+        recommended_for=RecommendedFor(min_vram_mb=16000, est_vram_mb=17713),
+    )
+    hw = _fake_hw(4096)
+    assert fit_mod.coarse_fit(
+        total_params="26B", quant="Q4_K_M", vram_mb=4096, ram_mb=hw.ram_mb or 0,
+        margin_mb=1024, min_vram_override=16000, min_ram_override=None,
+    ) == "no"  # the badge this box shows for it
+    svc = _service_for(tmp_path, catalog=[model], hardware_fn=lambda: hw)
+    svc.load(model.id)  # untuned: fit-placed, no explicit ngl
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+
+
 # ── 2026-07-11 hardening: transient IO is NOT corruption — no purge ──────────
 
 def test_verify_gguf_locked_file_no_purge(tmp_path):

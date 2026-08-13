@@ -272,36 +272,35 @@ corrected speed constants §5.5 + Appendix B, the reasoning record
 EXECUTE AGAINST THE PLAN, do not re-derive. Each phase needs its own literal "go".
 
 **STATUS NOW (2026-08-13 — READ THIS FIRST on resume):**
-- **Phases 0–6 are BUILT, GATED, COMMITTED, PUSHED.** The per-phase records
-  below (in order: 0 · 1 · 2 · checkpoint round · 3 · polish · executor
-  choices · checkpoint list · 4 · 5 · checkpoint walk round 1 · the
-  topology-aware probe · 6) carry the full detail — what each phase
-  changed, why, the test lessons, the honest limits. Nothing is
-  code-mid-flight.
-- **THE CHECKPOINT WALK IS MID-STREAM (desktop round 1 done, fixes
-  shipped).** State of the six points: (1) desktop chips — the walk CAUGHT
-  the ~slow band lie; FIXED (the probe's own calibrated factor,
-  bw_eff_host_probe 0.40; then the probe made TOPOLOGY-AWARE on the
-  user's any-box challenge — records below); AWAITING the user's app
-  restart to confirm the flagship reads ~fine, then the Tune & measure
-  flip test (measured tok/s replaces the estimate, ~ drops). (2)/(3)
-  laptops NOT walked (user: desktop only for now). (4) probe-row sanity:
-  RESOLVED on the desktop (19.01 row verified, calibrated); laptops when
-  walked. (5) knobs round-trip OK per the user + the Save toast shipped
-  on their ask. (6) the data reset DONE (JV + JW).
-- **Phase 6 BUILT on this session's "compact complete go"** (the joint MoE
-  solve + shed direction + physics draft charge + the §7.2/§13.9 gates —
-  the full record is the last per-phase entry below). The untuned computed
-  split now AGREES with the measured tunes (ngl=all, ncmoe 22 on the
-  author's class) instead of the inverse's ngl 8-9.
-- **NEXT = the user's restart + flagship re-check + Tune & measure flip ·
-  the laptops walk at their pace · then the Phase 7 go.**
-- **Phase 7 spec pointers:** §7.3 the uncurated-path acceptance test
-  (fresh DB, no seeds, hand-added MoE by link on simulated 8/32 boxes,
-  fake HF fixtures) · §7.4-as-ranking (evidence-keyed recommendation
-  precedence — this-box evidence, never seeded class configs) · §7.6 the
-  docs pass (serving-design.md one-authority story; §13.13's kit dev-doc
-  gap) · the JV handoff (their tracker's registration points).
+- **ALL BUILD PHASES (0–7) ARE BUILT, GATED, COMMITTED, PUSHED.** The
+  per-phase records below (in order: 0 · 1 · 2 · checkpoint round · 3 ·
+  polish · executor choices · checkpoint list · 4 · 5 · checkpoint walk
+  round 1 · the topology-aware probe · 6 · 7) carry the full detail —
+  what each phase changed, why, the test lessons, the honest limits.
+  Nothing is code-mid-flight. The standing fit-architecture story now
+  lives in `docs/dev/serving-design.md` (the §7.6 one-authority section) —
+  point people THERE for how fit works; the plan is the history.
+- **THE DESKTOP CHECKPOINT IS CLOSED (user, 2026-08-13: "flaghsip works,
+  tune and measure works" — at the Phase 7 go).** Final state of the six
+  points: (1) CLOSED — the flagship reads ~fine after the probe-factor fix
+  AND the Tune & measure flip works (measured tok/s replaces the estimate,
+  ~ drops). (2)/(3) laptops NOT walked (user: desktop only for now — at
+  their pace; the budget line there should read "Memory", the E4B should
+  read Fits, and each box's `__machine_ram_bw__` probe row is worth a
+  glance). (4) probe-row sanity RESOLVED on the desktop (19.01 row,
+  calibrated, topology-aware); laptops when walked. (5) knobs round-trip +
+  Save toast DONE. (6) the data reset DONE (JV + JW).
+- **Phase 6 BUILT on "compact complete go"** (the joint MoE solve + shed
+  direction + physics draft charge + the §7.2/§13.9 gates — record below).
+  The untuned computed split now AGREES with the measured tunes (ngl=all,
+  ncmoe 22 on the author's class) instead of the inverse's ngl 8-9.
+- **Phase 7 BUILT on "go phase 7"** (the §7.3 uncurated-path gate + the
+  launchable pin · §7.4-as-ranking via the new `ranHere` wire bit · the
+  §7.5 pin audit (all four already existed) · the §7.6 docs pass — record
+  below).
+- **NEXT = the laptops walk at the user's pace · then the JV VRAM-wiring
+  go (its registration points are in JV's tracker item; no kit
+  prerequisite left).**
 - **JV's VRAM wiring is UNBLOCKED** (Phase 5) — its own go required; the
   registration points are stamped in JV's tracker item.
 
@@ -722,6 +721,65 @@ user's data reset) — the stage record:
   "Computed for this PC" rows and the backs-off line are described
   generically and stay TRUE (the values just got better); no stated fact
   went stale, and the fit docs pass remains §7.6's (Phase 7).
+- PHASE 7 BUILT 2026-08-13 (go: "go phase 7"; the same message closed the
+  desktop checkpoint — "flaghsip works, tune and measure works"). The build:
+  (a) §7.3 THE UNCURATED-PATH ACCEPTANCE TEST
+  (tests/test_uncurated_path.py): a FRESH DB with NO seed rows, a MoE
+  hand-added BY LINK (fetch_gguf_meta faked with a byte-faithful
+  26B-class iSWA header — the 5:1 window pattern + per-layer KV heads
+  reproduce the real file's KV scalars 102400/10240 B/token; expert dims
+  give share ≈0.92), on a simulated 8 GB/32 GB box. Drives the REAL
+  chain: inspect_model_from_link → the form-PUT door (CatalogRow upsert,
+  NO floors typed — §13.17) → the wire's computed-fresh floors (min_ram
+  = file+headroom; max-offload min_vram ~3 GB; est ~16 GB) → the badge
+  (ok/tight — and the §1.4 MoE-blind "no" lie pinned VISIBLY beside it:
+  the same box without the computed floor still grades "no") → the
+  untuned split (ngl 30, joint-solve ncmoe, capped ctx, booking inside
+  the card). The LAUNCHABLE half of the pin lives in test_lifecycle
+  (test_no_badged_model_is_launchable): a model whose badge reads "no"
+  on a 4 GB box loads untuned to "running" — the load path consults no
+  verdict (the doomed-spawn admission refusal is DENSE+EXPLICIT-ngl
+  co-residency arithmetic, untouched and compatible).
+  (b) §7.4-AS-RANKING (evidence outranks the estimate's veto):
+  RunnerModelInfo gains `ranHere` (additive) — TRUE when ANY persisted
+  measurement row for THIS machine_key names the model (a tune, an
+  autotune trial, or a Phase 5 load footprint with tok/s 0; machine-
+  keyed only per the plan's words — a backend switch changes speed, not
+  the fact that it ran; the pseudo-rows never match a catalog id).
+  pickByClassConfig keeps its runnable-preference but a ranHere
+  candidate SURVIVES a "no"/narrowed-fitSet estimate — the box provably
+  ran it. Quality still ranks; embed/use-limited guards still hold
+  (evidence never rescues those). Seeded class configs alone remain
+  NON-evidence (8 of 13 are extrapolations). Five truth-table cases in
+  verify-model-pick.mjs (48/48) + the ranHere wire test.
+  (c) §7.5 PIN AUDIT — no new work needed, verified by inspection: the
+  gold-check (test_physics_gold_check_flagship_config) · the RAM-gate
+  raw-to-raw cases (test_coarse_fit_ram_gate_raw_to_raw) · the a≤0
+  guard (test_estimate_guards_degenerate_negative_slope) · the flagship
+  est-17713 embed-guard pins (lifecycle embed tests + the declared-claim
+  pin) + computed-fresh floors (test_computed_fresh_floors_from_facts)
+  all exist from Phases 0–6.
+  (d) §7.6 THE DOCS PASS: the ONE-AUTHORITY story now STANDS in kit
+  docs/dev/serving-design.md (new "Fit — one physical authority"
+  section: facts-not-floors, the joint solve, the regression's two
+  surviving roles, verdicts-inform-never-gate + evidence ranking, the
+  four-arm claim resolver, and §13.13's history gap closed — the June
+  gguf-parser-vs-fit.py decision recorded as SUPERSEDED). JW
+  architecture-notes has NO fit section to rewrite — verified by grep;
+  the plan's target predates the 2026-08-04 docs-campaign distillation,
+  so the kit doc is the family home (recorded rather than inventing a
+  JW home). measured-performance.md's constants/calibration notes
+  shipped in Phase 3 and stand. USER DOCS: models.md gains the one
+  behavior line — a model you've run/tuned on THIS PC stays
+  recommendable even when the estimate would reject it. The four §7.6
+  user-doc items (band, Needs line, ctx cap, quant behavior) verified
+  present from Phases 0–3.
+  Gates: kit ruff clean + 846 passed/10 skipped (+3) · verify-model-pick
+  48/48 · kit-ui biome clean · JW test:fast 128 + slotOptions vitest 5/5
+  + build:vite · JV build:vite + smoke PASSED (all views, 0 JS errors) ·
+  check-family 0 violations · JW smoke REFUSED as documented (the user's
+  app holds port 1420; the kit-ui change is covered by the JW vitest +
+  both builds + the JV smoke driving the same code).
 Downstream: JV's VRAM wiring is UNBLOCKED as of Phase 5 (2026-08-13) — both its
 claim-line sources now exist (the persisted-measured arm + the physics computed
 arm, resolved through preview_fit; claim shape {vramMb, ramMb} + provenance per

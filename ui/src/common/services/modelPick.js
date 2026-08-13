@@ -149,9 +149,16 @@ export function pickLowestQuality(models, { qualityOf }) {
  * auto-default", the seeded license law); ranked by the ONE shared comparator
  * (`pickLowestQuality`). No config for this class → "" (the caller falls back to
  * the §10 speed-floor rule). Pure + truth-table-testable (verify-model-pick.mjs).
+ * §7.4-as-ranking (fit-redesign, Phase 7): the coarse ESTIMATE never vetoes
+ * THIS-box EVIDENCE. A candidate the server flags `ranHere` (any persisted
+ * measurement/tune/load-footprint row for this machine_key) stays in the
+ * recommendation pool even when its fit band says "no" — the box has
+ * demonstrably run it, and evidence outranks an estimate (§8.23's spirit
+ * applied to ranking; the seeded class configs alone are NOT evidence —
+ * 8 of the 13 rows are extrapolations from other hardware).
  * @param {Array}  refs    [{modelId, classKey}] — the (model, class) config pairs
  * @param {string} myClassKey  this box's class key (override-aware, server-derived)
- * @param {Array}  models  fit-annotated rows ([{id, fit, …}])
+ * @param {Array}  models  fit-annotated rows ([{id, fit, ranHere, …}])
  * @param {Object} accessors  { fitSet, qualityOf, isEmbed, isUseLimited }
  */
 export function pickByClassConfig(refs, myClassKey, models, { fitSet, qualityOf, isEmbed, isUseLimited }) {
@@ -161,7 +168,8 @@ export function pickByClassConfig(refs, myClassKey, models, { fitSet, qualityOf,
   );
   if (!ids.size) return "";
   const candidates = (models || []).filter(
-    (m) => ids.has(m.id) && (fitSet || FIT_RUNNABLE).has(m.fit) && !isEmbed(m) && !isUseLimited(m),
+    (m) => ids.has(m.id) && ((fitSet || FIT_RUNNABLE).has(m.fit) || m.ranHere)
+      && !isEmbed(m) && !isUseLimited(m),
   );
   return pickLowestQuality(candidates, { qualityOf });
 }

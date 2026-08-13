@@ -548,7 +548,10 @@ honest negative).
 link on a simulated 8 GB/32 GB box (fake HF via fixtures): assert the badge, floors, ctx,
 and split come out sane. This is the test that would have caught every defect in this
 document. (Harness precedents: `scripts/check-clean-install.py`,
-`scripts/dev-seed-test-model.py`, install-test fixtures.)
+`scripts/dev-seed-test-model.py`, install-test fixtures.) BUILT 2026-08-13 (Phase 7):
+`tests/test_uncurated_path.py` (the full inspect→PUT→wire→badge→split chain, with the
+§1.4 "no" lie pinned visibly beside the honest badge) + the launchable pin
+`test_no_badged_model_is_launchable` in test_lifecycle.py.
 
 **7.4 Evidence-keyed recommendation precedence** — `pickByClassConfig`
 (modelPick.js:98-108) currently lets the estimate veto measured class configs
@@ -556,7 +559,11 @@ document. (Harness precedents: `scripts/check-clean-install.py`,
 (measurements/tunes/persisted footprints for this machine_key), NOT seeded class configs
 (8 of 13 are extrapolations). Deliberately LATE (after physics) so it never masks the
 formula bug. (2026-08-13, §8.23: the veto is removed from every PICKER outright —
-this item survives as recommendation RANKING only.)
+this item survives as recommendation RANKING only.) BUILT 2026-08-13 (Phase 7): the
+wire gains `ranHere` (any persisted row for this machine_key — tune/autotune/load
+footprint); a ranHere candidate survives the estimate's veto in pickByClassConfig
+while quality ranking + the embed/use-limited guards hold. Pinned in
+verify-model-pick.mjs + the models-wire test.
 
 **7.5 Stability pins** — est_vram flagship ≈17.7 GB (embed-guard protection);
 the 2026-07-24 gold-check case; RAM-gate rung cases; a≤0 guard case.
@@ -867,6 +874,30 @@ class whose physics affords it (the seeds pin ngl 99 there too). §13.9's
 change). Gates: kit ruff + 843/10 (+11) · JW test:fast 128 · JV server 469
 · no renderer files → smoke not required. models.md checked — nothing
 stated went stale; the fit docs pass stays §7.6's (Phase 7).
+**Phase 7 BUILT 2026-08-13** (go: "go phase 7" — the same message closed the
+desktop checkpoint: "flaghsip works, tune and measure works"; full stage
+detail in the kit tracker's fit item). The shape: §7.3 built as
+tests/test_uncurated_path.py (fresh DB · no seeds · MoE by link on a faked
+byte-faithful 26B-class header · the computed floors/badge/split all sane on
+the 8/32 box, the §1.4 MoE-blind "no" pinned visibly beside the honest
+badge) + the launchable pin in test_lifecycle (a "no"-badged model loads
+untuned to running — no verdict gate anywhere in the load path); §7.4 built
+as ranking (the `ranHere` wire bit: any persisted row for this machine_key;
+evidence survives the estimate's veto in pickByClassConfig, quality still
+ranks, the §10 guards hold; five truth-table cases + a wire test); §7.5
+audited — all four stability pins already existed (gold check · RAM-gate
+raw-to-raw · a≤0 guard · flagship-est embed-guard pins) — no new work;
+§7.6 the docs pass — the one-authority story STANDS in kit
+docs/dev/serving-design.md (new fit section; §13.13's June-decision gap
+closed as SUPERSEDED), JW architecture-notes verified to have NO fit
+section to rewrite (the 2026-08-04 distillation predates the plan's
+target — recorded, not invented), models.md gains the evidence-ranking
+line, the four user-doc items verified shipped in Phases 0–3. Gates: kit
+ruff + 846/10 (+3) · verify-model-pick 48/48 · biome · JW test:fast 128 +
+vitest 5/5 + build · JV build + smoke PASS · check-family 0 · JW smoke
+refused as documented (user's app on 1420; covered by vitest + builds +
+the JV smoke). ALL BUILD PHASES (0–7) COMPLETE. Remaining: the laptops
+walk (user-paced) · the JV VRAM-wiring go.
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

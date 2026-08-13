@@ -29,6 +29,7 @@ import { useHardware } from "../composables/useHardware.js";
 import { applyPreview, useModelApply } from "../services/modelApply.js";
 import { FIT_RUNNABLE, pickBestEmbedId, pickLowestQuality, recommendedModelId } from "../common/services/modelPick.js";
 import { allDraftsUnloadable, pickDefaultDraftPath, pickDefaultQuant } from "../draftSelect.js";
+import { displayRamGb, displayVramGb } from "../fitDisplay.js";
 import { TUNE_BADGES, fetchTuneState, isUntunedHere, tuneBadgeIdOf } from "../tuneState.js";
 import { classKeyLabel, listClassTunes, memberClassesOf } from "../classTunes.js";
 import AppModal from "../common/components/AppModal.vue";
@@ -1214,7 +1215,9 @@ refreshApplied();
                      rather than fall through to "unknown". -->
                 <div v-if="!embeddingOf(m) && m.minVramMb && m.minRamMb"
                   class="lu-mrowmeta lu-muted" :title="runsOnTitle(m)">
-                  Needs {{ gb(m.minVramMb) }} GB VRAM · {{ gb(m.minRamMb) }} GB RAM
+                  <!-- Display snaps UP real hardware sizes (§5.6/§8.15); the floors
+                       themselves stay RAW (stored+compared) — the hover keeps raw. -->
+                  Needs {{ displayVramGb(m.minVramMb) }} GB VRAM · {{ displayRamGb(m.minRamMb) }} GB RAM
                 </div>
                 <div v-else-if="!embeddingOf(m)" class="lu-mrowmeta lu-muted">
                   Hardware needs unknown — edit the model to set its requirements
@@ -1442,7 +1445,7 @@ refreshApplied();
           <label class="lu-mm-l">Min RAM (MB)<UiInput v-model.number="editing.minRamMb" type="number" placeholder="14000" /></label>
         </div>
         <div v-else-if="editing.minVramMb && editing.minRamMb" class="lu-mm-note lu-muted">
-          Needs ≈ {{ gb(editing.minVramMb) }} GB VRAM · {{ gb(editing.minRamMb) }} GB RAM — computed from the file, updates on read.
+          Needs {{ displayVramGb(editing.minVramMb) }} GB VRAM · {{ displayRamGb(editing.minRamMb) }} GB RAM — computed from the file, updates on read.
         </div>
 
         <label class="lu-mm-l">License <span class="lu-muted">— SPDX id (Apache-2.0 · MIT · Llama-Community · …)</span><UiInput v-model="editing.license" placeholder="Apache-2.0" /></label>

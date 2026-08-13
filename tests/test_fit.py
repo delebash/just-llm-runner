@@ -68,25 +68,27 @@ def test_coarse_fit_gpu_ram_gate():
                           ram_mb=16000, margin_mb=1024, min_ram_override=13000) == "ok"
 
 
-def test_coarse_fit_ram_gate_snaps_detected_to_nominal():
-    """The rung-vs-detected defect (fit-redesign §1.3): floors are NOMINAL rungs,
-    detected RAM is physical-minus-firmware, so every rung floor failed on the very
-    box it names. The gate snaps detected RAM through `snap_ram_gb` (the class key's
-    own snap) — TEMPORARY until floors go raw (§13.5)."""
+def test_coarse_fit_ram_gate_raw_to_raw():
+    """§13.5 end state (Phase 2): floors arrive RAW (computed fresh — file +
+    headroom, never a nominal rung), detected RAM compares directly, and the
+    rung-vs-detected bug class (§1.3: 32,690 vs a 32,768 rung, fails forever)
+    is unrepresentable. The Phase-0 snap bridge is deleted — it would FALSE-FAIL
+    carve-out boxes against raw floors."""
     box = dict(total_params="35B", quant="UD-Q4_K_XL", vram_mb=8192,
                margin_mb=1024, min_vram_override=6000)
-    # The author's box: 32,690 detected vs the 32,768 rung — 78 MB short, 0.24%.
-    assert fit.coarse_fit(ram_mb=32690, min_ram_override=32768, **box) == "ok"
-    # The shipped victim: E4B floor 8192 on an 8 GB laptop reporting ~7,900 —
-    # the RAM gate must not fire (VRAM given headroom so only the gate is tested).
-    assert fit.coarse_fit(total_params="8B", quant="Q4_K_M", vram_mb=8192,
-                          ram_mb=7900, margin_mb=512, min_ram_override=8192) == "ok"
-    # The honest carve-out: ~13.7 GB usable snaps DOWN to 12 — a 16,384 floor still
-    # fails (snap never overstates a box; the one-pool arm is the real fix there).
-    assert fit.coarse_fit(ram_mb=14000, min_ram_override=16384, **box) == "no"
-    # CPU branch gets the same treatment: 32 GB box vs a 32,768 weights floor.
+    # The author's box vs the 21 GB file's RAW floor (25,096 = file + headroom):
+    assert fit.coarse_fit(ram_mb=32690, min_ram_override=25096, **box) == "ok"
+    # The carve-out laptop (~13.7 GB usable) HOLDS a raw 13 GB floor — under the
+    # old snap (14,000 → 12,288) this false-failed; raw-to-raw it passes.
+    assert fit.coarse_fit(ram_mb=14000, min_ram_override=13000, **box) == "ok"
+    # …and honestly fails a floor it genuinely can't hold.
+    assert fit.coarse_fit(ram_mb=14000, min_ram_override=16000, **box) == "no"
+    # CPU branch, raw the same way.
     assert fit.coarse_fit(total_params="55B", quant="Q4_K_M", vram_mb=0,
-                          ram_mb=32690, margin_mb=1024, min_ram_override=32768) == "cpu"
+                          ram_mb=32690, min_ram_override=25096, margin_mb=1024) == "cpu"
+    # A LEGACY rung floor (pre-reset DB) misreads until the user resets — the
+    # accepted pre-release cost (§13.5), pinned so the trade-off stays visible:
+    assert fit.coarse_fit(ram_mb=32690, min_ram_override=32768, **box) == "no"
 
 
 def _cfg(**kw):

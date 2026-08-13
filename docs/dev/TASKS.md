@@ -312,17 +312,27 @@ Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
   keep; read-only computed line instead); inspect fill is embed-only now.
   Tests: computed-fresh store test + facts-byte-identity pin. Gates: ruff ·
   796/10 · JW test:fast 128 · smoke PASSED.
-- B NEXT (with A-4 riding it): extend scripts/refresh-seed-facts.py — add the
-  nine facts to _SCALAR_FIELDS/_derive_from_hf (from r["physicsFacts"]; _fmt
-  needs float; _norm defaults 0/0.0) → run with network over BOTH app seeds
-  (JW seed_presets.py; JV's mirror) → DELETE chat min_vram_mb/min_ram_mb keys
-  from the seed files (embeds keep) → A-4: the Phase-0 snap in coarse_fit
-  RETIRES in the SAME change (raw-to-raw; update the Phase-0 rung tests) +
-  display snap for the "Needs" line (§8.15 ladder + RAM ladder, UP, UI-side)
-  → JW classMembership.test.js run → THE TABLE GOES TO THE USER (its charter
-  — Phase 2 cannot close without their blessing) → user resets data.
-- Post-B check (§13.11): embed-guard DECISION POINTS unchanged at real card
-  sizes (est now physics — pin decisions, not the old 17.7 number).
+- B + A-4 DONE + committed: refresh-seed-facts extended (nine facts + JV
+  source `JV_MODEL_CATALOG`) and RUN LIVE against HF — all three seed files
+  carry facts (26B numbers match the probe: share 0.9389, 30 layers, window
+  1024); curated CHAT floors DELETED from both app seeds (16 keys JW, 6 JV;
+  the three JW embeds keep theirs); seeder maps facts (+ fill-empty for
+  existing DBs); the Phase-0 snap RETIRED (coarse_fit raw-to-raw; rung tests
+  replaced — the legacy-rung cost pinned visible); display ladder shipped
+  (`ui/src/fitDisplay.js` §8.15, snap-UP display-only; Needs line + form use
+  it, hover keeps raw). Gates: kit ruff+796 · JW test:fast 128 + smoke PASS ·
+  JV server 469.
+- Post-B check DONE: embed-guard decisions UNCHANGED at 8/16/24 GB (est
+  17,713→16,143: 8 GB → CPU, 16 GB → 241 MB leftover < embed floor → CPU
+  (the 2026-07-25 proof case holds), 24 GB → GPU both ways).
+- MEMBERSHIP TABLE → USER (the charter pause, AWAITING BLESSING): 7 of 8
+  models IDENTICAL sets (qwen 20,516 computed vs 20,480 hand — 36 MB apart);
+  ONE change: glm-4.5-air loses its 3 ram64 classes (physics RAM floor
+  71,817 raw = 67.7 GB file + 4 GB headroom > 65,536 nominal; the curated
+  65,536 was fitted-to-class). User rules: accept the loss (GLM stays in the
+  catalog, badge per-box, still selectable per §8.23) or adjust. AFTER the
+  blessing: update classMembership.test.js FLEET literals to the computed
+  floors (+ GLM's expected set per the ruling) — then the user resets data.
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

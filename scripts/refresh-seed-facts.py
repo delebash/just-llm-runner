@@ -50,11 +50,21 @@ RUNNER_SEED = REPO_ROOT / "llm_runner" / "llm" / "seed.py"
 JW_SEED_SIBLING = (
     REPO_ROOT.parent / "justwrite-app" / "server" / "justwrite_server" / "seed_presets.py"
 )
+JV_SEED_SIBLING = (
+    REPO_ROOT.parent / "JustVioce" / "server" / "justvoice" / "seed_presets.py"
+)
 
 # The scalar file-derived fields we reconcile (seed key -> how to pull it from the
 # derived-facts dict + the live meta/size). Order = the order we print + insert.
 _SCALAR_FIELDS = ("mtp_builtin", "type", "experts", "architecture", "trained_ctx",
-                  "size_label", "size_bytes", "est_vram_mb")
+                  "size_label", "size_bytes", "est_vram_mb",
+                  # Fit-redesign Phase 2 (§13.11) — the nine physics FACTS the
+                  # floors/est/badge compute FRESH from (the seed ships facts,
+                  # never derived numbers; curated chat floors die with this):
+                  "block_count", "n_kv_heads", "head_count", "embedding_length",
+                  "expert_used_count", "expert_byte_share",
+                  "kv_windowed_bytes_per_token", "kv_global_bytes_per_token",
+                  "sliding_window")
 # Tier-C inherited-drafter fields (reconciled CONDITIONALLY — borrow-only rows) + the
 # mtp enable flag they turn on. Written by _apply alongside the scalars; `mtp` first so
 # it becomes the anchor the draft fields cluster around.
@@ -75,6 +85,11 @@ def _norm(field: str, v) -> object:
         return int(v or 0)
     if field in ("architecture", "size_label", "mtp_draft_repo", "mtp_draft_file", "mtp_draft_quant"):
         return v or ""
+    if field in ("block_count", "n_kv_heads", "head_count", "embedding_length",
+                 "expert_used_count", "sliding_window"):
+        return int(v or 0)
+    if field in ("expert_byte_share", "kv_windowed_bytes_per_token", "kv_global_bytes_per_token"):
+        return float(v or 0.0)
     return v  # trained_ctx, size_bytes, est_vram_mb: None means "not filled yet"
 
 
@@ -111,6 +126,7 @@ def _derive_from_hf(repo: str, quant: str) -> dict:
         "size_label": r["sizeLabel"] or "",
         "size_bytes": int(r["sizeBytes"]),
         "est_vram_mb": r["estVramMb"],
+        **{k: v for k, v in (r.get("physicsFacts") or {}).items()},
         "samplers": r["samplers"],
         # Tier-C: the borrowable OFFICIAL base-family drafter (Gemma-style external MTP).
         # Non-empty only when the model has no built-in MTP; the reconcile applies it
@@ -122,11 +138,13 @@ def _derive_from_hf(repo: str, quant: str) -> dict:
 
 
 def _fmt(v) -> str:
-    """A Python-source literal for a reconciled value (bool/int/str/None)."""
+    """A Python-source literal for a reconciled value (bool/int/float/str/None)."""
     if isinstance(v, bool):
         return "True" if v else "False"
     if v is None:
         return "None"
+    if isinstance(v, float):
+        return repr(round(v, 10))
     if isinstance(v, int):
         return str(v)
     return json.dumps(str(v))  # a properly-escaped "double-quoted" string
@@ -214,6 +232,7 @@ def main() -> int:
     p.add_argument("--write", action="store_true", help="apply the reconciled scalar facts in place")
     p.add_argument("--only", default="", help="comma-separated model ids to limit to")
     p.add_argument("--jw-seed", default=str(JW_SEED_SIBLING))
+    p.add_argument("--jv-seed", default=str(JV_SEED_SIBLING))
     args = p.parse_args()
     only = {x.strip() for x in args.only.split(",") if x.strip()}
     try:  # Windows consoles default to cp1252 — make our output encoding-safe.
@@ -230,6 +249,13 @@ def main() -> int:
         sources.append((jw_path, "JW_CURATED_CATALOG"))
     else:
         print(f"note: JW seed not found at {jw_path} — runner catalog only")
+    # Fit-redesign Phase 2 B: JustVoice's catalog mirror regenerates in the SAME
+    # run (seed == detection holds family-wide, §8.13/§13.11).
+    jv_path = Path(args.jv_seed)
+    if jv_path.is_file():
+        sources.append((jv_path, "JV_MODEL_CATALOG"))
+    else:
+        print(f"note: JV seed not found at {jv_path} — skipping")
 
     net_error = False
     any_diff = False

@@ -705,8 +705,38 @@ def _catalog_row(c: dict, *, built_in: bool) -> "db.ModelCatalog":
         architecture=str(c.get("architecture") or ""), experts=int(c.get("experts") or 0),
         size_label=str(c.get("size_label") or ""), size_bytes=c.get("size_bytes"),
         est_vram_mb=c.get("est_vram_mb"),
+        # Fit-redesign §13.11 — the physics facts (refresh-seed-facts writes them
+        # into the seed dicts; floors/est compute FRESH from these at read):
+        block_count=int(c.get("block_count") or 0),
+        n_kv_heads=int(c.get("n_kv_heads") or 0),
+        head_count=int(c.get("head_count") or 0),
+        embedding_length=int(c.get("embedding_length") or 0),
+        expert_used_count=int(c.get("expert_used_count") or 0),
+        expert_byte_share=float(c.get("expert_byte_share") or 0.0),
+        kv_windowed_bytes_per_token=float(c.get("kv_windowed_bytes_per_token") or 0.0),
+        kv_global_bytes_per_token=float(c.get("kv_global_bytes_per_token") or 0.0),
+        sliding_window=int(c.get("sliding_window") or 0),
         built_in=built_in, position=int(c.get("position") or 0),
     )
+
+
+_SEED_FACT_KEYS = ("block_count", "n_kv_heads", "head_count", "embedding_length",
+                   "expert_used_count", "expert_byte_share",
+                   "kv_windowed_bytes_per_token", "kv_global_bytes_per_token",
+                   "sliding_window")
+
+
+def _fill_physics_facts(row, c: dict) -> None:
+    """Fill-empty touch-up for the §13.11 facts: an EXISTING DB (pre-Phase-2)
+    gains them at the next boot without a reset — but a header read that already
+    wrote them (download/inspect: the file truth) is never clobbered."""
+    if getattr(row, "block_count", 0):
+        return
+    if not c.get("block_count"):
+        return
+    for k in _SEED_FACT_KEYS:
+        if c.get(k) is not None:
+            setattr(row, k, c[k])
 
 
 def _seed_samplers(s, model_id: str, samplers: dict | None) -> None:
@@ -774,6 +804,7 @@ def seed_default_catalog(s) -> int:
             if not row.size_label and c.get("size_label"):
                 row.size_label = str(c["size_label"])
             _fill_inherited_draft(row, c)
+            _fill_physics_facts(row, c)
             # Known-stale heal (QC-43a): swap an exact historically-seeded
             # wrong value for the current seed fact; anything else is a
             # user/inspect value and stays.
@@ -810,6 +841,7 @@ def seed_extra_catalog(s, rows) -> int:
             if not row.size_label and c.get("size_label"):
                 row.size_label = str(c["size_label"])
             _fill_inherited_draft(row, c)
+            _fill_physics_facts(row, c)
             continue
         s.add(_catalog_row(c, built_in=False))
         _seed_samplers(s, c["id"], c.get("samplers"))

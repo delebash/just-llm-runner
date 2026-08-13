@@ -164,6 +164,38 @@ def test_physics_facts_reproduce_kv_mb_at_ctx():
     assert facts["expert_byte_share"] == iswa.expert_byte_share()
 
 
+def test_computed_fresh_floors_from_facts(configured):
+    """Phase 2 A-3 (§13.11): a CHAT row whose physics facts are stored gets its
+    floors + est computed FRESH at read; an EMBED row keeps its curated floors
+    (§8.6); a factless row falls back to the stored values (fidelity ladder)."""
+    store = stores.get_model_catalog_store()
+    # factless: stored values pass through untouched
+    before = {r.id: r for r in store.list()}
+    assert before["dense-a"].minVramMb == 49152 and before["dense-a"].minRamMb == 49152
+    assert before["embed-e"].minVramMb == 4500
+    # write facts through set_derived (the download-identify path) for dense-a
+    meta = GgufMeta(architecture="llama", block_count=80, embedding_length=8192,
+                    expert_count=0, head_count=64, head_count_kv=8,
+                    key_length=128, value_length=128, context_length=131072)
+    store.set_derived("dense-a", model_type="dense", mtp_builtin=False,
+                      trained_ctx=131072, size_bytes=42520398432,
+                      physics_facts=identity.physics_facts_from_meta(meta))
+    after = {r.id: r for r in store.list()}
+    row = after["dense-a"]
+    # floors are now the physics numbers, RAW (no rung snapping in storage/wire)
+    expect_vram, expect_ram, expect_est = identity.computed_row_numbers(
+        identity.physics_facts_from_meta(meta), 42520398432, 131072)
+    assert (row.minVramMb, row.minRamMb, row.estVramMb) == (expect_vram, expect_ram, expect_est)
+    assert row.minVramMb != 49152  # the stored value stopped being consulted
+    # dense floor ≈ file + KV@4k + overhead — sane magnitude, raw not rung
+    assert 42000 < row.minVramMb < 48000
+    assert row.minRamMb == round(42520398432 / 1e6 + 4096)
+    # facts ride the wire for the form (Edit-open == Read-from-link parity)
+    assert row.physicsFacts and row.physicsFacts["block_count"] == 80
+    # the embed row is untouched by the whole mechanism
+    assert after["embed-e"].minVramMb == 4500 and after["embed-e"].minRamMb == 8000
+
+
 def test_derived_fields_from_meta():
     f = identity.derived_fields_from_meta(
         _meta_full(nextn=1, ctx=262144, sampling={"temp": 1.0, "top_k": 20, "penalty_repeat": 1.05})

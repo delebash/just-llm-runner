@@ -73,6 +73,11 @@ class CatalogRow(BaseModel):
     # Pre-download VRAM estimate (full GPU · 8K ctx) — persisted so Edit-open shows the
     # same "≈ N MB VRAM" line Read-from-link does (#141 parity); null until a header read.
     estVramMb: int | None = None
+    # The physics FACTS (fit-redesign §13.11): immutable file properties the
+    # floors/est/badge are computed FRESH from. Filled by inspect / download /
+    # seed refresh; None = header never read (fidelity falls back). Camel-less
+    # snake keys ON PURPOSE — they mirror the DB columns 1:1 through one dict.
+    physicsFacts: dict[str, float] | None = None
     position: int = 0
     builtIn: bool = False
 
@@ -113,6 +118,7 @@ class InspectResponse(BaseModel):
     samplers: dict[str, str] = Field(default_factory=dict)  # recommended samplers (read-only fact)
     sizeBytes: int = 0          # real total weight size (summed shards) — the download size
     estVramMb: int | None = None  # est. VRAM to fully offload at 8K ctx (real header + size)
+    physicsFacts: dict[str, float] | None = None  # §13.11 file facts — the form persists them via the row PUT
     # est. system RAM floor from the download size (file + 4 GB, snapped to a real RAM
     # rung). Declared HERE because this response_model would otherwise silently strip
     # it — the Add form's Min RAM would stay blank and the model would match no PC class.

@@ -18,6 +18,8 @@ from . import db
 from ..runner.config import (
     DEFAULT_BINARIES,
     DEFAULT_CTX_CAP_TOKENS,
+    DEFAULT_FLOOR_CTX_TOKENS,
+    DEFAULT_RAM_HEADROOM_MB,
     DEFAULT_DOWNLOAD_MAX_CONCURRENT,
     DEFAULT_DOWNLOAD_SEGMENT_COUNT,
     DEFAULT_DOWNLOAD_SEGMENT_MIN_BYTES,
@@ -450,6 +452,9 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
     # Computed-ctx cap for untuned launches (fit-redesign §8.1) — additive row,
     # an existing DB gains it at the next boot (fill-empty seeder).
     {"key": "ctx_cap_tokens", "value": str(DEFAULT_CTX_CAP_TOKENS)},
+    # Fit-redesign Phase 2 floor rules (§8.21/§13.13) — additive rows:
+    {"key": "floor_ctx_tokens", "value": str(DEFAULT_FLOOR_CTX_TOKENS)},
+    {"key": "ram_headroom_mb", "value": str(DEFAULT_RAM_HEADROOM_MB)},
     # Router mode (P1e): DB-editable co-resident cap + idle-unload TTL.
     {"key": "models_max", "value": str(DEFAULT_MODELS_MAX)},
     {"key": "sleep_idle_seconds", "value": str(DEFAULT_SLEEP_IDLE_SECONDS)},

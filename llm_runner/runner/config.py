@@ -60,6 +60,13 @@ DEFAULT_SAFETY_MARGIN_MB = 1024
 # DB-editable via runner_setting `ctx_cap_tokens` + the GUI field beside the margin.
 DEFAULT_CTX_CAP_TOKENS = 32768
 
+# Fit-redesign Phase 2 (§8.21, §13.13) — the two floor-rule seeded facts:
+# the canonical floor prices KV at MINIMAL-USABLE context ("can it run at all";
+# the fit verdict prices the real config), and the RAM floor is file + headroom.
+# Seeded runner_setting rows; GUI fields ride Phase 3's panel work (§13.17).
+DEFAULT_FLOOR_CTX_TOKENS = 4096
+DEFAULT_RAM_HEADROOM_MB = 4096
+
 # Router mode (P1e): the count-based co-resident cap (`--models-max`; the arbiter
 # works WITHIN it) and the native idle-unload TTL (`--sleep-idle-seconds`; 0 =
 # never sleep). DB-editable via runner_setting; these are the standalone/seed

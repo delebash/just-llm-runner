@@ -717,12 +717,16 @@ async function inspectLink({ auto = false } = {}) {
     e.mtp = !!r.mtpBuiltin || ownLoadableDraft;
     e.trainedCtx = r.trainedCtx ?? null;
     if (r.totalParams) e.totalParams = r.totalParams; // file-derived (dense); MoE stays curated
-    if (!e.minVramMb && r.estVramMb) e.minVramMb = r.estVramMb;
-    // The RAM floor's mirror (2026-07-27): nothing ever filled Min RAM, so a hand-added
-    // model kept an empty floor and belonged to NO PC class (classTunes.js:132 needs
-    // BOTH). Fill-when-blank only — a typed value is never touched.
-    if (!e.minRamMb && r.estRamMb) e.minRamMb = r.estRamMb;
+    // Chat floors are COMPUTED server-side from the physics facts now (§13.11) —
+    // the form no longer fills or edits them; only EMBED rows keep curated floors.
+    if (e.embedding) {
+      if (!e.minVramMb && r.estVramMb) e.minVramMb = r.estVramMb;
+      if (!e.minRamMb && r.estRamMb) e.minRamMb = r.estRamMb;
+    }
     // Identity facts persist on the row (#141 — Edit-open == Read-from-link):
+    // …and the §13.11 physics facts ride along (the PUT persists them; the
+    // server computes floors/est FRESH from them on every read).
+    e.physicsFacts = r.physicsFacts || e.physicsFacts || null;
     e.architecture = r.architecture || "";
     e.experts = r.experts || 0;
     e.sizeLabel = r.sizeLabel || "";
@@ -1424,14 +1428,21 @@ refreshApplied();
           <label class="lu-mm-l">Query template <span class="lu-muted">applied to questions/searches</span><UiTextarea v-model="editingTpl.queryTemplate" placeholder="search_query: {text}" /></label>
         </template>
 
-        <div class="lu-mm-note"><b>Fit estimate</b> — a pre-download guess, filled in from the file when you Read from link, so the list can show “will it fit?”. Both numbers stay yours to edit.</div>
+        <div class="lu-mm-note"><b>Fit estimate</b> — computed from the model file itself (read the link once and the app knows what the file needs); nothing here for you to figure out. Embedding models keep hand-set floors — they steer the wizard, not the badge.</div>
         <div class="lu-mm-row">
           <label class="lu-mm-l">Total params<UiInput v-model="editing.totalParams" placeholder="14B" /></label>
           <label class="lu-mm-l">Active params <span class="lu-muted">MoE only</span><UiInput v-model="editing.activeParams" placeholder="3.6B" /></label>
         </div>
-        <div class="lu-mm-row">
+        <!-- Fit-redesign §13.17: the floor INPUTS retired for chat rows — the user
+             never types a memory number; the server computes floors fresh from the
+             file's stored facts on every read. Embeds keep the curated inputs
+             (§8.6 — wizard-steering values embed_placement gates on). -->
+        <div v-if="editing.embedding" class="lu-mm-row">
           <label class="lu-mm-l">Min VRAM (MB)<UiInput v-model.number="editing.minVramMb" type="number" placeholder="11000" /></label>
           <label class="lu-mm-l">Min RAM (MB)<UiInput v-model.number="editing.minRamMb" type="number" placeholder="14000" /></label>
+        </div>
+        <div v-else-if="editing.minVramMb && editing.minRamMb" class="lu-mm-note lu-muted">
+          Needs ≈ {{ gb(editing.minVramMb) }} GB VRAM · {{ gb(editing.minRamMb) }} GB RAM — computed from the file, updates on read.
         </div>
 
         <label class="lu-mm-l">License <span class="lu-muted">— SPDX id (Apache-2.0 · MIT · Llama-Community · …)</span><UiInput v-model="editing.license" placeholder="Apache-2.0" /></label>

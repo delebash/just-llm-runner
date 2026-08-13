@@ -206,16 +206,60 @@ class PromptStore:
 
 
 # ── model catalog + switches ──────────────────────────────────────────────────
-def _catalog_to_wire(r: db.ModelCatalog, samplers: dict[str, str] | None = None) -> CatalogRow:
+_PHYSICS_FACT_KEYS = ("block_count", "n_kv_heads", "head_count", "embedding_length", "expert_used_count", "expert_byte_share", "kv_windowed_bytes_per_token", "kv_global_bytes_per_token", "sliding_window")
+
+
+def _row_facts(r: db.ModelCatalog) -> dict:
+    return {k: getattr(r, k, 0) or 0 for k in _PHYSICS_FACT_KEYS}
+
+
+def _floor_cfg_from_settings(s) -> tuple[int, int]:
+    """(floor_ctx_tokens, ram_headroom_mb) — the two floor-rule seeded facts
+    (fit-redesign §8.21/§13.13), read from runner_setting with the config
+    defaults as fallback (a pre-Phase-2 DB gains the rows at next boot)."""
+    from ..runner.config import DEFAULT_FLOOR_CTX_TOKENS, DEFAULT_RAM_HEADROOM_MB
+
+    def _get(key, default):
+        row = s.get(db.RunnerSetting, key)
+        try:
+            return int(row.value) if row and str(row.value).strip() else default
+        except (TypeError, ValueError):
+            return default
+
+    return (_get("floor_ctx_tokens", DEFAULT_FLOOR_CTX_TOKENS),
+            _get("ram_headroom_mb", DEFAULT_RAM_HEADROOM_MB))
+
+
+def _catalog_to_wire(r: db.ModelCatalog, samplers: dict[str, str] | None = None,
+                     floor_cfg: tuple[int, int] | None = None) -> CatalogRow:
+    # COMPUTED-FRESH NUMBERS (fit-redesign §13.11, Phase 2): a CHAT row whose
+    # physics facts were read gets its floors + est computed from them at read
+    # time — the stored columns stop being consulted (they are legacy data until
+    # the next reset). EMBED rows keep their CURATED floors (§8.6 — deliberate
+    # wizard-steering values `embed_placement` gates on). Rows with no facts
+    # (manifest-only, never inspected) fall back to the stored values as ever.
+    min_vram, min_ram, est = r.min_vram_mb, r.min_ram_mb, r.est_vram_mb
+    facts = _row_facts(r)
+    if not r.embedding and facts["block_count"]:
+        from .identity import computed_row_numbers
+
+        floor_ctx, headroom = floor_cfg or (4096, 4096)
+        c_vram, c_ram, c_est = computed_row_numbers(
+            facts, r.size_bytes, r.trained_ctx,
+            floor_ctx=floor_ctx, ram_headroom_mb=headroom,
+        )
+        if c_vram is not None:
+            min_vram, min_ram, est = c_vram, c_ram, c_est
     return CatalogRow(
         id=r.id, name=r.name, hfRepo=r.hf_repo, quant=r.quant, mmproj=r.mmproj,
         totalParams=r.total_params, activeParams=r.active_params, mtp=r.mtp, mtpBuiltin=r.mtp_builtin, type=r.type,
         mtpDraftRepo=r.mtp_draft_repo, mtpDraftFile=r.mtp_draft_file, mtpDraftQuant=r.mtp_draft_quant,
         trainedCtx=r.trained_ctx, samplers=dict(samplers or {}),
-        minVramMb=r.min_vram_mb, minRamMb=r.min_ram_mb, tier=r.tier, license=r.license,
+        minVramMb=min_vram, minRamMb=min_ram, tier=r.tier, license=r.license,
         useLimited=r.use_limited, embedding=r.embedding, pooling=r.pooling, qualityRank=r.quality_rank, description=r.description,
         notes=r.notes, architecture=r.architecture, experts=r.experts,
-        sizeLabel=r.size_label, sizeBytes=r.size_bytes, estVramMb=r.est_vram_mb,
+        sizeLabel=r.size_label, sizeBytes=r.size_bytes, estVramMb=est,
+        physicsFacts={k: v for k, v in facts.items() if v} or None,
         position=r.position, builtIn=r.built_in,
     )
 
@@ -227,8 +271,9 @@ class ModelCatalogStore:
             by_model: dict[str, dict[str, str]] = {}
             for sp in s.query(db.ModelSampler).order_by(db.ModelSampler.model_id, db.ModelSampler.param_name).all():
                 by_model.setdefault(sp.model_id, {})[sp.param_name] = sp.value
+            floor_cfg = _floor_cfg_from_settings(s)
             return [
-                _catalog_to_wire(r, by_model.get(r.id))
+                _catalog_to_wire(r, by_model.get(r.id), floor_cfg)
                 for r in s.query(db.ModelCatalog).order_by(db.ModelCatalog.position, db.ModelCatalog.id).all()
             ]
         finally:
@@ -269,6 +314,12 @@ class ModelCatalogStore:
             existing.size_label = row.sizeLabel or ""
             existing.size_bytes = row.sizeBytes
             existing.est_vram_mb = row.estVramMb
+            # The physics facts ride the PUT when the form has read them
+            # (inspect fills e.physicsFacts; absent/None = leave as stored).
+            if row.physicsFacts:
+                for k in _PHYSICS_FACT_KEYS:
+                    if k in row.physicsFacts:
+                        setattr(existing, k, row.physicsFacts[k])
             existing.position = row.position
             existing.built_in = False
             s.commit()
@@ -324,7 +375,8 @@ class ModelCatalogStore:
                     samplers: dict[str, str] | None = None,
                     architecture: str | None = None, experts: int | None = None,
                     size_label: str | None = None, size_bytes: int | None = None,
-                    est_vram_mb: int | None = None) -> bool:
+                    est_vram_mb: int | None = None,
+                    physics_facts: dict | None = None) -> bool:
         """Set the FILE-DERIVED catalog fields (`type`/`mtp_builtin`/`trained_ctx`, and
         `total_params` when the file gives one) AND replace the per-model recommended
         sampler rows for `model_id`, from a GGUF header read (the GGUF-grounded model
@@ -370,6 +422,12 @@ class ModelCatalogStore:
                 existing.size_bytes = int(size_bytes)
             if est_vram_mb is not None:
                 existing.est_vram_mb = int(est_vram_mb)
+            if physics_facts:
+                # §13.11: the facts are file truths — a header read replaces them
+                # wholesale (same motion as size_bytes; never fill-when-blank).
+                for k in _PHYSICS_FACT_KEYS:
+                    if k in physics_facts:
+                        setattr(existing, k, physics_facts[k])
             s.query(db.ModelSampler).filter(db.ModelSampler.model_id == model_id).delete()
             for name, val in (samplers or {}).items():
                 nm = (name or "").strip()

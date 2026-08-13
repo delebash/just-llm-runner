@@ -101,6 +101,66 @@ def physics_facts_from_meta(meta: GgufMeta) -> dict:
     }
 
 
+def kv_mb_from_facts(facts: dict, ctx: int, cache_bits: int = 16) -> float:
+    """KV size (MiB) at `ctx` from the STORED facts — the §13.11 scalar formula,
+    byte-identical to `kv_mb_at_ctx` (pinned by test). Facts absent (all zeros) →
+    falls back to `kv_exact_mb`'s dim heuristics via the head fields."""
+    from ..runner.fit import kv_exact_mb
+
+    wb = float(facts.get("kv_windowed_bytes_per_token") or 0.0)
+    gb = float(facts.get("kv_global_bytes_per_token") or 0.0)
+    window = int(facts.get("sliding_window") or 0)
+    if wb or gb:
+        return (wb * min(ctx, window if window > 0 else ctx) + gb * ctx) * (cache_bits / 8.0) / 1e6
+    return kv_exact_mb(
+        n_layers=int(facts.get("block_count") or 0),
+        n_kv_heads=int(facts.get("n_kv_heads") or 0),
+        ctx_size=ctx, cache_type=cache_bits,
+        embedding_dim=int(facts.get("embedding_length") or 0),
+        head_count=int(facts.get("head_count") or 0),
+    )
+
+
+def computed_row_numbers(
+    facts: dict, size_bytes: int | None, trained_ctx: int | None,
+    *, floor_ctx: int = 4096, ram_headroom_mb: int = 4096,
+) -> tuple[int | None, int | None, int | None]:
+    """(min_vram_mb, min_ram_mb, est_vram_mb) computed FRESH from the stored facts
+    (fit-redesign §13.11 — floors are never cached; improve the physics and every
+    row's numbers improve on the next read). RAW values — display snaps (§5.6).
+
+    - min_vram: the canonical DISCRETE max-offload floor — non-expert device weights
+      + KV at the floor ctx (§8.21) + the cuda overhead seed. "Can it run at all."
+    - min_ram: whole file + headroom (§13.13) — dense and MoE both end up holding
+      the file (weights-in-RAM resp. experts-in-RAM), the seeds' own documented rule.
+    - est_vram: full-residency want at a realistic 8K ctx — §8.5's frozen meaning,
+      now computed (§8.20); the embed co-load guard consumes it unchanged.
+    Returns (None, None, None) when the facts or size are absent — the caller falls
+    back down the fidelity ladder (stored/manifest values)."""
+    from ..runner.fit import PHYSICS_OVERHEAD_MB, moe_gpu_size_share, physics_vram_mb
+
+    n_layers = int(facts.get("block_count") or 0)
+    if not (size_bytes and n_layers > 0):
+        return None, None, None
+    size_mb = size_bytes / 1e6
+    share = float(facts.get("expert_byte_share") or 0.0)
+    overhead = PHYSICS_OVERHEAD_MB["cuda"]
+    max_offload = moe_gpu_size_share(
+        n_layers=n_layers, gpu_layers=n_layers, n_cpu_moe=n_layers, expert_share=share,
+    )
+    min_vram = physics_vram_mb(
+        size_mb=size_mb, n_layers=n_layers, gpu_layers=n_layers,
+        moe_share=max_offload, kv_mb=kv_mb_from_facts(facts, floor_ctx), overhead_mb=overhead,
+    )
+    min_ram = size_mb + max(0, ram_headroom_mb)
+    est_ctx = min(trained_ctx or _ESTIMATE_CTX, _ESTIMATE_CTX)
+    est = physics_vram_mb(
+        size_mb=size_mb, n_layers=n_layers, gpu_layers=n_layers,
+        moe_share=1.0, kv_mb=kv_mb_from_facts(facts, est_ctx), overhead_mb=overhead,
+    )
+    return round(min_vram), round(min_ram), round(est)
+
+
 def derived_fields_from_meta(meta: GgufMeta) -> dict:
     """The catalog facts grounded in one GGUF header read: capability `type`, the
     `mtp` flag, the trained context length, and the model's recommended sampler
@@ -166,6 +226,7 @@ def detect_and_store_model_type(
         samplers=fields["samplers"],
         architecture=fields["architecture"], experts=fields["experts"],
         size_label=fields["size_label"], size_bytes=size_bytes, est_vram_mb=est_vram_mb,
+        physics_facts=physics_facts_from_meta(meta),
     )
     return fields["type"]
 
@@ -330,6 +391,9 @@ def inspect_model_from_link(repo: str, quant: str, revision: str = "main") -> di
         "trainedCtx": fields["trained_ctx"], "experts": meta.expert_count,
         "sizeLabel": meta.size_label, "totalParams": fields["total_params"] or "",
         "samplers": fields["samplers"], "sizeBytes": int(total), "estVramMb": est_vram_mb,
+        # §13.11: the physics facts ride the inspect so the form's row PUT persists
+        # them — the same facts the download identify writes (one extraction fn).
+        "physicsFacts": physics_facts_from_meta(meta),
         # The Min-RAM floor's pre-download guess (size-only rule — see
         # est_ram_mb_from_bytes); the VRAM estimate's mirror, so BOTH class floors
         # arrive filled and a hand-added model can belong to a PC class at all.

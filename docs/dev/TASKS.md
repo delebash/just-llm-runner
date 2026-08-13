@@ -301,22 +301,28 @@ Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
   _ADDED_COLUMNS) + `identity.physics_facts_from_meta` (Wb/Gb walk pinned
   BYTE-IDENTICAL to kv_mb_at_ctx by test_physics_facts_reproduce_kv_mb_at_ctx).
   Columns are DORMANT until A-2 wires writers — tracked in-flight state.
-- A-2 NEXT: writers write facts — set_derived (identity.py + stores.set_derived
-  signature) · inspect_model_from_link response + InspectResponse + CatalogRow
-  wire fields + the form PUT persists them · refresh-seed-facts emits them.
-- A-3: catalog RESPONSE computes min_vram/min_ram/est_vram FRESH from facts
-  (chat rows with block_count>0; EMBEDS keep curated §8.6; manifest-only →
-  params×quant as today). Canonical discrete floors: max-offload physics at
-  ref ctx 4096 (§8.21, seeded fact) + ram_headroom_mb seeded fact (§13.13).
-  est fresh at ref 8K (§8.20) — verify the embed-guard DECISION POINTS stay
-  unchanged (pin decisions, not the 17.7 number).
-- A-4: the Phase-0 snap in coarse_fit RETIRES (raw-to-raw) IN THE SAME CHANGE
-  as A-3 (raw floors) + display snap for the "Needs" line (ladders §8.15).
-- C: form floor INPUTS retire for chat rows (embeds keep); docs line (§7.6).
-- B: refresh-seed-facts regenerates BOTH app seeds (network; chat floors die,
-  facts land) → classMembership.test.js run → THE TABLE GOES TO THE USER
-  (its charter — Phase 2 cannot close without their blessing).
-Gates so far: ruff clean · 795 passed/10 skipped.
+- A-2 + A-3 + C DONE + committed: writers write facts (set_derived + inspect →
+  form PUT `physicsFacts` dict ↔ the nine columns, one mapping in stores;
+  `identity.computed_row_numbers` + `kv_mb_from_facts`); `_catalog_to_wire` is
+  THE one door — chat rows with facts get floors/est computed FRESH (raw), the
+  runner's badge + embed guard consume the same values via catalog_fn; EMBEDS
+  keep curated floors; factless rows fall back (fidelity ladder). Floor-rule
+  seeded facts landed (`floor_ctx_tokens` 4096 §8.21 · `ram_headroom_mb` 4096
+  §13.13, additive rows). Form floor INPUTS retired for chat rows (embeds
+  keep; read-only computed line instead); inspect fill is embed-only now.
+  Tests: computed-fresh store test + facts-byte-identity pin. Gates: ruff ·
+  796/10 · JW test:fast 128 · smoke PASSED.
+- B NEXT (with A-4 riding it): extend scripts/refresh-seed-facts.py — add the
+  nine facts to _SCALAR_FIELDS/_derive_from_hf (from r["physicsFacts"]; _fmt
+  needs float; _norm defaults 0/0.0) → run with network over BOTH app seeds
+  (JW seed_presets.py; JV's mirror) → DELETE chat min_vram_mb/min_ram_mb keys
+  from the seed files (embeds keep) → A-4: the Phase-0 snap in coarse_fit
+  RETIRES in the SAME change (raw-to-raw; update the Phase-0 rung tests) +
+  display snap for the "Needs" line (§8.15 ladder + RAM ladder, UP, UI-side)
+  → JW classMembership.test.js run → THE TABLE GOES TO THE USER (its charter
+  — Phase 2 cannot close without their blessing) → user resets data.
+- Post-B check (§13.11): embed-guard DECISION POINTS unchanged at real card
+  sizes (est now physics — pin decisions, not the old 17.7 number).
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

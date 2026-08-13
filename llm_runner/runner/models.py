@@ -354,6 +354,13 @@ def _search_models(query: str, limit: int = 15) -> list[str]:
 _SHARD_RE = re.compile(r"-\d+-of-\d+\.gguf$", re.IGNORECASE)  # split-shard tail
 
 
+# The largest file this probe will ever call a "drafter": real external drafters
+# are hundreds of MB (Gemma 26B: 252 MB; 12B: ~150 MB), and a hypothetical ~3B
+# assistant at Q8 stays under 4 GB — while a full-model MTP-VARIANT repo's
+# smallest sane quant is well past it (the live case: 18 GB).
+_DRAFTER_MAX_BYTES = 4 * 1024**3
+
+
 def _gguf_drafter_in_repo(repo: str, revision: str = "main") -> dict | None:
     """The smallest QUANTIZED single-file .gguf in `repo` at the pick FLOOR, as a
     drafter `{"repo","file","quant"}` — or None (no usable candidate / repo doesn't
@@ -400,6 +407,15 @@ def _gguf_drafter_in_repo(repo: str, revision: str = "main") -> dict | None:
     # only when no candidate clears it (a Q2-only repo still gets a suggestion).
     at_floor = [pair for pair in candidates if _q4_or_better(pair[1])]
     best, quant = min(at_floor or candidates, key=lambda pair: _entry_size(pair[0]))
+    # A drafter is a SMALL speed device (the real ones: Gemma 26B's 252 MB, the
+    # 12B's ~150 MB). A multi-GB "candidate" is a FULL MODEL, not a drafter —
+    # caught live 2026-08-13: Qwen publishers ship "<model>-MTP-GGUF" VARIANT
+    # repos (MTP heads PRESERVED in the main file, no external drafter at all),
+    # and this probe proposed the variant's 18 GB IQ4_XS as a "draft" beside a
+    # 21 GB main. Reject outsized picks outright — better no suggestion than a
+    # second full model masquerading as one.
+    if _entry_size(best) > _DRAFTER_MAX_BYTES:
+        return None
     return {"repo": repo, "file": str(best.get("path", "")), "quant": quant}
 
 

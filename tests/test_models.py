@@ -236,7 +236,7 @@ def test_drafter_skips_shards_prefers_quant_single(monkeypatch):
     tree = [
         {"type": "file", "path": "model-BF16-00001-of-00002.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 20 * _GB}},
         {"type": "file", "path": "model-BF16-00002-of-00002.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 1 * _GB}},
-        {"type": "file", "path": "model-Q4_K_M.gguf", "oid": "c", "lfs": {"oid": "l3", "size": 5 * _GB}},
+        {"type": "file", "path": "model-Q4_K_M.gguf", "oid": "c", "lfs": {"oid": "l3", "size": int(1.5 * _GB)}},
     ]
     monkeypatch.setattr(models.requests, "get", _make_get(tree))
     got = models._gguf_drafter_in_repo("owner/repo")
@@ -270,6 +270,24 @@ def test_drafter_skips_unsupported_dspark(monkeypatch):
     assert got == {"repo": "owner/repo", "file": "assistant-Q4_K_M.gguf", "quant": "Q4_K_M"}
 
 
+def test_drafter_rejects_full_model_variant_repos(monkeypatch):
+    # Caught live 2026-08-13: Qwen publishers ship "<model>-MTP-GGUF" VARIANT repos —
+    # the FULL model with its built-in MTP heads preserved, no external drafter at
+    # all. The probe picked the variant's smallest quant (18 GB!) as a "draft"
+    # beside a 21 GB main. A multi-GB pick is a full model: better NO suggestion.
+    tree = [
+        {"type": "file", "path": "Qwen3.6-35B-A3B-UD-IQ4_XS.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 18 * _GB}},
+        {"type": "file", "path": "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 22 * _GB}},
+    ]
+    monkeypatch.setattr(models.requests, "get", _make_get(tree))
+    assert models._gguf_drafter_in_repo("owner/repo") is None
+    # …while a REAL drafter's size sails through (the Gemma 252 MB shape).
+    real = [{"type": "file", "path": "mtp-gemma-4-26B-A4B-it-Q4_0.gguf", "oid": "c", "lfs": {"oid": "l3", "size": 252 * 1024 * 1024}}]
+    monkeypatch.setattr(models.requests, "get", _make_get(real))
+    got = models._gguf_drafter_in_repo("owner/repo")
+    assert got and got["file"] == "mtp-gemma-4-26B-A4B-it-Q4_0.gguf"
+
+
 def test_drafter_shard_filter_fires_alone(monkeypatch):
     # Isolates the SHARD filter: a QUANTIZED shard tail (survives the fp16 filter)
     # that is the SMALLEST file, beside a LARGER single quant. Only shard-exclusion
@@ -277,7 +295,7 @@ def test_drafter_shard_filter_fires_alone(monkeypatch):
     tree = [
         {"type": "file", "path": "model-Q4_K_M-00001-of-00002.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 1 * _GB}},
         {"type": "file", "path": "model-Q4_K_M-00002-of-00002.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 1 * _GB}},
-        {"type": "file", "path": "model-Q5_K_M.gguf", "oid": "c", "lfs": {"oid": "l3", "size": 5 * _GB}},
+        {"type": "file", "path": "model-Q5_K_M.gguf", "oid": "c", "lfs": {"oid": "l3", "size": 2 * _GB}},
     ]
     monkeypatch.setattr(models.requests, "get", _make_get(tree))
     got = models._gguf_drafter_in_repo("owner/repo")
@@ -290,7 +308,7 @@ def test_drafter_fp16_filter_fires_alone(monkeypatch):
     # only fp16-exclusion can reject the smaller F16 → the Q4_K_M must win.
     tree = [
         {"type": "file", "path": "model-F16.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 1 * _GB}},
-        {"type": "file", "path": "model-Q4_K_M.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 5 * _GB}},
+        {"type": "file", "path": "model-Q4_K_M.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 2 * _GB}},
     ]
     monkeypatch.setattr(models.requests, "get", _make_get(tree))
     got = models._gguf_drafter_in_repo("owner/repo")

@@ -766,14 +766,16 @@ stage detail lives in the kit tracker's fit item; the shape:
   the §13.7 MTP rider.
 - Gates: kit ruff + 813/10 · biome (kit ui) · JW test:fast 128 + vitest 5
   (new file) + i18n benign-only + build:vite · JV build:vite + smoke PASSED
-  (all views, 0 JS errors) · check-family 0 violations. JW smoke REFUSED
-  (the user's running app holds port 1420 — not a failure; re-run when the
-  app is closed). User docs shipped same-change: JW models.md (band, veto
-  removal, knob move, class-bw fields) + JV ai-features.md (new section).
-NEXT ACTION: the user's JW-smoke re-run when their app closes · laptops
-glance · data reset · then the DELIBERATE CHECKPOINT before Phases 4-6
-(§11 — probes + arbiter arch-awareness · persistence + claim resolver ·
-shed + joint solve), each on its own go.
+  (all views, 0 JS errors) · check-family 0 violations · JW smoke RUN BY
+  THE USER 2026-08-13, no errors (it had refused while their app held port
+  1420). ALL Phase 3 gates green. User docs shipped same-change: JW
+  models.md (band, veto removal, knob move, class-bw fields) + JV
+  ai-features.md (new section). Live-review polish same day: .lu-fit
+  white-space:nowrap (the chip is atomic) + the bottom band DISPLAYS
+  "very slow" (SPEED_BAND_LABEL — wire vocabulary unchanged).
+NEXT ACTION: laptops glance · data reset · then the DELIBERATE CHECKPOINT
+before Phases 4-6 (§11 — probes + arbiter arch-awareness · persistence +
+claim resolver · shed + joint solve), each on its own go.
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

@@ -396,11 +396,11 @@ Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
   bw fields) · JV ai-features.md (new "Picking models" section). Gates:
   kit ruff + 813/10 · kit-ui biome · JW test:fast 128 + vitest(5) + i18n
   benign-only + build:vite · JV build:vite + smoke PASS (0 JS errors) ·
-  check-family 0. JW smoke REFUSED — the user's running app holds port
-  1420 (the documented refusal, not a failure): RE-RUN `npm run smoke`
-  when the app is closed, before calling Phase 3's gate fully green.
-  After Phase 3: the deliberate checkpoint before Phases 4-6 (§11), each
-  on its own go. Phase 3 consumed Phase 1's byte model (§13.15).
+  check-family 0 · JW smoke RUN BY THE USER 2026-08-13 ("i ran the smoke
+  test no errors" — it had refused while their app held port 1420). ALL
+  Phase 3 gates green. After Phase 3: the deliberate checkpoint before
+  Phases 4-6 (§11), each on its own go. Phase 3 consumed Phase 1's byte
+  model (§13.15).
 - PHASE 3 LIVE-REVIEW POLISH (user, 2026-08-13, from the running app):
   (1) the chip WRAPPED ("Tight · ~slow" split across two lines) — .lu-fit
   never declared itself atomic; its content was single-word when authored,

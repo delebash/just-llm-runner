@@ -270,6 +270,39 @@ corrected speed constants §5.5 + Appendix B, the reasoning record
 `2026-08-09-fit-redesign-debate.md`. ALL rulings DECIDED — §8.17–23 (§9 empty;
 §8.23 = verdicts inform never gate, the picker veto dies in Phase 3 per §13.16).
 EXECUTE AGAINST THE PLAN, do not re-derive. Each phase needs its own literal "go".
+
+**STATUS NOW (2026-08-13 end of session — READ THIS FIRST on resume):**
+- **Phases 0–5 are BUILT, GATED, COMMITTED, PUSHED.** The per-phase records
+  below (in order: 0 · 1 · 2 · checkpoint round · 3 · polish · executor
+  choices · checkpoint list · 4 · 5) carry the full detail — what each phase
+  changed, why, the test lessons, the honest limits. Nothing is mid-flight.
+- **NEXT = the user's checkpoint items, then the Phase 6 go.** The
+  user-side items: the laptops glance · the data reset (JV required, JW
+  recommended) · the six-point DELIBERATE CHECKPOINT list recorded below
+  (chips × three boxes · GLM pickable-with-warning · measured-replaces-
+  predicted · probe-row sanity incl. the RAM-probe calibration OPEN item ·
+  the knobs round-trip · the laptops' budget line showing as Memory).
+- **Phase 6 spec pointers (for its go):** plan §5.7 — shed direction fix
+  (`_router_load_with_backoff`: a MoE OOM at ngl=n_layers RAISES ncmoe
+  first, sheds ngl only after ncmoe maxes; fix the dormant start_runner
+  formula as hygiene) + the joint MoE solve in `compute_fit`'s MoE arm
+  (pin ngl = n_layers, walk the smallest ncmoe whose draft-charged
+  iSWA-KV physics estimate fits the budget) + §7.2's acceptance gate (the
+  5 measured rows of §1.9 reproduced within tolerance: 26B@8GB ncmoe ∈
+  [21,23] at ctx 32768 with draft; 26B@igpu-mem32 ncmoe 0; 12B/E4B full
+  offload) + §13.9's pinned test (physics 0.446 vs measured 0.41 GB/layer,
+  ~15% tolerance). Phase 6 also retires the draft charge from the
+  regression's marginal_vram_mb to physics (the Phase 1 note: "Phase 6
+  owns both").
+- **Phase 7 spec pointers:** §7.3 the uncurated-path acceptance test
+  (fresh DB, no seeds, hand-added MoE by link on simulated 8/32 boxes,
+  fake HF fixtures) · §7.4-as-ranking (evidence-keyed recommendation
+  precedence — this-box evidence, never seeded class configs) · §7.6 the
+  docs pass (serving-design.md one-authority story; §13.13's kit dev-doc
+  gap) · the JV handoff (their tracker's registration points).
+- **JV's VRAM wiring is UNBLOCKED** (Phase 5) — its own go required; the
+  registration points are stamped in JV's tracker item.
+
 Phase 0 BUILT 2026-08-13 (go: "then code"), all five items: RAM gate via snap_ram_gb
 (TEMPORARY per §13.5, comment marks it) · a<=0 guard in estimate_vram_mb · quant
 re-read + stale token + name snapshot-compare (LuModelCatalog) · >=4-bit fallback
@@ -296,7 +329,8 @@ the physics gold pin (flagship config ∈ [6.5,7.9] GB measured window) · the
 §13.10 arch matrix slice · kv/physics units · one literal re-pin (6432→5545,
 the intended booking switch). Gates: ruff clean · kit 794 passed/10 skipped ·
 JW test:fast 128 (no renderer files touched — smoke not required).
-Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
+Phase 2 BUILT 2026-08-13 (go 2026-08-13; closed same day pending only the
+user's data reset) — the stage record:
 - A-1 DONE + committed: the nine facts columns on model_catalog (additive, in
   _ADDED_COLUMNS) + `identity.physics_facts_from_meta` (Wb/Gb walk pinned
   BYTE-IDENTICAL to kv_mb_at_ctx by test_physics_facts_reproduce_kv_mb_at_ctx).

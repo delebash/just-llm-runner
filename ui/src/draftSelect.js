@@ -35,7 +35,12 @@ export function pickDefaultDraftPath(drafts) {
 export function pickDefaultQuant(quants, vramMb) {
   const rows = quants || [];
   if (!rows.length) return "";
-  const fitting = vramMb ? rows.filter((q) => q.sizeMb <= vramMb) : [];
+  // The ≥4-bit floor applies to the FITTING branch too (caught 2026-08-13 while
+  // verifying the IQ rule): on a bigger card a 1-2-bit file can genuinely fit by
+  // size and would have won outright — the IQ1 ghost's THIRD life. A fitting
+  // sub-4-bit file is never the default; the floor fallback below picks a real
+  // quant instead (partial offload beats 1-bit weights every time).
+  const fitting = vramMb ? rows.filter((q) => q.sizeMb <= vramMb && q.q4OrBetter) : [];
   if (fitting.length) return fitting[fitting.length - 1].quant;
   // Nothing fits by file size (every MoE repo lands here — file ≠ VRAM when
   // experts offload): take the ≥4-bit floor, then QUALITY-FIRST within a small
@@ -47,8 +52,16 @@ export function pickDefaultQuant(quants, vramMb) {
   // jumps a real size tier (Q8 at ~2× stays out).
   const atFloor = rows.filter((q) => q.q4OrBetter);
   if (!atFloor.length) return rows[0].quant;
-  const limit = atFloor[0].sizeMb * 1.15;
-  const near = atFloor.filter((q) => q.sizeMb <= limit);
+  // Family preference inside the floor (user 2026-08-13, from the checkpoint):
+  // K/UD quants are the default on THIS stack (llama.cpp/unsloth workflows —
+  // targeted layer retention, better speed on our engine); IQ quants are the
+  // deliberate strictly-size-limited choice, so an IQ4 becomes the default ONLY
+  // when the repo ships nothing else at the floor. Without this, a repo's
+  // IQ4_XS (~15-20% smaller) anchored the window and beat UD-Q4_K_XL.
+  const isIq = (q) => (q.kind || "").toUpperCase() === "IQ";
+  const pool = atFloor.some((q) => !isIq(q)) ? atFloor.filter((q) => !isIq(q)) : atFloor;
+  const limit = pool[0].sizeMb * 1.15;
+  const near = pool.filter((q) => q.sizeMb <= limit);
   return near[near.length - 1].quant;
 }
 

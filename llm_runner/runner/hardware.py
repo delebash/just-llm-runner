@@ -45,6 +45,23 @@ def max_vram_mb(hw: HardwareInfo) -> int:
     return max((g.vram_mb or 0 for g in hw.gpus), default=0)
 
 
+def active_backend(hw: HardwareInfo) -> str:
+    """Which engine backend this box runs — `cuda | rocm | metal | vulkan | cpu` —
+    for the physics overhead seed (`fit.PHYSICS_OVERHEAD_MB`, fit-redesign §5.1).
+    Mirrors the binary-preference order's spirit without importing it: the
+    detected runtime wins; macOS is Metal by construction; any other GPU means
+    the Vulkan build; no GPU at all runs on CPU (overhead 0 — no device context)."""
+    if hw.runtimes.get("cuda"):
+        return "cuda"
+    if hw.platform == "macos":
+        return "metal"
+    if hw.runtimes.get("rocm"):
+        return "rocm"
+    if hw.gpus or hw.runtimes.get("vulkan"):
+        return "vulkan"
+    return "cpu"
+
+
 def platform_key() -> str:
     sysname = platform.system().lower()
     if sysname.startswith("win"):

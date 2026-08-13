@@ -155,9 +155,12 @@ def test_fit_without_a_draft_is_byte_identical():
     # Regression pin with LITERAL values — the pre-2026-07-19 plan for a 10 GB MoE on an
     # 8 GB card. Comparing the defaults against explicitly-passed defaults would be a
     # tautology that could not catch an arithmetic slip; these numbers can.
+    # vram_mb re-pinned 6432 → 5545 on 2026-08-13: Phase 1 switched the forward
+    # booking from the fitted regression to the physics decomposition (weights
+    # 10000 × 4/10 + exact KV share + the cuda overhead seed). Split unchanged.
     args = (_meta(block_count=10, expert_count=128), _TEN_GB, _hw(vram_mb=8192))
     plan = compute_fit(*args)
-    assert (plan.n_gpu_layers, plan.n_cpu_moe, plan.ctx_len, plan.vram_mb) == (4, 6, 4096, 6432)
+    assert (plan.n_gpu_layers, plan.n_cpu_moe, plan.ctx_len, plan.vram_mb) == (4, 6, 4096, 5545)
     # …and a draft SIZE with no draft meta is inert (the meta is what arms the term).
     assert compute_fit(*args, draft_bytes=_ONE_GB) == plan
 
@@ -631,6 +634,60 @@ def test_computed_ctx_caps_at_trained_window():
     meta.context_length = 8192
     plan = compute_fit(meta, _TEN_GB, _hw(vram_mb=96000))
     assert plan.ctx_len <= 8192
+
+
+def _hw_one_pool(platform="windows", ram_mb=32000, gpus=None, runtimes=None):
+    """A one-pool box: iGPU (Windows/Linux, weak GPU row, no cuda) or Apple unified
+    (macOS, NO GPU row at all — detection never fabricates a VRAM number)."""
+    return HardwareInfo(
+        os=platform, platform=platform, cpu_cores=8, ram_mb=ram_mb,
+        gpus=gpus or [], runtimes=runtimes or {},
+    )
+
+
+# ── The architecture arm (fit-redesign Phase 1, §5.2 + §13.10 matrix) ────────
+
+def test_arch_arm_unified_mac_is_not_a_cpu_box():
+    """The Mac bug: no GPU row → max_vram 0 → budget 0 → ctx clamped to the ladder
+    floor (4096) while Metal ran the model fine. The one-pool arm budgets ctx from
+    the POOL, so a 32 GB Mac affords real context (capped by the ctx cap)."""
+    meta = GgufMeta(architecture="llama", block_count=10, embedding_length=1000,
+                    expert_count=0, context_length=262144)
+    mac = _hw_one_pool(platform="macos", ram_mb=32768)
+    plan = compute_fit(meta, _TEN_GB, mac)
+    assert plan.ctx_len > 4096          # unclamped — the pool affords it
+    assert plan.ctx_len <= 32768        # the ctx cap still governs
+    assert plan.vram_mb == 0            # nothing fabricated: ledger is 0 on a Mac
+
+
+def test_arch_arm_one_pool_moe_never_offloads_experts():
+    """igpu-mem32's measured truth (Core Ultra 7 ncmoe sweep: 0 fastest, every
+    offload level slower): expert 'offload' on one pool moves bytes nowhere and
+    costs speed. The computed default is ncmoe 0 — matching the seeded tune —
+    while an explicit override still wins."""
+    moe = GgufMeta(architecture="qwen3moe", block_count=30, embedding_length=2816,
+                   expert_count=128, context_length=32768)
+    igpu = _hw_one_pool(platform="windows", ram_mb=32000,
+                        gpus=[GpuInfo(vendor="Intel", name="Intel(R) Graphics", vram_mb=128)])
+    plan = compute_fit(moe, 14_000_000_000, igpu)
+    assert plan.is_moe and plan.n_cpu_moe == 0
+    explicit = compute_fit(moe, 14_000_000_000, igpu, Overrides(n_cpu_moe=16))
+    assert explicit.n_cpu_moe == 16
+    # discrete keeps the two-pool default: layers that miss the GPU offload experts
+    discrete = compute_fit(moe, 14_000_000_000, _hw(vram_mb=8192))
+    assert discrete.n_cpu_moe == max(0, 30 - discrete.n_gpu_layers)
+
+
+def test_arch_arm_one_pool_booking_never_exceeds_ledger():
+    """Until Phase 4 makes the arbiter snapshot arch-aware, the ledger on an iGPU
+    box is the carve-out figure — the physics booking is capped there so admission
+    math never books more than the ledger can hold."""
+    meta = GgufMeta(architecture="llama", block_count=10, embedding_length=1000,
+                    expert_count=0, context_length=8192)
+    igpu = _hw_one_pool(platform="windows", ram_mb=16000,
+                        gpus=[GpuInfo(vendor="Intel", name="Iris Xe", vram_mb=2048)])
+    plan = compute_fit(meta, _TEN_GB, igpu)
+    assert plan.vram_mb <= 2048
 
 
 def test_ctx_cap_bounds_computed_ctx_only():

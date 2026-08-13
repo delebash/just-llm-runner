@@ -267,6 +267,71 @@ def moe_gpu_size_share(
     return max(0.0, min(1.0, share))
 
 
+# ── The physics decomposition (fit-redesign Phase 1, §5.1) ───────────────────
+# Compute what physics determines; the fitted regression above stays as the CI
+# oracle on its dense-CUDA domain (§7.1) and as the inverse-split chooser until
+# Phase 6's joint solve. Terms: device-resident weights (placement share) +
+# exact KV + a per-backend overhead seed. Scratch/compute buffers ride inside
+# the overhead seed until Phase 5 learns their coefficient per machine (§13.6).
+
+# Per-backend overhead seeds (MiB): CUDA context + scratch at typical ubatch —
+# cuda inherits the regression's fitted per-in-use-GPU offset `_C5` (the value
+# Appendix A's first-principles floors validated); vulkan/rocm = cuda + a
+# DOCUMENTED margin (no fitted data — provenance 'seed-guess', self-corrected
+# by Phase 5's persisted true-ups); metal = a conservative one-pool constant
+# (same provenance). NOT operator knobs — these become DB rows with the
+# measurement loop in Phase 5; until then they are seed values, not tunables.
+PHYSICS_OVERHEAD_MB: dict[str, float] = {
+    "cuda": _C5,
+    "vulkan": _C5 + 512.0,
+    "rocm": _C5 + 512.0,
+    "metal": 1024.0,
+    "cpu": 0.0,
+}
+
+
+def kv_exact_mb(
+    *, n_layers: int, n_kv_heads: int, ctx_size: int, cache_type: int,
+    key_length: int = 0, value_length: int = 0,
+    embedding_dim: int = 0, head_count: int = 0,
+) -> float:
+    """Exact whole-model KV size (MiB) for a UNIFORM-attention model — the §5.1
+    generalization of `GgufMeta.kv_mb_at_ctx` (which stays the source for iSWA
+    models, where per-layer windows change the answer). Per layer, per token:
+    kv_heads × (key_dim + value_dim) × cache_bytes. Missing per-head dims fall
+    back to embedding_dim / head_count, then 128 (the typical head_dim — the
+    same fallback `compute_fit` uses for missing head counts)."""
+    if n_layers <= 0 or n_kv_heads <= 0 or ctx_size <= 0:
+        return 0.0
+    head_dim = 0
+    if head_count > 0 and embedding_dim > 0:
+        head_dim = embedding_dim // head_count
+    k = key_length or head_dim or 128
+    v = value_length or head_dim or 128
+    bytes_per_elem = max(1, cache_type) / 8.0
+    return n_layers * n_kv_heads * (k + v) * ctx_size * bytes_per_elem / 1e6
+
+
+def physics_vram_mb(
+    *, size_mb: float, n_layers: int, gpu_layers: int, moe_share: float,
+    kv_mb: float, overhead_mb: float,
+) -> float:
+    """Predicted device-resident VRAM (MiB) from first principles: the weight
+    bytes placement leaves on the device (`moe_share` from `moe_gpu_size_share`,
+    prorated by offloaded layers) + the KV share riding those layers + the
+    backend overhead. gpu_layers == 0 → 0 (no CUDA/Metal context is created —
+    the same rule the regression path enforces). This replaces the fitted
+    regression for FORWARD booking (§5.1); the regression survives as the CI
+    oracle (§7.1) and the inverse chooser (Phase 6 replaces that)."""
+    n_layers = max(1, n_layers)
+    g = max(0, min(gpu_layers, n_layers))
+    if g <= 0:
+        return 0.0
+    weights = max(0.0, size_mb) * max(0.0, min(1.0, moe_share)) * (g / n_layers)
+    kv = max(0.0, kv_mb) * (g / n_layers)
+    return weights + kv + max(0.0, overhead_mb)
+
+
 def max_gpu_layers(
     *, size_mb: float, n_layers: int, n_kv_heads: int, embedding_dim: int,
     ctx_size: int, cache_type: int, vram_budget_mb: float,

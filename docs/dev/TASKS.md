@@ -281,8 +281,23 @@ kit 1952c6a) · i18n real-MISSING 0 · headless smoke PASSED (all routes, 0 JS e
 JW user docs updated (models.md: quant fallback + auto re-read; engine settings gain
 the cap). COMMITTED + pushed 2026-08-13 (user: "commit everything" — one commit,
 both streams: lifecycle.py entangled Phase 0's cap edits with the eviction seam).
-Phase 1 GO GIVEN 2026-08-13 — physics module + arch arm + macOS detection honesty
-+ the regression-as-oracle test (§5.1/§5.2/§7.1).
+Phase 1 BUILT + COMMITTED 2026-08-13: `fit.kv_exact_mb` (uniform-exact KV, §5.1's
+one-KV-source) · `fit.physics_vram_mb` (device weights × placement share + KV share
++ per-backend overhead seed, `PHYSICS_OVERHEAD_MB` — cuda=_C5, others documented
+seed-guesses until Phase 5 learns them) · `hardware.active_backend` · compute_fit's
+FORWARD BOOKING switched to physics (regression stays: CI oracle §7.1 + the
+ngl-inverse until Phase 6; the DRAFT charge stays on calibrated marginal_vram_mb —
+Phase 6 owns both) · the ARCH ARM: one-pool boxes (iGPU w/ GPU row, macOS even
+without one — GPU-less Win/Linux stays the CPU path) budget ctx from the POOL
+(Mac ctx-4096 clamp dead), default ncmoe 0 (the measured igpu truth), booking
+capped at the ledger until Phase 4's arch-aware snapshot. Tests: the oracle
+(physics/regression ∈ [0.95,1.15] on the dense domain, measured 1.016–1.088) ·
+the physics gold pin (flagship config ∈ [6.5,7.9] GB measured window) · the
+§13.10 arch matrix slice · kv/physics units · one literal re-pin (6432→5545,
+the intended booking switch). Gates: ruff clean · kit 794 passed/10 skipped ·
+JW test:fast 128 (no renderer files touched — smoke not required).
+NEXT: Phase 2 go (facts-not-floors §13.11 + seeds regenerate + membership
+re-validation WITH the user + the snap retires).
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

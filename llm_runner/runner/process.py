@@ -31,7 +31,7 @@ import requests
 from . import fit
 from .config import DEFAULT_CTX_CAP_TOKENS, DEFAULT_SAFETY_MARGIN_MB
 from .gguf import GgufMeta
-from .hardware import max_vram_mb
+from .hardware import active_backend, max_vram_mb, mem_arch
 from .schema import HardwareInfo
 
 log = logging.getLogger(__name__)
@@ -388,7 +388,26 @@ def compute_fit(
     # head_count_kv is absent in some GGUF headers — fall back to MHA
     # (≈ hidden_dim / 128, a typical head_dim) so KV isn't under-counted.
     n_kv_heads = meta.n_kv_heads or max(1, meta.embedding_length // 128)
-    budget_mb = max(0, max_vram_mb(hardware) - safety_margin_mb)
+    # THE ARCHITECTURE ARM (fit-redesign §5.2, Phase 1): `mem_arch` — computed for the
+    # class key since 2026-07-22 — finally reaches the fit math. On a ONE-POOL box
+    # (integrated iGPU / Apple unified) "how much VRAM" is not a separate question
+    # from "how much memory": the budget that affords ctx and layers is the POOL, not
+    # the carve-out figure a driver reports (a Mac reports NO GPU at all — max_vram 0
+    # — and was clamped to ctx 4096 as a fake CPU box while Metal ran the model fine).
+    # Discrete keeps the two-pool arithmetic exactly as before.
+    arch = mem_arch(hardware)
+    # A GPU-LESS box on Windows/Linux is a CPU box, not a one-pool GPU box —
+    # `mem_arch` calls it "integrated" as the classification fallback, but with no
+    # device there is nothing to offload to and the CPU path below is the truth.
+    # macOS qualifies WITHOUT a GPU row by design: detection never fabricates one,
+    # yet Metal is there (the whole Mac-as-CPU bug this arm fixes).
+    one_pool = arch in ("integrated", "unified") and (
+        bool(hardware.gpus) or hardware.platform == "macos"
+    )
+    if one_pool:
+        budget_mb = max(0, (hardware.ram_mb or 0) - safety_margin_mb)
+    else:
+        budget_mb = max(0, max_vram_mb(hardware) - safety_margin_mb)
 
     # ctx POLICY is ours (1b): an explicit override (tune/preset/request) wins — and is
     # NEVER capped ("a tune's explicit context always overrides"); else the computed knob —
@@ -461,6 +480,11 @@ def compute_fit(
 
     if ov.n_cpu_moe is not None:
         n_cpu_moe = max(0, ov.n_cpu_moe)
+    elif one_pool:
+        # One pool: expert "offload" moves bytes from the pool to the pool — the
+        # Core Ultra 7 ncmoe sweep (0/8/16/24) measured it as pure loss and the
+        # seeded igpu tune pins 0. The computed default agrees now (§5.2).
+        n_cpu_moe = 0
     else:
         n_cpu_moe = max(0, n_layers - n_gpu) if meta.is_moe else 0
 
@@ -486,19 +510,43 @@ def compute_fit(
     # Together on the real Gemma-4 26B (ngl 30/ncmoe 21/ctx 32k): 19.8 GB → ~7 GB
     # against a measured 6.5-7.9 GB.
     if n_gpu > 0:
-        # getattr-guarded like `context_length` above: tests + duck-typed callers pass
-        # minimal meta objects without the 2026-07-24 methods → 0/None → the old estimate.
+        # PHYSICS BOOKING (fit-redesign Phase 1, §5.1): the forward reservation is
+        # first-principles — device weights (placement share) + exact KV riding the
+        # offloaded layers + the backend overhead seed — replacing the fitted
+        # regression, which stays as the CI oracle (§7.1) and as the inverse chooser
+        # above (Phase 6's joint solve replaces that). KV: iSWA models keep their
+        # per-layer-window exact source (`kv_mb_at_ctx`); every OTHER model now gets
+        # exact KV too via `kv_exact_mb` (§5.1's one-KV-source generalization) —
+        # the fitted KV term no longer speaks anywhere in the booking.
+        # getattr-guarded like `context_length` above: tests + duck-typed callers
+        # pass minimal meta objects without the 2026-07-24 methods.
         share_fn = getattr(meta, "expert_byte_share", None)
         kv_fn = getattr(meta, "kv_mb_at_ctx", None)
         moe_share = fit.moe_gpu_size_share(
             n_layers=n_layers, gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe,
             expert_share=share_fn() if (meta.is_moe and callable(share_fn)) else 0.0,
         )
-        vram_mb = int(fit.estimate_vram_mb(
-            size_mb=total_weight_bytes / 1e6 * moe_share, n_layers=n_layers, n_kv_heads=n_kv_heads,
-            embedding_dim=meta.embedding_length, ctx_size=ctx_len, cache_type=cache_type,
-            gpu_layers=n_gpu, kv_mb=kv_fn(ctx_len, cache_type) if callable(kv_fn) else None,
-        ) + draft_marginal_mb)
+        kv_mb = kv_fn(ctx_len, cache_type) if callable(kv_fn) else None
+        if kv_mb is None:
+            kv_mb = fit.kv_exact_mb(
+                n_layers=n_layers, n_kv_heads=n_kv_heads, ctx_size=ctx_len,
+                cache_type=cache_type,
+                key_length=getattr(meta, "key_length", 0),
+                value_length=getattr(meta, "value_length", 0),
+                embedding_dim=meta.embedding_length,
+                head_count=getattr(meta, "head_count", 0),
+            )
+        booked = fit.physics_vram_mb(
+            size_mb=total_weight_bytes / 1e6, n_layers=n_layers, gpu_layers=n_gpu,
+            moe_share=moe_share, kv_mb=kv_mb,
+            overhead_mb=fit.PHYSICS_OVERHEAD_MB.get(active_backend(hardware), fit.PHYSICS_OVERHEAD_MB["cuda"]),
+        )
+        if one_pool:
+            # The arbiter's ledger is still the carve-out figure until Phase 4 makes
+            # its snapshot arch-aware — never book more than the ledger can hold
+            # (a Mac's ledger is 0: nothing to book against, reservation 0).
+            booked = min(booked, float(max_vram_mb(hardware)))
+        vram_mb = int(booked + draft_marginal_mb)
     elif draft_full_mb > 0:
         # Main fell fully to CPU, but the draft still lands on the GPU — it is then the
         # ONLY tenant, so it pays the base offset itself (full estimate, not marginal).

@@ -177,6 +177,79 @@ def test_gqa_reduces_kv_cost():
     assert gqa >= mha
 
 
+# ── The physics decomposition + the regression-as-oracle (fit-redesign Phase 1) ──
+
+def test_regression_oracle_dense_domain():
+    """§7.1 — THE oracle: on the regression's OWN fitted domain (dense models, full
+    offload, CUDA), the physics decomposition must agree with it. The ~19,500
+    measurements behind the fitted constants keep working for us as CI instead of as
+    runtime code. Band measured 2026-08-13 at 1.016–1.088 (physics consistently a
+    few % conservative — the safe direction); pinned at [0.95, 1.15]. Physics
+    dropping BELOW 0.95× the fitted truth is the dangerous direction for a floor."""
+    dense_cases = [
+        (4400, 32, 8, 4096, 4096),
+        (6700, 48, 16, 3840, 8192),
+        (6700, 48, 16, 3840, 32768),
+        (13000, 40, 8, 5120, 8192),
+        (24000, 80, 8, 8192, 4096),
+        (42000, 80, 64, 8192, 8192),
+        (2000, 24, 4, 2048, 16384),
+    ]
+    for size, layers, kvh, emb, ctx in dense_cases:
+        reg = fit.estimate_vram_mb(size_mb=size, n_layers=layers, n_kv_heads=kvh,
+                                   embedding_dim=emb, ctx_size=ctx, cache_type=16,
+                                   gpu_layers=layers)
+        kv = fit.kv_exact_mb(n_layers=layers, n_kv_heads=kvh, ctx_size=ctx,
+                             cache_type=16, embedding_dim=emb,
+                             head_count=max(1, emb // 128))
+        phy = fit.physics_vram_mb(size_mb=size, n_layers=layers, gpu_layers=layers,
+                                  moe_share=1.0, kv_mb=kv,
+                                  overhead_mb=fit.PHYSICS_OVERHEAD_MB["cuda"])
+        assert 0.95 <= phy / reg <= 1.15, (size, layers, kvh, emb, ctx, phy, reg)
+
+
+def test_physics_gold_check_flagship_config():
+    """§7.5 — the 2026-07-24 gold check, physics edition: the real Gemma-4 26B header
+    at the incident config (ngl 30 / ncmoe 21 / ctx 32k iSWA-KV 881 MB) measured
+    6.5–7.9 GB on the box. The physics booking must land inside that window."""
+    share = fit.moe_gpu_size_share(n_layers=30, gpu_layers=30, n_cpu_moe=21,
+                                   expert_share=0.9389)
+    booked = fit.physics_vram_mb(size_mb=14249, n_layers=30, gpu_layers=30,
+                                 moe_share=share, kv_mb=881,
+                                 overhead_mb=fit.PHYSICS_OVERHEAD_MB["cuda"])
+    assert 6500 <= booked <= 7900, booked
+
+
+def test_physics_term_behaviors():
+    common = dict(size_mb=10000, n_layers=40, moe_share=1.0, kv_mb=400,
+                  overhead_mb=fit.PHYSICS_OVERHEAD_MB["cuda"])
+    # zero GPU layers → zero (no device context is created)
+    assert fit.physics_vram_mb(gpu_layers=0, **common) == 0.0
+    # monotone in gpu_layers; full offload = weights + kv + overhead exactly
+    half = fit.physics_vram_mb(gpu_layers=20, **common)
+    full = fit.physics_vram_mb(gpu_layers=40, **common)
+    assert 0 < half < full
+    assert full == 10000 + 400 + fit.PHYSICS_OVERHEAD_MB["cuda"]
+    # expert stripping shrinks the device share
+    stripped = fit.moe_gpu_size_share(n_layers=40, gpu_layers=40, n_cpu_moe=40,
+                                      expert_share=0.94)
+    assert fit.physics_vram_mb(gpu_layers=40, **{**common, "moe_share": stripped}) < full
+
+
+def test_kv_exact_uniform_math():
+    # 30 layers × 16 kv-heads × (128+128) dims × 4096 tokens × 2 B (f16) = 1006.6 MB
+    kv = fit.kv_exact_mb(n_layers=30, n_kv_heads=16, ctx_size=4096, cache_type=16,
+                         key_length=128, value_length=128)
+    assert abs(kv - 30 * 16 * 256 * 4096 * 2 / 1e6) < 0.01
+    # q8_0 cache halves it; missing dims fall back to embedding/head_count
+    assert fit.kv_exact_mb(n_layers=30, n_kv_heads=16, ctx_size=4096, cache_type=8,
+                           key_length=128, value_length=128) == kv / 2
+    fb = fit.kv_exact_mb(n_layers=30, n_kv_heads=16, ctx_size=4096, cache_type=16,
+                         embedding_dim=2048, head_count=16)
+    assert abs(fb - kv) < 0.01  # 2048/16 = 128 → same dims
+    assert fit.kv_exact_mb(n_layers=0, n_kv_heads=16, ctx_size=4096, cache_type=16) == 0.0
+
+
 def test_estimate_guards_degenerate_negative_slope():
     """Out-of-domain guard (fit-redesign §1.2/§4 0.2): a max-offload MoE strips
     ~94-98% of layer bytes, the fitted −18 MB/layer credit flips the slope negative

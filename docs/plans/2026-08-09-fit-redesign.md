@@ -706,7 +706,8 @@ all five items; gates green — kit ruff + 787 pytest, JW test:fast 128, i18n, s
 details in the kit tracker). Everything committed + pushed 2026-08-13 on the
 user's "commit everything" (kit: Phase 0 + the eviction seam in one commit —
 lifecycle.py entangled them; JW: docs + the stale-test fix; JV: the Script-tab
-batch). **Phase 1 GO GIVEN 2026-08-13.**
+batch). **Phase 1 BUILT 2026-08-13** — physics booking + arch arm + oracle live
+(detail: the kit tracker); gates green. NEXT ACTION: the Phase 2 go.
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

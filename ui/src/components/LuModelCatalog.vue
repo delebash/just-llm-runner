@@ -699,9 +699,14 @@ async function inspectLink({ auto = false } = {}) {
     // never the enable flag — so the download read can no longer clobber the box.
     e.mtpBuiltin = !!r.mtpBuiltin;
     // Enable MTP only when CERTAIN (the user's rule, 2026-07-21) — built-in heads, or an OWN
-    // draft the built-in engine can LOAD (the loadable auto-pick in loadRepoFiles set
-    // e.mtpDraftFile). Capture that BEFORE pre-filling the borrow below.
-    const ownLoadableDraft = !!e.mtpDraftFile;
+    // draft the built-in engine can LOAD. "Own" means IN THIS REPO'S LISTING — a bare
+    // "e.mtpDraftFile is set" check mistook the BORROWED base-family drafter (pre-filled
+    // by an earlier read, a guess that must never auto-enable) for an own draft on every
+    // RE-read, silently checking MTP on a model whose header has none (caught live
+    // 2026-08-13: the 35B's quant flip armed MTP off its own borrow).
+    const ownLoadableDraft = !!e.mtpDraftFile && (listing.value?.drafts || []).some(
+      (d) => d.path === e.mtpDraftFile && d.loadable !== false,
+    );
     // PRE-FILL a discovered base-family drafter (the tier-C "borrow") ONLY when the model ships
     // NO draft of its own — a model with own drafts (even ones this engine can't load, e.g.
     // dspark) is MTP-capable just not for our machine: never substitute a guessed borrow. With

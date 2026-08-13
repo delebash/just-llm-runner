@@ -339,6 +339,24 @@ def test_draft_floor_flag_survives_the_wire_model():
         "MTP/m-Q2_K-MTP.gguf": False, "MTP/m-Q4_0-MTP.gguf": True}
 
 
+def test_quant_floor_flag_survives_the_wire_model():
+    # The DRAFT rows had this guard (above); the QUANT rows didn't — and the exact
+    # documented failure happened live (2026-08-13, the user's checkpoint): the
+    # server computed q4OrBetter, RepoQuantRow didn't declare it, Pydantic's
+    # extra="ignore" dropped it, the form's ≥4-bit fallback saw undefined
+    # everywhere and handed an 8 GB box the 1-bit IQ1_M — the ghost surviving
+    # its own fix. Assert the QUANT hop too.
+    from llm_runner.llm.model_catalog_api import ListFilesResponse
+
+    data = models.classify_gguf_entries([
+        {"type": "file", "path": "m-UD-IQ1_M.gguf", "oid": "a", "lfs": {"oid": "l1", "size": 10 * 1024**3}},
+        {"type": "file", "path": "m-UD-Q4_K_XL.gguf", "oid": "b", "lfs": {"oid": "l2", "size": 22 * 1024**3}},
+    ])
+    rows = ListFilesResponse(**data).model_dump()["quants"]
+    assert {r["quant"]: r["q4OrBetter"] for r in rows} == {
+        "UD-IQ1_M": False, "UD-Q4_K_XL": True}
+
+
 def test_loadable_flag_survives_the_wire_model():
     # SAME wire-strip guard as q4OrBetter, for the loadability fields (2026-07-21): if
     # `loadable`/`unsupportedArch` aren't declared on RepoDraftRow, Pydantic's extra="ignore"

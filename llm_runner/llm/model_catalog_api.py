@@ -141,6 +141,12 @@ class RepoQuantRow(BaseModel):
     files: int = 1
     kind: str = ""
     qat: bool = False
+    # ≥4-bit pick floor (fit-redesign §4 0.4) — declared HERE or pydantic silently
+    # strips it (the estRamMb lesson below / the audited knob-catalog `backends`
+    # class): the server computed it, the wire dropped it, the form's find() saw
+    # undefined everywhere and fell back to the smallest quant — the IQ1_M ghost
+    # SURVIVING its own fix (caught live 2026-08-13, the user's checkpoint).
+    q4OrBetter: bool = False
 
 
 class RepoDraftRow(BaseModel):

@@ -37,8 +37,19 @@ export function pickDefaultQuant(quants, vramMb) {
   if (!rows.length) return "";
   const fitting = vramMb ? rows.filter((q) => q.sizeMb <= vramMb) : [];
   if (fitting.length) return fitting[fitting.length - 1].quant;
-  const atFloor = rows.find((q) => q.q4OrBetter);
-  return (atFloor || rows[0]).quant;
+  // Nothing fits by file size (every MoE repo lands here — file ≠ VRAM when
+  // experts offload): take the ≥4-bit floor, then QUALITY-FIRST within a small
+  // size neighborhood — the LARGEST candidate within 15% of the smallest
+  // ≥4-bit. The user's 2026-08-13 checkpoint case: unsloth's UD-Q4_K_XL is the
+  // better pick than UD-Q4_K_M at near-identical size (dynamic quants spend
+  // their extra bits where they matter); a bare smallest-≥4-bit rule threw
+  // that quality away to save ~3%. The window stays tight so the pick never
+  // jumps a real size tier (Q8 at ~2× stays out).
+  const atFloor = rows.filter((q) => q.q4OrBetter);
+  if (!atFloor.length) return rows[0].quant;
+  const limit = atFloor[0].sizeMb * 1.15;
+  const near = atFloor.filter((q) => q.sizeMb <= limit);
+  return near[near.length - 1].quant;
 }
 
 /**

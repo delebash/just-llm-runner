@@ -30,8 +30,10 @@ unknown never becomes a number (§8.17's spirit).
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import subprocess
+import threading
 import time
 
 from . import fit
@@ -104,29 +106,71 @@ def apple_pool_bw_gbps() -> float | None:
     return None
 
 
-def probe_ram_copy_gbps(size_mb: int = 256, repeats: int = 3) -> float | None:
-    """One-shot system-RAM streaming probe: time `bytes(buf)` — a single C
-    memcpy of `size_mb` — and report the bytes TOUCHED per second (read + write
-    = 2 × size / elapsed), the spec-comparable convention (a DDR4-3200 dual
-    box probes ~35-45 vs its 51.2 JEDEC — slightly conservative, the err-slow
-    direction once the host efficiency factor applies). Best-of-`repeats`
-    (minimum elapsed) rejects scheduler noise without overstating hardware.
-    Runs in ~tens of ms + one buffer allocation; None on any failure."""
-    try:
-        # Repeating a really-written MB commits real pages (a bare bytearray(n)
-        # may be lazily zero-mapped and would measure the page-fault path).
-        buf = bytearray(b"\xa5" * (1 << 20)) * max(1, size_mb)
-        best_s = None
-        for _ in range(max(1, repeats)):
+def _probe_buf(size_mb: int) -> bytearray:
+    # Repeating a really-written MB commits real pages (a bare bytearray(n)
+    # may be lazily zero-mapped and would measure the page-fault path).
+    return bytearray(b"\xa5" * (1 << 20)) * max(1, size_mb)
+
+
+def _copy_pass_gbps(bufs: list[bytearray], repeats: int = 3) -> float | None:
+    """One probe PASS: copy every buffer concurrently (one thread per buffer;
+    `bytes(buf)` releases the GIL during its C memcpy, so the streams genuinely
+    run in parallel) and report bytes TOUCHED per second (read + write = 2 ×
+    total ÷ wall). Best-of-`repeats` rejects scheduler noise without
+    overstating hardware. A single buffer runs inline — no thread overhead."""
+    total = sum(len(b) for b in bufs)
+    if not total:
+        return None
+    best_s = None
+    for _ in range(max(1, repeats)):
+        if len(bufs) == 1:
             t0 = time.perf_counter()
-            copy = bytes(buf)
+            copy = bytes(bufs[0])
             dt = time.perf_counter() - t0
             del copy
-            if dt > 0:
-                best_s = dt if best_s is None else min(best_s, dt)
-        if not best_s:
-            return None
-        return round(2.0 * len(buf) / best_s / 1e9, 2)
+        else:
+            def _work(b):
+                c = bytes(b)
+                del c
+            threads = [threading.Thread(target=_work, args=(b,)) for b in bufs]
+            t0 = time.perf_counter()
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            dt = time.perf_counter() - t0
+        if dt > 0:
+            best_s = dt if best_s is None else min(best_s, dt)
+    if not best_s:
+        return None
+    return 2.0 * total / best_s / 1e9
+
+
+def probe_ram_copy_gbps(size_mb: int = 256, repeats: int = 3) -> float | None:
+    """One-shot system-RAM streaming probe, TOPOLOGY-AWARE (2026-08-13, the
+    user's go after the calibration review): a single stream reads a
+    controller-bound machine's ceiling exactly (dual-channel desktop, measured:
+    2/4/8 threads ADD NOTHING — 18.9 single vs ~14 threaded), but a WIDE memory
+    system (8-channel workstation, Apple Max/Ultra) is single-CORE-bound — one
+    stream can't keep enough requests in flight and under-reads it badly. So
+    the probe runs the single pass PLUS small threaded passes (4 streams, and
+    cores-capped-16 streams) and reports the BEST: every box reads ITS OWN
+    achievable parallel rate on its own topology, and the gather discount
+    (`bw_eff_host_probe`, the §5.5-calibrated factor) stays a property of the
+    ACCESS PATTERN, not of any one machine. The threaded passes split the same
+    total footprint across their streams (no memory blow-up). ~2 s once per
+    box, persisted; None on any failure."""
+    try:
+        results = [_copy_pass_gbps([_probe_buf(size_mb)], repeats)]
+        cores = os.cpu_count() or 1
+        for n in sorted({4, min(16, cores)}):
+            if n <= 1 or n > cores:
+                continue
+            bufs = [_probe_buf(max(32, size_mb // n)) for _ in range(n)]
+            results.append(_copy_pass_gbps(bufs, repeats))
+            del bufs
+        vals = [r for r in results if r]
+        return round(max(vals), 2) if vals else None
     except Exception as e:  # noqa: BLE001 — a probe failure must never raise
         log.debug("RAM copy probe failed: %s", e)
         return None

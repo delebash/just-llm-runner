@@ -514,6 +514,26 @@ user's data reset) — the stage record:
   precedent). Items (2)/(3) laptops: NOT walked yet (user: desktop only
   for now). NEXT USER STEP: restart the app (picks up the new seed row +
   code), flagship should read ~fine; then the Tune & measure flip test.
+- THE PROBE GOES TOPOLOGY-AWARE (user challenge → "upgrade it go",
+  2026-08-13): the user pressed on the 0.40's generality ("how can you
+  calibrate it just against my box… any box including cpu"). Measured
+  answer (experiment on the desktop): threading adds NOTHING there
+  (single 18.9 vs 2/4/8-thread ~14 — dual-channel DDR4 is CONTROLLER-
+  bound), but wide memory systems (8-channel, Apple Max/Ultra) are
+  single-CORE-bound and a lone stream under-reads them ×2-5. FIX:
+  `probe_ram_copy_gbps` now runs the single pass PLUS threaded passes
+  (4 streams · min(16, cores) streams; same total footprint split
+  across streams) and reports the BEST — every box reads ITS OWN
+  achievable parallel rate, and `bw_eff_host_probe` 0.40 becomes what
+  it should be: the streaming → scattered-expert-gather discount, an
+  ACCESS-PATTERN property that transfers across machines. The
+  calibration box's numbers stand unchanged (live re-probe after the
+  upgrade: 18.83 — single still wins there; the persisted 19.01 row
+  stays right). The any-box safety story, restated for the record:
+  ladder source 1 (a box's own measured runs) bypasses every factor
+  per box incl. CPU-only; a wrong seed errs slow and can only mislabel
+  a band, never gate anything; class seeds cover probe-less boxes.
+  Test: test_probe_is_topology_aware (helper + best-wins).
 - PHASE 4 BUILT 2026-08-13 (go: "go phase 4"; the user chose to run it
   BEFORE the checkpoint — their sequencing call; the checkpoint's six
   items above stay open and now also cover the Memory-labeled budget

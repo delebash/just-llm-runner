@@ -146,3 +146,17 @@ def test_apple_chip_table_matches_longest_name_first():
     names = [n for n, _ in bandwidth._APPLE_CHIP_BW_GBPS]
     assert names.index("M1 Ultra") < names.index("M1")
     assert names.index("M4 Max") < names.index("M4")
+
+
+def test_probe_is_topology_aware():
+    # The threaded pass helper works (parallel streams, sane number) and the
+    # public probe reports at least the single-stream reading — on a wide
+    # memory system the threaded pass wins, on a controller-bound box the
+    # single one does (measured on the calibration desktop: threads add
+    # nothing there, so its persisted 19.01 row stands unchanged).
+    single = bandwidth._copy_pass_gbps([bandwidth._probe_buf(16)], repeats=2)
+    multi = bandwidth._copy_pass_gbps([bandwidth._probe_buf(8) for _ in range(2)], repeats=2)
+    assert single and 0.5 < single < 2000
+    assert multi and 0.5 < multi < 2000
+    best = bandwidth.probe_ram_copy_gbps(size_mb=16, repeats=2)
+    assert best is not None and best >= min(single, multi) * 0.5  # loose: noise-tolerant

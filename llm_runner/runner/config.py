@@ -90,14 +90,18 @@ DEFAULT_BW_EFF_HOST = 0.15
 # The RAM COPY PROBE's own factor — §5.5's "the probe's efficiency factor
 # calibrated ONCE against the measured-model path". CALIBRATED LIVE 2026-08-13
 # on the author's desktop (the checkpoint's item 4, caught as a real defect:
-# the flagship's chip read "~slow"): the probe reads 19.01 GB/s there (2×-
-# traffic single-thread memcpy — it badly underruns multi-channel streaming,
-# which is WHY it cannot share the generic host factor: 19.01 × 0.15 = 2.85
-# effective → 3.3 tok/s → a band lie), while the measured-model host effective
-# window on the same box is 6.9–10.6 GB/s. 19.01 × 0.40 = 7.6 — the same
-# low-mid window position the class-seed math was designed to (51.2 × 0.15 =
-# 7.68 → the flagship's ~fine). Laptops refine via the settings row if their
-# probes sit differently; a wrong value is a settings edit, never code.
+# the flagship's chip read "~slow"): the probe reads 19.01 GB/s there while the
+# measured-model host effective window on the same box is 6.9–10.6 GB/s —
+# 19.01 × 0.40 = 7.6, the same low-mid position the class-seed math was
+# designed to (51.2 × 0.15 = 7.68 → the flagship's ~fine). It cannot share the
+# generic host factor (19.01 × 0.15 = 2.85 → 3.3 tok/s → a band lie). Since
+# the probe went TOPOLOGY-AWARE (single + threaded passes, best wins — the
+# user's 2026-08-13 "any box" challenge), the probe number is each box's OWN
+# achievable parallel streaming rate, and this factor is the STREAMING →
+# SCATTERED-EXPERT-GATHER discount — an access-pattern property that
+# transfers across machines far better than any spec ratio. On the
+# calibration box threaded passes add nothing (measured), so its 19.01
+# row and this 0.40 stand unchanged. Refinable per box via the settings row.
 DEFAULT_BW_EFF_HOST_PROBE = 0.40
 
 # Fit-redesign Phase 5 (§13.2): keep-latest-K persisted load footprints per

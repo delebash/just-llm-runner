@@ -773,9 +773,24 @@ stage detail lives in the kit tracker's fit item; the shape:
   ai-features.md (new section). Live-review polish same day: .lu-fit
   white-space:nowrap (the chip is atomic) + the bottom band DISPLAYS
   "very slow" (SPEED_BAND_LABEL — wire vocabulary unchanged).
+Executor choices recorded (full text in the kit tracker's fit item): band
+threshold SEEDS fast 20 / fine 8 (§8.14's decided line) / slow 2, GUI-
+tunable; the pool model is the SERIAL SUM (what Appendix B actually
+solved — the conservative end of "slowest pool wins"); band ctx =
+min(trained, cap); measured replaces predicted for value AND band;
+one-pool family metal→device, iGPU/CPU→host. ONE OPEN ITEM carried
+honestly: the RAM probe's convention (2× bytes/elapsed, best-of-3) was
+reasoned from the desktop numbers, NOT yet calibrated live against a
+measured-model derivation on the three machines — §5.5 source 2's
+"calibrate once before ship" is deferred to the checkpoint (the probe
+self-records as measurement row `__machine_ram_bw__`; verification is a
+read, not code).
 NEXT ACTION: laptops glance · data reset · then the DELIBERATE CHECKPOINT
 before Phases 4-6 (§11 — probes + arbiter arch-awareness · persistence +
-claim resolver · shed + joint solve), each on its own go.
+claim resolver · shed + joint solve), each on its own go. The checkpoint's
+CONCRETE check list is written in the kit tracker's fit item (chips ×
+three boxes · GLM pickable-with-warning · measured-replaces-predicted ·
+probe-row sanity per box · the knobs round-trip · the reset).
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

@@ -413,6 +413,49 @@ Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
   the wire keeps §8.14's fast/fine/slow/painful vocabulary). Docs + the
   §7.3 test updated same-change. Gates: biome · JW vitest 5/5 · JV
   build:vite + smoke PASS.
+- PHASE 3 EXECUTOR CHOICES (recorded so nothing lives only in code):
+  · Band-threshold SEEDS: fast ≥ 20 · fine ≥ 8 (§8.14's DECIDED reading-
+    speed line — the only user-ruled number) · slow ≥ 2 · below = very
+    slow. 20 and 2 are executor picks, GUI-tunable by design; changing
+    them is a settings edit, never a code change.
+  · The pool model is the SERIAL SUM (t = Σ pool_bytes/pool_bw), not the
+    literal "slowest pool wins" min — it is what Appendix B's host-
+    constant derivation actually solved and it is the conservative end
+    (err-slow §8.17). Documented at fit.py's speed section.
+  · Band ctx = min(trained, ctx_cap) — prices the config an untuned model
+    would actually launch; cap 0 → trained (uncapped, still err-slow).
+  · A MEASURED tok/s replaces the prediction for the VALUE and the BAND
+    (newest row, this machine_key + backend; probe pseudo-rows can never
+    match a catalog id).
+  · One-pool efficiency family: metal → device (0.6); iGPU/Vulkan/CPU →
+    host (0.15) — Appendix B's laptop rows sit in the host range.
+- OPEN — the RAM-probe calibration (§5.5 source 2 said "calibrated ONCE
+  against the measured-model path on the three known machines before
+  ship"): NOT yet run live. The shipped convention (2 × bytes/elapsed =
+  read+write traffic; best-of-3) was REASONED from the desktop numbers
+  (DDR4-3200 memcpy ~35-45 GB/s × 0.15 ≈ 5.2-6.75 vs the measured
+  effective 6.9-10.6 — conservative, the right direction) but no probe
+  has been compared to a measured-model derivation on a real box. The
+  probe SELF-RECORDS (measurement row `__machine_ram_bw__`, GB/s in
+  tokensPerSec) — verify at the checkpoint, no code needed to read it.
+- THE DELIBERATE CHECKPOINT (before the Phase 4 go) — the concrete list,
+  so nobody re-derives it:
+  (1) Desktop 2070S/32: chips show feasibility × band; the flagship reads
+      Fits · ~fine untuned (predicted ≈8-9 un-sped) and its band flips to
+      fast once a real measured row exists; GLM reads Won't fit · ~very
+      slow, IS pickable in the slot dropdown, and shows the honest
+      warning; a Tune & measure run puts real tok/s on the row.
+  (2) 16 GB iGPU laptop: E4B reads Fits (the Phase-2 carryover glance);
+      bands present and slow-leaning (host family prices the pool).
+  (3) 32 GB Core Ultra laptop: same glance; bands present.
+  (4) On each box: the measurement history holds `__machine_ram_bw__`
+      with a plausible GB/s (desktop DDR4 ~35-45; LPDDR5 laptops higher);
+      if a box's number × 0.15 lands far from its felt speed, that is the
+      probe-calibration item above — adjust bw_eff_host (a setting).
+  (5) The Loaded-models knobs group shows margin · cap · RAM headroom ·
+      the three band fields, and Save round-trips all of them.
+  (6) The user's data reset (JV required, JW recommended) happens before
+      or at this checkpoint — stale pre-facts rows misread until then.
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

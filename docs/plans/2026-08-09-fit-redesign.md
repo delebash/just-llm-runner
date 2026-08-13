@@ -721,8 +721,12 @@ LIVE from HF (chat floors deleted; embeds keep) · the snap retired (raw-to-raw)
 · display ladder · membership re-validated WITH the user (7/8 identical;
 GLM ram64 loss ruled §8.23a) · embed-guard decisions verified unchanged.
 REMAINING for the user: the data reset (stale rung floors until then — accepted).
-NEXT ACTION: the checkpoint look (the five-point real-behaviour list), then the
-Phase 3 go (speed bands + badge display + §8.23's veto removal).
+**The desktop checkpoint RAN 2026-08-13** and caught four live bugs (all fixed —
+the wire-stripped q4OrBetter, the quant family order, the borrowed-MTP auto-arm,
+the 18 GB "drafter"; full detail + the Qwen -MTP-variant-repo knowledge in the
+kit tracker). Desktop items all pass. REMAINING: laptops glance + the reset.
+NEXT ACTION: the Phase 3 go (speed bands + badge display + §8.23's veto removal
++ §13.17's GUI pins; Phase 3 consumes Phase 1's byte model per §13.15).
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

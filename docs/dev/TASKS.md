@@ -330,10 +330,40 @@ Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
   runnable §8.23). classMembership.test.js FLEET = the computed floors now
   (JW c4ec055; 14/14 + test:fast 128). PHASE 2 CLOSED pending the user's
   DATA RESET (stale rung floors misread until then — accepted §13.5).
-  NEXT: the checkpoint look (five-point list: re-add Qwen by hand · catalog
-  on all three machines · GLM band · membership · smell test), then the
-  Phase 3 go (speed bands + badge display + §8.23 veto removal + §13.17 GUI
-  pins: thresholds field, RAM-headroom field).
+- THE CHECKPOINT ROUND (2026-08-13, live with the user — four bugs caught,
+  all fixed+pushed; detail in commits 8977e83/5cc1a7a/171fe4c/f970060):
+  (1) q4OrBetter was WIRE-STRIPPED — RepoQuantRow never declared it, Pydantic
+  extra="ignore" dropped it, the ≥4-bit fallback saw undefined → IQ1_M again;
+  fixed + the quant-row wire-guard test (the draft rows' guard's missing twin).
+  (2) The quant pick learned the FAMILY ORDER (user-ruled): fitting branch =
+  largest ≥4-bit that fits (sub-4-bit NEVER default even when it fits — the
+  ghost's third life, on ≥12 GB cards); floor branch = K/UD family first
+  (unsloth _XL beats _M inside a 15% size window), IQ4 only when the repo
+  ships nothing else; six scenarios pinned in a node check + models tests.
+  (3) The borrowed-MTP arm: a quant-flip re-read mistook the BORROW for an
+  own draft and auto-armed MTP; "own" now means present in THIS repo's
+  listing. (4) The tier-C probe proposed an 18 GB FULL MODEL as a "drafter"
+  (see the variant-repo knowledge below) — _gguf_drafter_in_repo caps picks
+  at 4 GB (_DRAFTER_MAX_BYTES; real drafters are 150-750 MB). Plus: the
+  Needs hover now leads with the RAW computed floors and survives a
+  class-less model (GLM lost its tooltip when it left all classes).
+- KNOWLEDGE (verified by full structural header walks, keep — it answers
+  "why doesn't my Qwen have MTP"): Qwen3.6 MTP is BUILT-IN single-file
+  (qwen35moe.nextn_predict_layers=1 + blk.N.nextn.* tensors), BUT unsloth
+  publishes TWO variants per model: plain `<name>-GGUF` = heads STRIPPED,
+  `<name>-MTP-GGUF` = heads preserved (the seeded 27B row already uses the
+  -MTP repo; bartowski's plain repo preserves heads). The user's original
+  35B repro used the stripped variant — the app read it truthfully.
+- CHECKPOINT STATE: desktop DONE (quant pick ✓ · 35B via the -MTP repo
+  detects builtin-MTP ✓ · GLM row + hover ✓ · membership blessed).
+  REMAINING: the laptops glance (E4B must read Fits on the 16 GB iGPU) ·
+  the user's data reset. THEN the Phase 3 go — speed bands + badge display
+  (feasibility × band SHIPPED TOGETHER §8.3; constants + derivation rule
+  §5.5/§13.8: device ~0.6 · host ~0.15 err-slow, seeded families) + §8.23
+  veto removal (§13.16 consumer list) + §13.17 GUI pins (band-thresholds
+  field + RAM-headroom field beside margin/cap in LuRunnerBinaries) +
+  measured-replaces-predicted display. Phase 3 consumes Phase 1's byte
+  model (§13.15). After Phase 3: the deliberate checkpoint before 4-6.
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

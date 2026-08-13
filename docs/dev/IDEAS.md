@@ -29,3 +29,13 @@ The holding pen for unscheduled ideas about the shared stack — same charter as
   (`llm_runner/runner/models.py:190-197`) — "add a line when a new unsupported arch
   surfaces" has no reminder anywhere; consider a check that flags catalog rows whose
   arch the pinned engine can't load.
+
+- **2026-08-13 · The MTP-variant repo steer** — from the fit checkpoint: when an
+  inspected repo's header carries NO MTP heads but the SAME publisher ships a
+  `<name>-MTP-GGUF` sibling whose files do (the unsloth two-variant convention,
+  verified by header walks), the Add form should SAY SO and offer the sibling
+  repo — "this repo ships MTP-stripped files; the same publisher ships an
+  MTP-preserved variant" — instead of the tier-C borrow treating the sibling as
+  a drafter source (now size-guarded to prevent the 18 GB-draft footgun). Needs
+  one extra header probe at inspect + a panel line + the swap affordance.
+

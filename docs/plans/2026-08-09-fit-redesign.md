@@ -818,10 +818,25 @@ UNDERSCORE knob canon — the bandwidth derivation matched dashed tokens and
 could never fire; both spellings now normalize to one canon. Speed UIs filter
 source ∈ (tune, autotune); Clear-history copy owns the footprint wipe (§8.22).
 JV's VRAM wiring is hereby UNBLOCKED (its own go still required).
-NEXT ACTION: laptops glance · data reset · the DELIBERATE CHECKPOINT (list in
-the kit tracker) · then Phase 6 (shed direction → joint MoE solve → the 5-row
-measured gate) and Phase 7 (evidence-keyed precedence · the uncurated-path
-acceptance test · the docs pass · the JV handoff), each on its own go.
+**CHECKPOINT WALK, DESKTOP ROUND 1 (2026-08-13, live with the user; full
+detail in the kit tracker):** the reset is DONE (JV + JW); item (1) CAUGHT a
+real defect — the flagship chip read "~slow" because the RAM probe (19.01
+GB/s on the box, correctly superseding the class seed) shared the generic
+host factor (×0.15 → 2.85 GB/s → a band lie). Fixed by §5.5's own
+instruction: the probe's OWN calibrated factor (`bw_eff_host_probe` 0.40 —
+19.01 × 0.40 = 7.6, inside the box's measured 6.9–10.6 window; post-fix
+prediction 8.59 → ~fine). Then, on the user's any-box challenge ("upgrade it
+go"), the probe went TOPOLOGY-AWARE: single + threaded passes, best wins —
+wide memory systems (single-core-bound) read their true ceiling, controller-
+bound boxes are unchanged (measured live: threads add nothing on the
+desktop; its row stands). The 0.40 is thereby the streaming→gather
+ACCESS-PATTERN discount, not a machine ratio; ladder source 1 still
+bypasses every factor per box. Item (5)'s Save got its success toast.
+NEXT ACTION: the user's app restart (flagship should read ~fine) + the
+Tune & measure flip test · the laptops walk (items 2/3 + their probe rows)
+· then Phase 6 (shed direction → joint MoE solve → the 5-row measured gate)
+and Phase 7 (evidence-keyed precedence · the uncurated-path acceptance test
+· the docs pass · the JV handoff), each on its own go.
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

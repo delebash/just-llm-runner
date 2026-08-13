@@ -274,14 +274,22 @@ EXECUTE AGAINST THE PLAN, do not re-derive. Each phase needs its own literal "go
 **STATUS NOW (2026-08-13 end of session — READ THIS FIRST on resume):**
 - **Phases 0–5 are BUILT, GATED, COMMITTED, PUSHED.** The per-phase records
   below (in order: 0 · 1 · 2 · checkpoint round · 3 · polish · executor
-  choices · checkpoint list · 4 · 5) carry the full detail — what each phase
-  changed, why, the test lessons, the honest limits. Nothing is mid-flight.
-- **NEXT = the user's checkpoint items, then the Phase 6 go.** The
-  user-side items: the laptops glance · the data reset (JV required, JW
-  recommended) · the six-point DELIBERATE CHECKPOINT list recorded below
-  (chips × three boxes · GLM pickable-with-warning · measured-replaces-
-  predicted · probe-row sanity incl. the RAM-probe calibration OPEN item ·
-  the knobs round-trip · the laptops' budget line showing as Memory).
+  choices · checkpoint list · 4 · 5 · checkpoint walk round 1 · the
+  topology-aware probe) carry the full detail — what each phase changed,
+  why, the test lessons, the honest limits. Nothing is code-mid-flight.
+- **THE CHECKPOINT WALK IS MID-STREAM (desktop round 1 done, fixes
+  shipped).** State of the six points: (1) desktop chips — the walk CAUGHT
+  the ~slow band lie; FIXED (the probe's own calibrated factor,
+  bw_eff_host_probe 0.40; then the probe made TOPOLOGY-AWARE on the
+  user's any-box challenge — records below); AWAITING the user's app
+  restart to confirm the flagship reads ~fine, then the Tune & measure
+  flip test (measured tok/s replaces the estimate, ~ drops). (2)/(3)
+  laptops NOT walked (user: desktop only for now). (4) probe-row sanity:
+  RESOLVED on the desktop (19.01 row verified, calibrated); laptops when
+  walked. (5) knobs round-trip OK per the user + the Save toast shipped
+  on their ask. (6) the data reset DONE (JV + JW).
+- **NEXT = the user's restart + flagship re-check + Tune & measure flip ·
+  the laptops walk at their pace · then the Phase 6 go.**
 - **Phase 6 spec pointers (for its go):** plan §5.7 — shed direction fix
   (`_router_load_with_backoff`: a MoE OOM at ngl=n_layers RAISES ncmoe
   first, sheds ngl only after ncmoe maxes; fix the dormant start_runner

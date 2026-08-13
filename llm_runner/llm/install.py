@@ -531,6 +531,30 @@ def _wire_runner_catalog(data_dir=None, cache_root=None, product: str = "") -> N
             tokens_per_sec=float(gbps), vram_total_mb=0,
             at=int(_time.time() * 1000), rows=[])
 
+    # Fit-redesign Phase 5 (§6.3/§13.2): the load-footprint recorder — a
+    # confirmed load's true-up lands as a source='load' row (switches = the
+    # fingerprint raw material) and is pruned to keep-latest-K per (model,
+    # machine, fingerprint); the observed physics overhead lands as the
+    # `__overhead__` machine row (source='probe', build-stamped label) with the
+    # same retention. Clear-history deletes them all → claims fall back to
+    # computed and self-heal on the next load (§8.22).
+    def _record_load(model_id: str, *, vram_model_mb: int, switches: dict,
+                     source: str, label: str) -> None:
+        import time as _time
+
+        from .model_measurements_api import MeasurementFlag
+
+        store = stores.get_model_measurement_store()
+        rows = [MeasurementFlag(flagName=k, flagValue=str(v))
+                for k, v in sorted((switches or {}).items())]
+        store.record(model_id, machine_key=_current_hw_key(), source=source,
+                     label=label, tokens_per_sec=0.0, vram_total_mb=0,
+                     at=int(_time.time() * 1000), rows=rows,
+                     vram_model_mb=int(vram_model_mb), kind="llm")
+        store.prune_load_rows(model_id, _current_hw_key(),
+                              stores.list_fit_relevant_flags(),
+                              stores.load_rows_keep(), source=source)
+
     configure_service(
         catalog_fn=catalog_fn, switches_fn=switches_fn,
         identify_fn=identify_fn, embedding_ids_fn=embedding_ids_fn,
@@ -544,6 +568,8 @@ def _wire_runner_catalog(data_dir=None, cache_root=None, product: str = "") -> N
         measurements_fn=lambda: stores.get_model_measurement_store().list(None),
         class_bw_fn=lambda key: stores.get_hardware_class_store().bw_for(key),
         record_probe_fn=_record_probe,
+        record_load_fn=_record_load,
+        fit_relevant_flags_fn=stores.list_fit_relevant_flags,
     )
 
     # QC-43b: wire the dispatch ensure-local hook to the runner service. A run routed

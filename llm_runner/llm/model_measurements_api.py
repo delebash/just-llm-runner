@@ -47,6 +47,10 @@ class MeasurementRow(BaseModel):
     # bandwidth ladder's derivation rule needs it (cross-backend numbers are
     # not comparable).
     backend: str = ""
+    # Phase 5 (§6.3): the true-up FOOTPRINT of a source='load' row (0 on speed
+    # rows) and the owner kind (§8.16). Declared so the wire never strips them.
+    vramModelMb: int = 0
+    kind: str = "llm"
     switches: list[MeasurementFlag] = []
 
 
@@ -69,7 +73,8 @@ class ModelMeasurementStore(Protocol):
 
     def record(self, model_id: str, *, machine_key: str, source: str, label: str,
                tokens_per_sec: float, vram_total_mb: int, at: int,
-               rows: list[MeasurementFlag]) -> int: ...
+               rows: list[MeasurementFlag], vram_model_mb: int = 0,
+               kind: str = "llm") -> int: ...
     def list(self, model_id: str | None = None) -> list[MeasurementRow]: ...
     def clear(self, model_id: str | None = None) -> int: ...
 

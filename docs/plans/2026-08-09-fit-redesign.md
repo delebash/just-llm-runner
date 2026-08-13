@@ -800,12 +800,28 @@ hardware are fixture-pinned against documented interfaces, live-verified when
 such a box appears (the None contract is the safety). Full stage detail + the
 fake-hardware test lesson in the kit tracker's fit item. Gates: ruff · kit
 822/10 · biome · JW/JV suites at commit.
-NEXT ACTION: laptops glance · data reset · then the DELIBERATE CHECKPOINT
-(now pre-Phase-5) — its CONCRETE check list is in the kit tracker's fit item
-(chips × three boxes · GLM pickable-with-warning · measured-replaces-predicted
-· probe-row sanity per box · the knobs round-trip · the reset · the laptops'
-budget line showing as Memory). Then Phase 5 (persistence + claim resolver —
-unblocks JV) and Phase 6-7, each on its own go.
+**Phase 5 BUILT 2026-08-13** (go: "go") — persistence + the four-arm claim
+resolver + the embed-leftover consumption; full stage detail in the kit
+tracker's fit item. The shape: model_measurements + `vram_model_mb`/`kind`;
+knob_catalog + `fit_relevant` (the §13.3 ten = THE fingerprint, read from
+data); the load recorder (source='load' rows in the underscore knob canon +
+keep-K prune §13.2 + the `__overhead__` build-stamped machine rows —
+recalibration on pin bump by label non-match); reservation provenance §13.1
+(measured|computed|declared, on the snapshot); the resolver GROWN into
+preview_fit (resident → measured-median → computed-with-learned-overhead →
+declared; miss → computed full stop per §13.4's cut; claims {vramMb, ramMb,
+source, matches}, RAM display-only §8.18); _embed_gpu_leftover_mb consumes it
+(§6.6 — deliberate behavior change: a downloaded/resident chat claims its
+BOOKING, not its declared est; the est-based pins live on as the declared-arm
+tests). Latent Phase 3 bug fixed en route: measurement switches speak the
+UNDERSCORE knob canon — the bandwidth derivation matched dashed tokens and
+could never fire; both spellings now normalize to one canon. Speed UIs filter
+source ∈ (tune, autotune); Clear-history copy owns the footprint wipe (§8.22).
+JV's VRAM wiring is hereby UNBLOCKED (its own go still required).
+NEXT ACTION: laptops glance · data reset · the DELIBERATE CHECKPOINT (list in
+the kit tracker) · then Phase 6 (shed direction → joint MoE solve → the 5-row
+measured gate) and Phase 7 (evidence-keyed precedence · the uncurated-path
+acceptance test · the docs pass · the JV handoff), each on its own go.
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

@@ -8,9 +8,20 @@ import { request } from "./client.js";
 // History, newest first — the whole ledger, or one model's with `modelId`:
 // { machineKey, measurements: [{ id, modelId, machineKey, source, label,
 //   tokensPerSec, vramTotalMb, at, switches: [{flagName, flagValue}] }] }
+//
+// SPEED surfaces (the Tune modal's history drawer, Lab compare) must show only
+// source tune|autotune (fit-redesign §6.3): since Phase 5 the ledger also holds
+// source='load' footprint rows and 'probe' machine rows (tokensPerSec 0 or a
+// GB/s figure) — real data, but not decode-speed history. Filter here, once.
 export async function listMeasurements(modelId = "") {
   const q = modelId ? `?modelId=${encodeURIComponent(modelId)}` : "";
-  return request(`/v1/ai/model-measurements${q}`);
+  const res = await request(`/v1/ai/model-measurements${q}`);
+  return {
+    ...res,
+    measurements: (res.measurements || []).filter(
+      (m) => m.source === "tune" || m.source === "autotune",
+    ),
+  };
 }
 
 // Record one measurement. The server stamps machineKey + the timestamp;

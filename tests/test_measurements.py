@@ -133,3 +133,61 @@ def test_autotune_skips_failed_trials_and_survives_a_broken_recorder():
     assert st["status"] == "done" and not st["error"]
     assert "n-cpu-moe 23" not in calls           # the failed trial never recorded
     assert calls                                 # the OK trials still hit the sink
+
+
+# ── Phase 5 (§6.3/§13.2): footprint columns + keep-K retention ───────────────
+
+
+def test_record_carries_footprint_and_kind_and_wire_declares_them(client):
+    st = stores.get_model_measurement_store()
+    st.record("m1", machine_key="box", source="load", label="load footprint (measured)",
+              tokens_per_sec=0.0, vram_total_mb=0, at=1000,
+              rows=[MeasurementFlag(flagName="ctx_len", flagValue="32768")],
+              vram_model_mb=6500, kind="llm")
+    row = st.list("m1")[0]
+    assert row.vramModelMb == 6500 and row.kind == "llm" and row.source == "load"
+    # The HTTP wire must not strip the new fields (the documented Pydantic class).
+    wire = client.get("/v1/ai/model-measurements?modelId=m1").json()["measurements"][0]
+    assert wire["vramModelMb"] == 6500 and wire["kind"] == "llm"
+
+
+def test_prune_keeps_latest_k_per_fingerprint(client):
+    st = stores.get_model_measurement_store()
+    fset = {"ctx_len", "n_gpu_layers"}
+    for i in range(5):  # five loads at the SAME fingerprint
+        st.record("m1", machine_key="box", source="load", label="",
+                  tokens_per_sec=0.0, vram_total_mb=0, at=1000 + i,
+                  rows=[MeasurementFlag(flagName="ctx_len", flagValue="32768"),
+                        MeasurementFlag(flagName="threads", flagValue=str(i))],  # fit-IRRELEVANT
+                  vram_model_mb=6000 + i)
+    # A DIFFERENT fingerprint (other ctx) must keep its own K, not be collateral.
+    st.record("m1", machine_key="box", source="load", label="",
+              tokens_per_sec=0.0, vram_total_mb=0, at=99,
+              rows=[MeasurementFlag(flagName="ctx_len", flagValue="4096")],
+              vram_model_mb=5000)
+    # A speed row is NEVER pruned by the load retention.
+    st.record("m1", machine_key="box", source="tune", label="",
+              tokens_per_sec=25.0, vram_total_mb=8192, at=50, rows=[])
+    deleted = st.prune_load_rows("m1", "box", fset, keep=3)
+    assert deleted == 2  # 5 same-fingerprint rows → newest 3 survive
+    rows = st.list("m1")
+    loads = [r for r in rows if r.source == "load"]
+    assert len(loads) == 4  # 3 kept + the other-fingerprint row
+    assert {r.vramModelMb for r in loads} == {6004, 6003, 6002, 5000}
+    assert any(r.source == "tune" for r in rows)  # speed history untouched
+
+
+def test_fit_relevant_fingerprint_set_is_seeded(client):
+    # §13.3: the fingerprint IS knob_catalog's fit_relevant classification —
+    # exactly the ten memory-shaping knobs, read from data, never a code list.
+    from llm_runner.llm import seed
+
+    s = db.session()
+    try:
+        seed.seed_default_knobs(s)
+        s.commit()
+    finally:
+        s.close()
+    assert stores.list_fit_relevant_flags() == {
+        "ctx_len", "cache_type_k", "cache_type_v", "flash_attn", "n_cpu_moe",
+        "n_gpu_layers", "no_kv_offload", "parallel", "batch_size", "ubatch_size"}

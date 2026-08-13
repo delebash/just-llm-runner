@@ -179,6 +179,9 @@ class RunnerConfig(CamelModel):
     band_slow_toks: float = 2.0
     bw_eff_device: float = 0.6
     bw_eff_host: float = 0.15
+    # Phase 5: the RAM-floor headroom fact (§13.13) reaches the runner's claim
+    # resolver (claims carry {vram_mb, ram_mb} — §13.12; RAM display-only §8.18).
+    ram_headroom_mb: int = 4096
 
 
 # ─── Model catalog view (GET /v1/llm-runner/models) ─────────────────────

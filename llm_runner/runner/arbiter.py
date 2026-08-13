@@ -76,6 +76,12 @@ class _Reservation:
     # own locks). None = not evictable by `make_room` (foreign code has no safe way
     # to unload it; the pre-seam ledger-corruption scenario, vram-think pass 3).
     evict_fn: Callable[[], None] | None = field(default=None, compare=False)
+    # Phase 5 (§13.1): where this number CAME FROM — "measured" (a real used-
+    # memory delta trued it up) | "computed" (physics estimate) | "declared"
+    # (manifest/catalog price, e.g. a JV TTS engine — Q5 cut its true-up).
+    # Propagated on the snapshot so a consumer (the JV strip) never presents a
+    # declared guess as live truth.
+    source: str = "computed"
 
 
 class VramArbiter:
@@ -147,16 +153,19 @@ class VramArbiter:
         pinned: bool = False,
         kind: str = "llm",
         evict_fn: Callable[[], None] | None = None,
+        source: str = "computed",
     ) -> bool:
         """Record (or replace) `key`'s VRAM reservation and mark it most-recently-used. A reserve
         is an admission the caller has already made room for (via `can_coreside`/`make_room`); it
         always records, returning True. `pinned` protects it from eviction (the tiny always-resident
         embed, P3). `kind` tags the owner (busy protection + kind-scoped counts); `evict_fn` is the
-        owner's any-thread evictor — without one, `make_room` can never pick this reservation."""
+        owner's any-thread evictor — without one, `make_room` can never pick this reservation.
+        `source` (§13.1) records the number's provenance — measured | computed | declared."""
         with self._lock:
             self._seq += 1
             self._reservations[key] = _Reservation(
-                vram_mb=max(0, vram_mb), pinned=pinned, seq=self._seq, kind=kind, evict_fn=evict_fn
+                vram_mb=max(0, vram_mb), pinned=pinned, seq=self._seq, kind=kind,
+                evict_fn=evict_fn, source=(source or "computed"),
             )
             return True
 
@@ -326,7 +335,8 @@ class VramArbiter:
         keep their historical spelling so every existing reader stays wired."""
         with self._lock:
             reservations = [
-                {"key": k, "vram_mb": r.vram_mb, "pinned": r.pinned, "kind": r.kind}
+                {"key": k, "vram_mb": r.vram_mb, "pinned": r.pinned, "kind": r.kind,
+                 "source": r.source}
                 for k, r in sorted(self._reservations.items(), key=lambda kv: kv[1].seq)
             ]
             committed = sum(r.vram_mb for r in self._reservations.values())
@@ -347,6 +357,17 @@ class VramArbiter:
         with self._lock:
             r = self._reservations.get(key)
             return r.vram_mb if r is not None else None
+
+    def reservation_of(self, key: str) -> dict | None:
+        """The full reservation view for `key` (vram_mb + provenance + kind), or
+        None — the claim resolver's resident-live arm (§6.2 arm 1, with §13.1's
+        source so a declared-priced reservation never reads as measured truth)."""
+        with self._lock:
+            r = self._reservations.get(key)
+            if r is None:
+                return None
+            return {"vram_mb": r.vram_mb, "source": r.source, "kind": r.kind,
+                    "pinned": r.pinned}
 
     def clear(self) -> None:
         """Drop all reservations (a full teardown / test reset)."""

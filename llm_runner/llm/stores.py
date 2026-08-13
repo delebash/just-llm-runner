@@ -1342,7 +1342,8 @@ class ModelMeasurementStore:
 
     def record(self, model_id: str, *, machine_key: str, source: str, label: str,
                tokens_per_sec: float, vram_total_mb: int, at: int,
-               rows: list[MeasurementFlag]) -> int:
+               rows: list[MeasurementFlag], vram_model_mb: int = 0,
+               kind: str = "llm") -> int:
         s = db.session()
         try:
             from .switch_resolve import active_backend
@@ -1352,6 +1353,8 @@ class ModelMeasurementStore:
                 tokens_per_sec=float(tokens_per_sec or 0),
                 vram_total_mb=int(vram_total_mb or 0), at=int(at or 0),
                 backend=active_backend(),  # Pass 2: which engine family measured it
+                vram_model_mb=int(vram_model_mb or 0),  # Phase 5: the true-up footprint
+                kind=(kind or "llm"),
             )
             s.add(m)
             s.flush()  # assigns the autoincrement id the children key on
@@ -1389,6 +1392,8 @@ class ModelMeasurementStore:
                     id=m.id, modelId=m.model_id, machineKey=m.machine_key,
                     source=m.source, label=m.label, tokensPerSec=m.tokens_per_sec,
                     vramTotalMb=m.vram_total_mb, at=m.at, backend=m.backend or "",
+                    vramModelMb=getattr(m, "vram_model_mb", 0) or 0,
+                    kind=getattr(m, "kind", "llm") or "llm",
                     switches=flags.get(m.id, []),
                 )
                 for m in ms
@@ -1416,8 +1421,79 @@ class ModelMeasurementStore:
         finally:
             s.close()
 
+    def prune_load_rows(self, model_id: str, machine_key: str,
+                        fit_relevant: set[str], keep: int,
+                        source: str = "load") -> int:
+        """§13.2 retention: keep-latest-`keep` rows of `source` per (model,
+        machine, FINGERPRINT) — the fingerprint being each row's fit-relevant
+        switch subset (§13.3's classification, read from knob_catalog, never a
+        hardcoded list). Called by the load recorder right after a record;
+        without it, 'load' (and '__overhead__' probe) rows grow unboundedly.
+        Returns rows deleted."""
+        s = db.session()
+        try:
+            rows = s.query(db.ModelMeasurement).filter(
+                db.ModelMeasurement.model_id == model_id,
+                db.ModelMeasurement.machine_key == (machine_key or ""),
+                db.ModelMeasurement.source == (source or "load"),
+            ).order_by(db.ModelMeasurement.at.desc(), db.ModelMeasurement.id.desc()).all()
+            if len(rows) <= keep:
+                return 0
+            ids = [m.id for m in rows]
+            flags: dict[int, dict[str, str]] = {}
+            for f in s.query(db.MeasurementSwitch).filter(
+                db.MeasurementSwitch.measurement_id.in_(ids)
+            ).all():
+                flags.setdefault(f.measurement_id, {})[f.flag_name] = f.flag_value
+            per_fp: dict[tuple, int] = {}
+            doomed: list[int] = []
+            for m in rows:  # newest-first — the first `keep` of each fingerprint survive
+                fp = tuple(sorted((k, v) for k, v in flags.get(m.id, {}).items()
+                                  if k in fit_relevant))
+                per_fp[fp] = per_fp.get(fp, 0) + 1
+                if per_fp[fp] > max(1, keep):
+                    doomed.append(m.id)
+            if doomed:
+                s.query(db.MeasurementSwitch).filter(
+                    db.MeasurementSwitch.measurement_id.in_(doomed)
+                ).delete(synchronize_session=False)
+                s.query(db.ModelMeasurement).filter(
+                    db.ModelMeasurement.id.in_(doomed)
+                ).delete(synchronize_session=False)
+            s.commit()
+            return len(doomed)
+        finally:
+            s.close()
+
 
 _model_measurement = ModelMeasurementStore()
+
+
+def list_fit_relevant_flags() -> set[str]:
+    """The fingerprint SET (§13.3): flag names whose value changes a load's
+    memory footprint — read from knob_catalog's seeded `fit_relevant` column,
+    never hardcoded. Injected into the runner as `fit_relevant_flags_fn`."""
+    s = db.session()
+    try:
+        return {k.flag_name for k in s.query(db.KnobCatalog).filter(
+            db.KnobCatalog.fit_relevant.is_(True)).all()}
+    finally:
+        s.close()
+
+
+def load_rows_keep() -> int:
+    """The §13.2 retention K (runner_setting `load_rows_keep`, a seeded fact)."""
+    from ..runner.config import DEFAULT_LOAD_ROWS_KEEP
+
+    s = db.session()
+    try:
+        row = s.get(db.RunnerSetting, "load_rows_keep")
+        try:
+            return max(1, int(row.value)) if row and str(row.value).strip() else DEFAULT_LOAD_ROWS_KEEP
+        except (TypeError, ValueError):
+            return DEFAULT_LOAD_ROWS_KEEP
+    finally:
+        s.close()
 
 
 def get_provider_store() -> ProviderStore: return _provider
@@ -1610,6 +1686,7 @@ def build_runner_config():
         DEFAULT_DOWNLOAD_SEGMENTS_ENABLED,
         DEFAULT_MODELS_MAX,
         DEFAULT_PINNED_BUILD,
+        DEFAULT_RAM_HEADROOM_MB,
         DEFAULT_SAFETY_MARGIN_MB,
         DEFAULT_SLEEP_IDLE_SECONDS,
         default_config,
@@ -1658,6 +1735,7 @@ def build_runner_config():
             band_slow_toks=_float("band_slow_toks", DEFAULT_BAND_SLOW_TOKS),
             bw_eff_device=_float("bw_eff_device", DEFAULT_BW_EFF_DEVICE),
             bw_eff_host=_float("bw_eff_host", DEFAULT_BW_EFF_HOST),
+            ram_headroom_mb=_int("ram_headroom_mb", DEFAULT_RAM_HEADROOM_MB),
             models_max=_int("models_max", DEFAULT_MODELS_MAX),
             sleep_idle_seconds=_int("sleep_idle_seconds", DEFAULT_SLEEP_IDLE_SECONDS),
             preferred_gpu=(settings.get("preferred_gpu") or ""),

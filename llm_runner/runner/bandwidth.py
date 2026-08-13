@@ -138,17 +138,30 @@ def probe_ram_copy_gbps(size_mb: int = 256, repeats: int = 3) -> float | None:
 # {model_id: {n_layers, mtp, size_mb, non_expert_mb, active_expert_mb, kv_facts}}.
 # The caller adapts its wire shapes — this stays pure.
 
-_SPEC_FLAGS = ("model-draft", "spec-type", "spec-draft-n-max", "spec-ngram-mod-n-max")
+_SPEC_FLAGS = ("model_draft", "spec_type", "spec_draft_n_max", "spec_ngram_mod_n_max")
+
+
+def _norm_switches(switches: dict) -> dict:
+    """Normalize a row's switch keys to the UNDERSCORE knob vocabulary. The tune
+    layers store knob_catalog names (`n_cpu_moe`, `ctx_len` — verified: autotune
+    trials record `{"n_cpu_moe": str(n)}` and the Tune modal saves KnobGrid
+    names), while launch argv speaks dashed tokens (`n-cpu-moe`, `ctx-size`).
+    Phase 3's first cut matched only the dashed form, so the derivation NEVER
+    matched a real row — caught at Phase 5's fingerprint work. One canon, both
+    spellings accepted."""
+    return {str(k).replace("-", "_"): v for k, v in (switches or {}).items()}
 
 
 def _row_ctx_bits(switches: dict) -> tuple[int, int]:
-    """(ctx, cache_bits) from a row's recorded switches; ctx 0 = unknown."""
-    raw = switches.get("ctx-size") or switches.get("ctx") or 0
+    """(ctx, cache_bits) from a row's NORMALIZED switches; ctx 0 = unknown.
+    `ctx_len` is the knob name; `ctx_size`/`ctx` tolerate rows recorded from
+    launch-pair vocabulary."""
+    raw = switches.get("ctx_len") or switches.get("ctx_size") or switches.get("ctx") or 0
     try:
         ctx = int(float(raw))
     except (TypeError, ValueError):
         ctx = 0
-    return ctx, fit.cache_type_bits(str(switches.get("cache-type-k") or ""))
+    return ctx, fit.cache_type_bits(str(switches.get("cache_type_k") or ""))
 
 
 def _int_flag(switches: dict, name: str) -> int | None:
@@ -171,7 +184,7 @@ def _qualifying(rows: list[dict], facts_by_id: dict, machine_key: str, backend: 
         if row.get("machine_key") != machine_key or row.get("backend") != backend:
             continue
         tok_s = float(row.get("tokens_per_sec") or 0)
-        sw = row.get("switches") or {}
+        sw = _norm_switches(row.get("switches"))
         if tok_s <= 0 or not sw:
             continue
         if any(f in sw for f in _SPEC_FLAGS):
@@ -196,8 +209,8 @@ def derive_device_bw_gbps(
     for tok_s, sw, sf, ctx, bits in _qualifying(rows, facts_by_id, machine_key, backend):
         if sf.get("active_expert_mb"):
             continue  # MoE rows are host evidence, handled below
-        ngl = _int_flag(sw, "n-gpu-layers")
-        if ngl is None or ngl < int(sf.get("n_layers") or 0) or (_int_flag(sw, "n-cpu-moe") or 0) > 0:
+        ngl = _int_flag(sw, "n_gpu_layers")
+        if ngl is None or ngl < int(sf.get("n_layers") or 0) or (_int_flag(sw, "n_cpu_moe") or 0) > 0:
             continue
         bytes_mb = float(sf.get("size_mb") or 0) + fit.kv_mb_from_facts(sf.get("kv_facts") or {}, ctx, bits)
         if bytes_mb <= 0:
@@ -223,7 +236,7 @@ def derive_host_bw_gbps(
         if host_mb <= 0:
             continue
         n_layers = int(sf.get("n_layers") or 0)
-        ngl, ncmoe = _int_flag(sw, "n-gpu-layers"), _int_flag(sw, "n-cpu-moe")
+        ngl, ncmoe = _int_flag(sw, "n_gpu_layers"), _int_flag(sw, "n_cpu_moe")
         if ngl is None or ncmoe is None or n_layers <= 0 or ngl < n_layers or ncmoe < n_layers:
             continue  # placement not the clean all-experts-host shape → config unknown
         dev_mb = float(sf.get("non_expert_mb") or 0) + fit.kv_mb_from_facts(sf.get("kv_facts") or {}, ctx, bits)

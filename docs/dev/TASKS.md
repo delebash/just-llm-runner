@@ -513,7 +513,77 @@ Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
   describe no budget line — nothing stale there). Remaining Phase 4
   follow-through rides the standing checkpoint (the budget line on the
   laptops should now SHOW, labeled Memory, instead of hiding).
-Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
-fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
-display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three
-KV scalars, not floors) + classMembership re-validation with the user.
+- PHASE 5 BUILT 2026-08-13 (go: "go" after the Phase 4 report) — persistence
+  + the four-arm claim resolver + the embed-leftover consumption. The build:
+  (a) PERSISTENCE (§6.3/§8.16): model_measurements gains `vram_model_mb`
+  (the true-up footprint — vram_total_mb stays the CARD total, never
+  reinterpreted) + `kind` (default 'llm'); knob_catalog gains
+  `fit_relevant` (§13.3's ten memory-shaping knobs seeded True — the
+  fingerprint IS this classification, read from data:
+  ctx_len·cache_type_k·cache_type_v·flash_attn·n_cpu_moe·n_gpu_layers·
+  no_kv_offload·parallel·batch_size·ubatch_size); runner_setting
+  `load_rows_keep`=3 (§13.2's K). All additive columns + wire fields
+  DECLARED (the strip-guard rule).
+  (b) THE RECORDER: a confirmed load persists a source='load' row —
+  vram_model_mb = the booked true-up, switches = the RESOLVED launch
+  config in the UNDERSCORE knob canon (from the FitPlan, what actually
+  launched) — then prunes keep-latest-K per (model, machine,
+  fingerprint). A MEASURED true-up on the device also records the
+  observed physics overhead as the `__overhead__` machine row
+  (source='probe', label "physics-overhead <build>" — an engine-pin bump
+  invalidates old rows by simple label non-match: recalibration by
+  construction, §13.2/§13.6). Reservation PROVENANCE (§13.1):
+  _Reservation.source measured|computed|declared, set at reserve, on the
+  snapshot rows — the JV strip never reads a declared price as live
+  truth. _trued_up_vram_mb returns (mb, source).
+  (c) THE RESOLVER (§6.2, grown INTO preview_fit — no second door):
+  resident-live (arbiter reservation + its provenance) → persisted-
+  measured (MEDIAN over fingerprint-matched 'load' rows, this machine +
+  backend; `matches` carries the evidence count — 1 = §13.2's low-
+  confidence; a fingerprint MISS falls to computed FULL STOP, §13.4's
+  cut) → computed (the physics booking; the LEARNED overhead replaces
+  the seed when __overhead__ rows for this backend×machine×build exist)
+  → declared (est_vram_mb over min_vram_mb — the conservative
+  pre-download want; understating re-opens the 2026-07-11 co-load
+  crash). Every claim = {vramMb, ramMb, source, matches}; ramMb = file +
+  headroom on every arm (§13.12 shape; DISPLAY-ONLY per §8.18).
+  preview_fit carries `claim` even for a not-downloaded model.
+  DI seams for JV (§6.2): record_load_fn + fit_relevant_flags_fn wired
+  by install_llm; declared_claim_fn DECLARED (None until JV's wiring
+  registers its engine manifests — the kit handles kind='llm' itself).
+  (d) CONSUMPTION (§6.6): _embed_gpu_leftover_mb subtracts the RESOLVED
+  chat claim — resident booking, else measured median, else the physics
+  booking (a DOWNLOADED chat stops claiming its declared est), else the
+  est-based declared chain exactly as before for not-downloaded chats.
+  BEHAVIOR CHANGE, deliberate + §6.6-decided: on a box whose downloaded
+  chat model books less than its est, the embed leftover OPENS UP (the
+  est was pre-download fiction; the booking is what the load will use;
+  the resident arm is even truer). The 2026-07-25 est-based pins live on
+  as the DECLARED-arm tests (seed_cache=False).
+  (e) VOCABULARY FIX (latent Phase 3 bug, caught here): measurement
+  switches speak the UNDERSCORE knob canon (autotune records
+  {"n_cpu_moe": …}; the Tune modal saves KnobGrid names) while Phase 3's
+  bandwidth derivation matched dashed launch tokens — so its measured
+  arm could NEVER match a real row (silent, fell down the ladder).
+  bandwidth.py now normalizes both spellings to one canon (ctx under
+  ctx_len/ctx_size/ctx); the §13.3 fingerprint uses the same canon.
+  (f) Speed UIs filter source ∈ (tune, autotune) at the ONE client door
+  (measurements.js) — 'load'/'probe' rows are real data, not speed
+  history. Clear-history copy says it also forgets footprints (§8.22 —
+  claims fall back to computed and re-learn on the next load).
+  Tests (+8, kit 830/10): footprint+kind round-trip THROUGH the wire ·
+  keep-K prune (fingerprint-scoped, other fingerprints + speed rows
+  untouched) · the seeded fingerprint set pin · trued-up provenance ·
+  measured-arm median + every §13.2/§13.4 exclusion (other box, other
+  backend, fingerprint miss never blended, no-fset → computed) ·
+  load+overhead recorder rows · unmeasured load records no overhead row
+  · preview_fit claim (computed + declared arms) · embed-leftover ladder
+  (computed arm + resident arm win) — declared-arm pins kept via
+  seed_cache=False.
+Downstream: JV's VRAM wiring is UNBLOCKED as of Phase 5 (2026-08-13) — both its
+claim-line sources now exist (the persisted-measured arm + the physics computed
+arm, resolved through preview_fit; claim shape {vramMb, ramMb} + provenance per
+§13.1/§13.12, RAM display-only §8.18; the declared_claim_fn seam awaits JV's
+engine manifests). The wiring itself still needs ITS OWN go (the user's standing
+stop) and lives in JV's tracker. JW's seed regeneration + membership
+re-validation completed in Phase 2.

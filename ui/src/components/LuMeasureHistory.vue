@@ -70,7 +70,7 @@ const gb = (mb) => (mb / 1024).toFixed(1);
 async function clearHistory() {
   const ok = await confirmDialog({
     title: "Clear measurement history?",
-    message: "Delete every recorded measurement for this model? Saved tunes and PC class configs are not touched — this only clears the history of measured speeds.",
+    message: "Delete every recorded measurement for this model? Saved tunes and PC class configs are not touched. This clears the measured speeds AND the app's remembered memory footprints for it — the estimates take over again and re-learn on the next load.",
     confirmLabel: "Clear history",
   });
   if (!ok) return;

@@ -87,6 +87,11 @@ DEFAULT_BAND_SLOW_TOKS = 2.0
 DEFAULT_BW_EFF_DEVICE = 0.6
 DEFAULT_BW_EFF_HOST = 0.15
 
+# Fit-redesign Phase 5 (§13.2): keep-latest-K persisted load footprints per
+# (model, machine, fingerprint) — without a cap, 'load' rows grow unboundedly.
+# A seeded runner_setting fact.
+DEFAULT_LOAD_ROWS_KEEP = 3
+
 # Router mode (P1e): the count-based co-resident cap (`--models-max`; the arbiter
 # works WITHIN it) and the native idle-unload TTL (`--sleep-idle-seconds`; 0 =
 # never sleep). DB-editable via runner_setting; these are the standalone/seed

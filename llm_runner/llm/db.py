@@ -475,7 +475,7 @@ class ModelMeasurement(LlmBase):
     id = Column(Integer, primary_key=True, autoincrement=True)
     model_id = Column(String, nullable=False)
     machine_key = Column(String, nullable=False, default="")
-    source = Column(String, nullable=False, default="tune")  # tune | autotune
+    source = Column(String, nullable=False, default="tune")  # tune | autotune | load | probe
     label = Column(String, nullable=False, default="")       # e.g. "n-cpu-moe 21"
     tokens_per_sec = Column(Float, nullable=False, default=0.0)
     vram_total_mb = Column(Integer, nullable=False, default=0)
@@ -484,6 +484,15 @@ class ModelMeasurement(LlmBase):
     # (cuda-era). History is append-only, so the stamp makes cross-backend numbers
     # distinguishable instead of silently comparable.
     backend = Column(String, nullable=False, default="")
+    # Fit-redesign Phase 5 (§6.3): the TRUE-UP FOOTPRINT of a confirmed load
+    # (source='load' rows) — the measured used-memory delta the arbiter booked.
+    # NEVER reinterpret vram_total_mb for this (names-must-match: that column is
+    # the CARD total, a deliberate adjacent-but-different number). 0 = not a
+    # footprint row.
+    vram_model_mb = Column(Integer, nullable=False, default=0)
+    # §8.16 (decided): the owner kind — llm | tts | stt. Added now, defaulted
+    # 'llm'; doesn't foreclose engine measurement (Q5's cut stands).
+    kind = Column(String, nullable=False, default="llm")
 
 
 class MeasurementSwitch(LlmBase):
@@ -561,6 +570,11 @@ class KnobCatalog(LlmBase):
     # no_mmap alone forced qwen's full 22.8 GB resident for zero offload benefit).
     # Additive column (see _ADDED_COLUMNS); the knob seeder syncs it on boot.
     backends = Column(String, nullable=False, default="")
+    # Fit-redesign Phase 5 (§13.3): does this knob change a load's MEMORY
+    # footprint? The set of fit_relevant flag names IS the config fingerprint a
+    # persisted 'load' footprint is matched on — a classification read from data,
+    # never a hardcoded list. Seeded on the ten §13.3 knobs; synced on boot.
+    fit_relevant = Column(Boolean, nullable=False, default=False)
     position = Column(Integer, nullable=False, default=0)
     built_in = Column(Boolean, nullable=False, default=False)
 
@@ -721,6 +735,10 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("knob_catalog", "backends", "VARCHAR NOT NULL DEFAULT ''"),
     ("model_tunes", "backend", "VARCHAR NOT NULL DEFAULT ''"),
     ("model_measurements", "backend", "VARCHAR NOT NULL DEFAULT ''"),
+    # Fit-redesign Phase 5 (§6.3/§8.16/§13.3) — additive:
+    ("model_measurements", "vram_model_mb", "INTEGER NOT NULL DEFAULT 0"),
+    ("model_measurements", "kind", "VARCHAR NOT NULL DEFAULT 'llm'"),
+    ("knob_catalog", "fit_relevant", "BOOLEAN NOT NULL DEFAULT 0"),
     ("feature_prompts", "position", "INTEGER NOT NULL DEFAULT 0"),
 )
 

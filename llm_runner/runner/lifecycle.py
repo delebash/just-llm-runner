@@ -455,6 +455,9 @@ class RunnerService:
         measurements_fn=None,
         class_bw_fn=None,
         record_probe_fn=None,
+        record_load_fn=None,
+        fit_relevant_flags_fn=None,
+        declared_claim_fn=None,
     ):
         self._cache_root = Path(cache_root)
         # WHAT THIS APP GENERATES, split from what it merely caches. `cache_root` holds
@@ -500,6 +503,17 @@ class RunnerService:
         self._measurements_fn = measurements_fn
         self._class_bw_fn = class_bw_fn
         self._record_probe_fn = record_probe_fn
+        # Fit-redesign Phase 5 (§6.2-6.4/§13.1-13.3) — the persistence + claim
+        # seams: record_load_fn persists a confirmed load's footprint (+ the
+        # observed overhead machine row) and prunes to keep-K; the fingerprint
+        # SET comes from knob_catalog's fit_relevant classification;
+        # declared_claim_fn answers a FOREIGN kind's declared claim (JV wires
+        # its engine manifests there — the kit handles kind="llm" itself).
+        # All None standalone: loads still true up in-memory, claims resolve
+        # down to computed/declared exactly as before.
+        self._record_load_fn = record_load_fn
+        self._fit_relevant_flags_fn = fit_relevant_flags_fn
+        self._declared_claim_fn = declared_claim_fn
         self._probe_lock = threading.Lock()
         self._probe_started = False
         self._probe_value: float | None = None
@@ -1324,13 +1338,20 @@ class RunnerService:
         """Pure fit PREVIEW for a CACHED model: block count / MoE-ness + the computed
         layer split for the given switches — no download, no spawn. The auto-tune
         sweep anchors its n-cpu-moe candidates on this (falling back to it when no
-        tune pins the value). Errors soft: unknown / not-downloaded → ok:False."""
+        tune pins the value). Errors soft: unknown / not-downloaded → ok:False.
+
+        GROWN into the claim-resolver door at Phase 5 (§6.2 — the DO-NOT list
+        forbids a second resolver standing beside this): every return now carries
+        `claim` = {vramMb, ramMb, source, matches} resolved down the four-arm
+        ladder (resident-live → persisted-measured → computed → declared), even
+        for a not-downloaded model (the declared arm needs no file)."""
         model = next((m for m in self.catalog() if m.id == model_id), None)
         if model is None:
             return {"ok": False, "error": f"unknown model: {model_id}"}
+        claim = self._resolve_claim(model, switches)
         gguf = self.cached_path(model_id)
         if gguf is None:
-            return {"ok": False, "error": "model not downloaded"}
+            return {"ok": False, "error": "model not downloaded", "claim": claim}
         try:
             ov = _switches_to_overrides(dict(switches) if switches else (self._switches_fn(model_id) or {}))
             # Mirror the `.ini` emitter's draft resolve (2026-07-19) so the PREVIEW's
@@ -1349,9 +1370,120 @@ class RunnerService:
                             ctx_cap_tokens=cfg.ctx_cap_tokens,
                             draft_meta=draft_meta, draft_bytes=draft_bytes)
         except Exception as exc:  # noqa: BLE001 — a preview must never raise into the sweep
-            return {"ok": False, "error": str(exc)}
+            return {"ok": False, "error": str(exc), "claim": claim}
         return {"ok": True, "blockCount": f.block_count, "isMoe": f.is_moe,
-                "nGpuLayers": f.n_gpu_layers, "nCpuMoe": f.n_cpu_moe, "ctxLen": f.ctx_len}
+                "nGpuLayers": f.n_gpu_layers, "nCpuMoe": f.n_cpu_moe, "ctxLen": f.ctx_len,
+                "claim": claim}
+
+    def _resolve_claim(self, model, switches: dict[str, str] | None = None) -> dict:
+        """The four-arm claim ladder (§6.2; the INTERNAL engine `preview_fit`
+        and `_embed_gpu_leftover_mb` share — the public door stays preview_fit):
+
+            resident-live → persisted-measured → computed → declared
+
+        Returns {vramMb, ramMb, source, matches}. The claim follows the RESOLVED
+        DEVICE (a load at ngl 0 books 0 VRAM); ramMb is the §13.12 rule (file +
+        headroom; display-only per §8.18) on every arm — measured rows don't
+        capture RAM. Foreign kinds (JV's TTS/STT engines) come through the
+        `declared_claim_fn` seam their wiring registers; this method is the
+        kit's own kind="llm" path."""
+        import statistics
+
+        cfg = self._config_fn()
+        size_mb = (model.size_bytes / 1e6) if model.size_bytes else None
+        ram_mb = int(round(size_mb + max(0, cfg.ram_headroom_mb))) if size_mb \
+            else int(model.min_ram_mb or 0)
+        # Arm 1 — resident-live: the arbiter's booked number, with its §13.1
+        # provenance (a measured true-up reads "measured"; a probe-less box's
+        # booking reads "computed" — never dressed up).
+        res = self._arbiter.reservation_of(model.id)
+        if res is not None:
+            return {"vramMb": int(res["vram_mb"]), "ramMb": ram_mb,
+                    "source": res.get("source") or "computed", "matches": 0}
+        gguf = self.cached_path(model.id)
+        if gguf is not None:
+            try:
+                ov = _switches_to_overrides(dict(switches) if switches
+                                            else (self._switches_fn(model.id) or {}))
+                if _wants_draft(ov, model):
+                    cached_draft = self._cached_draft_path(model, self._cache_root / "hf")
+                    if cached_draft is not None:
+                        ov.model_draft = str(cached_draft)
+                meta = self._read_meta(gguf)
+                draft_meta, draft_bytes = self._draft_fit_inputs(ov)
+                hardware = self._hardware_fn()
+                f = compute_fit(meta, gguf.stat().st_size, hardware, ov,
+                                safety_margin_mb=cfg.safety_margin_mb,
+                                ctx_cap_tokens=cfg.ctx_cap_tokens,
+                                draft_meta=draft_meta, draft_bytes=draft_bytes)
+                from .bandwidth import _norm_switches
+                from .fit import PHYSICS_OVERHEAD_MB
+                from .hardware import active_backend, machine_key as _mkey
+
+                backend = active_backend(hardware)
+                mkey = _mkey(hardware)
+                fset = set()
+                if self._fit_relevant_flags_fn is not None:
+                    try:
+                        fset = set(self._fit_relevant_flags_fn() or ())
+                    except Exception:  # noqa: BLE001 — a store hiccup falls to computed
+                        fset = set()
+                rows = self.measurement_rows()
+                # Arm 2 — persisted-measured: MEDIAN over fingerprint-matched
+                # 'load' rows on THIS box + backend (§13.2). A fingerprint miss
+                # falls to computed, full stop — the ctx-adjust cleverness was
+                # CUT (§13.4). No fingerprint set wired → no matching possible.
+                if fset:
+                    want = tuple(sorted(
+                        (k, v) for k, v in self._fit_config_switches(f, ov).items()
+                        if k in fset))
+                    matched = []
+                    for r in rows:
+                        if (getattr(r, "modelId", "") != model.id
+                                or getattr(r, "machineKey", "") != mkey
+                                or getattr(r, "backend", "") != backend
+                                or getattr(r, "source", "") != "load"):
+                            continue
+                        mb = int(getattr(r, "vramModelMb", 0) or 0)
+                        if mb <= 0:
+                            continue
+                        row_sw = _norm_switches({fl.flagName: fl.flagValue
+                                                 for fl in (getattr(r, "switches", None) or [])})
+                        got = tuple(sorted((k, v) for k, v in row_sw.items() if k in fset))
+                        if got == want:
+                            matched.append(mb)
+                    if matched:
+                        # A single row is usable but LOW-CONFIDENCE (§13.2) —
+                        # `matches` says how much evidence stands behind it.
+                        return {"vramMb": int(statistics.median(matched)), "ramMb": ram_mb,
+                                "source": "measured", "matches": len(matched)}
+                # Arm 3 — computed: the physics booking, with the LEARNED per-
+                # (backend × machine × build) overhead replacing the seed when
+                # true-ups have taught it (§13.2/§13.6; a build bump invalidates
+                # old rows by label non-match — recalibration by construction).
+                vram = float(f.vram_mb)
+                if f.n_gpu_layers > 0 and vram > 0:
+                    build = cfg.llamacpp.pinned_build
+                    learned = [int(getattr(r, "vramModelMb", 0) or 0) for r in rows
+                               if getattr(r, "modelId", "") == "__overhead__"
+                               and getattr(r, "machineKey", "") == mkey
+                               and getattr(r, "backend", "") == backend
+                               and str(getattr(r, "label", "")).endswith(build)
+                               and int(getattr(r, "vramModelMb", 0) or 0) > 0]
+                    if learned:
+                        seed = PHYSICS_OVERHEAD_MB.get(backend, PHYSICS_OVERHEAD_MB["cuda"])
+                        vram = max(0.0, vram - seed + statistics.median(learned))
+                return {"vramMb": int(round(vram)), "ramMb": ram_mb,
+                        "source": "computed", "matches": 0}
+            except Exception:  # noqa: BLE001 — a claim read must never raise into a caller
+                log.debug("claim resolve fell to declared for %s", model.id, exc_info=True)
+        # Arm 4 — declared: the catalog's price. For chat rows the WANT
+        # (est_vram_mb) over the bare floor — the conservative pre-download
+        # number the 2026-07-25 embed-guard ruling chose; understating here
+        # re-opens the co-load crash class.
+        rec = model.recommended_for
+        declared = int((rec.est_vram_mb or rec.min_vram_mb) or 0)
+        return {"vramMb": declared, "ramMb": ram_mb, "source": "declared", "matches": 0}
 
     def measure(
         self, *, prompt: str = "Write one vivid paragraph about the sea.",
@@ -2085,9 +2217,19 @@ class RunnerService:
                 # evicts another chat, never the embed RAG depends on. A chat model reserves unpinned.
                 # kind + evict_fn (2026-08-09 seam): a foreign-kind admission (a JV TTS load) evicts
                 # this model through make_room → _evict_from_arbiter, which takes _router_lock itself.
-                self._arbiter.reserve(model_id, self._trued_up_vram_mb(fit.vram_mb, vram_before, hardware),
+                trued_mb, trued_src = self._trued_up_vram_mb(fit.vram_mb, vram_before, hardware)
+                self._arbiter.reserve(model_id, trued_mb,
                                       pinned=model_id in embed_ids, kind="llm",
-                                      evict_fn=lambda mid=model_id: self._evict_from_arbiter(mid))
+                                      evict_fn=lambda mid=model_id: self._evict_from_arbiter(mid),
+                                      source=trued_src)
+                # Phase 5 (§6.3): persist the confirmed load's footprint as a
+                # source='load' measurement row (switches = the fingerprint raw
+                # material), and — when the true-up really measured — the observed
+                # per-backend overhead as a machine row (§13.2/§13.6: the physics
+                # overhead seed's correction data; the build stamp rides the label
+                # so an engine-pin bump naturally invalidates old rows).
+                self._persist_load_footprint(model_id, trued_mb, trued_src, fit, ov,
+                                             hardware, config)
                 self._resident[model_id].update(status="running", url=self._router.url,
                                                 detail="", error="", downloaded=0, total=0)
         except DownloadCancelled:
@@ -2144,14 +2286,68 @@ class RunnerService:
         # ARCH-AWARE cap (Phase 4): the ceiling is the budget POOL — the card on
         # discrete boxes (the historical meaning), the shared pool on one-pool
         # boxes (where max_vram is 0/absent and the old cap never engaged).
+        # Returns (mb, source) since Phase 5 (§13.1): "measured" when a real
+        # before/after delta produced the number, "computed" when the probe
+        # couldn't measure and the estimate stands — the reservation carries it
+        # so no consumer presents an estimate as live truth.
         cap = _hw_budget_total(hardware) if hardware is not None else 0
         est = min(estimate_mb, cap) if cap > 0 else estimate_mb
         after = self._probe_used_vram()
         if before is None or after is None:
-            return est
+            return est, "computed"
         measured = max(0, after - before)
         floor = min(est, _DRIVER_CTX_MB) if est > 0 else 0
-        return max(measured, floor)
+        return max(measured, floor), "measured"
+
+    @staticmethod
+    def _fit_config_switches(f, ov) -> dict[str, str]:
+        """The confirmed load's launch config as an UNDERSCORE-canon switch dict —
+        the fingerprint raw material a source='load' row carries (§6.3/§13.3).
+        The fit knobs come from the RESOLVED FitPlan (what actually launched, not
+        what was asked); the rest from the merged Overrides, set fields only.
+        spec/model_draft ride along so a speculative load is identifiable."""
+        sw = {"n_gpu_layers": str(f.n_gpu_layers), "n_cpu_moe": str(f.n_cpu_moe),
+              "ctx_len": str(f.ctx_len)}
+        for name in ("cache_type_k", "cache_type_v", "flash_attn", "no_kv_offload",
+                     "parallel", "batch_size", "ubatch_size", "mlock", "no_mmap",
+                     "spec_type", "model_draft"):
+            v = getattr(ov, name, None)
+            if v not in (None, "", False):
+                sw[name] = str(v)
+        return sw
+
+    def _persist_load_footprint(self, model_id: str, trued_mb: int, source: str,
+                                f, ov, hardware, config) -> None:
+        """Phase 5 (§6.3/§13.2): write the confirmed load's footprint as a
+        source='load' measurement row (vram_model_mb + the launch switches — the
+        fingerprint), and, when the true-up REALLY measured and the load used the
+        device, the observed per-backend overhead as a machine row
+        (`__overhead__`, label stamped with the engine build so a pin bump
+        invalidates old rows by simple non-match). Best-effort: persistence must
+        never fail a load; unwired (standalone/tests) → no-op."""
+        if self._record_load_fn is None:
+            return
+        try:
+            switches = self._fit_config_switches(f, ov)
+            self._record_load_fn(model_id, vram_model_mb=int(trued_mb),
+                                 switches=switches, source="load",
+                                 label=f"load footprint ({source})")
+            if source == "measured" and f.n_gpu_layers > 0 and f.vram_mb > 0:
+                from .fit import PHYSICS_OVERHEAD_MB
+                from .hardware import active_backend
+
+                backend = active_backend(hardware)
+                seed = PHYSICS_OVERHEAD_MB.get(backend, PHYSICS_OVERHEAD_MB["cuda"])
+                # f.vram_mb is the physics booking = weights-share + kv-share +
+                # the seed overhead; the observed overhead is the measured total
+                # minus the physics weights+kv part.
+                observed = max(0.0, trued_mb - (f.vram_mb - seed))
+                build = config.llamacpp.pinned_build if config is not None else ""
+                self._record_load_fn("__overhead__", vram_model_mb=int(observed),
+                                     switches={}, source="probe",
+                                     label=f"physics-overhead {build}")
+        except Exception:  # noqa: BLE001 — persistence is best-effort, never load-fatal
+            log.debug("load-footprint persist failed for %s", model_id, exc_info=True)
 
     def _embed_gpu_leftover_mb(self, hardware) -> int:
         """The STATIC VRAM leftover an embedding child may claim: card total minus the
@@ -2173,17 +2369,26 @@ class RunnerService:
             chat_id = self._default_llm_id_fn() or ""
         except Exception:  # noqa: BLE001 — a routing-store hiccup must never kill a load
             chat_id = ""
-        # The chat baseline is what the model WANTS (est_vram_mb) when the catalog knows
-        # it, falling back to the bare floor (min_vram_mb) — 2026-07-25, the user's
-        # design review: the floor made mid cards too generous to the embed (a 16 GB
-        # card computed 12 GB of "leftover" beside a flagship whose est is ~17.7 GB,
-        # handing the 8B embed a GPU claim on a card the chat model wants in full).
+        # The chat baseline CONSUMES THE CLAIM RESOLVER since Phase 5 (§6.6 —
+        # the est-else-floor chain retired into the ladder): a resident chat
+        # model's TRUE booked footprint, else a fingerprint-matched measured
+        # footprint, else the physics booking, else the old declared want
+        # (est_vram_mb over min_vram_mb — the 2026-07-25 conservative baseline,
+        # still the not-downloaded arm: understating the chat claim re-opens
+        # the 2026-07-11 co-load crash). POLICY is unchanged: chat-first,
+        # static-not-live — a reservation/measurement IS a claim, never a
+        # live-free-VRAM read.
         def _chat_claim(m) -> int:
             rec = m.recommended_for
             return (rec.est_vram_mb or rec.min_vram_mb) or 0
         if chat_id:
             row = next((m for m in self.catalog() if m.id == chat_id), None)
-            claim = _chat_claim(row) if row is not None else 0
+            if row is None:
+                return 0
+            try:
+                claim = int(self._resolve_claim(row).get("vramMb") or 0)
+            except Exception:  # noqa: BLE001 — a resolver hiccup falls to the declared chain
+                claim = _chat_claim(row)
             return max(0, card - claim) if claim > 0 else 0
         claims = [
             _chat_claim(m)
@@ -2958,6 +3163,9 @@ def configure_service(
     measurements_fn=None,
     class_bw_fn=None,
     record_probe_fn=None,
+    record_load_fn=None,
+    fit_relevant_flags_fn=None,
+    declared_claim_fn=None,
 ) -> RunnerService:
     """Host hook to construct the singleton with DB-backed catalog/switches/config
     (and any other injections). Call ONCE at boot, before `get_service()`.
@@ -2995,6 +3203,12 @@ def configure_service(
         kwargs["class_bw_fn"] = class_bw_fn
     if record_probe_fn is not None:
         kwargs["record_probe_fn"] = record_probe_fn
+    if record_load_fn is not None:
+        kwargs["record_load_fn"] = record_load_fn
+    if fit_relevant_flags_fn is not None:
+        kwargs["fit_relevant_flags_fn"] = fit_relevant_flags_fn
+    if declared_claim_fn is not None:
+        kwargs["declared_claim_fn"] = declared_claim_fn
     _service = RunnerService(root, **kwargs)
     return _service
 

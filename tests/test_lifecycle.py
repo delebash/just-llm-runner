@@ -3100,13 +3100,17 @@ def test_embed_tier_cpu_forced_to_ngl0(tmp_path):
 
 def test_embed_leftover_gates_gpu_placement(tmp_path):
     # A non-cpu-tier embed rides the GPU only when the STATIC leftover (card minus the
-    # LOCAL chat default's curated floor) covers its own floor — else explicit CPU.
+    # LOCAL chat default's CLAIM) covers its own floor — else explicit CPU.
     # Static, not live free VRAM: the ask flow loads the embed BEFORE the chat model.
+    # seed_cache=False (Phase 5): the chat default is NOT downloaded, so the claim
+    # resolver's DECLARED arm answers (est_vram_mb — the 2026-07-25 conservative
+    # want) and these est-based expectations hold. A downloaded chat resolves
+    # through the COMPUTED arm instead — pinned separately below.
     def build(vram_mb):
         return _service_for(tmp_path / str(vram_mb), catalog=[_EMBED_MID, _CHAT_26B],
                             embedding_ids_fn=lambda: {_EMBED_MID.id},
                             default_llm_id_fn=lambda: _CHAT_26B.id,
-                            hardware_fn=lambda: _fake_hw(vram_mb))
+                            hardware_fn=lambda: _fake_hw(vram_mb), seed_cache=False)
 
     svc = build(8192)   # leftover 8192-17713 → 0 < 4500 → CPU
     svc.load(_EMBED_MID.id)
@@ -3133,11 +3137,12 @@ def test_embed_leftover_gates_gpu_placement(tmp_path):
 def test_embed_placement_is_the_one_source(tmp_path):
     # `embed_placement()` is what BOTH the loader and the models endpoint read
     # (2026-07-25, the honest-badge fix) — pin its verdicts so the display rule can
-    # never drift from the enforcement the tests above prove.
+    # never drift from the enforcement the tests above prove. seed_cache=False:
+    # the DECLARED-arm (est-based) numbers these pins were written for.
     svc = _service_for(tmp_path, catalog=[_EMBED_CPU, _EMBED_MID, _CHAT_26B],
                        embedding_ids_fn=lambda: {_EMBED_CPU.id, _EMBED_MID.id},
                        default_llm_id_fn=lambda: _CHAT_26B.id,
-                       hardware_fn=lambda: _fake_hw(24576))
+                       hardware_fn=lambda: _fake_hw(24576), seed_cache=False)
     hw = _fake_hw(24576)
     place, left = svc.embed_placement(_EMBED_CPU, hw)
     assert place == "cpu"                      # cpu-tier NEVER claims the GPU
@@ -3145,6 +3150,41 @@ def test_embed_placement_is_the_one_source(tmp_path):
     assert place == "gpu" and left == 24576 - 17713   # est-based leftover, floor fits
     place, left = svc.embed_placement(_EMBED_MID, _fake_hw(16384))
     assert place == "cpu" and left == 0        # chat-first: the flagship wants the card
+
+
+def test_embed_leftover_consumes_the_claim_ladder(tmp_path):
+    # Phase 5 (§6.6): with the chat default DOWNLOADED, the leftover subtracts the
+    # resolver's COMPUTED claim (the physics booking for the file that will
+    # actually load) instead of the declared est — the est was the pre-download
+    # conservative stand-in, not the truth. With the fixture's tiny fake gguf the
+    # booking is small (≈ the physics overhead seed), so the leftover opens up.
+    svc = _service_for(tmp_path, catalog=[_EMBED_MID, _CHAT_26B],
+                       embedding_ids_fn=lambda: {_EMBED_MID.id},
+                       default_llm_id_fn=lambda: _CHAT_26B.id,
+                       hardware_fn=lambda: _fake_hw(24576))  # seed_cache=True
+    left = svc._embed_gpu_leftover_mb(_fake_hw(24576))
+    claim = 24576 - left
+    assert 0 < claim < 17713          # the computed booking, NOT the declared est
+    # And a RESIDENT chat wins over everything (arm 1): its booked reservation.
+    svc._arbiter.reserve(_CHAT_26B.id, 6500, kind="llm", source="measured")
+    assert svc._embed_gpu_leftover_mb(_fake_hw(24576)) == 24576 - 6500
+
+
+def test_preview_fit_carries_the_claim(tmp_path):
+    # §6.2: preview_fit IS the claim-resolver door. Downloaded → computed arm
+    # (vram = the physics booking; ram = file + headroom); not-downloaded →
+    # ok:False but the claim still answers (declared arm).
+    svc = _service_for(tmp_path, catalog=[_CHAT_26B],
+                       hardware_fn=lambda: _fake_hw(8192))
+    out = svc.preview_fit(_CHAT_26B.id)
+    assert out["ok"] is True
+    assert out["claim"]["source"] == "computed"
+    assert out["claim"]["vramMb"] > 0
+    svc2 = _service_for(tmp_path / "nodl", catalog=[_CHAT_26B],
+                        hardware_fn=lambda: _fake_hw(8192), seed_cache=False)
+    out = svc2.preview_fit(_CHAT_26B.id)
+    assert out["ok"] is False
+    assert out["claim"] == {"vramMb": 17713, "ramMb": 0, "source": "declared", "matches": 0}
 
 
 def test_embed_explicit_tune_ngl_wins_over_policy(tmp_path):
@@ -3229,22 +3269,24 @@ def test_fresh_spawn_reconciles_stale_ledger(tmp_path):
 def test_trued_up_trues_down_to_measured(tmp_path):
     # 2026-07-11 inversion: the ncmoe-blind estimate (Gemma: ~16 GB claimed, ~6.5 GB
     # real) must not wedge the ledger — the measured delta wins in BOTH directions.
+    # Phase 5 (§13.1): the return carries PROVENANCE — a real delta is "measured".
     svc = _service_for(tmp_path, used_vram_fn=lambda: 7500)
-    assert svc._trued_up_vram_mb(16000, before=1000, hardware=_fake_hw(8192)) == 6500
+    assert svc._trued_up_vram_mb(16000, before=1000, hardware=_fake_hw(8192)) == (6500, "measured")
 
 
 def test_trued_up_unmeasurable_caps_at_card(tmp_path):
-    # No probe → the estimate survives, but a single child can never book more than
+    # No probe → the estimate survives (source "computed" — §13.1: an estimate is
+    # never dressed up as measured), but a single child can never book more than
     # the card itself.
     svc = _service_for(tmp_path)  # used_vram_fn → None (unmeasurable)
-    assert svc._trued_up_vram_mb(16000, before=None, hardware=_fake_hw(8192)) == 8192
+    assert svc._trued_up_vram_mb(16000, before=None, hardware=_fake_hw(8192)) == (8192, "computed")
 
 
 def test_trued_up_keeps_driver_ctx_floor(tmp_path):
     # The 2026-07-06 motivation survives the inversion: a GPU-claiming fit whose delta
     # under-counts still books at least the driver-context constant, never ~0.
     svc = _service_for(tmp_path, used_vram_fn=lambda: 5001)
-    assert svc._trued_up_vram_mb(4000, before=5000, hardware=_fake_hw(8192)) == 549
+    assert svc._trued_up_vram_mb(4000, before=5000, hardware=_fake_hw(8192)) == (549, "measured")
 
 
 # ── 2026-07-11 admission: refuse a DOOMED dense/explicit spawn ────────────────
@@ -3496,3 +3538,95 @@ def test_draft_crash_solo_still_fails_raises_never_drops_mtp(tmp_path):
     with pytest.raises(RuntimeError, match="speculative-decoding|MTP"):
         svc._router_load_with_backoff(entry, _mtp_fit(), tmp_path / "llama-server", svc.config())
     assert entry.overrides.spec_type == "draft-mtp"     # NOT dropped even on the hard failure
+
+
+# ── Phase 5: the persisted-measured arm + the load recorder ──────────────────
+
+
+class _FakeFlag:
+    def __init__(self, name, value):
+        self.flagName, self.flagValue = name, value
+
+
+class _FakeMeasRow:
+    def __init__(self, model_id, machine_key, backend, source, vram_model_mb,
+                 switches, label=""):
+        self.modelId, self.machineKey, self.backend = model_id, machine_key, backend
+        self.source, self.vramModelMb, self.label = source, vram_model_mb, label
+        self.tokensPerSec = 0.0
+        self.switches = [_FakeFlag(k, v) for k, v in switches.items()]
+
+
+def _mkey_of(hw):
+    from llm_runner.runner.hardware import machine_key
+    return machine_key(hw)
+
+
+def test_claim_measured_arm_fingerprint_match_and_median(tmp_path):
+    hw = _fake_hw(8192)
+    svc = _service_for(tmp_path, catalog=[_CHAT_26B], hardware_fn=lambda: hw)
+    # Learn the config the resolver will actually request (so the fingerprint matches).
+    base = svc.preview_fit(_CHAT_26B.id)
+    assert base["ok"] is True
+    fset = {"ctx_len", "n_gpu_layers", "n_cpu_moe", "cache_type_k", "cache_type_v",
+            "flash_attn", "no_kv_offload", "parallel", "batch_size", "ubatch_size"}
+    match_sw = {"n_gpu_layers": str(base["nGpuLayers"]), "n_cpu_moe": str(base["nCpuMoe"]),
+                "ctx_len": str(base["ctxLen"])}
+    mk = _mkey_of(hw)
+    rows = [
+        _FakeMeasRow(_CHAT_26B.id, mk, "cuda", "load", 6400, match_sw),
+        _FakeMeasRow(_CHAT_26B.id, mk, "cuda", "load", 6500, match_sw),
+        _FakeMeasRow(_CHAT_26B.id, mk, "cuda", "load", 9000, match_sw),
+        # A DIFFERENT ctx (fingerprint miss §13.4 — never blended in):
+        _FakeMeasRow(_CHAT_26B.id, mk, "cuda", "load", 20000,
+                     {**match_sw, "ctx_len": "999999"}),
+        # Another box / another backend / a speed row: never this box's evidence.
+        _FakeMeasRow(_CHAT_26B.id, "other|1|2c|4g", "cuda", "load", 100, match_sw),
+        _FakeMeasRow(_CHAT_26B.id, mk, "vulkan", "load", 100, match_sw),
+        _FakeMeasRow(_CHAT_26B.id, mk, "cuda", "tune", 100, match_sw),
+    ]
+    svc._measurements_fn = lambda: rows
+    svc._fit_relevant_flags_fn = lambda: fset
+    out = svc.preview_fit(_CHAT_26B.id)
+    assert out["claim"]["source"] == "measured"
+    assert out["claim"]["vramMb"] == 6500      # the MEDIAN of the three matches
+    assert out["claim"]["matches"] == 3
+    # No fingerprint set wired → matching impossible → computed (never a guess).
+    svc._fit_relevant_flags_fn = None
+    assert svc.preview_fit(_CHAT_26B.id)["claim"]["source"] == "computed"
+
+
+def test_load_records_footprint_and_overhead_rows(tmp_path):
+    # A confirmed load persists its footprint (source='load', the launch switches
+    # riding as the fingerprint) and — when the true-up really measured on the
+    # device — the observed physics overhead as the build-stamped machine row.
+    recorded = []
+
+    def _rec(model_id, *, vram_model_mb, switches, source, label):
+        recorded.append({"id": model_id, "mb": vram_model_mb,
+                         "sw": dict(switches), "source": source, "label": label})
+
+    svc = _service_for(tmp_path, used_vram_fn=lambda: 5000)  # delta 0 → floor 549, "measured"
+    svc._record_load_fn = _rec
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert svc.status()["status"] == "running"
+    load_rows = [r for r in recorded if r["source"] == "load"]
+    assert len(load_rows) == 1
+    assert load_rows[0]["id"] == _TEST_MODEL.id
+    assert load_rows[0]["mb"] == 549           # the driver-ctx floor the ledger booked
+    assert {"n_gpu_layers", "n_cpu_moe", "ctx_len"} <= set(load_rows[0]["sw"])
+    over = [r for r in recorded if r["id"] == "__overhead__"]
+    assert len(over) == 1 and over[0]["source"] == "probe"
+    assert over[0]["label"].startswith("physics-overhead ")
+    assert over[0]["mb"] >= 0
+
+
+def test_unmeasured_load_records_no_overhead_row(tmp_path):
+    recorded = []
+    svc = _service_for(tmp_path)  # probe unmeasurable → source "computed"
+    svc._record_load_fn = lambda model_id, **kw: recorded.append((model_id, kw))
+    svc.load(_TEST_MODEL.id)
+    svc._thread.join(timeout=5)
+    assert [mid for mid, _ in recorded] == [_TEST_MODEL.id]  # footprint yes, overhead no
+    assert recorded[0][1]["label"] == "load footprint (computed)"

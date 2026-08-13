@@ -456,6 +456,63 @@ Phase 2 IN FLIGHT (go 2026-08-13) — stage map, resume HERE:
       the three band fields, and Save round-trips all of them.
   (6) The user's data reset (JV required, JW recommended) happens before
       or at this checkpoint — stale pre-facts rows misread until then.
+- PHASE 4 BUILT 2026-08-13 (go: "go phase 4"; the user chose to run it
+  BEFORE the checkpoint — their sequencing call; the checkpoint's six
+  items above stay open and now also cover the Memory-labeled budget
+  line). Per-backend used-memory probes + the arch-aware arbiter ledger:
+  (a) hardware.py probe family — every arm best-effort None, and None =
+  the pre-Phase-4 behavior (the true-up keeps the estimate), so an
+  unverified probe can only fail to improve, never break a box.
+  `used_device_mem_mb()` is the door: discrete → nvidia-smi (existing) →
+  `_rocm_used_vram_mb` (rocm-smi --showmeminfo vram --csv; the used
+  column is FOUND by "vram"+"used" because its wording varies by ROCm
+  release) → `_amd_sysfs_used_vram_mb` (mem_info_vram_used — the
+  documented amdgpu kernel ABI, sibling of the _total the GPU scan
+  already reads) → `_windows_gpu_dedicated_used_mb` (typeperf
+  "GPU Adapter Memory(*)\Dedicated Usage", one ~1 s sample; only reached
+  when nvidia-smi is absent and only at load true-up, never on a poll).
+  One-pool boxes → `_used_pool_mb` (psutil → GlobalMemoryStatusEx
+  total−avail → /proc/meminfo MemTotal−MemAvailable → vm_stat
+  active+wired+compressor × page size, the delta-stable macOS
+  accounting) so a load's before/after delta counts a model's bytes
+  ONCE (mmap'd weights + "GPU" allocation are the same bytes on UMA).
+  (b) `hardware.budget_total_mb(hw)` — THE arch-aware denominator:
+  discrete → largest single card (historical meaning untouched); else
+  the pool (ram_mb). The arbiter's `_max_vram_mb` flows through it
+  (remaining/can_coreside/make_room/snapshot), as does the true-up cap
+  in `_trued_up_vram_mb`. Before this a Mac/iGPU box totaled 0 →
+  remaining permanently 0 → every admission fell into evict-then-warn.
+  (c) snapshot + wire: arbiter snapshot + RunnerResidentResponse gain
+  `mem_arch` (additive, default discrete); the engine panel's budget
+  line reads "Memory" instead of "VRAM" on one-pool boxes. The *_mb key
+  names KEEP their historical spelling on purpose — §10's
+  don't-reinterpret rule protects STORED columns; a live wire whose
+  meaning is labeled by mem_arch beside it stays honest, and renaming
+  would break every reader incl. the JV strip that consumes THIS
+  snapshot when its wiring resumes (§6.7).
+  (d) lifecycle's default probe switched used_vram_mb →
+  used_device_mem_mb; the injection contract stays no-arg so every
+  injected test fake kept working.
+  TEST LESSON (keep): three lifecycle eviction tests broke because
+  `_fake_hw(1000)` declared no runtimes — a sub-4-GB GPU without cuda
+  now honestly classifies INTEGRATED and budgets the 32 GB pool, so the
+  eviction scenarios never needed to evict. The fakes now declare cuda
+  (a tiny discrete card IS what they meant). Future fake hardware must
+  state its architecture, not just a vram number.
+  HONEST LIMITS: the rocm / typeperf / vm_stat arms are fixture-pinned
+  against documented formats, NOT live-verified (no AMD/Mac box here);
+  the None contract is the safety, live confirmation lands whenever such
+  a box appears. Tests added: rocm CSV parse + junk→None · amdgpu sysfs
+  tmp-tree · typeperf sample parse + counter-absent→None · probe routing
+  (one-pool vs discrete, first-non-None wins, all-None→None) · a LIVE
+  pool-probe sanity on the dev box · the budget_total_mb arch matrix ·
+  the §13.10(c) arbiter pins (one-pool committed ONCE, remaining =
+  pool − claim; unified-mac pool; discrete stays the card, never RAM).
+  Gates: ruff clean · kit 822 passed/10 skipped · kit-ui biome · JW
+  models.md budget-line wording updated same-change (JV user docs
+  describe no budget line — nothing stale there). Remaining Phase 4
+  follow-through rides the standing checkpoint (the budget line on the
+  laptops should now SHOW, labeled Memory, instead of hiding).
 Downstream: JV's VRAM wiring waits on Phase 5 (its claim-line sources are what this
 fixes; claim shape {vram_mb, ram_mb} + provenance decided §13.1/§13.12, RAM
 display-only §8.18); JW seeds regenerate (DECIDED §8.19: facts columns incl. the three

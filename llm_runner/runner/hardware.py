@@ -248,7 +248,8 @@ def current_machine_key() -> str:
 
 def used_vram_mb() -> int | None:
     """Total CURRENTLY-used VRAM across NVIDIA GPUs (MiB), or None when it cannot be
-    measured (no nvidia-smi — AMD / Metal / CPU-only boxes; a probe failure).
+    measured (no nvidia-smi; a probe failure). The NVIDIA arm of the Phase-4 probe
+    family — `used_device_mem_mb` below is the backend-aware door.
 
     WHY this exists (measure-don't-assume, box-verified 2026-07-06): the lifecycle
     trues-up an arbiter reservation with the load's REAL footprint right after the
@@ -269,6 +270,195 @@ def used_vram_mb() -> int | None:
             total += int(tok)
             seen = True
     return total if seen else None
+
+
+# ── Phase 4 (fit-redesign §11): per-backend used-memory probes, best-effort ──
+# Every arm returns None when it cannot measure, and None degrades to exactly
+# the pre-Phase-4 behavior (the true-up keeps the estimate) — an unverified
+# probe can never make a box WORSE, only fail to improve it. Each parse targets
+# a DOCUMENTED interface (a kernel ABI file, a vendor CLI, an OS counter) and
+# is pinned by fixture tests, the same standard the platform detection above
+# was built to from a single-OS dev box.
+
+
+def _rocm_used_vram_mb() -> int | None:
+    """AMD via `rocm-smi --showmeminfo vram --csv` — used-bytes column summed
+    across devices. The column header varies by ROCm release ("VRAM Total Used
+    Memory (B)" and near-variants), so the parse finds the header containing
+    both "vram" and "used" instead of pinning one wording."""
+    if not (shutil.which("rocm-smi")):
+        return None
+    try:
+        out = subprocess.run(
+            ["rocm-smi", "--showmeminfo", "vram", "--csv"],
+            capture_output=True, text=True, timeout=8,
+        ).stdout
+    except Exception as e:  # noqa: BLE001 — probes never raise
+        log.debug("rocm-smi probe failed: %s", e)
+        return None
+    lines = [ln for ln in out.splitlines() if ln.strip()]
+    header = next((ln for ln in lines if "used" in ln.lower()), "")
+    if not header:
+        return None
+    cols = [c.strip().lower() for c in header.split(",")]
+    idx = next((i for i, c in enumerate(cols) if "vram" in c and "used" in c), None)
+    if idx is None:
+        return None
+    total, seen = 0, False
+    for ln in lines[lines.index(header) + 1:]:
+        parts = [p.strip() for p in ln.split(",")]
+        if len(parts) <= idx:
+            continue
+        try:
+            total += int(float(parts[idx]))
+            seen = True
+        except ValueError:
+            continue
+    return total // (1024 * 1024) if seen else None
+
+
+def _amd_sysfs_used_vram_mb(root: Path = Path("/sys/class/drm")) -> int | None:
+    """AMD on Linux via the kernel's own `mem_info_vram_used` (bytes) — the
+    documented amdgpu sysfs ABI, sibling of the `mem_info_vram_total` the GPU
+    scan above already reads. Summed across cards; None when no card exposes it."""
+    try:
+        cards = sorted(p for p in root.iterdir() if re.fullmatch(r"card\d+", p.name))
+    except OSError:
+        return None
+    total, seen = 0, False
+    for card in cards:
+        try:
+            total += int((card / "device" / "mem_info_vram_used").read_text().strip())
+            seen = True
+        except (OSError, ValueError):
+            continue
+    return total // (1024 * 1024) if seen else None
+
+
+def _windows_gpu_dedicated_used_mb() -> int | None:
+    """Windows non-NVIDIA dGPUs via the OS's own GPU performance counters:
+    `typeperf "\\GPU Adapter Memory(*)\\Dedicated Usage" -sc 1` — one sample,
+    bytes per adapter instance, summed. typeperf ships with Windows; the counter
+    set exists on any WDDM 2.x driver. ~1 s — only reached when nvidia-smi is
+    absent, and only at load true-up time, never on a poll."""
+    if platform_key() != "windows" or not shutil.which("typeperf"):
+        return None
+    try:
+        out = subprocess.run(
+            ["typeperf", r"\GPU Adapter Memory(*)\Dedicated Usage", "-sc", "1"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+    except Exception as e:  # noqa: BLE001
+        log.debug("typeperf GPU probe failed: %s", e)
+        return None
+    # Output: a quoted-CSV header row naming each instance, then one sample row
+    # of values; sum every numeric field of the sample row (field 0 is the
+    # timestamp). No sample row / no numbers → None.
+    rows = [ln for ln in out.splitlines() if ln.strip().startswith('"')]
+    if len(rows) < 2:
+        return None
+    total, seen = 0.0, False
+    for cell in rows[-1].split('","')[1:]:
+        try:
+            total += float(cell.strip().strip('"'))
+            seen = True
+        except ValueError:
+            continue
+    return int(total // (1024 * 1024)) if seen else None
+
+
+def _used_pool_mb() -> int | None:
+    """Used SYSTEM memory (MiB) — the probe for one-pool boxes (iGPU / Apple /
+    CPU-only), where the pool IS what models load into and a before/after delta
+    across a load captures the footprint ONCE (mmap'd weights and the "GPU"
+    allocation are the same physical bytes on UMA — §5.2). Arms: psutil when a
+    host ships it → Windows GlobalMemoryStatusEx (total − avail) → Linux
+    /proc/meminfo (MemTotal − MemAvailable) → macOS vm_stat (active + wired +
+    compressor pages × page size — the standard delta-stable accounting)."""
+    try:
+        import psutil  # type: ignore
+
+        return int(psutil.virtual_memory().used // (1024 * 1024))
+    except Exception:  # noqa: BLE001
+        pass
+    plat = platform_key()
+    if plat == "windows":
+        try:
+            import ctypes
+
+            class _MSX(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_uint32), ("dwMemoryLoad", ctypes.c_uint32),
+                            ("ullTotalPhys", ctypes.c_uint64), ("ullAvailPhys", ctypes.c_uint64),
+                            ("ullTotalPageFile", ctypes.c_uint64), ("ullAvailPageFile", ctypes.c_uint64),
+                            ("ullTotalVirtual", ctypes.c_uint64), ("ullAvailVirtual", ctypes.c_uint64),
+                            ("ullAvailExtendedVirtual", ctypes.c_uint64)]
+
+            st = _MSX()
+            st.dwLength = ctypes.sizeof(_MSX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+                return int((st.ullTotalPhys - st.ullAvailPhys) // (1024 * 1024))
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+    if plat == "linux":
+        try:
+            fields = {}
+            for ln in Path("/proc/meminfo").read_text().splitlines():
+                parts = ln.split()
+                if len(parts) >= 2 and parts[0].rstrip(":") in ("MemTotal", "MemAvailable"):
+                    fields[parts[0].rstrip(":")] = int(parts[1])  # kB
+            if "MemTotal" in fields and "MemAvailable" in fields:
+                return (fields["MemTotal"] - fields["MemAvailable"]) // 1024
+        except (OSError, ValueError):
+            pass
+        return None
+    # macOS: vm_stat prints a page size line + "Pages active/wired down/occupied
+    # by compressor" counts; their sum × page size is the used-memory figure
+    # whose LOAD DELTA is stable (free-page accounting alone is not).
+    try:
+        out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
+        m = re.search(r"page size of (\d+) bytes", out)
+        page = int(m.group(1)) if m else 4096
+        used_pages = 0
+        for name in ("Pages active", "Pages wired down", "Pages occupied by compressor"):
+            pm = re.search(rf"{name}:\s+(\d+)", out)
+            if pm:
+                used_pages += int(pm.group(1))
+        return (used_pages * page) // (1024 * 1024) if used_pages else None
+    except Exception as e:  # noqa: BLE001
+        log.debug("vm_stat probe failed: %s", e)
+        return None
+
+
+def used_device_mem_mb() -> int | None:
+    """Used memory (MiB) of the pool models load into on THIS box — the Phase-4
+    backend-aware door the load true-up consumes (`lifecycle._probe_used_vram`).
+    Discrete: NVIDIA → ROCm CLI → amdgpu sysfs → Windows GPU counters (first
+    non-None wins; on an NVIDIA box the later arms are never reached). One-pool
+    (integrated/unified — iGPU, Apple, CPU-only): the used SYSTEM pool, so the
+    before/after delta counts a model's bytes ONCE. None = unmeasurable — the
+    true-up keeps the estimate, exactly the pre-Phase-4 behavior."""
+    hw = detect()
+    if mem_arch(hw) != "discrete":
+        return _used_pool_mb()
+    for probe in (used_vram_mb, _rocm_used_vram_mb, _amd_sysfs_used_vram_mb,
+                  _windows_gpu_dedicated_used_mb):
+        v = probe()
+        if v is not None:
+            return v
+    return None
+
+
+def budget_total_mb(hw: HardwareInfo) -> int:
+    """The memory-budget DENOMINATOR for this box (fit-redesign §5.2, Phase 4):
+    discrete → the largest single card's VRAM (the standing multi-GPU rule);
+    one-pool (integrated / unified / CPU-only) → the pool itself (`ram_mb`).
+    THE one reduction the arbiter's ledger and the true-up cap both use — before
+    this, a Mac/iGPU box had total 0, so remaining was always 0, every admission
+    tried to evict, and the budget line was fiction."""
+    if mem_arch(hw) == "discrete":
+        return max_vram_mb(hw)
+    return int(hw.ram_mb or 0)
 
 
 def _nvidia_query(fields: str) -> str | None:

@@ -20,9 +20,14 @@ from llm_runner.runner.schema import GpuInfo, HardwareInfo, ModelEntry, Recommen
 
 
 def _fake_hw(vram_mb):
-    """A HardwareInfo with one GPU of `vram_mb` — for a deterministic arbiter VRAM budget."""
+    """A HardwareInfo with one GPU of `vram_mb` — for a deterministic arbiter VRAM budget.
+    Declares the cuda runtime so mem_arch reads DISCRETE even for the tiny test cards
+    (Phase 4: a sub-4-GB GPU with no runtime honestly classifies as integrated, and an
+    integrated box budgets against the 32 GB pool — which would make these small-VRAM
+    eviction scenarios never need to evict)."""
     return HardwareInfo(os="Linux", platform="linux", cpu_cores=8, ram_mb=32000,
-                        gpus=[GpuInfo(vendor="nvidia", name="Test", vram_mb=vram_mb)])
+                        gpus=[GpuInfo(vendor="nvidia", name="Test", vram_mb=vram_mb)],
+                        runtimes={"cuda": True})
 
 # Catalog lives in the host DB now (there is no runner manifest); tests feed in
 # their own test models via the `catalog_fn` injection.

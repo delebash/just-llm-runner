@@ -144,8 +144,11 @@ const { start: startResPoll } = usePoll(refreshResident, 2500);
 const residentModels = computed(() => resident.value?.models || []);
 const vramBudget = computed(() => {
   const r = resident.value;
-  if (!r?.vramTotalMb) return ""; // no detectable GPU VRAM → hide the budget line
-  return `VRAM ${r.committedMb} / ${r.vramTotalMb} MB · ${r.remainingMb} MB free`;
+  if (!r?.vramTotalMb) return ""; // no measurable budget pool → hide the line
+  // Phase 4: the budget is ARCH-AWARE — on a one-pool box (iGPU / Apple) the
+  // numbers are the shared pool, so the label says Memory, not VRAM.
+  const word = r.memArch && r.memArch !== "discrete" ? "Memory" : "VRAM";
+  return `${word} ${r.committedMb} / ${r.vramTotalMb} MB · ${r.remainingMb} MB free`;
 });
 // Every status the endpoint can emit gets a tone; unknown → treated as busy, never hidden.
 function statusClass(s) {

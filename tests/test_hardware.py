@@ -12,7 +12,7 @@ import sys
 import pytest
 
 from llm_runner.runner import hardware as hw
-from llm_runner.runner.schema import GpuInfo
+from llm_runner.runner.schema import GpuInfo, HardwareInfo as _HardwareInfo
 
 
 def test_nvidia_gpus_parses_compute_cap(monkeypatch):
@@ -241,3 +241,96 @@ def test_ram_mb_positive_on_every_supported_platform():
 
     ram = _ram_mb()
     assert ram > 1024, f"_ram_mb() returned {ram} — RAM detection is broken on this platform"
+
+
+# ── Phase 4 (fit-redesign §11): the per-backend used-memory probe family ─────
+# Fixture-pinned parses over DOCUMENTED interfaces — the same standard the
+# platform detection above was built to from a single-OS dev box. Every arm's
+# None degrades to the pre-Phase-4 behavior (true-up keeps the estimate).
+
+
+def test_rocm_used_vram_parse(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(hw.shutil, "which", lambda n: "/usr/bin/rocm-smi" if n == "rocm-smi" else None)
+    csv = ("device,VRAM Total Memory (B),VRAM Total Used Memory (B)\n"
+           "card0,17163091968,4294967296\n"
+           "card1,17163091968,1073741824\n")
+    monkeypatch.setattr(hw.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(stdout=csv))
+    assert hw._rocm_used_vram_mb() == (4294967296 + 1073741824) // (1024 * 1024)
+    # Junk output → None, never a guess.
+    monkeypatch.setattr(hw.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(stdout="no such counters"))
+    assert hw._rocm_used_vram_mb() is None
+
+
+def test_amd_sysfs_used_vram(tmp_path):
+    dev = tmp_path / "card0" / "device"
+    dev.mkdir(parents=True)
+    (dev / "mem_info_vram_used").write_text("2147483648\n")   # 2 GiB
+    assert hw._amd_sysfs_used_vram_mb(tmp_path) == 2048
+    assert hw._amd_sysfs_used_vram_mb(tmp_path / "absent") is None
+
+
+def test_windows_gpu_counter_parse(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(hw, "platform_key", lambda: "windows")
+    monkeypatch.setattr(hw.shutil, "which", lambda n: "C:/typeperf" if n == "typeperf" else None)
+    out = ('"(PDH-CSV 4.0)","\\BOX\GPU Adapter Memory(luid_a)\Dedicated Usage",'
+           '"\\BOX\GPU Adapter Memory(luid_b)\Dedicated Usage"\n'
+           '"08/13/2026 10:00:00.000","1073741824.000000","536870912.000000"\n')
+    monkeypatch.setattr(hw.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(stdout=out))
+    assert hw._windows_gpu_dedicated_used_mb() == (1073741824 + 536870912) // (1024 * 1024)
+    # The counter set absent (typeperf error text, no sample row) → None.
+    monkeypatch.setattr(hw.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(stdout="Error: no valid counters.\n"))
+    assert hw._windows_gpu_dedicated_used_mb() is None
+
+
+def test_used_device_mem_routing(monkeypatch):
+    # One-pool box → the SYSTEM pool probe (bytes counted once); discrete box →
+    # the VRAM arms, first non-None wins, all-None stays None (honest unknown).
+    one_pool = _HardwareInfo(os="W", platform="windows", cpu_cores=8, ram_mb=32768,
+                            gpus=[GpuInfo(vendor="Intel", name="Iris Xe", vram_mb=None)],
+                            runtimes={"vulkan": True})
+    monkeypatch.setattr(hw, "detect", lambda: one_pool)
+    monkeypatch.setattr(hw, "_used_pool_mb", lambda: 12345)
+    assert hw.used_device_mem_mb() == 12345
+
+    discrete = _HardwareInfo(os="W", platform="windows", cpu_cores=8, ram_mb=32768,
+                            gpus=[GpuInfo(vendor="AMD", name="RX 7600", vram_mb=8192)],
+                            runtimes={"vulkan": True})
+    monkeypatch.setattr(hw, "detect", lambda: discrete)
+    monkeypatch.setattr(hw, "used_vram_mb", lambda: None)
+    monkeypatch.setattr(hw, "_rocm_used_vram_mb", lambda: None)
+    monkeypatch.setattr(hw, "_amd_sysfs_used_vram_mb", lambda: 3000)
+    monkeypatch.setattr(hw, "_windows_gpu_dedicated_used_mb", lambda: 9999)
+    assert hw.used_device_mem_mb() == 3000   # first non-None wins
+    monkeypatch.setattr(hw, "_amd_sysfs_used_vram_mb", lambda: None)
+    assert hw.used_device_mem_mb() == 9999
+    monkeypatch.setattr(hw, "_windows_gpu_dedicated_used_mb", lambda: None)
+    assert hw.used_device_mem_mb() is None
+
+
+def test_used_pool_probe_live_sanity():
+    # The pool probe on THIS box (any OS): a positive, sane MiB figure — the
+    # Windows/Linux arms are pure OS calls, so this is a real live check.
+    used = hw._used_pool_mb()
+    assert used is not None and 100 < used < 4 * 1024 * 1024
+
+
+def test_budget_total_is_arch_aware():
+    dgpu = _HardwareInfo(os="W", platform="windows", cpu_cores=8, ram_mb=32768,
+                        gpus=[GpuInfo(vendor="NVIDIA", name="2070S", vram_mb=8192)],
+                        runtimes={"cuda": True})
+    igpu = _HardwareInfo(os="W", platform="windows", cpu_cores=8, ram_mb=16384,
+                        gpus=[GpuInfo(vendor="Intel", name="Iris Xe", vram_mb=None)],
+                        runtimes={"vulkan": True})
+    mac = _HardwareInfo(os="Darwin", platform="macos", cpu_cores=10, ram_mb=65536,
+                       gpus=[], runtimes={"metal": True})
+    assert hw.budget_total_mb(dgpu) == 8192    # the card (historical meaning)
+    assert hw.budget_total_mb(igpu) == 16384   # the pool
+    assert hw.budget_total_mb(mac) == 65536    # the pool

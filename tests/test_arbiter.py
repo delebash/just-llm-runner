@@ -7,8 +7,13 @@ from types import SimpleNamespace
 from llm_runner.runner.arbiter import VramArbiter
 
 
-def _hw(vram_mb):
-    return SimpleNamespace(gpus=[SimpleNamespace(vram_mb=vram_mb)])
+def _hw(vram_mb, *, platform="windows", ram_mb=32768, runtimes=None):
+    """A discrete-box fake by default (cuda runtime → mem_arch 'discrete', so the
+    ledger totals stay the card's VRAM — the historical numbers every test below
+    pins). The Phase-4 arch tests build one-pool shapes explicitly."""
+    return SimpleNamespace(platform=platform, ram_mb=ram_mb,
+                           runtimes=runtimes if runtimes is not None else {"cuda": True},
+                           gpus=[SimpleNamespace(vram_mb=vram_mb)])
 
 
 def _arb(vram_mb=8000):
@@ -279,3 +284,49 @@ def test_eviction_events_ring_and_since():
     assert a.events_since(e["seq"]) == []            # the client's cursor advances
     a.clear()
     assert a.events_since(0) == []
+
+
+# ── Phase 4 (fit-redesign §5.2/§13.10c): the ledger goes ARCH-AWARE ──────────
+
+
+def _one_pool_hw(ram_mb=32768, *, platform="windows", gpus=True):
+    """An integrated/unified shape: no cuda runtime, no >=4 GB dedicated card —
+    mem_arch resolves 'integrated' ('unified' when platform='macos', which has
+    no GPU row at all — the real detect() shape)."""
+    rows = [SimpleNamespace(vram_mb=None)] if gpus and platform != "macos" else []
+    return SimpleNamespace(platform=platform, ram_mb=ram_mb,
+                           runtimes=({"metal": True} if platform == "macos" else {"vulkan": True}),
+                           gpus=rows)
+
+
+def test_one_pool_budget_is_the_pool_and_claims_count_once():
+    # The §13.10(c) pin. Before Phase 4 a one-pool box totaled 0: remaining was
+    # permanently 0 and every admission fell into evict-then-warn. Now the
+    # denominator is the POOL, and one reservation = one pool-delta number —
+    # counted once (mmap'd weights + "GPU" allocation are the same bytes on UMA).
+    a = VramArbiter(hardware_fn=lambda: _one_pool_hw(32768))
+    snap = a.snapshot()
+    assert snap["mem_arch"] == "integrated"
+    assert snap["vram_total_mb"] == 32768
+    a.reserve("e4b", 5000)
+    snap = a.snapshot()
+    assert snap["committed_mb"] == 5000          # once, not double-booked
+    assert snap["remaining_mb"] == 32768 - 5000
+    assert a.can_coreside(20000) is True         # the pool admits a co-load
+
+
+def test_unified_mac_budget_is_the_pool():
+    a = VramArbiter(hardware_fn=lambda: _one_pool_hw(65536, platform="macos"))
+    snap = a.snapshot()
+    assert snap["mem_arch"] == "unified"
+    assert snap["vram_total_mb"] == 65536
+    assert a.remaining_mb() == 65536
+
+
+def test_discrete_budget_stays_the_card():
+    # The historical meaning is UNCHANGED on discrete boxes — card VRAM, not RAM.
+    a = _arb(8000)
+    snap = a.snapshot()
+    assert snap["mem_arch"] == "discrete"
+    assert snap["vram_total_mb"] == 8000
+    assert a.remaining_mb() == 8000  # never the 32 GB RAM the fake also carries

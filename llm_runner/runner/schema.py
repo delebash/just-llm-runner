@@ -265,6 +265,12 @@ class RunnerResidentResponse(CamelModel):
     router: bool = False
     models_max: int = 2
     sleep_idle_seconds: int = 900
+    # Phase 4 (fit-redesign §5.2): the box's memory architecture — "discrete" |
+    # "integrated" | "unified". The budget numbers below are ARCH-AWARE: on a
+    # discrete box they are the card's VRAM (the historical meaning, unchanged);
+    # on a one-pool box they are the shared pool, each claim counted once. The
+    # UI labels the line "VRAM" vs "Memory" off this field.
+    mem_arch: str = "discrete"
     vram_total_mb: int = 0
     committed_mb: int = 0
     remaining_mb: int = 0

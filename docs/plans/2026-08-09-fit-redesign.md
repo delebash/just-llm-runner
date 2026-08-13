@@ -785,12 +785,27 @@ measured-model derivation on the three machines — §5.5 source 2's
 "calibrate once before ship" is deferred to the checkpoint (the probe
 self-records as measurement row `__machine_ram_bw__`; verification is a
 read, not code).
+**Phase 4 BUILT 2026-08-13** (go: "go phase 4" — the user sequenced it BEFORE
+the checkpoint; the checkpoint stays open and now also covers the new budget
+line). Per-backend used-memory probes (nvidia → rocm-smi CSV → amdgpu sysfs
+mem_info_vram_used → Windows typeperf GPU counters; one-pool boxes probe the
+SYSTEM pool so a load delta counts bytes once) behind `used_device_mem_mb()`,
+every arm best-effort None (None = pre-Phase-4 behavior — can't make a box
+worse); `budget_total_mb(hw)` is THE arch-aware denominator (card on discrete,
+pool otherwise) consumed by the arbiter ledger + the true-up cap — a Mac/iGPU
+box stops totaling 0; snapshot + resident wire gain `mem_arch` (additive; key
+names keep historical spelling, labeled honest by mem_arch beside them); the
+engine panel budget line says "Memory" on one-pool boxes. Probes for absent
+hardware are fixture-pinned against documented interfaces, live-verified when
+such a box appears (the None contract is the safety). Full stage detail + the
+fake-hardware test lesson in the kit tracker's fit item. Gates: ruff · kit
+822/10 · biome · JW/JV suites at commit.
 NEXT ACTION: laptops glance · data reset · then the DELIBERATE CHECKPOINT
-before Phases 4-6 (§11 — probes + arbiter arch-awareness · persistence +
-claim resolver · shed + joint solve), each on its own go. The checkpoint's
-CONCRETE check list is written in the kit tracker's fit item (chips ×
-three boxes · GLM pickable-with-warning · measured-replaces-predicted ·
-probe-row sanity per box · the knobs round-trip · the reset).
+(now pre-Phase-5) — its CONCRETE check list is in the kit tracker's fit item
+(chips × three boxes · GLM pickable-with-warning · measured-replaces-predicted
+· probe-row sanity per box · the knobs round-trip · the reset · the laptops'
+budget line showing as Memory). Then Phase 5 (persistence + claim resolver —
+unblocks JV) and Phase 6-7, each on its own go.
 
 ## Appendix A — verification probes (reproduce §1.2's numbers; originals were scratchpad-only)
 

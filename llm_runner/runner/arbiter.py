@@ -55,7 +55,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
-from .hardware import detect as _detect, max_vram_mb as _hw_max_vram
+from .hardware import budget_total_mb as _hw_budget_total, detect as _detect, mem_arch as _mem_arch
 
 log = logging.getLogger(__name__)
 
@@ -100,7 +100,15 @@ class VramArbiter:
         self._event_seq = 0
 
     def _max_vram_mb(self, hw=None) -> int:
-        return _hw_max_vram(hw or self._hardware_fn())
+        # ARCH-AWARE since Phase 4 (fit-redesign §5.2): the ledger's denominator
+        # is the budget pool — the largest card's VRAM on a discrete box, the ONE
+        # shared pool (ram_mb) on integrated/unified/CPU-only boxes. Before this,
+        # a Mac/iGPU box totaled 0, remaining was permanently 0, and every
+        # admission fell into the evict-then-proceed-with-warning path. Claims on
+        # one-pool boxes are counted ONCE by construction: each reservation is a
+        # single pool-delta number (mmap'd weights and the "GPU" allocation are
+        # the same physical bytes on UMA — never two claims for one model).
+        return _hw_budget_total(hw or self._hardware_fn())
 
     def committed_mb(self) -> int:
         """Total VRAM currently reserved across the resident set."""
@@ -108,10 +116,10 @@ class VramArbiter:
             return sum(r.vram_mb for r in self._reservations.values())
 
     def remaining_mb(self, hw=None) -> int:
-        """GPU VRAM left after the committed-resident set — the budget fed to `coarse_fit` for
-        budget-aware Fit (design §5c). NO safety margin subtracted here: `coarse_fit`/`compute_fit`
-        subtract the margin themselves (one place), so this is raw detected VRAM minus committed.
-        Never negative."""
+        """Budget left after the committed-resident set (arch-aware pool since Phase 4 —
+        card VRAM on discrete, the shared pool on one-pool boxes). NO safety margin
+        subtracted here: `coarse_fit`/`compute_fit` subtract the margin themselves (one
+        place), so this is the raw detected budget minus committed. Never negative."""
         return max(0, self._max_vram_mb(hw) - self.committed_mb())
 
     def can_coreside(self, vram_mb: int, hw=None) -> bool:
@@ -307,8 +315,15 @@ class VramArbiter:
             return [dict(e) for e in self._events if e["seq"] > seq]
 
     def snapshot(self, hw=None) -> dict:
-        """The budget view for `GET /v1/llm-runner/resident`: committed + remaining VRAM + each
-        reservation's footprint (least-recently-used first). Read-only."""
+        """The budget view for `GET /v1/llm-runner/resident`: committed + remaining budget + each
+        reservation's footprint (least-recently-used first). Read-only.
+
+        ARCH-AWARE (Phase 4, §5.2): `mem_arch` names the box's memory architecture and the
+        `*_mb` numbers are the BUDGET POOL's — on a discrete box that is the card's VRAM
+        (the historical meaning, unchanged); on integrated/unified boxes it is the one
+        shared pool, each claim counted once. Consumers (the engine panel's budget line,
+        the future JV strip — §6.7) label "VRAM" vs "Memory" off `mem_arch`; the key names
+        keep their historical spelling so every existing reader stays wired."""
         with self._lock:
             reservations = [
                 {"key": k, "vram_mb": r.vram_mb, "pinned": r.pinned, "kind": r.kind}
@@ -316,8 +331,10 @@ class VramArbiter:
             ]
             committed = sum(r.vram_mb for r in self._reservations.values())
             busy = sorted(k for k, n in self._busy.items() if n > 0)
+        hw = hw or self._hardware_fn()
         total = self._max_vram_mb(hw)
         return {
+            "mem_arch": _mem_arch(hw),
             "vram_total_mb": total,
             "committed_mb": committed,
             "remaining_mb": max(0, total - committed),

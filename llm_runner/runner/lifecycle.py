@@ -41,7 +41,12 @@ from .config import (
     default_config as _default_config,
 )
 from .gguf import read_gguf_metadata as _read_gguf_metadata
-from .hardware import detect as _detect, max_vram_mb as _hw_max_vram, used_vram_mb as _hw_used_vram
+from .hardware import (
+    budget_total_mb as _hw_budget_total,
+    detect as _detect,
+    max_vram_mb as _hw_max_vram,
+    used_device_mem_mb as _hw_used_device_mem,
+)
 from .download import DownloadCancelled, download_kwargs
 from .models import acquire_model as _acquire_model, cached_gguf_path, is_cached, _quant_matches
 from .process import (
@@ -441,7 +446,7 @@ class RunnerService:
         router_load=_default_router_load,
         router_unload=_default_router_unload,
         router_models=_default_router_models,
-        used_vram_fn=_hw_used_vram,
+        used_vram_fn=_hw_used_device_mem,
         now=time.monotonic,
         sleep=time.sleep,
         arbiter=None,
@@ -1429,11 +1434,12 @@ class RunnerService:
         lazy-spawn common case) → `router: False`, empty set. The per-model VRAM budget lands
         here in P2 (the arbiter)."""
         cfg = self._config_fn()
-        snap = self._arbiter.snapshot(hw)  # committed/remaining/total VRAM (hw passed → no re-detect)
+        snap = self._arbiter.snapshot(hw)  # committed/remaining/total budget (hw passed → no re-detect)
         out = {
             "router": False,
             "models_max": cfg.models_max,
             "sleep_idle_seconds": cfg.sleep_idle_seconds,
+            "mem_arch": snap.get("mem_arch", "discrete"),
             "vram_total_mb": snap["vram_total_mb"],
             "committed_mb": snap["committed_mb"],
             "remaining_mb": snap["remaining_mb"],
@@ -2106,10 +2112,12 @@ class RunnerService:
     #    Called from _run_load under `_router_lock`.
 
     def _probe_used_vram(self) -> int | None:
-        """Snapshot of total used VRAM (MiB) via the injected probe (`used_vram_fn`,
-        default `hardware.used_vram_mb`); None when unmeasurable (no nvidia-smi —
-        AMD/Metal/CPU boxes) or when the probe itself raises — a probe failure must
-        never fail a load."""
+        """Snapshot of the used BUDGET-POOL memory (MiB) via the injected probe
+        (`used_vram_fn`, default `hardware.used_device_mem_mb` — Phase 4's
+        backend-aware door: nvidia-smi → rocm-smi → amdgpu sysfs → Windows GPU
+        counters on discrete boxes; the used SYSTEM pool on one-pool boxes, so a
+        load's delta counts its bytes once). None when unmeasurable or when the
+        probe itself raises — a probe failure must never fail a load."""
         try:
             return self._used_vram_fn()
         except Exception:  # noqa: BLE001 — measurement is best-effort, never load-fatal
@@ -2133,7 +2141,10 @@ class RunnerService:
         ngl-0 CUDA child still holds ~549 MB of driver context and must not book 0 when
         the fit claimed GPU use. Unmeasurable (None either side) → the card-capped
         estimate (deterministic offline)."""
-        cap = _hw_max_vram(hardware) if hardware is not None else 0
+        # ARCH-AWARE cap (Phase 4): the ceiling is the budget POOL — the card on
+        # discrete boxes (the historical meaning), the shared pool on one-pool
+        # boxes (where max_vram is 0/absent and the old cap never engaged).
+        cap = _hw_budget_total(hardware) if hardware is not None else 0
         est = min(estimate_mb, cap) if cap > 0 else estimate_mb
         after = self._probe_used_vram()
         if before is None or after is None:

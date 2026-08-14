@@ -139,6 +139,40 @@ def select_files(
     return commit_sha, selected
 
 
+def select_repo_files(
+    repo: str, *, revision: str = "main", files: list[str] | None = None
+) -> tuple[str, list[dict]]:
+    """Resolve (commit_sha, [tree entries]) for an EXPLICIT file list — exact
+    repo-relative paths — or the WHOLE repo tree when `files` is None. The
+    generic sibling of the GGUF-specific `select_files` (2026-08-14, the
+    JustVoice speech-cache convergence): speech engines pin named checkpoint
+    files per variant; nothing quant-shaped to match. Any named file missing
+    from the tree raises FileNotFoundError naming it — fail loud, never fetch
+    the wrong thing. Entries carry path + true size (`_entry_size`) + blob
+    oid (`_entry_oid`)."""
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        sha_fut = ex.submit(_revision_sha, repo, revision)
+        tree_fut = ex.submit(_tree, repo, revision)
+        commit_sha = sha_fut.result()
+        entries = tree_fut.result()
+    if files is None:
+        return commit_sha, entries
+    by_path = {e["path"]: e for e in entries}
+    missing = [f for f in files if f not in by_path]
+    if missing:
+        raise FileNotFoundError(
+            f"files not in {repo}@{revision}: {', '.join(missing)}"
+        )
+    return commit_sha, [by_path[f] for f in files]
+
+
+def hf_download_headers() -> dict:
+    """Public door to the HF bearer-auth headers for callers that stream
+    `resolve/` URLs with their own `stream_download` (the JV speech cache) —
+    the token raises the anonymous rate-limit windows on every bucket."""
+    return _hf_headers()
+
+
 # Quant token in a GGUF filename: Q4_K_M / IQ4_XS / PQ2_0 / UD-Q4_K_XL / Q4_0 / BF16 / F16…
 # Leading `(?<![A-Za-z0-9])` word-boundary so a P-prefixed quant (PQ2_0) is its OWN
 # token, not the tail "Q2_0" merged into the Q2_0 row; the Q family is `[IP]?Q` so PQ

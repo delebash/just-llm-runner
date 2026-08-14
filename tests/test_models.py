@@ -81,6 +81,29 @@ def test_select_files_no_match_raises(monkeypatch):
         models.select_files("owner/repo", "DOES-NOT-EXIST")
 
 
+def test_select_repo_files_explicit_list_ordered(monkeypatch):
+    monkeypatch.setattr(models.requests, "get", _make_get(TREE))
+    sha, files = models.select_repo_files(
+        "owner/repo", files=["mmproj-F16.gguf", "README.md"])
+    assert sha == "abc1234"
+    # Order follows the request, not the tree.
+    assert [f["path"] for f in files] == ["mmproj-F16.gguf", "README.md"]
+
+
+def test_select_repo_files_whole_tree_when_none(monkeypatch):
+    monkeypatch.setattr(models.requests, "get", _make_get(TREE))
+    _, files = models.select_repo_files("owner/repo")
+    # Every FILE entry, never the directory row.
+    assert len(files) == 6
+    assert all(e.get("type") == "file" for e in files)
+
+
+def test_select_repo_files_missing_name_raises_naming_it(monkeypatch):
+    monkeypatch.setattr(models.requests, "get", _make_get(TREE))
+    with pytest.raises(FileNotFoundError, match="nope.bin"):
+        models.select_repo_files("owner/repo", files=["README.md", "nope.bin"])
+
+
 def test_acquire_model_writes_hf_cache_layout(monkeypatch, tmp_path):
     monkeypatch.setattr(models.requests, "get", _make_get(TREE))
     calls: list[str] = []

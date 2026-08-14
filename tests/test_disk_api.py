@@ -89,3 +89,27 @@ def test_symlinks_are_not_followed(tmp_path):
         pytest.skip("symlinks unsupported on this platform")
     body = _client(tmp_path).get("/v1/disk/usage").json()
     assert body["modelsCache"] == 2048  # blob counted once; the symlink skipped
+
+
+def test_extra_buckets_measured_named_and_counted(tmp_path):
+    """Host-declared buckets (JV's speech/render caches): measured with the
+    same guarded walk, served under their declared names in `extras`, counted
+    into total. A missing extra dir is 0, and a host that declares none gets
+    `extras: {}` (the pre-parameter shape, byte-identical)."""
+    _write(tmp_path / "speech-cache" / "kokoro" / "v1" / "model.onnx", 900)
+    _write(tmp_path / "cache" / "ab" / "render.wav", 600)
+    _write(tmp_path / "logs" / "app.log", 100)
+
+    app = FastAPI()
+    app.include_router(make_disk_router(str(tmp_path), extra_buckets={
+        "speechCache": tmp_path / "speech-cache",
+        "renderCache": tmp_path / "cache",
+        "neverCreated": tmp_path / "nope",
+    }))
+    body = TestClient(app).get("/v1/disk/usage").json()
+    assert body["extras"] == {"speechCache": 900, "renderCache": 600, "neverCreated": 0}
+    assert body["total"] == 100 + 900 + 600
+
+    plain = _client(tmp_path).get("/v1/disk/usage").json()
+    assert plain["extras"] == {}
+    assert plain["total"] == 100

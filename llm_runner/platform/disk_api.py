@@ -18,9 +18,11 @@ The measured buckets:
                    llama.cpp binaries; swept on engine uninstall/update).
 - `spawnLogs`    — `<runtime_root>/logs` (per-spawn llama-server logs, otherwise
                    UNBOUNDED — the runner's spawn-logs/clear reclaims them).
-- `total`        — the sum of the five buckets.
+- `total`        — the sum of the five buckets (+ any host-declared extras).
 - `diskFree` / `diskTotal` — the volume's free/total bytes (`shutil.disk_usage`).
 - `cacheShared`  — true when the cache lives outside this app's data root.
+- `extras`       — host-declared app-specific buckets (`extra_buckets=`), e.g.
+                   JV's speech-cache and render-cache roots; {} when none.
 
 The last three buckets are read from the RUNNING SERVICE, not assumed to be under
 `data_dir`: the cache may be shared with a sibling app (2026-08-03), and a panel
@@ -105,6 +107,10 @@ class DiskUsageResponse(BaseModel):
     # True when the engine cache is somewhere other than `<data_dir>/ai-cache` — a
     # panel offering "clear the models cache" needs to say WHOSE models those are.
     cacheShared: bool = False
+    # Host-declared buckets (`make_disk_router(..., extra_buckets=...)`) — app
+    # stores the shared kit doesn't know about (JV's speech-cache / render
+    # cache). Counted into `total`; {} for hosts that declare none.
+    extras: dict[str, int] = {}
 
 
 def _engine_roots(data_dir: Path) -> tuple[Path, Path]:
@@ -129,12 +135,20 @@ def _engine_roots(data_dir: Path) -> tuple[Path, Path]:
     return cache, cache / "llamacpp"
 
 
-def make_disk_router(data_dir) -> APIRouter:
+def make_disk_router(data_dir, extra_buckets: dict[str, "Path | str"] | None = None) -> APIRouter:
     """Build the shared read-only `GET /v1/disk/usage` over the app's `data_dir`
     (the portable root that also holds `ai-cache/`). Same host wiring shape as
-    `make_logs_router`."""
+    `make_logs_router`.
+
+    `extra_buckets` lets a host declare app-specific stores the shared kit
+    doesn't know about ({name: directory}; JV passes its speech-cache and
+    render-cache roots). Each is measured with the same guarded walk, lands in
+    the response's `extras` map under its declared name, and counts into
+    `total`. Hosts that declare none get `extras: {}` and byte-identical
+    behavior to before the parameter existed."""
     router = APIRouter(tags=["disk"])
     root = Path(data_dir)
+    extra_roots = {name: Path(p) for name, p in (extra_buckets or {}).items()}
 
     @router.get("/v1/disk/usage", response_model=DiskUsageResponse)
     async def disk_usage() -> DiskUsageResponse:
@@ -149,7 +163,9 @@ def make_disk_router(data_dir) -> APIRouter:
         # the per-spawn logs/, which is its own bucket below.
         engine_builds = dir_size(llamacpp, exclude={spawn_logs_dir})
         spawn_logs = dir_size(spawn_logs_dir)
-        total = database + app_logs + models_cache + engine_builds + spawn_logs
+        extras = {name: dir_size(p) for name, p in extra_roots.items()}
+        total = database + app_logs + models_cache + engine_builds + spawn_logs \
+            + sum(extras.values())
 
         free = disk_total = 0
         try:
@@ -163,6 +179,7 @@ def make_disk_router(data_dir) -> APIRouter:
             engineBuilds=engine_builds, spawnLogs=spawn_logs, total=total,
             diskFree=free, diskTotal=disk_total,
             cacheShared=(ai_cache != root / "ai-cache"),
+            extras=extras,
         )
 
     return router

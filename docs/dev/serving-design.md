@@ -91,6 +91,24 @@ standing distillation).
   and `fit.py` was kept. That decision is SUPERSEDED by this redesign —
   `fit.py` grew the first-principles physics itself, and the external-tool
   question is closed.
+- **The one-pool ruling (2026-08-13, post-redesign):** on one-pool boxes the
+  ledger tracks POOL OCCUPANCY, not device placement. Phase 4 made the
+  arbiter's denominator arch-aware but the BOOKING kept its pre-Phase-4
+  carve-out clamp (`min(booked, max_vram_mb)` — 0–128 MB on iGPU boxes, so
+  admission never engaged, the claim line read ~0, and the `__overhead__`
+  calibration recorded garbage; both the clamp's comment and its own test
+  said "until Phase 4" and the debt was never collected). The clamp's ceiling
+  is now `budget_total_mb` (identical on discrete by construction), the two
+  carve-out-era test pins are re-pinned to pool truth, and a new pin asserts
+  a one-pool booking equals the same physics a pool-sized discrete card would
+  book. The same ruling's app half: a JV managed-engine load on a one-pool
+  box books its declared `vram_min_mb` whichever device it resolves (CPU and
+  GPU are the same physical bytes there); discrete keeps
+  cpu-resolves-books-nothing. Recorded gaps: GPU-less CPU-only boxes still
+  book 0 (the fit's `one_pool` arm excludes them by design), and
+  `configure_service(declared_claim_fn=…)` is DEAD plumbing — assigned, read
+  nowhere, and `preview_fit` resolves catalog ids only; JV prices its engines
+  from its own manifests instead. Delete or complete it when it next blocks.
 
 ## Known limitations (standing, by design or unfixed)
 

@@ -31,7 +31,7 @@ import requests
 from . import fit
 from .config import DEFAULT_CTX_CAP_TOKENS, DEFAULT_SAFETY_MARGIN_MB
 from .gguf import GgufMeta
-from .hardware import active_backend, max_vram_mb, mem_arch
+from .hardware import active_backend, budget_total_mb, max_vram_mb, mem_arch
 from .schema import HardwareInfo
 
 log = logging.getLogger(__name__)
@@ -585,10 +585,14 @@ def compute_fit(
             moe_share=moe_share, kv_mb=kv_mb, overhead_mb=overhead_mb,
         )
         if one_pool:
-            # The arbiter's ledger is still the carve-out figure until Phase 4 makes
-            # its snapshot arch-aware — never book more than the ledger can hold
-            # (a Mac's ledger is 0: nothing to book against, reservation 0).
-            booked = min(booked, float(max_vram_mb(hardware)))
+            # THE ONE-POOL RULING (2026-08-13, "your rec go"): the ledger tracks POOL
+            # occupancy, so the booking's ceiling is the pool — the same denominator
+            # Phase 4 gave the arbiter. The old ceiling here was `max_vram_mb` (the
+            # iGPU carve-out, 0–128 MB), this clamp's own "until Phase 4" expiry
+            # condition never collected: bookings of ~0 meant admission never engaged,
+            # the claim line read 0, and the `__overhead__` calibration recorded
+            # garbage on every one-pool box.
+            booked = min(booked, float(budget_total_mb(hardware)))
         vram_mb = int(booked + draft_marginal_mb)
     elif draft_full_mb > 0:
         # Main fell fully to CPU, but the draft still lands on the GPU — it is then the

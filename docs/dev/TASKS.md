@@ -298,9 +298,23 @@ EXECUTE AGAINST THE PLAN, do not re-derive. Each phase needs its own literal "go
   launchable pin · §7.4-as-ranking via the new `ranHere` wire bit · the
   §7.5 pin audit (all four already existed) · the §7.6 docs pass — record
   below).
-- **NEXT = the laptops walk at the user's pace · then the JV VRAM-wiring
-  go (its registration points are in JV's tracker item; no kit
-  prerequisite left).**
+- **THE JV VRAM WIRING IS BUILT (2026-08-13, go: "your rec go and go for
+  the full vram phase")** — record in JV's tracker + vram-think §6 stamp 2.
+  The kit's share of that go, THE ONE-POOL RULING: the one-pool booking
+  clamp in `process.py` (whose own comment and own test said "until Phase 4
+  makes the ledger arch-aware" — a debt Phase 4 never collected: bookings
+  of 0–128 MB on iGPU boxes, admission dead, claims ~0, `__overhead__`
+  rows poisoned) now ceilings at `budget_total_mb` (identical on discrete);
+  the two carve-out-era pins re-pinned to pool truth + a new
+  physics-equality pin (`test_arch_arm_one_pool_booking_is_real_pool_
+  occupancy`). Found by the ordered re-think's adversarial cross-check
+  (Fable → Opus → Fable, every claim run in code); the same check found
+  `declared_claim_fn` is DEAD plumbing (assigned, never read; preview_fit
+  resolves catalog ids only) — JV prices engines from its own manifests;
+  the seam stays a recorded gap in serving-design.md. Suite 847.
+- **NEXT = the laptops walk at the user's pace** (the budget line should
+  now show REAL bookings there — the strip label "Memory", the E4B "Fits",
+  the probe row a plausible GB/s).
 - **JV's VRAM wiring is UNBLOCKED** (Phase 5) — its own go required; the
   registration points are stamped in JV's tracker item.
 

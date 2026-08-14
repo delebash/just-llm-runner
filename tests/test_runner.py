@@ -691,14 +691,17 @@ def _hw_one_pool(platform="windows", ram_mb=32000, gpus=None, runtimes=None):
 def test_arch_arm_unified_mac_is_not_a_cpu_box():
     """The Mac bug: no GPU row → max_vram 0 → budget 0 → ctx clamped to the ladder
     floor (4096) while Metal ran the model fine. The one-pool arm budgets ctx from
-    the POOL, so a 32 GB Mac affords real context (capped by the ctx cap)."""
+    the POOL, so a 32 GB Mac affords real context (capped by the ctx cap) — and
+    since the 2026-08-13 one-pool ruling the BOOKING is real pool occupancy too
+    (the old `== 0` pin was the carve-out clamp's "ledger is 0 on a Mac" era)."""
     meta = GgufMeta(architecture="llama", block_count=10, embedding_length=1000,
                     expert_count=0, context_length=262144)
     mac = _hw_one_pool(platform="macos", ram_mb=32768)
     plan = compute_fit(meta, _TEN_GB, mac)
     assert plan.ctx_len > 4096          # unclamped — the pool affords it
     assert plan.ctx_len <= 32768        # the ctx cap still governs
-    assert plan.vram_mb == 0            # nothing fabricated: ledger is 0 on a Mac
+    assert plan.vram_mb >= _TEN_GB / 1e6  # full offload: at least the weights' bytes
+    assert plan.vram_mb <= 32768        # never more than the pool itself
 
 
 def test_arch_arm_one_pool_moe_never_offloads_experts():
@@ -723,15 +726,46 @@ def test_arch_arm_one_pool_moe_never_offloads_experts():
 
 
 def test_arch_arm_one_pool_booking_never_exceeds_ledger():
-    """Until Phase 4 makes the arbiter snapshot arch-aware, the ledger on an iGPU
-    box is the carve-out figure — the physics booking is capped there so admission
-    math never books more than the ledger can hold."""
+    """The 2026-08-13 one-pool ruling: the ledger tracks POOL occupancy, so the
+    booking's ceiling is `budget_total_mb` (the pool) — the same denominator the
+    arbiter got in Phase 4. This test's previous pin (`<= 2048`, the Iris Xe
+    carve-out) enforced the pre-Phase-4 clamp whose own docstring said "until
+    Phase 4"; that debt is now collected. A booking of 0–128 MB here meant
+    admission never engaged and the claim line read 0 on every one-pool box."""
     meta = GgufMeta(architecture="llama", block_count=10, embedding_length=1000,
                     expert_count=0, context_length=8192)
     igpu = _hw_one_pool(platform="windows", ram_mb=16000,
                         gpus=[GpuInfo(vendor="Intel", name="Iris Xe", vram_mb=2048)])
     plan = compute_fit(meta, _TEN_GB, igpu)
-    assert plan.vram_mb <= 2048
+    assert plan.vram_mb > 2048           # a real booking, not the carve-out clamp
+    assert plan.vram_mb >= _TEN_GB / 1e6  # full offload: at least the weights' bytes
+    assert plan.vram_mb <= 16000         # never more than the pool itself
+
+
+def test_arch_arm_one_pool_booking_is_real_pool_occupancy():
+    """The new pin the ruling ordered: on a one-pool box the booking is the same
+    physics number a discrete card of pool size would book — weights + KV +
+    the backend overhead seed — because the pool IS the device memory there.
+    Guards the exact failure the clamp caused: E4B on igpu-mem16 booked 0–128 MB
+    against a 16384 MB budget, so `_admit` never made room, `preview_fit`'s
+    computed arm claimed ~0, and the `__overhead__` row recorded ~6.3 GB where
+    the vulkan seed is ~2 GB."""
+    meta = GgufMeta(architecture="llama", block_count=10, embedding_length=1000,
+                    expert_count=0, context_length=8192)
+    igpu = _hw_one_pool(platform="windows", ram_mb=16000,
+                        gpus=[GpuInfo(vendor="Intel", name="Iris Xe", vram_mb=2048)])
+    pool_plan = compute_fit(meta, _TEN_GB, igpu)
+    # The same box as a discrete card with VRAM = the pool: identical placement
+    # (full offload) and the same physics terms except the backend overhead seed
+    # (vulkan on the iGPU vs cuda on the discrete fake) — so compare weights+KV
+    # by subtracting each backend's seed rather than pinning a magic number.
+    from llm_runner.runner.fit import PHYSICS_OVERHEAD_MB
+
+    discrete_plan = compute_fit(meta, _TEN_GB, _hw(vram_mb=16000))
+    assert pool_plan.n_gpu_layers == discrete_plan.n_gpu_layers == 10
+    pool_core = pool_plan.vram_mb - PHYSICS_OVERHEAD_MB["vulkan"]
+    discrete_core = discrete_plan.vram_mb - PHYSICS_OVERHEAD_MB["cuda"]
+    assert abs(pool_core - discrete_core) <= 1  # same weights+KV, int rounding apart
 
 
 def test_ctx_cap_bounds_computed_ctx_only():

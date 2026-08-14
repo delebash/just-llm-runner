@@ -135,20 +135,29 @@ def _engine_roots(data_dir: Path) -> tuple[Path, Path]:
     return cache, cache / "llamacpp"
 
 
-def make_disk_router(data_dir, extra_buckets: dict[str, "Path | str"] | None = None) -> APIRouter:
+def make_disk_router(
+    data_dir,
+    extra_buckets: "dict[str, Path | str | list[Path | str]] | None" = None,
+) -> APIRouter:
     """Build the shared read-only `GET /v1/disk/usage` over the app's `data_dir`
     (the portable root that also holds `ai-cache/`). Same host wiring shape as
     `make_logs_router`.
 
     `extra_buckets` lets a host declare app-specific stores the shared kit
-    doesn't know about ({name: directory}; JV passes its speech-cache and
-    render-cache roots). Each is measured with the same guarded walk, lands in
-    the response's `extras` map under its declared name, and counts into
-    `total`. Hosts that declare none get `extras: {}` and byte-identical
-    behavior to before the parameter existed."""
+    doesn't know about ({name: directory | [directories]}; JV passes its
+    speech stores — the speech cache PLUS the legacy per-engine model dirs —
+    and its render-cache root). A bucket with several directories is summed:
+    one honest number per user-facing store, wherever its files ended up
+    across layout generations. Each lands in the response's `extras` map
+    under its declared name and counts into `total`. Hosts that declare none
+    get `extras: {}` and byte-identical behavior to before the parameter
+    existed."""
     router = APIRouter(tags=["disk"])
     root = Path(data_dir)
-    extra_roots = {name: Path(p) for name, p in (extra_buckets or {}).items()}
+    extra_roots = {
+        name: [Path(p) for p in (v if isinstance(v, (list, tuple)) else [v])]
+        for name, v in (extra_buckets or {}).items()
+    }
 
     @router.get("/v1/disk/usage", response_model=DiskUsageResponse)
     async def disk_usage() -> DiskUsageResponse:
@@ -163,7 +172,8 @@ def make_disk_router(data_dir, extra_buckets: dict[str, "Path | str"] | None = N
         # the per-spawn logs/, which is its own bucket below.
         engine_builds = dir_size(llamacpp, exclude={spawn_logs_dir})
         spawn_logs = dir_size(spawn_logs_dir)
-        extras = {name: dir_size(p) for name, p in extra_roots.items()}
+        extras = {name: sum(dir_size(p) for p in paths)
+                  for name, paths in extra_roots.items()}
         total = database + app_logs + models_cache + engine_builds + spawn_logs \
             + sum(extras.values())
 

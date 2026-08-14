@@ -43,7 +43,11 @@ export function createRateTracker({ windowMs = 6000, now = () => Date.now() } = 
 export function fmtBytes(n) {
   if (!n) return "";
   const mb = n / (1024 * 1024);
-  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+  if (mb >= 1) return `${Math.round(mb)} MB`;
+  // Sub-MB never rounds to a lying "0 MB" (a 490 KB database is not
+  // nothing — JV's Disk-usage panel showed all-zero rows over real bytes).
+  return `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
 export function fmtSpeed(bytesPerSec) {

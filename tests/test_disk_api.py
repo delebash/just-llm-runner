@@ -113,3 +113,19 @@ def test_extra_buckets_measured_named_and_counted(tmp_path):
     plain = _client(tmp_path).get("/v1/disk/usage").json()
     assert plain["extras"] == {}
     assert plain["total"] == 100
+
+
+def test_extra_bucket_with_several_roots_sums_them(tmp_path):
+    """A user-facing store whose files span layout generations (JV's speech
+    models: the speech cache + legacy per-engine dirs) declares a LIST of
+    roots and gets one summed number."""
+    _write(tmp_path / "speech-cache" / "eng" / "v1" / "m.bin", 500)
+    _write(tmp_path / "legacy" / "eng" / "models" / "old.onnx", 300)
+
+    app = FastAPI()
+    app.include_router(make_disk_router(str(tmp_path), extra_buckets={
+        "speechCache": [tmp_path / "speech-cache", tmp_path / "legacy" / "eng" / "models"],
+    }))
+    body = TestClient(app).get("/v1/disk/usage").json()
+    assert body["extras"] == {"speechCache": 800}
+    assert body["total"] == 800

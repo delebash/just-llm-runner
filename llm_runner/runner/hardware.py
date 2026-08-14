@@ -461,6 +461,136 @@ def budget_total_mb(hw: HardwareInfo) -> int:
     return int(hw.ram_mb or 0)
 
 
+# ── Per-PROCESS memory probes (2026-08-13, the speech measured true-up) ──────
+# The device-wide before/after delta is only attributable when loads serialize
+# (the runner's own loads do, under _router_lock) — a JV engine subprocess
+# loading concurrently with a runner load would cross-charge. These probe ONE
+# pid instead, so attribution is exact by construction. Same contract as the
+# Phase-4 family: never raise, None = unmeasurable (the caller degrades to the
+# serialized-delta arm, honestly labeled "computed").
+
+
+def _nvidia_process_mem_mb(pid: int) -> int | None:
+    """Per-process GPU memory via `nvidia-smi --query-compute-apps` (MiB,
+    summed across GPUs). Works on Linux and Windows-TCC; under Windows WDDM
+    the column prints "[N/A]" or "Insufficient Permissions" — non-numeric
+    parses fall through to None and the Windows counter arm below takes over."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,used_gpu_memory",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=8,
+        ).stdout
+    except Exception as e:  # noqa: BLE001 — probes never raise
+        log.debug("nvidia-smi compute-apps probe failed: %s", e)
+        return None
+    total, seen = 0, False
+    for ln in out.splitlines():
+        parts = [p.strip() for p in ln.split(",")]
+        if len(parts) >= 2 and parts[0] == str(pid) and parts[1].isdigit():
+            total += int(parts[1])
+            seen = True
+    return total if seen else None
+
+
+def _windows_gpu_process_dedicated_mb(pid: int) -> int | None:
+    """Per-PID dedicated GPU memory on Windows via the OS's own `GPU Process
+    Memory` counter set — the per-PID sibling of the `GPU Adapter Memory`
+    counter `_windows_gpu_dedicated_used_mb` reads, and what Task Manager's
+    per-process GPU column shows. Instance names embed the pid
+    (`pid_1234_luid_..._phys_0`), so the wildcard selects one process; values
+    are bytes, summed across instances. This is the arm that works under WDDM,
+    where nvidia-smi reports per-process memory as N/A. Localized Windows
+    localizes counter NAMES — typeperf then errors, no sample row parses, and
+    the honest answer is None."""
+    if platform_key() != "windows" or not shutil.which("typeperf"):
+        return None
+    try:
+        out = subprocess.run(
+            ["typeperf", rf"\GPU Process Memory(pid_{pid}*)\Dedicated Usage",
+             "-sc", "1"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+    except Exception as e:  # noqa: BLE001
+        log.debug("typeperf GPU process probe failed: %s", e)
+        return None
+    rows = [ln for ln in out.splitlines() if ln.strip().startswith('"')]
+    if len(rows) < 2:
+        return None
+    total, seen = 0.0, False
+    for cell in rows[-1].split('","')[1:]:
+        try:
+            total += float(cell.strip().strip('"'))
+            seen = True
+        except ValueError:
+            continue
+    return int(total // (1024 * 1024)) if seen else None
+
+
+def process_device_mem_mb(pid: int) -> int | None:
+    """Dedicated DEVICE memory (MiB) held by ONE process, or None when it
+    cannot be measured. The discrete-box door for measuring what a child
+    process (a JV engine subprocess, a llama-server child) actually holds:
+    nvidia-smi's per-process query first (Linux, Windows-TCC), then the
+    Windows per-PID GPU Process Memory counters (the WDDM path). No AMD
+    per-process arm exists — vendor tooling exposes only device-wide use —
+    so AMD boxes answer None and the caller falls back to its delta arm."""
+    for probe in (_nvidia_process_mem_mb, _windows_gpu_process_dedicated_mb):
+        v = probe(pid)
+        if v is not None:
+            return v
+    return None
+
+
+def process_rss_mb(pid: int) -> int | None:
+    """Resident set size (MiB) of ONE process — the one-pool-box arm of the
+    per-process family: on UMA the pool a model loads into IS system memory,
+    so a process's resident bytes are its pool take. Arms mirror
+    `_used_pool_mb`: psutil when a host ships it → Windows `tasklist` CSV →
+    Linux `/proc/<pid>/status` VmRSS → `ps -o rss=` elsewhere."""
+    try:
+        import psutil  # type: ignore
+
+        return int(psutil.Process(pid).memory_info().rss // (1024 * 1024))
+    except Exception:  # noqa: BLE001
+        pass
+    plat = platform_key()
+    if plat == "windows":
+        try:
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=8,
+            ).stdout
+            for ln in out.splitlines():
+                if not ln.strip().startswith('"'):
+                    continue
+                cells = [c.strip().strip('"') for c in ln.split('","')]
+                if len(cells) >= 5 and cells[1] == str(pid):
+                    digits = re.sub(r"[^0-9]", "", cells[4])  # "123,456 K", localized separators
+                    if digits:
+                        return int(digits) // 1024
+        except Exception as e:  # noqa: BLE001
+            log.debug("tasklist RSS probe failed: %s", e)
+        return None
+    if plat == "linux":
+        try:
+            for ln in Path(f"/proc/{pid}/status").read_text().splitlines():
+                if ln.startswith("VmRSS:"):
+                    return int(ln.split()[1]) // 1024  # kB
+        except (OSError, ValueError, IndexError):
+            pass
+        return None
+    try:
+        out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)],
+                             capture_output=True, text=True, timeout=5).stdout
+        tok = out.strip()
+        return int(tok) // 1024 if tok.isdigit() else None  # kB
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _nvidia_query(fields: str) -> str | None:
     """Run one `nvidia-smi --query-gpu` call; None on any failure (never raises)."""
     try:

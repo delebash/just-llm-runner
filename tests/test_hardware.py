@@ -322,6 +322,66 @@ def test_used_pool_probe_live_sanity():
     assert used is not None and 100 < used < 4 * 1024 * 1024
 
 
+# ── Per-process probes (the speech measured true-up, 2026-08-13) ─────────────
+
+
+def test_nvidia_process_mem_parse(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(hw.shutil, "which", lambda n: "/usr/bin/nvidia-smi" if n == "nvidia-smi" else None)
+    # Two GPUs → the pid appears twice; a foreign pid and a WDDM "[N/A]" row ride along.
+    out = "1234, 900\n5678, 4000\n1234, 300\n1234, [N/A]\n"
+    monkeypatch.setattr(hw.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=out))
+    assert hw._nvidia_process_mem_mb(1234) == 1200
+    # WDDM: every row for the pid is non-numeric → None (falls through to the counter arm).
+    monkeypatch.setattr(hw.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(stdout="1234, [N/A]\n"))
+    assert hw._nvidia_process_mem_mb(1234) is None
+    # nvidia-smi absent → None without running anything.
+    monkeypatch.setattr(hw.shutil, "which", lambda n: None)
+    assert hw._nvidia_process_mem_mb(1234) is None
+
+
+def test_windows_gpu_process_counter_parse(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(hw, "platform_key", lambda: "windows")
+    monkeypatch.setattr(hw.shutil, "which", lambda n: "C:/typeperf" if n == "typeperf" else None)
+    out = ('"(PDH-CSV 4.0)","\\\\BOX\\GPU Process Memory(pid_1234_luid_a_phys_0)\\Dedicated Usage",'
+           '"\\\\BOX\\GPU Process Memory(pid_1234_luid_a_phys_1)\\Dedicated Usage"\n'
+           '"08/13/2026 10:00:00.000","1073741824.000000","268435456.000000"\n')
+    monkeypatch.setattr(hw.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=out))
+    assert hw._windows_gpu_process_dedicated_mb(1234) == (1073741824 + 268435456) // (1024 * 1024)
+    # Localized/absent counter set → typeperf error text, no sample row → None.
+    monkeypatch.setattr(hw.subprocess, "run",
+                        lambda *a, **k: SimpleNamespace(stdout="Error: no valid counters.\n"))
+    assert hw._windows_gpu_process_dedicated_mb(1234) is None
+    # Not Windows → None without running anything.
+    monkeypatch.setattr(hw, "platform_key", lambda: "linux")
+    assert hw._windows_gpu_process_dedicated_mb(1234) is None
+
+
+def test_process_device_mem_routing(monkeypatch):
+    monkeypatch.setattr(hw, "_nvidia_process_mem_mb", lambda pid: None)
+    monkeypatch.setattr(hw, "_windows_gpu_process_dedicated_mb", lambda pid: 2222)
+    assert hw.process_device_mem_mb(42) == 2222
+    monkeypatch.setattr(hw, "_nvidia_process_mem_mb", lambda pid: 1111)
+    assert hw.process_device_mem_mb(42) == 1111  # first non-None wins
+    monkeypatch.setattr(hw, "_nvidia_process_mem_mb", lambda pid: None)
+    monkeypatch.setattr(hw, "_windows_gpu_process_dedicated_mb", lambda pid: None)
+    assert hw.process_device_mem_mb(42) is None
+
+
+def test_process_rss_live_sanity():
+    # Our own pid: a positive, sane MiB figure on any OS (psutil or the OS arm).
+    import os
+
+    rss = hw.process_rss_mb(os.getpid())
+    assert rss is not None and 5 < rss < 1024 * 1024
+    # A pid that cannot exist → None, never a raise.
+    assert hw.process_rss_mb(2**31 - 7) is None
+
+
 def test_budget_total_is_arch_aware():
     dgpu = _HardwareInfo(os="W", platform="windows", cpu_cores=8, ram_mb=32768,
                         gpus=[GpuInfo(vendor="NVIDIA", name="2070S", vram_mb=8192)],

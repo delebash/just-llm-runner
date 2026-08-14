@@ -382,6 +382,68 @@ def test_process_rss_live_sanity():
     assert hw.process_rss_mb(2**31 - 7) is None
 
 
+def test_tree_from_pairs_walk_and_cycle_guard():
+    # 1 → 2 → 3 plus an unrelated (9,7); root first, descendants covered.
+    assert hw._tree_from_pairs(1, [(2, 1), (3, 2), (9, 7)]) == [1, 2, 3]
+    # Windows pid reuse can fabricate a parent cycle — must terminate.
+    assert set(hw._tree_from_pairs(1, [(2, 1), (1, 2)])) == {1, 2}
+
+
+def test_pid_ppid_pairs_wmic_columns_flip(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(hw, "platform_key", lambda: "windows")
+    monkeypatch.setattr(hw.shutil, "which", lambda n: "C:/wmic" if n == "wmic" else None)
+    # wmic prints requested columns ALPHABETICALLY: ParentProcessId first.
+    out = "ParentProcessId  ProcessId\n4                123\n123              456\n\n"
+    monkeypatch.setattr(hw.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=out))
+    assert hw._pid_ppid_pairs() == [(123, 4), (456, 123)]
+
+
+def test_pid_ppid_pairs_ps(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(hw, "platform_key", lambda: "linux")
+    out = "    1     0\n  456     1\n"
+    monkeypatch.setattr(hw.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=out))
+    assert hw._pid_ppid_pairs() == [(1, 0), (456, 1)]
+
+
+def test_process_tree_pids_live_includes_self():
+    import os
+
+    pids = hw.process_tree_pids(os.getpid())
+    assert pids[0] == os.getpid()
+
+
+def test_nvidia_procs_mem_sums_across_pid_set(monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(hw.shutil, "which", lambda n: "/x/nvidia-smi" if n == "nvidia-smi" else None)
+    # Shim (1234) holds nothing; its child (1300) holds the memory on two GPUs.
+    out = "1300, 900\n5678, 4000\n1300, 231\n1234, [N/A]\n"
+    monkeypatch.setattr(hw.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=out))
+    assert hw._nvidia_procs_mem_mb({1234, 1300}) == 1131
+
+
+def test_tree_device_mem_sums_windows_counter_arm(monkeypatch):
+    # nvidia arm misses (WDDM); the per-pid counter arm answers for the child
+    # only — the shim contributes nothing and must not zero the result.
+    monkeypatch.setattr(hw, "process_tree_pids", lambda pid: [1234, 1300])
+    monkeypatch.setattr(hw, "_nvidia_procs_mem_mb", lambda pids: None)
+    monkeypatch.setattr(hw, "_windows_gpu_process_dedicated_mb",
+                        lambda pid: 1131 if pid == 1300 else None)
+    assert hw.process_tree_device_mem_mb(1234) == 1131
+    monkeypatch.setattr(hw, "_windows_gpu_process_dedicated_mb", lambda pid: None)
+    assert hw.process_tree_device_mem_mb(1234) is None
+
+
+def test_tree_rss_sums_shim_and_child(monkeypatch):
+    monkeypatch.setattr(hw, "process_tree_pids", lambda pid: [1234, 1300])
+    monkeypatch.setattr(hw, "process_rss_mb", lambda pid: {1234: 4, 1300: 509}[pid])
+    assert hw.process_tree_rss_mb(1234) == 513
+
+
 def test_budget_total_is_arch_aware():
     dgpu = _HardwareInfo(os="W", platform="windows", cpu_cores=8, ram_mb=32768,
                         gpus=[GpuInfo(vendor="NVIDIA", name="2070S", vram_mb=8192)],

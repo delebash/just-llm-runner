@@ -2175,10 +2175,10 @@ class RunnerService:
                     return
                 # Arbiter admission (P2): evict the LRU non-pinned resident(s) until this model
                 # fits the VRAM budget within models_max, THEN load. Under _router_lock so the
-                # eviction serializes with other loads/stops. The reservation is recorded only
-                # AFTER a confirmed load (below), so the ledger never holds a non-resident model —
-                # and it is TRUED-UP against the measured used-VRAM delta across the load
-                # (measure-don't-assume; see _trued_up_vram_mb).
+                # eviction serializes with other loads/stops. The reservation is recorded at
+                # admission (computed) and TRUED-UP to the measured used-VRAM delta after the
+                # confirmed load (measure-don't-assume; see _trued_up_vram_mb); failure and
+                # cancel paths release, so the ledger never KEEPS a non-resident model.
                 # Pins mirror the LIVE routing default (2026-07-12): a load-time pin goes
                 # stale when the default moves — the replaced 0.6B kept its pin and the
                 # count-cap eviction took Gemma instead of it. Re-sync before every
@@ -2204,6 +2204,21 @@ class RunnerService:
                             stale_embed_ids=stale_embeds)
                 self._resident[model_id].update(status="starting", detail="loading into VRAM",
                                                 downloaded=0, total=0)
+                # Book EARLY (2026-08-14, the admission→booking gap): between
+                # admission and the post-load true-up the child allocates for
+                # seconds while the ledger shows the memory as free — a
+                # concurrent FOREIGN load (a JV speech engine; their loads
+                # don't share _router_lock) could admit into it. Reserve the
+                # fit's computed number now; the true-up below REPLACES it
+                # (reserve is an upsert) and every failure/cancel path already
+                # releases (_cleanup_cancelled / the except arm).
+                _early_cap = _hw_budget_total(hardware)
+                self._arbiter.reserve(
+                    model_id,
+                    min(fit.vram_mb, _early_cap) if _early_cap > 0 else fit.vram_mb,
+                    pinned=model_id in embed_ids, kind="llm",
+                    evict_fn=lambda mid=model_id: self._evict_from_arbiter(mid),
+                    source="computed")
                 vram_before = self._probe_used_vram()
                 self._load_via_router(entry, fit, server_exe, config)
                 # T2 checkpoint 3: the router op itself is not interruptible — a cancel

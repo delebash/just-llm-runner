@@ -470,11 +470,13 @@ def budget_total_mb(hw: HardwareInfo) -> int:
 # serialized-delta arm, honestly labeled "computed").
 
 
-def _nvidia_process_mem_mb(pid: int) -> int | None:
+def _nvidia_procs_mem_mb(pids: set[int]) -> int | None:
     """Per-process GPU memory via `nvidia-smi --query-compute-apps` (MiB,
-    summed across GPUs). Works on Linux and Windows-TCC; under Windows WDDM
-    the column prints "[N/A]" or "Insufficient Permissions" — non-numeric
-    parses fall through to None and the Windows counter arm below takes over."""
+    summed across GPUs and across every pid in the set — ONE query lists all
+    compute processes, so a whole process tree costs the same shell-out as one
+    pid). Works on Linux and Windows-TCC; under Windows WDDM the column prints
+    "[N/A]" or "Insufficient Permissions" — non-numeric parses fall through to
+    None and the Windows counter arm below takes over."""
     if not shutil.which("nvidia-smi"):
         return None
     try:
@@ -486,13 +488,21 @@ def _nvidia_process_mem_mb(pid: int) -> int | None:
     except Exception as e:  # noqa: BLE001 — probes never raise
         log.debug("nvidia-smi compute-apps probe failed: %s", e)
         return None
+    want = {str(p) for p in pids}
     total, seen = 0, False
     for ln in out.splitlines():
         parts = [p.strip() for p in ln.split(",")]
-        if len(parts) >= 2 and parts[0] == str(pid) and parts[1].isdigit():
+        if len(parts) >= 2 and parts[0] in want and parts[1].isdigit():
             total += int(parts[1])
             seen = True
     return total if seen else None
+
+
+def _nvidia_process_mem_mb(pid: int) -> int | None:
+    """One-pid door over `_nvidia_procs_mem_mb` (kept for callers that really
+    mean one process — measuring a SPAWNED child should use the tree doors
+    below, because venv launchers can be trampolines)."""
+    return _nvidia_procs_mem_mb({pid})
 
 
 def _windows_gpu_process_dedicated_mb(pid: int) -> int | None:
@@ -589,6 +599,122 @@ def process_rss_mb(pid: int) -> int | None:
         return int(tok) // 1024 if tok.isdigit() else None  # kB
     except Exception:  # noqa: BLE001
         return None
+
+
+# ── Process-TREE probes (2026-08-14, the launcher-shim fix) ──────────────────
+# A Popen pid is not necessarily the process that holds the memory: Windows
+# uv-venv `Scripts\python.exe` is a ~4 MB TRAMPOLINE whose CHILD is the real
+# interpreter (proven live: a 1 GiB CUDA child read device=None / RSS=4 MB at
+# the Popen pid, device=1131 MB / RSS=509 MB at its child). Measuring a spawned
+# process therefore means measuring its whole descendant tree, summed. POSIX
+# venvs symlink their python, so the tree is usually just [pid] there.
+
+
+def _pid_ppid_pairs() -> list[tuple[int, int]] | None:
+    """(pid, ppid) for every live process — the no-psutil arm of the tree
+    walk. Windows: `wmic` (present through Win10, deprecated on 11) →
+    PowerShell CIM. POSIX: one `ps -e`. None ⇒ no table available."""
+
+    def _run(cmd: list[str], timeout: int) -> str:
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=timeout).stdout
+        except Exception as e:  # noqa: BLE001 — probes never raise
+            log.debug("pid-table probe %s failed: %s", cmd[0], e)
+            return ""
+
+    def _parse(out: str, *, flip: bool) -> list[tuple[int, int]]:
+        pairs: list[tuple[int, int]] = []
+        for ln in out.splitlines():
+            toks = ln.split()
+            if len(toks) == 2 and toks[0].isdigit() and toks[1].isdigit():
+                a, b = int(toks[0]), int(toks[1])
+                pairs.append((b, a) if flip else (a, b))
+        return pairs
+
+    if platform_key() == "windows":
+        # wmic prints requested columns ALPHABETICALLY: ParentProcessId first.
+        if shutil.which("wmic"):
+            pairs = _parse(_run(["wmic", "process", "get",
+                                 "ProcessId,ParentProcessId"], 10), flip=True)
+            if pairs:
+                return pairs
+        if shutil.which("powershell"):
+            ps_cmd = ("Get-CimInstance Win32_Process | ForEach-Object "
+                      "{ \"$($_.ProcessId) $($_.ParentProcessId)\" }")
+            pairs = _parse(_run(["powershell", "-NoProfile", "-NonInteractive",
+                                 "-Command", ps_cmd], 15), flip=False)
+            return pairs or None
+        return None
+    pairs = _parse(_run(["ps", "-e", "-o", "pid=,ppid="], 8), flip=False)
+    return pairs or None
+
+
+def _tree_from_pairs(pid: int, pairs: list[tuple[int, int]]) -> list[int]:
+    """Walk a (pid, ppid) table into [pid, *descendants], root first. A seen-set
+    guards the walk — Windows pid reuse can fabricate parent cycles."""
+    kids: dict[int, list[int]] = {}
+    for cpid, ppid in pairs:
+        kids.setdefault(ppid, []).append(cpid)
+    out: list[int] = []
+    stack, seen = [pid], set()
+    while stack:
+        cur = stack.pop()
+        if cur in seen:
+            continue
+        seen.add(cur)
+        out.append(cur)
+        stack.extend(kids.get(cur, ()))
+    return out
+
+
+def process_tree_pids(pid: int) -> list[int]:
+    """The pid plus every live descendant, root first. Never raises;
+    unknowable ⇒ [pid] (the caller probes what it can see). psutil when the
+    host ships it, else one pid/ppid table walk."""
+    try:
+        import psutil  # type: ignore
+
+        return [pid] + [c.pid for c in psutil.Process(pid).children(recursive=True)]
+    except Exception:  # noqa: BLE001 — no psutil / pid gone → table arms
+        pass
+    pairs = _pid_ppid_pairs()
+    if not pairs:
+        return [pid]
+    return _tree_from_pairs(pid, pairs)
+
+
+def process_tree_device_mem_mb(pid: int) -> int | None:
+    """Dedicated device memory (MiB) held by a process TREE — THE door for
+    measuring a spawned child (JV engine subprocesses): the launcher-shim fact
+    above makes single-pid probes read the wrong process on Windows venvs.
+    One nvidia-smi query covers the whole set; the WDDM counter arm runs per
+    pid (each typeperf instance wildcard is pid-prefixed). None = no per-pid
+    arm worked — the caller falls back to its device-delta arm."""
+    pids = process_tree_pids(pid)
+    v = _nvidia_procs_mem_mb(set(pids))
+    if v is not None:
+        return v
+    total, seen = 0, False
+    for p in pids:
+        w = _windows_gpu_process_dedicated_mb(p)
+        if w is not None:
+            total += w
+            seen = True
+    return total if seen else None
+
+
+def process_tree_rss_mb(pid: int) -> int | None:
+    """Resident set (MiB) summed over a process TREE — the one-pool sibling of
+    `process_tree_device_mem_mb` (a shim's 4 MB rides along with its child's
+    real footprint; both belong to the spawned engine)."""
+    total, seen = 0, False
+    for p in process_tree_pids(pid):
+        v = process_rss_mb(p)
+        if v is not None:
+            total += v
+            seen = True
+    return total if seen else None
 
 
 def _nvidia_query(fields: str) -> str | None:

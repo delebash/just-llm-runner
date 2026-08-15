@@ -139,6 +139,38 @@ first.
 
 ## Now / near-term
 
+### AUDIT — the split-brain class, all FOUR apps (2026-08-14)
+
+Read-only sweep the user asked for after the progress-bar bug, over the kit UI +
+JustVoice + JustWrite + i18n-docgen. Three patterns, findings below. METHOD LIMIT
+stated up front: this is a targeted sweep of the RENDERER layer (assume-true
+defaults, browser caches of server state, visibility-vs-content splits), not an
+exhaustive server review — a server-side "two functions answer one question"
+sweep is not grep-shaped and is NOT claimed here.
+
+A. ASSUME-TRUE DEFAULTS ON A FAILED FETCH — 2, both kit, both engine status:
+   `useRunnerModels.js:217` (`.catch(() => ({ installed: true }))`) and
+   `QuickSetup.vue:347` (`ref(true)` + its own catch). Both now degrade into a
+   CLEAR error rather than a wrong action, because the server-derived error task
+   carries the real message and a Retry that installs the engine first. Left in
+   place deliberately: flipping them to assume-NOT-installed would trigger a
+   spurious multi-hundred-MB engine install whenever the endpoint blips.
+   (JustWrite's `normalize = ref(true)` is a user preference, not state — not a
+   finding.)
+
+B. BROWSER CACHES OF SERVER-OWNED STATE — 1: JustVoice's
+   `SpeechEnginesTab.vue:190/325` seeds its engine list from sessionStorage to
+   avoid a "no engines" flash, then refreshes on mount. Same family as the
+   progress bug but low risk (the cache never decides anything; it only paints
+   sooner). WATCH-ONLY, not changed. JustVoice's `config.js:20` localStorage
+   server URL is a deliberate user override, not a cache.
+
+C. VISIBILITY FROM ONE SOURCE, CONTENT FROM ANOTHER — 1, the one that started
+   this, now fixed. Notably JustVoice's speech tab is structurally immune: it
+   renders a DownloadBar only for tasks that EXIST in `dlTasks`
+   (`taskRowsFor`), so visibility and content share a source. docgen and
+   JustWrite: none.
+
 ### ONE control, ONE source — the progress bar reads the server (2026-08-14)
 
 STATE: BUILT 2026-08-14 on the user's go. User's words: *"both bars show the

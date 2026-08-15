@@ -590,6 +590,16 @@ async function apply() {
       && !modelById.value[pick.value.embeddingModel]?.downloaded;
     if (needEmbed) embedTask.start();
 
+    // Re-read the engine status HERE, not just at openWizard (user-reported
+    // 2026-08-14): the value is fetched once when the wizard opens and defaults to
+    // "installed", so anything that removed the engine in between — an Update or a
+    // Reinstall, which delete the build before unpacking the new one — left Apply
+    // convinced the engine was present. It then skipped the engine step and loaded
+    // the chat model straight into `engine-not-installed`, whose message tells the
+    // user to install the engine from a bar that (once the reinstall finished) reads
+    // "Installed". One fresh fetch removes the whole class.
+    await loadEngineStatus();
+
     // The chat model needs the engine. Missing → install it FIRST (its own bar) and hold the
     // chat as "Waiting for the engine…"; the engine watch fires the load the moment it
     // finishes. Present → load immediately. Nothing to load (no fitting model) → straight to done.

@@ -139,6 +139,63 @@ first.
 
 ## Now / near-term
 
+### SET vs LOAD — the 2026-07-07 "Load as default" is REVERTED (2026-08-14)
+
+STATE: BUILT 2026-08-14 on the user's go ("yes revert"). Record, because this
+reverses a decision that was itself the user's and the reasoning matters.
+
+WHAT #117 DID (2026-07-07, commit `333bcee`, user verbatim: *"no way to unload
+lets change set as default to Load as default and have Unload button"*): the
+catalog row's primary action was renamed AND rewired — `makeDefault` gained a
+`retryLoad(m.id)`, and the embed row later got the same via #131
+(`ensure-embedding`). Before it, setting a default only re-pointed the task
+presets and nothing entered VRAM until first use.
+
+WHY IT IS REVERTED (user, 2026-08-14): *"i dont think load as defualt is
+correct, maybe user wants to set it as default but not load it, load it on
+demand, just like we load on demand for the embed"* — plus the family-sameness
+law: JustVoice's speech rows always kept Set-as-default and Load as separate
+verbs, so the two catalogs contradicted each other. Choosing a default is a
+DECLARATION; it must not spend a multi-GB load. VERIFIED IN CODE before
+building (the on-demand path the revert leans on is real, not assumed):
+`RunnerService.ensure_model_ready` is dispatch's auto-load door (wired at
+`llm/install.py:583`) — a local chat/feature run downloads-if-needed, spawns
+and loads the default; `ensureEmbeddingReady` (ui/services/embedApi.js) is the
+embed twin at first search.
+
+AS BUILT: `makeDefault` + `makeEmbedding` set only; both row labels read "Set
+as default" (active state stays "Default ✓"); the row ⋯ menu gained **Load
+into memory** (downloaded + not loaded) beside the existing **Unload from
+memory**, wired to the EXISTING `loadAssigned(m, isEmbed)` helper — no second
+load path invented. Docs: JW models.md's three row verbs rewritten;
+kit feature-model-system.md line corrected.
+
+### BUG: Quick Setup could load a model with the engine mid-reinstall
+
+STATE: FIXED 2026-08-14 (user-reported from JustWrite, with a screenshot
+showing the modal's *"The engine isn't installed — install it first (the
+engine bar above)"* over an engine bar reading *"Installed · b9993 · cuda12"*
+with an Update button — a self-contradiction).
+
+ROOT CAUSE (verified live on the user's box, not inferred): QuickSetup reads
+the engine status ONCE at `openWizard` into `engineInstalled`, which DEFAULTS
+TO TRUE, and `apply()` branched on that stale value. An Update or Reinstall
+deletes the build before unpacking the replacement — the user's cache held
+`b9993/.staging-cuda12` with no `cuda12`, and `GET /v1/llm-runner/engine/status`
+returned `installed:false, installedGpus:[]` at that moment. Apply, still
+holding the open-time `true`, skipped its engine step and started the chat
+LOAD, which fails fast at `_acquired_exe` → `engine-not-installed`. The bar
+itself was honest (`installed = !!st.installed`, polled live) — it just showed
+the state AFTER the reinstall completed, next to a terminal error captured
+during it.
+
+FIX: `apply()` awaits a fresh `loadEngineStatus()` before branching. Residual
+recorded, not silently accepted: a status fetch that FAILS still assumes
+installed (`catch → true`, deliberate — it avoids a spurious engine step), so
+a load can still hit the honest engine-not-installed error if the endpoint is
+down; chaining that error back into the engine bar is the follow-up if it ever
+bites for real.
+
 ### The AI-call convention's streaming lane + the install-progress bridge
 
 STATE: OPEN — the user's NAMED next work (2026-08-08, at the convention's go:

@@ -57,6 +57,36 @@ def _is_writable(directory: Path) -> bool:
     return True
 
 
+def to_data_relative(path: Path | str, data_dir: Path) -> str:
+    """The string to STORE for a media file (user ruling 2026-08-14).
+
+    A file inside the data root is stored RELATIVE to it, POSIX-style, so the
+    row survives the user moving their data folder — the whole point of the
+    Change-folder verb, which used to copy the files and leave every absolute
+    row pointing at the deleted original. It also makes a backup restore onto
+    another machine (or another drive) resolve.
+
+    A path OUTSIDE the data root keeps its absolute form: it is not ours to
+    relocate, and rewriting it would break the reference.
+    """
+    p = Path(path)
+    try:
+        return p.resolve().relative_to(Path(data_dir).resolve()).as_posix()
+    except (ValueError, OSError):
+        return str(p)
+
+
+def from_data_relative(stored: str, data_dir: Path) -> Path:
+    """Resolve a stored media path back to a real one.
+
+    Absolute values pass through unchanged — that covers both deliberately
+    external files and rows written before the relative-path rule, so no
+    migration is needed and nothing breaks in place.
+    """
+    p = Path(stored)
+    return p if p.is_absolute() else Path(data_dir) / p
+
+
 def install_dir(source_root: Path | None = None) -> Path | None:
     """The app's install directory: the frozen executable's folder when
     packaged (PyInstaller sets `sys.frozen`), else the caller's source

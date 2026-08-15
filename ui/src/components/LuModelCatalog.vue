@@ -209,12 +209,14 @@ async function makeDefault(m) {
   applyingId.value = m.id;
   try {
     await setAsDefault(LOCAL_RUNNER_ID, m.id);
-    // "LOAD as default" (user, 2026-07-07): the button loads the model too — before
-    // the rename it only re-pointed the task presets and nothing entered VRAM until
-    // first use. Through retryLoad (ONE workflow, 2026-07-21): the engine check +
-    // install-if-missing run first, so a no-engine box installs then loads (this
-    // also covers the General dropdown, which routes here via pickSlot).
-    await retryLoad(m.id);
+    // SET, never load (user, 2026-08-14 — reverting the 2026-07-07 "Load as
+    // default"): picking a default is a DECLARATION of what should be used, not a
+    // command to spend a multi-GB load right now. Nothing needs the eager load —
+    // the server's `ensure_model_ready` auto-loads the local default on the first
+    // run that actually needs it (dispatch's ensure-ready door), and Load into
+    // memory in the row menu is there for warming it deliberately. This also puts
+    // the LLM catalog back in step with JustVoice's speech rows, where Set as
+    // default and Load have always been separate verbs.
     refresh();
   } catch (e) { error.value = e.message || "Couldn't set the default."; }
   finally { applyingId.value = ""; }
@@ -237,19 +239,20 @@ async function makeEmbedding(m) {
   applyingId.value = m.id;
   try {
     await setAsEmbedding(LOCAL_RUNNER_ID, m.id);
-    // "Load as default" parity for embeds (user, 2026-07-07: "the embed … should have
-    // same as regular model Load as default and unload"): loading rides the SANCTIONED
-    // co-resident path — ensure-embedding downloads-if-needed + loads + PINS the embed
-    // we just configured, alongside the chat model (a plain /load could contend with
-    // the chat default for the primary slot; this endpoint exists for exactly this).
-    await request("/v1/llm-runner/ensure-embedding", { method: "POST" });
+    // SET, never load — the same 2026-08-14 revert as the chat row above, and the
+    // embed side already had the cleanest on-demand story: `ensureEmbeddingReady`
+    // downloads, loads and PINS the configured embed the first time a search or
+    // index build needs it. Warming it deliberately stays available through Load
+    // into memory in the row menu, which routes through that same co-resident
+    // ensure-embedding door (a plain /load would contend for the primary slot).
     refresh();
   } catch (e) { error.value = e.message || "Couldn't set the embedding."; }
   finally { applyingId.value = ""; }
 }
-// The strip cards' Load — warm a model that's already the assigned default/embedding
-// without re-writing the assignment (the row buttons assign AND load; a card with the
-// slot already set only needs the load half). Same writers, same poller.
+// Load — warm a model into memory without touching any assignment. Used by the strip
+// cards AND (since the 2026-08-14 set-vs-load revert) the row menu's "Load into memory":
+// assignment and loading are separate verbs now, so this is the ONLY load path a user
+// drives by hand. Same writers, same poller.
 async function loadAssigned(m, isEmbed) {
   applyingId.value = m.id;
   try {
@@ -1035,7 +1038,7 @@ async function redownload(m) {
     // A RESIDENT model's GGUF is memory-mapped by llama-server (locked on Windows) — deleting
     // the cache under the engine fails. Unload FIRST (same stop writer as the Unload button) so
     // the file is free to replace; on failure this throws → error surfaced, cache NOT deleted.
-    // The model reloads on next use / Load as default.
+    // The model reloads on next use, or from Load into memory.
     if (m.status === "loaded") await stopModel(m);
     await request("/v1/llm-runner/models-cache/delete", { method: "POST", body: { modelId: m.id } });
     await download(m.id); // re-fetch from Hugging Face (own progress channel + refresh)
@@ -1329,25 +1332,27 @@ refreshApplied();
                        (re-apply is idempotent). Embed vs general differ only in the TARGET. -->
                   <UiButton v-else-if="embeddingOf(m)" :intent="m.id === currentEmbeddingId ? 'success' : 'primary'" size="small"
                     :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
-                    title="Make this the embedding model (semantic search + grounded chat) and load it now, alongside your chat model"
+                    title="Make this the embedding model for semantic search + grounded chat. It loads the first time a search needs it — or warm it now with Load into memory."
                     @click="makeEmbedding(m)">
-                    {{ m.id === currentEmbeddingId ? "Default ✓" : "Load as default" }}
+                    {{ m.id === currentEmbeddingId ? "Default ✓" : "Set as default" }}
                   </UiButton>
                   <UiButton v-else :intent="m.id === currentDefaultId ? 'success' : 'primary'" size="small"
                     :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
-                    title="Make this the default model for every task and load it now" @click="makeDefault(m)">
-                    {{ m.id === currentDefaultId ? "Default ✓" : "Load as default" }}
+                    title="Make this the default model for every task. It loads on first use — or warm it now with Load into memory."
+                    @click="makeDefault(m)">
+                    {{ m.id === currentDefaultId ? "Default ✓" : "Set as default" }}
                   </UiButton>
                 </template>
                   <!-- ⋯ overflow — the secondary actions, portaled so the menu escapes the
                        list's overflow:auto clip (Reka DropdownMenu: focus/Esc/click-outside built in).
-                       "Load into memory" is NOT here — loading a model IS setting it default
-                       (makeDefault), which is the inline toggle above (user, 2026-07-22). -->
+                       "Load into memory" lives HERE (user, 2026-08-14): setting a default no
+                       longer loads, so warming is its own verb, paired with Unload below. -->
                   <DropdownMenuRoot>
                     <DropdownMenuTrigger class="lu-mkebab" aria-label="More actions" title="More actions">⋯</DropdownMenuTrigger>
                     <DropdownMenuPortal>
                       <DropdownMenuContent class="lu-mmenu" align="end" :side-offset="4" :collision-padding="8">
                         <DropdownMenuItem v-if="m.status === 'loaded' || m.status === 'disk'" class="lu-mmi" @select="tuning = m">Tune &amp; measure</DropdownMenuItem>
+                        <DropdownMenuItem v-if="m.downloaded && m.status !== 'loaded' && m.status !== 'loading' && m.status !== 'stopping'" class="lu-mmi" @select="loadAssigned(m, embeddingOf(m))">Load into memory</DropdownMenuItem>
                         <DropdownMenuItem v-if="m.status === 'loaded'" class="lu-mmi" @select="unloadModel(m)">Unload from memory</DropdownMenuItem>
                         <DropdownMenuItem v-if="m.status === 'error' || m.status === 'disk' || m.status === 'loaded'" class="lu-mmi" @select="redownload(m)">Re-download</DropdownMenuItem>
                         <DropdownMenuSeparator v-if="m.status === 'loaded' || m.status === 'disk' || m.status === 'error'" class="lu-mmsep" />

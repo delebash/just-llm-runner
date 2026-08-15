@@ -64,7 +64,10 @@ rationale + provenance are distilled into §0 below (docs campaign 2026-08-04).
   model — that's a per-preset choice.
 
 ## 3. "The default model" (the model-tab default)
-- Set via **Quick Setup** or **"Load as default"** on a catalog row → `modelApply.setAsDefault`.
+- Set via **Quick Setup** or **"Set as default"** on a catalog row → `modelApply.setAsDefault`.
+  Setting a default does NOT load (user ruling 2026-08-14, reverting the 2026-07-07
+  "Load as default"): the server auto-loads the local default on first use via
+  `ensure_model_ready`, and the row menu's **Load into memory** warms it deliberately.
   This writes the chosen model to TWO places:
   1. the **routing default** — `RoutingDefaults.llmId` + `.model` (`routing_api.py:26-28`),
      the global default provider+model; AND

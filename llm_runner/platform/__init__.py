@@ -41,6 +41,10 @@ _EXPORTS = {
     # paths.py is a thin call into this — never a re-implementation.
     "resolve_data_dir": "data_paths",
     "install_dir": "data_paths",
+    # Media rows store paths RELATIVE to the data root so moving the data
+    # folder (or restoring a backup elsewhere) doesn't orphan the files.
+    "to_data_relative": "data_paths",
+    "from_data_relative": "data_paths",
 }
 
 __all__ = sorted(_EXPORTS)

@@ -3,7 +3,14 @@
 explicit choice first, a `data/` folder beside the app by default, and the OS
 app-data dir ONLY when the install directory can't be written."""
 
-from llm_runner.platform.data_paths import install_dir, resolve_data_dir
+from pathlib import Path
+
+from llm_runner.platform.data_paths import (
+    from_data_relative,
+    install_dir,
+    resolve_data_dir,
+    to_data_relative,
+)
 
 
 def test_env_var_is_the_users_choice_and_always_wins(tmp_path):
@@ -96,3 +103,55 @@ def test_the_two_apps_resolve_to_their_own_folders(tmp_path):
     assert jv == jv_root / "data"
     assert jw == jw_root / "data"
     assert jv != jw
+
+
+# ── Media rows store paths relative to the data root ─────────────────
+
+
+def test_inside_the_data_root_is_stored_relative(tmp_path):
+    data = tmp_path / "data"
+    f = data / "captures" / "abc.wav"
+    f.parent.mkdir(parents=True)
+    f.write_bytes(b"x")
+    assert to_data_relative(f, data) == "captures/abc.wav"
+
+
+def test_relative_survives_the_data_folder_moving(tmp_path):
+    """THE point: Change-folder copies the files and the rows still
+    resolve — before this, every absolute row pointed at the deleted
+    original."""
+    old, new = tmp_path / "old", tmp_path / "new"
+    (old / "captures").mkdir(parents=True)
+    (old / "captures" / "a.wav").write_bytes(b"x")
+    stored = to_data_relative(old / "captures" / "a.wav", old)
+
+    (new / "captures").mkdir(parents=True)
+    (new / "captures" / "a.wav").write_bytes(b"x")
+    assert from_data_relative(stored, new) == new / "captures" / "a.wav"
+    assert from_data_relative(stored, new).is_file()
+
+
+def test_outside_the_data_root_stays_absolute(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    outside = tmp_path / "elsewhere" / "sample.wav"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes(b"x")
+    stored = to_data_relative(outside, data)
+    assert Path(stored).is_absolute()
+    assert from_data_relative(stored, data) == outside
+
+
+def test_legacy_absolute_rows_still_resolve(tmp_path):
+    """No migration: rows written before the rule pass through untouched."""
+    data = tmp_path / "data"
+    legacy = tmp_path / "somewhere" / "old.wav"
+    assert from_data_relative(str(legacy), data) == legacy
+
+
+def test_round_trip_is_stable(tmp_path):
+    data = tmp_path / "data"
+    f = data / "generations" / "g1.wav"
+    f.parent.mkdir(parents=True)
+    f.write_bytes(b"x")
+    assert from_data_relative(to_data_relative(f, data), data) == f

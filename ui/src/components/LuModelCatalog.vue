@@ -267,7 +267,7 @@ async function makeEmbedding(m) {
   finally { applyingId.value = ""; }
 }
 // Load — warm a model into memory without touching any assignment. Used by the strip
-// cards AND (since the 2026-08-14 set-vs-load revert) the row menu's "Load into memory":
+// cards AND (since the 2026-08-14 set-vs-load revert) each row's Load button:
 // assignment and loading are separate verbs now, so this is the ONLY load path a user
 // drives by hand. Same writers, same poller.
 async function loadAssigned(m, isEmbed) {
@@ -1055,7 +1055,7 @@ async function redownload(m) {
     // A RESIDENT model's GGUF is memory-mapped by llama-server (locked on Windows) — deleting
     // the cache under the engine fails. Unload FIRST (same stop writer as the Unload button) so
     // the file is free to replace; on failure this throws → error surfaced, cache NOT deleted.
-    // The model reloads on next use, or from Load into memory.
+    // The model reloads on next use, or from the row's Load button.
     if (m.status === "loaded") await stopModel(m);
     await request("/v1/llm-runner/models-cache/delete", { method: "POST", body: { modelId: m.id } });
     await download(m.id); // re-fetch from Hugging Face (own progress channel + refresh)
@@ -1353,28 +1353,36 @@ refreshApplied();
                        (re-apply is idempotent). Embed vs general differ only in the TARGET. -->
                   <UiButton v-else-if="embeddingOf(m)" :intent="m.id === currentEmbeddingId ? 'success' : 'primary'" size="small"
                     :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
-                    title="Make this the embedding model for semantic search + grounded chat. It loads the first time a search needs it — or warm it now with Load into memory."
+                    title="Make this the embedding model for semantic search + grounded chat. It loads the first time a search needs it — or press Load to warm it now."
                     @click="makeEmbedding(m)">
                     {{ m.id === currentEmbeddingId ? "Default ✓" : "Set as default" }}
                   </UiButton>
                   <UiButton v-else :intent="m.id === currentDefaultId ? 'success' : 'primary'" size="small"
                     :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
-                    title="Make this the default model for every task. It loads on first use — or warm it now with Load into memory."
+                    title="Make this the default model for every task. It loads on first use — or press Load to warm it now."
                     @click="makeDefault(m)">
                     {{ m.id === currentDefaultId ? "Default ✓" : "Set as default" }}
                   </UiButton>
+                  <!-- Load / Unload are ROW BUTTONS, not menu items (user, 2026-08-14):
+                       since setting a default no longer loads, warming and freeing are
+                       everyday verbs and belong in reach. Same pair, same order and same
+                       short labels as JustVoice's speech rows. -->
+                  <UiButton v-if="m.status === 'loaded'" intent="ghost" size="small"
+                    :loading="applyingId === m.id" title="Free this model's memory (VRAM) — it loads again on next use"
+                    @click="unloadModel(m)">Unload</UiButton>
+                  <UiButton v-else-if="m.downloaded && m.status !== 'stopping'" intent="ghost" size="small"
+                    :loading="applyingId === m.id" title="Load this model into memory now, so the first run doesn't wait"
+                    @click="loadAssigned(m, embeddingOf(m))">Load</UiButton>
                 </template>
                   <!-- ⋯ overflow — the secondary actions, portaled so the menu escapes the
                        list's overflow:auto clip (Reka DropdownMenu: focus/Esc/click-outside built in).
-                       "Load into memory" lives HERE (user, 2026-08-14): setting a default no
-                       longer loads, so warming is its own verb, paired with Unload below. -->
+                       Load / Unload are NOT here (user, 2026-08-14) — they are row buttons
+                       beside the default toggle, where everyday verbs belong. -->
                   <DropdownMenuRoot>
                     <DropdownMenuTrigger class="lu-mkebab" aria-label="More actions" title="More actions">⋯</DropdownMenuTrigger>
                     <DropdownMenuPortal>
                       <DropdownMenuContent class="lu-mmenu" align="end" :side-offset="4" :collision-padding="8">
                         <DropdownMenuItem v-if="m.status === 'loaded' || m.status === 'disk'" class="lu-mmi" @select="tuning = m">Tune &amp; measure</DropdownMenuItem>
-                        <DropdownMenuItem v-if="m.downloaded && m.status !== 'loaded' && m.status !== 'loading' && m.status !== 'stopping'" class="lu-mmi" @select="loadAssigned(m, embeddingOf(m))">Load into memory</DropdownMenuItem>
-                        <DropdownMenuItem v-if="m.status === 'loaded'" class="lu-mmi" @select="unloadModel(m)">Unload from memory</DropdownMenuItem>
                         <DropdownMenuItem v-if="m.status === 'error' || m.status === 'disk' || m.status === 'loaded'" class="lu-mmi" @select="redownload(m)">Re-download</DropdownMenuItem>
                         <DropdownMenuSeparator v-if="m.status === 'loaded' || m.status === 'disk' || m.status === 'error'" class="lu-mmsep" />
                         <DropdownMenuItem v-if="m.downloaded && m.status !== 'loading' && m.status !== 'stopping'" class="lu-mmi lu-mmi-danger" @select="freeDownload(m)">Delete downloaded model</DropdownMenuItem>

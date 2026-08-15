@@ -9,16 +9,16 @@ import { request, requestBlob, postForm } from "../client.js";
 import UiButton from "../common/components/UiButton.vue";
 import UiCheckbox from "../common/components/UiCheckbox.vue";
 import { confirmDialog, promptDialog } from "../common/services/dialog.js";
+import { saveBlob } from "../common/services/fileSave.js";
 import { pushToast } from "../common/services/toastBridge.js";
 
 const props = defineProps({
   appName: { type: String, default: "Workspace" },
-  // Optional host hook: save the backup blob via a native "save as" dialog —
-  // (blob, suggestedName) => { ok?, cancelled?, error? }. When absent (or in a
-  // plain browser) the export falls back to a normal download. Lets a desktop
-  // host (e.g. through a Tauri bridge) choose where the backup lands + remember
-  // it, while the kit itself stays app-agnostic.
-  saveFile: { type: Function, default: null },
+  // NOTE: the old `save-file` prop was REMOVED 2026-08-15. Where a backup lands
+  // is decided by `common/services/fileSave.js` — the host wires its native
+  // saver once with configureFileSave() and every export inherits it. Passing it
+  // per-surface is what let JustWrite have a Save-As dialog here while
+  // JustVoice and docgen silently dropped the file into Downloads.
   // Per-app backup OPTIONS (family parity batch 2026-08-05 — decision ①: the
   // mechanism is shared, the option is the app's). Each entry renders a checkbox
   // on the backup row: { id, label, sub?, excludes: [asset-dir arcnames],
@@ -52,24 +52,22 @@ async function exportBackup() {
   try {
     const blob = await requestBlob(`/v1/data/backup${backupQuery()}`);
     const filename = `${props.appName.toLowerCase().replace(/\s+/g, "-")}-backup-${stamp()}.zip`;
-    if (props.saveFile) {
-      // Desktop host: native "save as" dialog (choose where + remember it).
-      const res = await props.saveFile(blob, filename);
-      if (res?.cancelled) return;
-      if (res && res.ok === false) throw new Error(res.error || "save failed");
-      pushToast({ message: "Backup saved.", kind: "success" });
-    } else {
-      // Browser fallback: download to the default location.
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      pushToast({ message: "Backup downloaded.", kind: "success" });
-    }
+    // THE one save door (2026-08-15) — native dialog where the host wired one,
+    // Downloads otherwise. The `save-file` PROP is gone: a host wires its saver
+    // ONCE via configureFileSave and every export in the app inherits it, rather
+    // than each surface remembering to pass a prop. JustWrite passed it here and
+    // JustVoice + docgen did not, which is exactly how one act ended up with two
+    // behaviours across the family.
+    const res = await saveBlob(blob, filename, {
+      title: `Save ${props.appName} backup`,
+      filterName: `${props.appName} backup`,
+      filterExt: "zip",
+    });
+    if (res.cancelled) return;
+    pushToast({
+      message: res.downloaded ? "Backup downloaded." : "Backup saved.",
+      kind: "success",
+    });
   } catch (e) {
     pushToast({ message: `Backup failed: ${e.message}`, kind: "error" });
   } finally {

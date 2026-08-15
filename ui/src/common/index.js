@@ -60,6 +60,10 @@ export { pushToast, clearToasts } from "./services/toastBridge.js";
 // openPath/canOpenPath are the same seam for LOCAL folders ("Open folder").
 export { configureExternal, openExternal, openPath, canOpenPath, isTauriShell } from "./services/external.js";
 
+// THE one door for putting a file on the user's disk — native dialog when the
+// host wired one, browser download otherwise. Every export in every app.
+export { configureFileSave, saveBlob, downloadBlob, canSaveNatively } from "./services/fileSave.js";
+
 // the Lab test-data registry (§7.3 + QC-35) — the host registers its listable
 // material (JW: chapters/characters) AND a per-action affordance declaration
 // map (pickers / "From this book" compose / applicable sample labels)

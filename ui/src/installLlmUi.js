@@ -65,6 +65,8 @@ function warnNoOpener() {
  * @param app                Vue application instance
  * @param opts.devPorts      Vite dev ports that must NOT be treated as same-origin
  * @param opts.fallbackBase  loopback base for dev + the Tauri webview
+ * @param opts.serverOverrideKey localStorage key that, when set, points the app at
+ *                           a remote server and beats the origin-aware default
  * @param opts.resolveBase   supply a resolver instead of devPorts/fallbackBase
  * @param opts.catalogCopy   this app's words on the shared model-catalog surface
  * @param opts.quickSetupCopy this app's VOICE on the shared Quick Setup wizard
@@ -94,6 +96,7 @@ function warnNoOpener() {
 export function installLlmUi(app, {
   devPorts = [],
   fallbackBase = "",
+  serverOverrideKey = "",
   resolveBase,
   catalogCopy,
   quickSetupCopy,
@@ -103,7 +106,8 @@ export function installLlmUi(app, {
   featurePanels,
   external = true,
 } = {}) {
-  const resolve = resolveBase || makeOriginAwareResolver({ devPorts, fallback: fallbackBase });
+  const resolve = resolveBase
+    || makeOriginAwareResolver({ devPorts, fallback: fallbackBase, overrideKey: serverOverrideKey });
 
   // THE invariant: the app transport and the kit's LLM views resolve to the SAME
   // base. They were two calls, and the day they disagreed the kit views 404'd into

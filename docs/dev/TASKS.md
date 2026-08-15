@@ -139,6 +139,132 @@ first.
 
 ## Now / near-term
 
+### The three apps are not the same — the job matrix, then row-by-row convergence
+
+STATE:  DECIDED 2026-08-14 — *"fix jw so it is born as tauri app … all three apps
+        should be exactly same stack, same structure"*, and on the method:
+        *"you never really verify in code and fix it correctly"*.
+WHY:    Phase 0 is BUILT: `docs/plans/2026-08-14-three-app-job-matrix.md` — one
+        row per job, one column per app, `file:line` in every cell. The method
+        changed because the old one could not work: you cannot grep for the same
+        job done differently (three folder-openers shared no text), and an
+        omission has no text at all. THE HEADLINE: `check-family.mjs` reports
+        ✓ no violations today, while the three apps ship three plugin sets, three
+        capability sets and two ways of reaching `invoke`. The guard is blind to
+        this whole layer.
+        The file's first draft guessed that two apps' Export backup was dead. It
+        was WRONG and is corrected in place: the fallback saves (tested in the
+        real webview, Edg/151) and `GET /v1/data/backup` returns a real zip
+        (tested, 32 910 bytes, PK magic). The divergence is UX — Save-As dialog
+        vs. straight to Downloads — and `justwrite-app/src/services/download.js`
+        asserts a WebView2 limitation that no longer holds.
+NOT:    "audit says they match" as an outcome. A row is done when a guard check
+        that WOULD HAVE FAILED today passes instead.
+BUILT:  the matrix (above). 12 findings, worst first; 5 legitimate differences
+        marked so nobody converges them; 6 areas named as NOT enumerated; 10
+        proposed guard checks.
+        PHASE 1 RULED 2026-08-15 — *"all rec"*. The grid, verbatim (JV | JW | DG →
+        canonical):
+        1 save a file: none | native Save-As | none → JW'S, all three get a dialog
+        2 reach invoke: inline ×4 | one module | inline ×5 → JW'S services/native.js
+        3 mount backup router: data_admin.py | data_admin.py | kit factory inline
+          → JV/JW'S, docgen gains a thin one
+        4 http capability scope: UNSCOPED | 8-entry allow-list | n/a → JW'S
+        5 dead npm deps: fs+process+http | — | — → REMOVE from JV
+        6 opener:allow-open-url: absent | absent | present redundant → DROP in DG
+        7 capability $schema: local path | schema.tauri.app | local → LOCAL PATH
+        8 fetch override: none | present | none → DELETE, pending the run test
+        9 pick a file: none | pick_file | none → LEAVE JW-ONLY (restore already
+          uses a browser file input everywhere and it works)
+        10 e2e/: MISSING | ✓ | ✓ → JV gains it
+        11 test script: scripts/e2e.js | --prefix e2e | --prefix e2e → --prefix e2e
+        12 smoke script: missing (file exists) | ✓ | missing → all three
+        13 screenshots: smoke_gui.js | e2e/capture-direct.js | same → capture-direct
+        14 lint scope: app | app | app+kit → DOCGEN'S (app + kit)
+        15 server base config: src/config.js | services/serverApi.js | same → serverApi
+        16 assets/: MISSING | ✓ | ✓ → add to JV
+        17 scripts/: 29 files incl 8 PNGs | 6 | 1 → DELETE JV's cruft
+        18 server/build/ committed: ✓ | ✓ | — → DELETE + gitignore
+        19 cli.py: 57 ln | none | 105 ln → NO REC YET, read both first
+        Also unresolved: the Rust plugin sets (JV 6 | JW 5 | DG 3) — a declared
+        baseline + per-app extras, after checking each plugin is really used.
+        ORDER: row 8's test runs FIRST — it decides 4 and the http half of 5, and
+        if the override dies then tauri-plugin-http is dead in both apps.
+        PHASE 2 SO FAR (2026-08-15): rows 4, 5, 6, 7, 8 + the deferred plugin
+        question are CLOSED — evidence and the three probe results are in the
+        matrix doc's "Phase 2 progress" section. The override died on a TEST (an
+        unpatched XHR and a same-origin iframe both reached the sidecar from
+        `http://tauri.localhost`), not an argument; `http`/`fs`/`process` were all
+        init-only in both shells. All three apps now carry the SAME plugin
+        baseline (opener · dialog · window-state), the SAME npm Tauri deps
+        (`api` + `plugin-opener`) and byte-identical capability permission lists.
+        The removal was then PROVEN: JW rebuilt via `npm run tauri build
+        --no-bundle` (13.2 MB) and driven — real webview, `fetchIsNative: true`,
+        health 200, UI rendered 1024 chars, no error screen. PASS.
+        FOUR invalid probe runs were discarded rather than reported; each trap is
+        written up in the matrix doc because each LOOKED like a result — null-origin
+        about:blank iframe · stale tauri-driver serving a blank window ·
+        `spawn_sidecar` killing the test server on port 17495
+        (`JUSTWRITE_DEV_NO_SIDECAR=1` is the escape hatch) · and `cargo build
+        --release` NOT being a production Tauri build (it embeds the dev URL →
+        `chrome-error://chromewebdata/`).
+        Row 19 (cli.py) ALSO CLOSED by reading both: not a divergence — docgen's is
+        a product CLI, JustVoice's is dev utilities, JW needs neither.
+        ROW 1 (file delivery) DONE 2026-08-15 — and it was FAR bigger than the
+        grid said, which only reading found: JustVoice had FIVE hand-rolled copies
+        of `a.download`, one per view (audiobook .m4b, chapter .zip, mastered
+        audio, lexicon JSON, voiceline .zip, project .zip), every one dumping into
+        Downloads with no folder choice. Seven sites across the family now share
+        `ui/src/common/services/fileSave.js`. DataManagement's `save-file` PROP is
+        DELETED — a host wires `configureFileSave` once; passing it per-surface is
+        exactly how one act got two behaviours. JV behaviour is unchanged today
+        (no native saver wired there yet) but it is now a one-line wire.
+        ROW 19 (cli.py) CLOSED by reading both: not a divergence — docgen's is a
+        product CLI, JustVoice's is dev utilities, JW needs neither.
+        FOUR of my own findings were WRONG and are struck: `server/build/` is not
+        tracked (`git ls-files` = 0 both repos) · JV's missing `assets/` is moot
+        (JV has zero renderer assets) · the matrix's docgen "server base =
+        services/serverApi.js" cell was filled BY ANALOGY (that file does not
+        exist; docgen lets `installLlmUi` own it — and docgen's is the shape to
+        copy, not JW's) · and JV's `scripts/e2e.js` is NOT a keeper: JV's own
+        tracker bans browser-driven suites as an acceptance surface (2026-08-02)
+        and already lists it to retire.
+        PHASE 2 COMPLETE 2026-08-15 (everything not parked or dropped):
+        · ROW 2 — `src/services/native.js` now exists in ALL THREE. Every `invoke`
+          goes through it; a command's name-as-a-string exists once per app. While
+          wiring it: 18 of JustVoice's 23 shell commands have NO renderer caller
+          (dictation, hotkeys, audio capture, permissions, server start/stop).
+          RECORDED ONLY — your ruling stands ("no on jv stuff").
+        · ROW 12 — `npm run smoke` added to JustVoice (the file was there, the
+          command was not). docgen has no smoke script to name; left alone rather
+          than inventing a suite.
+        · ROW 14 — docgen's lint is `biome check .` again; the kit polices its own
+          src (it already ships `lint`, `check:pickers`, `dup`).
+        · ROW 15 — `src/config.js` (JV) and `services/serverApi.js` (JW) are BOTH
+          DELETED. The kit's `makeOriginAwareResolver` gained `overrideKey` and
+          installLlmUi `serverOverrideKey`, so JV's `jt:server` thin-client
+          override rides the ONE resolver — it used to be read twice inside JV
+          (config.js AND stores/api.js), which is two answers to "which server?".
+          All three now pass devPorts + fallbackBase and let the kit resolve.
+        · ROW 17 — the committed screenshot PNGs are gone (FIVE, not the 8 I
+          claimed). The verify/shots/e2e scripts stay: they belong to the parked
+          harness decision.
+        · PHASE 3 — FOUR new guard checks in `scripts/check-family.mjs`, each of
+          which FAILED on 2026-08-14 and passes now: ONE save door (no
+          `a.download =` outside the kit) · ONE shell door (no `@tauri-apps/api/core`
+          outside services/native.js) · no `window.<app>` global · shell parity
+          (identical plugin sets, identical capability permissions, and no plugin
+          declared-but-never-initialised). Both the save-door and parity checks
+          were PROVEN to bite by re-introducing a violation and watching them fail.
+        DROPPED: row 3 (backup-router mount — cosmetic only, the machinery is
+        already shared), rows 16 + 18 (not real).
+        NOT TOUCHED — the user's parked decision (JV TASKS.md:180, 2026-08-06):
+        the real-webview harness. Rows 10, 11, 13 all belong to it.
+        VERIFIED END-TO-END: family guard ✓ · biome ×4 · JV 48 + JW 578 + docgen 3
+        unit tests · three renderers build · JV smoke 15/15 (exercises the boot
+        path the resolver change touches) · cargo check ×2.
+GO:     Phase 0 done 2026-08-14 · Phase 1 ruled 2026-08-15 · Phase 2 executing
+
 ### The three shells do the same native jobs three different ways — converge them
 
 STATE:  DECIDED 2026-08-14 — *"if all these apps are doing same functions why are
@@ -194,18 +320,19 @@ BUILT:  The kit half is done and is shared by construction — the folder seam
         one `isTauriShell()`. Docs: JW `docs/dev/architecture-notes.md` rewritten.
         Verified: cargo check ×3, biome ×4, three builds, JV smoke 15/15, vitest
         48 (JV) + 578 (JW) — two JW test files rewritten off the global.
-        OPEN — your call, one question: the cross-origin fetch override. It is now
-        ONE kit implementation (`installTauriFetch`) but only JustWrite installs
-        it, and the evidence says nobody needs it. Its two stated reasons are both
-        gone: no renderer in any app fetches a provider (every `fetch` in the kit
-        transport builds `serverUrl(path)` — providers are server-side), and the
-        COEP header it names does not exist anywhere in JustWrite. What it still
-        catches is the webview→own-sidecar hop (`tauri.localhost` →
-        `127.0.0.1:17495`), which JustVoice and i18n-docgen make with plain fetch
-        against their servers' CORSMiddleware. So: DELETE it from JustWrite (all
-        three identical, one mechanism fewer) — but that changes packaged-app
-        networking and can only be proven by building and running the JW
-        installer, which this environment can't do.
+        OPEN — your call, one question: the cross-origin fetch override, now
+        `justwrite-app/src/services/tauriFetch.js` and on probation there. The
+        evidence says nobody needs it: no renderer in any app fetches a provider
+        (every `fetch` in the kit transport builds `serverUrl(path)` — providers
+        are server-side), and the COEP header it names does not exist anywhere in
+        JustWrite. What it still catches is the webview→own-sidecar hop, which
+        JustVoice and i18n-docgen make with plain fetch against their servers'
+        CORSMiddleware. DELETE it (all three identical, one mechanism fewer) once
+        the check passes: drop the `installTauriFetch()` call, `npm run tauri dev`,
+        confirm boot + data; then `npm run tauri build` + `npm test` in `e2e/`
+        (tauri-driver drives the real window) for the `tauri.localhost` origin.
+        It briefly sat in the KIT (2026-08-14) — wrong: one app using it makes it
+        app code. Moved back the same day.
 GO:     given 2026-08-14 (phases ①②③ — all built)
 
 ### `can_coreside` DELETED + the f11f228 attribution note (2026-08-14)

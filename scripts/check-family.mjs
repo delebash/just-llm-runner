@@ -216,6 +216,102 @@ function checkHandRolled(app, files) {
   }
 }
 
+// ── checks 11-14 · THE SHELL LAYER (added 2026-08-15) ─────────────────────────
+// Why these exist: on 2026-08-14 this guard reported "✓ no violations" while the
+// three apps opened a folder three different ways (a hand-rolled per-platform
+// spawn, the `open` crate, and tauri-plugin-opener), shipped three different
+// plugin sets, installed an Electron-era `window.justwrite` global, and carried
+// SEVEN copies of `a.download = filename`. Every check below would have FAILED
+// that day. A check that would have passed is decoration and does not belong.
+//
+// The rule they encode: you cannot grep for the same job done differently, so
+// each of these asserts the ONE door instead of hunting for its copies.
+
+/** Renderer file → the source, minus its comments (so a comment naming a banned
+ *  pattern doesn't trip the check). Crude but adequate: strips // and /* *​/. */
+function codeOf(file) {
+  return readFileSync(file, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
+// check 11 · ONE save door. `a.download = …` is the shape of a hand-rolled
+// download; the kit's fileSave.js is the only place allowed to write it.
+function checkOneSaveDoor(app, files) {
+  for (const file of files) {
+    if (![".js", ".vue"].includes(extname(file))) continue;
+    if (!/\.download\s*=/.test(codeOf(file))) continue;
+    const rel = file.slice(app.dir.length + 1).replace(/\\/g, "/");
+    fail(app.name, `${rel} hand-rolls a file download (\`a.download =\`) — the kit exports saveBlob/downloadBlob (common/services/fileSave.js). JustVoice had FIVE of these.`);
+  }
+}
+
+// check 12 · ONE door to the shell. `invoke()` belongs in services/native.js, so
+// a command's name-as-a-string exists in exactly one place per app.
+function checkOneShellDoor(app, files) {
+  for (const file of files) {
+    if (![".js", ".vue"].includes(extname(file))) continue;
+    const rel = file.slice(app.dir.length + 1).replace(/\\/g, "/");
+    if (rel === "src/services/native.js") continue;   // THE door itself
+    if (!/@tauri-apps\/api\/core/.test(codeOf(file))) continue;
+    fail(app.name, `${rel} imports Tauri's invoke directly — every command goes through services/native.js (family shape 2026-08-15)`);
+  }
+}
+
+// check 13 · no renderer installs a global on `window`. That was the shape of
+// JustWrite's Electron-era `window.justwrite` bridge, deleted 2026-08-14.
+function checkNoWindowGlobal(app, files) {
+  for (const file of files) {
+    if (![".js", ".vue"].includes(extname(file))) continue;
+    const m = codeOf(file).match(/\bwindow\.([A-Za-z_$][\w$]*)\s*=\s*\{/);
+    if (!m || ["fetch", "onerror", "onload"].includes(m[1])) continue;
+    const rel = file.slice(app.dir.length + 1).replace(/\\/g, "/");
+    fail(app.name, `${rel} installs a window.${m[1]} global — apps import modules, they do not publish bridges (the window.justwrite shim died 2026-08-14)`);
+  }
+}
+
+// check 14 · the shells declare the SAME Tauri surface — same plugins, same
+// permissions — and declare nothing they don't use.
+function checkShellParity() {
+  const plugins = new Map();
+  const perms = new Map();
+  for (const app of APPS) {
+    const cargo = join(app.dir, "src-tauri/Cargo.toml");
+    const libRs = join(app.dir, "src-tauri/src/lib.rs");
+    const capDir = join(app.dir, "src-tauri/capabilities");
+    if (!existsSync(cargo) || !existsSync(libRs)) continue;
+
+    const declared = [...readFileSync(cargo, "utf8").matchAll(/^tauri-plugin-([\w-]+)\s*=/gm)].map((m) => m[1]);
+    plugins.set(app.name, declared.sort().join(","));
+
+    // Declared but never initialised = dead weight (http/fs/process were all
+    // init-only in two shells until 2026-08-15).
+    const rs = readFileSync(libRs, "utf8");
+    for (const p of declared) {
+      const snake = p.replace(/-/g, "_");
+      if (!new RegExp(`tauri_plugin_${snake}::`).test(rs)) {
+        fail(app.name, `Cargo declares tauri-plugin-${p} but lib.rs never uses it`);
+      }
+    }
+
+    if (existsSync(capDir)) {
+      const ids = [];
+      for (const f of readdirSync(capDir).filter((f) => f.endsWith(".json"))) {
+        const cap = JSON.parse(readFileSync(join(capDir, f), "utf8"));
+        for (const p of cap.permissions || []) ids.push(typeof p === "string" ? p : p.identifier);
+      }
+      perms.set(app.name, ids.sort().join(","));
+    }
+  }
+  for (const [label, map] of [["plugin set", plugins], ["capability permissions", perms]]) {
+    const values = new Set(map.values());
+    if (values.size > 1) {
+      const detail = [...map].map(([a, v]) => `${a}=[${v}]`).join("  ");
+      fail("family", `the three shells declare different ${label}: ${detail}`);
+    }
+  }
+}
+
 // ── check 6 · the same file in two apps and in neither the kit nor the standard ─
 function checkCrossAppTwins(perApp, kitFiles) {
   const seen = new Map();
@@ -717,7 +813,11 @@ for (const app of APPS) {
   checkSkeleton(app);
   checkDocs(app);
   checkTaskLifecycle(app, files);
+  checkOneSaveDoor(app, files);
+  checkOneShellDoor(app, files);
+  checkNoWindowGlobal(app, files);
 }
+checkShellParity();
 checkCrossAppTwins(perApp, kitFiles);
 checkDocsCrossApp();
 checkTrackerFormat();

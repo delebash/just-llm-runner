@@ -32,9 +32,20 @@ export function configureServerApi({ resolveBase, authToken } = {}) {
 // hosts the UI (same-origin, no CORS); otherwise (Vite dev / Tauri webview) the
 // fallback. The host reads its own VITE_SERVER_URL (statically) and passes the
 // resolved value as `fallback`.
-export function makeOriginAwareResolver({ devPorts = [], fallback = "" } = {}) {
+// `overrideKey` (2026-08-15) is a localStorage key whose value, when set, WINS
+// over everything: a thin client explicitly pointed at a remote host. JustVoice
+// had this layered on top in its own `src/config.js`, and read the same key a
+// second time in its api store — so "which server are we talking to?" had two
+// answers in one app and three shapes across the family (JustVoice: config.js;
+// JustWrite: services/serverApi.js; docgen: nothing, the kit resolved it). The
+// kit resolves it for all three now; an app that passes no key is unaffected.
+export function makeOriginAwareResolver({ devPorts = [], fallback = "", overrideKey = "" } = {}) {
   return function resolveBase() {
     if (typeof window === "undefined" || !window.location) return fallback;
+    if (overrideKey && typeof localStorage !== "undefined") {
+      const override = localStorage.getItem(overrideKey);
+      if (override) return override;
+    }
     const { protocol, origin, port, hostname } = window.location;
     const isDev = devPorts.includes(port);
     const isTauri = protocol === "tauri:" || hostname === "tauri.localhost";

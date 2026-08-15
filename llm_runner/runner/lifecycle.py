@@ -569,6 +569,9 @@ class RunnerService:
         # are one critical section; a completing worker notifies it to wake the next in line.
         self._download_gate = threading.Condition(self._lock)
         self._last_log_path = None
+        # The sleeping-set probe's TTL stamp (2026-08-15). Monotonic via the injected
+        # clock; 0.0 means "never probed", which the first door forces through.
+        self._last_sleep_probe = 0.0
         # A3: the binary the CURRENT router actually launched with. A fallback
         # spawn may differ from the preferred build; bounces must reuse the
         # PROVEN exe, never re-try the broken preferred one mid-session.
@@ -1612,9 +1615,24 @@ class RunnerService:
         lazy-spawn common case) → `router: False`, empty set. The per-model VRAM budget lands
         here in P2 (the arbiter)."""
         cfg = self._config_fn()
+        # The router's own view comes FIRST, and its sleeping set reconciles the ledger
+        # before the snapshot is taken (2026-08-15): read the other way round, the
+        # committed/remaining numbers in this very response were a poll behind the
+        # sleeping flags they depend on. This poll is also what keeps the flags fresh
+        # for a co-tenant that never calls the runner (JustVoice's speech door).
+        router = self._router
+        live: dict[str, dict] = {}
+        router_up = router is not None and router.is_alive()
+        if router_up:
+            try:
+                live = _parse_router_models(self._router_models(router.url))
+            except Exception:  # noqa: BLE001 — a GET failure just yields an empty live set
+                log.warning("GET /models failed while reading the resident set", exc_info=True)
+            else:
+                self._sync_sleeping_from(live)
         snap = self._arbiter.snapshot(hw)  # committed/remaining/total budget (hw passed → no re-detect)
         out = {
-            "router": False,
+            "router": router_up,
             "models_max": cfg.models_max,
             "sleep_idle_seconds": cfg.sleep_idle_seconds,
             "mem_arch": snap.get("mem_arch", "discrete"),
@@ -1627,14 +1645,6 @@ class RunnerService:
             "remaining_mb": snap["remaining_mb"],
             "models": [],
         }
-        router = self._router
-        live: dict[str, dict] = {}
-        if router is not None and router.is_alive():
-            out["router"] = True
-            try:
-                live = _parse_router_models(self._router_models(router.url))
-            except Exception:  # noqa: BLE001 — a GET failure just yields an empty live set
-                log.warning("GET /models failed while reading the resident set", exc_info=True)
         models: list[dict] = []
         by_id: dict[str, dict] = {}
         for mid, info in live.items():
@@ -1719,6 +1729,80 @@ class RunnerService:
         state = self.load(embed_id, trigger="ensure-embedding")
         return {"ok": True, "modelId": embed_id, **state}
 
+    # ── the sleeping-child reconcile (2026-08-15) ─────────────────────────────
+    # `--sleep-idle-seconds` idle-unloads a child: its VRAM is really gone while the
+    # router still lists it as `sleeping`. Until this landed, the ledger kept booking
+    # that memory, which made `committed_mb` a fiction and — because JustVoice's speech
+    # door prices on MEASURED free memory, as it must — let a TTS engine move into the
+    # sleeper's freed gigabytes with the booking still standing. The whole story is in
+    # arbiter.py's module docstring. This is the probe half: the router is the only
+    # thing that knows, and asking it costs one local HTTP GET, so it is TTL-cached and
+    # called from the two admission doors + the resident poll, never from a ledger read.
+    _SLEEP_PROBE_TTL_S = 2.0
+
+    def reconcile_sleeping(self, *, force: bool = False) -> None:
+        """Re-align the arbiter's `asleep` flags with the router's live `GET /models`.
+        Best-effort and never raises: a router that is down or slow leaves the ledger
+        exactly as it was (conservative — it keeps booking memory that may be free,
+        which can only refuse a load, never overcommit one). TTL-cached at
+        `_SLEEP_PROBE_TTL_S`; `force` bypasses the cache for a door that must not act
+        on a stale reading."""
+        router = self._router
+        if router is None or not router.is_alive():
+            return
+        now = self._now()
+        if not force and (now - self._last_sleep_probe) < self._SLEEP_PROBE_TTL_S:
+            return
+        try:
+            live = _parse_router_models(self._router_models(router.url))
+        except Exception:  # noqa: BLE001 — a probe must never fail the caller
+            log.debug("sleeping-set probe failed; ledger left as-is", exc_info=True)
+            return
+        self._last_sleep_probe = now
+        self._sync_sleeping_from(live)
+
+    def _sync_sleeping_from(self, live: dict[str, dict]) -> None:
+        """Hand the arbiter the sleeping set parsed from a router model list the caller
+        ALREADY fetched (`resident()` polls it every couple of seconds — no second GET)."""
+        sleeping = {
+            mid for mid, info in live.items()
+            if str(info.get("value") or "").lower() == "sleeping"
+        }
+        self._arbiter.sync_sleeping(sleeping)
+        self._last_sleep_probe = self._now()
+
+    def _admit_wake(self, model_id: str) -> None:
+        """Admit a WAKE: the child is reserved but idle-unloaded, and the very next
+        request makes the router reload its weights — a reallocation that reaches the
+        card through no load path and so was never admitted by anything (the second
+        half of the sleeping-child defect). Make room for what it takes back BEFORE
+        that request goes out, then book the memory immediately so the gap between
+        making room and the router filling it can't be claimed by a co-tenant.
+
+        Runs on the CALLER's thread (dispatch's ensure, off the event loop) and holds
+        NO `_router_lock` — `make_room` is the foreign-caller path by design, and each
+        victim dies through its own registered evictor.
+
+        When nothing is evictable we PROCEED with a warning rather than raise, and the
+        choice is deliberate: raising here would abort the request, so the practical
+        effect is that every AI feature fails for as long as a render holds the TTS
+        engine busy — never-evict-busy protecting the render by breaking everything
+        else. Proceeding costs a spell of two models on one card, which the engine's
+        own CPU offload absorbs, and it ends when the render does. Same shape as
+        `_admit`'s proceed-with-warning for a fit-placed model."""
+        arb = self._arbiter
+        want = arb.reserved_mb(model_id) or 0
+        if want <= 0:
+            return
+        hardware = self._hardware_fn()
+        if not arb.make_room(want, exclude=model_id, hardware=hardware,
+                             reason=f"waking {model_id}",
+                             self_kind="llm", self_evict=self._evict_resident):
+            log.warning("wake %s: could not free %d MB — nothing evictable; the child "
+                        "reloads over budget and the engine's own offload decides",
+                        model_id, want)
+        arb.mark_awake(model_id)
+
     def _resident_ready(self, model_id: str) -> bool:
         """True when `model_id` is resident AND its router child is loaded|sleeping —
         i.e. the internal load reached `running` (set ONLY after `_confirm_load` saw the
@@ -1748,6 +1832,14 @@ class RunnerService:
         if not model_id:
             return
         if self._resident_ready(model_id):
+            # …but "resident" is not "holding memory". A child the router idle-unloaded
+            # reloads its weights on the request we are about to send, through no load
+            # path — so the fast return here was the moment the wake escaped admission
+            # entirely (2026-08-15). Reconcile first (the flag is only as fresh as the
+            # last probe), then make room for what it takes back.
+            self.reconcile_sleeping()
+            if self._arbiter.is_asleep(model_id):
+                self._admit_wake(model_id)
             return
         # Defect D (2026-07-22 pass-1 plan T4): an EXPLICIT stop outranks a zombie
         # request. The 07:00 incident: the bench client died mid-chat, its server-side
@@ -2531,6 +2623,11 @@ class RunnerService:
         (make_room's evictor re-enters it — RLock); `hardware` is passed in (already detected) so
         the arbiter doesn't re-run nvidia-smi per loop."""
         arb = self._arbiter
+        # The ledger must not be pricing against sleepers' phantom bookings (2026-08-15):
+        # a child the router idle-unloaded holds nothing, and counting it here refuses
+        # loads that fit. `force` because an admission is exactly the moment a stale
+        # reading is worth the one local GET.
+        self.reconcile_sleeping(force=True)
         own = arb.reserved_mb(model_id) or 0  # freeing our own reservation adds this back to the budget
 
         # MEASURED admission (2026-08-14, the user's ruling: "how can we possibly

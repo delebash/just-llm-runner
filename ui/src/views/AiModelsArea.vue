@@ -306,12 +306,20 @@ const memCells = computed(() => {
   // shared with the host's speech engines (JV), so committedMb counts a
   // loaded TTS model too and would mislabel it "LLM" (2026-08-15 review).
   // Nothing resident → the host's idle words (JV's on-demand claim) or "—".
+  // A SLEEPING model is resident in the router's list but its weights are
+  // unloaded — it holds no memory (2026-08-15). Counting its booking here read
+  // "LLM 6.3 GB" beside a measured "0.7 of 8.0 GB used": two truths on one
+  // strip, the defect this row exists to prevent. Only awake takes are summed.
   const models = (r.models || []).filter((m) => m.status === "loaded" || m.status === "sleeping");
   if (models.length) {
-    const take = models.reduce((n, m) => n + (m.vramMb || 0), 0);
-    cells.push({ key: "llm", label: "LLM", value: take ? `${gb1(take)} GB` : "loaded",
+    const awake = models.filter((m) => m.status !== "sleeping");
+    const take = awake.reduce((n, m) => n + (m.vramMb || 0), 0);
+    cells.push({ key: "llm", label: "LLM",
+      value: take ? `${gb1(take)} GB` : (awake.length ? "loaded" : "asleep"),
       sub: models.map((m) => m.id).join(" · "),
-      title: "The AI runner's booked take for its loaded models" });
+      title: awake.length
+        ? "The AI runner's booked take for its loaded models"
+        : "Idle, so its memory has been released — it reloads on the next request" });
   } else if (props.llmClaim?.text) {
     cells.push({ key: "llm", label: "LLM", value: props.llmClaim.text, title: props.llmClaim.title || "" });
   } else {
@@ -593,27 +601,42 @@ onMounted(() => {
   <div class="lu-area">
     <p class="lu-muted lu-lede">Connect AI providers — free local or metered cloud — and manage which models power each feature.</p>
 
-    <!-- One-line hardware strip (OS · CPU · Memory · GPU · Acceleration). -->
+    <!-- The machine strip (OS · CPU · Memory · GPU · Acceleration, then the live
+         memory cells). A COLUMN GRID, not a greedy flex row (2026-08-15): with
+         ten cells it used to pack edge-to-edge and, one browser-width narrower,
+         wrap into a ragged second row whose cells lined up under nothing. The
+         grid gives every cell the same track width, so a wrapped row is a tidy
+         second row of the same columns at any window size. -->
     <div v-if="hwLabel" class="lu-hwstrip">
-      <div class="lu-hwstat"><span class="lu-hwstat-k">OS</span><span class="lu-hwstat-v">{{ hwLabel.os }}</span></div>
-      <div class="lu-hwstat"><span class="lu-hwstat-k">CPU</span><span class="lu-hwstat-v">{{ hwLabel.cpu }}</span></div>
-      <div class="lu-hwstat"><span class="lu-hwstat-k">Memory</span><span class="lu-hwstat-v">{{ hwLabel.ram }}</span></div>
-      <div class="lu-hwstat"><span class="lu-hwstat-k">GPU</span><span class="lu-hwstat-v">{{ hwLabel.gpu }}<span v-if="hwLabel.vram" class="lu-hwstat-sub"> · {{ hwLabel.vram }} VRAM</span></span></div>
-      <div class="lu-hwstat"><span class="lu-hwstat-k">Acceleration</span><span class="lu-hwstat-v">{{ hwLabel.accel }}</span></div>
-      <!-- Live measured memory as CELLS (the one-strip consolidation, 2026-08-15):
-           kit cells (used · free · LLM) then the host's own (JV: TTS · STT ·
-           Other apps · Busy). Hidden on a no-GPU box. The Copy button snapshots
-           the whole picture (hardware · tuning keys · engine build · loaded
-           models) as one pasteable debug block. -->
-      <div v-for="c in stripCells" :key="c.key" class="lu-hwstat" :title="c.title || undefined">
-        <span class="lu-hwstat-k">{{ c.label }}</span>
-        <span class="lu-hwstat-v">{{ c.value }}<span v-if="c.sub" class="lu-hwstat-sub"> · {{ c.sub }}</span></span>
-        <!-- A cell may carry ONE action (today: "Other apps" → show apps). Kept
-             on the generic cell so a host cell can offer one without a second
-             strip template. -->
-        <a v-if="c.action" class="lu-hwstat-act" role="button" tabindex="0"
-          @click="c.action.on()" @keydown.enter.prevent="c.action.on()"
-          @keydown.space.prevent="c.action.on()">{{ c.action.label }}</a>
+      <div class="lu-hwstats">
+        <div class="lu-hwstat"><span class="lu-hwstat-k">OS</span><span class="lu-hwstat-v">{{ hwLabel.os }}</span></div>
+        <div class="lu-hwstat"><span class="lu-hwstat-k">CPU</span><span class="lu-hwstat-v">{{ hwLabel.cpu }}</span></div>
+        <div class="lu-hwstat"><span class="lu-hwstat-k">Memory</span><span class="lu-hwstat-v">{{ hwLabel.ram }}</span></div>
+        <!-- The sub is its OWN line, never a "· tail" on the value: the tail is
+             what made the GPU / LLM / TTS cells three times the width of the
+             rest and drove the ugly wrap. Label · number · quiet detail. -->
+        <div class="lu-hwstat">
+          <span class="lu-hwstat-k">GPU</span>
+          <span class="lu-hwstat-v">{{ hwLabel.gpu }}</span>
+          <span v-if="hwLabel.vram" class="lu-hwstat-sub">{{ hwLabel.vram }} VRAM</span>
+        </div>
+        <div class="lu-hwstat"><span class="lu-hwstat-k">Acceleration</span><span class="lu-hwstat-v">{{ hwLabel.accel }}</span></div>
+        <!-- Live measured memory as CELLS (the one-strip consolidation, 2026-08-15):
+             kit cells (used · free · LLM) then the host's own (JV: TTS · STT ·
+             Other apps · Busy). Hidden on a no-GPU box. The Copy button snapshots
+             the whole picture (hardware · tuning keys · engine build · loaded
+             models) as one pasteable debug block. -->
+        <div v-for="c in stripCells" :key="c.key" class="lu-hwstat" :title="c.title || undefined">
+          <span class="lu-hwstat-k">{{ c.label }}</span>
+          <span class="lu-hwstat-v">{{ c.value }}</span>
+          <span v-if="c.sub" class="lu-hwstat-sub">{{ c.sub }}</span>
+          <!-- A cell may carry ONE action (today: "Other apps" → show apps). Kept
+               on the generic cell so a host cell can offer one without a second
+               strip template. -->
+          <a v-if="c.action" class="lu-hwstat-act" role="button" tabindex="0"
+            @click="c.action.on()" @keydown.enter.prevent="c.action.on()"
+            @keydown.space.prevent="c.action.on()">{{ c.action.label }}</a>
+        </div>
       </div>
       <UiButton intent="ghost" size="small" class="lu-hwcopy"
         title="Copy this machine's AI state — hardware, driver, engine build, tuning keys, VRAM, loaded models — for a bug report"
@@ -908,14 +931,25 @@ onMounted(() => {
 .lu-area { width: 100%; flex: 1; display: flex; flex-direction: column; min-height: 0; }
 .lu-h1 { font-size: 22px; font-weight: 600; margin: 0; color: var(--ink); }
 .lu-lede { font-size: 13px; margin: 4px 0 0; }
-/* One-line hardware strip — labelled stat blocks (OS · CPU · Memory · GPU · Accel),
-   stacked label-over-value, in a wrapping row (matches JV's settings strip). */
-.lu-hwstrip { display: flex; flex-wrap: wrap; gap: 8px 40px; align-items: baseline; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; margin-top: 12px; }
-.lu-hwcopy { margin-left: auto; align-self: center; }
-.lu-hwstat { display: flex; flex-direction: column; gap: 2px; }
+/* The machine strip — labelled stat blocks (OS · CPU · Memory · GPU · Accel ·
+   the live memory cells), stacked label-over-value-over-detail.
+   The cells live in an auto-fit COLUMN GRID: every track is the same width, so
+   the cells align vertically as well as horizontally and a wrap produces a
+   second tidy row of the same columns instead of a ragged flex remainder. The
+   Copy button is the strip's own trailing ROW, not a trailing column: riding
+   beside the cells it ate a whole track's worth of width and orphaned the last
+   cell onto a line of its own (the same reason a cell's action sits under its
+   value rather than beside it). */
+.lu-hwstrip { display: grid; row-gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; margin-top: 12px; }
+.lu-hwstats { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 14px 22px; min-width: 0; }
+.lu-hwcopy { margin: 0; justify-self: end; white-space: nowrap; }
+.lu-hwstat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .lu-hwstat-k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
-.lu-hwstat-v { font-size: 13.5px; font-weight: 600; color: var(--ink); }
-.lu-hwstat-sub { color: var(--muted); font-weight: 500; }
+/* Long values (a full GPU name, "CUDA (in use) · VULKAN (supported)") wrap
+   INSIDE their track rather than stretching it — `anywhere` so a model id with
+   no spaces breaks instead of overflowing the cell. */
+.lu-hwstat-v { font-size: 13.5px; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.lu-hwstat-sub { font-size: 11.5px; line-height: 1.35; color: var(--muted); font-weight: 500; overflow-wrap: anywhere; }
 /* A cell's one action. Sits under the value so it can't widen the cell and
    push the strip's wrap point around as the number changes. */
 .lu-hwstat-act { font-size: 11px; font-weight: 600; color: var(--accent, #3b82f6); cursor: pointer; user-select: none; }

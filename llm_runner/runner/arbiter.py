@@ -33,18 +33,34 @@ on `FitPlan.vram_mb`), NOT the full weight size — a MoE offloads its experts t
 footprint is far below its file size. Admission is a first-guess safety net; the spawn OOM back-off +
 the build's graceful CPU auto-offload are the real backstops, so a modest estimate error is fine.
 
+THE SLEEPING CHILD (fixed 2026-08-15; this was the limitation recorded here since P2).
+`--sleep-idle-seconds` idle-*unloads* a child — its VRAM is really gone — while the router still
+lists it as `sleeping`. The arbiter used to keep booking that memory, so `committed_mb` OVER-counted.
+That reads as "conservative", and it is for the runner's own admission, which prices on the ledger.
+It is NOT conservative for a co-tenant that prices on MEASURED free memory: JustVoice's speech door
+does exactly that (it must — the ledger cannot see other programs), so it correctly saw the sleeper's
+freed gigabytes, moved a TTS engine in, and the ledger ended at 10.6 GB booked on an 8 GB card. The
+child then woke straight through the router with no admission anywhere, and the driver spilled to
+shared system memory instead of anything refusing. Two doors, each locally right, no arbitration.
+
+The fix is two-sided and both halves are needed:
+  * a reservation carries `asleep`; `sync_sleeping()` reconciles it against the router's live
+    `GET /models` (RunnerService.reconcile_sleeping), and `committed_mb` counts only AWAKE
+    reservations — the ledger now says what the card holds. A sleeping reservation is also never
+    an eviction victim: freeing something that holds no memory cannot make room (the EVICT_MIN_MB
+    lesson, same shape).
+  * the WAKE is admitted. `RunnerService.ensure_model_ready` no longer fast-returns on a sleeping
+    model: it runs `make_room` for what the child takes back, so the wake evicts its co-tenant
+    through the normal executor (with an eviction event the user sees) instead of overcommitting.
+
 LIMITATIONS (recorded):
   * Real chat/embed generate traffic hits the router's `:8080/v1` directly via the OpenAI-compat
     adapter, NOT through the RunnerService — so the arbiter's LRU sees only load-time +
     `measure`/`tokenize` touches, not live inference. For JW's common 2-model case (pinned embed +
     one evictable chat) the LRU order barely matters; the router-native TTL handles real idle-unload.
     A usage-aware LRU (reading a router last-use field, if the pinned build exposes one) is a later
-    refinement.
-  * `--sleep-idle-seconds` idle-*unloads* a child (frees its VRAM) while the router still lists it
-    as `sleeping`; the arbiter KEEPS the reservation (it can't see the sleep and the child reloads
-    on the next request). So after models sleep, `committed_mb` OVER-counts and `remaining_mb`
-    UNDER-counts — conservative (it never lets an admission OOM), but the reported budget is tighter
-    than reality. Reconciling committed against the live `GET /models` sleeping set is a P2+ refinement.
+    refinement. The WAKE half of this is closed (see above) because dispatch's ensure-local hook
+    runs before the adapter call; a request that reaches the router by some other path is not.
 """
 
 from __future__ import annotations
@@ -82,6 +98,12 @@ class _Reservation:
     # Propagated on the snapshot so a consumer (the JV strip) never presents a
     # declared guess as live truth.
     source: str = "computed"
+    # ASLEEP (2026-08-15): the router idle-unloaded this child's weights, so the
+    # reservation names memory the card is NOT currently holding. It stays in the
+    # ledger — the number is what the child takes back when it wakes, and the wake
+    # admission needs it — but it is excluded from `committed_mb`. See the class
+    # docstring's sleeping-child note for the whole story.
+    asleep: bool = False
 
 
 class VramArbiter:
@@ -117,7 +139,18 @@ class VramArbiter:
         return _hw_budget_total(hw or self._hardware_fn())
 
     def committed_mb(self) -> int:
-        """Total VRAM currently reserved across the resident set."""
+        """Total VRAM currently HELD across the resident set — asleep reservations
+        excluded (2026-08-15): an idle-unloaded child's weights are really gone, and
+        a ledger that keeps booking them reports memory as taken that any co-tenant
+        pricing on a measurement can plainly see is free. `sync_sleeping` maintains
+        the flag; `booked_mb` is the with-sleepers number for a caller that wants it."""
+        with self._lock:
+            return sum(r.vram_mb for r in self._reservations.values() if not r.asleep)
+
+    def booked_mb(self) -> int:
+        """Total VRAM reserved INCLUDING sleepers — what the resident set will hold
+        once every sleeping child has woken. The admission doors price on
+        `committed_mb`; this is for reporting and for sizing a wake."""
         with self._lock:
             return sum(r.vram_mb for r in self._reservations.values())
 
@@ -147,6 +180,43 @@ class VramArbiter:
     def is_reserved(self, key: str) -> bool:
         with self._lock:
             return key in self._reservations
+
+    # ── the sleeping-child reconcile (2026-08-15) ─────────────────────────────
+
+    def sync_sleeping(self, sleeping_keys, *, kind: str = "llm") -> None:
+        """Re-align the `asleep` flag of every `kind` reservation with the router's
+        LIVE sleeping set. Kind-scoped because only llama.cpp children sleep — a JV
+        speech engine is a process that is either up or gone, and a caller passing
+        the router's list must not silently wake or sleep one.
+
+        Called by `RunnerService.reconcile_sleeping` (which owns the `GET /models`
+        probe and its TTL) — never from inside a ledger query, so no lock is held
+        across HTTP."""
+        keys = set(sleeping_keys or ())
+        with self._lock:
+            for k, r in self._reservations.items():
+                if r.kind == kind:
+                    r.asleep = k in keys
+
+    def is_asleep(self, key: str) -> bool:
+        """True when `key` is reserved but its child is idle-unloaded — the state in
+        which a "warm, already resident" fast path is a lie and the wake must be
+        admitted (`ensure_model_ready`)."""
+        with self._lock:
+            r = self._reservations.get(key)
+            return bool(r is not None and r.asleep)
+
+    def mark_awake(self, key: str) -> None:
+        """Book `key`'s memory back at the moment its wake is admitted — before the
+        router reallocates, not after the next reconcile poll notices. Without this
+        the ledger reports the memory free for the whole gap and a co-tenant
+        admission can take the room the wake just made. No-op if not reserved."""
+        with self._lock:
+            r = self._reservations.get(key)
+            if r is not None:
+                r.asleep = False
+                self._seq += 1
+                r.seq = self._seq
 
     def reserve(
         self,
@@ -214,11 +284,17 @@ class VramArbiter:
         evicts a REPLACED embed before anything else touches the chat model.
 
         `kind` (2026-08-09): restrict candidates to one owner kind — the runner's count-cap
-        eviction only ever removes its OWN llama.cpp children, never a TTS/STT engine."""
+        eviction only ever removes its OWN llama.cpp children, never a TTS/STT engine.
+
+        ASLEEP (2026-08-15): a sleeping child is skipped by a VRAM-driven eviction for the
+        same reason `min_mb` exists — it holds nothing, so killing it cannot make room, and
+        it costs the user a model they had warm. A COUNT-driven eviction (min_mb 0) still
+        takes it: there the goal is a free child slot, which a sleeper does occupy."""
         with self._lock:
             cands = [
                 (r.seq, k) for k, r in self._reservations.items()
                 if not r.pinned and k != exclude and r.vram_mb >= min_mb
+                and not (r.asleep and min_mb > 0)
                 and (among is None or k in among)
                 and (kind is None or r.kind == kind)
             ]
@@ -284,6 +360,7 @@ class VramArbiter:
                 cands = [
                     (r.seq, k, r) for k, r in self._reservations.items()
                     if not r.pinned and k != exclude and r.vram_mb >= min_mb
+                    and not r.asleep  # holds nothing — evicting it frees nothing
                     and r.kind not in protected
                     and (r.evict_fn is not None
                          or (self_evict is not None and r.kind == self_kind))
@@ -339,10 +416,14 @@ class VramArbiter:
         with self._lock:
             reservations = [
                 {"key": k, "vram_mb": r.vram_mb, "pinned": r.pinned, "kind": r.kind,
-                 "source": r.source}
+                 "source": r.source, "asleep": r.asleep}
                 for k, r in sorted(self._reservations.items(), key=lambda kv: kv[1].seq)
             ]
-            committed = sum(r.vram_mb for r in self._reservations.values())
+            # Committed = what is HELD (sleepers excluded, 2026-08-15). `booked_mb`
+            # rides alongside so a display can say "6.5 GB booked, 0 held right now"
+            # rather than either number pretending to be both.
+            committed = sum(r.vram_mb for r in self._reservations.values() if not r.asleep)
+            booked = sum(r.vram_mb for r in self._reservations.values())
             busy = sorted(k for k, n in self._busy.items() if n > 0)
         hw = hw or self._hardware_fn()
         total = self._max_vram_mb(hw)
@@ -362,6 +443,7 @@ class VramArbiter:
             "vram_total_mb": total,
             "used_mb": used,
             "committed_mb": committed,
+            "booked_mb": booked,
             "remaining_mb": max(0, total - committed),
             "reservations": reservations,
             "busy_kinds": busy,
@@ -382,7 +464,7 @@ class VramArbiter:
             if r is None:
                 return None
             return {"vram_mb": r.vram_mb, "source": r.source, "kind": r.kind,
-                    "pinned": r.pinned}
+                    "pinned": r.pinned, "asleep": r.asleep}
 
     def clear(self) -> None:
         """Drop all reservations (a full teardown / test reset)."""

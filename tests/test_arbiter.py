@@ -323,3 +323,99 @@ def test_discrete_budget_stays_the_card():
     assert snap["mem_arch"] == "discrete"
     assert snap["vram_total_mb"] == 8000
     assert a.remaining_mb() == 8000  # never the 32 GB RAM the fake also carries
+
+
+# ── the sleeping child (2026-08-15) ──────────────────────────────────────────
+# A router-idle-unloaded child holds no VRAM. The ledger used to keep booking it,
+# which made `committed_mb` a fiction — and because JustVoice's speech door prices
+# on a MEASURED probe (it must; the ledger cannot see other programs), that door
+# walked into the freed memory with the booking still standing and the ledger ended
+# 10.6 GB deep on an 8 GB card. These pin both halves of the fix.
+
+
+def test_sleeping_reservation_is_not_committed():
+    a = _arb(8000)
+    a.reserve("chat", 6000, kind="llm", evict_fn=lambda: None)
+    assert a.committed_mb() == 6000 and a.remaining_mb() == 2000
+    a.sync_sleeping({"chat"})
+    # Held = 0, booked = 6000. The card really is free; say so.
+    assert a.committed_mb() == 0 and a.remaining_mb() == 8000
+    assert a.booked_mb() == 6000
+    assert a.is_asleep("chat")
+
+
+def test_sync_sleeping_wakes_what_the_router_no_longer_lists():
+    a = _arb(8000)
+    a.reserve("chat", 6000, kind="llm", evict_fn=lambda: None)
+    a.sync_sleeping({"chat"})
+    a.sync_sleeping(set())  # the router reports it loaded again
+    assert not a.is_asleep("chat") and a.committed_mb() == 6000
+
+
+def test_sync_sleeping_never_touches_another_kind():
+    # Only llama.cpp children sleep. A speech engine is up or gone, and the router's
+    # list must not be able to mark one asleep by omission.
+    a = _arb(8000)
+    a.reserve("tts:chatterbox", 4400, kind="tts", evict_fn=lambda: None)
+    a.sync_sleeping({"chat"})
+    assert not a.is_asleep("tts:chatterbox")
+    assert a.committed_mb() == 4400
+
+
+def test_vram_eviction_skips_a_sleeper_but_a_count_eviction_takes_it():
+    # Killing something that holds nothing cannot make room — the EVICT_MIN_MB
+    # lesson, same shape. A COUNT-driven eviction (min_mb 0) still takes it: there
+    # the goal is a free child slot, which a sleeper does occupy.
+    a = _arb(8000)
+    a.reserve("sleeper", 6000, kind="llm", evict_fn=lambda: None)
+    a.sync_sleeping({"sleeper"})
+    assert a.pick_evict(min_mb=600) is None
+    assert a.pick_evict(min_mb=0) == "sleeper"
+
+
+def test_make_room_never_picks_a_sleeper_as_victim():
+    killed = []
+    a = _arb(8000)
+    a.reserve("sleeper", 5000, kind="llm", evict_fn=lambda: killed.append("sleeper"))
+    a.reserve("tts:chatterbox", 4400, kind="tts", evict_fn=lambda: killed.append("tts"))
+    a.sync_sleeping({"sleeper"})
+    # 8000 total, 4400 held by the TTS engine → 3600 remain. A 5000 MB wake needs
+    # the TTS out; the sleeper is not a candidate, however stale its LRU stamp.
+    assert a.make_room(5000, exclude="sleeper") is True
+    assert killed == ["tts"]
+
+
+def test_mark_awake_books_the_memory_back_immediately():
+    # Between making room and the router refilling it there is a gap; if the ledger
+    # still called the model asleep, a co-tenant admission could take the room the
+    # wake just made.
+    a = _arb(8000)
+    a.reserve("chat", 6000, kind="llm", evict_fn=lambda: None)
+    a.sync_sleeping({"chat"})
+    a.mark_awake("chat")
+    assert not a.is_asleep("chat")
+    assert a.committed_mb() == 6000 and a.remaining_mb() == 2000
+
+
+def test_snapshot_reports_asleep_and_both_totals():
+    a = _arb(8000)
+    a.reserve("chat", 6000, kind="llm", evict_fn=lambda: None)
+    a.reserve("tts:kokoro", 700, kind="tts", evict_fn=lambda: None)
+    a.sync_sleeping({"chat"})
+    snap = a.snapshot()
+    assert snap["committed_mb"] == 700     # what the card holds
+    assert snap["booked_mb"] == 6700       # what it holds once the sleeper wakes
+    rows = {r["key"]: r for r in snap["reservations"]}
+    assert rows["chat"]["asleep"] is True
+    assert rows["tts:kokoro"]["asleep"] is False
+    assert a.reservation_of("chat")["asleep"] is True
+
+
+def test_a_fresh_reserve_clears_the_sleep_flag():
+    # reserve() is an upsert used by the post-load true-up — a model that just
+    # loaded is awake by definition, whatever the last probe said.
+    a = _arb(8000)
+    a.reserve("chat", 6000, kind="llm", evict_fn=lambda: None)
+    a.sync_sleeping({"chat"})
+    a.reserve("chat", 6100, kind="llm", evict_fn=lambda: None)
+    assert not a.is_asleep("chat") and a.committed_mb() == 6100

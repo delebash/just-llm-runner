@@ -139,6 +139,55 @@ first.
 
 ## Now / near-term
 
+### The sleeping child put 10.6 GB of bookings on an 8 GB card — both halves fixed
+
+STATE:  FINDING — code-verified 2026-08-15, then DECIDED the same day —
+        *"how is it that i can have a llm and tts that go overbudget on vram, i
+        thgout this was what our vram manager was for?"* → *"spec them into
+        track and fix you rec"*.
+        The box: LLM 6.3 GB + TTS 4.3 GB booked, strip measuring 7.7 of 8.0 GB,
+        no eviction event in the ring — so nothing was ever evicted, and the
+        driver was spilling to shared system memory instead of anything
+        refusing.
+WHY:    Two doors, each locally right, no arbitration between them. The router's
+        `--sleep-idle-seconds` (900 s) idle-unloads a child; the ledger kept
+        booking the freed memory ("conservative", and it is — for the runner,
+        which prices on the ledger). JustVoice's speech door prices on the
+        MEASURED probe, as it must (the ledger cannot see other programs), so it
+        saw the gigabytes the sleeper had returned and moved a TTS engine in
+        with the booking still standing. Then the wake reached the card through
+        no load path at all: `ensure_model_ready` fast-returned on a "resident"
+        model, and the router reloaded the weights unadmitted.
+NOT:    Releasing a sleeper's reservation outright — the number is exactly what
+        the wake needs to ask for, and dropping it loses that.
+        Making the speech door price on the ledger alone — it cannot see other
+        programs, which is the bug the measured redesign existed to fix.
+        Leaving the wake to the spawn safety nets — llama.cpp's CPU offload is a
+        net for ONE model's own placement, not for a co-tenant it cannot see.
+BUILT:  `arbiter.py:106` (`asleep`; the whole story is the module docstring),
+        `arbiter.py:141,150` (`committed_mb` = held / `booked_mb` = with sleepers),
+        `arbiter.py:186,201,209` (`sync_sleeping`/`is_asleep`/`mark_awake`),
+        `arbiter.py:363` (a sleeper is never a VRAM-eviction victim — it holds
+        nothing, so killing it frees nothing: the EVICT_MIN_MB lesson),
+        `lifecycle.py:1744,1765,1775` (`reconcile_sleeping` + `_admit_wake`),
+        `lifecycle.py:1836` (the wake is admitted instead of fast-returning),
+        `lifecycle.py:2626` (`_admit` reconciles before it prices),
+        `lifecycle.py:1625` (the resident poll reconciles what it already fetched
+        — this is what keeps the flags fresh for a co-tenant that never calls
+        the runner), `ui/src/views/AiModelsArea.vue:309` (the LLM cell reads
+        "asleep", never a live number for released memory),
+        `../JustVioce/server/justvoice/engines/manager.py:1535,1566` (the speech
+        door reconciles, then prices on the WORSE of measurement and ledger).
+        Tests: `tests/test_arbiter.py` (8), `tests/test_lifecycle.py` (6),
+        `../JustVioce/server/tests/test_engine_vram_wiring.py` (3).
+        User doc: `../JustVioce/docs/gpu.md` — "When the AI model goes to sleep".
+        OPEN: only requests that reach the router through dispatch's ensure hook
+        are admitted; a caller that hits `:8080/v1` directly still wakes a child
+        with nothing arbitrating. Recorded in arbiter.py's LIMITATIONS. Close it
+        by moving the wake check into the OpenAI-compat adapter's local arm, or
+        accept it and say so here.
+GO:     given 2026-08-15
+
 ### The three apps are not the same — the job matrix, then row-by-row convergence
 
 STATE:  DECIDED 2026-08-14 — *"fix jw so it is born as tauri app … all three apps

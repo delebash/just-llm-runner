@@ -3766,3 +3766,122 @@ def test_admit_unmeasurable_box_behaves_exactly_as_before(tmp_path, monkeypatch)
     svc._router = _fake_router()
     svc._admit("fits-the-ledger", 7000, models_max=5, hardware=_fake_hw(8192))
     assert unloaded == []
+
+
+# ── the sleeping child, runner half (2026-08-15) ─────────────────────────────
+# `--sleep-idle-seconds` idle-unloads a child; the router still lists it as
+# `sleeping` and reloads it on the next request, through NO load path. The wake
+# therefore reached the card with nothing admitting it, while the ledger kept
+# booking memory the card had already given back. Both halves pinned here.
+
+
+def _sleeping_router_models(*sleeping):
+    ids = set(sleeping)
+
+    def _models(url):
+        return {"object": "list", "data": [
+            {"id": m.id, "status": {"value": "sleeping" if m.id in ids else "loaded"}}
+            for m in (_TEST_MODEL, _MODEL_B)]}
+    return _models
+
+
+def test_reconcile_sleeping_reads_the_router(tmp_path):
+    hw = _fake_hw(8192)
+    arb = VramArbiter(hardware_fn=lambda: hw)
+    svc = _service_for(tmp_path, arbiter=arb, hardware_fn=lambda: hw,
+                       router_models=_sleeping_router_models("test-model"))
+    svc._router = _fake_router()
+    arb.reserve("test-model", 6000, kind="llm", evict_fn=lambda: None)
+    assert arb.committed_mb() == 6000
+    svc.reconcile_sleeping(force=True)
+    # The child's weights are gone: the ledger stops calling that memory taken.
+    assert arb.is_asleep("test-model")
+    assert arb.committed_mb() == 0 and arb.booked_mb() == 6000
+
+
+def test_reconcile_sleeping_leaves_the_ledger_alone_when_the_router_is_down(tmp_path):
+    # Conservative on purpose: keeping a booking can only refuse a load, never
+    # overcommit one. A dead router must not silently free the whole ledger.
+    hw = _fake_hw(8192)
+    arb = VramArbiter(hardware_fn=lambda: hw)
+    svc = _service_for(tmp_path, arbiter=arb, hardware_fn=lambda: hw,
+                       router_models=_sleeping_router_models("test-model"))
+    arb.reserve("test-model", 6000, kind="llm", evict_fn=lambda: None)
+    svc._router = None
+    svc.reconcile_sleeping(force=True)
+    assert not arb.is_asleep("test-model") and arb.committed_mb() == 6000
+
+
+def test_reconcile_sleeping_survives_a_failing_probe(tmp_path):
+    def _boom(url):
+        raise RuntimeError("router GET exploded")
+
+    hw = _fake_hw(8192)
+    arb = VramArbiter(hardware_fn=lambda: hw)
+    svc = _service_for(tmp_path, arbiter=arb, hardware_fn=lambda: hw, router_models=_boom)
+    svc._router = _fake_router()
+    arb.reserve("test-model", 6000, kind="llm", evict_fn=lambda: None)
+    svc.reconcile_sleeping(force=True)  # must not raise
+    assert arb.committed_mb() == 6000
+
+
+def test_ensure_model_ready_admits_the_wake_and_evicts_the_co_tenant(tmp_path):
+    """THE defect, end to end: a 6 GB model sleeps, a 4.3 GB TTS engine moves into
+    the freed memory, and the model is asked for again. Before the fix the wake
+    fast-returned and both sat on an 8 GB card (10.3 GB booked, driver spill).
+    Now the wake makes room through the normal executor."""
+    hw = _fake_hw(8192)
+    arb = VramArbiter(hardware_fn=lambda: hw)
+    svc = _service_for(tmp_path, arbiter=arb, hardware_fn=lambda: hw,
+                       router_models=_sleeping_router_models("test-model"))
+    svc._router = _fake_router()
+    svc._resident["test-model"] = {"status": "running", "modelId": "test-model",
+                                   "url": "", "detail": "", "error": ""}
+    arb.reserve("test-model", 6000, kind="llm", evict_fn=lambda: None)
+    killed = []
+    arb.reserve("tts:chatterbox", 4400, kind="tts",
+                evict_fn=lambda: killed.append("tts:chatterbox"))
+
+    svc.ensure_model_ready("test-model")
+
+    assert killed == ["tts:chatterbox"], "the wake must evict its co-tenant, not overcommit"
+    assert not arb.is_asleep("test-model"), "the woken model books its memory back at once"
+    assert arb.committed_mb() == 6000
+    # …and the user is told why their speech engine went away.
+    events = arb.events_since(0)
+    assert [e["victim_key"] for e in events] == ["tts:chatterbox"]
+    assert "waking test-model" in events[0]["reason"]
+
+
+def test_ensure_model_ready_still_fast_returns_for_an_awake_model(tmp_path):
+    # The wake path must not turn every local AI call into an eviction pass.
+    hw = _fake_hw(8192)
+    arb = VramArbiter(hardware_fn=lambda: hw)
+    svc = _service_for(tmp_path, arbiter=arb, hardware_fn=lambda: hw,
+                       router_models=_sleeping_router_models())  # nothing asleep
+    svc._router = _fake_router()
+    svc._resident["test-model"] = {"status": "running", "modelId": "test-model",
+                                   "url": "", "detail": "", "error": ""}
+    arb.reserve("test-model", 6000, kind="llm", evict_fn=lambda: None)
+    killed = []
+    arb.reserve("tts:chatterbox", 4400, kind="tts",
+                evict_fn=lambda: killed.append("tts:chatterbox"))
+    svc.ensure_model_ready("test-model")
+    assert killed == [] and arb.events_since(0) == []
+
+
+def test_resident_reconciles_the_sleeping_set_it_already_fetched(tmp_path):
+    # The resident poll is what keeps the flags fresh for a co-tenant that never
+    # calls the runner (JustVoice's speech door) — and its own committed/remaining
+    # numbers must reflect the sleeping set in the SAME response, not a poll later.
+    hw = _fake_hw(8192)
+    arb = VramArbiter(hardware_fn=lambda: hw)
+    svc = _service_for(tmp_path, arbiter=arb, hardware_fn=lambda: hw,
+                       router_models=_sleeping_router_models("test-model"))
+    svc._router = _fake_router()
+    arb.reserve("test-model", 6000, kind="llm", evict_fn=lambda: None)
+    out = svc.resident(hw)
+    assert arb.is_asleep("test-model")
+    assert out["committed_mb"] == 0
+    assert out["remaining_mb"] == 8192
+    assert out["router"] is True

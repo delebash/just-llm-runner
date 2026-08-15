@@ -182,6 +182,11 @@ const composing = ref(false);
 const sources = testDataSources();
 const sourceById = Object.fromEntries(sources.map((s) => [s.id, s]));
 const sourceOptions = reactive({}); // source.id -> [{value,label}] (loaded on first need)
+// source.id -> the option the user picked. A select that snaps back to its own
+// placeholder reads as a broken dropdown; it keeps what you chose (user ruling
+// 2026-08-15). Accepted cost: re-picking the SAME item is a no-op, because
+// @update:model-value only fires on change.
+const pickerValue = reactive({});
 
 const decl = computed(() => testDataAction(props.action));
 const pickers = computed(() =>
@@ -196,6 +201,9 @@ const actionSamples = computed(() => {
 watch(() => props.action, async (key) => {
   samples.value = [];
   sampleIx.value = 0;
+  // A different action has different pickers — a held pick from the last one
+  // would label a box that no longer filled anything.
+  for (const k of Object.keys(pickerValue)) delete pickerValue[k];
   if (!key) return;
   try {
     samples.value = (await request(`/v1/ai/test-samples?action=${encodeURIComponent(key)}`)).rows || [];
@@ -227,12 +235,16 @@ function fillSample() {
   if (!set) pushToast({ message: "That sample's fields don't match this prompt's variables." });
 }
 async function insertFrom(picker, id) {
-  if (!id) return;
+  // The list's first row is the placeholder — picking it clears the label.
+  if (!id) { pickerValue[picker.source] = ""; return; }
+  const prev = pickerValue[picker.source] ?? "";
+  pickerValue[picker.source] = id;
   try {
     const payload = await picker.fill(id);
     const set = mergeVariables(vars, payload || {});
     if (!set) pushToast({ message: `That ${sourceById[picker.source]?.kind || "item"}'s fields don't match this prompt's variables.` });
   } catch (e) {
+    pickerValue[picker.source] = prev; // nothing was inserted — don't claim it was
     pushToast({ message: e?.message || "Couldn't load that item." });
   }
 }
@@ -316,7 +328,7 @@ const columnConfig = computed(() => {
       <div v-if="pickers.length || decl?.compose || actionSamples.length" class="lu-fw-testin-fill">
         <template v-for="p in pickers" :key="p.source">
           <UiSelect v-if="(sourceOptions[p.source] || []).length > 1"
-            :model-value="''" :options="sourceOptions[p.source] || []" width="name"
+            :model-value="pickerValue[p.source] ?? ''" :options="sourceOptions[p.source] || []" width="name"
             @update:model-value="(v) => insertFrom(p, v)" />
         </template>
         <UiButton v-if="decl?.compose" intent="secondary" size="small"

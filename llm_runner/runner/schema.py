@@ -224,6 +224,14 @@ class RunnerModelInfo(CamelModel):
     speed_band: str = ""
     pred_tok_s: float | None = None
     measured_tok_s: float | None = None
+    # The LIVE operation behind `status` (2026-08-14) — caption, byte counters
+    # and error text. Present so a progress bar can be rendered from the server
+    # alone; a browser-side task only adds finer-grained live bytes while an op
+    # runs in THAT page.
+    detail: str = ""
+    op_done: int = 0
+    op_total: int = 0
+    error: str = ""
     # Phase 7 (§7.4-as-ranking): THIS-box evidence — any persisted measurement
     # row for this machine_key (a tune, an autotune trial, or a load footprint)
     # proves the model actually ran here. The recommendation ranking reads it so

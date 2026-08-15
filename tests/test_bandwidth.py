@@ -160,3 +160,58 @@ def test_probe_is_topology_aware():
     assert multi and 0.5 < multi < 2000
     best = bandwidth.probe_ram_copy_gbps(size_mb=16, repeats=2)
     assert best is not None and best >= min(single, multi) * 0.5  # loose: noise-tolerant
+
+
+# ── The RAM probe must actually LAND (2026-08-14) ────────────────────
+
+
+def _probe_service(tmp_path, recorder, probe_value=19.0):
+    """A RunnerService with no persisted probe row and a recorder we can watch."""
+    from llm_runner.runner import lifecycle as lc
+
+    svc = lc.RunnerService.__new__(lc.RunnerService)
+    svc._lock = __import__("threading").Lock()
+    svc._probe_lock = __import__("threading").Lock()
+    svc._probe_started = False
+    svc._probe_value = None
+    svc._record_probe_fn = recorder
+    svc.measurement_rows = lambda: []          # nothing persisted yet
+    return svc
+
+
+def test_probe_persists_its_measurement(monkeypatch, tmp_path):
+    """The self-heal has to complete: measure AND record. A probe that measures
+    but never lands leaves every speed band on the class-facts rung forever, and
+    that used to fail at debug level where nobody would see it."""
+    import llm_runner.runner.bandwidth as bw
+    from llm_runner.runner import lifecycle as lc
+
+    recorded = []
+    monkeypatch.setattr(bw, "probe_ram_copy_gbps", lambda *a, **k: 19.0)
+    svc = _probe_service(tmp_path, lambda g, mk, mid, label: recorded.append((g, mk, mid)))
+
+    assert lc.RunnerService.host_probe_bw_gbps(svc, "machine-1") is None  # kicked, not landed
+    for _ in range(200):                        # the probe runs on its own thread
+        if recorded:
+            break
+        __import__("time").sleep(0.01)
+    assert recorded, "the probe measured but never recorded — the silent-failure case"
+    assert recorded[0][0] == 19.0
+    assert recorded[0][2] == bw.RAM_PROBE_MODEL_ID
+
+
+def test_persisted_probe_row_is_reused_without_re_probing(monkeypatch):
+    """Once landed, it's read back — the probe is a one-time cost per box."""
+    import llm_runner.runner.bandwidth as bw
+    from llm_runner.runner import lifecycle as lc
+
+    def _boom(*a, **k):
+        raise AssertionError("re-probed despite a persisted row")
+
+    monkeypatch.setattr(bw, "probe_ram_copy_gbps", _boom)
+    svc = _probe_service(None, None)
+    svc.measurement_rows = lambda: [
+        type("R", (), {"modelId": bw.RAM_PROBE_MODEL_ID, "machineKey": "machine-1",
+                       "tokensPerSec": 21.5})()
+    ]
+    assert lc.RunnerService.host_probe_bw_gbps(svc, "machine-1") == 21.5

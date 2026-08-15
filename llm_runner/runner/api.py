@@ -159,6 +159,9 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
     # Downloads are now concurrent + per-model keyed: {modelId: {status, …}}. A model absent
     # from the map is idle on that channel (its weights are simply on disk or not).
     downloads = service.download_status().get("downloads", {})
+    # The live operation behind each status — so every row can carry a truthful
+    # bar without a browser-side task (2026-08-14: one control, one source).
+    ops = service.op_progress()
 
     def _status_for(model_id: str, downloaded: bool) -> str:
         s = live.get(model_id)
@@ -301,6 +304,10 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
                 pred_tok_s=pred,
                 measured_tok_s=meas,
                 ran_here=m.id in ran_here_ids,
+                detail=(ops.get(m.id) or {}).get("detail", ""),
+                op_done=(ops.get(m.id) or {}).get("done", 0),
+                op_total=(ops.get(m.id) or {}).get("total", 0),
+                error=(ops.get(m.id) or {}).get("error", ""),
             )
         )
 

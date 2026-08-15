@@ -241,11 +241,45 @@ export async function retryLoad(modelId) {
 // The per-model task DownloadBar renders — the SAME createDownloadTask machine everywhere, fed
 // by _syncTasks: loadTask for the active spawn-load, a downloadTask for a standalone download,
 // IDLE otherwise (the row/card gates on the model's status, so IDLE is never shown as a bar).
+// THE server-derived task (2026-08-14, user ruling: "both bars show the exact same
+// thing … why would they point to different source"). A browser task exists only in
+// the page that STARTED the operation, so a reload, a second window, or a load slot
+// that has moved on left the bar with nothing to render — while the server knew the
+// load had failed and the card beside it said so. The catalog row now carries the
+// operation itself (detail / opDone / opTotal / error), so we can build the same task
+// shape from it: identical control, one source, and it survives a refresh.
+function serverTask(modelId) {
+  const m = models.value.find((x) => x.id === modelId);
+  if (!m) return IDLE;
+  if (m.status === "loading") {
+    return {
+      ...IDLE, state: "running",
+      done: m.opDone || 0, total: m.opTotal || 0,
+      label: m.detail || "Working…",
+      // Cancel is the same server verb the live task uses — stop THIS model.
+      cancel: () => request("/v1/llm-runner/stop", { method: "POST", body: { modelId } }),
+    };
+  }
+  if (m.status === "error") {
+    return {
+      ...IDLE, state: "error",
+      // The one place that translates the server's code into a sentence, shared with
+      // readLoadStatus so both paths say the same thing.
+      error: m.error === "engine-not-installed"
+        ? "The engine isn't installed — install it first (the engine bar above)."
+        : (m.error || "The last attempt failed."),
+      // Retry runs the full workflow: engine check + install-if-missing, then load.
+      retry: () => retryLoad(modelId),
+    };
+  }
+  return IDLE;
+}
+
 export function taskFor(modelId) {
   if (activeLoadId.value === modelId && loadTask.state) return loadTask;
   const dt = downloadTasks[modelId];
   if (dt && dt.state) return dt;
-  return IDLE;
+  return serverTask(modelId);
 }
 
 let kicked = false;

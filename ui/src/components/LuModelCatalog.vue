@@ -1330,10 +1330,10 @@ refreshApplied();
                 <span v-else-if="m.status === 'stopping'" class="lu-mstat">Unloading…</span>
                 <!-- The bar itself lives in a full-width row UNDER this one (user,
                      2026-08-14) — one narrow column made its caption, speed and percent
-                     wrap into a stack. Still THE one shared DownloadBar over the same
-                     createDownloadTask, with Cancel/Retry built in; the cell keeps only a
-                     word so the Status column doesn't go blank mid-flight. -->
-                <span v-else-if="m.status === 'loading'" class="lu-mstat">Working…</span>
+                     wrap into a stack. The cell keeps a word so the column never goes
+                     blank; the bar below always has content now that taskFor falls back
+                     to the server's own row, so "see below" can't point at nothing. -->
+                <span v-else-if="m.status === 'loading'" class="lu-mstat">{{ m.detail || "Working…" }}</span>
                 <span v-else-if="m.status === 'error'" class="lu-mstat">Failed — see below</span>
                 <span v-else-if="m.status === 'disk'" class="lu-pill lu-pill--disk">Downloaded</span>
                 <span v-else class="lu-mstat">Not downloaded</span>

@@ -689,13 +689,27 @@ class RunnerService:
         def _run() -> None:
             gbps = probe_ram_copy_gbps()
             if not gbps:
+                # A probe that can't measure means every MoE keeps banding off
+                # generic class facts — say so rather than leaving the ladder
+                # silently one rung lower forever.
+                log.warning("RAM bandwidth probe returned nothing — speed bands "
+                            "will fall back to hardware-class figures on this box")
                 return
             self._probe_value = gbps
-            if self._record_probe_fn is not None:
-                try:
-                    self._record_probe_fn(gbps, machine_key_str, RAM_PROBE_MODEL_ID, RAM_PROBE_LABEL)
-                except Exception as e:  # noqa: BLE001 — persistence is best-effort
-                    log.debug("RAM probe record failed: %s", e)
+            if self._record_probe_fn is None:
+                log.warning("RAM bandwidth probe measured %.1f GB/s but no recorder is "
+                            "wired — it will re-probe every start and never persist", gbps)
+                return
+            try:
+                self._record_probe_fn(gbps, machine_key_str, RAM_PROBE_MODEL_ID, RAM_PROBE_LABEL)
+            except Exception:
+                # WARNING, not debug (2026-08-14): this failing silently is
+                # indistinguishable from "the box was never probed" — the probe
+                # re-runs each start, never lands, and every speed band quietly
+                # stays on the class-facts rung. The user's box showed an empty
+                # ledger with no way to tell which had happened.
+                log.warning("RAM probe measured %.1f GB/s but recording it FAILED — speed "
+                            "bands stay on hardware-class figures", gbps, exc_info=True)
 
         threading.Thread(target=_run, name="llm-runner-ram-probe", daemon=True).start()
         return None
@@ -1221,6 +1235,38 @@ class RunnerService:
         An id ABSENT from the map is idle/done (its weights are on disk)."""
         with self._lock:
             return {"downloads": {mid: dict(e) for mid, e in self._download_states.items()}}
+
+    def op_progress(self) -> dict[str, dict]:
+        """Per-model LIVE operation detail — the caption, byte counters and error
+        text sitting BEHIND `status`, merged from both channels (the load ledger
+        and the download map).
+
+        The models list serializes these onto every row so any surface can render
+        a truthful progress bar from the SERVER alone (user ruling 2026-08-14:
+        one control, one source). Before this, only a browser-side task carried
+        them, so a reloaded page — or a second window, or a row whose load slot
+        had moved on — drew an empty bar while the server knew the load had
+        failed."""
+        out: dict[str, dict] = {}
+        with self._lock:
+            for mid, st in list(self._resident.items()):
+                out[mid] = {
+                    "detail": st.get("detail") or "",
+                    "done": int(st.get("downloaded") or 0),
+                    "total": int(st.get("total") or 0),
+                    "error": st.get("error") or "",
+                }
+            # A download-only op runs on its own channel and can overlap a
+            # resident model, so it overlays the load ledger when active.
+            for mid, e in self._download_states.items():
+                if e.get("status") in ("downloading", "error"):
+                    out[mid] = {
+                        "detail": e.get("detail") or "",
+                        "done": int(e.get("downloaded") or 0),
+                        "total": int(e.get("total") or 0),
+                        "error": e.get("error") or "",
+                    }
+        return out
 
     def stop(self, model_id: str | None = None) -> dict:
         """`stop(id)` cancels an IN-FLIGHT load or unloads a resident model; `stop()`

@@ -139,6 +139,62 @@ first.
 
 ## Now / near-term
 
+### ONE control, ONE source — the progress bar reads the server (2026-08-14)
+
+STATE: BUILT 2026-08-14 on the user's go. User's words: *"both bars show the
+exact same thing progress for model download with cancel why would they point
+to different source"* — and they were right.
+
+WHAT WAS WRONG: the catalog row decided *whether* to draw a bar from the
+server's `status`, but took *what the bar says* from a browser-side task. That
+task only exists in the page that STARTED the operation, so after a reload, a
+second window, or once the single load slot moved to another model, `taskFor`
+returned the frozen IDLE placeholder — a titled bar with no caption, no error
+and no Retry, which renders as a solid full bar (i.e. "still going") while the
+slot card beside it correctly read "load failed — see its row below". The card
+was pointing at a blank box.
+
+AS BUILT: the operation now rides the model row. `RunnerService.op_progress()`
+merges both channels (the load ledger `_resident` + the per-model download map)
+into {detail, done, total, error}; `RunnerModelInfo` grew `detail`/`op_done`/
+`op_total`/`error`; the models endpoint fills them. Client: `taskFor` falls back
+to a SERVER-DERIVED task built from that row — `loading` → running with the
+server's caption + byte counters + a Cancel that calls stop(modelId); `error` →
+an error task carrying the server's message (with `engine-not-installed`
+translated to the same sentence `readLoadStatus` uses) and a Retry that runs the
+full engine-check-then-load workflow. So the two surfaces cannot disagree, and
+the state survives a refresh. Pins: two in test_runner_models.py (the op rides
+the row; idle rows carry empty fields, never stale text).
+
+### The RAM probe's persistence failure was invisible (2026-08-14)
+
+STATE: FIXED. Opus claimed the probe never re-runs after a reset — WRONG, and
+withdrawn: `host_probe_bw_gbps` already self-heals (no row → probe on a thread →
+persist via `record_probe_fn`, wired at llm/install.py:570), exactly as its
+docstring says. Verified live: the probe returns 19.05 GB/s in 0.6 s on the
+author's box and the recorder signature matches its call.
+
+The REAL defect: a persist failure was swallowed at `log.debug`, so "the box was
+never probed" and "the probe measured but could not be recorded" are
+indistinguishable — and in the second case every speed band silently stays on
+the generic hardware-class rung forever. Now WARNING-level with `exc_info`, plus
+warnings for a probe that measures nothing and for a missing recorder. Pinned:
+test_bandwidth.py — the probe must LAND (measure AND record), and a persisted
+row is reused without re-probing.
+
+### GATE FLAKE, root-caused (2026-08-14) — not "contention"
+
+I twice told the user a failing JV renderer smoke was machine contention. It is
+not. The smoke fails on the FIRST run against a freshly booted server with a
+fresh data dir — the page renders (SHELL check passes, zero JS errors, no modal)
+but every nav click exceeds the 5 s actionability timeout while the server is
+still doing first-boot seeding + engine discovery. The second run against the
+same warm server passes every time. Recorded, NOT fixed: the honest fix is for
+`scripts/smoke.js` to wait for real readiness (a warm API call) rather than
+`/health` alone, or to give the first click a longer timeout. Until then, a
+first-run failure is a false red — but re-running without saying so is how it
+got mislabelled twice.
+
 ### SET vs LOAD — the 2026-07-07 "Load as default" is REVERTED (2026-08-14)
 
 STATE: BUILT 2026-08-14 on the user's go ("yes revert"). Record, because this

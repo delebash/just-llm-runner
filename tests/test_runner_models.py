@@ -75,6 +75,11 @@ class _FakeService:
     def download_status(self):
         return {"downloads": {}}   # per-model map; empty == nothing downloading
 
+    def op_progress(self):
+        # The live operation behind `status` (2026-08-14). Empty by default —
+        # tests that exercise a bar set `_ops`.
+        return getattr(self, "_ops", {})
+
     def model_downloaded(self, m, hf_cache):
         # Nothing is on disk in these endpoint tests → no model reads "downloaded"
         # (the badge moved off a raw is_cached to service.model_downloaded, 2026-07-19,
@@ -464,3 +469,42 @@ def test_no_bandwidth_source_means_no_band(monkeypatch):
     row = _client().get("/v1/llm-runner/models").json()["models"][0]
     assert row["speedBand"] == "" and row["predTokS"] is None
     assert row["fit"]  # feasibility unaffected
+
+
+# ── The operation behind `status` rides the row (2026-08-14) ─────────
+
+
+def test_row_carries_the_live_operation_so_a_bar_needs_no_browser_task(monkeypatch):
+    """One control, one source (user ruling): the row itself carries the caption,
+    byte counters and error text, so a reloaded page — or any second surface —
+    renders the SAME bar the page that started the operation sees."""
+    monkeypatch.setattr(api, "detect", lambda: HardwareInfo(
+        os="Linux", platform="linux", cpu_cores=8, ram_mb=32000,
+        gpus=[GpuInfo(vendor="nvidia", name="RTX 4070", vram_mb=12288)]))
+    svc = _FakeService([_model("m1", 4096), _model("m2", 4096)])
+    svc._resident = _resident(("m1", "downloading"), ("m2", "error"))
+    svc._ops = {
+        "m1": {"detail": "model weights", "done": 512, "total": 2048, "error": ""},
+        "m2": {"detail": "", "done": 0, "total": 0, "error": "engine-not-installed"},
+    }
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+
+    rows = {r["id"]: r for r in _client().get("/v1/llm-runner/models").json()["models"]}
+    assert rows["m1"]["status"] == "loading"
+    assert rows["m1"]["detail"] == "model weights"
+    assert (rows["m1"]["opDone"], rows["m1"]["opTotal"]) == (512, 2048)
+    assert rows["m1"]["error"] == ""
+    # The failure travels too — this is what the empty husk could never show.
+    assert rows["m2"]["status"] == "error"
+    assert rows["m2"]["error"] == "engine-not-installed"
+
+
+def test_idle_rows_carry_an_empty_operation(monkeypatch):
+    """No operation → empty fields, never stale text from a previous one."""
+    monkeypatch.setattr(api, "detect", lambda: HardwareInfo(
+        os="Linux", platform="linux", cpu_cores=8, ram_mb=32000,
+        gpus=[GpuInfo(vendor="nvidia", name="RTX 4070", vram_mb=12288)]))
+    svc = _FakeService([_model("m1", 4096)])
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    row = _client().get("/v1/llm-runner/models").json()["models"][0]
+    assert (row["detail"], row["error"], row["opDone"], row["opTotal"]) == ("", "", 0, 0)

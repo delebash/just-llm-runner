@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException
 from . import bandwidth, fit
 from .hardware import active_backend, class_key, detect, machine_key, max_vram_mb, mem_arch
 from .lifecycle import get_service
+from .models import cached_gguf_path
 from .process import Overrides
 from .schema import (
     DownloadCancelRequest,
@@ -286,6 +287,10 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
         # depends on which chat model this box actually defaults to).
         place, left = service.embed_placement(m, hardware) if m.embedding else ("", 0)
         band, pred, meas = _speed(m)
+        # The row's own folder (Open folder in the ⋯ menu). Same match rule as
+        # `model_downloaded`, one extra glob only for a model that HAS files.
+        gguf = (cached_gguf_path(m.hf_repo, m.quant, cache_root=hf_cache, mmproj=m.mmproj)
+                if downloaded else None)
         models.append(
             RunnerModelInfo(
                 id=m.id,
@@ -298,6 +303,7 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
                 fit=_fit(m, gpu_vram, hardware.ram_mb, margin),
                 status=_status_for(m.id, downloaded),
                 downloaded=downloaded,
+                local_dir=str(gguf.parent) if gguf else "",
                 embed_placement=place,
                 embed_leftover_mb=(left if place else None),
                 speed_band=band,

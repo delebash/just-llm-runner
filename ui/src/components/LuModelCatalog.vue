@@ -44,7 +44,8 @@ import UiTag from "../common/components/UiTag.vue";
 import UiTable from "../common/components/UiTable.vue";
 import DownloadBar from "../common/components/DownloadBar.vue";
 import { confirmDialog } from "../common/services/dialog.js";
-import { openExternal } from "../common/services/external.js";
+import { openExternal, openPath } from "../common/services/external.js";
+import { pushToast } from "../common/services/toastBridge.js";
 import {
   DropdownMenuRoot, DropdownMenuTrigger, DropdownMenuPortal,
   DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
@@ -397,6 +398,26 @@ function benchLabel(m) { const q = qualityOf(m); return q >= 100 ? "—" : Strin
 // The model's Hugging Face card URL (user, 2026-07-07: "open full detail in there web
 // browser") — huggingface.co/<repo>; "" (no repo → no link) for hand-added local rows.
 function cardUrlOf(m) { const repo = hfRepoById.value[m.id] || ""; return repo ? `https://huggingface.co/${repo}` : ""; }
+// ── The ⋯ menu's two "where does this live" verbs (family parity, user
+// 2026-08-14: JustVoice's speech rows and these rows must say the same words
+// for the same act). The row LINK died with them: "Model card ↗" and "View on
+// Hugging Face" were the same act under two names on two surfaces.
+function viewOnHf(m) { openExternal(cardUrlOf(m)); }
+// The SERVER resolved the folder (RunnerModelInfo.local_dir — the snapshot dir
+// holding the GGUF), so the HF cache layout never leaks into the client. The
+// host wires the opener; a browser has none and is told so.
+function openModelFolder(m) {
+  if (!openPath(m.localDir)) {
+    pushToast({ message: "Open folder requires the desktop app.", kind: "warning" });
+  }
+}
+// Does anything sit ABOVE the delete group? A hand-added local row that was
+// never downloaded has no repo and no folder, and a leading separator over a
+// lone "Delete from catalog" is the kind of stray line nobody owns.
+function hasUpperMenu(m) {
+  return m.status === "loaded" || m.status === "disk" || m.status === "error"
+    || !!m.localDir || !!cardUrlOf(m);
+}
 function useLimitedOf(m) { return !!useLimitedById.value[m.id]; }
 function poolingOf(m) { return poolingById.value[m.id] || ""; }
 function qualityOf(m) { return qualityById.value[m.id] ?? 100; }
@@ -1284,9 +1305,12 @@ refreshApplied();
                 </div>
                 <div v-if="descriptionOf(m)" class="lu-mdesc">{{ descriptionOf(m) }}</div>
                 <div v-if="notesOf(m)" class="lu-mnotes">Your notes: {{ notesOf(m) }}</div>
-                <a v-if="cardUrlOf(m)" class="lu-mlink lu-mcardlink" :href="cardUrlOf(m)"
-                  target="_blank" rel="noopener" title="Open the model's Hugging Face page — full details, files, license"
-                  @click.prevent="openExternal(cardUrlOf(m))">Model card ↗</a>
+                <!-- The "Model card ↗" row link died 2026-08-14 (user): the same
+                     act is "View on Hugging Face" in the ⋯ menu here AND on
+                     JustVoice's speech rows. Two names for one verb, one of them
+                     a loose link outside the menu, was the inconsistency. The
+                     Edit form keeps its own card link — that one sits beside the
+                     repo field it verifies. -->
               </div>
         </template>
 
@@ -1346,33 +1370,40 @@ refreshApplied();
                      both channels: a spawn-LOAD aborts via /stop, a download via /download/cancel).
                      So the load/download CTAs simply HIDE while loading; no per-row Cancel button. -->
                 <template v-if="m.status !== 'loading'">
+                  <!-- ORDER = JustVoice's speech rows (user, 2026-08-14): the
+                       download/load verbs first, then the default toggle, then ⋯.
+                       They were the other way round here, with short labels, and
+                       the pair read as two different controls across the two
+                       catalogs. Same order, same words now. -->
                   <UiButton v-if="m.status === 'available'" intent="primary" size="small"
                     :loading="loadingId === m.id" @click="download(m.id)">Download</UiButton>
-                  <!-- Green when it IS the default (2026-07-17, user: "make it green when default
-                       is true"); disabled greys out, so the default stays ENABLED + clickable
-                       (re-apply is idempotent). Embed vs general differ only in the TARGET. -->
-                  <UiButton v-else-if="embeddingOf(m)" :intent="m.id === currentEmbeddingId ? 'success' : 'primary'" size="small"
-                    :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
-                    title="Make this the embedding model for semantic search + grounded chat. It loads the first time a search needs it — or press Load to warm it now."
-                    @click="makeEmbedding(m)">
-                    {{ m.id === currentEmbeddingId ? "Default ✓" : "Set as default" }}
-                  </UiButton>
-                  <UiButton v-else :intent="m.id === currentDefaultId ? 'success' : 'primary'" size="small"
-                    :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
-                    title="Make this the default model for every task. It loads on first use — or press Load to warm it now."
-                    @click="makeDefault(m)">
-                    {{ m.id === currentDefaultId ? "Default ✓" : "Set as default" }}
-                  </UiButton>
                   <!-- Load / Unload are ROW BUTTONS, not menu items (user, 2026-08-14):
                        since setting a default no longer loads, warming and freeing are
-                       everyday verbs and belong in reach. Same pair, same order and same
-                       short labels as JustVoice's speech rows. -->
+                       everyday verbs and belong in reach. -->
                   <UiButton v-if="m.status === 'loaded'" intent="ghost" size="small"
                     :loading="applyingId === m.id" title="Free this model's memory (VRAM) — it loads again on next use"
-                    @click="unloadModel(m)">Unload</UiButton>
+                    @click="unloadModel(m)">Unload model</UiButton>
                   <UiButton v-else-if="m.downloaded && m.status !== 'stopping'" intent="ghost" size="small"
                     :loading="applyingId === m.id" title="Load this model into memory now, so the first run doesn't wait"
-                    @click="loadAssigned(m, embeddingOf(m))">Load</UiButton>
+                    @click="loadAssigned(m, embeddingOf(m))">Load model</UiButton>
+                  <!-- Green when it IS the default (2026-07-17, user: "make it green when default
+                       is true"); disabled greys out, so the default stays ENABLED + clickable
+                       (re-apply is idempotent). Embed vs general differ only in the TARGET.
+                       Not offered on a not-downloaded row — Download comes first. -->
+                  <template v-if="m.status !== 'available'">
+                    <UiButton v-if="embeddingOf(m)" :intent="m.id === currentEmbeddingId ? 'success' : 'primary'" size="small"
+                      :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
+                      title="Make this the embedding model for semantic search + grounded chat. It loads the first time a search needs it — or press Load model to warm it now."
+                      @click="makeEmbedding(m)">
+                      {{ m.id === currentEmbeddingId ? "Default ✓" : "Set as default" }}
+                    </UiButton>
+                    <UiButton v-else :intent="m.id === currentDefaultId ? 'success' : 'primary'" size="small"
+                      :disabled="m.status === 'stopping'" :loading="applyingId === m.id"
+                      title="Make this the default model for every task. It loads on first use — or press Load model to warm it now."
+                      @click="makeDefault(m)">
+                      {{ m.id === currentDefaultId ? "Default ✓" : "Set as default" }}
+                    </UiButton>
+                  </template>
                 </template>
                   <!-- ⋯ overflow — the secondary actions, portaled so the menu escapes the
                        list's overflow:auto clip (Reka DropdownMenu: focus/Esc/click-outside built in).
@@ -1384,7 +1415,11 @@ refreshApplied();
                       <DropdownMenuContent class="lu-mmenu" align="end" :side-offset="4" :collision-padding="8">
                         <DropdownMenuItem v-if="m.status === 'loaded' || m.status === 'disk'" class="lu-mmi" @select="tuning = m">Tune &amp; measure</DropdownMenuItem>
                         <DropdownMenuItem v-if="m.status === 'error' || m.status === 'disk' || m.status === 'loaded'" class="lu-mmi" @select="redownload(m)">Re-download</DropdownMenuItem>
-                        <DropdownMenuSeparator v-if="m.status === 'loaded' || m.status === 'disk' || m.status === 'error'" class="lu-mmsep" />
+                        <!-- Open folder · View on Hugging Face — the SAME two verbs,
+                             in the same order, as JustVoice's speech-model menu. -->
+                        <DropdownMenuItem v-if="m.localDir" class="lu-mmi" @select="openModelFolder(m)">Open folder</DropdownMenuItem>
+                        <DropdownMenuItem v-if="cardUrlOf(m)" class="lu-mmi" @select="viewOnHf(m)">View on Hugging Face</DropdownMenuItem>
+                        <DropdownMenuSeparator v-if="hasUpperMenu(m)" class="lu-mmsep" />
                         <DropdownMenuItem v-if="m.downloaded && m.status !== 'loading' && m.status !== 'stopping'" class="lu-mmi lu-mmi-danger" @select="freeDownload(m)">Delete downloaded model</DropdownMenuItem>
                         <DropdownMenuItem class="lu-mmi lu-mmi-danger" @select="deleteModel(m)">Delete from catalog</DropdownMenuItem>
                       </DropdownMenuContent>
@@ -1671,7 +1706,6 @@ refreshApplied();
 
 .lu-mcat-foot { font-size: 11px; margin-top: 7px; }
 .lu-mlink { color: var(--accent-ink, var(--accent)); }
-.lu-mcardlink { display: inline-block; font-size: 10.5px; font-weight: 400; margin-top: 3px; }
 .lu-mm-lrow { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .lu-mm-lrow .lu-mlink { font-weight: 400; font-size: 11px; }
 

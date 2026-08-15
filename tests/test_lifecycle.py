@@ -3691,3 +3691,78 @@ def test_unmeasured_load_records_no_overhead_row(tmp_path):
     svc._thread.join(timeout=5)
     assert [mid for mid, _ in recorded] == [_TEST_MODEL.id]  # footprint yes, overhead no
     assert recorded[0][1]["label"] == "load footprint (computed)"
+
+
+# ── Admission counts memory OTHER programs hold (2026-08-14) ─────────
+# The ledger knows only what WE booked, so on a card holding 2 GB of browser it
+# reported the full 8 GB free and admitted into memory that did not exist (the
+# user's report: "how can we possibly get the fit correct ... if we dont take
+# into account what is really available").
+
+
+def _probe(monkeypatch, used_mb):
+    """Point the kit's cached probe door at a fixed measured occupancy."""
+    import llm_runner.runner.hardware as hw
+
+    monkeypatch.setattr(hw, "used_pool_mb", lambda *, fresh=False: used_mb)
+
+
+def test_admit_refuses_when_other_programs_fill_the_card(tmp_path, monkeypatch):
+    """8 GB card, 6 GB held by other programs, nothing of ours resident: a 4 GB
+    model does NOT fit, and the ledger alone would have said it did."""
+    _probe(monkeypatch, 6000)
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(8192))
+    svc = _service_for(tmp_path, arbiter=arb)
+    svc._router = _fake_router()
+    with pytest.raises(RuntimeError) as e:
+        svc._admit("dense", 4000, models_max=5, hardware=_fake_hw(8192), ngl_explicit=True)
+    # The message tells the MEASURED story, not ledger arithmetic.
+    assert "held by other programs" in str(e.value)
+
+
+def test_admit_allows_what_actually_fits(tmp_path, monkeypatch):
+    """Same card and same foreign usage, a model that genuinely fits the 2 GB
+    left: admitted without evicting anything."""
+    _probe(monkeypatch, 6000)
+    unloaded = []
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(8192))
+    svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._admit("small", 1500, models_max=5, hardware=_fake_hw(8192))
+    assert unloaded == []
+
+
+def test_admit_evicts_ours_before_blaming_other_programs(tmp_path, monkeypatch):
+    """2 GB foreign + 4 GB of ours on an 8 GB card. A 5 GB model needs our
+    resident model gone — and the eviction loop must run on the LEDGER, which
+    updates instantly, not on a measured number that drains asynchronously
+    (measuring per iteration is how you over-evict)."""
+    # The probe DRAINS: 6000 (2 GB foreign + our 4 GB booking) until the victim
+    # is unloaded, then 2000. That exercises the post-eviction wait — freed VRAM
+    # is released asynchronously, so admission must let the card catch up before
+    # spawning instead of reading stale-high and refusing.
+    import llm_runner.runner.hardware as _hw
+
+    unloaded = []
+    monkeypatch.setattr(_hw, "used_pool_mb",
+                        lambda *, fresh=False: 2000 if unloaded else 6000)
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(8192))
+    arb.reserve("old", 4000)
+    svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._resident = {"old": {"status": "running"}}
+    svc._admit("new", 5000, models_max=5, hardware=_fake_hw(8192))
+    assert unloaded == ["old"]         # exactly one victim, not a cascade
+    assert not arb.is_reserved("old")
+
+
+def test_admit_unmeasurable_box_behaves_exactly_as_before(tmp_path, monkeypatch):
+    """Probe returns None → foreign 0 → the pre-2026-08-14 ledger behaviour,
+    byte for byte. An unknown may never become a guess."""
+    _probe(monkeypatch, None)
+    unloaded = []
+    arb = VramArbiter(hardware_fn=lambda: _fake_hw(8192))
+    svc = _service_for(tmp_path, arbiter=arb, router_unload=lambda url, mid: unloaded.append(mid))
+    svc._router = _fake_router()
+    svc._admit("fits-the-ledger", 7000, models_max=5, hardware=_fake_hw(8192))
+    assert unloaded == []

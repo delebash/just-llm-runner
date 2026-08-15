@@ -237,10 +237,21 @@ const { start: startResPoll } = usePoll(async () => {
   } catch { /* keep last */ }
 }, 2500);
 const gb1 = (mb) => (mb / 1024).toFixed(1);
+// MEASURED first (2026-08-14, user: the top strip read "0.0 / 8.0 GB used" while
+// the card actually held 2.1 GB). `committedMb` is only what the AI runner BOOKED
+// for its own models — true, but not an answer to "how much VRAM is in use", and
+// it was labelled as if it were. The card's real occupancy leads; our reservation
+// rides alongside so the two can never be confused again. Unmeasurable box
+// (usedMb null) → the old ledger line, unchanged.
 const vramLine = computed(() => {
   const r = resident.value;
   if (!r?.vramTotalMb) return ""; // no detectable GPU VRAM → no stat block
-  return `${gb1(r.committedMb || 0)} / ${gb1(r.vramTotalMb)} GB · ${gb1(r.remainingMb || 0)} free`;
+  const total = gb1(r.vramTotalMb);
+  if (r.usedMb == null) {
+    return `${gb1(r.committedMb || 0)} / ${total} GB reserved · ${gb1(r.remainingMb || 0)} free`;
+  }
+  const free = Math.max(0, r.vramTotalMb - r.usedMb);
+  return `${gb1(r.usedMb)} / ${total} GB · ${gb1(free)} free · ${gb1(r.committedMb || 0)} GB AI models`;
 });
 
 // "Copy debug info" — the whole box picture as ONE pasteable text block (hardware +
@@ -258,8 +269,11 @@ function debugInfoText() {
     `Acceleration: ${hwLabel.value?.accel || "—"}`,
     `Engine: ${st.installed ? `installed · ${st.build || "?"} · ${st.gpu || "?"}` : "not installed"}`,
     `Tuning keys: machine ${h.machineKey || "?"} · class ${h.classKey || "?"}`,
+    // The measured number is the one a bug report needs most — a load that failed
+    // "with 6 GB free" reads very differently once you can see 2 GB was foreign.
     r?.vramTotalMb
-      ? `VRAM: ${r.committedMb || 0} / ${r.vramTotalMb} MB committed · ${r.remainingMb || 0} MB free`
+      ? `VRAM: ${r.usedMb == null ? "?" : r.usedMb} / ${r.vramTotalMb} MB used`
+        + ` · ${r.committedMb || 0} MB committed by AI models · ${r.remainingMb || 0} MB unbooked`
       : "VRAM: n/a",
     `Loaded models: ${
       r?.models?.length

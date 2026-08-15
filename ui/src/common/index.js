@@ -56,8 +56,9 @@ export { default as Toast } from "./components/Toast.vue";
 export { pushToast, clearToasts } from "./services/toastBridge.js";
 
 // shared external-link opener — kit anchors route clicks through openExternal;
-// the host wires its shell bridge via configureExternal (Tauri swallows _blank)
-export { configureExternal, openExternal } from "./services/external.js";
+// the host wires its shell bridge via configureExternal (Tauri swallows _blank).
+// openPath/canOpenPath are the same seam for LOCAL folders ("Open folder").
+export { configureExternal, openExternal, openPath, canOpenPath, isTauriShell } from "./services/external.js";
 
 // the Lab test-data registry (§7.3 + QC-35) — the host registers its listable
 // material (JW: chapters/characters) AND a per-action affordance declaration

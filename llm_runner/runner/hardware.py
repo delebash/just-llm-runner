@@ -30,6 +30,8 @@ import platform
 import re
 import shutil
 import subprocess
+import threading
+import time
 from functools import cache
 from pathlib import Path
 
@@ -447,6 +449,34 @@ def used_device_mem_mb() -> int | None:
         if v is not None:
             return v
     return None
+
+
+# THE cached used-memory door (2026-08-14). `used_device_mem_mb` shells out to
+# nvidia-smi/WMI, so nothing that polls may call it raw — but a LOAD must see a
+# fresh number (admitting against a 2-second-old reading admits into memory that
+# is already gone). One TTL cache, two speeds, in ONE place: JustVoice's manager
+# used to keep its own, which meant two caches over one probe that could disagree
+# at the same instant — the exact two-truths defect the strip redesign exists to
+# kill.
+_USED_TTL_S = 2.0
+_used_cache: tuple[float, int | None] | None = None
+_used_lock = threading.Lock()
+
+
+def used_pool_mb(*, fresh: bool = False) -> int | None:
+    """`used_device_mem_mb`, TTL-cached. `fresh=True` bypasses the cache (the
+    load door); the default serves display polls. None = unmeasurable, and every
+    caller must degrade to ledger-only behaviour rather than guess."""
+    global _used_cache
+    now = time.monotonic()
+    if not fresh:
+        hit = _used_cache
+        if hit is not None and now - hit[0] < _USED_TTL_S:
+            return hit[1]
+    with _used_lock:
+        val = used_device_mem_mb()
+        _used_cache = (time.monotonic(), val)
+    return val
 
 
 def budget_total_mb(hw: HardwareInfo) -> int:

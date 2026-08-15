@@ -343,9 +343,21 @@ class VramArbiter:
             busy = sorted(k for k, n in self._busy.items() if n > 0)
         hw = hw or self._hardware_fn()
         total = self._max_vram_mb(hw)
+        # MEASURED occupancy (2026-08-14) — what the card actually holds, including
+        # programs we do not manage. `committed_mb` is only what WE booked, and a
+        # strip that labelled it "VRAM used" read 0.0/8.0 on a card holding 2 GB of
+        # browser. Cached probe (the display polls this every couple of seconds);
+        # None on an unmeasurable box, where consumers fall back to the ledger.
+        try:
+            from .hardware import used_pool_mb as _used
+
+            used = _used()
+        except Exception:  # noqa: BLE001 — the budget view must never fail on a probe
+            used = None
         return {
             "mem_arch": _mem_arch(hw),
             "vram_total_mb": total,
+            "used_mb": used,
             "committed_mb": committed,
             "remaining_mb": max(0, total - committed),
             "reservations": reservations,

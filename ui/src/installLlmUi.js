@@ -20,7 +20,7 @@
 // unreachable: ONE base URL feeds both transports, the hosts arrive as a single
 // component, and the nav row's required attribute comes from the composable.
 
-import { configureExternal } from "./common/services/external.js";
+import { configureExternal, isTauriShell } from "./common/services/external.js";
 import { configureServerApi, makeOriginAwareResolver } from "./common/services/serverApi.js";
 import { configureLlmUi } from "./client.js";
 import { configureQuickSetupCopy } from "./common/services/quickSetupCopy.js";
@@ -42,23 +42,21 @@ export function llmUiCapabilities() {
   return { ..._capabilities };
 }
 
-const inTauri = () =>
-  typeof window !== "undefined" &&
-  (window.location?.protocol === "tauri:" || window.location?.hostname === "tauri.localhost");
-
-/** The browser fallback. Tauri's webview SWALLOWS `target=_blank`, so a desktop shell
- *  must hand us its own opener (`@tauri-apps/plugin-opener` is the app's dependency,
- *  not the kit's — importing it here would break every non-Tauri consumer's build,
- *  measured 2026-08-04). Without one, every About/help link in the app is silently
- *  dead, so we say so instead of pretending. */
-function openExternal(url) {
-  if (inTauri()) {
+/** A desktop shell that wires no opener at all: `external.js` still falls back to
+ *  window.open, but the Tauri webview swallows that, so every About/help link in
+ *  the app is silently dead. Say so instead of pretending. (The plugin stays the
+ *  APP's dependency — importing `@tauri-apps/plugin-opener` in the kit breaks
+ *  every non-Tauri consumer's build, measured 2026-08-04.)
+ *
+ *  The second copy of the "are we in Tauri?" test lived here until 2026-08-14 and
+ *  tested something else (protocol/hostname); external.js owns the one test now. */
+function warnNoOpener() {
+  if (isTauriShell()) {
     console.warn(
-      "[llm-ui] external links will do nothing in this webview: pass " +
-      "installLlmUi(app, { external: (url) => openUrl(url) }) with your Tauri opener.",
+      "[llm-ui] external links and Open folder will do nothing in this webview: pass " +
+      'installLlmUi(app, { external: { open: openUrl, openPath } }) from "@tauri-apps/plugin-opener".',
     );
   }
-  if (typeof window !== "undefined") window.open(url, "_blank", "noopener,noreferrer");
 }
 
 /**
@@ -85,8 +83,13 @@ function openExternal(url) {
  *                           retires the 2026-08-06 pieces concept)
  * @param opts.featurePanels `{ featureKey: Component }` — an app control mounted on
  *                           that feature's routing pane (JV's reading-style dial)
- * @param opts.external      your opener — `(url) => …` or `{ open }`; `false` to skip.
- *                           A Tauri app MUST pass one (see openExternal).
+ * @param opts.external      your openers, straight from `@tauri-apps/plugin-opener`:
+ *                           `{ open: openUrl, openPath }` — the identical line in
+ *                           all three apps. `(url) => …` is the older links-only
+ *                           form; `false` skips wiring. Both are gated on being in
+ *                           a Tauri webview by `common/services/external.js`, so a
+ *                           browser keeps window.open for links and reports "can't"
+ *                           for folders rather than firing a dead menu item.
  */
 export function installLlmUi(app, {
   devPorts = [],
@@ -123,9 +126,14 @@ export function installLlmUi(app, {
   if (sectionedFeatures) registerSectionedFeatures(sectionedFeatures);
   if (featurePanels) registerFeaturePanels(featurePanels);
   if (external !== false) {
-    const open = typeof external === "function" ? external
-      : (external && external.open) || openExternal;
-    configureExternal({ open });
+    // `{ open, openPath }` is the shape all three apps pass (both straight from
+    // @tauri-apps/plugin-opener). A bare function is the older links-only form and
+    // still works. external.js gates both on being in a Tauri webview, so nothing
+    // here has to ask what kind of host this is.
+    const open = typeof external === "function" ? external : (external && external.open) || null;
+    const openPath = (typeof external === "object" && external && external.openPath) || null;
+    if (!open) warnNoOpener();
+    configureExternal({ open, openPath });
   }
 
   // Registered, not imported: an app that forgets `<LlmUiHosts />` in its shell has

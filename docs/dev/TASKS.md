@@ -139,6 +139,109 @@ first.
 
 ## Now / near-term
 
+### The three shells do the same native jobs three different ways — converge them
+
+STATE:  DECIDED 2026-08-14 — *"if all these apps are doing same functions why are
+        they coded differently, how many times do i have to tell you to keep all 3
+        apps the same, same api same server same code except domain diffences?"*
+        Asked while reviewing an "Open folder" change; scope chosen from three
+        options — the user took **openers + the whole native bridge**.
+WHY:    Code-verified divergence, not a style opinion. OPEN A URL: JV
+        `@tauri-apps/plugin-shell`, JW its own `open_external` Rust command (the
+        `open` crate) behind `window.justwrite`, docgen `@tauri-apps/plugin-opener`.
+        TRAY "open logs" — the same three lines: JV hand-rolls
+        `explorer`/`open`/`xdg-open` per platform (`JV lib.rs:793`), JW `open::that`
+        (`JW lib.rs:681`), docgen `tauri_plugin_opener::open_path`
+        (`docgen lib.rs:512`). PICK A DIRECTORY: JW + docgen Rust commands, JV the
+        JS dialog plugin inline (`JV SettingsView.vue:758`). SAME PARAM, TWO NAMES:
+        `storage_relocate(new_path)` (JW) vs `(new_root)` (JV). THE RENDERER'S DOOR:
+        JW routes everything through `window.justwrite.*`, JV + docgen call
+        `invoke()` directly. And JW alone has the cross-origin fetch override that
+        all three need (local LLM servers ship no CORS headers).
+        Why JW is the odd one: `tauri-bridge.js` is an Electron-era compatibility
+        shim — present at JW's initial commit (2026-05-27) and still explaining
+        itself as "the shape the renderer expects from the old Electron handlers".
+        JV and docgen were born Tauri and never had one.
+NOT:    A per-app `open_path` command (written 2026-08-14 in all three lib.rs, three
+        different ways, REVERTED before commit — it was a fourth pattern for a job
+        that already had three). NOT widening `plugin-shell`'s open scope to admit
+        paths (its default regex is http(s)/mailto/tel by design; widening it
+        loosens URL opening too). NOT keeping the `window.justwrite` shim: the
+        migration it bridged is finished.
+BUILT:  The kit half is done and is shared by construction — the folder seam
+        (`ui/src/common/services/external.js` `openPath`/`canOpenPath`,
+        `installLlmUi.js` `external:{open,openPath}`), the catalog menu + button
+        order (`ui/src/components/LuModelCatalog.vue`), and the server's
+        `RunnerModelInfo.local_dir` (`llm_runner/runner/{schema,api}.py`).
+        OPEN: three phases, in order. ① the opener verb — `tauri-plugin-opener` in
+        all three apps (docgen already has it), one identical `external:{open,
+        openPath}` block, tray open-logs on `open_path`; delete JV's plugin-shell
+        and JW's `open_external` + `open` crate. ② native dialogs — Rust commands
+        (JW + docgen's shape; JV converges its inline dialog-plugin picker), one
+        param vocabulary. ③ the renderer's door — delete `window.justwrite`, JW
+        calls `invoke()` like the others; the fetch override becomes ONE kit
+        implementation the three apps feed their `plugin-http` fetch into.
+GO:     given 2026-08-14 (all three phases)
+
+### ADMISSION COUNTS OTHER PROGRAMS' MEMORY (2026-08-14)
+
+STATE: BUILT on the user's go, after a three-model review (Opus plan → Fable
+refinements → Opus verification). User's words: *"how can we possible get the
+fit correct and loaded model correct if we dont take into account what is
+really available for vram"*.
+
+WHAT WAS WRONG: the arbiter's ledger knows only what WE booked
+(`remaining_mb = card_total − committed`), and admission tested against it. On
+an 8 GB card holding ~2 GB of browser/compositor the runner believed all 8 GB
+were free and admitted into memory that did not exist. The top strip displayed
+`committedMb` LABELLED "VRAM used", so it read 0.0/8.0 while the speech strip
+next to it measured 2.1 GB — the two-truths report that started this.
+
+THREE FINDINGS THE REVIEW ADDED, each verified in code before building:
+1. `_fits()` (lifecycle.py:2532) short-circuits `make_room` entirely, and is
+   ALSO the Phase-A loop condition (:2540). Inflating make_room's target alone
+   would have been a NO-OP on the common path — the plan's headline fix,
+   dead. (Opus.)
+2. Therefore the measured number may be read ONCE at entry, never per
+   iteration: evicted VRAM drains asynchronously, so a measured re-check inside
+   the loops sees it unmoved and keeps evicting (the over-evict trap). Loops
+   stay LEDGER arithmetic (instant) with `foreign` as a constant offset; the
+   measurement is consulted again only in the post-eviction drain-wait. (Fable.)
+3. The one-pool (Mac/iGPU) over-refusal worry DISSOLVED by reading the probe:
+   every arm of `_used_pool_mb` uses available-style accounting (psutil used,
+   Windows total−available, Linux MemTotal−MemAvailable, macOS
+   active+wired+compressor), so reclaimable cache is already excluded. Applied
+   uniformly — gating to discrete would have manufactured a fresh intra-family
+   divergence, JV speech already ships uniform. Residual macOS-compressor
+   conservatism is REAL and rides the laptops walk; the admission now LOGS the
+   foreign figure so that walk has evidence instead of needing to reproduce a
+   refusal. (Fable, with Opus's caveat.)
+
+AS BUILT: `hardware.used_pool_mb(fresh=)` is THE cached probe door for the
+family (2 s TTL) — JV's `manager.pool_used_mb` delegates to it, so two caches
+over one nvidia-smi can no longer disagree on one page. Admission probes once,
+computes `foreign = used − committed`, carries it through `_fits()` and the
+`make_room` target, waits ≤4 s for the card to agree after eviction, and
+refuses with the measured story ("X MB are actually free (N MB held by other
+programs)") instead of ledger arithmetic. `used_mb` rides `resident()` onto the
+wire; the top strip reads `2.2 / 8.0 GB · 5.8 free · 0.0 GB AI models`;
+Copy-debug-info carries measured + committed + unbooked.
+
+CAUGHT BY THE LIVE CHECK, not by the suite: `resident()` copies NAMED keys from
+the arbiter snapshot, so `used_mb` added to the snapshot alone arrived at the UI
+as None. Both strips now read the identical number from one door (verified live:
+2202 MB on both).
+
+FIT IS UNCHANGED and that is deliberate — it scores against the card's TOTAL
+VRAM per the user's 2026-07-06 decree (scoring against remaining made one
+sleeping model flip every row to "CPU"). Fit answers "can this card run it";
+admission answers "will it fit right now". Two questions, two answers, no longer
+one number impersonating both.
+
+PINS: refuses when other programs fill the card (and the message says so) ·
+admits what genuinely fits · evicts exactly one victim with a draining probe (no
+cascade) · unmeasurable box behaves byte-identically to before.
+
 ### AUDIT — the split-brain class, all FOUR apps (2026-08-14)
 
 Read-only sweep the user asked for after the progress-bar bug, over the kit UI +

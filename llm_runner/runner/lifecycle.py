@@ -1619,6 +1619,10 @@ class RunnerService:
             "sleep_idle_seconds": cfg.sleep_idle_seconds,
             "mem_arch": snap.get("mem_arch", "discrete"),
             "vram_total_mb": snap["vram_total_mb"],
+            # The MEASURED occupancy rides through to the strip (2026-08-14) —
+            # this dict copies named keys, so a field added to the snapshot and
+            # not to this list silently arrives as None at the UI.
+            "used_mb": snap.get("used_mb"),
             "committed_mb": snap["committed_mb"],
             "remaining_mb": snap["remaining_mb"],
             "models": [],
@@ -2529,8 +2533,41 @@ class RunnerService:
         arb = self._arbiter
         own = arb.reserved_mb(model_id) or 0  # freeing our own reservation adds this back to the budget
 
+        # MEASURED admission (2026-08-14, the user's ruling: "how can we possibly
+        # get the fit correct ... if we dont take into account what is really
+        # available"). The ledger knows only what WE placed, so on a card holding
+        # 2 GB of browser/compositor it reported the full 8 GB free and admitted
+        # into memory that did not exist. `foreign` is everyone else's usage —
+        # measured once, HERE, then carried as a constant offset.
+        #
+        # Probed ONCE at entry, never per iteration: evicted VRAM drains
+        # asynchronously, so a measured re-check inside the eviction loops would
+        # see the number unmoved and keep killing residents (the over-evict
+        # trap). The loops below stay pure LEDGER arithmetic — which updates the
+        # instant a reservation is released — with `foreign` added to what we
+        # must fit. Measurement is consulted again only in the drain-wait after
+        # eviction. Unmeasurable box (None) → foreign 0 → byte-identical to the
+        # pre-2026-08-14 behaviour.
+        foreign = 0
+        measured_used: int | None = None
+        try:
+            from .hardware import budget_total_mb as _bt, used_pool_mb as _used
+
+            measured_used = _used(fresh=True)
+            if measured_used is not None:
+                total = int(_bt(hardware))
+                if total > 0:
+                    committed = max(0, total - arb.remaining_mb(hw=hardware))
+                    foreign = max(0, measured_used - committed)
+        except Exception:  # noqa: BLE001 — a probe must never block a load
+            log.debug("used-memory probe failed; admitting on the ledger alone", exc_info=True)
+        if foreign > 0:
+            log.info("admission %s: %d MB held by processes we do not manage "
+                     "(measured %s MB used) — added to the fit target",
+                     model_id, foreign, measured_used)
+
         def _fits() -> bool:
-            return vram_mb <= arb.remaining_mb(hw=hardware) + own
+            return vram_mb + foreign <= arb.remaining_mb(hw=hardware) + own
 
         def _n_others() -> int:
             return arb.count(kind="llm") - (1 if arb.is_reserved(model_id) else 0)
@@ -2566,23 +2603,42 @@ class RunnerService:
         # self_evict covers llm reservations recorded without an evict_fn (tests,
         # pre-seam rows) — the runner knows how to unload its own children.
         made = _fits() or arb.make_room(
-            max(0, vram_mb - own), exclude=model_id, hardware=hardware,
+            max(0, vram_mb - own) + foreign, exclude=model_id, hardware=hardware,
             reason=f"loading {model_id}",
             self_kind="llm", self_evict=self._evict_resident,
         )
+        if made and foreign > 0 and measured_used is not None:
+            # Eviction frees device memory ASYNCHRONOUSLY (a terminated child
+            # drains over ~a second), so re-measuring immediately reads
+            # stale-high. Wait briefly for the card to agree before spawning;
+            # if it stays short, proceed — the ledger says there is room and the
+            # spawn's own OOM handling is the last net. (JustVoice's speech door
+            # has carried this since the measured redesign; same shape here.)
+            deadline = self._now() + 4.0
+            while self._now() < deadline:
+                u = _used(fresh=True)
+                if u is None or max(0, int(_bt(hardware)) - u) >= vram_mb:
+                    break
+                self._sleep(0.25)
         if not made:
+            # The message must tell the MEASURED story (2026-08-14): quoting
+            # ledger arithmetic under a strip that now shows real occupancy is
+            # two-truths-on-one-screen, the defect the fit revert was about.
+            free_mb = arb.remaining_mb(hw=hardware) + own - foreign
+            held = (f" ({foreign} MB of the card is held by other programs)"
+                    if foreign > 0 else "")
             if ngl_explicit and not is_moe:
                 others = ", ".join(sorted(k for k in self._resident if k != model_id)) or "none"
                 raise RuntimeError(
                     f"Not enough free VRAM to load {model_id!r}: it needs ~{vram_mb} MB but only "
-                    f"{arb.remaining_mb(hw=hardware) + own} MB remain and the resident models "
-                    f"({others}) are pinned or busy. Unload a model, pick a smaller embedding "
-                    f"model, or lower this model's GPU layers in its tune."
+                    f"{max(0, free_mb)} MB are actually free{held}, and the resident models "
+                    f"({others}) are pinned or busy. Close other GPU programs, unload a model, "
+                    f"pick a smaller embedding model, or lower this model's GPU layers in its tune."
                 )
             log.warning(
-                "arbiter: %s over budget (needs %d MB, %d MB remain) with nothing evictable"
-                " — proceeding; the spawn safety nets decide",
-                model_id, vram_mb, arb.remaining_mb(hw=hardware) + own)
+                "arbiter: %s over budget (needs %d MB, %d MB actually free%s) with nothing"
+                " evictable — proceeding; the spawn safety nets decide",
+                model_id, vram_mb, max(0, free_mb), held)
 
     def _evict_from_arbiter(self, model_id: str) -> None:
         """The evictor `make_room` executes for a runner reservation — safe from ANY

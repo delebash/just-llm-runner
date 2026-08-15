@@ -207,6 +207,12 @@ class RunnerModelInfo(CamelModel):
     fit: str                        # "ok" | "tight" | "no" | "cpu" | "unknown"
     status: str                     # "loaded" | "loading" | "stopping" | "error" | "disk" | "available"
     downloaded: bool = False
+    # Where this model's weights actually sit — the snapshot dir holding the
+    # cached GGUF, or "" when nothing is downloaded. The SERVER resolves it
+    # (JustVoice's ModelVariant.local_dir precedent) so the cache layout never
+    # leaks into the client: the row's "Open folder" hands this straight to the
+    # host's folder opener.
+    local_dir: str = ""
     # EMBEDDING rows only (2026-07-25, the honest-badge fix): where the placement
     # POLICY puts this embed on THIS box — "cpu" | "gpu" (chat rows: ""). Computed by
     # the same service rule the loader enforces, so the UI can never promise a
@@ -293,6 +299,11 @@ class RunnerResidentResponse(CamelModel):
     # UI labels the line "VRAM" vs "Memory" off this field.
     mem_arch: str = "discrete"
     vram_total_mb: int = 0
+    # MEASURED occupancy of the pool — what is REALLY in use, including programs
+    # we do not manage (2026-08-14). `committed_mb` is only our own bookings, and
+    # displaying that as "VRAM used" is what read 0.0/8.0 on a card holding 2 GB
+    # of browser. None = unmeasurable box; the UI falls back to the ledger line.
+    used_mb: int | None = None
     committed_mb: int = 0
     remaining_mb: int = 0
     models: list[ResidentModel] = []

@@ -128,9 +128,12 @@ class VramArbiter:
         place), so this is the raw detected budget minus committed. Never negative."""
         return max(0, self._max_vram_mb(hw) - self.committed_mb())
 
-    def can_coreside(self, vram_mb: int, hw=None) -> bool:
-        """Does a model needing `vram_mb` fit the remaining budget as-is (no eviction)?"""
-        return vram_mb <= self.remaining_mb(hw)
+    # `can_coreside` was DELETED 2026-08-14: a ledger-only "does this fit?" with
+    # zero callers, i.e. a loaded foot-gun. Its answer ignored memory other
+    # programs hold — exactly the optimism admission just stopped trusting — so
+    # the next caller to reach for it would have re-introduced the bug we fixed.
+    # Fit questions belong to the admission path (lifecycle._admit), which
+    # measures.
 
     def count(self, kind: str | None = None) -> int:
         """Number of reserved (resident) models, optionally one kind's. The runner's
@@ -156,7 +159,7 @@ class VramArbiter:
         source: str = "computed",
     ) -> bool:
         """Record (or replace) `key`'s VRAM reservation and mark it most-recently-used. A reserve
-        is an admission the caller has already made room for (via `can_coreside`/`make_room`); it
+        is an admission the caller has already made room for (via `make_room`); it
         always records, returning True. `pinned` protects it from eviction (the tiny always-resident
         embed, P3). `kind` tags the owner (busy protection + kind-scoped counts); `evict_fn` is the
         owner's any-thread evictor — without one, `make_room` can never pick this reservation.

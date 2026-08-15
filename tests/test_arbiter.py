@@ -45,18 +45,11 @@ def test_reserve_replaces_same_key():
     assert a.committed_mb() == 6000 and a.count() == 1
 
 
-def test_can_coreside():
-    a = _arb(8000)
-    a.reserve("chat", 6000)
-    assert a.can_coreside(2000) is True     # 2000 <= 2000 remaining
-    assert a.can_coreside(2001) is False
-
-
 def test_remaining_never_negative():
     a = _arb(1000)
     a.reserve("big", 5000)  # over-committed (an over-fit that CPU-auto-offloaded)
     assert a.remaining_mb() == 0
-    assert a.can_coreside(1) is False
+    assert 1 > a.remaining_mb()          # nothing more fits the ledger
 
 
 def test_negative_reservation_clamped():
@@ -125,7 +118,7 @@ def test_clear():
 def test_cpu_only_box_zero_budget():
     a = _arb(0)  # no GPU
     assert a.remaining_mb() == 0
-    assert a.can_coreside(1) is False
+    assert 1 > a.remaining_mb()          # nothing more fits the ledger
 
 
 def test_pick_evict_min_mb_skips_small_reservations():
@@ -312,7 +305,7 @@ def test_one_pool_budget_is_the_pool_and_claims_count_once():
     snap = a.snapshot()
     assert snap["committed_mb"] == 5000          # once, not double-booked
     assert snap["remaining_mb"] == 32768 - 5000
-    assert a.can_coreside(20000) is True         # the pool admits a co-load
+    assert 20000 <= a.remaining_mb()             # the pool admits a co-load
 
 
 def test_unified_mac_budget_is_the_pool():

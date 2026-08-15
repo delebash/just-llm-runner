@@ -173,15 +173,62 @@ BUILT:  The kit half is done and is shared by construction — the folder seam
         `installLlmUi.js` `external:{open,openPath}`), the catalog menu + button
         order (`ui/src/components/LuModelCatalog.vue`), and the server's
         `RunnerModelInfo.local_dir` (`llm_runner/runner/{schema,api}.py`).
-        OPEN: three phases, in order. ① the opener verb — `tauri-plugin-opener` in
-        all three apps (docgen already has it), one identical `external:{open,
-        openPath}` block, tray open-logs on `open_path`; delete JV's plugin-shell
-        and JW's `open_external` + `open` crate. ② native dialogs — Rust commands
-        (JW + docgen's shape; JV converges its inline dialog-plugin picker), one
-        param vocabulary. ③ the renderer's door — delete `window.justwrite`, JW
-        calls `invoke()` like the others; the fetch override becomes ONE kit
-        implementation the three apps feed their `plugin-http` fetch into.
-GO:     given 2026-08-14 (all three phases)
+        ① DONE 2026-08-14 — the opener verb. `tauri-plugin-opener` in all three
+        (Cargo + npm + `init()` + `opener:default` and `opener:allow-open-path`
+        scope `**`); the wiring is now the same line in all three main.js:
+        `external: { open: openUrl, openPath }`. Deleted: JV's tauri-plugin-shell
+        and its three hand-rolled tray spawns, JW's `open_external` command +
+        bridge method + the `open` crate. The browser-vs-webview gate moved INTO
+        the kit (`external.js` `isTauriShell`), so no app decides what it can do;
+        `installLlmUi`'s second copy of that test went with it. Verified: cargo
+        check ×3 clean, three renderers build, biome ×4 clean, JV smoke 15/15,
+        vitest 48 (JV) + 578 (JW).
+        ② DONE 2026-08-14 — native dialogs. JV gained `pick_directory` (docgen's
+        copy, itself JW's verbatim) and dropped `@tauri-apps/plugin-dialog` from
+        the renderer; `storage_relocate` takes `new_root` in all three (JW said
+        `new_path`).
+        ③ DONE 2026-08-14 — the renderer's door. `tauri-bridge.js` and the
+        `window.justwrite` global are DELETED; `src/services/native.js` holds the
+        same calls as ordinary exports, and commands throw instead of returning
+        `{ ok, error, cancelled }` (the Electron shape). `hasShell()` is the kit's
+        one `isTauriShell()`. Docs: JW `docs/dev/architecture-notes.md` rewritten.
+        Verified: cargo check ×3, biome ×4, three builds, JV smoke 15/15, vitest
+        48 (JV) + 578 (JW) — two JW test files rewritten off the global.
+        OPEN — your call, one question: the cross-origin fetch override. It is now
+        ONE kit implementation (`installTauriFetch`) but only JustWrite installs
+        it, and the evidence says nobody needs it. Its two stated reasons are both
+        gone: no renderer in any app fetches a provider (every `fetch` in the kit
+        transport builds `serverUrl(path)` — providers are server-side), and the
+        COEP header it names does not exist anywhere in JustWrite. What it still
+        catches is the webview→own-sidecar hop (`tauri.localhost` →
+        `127.0.0.1:17495`), which JustVoice and i18n-docgen make with plain fetch
+        against their servers' CORSMiddleware. So: DELETE it from JustWrite (all
+        three identical, one mechanism fewer) — but that changes packaged-app
+        networking and can only be proven by building and running the JW
+        installer, which this environment can't do.
+GO:     given 2026-08-14 (phases ①②③ — all built)
+
+### `can_coreside` DELETED + the f11f228 attribution note (2026-08-14)
+
+`can_coreside(vram_mb)` was a ledger-only "does this fit?" with ZERO callers in
+any of the four apps — a loaded foot-gun: its answer ignored memory other
+programs hold, exactly the optimism admission just stopped trusting, so the next
+caller to reach for it would have re-introduced the bug. Deleted; three test
+assertions restated directly against `remaining_mb` (they were only ever
+asserting ledger arithmetic), and the stale mention in `reserve`'s docstring
+removed. Fit questions belong to `lifecycle._admit`, which measures.
+
+ATTRIBUTION NOTE, recorded rather than rewritten: commit `f11f228` (the measured-
+admission work) also carries FOUR files that were the USER's concurrent work —
+`ui/src/common/services/external.js`, `ui/src/common/index.js`,
+`ui/src/installLlmUi.js`, `ui/src/components/LuModelCatalog.vue` (the openPath /
+Open-folder feature + menu-wording alignment). They were swept in by a `git add
+-A` while the user was editing in parallel. Nothing is broken and every suite
+passes with them included; the commit MESSAGE simply does not describe them.
+Left as-is deliberately (the user's call, on my recommendation): force-pushing
+shared `main` to correct one commit message is a worse trade than an accurate
+permanent note. The lesson for next time is narrower and cheaper — stage
+explicit paths, never `git add -A`, in a repo the user is working in.
 
 ### ADMISSION COUNTS OTHER PROGRAMS' MEMORY (2026-08-14)
 

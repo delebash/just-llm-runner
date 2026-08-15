@@ -128,7 +128,24 @@ function onSortChange(s) {
 function isFullWidthRow(m) {
   if (m.__section) return "lu-msection";
   if (m.__divider) return "lu-mgroup";
+  // The in-flight bar rides its OWN full-width row under its model (user,
+  // 2026-08-14): inside the Status cell it had one narrow column to live in, so
+  // the caption, percent and bar wrapped into a stack. Spanning the grid gives it
+  // the same room to flex as the strip card's bar above the catalog.
+  if (m.__progressFor) return "lu-mprogress";
   return false;
+}
+// Splice a progress row in after each in-flight model, so the bar renders full
+// width directly beneath the model it belongs to.
+function withProgressRows(list) {
+  const out = [];
+  for (const m of list) {
+    out.push(m);
+    if (!m.__section && !m.__divider && (m.status === "loading" || m.status === "error")) {
+      out.push({ __progressFor: m.id, model: m, __key: `prog-${m.id}` });
+    }
+  }
+  return out;
 }
 // Mixed list: model rows key on their id, sentinels on their own __key.
 function rowKeyOf(m) {
@@ -197,7 +214,7 @@ const groupedRows = computed(() => {
     rows.push({ __divider: true, count: noFit.length, __key: "divider-nofit" });
     rows.push(...noFit);
   }
-  return rows;
+  return withProgressRows(rows);
 });
 
 // Applied state (Default / Embedding badges) + the Set-as-default / Set-as-embedding writers —
@@ -1214,6 +1231,9 @@ refreshApplied();
       >
         <template #full-row="{ row: m }">
           <template v-if="m.__section"><b>{{ m.__section }}</b><span class="lu-muted"> — {{ m.hint }}</span></template>
+          <!-- THE one shared DownloadBar + createDownloadTask, now with the full grid
+               width to lay out its caption, speed and percent on one line. -->
+          <DownloadBar v-else-if="m.__progressFor" :title="m.model.name" :task="taskFor(m.model.id)" />
           <template v-else>Doesn't fit this machine — {{ m.count }} more</template>
         </template>
 
@@ -1308,12 +1328,13 @@ refreshApplied();
         <template #status="{ row: m }">
                 <span v-if="m.status === 'loaded'" class="lu-pill lu-pill--run">● loaded</span>
                 <span v-else-if="m.status === 'stopping'" class="lu-mstat">Unloading…</span>
-                <!-- THE one shared DownloadBar for every in-flight / failed row — the SAME
-                     control + SAME createDownloadTask as the panels + cards (ONE mechanism,
-                     2026-07-21), Cancel/Retry built into the bar; a load error renders in the
-                     bar's error line with its Retry running the engine-check workflow. -->
-                <DownloadBar v-else-if="m.status === 'loading' || m.status === 'error'"
-                  class="lu-mgrid-dlbar" :title="m.name" :task="taskFor(m.id)" />
+                <!-- The bar itself lives in a full-width row UNDER this one (user,
+                     2026-08-14) — one narrow column made its caption, speed and percent
+                     wrap into a stack. Still THE one shared DownloadBar over the same
+                     createDownloadTask, with Cancel/Retry built in; the cell keeps only a
+                     word so the Status column doesn't go blank mid-flight. -->
+                <span v-else-if="m.status === 'loading'" class="lu-mstat">Working…</span>
+                <span v-else-if="m.status === 'error'" class="lu-mstat">Failed — see below</span>
                 <span v-else-if="m.status === 'disk'" class="lu-pill lu-pill--disk">Downloaded</span>
                 <span v-else class="lu-mstat">Not downloaded</span>
         </template>
@@ -1627,15 +1648,18 @@ refreshApplied();
 
 /* .lu-pill* moved to shared common/styles.css (used by the grid too). */
 .lu-mstat { font-size: 11px; color: var(--muted); }
-/* The SAME shared DownloadBar inside a grid STATUS cell — drop the card top-margin, give it
-   room, and re-allow wrapping (the grid td is nowrap). BOUNDED 2026-07-24: a failed download
-   renders the server's message, which for an HF error carries a ~120-character UNBROKEN url;
-   with a min-width that string forced the Status column far past it and swamped the row
-   (user screenshot, the StyleTune 429). The bar now simply FILLS its column — the column's
-   share governs, so there is no width here to keep in sync — and break-anywhere keeps a
-   long error URL readable inside it. */
-.lu-mgrid-dlbar { margin-top: 0; width: 100%; white-space: normal; }
-.lu-mgrid-dlbar :deep(*) { overflow-wrap: anywhere; }
+/* The in-flight bar's OWN full-width row, directly under its model (user, 2026-08-14:
+   "move that to the bottom of the model so it doesnt need to wrap … it then has enough
+   room to flex like the progress indicator at the top"). It previously lived in the
+   Status cell, where one narrow column stacked the caption, speed and percent onto three
+   lines. Spanning every column gives it the strip card's layout room. Wrapping stays
+   ALLOWED (the grid td is nowrap) and break-anywhere is kept from the old rule: a failed
+   download renders the server's message, which for an HF error carries a ~120-character
+   unbroken URL (the StyleTune 429 screenshot) — now it wraps inside a full-width row
+   instead of swelling a column. */
+.lu-mgrid :deep(.lu-mprogress td) { padding: 0 11px 9px; white-space: normal; }
+.lu-mgrid :deep(.lu-mprogress .lu-dlbar) { margin-top: 0; }
+.lu-mgrid :deep(.lu-mprogress *) { overflow-wrap: anywhere; }
 
 .lu-mcat-foot { font-size: 11px; margin-top: 7px; }
 .lu-mlink { color: var(--accent-ink, var(--accent)); }

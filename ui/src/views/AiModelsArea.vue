@@ -97,6 +97,17 @@ const props = defineProps({
   // local-setup band renders it instead of the default QuickSetup. Machinery stays
   // in the kit composables; the wizard's steps and words belong to the app.
   wizard: { type: [Object, Function], default: null },
+  // The one-strip consolidation (JV decision 2026-08-15): live memory renders as
+  // header CELLS on this strip — the kit owns used/free + the LLM cell, and a host
+  // appends its own cells here ([{key, label, value, sub?, title?}] — JV feeds
+  // TTS/STT/Other-apps from its /v1/engines/vram, the only place that sees both
+  // ledgers). No feed → the kit cells alone, so JW/docgen inherit this inert.
+  hwCells: { type: Array, default: () => [] },
+  // The LLM cell's IDLE text ({text, title}), host-fed: with no model resident the
+  // cell says "—" unless the host knows better (JV's on-demand claim line — Q3's
+  // "how does a user know what fits when the LLM loads on demand"). One cell, one
+  // owner; the host supplies only the idle words.
+  llmClaim: { type: Object, default: null },
 });
 const emit = defineEmits(["quick-setup-closed"]);
 
@@ -242,17 +253,44 @@ const gb1 = (mb) => (mb / 1024).toFixed(1);
 // for its own models — true, but not an answer to "how much VRAM is in use", and
 // it was labelled as if it were. The card's real occupancy leads; our reservation
 // rides alongside so the two can never be confused again. Unmeasurable box
-// (usedMb null) → the old ledger line, unchanged.
-const vramLine = computed(() => {
+// (usedMb null) → the ledger numbers, labelled "reserved".
+// The one-strip consolidation (JV decision 2026-08-15): the old inline
+// `vramLine` clause chain became header CELLS — the same layout as the
+// hardware facts — followed by the host's own cells (props.hwCells).
+const memCells = computed(() => {
   const r = resident.value;
-  if (!r?.vramTotalMb) return ""; // no detectable GPU VRAM → no stat block
+  if (!r?.vramTotalMb) return []; // no detectable GPU VRAM → no memory cells
+  const word = r.memArch && r.memArch !== "discrete" ? "Memory" : "VRAM";
   const total = gb1(r.vramTotalMb);
+  const cells = [];
   if (r.usedMb == null) {
-    return `${gb1(r.committedMb || 0)} / ${total} GB reserved · ${gb1(r.remainingMb || 0)} free`;
+    cells.push({ key: "used", label: `${word} reserved`, value: `${gb1(r.committedMb || 0)} of ${total} GB`,
+      title: "This box has no per-process memory probe — these are the ledger's bookings, not a measurement" });
+    cells.push({ key: "free", label: "Free", value: `${gb1(r.remainingMb || 0)} GB` });
+  } else {
+    cells.push({ key: "used", label: `${word} used`, value: `${gb1(r.usedMb)} of ${total} GB`,
+      title: "Measured occupancy — what the card actually holds right now" });
+    cells.push({ key: "free", label: "Free", value: `${gb1(Math.max(0, r.vramTotalMb - r.usedMb))} GB` });
   }
-  const free = Math.max(0, r.vramTotalMb - r.usedMb);
-  return `${gb1(r.usedMb)} / ${total} GB · ${gb1(free)} free · ${gb1(r.committedMb || 0)} GB AI models`;
+  // The LLM cell: loaded model name + the runner's booked take. Summed from
+  // the per-model reservations, NOT committedMb — the arbiter ledger is
+  // shared with the host's speech engines (JV), so committedMb counts a
+  // loaded TTS model too and would mislabel it "LLM" (2026-08-15 review).
+  // Nothing resident → the host's idle words (JV's on-demand claim) or "—".
+  const models = (r.models || []).filter((m) => m.status === "loaded" || m.status === "sleeping");
+  if (models.length) {
+    const take = models.reduce((n, m) => n + (m.vramMb || 0), 0);
+    cells.push({ key: "llm", label: "LLM", value: take ? `${gb1(take)} GB` : "loaded",
+      sub: models.map((m) => m.id).join(" · "),
+      title: "The AI runner's booked take for its loaded models" });
+  } else if (props.llmClaim?.text) {
+    cells.push({ key: "llm", label: "LLM", value: props.llmClaim.text, title: props.llmClaim.title || "" });
+  } else {
+    cells.push({ key: "llm", label: "LLM", value: "—" });
+  }
+  return cells;
 });
+const stripCells = computed(() => [...memCells.value, ...props.hwCells]);
 
 // "Copy debug info" — the whole box picture as ONE pasteable text block (hardware +
 // tuning keys + engine build + the live resident set). Beats more UI: a bug report
@@ -517,10 +555,15 @@ onMounted(() => {
       <div class="lu-hwstat"><span class="lu-hwstat-k">Memory</span><span class="lu-hwstat-v">{{ hwLabel.ram }}</span></div>
       <div class="lu-hwstat"><span class="lu-hwstat-k">GPU</span><span class="lu-hwstat-v">{{ hwLabel.gpu }}<span v-if="hwLabel.vram" class="lu-hwstat-sub"> · {{ hwLabel.vram }} VRAM</span></span></div>
       <div class="lu-hwstat"><span class="lu-hwstat-k">Acceleration</span><span class="lu-hwstat-v">{{ hwLabel.accel }}</span></div>
-      <!-- Live measured VRAM (user, 2026-07-07) — the resident ledger, polled; hidden on
-           a no-GPU box. The Copy button snapshots the whole picture (hardware · tuning
-           keys · engine build · loaded models) as one pasteable debug block. -->
-      <div v-if="vramLine" class="lu-hwstat"><span class="lu-hwstat-k">VRAM used</span><span class="lu-hwstat-v">{{ vramLine }}</span></div>
+      <!-- Live measured memory as CELLS (the one-strip consolidation, 2026-08-15):
+           kit cells (used · free · LLM) then the host's own (JV: TTS · STT ·
+           Other apps · Busy). Hidden on a no-GPU box. The Copy button snapshots
+           the whole picture (hardware · tuning keys · engine build · loaded
+           models) as one pasteable debug block. -->
+      <div v-for="c in stripCells" :key="c.key" class="lu-hwstat" :title="c.title || undefined">
+        <span class="lu-hwstat-k">{{ c.label }}</span>
+        <span class="lu-hwstat-v">{{ c.value }}<span v-if="c.sub" class="lu-hwstat-sub"> · {{ c.sub }}</span></span>
+      </div>
       <UiButton intent="ghost" size="small" class="lu-hwcopy"
         title="Copy this machine's AI state — hardware, driver, engine build, tuning keys, VRAM, loaded models — for a bug report"
         @click="copyDebugInfo">{{ debugCopied ? "Copied ✓" : "Copy debug info" }}</UiButton>

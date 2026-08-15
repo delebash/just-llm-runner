@@ -200,8 +200,46 @@ the constants-only port). A new app copies it changing **exactly three constants
 - **Teardown**: `WindowEvent::CloseRequested` → kill the child — unless the §11
   keep-server-running switch is ON, in which case the window hides to the tray
   and the server stays (the family tray rides every app since 2026-08-04).
-- **Plugins**: `tauri-plugin-window-state` is standard (window geometry persists).
-  `dialog`/`fs`/`http` are added when a feature needs them, not by default.
+- **Plugins — the baseline is FIXED and identical in all three apps** (2026-08-15,
+  enforced by `scripts/check-family.mjs`): `tauri-plugin-opener`,
+  `tauri-plugin-dialog`, `tauri-plugin-window-state`. Nothing else, unless a
+  feature genuinely needs it AND every app declares it too — the guard fails on
+  differing plugin sets, and fails again on a plugin declared in `Cargo.toml` that
+  `lib.rs` never initialises. That check exists because `http`, `fs` and `process`
+  sat init-only in two shells for months: declared, permissioned, never used.
+  The old wording here ("added when a feature needs them, not by default") is how
+  three apps ended up with three different surfaces.
+- **Capabilities**: the permission list is identical across the apps too — the same
+  guard compares them. Today: `core:default`, `dialog:default`, `opener:default`,
+  and `opener:allow-open-path` scoped `**` (the model catalogs' "Open folder").
+
+### The three doors a renderer may use to reach the shell
+
+Each is ONE implementation, and the guard fails anything that goes around them.
+
+1. **Opening a URL or a folder** — `@tauri-apps/plugin-opener`, handed to the kit
+   as the same one line in every app:
+   `installLlmUi(app, { external: { open: openUrl, openPath } })`. The kit decides
+   browser-vs-webview (`common/services/external.js`); no app repeats that test.
+   Never hand-roll a per-platform `explorer`/`open`/`xdg-open` spawn, and never use
+   `tauri-plugin-shell`'s `open` for a path — its default scope admits
+   http(s)/mailto/tel only, so a filesystem path is rejected.
+2. **Calling a command** — `src/services/native.js`, one thin export per
+   `#[tauri::command]`, so a command's name-as-a-string exists in exactly one place.
+   `@tauri-apps/api/core` is imported THERE and nowhere else. Commands throw;
+   callers use try/catch, and a cancelled dialog resolves `null`.
+3. **Putting a file on disk** — the kit's `saveBlob`/`downloadBlob`
+   (`common/services/fileSave.js`): native dialog where the host wired one via
+   `configureFileSave`, browser download otherwise. `a.download = …` anywhere in an
+   app is a guard failure. (JustVoice had five copies of it, one per view.)
+
+**Native dialogs are Rust commands, not the JS dialog plugin** — one capability
+surface, and a dialog cannot end up at two different layers across three apps.
+`pick_directory` is the shared example; copy it verbatim.
+
+**No renderer installs a global on `window`.** Apps import modules. A
+`window.<appname>` bridge is the shape of JustWrite's Electron-era shim, deleted
+2026-08-14 — the guard fails it.
 
 ## 6 · The Python server
 

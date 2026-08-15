@@ -4,6 +4,23 @@
 same folder structure same file names, api, the way they load things, llm runner etc
 except domain specific stuff… this comes first before anything else."*
 
+> **CLOSED ITEMS — 2026-08-15.** The findings this audit made about the SHELL and
+> transport layer are fixed; the text below is left as the record of what was found,
+> not as current state. Shipped: A5 (three resolver shapes) — `JV/src/config.js` and
+> `JW/services/serverApi.js` are DELETED, the kit resolves the base for all three and
+> `makeOriginAwareResolver` gained the `overrideKey` this audit said "belongs in the
+> kit under §11's growth rule"; the opener split at §C (`plugin-shell` vs
+> `plugin-opener`) — one plugin, one wiring line, everywhere; plus three more the
+> audit did not reach: `window.justwrite`, seven copies of the file-save job, and
+> ad-hoc `invoke` imports. All six are now enforced by `scripts/check-family.mjs`
+> rather than re-audited — see `docs/plans/2026-08-14-three-app-job-matrix.md` for
+> the evidence and the four traps that produced false results along the way.
+>
+> **The method changed too, and that is the durable part:** you cannot grep for the
+> same job done differently (three folder-openers shared no text), and an omission
+> has no text at all. Enumerate the JOBS, one row per job, one column per app, a
+> `file:line` in every cell.
+
 **This is an audit, not a design.** The standard already exists —
 `docs/app-structure.md`, 547 lines, titled *"THE FAMILY APP STANDARD — every Tauri +
 Vue + Python app, identical by construction."* Its §11 already carries the user's
@@ -198,6 +215,13 @@ only in who types the call:
 **Consequence worth ruling on:** all three servers run headless, so all three could be
 pointed at a remote host — but only JustVoice can, and not by decision. That override
 belongs in the kit under §11's growth rule.
+
+> **CLOSED 2026-08-15** exactly as written above: `makeOriginAwareResolver` takes an
+> `overrideKey` and `installLlmUi` a `serverOverrideKey`, so any app can be pointed at
+> a remote host by declaring one. Both app-local resolver files are deleted; all three
+> pass `devPorts` + `fallbackBase` and let the kit resolve. JustVoice had additionally
+> been reading `jt:server` a SECOND time in `stores/api.js` — two answers to "which
+> server?" inside one app.
 
 ### A6 · Where the API client lives — three answers
 
@@ -399,6 +423,13 @@ a violation.
 
 Two Tauri apps use two different Tauri opener plugins for the same click: docgen
 `@tauri-apps/plugin-opener` (which §4 names), JustVoice `@tauri-apps/plugin-shell`.
+
+> **CLOSED 2026-08-15 — and it was worse than two.** JustWrite made the third: its own
+> `open_external` Rust command over the `open` crate. The tray's "open logs" was a
+> fourth split (JustVoice hand-rolled `explorer`/`open`/`xdg-open` per platform). All
+> now `tauri-plugin-opener`, with the same `external: { open: openUrl, openPath }`
+> line in every `main.js`. The plugin sets and capability permission lists are
+> identical across the three shells and guarded.
 
 ---
 

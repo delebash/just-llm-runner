@@ -37,6 +37,10 @@ _EXPORTS = {
     "CsrfOriginMiddleware": "csrf",
     "install_error_handlers": "errors",
     "ApiError": "errors",
+    # The family data-location policy (user ruling 2026-08-14): every app's
+    # paths.py is a thin call into this — never a re-implementation.
+    "resolve_data_dir": "data_paths",
+    "install_dir": "data_paths",
 }
 
 __all__ = sorted(_EXPORTS)

@@ -31,6 +31,11 @@ dependencies = [
     # carried it by coincidence of their own dependency lists; the third adopter's
     # venv didn't, and every route table with make_data_router died at import.
     "python-multipart>=0.0.18",  # platform/data_api.py restore (UploadFile form parsing)
+    # ADDED 2026-08-14 with platform/data_paths.py — THE family data-location
+    # policy now lives in the kit (user ruling: every app resolves its data
+    # root the same way). Only the last-resort non-writable-install fallback
+    # touches it, but that arm must not be a per-app re-implementation.
+    "platformdirs>=4.0",  # platform/data_paths.py OS-fallback arm
     # Official vendor SDKs (user ruling 2026-07-17 — the SDK pivot; versions are the
     # live-proof pins): they own each cloud's wire format + retries. Local adapters
     # (llama.cpp/Ollama/generic compat) deliberately stay on httpx.

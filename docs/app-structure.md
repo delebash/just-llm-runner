@@ -180,10 +180,14 @@ is JW's `lib.rs` §"Python server sidecar" (JV is the original precedent; i18n-d
 the constants-only port). A new app copies it changing **exactly three constants**:
 `SERVER_PORT`, `SERVER_BIN` (`<kebab-name>-server`), `DATA_DIR_ENV`. The pattern:
 
-- **Portable data root**: `data/` beside the exe when writable, else the OS app-data
-  dir; a `dataroot.txt` pointer (outside the root, atomic tmp+rename writes) records a
-  user override; `storage_get_root`/`storage_relocate` commands do the crash-safe move
-  (copy → rename → pointer commit → delete old).
+- **Portable data root** (the §6 family policy, resolved here in Rust because the
+  shell runs before the server): `data/` beside the exe when writable, else the OS
+  app-data dir; a `dataroot.txt` pointer (outside the root, atomic tmp+rename writes)
+  records ONLY an explicit user override; `storage_get_root`/`storage_relocate`
+  commands do the crash-safe move (copy → rename → pointer commit → delete old).
+  **Never write the computed default into the pointer on first run** — that lock
+  pinned JustVoice installs to an obsolete default and vetoed the new one silently;
+  a pointer equal to a computed/former default is deleted as residue on resolve.
 - **Spawn arms**: debug prefers `server/.venv/…/<name>-server(.exe) serve` resolved
   from `CARGO_MANIFEST_DIR/..` (so `npm run dev` works from ANY shell), then PATH,
   then `python -m <snake_name>.serve serve`; release spawns the bundled exe beside the
@@ -214,8 +218,32 @@ server/
 - **Console scripts**: `<kebab-name>-server = "<snake>.serve:main"` taking a `serve`
   subcommand (the shell and npm scripts use that form). The `-server` suffix is
   MANDATORY — an unsuffixed name collides with the Tauri binary (§5).
-- **Data dir**: `--data-dir` flag → `<SNAKE_UPPER>_DATA_DIR` env → `platformdirs`.
-  The shell sets the env var; everything the server writes lives under it.
+- **Data dir — THE family policy, one implementation** (user ruling 2026-08-14:
+  *"all that can be the same should be, this includes how data is stored"*).
+  `paths.py` is a THIN CALL into the kit, never a re-implementation:
+
+  ```python
+  from llm_runner.platform import resolve_data_dir
+  SOURCE_ROOT = Path(__file__).resolve().parents[2]      # the checkout root
+
+  def default_data_dir() -> Path:
+      return resolve_data_dir(app_name="JustWrite", env_var="JUSTWRITE_DATA_DIR",
+                              source_root=SOURCE_ROOT)
+  ```
+
+  The ladder: `--data-dir` flag → `<SNAKE_UPPER>_DATA_DIR` env (the user's
+  choice; also how the shell hands down a Change-folder selection) → **`data/`
+  in the install directory** (frozen: beside the exe; source: beside the
+  checkout root) → the OS app-data dir ONLY when the install dir is not
+  writable. **Nothing may land anywhere the user did not choose** — the
+  app-data arm is a read-only-install necessity, never the default.
+  The shell implements the identical ladder in Rust (§5) because it resolves
+  the root before the server exists, then sets the env var; keep the two in
+  lock-step. The shell must NOT write the computed default into
+  `dataroot.txt` on first run — that lock pinned JustVoice installs to an
+  obsolete default and silently vetoed the new one; the pointer records ONLY
+  an explicit Change-folder, and one equal to a computed/former default is
+  deleted as residue. `data/` is gitignored in every app.
 - **Tooling**: `ruff` (line-length 100, `target-version = "py310"`), `pytest`.
   `requires-python >= 3.10`.
 - **llm-runner is NOT a hard dependency** — editable in dev (`pip install -e

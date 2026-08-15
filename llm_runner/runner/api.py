@@ -15,13 +15,23 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException
+from starlette.concurrency import run_in_threadpool
 
 from . import bandwidth, fit
-from .hardware import active_backend, class_key, detect, machine_key, max_vram_mb, mem_arch
+from .hardware import (
+    active_backend,
+    class_key,
+    detect,
+    gpu_processes,
+    machine_key,
+    max_vram_mb,
+    mem_arch,
+)
 from .lifecycle import get_service
 from .models import cached_gguf_path
 from .process import Overrides
 from .schema import (
+    CamelModel,
     DownloadCancelRequest,
     HardwareInfo,
     LoadRequest,
@@ -122,6 +132,67 @@ class HardwareWithKeys(HardwareInfo):
 async def get_hardware() -> HardwareWithKeys:
     hw = detect()
     return HardwareWithKeys(**hw.model_dump(), machine_key=machine_key(hw), class_key=class_key(hw))
+
+
+class GpuProcessRow(CamelModel):
+    """One process holding GPU memory. `own` = inside THIS server's process
+    tree (our engine subprocesses and model runners), so the reader can tell
+    our footprint from everything else on the box."""
+
+    pid: int = 0
+    name: str = ""
+    mem_mb: int = 0
+    own: bool = False
+
+
+class GpuProcessesResponse(CamelModel):
+    """The breakdown behind the memory strip's "Other apps" cell.
+
+    `available=False` is a first-class answer, never an empty list: AMD boxes
+    have no per-process arm (vendor tooling exposes device-wide use only) and
+    localized Windows localizes the counter names, so `reason` carries the
+    sentence a UI should show instead of rendering "nothing is using the GPU".
+
+    `additive` says the rows are comparable to the device total rather than
+    overlapping figures that can exceed the card — which is true only because
+    the Windows arm reads the `Local Usage` counter (see `_GPU_PROC_COUNTER`).
+    They still sum to slightly less than the card holds: driver and desktop
+    overhead belongs to no process. `source` distinguishes COVERAGE — nvidia-smi
+    sees compute workloads only; the Windows counters see graphics too."""
+
+    available: bool = False
+    reason: str = ""
+    source: str = ""
+    additive: bool = True
+    processes: list[GpuProcessRow] = []
+
+
+@router.get(
+    "/v1/llm-runner/gpu-processes",
+    response_model=GpuProcessesResponse,
+    response_model_by_alias=True,
+    summary="Which processes are holding GPU memory right now (on-demand — never polled)",
+)
+async def get_gpu_processes(fresh: bool = False) -> GpuProcessesResponse:
+    """Deliberately NOT wired into any poll. The probe is one shell-out for the
+    whole machine (not one per process), but the Windows counter arm takes ~1 s,
+    so this is fetched when a user opens the list and at no other time."""
+    snap = await run_in_threadpool(gpu_processes, fresh=fresh)
+    if snap is None:
+        return GpuProcessesResponse(
+            available=False,
+            reason=(
+                "This system has no per-process GPU memory counter. AMD tooling "
+                "reports device-wide use only, and Windows exposes the counters "
+                "under localized names on non-English installs."
+            ),
+        )
+    return GpuProcessesResponse(
+        available=True,
+        source=snap["source"],
+        additive=bool(snap["additive"]),
+        processes=[GpuProcessRow(**r) for r in snap["processes"]],
+    )
 
 
 @router.get(

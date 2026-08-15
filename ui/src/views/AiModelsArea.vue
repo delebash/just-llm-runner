@@ -248,6 +248,35 @@ const { start: startResPoll } = usePoll(async () => {
   } catch { /* keep last */ }
 }, 2500);
 const gb1 = (mb) => (mb / 1024).toFixed(1);
+// GB past a gigabyte, MB below it — a "0.3 GB" cell reads as a rounding error.
+const mem1 = (mb) => (mb >= 1024 ? `${gb1(mb)} GB` : `${Math.round(mb)} MB`);
+
+// ── "Other apps" → which ones (2026-08-15) ──────────────────────────────────
+// The strip has always been able to say HOW MUCH memory it can't account for
+// and never WHICH processes hold it. This is that answer, and it is fetched
+// ON DEMAND only: the probe is one shell-out for the whole machine, but the
+// Windows counter arm costs ~1 s, which has no business on the 2.5 s poll.
+const gpuAppsOpen = ref(false);
+const gpuApps = ref(null);      // null = never fetched; else the response body
+const gpuAppsBusy = ref(false);
+
+async function loadGpuApps(fresh = false) {
+  gpuAppsBusy.value = true;
+  try {
+    gpuApps.value = await request(`/v1/llm-runner/gpu-processes${fresh ? "?fresh=true" : ""}`);
+  } catch (e) {
+    // A failed fetch is NOT "nothing is using the GPU" — say so in the same
+    // shape the server uses for an unmeasurable box.
+    gpuApps.value = { available: false, reason: `Couldn't read the process list: ${e?.message || e}`, processes: [] };
+  } finally {
+    gpuAppsBusy.value = false;
+  }
+}
+
+function toggleGpuApps() {
+  gpuAppsOpen.value = !gpuAppsOpen.value;
+  if (gpuAppsOpen.value && gpuApps.value === null) loadGpuApps();
+}
 // MEASURED first (2026-08-14, user: the top strip read "0.0 / 8.0 GB used" while
 // the card actually held 2.1 GB). `committedMb` is only what the AI runner BOOKED
 // for its own models — true, but not an answer to "how much VRAM is in use", and
@@ -287,6 +316,22 @@ const memCells = computed(() => {
     cells.push({ key: "llm", label: "LLM", value: props.llmClaim.text, title: props.llmClaim.title || "" });
   } else {
     cells.push({ key: "llm", label: "LLM", value: "—" });
+  }
+  // "Other apps" — measured occupancy minus what the arbiter has booked, i.e.
+  // the slice of the card our ledger cannot account for. KIT-side since
+  // 2026-08-15: it began as a JustVoice host cell, but the inputs (usedMb,
+  // committedMb) were already here, so every app was one duplicated computed
+  // away from having it. Its "show apps" action is the only reason the
+  // number stops being a dead end.
+  // 256 MB floor: below that it is driver/desktop noise, and a cell that
+  // flickers in and out at 30 MB is worse than no cell.
+  const otherMb = r.usedMb == null ? 0 : Math.max(0, r.usedMb - (r.committedMb || 0));
+  if (otherMb > 256) {
+    cells.push({
+      key: "other", label: "Other apps", value: mem1(otherMb),
+      title: "Memory held by processes this app doesn't manage (browser, desktop compositor, games)",
+      action: { label: gpuAppsOpen.value ? "hide" : "show apps", on: toggleGpuApps },
+    });
   }
   return cells;
 });
@@ -563,10 +608,55 @@ onMounted(() => {
       <div v-for="c in stripCells" :key="c.key" class="lu-hwstat" :title="c.title || undefined">
         <span class="lu-hwstat-k">{{ c.label }}</span>
         <span class="lu-hwstat-v">{{ c.value }}<span v-if="c.sub" class="lu-hwstat-sub"> · {{ c.sub }}</span></span>
+        <!-- A cell may carry ONE action (today: "Other apps" → show apps). Kept
+             on the generic cell so a host cell can offer one without a second
+             strip template. -->
+        <a v-if="c.action" class="lu-hwstat-act" role="button" tabindex="0"
+          @click="c.action.on()" @keydown.enter.prevent="c.action.on()"
+          @keydown.space.prevent="c.action.on()">{{ c.action.label }}</a>
       </div>
       <UiButton intent="ghost" size="small" class="lu-hwcopy"
         title="Copy this machine's AI state — hardware, driver, engine build, tuning keys, VRAM, loaded models — for a bug report"
         @click="copyDebugInfo">{{ debugCopied ? "Copied ✓" : "Copy debug info" }}</UiButton>
+    </div>
+
+    <!-- Which processes hold GPU memory. Opened from the "Other apps" cell,
+         fetched only while open. Deliberately a panel under the strip rather
+         than a floating popover: the list can run to 25 rows on a normal
+         desktop, and it reads next to the number it explains. -->
+    <div v-if="gpuAppsOpen" class="lu-gpuapps">
+      <div class="lu-gpuapps-head">
+        <b>Using the GPU right now</b>
+        <UiButton intent="ghost" size="small" :loading="gpuAppsBusy" @click="loadGpuApps(true)">Refresh</UiButton>
+        <UiButton intent="ghost" size="small" @click="toggleGpuApps">Close</UiButton>
+      </div>
+      <div v-if="gpuAppsBusy && !gpuApps" class="lu-muted">Reading the system's GPU counters…</div>
+      <!-- Unavailable is its OWN state. Rendering an empty table here would
+           claim the GPU is idle, which is a different (and wrong) sentence. -->
+      <div v-else-if="gpuApps && !gpuApps.available" class="lu-muted">{{ gpuApps.reason }}</div>
+      <div v-else-if="gpuApps && !gpuApps.processes.length" class="lu-muted">
+        No process is holding GPU memory right now.
+      </div>
+      <template v-else-if="gpuApps">
+        <div class="lu-gpuapps-rows">
+          <div v-for="p in gpuApps.processes" :key="p.pid" class="lu-gpuapp" :class="{ 'is-own': p.own }">
+            <span class="lu-gpuapp-n">{{ p.name || `pid ${p.pid}` }}<span v-if="p.own" class="lu-gpuapp-tag">this app</span></span>
+            <span class="lu-gpuapp-p">pid {{ p.pid }}</span>
+            <span class="lu-gpuapp-m">{{ mem1(p.memMb) }}</span>
+          </div>
+        </div>
+        <!-- The honesty line, keyed to the arm that answered. Neither list is a
+             complete partition of the card, and the two differ in COVERAGE: the
+             Windows counters see graphics work, nvidia-smi sees only compute. -->
+        <p v-if="gpuApps.source === 'nvidia-smi'" class="lu-gpuapps-note">
+          Reported by nvidia-smi, which sees compute workloads only — apps using the
+          GPU purely for graphics won't appear here.
+        </p>
+        <p v-else class="lu-gpuapps-note">
+          These add up to a little less than the total above: driver and desktop
+          overhead isn't charged to any one process.
+        </p>
+      </template>
     </div>
 
     <!-- ONE strip from tabDefs: kit tab words come from the FAMILY CONTRACT (one
@@ -826,6 +916,28 @@ onMounted(() => {
 .lu-hwstat-k { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; }
 .lu-hwstat-v { font-size: 13.5px; font-weight: 600; color: var(--ink); }
 .lu-hwstat-sub { color: var(--muted); font-weight: 500; }
+/* A cell's one action. Sits under the value so it can't widen the cell and
+   push the strip's wrap point around as the number changes. */
+.lu-hwstat-act { font-size: 11px; font-weight: 600; color: var(--accent, #3b82f6); cursor: pointer; user-select: none; }
+.lu-hwstat-act:hover, .lu-hwstat-act:focus-visible { text-decoration: underline; }
+
+/* The "who is using the GPU" panel — same card surface as the strip it hangs
+   under, so the pair reads as one block rather than a floating overlay. */
+.lu-gpuapps { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 18px; margin-top: 8px; }
+.lu-gpuapps-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.lu-gpuapps-head b { font-size: 13px; margin-right: auto; }
+/* One scroller, capped: 25 rows is a normal desktop, and the panel must not
+   push the tabs off-screen. */
+.lu-gpuapps-rows { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }
+.lu-gpuapp { display: flex; align-items: baseline; gap: 10px; padding: 3px 0; font-size: 12.5px; border-bottom: 1px solid var(--border); }
+.lu-gpuapp:last-child { border-bottom: 0; }
+.lu-gpuapp-n { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.lu-gpuapp-p { flex: 0 0 auto; color: var(--muted); font-size: 11px; }
+/* Tabular figures so the memory column lines up as a column. */
+.lu-gpuapp-m { flex: 0 0 auto; min-width: 72px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lu-gpuapp.is-own .lu-gpuapp-n { font-weight: 700; }
+.lu-gpuapp-tag { margin-left: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--accent, #3b82f6); }
+.lu-gpuapps-note { margin: 8px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--muted); }
 
 /* Sticky tab strip — stays put while a long providers/features list scrolls
    under it. var(--surface) backing matches the host card so rows pass cleanly

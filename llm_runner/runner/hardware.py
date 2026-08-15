@@ -24,6 +24,8 @@ exists (vendor/name/routing work) and Fit honestly reads unknown.
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import os
 import platform
@@ -745,6 +747,221 @@ def process_tree_rss_mb(pid: int) -> int | None:
             total += v
             seen = True
     return total if seen else None
+
+
+# ── Who is holding the GPU (the "Other apps" breakdown, 2026-08-15) ─────────
+# The memory strip already shows measured occupancy and, next to it, the slice
+# our ledger cannot attribute — "Other apps". That number answers "how much"
+# and nothing else, so the obvious next question ("which ones?") had no door.
+#
+# The cost objection is the one worth answering up front: this is ONE shell-out
+# for the WHOLE machine, not one per process. Both arms enumerate every GPU
+# process in a single call, exactly as `_nvidia_procs_mem_mb` does for a tree.
+# It is still ~1 s on the Windows counter arm, so it is deliberately NOT wired
+# into any poll — the endpoint over it is fetched when a user opens the list.
+
+_GPU_PROCS_TTL_S = 2.0
+_gpu_procs_cache: tuple[float, list[dict] | None] | None = None
+_gpu_procs_lock = threading.Lock()
+
+#: typeperf instance names embed the pid: `pid_1234_luid_0x0..._phys_0`.
+_PID_INSTANCE_RE = re.compile(r"pid_(\d+)_", re.IGNORECASE)
+
+
+def _pid_name_map() -> dict[int, str]:
+    """pid → executable name for every live process. psutil when the host ships
+    it (in-process, no spawn), else ONE table shell-out — the same optional-
+    psutil shape as `process_tree_pids`, so the kit still needs no new
+    dependency. Unknowable ⇒ {} and the caller shows the bare pid."""
+    try:
+        import psutil  # type: ignore
+
+        out: dict[int, str] = {}
+        for p in psutil.process_iter(["pid", "name"]):
+            try:
+                out[int(p.info["pid"])] = str(p.info["name"] or "")
+            except Exception:  # noqa: BLE001 — a process that died mid-walk
+                continue
+        if out:
+            return out
+    except Exception:  # noqa: BLE001 — no psutil → table arm
+        log.debug("psutil name walk unavailable", exc_info=True)
+
+    def _run(cmd: list[str], timeout: int) -> str:
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=timeout).stdout
+        except Exception as e:  # noqa: BLE001 — probes never raise
+            log.debug("pid-name probe %s failed: %s", cmd[0], e)
+            return ""
+
+    names: dict[int, str] = {}
+    if platform_key() == "windows":
+        # CSV, no header: "image","pid","session","#","mem"
+        for row in csv.reader(io.StringIO(_run(["tasklist", "/FO", "CSV", "/NH"], 15))):
+            if len(row) >= 2 and row[1].strip().isdigit():
+                names[int(row[1].strip())] = row[0].strip()
+        return names
+    for ln in _run(["ps", "-e", "-o", "pid=,comm="], 8).splitlines():
+        toks = ln.split(None, 1)
+        if len(toks) == 2 and toks[0].isdigit():
+            names[int(toks[0])] = toks[1].strip()
+    return names
+
+
+def _nvidia_gpu_process_rows() -> dict[int, int] | None:
+    """pid → MiB for every CUDA compute process, from ONE nvidia-smi call.
+    None when nvidia-smi is absent or reports no numeric memory — which is
+    exactly what Windows-WDDM does ("[N/A]"), handing over to the counter arm.
+
+    Compute contexts only: a browser or a game rendering through D3D/OpenGL
+    holds GPU memory and does NOT appear here. That is the honest limit of
+    this arm, and the reason the Windows arm below is preferred where it works
+    rather than merely tolerated."""
+    if not shutil.which("nvidia-smi"):
+        return None
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,used_gpu_memory",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=8,
+        ).stdout
+    except Exception as e:  # noqa: BLE001 — probes never raise
+        log.debug("nvidia-smi compute-apps listing failed: %s", e)
+        return None
+    rows: dict[int, int] = {}
+    for ln in out.splitlines():
+        parts = [p.strip() for p in ln.split(",")]
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            rows[int(parts[0])] = rows.get(int(parts[0]), 0) + int(parts[1])
+    return rows or None
+
+
+#: `Local Usage`, NOT `Dedicated Usage`, and the difference is the whole
+#: credibility of this list. MEASURED on an RTX 2070 SUPER, 2026-08-15, with a
+#: deliberate 2.0 GB torch allocation held in a known pid:
+#:
+#:                      that pid    all processes   card actually held
+#:   Dedicated Usage     2139 MB        9325 MB          2851 MB
+#:   Local Usage         2139 MB        2567 MB          2851 MB
+#:   Total Committed     2215 MB        3447 MB          2851 MB
+#:
+#: Both name the real consumer correctly. But `Dedicated Usage` charges a
+#: SHARED surface to every process that references it, so the desktop
+#: compositor is credited with every window on screen — `dwm.exe` alone read
+#: 6,671 MB — and the column sums to more than three times the card. `Local
+#: Usage` counts only memory local to the adapter, lands under the device
+#: total, and leaves exactly the unattributed driver/desktop remainder you
+#: would expect. A list that sums past the hardware is not believable, however
+#: correct each individual row is.
+_GPU_PROC_COUNTER = r"\GPU Process Memory(*)\Local Usage"
+
+
+def _windows_gpu_process_rows() -> dict[int, int] | None:
+    """pid → MiB from the OS's own `GPU Process Memory` counter set, wildcarded
+    across every instance. ONE call returns every process on every adapter.
+
+    A pid appears once per adapter (the instance name carries a distinct luid),
+    and the values are summed per pid.
+
+    Localized Windows localizes counter NAMES: typeperf then errors, nothing
+    parses, and the honest answer is None (never an empty list, which would
+    read as "nothing is using the GPU")."""
+    if platform_key() != "windows" or not shutil.which("typeperf"):
+        return None
+    try:
+        out = subprocess.run(
+            ["typeperf", _GPU_PROC_COUNTER, "-sc", "1"],
+            capture_output=True, text=True, timeout=20,
+        ).stdout
+    except Exception as e:  # noqa: BLE001
+        log.debug("typeperf GPU process listing failed: %s", e)
+        return None
+    # typeperf trails the CSV with plain status lines ("Exiting, please wait…"),
+    # so rows are matched on WIDTH against the header rather than by position.
+    parsed = [r for r in csv.reader(io.StringIO(out)) if r]
+    if len(parsed) < 2:
+        return None
+    header = parsed[0]
+    data = next((r for r in reversed(parsed) if len(r) == len(header) and r is not header), None)
+    if data is None or len(header) < 2:
+        return None
+    rows: dict[int, int] = {}
+    for col in range(1, len(header)):
+        m = _PID_INSTANCE_RE.search(header[col])
+        if not m:
+            continue
+        try:
+            by = float(data[col])
+        except (ValueError, IndexError):
+            continue
+        pid = int(m.group(1))
+        rows[pid] = rows.get(pid, 0) + int(by // (1024 * 1024))
+    return rows or None
+
+
+def gpu_processes(*, fresh: bool = False) -> dict | None:
+    """Every process currently holding GPU memory, biggest first.
+
+    Returns `{"source": str, "additive": bool, "processes": [...]}` where each
+    row is `{"pid": int, "name": str, "memMb": int, "own": bool}`. `own` marks
+    this server's own process tree, so a reader can tell our engines and model
+    runners apart from everything else on the box.
+
+    `additive` says whether the rows may be compared to the device total. Both
+    arms set it True, but only because the Windows arm reads `Local Usage` —
+    see `_GPU_PROC_COUNTER` for the measurement that rejected the obvious
+    counter. Even then the rows sum to slightly LESS than the device holds:
+    driver and desktop overhead is not charged to any process. So a UI may
+    rank them and may say "of the N GB in use, this process holds M" — it must
+    not present them as a partition that accounts for every megabyte.
+
+    Note the arms differ in COVERAGE, not just precision: nvidia-smi sees CUDA
+    compute contexts only (and reports "[N/A]" under Windows-WDDM), while the
+    Windows counters see anything touching the adapter, graphics included.
+
+    None = UNMEASURABLE, and callers must say so rather than render an empty
+    list: an AMD box has no per-process arm at all (vendor tooling exposes
+    device-wide use only), and localized Windows breaks the counter names.
+    An empty list is a different claim — "measured, nothing is holding memory".
+
+    TTL-cached like `used_pool_mb`, so a double-click or two open panels cannot
+    spawn two probes."""
+    global _gpu_procs_cache
+    now = time.monotonic()
+    if not fresh:
+        hit = _gpu_procs_cache
+        if hit is not None and now - hit[0] < _GPU_PROCS_TTL_S:
+            return hit[1]
+    with _gpu_procs_lock:
+        rows: dict[int, int] | None = None
+        source, additive = "", True
+        for probe, label, add in (
+            (_nvidia_gpu_process_rows, "nvidia-smi", True),
+            (_windows_gpu_process_rows, "windows-counters", True),
+        ):
+            rows = probe()
+            if rows is not None:
+                source, additive = label, add
+                break
+        if rows is None:
+            _gpu_procs_cache = (time.monotonic(), None)
+            return None
+        names = _pid_name_map()
+        try:
+            own = set(process_tree_pids(os.getpid()))
+        except Exception:  # noqa: BLE001 — attribution is a nicety, not a gate
+            own = set()
+        procs = [
+            {"pid": pid, "name": names.get(pid, ""), "memMb": mb, "own": pid in own}
+            # Zero-holding processes are noise: the counter set lists every
+            # process that has ever touched the adapter this boot.
+            for pid, mb in rows.items() if mb > 0
+        ]
+        procs.sort(key=lambda r: (-r["memMb"], r["pid"]))
+        out = {"source": source, "additive": additive, "processes": procs}
+        _gpu_procs_cache = (time.monotonic(), out)
+    return out
 
 
 def _nvidia_query(fields: str) -> str | None:

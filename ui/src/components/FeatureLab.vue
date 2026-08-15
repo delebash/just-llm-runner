@@ -11,7 +11,7 @@
 // delete-preset / use-production are emitted; the parent (Workbench) writes the
 // feature's ref on use-production. NO LAUNCH SWITCHES
 // here (§7.1): those live on the model — the column's "Engine switches" link opens Tune.
-import { computed, reactive, ref, watch } from "vue";
+import { computed, onActivated, reactive, ref, watch } from "vue";
 
 import CompareStrip from "./CompareStrip.vue";
 import UiButton from "../common/components/UiButton.vue";
@@ -181,7 +181,8 @@ const sampleIx = ref(0);       // the next sample the button fills
 const composing = ref(false);
 const sources = testDataSources();
 const sourceById = Object.fromEntries(sources.map((s) => [s.id, s]));
-const sourceOptions = reactive({}); // source.id -> [{value,label}] (loaded on first need)
+const sourceOptions = reactive({}); // source.id -> [{value,label}]
+const sourceLoading = reactive({}); // source.id -> true while its list() is in flight
 // source.id -> the option the user picked. A select that snaps back to its own
 // placeholder reads as a broken dropdown; it keeps what you chose (user ruling
 // 2026-08-15). Accepted cost: re-picking the SAME item is a no-op, because
@@ -210,21 +211,39 @@ watch(() => props.action, async (key) => {
   } catch { /* the button simply doesn't render */ }
 }, { immediate: true });
 
-watch(pickers, (list) => {
-  for (const p of list) {
-    if (sourceOptions[p.source]) continue;
-    const src = sourceById[p.source];
-    Promise.resolve()
-      .then(() => src.list())
-      .then((items) => {
-        sourceOptions[p.source] = [
-          { value: "", label: `Insert from ${src.label}…` },
-          ...(items || []).map((it) => ({ value: String(it.id), label: it.label })),
-        ];
-      })
-      .catch(() => { sourceOptions[p.source] = []; });
+// The list is RE-READ whenever the picker set changes and whenever the page is
+// re-entered. It used to load once and keep that answer for the life of the
+// component, so a project created elsewhere never appeared until you navigated
+// away and came back (user report 2026-08-15). These lists are a handful of
+// rows; a picker that lies about what the app contains costs more than the GET.
+// (The kit client's onRequestWrite hook would be the sharper trigger, but it
+// only sees AI traffic — a host creating a project writes through serverApi,
+// which has no such hook.)
+function loadSource(sourceId) {
+  const src = sourceById[sourceId];
+  if (!src || sourceLoading[sourceId]) return;
+  sourceLoading[sourceId] = true;
+  // Seed the placeholder row so the control renders IMMEDIATELY rather than
+  // popping into existence when the fetch lands.
+  if (!sourceOptions[sourceId]) {
+    sourceOptions[sourceId] = [{ value: "", label: `Insert from ${src.label}…` }];
   }
-}, { immediate: true });
+  Promise.resolve()
+    .then(() => src.list())
+    .then((items) => {
+      sourceOptions[sourceId] = [
+        { value: "", label: `Insert from ${src.label}…` },
+        ...(items || []).map((it) => ({ value: String(it.id), label: it.label })),
+      ];
+    })
+    .catch(() => { sourceOptions[sourceId] = []; })
+    .finally(() => { sourceLoading[sourceId] = false; });
+}
+
+watch(pickers, (list) => { for (const p of list) loadSource(p.source); }, { immediate: true });
+// Kept-alive hosts (both apps mount the console under KeepAlive) re-activate
+// instead of re-mounting — this is the "I made a project, then came back" case.
+onActivated(() => { for (const p of pickers.value) loadSource(p.source); });
 
 function fillSample() {
   const rows = actionSamples.value;
@@ -327,7 +346,11 @@ const columnConfig = computed(() => {
       <div class="lu-fw-testin-h"><b>Test input</b><span class="lu-muted">the {{ varHint }} the prompt fills — shared across columns</span></div>
       <div v-if="pickers.length || decl?.compose || actionSamples.length" class="lu-fw-testin-fill">
         <template v-for="p in pickers" :key="p.source">
-          <UiSelect v-if="(sourceOptions[p.source] || []).length > 1"
+          <!-- Visible while its list loads (disabled, showing its own label) so the
+               fill row does not reshuffle as the fetches land. Hidden only once we
+               KNOW the source has nothing to offer. -->
+          <UiSelect v-if="sourceLoading[p.source] || (sourceOptions[p.source] || []).length > 1"
+            :disabled="!!sourceLoading[p.source] && (sourceOptions[p.source] || []).length <= 1"
             :model-value="pickerValue[p.source] ?? ''" :options="sourceOptions[p.source] || []" width="name"
             @update:model-value="(v) => insertFrom(p, v)" />
         </template>

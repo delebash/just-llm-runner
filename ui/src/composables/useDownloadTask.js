@@ -57,6 +57,16 @@ export function createDownloadTask(channel) {
     fetch = request,
     pollMs = 1200,
     maxPolls = 1000,
+    // The caption while start() is in flight, before the first status reading.
+    // "Getting ready" is right for a download that is about to report bytes;
+    // an operation whose start() IS the whole work (a model load — no status
+    // endpoint to poll) should say what it is doing, since that caption is the
+    // only one the bar will ever show.
+    armPhase = "Getting ready",
+    // …and the caption once it finishes. Same reason: an operation that LOADS
+    // something reads "Loaded", so the caption agrees with the bar's finished
+    // badge instead of contradicting it.
+    donePhase = "Ready",
   } = channel;
 
   const rate = createRateTracker();
@@ -118,7 +128,7 @@ export function createDownloadTask(channel) {
     }
     if (r.terminal === "done") {
       task.state = "done";
-      task.phase = "Ready";
+      task.phase = donePhase;
       task.rateText = "";
       return;
     }
@@ -144,7 +154,7 @@ export function createDownloadTask(channel) {
   }
 
   async function start() {
-    _arm("Getting ready");
+    _arm(armPhase);
     try {
       await doStart();
     } catch (e) {

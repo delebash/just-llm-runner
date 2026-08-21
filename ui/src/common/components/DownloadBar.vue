@@ -24,6 +24,11 @@ defineProps({
   // A createDownloadTask instance (or any object with the same shape:
   // { state, done, total, label, error, cancel(), retry(), dismiss() }).
   task: { type: Object, required: true },
+  // The word shown when the task finishes. Defaults to the canon "Ready",
+  // which is right for a download; an operation that LOADS something says
+  // "Loaded", so the bar agrees with the badge the row shows afterwards
+  // (JustVoice, 2026-08-21 — "instead of saying ready say loaded").
+  doneLabel: { type: String, default: "" },
 });
 </script>
 
@@ -42,7 +47,7 @@ defineProps({
            Retry was the only action, and the server kept the errored row so the bar came
            back on every poll (user, 2026-07-24: "no way to cancel"). -->
       <UiButton v-if="(task.state === 'cancelled' || task.state === 'error') && task.dismiss" intent="ghost" size="small" :disabled="task.finalizing" @click="task.dismiss()">{{ L.dismiss }}</UiButton>
-      <span v-else-if="task.state === 'done'" class="lu-dlbar-ok">{{ L.ready }}</span>
+      <span v-else-if="task.state === 'done'" class="lu-dlbar-ok">{{ doneLabel || L.ready }}</span>
     </div>
 
     <UiProgress :value="task.done" :max="task.total" :label="task.label" />

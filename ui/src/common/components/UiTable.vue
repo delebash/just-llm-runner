@@ -23,6 +23,14 @@
 //                          rendered through the `full-row` slot. Returning a STRING also puts
 //                          that class on the <tr>, so one list can carry two kinds of banner
 //                          row with different looks. Omit the prop and nothing changes.
+//   :row-class             (row) => falsy | string | string[] | object — class(es) for the
+//                          <tr> of an ORDINARY record row, taking whatever `:class` takes.
+//                          For per-row STATE that CSS reads: the row playing right now, a
+//                          row whose backing file is missing, a stale row. Added 2026-08-21:
+//                          only full-width banner rows could be classed, so adopting this
+//                          table meant losing every row state a hand-rolled <tr :class> had,
+//                          and consumers pushed the class onto an inner <div> where a
+//                          `tr:hover`/`td` rule can no longer see it.
 //   :manual-sorting        the CONSUMER sorts :data; this table owns only the sort STATE and
 //                          the header UI (TanStack's documented `manualSorting`). For lists
 //                          whose order is not a plain column sort — the model catalog groups
@@ -79,6 +87,8 @@ const props = defineProps({
   rowHover:           { type: Boolean, default: false },
   // Predicate over the ORIGINAL row object; true → render one full-width cell via #full-row.
   fullWidthRow:       { type: Function, default: null },
+  // Class(es) for an ordinary record row's <tr>, from the ORIGINAL row object.
+  rowClass:           { type: Function, default: null },
   manualSorting:      { type: Boolean, default: false },
   disableSortRemoval: { type: Boolean, default: false },
 });
@@ -174,6 +184,12 @@ function fullRowClass(original) {
   return typeof r === "string" ? r : "";
 }
 
+// Per-row state class for ordinary record rows. Null-safe so the common case
+// (no prop) adds nothing to the <tr>.
+function recordRowClass(original) {
+  return props.rowClass ? props.rowClass(original) : null;
+}
+
 function onRowClick(row, event) {
   emit("row-click", { data: row.original, originalEvent: event });
 }
@@ -229,7 +245,7 @@ function setPageSize(n) {
               <slot name="full-row" :row="row.original" />
             </td>
           </tr>
-          <tr v-else class="ui-table-row" @click="onRowClick(row, $event)">
+          <tr v-else class="ui-table-row" :class="recordRowClass(row.original)" @click="onRowClick(row, $event)">
             <td
               v-for="cell in row.getVisibleCells()"
               :key="cell.id"

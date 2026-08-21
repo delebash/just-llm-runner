@@ -25,6 +25,10 @@ export { default as UiTable } from "./components/UiTable.vue";
 export { default as UiProgress } from "./components/UiProgress.vue";
 export { default as UiColorPicker } from "./components/UiColorPicker.vue";
 export { default as UiSegmented } from "./components/UiSegmented.vue";
+// THE slider (2026-08-21). There was none, so 14 hand-rolled `<input
+// type="range">` grew across the family, each with its own width, its own
+// place for the number, and nowhere to say what the ends mean.
+export { default as UiSlider } from "./components/UiSlider.vue";
 export { default as UiToggle } from "./components/UiToggle.vue";
 export { default as UiField } from "./components/UiField.vue";
 
@@ -92,6 +96,11 @@ export * from "./services/appearance.js";
 
 // shared UI locale (BCP-47 tag for UiNumber's Intl formatting; host drives it)
 export { uiLocale, setUiLocale } from "./services/locale.js";
+
+// shared language CODE → readable NAME (Intl.DisplayNames, follows uiLocale).
+// Every app shows language somewhere and each was about to grow its own map;
+// `en-US` reads as "American English", not as a code (2026-08-21).
+export { languageName, languageOptionsFrom, useLanguageNames } from "./services/languageNames.js";
 
 // shared byte formatter (DL-1) — the ONE size-label formatter, so a disk-usage /
 // download surface in either app renders bytes identically.

@@ -40,6 +40,9 @@ export { default as Breadcrumb } from "./components/Breadcrumb.vue";
 export { default as PaneHeader } from "./components/PaneHeader.vue";
 // The Settings chrome — top tab strip + content (the family shape; lifted from JW).
 export { default as SettingsShell } from "./components/SettingsShell.vue";
+// SettingsShell's strip, on its own — for a view that owns its own scroller and
+// would inherit a second one by taking the whole shell.
+export { default as UiTabStrip } from "./components/UiTabStrip.vue";
 export { promptDialog, confirmDialog, dialogState, _resolveDialog, configureDialog, dialogLabels } from "./services/dialog.js";
 // THE one reactive labels store behind kit chrome (dialog verbs, AI tabs, download-bar
 // actions, connection-error copy) + its ONE door. An i18n'd host re-feeds it at boot

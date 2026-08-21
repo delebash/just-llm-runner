@@ -7,6 +7,14 @@
 // ({ id, label }); each app brings its own set and renders the active panel in the
 // default slot. v-model carries the active section id, so route-synced hosts keep
 // their own navigation logic.
+//
+// The strip itself moved out to UiTabStrip 2026-08-21 — this component is now
+// "that strip, plus a scrolling panel". A view that wants only the strip takes
+// UiTabStrip directly instead of inheriting a second scroller; see that file
+// for why two apps had hand-rolled the same strip rather than adopt this one.
+// Renders identically: the CSS went with the component, value for value.
+import UiTabStrip from "./UiTabStrip.vue";
+
 defineProps({
   sections: { type: Array, default: () => [] }, // [{ id, label }]
   modelValue: { type: String, default: "" },
@@ -16,23 +24,16 @@ const emit = defineEmits(["update:modelValue"]);
 
 <template>
   <div class="set-shell">
-    <nav class="set-tabs">
-      <button
-        v-for="s in sections" :key="s.id" type="button"
-        class="set-tab" :class="{ on: s.id === modelValue }"
-        @click="emit('update:modelValue', s.id)"
-      >{{ s.label }}</button>
-    </nav>
+    <UiTabStrip
+      :tabs="sections"
+      :model-value="modelValue"
+      @update:model-value="(v) => emit('update:modelValue', v)"
+    />
     <div class="set-panel"><slot /></div>
   </div>
 </template>
 
 <style scoped>
-/* JW's values, verbatim (SettingsView.vue scoped CSS) — one look, every app. */
 .set-shell { display: flex; flex-direction: column; gap: 18px; height: 100%; min-height: 0; }
-.set-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.set-tab { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 10px 16px; font: inherit; font-size: 13px; font-weight: 600; color: var(--ink-2); cursor: pointer; }
-.set-tab:hover { color: var(--ink); }
-.set-tab.on { color: var(--ink); border-bottom-color: var(--accent); }
 .set-panel { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
 </style>

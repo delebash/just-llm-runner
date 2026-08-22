@@ -33,6 +33,14 @@ Robustness: a missing dir counts 0 (never an error); every `stat` is guarded (a
 file can vanish mid-walk); symlinks are NOT followed — the HF cache stores real
 blobs under `blobs/` and symlinks them from `snapshots/`, so following them would
 double-count (and could loop), while skipping them counts each blob exactly once.
+
+That last sentence only held where HF can MAKE symlinks. On Windows it cannot
+without Developer Mode or admin, so `snapshots/` gets full byte-for-byte COPIES
+and every model occupies twice its size — real bytes, honestly counted. Replace
+those copies with hardlinks (same bytes, two names) and the walk counts them
+twice while the disk holds them once. `dedup_links=True` closes that: it counts
+each inode once. It is opt-in per bucket because it costs an `os.stat` per file
+(~3x the walk), which only the models cache is known to need.
 """
 
 from __future__ import annotations
@@ -48,14 +56,28 @@ from pydantic import BaseModel
 log = logging.getLogger(__name__)
 
 
-def dir_size(path: Path, exclude: set[Path] | None = None) -> int:
+def dir_size(
+    path: Path, exclude: set[Path] | None = None, dedup_links: bool = False
+) -> int:
     """Total bytes of the regular files under `path`, recursively, via `os.scandir`.
 
     Symlinks are skipped (never followed), every `stat` is guarded, and a missing
     `path` counts 0 — so a vanishing file, a broken link, or an absent dir never
     raises. `exclude` is a set of child paths to skip whole (used to hold the
     llamacpp `logs/` subdir out of the engine-builds bucket). Shared by the sizes
-    endpoint AND the runner's models-cache reclaim (one walk, one source)."""
+    endpoint AND the runner's models-cache reclaim (one walk, one source).
+
+    `dedup_links=True` counts each INODE once, so a file reachable under two
+    names (a hardlink) adds its bytes once — what the disk actually holds. Off by
+    default: it costs an `os.stat` per file, and only the HF models cache is
+    known to contain hardlinks (see the module docstring)."""
+    return _walk(path, exclude, set() if dedup_links else None)
+
+
+def _walk(path: Path, exclude: set[Path] | None, seen: set | None) -> int:
+    """`dir_size`'s recursion. `seen` is None when not deduping, else the set of
+    (st_dev, st_ino) already counted — shared across the whole walk, since the two
+    names for one inode are usually in different directories (`blobs/`, `snapshots/`)."""
     total = 0
     try:
         with os.scandir(path) as it:
@@ -67,9 +89,23 @@ def dir_size(path: Path, exclude: set[Path] | None = None) -> int:
                     if exclude and child in exclude:
                         continue
                     if entry.is_dir(follow_symlinks=False):
-                        total += dir_size(child, exclude)
+                        total += _walk(child, exclude, seen)
                     elif entry.is_file(follow_symlinks=False):
-                        total += entry.stat(follow_symlinks=False).st_size
+                        if seen is None:
+                            total += entry.stat(follow_symlinks=False).st_size
+                            continue
+                        # os.stat, NOT entry.stat(): on Windows a DirEntry's stat comes
+                        # from the directory listing, which carries no link data —
+                        # st_ino and st_nlink are both 0 there. Keying on that would
+                        # collapse every file into one entry and report a near-empty
+                        # cache. os.stat opens the file and returns the real values.
+                        st = os.stat(entry.path)
+                        if st.st_nlink > 1 and st.st_ino:
+                            key = (st.st_dev, st.st_ino)
+                            if key in seen:
+                                continue  # same bytes under another name
+                            seen.add(key)
+                        total += st.st_size
                 except OSError:
                     continue  # the file vanished mid-walk / perms → skip it
     except (OSError, ValueError):
@@ -167,7 +203,10 @@ def make_disk_router(
 
         database = _database_bytes(root)
         app_logs = dir_size(root / "logs")
-        models_cache = dir_size(ai_cache / "hf")
+        # dedup_links: HF gives one blob two names — a symlink where it can, a
+        # hardlink or a full copy where it cannot. Only the copy is really two
+        # files; count the shared inode once so the panel reports the disk.
+        models_cache = dir_size(ai_cache / "hf", dedup_links=True)
         # Everything under llamacpp/ (build dirs + the generated models.ini) EXCEPT
         # the per-spawn logs/, which is its own bucket below.
         engine_builds = dir_size(llamacpp, exclude={spawn_logs_dir})

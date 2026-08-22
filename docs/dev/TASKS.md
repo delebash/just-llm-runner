@@ -11,6 +11,43 @@
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
 
+## The HF cache stores every model TWICE on Windows [verified 2026-08-22]
+
+**Measured, not inferred** — full record in
+`../JustVioce/docs/plans/2026-08-22-data-dirs-and-disk-reclaim.md` §4-§6.
+
+HF keeps one copy in `blobs/<sha256>` and gives it a second name under
+`snapshots/<rev>/`. That second name is normally a **symlink** — but a symlink
+needs Developer Mode or admin on Windows, so `hf` silently falls back to a full
+byte-for-byte **copy**. On the user's box that was **22.32 GB of pure
+duplication** across 5 files: 3 models occupying 44.6 GB of disk.
+
+The user has REJECTED Developer Mode and `HF_HUB_DISABLE_SYMLINKS` (2026-08-13),
+and that ruling stands — so the fix is **hardlinks**, which need no privilege on
+Windows and which HF is happy with (`scan_cache_dir` reports the cache valid,
+no warnings). Reclaiming it by hand took one pass: match each snapshot copy to
+its blob by sha256 (**a blob's filename IS the sha256 of its content**), then
+`os.link` + replace. 22.32 GB back, content re-hashed identical afterwards.
+
+- **OPEN, needs a go: do this at download time.** Every new model download
+  re-creates the duplication. The door is wherever the runner acquires a GGUF —
+  after the download, if the snapshot path is a copy rather than a link, replace
+  it with a hardlink to the blob. Cheap, reversible, no privilege.
+- **DONE 2026-08-22: the SIZE REPORTING is now hardlink-aware.** `dir_size()`
+  gained `dedup_links=True` (counts each inode once), enabled at the three HF
+  call sites — `platform/disk_api.py:209`, `runner/lifecycle.py:951` and `:1023`.
+  Without it, deduping the cache made `/v1/disk/usage` report **44.64 GB for
+  22.32 GB of disk**, and `models-cache/clear` claim it freed twice what it did.
+  Opt-in per bucket because it costs an `os.stat` per file (65 µs vs 21 µs,
+  ~3× the walk) and only the model cache is known to hold links.
+- **TRAP for anyone touching that code:** on Windows a `DirEntry`'s stat carries
+  no link data — `st_ino`, `st_nlink` and `st_dev` all read **0**. Keying the
+  dedup on `entry.stat()` collapses every file into one entry and under-reports
+  the whole cache as a single file. It must be `os.stat(entry.path)`.
+  `tests/test_disk_api.py::test_dedup_does_not_merge_distinct_files_of_equal_size`
+  exists solely to fail if that is ever "simplified" back.
+
+
 ## THE THINKING GATE + THE TIER SUBSYSTEM — BOTH DEAD (kit record)
 
 The capability gate was built 2026-08-06 (`def5142`) and REMOVED the same

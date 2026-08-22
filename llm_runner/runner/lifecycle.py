@@ -945,7 +945,10 @@ class RunnerService:
         from ..platform.disk_api import dir_size
 
         hf = self._cache_root / "hf"
-        freed = dir_size(hf)
+        # dedup_links like the panel: rmtree removes BOTH names of a hardlinked blob,
+        # so the bytes really do come back — but they come back once, and a `freed`
+        # that counted each name would overstate the reclaim (2x on Windows).
+        freed = dir_size(hf, dedup_links=True)
         shutil.rmtree(hf, ignore_errors=True)
         try:
             hf.mkdir(parents=True, exist_ok=True)  # recreate empty so the next download has a home
@@ -1017,7 +1020,9 @@ class RunnerService:
             if shared:
                 kept.append(repo)
                 continue
-            freed += dir_size(repo_dir)
+            # dedup_links: this repo dir holds blobs/ AND snapshots/, the same weights
+            # under two names — one number, or the caller is told it freed twice the disk.
+            freed += dir_size(repo_dir, dedup_links=True)
             shutil.rmtree(repo_dir, ignore_errors=True)
         return freed, kept
 

@@ -3,6 +3,8 @@
 app logs, and the ai-cache buckets under the data dir, holds the spawn-logs subdir
 OUT of engineBuilds, reports free/total space, and treats missing dirs as 0."""
 
+import os
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -129,3 +131,33 @@ def test_extra_bucket_with_several_roots_sums_them(tmp_path):
     body = TestClient(app).get("/v1/disk/usage").json()
     assert body["extras"] == {"speechCache": 800}
     assert body["total"] == 800
+
+
+def test_hardlinked_blob_counted_once(tmp_path):
+    """Where HF cannot symlink it hardlinks or copies, so one blob answers to two
+    names. The disk holds those bytes once and the panel must say so — otherwise a
+    22 GB cache reports 45 GB, and `models-cache/clear` claims to free twice what
+    it frees."""
+    blob = tmp_path / "ai-cache" / "hf" / "blobs" / "sha"
+    _write(blob, 4096)
+    snap = tmp_path / "ai-cache" / "hf" / "snapshots" / "rev"
+    snap.mkdir(parents=True)
+    try:
+        os.link(blob, snap / "model.gguf")
+    except (OSError, NotImplementedError, AttributeError):
+        pytest.skip("hardlinks unsupported on this platform")
+
+    body = _client(tmp_path).get("/v1/disk/usage").json()
+    assert body["modelsCache"] == 4096  # one inode, two names, counted once
+
+
+def test_dedup_does_not_merge_distinct_files_of_equal_size(tmp_path):
+    """The guard on the dedup itself. On Windows a DirEntry's stat carries no link
+    data — st_ino and st_nlink both read 0 — so keying on it would fold every file
+    into a single entry and under-report a full cache as one file. Two unrelated
+    same-sized blobs must still sum."""
+    _write(tmp_path / "ai-cache" / "hf" / "blobs" / "sha-a", 4096)
+    _write(tmp_path / "ai-cache" / "hf" / "blobs" / "sha-b", 4096)
+
+    body = _client(tmp_path).get("/v1/disk/usage").json()
+    assert body["modelsCache"] == 8192

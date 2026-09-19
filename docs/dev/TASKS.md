@@ -11,6 +11,25 @@
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
 
+## The MTP solo-crash message blames causes the log contradicts [verified 2026-08-22]
+
+Measured on the user's box (JV session 2026-08-22; full record in
+`../JustVioce/docs/plans/2026-08-22-voice-modes-truth-and-parity.md` §7.1):
+`gemma-4-26b-a4b-qat`'s draft failed with llama.cpp's
+`error loading model: invalid vector subscript` on a SOLO child — flags
+identical to six prior successes, no OOM line, no co-resident. But
+`_looks_like_draft_failure` (`llm_runner/runner/process.py:645`) treats that
+string as the transient co-load race, so both escalation stages ran pointlessly
+and the terminal message (`llm_runner/runner/lifecycle.py:3282`) asserted
+VRAM-tune / corrupt-download / co-load causes while its 400-char tail cut off
+the real error line. Intermittent on that box since 08-16 (36/46 router logs).
+
+**OPEN:** the solo-path terminal message must extract and NAME the engine's own
+`error loading model:` line from the tail, and drop the co-load framing when
+the attempt had no co-resident. Consider whether `invalid vector subscript`
+belongs in an unfixable-signature set for the solo case. Fix gates: kit pytest
+(`test_lifecycle`), then both consumer apps build. GO: needed.
+
 ## The HF cache stores every model TWICE on Windows [verified 2026-08-22]
 
 **Measured, not inferred** — full record in

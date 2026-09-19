@@ -11,6 +11,39 @@
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
 
+## Speed truth and the calibrated pick — plan written, Opus executes [verified 2026-09-19]
+
+STATE:  DECIDED 2026-09-19 — user: "i take your recs", plus two rulings in
+        their own words: "the user needs to be able to opt out of this setup
+        we need to preset it to them clearly what this is why it is
+        recommeneded and allow them to skip" and "download the test guff to
+        the github repo, the setup can then download it from there on first
+        run that way we dont have to worry if hugging face removes the test
+        guff" (mechanism corrected in-session to a GitHub RELEASE asset —
+        100 MB repo limit; delebash/just-llm-runner verified PUBLIC).
+        THE PLAN, Opus-executable, self-contained, every claim receipted:
+        `docs/plans/2026-09-19-speed-truth-and-calibrated-pick.md`.
+WHY:    The flagship's "Fits · ~slow" chip is a physics guess 0.1 tok/s under
+        the fine line (pred 7.9 vs 8.0; the box's host window 6.9-10.6 GB/s
+        straddles the boundary — no better guess fixes it, plan Appendix A),
+        and on uncurated hardware the recommended-model pick is guess-driven
+        end to end.
+NOT:    NVML/rocm-smi probing · synthetic local GGUF · hidden catalog row ·
+        an MTP uplift constant in the pick (fit plan §13.7 cut stands) ·
+        stateful band hysteresis · auto-running the 10-min sweep (2026-07-07
+        "Apply never auto-starts it" stands) · HF as the shipped download
+        source · in-tree/LFS hosting.
+BUILT:  nothing — the plan doc + this item only.
+OPEN:   items 1 (post-Apply auto-measure) · 2 (band dead-zone honesty) ·
+        spike (§8 — BLOCKS 3-4; ends with the USER uploading the verified
+        GGUF to release tag calib-v1) · 3 (opt-in one-minute speed check,
+        uncurated boxes only) · 4 (grace-margined floor in the fallback
+        pick).
+GO:     plan-doc go given 2026-09-19 ("write of the plan doc i will have
+        opus execute the code and test"); per-item code go in the executing
+        session.
+
+
 ## The MTP solo-crash message blames causes the log contradicts [verified 2026-08-22]
 
 Measured on the user's box (JV session 2026-08-22; full record in

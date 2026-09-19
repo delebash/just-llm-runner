@@ -177,6 +177,13 @@ class ModelCatalog(LlmBase):
     kv_windowed_bytes_per_token = Column(Float, nullable=False, default=0.0)
     kv_global_bytes_per_token = Column(Float, nullable=False, default=0.0)
     sliding_window = Column(Integer, nullable=False, default=0)
+    # vram-truth plan 2026-09-19 §6.2 — EXACT weight bytes from the tensor table
+    # (sized by offset delta, sorted by llama.cpp's own placement: routed experts
+    # vs the rest of the blocks; the output side incl. a tied head's duplicated
+    # vocab table). 0 = never read that way → `expert_byte_share` fallback.
+    exps_bytes = Column(Integer, nullable=False, default=0)
+    layers_nonexp_bytes = Column(Integer, nullable=False, default=0)
+    output_bytes = Column(Integer, nullable=False, default=0)
     built_in = Column(Boolean, nullable=False, default=False)
     position = Column(Integer, nullable=False, default=0)
 
@@ -724,6 +731,10 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("model_catalog", "kv_windowed_bytes_per_token", "REAL NOT NULL DEFAULT 0"),
     ("model_catalog", "kv_global_bytes_per_token", "REAL NOT NULL DEFAULT 0"),
     ("model_catalog", "sliding_window", "INTEGER NOT NULL DEFAULT 0"),
+    # vram-truth plan 2026-09-19 §6.2 — exact tensor bytes, additive:
+    ("model_catalog", "exps_bytes", "INTEGER NOT NULL DEFAULT 0"),
+    ("model_catalog", "layers_nonexp_bytes", "INTEGER NOT NULL DEFAULT 0"),
+    ("model_catalog", "output_bytes", "INTEGER NOT NULL DEFAULT 0"),
     # Fit-redesign Phase 3 (§5.5 ladder source 3) — class-typical RAW pool
     # bandwidths, additive; 0 = unknown (the ladder skips the source):
     ("hardware_classes", "vram_bw_gbps", "REAL NOT NULL DEFAULT 0"),

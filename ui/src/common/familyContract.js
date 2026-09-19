@@ -108,6 +108,13 @@ export const FAMILY_LABELS = {
     rerunButton: "Re-run Quick Setup",
     alreadyTitle: "Already set up",
     changeModelButton: "Change model",
+    // The one-minute speed check (speed-truth plan 2026-09-19 §6) — offered on
+    // hardware with no curated class preset, always skippable (user ruling).
+    checkTitle: "Check this PC's real AI speed?",
+    checkRunButton: "Run the 1-minute check",
+    checkSkipButton: "Skip — use estimates",
+    checkRetryButton: "Try again",
+    checkContinueButton: "Continue",
   },
 
   // The once-ever AI offer (ruling R3, built 2026-08-04: JW's one-time modal is the

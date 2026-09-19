@@ -91,13 +91,25 @@ def _speed_facts(m: ModelEntry) -> dict | None:
     facts = m.physics_facts or {}
     if m.embedding or not m.size_bytes or not facts.get("block_count"):
         return None
+    # SPEED path: DECIMAL MB against decimal GB/s — deliberately not MiB (§6.4).
     size_mb = m.size_bytes / 1e6
-    non_expert, active_expert = fit.active_bytes_per_pass_mb(
-        size_mb=size_mb,
-        expert_byte_share=float(facts.get("expert_byte_share") or 0.0),
-        experts_total=int(m.experts or 0),
-        expert_used=int(facts.get("expert_used_count") or 0),
-    )
+    layers_nonexp = int(facts.get("layers_nonexp_bytes") or 0)
+    if layers_nonexp > 0:
+        # EXACT per-token bytes (vram-truth §6.3): every block's non-expert weights +
+        # the output head are read each token; the routed experts at used/total.
+        # The 26B: 1,387 + 803 MB — the split the speed-check pass C validated.
+        exps = int(facts.get("exps_bytes") or 0)
+        used, total = int(facts.get("expert_used_count") or 0), int(m.experts or 0)
+        non_expert = (layers_nonexp + int(facts.get("output_bytes") or 0)) / 1e6
+        active_expert = exps * (min(used, total) / total) / 1e6 if exps and total > 0 else 0.0
+        size_mb = non_expert + exps / 1e6       # dense per-pass bytes (no input table)
+    else:
+        non_expert, active_expert = fit.active_bytes_per_pass_mb(
+            size_mb=size_mb,
+            expert_byte_share=float(facts.get("expert_byte_share") or 0.0),
+            experts_total=int(m.experts or 0),
+            expert_used=int(facts.get("expert_used_count") or 0),
+        )
     return {"n_layers": int(facts.get("block_count") or 0), "mtp": bool(m.mtp),
             "size_mb": size_mb, "non_expert_mb": non_expert,
             "active_expert_mb": active_expert, "kv_facts": facts}
@@ -299,6 +311,9 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
         is_macos=(hardware.platform == "macos"),
         class_vram_bw_gbps=cls_vram_bw, class_ram_bw_gbps=cls_ram_bw,
         probe_gbps=service.host_probe_bw_gbps(mkey),
+        # The one-minute speed check's rung (speed-truth plan §6) — llama.cpp's
+        # own expert streaming on this box; None until the user ran the check.
+        moe_probe_gbps=service.host_moe_bw_gbps(mkey),
         eff_device=cfg.bw_eff_device, eff_host=cfg.bw_eff_host,
         eff_host_probe=cfg.bw_eff_host_probe)
     overhead = fit.PHYSICS_OVERHEAD_MB.get(backend, fit.PHYSICS_OVERHEAD_MB["cuda"])
@@ -326,7 +341,8 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
         # (§8.1) — larger ctx reads more KV per token, the err-slow direction.
         cap = cfg.ctx_cap_tokens
         ctx = min(m.trained_ctx or cap, cap) if cap else (m.trained_ctx or 4096)
-        kv = fit.kv_mb_from_facts(sf["kv_facts"], max(1, ctx))
+        # SPEED path: decimal MB against decimal GB/s (vram-truth §6.4 — NOT MiB).
+        kv = fit.kv_mb_from_facts(sf["kv_facts"], max(1, ctx), unit=1e6)
         dev_mb, host_mb = fit.speed_bytes_split(
             non_expert_mb=sf["non_expert_mb"], active_expert_mb=sf["active_expert_mb"],
             kv_mb=kv, one_pool=one_pool, weight_budget_mb=weight_budget)
@@ -345,6 +361,14 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
         meas = measured_by_id.get(m.id)
         band = fit.speed_band(meas or tok, fast=cfg.band_fast_toks,
                               fine=cfg.band_fine_toks, slow=cfg.band_slow_toks)
+        # A PREDICTION within the dead zone of a threshold ships no word — the
+        # chip shows "~7.9 tok/s" (predTokS still ships) instead of a band the
+        # next probe reading could flip (speed-truth plan 2026-09-19 §5). A
+        # measured speed always keeps its word.
+        if not meas and fit.in_band_deadzone(
+                tok, fast=cfg.band_fast_toks, fine=cfg.band_fine_toks,
+                slow=cfg.band_slow_toks, frac=cfg.band_deadzone_frac):
+            band = ""
         return band, (round(tok, 1) if tok else None), (round(meas, 1) if meas else None)
 
     models: list[RunnerModelInfo] = []
@@ -394,6 +418,8 @@ async def get_models(vram_mb: int | None = None) -> RunnerModelsResponse:
         safety_margin_mb=margin,
         models=models,
         catalog_wired=service.catalog_wired,
+        band_fine_toks=cfg.band_fine_toks,
+        speed_floor_grace=cfg.speed_floor_grace,
     )
 
 

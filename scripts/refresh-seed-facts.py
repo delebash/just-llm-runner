@@ -64,7 +64,9 @@ _SCALAR_FIELDS = ("mtp_builtin", "type", "experts", "architecture", "trained_ctx
                   "block_count", "n_kv_heads", "head_count", "embedding_length",
                   "expert_used_count", "expert_byte_share",
                   "kv_windowed_bytes_per_token", "kv_global_bytes_per_token",
-                  "sliding_window")
+                  "sliding_window",
+                  # vram-truth plan 2026-09-19 §6.2 — exact tensor bytes:
+                  "exps_bytes", "layers_nonexp_bytes", "output_bytes")
 # Tier-C inherited-drafter fields (reconciled CONDITIONALLY — borrow-only rows) + the
 # mtp enable flag they turn on. Written by _apply alongside the scalars; `mtp` first so
 # it becomes the anchor the draft fields cluster around.
@@ -86,10 +88,13 @@ def _norm(field: str, v) -> object:
     if field in ("architecture", "size_label", "mtp_draft_repo", "mtp_draft_file", "mtp_draft_quant"):
         return v or ""
     if field in ("block_count", "n_kv_heads", "head_count", "embedding_length",
-                 "expert_used_count", "sliding_window"):
+                 "expert_used_count", "sliding_window",
+                 "exps_bytes", "layers_nonexp_bytes", "output_bytes"):
         return int(v or 0)
     if field in ("expert_byte_share", "kv_windowed_bytes_per_token", "kv_global_bytes_per_token"):
-        return float(v or 0.0)
+        # Compared at the SAME 10 decimals `_fmt` writes — full precision here made
+        # every written float report as a difference forever (fixed 2026-09-19).
+        return round(float(v or 0.0), 10)
     return v  # trained_ctx, size_bytes, est_vram_mb: None means "not filled yet"
 
 

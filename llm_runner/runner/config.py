@@ -76,6 +76,39 @@ DEFAULT_BAND_FAST_TOKS = 20.0
 DEFAULT_BAND_FINE_TOKS = 8.0
 DEFAULT_BAND_SLOW_TOKS = 2.0
 
+# Speed-truth plan 2026-09-19 §5 — the band DEAD ZONE. A PREDICTED tok/s within
+# this fraction of any band threshold ships band "" so the chip shows the
+# number ("~7.9 tok/s") instead of a word that the next probe reading may flip:
+# on the author's box the flagship predicts 7.9 against a fine-line of 8.0, and
+# a ±2 % RAM-probe wobble crosses it (plan Appendix A). A MEASURED speed always
+# keeps its word — a real measurement near a line is honestly that speed.
+# Seeded runner_setting row, GUI-editable beside the band thresholds.
+DEFAULT_BAND_DEADZONE_FRAC = 0.10
+
+# Speed-truth plan 2026-09-19 §7 — the speed FLOOR in the fallback pick (boxes
+# with no curated class tune): a model whose measured-or-predicted tok/s is below
+# band_fine_toks × (1 − this) is not "fast enough". The grace is not optional:
+# on the author's box a HARD 8.0 floor would drop the flagship (pred 7.9, quality
+# rank 5) for E4B (rank 23) over a 0.1 tok/s rounding error. 0.2 → floor 6.4.
+DEFAULT_SPEED_FLOOR_GRACE = 0.2
+
+# Speed-truth plan 2026-09-19 §6 — the ONE-MINUTE SPEED CHECK's test model,
+# served from the kit's own GitHub release (user ruling 2026-09-19: never from a
+# third-party repo that can vanish). The file is sha-pinned, so its byte facts
+# are constants of THAT file (ruling (b), plan §11.5): read from its tensor
+# table on 2026-09-19 — `*_exps` 731.4 MB of 820.1 MB of tensors, 8 of 32
+# experts active per token → 182.8 MB; everything else 88.7 MB. Seeded
+# runner_setting rows, editable in the Engine binaries panel beside the pinned
+# build (a moved asset is a pasted URL, never a code change). Source:
+# bartowski/granite-3.1-1b-a400m-instruct-GGUF (IBM Granite 3.1 1B-A400M,
+# Apache-2.0), redistributed unmodified — the release notes carry the license.
+DEFAULT_CALIB_MODEL_URL = ("https://github.com/delebash/just-llm-runner/releases/download/"
+                           "calib-v1/granite-3.1-1b-a400m-instruct-Q4_K_M.gguf")
+DEFAULT_CALIB_MODEL_SHA256 = "3a2ec1c2a78cb29d901e29bbf5162dcd03381e13803d2cbdcff838d4d08142eb"
+DEFAULT_CALIB_MODEL_SIZE_BYTES = 821_847_360
+DEFAULT_CALIB_ACTIVE_EXPERT_MB = 182.8
+DEFAULT_CALIB_NONEXPERT_MB = 88.7
+
 # Fit-redesign Phase 3 (§5.5 corrected + §13.8) — the two EFFICIENCY FAMILIES
 # converting raw pool bandwidth (device registers / class seed) into effective
 # decode bandwidth. Two families because the pools are different physical

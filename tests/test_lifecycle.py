@@ -2718,9 +2718,12 @@ def test_tuned_model_ini_renders_explicit_knobs(tmp_path):
     svc.load(_TEST_MODEL.id)
     svc._thread.join(timeout=5)
     ini = _ini(svc)
-    # ngl renders EXPLICITLY (the whole point) — clamped to the model's real layer
-    # count (24 in this harness), the pre-existing compute_fit clamp for ngl-99 tunes.
-    assert "n-gpu-layers = 24" in ini
+    # ngl renders EXPLICITLY (the whole point) — the kit clamps a 99 tune to the
+    # model's real block count (24 in this harness), and "every block" RENDERS as
+    # 24 + 1: llama.cpp counts the output layer, so `-ngl 24` would leave block 0 on
+    # the CPU (measured 2026-09-19: +5.94 % tok/s on the 26B for full offload — plan
+    # docs/plans/2026-09-19-vram-truth-exact-bytes-units-offload.md §10.4).
+    assert "n-gpu-layers = 25" in ini
     assert "n-cpu-moe = 21" in ini
     assert "ctx-size = 32768" in ini
 
@@ -3680,6 +3683,10 @@ def test_load_records_footprint_and_overhead_rows(tmp_path):
     over = [r for r in recorded if r["id"] == "__overhead__"]
     assert len(over) == 1 and over[0]["source"] == "probe"
     assert over[0]["label"].startswith("physics-overhead ")
+    # vram-truth plan §6.5: the stamp carries the physics version, so a coefficient
+    # learned under another byte model is never read back (the reader matches it).
+    from llm_runner.runner.fit import PHYSICS_VERSION
+    assert over[0]["label"].endswith(f" {PHYSICS_VERSION}")
     assert over[0]["mb"] >= 0
 
 

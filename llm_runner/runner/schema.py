@@ -177,6 +177,20 @@ class RunnerConfig(CamelModel):
     band_fast_toks: float = 20.0
     band_fine_toks: float = 8.0
     band_slow_toks: float = 2.0
+    # A PREDICTION this close to a threshold (fraction) ships band "" — the
+    # chip shows the number instead of a coin-flip word. See
+    # config.DEFAULT_BAND_DEADZONE_FRAC.
+    band_deadzone_frac: float = 0.10
+    # The fallback pick's speed floor = band_fine_toks × (1 − this) — see
+    # config.DEFAULT_SPEED_FLOOR_GRACE (speed-truth plan 2026-09-19 §7).
+    speed_floor_grace: float = 0.2
+    # The one-minute speed check's test model (speed-truth plan §6) — see
+    # config.DEFAULT_CALIB_MODEL_*. "" url = the check is unavailable.
+    calib_model_url: str = ""
+    calib_model_sha256: str = ""
+    calib_model_size_bytes: int = 0
+    calib_active_expert_mb: float = 0.0
+    calib_nonexpert_mb: float = 0.0
     bw_eff_device: float = 0.6
     bw_eff_host: float = 0.15
     # The RAM probe's OWN factor (§5.5 — calibrated against the measured-model
@@ -222,8 +236,11 @@ class RunnerModelInfo(CamelModel):
     embed_leftover_mb: int | None = None
     # Fit-redesign Phase 3 (§5.4/§8.3 — feasibility × band, shipped together).
     # CHAT rows only (embeds keep the placement story above):
-    #   speed_band     "fast" | "fine" | "slow" | "painful" | "" (unknown —
-    #                  facts or bandwidth missing; the chip shows plain fit).
+    #   speed_band     "fast" | "fine" | "slow" | "painful" | "" — "" means
+    #                  EITHER unknown (facts or bandwidth missing; pred_tok_s is
+    #                  null, the chip shows plain fit) OR a prediction inside
+    #                  the dead zone of a threshold (pred_tok_s set; the chip
+    #                  shows "~N tok/s" — speed-truth plan 2026-09-19 §5).
     #   pred_tok_s     the UN-SPED physics prediction behind the band (hover).
     #   measured_tok_s the newest REAL measurement of this model on THIS box +
     #                  backend — measurement outranks estimate at display.
@@ -257,6 +274,11 @@ class RunnerModelsResponse(CamelModel):
     # configure_service(catalog_fn=…)". Additive + defaulted, so every existing client
     # and every RunnerModelsResponse() construction is unaffected.
     catalog_wired: bool = True
+    # The fallback pick's speed floor inputs (speed-truth plan 2026-09-19 §7):
+    # floor = band_fine_toks × (1 − speed_floor_grace). Shipped with the rows so
+    # the pure picker (modelPick.js) reads the SAME thresholds the bands used.
+    band_fine_toks: float = 8.0
+    speed_floor_grace: float = 0.2
 
 
 # ─── Resident set (GET /v1/llm-runner/resident) ─────────────────────────

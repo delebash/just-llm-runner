@@ -26,6 +26,7 @@ from llm_runner.runner.process import (
     compose_router_argv,
     compute_fit,
     emit_models_ini,
+    engine_ngl_flag,
     overrides_to_pairs,
     render_argv,
     render_ini,
@@ -161,9 +162,11 @@ def test_fit_without_a_draft_is_byte_identical():
     # physics; 6432 → 5545) and Phase 6 (split → the joint solve: this dims-less
     # header offloads ALL experts and keeps 5 physics-fitting layers, where the
     # fitted inverse gave 4 + a derived ncmoe 6; 5545 → 6553 books the extra layer).
+    # Third, 2026-09-19 (vram-truth plan §6.4): weights + KV in MiB, the budget's own
+    # unit — 6553 → 6319 (= (6553 − 1517 overhead) ÷ 1.048576 + 1517). Same split.
     args = (_meta(block_count=10, expert_count=128), _TEN_GB, _hw(vram_mb=8192))
     plan = compute_fit(*args)
-    assert (plan.n_gpu_layers, plan.n_cpu_moe, plan.ctx_len, plan.vram_mb) == (5, 10, 4096, 6553)
+    assert (plan.n_gpu_layers, plan.n_cpu_moe, plan.ctx_len, plan.vram_mb) == (5, 10, 4096, 6319)
     # …and a draft SIZE with no draft meta is inert (the meta is what arms the term).
     assert compute_fit(*args, draft_bytes=_ONE_GB) == plan
 
@@ -353,6 +356,32 @@ def test_new_flags_absent_when_unset():
     d = dict(overrides_to_pairs(Overrides(), n_gpu_layers=1, n_cpu_moe=0, ctx_len=2048))
     assert "model-draft" not in d
     assert "reasoning-budget" not in d and "reasoning-budget-message" not in d
+
+
+# ── the EMITTED -ngl (vram-truth plan 2026-09-19 §5) ────────────────────────────
+# llama.cpp counts the OUTPUT layer: `-ngl k` = output + the LAST k-1 blocks, so
+# "every block" must render as block_count + 1 (b9993/b10437 llama-model.cpp
+# `i_gpu_start = n_layer_all + 1 - n_gpu_layers`). Measured: +5.94 % tok/s on the
+# 26B (§10.4). Partial values were measured under today's rendering — unchanged.
+
+def test_engine_ngl_flag_renders_full_offload_as_n_plus_one():
+    assert engine_ngl_flag(30, 30) == 31          # every block → output + 30 blocks
+    assert engine_ngl_flag(29, 30) == 29          # partial → unchanged (measured that way)
+    assert engine_ngl_flag(0, 30) == 0            # CPU-only stays CPU-only
+    assert engine_ngl_flag(None, 30) is None      # fit-by-omission: still omitted
+    assert engine_ngl_flag(30, 0) == 30           # unknown block count → unchanged
+
+
+def test_ini_and_argv_render_the_same_full_offload_flag(tmp_path):
+    ini = emit_models_ini([ModelIniEntry("m", "/m.gguf", n_gpu_layers=30, n_cpu_moe=21,
+                                         ctx_len=4096, block_count=30)])
+    assert "n-gpu-layers = 31" in ini
+    argv = compose_flags(tmp_path / "m.gguf", n_gpu_layers=30, n_cpu_moe=21, ctx_len=4096,
+                         block_count=30)
+    assert argv[argv.index("-ngl") + 1] == "31"
+    # No block count (embeds, legacy callers) → the kit's value, verbatim.
+    assert "n-gpu-layers = 99" in emit_models_ini(
+        [ModelIniEntry("e", "/e.gguf", n_gpu_layers=99, n_cpu_moe=0, ctx_len=2048)])
 
 
 # ── router mode: emit_models_ini + compose_router_argv ─────────────────────────

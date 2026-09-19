@@ -42,13 +42,17 @@ export const SPEED_BAND_LABEL = { fast: "fast", fine: "fine", slow: "slow", pain
 
 /**
  * The SPEED half of the chip label (fit-redesign §5.4/§8.3: feasibility × band
- * ship together). "" when the server sent no band (facts or bandwidth unknown —
- * the chip shows plain feasibility, never a guess). A PREDICTED band carries the
- * "~" (an estimate); a band backed by a real measurement on this box drops it
- * (measurement outranks estimate, §5.5).
+ * ship together). A PREDICTED band carries the "~" (an estimate); a band backed
+ * by a real measurement on this box drops it (measurement outranks estimate,
+ * §5.5). No band + a prediction = the server's DEAD ZONE (speed-truth plan
+ * 2026-09-19 §5): the prediction sits too close to a band line for a word to be
+ * honest, so the chip shows the number — "~7.9 tok/s". No band and no
+ * prediction (facts or bandwidth unknown) → "" — the chip shows plain
+ * feasibility, never a guess.
  */
 export function speedBandLabel(m) {
-  if (!m || !m.speedBand) return "";
+  if (!m) return "";
+  if (!m.speedBand) return !m.measuredTokS && m.predTokS > 0 ? `~${m.predTokS} tok/s` : "";
   const label = SPEED_BAND_LABEL[m.speedBand] || m.speedBand;
   return m.measuredTokS ? label : `~${label}`;
 }
@@ -100,6 +104,26 @@ function isFastEnough(model, type) {
   return model.fit === "ok"; // dense: exclude dense+tight (the slow partial-offload trap)
 }
 
+// The speed floor (speed-truth plan 2026-09-19 §7): a model whose measured — else
+// predicted — tok/s is below `speedFloor` is not fast enough either, whatever its
+// fit shape says. No number at all passes: an unknown never becomes a veto (the
+// fit plan's §8.17). The caller computes the floor as band_fine_toks × (1 − grace)
+// from the /models payload root; 0 / absent disables it (the pre-plan rule).
+function clearsSpeedFloor(model, speedFloor) {
+  if (!speedFloor || speedFloor <= 0) return true;
+  const s = model.measuredTokS || model.predTokS;
+  return !(s > 0) || s >= speedFloor;
+}
+
+/** The floor from the /models payload root: band_fine_toks × (1 − speed_floor_grace).
+ *  0 when either is absent (an older server) — the floor then stays off. */
+export function speedFloorOf(payload) {
+  const fine = Number(payload?.bandFineToks) || 0;
+  const grace = Number(payload?.speedFloorGrace);
+  if (!(fine > 0) || !Number.isFinite(grace)) return 0;
+  return fine * (1 - Math.min(0.9, Math.max(0, grace)));
+}
+
 /**
  * The §10 speed-floor auto-pick. Returns the chosen model's `id`, or "" if nothing runs.
  *
@@ -110,13 +134,21 @@ function isFastEnough(model, type) {
  *     - qualityOf(m)    → number            (from useCatalogMeta.qualityById; LOWER = better)
  *     - isEmbed(m)      → boolean           (the embedding model — excluded from LLM picks)
  *     - isUseLimited(m) → boolean           (use-limited license — never an auto-default)
+ *   plus `speedFloor` (tok/s, optional — `speedFloorOf(payload)`): a model measured or
+ *   predicted below it is not "fast enough" (speed-truth plan 2026-09-19 §7). The grace in
+ *   the floor is load-bearing: a hard 8.0 would swap the flagship (7.9, quality 5) for
+ *   E4B (quality 23) on the author's box over a rounding error.
  */
-export function pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited }) {
+export function pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited, speedFloor = 0, runnable: fitSet = FIT_RUNNABLE }) {
+  // `runnable` (the fit set a pick may land on) is the SAME set the class-config
+  // branch uses — recommendedModelId passes one set to both, so the catalog badge
+  // and Quick setup cannot disagree (2026-09-19: the badge used to pass none and
+  // could recommend a CPU-spill model the wizard refuses).
   const runnable = (models || []).filter(
-    (m) => FIT_RUNNABLE.has(m.fit) && !isEmbed(m) && !isUseLimited(m),
+    (m) => fitSet.has(m.fit) && !isEmbed(m) && !isUseLimited(m),
   );
   if (!runnable.length) return "";
-  const fastEnough = runnable.filter((m) => isFastEnough(m, typeOf(m)));
+  const fastEnough = runnable.filter((m) => isFastEnough(m, typeOf(m)) && clearsSpeedFloor(m, speedFloor));
   const pool = fastEnough.length ? fastEnough : runnable; // §10 fallback: best runnable
   return pickLowestQuality(pool, { qualityOf });
 }
@@ -238,13 +270,16 @@ export function catalogState(models, { isEmbed, fitSet }) {
  * recommendation), none → the §10 speed-floor rule (pickBestModel).
  * @param {Array}  models  catalog rows ([{id, fit, …}])
  * @param {Object} opts    { classTuneRefs, myClassKey,
- *                           typeOf, qualityOf, isEmbed, isUseLimited, runnable }
+ *                           typeOf, qualityOf, isEmbed, isUseLimited, runnable, speedFloor }
+ *   `speedFloor` reaches ONLY the §10 fallback — a curated class config is measured
+ *   evidence and outranks any estimate (speed-truth plan 2026-09-19 §7).
  * @returns {string} the recommended model's id, or "" when nothing fits.
  */
-export function recommendedModelId(models, { classTuneRefs, myClassKey, typeOf, qualityOf, isEmbed, isUseLimited, runnable }) {
+export function recommendedModelId(models, { classTuneRefs, myClassKey, typeOf, qualityOf, isEmbed, isUseLimited, runnable, speedFloor = 0 }) {
   const mine = pickByClassConfig(classTuneRefs || [], myClassKey || "", models, {
     fitSet: runnable || FIT_RUNNABLE, qualityOf, isEmbed, isUseLimited,
   });
   if (mine) return mine;
-  return pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited });
+  return pickBestModel(models, { typeOf, qualityOf, isEmbed, isUseLimited, speedFloor,
+    runnable: runnable || FIT_RUNNABLE });
 }

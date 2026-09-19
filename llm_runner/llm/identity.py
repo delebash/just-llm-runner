@@ -98,6 +98,10 @@ def physics_facts_from_meta(meta: GgufMeta) -> dict:
         "kv_windowed_bytes_per_token": float(wb),
         "kv_global_bytes_per_token": float(gb),
         "sliding_window": int(meta.sliding_window or 0),
+        # Exact tensor bytes (vram-truth §6.2) — 0 when the table was not read.
+        "exps_bytes": int(meta.exps_bytes) if getattr(meta, "tensor_bytes_known", False) else 0,
+        "layers_nonexp_bytes": int(meta.layers_nonexp_bytes) if getattr(meta, "tensor_bytes_known", False) else 0,
+        "output_bytes": int(meta.output_bytes) if getattr(meta, "tensor_bytes_known", False) else 0,
     }
 
 
@@ -127,14 +131,27 @@ def computed_row_numbers(
       now computed (§8.20); the embed co-load guard consumes it unchanged.
     Returns (None, None, None) when the facts or size are absent — the caller falls
     back down the fidelity ladder (stored/manifest values)."""
-    from ..runner.fit import PHYSICS_OVERHEAD_MB, moe_gpu_size_share, physics_vram_mb
+    from ..runner.fit import MIB, PHYSICS_OVERHEAD_MB, moe_gpu_size_share, physics_vram_mb
 
     n_layers = int(facts.get("block_count") or 0)
     if not (size_bytes and n_layers > 0):
         return None, None, None
-    size_mb = size_bytes / 1e6
-    share = float(facts.get("expert_byte_share") or 0.0)
+    # ONE unit (vram-truth plan 2026-09-19 §6.4): these floors are compared with
+    # hardware MiB, so they are MiB (they were decimal MB — 4.86 % high).
+    size_mb = size_bytes / MIB
     overhead = PHYSICS_OVERHEAD_MB["cuda"]
+    est_ctx = min(trained_ctx or _ESTIMATE_CTX, _ESTIMATE_CTX)
+    min_ram = size_mb + max(0, ram_headroom_mb)
+    layers_nonexp = int(facts.get("layers_nonexp_bytes") or 0)
+    if layers_nonexp > 0:
+        # EXACT (§6.3): every block + the output side on the card (the kit renders
+        # full offload as n + 1 — vram-truth §5), experts in RAM for the floor.
+        out = int(facts.get("output_bytes") or 0)
+        exps = int(facts.get("exps_bytes") or 0)
+        min_vram = (layers_nonexp + out) / MIB + kv_mb_from_facts(facts, floor_ctx) + overhead
+        est = (layers_nonexp + exps + out) / MIB + kv_mb_from_facts(facts, est_ctx) + overhead
+        return round(min_vram), round(min_ram), round(est)
+    share = float(facts.get("expert_byte_share") or 0.0)
     max_offload = moe_gpu_size_share(
         n_layers=n_layers, gpu_layers=n_layers, n_cpu_moe=n_layers, expert_share=share,
     )
@@ -142,8 +159,6 @@ def computed_row_numbers(
         size_mb=size_mb, n_layers=n_layers, gpu_layers=n_layers,
         moe_share=max_offload, kv_mb=kv_mb_from_facts(facts, floor_ctx), overhead_mb=overhead,
     )
-    min_ram = size_mb + max(0, ram_headroom_mb)
-    est_ctx = min(trained_ctx or _ESTIMATE_CTX, _ESTIMATE_CTX)
     est = physics_vram_mb(
         size_mb=size_mb, n_layers=n_layers, gpu_layers=n_layers,
         moe_share=1.0, kv_mb=kv_mb_from_facts(facts, est_ctx), overhead_mb=overhead,
@@ -262,12 +277,14 @@ def est_vram_mb_from_meta(meta, total_bytes) -> int | None:
     the post-download identify, and the seed-facts refresh — so a seeded row, a live
     Read-from-link, and a downloaded file all show the SAME number (#141 parity).
     None when the header lacks the layer count needed to estimate."""
-    from ..runner.fit import estimate_vram_mb
+    from ..runner.fit import MIB, estimate_vram_mb
 
     if not (total_bytes and meta.block_count):
         return None
     return round(estimate_vram_mb(
-        size_mb=total_bytes / 1e6, n_layers=meta.block_count, n_kv_heads=meta.n_kv_heads,
+        # MiB — the regression's own unit (vram-truth §6.4; oobabooga's
+        # get_model_size_mb = total_size / (1024 ** 2)).
+        size_mb=total_bytes / MIB, n_layers=meta.block_count, n_kv_heads=meta.n_kv_heads,
         embedding_dim=meta.embedding_length,
         ctx_size=min(meta.context_length or _ESTIMATE_CTX, _ESTIMATE_CTX),
         cache_type=16, gpu_layers=meta.block_count,

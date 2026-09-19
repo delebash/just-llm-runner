@@ -16,6 +16,13 @@ import logging
 
 from . import db
 from ..runner.config import (
+    DEFAULT_BAND_DEADZONE_FRAC,
+    DEFAULT_CALIB_ACTIVE_EXPERT_MB,
+    DEFAULT_CALIB_MODEL_SHA256,
+    DEFAULT_CALIB_MODEL_SIZE_BYTES,
+    DEFAULT_CALIB_MODEL_URL,
+    DEFAULT_CALIB_NONEXPERT_MB,
+    DEFAULT_SPEED_FLOOR_GRACE,
     DEFAULT_BAND_FAST_TOKS,
     DEFAULT_BAND_FINE_TOKS,
     DEFAULT_BAND_SLOW_TOKS,
@@ -500,6 +507,18 @@ DEFAULT_RUNNER_SETTINGS: list[dict] = [
     {"key": "band_fast_toks", "value": str(DEFAULT_BAND_FAST_TOKS)},
     {"key": "band_fine_toks", "value": str(DEFAULT_BAND_FINE_TOKS)},
     {"key": "band_slow_toks", "value": str(DEFAULT_BAND_SLOW_TOKS)},
+    # Speed-truth plan 2026-09-19 §5: a PREDICTION this close to a threshold
+    # shows its number, not a coin-flip word. Additive row.
+    {"key": "band_deadzone_frac", "value": str(DEFAULT_BAND_DEADZONE_FRAC)},
+    # Speed-truth plan §7: the fallback pick's speed-floor grace. Additive row.
+    {"key": "speed_floor_grace", "value": str(DEFAULT_SPEED_FLOOR_GRACE)},
+    # Speed-truth plan §6: the one-minute speed check's test model — our own
+    # GitHub release, sha-pinned, its byte facts constants of that file.
+    {"key": "calib_model_url", "value": DEFAULT_CALIB_MODEL_URL},
+    {"key": "calib_model_sha256", "value": DEFAULT_CALIB_MODEL_SHA256},
+    {"key": "calib_model_size_bytes", "value": str(DEFAULT_CALIB_MODEL_SIZE_BYTES)},
+    {"key": "calib_active_expert_mb", "value": str(DEFAULT_CALIB_ACTIVE_EXPERT_MB)},
+    {"key": "calib_nonexpert_mb", "value": str(DEFAULT_CALIB_NONEXPERT_MB)},
     {"key": "bw_eff_device", "value": str(DEFAULT_BW_EFF_DEVICE)},
     {"key": "bw_eff_host", "value": str(DEFAULT_BW_EFF_HOST)},
     # The RAM probe's OWN factor (§5.5 probe calibration, live 2026-08-13 —
@@ -769,6 +788,9 @@ def _catalog_row(c: dict, *, built_in: bool) -> "db.ModelCatalog":
         kv_windowed_bytes_per_token=float(c.get("kv_windowed_bytes_per_token") or 0.0),
         kv_global_bytes_per_token=float(c.get("kv_global_bytes_per_token") or 0.0),
         sliding_window=int(c.get("sliding_window") or 0),
+        exps_bytes=int(c.get("exps_bytes") or 0),
+        layers_nonexp_bytes=int(c.get("layers_nonexp_bytes") or 0),
+        output_bytes=int(c.get("output_bytes") or 0),
         built_in=built_in, position=int(c.get("position") or 0),
     )
 
@@ -777,12 +799,23 @@ _SEED_FACT_KEYS = ("block_count", "n_kv_heads", "head_count", "embedding_length"
                    "expert_used_count", "expert_byte_share",
                    "kv_windowed_bytes_per_token", "kv_global_bytes_per_token",
                    "sliding_window")
+# vram-truth plan 2026-09-19 §6.2 — the exact tensor bytes. Filled by their OWN
+# gate in _fill_physics_facts: rows that already carry the nine facts above (every
+# existing DB) must still gain these.
+_SEED_BYTES_KEYS = ("exps_bytes", "layers_nonexp_bytes", "output_bytes")
 
 
 def _fill_physics_facts(row, c: dict) -> None:
     """Fill-empty touch-up for the §13.11 facts: an EXISTING DB (pre-Phase-2)
     gains them at the next boot without a reset — but a header read that already
-    wrote them (download/inspect: the file truth) is never clobbered."""
+    wrote them (download/inspect: the file truth) is never clobbered.
+
+    The exact tensor bytes (vram-truth §6.2) have their OWN gate — the nine-fact
+    gate above returns early on every existing row, which would strand them."""
+    if not getattr(row, "layers_nonexp_bytes", 0) and c.get("layers_nonexp_bytes"):
+        for k in _SEED_BYTES_KEYS:
+            if c.get(k) is not None:
+                setattr(row, k, c[k])
     if getattr(row, "block_count", 0):
         return
     if not c.get("block_count"):

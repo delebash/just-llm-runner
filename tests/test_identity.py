@@ -144,10 +144,9 @@ def test_physics_facts_reproduce_kv_mb_at_ctx():
     for ctx in (512, 1024, 4096, 32768):
         for bits in (8, 16):
             exact = iswa.kv_mb_at_ctx(ctx, bits)
-            from_facts = (
-                facts["kv_windowed_bytes_per_token"] * min(ctx, facts["sliding_window"])
-                + facts["kv_global_bytes_per_token"] * ctx
-            ) * (bits / 8.0) / 1e6
+            # The REAL stored-facts path (not an inline copy of its formula) — both
+            # sides MiB since 2026-09-19 (vram-truth plan §6.4).
+            from_facts = identity.kv_mb_from_facts(facts, ctx, bits)
             assert exact is not None
             assert abs(from_facts - exact) < 1e-9, (ctx, bits, from_facts, exact)
     # Uniform model: no window pattern → Wb 0, every layer global.
@@ -189,7 +188,7 @@ def test_computed_fresh_floors_from_facts(configured):
     assert row.minVramMb != 49152  # the stored value stopped being consulted
     # dense floor ≈ file + KV@4k + overhead — sane magnitude, raw not rung
     assert 42000 < row.minVramMb < 48000
-    assert row.minRamMb == round(42520398432 / 1e6 + 4096)
+    assert row.minRamMb == round(42520398432 / (1024 * 1024) + 4096)  # MiB since 2026-09-19 (vram-truth plan §6.4 — was / 1e6)
     # facts ride the wire for the form (Edit-open == Read-from-link parity)
     assert row.physicsFacts and row.physicsFacts["block_count"] == 80
     # the embed row is untouched by the whole mechanism

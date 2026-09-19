@@ -206,7 +206,8 @@ class PromptStore:
 
 
 # ── model catalog + switches ──────────────────────────────────────────────────
-_PHYSICS_FACT_KEYS = ("block_count", "n_kv_heads", "head_count", "embedding_length", "expert_used_count", "expert_byte_share", "kv_windowed_bytes_per_token", "kv_global_bytes_per_token", "sliding_window")
+_PHYSICS_FACT_KEYS = ("block_count", "n_kv_heads", "head_count", "embedding_length", "expert_used_count", "expert_byte_share", "kv_windowed_bytes_per_token", "kv_global_bytes_per_token", "sliding_window",
+                      "exps_bytes", "layers_nonexp_bytes", "output_bytes")
 
 
 def _row_facts(r: db.ModelCatalog) -> dict:
@@ -827,6 +828,13 @@ class RunnerConfigStore:
             bandFastToks=cfg.band_fast_toks,
             bandFineToks=cfg.band_fine_toks,
             bandSlowToks=cfg.band_slow_toks,
+            bandDeadzoneFrac=cfg.band_deadzone_frac,
+            speedFloorGrace=cfg.speed_floor_grace,
+            calibModelUrl=cfg.calib_model_url,
+            calibModelSha256=cfg.calib_model_sha256,
+            calibModelSizeBytes=cfg.calib_model_size_bytes,
+            calibActiveExpertMb=cfg.calib_active_expert_mb,
+            calibNonexpertMb=cfg.calib_nonexpert_mb,
             ramHeadroomMb=ram_headroom,
             modelsMax=cfg.models_max,
             sleepIdleSeconds=cfg.sleep_idle_seconds,
@@ -895,10 +903,17 @@ class RunnerConfigStore:
         (pinned build, VRAM margin, and the two router residency knobs) to their
         seed defaults; user-added custom rows are preserved."""
         from ..runner.config import (
+            DEFAULT_BAND_DEADZONE_FRAC,
             DEFAULT_BAND_FAST_TOKS,
             DEFAULT_BAND_FINE_TOKS,
             DEFAULT_BAND_SLOW_TOKS,
             DEFAULT_BINARIES,
+            DEFAULT_CALIB_ACTIVE_EXPERT_MB,
+            DEFAULT_CALIB_MODEL_SHA256,
+            DEFAULT_CALIB_MODEL_SIZE_BYTES,
+            DEFAULT_CALIB_MODEL_URL,
+            DEFAULT_CALIB_NONEXPERT_MB,
+            DEFAULT_SPEED_FLOOR_GRACE,
             DEFAULT_BW_EFF_DEVICE,
             DEFAULT_BW_EFF_HOST,
             DEFAULT_BW_EFF_HOST_PROBE,
@@ -929,6 +944,13 @@ class RunnerConfigStore:
                              ("band_fast_toks", str(DEFAULT_BAND_FAST_TOKS)),
                              ("band_fine_toks", str(DEFAULT_BAND_FINE_TOKS)),
                              ("band_slow_toks", str(DEFAULT_BAND_SLOW_TOKS)),
+                             ("band_deadzone_frac", str(DEFAULT_BAND_DEADZONE_FRAC)),
+                             ("speed_floor_grace", str(DEFAULT_SPEED_FLOOR_GRACE)),
+                             ("calib_model_url", DEFAULT_CALIB_MODEL_URL),
+                             ("calib_model_sha256", DEFAULT_CALIB_MODEL_SHA256),
+                             ("calib_model_size_bytes", str(DEFAULT_CALIB_MODEL_SIZE_BYTES)),
+                             ("calib_active_expert_mb", str(DEFAULT_CALIB_ACTIVE_EXPERT_MB)),
+                             ("calib_nonexpert_mb", str(DEFAULT_CALIB_NONEXPERT_MB)),
                              ("bw_eff_device", str(DEFAULT_BW_EFF_DEVICE)),
                              ("bw_eff_host", str(DEFAULT_BW_EFF_HOST)),
                              ("bw_eff_host_probe", str(DEFAULT_BW_EFF_HOST_PROBE)),
@@ -1675,10 +1697,17 @@ def build_runner_config():
     Wired into the runner service as its `config_fn` by install_llm. Falls back to
     the runner's seed defaults if the binaries haven't been seeded yet."""
     from ..runner.config import (
+        DEFAULT_BAND_DEADZONE_FRAC,
         DEFAULT_BAND_FAST_TOKS,
         DEFAULT_BAND_FINE_TOKS,
         DEFAULT_BAND_SLOW_TOKS,
         DEFAULT_BW_EFF_DEVICE,
+        DEFAULT_CALIB_ACTIVE_EXPERT_MB,
+        DEFAULT_CALIB_MODEL_SHA256,
+        DEFAULT_CALIB_MODEL_SIZE_BYTES,
+        DEFAULT_CALIB_MODEL_URL,
+        DEFAULT_CALIB_NONEXPERT_MB,
+        DEFAULT_SPEED_FLOOR_GRACE,
         DEFAULT_BW_EFF_HOST,
         DEFAULT_BW_EFF_HOST_PROBE,
         DEFAULT_CTX_CAP_TOKENS,
@@ -1736,6 +1765,13 @@ def build_runner_config():
             band_fast_toks=_float("band_fast_toks", DEFAULT_BAND_FAST_TOKS),
             band_fine_toks=_float("band_fine_toks", DEFAULT_BAND_FINE_TOKS),
             band_slow_toks=_float("band_slow_toks", DEFAULT_BAND_SLOW_TOKS),
+            band_deadzone_frac=_float("band_deadzone_frac", DEFAULT_BAND_DEADZONE_FRAC),
+            speed_floor_grace=_float("speed_floor_grace", DEFAULT_SPEED_FLOOR_GRACE),
+            calib_model_url=(settings.get("calib_model_url") or DEFAULT_CALIB_MODEL_URL),
+            calib_model_sha256=(settings.get("calib_model_sha256") or DEFAULT_CALIB_MODEL_SHA256).strip().lower(),
+            calib_model_size_bytes=_int("calib_model_size_bytes", DEFAULT_CALIB_MODEL_SIZE_BYTES),
+            calib_active_expert_mb=_float("calib_active_expert_mb", DEFAULT_CALIB_ACTIVE_EXPERT_MB),
+            calib_nonexpert_mb=_float("calib_nonexpert_mb", DEFAULT_CALIB_NONEXPERT_MB),
             bw_eff_device=_float("bw_eff_device", DEFAULT_BW_EFF_DEVICE),
             bw_eff_host=_float("bw_eff_host", DEFAULT_BW_EFF_HOST),
             bw_eff_host_probe=_float("bw_eff_host_probe", DEFAULT_BW_EFF_HOST_PROBE),

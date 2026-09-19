@@ -521,6 +521,272 @@ only (the no-migrations rule holds).
 
 ---
 
+## §11 Execution record (2026-09-19, same day — go: *"commit push and go code"*)
+
+### 11.1 Item 1 — BUILT
+- `ui/src/views/QuickSetup.vue`: `measureAfterApply(modelId)`, fired
+  un-awaited from the end of `finishApply()`. **One deviation from §4, a
+  hardening:** the measure call names the model —
+  `POST /v1/llm-runner/measure?model_id=<id>` (the endpoint's own query param,
+  `api.py:582-589`) — because `measure()` otherwise probes "the most recently
+  loaded", and the row must be recorded against the model actually probed.
+  Then `recordMeasurement(…, {switches: {}, source: "measure", label:
+  "first-run measure"})` and `refresh()` from `useRunnerModels.js` so the chip
+  flips without waiting for the next poll.
+- `ui/src/measurements.js`: `SPEED_SOURCES = {tune, autotune, measure}` —
+  the history filter's one door.
+- Verified NOT affected (receipts): `derive_tune_source`
+  (`model_tunes_api.py:86-97`) only reads measurements to label an
+  already-saved tune; `modelHasTunes` (`modelApply.js:90`) reads the tune
+  store, not measurements — a `measure` row can never make a model look tuned.
+
+### 11.2 Item 2 — BUILT
+- Setting chain (the `bw_eff_host_probe` template, every link):
+  `runner/config.py` `DEFAULT_BAND_DEADZONE_FRAC = 0.10` · `runner/schema.py`
+  `band_deadzone_frac` · `llm/seed.py` row + import · `llm/stores.py` reset
+  list + `build_runner_config` loader + `EngineConfig` build + both imports ·
+  `llm/runner_config_api.py` GET field, PUT field, setter clamped to
+  [0, 0.5], protocol comment.
+- Rule: `fit.in_band_deadzone()` (pure, beside `speed_band`) called in
+  `api.py` `_speed()` only when `meas` is None.
+- UI: `modelPick.js` `speedBandLabel` — no band + prediction →
+  `~N tok/s`; `LuRunnerEngine.vue` — "Show the number within (%)" field in
+  the Speed bands group (stored as a fraction, edited as a percent).
+- Tests: `test_fit.py::test_band_deadzone_brackets_every_threshold`;
+  `test_runner_models.py::test_prediction_in_the_dead_zone_ships_no_word` +
+  `::test_a_measured_speed_near_a_line_keeps_its_word`; the two pre-existing
+  band-MAPPING pins now run with the dead zone off (`_NO_DEADZONE` — their
+  ~8.7 fixture sits inside ±10 % of 8.0, an intended change); JW
+  `slotOptions.test.js` gains the "~7.9 tok/s" case.
+- **Docs home correction:** the chip + Quick Setup prose lives in JW
+  `docs/models.md` (not `ai-providers.md`, as §10 guessed) — written there.
+  JV `docs/ai-features.md` + `docs/quick-setup.md`, kit
+  `docs/dev/serving-design.md` (fit section) also updated.
+
+### 11.3 Gates (items 1–2)
+kit ruff clean · kit pytest **914 passed / 10 skipped / 0 failed** · biome
+clean on the 4 changed kit UI files (run from `ui/`, where `biome.json`
+lives) · JW `test:fast`: vitest **579/579**, vite build, JW server pytest
+**128 passed** · JV `test:unit` **67/67** · JV `build:vite` · JV smoke with
+`--data-dir src-tauri/target/debug/data` **all views, zero JS errors**.
+**Rendered on the real data dir** (headless UI, 8741): flagship chip reads
+**"Fits · ~7.9 tok/s"** on one line, its hover "Estimated speed: ~7.9 tok/s";
+General model picker "Recommended · Fits · ~7.9 tok/s"; 12B "Tight · ~slow"
+(3.3, far from a line) and E4B "Fits · ~fast" (25.9) keep their words; the
+Speed bands group shows 20 · 8 · 2 · **10**. Not exercised: Item 1 end to end
+through a real Quick-setup Apply (the user's walk — §4's manual acceptance).
+
+### 11.4 The spike (§8) — RAN; FAILED its written acceptance; the premise was wrong
+
+**Candidate verified (HF API, no auth, 2026-09-19):**
+`bartowski/granite-3.1-1b-a400m-instruct-GGUF`, file
+`granite-3.1-1b-a400m-instruct-Q4_K_M.gguf`, **821,847,360 bytes**, sha256
+**`3a2ec1c2a78cb29d901e29bbf5162dcd03381e13803d2cbdcff838d4d08142eb`**
+(downloaded; local sha256 matches the LFS oid). Repo card license
+apache-2.0, `gated: False`; upstream `ibm-granite/granite-3.1-1b-a400m-instruct`
+apache-2.0, ungated, `GraniteMoeForCausalLM` / `granitemoe`. No official
+ibm-granite GGUF exists for this line (HF search `1b-a400m` + `gguf`, 40
+repos). `ibm-granite/granite-4.0-1b` REJECTED — its card: "decoder-only
+dense transformer". Q4_K_M chosen: same Q4_K kernel family as the flagship's
+UD-Q4_K_XL.
+
+**Two passes** (scratchpad `spike.py`; `b10437/cuda12/llama-server.exe` from
+the shared cache; `-ngl 99 -c 2048`; 1 warm-up + 3 × 160 tokens,
+`ignore_eos`; per-token ms from response `timings`; llama-server default
+`n_threads = 8` on this 16-thread box):
+
+```
+pass A (all GPU):        per-token ms [2.651, 2.668, 2.761] -> median 2.668  (375 tok/s)
+pass B (experts on CPU): per-token ms [9.320, 9.244, 9.886] -> median 9.320  (107 tok/s)
+delta 6.652 ms/token (guard >= 0.2 x tB: OK) · spread A 3.5 %, B 6.1 % (guard <= 15 %: OK)
+both passes incl. loads: 27.4 s wall
+```
+
+**DEFECT FOUND — `GgufMeta.expert_byte_share()` returns 0.0 for granitemoe**
+(`runner/gguf.py:137` requires `expert_feed_forward_length > 0`). Granitemoe
+header: `feed_forward_length 512`, `expert_feed_forward_length` ABSENT — the
+Mixtral-style convention, where `feed_forward_length` IS the per-expert FFN
+and there is no dense FFN. So the kit's byte model reads this MoE (and by the
+same rule any Mixtral-style MoE) as dense: `active_bytes_per_pass_mb` →
+(821.8, 0.0).
+
+**Exact bytes instead** (tensor table via the `gguf` PyPI reader, installed
+into the scratchpad only): 242 tensors, total 820.1 MB, `*_exps` **731.4 MB**
+(share 0.8918), token_embd/output 41.3 MB → **active experts 182.8 MB/token**
+(8 of 32) → **host = 182.8 / 6.652 = 27.5 GB/s** — outside the written
+acceptance band [5, 13] → **FAIL as written.**
+
+**Pass C — the ground truth that overturns the band's premise.** The
+flagship itself, same flags (`-ngl 99 --n-cpu-moe 999 -c 4096`, no draft —
+the server log shows no spec lines; its own eval line: 38.8 ms/token):
+
+```
+flagship exact bytes (tensor table): total 14233 MB · experts 12846 MB (share 0.9026) ·
+  active experts 802.9 MB/token (8 of 128) · non-expert 1387 MB
+pass C: per-token ms [38.747, 37.443, 37.649] -> median 37.65 ms = 26.6 tok/s
+predicted with the tiny-MoE calibration (27.49 GB/s): 39.5 ms = 25.3 tok/s   (within 5 %)
+predicted with memcpy probe x 0.40      (7.35 GB/s): 119.6 ms =  8.4 tok/s   (3.2x too slow)
+host GB/s implied by pass C (device leg 1387 MB @ 134.4): 29.4
+```
+
+**What this means:**
+1. **The calibration TRANSFERS** — a 27-second measurement on an 0.8 GB MoE
+   predicted the 14 GB flagship's un-sped speed within 5 %.
+2. **The acceptance band [5, 13] was anchored on stale evidence** — the fit
+   plan's 2026-08-13 "measured host window 6.9–10.6 GB/s" does not hold on
+   today's engine (b10437): the flagship's host leg measures ~29 GB/s.
+3. **Today's chip is wrong by ~3×, not by a hair.** Pass C is the SLOWEST
+   honest placement (every expert on CPU); the app's real launch puts some
+   experts on the GPU, so the app is faster still — un-sped, before MTP. The
+   flagship on this box is "fast", and the seeded `bw_eff_host_probe = 0.40`
+   is ~3.7× too low for this build (27.5 / 18.37 ≈ 1.5 would reproduce it).
+4. `expert_byte_share` also OVERSTATES the flagship: header 0.9389 vs exact
+   0.9026 (err-slow, ~4 %).
+
+### 11.5 DECIDED 2026-09-19 — *"your rec on all four, go"* (the four recs below, as written)
+- **(a) Acceptance:** replace §8's band [5, 13] with the pass-C test
+  ("calibration predicts the flagship's measured un-sped speed within 15 %")
+  → items 3–4 proceed. Rec: yes — pass C is the direct test the band only
+  approximated.
+- **(b) Calibration model bytes:** the calibration file is sha-pinned, so its
+  active-expert bytes are a constant — seed `calib_model_active_expert_mb =
+  182.8` beside `calib_model_sha256` (exact, no parser, no heuristic). Rec:
+  yes. Separately, fix `expert_byte_share()` for Mixtral-style arches
+  (`expert_feed_forward_length` absent → per-expert FFN =
+  `feed_forward_length`, no dense FFN): it changes fit/booking for every such
+  catalog row, so it is its own item with its own blast radius, NOT folded in.
+- **(c) The probe factor:** `bw_eff_host_probe = 0.40` under-reads this box
+  ~3.7× on b10437. Options: re-seed it (one number; every user's estimate
+  moves), or leave the memcpy rung as the pessimistic fallback and let
+  calibration (item 3) and measurement (item 1) supersede it. Rec: the
+  latter now; re-seed only with evidence from more than one box.
+- **(d) Publish:** the verified file + sha above are what goes to release
+  `calib-v1` — outward-facing, the user runs or approves the
+  `gh release create` in §8.
+
+### 11.6 (d) Published
+`gh release create calib-v1` on `delebash/just-llm-runner` —
+https://github.com/delebash/just-llm-runner/releases/tag/calib-v1. Assets:
+`granite-3.1-1b-a400m-instruct-Q4_K_M.gguf` (821,847,360 bytes — the
+verified file) + `LICENSE-Apache-2.0.txt` (the official text,
+apache.org). Upstream has no NOTICE or LICENSE file (license declared in the
+model card), so none to carry. Notes: purpose, sha256, attribution (IBM
+model; bartowski quantization; redistributed unmodified). Anonymous
+`curl -I` on the asset: `200`, `Content-Length: 821847360`,
+`Accept-Ranges: bytes` (the segmented downloader works against it).
+
+### 11.7 Item 3 — BUILT
+- **Settings** (the same chain as §11.2, every link): `calib_model_url` ·
+  `calib_model_sha256` · `calib_model_size_bytes` · `calib_active_expert_mb`
+  (182.8) · `calib_nonexpert_mb` (88.7 — added beyond §6: the one-pass
+  CPU-only derivation needs the whole per-token byte count). GUI: a
+  "Speed-check model" block in `LuRunnerBinaries.vue` beside the pinned build;
+  the PUT refuses a non-http(s) URL and a sha that is not 64 hex characters
+  (a malformed sha would fail every future check).
+- **Ladder:** `bandwidth.py` `MOE_PROBE_MODEL_ID = "__machine_moe_bw__"`,
+  `moe_probe_label(build)`; `resolve_effective_bw(…, moe_probe_gbps)` —
+  derivation → check → memcpy × 0.40 → class seed. Service:
+  `host_moe_bw_gbps(mkey)` (label must equal this build's — else absent;
+  NEVER auto-runs), `record_machine_probe` (the RAM probe's `record_probe_fn`
+  seam), `installed_build()`, `installed_exe()`. `api.py` passes the rung.
+- **The job:** `runner/calibrate.py` — `Calibrator` (the AutoTuner shape) +
+  `make_calibrate_router` (`POST/GET /v1/llm-runner/calibrate`,
+  `POST …/cancel`; GET also returns `mode`, `reason`, `configured`,
+  `sizeBytes`, `measuredGbps` so Quick setup can decide whether to offer).
+  Mounted in `llm/install.py` beside auto-tune.
+- **Deviations from §6, each forced by code read on the day:**
+  1. **File location** `<cache_root>/calib/<sha>.gguf`, not a "runner root":
+     `binary.binary_dir()` is `<cache_root>/llamacpp/<build>`, so the engine
+     itself lives in the (possibly shared) cache root, whose docstring says
+     everything under it is content-addressed — `calib/<sha>.gguf` is.
+     Spawn logs go to `runtime_root/logs/speed-check-pass-{a,b}.log`
+     (app-private by that property's own contract).
+  2. **Every child goes through `process._spawn_child`** (the Windows
+     kill-on-close Job Object, spawn retries, clean errors) and
+     `_close_job` — the process module forbids ad-hoc `Popen`.
+  3. **`svc.stop()` before the passes** — the autotune precedent (a clean
+     GPU per trial); a resident model would share the card and be measured.
+  4. **The job waits up to 15 min for the engine exe** — Quick setup may be
+     installing it in parallel (Run starts `engineTask` when needed).
+  5. **Timing** from response `timings` (`predicted_ms / predicted_n`); a
+     response without them is an error ("this engine build can't run the
+     speed check"), never a wall-clock fallback.
+- **Quick setup** (`QuickSetup.vue`): a `calibrate` step between detect and
+  confirm. Offered only when ALL hold: nothing configured, something fits
+  (`fitting`), NOT curated (`pickByClassConfig` with the wizard's own
+  accessors returns ""), and the server says `mode` set + `configured` + no
+  `measuredGbps`. A run already in flight is adopted. Done → re-read
+  `/models`, recompute the pre-fill (`bestFittingId()`), re-fit an embed the
+  wizard itself filled. Skip cancels a running check and goes to confirm.
+  X/Esc disabled while it runs (the optimize precedent); the poll stops when
+  the modal closes.
+- **Labels** (canon, `familyContract.js` `quickSetup`): `checkTitle`,
+  `checkRunButton`, `checkSkipButton`, `checkRetryButton`,
+  `checkContinueButton` — and JW's `familyLabelsFeed.js` + `en.json` +
+  `es.json` (JW localizes every Quick-setup label; a kit-only label would
+  have rendered English inside JW's Spanish UI, the 2026-08-05 audit's gap).
+  **Copy** (voice, `quickSetupCopy.js`): `checkBody` ({size} via the kit's
+  `fmtBytes` — "784 MB", 1024-based like every download bar), `checkSkipNote`,
+  `checkDoneNote`. Rendered once with "the recommendation **below**" — wrong
+  on a screen that has none below; fixed to "on the next screen".
+
+### 11.8 Item 4 — BUILT
+`modelPick.js`: `clearsSpeedFloor(model, floor)` (measured else predicted;
+no number passes) inside `pickBestModel`'s fast-enough filter;
+`speedFloorOf(payload)`; `recommendedModelId` forwards `speedFloor` to the
+§10 fallback ONLY. `/models` root ships `bandFineToks` + `speedFloorGrace`;
+`useRunnerModels.js` exports `speedFloor`; the wizard (`bestFittingId`) and
+the catalog badge (`LuModelCatalog.vue` `recommendedId`) both pass it.
+Setting `speed_floor_grace` (0.2) through the chain; GUI "Recommend down to
+(% under Fine)" in the Speed bands group. **Noticed, not changed
+(pre-existing):** the badge calls `recommendedModelId` without
+`runnable: FIT_GPU` while the wizard passes it (and pre-filters to
+`fitting`), so the two can still differ on a CPU-spill-only box — the
+"can never disagree" comment in `bestFittingId` over-claims.
+
+### 11.9 Verification (items 3–4)
+- **The real job, end to end on the author's box** (scratchpad driver; the
+  real `Calibrator` class, only the recorder in-memory so the user's DB was
+  not written): download from the `calib-v1` release through
+  `stream_download` (~9 s) → sha verified → both passes via `_spawn_child`:
+  pass A `[2.618, 2.611, 2.618]` ms/token (spread 0.3 %), pass B
+  `[8.882, 8.676, 8.889]` (2.3 %) → **29.18 GB/s**, recorded as
+  `('NVIDIA GeForce RTX 2070 SUPER|8192|16c|31g', '__machine_moe_bw__',
+  'moe-stream probe b10437')` — **24 s total, download included**. File
+  landed at `<shared cache>/calib/3a2ec1c2…08142eb.gguf`, 821,847,360 bytes.
+  29.18 predicts the flagship at ~26.4 tok/s un-sped; pass C measured 26.6.
+- **Tests:** `tests/test_calibrate.py` (8 — replays the spike's real
+  numbers: two-pass → 27.48 GB/s + build-stamped row; one-pass; the delta
+  guard; the spread guard; one-pool refused; checksum mismatch deletes the
+  file; no engine → clean failure) · `test_bandwidth.py` rung order (the
+  check beats the probe; a qualifying real-model MoE row at pass C's 26.6
+  beats the check) · `test_runner_models.py` (payload root carries the floor
+  inputs; the check's 29.18 moves the flagship to "fast") ·
+  `verify-model-pick.mjs` **56/56** incl. the author's-box trap (hard 8.0 →
+  e4b; graced 6.4 → flagship) and "class config outranks the floor".
+- **Rendered** (headless UI on the real data dir; for the card, three
+  responses stubbed IN THE BROWSER ONLY — engine presets empty, catalog class
+  refs emptied, so the wizard sees an unconfigured uncurated box; the check's
+  own status was the server's real one): title + body + skip note + Skip /
+  Run render; **Skip → JV's confirm step, 0 POSTs to /calibrate**. Speed
+  bands group: 20 · 8 · 2 · 10 · 20. Speed-check model block: the five seeded
+  values; URL/sha fields first rendered ~185 px (the label column shrank the
+  input) — fixed with `.lu-engbin-field--path` (the kit's `--w-path` width).
+- **Gates (final tree, all four items):** kit ruff clean · kit pytest **925
+  passed / 10 skipped / 0 failed** · `verify-model-pick.mjs` 56/56 · biome
+  clean on the 9 changed kit UI files · JW `test:fast`: vitest **579/579**,
+  build, JW server **128 passed** · JV `test:unit` 67/67 · JV `build:vite` ·
+  JV server **741 passed** · JV smoke (real data dir) all views, zero JS
+  errors · `check-family`: no new violation (the one it reports —
+  `src/views/lora/DatasetTab.vue` hand-rolling `a.download` — predates this
+  work, `572a087`, 2026-08-21).
+- **Not exercised:** the check through a REAL uncurated Quick-setup Run (no
+  such box here — the author's box is curated, and running it on the gate
+  server would write a measured row into the user's real DB); Item 1 through
+  a real Apply. Both are the user's walk.
+
+---
+
 ## Appendix A — the knife edge, reproducible (run 2026-09-19)
 
 From the kit checkout root. The facts dict is the flagship's live catalog

@@ -27,7 +27,7 @@ import { useRunnerModels } from "../composables/useRunnerModels.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
 import { useHardware } from "../composables/useHardware.js";
 import { applyPreview, useModelApply } from "../services/modelApply.js";
-import { FIT_RUNNABLE, buildSlotOptions, fitWarning, pickBestEmbedId, pickLowestQuality, recommendedModelId, speedBandLabel } from "../common/services/modelPick.js";
+import { FIT_GPU, FIT_RUNNABLE, buildSlotOptions, fitWarning, pickBestEmbedId, pickLowestQuality, recommendedModelId, speedBandLabel } from "../common/services/modelPick.js";
 import { allDraftsUnloadable, pickDefaultDraftPath, pickDefaultQuant } from "../draftSelect.js";
 import { displayRamGb, displayVramGb } from "../fitDisplay.js";
 import { TUNE_BADGES, fetchTuneState, isUntunedHere, tuneBadgeIdOf } from "../tuneState.js";
@@ -54,7 +54,7 @@ import {
 // Shared runner-models state (models / status / load / progress) — one source for the
 // grid + this list. Everything comes from the ONE singleton so the two surfaces never drift.
 const {
-  models, vramMb, loading, error, loadingId,
+  models, vramMb, speedFloor, loading, error, loadingId,
   fmtBytes, FIT_LABEL, refresh, download, retryLoad, taskFor,
 } = useRunnerModels();
 // ONE mechanism (2026-07-21, the user's ruling "same mech, same function"): the rows + slot
@@ -475,6 +475,11 @@ const recommendedId = computed(() => recommendedModelId(models.value, {
   qualityOf,
   isEmbed: embeddingOf,
   isUseLimited: useLimitedOf,
+  speedFloor: speedFloor.value, // the fallback's speed floor (speed-truth plan §7)
+  // The wizard's own set (user ruling 2026-07-06: chat picks never land on a
+  // CPU-spill model) — the badge marks exactly what Quick setup would pick, so on a
+  // CPU-only machine it marks nothing, as the wizard offers nothing.
+  runnable: FIT_GPU,
 }));
 // The recommended EMBEDDING (#5, 2026-07-08: "dont we recommend an embed model") —
 // QuickSetup's exact pick, now through the ONE shared leftover-aware rule (#274:

@@ -24,7 +24,7 @@ import { computed, reactive, ref } from "vue";
 
 import { request } from "../client.js";
 import { fmtBytes } from "../common/services/downloadRate.js";
-import { FIT_LABEL } from "../common/services/modelPick.js";
+import { FIT_LABEL, speedFloorOf } from "../common/services/modelPick.js";
 import {
   createDownloadTask, engineInstallChannel, modelDownloadChannel, modelLoadChannel,
   readDownloadStatus, readLoadStatus,
@@ -49,6 +49,9 @@ let _lastBuiltinIds = null; // sorted-joined catalog model ids seen last refresh
 
 export const models = computed(() => data.value?.models || []);
 export const vramMb = computed(() => data.value?.vramMb || 0);
+// The fallback pick's speed floor (speed-truth plan 2026-09-19 §7) from the payload
+// root — the SAME two fields Quick setup reads, so the badge and the wizard agree.
+export const speedFloor = computed(() => speedFloorOf(data.value));
 const anyLoading = computed(() => models.value.some((m) => m.status === "loading"));
 
 // fmtBytes lives in downloadRate.js; re-exported so existing consumers keep their import surface.
@@ -292,7 +295,7 @@ export function useRunnerModels() {
     refresh();
   }
   return {
-    models, vramMb, loading, error, loadingId,
+    models, vramMb, speedFloor, loading, error, loadingId,
     engineGateTask, anyLoading, fmtBytes, FIT_LABEL,
     refresh, download, retryLoad, taskFor,
   };

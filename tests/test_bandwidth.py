@@ -125,13 +125,48 @@ def test_resolve_ladder_order_and_families(monkeypatch):
     assert dev is None and host is None
 
 
+def test_speed_check_rung_sits_between_derivation_and_the_memcpy_probe(monkeypatch):
+    """Speed-truth plan 2026-09-19 §6/§11.4: the one-minute speed check's GB/s
+    is llama.cpp's own expert streaming — already effective (no factor) — and
+    outranks the memcpy probe × 0.40; a real model measured here still wins."""
+    monkeypatch.setattr(bandwidth, "nvidia_mem_bw_gbps", lambda: None)
+    kw = dict(machine_key=_MK, backend="cuda", is_macos=False, class_vram_bw_gbps=224.0,
+              class_ram_bw_gbps=51.2, eff_device=0.6, eff_host=0.15, eff_host_probe=0.40)
+    # The author's box, 2026-09-19: check 27.5, probe 18.37 → the check wins.
+    _, host = bandwidth.resolve_effective_bw(rows=[], facts_by_id={}, probe_gbps=18.37,
+                                             moe_probe_gbps=27.5, **kw)
+    assert host == 27.5
+    # No check run → the probe rung, exactly as before.
+    _, host = bandwidth.resolve_effective_bw(rows=[], facts_by_id={}, probe_gbps=18.37,
+                                             moe_probe_gbps=None, **kw)
+    assert abs(host - 18.37 * 0.40) < 0.01
+    # A qualifying real-model row (source 1) outranks the check: the flagship
+    # shape measured with every expert in RAM (pass C's 26.6 tok/s, §11.4).
+    moe_row = _row("moe-a", tok_s=26.6,
+                   switches={"n-gpu-layers": "30", "n-cpu-moe": "30", "ctx-size": "4096"})
+    moe_facts = _facts("moe-a", dense=False)
+    _, derived_only = bandwidth.resolve_effective_bw(rows=[moe_row], facts_by_id=moe_facts,
+                                                     probe_gbps=None, **kw)
+    assert derived_only is not None and derived_only > 0
+    _, host = bandwidth.resolve_effective_bw(rows=[moe_row], facts_by_id=moe_facts,
+                                             probe_gbps=18.37, moe_probe_gbps=27.5, **kw)
+    assert host == derived_only
+
+
 def test_probe_factor_calibration_pin():
     """The §5.5 probe calibration, done LIVE 2026-08-13 on the author's desktop
     (the checkpoint's item 4, caught as a real band lie — the flagship read
     ~slow): the probe there reads 19.01 GB/s; the measured-model host-effective
     window on the same box is 6.9–10.6 GB/s. The seeded probe factor must place
     the probe-sourced effective INSIDE that window (the generic 0.15 gave 2.85 —
-    far below it)."""
+    far below it).
+
+    2026-09-19 — that window is STALE for engine b10437: the speed-truth spike
+    measured the flagship's host leg directly at ~29 GB/s (plan
+    docs/plans/2026-09-19-speed-truth-and-calibrated-pick.md §11.4). The 0.40
+    is kept DELIBERATELY as the pessimistic fallback rung under the one-minute
+    speed check (that plan's ruling (c)); this pin guards the value, not the
+    window's truth."""
     from llm_runner.runner.config import DEFAULT_BW_EFF_HOST_PROBE
 
     effective = 19.01 * DEFAULT_BW_EFF_HOST_PROBE

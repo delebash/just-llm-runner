@@ -246,6 +246,13 @@ def _mount_llm_routers(app, *, feature_prompts, _config, allow_key_reveal: bool,
         record_measurement=_record_measurement,
     ))
 
+    # The one-minute speed check (speed-truth plan 2026-09-19 §6): Quick setup
+    # offers it on hardware with no curated class preset; its result lands via
+    # the service's machine-probe recorder (the RAM probe's DI seam).
+    from ..runner.calibrate import make_calibrate_router
+
+    app.include_router(make_calibrate_router())
+
 
 def install_llm(
     app,

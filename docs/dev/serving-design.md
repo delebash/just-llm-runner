@@ -81,6 +81,46 @@ standing distillation).
   authority. Recommendation RANKING may prefer runnable, but THIS-box evidence
   (`ranHere` — any persisted measurement/tune/load-footprint row for this
   machine_key) outranks the estimate's veto (§7.4-as-ranking).
+- **The speed band is honest at its edges** (speed-truth plan
+  `../plans/2026-09-19-speed-truth-and-calibrated-pick.md`). A PREDICTION within
+  `band_deadzone_frac` (seeded 0.10, GUI-editable) of any band threshold ships
+  band `""` with `predTokS` set, and the chip shows "~7.9 tok/s" instead of a
+  word the next probe reading could flip (`fit.in_band_deadzone`). A measured
+  speed always keeps its word. Quick setup measures the model it just loaded
+  (source `measure`, empty switches — display truth, never bandwidth-derivation
+  input, because flagless rows never qualify) so the model a user set up shows
+  a real number, MTP included.
+- **Weights are counted from the file's tensor table, in MiB** (vram-truth
+  plan `../plans/2026-09-19-vram-truth-exact-bytes-units-offload.md`). The
+  reader sizes every tensor by OFFSET DELTA (no quant-type table) and sorts it
+  by llama.cpp's own placement: routed experts by the engine's regex
+  (`gguf.EXPS_REGEX` = b10437 `LLM_FFN_EXPS_REGEX`) vs the rest of each block;
+  the output side incl. a tied head's DUPLICATED vocab table; the input table
+  (always CPU). `fit.placed_weight_mib` + `engine_gpu_blocks` reproduce
+  `llama-fit-params -fitp on` to < 1 MiB on 11 configs. The header formula
+  `expert_byte_share()` is the fallback only. ONE unit: every VRAM figure is
+  MiB (budgets and measurements always were); the SPEED path stays decimal MB
+  against decimal GB/s (`kv_mb_from_facts(…, unit=1e6)`). The EMITTED `-ngl`
+  goes through `process.engine_ngl_flag`: llama.cpp counts the output layer,
+  so "every block" renders n + 1 (measured +5.94 % tok/s on the 26B) — the
+  kit's own `n_gpu_layers` (tunes, fingerprints, the OOM shed) never sees the
+  +1. `__overhead__` rows are stamped `<build on disk> <PHYSICS_VERSION>`.
+- **The host-bandwidth ladder has a measured rung** (speed-truth plan, §6): real-model
+  derivation → **the one-minute speed check** (`runner/calibrate.py`,
+  pseudo-row `__machine_moe_bw__`, label build-stamped `moe-stream probe
+  <build>` so an engine upgrade re-offers it) → the memcpy probe ×
+  `bw_eff_host_probe` → the class seed × `bw_eff_host`. The check runs the
+  installed llama-server on a sha-pinned MoE GGUF from the kit's own GitHub
+  release (`calib-v1`), all-on-GPU then experts-in-RAM, and takes
+  `active-expert MB / (t_B − t_A)` from llama.cpp's own `timings` — the delta
+  cancels the fixed per-token overhead that dominates a model that small.
+  Evidence: on the author's box it read 29.18 GB/s and predicts the flagship's
+  measured un-sped speed within 1 %; the probe × 0.40 rung said 8.4 tok/s for
+  a model that runs 26.6 (plan §11.4). Quick setup offers it only where no
+  class preset matched (`pickByClassConfig` short-circuits every curated box)
+  and never on one-pool machines. The fallback pick (`pickBestModel`) also
+  applies a speed floor, `band_fine_toks × (1 − speed_floor_grace)`, to
+  measured-else-predicted tok/s; unknown speeds pass.
 - **Claims come from the four-arm resolver** grown into `preview_fit` (Phase 5):
   resident reservation → persisted-measured median (fingerprint-matched, this
   machine + backend) → computed physics with the learned `__overhead__`

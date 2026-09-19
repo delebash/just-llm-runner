@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
 """Minimal GGUF header reader — the metadata the model layer needs, from the
-KV header only (never the tensor data).
+header only (never the tensor data): the KV section AND, when the file's size is
+known, the tensor-info table — exact per-tensor bytes by offset delta, sorted by
+llama.cpp's own placement (vram-truth plan 2026-09-19 §6.1).
 
 Used two ways (Phase 1, `docs/plans/2026-07-02-gguf-grounded-model-layer.md`):
   * LOCAL  — `read_gguf_metadata(path)` on a downloaded `.gguf` (fit + identity).
@@ -26,6 +28,7 @@ GLM does not → fall back to generation_config.json via `base_repo_url`).
 
 from __future__ import annotations
 
+import re
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -101,6 +104,28 @@ class GgufMeta:
     # general.base_model.0.repo_url (else general.source.repo_url) — the ORIGINAL
     # model repo, used to fetch generation_config.json when `sampling` is empty.
     base_repo_url: str = ""
+    # EXACT weight bytes from the tensor table (vram-truth plan 2026-09-19 §6.1),
+    # sized by OFFSET DELTA (no quant-type table), sorted the way llama.cpp places
+    # them: per repeating block, routed experts (EXPS_REGEX — what --n-cpu-moe moves)
+    # vs everything else; the OUTPUT side (output.weight + output_norm, or — tied
+    # models — a DUPLICATE of token_embd, which llama.cpp copies onto the output
+    # device); the INPUT side (token_embd etc. — always on the CPU). Validated
+    # against the engine's own estimator on 11 configs to < 1 MiB (plan §10.2).
+    # `tensor_bytes_known` False → none of these are usable; callers fall back to
+    # `expert_byte_share()`.
+    tensor_bytes_known: bool = False
+    layer_nonexp_bytes: list[int] = field(default_factory=list)
+    layer_exps_bytes: list[int] = field(default_factory=list)
+    output_bytes: int = 0
+    input_bytes: int = 0
+
+    @property
+    def exps_bytes(self) -> int:
+        return sum(self.layer_exps_bytes)
+
+    @property
+    def layers_nonexp_bytes(self) -> int:
+        return sum(self.layer_nonexp_bytes)
 
     @property
     def is_moe(self) -> bool:
@@ -133,8 +158,20 @@ class GgufMeta:
         no guessed constants, the caller then applies no discount (the pre-2026-07-24
         behavior). Attention uses head_dim·n_head ≈ n_embd; when head counts are absent
         it falls back to MHA (kv_ratio 1), which OVERSTATES attention and therefore
-        UNDERSTATES the share — the conservative direction (books more VRAM, never less)."""
-        if self.expert_count <= 0 or self.expert_feed_forward_length <= 0 or self.embedding_length <= 0:
+        UNDERSTATES the share — the conservative direction (books more VRAM, never less).
+
+        FALLBACK ONLY since 2026-09-19: when the tensor table was read
+        (`tensor_bytes_known`) every consumer uses the exact bytes instead. Kept
+        for rows whose file was never read that way. Mixtral-style arches (Granite,
+        Mixtral, …) carry NO `expert_feed_forward_length` — their per-expert FFN
+        IS `feed_forward_length` and there is no dense FFN; this used to return 0
+        for them (priced as dense — plan §2.5)."""
+        if self.expert_count <= 0 or self.embedding_length <= 0:
+            return 0.0
+        expert_ff, dense_ff = self.expert_feed_forward_length, self.feed_forward_length
+        if expert_ff <= 0 and dense_ff > 0:
+            expert_ff, dense_ff = dense_ff, 0      # the Mixtral-style header convention
+        if expert_ff <= 0:
             return 0.0
         n_embd = float(self.embedding_length)
         kv_ratio = (
@@ -142,9 +179,9 @@ class GgufMeta:
             if self.head_count > 0 and self.head_count_kv > 0 else 1.0
         )
         attention = n_embd * n_embd * (2.0 + 2.0 * kv_ratio)
-        dense_ffn = 3.0 * n_embd * float(self.feed_forward_length)
+        dense_ffn = 3.0 * n_embd * float(dense_ff)
         shared = 3.0 * n_embd * float(self.expert_shared_feed_forward_length)
-        experts = 3.0 * n_embd * float(self.expert_feed_forward_length) * self.expert_count
+        experts = 3.0 * n_embd * float(expert_ff) * self.expert_count
         total = attention + dense_ffn + shared + experts
         return experts / total if total > 0 else 0.0
 
@@ -184,7 +221,7 @@ class GgufMeta:
                 tokens = ctx
                 k, v = self.key_length, self.value_length
             total_bytes += heads[i] * (k + v) * tokens * bytes_per_elem
-        return total_bytes / 1e6
+        return total_bytes / (1024 * 1024)  # MiB — the VRAM path's one unit (vram-truth §6.4)
 
 
 def _read(f: BinaryIO, code: str):
@@ -312,34 +349,172 @@ def _meta_from_kv(kv: dict[str, object]) -> GgufMeta:
     )
 
 
-def read_gguf_metadata_from_stream(f: BinaryIO) -> GgufMeta:
-    """Parse a GGUF KV header from an open binary stream — a local file or a
-    `BytesIO` of a range-read. Raises `ValueError` on bad magic OR a truncated
-    header (the remote caller should re-fetch a larger prefix and retry)."""
+# The tensors `--n-cpu-moe` keeps in system RAM — llama.cpp's OWN pattern, b10437
+# `common/common.h:1113 LLM_FFN_EXPS_REGEX`. The pattern is build-dependent (older
+# builds lacked `gate_up`): RE-VERIFY on every pin bump (docs/llama-cpp-watch.md).
+EXPS_REGEX = re.compile(r"\.ffn_(up|down|gate|gate_up)_(ch|)exps")
+_DEFAULT_ALIGNMENT = 32  # GGUF spec default when `general.alignment` is absent
+_SPLIT_RE = re.compile(r"-(\d{5})-of-(\d{5})\.gguf$", re.IGNORECASE)
+
+
+def _parse_header(f: BinaryIO, *, want_tensors: bool) -> tuple[dict[str, object], list | None, int]:
+    """(kv, tensor infos [(name, offset)] or None, data_start). Raises ValueError on
+    bad magic; `struct.error` propagates to the caller (it knows which half ran out)."""
     if f.read(4) != _MAGIC:
         raise ValueError("not a GGUF stream (bad magic)")
+    _version = _read(f, "I")
+    tensor_count = _read(f, "Q")
+    kv_count = _read(f, "Q")
+    kv: dict[str, object] = {}
+    for _ in range(kv_count):
+        key = _read_string(f)
+        vtype = _read(f, "I")
+        if vtype == _TYPE_ARRAY and key.endswith(_WANTED_ARRAY_SUFFIXES):
+            kv[key] = _read_array_capped(f)  # per-layer fact — materialised
+        else:
+            kv[key] = _read_value(f, vtype)
+    if not want_tensors:
+        return kv, None, 0
+    infos: list[tuple[str, int]] = []
+    for _ in range(tensor_count):
+        name = _read_string(f)
+        n_dims = _read(f, "I")
+        f.seek(8 * n_dims, 1)            # dims (u64 each) — sizes come from offsets
+        _read(f, "I")                    # ggml type
+        infos.append((name, _read(f, "Q")))
+    alignment = int(kv.get("general.alignment") or _DEFAULT_ALIGNMENT) or _DEFAULT_ALIGNMENT
+    pos = f.tell()
+    data_start = pos + (-pos % alignment)
+    return kv, infos, data_start
+
+
+def _tensor_sizes(infos: list[tuple[str, int]], data_start: int, file_size: int) -> list[tuple[str, int]]:
+    """[(name, bytes)] by OFFSET DELTA — each tensor's size is the gap to the next
+    one's offset (alignment padding included, < alignment bytes each); the last
+    runs to the end of the file. No per-quant-type byte table to maintain."""
+    ordered = sorted(infos, key=lambda t: t[1])
+    data_len = file_size - data_start
+    out = []
+    for i, (name, off) in enumerate(ordered):
+        end = ordered[i + 1][1] if i + 1 < len(ordered) else data_len
+        out.append((name, max(0, end - off)))
+    return out
+
+
+def _classify(meta: GgufMeta, sized: list[tuple[str, int]]) -> None:
+    """Fill `meta`'s exact-bytes fields from [(name, bytes)] — the placement llama.cpp
+    applies (b9993/b10437 `llama-model.cpp`): per block, experts vs the rest; the
+    output side; the input side (always CPU). A tied head (no `output.weight`) is
+    DUPLICATED onto the output device (`gemma4.cpp:44-47` — the common tied idiom)."""
+    if not sized or not any(b for _, b in sized):
+        return  # no tensor bytes at all (a synthetic header) → stays UNKNOWN, never "0 bytes"
+    blocks: dict[int, list[int]] = {}
+    out_b = in_b = embd = 0
+    has_output_weight = False
+    for name, b in sized:
+        if name.startswith("blk."):
+            il = int(name.split(".")[1])
+            slot = blocks.setdefault(il, [0, 0])
+            slot[1 if EXPS_REGEX.search(name) else 0] += b
+        elif name.startswith("output"):
+            out_b += b
+            has_output_weight |= name == "output.weight"
+        else:
+            in_b += b
+            if name == "token_embd.weight":
+                embd = b
+    if not has_output_weight:
+        out_b += embd
+    n = max(meta.block_count, (max(blocks) + 1) if blocks else 0)
+    meta.layer_nonexp_bytes = [blocks.get(i, [0, 0])[0] for i in range(n)]
+    meta.layer_exps_bytes = [blocks.get(i, [0, 0])[1] for i in range(n)]
+    meta.output_bytes = out_b
+    meta.input_bytes = in_b
+    meta.tensor_bytes_known = True
+
+
+def read_gguf_metadata_from_stream(
+    f: BinaryIO, *, file_size: int | None = None, strict_tensors: bool = True,
+) -> GgufMeta:
+    """Parse a GGUF header from an open binary stream — a local file or a `BytesIO`
+    of a range-read. Raises `ValueError` on bad magic OR a truncated header (the
+    remote caller re-fetches a larger prefix and retries).
+
+    With `file_size` (the WHOLE file's byte size — for a range-read, the file's real
+    size, not the prefix) the tensor table is read too and the exact-bytes fields
+    are filled (§6.1). A tensor table that runs past the prefix raises the same
+    "truncated" error when `strict_tensors`; with it False the KV-only meta returns
+    (`tensor_bytes_known` False) — the remote reader's last resort."""
+    want = file_size is not None and file_size > 0
+    start = f.tell()
     try:
-        _version = _read(f, "I")
-        _tensor_count = _read(f, "Q")
-        kv_count = _read(f, "Q")
-        kv: dict[str, object] = {}
-        for _ in range(kv_count):
-            key = _read_string(f)
-            vtype = _read(f, "I")
-            if vtype == _TYPE_ARRAY and key.endswith(_WANTED_ARRAY_SUFFIXES):
-                kv[key] = _read_array_capped(f)  # per-layer fact — materialised
-            else:
-                kv[key] = _read_value(f, vtype)
+        kv, infos, data_start = _parse_header(f, want_tensors=want)
+    except struct.error as e:
+        if want and not strict_tensors:
+            f.seek(start)                    # the tensor half ran out — keep the KV facts
+            return read_gguf_metadata_kv_only(f)
+        raise ValueError(f"truncated GGUF header ({e}) — range-read a larger prefix") from e
+    meta = _meta_from_kv(kv)
+    if want and infos is not None:
+        _classify(meta, _tensor_sizes(infos, data_start, int(file_size)))
+    return meta
+
+
+def read_gguf_metadata_kv_only(f: BinaryIO) -> GgufMeta:
+    """The KV half only (no tensor table) — the pre-2026-09-19 behavior."""
+    try:
+        kv, _, _ = _parse_header(f, want_tensors=False)
     except struct.error as e:
         raise ValueError(f"truncated GGUF header ({e}) — range-read a larger prefix") from e
     return _meta_from_kv(kv)
 
 
-def read_gguf_metadata(path: Path) -> GgufMeta:
-    """Parse the GGUF KV header of a local `path`.
+def split_siblings(path: Path) -> list[Path] | None:
+    """For a split model's shard (`…-00001-of-00003.gguf`) the full ordered shard
+    list, or None when `path` is not a split name. Missing shards → None too (a
+    partial table would be worse than the fallback)."""
+    m = _SPLIT_RE.search(path.name)
+    if not m:
+        return None
+    total = int(m.group(2))
+    stem = path.name[: m.start()]
+    shards = [path.with_name(f"{stem}-{i:05d}-of-{total:05d}.gguf") for i in range(1, total + 1)]
+    return shards if all(p.exists() for p in shards) else None
 
-    For a sharded model, pass shard 00001 — it carries the full metadata.
+
+def gguf_total_bytes(path: Path) -> int:
+    """The model's REAL weight size: every shard of a split model summed (a split
+    model's first shard is only part of it — vram-truth plan §6.3), else the file
+    itself. The same rule oobabooga's `get_model_size_mb` applies."""
+    shards = split_siblings(path)
+    if shards:
+        return sum(p.stat().st_size for p in shards)
+    return path.stat().st_size
+
+
+def read_gguf_metadata(path: Path) -> GgufMeta:
+    """Parse the GGUF header of a local `path` — KV facts AND the exact tensor bytes.
+
+    For a sharded model pass shard 00001 (it carries the full metadata); every
+    sibling shard's tensor table is read and MERGED (each shard sized against its
+    own file). Any shard unreadable → the exact fields stay unknown (fallback).
     Raises ValueError on a non-GGUF file (bad magic).
     """
     with path.open("rb") as f:
-        return read_gguf_metadata_from_stream(f)
+        meta = read_gguf_metadata_from_stream(f, file_size=path.stat().st_size)
+    split = _SPLIT_RE.search(path.name)
+    if split and int(split.group(2)) > 1 and not split_siblings(path):
+        meta.tensor_bytes_known = False   # a shard is missing: never a PARTIAL table
+        return meta
+    shards = split_siblings(path)
+    if shards and len(shards) > 1:
+        try:
+            sized: list[tuple[str, int]] = []
+            for p in shards:
+                with p.open("rb") as f:
+                    _kv, infos, data_start = _parse_header(f, want_tensors=True)
+                sized += _tensor_sizes(infos or [], data_start, p.stat().st_size)
+            _classify(meta, sized)
+        except (OSError, ValueError, struct.error):
+            meta.tensor_bytes_known = False
+    return meta

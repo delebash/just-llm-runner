@@ -109,6 +109,12 @@ const ctxCapTokens = ref(null);
 const bandFastToks = ref(null);
 const bandFineToks = ref(null);
 const bandSlowToks = ref(null);
+// The band dead zone (speed-truth plan 2026-09-19 §5) — stored as a fraction,
+// edited as a percent (10, not 0.1: a number a person can read).
+const bandDeadzonePct = ref(null);
+// The fallback pick's speed-floor grace (speed-truth plan 2026-09-19 §7) — stored as a
+// fraction, edited as a percent like the dead zone above.
+const speedFloorGracePct = ref(null);
 const ramHeadroomMb = ref(null);
 
 async function loadDownloadKnobs() {
@@ -123,6 +129,8 @@ async function loadDownloadKnobs() {
     if (bandFastToks.value === null) bandFastToks.value = r.bandFastToks;
     if (bandFineToks.value === null) bandFineToks.value = r.bandFineToks;
     if (bandSlowToks.value === null) bandSlowToks.value = r.bandSlowToks;
+    if (bandDeadzonePct.value === null) bandDeadzonePct.value = Math.round((r.bandDeadzoneFrac || 0) * 100);
+    if (speedFloorGracePct.value === null) speedFloorGracePct.value = Math.round((r.speedFloorGrace || 0) * 100);
     if (ramHeadroomMb.value === null) ramHeadroomMb.value = r.ramHeadroomMb;
   } catch {
     // transient — the drafts stay null and Save simply omits them (partial PUT)
@@ -199,6 +207,8 @@ async function saveKnobs() {
     if (bandFastToks.value !== null) body.bandFastToks = Number(bandFastToks.value) || 0;
     if (bandFineToks.value !== null) body.bandFineToks = Number(bandFineToks.value) || 0;
     if (bandSlowToks.value !== null) body.bandSlowToks = Number(bandSlowToks.value) || 0;
+    if (bandDeadzonePct.value !== null) body.bandDeadzoneFrac = (Number(bandDeadzonePct.value) || 0) / 100;
+    if (speedFloorGracePct.value !== null) body.speedFloorGrace = (Number(speedFloorGracePct.value) || 0) / 100;
     if (ramHeadroomMb.value !== null) body.ramHeadroomMb = Number(ramHeadroomMb.value) || 0;
     const r = await request("/v1/ai/engine-config", { method: "PUT", body });
     modelsMax.value = r.modelsMax; // re-sync from the server (reflects the clamps)
@@ -211,6 +221,8 @@ async function saveKnobs() {
     bandFastToks.value = r.bandFastToks;
     bandFineToks.value = r.bandFineToks;
     bandSlowToks.value = r.bandSlowToks;
+    bandDeadzonePct.value = Math.round((r.bandDeadzoneFrac || 0) * 100); // reflects the server clamp
+    speedFloorGracePct.value = Math.round((r.speedFloorGrace || 0) * 100);
     ramHeadroomMb.value = r.ramHeadroomMb;
     // The user's 2026-08-13 checkpoint ask: Save must SAY it saved (the
     // fields re-syncing silently read as nothing happening). After the await
@@ -371,6 +383,14 @@ onMounted(() => {
               <label class="lu-eng-knob" title="Below “fine” but at or above this the label is “slow”; anything under is “very slow”.">
                 <span class="lu-eng-knob-cap">Slow at ≥</span>
                 <UiInput v-model="bandSlowToks" type="number" width="token" />
+              </label>
+              <label class="lu-eng-knob" title="When an estimated speed lands this close to one of the lines above, the catalog shows the estimate itself (for example “~7.9 tok/s”) instead of a label a small difference could flip. A measured speed always keeps its label. 0 turns this off.">
+                <span class="lu-eng-knob-cap">Show the number within (%)</span>
+                <UiInput v-model="bandDeadzonePct" type="number" width="token" />
+              </label>
+              <label class="lu-eng-knob" title="On a PC with no hardware preset, Quick Setup won't recommend a model whose speed falls more than this far below the “fine” line (20 % with “fine” at 8 → nothing under 6.4 tokens per second). The margin stops a model that lands just under the line from being swapped for a much weaker one. 0 = the “fine” line itself.">
+                <span class="lu-eng-knob-cap">Recommend down to (% under Fine)</span>
+                <UiInput v-model="speedFloorGracePct" type="number" width="token" />
               </label>
             </div>
           </div>

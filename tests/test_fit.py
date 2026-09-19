@@ -7,6 +7,9 @@ Covers the coarse pre-download band, the ported oobabooga VRAM formula
 
 from __future__ import annotations
 
+import json as _json
+from pathlib import Path as _Path
+
 from llm_runner.runner import fit
 
 
@@ -242,7 +245,7 @@ def test_kv_exact_uniform_math():
     # 30 layers × 16 kv-heads × (128+128) dims × 4096 tokens × 2 B (f16) = 1006.6 MB
     kv = fit.kv_exact_mb(n_layers=30, n_kv_heads=16, ctx_size=4096, cache_type=16,
                          key_length=128, value_length=128)
-    assert abs(kv - 30 * 16 * 256 * 4096 * 2 / 1e6) < 0.01
+    assert abs(kv - 30 * 16 * 256 * 4096 * 2 / (1024 * 1024)) < 0.01  # MiB since 2026-09-19 (vram-truth plan §6.4 — was / 1e6)
     # q8_0 cache halves it; missing dims fall back to embedding/head_count
     assert fit.kv_exact_mb(n_layers=30, n_kv_heads=16, ctx_size=4096, cache_type=8,
                            key_length=128, value_length=128) == kv / 2
@@ -333,10 +336,12 @@ def test_kv_mb_from_facts_scalars_and_fallback():
     # Scalar path: Wb=0 (uniform) → Gb × ctx × bits/8; windowed term clamps at window.
     facts = {"kv_windowed_bytes_per_token": 0.0, "kv_global_bytes_per_token": 8192.0,
              "sliding_window": 0}
-    assert abs(fit.kv_mb_from_facts(facts, 4096) - 8192 * 4096 * 2 / 1e6) < 0.01
+    assert abs(fit.kv_mb_from_facts(facts, 4096) - 8192 * 4096 * 2 / (1024 * 1024)) < 0.01  # MiB since 2026-09-19 (vram-truth plan §6.4 — was / 1e6)
     windowed = {"kv_windowed_bytes_per_token": 8192.0, "kv_global_bytes_per_token": 0.0,
                 "sliding_window": 1024}
-    assert abs(fit.kv_mb_from_facts(windowed, 32768) - 8192 * 1024 * 2 / 1e6) < 0.01
+    assert abs(fit.kv_mb_from_facts(windowed, 32768) - 8192 * 1024 * 2 / (1024 * 1024)) < 0.01  # MiB since 2026-09-19 (vram-truth plan §6.4 — was / 1e6)
+    # …and the SPEED path asks for decimal MB explicitly (decimal GB/s bandwidths).
+    assert abs(fit.kv_mb_from_facts(facts, 4096, unit=1e6) - 8192 * 4096 * 2 / 1e6) < 0.01
     # No scalars → the kv_exact_mb dim heuristics (same fields identity used).
     legacy = {"block_count": 30, "n_kv_heads": 16, "embedding_length": 2048,
               "head_count": 16}
@@ -396,3 +401,59 @@ def test_speed_band_thresholds():
     assert fit.speed_band(1.5, **kw) == "painful"
     assert fit.speed_band(None, **kw) == ""
     assert fit.speed_band(0.0, **kw) == ""
+
+
+def test_band_deadzone_brackets_every_threshold():
+    """Speed-truth plan 2026-09-19 §5 — the author's-box case is the pin: 7.9
+    against the 8.0 fine-line is a coin flip, so no word."""
+    kw = dict(fast=20.0, fine=8.0, slow=2.0, frac=0.10)
+    assert fit.in_band_deadzone(7.9, **kw)          # 1.25 % under fine
+    assert fit.in_band_deadzone(8.7, **kw)          # 8.75 % over fine
+    assert fit.in_band_deadzone(19.0, **kw)         # 5 % under fast
+    assert fit.in_band_deadzone(2.1, **kw)          # 5 % over slow
+    assert not fit.in_band_deadzone(7.1, **kw)      # 11.25 % under fine → "slow" stands
+    assert not fit.in_band_deadzone(12.0, **kw)     # clear of every line
+    assert not fit.in_band_deadzone(None, **kw)     # unknown is not "near"
+    assert not fit.in_band_deadzone(0.0, **kw)
+    assert not fit.in_band_deadzone(7.9, fast=20.0, fine=8.0, slow=2.0, frac=0.0)  # 0 = off
+    # A zeroed threshold never matches (a user may blank one out).
+    assert not fit.in_band_deadzone(0.05, fast=20.0, fine=8.0, slow=0.0, frac=0.10)
+
+
+# ── vram-truth plan 2026-09-19 §6.3: exact placement, pinned to the ENGINE ─────
+# Fixture = the real files' per-block bytes (Appendix A reader) + llama.cpp b10437's
+# own `llama-fit-params -fitp on` model-MiB per (ngl flag, n-cpu-moe) (plan §10.2).
+# These pins are the engine's numbers, never this module's own arithmetic.
+
+_VT = _json.loads((_Path(__file__).parent / "fixtures" / "vram_truth_tensor_bytes.json")
+                  .read_text(encoding="utf-8"))
+
+
+def test_engine_gpu_blocks_follows_llama_cpp_i_gpu_start():
+    # llama-model.cpp: i_gpu_start = n + 1 − ngl; the output layer takes the first slot.
+    assert list(fit.engine_gpu_blocks(30, 30)) == list(range(1, 30))   # block 0 on the CPU
+    assert list(fit.engine_gpu_blocks(30, 31)) == list(range(0, 30))   # full offload
+    assert list(fit.engine_gpu_blocks(30, 99)) == list(range(0, 30))   # clamps
+    assert list(fit.engine_gpu_blocks(30, 1)) == []                    # output layer only
+    assert list(fit.engine_gpu_blocks(30, 0)) == []                    # nothing on the GPU
+    assert list(fit.engine_gpu_blocks(30, 10)) == list(range(21, 30))  # the LAST ngl−1 blocks
+
+
+def test_placed_weight_mib_matches_the_engine_on_every_config():
+    for name, m in _VT.items():
+        if name.startswith("_"):
+            continue
+        for cfg, engine_mib in m["engine_model_mib"].items():
+            flag, ncmoe = map(int, cfg.split(","))
+            got = fit.placed_weight_mib(
+                layer_nonexp=m["layer_nonexp"], layer_exps=m["layer_exps"],
+                output_bytes=m["output_bytes"], block_count=m["block_count"],
+                ngl_flag=flag, n_cpu_moe=ncmoe)
+            assert abs(got - engine_mib) < 1.0, (name, cfg, got, engine_mib)
+
+
+def test_placed_weight_mib_is_zero_off_the_gpu():
+    m = _VT["gemma-4-26b-a4b-qat UD-Q4_K_XL"]
+    assert fit.placed_weight_mib(layer_nonexp=m["layer_nonexp"], layer_exps=m["layer_exps"],
+                                 output_bytes=m["output_bytes"], block_count=30,
+                                 ngl_flag=0, n_cpu_moe=0) == 0.0

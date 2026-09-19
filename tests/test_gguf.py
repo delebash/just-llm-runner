@@ -115,7 +115,7 @@ def test_read_iswa_per_layer_facts(tmp_path):
     ctx, bits = 32768, 8
     windowed = 4 * (8 * (256 + 256) * 1024 * 1.0)      # 4 layers × heads×(k+v)×tokens×1B
     global_ = 2 * (2 * (512 + 512) * ctx * 1.0)
-    assert abs(m.kv_mb_at_ctx(ctx, bits) - (windowed + global_) / 1e6) < 1e-6
+    assert abs(m.kv_mb_at_ctx(ctx, bits) - (windowed + global_) / (1024 * 1024)) < 1e-6  # MiB since 2026-09-19 (vram-truth plan §6.4 — was / 1e6)
 
     # Guards: no pattern / mismatched pattern → None (the regression term stays).
     import dataclasses

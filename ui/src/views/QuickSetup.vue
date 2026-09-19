@@ -27,11 +27,14 @@ import { request } from "../client.js";
 import { useHardware } from "../composables/useHardware.js";
 import { listClassTunes } from "../classTunes.js";
 import { useCatalogMeta } from "../composables/useCatalogMeta.js";
-import { recommendedModelId, pickBestEmbedId, catalogState, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
+import { recommendedModelId, pickBestEmbedId, pickByClassConfig, catalogState, speedFloorOf, FIT_GPU, FIT_RUNNABLE, FIT_LABEL } from "../common/services/modelPick.js";
+import { fmtBytes } from "../common/services/downloadRate.js";
 import { applyPreview, currentDefaultId, currentDefaultProviderId, modelHasTunes, refreshApplied, setAsDefault, setAsEmbedding, LOCAL_RUNNER_ID } from "../services/modelApply.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import { fmtTps } from "../common/services/runStats.js";
 import { createDownloadTask, engineInstallChannel, modelDownloadChannel, modelLoadChannel } from "../composables/useDownloadTask.js";
+import { refresh as refreshRunnerModels } from "../composables/useRunnerModels.js";
+import { recordMeasurement } from "../measurements.js";
 import { familyLabels } from "../common/services/familyLabels.js";
 import { quickSetupCopy } from "../common/services/quickSetupCopy.js";
 import { llmUiCapabilities } from "../installLlmUi.js";
@@ -271,8 +274,12 @@ function bestFittingId() {
     isEmbed,
     isUseLimited: useLimitedOf,
     runnable: FIT_GPU, // chat picks never land on a CPU-spill model (user decision)
+    speedFloor: speedFloor.value, // the fallback's speed floor (speed-truth plan §7)
   });
 }
+// band_fine_toks × (1 − speed_floor_grace) from the /models payload root — the
+// catalog badge reads the same two fields, so wizard and badge cannot disagree.
+const speedFloor = ref(0);
 
 // Apply is enabled once there's a fitting local pick; a box with nothing that fits
 // stays disabled (the empty-state points at a bigger card / a smaller model).
@@ -313,6 +320,7 @@ async function loadAll() {
       refreshCatalogMeta(), // shared catalog-meta maps (quality / use-limited / description)
     ]);
     models.value = m.models || [];
+    speedFloor.value = speedFloorOf(m);
     prefillPick();
   } catch (e) {
     error.value = `Couldn't read hardware / catalog: ${e.message}`;
@@ -371,6 +379,8 @@ async function openWizard() {
   tunedAlready.value = false;
   classTuned.value = false;
   optQuick.value = false;
+  calState.value = null;
+  embedAutoFilled = false;
   // THE SPINNER MUST ALWAYS END (2026-07-26 — reported stuck on "Probing your hardware…"
   // after a workspace reset). The step advance used to be this function's LAST statement,
   // so anything that threw in the reconcile below, or any request that never settled,
@@ -422,6 +432,7 @@ async function openWizard() {
       if (best) {
         pick.value.embeddingId = LOCAL_RUNNER_ID;
         pick.value.embeddingModel = best;
+        embedAutoFilled = true; // ours to re-fit if the speed check moves the chat pick
       }
     }
     // Sharing is the recommendation when there is something to share — the option
@@ -433,9 +444,95 @@ async function openWizard() {
     if (!error.value) error.value = `Couldn't finish reading your setup — ${e.message}`;
   } finally {
     // A configured box lands on the truth screen, not the pitch; everything else
-    // (including errors) lands on confirm, which renders the empty-state.
-    step.value = (!error.value && configured.value) ? "configured" : "confirm";
+    // (including errors) lands on confirm, which renders the empty-state — unless
+    // the one-minute speed check applies, which is offered first (it can change
+    // the recommendation the confirm screen shows). offerSpeedCheck never throws.
+    let next = (!error.value && configured.value) ? "configured" : "confirm";
+    if (next === "confirm" && !error.value && (await offerSpeedCheck())) next = "calibrate";
+    step.value = next;
   }
+}
+
+// ── The one-minute speed check (speed-truth plan 2026-09-19 §6) ─────────────
+// On hardware with NO curated class preset the recommendation is estimate-
+// driven end to end, and the estimate's RAM term was measured ~3× pessimistic
+// on the author's box (plan §11.4). The check runs llama.cpp itself on a small
+// test model and records this machine's real expert-streaming speed, which the
+// speed predictions then use. User ruling 2026-09-19: "present it to them
+// clearly what this is, why it is recommended, and allow them to skip". Never
+// offered where a class preset matched — there it could not change the pick
+// (`pickByClassConfig` wins first) — nor where the server says it doesn't apply
+// (one-pool machines), nor once this machine has been measured on this engine.
+const calState = ref(null); // the GET /v1/llm-runner/calibrate payload
+let calTimer = null;
+let embedAutoFilled = false; // openWizard filled the embed itself (not routing)
+const calRunning = computed(() => calState.value?.status === "running");
+const calBody = computed(() => QC.checkBody.replace("{size}", fmtBytes(calState.value?.sizeBytes || 0)));
+const calProgressLabel = computed(() => calState.value?.detail || "Starting…");
+
+function isCuratedBox() {
+  return !!pickByClassConfig(classTuneRefs.value, myClassKey.value, fitting.value, {
+    fitSet: FIT_GPU, qualityOf, isEmbed, isUseLimited: useLimitedOf,
+  });
+}
+async function offerSpeedCheck() {
+  if (!fitting.value.length || isCuratedBox()) return false;
+  try {
+    const st = await request("/v1/llm-runner/calibrate");
+    calState.value = st;
+    if (st.status === "running") { startCalPoll(); return true; } // adopt a run in flight
+    return !!(st.mode && st.configured && !st.measuredGbps);
+  } catch {
+    return false; // an older server without the endpoint — the wizard is unchanged
+  }
+}
+async function runSpeedCheck() {
+  // The check measures with the engine the app will actually use, so it needs
+  // the engine installed; the server job waits for it while this bar installs it.
+  if (engineNeeded.value && engineTask.state !== "running" && engineTask.state !== "done") engineTask.start();
+  try {
+    calState.value = { ...(calState.value || {}), ...(await request("/v1/llm-runner/calibrate", { method: "POST" })) };
+  } catch (e) {
+    calState.value = { ...(calState.value || {}), status: "error", error: e.message || "Couldn't start the check." };
+    return;
+  }
+  startCalPoll();
+}
+function startCalPoll() {
+  stopCalPoll();
+  calTimer = setInterval(pollSpeedCheck, 1000);
+}
+function stopCalPoll() {
+  if (calTimer) { clearInterval(calTimer); calTimer = null; }
+}
+async function pollSpeedCheck() {
+  try {
+    const st = await request("/v1/llm-runner/calibrate");
+    calState.value = st;
+    if (st.status === "running") return;
+    stopCalPoll();
+    if (st.status === "done") await afterSpeedCheck();
+  } catch { /* transient — the next tick retries */ }
+}
+// The predictions are calibrated now: re-read them and recompute the pre-fill
+// (on this path the pick IS the pre-fill — a configured box never gets here).
+async function afterSpeedCheck() {
+  const prev = pick.value.default;
+  try {
+    const m = await request("/v1/llm-runner/models");
+    models.value = m.models || [];
+    speedFloor.value = speedFloorOf(m);
+  } catch { return; }
+  pick.value.default = bestFittingId() || prev;
+  if (embedsOn && embedAutoFilled && pick.value.default !== prev) {
+    const best = bestEmbedId(); // the embed fits the leftover beside the NEW chat pick
+    if (best) pick.value.embeddingModel = best;
+  }
+}
+async function skipSpeedCheck() {
+  if (calRunning.value) await request("/v1/llm-runner/calibrate/cancel", { method: "POST" }).catch(() => {});
+  stopCalPoll();
+  step.value = "confirm";
 }
 function onModalClose() {
   open.value = false;
@@ -443,7 +540,12 @@ function onModalClose() {
 // The host may want to route away when a deep-linked run ends (AiModelsArea
 // re-emits this only for an auto-opened wizard). Watching `open` catches BOTH
 // close paths — onModalClose and attemptClose — from one place.
-watch(open, (v, prev) => { if (!v && prev) emit("closed"); });
+watch(open, (v, prev) => {
+  if (!v && prev) {
+    stopCalPoll(); // the speed-check poll belongs to this wizard window
+    emit("closed");
+  }
+});
 // Close guard (user, 2026-07-06 — reversing the earlier "leave it running in background": the
 // sweep pegs the GPU and PAUSES every other AI feature, so a headless background run is a trap
 // the user can't see). While a sweep runs, the modal's X + Esc are disabled (:closable below);
@@ -543,6 +645,30 @@ async function finishApply() {
   // The host's follow-up seam (surgery 2026-08-04) — docgen needs nothing today
   // (setAsDefault already repoints its presets); future apps hook here.
   try { QC.onApplied?.({ modelId: target }); } catch { /* host's problem, not the wizard's */ }
+  if (target) measureAfterApply(target); // never awaited — setup is already done
+}
+
+// Measure the model Apply just loaded (speed-truth plan 2026-09-19 §4). Until
+// something is measured, the catalog chip is a physics PREDICTION — un-sped by
+// design (fit plan §13.7) and able to sit a hair either side of a band line (the
+// flagship read "~slow" at 7.9 against a fine-line of 8.0). One fixed-prompt
+// probe of the resident model (~15 s, MTP draft included — the speed the user
+// actually gets) turns it into "Measured on this PC". measure() needs the model
+// resident, which it is at this exact moment: the chat load just completed.
+// Empty switches keep the row out of the bandwidth derivation (flagless rows
+// never qualify) — it is display truth only. Fire-and-forget: a failed measure
+// must never fail a setup that already succeeded.
+async function measureAfterApply(modelId) {
+  try {
+    // Named explicitly: measure() otherwise probes "the most recently loaded", and
+    // the row must be recorded against the model that was actually probed.
+    const res = await request(`/v1/llm-runner/measure?model_id=${encodeURIComponent(modelId)}`, { method: "POST" });
+    if (!res?.ok || !(res.tokensPerSec > 0)) return;
+    await recordMeasurement(modelId, res.tokensPerSec, {
+      vramTotalMb: res.vramTotalMb || 0, switches: {}, source: "measure", label: "first-run measure",
+    });
+    await refreshRunnerModels(); // the chip reads the measured row on the next payload
+  } catch { /* the chip keeps its prediction — honest, just not measured */ }
 }
 
 async function apply() {
@@ -771,9 +897,9 @@ defineExpose({ openWizard });
 
     <AppModal
       v-if="open"
-      :title="step === 'detect' ? 'Probing your hardware…' : step === 'configured' ? L.alreadyTitle : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : QC.confirmTitle"
+      :title="step === 'detect' ? 'Probing your hardware…' : step === 'configured' ? L.alreadyTitle : step === 'calibrate' ? L.checkTitle : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : QC.confirmTitle"
       :max-width="'640px'"
-      :closable="!optRunning && engineTask.state !== 'running' && chatTask.state !== 'running' && embedTask.state !== 'running'"
+      :closable="!optRunning && !calRunning && engineTask.state !== 'running' && chatTask.state !== 'running' && embedTask.state !== 'running'"
       @close="onModalClose"
     >
       <!-- DETECT -->
@@ -785,6 +911,25 @@ defineExpose({ openWizard });
       <template v-else-if="step === 'configured'">
         <p style="margin: 0"><b>{{ currentDefaultId || pick.default }}</b> is the default local model — everything is set up.</p>
         <p class="lu-muted lu-qs-hint">Quick Setup sets up the built-in llama.cpp provider only. Change the model to walk the setup again with a different pick; nothing changes until you apply.</p>
+      </template>
+
+      <!-- THE ONE-MINUTE SPEED CHECK (speed-truth plan 2026-09-19 §6) — offered
+           only on hardware with no curated preset; always skippable. -->
+      <template v-else-if="step === 'calibrate'">
+        <p style="margin: 0">{{ calBody }}</p>
+        <p class="lu-muted lu-qs-hint">{{ QC.checkSkipNote }}</p>
+        <DownloadBar v-if="engineTask.state && engineTask.state !== 'done'" :title="L.engineBarTitle" :role="L.engineBarRole" :task="engineTask" />
+        <template v-if="calRunning">
+          <UiProgress
+            v-if="calState.phase === 'download'"
+            :label="calProgressLabel" :value="calState.done || 0" :max="calState.total || 0" />
+          <UiProgress v-else :label="calProgressLabel" />
+        </template>
+        <p v-else-if="calState?.status === 'done'" class="lu-qs-opt-ok" style="margin: 0">
+          {{ QC.checkDoneNote }}
+        </p>
+        <p v-else-if="calState?.status === 'error'" class="lu-error" style="margin: 0">{{ calState.error }}</p>
+        <p v-else-if="calState?.status === 'cancelled'" class="lu-muted" style="margin: 0">Check cancelled.</p>
       </template>
 
       <!-- CONFIRM (editable) -->
@@ -1018,6 +1163,14 @@ defineExpose({ openWizard });
           <UiButton intent="ghost" @click="onModalClose">{{ L.closeButton }}</UiButton>
           <span class="lu-qs-spacer" />
           <UiButton intent="primary" @click="step = 'confirm'">{{ L.changeModelButton }}</UiButton>
+        </template>
+        <template v-else-if="step === 'calibrate'">
+          <UiButton intent="ghost" @click="skipSpeedCheck">{{ L.checkSkipButton }}</UiButton>
+          <span class="lu-qs-spacer" />
+          <UiButton v-if="calState?.status === 'done'" intent="primary" @click="step = 'confirm'">{{ L.checkContinueButton }}</UiButton>
+          <UiButton v-else intent="primary" :loading="calRunning" :disabled="calRunning" @click="runSpeedCheck">
+            {{ calState?.status === 'error' || calState?.status === 'cancelled' ? L.checkRetryButton : L.checkRunButton }}
+          </UiButton>
         </template>
         <template v-else-if="step === 'confirm'">
           <UiButton intent="ghost" @click="onModalClose">{{ L.cancelButton }}</UiButton>

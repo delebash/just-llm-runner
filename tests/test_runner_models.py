@@ -70,7 +70,7 @@ class _FakeService:
         return self._models
 
     def config(self):
-        return _TEST_CONFIG  # safety_margin_mb=1024
+        return getattr(self, "_cfg", _TEST_CONFIG)  # safety_margin_mb=1024
 
     def download_status(self):
         return {"downloads": {}}   # per-model map; empty == nothing downloading
@@ -101,6 +101,9 @@ class _FakeService:
 
     def host_probe_bw_gbps(self, machine_key_str):
         return getattr(self, "_probe_gbps", None)
+
+    def host_moe_bw_gbps(self, machine_key_str):
+        return getattr(self, "_moe_probe_gbps", None)
 
 
 def _resident(*ids_and_statuses):
@@ -394,9 +397,16 @@ def _author_box():
                         runtimes={"cuda": True})
 
 
+# The band MAPPING pins below predate the dead zone (speed-truth plan 2026-09-19
+# §5) and their ~8.7 prediction sits inside its default ±10 % of the 8.0 line —
+# so they run with the dead zone OFF; the dead zone has its own pins further down.
+_NO_DEADZONE = _TEST_CONFIG.model_copy(update={"band_deadzone_frac": 0.0})
+
+
 def test_band_rides_the_fit_and_factless_rows_stay_bandless(monkeypatch):
     hw = _author_box()
     svc = _FakeService([_moe_with_facts(), _model("bare", 6000)])
+    svc._cfg = _NO_DEADZONE
     svc._class_bw = (448.0, 51.2)  # ladder source 3 (no measurements, no probe)
     monkeypatch.setattr(api, "detect", lambda: hw)
     monkeypatch.setattr(api, "get_service", lambda: svc)
@@ -416,6 +426,7 @@ def test_measured_outranks_predicted_for_value_and_band(monkeypatch):
 
     hw = _author_box()
     svc = _FakeService([_moe_with_facts()])
+    svc._cfg = _NO_DEADZONE
     svc._class_bw = (448.0, 51.2)
     # A real measured run on THIS box + backend (the July campaign's 28.6): the
     # row shows it, and the band is computed FROM it (fast ≥ 20), not from the
@@ -431,6 +442,64 @@ def test_measured_outranks_predicted_for_value_and_band(monkeypatch):
     svc._measurements = [_Meas("flagship", 28.6, "other|1|2c|4g", "cuda")]
     row = _client().get("/v1/llm-runner/models").json()["models"][0]
     assert row["measuredTokS"] is None and row["speedBand"] == "fine"
+
+
+def test_prediction_in_the_dead_zone_ships_no_word(monkeypatch):
+    """Speed-truth plan 2026-09-19 §5: the same ~8.7 prediction at the DEFAULT
+    dead zone (±10 %) sits 8.75 % above the 8.0 fine-line — the chip must get the
+    number, not a word the next probe reading could flip. predTokS still ships."""
+    hw = _author_box()
+    svc = _FakeService([_moe_with_facts()])
+    svc._class_bw = (448.0, 51.2)
+    monkeypatch.setattr(api, "detect", lambda: hw)
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    row = _client().get("/v1/llm-runner/models").json()["models"][0]
+    assert row["speedBand"] == ""
+    assert row["predTokS"] and 8.0 < row["predTokS"] <= 8.8, row["predTokS"]
+    assert row["measuredTokS"] is None
+
+
+def test_payload_root_carries_the_pick_floor_inputs(monkeypatch):
+    """Speed-truth plan 2026-09-19 §7: the pure picker computes its floor from the
+    SAME thresholds the bands used — band_fine_toks × (1 − speed_floor_grace)."""
+    hw = _author_box()
+    svc = _FakeService([_moe_with_facts()])
+    svc._class_bw = (448.0, 51.2)
+    monkeypatch.setattr(api, "detect", lambda: hw)
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    body = _client().get("/v1/llm-runner/models").json()
+    assert body["bandFineToks"] == 8.0 and body["speedFloorGrace"] == 0.2
+
+
+def test_the_speed_check_rung_moves_the_prediction(monkeypatch):
+    """With the one-minute check's GB/s on record the host leg is priced at it
+    (no factor) — the ~8.7 class-seeded prediction jumps, and the flagship
+    leaves the dead zone for a real word."""
+    hw = _author_box()
+    svc = _FakeService([_moe_with_facts()])
+    svc._class_bw = (448.0, 51.2)
+    svc._moe_probe_gbps = 29.18  # the real run on the author's box, 2026-09-19
+    monkeypatch.setattr(api, "detect", lambda: hw)
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    row = _client().get("/v1/llm-runner/models").json()["models"][0]
+    assert row["predTokS"] and row["predTokS"] >= 20, row["predTokS"]
+    assert row["speedBand"] == "fast"
+
+
+def test_a_measured_speed_near_a_line_keeps_its_word(monkeypatch):
+    """The dead zone is for PREDICTIONS only: a real measurement of 7.9 on this
+    box is honestly "slow" — it keeps the word even inside ±10 % of 8.0."""
+    from llm_runner.runner.hardware import machine_key as mk
+
+    hw = _author_box()
+    svc = _FakeService([_moe_with_facts()])
+    svc._class_bw = (448.0, 51.2)
+    svc._measurements = [_Meas("flagship", 7.9, mk(hw), "cuda")]
+    monkeypatch.setattr(api, "detect", lambda: hw)
+    monkeypatch.setattr(api, "get_service", lambda: svc)
+    row = _client().get("/v1/llm-runner/models").json()["models"][0]
+    assert row["measuredTokS"] == 7.9
+    assert row["speedBand"] == "slow"
 
 
 def test_ran_here_flags_this_box_evidence(monkeypatch):

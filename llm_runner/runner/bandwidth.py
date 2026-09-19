@@ -48,6 +48,20 @@ log = logging.getLogger(__name__)
 RAM_PROBE_MODEL_ID = "__machine_ram_bw__"
 RAM_PROBE_LABEL = "RAM copy bandwidth probe (GB/s in tokensPerSec)"
 
+# The ONE-MINUTE SPEED CHECK's result (speed-truth plan 2026-09-19 §6): the host
+# pool's effective MoE-expert streaming rate, measured by llama.cpp itself on the
+# calibration model — GB/s in `tokensPerSec`, like the RAM probe. The label is
+# BUILD-STAMPED (the `__overhead__` convention): a row from another engine build
+# is not this build's truth and reads as absent, so an engine upgrade simply
+# re-offers the check. Never auto-run (a download + two engine launches) — only
+# Quick setup starts it, and only on the user's click.
+MOE_PROBE_MODEL_ID = "__machine_moe_bw__"
+MOE_PROBE_LABEL_PREFIX = "moe-stream probe"
+
+
+def moe_probe_label(build: str) -> str:
+    return f"{MOE_PROBE_LABEL_PREFIX} {build}"
+
 # Apple-silicon UNIFIED-pool bandwidth, GB/s — Apple's own published specs
 # (apple.com newsroom/tech-spec pages per chip). Facts like the JEDEC numbers,
 # not tunables; a wrong entry is overridable via the class editor (source 3
@@ -256,7 +270,7 @@ def derive_device_bw_gbps(
         ngl = _int_flag(sw, "n_gpu_layers")
         if ngl is None or ngl < int(sf.get("n_layers") or 0) or (_int_flag(sw, "n_cpu_moe") or 0) > 0:
             continue
-        bytes_mb = float(sf.get("size_mb") or 0) + fit.kv_mb_from_facts(sf.get("kv_facts") or {}, ctx, bits)
+        bytes_mb = float(sf.get("size_mb") or 0) + fit.kv_mb_from_facts(sf.get("kv_facts") or {}, ctx, bits, unit=1e6)
         if bytes_mb <= 0:
             continue
         best = max(best or 0.0, tok_s * bytes_mb / 1000.0)
@@ -283,7 +297,7 @@ def derive_host_bw_gbps(
         ngl, ncmoe = _int_flag(sw, "n_gpu_layers"), _int_flag(sw, "n_cpu_moe")
         if ngl is None or ncmoe is None or n_layers <= 0 or ngl < n_layers or ncmoe < n_layers:
             continue  # placement not the clean all-experts-host shape → config unknown
-        dev_mb = float(sf.get("non_expert_mb") or 0) + fit.kv_mb_from_facts(sf.get("kv_facts") or {}, ctx, bits)
+        dev_mb = float(sf.get("non_expert_mb") or 0) + fit.kv_mb_from_facts(sf.get("kv_facts") or {}, ctx, bits, unit=1e6)
         remaining_s = 1.0 / tok_s - (dev_mb / 1000.0) / device_eff_gbps
         if remaining_s <= 0:
             continue  # device pricing ate the whole budget — not solvable from this row
@@ -304,6 +318,7 @@ def resolve_effective_bw(
     eff_device: float,
     eff_host: float,
     eff_host_probe: float = 0.40,
+    moe_probe_gbps: float | None = None,
 ) -> tuple[float | None, float | None]:
     """(device_eff_gbps, host_eff_gbps) down the ladder. Source-1 numbers are
     already effective; sources 2/3 are raw × their efficiency factor. The RAM
@@ -311,14 +326,24 @@ def resolve_effective_bw(
     live-calibrated 2026-08-13): its single-thread copy underruns multi-channel
     streaming, so pricing it with the generic host factor under-banded every
     MoE on the author's box (the flagship read "~slow"; the checkpoint caught
-    it)."""
+    it).
+
+    `moe_probe_gbps` — the one-minute speed check's result (speed-truth plan
+    2026-09-19 §6) — sits between real-model derivation and the memcpy probe:
+    it is llama.cpp's own expert streaming on this box, already effective, no
+    factor. Evidence for the rung: on the author's box it read 27.5 GB/s and
+    predicted the flagship's measured un-sped speed within 5 % (25.3 vs 26.6
+    tok/s), where probe × 0.40 said 8.4 (plan §11.4). A real model measured
+    here (source 1) still outranks it."""
     device_raw = (apple_pool_bw_gbps() if is_macos else nvidia_mem_bw_gbps()) or (class_vram_bw_gbps or None)
     device = derive_device_bw_gbps(rows, facts_by_id, machine_key=machine_key, backend=backend) \
         or (device_raw * eff_device if device_raw else None)
     host = derive_host_bw_gbps(rows, facts_by_id, machine_key=machine_key, backend=backend,
                                device_eff_gbps=device)
     if host is None:
-        if probe_gbps:
+        if moe_probe_gbps:
+            host = moe_probe_gbps
+        elif probe_gbps:
             host = probe_gbps * eff_host_probe
         elif class_ram_bw_gbps:
             host = class_ram_bw_gbps * eff_host

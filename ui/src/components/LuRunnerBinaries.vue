@@ -19,6 +19,11 @@ import { request } from "../client.js";
 
 const rows = ref([]);
 const pinnedBuild = ref("");
+// The one-minute speed check's test model (speed-truth plan 2026-09-19 §6) — the
+// same "config is data" rule as the binaries: a moved release asset is a pasted
+// URL, never a code change. The two MB facts belong to THAT file (read from its
+// tensor table), so a different file needs its own numbers.
+const calib = ref({ url: "", sha: "", size: 0, activeMb: 0, nonexpertMb: 0 });
 // The VRAM margin + ctx cap fields MOVED to LuRunnerEngine's Loaded-models knobs
 // (fit-redesign §13.17 as amended at the Phase 3 go — the user's placement
 // ruling); this panel keeps only the pinned build + the per-(platform,gpu) URLs.
@@ -46,6 +51,10 @@ watch(pinnedBuild, _resolveRowsToPin);
 function _apply(d) {
   rows.value = (d.binaries || []).map((r) => ({ ...r }));
   pinnedBuild.value = d.pinnedBuild || "";
+  calib.value = {
+    url: d.calibModelUrl || "", sha: d.calibModelSha256 || "", size: d.calibModelSizeBytes || 0,
+    activeMb: d.calibActiveExpertMb || 0, nonexpertMb: d.calibNonexpertMb || 0,
+  };
   _resolveRowsToPin(); // show real paths for the current pin on load (never a placeholder)
 }
 
@@ -94,6 +103,15 @@ function saveSettings() {
   put({ pinnedBuild: (pinnedBuild.value || "").trim() }, "__settings");
 }
 
+function saveCalib() {
+  const c = calib.value;
+  put({
+    calibModelUrl: (c.url || "").trim(), calibModelSha256: (c.sha || "").trim(),
+    calibModelSizeBytes: Number(c.size) || 0, calibActiveExpertMb: Number(c.activeMb) || 0,
+    calibNonexpertMb: Number(c.nonexpertMb) || 0,
+  }, "__calib");
+}
+
 async function addRow() {
   const platform = (draft.value.platform || "").trim();
   const gpu = (draft.value.gpu || "").trim();
@@ -126,7 +144,7 @@ async function reset() {
   <details class="lu-engbin" @toggle="onToggle">
     <summary class="lu-engbin-summary">
       <span class="lu-engbin-title">Engine binaries</span>
-      <span class="lu-muted">llama.cpp download URLs · pinned build</span>
+      <span class="lu-muted">llama.cpp download URLs · pinned build · speed-check model</span>
     </summary>
 
     <div class="lu-engbin-body">
@@ -178,6 +196,31 @@ async function reset() {
           </table>
         </div>
 
+        <p class="lu-muted lu-engbin-help">
+          <b>Speed-check model</b> — the small test model Quick setup's one-minute speed check
+          downloads and runs. The file is verified against its sha256 after every download; the
+          two sizes describe that exact file (per token, the expert weights read and everything
+          else), so a different file needs its own numbers.
+        </p>
+        <div class="lu-engbin-settings">
+          <label class="lu-engbin-field lu-engbin-field--path">Download URL
+            <UiInput v-model="calib.url" width="path" />
+          </label>
+          <label class="lu-engbin-field lu-engbin-field--path">sha256
+            <UiInput v-model="calib.sha" width="path" />
+          </label>
+          <label class="lu-engbin-field">Size (bytes)
+            <UiInput v-model="calib.size" type="number" width="id" />
+          </label>
+          <label class="lu-engbin-field">Expert MB per token
+            <UiInput v-model="calib.activeMb" type="number" width="token" />
+          </label>
+          <label class="lu-engbin-field">Other MB
+            <UiInput v-model="calib.nonexpertMb" type="number" width="token" />
+          </label>
+          <UiButton intent="primary" size="small" :loading="busy === '__calib'" @click="saveCalib">Save</UiButton>
+        </div>
+
         <div class="lu-engbin-foot">
           <UiButton intent="secondary" size="small" :loading="busy === '__reset'" @click="reset">Reset to defaults</UiButton>
         </div>
@@ -195,6 +238,9 @@ async function reset() {
 .lu-engbin-help code { font-family: var(--font-mono, monospace); font-size: 11px; background: var(--surface-2, var(--surface)); padding: 0 3px; border-radius: 3px; }
 .lu-engbin-settings { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .lu-engbin-field { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+/* A URL / a 64-char hash: the label takes the kit's path width so the input can use its
+   own ui-w-path cap (otherwise the column shrinks it to the input's default size). */
+.lu-engbin-field--path { width: var(--w-path, 480px); max-width: 100%; }
 .lu-engbin-scroll { overflow-x: auto; }
 /* Mechanics come from the shared .ui-formgrid; the nowrap is this table's own —
    platform/GPU headers must not wrap inside a horizontally scrolling row. */

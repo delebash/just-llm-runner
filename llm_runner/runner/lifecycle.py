@@ -40,6 +40,7 @@ from .config import (
     MAX_DOWNLOAD_CONCURRENT,
     default_config as _default_config,
 )
+from .gguf import gguf_total_bytes
 from .gguf import read_gguf_metadata as _read_gguf_metadata
 from .hardware import (
     budget_total_mb as _hw_budget_total,
@@ -716,6 +717,46 @@ class RunnerService:
 
         threading.Thread(target=_run, name="llm-runner-ram-probe", daemon=True).start()
         return None
+
+    def host_moe_bw_gbps(self, machine_key_str: str) -> float | None:
+        """The one-minute speed check's host GB/s for THIS box AND the engine
+        build on disk (speed-truth plan 2026-09-19 §6) — or None. Unlike the RAM
+        probe this NEVER kicks itself off: it is a download plus two engine
+        launches, run only when the user clicks it in Quick setup. A row from
+        another build reads as absent (label build-stamped, the `__overhead__`
+        convention), so an engine upgrade simply re-offers the check."""
+        from .bandwidth import MOE_PROBE_MODEL_ID, moe_probe_label
+
+        build = self._installed_build(self._config_fn())
+        if not build:
+            return None
+        want = moe_probe_label(build)
+        for r in self.measurement_rows():  # newest first — the latest check wins
+            if getattr(r, "modelId", "") == MOE_PROBE_MODEL_ID \
+                    and getattr(r, "machineKey", "") == machine_key_str \
+                    and getattr(r, "label", "") == want:
+                return float(getattr(r, "tokensPerSec", 0) or 0) or None
+        return None
+
+    def record_machine_probe(self, gbps: float, machine_key_str: str, model_id: str,
+                             label: str) -> bool:
+        """Persist a machine pseudo-row through the host's recorder (the RAM
+        probe's DI seam, `record_probe_fn`). False when no recorder is wired."""
+        if self._record_probe_fn is None:
+            return False
+        self._record_probe_fn(gbps, machine_key_str, model_id, label)
+        return True
+
+    def installed_build(self) -> str | None:
+        """The engine build on disk, or None — the public face of
+        `_installed_build` for callers outside the service (the speed check)."""
+        return self._installed_build(self._config_fn())
+
+    def installed_exe(self) -> Path | None:
+        """The llama-server exe this box would spawn, or None when no engine
+        is installed — what the speed check launches, so it measures the
+        exact binary every real load uses."""
+        return self._acquired_exe(self.cache_root, self._config_fn(), self._hardware_fn())
 
     def status(self) -> dict:
         """Back-compat SINGLE-model view: the primary (most-recently-loaded) model's
@@ -1419,7 +1460,7 @@ class RunnerService:
             meta = self._read_meta(gguf)
             draft_meta, draft_bytes = self._draft_fit_inputs(ov)
             cfg = self._config_fn()
-            f = compute_fit(meta, gguf.stat().st_size, self._hardware_fn(), ov,
+            f = compute_fit(meta, gguf_total_bytes(gguf), self._hardware_fn(), ov,
                             safety_margin_mb=cfg.safety_margin_mb,
                             ctx_cap_tokens=cfg.ctx_cap_tokens,
                             draft_meta=draft_meta, draft_bytes=draft_bytes)
@@ -1444,7 +1485,8 @@ class RunnerService:
         import statistics
 
         cfg = self._config_fn()
-        size_mb = (model.size_bytes / 1e6) if model.size_bytes else None
+        # MiB — compared with hardware MiB (vram-truth plan 2026-09-19 §6.4).
+        size_mb = (model.size_bytes / (1024 * 1024)) if model.size_bytes else None
         ram_mb = int(round(size_mb + max(0, cfg.ram_headroom_mb))) if size_mb \
             else int(model.min_ram_mb or 0)
         # Arm 1 — resident-live: the arbiter's booked number, with its §13.1
@@ -1466,7 +1508,7 @@ class RunnerService:
                 meta = self._read_meta(gguf)
                 draft_meta, draft_bytes = self._draft_fit_inputs(ov)
                 hardware = self._hardware_fn()
-                f = compute_fit(meta, gguf.stat().st_size, hardware, ov,
+                f = compute_fit(meta, gguf_total_bytes(gguf), hardware, ov,
                                 safety_margin_mb=cfg.safety_margin_mb,
                                 ctx_cap_tokens=cfg.ctx_cap_tokens,
                                 draft_meta=draft_meta, draft_bytes=draft_bytes)
@@ -1517,7 +1559,11 @@ class RunnerService:
                 # old rows by label non-match — recalibration by construction).
                 vram = float(f.vram_mb)
                 if f.n_gpu_layers > 0 and vram > 0:
-                    build = cfg.llamacpp.pinned_build
+                    # The build ON DISK (R2 of the vram-truth plan: the pin is a choice,
+                    # the running engine is a fact — QC-13) + the physics version: a
+                    # coefficient learned under another byte model must not apply.
+                    from .fit import PHYSICS_VERSION
+                    build = f"{self._installed_build(cfg) or cfg.llamacpp.pinned_build} {PHYSICS_VERSION}"
                     learned = [int(getattr(r, "vramModelMb", 0) or 0) for r in rows
                                if getattr(r, "modelId", "") == "__overhead__"
                                and getattr(r, "machineKey", "") == mkey
@@ -1949,7 +1995,7 @@ class RunnerService:
             return None, 0
         try:
             p = Path(path)
-            return self._read_meta(p), p.stat().st_size
+            return self._read_meta(p), gguf_total_bytes(p)
         except Exception:  # noqa: BLE001 — a fit input, never a load blocker
             log.warning("draft header read failed for %r — its VRAM is not charged to "
                         "the fit", path, exc_info=True)
@@ -2297,7 +2343,7 @@ class RunnerService:
             # The draft (just acquired + pinned above) is GPU-resident alongside the
             # main model — charge its VRAM to the fit, or it silently sheds main layers.
             draft_meta, draft_bytes = self._draft_fit_inputs(ov)
-            fit = compute_fit(meta, gguf.stat().st_size, hardware, ov,
+            fit = compute_fit(meta, gguf_total_bytes(gguf), hardware, ov,
                               safety_margin_mb=config.safety_margin_mb,
                               ctx_cap_tokens=config.ctx_cap_tokens,
                               draft_meta=draft_meta, draft_bytes=draft_bytes)
@@ -2309,7 +2355,7 @@ class RunnerService:
                 model_id=model_id, gguf_path=str(gguf),
                 n_gpu_layers=fit.n_gpu_layers if fit.ngl_explicit else None,
                 n_cpu_moe=fit.n_cpu_moe if fit.ncmoe_explicit else None,
-                ctx_len=fit.ctx_len, overrides=ov,
+                ctx_len=fit.ctx_len, overrides=ov, block_count=fit.block_count,
             )
 
             with self._router_lock:
@@ -2504,7 +2550,12 @@ class RunnerService:
                 # the seed overhead; the observed overhead is the measured total
                 # minus the physics weights+kv part.
                 observed = max(0.0, trued_mb - (f.vram_mb - seed))
-                build = config.llamacpp.pinned_build if config is not None else ""
+                # Stamp = the build ON DISK + the physics version (vram-truth plan R2 /
+                # §6.5) — the reader above matches the same suffix, so a pin bump, an
+                # engine swap, or a new byte model each re-learn instead of misapplying.
+                from .fit import PHYSICS_VERSION
+                disk = (self._installed_build(config) if config is not None else None)                     or (config.llamacpp.pinned_build if config is not None else "")
+                build = f"{disk} {PHYSICS_VERSION}"
                 self._record_load_fn("__overhead__", vram_model_mb=int(observed),
                                      switches={}, source="probe",
                                      label=f"physics-overhead {build}")
@@ -2889,7 +2940,7 @@ class RunnerService:
                 # Same draft-VRAM charge as the active-load path: a PASSIVE section that
                 # carries `model-draft` holds those bytes too once the router loads it.
                 draft_meta, draft_bytes = self._draft_fit_inputs(ov)
-                fit = compute_fit(meta, gguf.stat().st_size, hardware, ov, safety_margin_mb=margin,
+                fit = compute_fit(meta, gguf_total_bytes(gguf), hardware, ov, safety_margin_mb=margin,
                                   ctx_cap_tokens=ctx_cap,
                                   draft_meta=draft_meta, draft_bytes=draft_bytes)
                 # Same 1b fit-by-omission rule as the active-load path above.
@@ -2897,7 +2948,7 @@ class RunnerService:
                     model_id=m.id, gguf_path=str(gguf),
                     n_gpu_layers=fit.n_gpu_layers if fit.ngl_explicit else None,
                     n_cpu_moe=fit.n_cpu_moe if fit.ncmoe_explicit else None,
-                    ctx_len=fit.ctx_len, overrides=ov,
+                    ctx_len=fit.ctx_len, overrides=ov, block_count=fit.block_count,
                 ))
             except Exception:  # noqa: BLE001 — skip one model, keep the rest of the .ini
                 log.warning("skipping .ini section for %s (meta/fit failed)", m.id, exc_info=True)
@@ -3215,7 +3266,7 @@ class RunnerService:
                     n_gpu_layers=fit.n_gpu_layers, n_cpu_moe=fit.n_cpu_moe,
                     ctx_len=entry.ctx_len, overrides=entry.overrides,
                     embeddings=entry.embeddings, pooling=entry.pooling,
-                    load_on_startup=entry.load_on_startup,
+                    load_on_startup=entry.load_on_startup, block_count=fit.block_count,
                 )
                 self._emit_ini(override=entry)
                 self._bounce_router(server_exe, config)
@@ -3301,7 +3352,7 @@ class RunnerService:
                     model_id=entry.model_id, gguf_path=entry.gguf_path, n_gpu_layers=ngl,
                     n_cpu_moe=ncmoe, ctx_len=entry.ctx_len, overrides=entry.overrides,
                     embeddings=entry.embeddings, pooling=entry.pooling,
-                    load_on_startup=entry.load_on_startup,
+                    load_on_startup=entry.load_on_startup, block_count=fit.block_count,
                 )
                 self._emit_ini(override=entry)
                 self._bounce_router(server_exe, config)

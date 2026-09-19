@@ -101,6 +101,14 @@ Verified against upstream builds in code (so a reviewer knows what's already ado
 - **Perf / memory flags** — cache types (`--cache-type-*`), offload/`-ngl`, mmap/mlock,
   batching, speculative decode — anything that changes our switch defaults.
 - **Breaking changes** — any switch we set that upstream renamed/removed/re-defaulted.
+- **Placement rules the fit copies** (vram-truth plan 2026-09-19 §2.1) — on EVERY
+  pin bump re-read and re-quote: `src/llama-model.cpp` `i_gpu_start = n_layer_all +
+  1 − n_gpu_layers` / `act_gpu_layers` / "always keep [the input layer] on the CPU"
+  (→ `fit.engine_gpu_blocks`, `process.engine_ngl_flag`); the tied-head
+  `TENSOR_DUPLICATED` idiom (e.g. `src/models/gemma4.cpp`); `common/common.h`
+  `LLM_FFN_EXPS_REGEX` (→ `gguf.EXPS_REGEX` — it gained `gate_up` since b6895);
+  `llama-fit-params` `-fitp` output shape (the validation oracle). Then re-run the
+  plan's Step 0b on one MoE + one dense model: predicted vs engine model-MiB < 1 %.
 - **Binaries** — asset naming / CUDA-runtime companion changes affecting
   `DEFAULT_BINARIES` + `runtime_url` plumbing (`runner/download.py`, `runner/binary.py`).
 

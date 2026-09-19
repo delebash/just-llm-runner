@@ -33,15 +33,151 @@ NOT:    NVML/rocm-smi probing · synthetic local GGUF · hidden catalog row ·
         stateful band hysteresis · auto-running the 10-min sweep (2026-07-07
         "Apply never auto-starts it" stands) · HF as the shipped download
         source · in-tree/LFS hosting.
-BUILT:  nothing — the plan doc + this item only.
-OPEN:   items 1 (post-Apply auto-measure) · 2 (band dead-zone honesty) ·
-        spike (§8 — BLOCKS 3-4; ends with the USER uploading the verified
-        GGUF to release tag calib-v1) · 3 (opt-in one-minute speed check,
-        uncurated boxes only) · 4 (grace-margined floor in the fallback
-        pick).
-GO:     plan-doc go given 2026-09-19 ("write of the plan doc i will have
-        opus execute the code and test"); per-item code go in the executing
-        session.
+        Then, after the spike: *"your rec on all four, go"* — (a) the spike's
+        band [5,13] is replaced by the pass-C ground truth ("calibration
+        predicts the flagship's measured un-sped speed within 15 %" — it did,
+        within 5 %), so items 3-4 proceed · (b) the calibration file's exact
+        active-expert bytes are SEEDED beside its sha (182.8 MB — the file is
+        sha-pinned, so the number is a constant); the Mixtral-style
+        `expert_byte_share()` fix is its OWN item below, not folded in · (c)
+        `bw_eff_host_probe` 0.40 stays as the pessimistic fallback rung;
+        calibration and measurement supersede it; re-seed only with
+        multi-box evidence · (d) publish the verified GGUF to release
+        calib-v1. Full record: plan §11.
+BUILT:  ALL FOUR ITEMS + the spike + the release, 2026-09-19 — plan §11
+        (execution record, deviations, gates, rendered checks). Release:
+        https://github.com/delebash/just-llm-runner/releases/tag/calib-v1.
+        The real speed check ran end to end on the author's box: 29.18 GB/s
+        in 24 s including the download (plan §11.9).
+OPEN:   the user's walks — Item 1 through a real Quick-setup Apply; Item 3
+        on a machine WITHOUT a class preset (the author's box is curated, so
+        the card never shows there — by design). Pre-existing, noticed, not
+        changed: the catalog badge calls `recommendedModelId` without
+        `runnable: FIT_GPU` while the wizard passes it, so the two can still
+        differ on a CPU-spill-only box (plan §11.8).
+GO:     given 2026-09-19 for all items.
+
+
+## The KV figure ignores llama-server's parallel slots [verified 2026-09-19]
+
+STATE:  FINDING — the vram-truth plan's Step 0c (plan
+        `docs/plans/2026-09-19-vram-truth-exact-bytes-units-offload.md` §10.3).
+        The 26B at the app's exact argv under llama-server holds **799 MiB**
+        of KV on the card (340 global + 459 windowed) vs **493** in a
+        single-sequence run: the server's default parallel slots (4, unified
+        KV) scale the windowed-layer cache. The kit's KV figure for that
+        launch (`kv_mb_from_facts`, ~420 MiB) models neither; today the
+        learned `__overhead__` absorbs the gap.
+OPEN:   slot-aware KV in `fit.kv_mb_from_facts` / `GgufMeta.kv_mb_at_ctx`
+        (windowed cache × slots, or the engine's own figure via
+        `llama-fit-params -fitp` as the oracle) — then the learned overhead
+        shrinks to the real compute + context overhead.
+GO:     needed.
+
+
+## `expert_byte_share()` reads every Mixtral-style MoE as dense [verified 2026-09-19]
+
+STATE:  FINDING — the speed-truth spike (plan
+        `docs/plans/2026-09-19-speed-truth-and-calibrated-pick.md` §11.4).
+        `runner/gguf.py:137` returns 0.0 unless `expert_feed_forward_length`
+        > 0. Mixtral-style arches (granitemoe verified: header
+        `feed_forward_length 512`, `expert_feed_forward_length` ABSENT) keep
+        the per-expert FFN in `feed_forward_length` and have no dense FFN, so
+        the byte model reads them as dense: `active_bytes_per_pass_mb` →
+        (whole file, 0). The formula also overstates the flagship's share
+        (header 0.9389 vs exact tensor-table 0.9026, err-slow ~4 %).
+WHY:    every fit/booking/speed number for such a catalog row is priced as
+        if nothing offloads to RAM.
+NOT:    folded into the speed-truth items (user ruling (b), 2026-09-19 —
+        its own blast radius).
+OPEN:   the fix — `expert_feed_forward_length` absent + `expert_count` > 0 →
+        per-expert FFN = `feed_forward_length`, dense FFN = 0; consider
+        reading exact `*_exps` tensor bytes from the tensor table instead of
+        the header estimate. Blast radius: every consumer of
+        `expert_byte_share` (fit booking, `identity.py:97` facts, the speed
+        split) for those arches.
+DECIDED 2026-09-19 — "your rec go" → Opus's read-only check; then "fable
+        think on what opus found wrong and the solution" → a review; then
+        "write this plan up for opus to execute, once plan is written in
+        detail i will have opus run it". THE PLAN (self-contained, every
+        claim receipted, Step 0 = measure before any code):
+        `docs/plans/2026-09-19-vram-truth-exact-bytes-units-offload.md`.
+        The approved recommendation, verbatim: "1. Measure first, no code …
+        The prediction to beat is 4,968 MiB … Run the 30-vs-31 layer A/B. Try
+        llama-fit-params.exe, the engine's own estimator, which ships in your
+        build. 2. Fix the launch so 'all layers' means n_layers + 1, but only
+        if the A/B shows a gain. 3. Store exact block sizes as new facts.
+        Read the sizes from the file's block offsets … Sort the blocks with
+        the engine's own pattern, and handle multi-part files. Convert to MiB
+        in the VRAM path. Keep the old share as the fallback. Existing
+        databases fill the new fields on their own, with no migration.
+        4. Pin the tests to the engine's own numbers from step 1, not to the
+        formula's output. Stamp the overhead rows with the build on disk plus
+        a physics version." (full text: plan §1)
+CORRECTED 2026-09-19 (the review) — Opus's check numbers, recorded here
+        earlier the same day, mixed units and are SUPERSEDED: the kit computes
+        weights/KV in DECIMAL MB (`/ 1e6`) but budgets and measurements are
+        MiB. In one unit: exact on-card weights for the real launch = 4,968
+        MiB; the kit's numeral 4,884 is ~84 MiB low AS USED (not 325); true
+        engine overhead ~1,134 MiB (not 860) — the learned `__overhead__`
+        rows (1,058-1,127) are about right; "every other model over-booked
+        ~325 MB" does not hold. What stands: the placement read (llama.cpp
+        `llama-model.cpp:1347-1372`, `gemma4.cpp:44-47` — identical in the
+        pinned b9993 and the on-disk b10437) and the Mixtral-style share = 0
+        bug. What the review ADDED (all in the plan §2): the 4.86 % unit
+        over-statement everywhere · explicit-placement launches are one layer
+        short of full offload (`process.py:516` clamps a tune's 99 to
+        block_count; `-ngl n` = output + last n-1 blocks; untuned launches
+        omit the flag — `lifecycle.py:2344-2351`) · UD quants break the
+        formula's uniform-bits assumption (exact share 0.9026 vs 0.9389) ·
+        the engine's exact regex `\.ffn_(up|down|gate|gate_up)_(ch|)exps` ·
+        split models pass only shard 1's size to `compute_fit`
+        (`lifecycle.py:2340`) · `__overhead__` is stamped with the PIN
+        (b9993) while b10437 runs · the engine ships its own estimator
+        (`llama-fit-params.exe -fitp on`) — the validation oracle.
+NOT:    (added) exact bytes WITHOUT the unit fix — it flips this box's 26B
+        from -84 MiB to +241 MiB over-booked · redefining `expert_byte_share`
+        in place (5 seeded rows in JW/JV + every existing DB keep the old
+        value; the plan ADDS three facts instead) · Opus's acceptance
+        ("prediction = 5,210", "overhead ~860") — arithmetic on one measured
+        number, and a unit error.
+BUILT:  2026-09-19 — ALL of Steps 0-3; record: plan §10.
+        Step 0: the engine's own estimator matched our placement on 11 configs
+        to < 1 MiB; the real load measured 4,968.43 MiB = the prediction.
+        Step 1 (R1: adopted on +5.94 % tok/s): "all blocks" renders -ngl n+1.
+        Step 2: exact tensor bytes + one unit (MiB); seeds refreshed from HF;
+        the 26B's exact-bytes split = ncmoe 22, inside the measured band (R3
+        held). Step 3: kit 942 · JW 579 + 128 · JV 67 + 741 · smoke clean ·
+        on-box: the app launches -ngl 31, load 6,789 MiB, overhead row
+        "physics-overhead b10437 p2" (R2).
+OPEN:   JW `docs/whats-new.md` has no open section (top = v1.3.0 — 2026-07) —
+        where the user-visible note goes is the user's call. Nothing committed.
+GO:     plan-doc go given 2026-09-19; EXECUTION go 2026-09-19 — "opus execute
+        plan r1-r3 your rec" (R1 clear gain only · R2 disk build · R3 never
+        widen a measured band — plan §1).
+
+
+## The Recommended badge and Quick setup share ONE runnable rule [verified 2026-09-19]
+
+STATE:  DECIDED 2026-09-19 — "your rec go" on: "put the restriction inside
+        the shared rule, so both screens get it from one place" + "Decision:
+        should the badge go blank on CPU-only machines? My rec: yes — it
+        matches your ruling."
+WHY:    Quick setup passes `runnable: FIT_GPU` and pre-filters to GPU-fitting
+        chat models (user ruling 2026-07-06: CPU prose is too slow to
+        support); the catalog badge (`LuModelCatalog.vue` `recommendedId`)
+        passes neither, so its §10 fallback could recommend a CPU-spill
+        model the wizard refuses — while `bestFittingId`'s comment claims the
+        two "can never disagree".
+NOT:    a second copy of the filter in the badge's caller.
+BUILT:  2026-09-19 — `modelPick.js` `pickBestModel` takes `runnable` (default
+        FIT_RUNNABLE) and `recommendedModelId` passes its ONE set to both the
+        class-config branch and the §10 fallback; `LuModelCatalog.vue`
+        `recommendedId` passes `runnable: FIT_GPU` like the wizard. Truth
+        table 59/59 (+3: CPU-only box → no badge; no set → old behaviour
+        reachable; a better CPU-spill never beats a GPU fit). JW
+        `docs/models.md` says the badge is absent on a CPU-only machine.
+GO:     given 2026-09-19.
 
 
 ## The MTP solo-crash message blames causes the log contradicts [verified 2026-08-22]

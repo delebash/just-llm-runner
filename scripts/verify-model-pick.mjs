@@ -209,6 +209,49 @@ check("catalogState: chat rows, none fit → none-fit",
 check("catalogState: a fitting chat row → ok",
   cs([M("d-no", "no", "dense", 10), M("m-tight", "tight", "moe", 20)]), "ok");
 
-console.log(`\n§10 + class-config + composed-pick + #274-embed + catalog-state truth-table: ${pass} passed, ${fail} failed.`);
+// ── The speed floor in the fallback pick (speed-truth plan 2026-09-19 §7) ──────────────────
+// The floor = band_fine_toks × (1 − speed_floor_grace); the author's box: 8.0 × 0.8 = 6.4.
+const pickF = (models, speedFloor) => pickBestModel(models, {
+  typeOf: (m) => m.type, qualityOf: (m) => m.quality,
+  isEmbed: (m) => m.embed, isUseLimited: (m) => m.useLimited, speedFloor,
+});
+// The live catalog on the author's box (plan Appendix B): flagship 7.9 (quality 5),
+// E4B 25.9 (quality 23). THE TRAP the grace exists for: a HARD 8.0 floor drops the flagship.
+const flagship = M("flagship", "ok", "moe", 5, { predTokS: 7.9 });
+const e4b = M("e4b", "ok", "dense", 23, { predTokS: 25.9 });
+check("floor 6.4: flagship at 7.9 stays picked", pickF([flagship, e4b], 6.4), "flagship");
+check("hard floor 8.0 would drop it (why the grace exists)", pickF([flagship, e4b], 8.0), "e4b");
+check("floor 6.4: a 5.0 prediction yields to the next model above the floor",
+  pickF([M("slow-best", "ok", "moe", 1, { predTokS: 5.0 }), e4b], 6.4), "e4b");
+check("everything below the floor → fallback still picks (never empty)",
+  pickF([M("a", "ok", "moe", 1, { predTokS: 3.0 }), M("b", "ok", "dense", 9, { predTokS: 2.0 })], 6.4), "a");
+check("no prediction passes (unknown never vetoes)",
+  pickF([M("unknown", "ok", "moe", 1, { predTokS: null }), e4b], 6.4), "unknown");
+check("measured outranks predicted in the comparison",
+  pickF([M("meas", "ok", "moe", 1, { predTokS: 3.0, measuredTokS: 26.6 }), e4b], 6.4), "meas");
+check("floor 0 / absent = the pre-plan rule",
+  pickF([M("slow-best", "ok", "moe", 1, { predTokS: 1.0 }), e4b], 0), "slow-best");
+// The floor reaches ONLY the fallback: a curated class config still wins below it.
+check("class config outranks the floor",
+  recommendedModelId([M("cfg", "ok", "moe", 5, { predTokS: 2.0 }), e4b], {
+    classTuneRefs: [{ modelId: "cfg", classKey: "k" }], myClassKey: "k",
+    typeOf: (m) => m.type, qualityOf: (m) => m.quality, isEmbed: (m) => m.embed,
+    isUseLimited: (m) => m.useLimited, speedFloor: 6.4,
+  }), "cfg");
+
+// ── One runnable set for badge AND wizard (2026-09-19) ─────────────────────────────────────
+// The catalog badge used to pass no `runnable`, so its §10 fallback could land on a CPU-spill
+// model the wizard (FIT_GPU, user ruling 2026-07-06) refuses. Now the set reaches BOTH branches.
+const accR = { classTuneRefs: [], myClassKey: "k", typeOf: (m) => m.type, qualityOf: (m) => m.quality,
+  isEmbed: (m) => m.embed, isUseLimited: (m) => m.useLimited };
+const cpuOnly = [M("c1", "cpu", "moe", 5), M("c2", "cpu", "dense", 9)];
+check("CPU-only box, GPU set → no recommendation (matches the wizard's none-fit)",
+  recommendedModelId(cpuOnly, { ...accR, runnable: FIT_GPU }), "");
+check("CPU-only box, no set given → the old behaviour is still reachable",
+  recommendedModelId(cpuOnly, accR), "c1");
+check("a better CPU-spill model never beats a GPU-fitting one under the GPU set",
+  recommendedModelId([M("spill", "cpu", "moe", 1), M("gpu", "ok", "dense", 20)], { ...accR, runnable: FIT_GPU }), "gpu");
+
+console.log(`\n§10 + class-config + composed-pick + #274-embed + catalog-state + speed-floor + runnable-set truth-table: ${pass} passed, ${fail} failed.`);
 process.exit(fail ? 1 : 0);
 

@@ -67,9 +67,10 @@ def parse_params(s: str | None) -> float | None:
 
 
 def weights_mb(total_params: str | None, quant: str) -> float | None:
-    """Estimated weight size in MB from total params × effective bytes/weight."""
+    """Estimated weight size in MiB from total params × effective bytes/weight
+    (MiB — it is compared against hardware MiB; vram-truth plan 2026-09-19 §6.4)."""
     p = parse_params(total_params)
-    return None if p is None else p * bytes_per_param(quant) / 1e6
+    return None if p is None else p * bytes_per_param(quant) / MIB
 
 
 def coarse_fit(
@@ -280,6 +281,44 @@ def moe_gpu_size_share(
 # by Phase 5's persisted true-ups); metal = a conservative one-pool constant
 # (same provenance). NOT operator knobs — these become DB rows with the
 # measurement loop in Phase 5; until then they are seed values, not tunables.
+# ONE unit for the VRAM path (vram-truth plan 2026-09-19 §6.4): every budget and
+# measurement is MiB (`hardware.py` // 1024²), so every weight / KV / draft figure
+# compared against them is MiB too. (Until 2026-09-19 they were decimal MB — a
+# 4.86 % over-statement.) The SPEED path stays decimal MB against decimal GB/s.
+MIB = 1024 * 1024
+# Bump when the byte model changes: `__overhead__` rows carry it in their label so a
+# new model re-learns its overhead instead of reading one learned under the old.
+PHYSICS_VERSION = "p2"
+
+
+def engine_gpu_blocks(block_count: int, ngl_flag: int) -> range:
+    """Block indices llama.cpp puts on the GPU for an EMITTED `-ngl` value
+    (b9993/b10437 `llama-model.cpp`: `i_gpu_start = n_layer + 1 - ngl`,
+    `act = min(ngl, n_layer + 1)`): the output layer goes first, then the LAST
+    ngl - 1 blocks — `-ngl n` leaves block 0 on the CPU; n + 1 is full offload."""
+    if ngl_flag <= 0 or block_count <= 0:
+        return range(0)
+    start = max(block_count + 1 - ngl_flag, 0)
+    return range(min(start, block_count), block_count)
+
+
+def placed_weight_mib(*, layer_nonexp: list[int], layer_exps: list[int], output_bytes: int,
+                      block_count: int, ngl_flag: int, n_cpu_moe: int) -> float:
+    """EXACT device-resident weight MiB for a launch, from the tensor table: the
+    output side (any ngl >= 1 — incl. a tied head's duplicated vocab table) + every
+    GPU block's non-expert bytes + the expert bytes of GPU blocks >= n_cpu_moe
+    (`--n-cpu-moe N` keeps the FIRST N blocks' experts in RAM). Validated against
+    llama.cpp's own estimator on 11 configs to < 1 MiB (plan §10.2)."""
+    if ngl_flag <= 0:
+        return 0.0
+    total = int(output_bytes)
+    for i in engine_gpu_blocks(block_count, ngl_flag):
+        total += layer_nonexp[i] if i < len(layer_nonexp) else 0
+        if i >= n_cpu_moe and i < len(layer_exps):
+            total += layer_exps[i]
+    return total / MIB
+
+
 PHYSICS_OVERHEAD_MB: dict[str, float] = {
     "cuda": _C5,
     "vulkan": _C5 + 512.0,
@@ -292,9 +331,10 @@ PHYSICS_OVERHEAD_MB: dict[str, float] = {
 def kv_exact_mb(
     *, n_layers: int, n_kv_heads: int, ctx_size: int, cache_type: int,
     key_length: int = 0, value_length: int = 0,
-    embedding_dim: int = 0, head_count: int = 0,
+    embedding_dim: int = 0, head_count: int = 0, unit: float = 0.0,
 ) -> float:
-    """Exact whole-model KV size (MiB) for a UNIFORM-attention model — the §5.1
+    """Exact whole-model KV size (MiB by default; `unit=1e6` for the decimal-MB
+    SPEED path) for a UNIFORM-attention model — the §5.1
     generalization of `GgufMeta.kv_mb_at_ctx` (which stays the source for iSWA
     models, where per-layer windows change the answer). Per layer, per token:
     kv_heads × (key_dim + value_dim) × cache_bytes. Missing per-head dims fall
@@ -308,11 +348,13 @@ def kv_exact_mb(
     k = key_length or head_dim or 128
     v = value_length or head_dim or 128
     bytes_per_elem = max(1, cache_type) / 8.0
-    return n_layers * n_kv_heads * (k + v) * ctx_size * bytes_per_elem / 1e6
+    return n_layers * n_kv_heads * (k + v) * ctx_size * bytes_per_elem / (unit or MIB)
 
 
-def kv_mb_from_facts(facts: dict, ctx: int, cache_bits: int = 16) -> float:
-    """KV size (MiB) at `ctx` from the STORED physics facts — the §13.11 scalar
+def kv_mb_from_facts(facts: dict, ctx: int, cache_bits: int = 16, *, unit: float = 0.0) -> float:
+    """KV size at `ctx` from the STORED physics facts — MiB by default (the VRAM
+    path compares it with hardware MiB); the SPEED path passes `unit=1e6` because its
+    bandwidths are decimal GB/s (vram-truth plan 2026-09-19 §6.4). The facts — the §13.11 scalar
     formula `KV(ctx,bits) = [Wb × min(ctx,window) + Gb × ctx] × bits/8`, byte-
     identical to `GgufMeta.kv_mb_at_ctx`'s per-layer loop (pinned by test).
     Lives HERE (moved from llm/identity.py at Phase 3) because the runner's badge
@@ -322,13 +364,14 @@ def kv_mb_from_facts(facts: dict, ctx: int, cache_bits: int = 16) -> float:
     gb = float(facts.get("kv_global_bytes_per_token") or 0.0)
     window = int(facts.get("sliding_window") or 0)
     if wb or gb:
-        return (wb * min(ctx, window if window > 0 else ctx) + gb * ctx) * (cache_bits / 8.0) / 1e6
+        return (wb * min(ctx, window if window > 0 else ctx) + gb * ctx) * (cache_bits / 8.0) / (unit or MIB)
     return kv_exact_mb(
         n_layers=int(facts.get("block_count") or 0),
         n_kv_heads=int(facts.get("n_kv_heads") or 0),
         ctx_size=ctx, cache_type=cache_bits,
         embedding_dim=int(facts.get("embedding_length") or 0),
         head_count=int(facts.get("head_count") or 0),
+        unit=unit,
     )
 
 
@@ -415,6 +458,19 @@ def speed_band(tok_s: float | None, *, fast: float, fine: float, slow: float) ->
     return "painful"
 
 
+def in_band_deadzone(tok_s: float | None, *, fast: float, fine: float, slow: float,
+                     frac: float) -> bool:
+    """True when a PREDICTED tok/s sits within `frac` of any band threshold
+    (speed-truth plan 2026-09-19 §5). The caller then ships band "" and the chip
+    shows the number, because a word there is a coin flip: the flagship on the
+    author's box predicts 7.9 against a fine-line of 8.0, and a ±2 % RAM-probe
+    wobble crosses it. Callers apply this to predictions only — a measured
+    speed keeps its word. frac ≤ 0 disables; a threshold ≤ 0 never matches."""
+    if not tok_s or tok_s <= 0 or not frac or frac <= 0:
+        return False
+    return any(t > 0 and abs(tok_s - t) / t <= frac for t in (fast, fine, slow))
+
+
 def physics_vram_mb(
     *, size_mb: float, n_layers: int, gpu_layers: int, moe_share: float,
     kv_mb: float, overhead_mb: float,
@@ -437,7 +493,7 @@ def physics_vram_mb(
 
 def moe_joint_split(
     *, size_mb: float, n_layers: int, expert_share: float, kv_mb: float,
-    overhead_mb: float, budget_mb: float,
+    overhead_mb: float, budget_mb: float, need_fn=None,
 ) -> tuple[int, int]:
     """(n_gpu_layers, n_cpu_moe) for an UNTUNED MoE on a two-pool box — the
     Phase 6 joint solve (fit-redesign §5.7): pin ngl = n_layers and walk the
@@ -451,29 +507,24 @@ def moe_joint_split(
     the same physics (the spawn back-off nets residual error). Both walks are
     monotone; a tiny loop, never a solver."""
     n_layers = max(1, n_layers)
+
+    def _need(g: int, nc: int) -> float:
+        # `need_fn(g, nc)` = the caller's EXACT booking (tensor-table bytes placed by
+        # llama.cpp's rules — vram-truth §6.3); absent -> the share approximation.
+        if need_fn is not None:
+            return need_fn(g, nc)
+        share = moe_gpu_size_share(n_layers=n_layers, gpu_layers=g, n_cpu_moe=nc,
+                                   expert_share=expert_share)
+        return physics_vram_mb(size_mb=size_mb, n_layers=n_layers, gpu_layers=g,
+                               moe_share=share, kv_mb=kv_mb, overhead_mb=overhead_mb)
+
     for nc in range(0, n_layers + 1):
-        share = moe_gpu_size_share(
-            n_layers=n_layers, gpu_layers=n_layers, n_cpu_moe=nc,
-            expert_share=expert_share,
-        )
-        need = physics_vram_mb(
-            size_mb=size_mb, n_layers=n_layers, gpu_layers=n_layers,
-            moe_share=share, kv_mb=kv_mb, overhead_mb=overhead_mb,
-        )
-        if need <= budget_mb:
+        if _need(n_layers, nc) <= budget_mb:
             return n_layers, nc
-        if expert_share <= 0:
+        if expert_share <= 0 and need_fn is None:
             break  # the walk is flat (no expert bytes to strip) — go shed layers
     for g in range(n_layers - 1, -1, -1):
-        share = moe_gpu_size_share(
-            n_layers=n_layers, gpu_layers=g, n_cpu_moe=n_layers,
-            expert_share=expert_share,
-        )
-        need = physics_vram_mb(
-            size_mb=size_mb, n_layers=n_layers, gpu_layers=g,
-            moe_share=share, kv_mb=kv_mb, overhead_mb=overhead_mb,
-        )
-        if need <= budget_mb:
+        if _need(g, n_layers) <= budget_mb:
             return g, n_layers
     return 0, n_layers
 

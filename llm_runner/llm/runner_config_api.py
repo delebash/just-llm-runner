@@ -47,6 +47,19 @@ class EngineConfig(BaseModel):
     bandFastToks: float = 20.0
     bandFineToks: float = 8.0
     bandSlowToks: float = 2.0
+    # Speed-truth plan 2026-09-19 §5 — a prediction within this fraction of a
+    # threshold shows its number instead of a band word. Same knobs group.
+    bandDeadzoneFrac: float = 0.10
+    # Speed-truth plan §7 — the fallback pick's floor = bandFineToks × (1 − this).
+    speedFloorGrace: float = 0.2
+    # Speed-truth plan §6 — the one-minute speed check's test model: where it
+    # downloads from, its sha256, size, and the two byte facts of THAT file.
+    # Edited in the Engine binaries panel beside the pinned build.
+    calibModelUrl: str = ""
+    calibModelSha256: str = ""
+    calibModelSizeBytes: int = 0
+    calibActiveExpertMb: float = 0.0
+    calibNonexpertMb: float = 0.0
     ramHeadroomMb: int = 4096
     modelsMax: int          # router: how many models may stay co-resident (>= 1)
     sleepIdleSeconds: int   # router: idle-unload TTL in seconds (0 = never)
@@ -95,6 +108,13 @@ class EngineConfigUpdate(BaseModel):
     bandFastToks: float | None = None
     bandFineToks: float | None = None
     bandSlowToks: float | None = None
+    bandDeadzoneFrac: float | None = None
+    speedFloorGrace: float | None = None
+    calibModelUrl: str | None = None
+    calibModelSha256: str | None = None
+    calibModelSizeBytes: int | None = None
+    calibActiveExpertMb: float | None = None
+    calibNonexpertMb: float | None = None
     ramHeadroomMb: int | None = None
     modelsMax: int | None = None
     sleepIdleSeconds: int | None = None
@@ -112,7 +132,7 @@ class RunnerConfigStore(Protocol):
 
     def get_config(self) -> EngineConfig: ...
     def upsert_binary(self, row: RunnerBinaryRow) -> None: ...      # by (platform, gpu)
-    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | ctx_cap_tokens | band_*_toks | ram_headroom_mb | models_max | sleep_idle_seconds | preferred_gpu | class_key_override | download_segment* | warm_default_on_startup
+    def set_setting(self, key: str, value: str) -> None: ...        # pinned_build | safety_margin_mb | ctx_cap_tokens | band_*_toks | band_deadzone_frac | speed_floor_grace | calib_* | ram_headroom_mb | models_max | sleep_idle_seconds | preferred_gpu | class_key_override | download_segment* | warm_default_on_startup
     def reset_to_defaults(self) -> None: ...
 
 
@@ -161,6 +181,31 @@ def make_runner_config_router(get_store: Callable[[], RunnerConfigStore]) -> API
             store.set_setting("band_fine_toks", str(max(0.0, float(body.bandFineToks))))
         if body.bandSlowToks is not None:
             store.set_setting("band_slow_toks", str(max(0.0, float(body.bandSlowToks))))
+        # A fraction: clamped to [0, 0.5] — 0 turns the dead zone off; past 0.5
+        # the zones around fine and slow would swallow the whole scale.
+        if body.bandDeadzoneFrac is not None:
+            store.set_setting("band_deadzone_frac", str(min(0.5, max(0.0, float(body.bandDeadzoneFrac)))))
+        # A fraction of the fine line: [0, 0.9] — 0 = a hard floor at band_fine_toks.
+        if body.speedFloorGrace is not None:
+            store.set_setting("speed_floor_grace", str(min(0.9, max(0.0, float(body.speedFloorGrace)))))
+        # The speed check's test model. The sha is checked after every download, so
+        # a malformed one would make the check fail forever — refuse it here instead.
+        if body.calibModelUrl is not None:
+            url = body.calibModelUrl.strip()
+            if url and not url.startswith(("https://", "http://")):
+                raise HTTPException(status_code=400, detail="calibModelUrl must be an http(s) URL")
+            store.set_setting("calib_model_url", url)
+        if body.calibModelSha256 is not None:
+            sha = body.calibModelSha256.strip().lower()
+            if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+                raise HTTPException(status_code=400, detail="calibModelSha256 must be 64 hex characters")
+            store.set_setting("calib_model_sha256", sha)
+        if body.calibModelSizeBytes is not None:
+            store.set_setting("calib_model_size_bytes", str(max(0, int(body.calibModelSizeBytes))))
+        if body.calibActiveExpertMb is not None:
+            store.set_setting("calib_active_expert_mb", str(max(0.0, float(body.calibActiveExpertMb))))
+        if body.calibNonexpertMb is not None:
+            store.set_setting("calib_nonexpert_mb", str(max(0.0, float(body.calibNonexpertMb))))
         if body.ramHeadroomMb is not None:
             store.set_setting("ram_headroom_mb", str(max(0, int(body.ramHeadroomMb))))
         if body.modelsMax is not None:

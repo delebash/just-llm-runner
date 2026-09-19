@@ -144,3 +144,27 @@ def test_e4b_on_igpu_mem16_fully_offloads():
         _FactsMeta(**_E4B), _E4B_BYTES, _igpu(16384), Overrides(ctx_len=32768))
     assert plan.n_gpu_layers == 42
     assert plan.n_cpu_moe == 0
+
+
+def test_26b_exact_bytes_still_reproduces_the_measured_ncmoe():
+    """vram-truth plan 2026-09-19 §6.6 / R3: the SAME measured row with the file's
+    EXACT per-block bytes (tensor table — incl. the duplicated vocab head the share
+    formula never counted, and the one-unit MiB booking) must still land in the
+    measured band. The band is a measurement and is never widened to pass."""
+    import json
+    from pathlib import Path
+
+    fx = json.loads((Path(__file__).parent / "fixtures" / "vram_truth_tensor_bytes.json")
+                    .read_text(encoding="utf-8"))["gemma-4-26b-a4b-qat UD-Q4_K_XL"]
+    meta = _FactsMeta(**_26B)
+    meta.tensor_bytes_known = True
+    meta.layer_nonexp_bytes = fx["layer_nonexp"]
+    meta.layer_exps_bytes = fx["layer_exps"]
+    meta.output_bytes = fx["output_bytes"]
+    plan = compute_fit(
+        meta, _26B_BYTES, _dgpu(8192, 32768), Overrides(ctx_len=32768),
+        draft_meta=_DraftMeta(), draft_bytes=_DRAFT_BYTES,
+    )
+    assert plan.n_gpu_layers == 30
+    assert 21 <= plan.n_cpu_moe <= 23
+    assert plan.ctx_len == 32768

@@ -300,6 +300,24 @@ class ModelIniEntry:
     embeddings: bool = False
     pooling: str = ""   # "" → no `pooling =` line (llama.cpp reads the GGUF); else mean|cls|last|rank. Set per-model from the catalog (#119).
     load_on_startup: bool = False
+    # The model's repeating-block count — only the RENDER uses it (`engine_ngl_flag`:
+    # "all blocks" renders n + 1). 0 = unknown → the value renders unchanged.
+    block_count: int = 0
+
+
+def engine_ngl_flag(n_gpu: int | None, block_count: int) -> int | None:
+    """The `-ngl` value to EMIT for the kit's `n_gpu` (= repeating blocks on the GPU,
+    0…block_count). llama.cpp counts the OUTPUT layer too: `-ngl k` puts the output
+    layer + the LAST k−1 blocks on the GPU, block 0 staying on the CPU
+    (`llama-model.cpp` b9993/b10437: `i_gpu_start = n_layer_all + 1 − n_gpu_layers`),
+    so "every block" must render as n + 1. Measured 2026-09-19 on the 26B at the app's
+    launch: `-ngl 31` vs `-ngl 30` = +5.94 % tok/s for +49…58 MiB (plan
+    docs/plans/2026-09-19-vram-truth-exact-bytes-units-offload.md §10.4). Partial
+    values render unchanged — they were MEASURED under this rendering. The kit's own
+    value (tunes, fingerprints, the OOM shed) never sees the +1."""
+    if n_gpu is None:
+        return None
+    return block_count + 1 if block_count > 0 and n_gpu >= block_count else n_gpu
 
 
 def emit_models_ini(entries: Sequence[ModelIniEntry]) -> str:
@@ -311,7 +329,8 @@ def emit_models_ini(entries: Sequence[ModelIniEntry]) -> str:
     blocks: list[str] = []
     for e in entries:
         pairs = overrides_to_pairs(
-            e.overrides, n_gpu_layers=e.n_gpu_layers, n_cpu_moe=e.n_cpu_moe, ctx_len=e.ctx_len
+            e.overrides, n_gpu_layers=engine_ngl_flag(e.n_gpu_layers, e.block_count),
+            n_cpu_moe=e.n_cpu_moe, ctx_len=e.ctx_len,
         )
         pairs += _extra_flags_to_ini_pairs(e.overrides.extra_flags)
         section = [f"[{e.model_id}]", f"model = {e.gguf_path}", render_ini(pairs)]
@@ -453,6 +472,34 @@ def compute_fit(
         active_backend(hardware), fit.PHYSICS_OVERHEAD_MB["cuda"])
     share_fn = getattr(meta, "expert_byte_share", None)
     expert_share = share_fn() if (meta.is_moe and callable(share_fn)) else 0.0
+    # ONE unit (vram-truth plan 2026-09-19 §6.4): budgets and measurements are MiB,
+    # so the weight size is MiB too (it was decimal MB — a 4.86 % over-statement).
+    size_mib = total_weight_bytes / fit.MIB
+    # EXACT placement (§6.3) when the tensor table was read: the bytes llama.cpp
+    # actually puts on the card for the flag we EMIT (engine_ngl_flag), incl. a tied
+    # head's duplicated vocab table — validated to < 1 MiB against the engine's own
+    # estimator (plan §10.2). Otherwise the share approximation, as before.
+    exact = bool(getattr(meta, "tensor_bytes_known", False)) \
+        and len(getattr(meta, "layer_nonexp_bytes", None) or []) >= n_layers
+
+    def _need_mib(g: int, nc: int) -> float:
+        """Physics booking (MiB) for `g` repeating blocks on the GPU (the kit's
+        value) with the first `nc` blocks' experts in RAM."""
+        if g <= 0:
+            return 0.0
+        if exact:
+            flag = engine_ngl_flag(g, n_layers)
+            weights = fit.placed_weight_mib(
+                layer_nonexp=meta.layer_nonexp_bytes, layer_exps=meta.layer_exps_bytes,
+                output_bytes=meta.output_bytes, block_count=n_layers, ngl_flag=flag,
+                n_cpu_moe=nc)
+            on_gpu = len(fit.engine_gpu_blocks(n_layers, flag))
+            return weights + kv_mb * (on_gpu / n_layers) + overhead_mb
+        return fit.physics_vram_mb(
+            size_mb=size_mib, n_layers=n_layers, gpu_layers=g,
+            moe_share=fit.moe_gpu_size_share(n_layers=n_layers, gpu_layers=g, n_cpu_moe=nc,
+                                             expert_share=expert_share),
+            kv_mb=kv_mb, overhead_mb=overhead_mb)
 
     # The speculative-decode DRAFT's share of the budget, taken BEFORE the main split.
     # PHYSICS-CHARGED since Phase 6 (§5.7 retired the regression's `marginal_vram_mb`
@@ -485,7 +532,7 @@ def compute_fit(
                 embedding_dim=draft_meta.embedding_length,
                 head_count=getattr(draft_meta, "head_count", 0),
             )
-        draft_marginal_mb = draft_bytes / 1e6 + d_kv
+        draft_marginal_mb = draft_bytes / fit.MIB + d_kv
         # Main fully on CPU → the draft is the GPU's only tenant and pays the
         # backend overhead itself (the base the main model would otherwise carry).
         draft_full_mb = draft_marginal_mb + overhead_mb
@@ -507,30 +554,22 @@ def compute_fit(
     )
     if joint:
         n_gpu, n_cpu_moe = fit.moe_joint_split(
-            size_mb=total_weight_bytes / 1e6, n_layers=n_layers,
+            size_mb=size_mib, n_layers=n_layers,
             expert_share=expert_share, kv_mb=kv_mb, overhead_mb=overhead_mb,
-            budget_mb=main_budget_mb,
+            budget_mb=main_budget_mb, need_fn=_need_mib if exact else None,
         )
     else:
         if ov.n_gpu_layers is not None:
             n_gpu = max(0, min(n_layers, ov.n_gpu_layers))
         else:
             nc_pinned = max(0, ov.n_cpu_moe) if ov.n_cpu_moe is not None else 0
-            full_mb = fit.physics_vram_mb(
-                size_mb=total_weight_bytes / 1e6, n_layers=n_layers,
-                gpu_layers=n_layers,
-                moe_share=fit.moe_gpu_size_share(
-                    n_layers=n_layers, gpu_layers=n_layers, n_cpu_moe=nc_pinned,
-                    expert_share=expert_share,
-                ),
-                kv_mb=kv_mb, overhead_mb=overhead_mb,
-            )
+            full_mb = _need_mib(n_layers, nc_pinned)
             if main_budget_mb > 0 and full_mb <= main_budget_mb:
                 n_gpu = n_layers
             else:
                 # oobabooga's fitted formula → the most GPU layers that fit.
                 n_gpu = fit.max_gpu_layers(
-                    size_mb=total_weight_bytes / 1e6,
+                    size_mb=size_mib,
                     n_layers=n_layers,
                     n_kv_heads=n_kv_heads,
                     embedding_dim=meta.embedding_length,
@@ -576,14 +615,7 @@ def compute_fit(
         # regression, which stays as the CI oracle (§7.1) and as the partial-dense
         # inverse above. `kv_mb`/`overhead_mb` are the hoisted one-source values the
         # split already consumed.
-        moe_share = fit.moe_gpu_size_share(
-            n_layers=n_layers, gpu_layers=n_gpu, n_cpu_moe=n_cpu_moe,
-            expert_share=expert_share,
-        )
-        booked = fit.physics_vram_mb(
-            size_mb=total_weight_bytes / 1e6, n_layers=n_layers, gpu_layers=n_gpu,
-            moe_share=moe_share, kv_mb=kv_mb, overhead_mb=overhead_mb,
-        )
+        booked = _need_mib(n_gpu, n_cpu_moe)
         if one_pool:
             # THE ONE-POOL RULING (2026-08-13, "your rec go"): the ledger tracks POOL
             # occupancy, so the booking's ceiling is the pool — the same denominator
@@ -619,8 +651,11 @@ def compose_flags(
     port: int = DEFAULT_PORT,
     extra: Sequence[str] = (),
     overrides: Overrides | None = None,
+    block_count: int = 0,
 ) -> list[str]:
     """Build the llama-server argv (after the exe) from the resolved engine overrides.
+    `n_gpu_layers` is the kit's value; the EMITTED flag goes through
+    `engine_ngl_flag` (full offload renders block_count + 1; 0 = render unchanged).
     The base + type (moe|dense) flag defaults (flash-attn, KV cache type, mlock,
     spec-decode, …) arrive in `overrides` already — resolved from the DB `switch_presets`
     by the runner's switches_fn — so there is no manifest preset to merge here. We render
@@ -628,7 +663,8 @@ def compose_flags(
     normalized pairs the router `.ini` emitter renders (via `render_ini`), so the spawn
     argv and the `.ini` section can never drift."""
     ov = overrides or Overrides()
-    flags = render_argv(overrides_to_pairs(ov, n_gpu_layers=n_gpu_layers, n_cpu_moe=n_cpu_moe, ctx_len=ctx_len))
+    flags = render_argv(overrides_to_pairs(ov, n_gpu_layers=engine_ngl_flag(n_gpu_layers, block_count),
+                                           n_cpu_moe=n_cpu_moe, ctx_len=ctx_len))
     flags += ["-m", str(gguf_path), "--host", host, "--port", str(port)]
     flags += list(ov.extra_flags)  # raw passthrough (the "new flag, no code" escape), verbatim
     flags += list(extra)
@@ -978,7 +1014,7 @@ def start_runner(
         while True:
             flags = compose_flags(
                 gguf_path, n_gpu, n_cpu_moe, fit.ctx_len, host, port, extra_flags,
-                overrides=overrides,
+                overrides=overrides, block_count=fit.block_count,
             )
             log.info("spawning llama-server: ngl=%d n_cpu_moe=%d ctx=%d", n_gpu, n_cpu_moe, fit.ctx_len)
             proc, job = _spawn_child(popen, [str(server_exe), *flags], logf)

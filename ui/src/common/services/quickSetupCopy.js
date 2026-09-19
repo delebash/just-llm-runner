@@ -25,6 +25,17 @@ export const quickSetupCopy = reactive({
   embedRole: "powers search + Ask the book",
   // An app line under the done-step summary ("" = none).
   doneBody: "",
+  // The one-minute speed check's card (speed-truth plan 2026-09-19 §6). {size}
+  // is the test model's download size, formatted. The user ruling this answers:
+  // "present it to them clearly what this is, why it is recommended, and allow
+  // them to skip".
+  checkBody: "No preset matches this hardware, so the model recommended on the next screen "
+    + "would be chosen from estimates. A one-minute check downloads a small test model ({size}, one time), "
+    + "runs it briefly two ways, and measures how fast this PC really moves model data — "
+    + "the number that decides which models run at reading speed.",
+  checkSkipNote: "Skip it and the recommendation is estimated from your hardware's specs instead. "
+    + "Nothing else changes either way.",
+  checkDoneNote: "Measured — the recommendation on the next screen now uses this PC's real speed.",
   // Called when apply reaches done ({ modelId }) — the seam for app follow-ups
   // (docgen needs nothing today: setAsDefault already repoints its presets).
   onApplied: null,

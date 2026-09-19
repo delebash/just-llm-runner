@@ -63,17 +63,52 @@ def fetch_gguf_meta(
     total = sum(_entry_size(e) for e in entries)
     main = next((e for e in entries if "00001" in e["path"]), entries[0])
     url = f"{_HF_BASE}/{repo}/resolve/{revision}/{main['path']}"
+    # The WHOLE shard's size (not the prefix): the tensor table sizes each tensor by
+    # offset delta, and the last one runs to the end of the file (vram-truth §6.1).
+    main_size = _entry_size(main) or None
 
     raw = _range_read(url, header_bytes)
     try:
-        meta = read_gguf_metadata_from_stream(BytesIO(raw))
+        meta = read_gguf_metadata_from_stream(BytesIO(raw), file_size=main_size)
     except ValueError as e:
         if "truncated" not in str(e):
             raise
         log.info("gguf header exceeded %d bytes for %s — retrying 4x", header_bytes, repo)
         raw = _range_read(url, header_bytes * 4)
-        meta = read_gguf_metadata_from_stream(BytesIO(raw))
+        # Last resort: a tensor table that STILL runs past the prefix keeps the KV
+        # facts (tensor_bytes_known False → the formula fallback), never fails.
+        meta = read_gguf_metadata_from_stream(BytesIO(raw), file_size=main_size,
+                                              strict_tensors=False)
+    if len(entries) > 1 and meta.tensor_bytes_known:
+        _merge_split_tensor_tables(meta, repo, revision, entries)
     return meta, total
+
+
+_SHARD_HEADER_BYTES = 4 * 1024 * 1024  # a non-first shard's header: split.* KVs + its tensor infos
+
+
+def _merge_split_tensor_tables(meta: GgufMeta, repo: str, revision: str, entries: list) -> None:
+    """A split model's exact bytes span EVERY shard: each shard carries its own
+    tensor table, sized against its own file. Range-read each shard's header and
+    merge. Any shard unreadable → `tensor_bytes_known` False (a partial table would
+    be worse than the formula fallback)."""
+    from .gguf import _classify, _parse_header, _tensor_sizes
+
+    try:
+        sized: list[tuple[str, int]] = []
+        for e in sorted(entries, key=lambda x: x["path"]):
+            url = f"{_HF_BASE}/{repo}/resolve/{revision}/{e['path']}"
+            raw = _range_read(url, _SHARD_HEADER_BYTES)
+            try:
+                _kv, infos, data_start = _parse_header(BytesIO(raw), want_tensors=True)
+            except Exception:  # noqa: BLE001 — truncated: one 4x retry, then give up
+                raw = _range_read(url, _SHARD_HEADER_BYTES * 4)
+                _kv, infos, data_start = _parse_header(BytesIO(raw), want_tensors=True)
+            sized += _tensor_sizes(infos or [], data_start, int(_entry_size(e)))
+        _classify(meta, sized)
+    except Exception:  # noqa: BLE001 — never fail an inspect over the exact-bytes enrichment
+        log.info("split tensor-table merge failed for %s — using the formula fallback", repo)
+        meta.tensor_bytes_known = False
 
 
 # ── generation_config.json fallback — the ORIGINAL model repo (from the GGUF

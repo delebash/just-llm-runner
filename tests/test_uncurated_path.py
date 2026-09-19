@@ -91,7 +91,7 @@ def test_hand_added_moe_by_link_is_sane_on_8_32(fresh_db, monkeypatch):
     # 3) THE WIRE ROW — floors + est computed FRESH from the stored facts.
     row = next(r for r in stores.get_model_catalog_store().list()
                if r.id == "hand-added-moe")
-    assert row.minRamMb == round(_BYTES / 1e6 + 4096)         # file + headroom
+    assert row.minRamMb == round(_BYTES / (1024 * 1024) + 4096)  # file + headroom, MiB (vram-truth §6.4)
     assert 1500 < row.minVramMb < 6000    # max-offload floor: non-expert + KV(4k) + overhead
     assert 12000 < row.estVramMb < 20000  # full-residency want at 8k ctx
     assert row.minVramMb < row.estVramMb

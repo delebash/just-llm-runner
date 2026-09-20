@@ -65,8 +65,9 @@ BUILT:  Slices 0-3, 2026-09-19, on the user's *"go do it all"* — full executio
         resolves to `load_mode = none` — the model lock has been silently lost on every
         model since b10105, because the legacy flags assign a mode and the last one wins.
 OPEN:   **Slice 4 (pin b9993 → b10964) was REFUSED by its own gate — see the next item.**
-        Also open: where JustWrite's what's-new note goes (its file has only released
-        version sections, so nothing was added there; every other app's docs are done).
+        JW's what's-new: ANSWERED 2026-09-19 ("pick a version number") — added as
+        `## v1.4.0 — 2026-09`, matching that file's own convention (its versions are
+        doc-side and already run ahead of the git tags, which stop at v1.0.0).
 GO:     Slices 0-3 done. Slice 4 needs a build that passes R11 — none exists today.
 
 

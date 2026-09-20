@@ -11,6 +11,135 @@
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
 
+## Engine update safety + the stable channel — plan written, Opus executes [verified 2026-09-19]
+
+STATE:  DECIDED 2026-09-19. The llama.cpp review (`docs/llama-cpp-watch.md`, row
+        2026-09-19, window b9993 → b11056) ended with this recommendation, shown to
+        the user as written:
+          "- Build items 2, 3 and 1, in that order.
+           - Then move the pin (item 4), with a box test that includes our real
+             structured-output calls. Those calls matter because the JSON-schema code
+             was rewritten 30 builds before the b10964 cut.
+           - Item 5 (load progress) can go in any time.
+           - Item 6 needs only a few minutes on your GPU, whenever you like.
+           - As with the speed and VRAM work, I would write one plan document for Opus
+             covering items 1–4.
+           - I would also record this review in docs/llama-cpp-watch.md, as that file's
+             own procedure asks."
+        (items: 1 = the dead in-app update check · 2 = the deleted `--mlock` /
+        `--no-mmap` launch flags · 3 = the renamed download files · 4 = pin b9993 →
+        b10964 · 5 = real load progress on `/models/sse` · 6 = the Ternary Bonsai A/B.)
+        User: *"write the plan for opus, your rec on all make sure plan is detailed
+        enough so opus does not have to think to much"*.
+        THE PLAN — read it BEFORE coding any slice, never code from this entry:
+        `docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md`
+        (§2 the fourteen rulings · §3 the receipts · §4 the slices · §5 the box test).
+WHY:    Three defects in OUR code, found by the review and reproduced: the update
+        check has silently said "current" since upstream's 2026-08-21 release-scheme
+        change (`build_num("v0.4.1")` = 41); from b10875 the engine rejects two flags
+        we put on every model, and the installer's only check (`--version`) passes on
+        any build before the old engine is deleted; upstream renamed the AMD download
+        files, so tag-substituted URLs 404. The order is the design: repairing the
+        check FIRST would hand users a button that breaks their install.
+NOT:    the Engine-binaries panel's hand-typed pin (keeps tag substitution) · user-typed
+        raw flags · a fallback spawn onto a different build dir · building T5 · Linux
+        CUDA tarballs (need a stable ≥ b10969) · the Bonsai A/B · exact bytes for
+        built-in-MTP rows · `--n-cpu-ffn` · any opt-out for the machine-wide llama.cpp
+        `config.ini` (none exists upstream). Each is recorded with its facts in the
+        plan's §7 and the ledger.
+BUILT:  Slices 0-3, 2026-09-19, on the user's *"go do it all"* — full execution record,
+        every measurement and six deviations in the plan's §9. Gates: kit 989 pass +
+        ruff + check-consumers + check-family + UI biome · JW 589 unit (+11) + 128
+        server + build · JV 67 unit + 741 server + build + **renderer smoke 17/17,
+        zero JS errors** · docgen 3 + build. Verified LIVE, not just in tests: the
+        update check now answers `{"latest":"b10964","latestStable":"v0.4.1",
+        "updateAvailable":true}`; `/engine/resolve-assets` returns b10964's real
+        filenames and flags `linux/rocm resolved:false` at b10437; the nested
+        json_schema form IS enforced on the real engine and the flat one is NOT, with
+        every stored schema (JW `entitySweep`) converting.
+        THE GUARD PROVEN ON THE REAL b10964: asked with the pre-fix spelling it exits 1
+        (`error: invalid argument: --mlock`) and `_verify_exe_accepts_flags` refuses the
+        build — so before this work, clicking Update would have installed an engine that
+        rejects every model load.
+        Also fixed en route, MEASURED on b10437: our emitted `--mlock --no-mmap` pair
+        resolves to `load_mode = none` — the model lock has been silently lost on every
+        model since b10105, because the legacy flags assign a mode and the last one wins.
+OPEN:   **Slice 4 (pin b9993 → b10964) was REFUSED by its own gate — see the next item.**
+        Also open: where JustWrite's what's-new note goes (its file has only released
+        version sections, so nothing was added there; every other app's docs are done).
+GO:     Slices 0-3 done. Slice 4 needs a build that passes R11 — none exists today.
+
+
+## llama.cpp broke MTP speculative decoding — it is slower AND no longer exact [MEASURED 2026-09-19]
+
+STATE:  FINDING, from the box test that gated the pin move (plan
+        `docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md` §9, Slice 4).
+        The candidate was installed ALONGSIDE the working engine, so nothing was at
+        risk; both test builds were deleted afterwards and the machine restored.
+        Flagship `gemma-4-26b-a4b-qat` + its MTP draft, the app's exact argv, 1 warm-up
+        + 3 runs, order reversed, with a no-draft control:
+
+          |                          | b10437 (on disk) | b10964 (stable) | b11056 (head) |
+          | no draft                 |            37.19 |           37.02 |         38.11 |
+          | + MTP draft              |        **45.11** |       **35.36** |     **36.73** |
+          | draft acceptance         |   0.823 (len 2.65) |  0.481 (1.95) |             — |
+          | drafted output == greedy |          **YES** |          **NO** |        **NO** |
+
+WHY:    with draft 0.784 of b10437 · no draft 0.995 → the engine is fine, MTP
+        speculation is the regression. On the new builds the draft is a NET LOSS
+        (35.36 < 37.02; 36.73 < 38.11). And it is not merely slow: speculative decoding
+        must reproduce greedy output, b10437 does byte-for-byte, b10964/b11056 do not —
+        a CORRECTNESS bug. b10964 and b11056 gave IDENTICAL shas to each other
+        (`4683af3bc3b2` drafted / `f2109c9e5e6f` greedy), so it is stable and unfixed at
+        head. The catalog's flagship uses an MTP draft, so this hits the primary model.
+NOT:    a claim about output QUALITY — the probe used the raw `/completion` endpoint with
+        no chat template, so the text is poor on every build; only the within-build
+        exactness comparison is valid. Cross-build greedy output also differs (kernel/
+        fusion changes can explain that) — not investigated. NOT bisected.
+BISECTED 2026-09-19 (user: *"go bisect"*) — **first bad build = `b10751` =
+        `cuda: fuse MoE weighted expert reduction` (#25952, merged 2026-09-01)**.
+        8 builds probed over 318 releases, on draft acceptance (bimodal, never
+        ambiguous); each installed alone and deleted immediately; machine left with
+        only b10437.
+          b10723 0.8229 GOOD (47.64 tok/s) · b10736 0.8229 GOOD · b10740 0.8229 GOOD ·
+          b10749 0.8229 GOOD · **b10750 0.8229 GOOD** | **b10751 0.4806 BAD** ·
+          b10775 0.4806 BAD · b10837 0.4806 BAD
+        Head re-checked after the bisect: **b11057** (published 2026-09-19 23:58, one
+        commit past the review — `chat : fix gemma4 required tool grammar` #29115)
+        acceptance **0.48062**, 36.00 tok/s = 0.798 × b10437, NOT exact, drafted sha
+        `4683af3bc3b2` identical to b10964 and b11056. Unfixed at head, measured.
+        b10741-b10748 do not run at all (`0xC0000409`, the gemma4-assistant window
+        broken by #28159 and fixed by #28183 in b10749) — the bisect stepped past them.
+        WHY IT BREAKS: #25952 fuses the MoE combine tail into ONE CUDA kernel, doing
+        "weighting and ordered expert reduction" together. That changes the ORDER of
+        floating-point accumulation over experts, so the target's logits shift
+        slightly, the draft's argmax stops matching, acceptance halves and the output
+        drifts from greedy. CUDA-only, MoE-only — which is exactly the flagship.
+        **b10750 VALIDATED as a pin candidate** (installed, measured, deleted):
+        +draft **46.35 tok/s = 1.028 × b10437** · no draft 38.10 (1.024) · **EXACT
+        (drafted == greedy)** · and its output sha `58c64329a49a` is IDENTICAL to
+        b10437's, so it is the same answers, faster. **Every platform row resolves**
+        (win cuda12/cuda13/rocm-7.14/vulkan · macos · linux rocm-7.14/vulkan) — it is
+        past the b10398-b10581 hole, so unlike b10437 it is viable as a DEFAULT pin.
+        It also carries #27621 (specdec MoE fusion — the +2.8 %), #27978, #24124
+        `--kv-unified-per-slot`, #26622 `--n-cpu-ffn`, and the #28183 crash fix.
+        It does NOT carry the post-b10750 correctness fixes (#28475 mmid/mmf races,
+        #27870 f16 FA barrier, #28389 CUB argsort) or #27483's lower RAM peak.
+OPEN:   (a) **the pin decision — needs the user's word.** The plan's Slice 4 named
+        b10964, which its own gate refused; b10750 PASSES that gate (1.028 ≥ 0.97) but
+        is a different build than the plan approved, so it is not covered. (b) A
+        tension if the pin moves: the update check follows the STABLE channel and the
+        build the newest stable NAMES is b10964, so the button would offer a known-bad
+        build. (Precision: `v0.4.1` is the non-prerelease release and ships ONLY
+        `nightly-tag.txt`; every `bNNNN` tag — b10750 included — is flagged prerelease,
+        so no binary-carrying release is ever "stable" itself.) Options,
+        none designed: accept + document · a measured-bad floor the check won't cross ·
+        leave the pin. (c) report #25952 upstream with this evidence — it is in their
+        current stable and at head, and looks unreported.
+        MEANWHILE: the Update button works and WILL offer b10964. Do not take it.
+GO:     needed — for the pin move and for the upstream report.
+
+
 ## Speed truth and the calibrated pick — plan written, Opus executes [verified 2026-09-19]
 
 STATE:  DECIDED 2026-09-19 — user: "i take your recs", plus two rulings in
@@ -58,21 +187,88 @@ OPEN:   the user's walks — Item 1 through a real Quick-setup Apply; Item 3
 GO:     given 2026-09-19 for all items.
 
 
-## The KV figure ignores llama-server's parallel slots [verified 2026-09-19]
+## The KV figure is ~400 MiB thin and the CUDA overhead seed is fatter than that — fix BOTH or NEITHER [verified 2026-09-19]
 
-STATE:  FINDING — the vram-truth plan's Step 0c (plan
-        `docs/plans/2026-09-19-vram-truth-exact-bytes-units-offload.md` §10.3).
-        The 26B at the app's exact argv under llama-server holds **799 MiB**
-        of KV on the card (340 global + 459 windowed) vs **493** in a
-        single-sequence run: the server's default parallel slots (4, unified
-        KV) scale the windowed-layer cache. The kit's KV figure for that
-        launch (`kv_mb_from_facts`, ~420 MiB) models neither; today the
-        learned `__overhead__` absorbs the gap.
-OPEN:   slot-aware KV in `fit.kv_mb_from_facts` / `GgufMeta.kv_mb_at_ctx`
-        (windowed cache × slots, or the engine's own figure via
-        `llama-fit-params -fitp` as the oracle) — then the learned overhead
-        shrinks to the real compute + context overhead.
-GO:     needed.
+STATE:  DECIDED 2026-09-19 — PARKED, not built. User: *"think on this again
+        and give me your rec"* → the rec below → *"go"* (the go covers THIS
+        tracker rewrite only — no code). The rec as shown and approved:
+        "Do not build the KV fix now — building it alone makes the
+        new-install case worse, and the VRAM manager is not at risk as
+        things stand." · "Don't touch the launch flags. Four shared slots is
+        the engine's design; forcing `--parallel 1` changes app behaviour."
+        · "Don't ship the KV fix alone. It must land together with a
+        corrected seed." · "Don't re-seed from one box. … you already ruled
+        on the sister constant: re-seed only with multi-box evidence. Same
+        rule here." · "Do rewrite the tracker item so nobody later does the
+        KV-only fix."
+WHY:    TWO ERRORS THAT PARTLY CANCEL, both measured on the author's box.
+        (1) KV too small. Source-verified at b10437 (raw.githubusercontent
+        tag `b10437`): `tools/server/server.cpp:151-154` — `--parallel`
+        default −1 = auto → `n_parallel = 4`, `kv_unified = true` (a
+        CONSTANT, every machine; the app never emits `--parallel`, and its
+        own router log says `n_slots = 4, n_ctx_slot = 32768, kv_unified =
+        'true'`); `src/llama-kv-cache-iswa.cpp:73` — `size_swa =
+        GGML_PAD(min(size_base, n_swa*(unified ? n_seq_max : 1) + n_ubatch),
+        256)`. So a windowed layer holds `pad256(min(ctx, window × slots +
+        ubatch))` cells — NOT `min(ctx, window)` (`gguf.py` `kv_mb_at_ctx`,
+        `fit.kv_mb_from_facts`). And a `q8_0` cache is 8.5 bits/value (34
+        bytes per 32), not 8 (`fit.py:129` maps q8_0 → 8). Both terms
+        reproduce the measured loads to the MiB (26B facts: Wb 102,400 ·
+        Gb 10,240 B/token · window 1024 · ub 512 · ctx 32768): global
+        10,240 × 32,768 × 8.5/8 = **340** (kit 320) · windowed 1 slot
+        102,400 × 1,536 × 8.5/8 = **159.4** (measured 153 card + 6.38 CPU)
+        · windowed 4 slots 102,400 × 4,608 × 8.5/8 = **478.1** (measured
+        459 card + 19.12 CPU) · total **818 MiB vs the kit's 420**.
+        (2) Seed too big. `fit.PHYSICS_OVERHEAD_MB["cuda"]` = `_C5` =
+        1,516.5 — the oobabooga regression's fitted INTERCEPT, kept at the
+        redesign and called "overhead"; never measured as overhead. The
+        author's fresh DB (2026-09-19, `model_measurements`): `gemma-4-26b-
+        a4b-qat` load footprint (measured) **6,774 MiB**; `__overhead__`
+        `physics-overhead b10437 p2` **1,040 MiB** (the footprint is
+        consistent with the MTP-draft launch, plan §10.3's 6,789 replica —
+        so the draft's ~209 MiB compute buffer sits inside that 1,040; not
+        separately verified).
+        THE ARITHMETIC THAT DECIDES IT — computed booking for a never-loaded
+        26B on a fresh box (seed, no learned row): today 6,774 − 1,040 +
+        1,516 = **~7,250 (+476, the safe direction)**; after a KV-ONLY fix
+        **~7,650 (+874 — worse)**: every fresh install would see the
+        flagship ~870 MiB heavier than it is, pushing an extra expert block
+        to RAM or flipping the Fit badge on an edge card — the opposite of
+        the speed-truth goal. Under corrected KV the learned overhead would
+        read ~640, i.e. the seed is ~2.4× the real figure on this box.
+        WHAT IS NOT AT RISK TODAY: a loaded model's reservation is trued to
+        measured; a model this box has loaded uses the measured median; the
+        split solver (`process.compute_fit`) uses the SEED, never the
+        learned row, so it errs fat. The one unsafe case: a box whose
+        `__overhead__` was learned from a non-SWA model books a never-loaded
+        Gemma ~350 MiB short, ONCE, in arbiter pre-load admission — the
+        engine's back-off catches it and the measured arm takes over.
+NOT:    a KV-only fix (the trap above) · forcing `--parallel 1` or emitting
+        `--parallel`/`--kv-unified` from the kit (behaviour change: Compare,
+        batch sweeps, overlapping requests — its own decision) · re-seeding
+        `_C5` from one box · `llama-fit-params` as a live per-row oracle
+        (needs the file on disk; cannot price catalog rows pre-download).
+OPEN:   ONE change, all parts or none: (a) windowed cells = `pad256(min(ctx,
+        window × slots + ubatch))` with slots = the `parallel` switch when
+        set, else 4 (auto; re-check `server.cpp` at every pin bump — if the
+        engine changes it we degrade to today's state, absorbed by the
+        learned row); an EXPLICIT `parallel` turns unified OFF, which the
+        same source line sizes per-stream — read `llama-kv-cache-iswa.cpp`
+        `:164` on before modelling that arm · (b) q8_0 at 8.5 bits (q4_0 is
+        4.5 — verify in ggml before writing it) · (c) a corrected CUDA seed
+        from multi-box evidence · (d) `PHYSICS_VERSION` p2 → p3 so the
+        learned rows (which CONTAIN the old gap) stop matching and re-learn
+        — without it every computed booking double-counts ~400 MiB · (e)
+        the slot term stays OUT of the speed path — `api.py:345`,
+        `bandwidth.py:273` and `:300` call `kv_mb_from_facts(…, unit=1e6)`
+        for bytes READ per token; slots are allocated, not read · (f)
+        `identity.py:151-164` floors/est rise for SWA rows → seed refresh in
+        all three apps · (g) `tests/test_fit_acceptance.py` must still
+        reproduce ngl 99 / ncmoe 21 on the author's row; if it moves to 22
+        that is a finding to show, never a re-pin.
+        WAKES ON: `__overhead__` rows from at least two more machines (or
+        one more machine + a non-SWA model here) — enough to set (c).
+GO:     needed — for the build. This rewrite: given 2026-09-19.
 
 
 ## `expert_byte_share()` reads every Mixtral-style MoE as dense [verified 2026-09-19]
@@ -923,6 +1119,16 @@ GO: given 2026-08-08 (same word) — built.
 - **T5 — real VRAM-load percentage [attributed:
   2026-07-17-load-cancel-and-one-progress-control.md:149 "NOT BUILT"]** — the load
   bar's model-load leg has no true progress source.
+  **UNBLOCKED [verified 2026-09-19, llama.cpp review]:** the source exists, on a
+  different door than the one probed. At b10437 and b11056
+  (`tools/server/server-models.cpp`) the router stores the child's
+  `cmd_child_to_router:state` payload as `meta.progress` =
+  `{"stages":[…],"current":"<stage>","value":<0..1>}` and broadcasts it on
+  **`GET /models/sse`** as a `status_change` event; `GET /models` — the poll the
+  2026-07-17 probe read — still omits it. The author's router log shows
+  `stages: ["text_model","spec_model"]` with a fractional `value` per stage. Not
+  checked at b9993. Not designed: consuming SSE inside the load thread, and its
+  interplay with cancel. GO: needed.
 - **I2 — cloud prompt caching: research pass, then the user's build/skip call**
   [verified 2026-07-26: the Anthropic + Gemini adapters send no caching hints].
   Output = a recommendation with numbers. Ledger §I2. (Moved from JW's tracker.)
@@ -931,8 +1137,6 @@ GO: given 2026-08-08 (same word) — built.
   records; batches 4-6 have nothing open. The genuinely-live extractions became
   lines here and in JW's tracker (§7.1 sub-questions, I1 follow-ups, the doorway
   label, the box checks); the doc is banner'd + archived.
-- **llama.cpp adoption review is stale** — `docs/llama-cpp-watch.md` last reviewed
-  2026-07-14 (b9993); the CUDA Q2_0 watch item (#25707) has never been re-checked.
   Trigger phrase: "check llama.cpp since our last update".
 
 ## Box-gated / parked (wakes on a trigger)

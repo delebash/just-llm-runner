@@ -140,19 +140,53 @@ def test_anthropic_strips_response_format():
     assert out == {"top_p": 0.9}
 
 
-def test_openai_compat_flattens_schema_for_builtin_only():
+def test_response_format_reaches_the_wire_unchanged_for_every_provider_type():
+    # 2026-09-19 (plan docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md §3.7):
+    # the adapter used to FLATTEN the nested json_schema form for the builtin runner, citing
+    # llama-server's README. Its parser reads a schema ONLY from `response_format.json_schema
+    # .schema` (server-common.cpp, identical b9993/b10437/b10964) — the flat form is silently
+    # read as "any JSON". OBSERVED on b10437: flat = not enforced, nested = enforced. So the
+    # body now goes out UNCHANGED, and `local-llamacpp` must look exactly like every other type.
+    from llm_runner.llm.base import LLMMessage
+    from llm_runner.llm.dispatch import get_local_runner_base_url, set_local_runner_base_url
     from llm_runner.llm.openai_compat import OpenAICompatAdapter
-    nested = {"response_format": {"type": "json_schema", "json_schema": {
-        "name": "k", "schema": {"type": "object"}, "strict": True}}}
 
-    a = OpenAICompatAdapter.__new__(OpenAICompatAdapter)
-    a.provider_type = "local-llamacpp"
-    body = dict(nested)
-    a._adapt_response_format(body)
-    assert body["response_format"] == {"type": "json_schema", "schema": {"type": "object"}}
+    nested = {"type": "json_schema",
+              "json_schema": {"name": "k", "schema": {"type": "object"}, "strict": True}}
 
-    b = OpenAICompatAdapter.__new__(OpenAICompatAdapter)
-    b.provider_type = "openai-compat"
-    body = dict(nested)
-    b._adapt_response_format(body)
-    assert body == nested
+    class _Resp:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def json():
+            return {"model": "m", "choices": [{"message": {"role": "assistant", "content": "{}"},
+                                               "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
+
+    class _Client:
+        def __init__(self):
+            self.sent = None
+
+        def post(self, url, json=None, headers=None):  # noqa: A002 — httpx's own kwarg name
+            self.sent = json
+            return _Resp()
+
+    # `local-llamacpp` resolves its base URL from the live router and RAISES when none is
+    # running — a module global another test may have wired. Pin it for this test only, so
+    # the result never depends on suite order.
+    saved = get_local_runner_base_url()
+    set_local_runner_base_url(lambda: "http://127.0.0.1:1")
+    try:
+        for ptype in ("local-llamacpp", "openai-compat"):
+            a = OpenAICompatAdapter("p", ptype, api_key="")
+            client = _Client()
+            a._client = client
+            a.chat([LLMMessage(role="user", content="hi")],
+                   extra={"response_format": dict(nested)})
+            assert client.sent["response_format"] == nested, (ptype, client.sent["response_format"])
+    finally:
+        set_local_runner_base_url(saved)
+
+    # The flattening is GONE, not merely unused (removed-means-removed).
+    assert not hasattr(OpenAICompatAdapter, "_adapt_response_format")

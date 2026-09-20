@@ -26,6 +26,34 @@ open edges.
 - **The port is allocated, never assumed** — `find_free_port` at spawn, the live
   port on `RunnerService.router_url()`; health-by-port is not identity (the
   two-apps-one-box lesson in CLAUDE.md).
+- **Flag SPELLINGS follow the engine build, and an install must prove it accepts them**
+  (2026-09-19, plan `../plans/2026-09-19-engine-update-safety-and-stable-channel.md`).
+  Upstream REMOVES flags: b10875 deleted `--mlock` and `--mmap`/`--no-mmap` in favour of
+  `--load-mode`, and an unknown flag is fatal (`arg.cpp` throws; through the router's
+  preset file `preset.cpp` throws "option not recognized"). So: the kit's switches stay
+  `mlock`/`no_mmap` everywhere (DB, seeds, UI, tunes, fingerprints) and only the EMITTED
+  flag changes, at `process.LOAD_MODE_MIN_BUILD` (b10145 — the first build with
+  `mmap+mlock`); `_emit_ini` renders for the exe that will READ the file, never for
+  `_active_server_exe`, which `stop()` does not clear and which names the swept build
+  after an update. `binary._verify_exe_accepts_flags` runs `process.probe_argvs(build)`
+  against the STAGED exe before the swap — flags first, `--version` last, since args parse
+  in order — so a build that refuses our argv never replaces a working engine. Measured
+  on b10437: our old `--mlock --no-mmap` pair resolved to `load_mode = none`, i.e. the
+  lock had been silently lost on every model since b10105.
+- **The update check follows upstream's STABLE channel** (same plan). Since 2026-08-21
+  every `bNNNN` is a prerelease and `releases/latest` answers a semver tag whose one asset,
+  `nightly-tag.txt`, names the build. `binary.build_num` is STRICT (`b\d+` → -1 otherwise)
+  because the old digit-strip read "v0.4.1" as 41 and the check reported "you are current",
+  silently, for a month. Download names are resolved from the target release's OWN asset
+  list (`binary.resolve_release_assets` + `GET /v1/llm-runner/engine/resolve-assets`), not
+  by substituting a tag — upstream renames them (Windows AMD hip-radeon → rocm-7.14 →
+  rocm-10.0; Linux AMD absent for ~180 builds). The runner still NEVER writes the pin; the
+  UI does, and rolls it back when the install does not land on the target.
+- **A newer engine is not assumed to be better — it is measured.** The 2026-09-19 box test
+  refused the b9993 → b10964 pin move: without a draft the builds tie (0.995), but with the
+  flagship's MTP draft b10964 runs at 0.784 of b10437 AND its speculative output no longer
+  equals its own greedy output (b10437's does). Still broken at b11056. Any pin move runs
+  that test first; `scripts/check-structured-output.py` is the matching correctness probe.
 
 ## Cancel + progress (the load-cancel plan, shipped through T4)
 

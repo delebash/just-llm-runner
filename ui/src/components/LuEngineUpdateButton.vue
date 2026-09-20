@@ -21,6 +21,6 @@ const { updateInfo, updateToLatest, busy } = useEngine();
 
 <template>
   <UiButton intent="info" size="small" :loading="busy"
-    :title="`Update the engine to ${updateInfo?.latest} (you have ${updateInfo?.current}) — the old build folder is removed after the new one installs`"
+    :title="`Update the engine to ${updateInfo?.latest}${updateInfo?.latestStable ? ` — llama.cpp ${updateInfo.latestStable.replace(/^v/, '')}, a stable release` : ''} (you have ${updateInfo?.current}) — the new build is checked before it replaces yours, and the old build folder is removed only once it installs`"
     @click="updateToLatest">Update to {{ updateInfo?.latest }}</UiButton>
 </template>

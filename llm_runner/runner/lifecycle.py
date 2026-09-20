@@ -14,6 +14,7 @@ from __future__ import annotations
 import gc
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -33,6 +34,7 @@ from .binary import (
     build_of_exe,
     concrete_gpu,
     gpu_family,
+    resolve_release_assets,
     select_binary,
 )
 from .config import (
@@ -65,6 +67,7 @@ from .process import (
     compute_fit,
     emit_models_ini,
     find_free_port as _find_free_port,
+    probe_argvs,
     start_router as _start_router,
 )
 from .schema import ModelEntry
@@ -360,17 +363,62 @@ def _idle() -> dict:
             "downloaded": 0, "total": 0}
 
 
-def _fetch_latest_llamacpp_tag() -> str:
-    """The latest upstream llama.cpp release tag (e.g. "b9888") via the GitHub
-    releases API. Used by `update_check` (A5) — injectable in tests and, in the
-    dev container, unreachable through the egress proxy (ggml-org is out of
-    scope there); the user's box calls it directly."""
+def _fetch_llamacpp_release_assets(build: str) -> list[dict]:
+    """The asset list of ONE upstream release (`releases/tags/<build>`) — what that build
+    REALLY publishes, because upstream renames these files between builds (plan
+    docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md §3.4). Same reach as
+    the update check: injectable in tests and, in the dev container, blocked by the egress
+    proxy; the user's box calls it directly."""
     r = requests.get(
-        "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest",
+        f"https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/{build}",
         headers={"User-Agent": "just-llm-runner"}, timeout=15,
     )
     r.raise_for_status()
-    return str(r.json().get("tag_name") or "")
+    return [{"name": str(a.get("name") or ""), "url": str(a.get("browser_download_url") or "")}
+            for a in (r.json().get("assets") or [])]
+
+
+_GH_RELEASES = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
+_GH_HEADERS = {"User-Agent": "just-llm-runner"}
+_BUILD_TAG = re.compile(r"b\d+")
+
+
+def _fetch_latest_llamacpp_release() -> tuple[str, str]:
+    """(build tag, stable label) of upstream's latest STABLE release.
+
+    Since 2026-08-21 llama.cpp publishes semver releases ("v0.4.1") and flags every `bNNNN`
+    build a PRERELEASE, so `releases/latest` answers the semver tag — which carries no
+    binaries. A stable release ships exactly one asset, `nightly-tag.txt`, naming the build
+    whose binaries it points at (v0.4.1 → b10964), and repeats it in the notes. Upstream's
+    own words: vX.Y.Z is "recommended for downstream distribution", b[NUM] is "bleeding
+    edge" — so this follows the stable channel (plan §3.1).
+
+    Order: a bare bNNNN tag (the pre-2026-08-21 scheme) → nightly-tag.txt → the
+    "Nightly build" link in the notes. None of those → raises, and `update_check` reports it
+    as an error rather than inventing a target. Injectable in tests; in the dev container the
+    egress proxy blocks ggml-org, so the user's box is what calls it."""
+    r = requests.get(f"{_GH_RELEASES}/latest", headers=_GH_HEADERS, timeout=15)
+    r.raise_for_status()
+    rel = r.json()
+    tag = str(rel.get("tag_name") or "").strip()
+    if _BUILD_TAG.fullmatch(tag):
+        return tag, ""
+    for a in rel.get("assets") or []:
+        if a.get("name") == "nightly-tag.txt" and a.get("browser_download_url"):
+            t = requests.get(a["browser_download_url"], headers=_GH_HEADERS, timeout=15)
+            t.raise_for_status()
+            build = t.text.strip()
+            if _BUILD_TAG.fullmatch(build):
+                return build, tag
+    m = re.search(r"/releases/tag/(b\d+)", str(rel.get("body") or ""))
+    if m:
+        return m.group(1), tag
+    raise ValueError(f"the latest llama.cpp release ({tag or 'untagged'}) names no build")
+
+
+def _fetch_latest_llamacpp_tag() -> str:
+    """Back-compat face of `_fetch_latest_llamacpp_release` — the build tag alone."""
+    return _fetch_latest_llamacpp_release()[0]
 
 
 # Defect D (2026-07-22 pass-1 plan T4, flagged default 1 — user-blessed): how long an
@@ -452,6 +500,7 @@ class RunnerService:
         sleep=time.sleep,
         arbiter=None,
         latest_build_fn=None,
+        release_assets_fn=None,
         knob_backends_fn=None,
         measurements_fn=None,
         class_bw_fn=None,
@@ -484,7 +533,8 @@ class RunnerService:
         self._acquired_exe = acquired_exe
         self._acquired_exes = acquired_exes
         self._acquire_model = acquire_model
-        self._latest_build_fn = latest_build_fn or _fetch_latest_llamacpp_tag
+        self._latest_build_fn = latest_build_fn or _fetch_latest_llamacpp_release
+        self._release_assets_fn = release_assets_fn or _fetch_llamacpp_release_assets
         self._read_meta = read_meta
         self._start_router = start_router
         self._find_port = find_port
@@ -793,6 +843,26 @@ class RunnerService:
         while the pin is the user's CHOICE of what an install should fetch."""
         exe = self._acquired_exe(self.cache_root, config, self._hardware_fn())
         return build_of_exe(self.cache_root, exe) if exe else None
+
+    def _engine_build_of(self, server_exe=None) -> str:
+        """The build of the exe a render is FOR — flag spellings depend on it
+        (`process.LOAD_MODE_MIN_BUILD`), and a key the reading engine does not know makes
+        its preset parser throw. `server_exe` = the exe about to be spawned or bounced;
+        absent → the one `_acquired_exe` would pick.
+
+        NEVER `_active_server_exe` on its own: it is the session's PROVEN binary and is
+        cleared only in `__init__` and on a cache re-point — NOT by `stop()`. After an
+        engine update it still names the swept build, so rendering from it would emit the
+        old spelling for the new engine and fail the first load after every update."""
+        exe = server_exe
+        if exe is None:
+            try:
+                exe = self._acquired_exe(self.cache_root, self._config_fn(), self._hardware_fn())
+            except Exception:  # noqa: BLE001 — a render must never die on a probe
+                exe = None
+        if exe is None:
+            return ""
+        return build_of_exe(self.cache_root, Path(exe)) or ""
 
     def engine_status(self) -> dict:
         """Is the llama.cpp engine installed for THIS box? Reports the installed
@@ -1115,19 +1185,64 @@ class RunnerService:
         nothing-installed fallback (it is then the build an install would fetch).
         This method never writes the pin — NOTHING does except the user (the
         engine-config PUT / the update flow's deliberate click). A network
-        failure reports as an `error`, never as updateAvailable."""
+        failure reports as an `error`, never as updateAvailable.
+
+        It follows upstream's STABLE channel (2026-09-19): `latest` is the build a
+        `vX.Y.Z` release names, and `latestStable` is that release's tag ("" under the
+        pre-2026-08-21 scheme, where the tag WAS the build). A `latest` that is not a
+        build tag can never read as an update — `build_num` returns -1 for it, and that
+        is the bug this closes: from 2026-08-21 the check answered "v0.4.1" → 41 and
+        silently reported "current" on every box (plan §3.2)."""
         config = self._config_fn()
         current = self._installed_build(config) or config.llamacpp.pinned_build
         try:
-            latest = self._latest_build_fn()
+            res = self._latest_build_fn()
         except Exception as exc:  # noqa: BLE001 — any fetch failure = the same honest answer
-            return {"current": current, "latest": "", "updateAvailable": False, "error": str(exc)}
+            return {"current": current, "latest": "", "latestStable": "",
+                    "updateAvailable": False, "error": str(exc)}
+        # Injected doubles (and the back-compat face) return the tag alone.
+        latest, stable = res if isinstance(res, tuple) else (res, "")
         return {
             "current": current,
             "latest": latest,
-            "updateAvailable": build_num(latest) > build_num(current),
+            "latestStable": stable,
+            "updateAvailable": build_num(latest) > 0 and build_num(latest) > build_num(current),
             "error": "",
         }
+
+    def resolve_build_assets(self, build: str) -> dict:
+        """Where an update to `build` would download from, per stored row — resolved from
+        that release's OWN asset list, because upstream renames these files between builds
+        (plan …-engine-update-safety-and-stable-channel.md §3.4: Windows AMD went
+        hip-radeon → rocm-7.14 → rocm-10.0, Linux AMD vanished for ~180 builds).
+
+        READ-ONLY: it never writes the pin or a URL — the user's deliberate click still
+        does that (the update-check invariant). `selected` names THIS machine's row, so the
+        caller can refuse before writing anything. A fetch failure reports as `error`; the
+        caller then falls back to tag substitution, which is what it always did."""
+        out: dict = {"build": build, "binaries": [], "selected": None, "error": ""}
+        if not re.fullmatch(r"b\d+", str(build or "").strip()):
+            out["error"] = f"{build!r} is not a build tag"
+            return out
+        config = self._config_fn()
+        try:
+            assets = self._release_assets_fn(build)
+        except Exception as exc:  # noqa: BLE001 — any fetch failure = the same honest answer
+            out["error"] = str(exc)
+            return out
+        rows = list(config.llamacpp.binaries)
+        out["binaries"] = resolve_release_assets(build, rows, assets)
+        try:
+            mine = select_binary(config, self._hardware_fn())
+        except Exception:  # noqa: BLE001 — a hardware probe must never break the answer
+            mine = None
+        if mine is not None:
+            out["selected"] = next(
+                ({"platform": r["platform"], "gpu": r["gpu"], "resolved": r["resolved"],
+                  "reason": r["reason"]}
+                 for r in out["binaries"]
+                 if r["platform"] == mine.platform and r["gpu"] == mine.gpu), None)
+        return out
 
     def load(
         self, model_id: str, overrides: Overrides | None = None,
@@ -2030,6 +2145,10 @@ class RunnerService:
         try:
             config = self._config_fn()
             hardware = self._hardware_fn()
+            # The launch flags THIS build must accept before it may replace a working engine
+            # (2026-09-19: b10875 removed two we emit on every model). The build being
+            # installed is the pin — the dest dir is named for it.
+            probes = probe_argvs(config.llamacpp.pinned_build)
 
             def _progress(downloaded: int, total: int | None) -> None:
                 self._engine_state["downloaded"] = downloaded
@@ -2046,7 +2165,8 @@ class RunnerService:
                 self._engine_state["detail"] = f"{concrete or gpu} engine build"
                 self._acquire_binary(self.cache_root, config, hardware,
                                      on_progress=_progress, gpu=concrete,
-                                     cancel_check=self._engine_cancel.is_set)
+                                     cancel_check=self._engine_cancel.is_set,
+                                     probe_argvs=probes)
                 self._engine_state = {"status": "installed", "detail": "", "error": "",
                                       "downloaded": 0, "total": 0}
                 return
@@ -2056,7 +2176,8 @@ class RunnerService:
             # a failed/broken update can no longer wipe a working engine and strand the box on a
             # build that won't launch. `force` makes it re-fetch even when a variant exists.
             self._acquire_binary(self.cache_root, config, hardware, on_progress=_progress,
-                                 cancel_check=self._engine_cancel.is_set, force=force)
+                                 cancel_check=self._engine_cancel.is_set, force=force,
+                                 probe_argvs=probes)
             # A3-REVISED (user, 2026-07-07: "you are downloading cpu version when i have
             # nvidia card, we do not even use cpu version"): the CPU build is NO LONGER
             # pre-downloaded as a universal fallback — a multi-hundred-MB download the
@@ -2074,7 +2195,8 @@ class RunnerService:
                     self._engine_state["detail"] = f"fallback build ({gpu})"
                     self._acquire_binary(self.cache_root, config, hardware,
                                          on_progress=_progress, gpu=gpu,
-                                         cancel_check=self._engine_cancel.is_set)
+                                         cancel_check=self._engine_cancel.is_set,
+                                         probe_argvs=probes)
                 except DownloadCancelled:
                     raise  # a user cancel aborts the whole install, not a best-effort miss
                 except Exception:  # noqa: BLE001 — the net is a bonus, never a blocker
@@ -2987,13 +3109,17 @@ class RunnerService:
             ]
         return entries
 
-    def _emit_ini(self, override: ModelIniEntry | None = None) -> tuple[Path, bool]:
+    def _emit_ini(self, override: ModelIniEntry | None = None, *,
+                  server_exe=None) -> tuple[Path, bool]:
         """Write `<cache_root>/llamacpp/models.ini` from the on-disk catalog. Returns
         (path, changed): `changed` is True only when the rendered text differs from what
         the running router was started with — the signal to spawn (if down) or bounce (if
-        up). The DB is the source of truth; this `.ini` is GENERATED, never read back."""
+        up). The DB is the source of truth; this `.ini` is GENERATED, never read back.
+
+        `server_exe` is the exe that will READ the file — some flag spellings depend on
+        its build (`_engine_build_of`)."""
         entries = self._resolve_ini_entries(override)
-        text = emit_models_ini(entries)
+        text = emit_models_ini(entries, engine_build=self._engine_build_of(server_exe))
         path = self._runtime_root / "models.ini"
         changed = text != self._last_ini_text
         if changed:
@@ -3091,7 +3217,10 @@ class RunnerService:
         earlier one), that exe is what bounces/backoffs reuse — a broken preferred build
         is never re-tried mid-session (it would knock down every healthy resident)."""
         router_up = self._router is not None and self._router.is_alive()
-        _, changed = self._emit_ini(override=entry)
+        # Render for the exe that will actually READ the file: a live router keeps running
+        # its PROVEN binary (the precedence applied below), a down one spawns `server_exe`.
+        effective_exe = (self._active_server_exe if router_up else None) or server_exe
+        _, changed = self._emit_ini(override=entry, server_exe=effective_exe)
         if not router_up:
             # RECONCILE before a FRESH spawn (2026-07-11): the new router starts EMPTY,
             # so resident entries + arbiter reservations left by a router that died
@@ -3268,7 +3397,7 @@ class RunnerService:
                     embeddings=entry.embeddings, pooling=entry.pooling,
                     load_on_startup=entry.load_on_startup, block_count=fit.block_count,
                 )
-                self._emit_ini(override=entry)
+                self._emit_ini(override=entry, server_exe=server_exe)
                 self._bounce_router(server_exe, config)
                 continue
             # failed / timeout: shed GPU layers ONLY on a genuine CUDA-OOM in the spawn log —
@@ -3321,7 +3450,7 @@ class RunnerService:
                     for mid in [m for m in list(self._resident) if m != entry.model_id]:
                         self._resident.pop(mid, None)
                         self._arbiter.release(mid)
-                    self._emit_ini(override=entry)
+                    self._emit_ini(override=entry, server_exe=server_exe)
                     self._bounce_router(server_exe, config)
                     continue
                 # Solo AND a clean restart both still crashed on the draft → NOT the co-load
@@ -3354,7 +3483,7 @@ class RunnerService:
                     embeddings=entry.embeddings, pooling=entry.pooling,
                     load_on_startup=entry.load_on_startup, block_count=fit.block_count,
                 )
-                self._emit_ini(override=entry)
+                self._emit_ini(override=entry, server_exe=server_exe)
                 self._bounce_router(server_exe, config)
                 continue
             raise RuntimeError(

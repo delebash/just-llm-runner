@@ -11,13 +11,14 @@ alongside the exe — those are fetched too.
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess
 import sys
 import tarfile
 import zipfile
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 from .download import download_kwargs, stream_download
 from .schema import BinaryAsset, HardwareInfo, RunnerConfig
@@ -125,10 +126,110 @@ def variant_dir(cache_root: Path, build: str, gpu: str) -> Path:
 
 
 def build_num(tag: str) -> int:
-    """Numeric part of a llama.cpp build tag ("b9929" → 9929; -1 when none) —
-    one parser shared by the update check and the newest-on-disk ordering."""
-    digits = "".join(ch for ch in str(tag) if ch.isdigit())
-    return int(digits) if digits else -1
+    """Numeric part of a llama.cpp BUILD tag ("b9929" → 9929); -1 for anything else —
+    one parser shared by the update check and the newest-on-disk ordering.
+
+    STRICT since 2026-09-19 (plan docs/plans/2026-09-19-engine-update-safety-and-stable-
+    channel.md §3.2). Upstream began publishing semver releases ("v0.4.1") on 2026-08-21 and
+    flagging every bNNNN build a prerelease, so `releases/latest` started answering a `v` tag.
+    The old digit-strip read "v0.4.1" as 41 — less than any build — so the update check has
+    reported "you are current", with no error, ever since; and a future "v1.10.500" would
+    read as 110500, i.e. newer than every build, offering an update whose download 404s."""
+    m = re.fullmatch(r"b(\d+)", str(tag or "").strip())
+    return int(m.group(1)) if m else -1
+
+
+_UPSTREAM_DL = "https://github.com/ggml-org/llama.cpp/releases/download"
+
+# (platform, gpu) → (asset regex, runtime-companion regex | None). `{b}` = the escaped build
+# tag; `{v}` = the CUDA version captured from the chosen asset (an asset on 12.4 needs the
+# cudart on 12.4). Patterns are ANCHORED and end in the arch, so `…-win-cuda-13.4-arm64.zip`
+# can never satisfy an x64 row.
+#
+# WHY THIS EXISTS (2026-09-19, plan docs/plans/2026-09-19-engine-update-safety-and-stable-
+# channel.md §3.4): upstream RENAMES these files between builds, and the update flow used to
+# just substitute the tag into the stored name. Windows AMD went hip-radeon → rocm-7.14 →
+# rocm-10.0, Linux AMD rocm-7.2 → (absent for ~180 builds) → rocm-10.0, Windows CUDA 13
+# 13.3 → 13.4. A substituted name that no longer exists is a 404 mid-update.
+ASSET_PATTERNS: dict[tuple[str, str], tuple[str, str | None]] = {
+    ("windows", "cuda12"): (r"^llama-{b}-bin-win-cuda-(12\.\d+)-x64\.zip$",
+                            r"^cudart-llama-bin-win-cuda-{v}-x64\.zip$"),
+    ("windows", "cuda13"): (r"^llama-{b}-bin-win-cuda-(13\.\d+)-x64\.zip$",
+                            r"^cudart-llama-bin-win-cuda-{v}-x64\.zip$"),
+    ("windows", "rocm"):   (r"^llama-{b}-bin-win-(?:hip-radeon|rocm-([\d.]+))-x64\.zip$", None),
+    ("windows", "vulkan"): (r"^llama-{b}-bin-win-vulkan-x64\.zip$", None),
+    ("macos", "metal"):    (r"^llama-{b}-bin-macos-arm64\.tar\.gz$", None),
+    ("linux", "rocm"):     (r"^llama-{b}-bin-ubuntu-rocm-([\d.]+)-x64\.tar\.gz$", None),
+    ("linux", "vulkan"):   (r"^llama-{b}-bin-ubuntu-vulkan-x64\.tar\.gz$", None),
+}
+
+
+def _fill(pattern: str, build: str, version: str = "") -> str:
+    """Placeholders are substituted, never `str.format`ed — the patterns contain regex braces."""
+    return pattern.replace("{b}", re.escape(build)).replace("{v}", re.escape(version))
+
+
+def _version_key(captured: str | None) -> tuple:
+    """Sort key for a captured version ('10.0' > '7.14'); no capture ranks lowest."""
+    if not captured:
+        return (0,)
+    return (1, *(int(part) for part in captured.split(".") if part.isdigit()))
+
+
+def resolve_release_assets(build: str, rows, assets) -> list[dict]:
+    """Map each stored binary row to the file that BUILD actually publishes.
+
+    Pure: `assets` is `[{"name": str, "url": str}]` from the release, `rows` are
+    `BinaryAsset`s (`config.llamacpp.binaries`). Per row, `resolved` is
+      True  — found; `assetUrl`/`runtimeUrl` are that build's real downloads,
+      False — this build publishes nothing for that (platform, gpu),
+      None  — not ours to resolve: a docker row, a (platform, gpu) with no pattern, or a
+              hand-edited URL that is not an upstream release download (a mirror stays put).
+    Result rows are camelCase so the UI can merge them straight into the engine-config
+    `binaries` it PUTs. Unresolved and not-ours rows keep their stored URLs untouched."""
+    names = {str(a.get("name") or ""): str(a.get("url") or "") for a in (assets or [])}
+    out: list[dict] = []
+    for row in rows or []:
+        platform, gpu = getattr(row, "platform", ""), getattr(row, "gpu", "")
+        asset_url = getattr(row, "asset_url", "") or ""
+        runtime_url = getattr(row, "runtime_url", "") or ""
+        res: dict = {"platform": platform, "gpu": gpu, "assetUrl": asset_url,
+                     "runtimeUrl": runtime_url, "resolved": None, "reason": ""}
+        pattern = ASSET_PATTERNS.get((platform, gpu))
+        if getattr(row, "source", "github") != "github":
+            res["reason"] = f"{getattr(row, 'source', '')} rows are not release downloads"
+        elif pattern is None:
+            res["reason"] = f"no asset pattern for {platform}/{gpu}"
+        elif "/ggml-org/llama.cpp/releases/download/" not in asset_url:
+            res["reason"] = "a custom URL — left exactly as stored"
+        else:
+            asset_re, runtime_re = pattern
+            matches = [(m, n) for n in names
+                       if (m := re.fullmatch(_fill(asset_re, build), n)) is not None]
+            best = max(matches, key=lambda mn: _version_key(
+                next((g for g in mn[0].groups() if g), None)), default=None)
+            if best is None:
+                res["resolved"] = False
+                res["reason"] = f"no download for {platform}/{gpu} at {build}"
+            else:
+                match, name = best
+                version = next((g for g in match.groups() if g), "") or ""
+                new_runtime = ""
+                if runtime_re is not None:
+                    want = _fill(runtime_re, build, version)
+                    new_runtime = next((names[n] or f"{_UPSTREAM_DL}/{build}/{n}"
+                                        for n in names if re.fullmatch(want, n)), "")
+                    if not new_runtime:
+                        res["resolved"] = False
+                        res["reason"] = (f"{name} has no matching runtime companion "
+                                         f"at {build} — it would not launch")
+                        out.append(res)
+                        continue
+                res.update(resolved=True,
+                           assetUrl=names[name] or f"{_UPSTREAM_DL}/{build}/{name}",
+                           runtimeUrl=new_runtime)
+        out.append(res)
+    return out
 
 
 def _on_disk_builds(cache_root: Path) -> list[str]:
@@ -310,6 +411,37 @@ def _swap_into_place(staging: Path, dest: Path) -> None:
     shutil.rmtree(backup, ignore_errors=True)
 
 
+def _verify_exe_accepts_flags(exe: Path, argvs, *, run: Callable | None = None) -> None:
+    """Confirm a freshly-unpacked llama-server ACCEPTS the launch flags this app emits —
+    the check `--version` alone cannot do.
+
+    Born 2026-09-19 (plan docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md
+    §3.3): llama.cpp b10875 DELETED `--mlock` and `--mmap`/`--no-mmap`. Such a build starts
+    fine, so `_verify_exe_launches` passes it, it is swapped in, the old build is swept — and
+    then every model load dies on "error: invalid argument" (or, through the router's preset
+    file, "option not recognized in preset"). A non-zero exit here raises, so the caller
+    discards the staged build and the working engine stays exactly where it was.
+
+    Each argv is `<flags…> --version`: args parse in order and `--version` exits on sight, so
+    no model is loaded and no GPU is touched. `run` injects the subprocess in tests."""
+    for argv in argvs or ():
+        try:
+            proc = run(argv) if run else subprocess.run(  # noqa: S603 — a trusted, just-unpacked release exe
+                [str(exe), *argv], capture_output=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise RuntimeError(f"engine binary {exe} could not run the flag check: {e}") from e
+        rc = int(getattr(proc, "returncode", 0) or 0)
+        if rc != 0:
+            blob = b"".join(x for x in (getattr(proc, "stdout", b"") or b"",
+                                        getattr(proc, "stderr", b"") or b"") if x)
+            line = next((ln.strip() for ln in blob.decode("utf-8", "replace").splitlines()
+                         if "invalid argument" in ln or "error while handling argument" in ln), "")
+            raise RuntimeError(
+                "this engine build does not accept a launch flag this app uses"
+                + (f" ({line})" if line else f" (exit {rc})")
+                + " — the installed engine was left in place")
+
+
 def acquire_binary(
     cache_root: Path,
     config: RunnerConfig,
@@ -318,6 +450,7 @@ def acquire_binary(
     cancel_check: Callable[[], bool] | None = None,
     gpu: str | None = None,
     force: bool = False,
+    probe_argvs: Sequence[Sequence[str]] | None = None,
 ) -> Path:
     """Ensure llama-server is on disk for the detected hardware; return path.
 
@@ -325,7 +458,10 @@ def acquire_binary(
     unpacked exe is launch-verified (`_verify_exe_launches`), and only then is it swapped
     into the live variant dir (`_swap_into_place`). A failed/partial/broken download — or a
     build missing a runtime DLL — never touches the working engine, and the caller's
-    stale-build sweep runs only AFTER a good build is in place. Idempotent unless `force` (an
+    stale-build sweep runs only AFTER a good build is in place. Since 2026-09-19 the staged
+    exe must also ACCEPT the launch flags this app emits (`probe_argvs` →
+    `_verify_exe_accepts_flags`) — upstream removes flags, and a build that starts but
+    refuses our argv would otherwise replace a working engine and break every load. Idempotent unless `force` (an
     update / reinstall re-fetches even when a variant is already present).
 
     Downloads the github asset (`.zip`/`.tar.gz`) into the asset's VARIANT dir
@@ -413,6 +549,7 @@ def acquire_binary(
         if hardware.platform != "windows":
             exe.chmod(exe.stat().st_mode | 0o111)
         _verify_exe_launches(exe, hardware.platform)   # catches a missing runtime DLL/.so
+        _verify_exe_accepts_flags(exe, probe_argvs)    # catches a flag upstream removed
         _swap_into_place(staging, dest)                # atomic — `dest` untouched until here
     finally:
         # Success renamed staging → dest (this is a no-op); any failure leaves it, so clean it

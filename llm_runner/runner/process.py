@@ -29,6 +29,7 @@ from typing import Callable, Sequence
 import requests
 
 from . import fit
+from .binary import build_num
 from .config import DEFAULT_CTX_CAP_TOKENS, DEFAULT_SAFETY_MARGIN_MB
 from .gguf import GgufMeta
 from .hardware import active_backend, budget_total_mb, max_vram_mb, mem_arch
@@ -191,8 +192,34 @@ _VALUE_FLAGS = (
 _ARGV_SHORT = {"n-gpu-layers": "-ngl"}
 
 
+# `--load-mode` replaces --mlock / --mmap / --no-mmap / --direct-io (llama.cpp #20834, b10105;
+# the legacy args were DELETED at b10875, #28334 — an engine >= that REFUSES them, and an
+# unknown key in models.ini makes the preset parser throw). We switch at b10145 (#26135), the
+# first build whose value list has `mmap+mlock` AND where `mlock` means "lock WITHOUT mmap" —
+# at b10105 the list is none|mmap|mlock|dio. Semantics verified identical b10145 → b11056, and
+# MEASURED on the real b10437 (plan docs/plans/2026-09-19-engine-update-safety-and-stable-
+# channel.md §3.3): the engine's own `load_mode = X` line confirms each mapping below.
+LOAD_MODE_MIN_BUILD = 10145
+
+
+def load_mode_value(mlock: bool | None, no_mmap: bool | None) -> str | None:
+    """The `--load-mode` value for the kit's two loading switches, or None to emit nothing
+    (the engine default). `mlock` alone keeps its PRE-refactor meaning — mmap on + lock, the
+    combination the 2026-07-22 A/B proved locks on Windows. Since b10105 the legacy flags each
+    ASSIGN one mode and do not combine, so our emitted `--mlock --no-mmap` pair silently
+    resolved to `none` (no mmap, NO LOCK — measured on b10437); that is the bug this closes."""
+    if mlock and no_mmap:
+        return "mlock"          # no mmap + lock (Windows never reaches here — _strip_inert_mlock)
+    if mlock:
+        return "mmap+mlock"
+    if no_mmap:
+        return "none"
+    return None
+
+
 def overrides_to_pairs(
-    ov: Overrides, *, n_gpu_layers: int | None, n_cpu_moe: int | None, ctx_len: int
+    ov: Overrides, *, n_gpu_layers: int | None, n_cpu_moe: int | None, ctx_len: int,
+    engine_build: str = "",
 ) -> list[tuple[str, str | None]]:
     """The ONE normalized (flag, value) list for a model's launch config — the single
     source BOTH renderers consume, so the spawn argv (`render_argv`) and the router
@@ -201,11 +228,16 @@ def overrides_to_pairs(
     argv; `key = true` in the ini). Keys are canonical, WITHOUT leading dashes.
 
     Covers the fit knobs (n-gpu-layers / n-cpu-moe / ctx) + the engine `Overrides`:
-    value flags (`_VALUE_FLAGS`), presence flags (mlock / no-mmap / no-kv-offload, with
-    the cont-batching + context-shift INVERSIONS preserved), and the spec-decode branch.
+    value flags (`_VALUE_FLAGS`), presence flags (no-kv-offload, with the cont-batching +
+    context-shift INVERSIONS preserved), the LOADING pair, and the spec-decode branch.
     `extra_flags` is NOT here — it is a raw passthrough the caller renders verbatim
     (argv) or parses (ini). The merged `Overrides` already resolved the base preset, so
     there is nothing to strip; the list is built fresh.
+
+    `engine_build` is the build the render is FOR ("b10437"): the LOADING pair
+    (mlock / no_mmap) spells itself `--load-mode` from `LOAD_MODE_MIN_BUILD` and as the
+    legacy presence flags below it. Default "" → build_num -1 → the legacy spelling, i.e.
+    byte-identical to every render made before 2026-09-19.
     """
     # 1b fit-by-omission: a None fit knob is NOT rendered, so the engine's own default
     # `--fit` places tensors (untuned models); explicit values render as ever and
@@ -221,10 +253,16 @@ def overrides_to_pairs(
         val = getattr(ov, attr)
         if val is not None:
             pairs.append((flag.lstrip("-"), str(val)))
-    if ov.mlock:
-        pairs.append(("mlock", None))
-    if ov.no_mmap:
-        pairs.append(("no-mmap", None))
+    if build_num(engine_build) >= LOAD_MODE_MIN_BUILD:
+        mode = load_mode_value(ov.mlock, ov.no_mmap)
+        if mode is not None:
+            pairs.append(("load-mode", mode))
+    else:
+        # Unknown build ("" → -1) or a pre-b10145 engine: the legacy presence flags.
+        if ov.mlock:
+            pairs.append(("mlock", None))
+        if ov.no_mmap:
+            pairs.append(("no-mmap", None))
     if ov.no_kv_offload:
         pairs.append(("no-kv-offload", None))
     if ov.cont_batching is False:
@@ -320,17 +358,49 @@ def engine_ngl_flag(n_gpu: int | None, block_count: int) -> int | None:
     return block_count + 1 if block_count > 0 and n_gpu >= block_count else n_gpu
 
 
-def emit_models_ini(entries: Sequence[ModelIniEntry]) -> str:
+def probe_argvs(engine_build: str) -> list[list[str]]:
+    """Launch-flag ACCEPTANCE probes for an engine build: each list is `<flags…> --version`.
+
+    llama-server parses args IN ORDER and exits on `--version`, so an unknown flag or a bad
+    value placed BEFORE it exits 1 ("error: invalid argument: …") with no model and no GPU —
+    `--version` first would test nothing (both observed on b10437, plan §3.3). Together the
+    lists cover every key `overrides_to_pairs` can emit for that build, plus the fit knobs and
+    the router's own flags. `model_draft` is absent on purpose: it is a path, not a spelling.
+    Born 2026-09-19: b10875 DELETED --mlock/--no-mmap, and such a build passes the
+    `--version`-only check, gets swapped in, and then rejects every model load."""
+    common = dict(cache_type_k="q8_0", cache_type_v="q8_0", flash_attn="on", batch_size=512,
+                  ubatch_size=512, threads=4, threads_batch=4, parallel=1, cache_reuse=256)
+    configs = [
+        Overrides(**common, mlock=True, no_kv_offload=True, cont_batching=False,
+                  context_shift=True, spec_type="draft-mtp", spec_n_max=2),
+        Overrides(no_mmap=True, context_shift=False, spec_type="ngram-mod", spec_n_max=4),
+        Overrides(mlock=True, no_mmap=True),
+    ]
+    out = [render_argv(overrides_to_pairs(ov, n_gpu_layers=31, n_cpu_moe=21, ctx_len=4096,
+                                          engine_build=engine_build)) + ["--version"]
+           for ov in configs]
+    out.append(["--models-dir", ".", "--models-preset", "models.ini", "--models-max", "2",
+                "--sleep-idle-seconds", "600", "--host", "127.0.0.1", "--port", "1",
+                "--embeddings", "--pooling", "mean", "--version"])
+    return out
+
+
+def emit_models_ini(entries: Sequence[ModelIniEntry], *, engine_build: str = "") -> str:
     """Render the router `--models-preset` `.ini` from resolved per-model entries. The
     DB is the source of truth; this `.ini` is a GENERATED artifact — written from the DB
     when the router (re)starts or the resident set changes, never hand-edited or read
     back. One `[<model_id>]` section per entry; per-model flags come from the shared
-    `overrides_to_pairs` (so the `.ini` can't drift from the spawn argv)."""
+    `overrides_to_pairs` (so the `.ini` can't drift from the spawn argv).
+
+    `engine_build` is the build that will READ this file — flag spellings depend on it
+    (`LOAD_MODE_MIN_BUILD`), and an unknown key makes the preset parser throw. It is a
+    property of the whole file, not of a model, which is why it lives here and not on
+    `ModelIniEntry`."""
     blocks: list[str] = []
     for e in entries:
         pairs = overrides_to_pairs(
             e.overrides, n_gpu_layers=engine_ngl_flag(e.n_gpu_layers, e.block_count),
-            n_cpu_moe=e.n_cpu_moe, ctx_len=e.ctx_len,
+            n_cpu_moe=e.n_cpu_moe, ctx_len=e.ctx_len, engine_build=engine_build,
         )
         pairs += _extra_flags_to_ini_pairs(e.overrides.extra_flags)
         section = [f"[{e.model_id}]", f"model = {e.gguf_path}", render_ini(pairs)]
@@ -511,8 +581,9 @@ def compute_fit(
     # probe-and-back-off nets, per this function's docstring. A CPU-only box
     # (budget 0) has no GPU to charge, so the term is a no-op there.
     # We emit no `-ngld`, whose default is `auto` — read from the INSTALLED b10068
-    # `--help` (the PIN is b9993, config.py:49; not re-read there, and upstream's
-    # server README agrees) — so the engine sizes the draft's offload itself. Charge
+    # `--help` (the pin was b9993 then, b10750 since 2026-09-19; not re-read at either,
+    # and upstream's server README agrees) — so the engine sizes the draft's offload
+    # itself. Charge
     # ALL its bytes anyway: over-reserving costs a main expert layer at worst,
     # under-reserving is what OOMs. Same build shows NO draft-specific context flag,
     # so the draft rides our chosen ctx.
@@ -652,6 +723,7 @@ def compose_flags(
     extra: Sequence[str] = (),
     overrides: Overrides | None = None,
     block_count: int = 0,
+    engine_build: str = "",
 ) -> list[str]:
     """Build the llama-server argv (after the exe) from the resolved engine overrides.
     `n_gpu_layers` is the kit's value; the EMITTED flag goes through
@@ -664,7 +736,8 @@ def compose_flags(
     argv and the `.ini` section can never drift."""
     ov = overrides or Overrides()
     flags = render_argv(overrides_to_pairs(ov, n_gpu_layers=engine_ngl_flag(n_gpu_layers, block_count),
-                                           n_cpu_moe=n_cpu_moe, ctx_len=ctx_len))
+                                           n_cpu_moe=n_cpu_moe, ctx_len=ctx_len,
+                                           engine_build=engine_build))
     flags += ["-m", str(gguf_path), "--host", host, "--port", str(port)]
     flags += list(ov.extra_flags)  # raw passthrough (the "new flag, no code" escape), verbatim
     flags += list(extra)

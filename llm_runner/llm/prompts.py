@@ -355,9 +355,10 @@ def _response_format(spec: FeaturePromptRow | None, action: str) -> dict:
     """The response_format for a JSON action (#18 → C1). A stored schema that
     parses as a non-empty JSON OBJECT upgrades the weak json_object to
     schema-ENFORCED output, emitted in the OpenAI-standard NESTED form — each
-    adapter translates to its backend (the builtin runner flattens to the
-    b9644-documented {"type":"json_schema","schema":…}; Ollama format=<schema>;
-    Gemini responseSchema; Anthropic strips — no such param). The schema is NOT
+    adapter translates to its backend (llama.cpp reads the same nested OpenAI form
+    UNCHANGED — a flat {"type":"json_schema","schema":…} is what its README documents
+    but its parser silently ignores, so openai_compat no longer rewrites it; Ollama
+    format=<schema>; Gemini responseSchema; Anthropic strips). The schema is NOT
     injected into the prompt (recorded design: the prompt still describes the
     shape). No/invalid schema → json_object as before; an invalid one logs a
     warning and DEGRADES rather than failing the run."""

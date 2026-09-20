@@ -21,13 +21,16 @@ from llm_runner.runner.process import (
     Overrides,
     Runner,
     RunnerStartError,
+    _VALUE_FLAGS,
     _tail_file,
     compose_flags,
     compose_router_argv,
     compute_fit,
     emit_models_ini,
     engine_ngl_flag,
+    load_mode_value,
     overrides_to_pairs,
+    probe_argvs,
     render_argv,
     render_ini,
     start_runner,
@@ -318,6 +321,77 @@ def test_render_argv_is_exact_argv_prefix_of_compose_flags(tmp_path):
     assert composed[: len(argv)] == argv                    # render_argv output IS the prefix
     assert composed[len(argv):] == ["-m", str(tmp_path / "m.gguf"),
                                     "--host", DEFAULT_HOST, "--port", str(DEFAULT_PORT)]
+
+
+# ── The LOADING pair's spelling follows the engine build (2026-09-19, plan
+#    docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md §3.3). llama.cpp
+#    b10875 DELETED --mlock/--no-mmap; from b10145 the one --load-mode value says it all.
+#    MEASURED on b10437: our emitted `--mlock --no-mmap` pair resolved to `load_mode = none`
+#    — no mmap and NO LOCK — because the legacy flags assign, and the last one wins. ──
+
+def test_load_mode_value_table():
+    assert load_mode_value(True, None) == "mmap+mlock"   # mlock's PRE-refactor meaning
+    assert load_mode_value(None, True) == "none"         # exactly what --no-mmap set
+    assert load_mode_value(True, True) == "mlock"        # no mmap + lock (non-Windows only)
+    assert load_mode_value(None, None) is None           # emit nothing → the engine default
+    assert load_mode_value(False, False) is None         # falsey is not "set"
+
+
+@pytest.mark.parametrize("build", ["", "b9993", "b10144"])
+def test_overrides_to_pairs_keeps_legacy_flags_below_the_threshold(build):
+    d = dict(overrides_to_pairs(Overrides(mlock=True, no_mmap=True), n_gpu_layers=None,
+                                n_cpu_moe=None, ctx_len=4096, engine_build=build))
+    assert d["mlock"] is None and d["no-mmap"] is None
+    assert "load-mode" not in d
+
+
+@pytest.mark.parametrize("build", ["b10145", "b10437", "b10964", "b11056"])
+@pytest.mark.parametrize(("mlock", "no_mmap", "want"), [
+    (True, None, "mmap+mlock"),
+    (None, True, "none"),
+    (True, True, "mlock"),
+    (None, None, None),
+])
+def test_overrides_to_pairs_load_mode_by_engine_build(build, mlock, no_mmap, want):
+    d = dict(overrides_to_pairs(Overrides(mlock=mlock, no_mmap=no_mmap), n_gpu_layers=None,
+                                n_cpu_moe=None, ctx_len=4096, engine_build=build))
+    assert d.get("load-mode") == want
+    assert "mlock" not in d and "no-mmap" not in d       # the removed flags, never emitted
+
+
+def test_emit_models_ini_renders_load_mode_for_new_engines(tmp_path):
+    e = ModelIniEntry(model_id="m", gguf_path=str(tmp_path / "m.gguf"), n_gpu_layers=None,
+                      n_cpu_moe=None, ctx_len=4096, overrides=Overrides(no_mmap=True))
+    assert "load-mode = none" in emit_models_ini([e], engine_build="b10964")
+    assert "no-mmap = true" in emit_models_ini([e])       # no build known → legacy, as before
+
+
+def test_compose_flags_load_mode_parity(tmp_path):
+    # The .ini and the spawn argv share ONE renderer — including this spelling.
+    ov = Overrides(mlock=True)
+    argv = render_argv(overrides_to_pairs(ov, n_gpu_layers=10, n_cpu_moe=0, ctx_len=4096,
+                                          engine_build="b10964"))
+    composed = compose_flags(tmp_path / "m.gguf", n_gpu_layers=10, n_cpu_moe=0, ctx_len=4096,
+                             overrides=ov, engine_build="b10964")
+    assert composed[: len(argv)] == argv
+    assert "--load-mode" in argv and "mmap+mlock" in argv and "--mlock" not in argv
+
+
+def test_probe_argvs_cover_every_emitted_key():
+    # The install-time acceptance check is only as good as its coverage: every key
+    # overrides_to_pairs can emit for that build must appear in some probe, and every
+    # probe must END with --version (args parse in order; --version exits on sight).
+    fixed = {"-ngl", "--n-cpu-moe", "--ctx-size", "--no-kv-offload", "--no-cont-batching",
+             "--context-shift", "--no-context-shift", "--spec-type", "--spec-draft-n-max",
+             "--spec-ngram-mod-n-max"}
+    value_flags = {flag for _attr, flag in _VALUE_FLAGS} - {"--model-draft"}  # a path, not a spelling
+    for build, loading in (("b9993", {"--mlock", "--no-mmap"}), ("b10964", {"--load-mode"})):
+        argvs = probe_argvs(build)
+        assert all(a[-1] == "--version" for a in argvs), build
+        seen = {tok for a in argvs for tok in a if tok.startswith("-")}
+        assert (fixed | value_flags | loading) <= seen, (build, (fixed | value_flags | loading) - seen)
+        # and never the spelling the OTHER era uses
+        assert ("--load-mode" in seen) is (build == "b10964")
 
 
 def test_render_ini_emits_key_value_and_bare_true():

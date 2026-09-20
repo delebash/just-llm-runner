@@ -29,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from llm_runner.runner.lifecycle import RunnerService
+from llm_runner.runner.process import LOAD_MODE_MIN_BUILD
 from llm_runner.runner.schema import ModelEntry
 
 pytestmark = pytest.mark.realrouter
@@ -233,6 +234,15 @@ def test_mtp_emit_rule(svc):
             assert Path(m.group(1).strip()).exists(), "emitted a model-draft that is not on disk"
 
 
+def _engine_build_num() -> int:
+    """The installed build as a number — the emitted flag spelling depends on it
+    (`process.LOAD_MODE_MIN_BUILD`)."""
+    from llm_runner.runner.binary import build_num
+
+    exe = _find_engine_exe()
+    return build_num(exe.parent.parent.name) if exe else -1
+
+
 def test_mlock_parity_router_vs_standalone(svc):
     # Case 8 (defect G — RESOLVED by the T7 bisection, 2026-07-22): --mlock through
     # the ROUTER locks exactly as it does standalone. The incident's 998s were never
@@ -240,10 +250,17 @@ def test_mlock_parity_router_vs_standalone(svc):
     # upstream llama.cpp allocation-shape bug; see the xfail case below). The
     # originally-planned xfail (flagged default 2) is removed because parity
     # genuinely holds.
+    # 2026-09-19: the STANDALONE leg now asks for the mode by name on a new engine —
+    # `--mlock` was deleted at b10875 and, from b10105, means "lock WITHOUT mmap"
+    # (measured). `mmap+mlock` is what `mlock: true` renders to there, so the two legs
+    # stay the same request. NOTE what this asserts: the ABSENCE of a VirtualLock
+    # warning, not that a lock happened.
     exe = _find_engine_exe()
     gguf = _snapshot_gguf(EMBED_REPO, EMBED_QUANT)
+    lock_flags = (["--load-mode", "mmap+mlock"] if _engine_build_num() >= LOAD_MODE_MIN_BUILD
+                  else ["--mlock"])
     proc = subprocess.Popen(
-        [str(exe), "-m", str(gguf), "--mlock", "-c", "512", "--port", "8091",
+        [str(exe), "-m", str(gguf), *lock_flags, "-c", "512", "--port", "8091",
          "--host", "127.0.0.1"],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
         errors="replace",
@@ -283,8 +300,14 @@ def test_mlock_no_mmap_pair_is_stripped_on_windows(svc):
     svc.load(EMBED_ID, switches={"mlock": "true", "no_mmap": "true"})
     assert _wait(lambda: _loaded(svc, EMBED_ID), 120), svc.status()
     section = _section(_ini_text(svc), EMBED_ID)
-    assert "no-mmap = true" in section
-    assert "mlock = " not in section, section               # stripped from the pair
+    if _engine_build_num() >= LOAD_MODE_MIN_BUILD:
+        # Same truth, the new engine's spelling: mlock stripped → no_mmap alone → `none`
+        # (measured on b10437: `load_mode = none`). The removed flags never appear.
+        assert "load-mode = none" in section, section
+        assert "mlock" not in section and "no-mmap" not in section, section
+    else:
+        assert "no-mmap = true" in section
+        assert "mlock = " not in section, section           # stripped from the pair
     log_path = getattr(svc, "_last_log_path", None)
     assert log_path and Path(log_path).exists(), "no router log to check"
     router_log = Path(log_path).read_text(encoding="utf-8", errors="replace")

@@ -14,7 +14,7 @@ import { computed, ref } from "vue";
 import { request } from "../client.js";
 import { confirmDialog } from "../common/services/dialog.js";
 import { createRateTracker, progressCaption, rateSuffix } from "../common/services/downloadRate.js";
-import { applyBuildToUrl } from "../common/services/engineUrl.js";
+import { applyBuildToUrl, planBinaries, shouldRollback } from "../common/services/engineUrl.js";
 
 const st = ref(null); // engine_status() payload
 const busy = ref(false); // an install/uninstall POST in flight
@@ -56,6 +56,13 @@ function _syncPoll() {
   } else if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
+    // An update wrote the new pin BEFORE the install ran. The install has now reached a
+    // terminal state: keep the pin if the target is what landed on disk, put the old one
+    // back if anything else did (a renamed asset, a build that refused our launch flags).
+    if (pendingUpdate) {
+      if (shouldRollback(pendingUpdate, st.value)) rollbackPendingUpdate().catch(() => {});
+      else pendingUpdate = null;
+    }
     // The install just reached a terminal state (#138, 2026-07-07): the backend
     // clears stale "Install the engine first" model errors on success — re-pull
     // the models list so the grid drops its red "install engine ↑" rows without
@@ -200,8 +207,14 @@ async function setBackend(family) {
 // ── A5: update detection (user "do", 2026-07-06) — notify-only, never auto-applied.
 // The pin is a VERIFIED pin (flag semantics move between llama.cpp builds), so the
 // surface is a line + a deliberate click; policy Off silences the check entirely.
-const updateInfo = ref(null); // {current, latest, updateAvailable, error} | null
+const updateInfo = ref(null); // {current, latest, latestStable, updateAvailable, error} | null
 const updatePolicy = ref("notify");
+// An update in flight that ALREADY wrote the new pin + URLs. If the install then fails (a
+// renamed asset, a build that refuses our launch flags), the DB would be left pointing at an
+// engine this box does not have — so we keep what to put back. Cleared once the install
+// reaches a terminal state on the target build. Lost if the app closes mid-update: the pin
+// stays at the target, the old engine stays on disk, and the update is simply offered again.
+let pendingUpdate = null; // { target, previous: { pinnedBuild, binaries } }
 
 // Warm-on-startup (2026-07-21): warm the default local chat model into VRAM at launch.
 // A RunnerSetting on the engine config (like preferred_gpu / update_policy). Hoisted into
@@ -252,36 +265,70 @@ async function setUpdatePolicy(v) {
   else checkForUpdate();
 }
 
+// Put the pin + URLs back after an update that wrote them and then failed. Best-effort and
+// never throwing: it runs from the status poll, which must not die.
+async function rollbackPendingUpdate() {
+  const previous = pendingUpdate?.previous;
+  pendingUpdate = null;
+  if (!previous) return;
+  try {
+    await request("/v1/ai/engine-config", {
+      method: "PUT",
+      body: { pinnedBuild: previous.pinnedBuild, binaries: previous.binaries },
+    });
+    error.value = `${error.value || "The engine update didn't complete."} Your engine was left on ${previous.pinnedBuild}.`;
+  } catch {
+    // the PUT itself failed — the message above would be a lie, so say nothing more
+  }
+}
+
 async function updateToLatest() {
   const latest = updateInfo.value?.latest;
   if (!latest) return;
   busy.value = true;
   error.value = "";
   try {
-    // The deliberate click: write the new pin, then force-reinstall for it. The
-    // acquire path verifies the release's asset names (the pin-bump discipline).
+    // The deliberate click: write the new pin, then force-reinstall for it.
     // An update REPLACES (user, 2026-07-07: "the engine update should delete the
     // old folder"): the superseded build rides along so the backend deletes its
     // folder once the new install lands (a hand-maintained models.ini inside it
     // is carried over first).
     const previous = updateInfo.value?.current || st.value?.build || "";
-    // The pin drives the URLs: bump the pin AND re-point every stored download URL to the
-    // new build (the SAME applyBuildToUrl the Binaries panel uses), so the DB holds the real
-    // URL for `latest` and the install folder (named for the pin) matches the binary.
+    // Ask the SERVER what that release really publishes — upstream renames these files
+    // between builds, so substituting the tag can 404 (plan §3.4). A failed lookup is not
+    // fatal: planBinaries then substitutes, which is what this always did.
+    let plan = null;
+    try {
+      plan = await request(`/v1/llm-runner/engine/resolve-assets?build=${encodeURIComponent(latest)}`);
+      if (plan?.error) plan = null;
+    } catch {
+      plan = null;
+    }
+    // Nothing for THIS machine's graphics type at that build → refuse before writing anything.
+    if (plan?.selected && plan.selected.resolved === false) {
+      error.value = `${latest} has no download for this computer's graphics type (${plan.selected.gpu}). Nothing was changed.`;
+      return;
+    }
     const cfg = await request("/v1/ai/engine-config");
-    const binaries = (cfg.binaries || []).map((b) => ({
-      ...b,
-      assetUrl: applyBuildToUrl(b.assetUrl, latest),
-      runtimeUrl: applyBuildToUrl(b.runtimeUrl, latest),
-    }));
-    await request("/v1/ai/engine-config", { method: "PUT", body: { pinnedBuild: latest, binaries } });
+    pendingUpdate = { target: latest, previous: { pinnedBuild: cfg.pinnedBuild, binaries: cfg.binaries } };
+    await request("/v1/ai/engine-config", {
+      method: "PUT", body: { pinnedBuild: latest, binaries: planBinaries(cfg.binaries, plan, latest) },
+    });
     await request("/v1/llm-runner/engine/install", {
       method: "POST", body: { force: true, replaceBuild: previous },
     });
     updateInfo.value = null;
     await refreshEngine();
+    // An install that dies inside the first poll interval never sets status=installing, so
+    // _syncPoll's terminal branch would never run — decide here too.
+    if (pendingUpdate && st.value?.status !== "installing") {
+      if (shouldRollback(pendingUpdate, st.value)) await rollbackPendingUpdate();
+      else pendingUpdate = null;
+    }
   } catch (e) {
-    error.value = e.message || "Update failed.";
+    const msg = e.message || "Update failed.";
+    error.value = msg;
+    if (pendingUpdate) await rollbackPendingUpdate();
   } finally {
     busy.value = false;
   }

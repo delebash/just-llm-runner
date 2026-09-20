@@ -162,20 +162,6 @@ class OpenAICompatAdapter:
         if self.provider_type == "openai-compat":
             body.setdefault("chat_template_kwargs", {})["enable_thinking"] = True
 
-    def _adapt_response_format(self, body: dict) -> None:
-        """C1: the pinned llama-server documents the FLAT schema form
-        ({"type":"json_schema","schema":…} — tools/server README at the pin);
-        the OpenAI-standard NESTED json_schema form is what the dispatch emits.
-        Flatten for the builtin runner; every other openai-compat provider gets
-        the standard nested form untouched."""
-        if self.provider_type != "local-llamacpp":
-            return
-        rf = body.get("response_format")
-        if isinstance(rf, dict) and rf.get("type") == "json_schema":
-            schema = (rf.get("json_schema") or {}).get("schema")
-            if isinstance(schema, dict):
-                body["response_format"] = {"type": "json_schema", "schema": schema}
-
     def chat(
         self,
         messages: list[LLMMessage],
@@ -198,7 +184,10 @@ class OpenAICompatAdapter:
         extra, effort, budget = pop_reasoning(extra)
         if extra:
             body.update(extra)
-        self._adapt_response_format(body)
+        # response_format passes through UNCHANGED for every provider type. llama-server reads a
+        # json_schema schema ONLY from the OpenAI-standard nested form (server-common.cpp, same at
+        # b9993/b10437/b10964); the flat form its README documents is silently read as "any JSON"
+        # (observed 2026-09-19 — plan 2026-09-19-engine-update-safety-and-stable-channel §3.7).
         self._apply_reasoning(body, think, effort, budget)
 
         url = f"{self._api_base}/chat/completions"
@@ -258,7 +247,10 @@ class OpenAICompatAdapter:
         extra, effort, budget = pop_reasoning(extra)
         if extra:
             body.update(extra)
-        self._adapt_response_format(body)
+        # response_format passes through UNCHANGED for every provider type. llama-server reads a
+        # json_schema schema ONLY from the OpenAI-standard nested form (server-common.cpp, same at
+        # b9993/b10437/b10964); the flat form its README documents is silently read as "any JSON"
+        # (observed 2026-09-19 — plan 2026-09-19-engine-update-safety-and-stable-channel §3.7).
         self._apply_reasoning(body, think, effort, budget)
 
         url = f"{self._api_base}/chat/completions"

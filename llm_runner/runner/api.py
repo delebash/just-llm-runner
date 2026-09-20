@@ -569,6 +569,15 @@ async def engine_update_check() -> dict:
     return get_service().update_check()
 
 
+@router.get("/v1/llm-runner/engine/resolve-assets", summary="Where an update to a build would download from (read-only)")
+async def engine_resolve_assets(build: str) -> dict:
+    """Upstream RENAMES its release files between builds, so substituting a build tag into
+    a stored URL can 404 mid-update. This reports each stored row's REAL download at
+    `build`, plus whether THIS machine's row exists there at all — so the UI can refuse
+    before it writes a pin. Read-only: it never writes the pin or a URL."""
+    return get_service().resolve_build_assets(build)
+
+
 # ── Reclaim disk: the runner OWNS its cache, so it owns the deletes. The sizes
 #    are reported by the shared platform GET /v1/disk/usage; these do the freeing. ──
 

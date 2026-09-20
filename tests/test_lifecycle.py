@@ -5,6 +5,7 @@ back-off, error handling) tests offline. The real default RunnerConfig + compute
 run unmocked; a fake HF cache lets `cached_gguf_path` resolve on-disk models faithfully."""
 
 import logging
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -2094,6 +2095,79 @@ def test_engine_uninstall_removes_disk_build_when_pin_reverted(tmp_path):
     assert out["installed"] is False
 
 
+# ── The .ini is rendered for the engine that will READ it (2026-09-19, plan
+#    docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md §3.6). ──
+
+def _seed_engine_on_disk(svc, build, gpu="cuda12"):
+    from llm_runner.runner.binary import variant_dir
+    d = variant_dir(svc.cache_root, build, gpu)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "llama-server.exe").write_bytes(b"MZ")
+    return d / "llama-server.exe"
+
+
+def test_emit_ini_renders_for_the_engine_on_disk(tmp_path):
+    from llm_runner.runner.binary import acquired_server_exe
+    from llm_runner.runner.process import ModelIniEntry, Overrides
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe          # the REAL disk probe (the factory stubs it)
+    entry = ModelIniEntry(model_id="m", gguf_path="/m.gguf", n_gpu_layers=None,
+                          n_cpu_moe=None, ctx_len=4096, overrides=Overrides(no_mmap=True))
+
+    _seed_engine_on_disk(svc, "b10437")
+    path, _ = svc._emit_ini(override=entry)
+    assert "load-mode = none" in path.read_text()
+    assert "no-mmap" not in path.read_text()
+
+    shutil.rmtree(svc.cache_root / "llamacpp" / "b10437")
+    _seed_engine_on_disk(svc, "b9993")
+    svc._last_ini_text = ""                           # force a re-render
+    path, _ = svc._emit_ini(override=entry)
+    assert "no-mmap = true" in path.read_text()
+    assert "load-mode" not in path.read_text()
+
+
+def test_emit_ini_ignores_a_stale_proven_exe(tmp_path):
+    # THE TRAP (plan §3.6): `_active_server_exe` is the session's PROVEN binary and is NOT
+    # cleared by stop(), so after an engine update it still names the SWEPT build. Rendering
+    # from it would emit the old spelling for the new engine and fail the first load after
+    # every update. The render must follow the exe that will actually run.
+    from llm_runner.runner.binary import acquired_server_exe
+    from llm_runner.runner.process import ModelIniEntry, Overrides
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe
+    new_exe = _seed_engine_on_disk(svc, "b10964")
+    svc._active_server_exe = tmp_path / "llamacpp" / "b9993" / "cuda12" / "llama-server.exe"
+    entry = ModelIniEntry(model_id="m", gguf_path="/m.gguf", n_gpu_layers=None,
+                          n_cpu_moe=None, ctx_len=4096, overrides=Overrides(no_mmap=True))
+
+    assert svc._engine_build_of() == "b10964"              # the disk, not the stale pointer
+    assert svc._engine_build_of(new_exe) == "b10964"
+    path, _ = svc._emit_ini(override=entry)
+    assert "load-mode = none" in path.read_text()
+
+
+def test_run_install_hands_the_flag_probes_to_acquire(tmp_path):
+    # A staged build must prove it accepts our launch flags BEFORE it replaces a working
+    # engine — so every acquire call the install makes carries the probes.
+    seen = {}
+
+    def fake_acquire(*a, **k):
+        seen.setdefault("probes", k.get("probe_argvs"))
+        return tmp_path / "llama-server"
+
+    svc = _service_for(tmp_path)
+    svc._acquire_binary = fake_acquire
+    svc.install_engine()
+    svc._engine_thread.join(timeout=5)
+
+    probes = seen.get("probes")
+    assert probes, "the install passed no flag probes"
+    assert all(a[-1] == "--version" for a in probes)        # flags FIRST, --version last
+
+
 def test_install_engine_runs_acquire(tmp_path):
     called = {}
 
@@ -2585,7 +2659,7 @@ def test_run_install_plants_fallback_builds(tmp_path):
 
     calls = []
 
-    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None, force=False):
+    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None, force=False, probe_argvs=None):
         calls.append(gpu)
         return tmp_path / "x"
 
@@ -2617,7 +2691,7 @@ def test_run_install_extra_failure_is_best_effort(tmp_path):
 
     calls = []
 
-    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None, force=False):
+    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None, force=False, probe_argvs=None):
         calls.append(gpu)
         if gpu == "vulkan":
             raise RuntimeError("mirror down")
@@ -2660,7 +2734,7 @@ def test_run_install_replace_build_carries_ini_and_deletes_old(tmp_path):
     old_dir.mkdir(parents=True)
     (old_dir / "models.ini").write_text("[hand-tuned]\nmodel = x.gguf\n")
 
-    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None, force=False):
+    def spy(cache_root, config, hardware, on_progress=None, cancel_check=None, gpu=None, force=False, probe_argvs=None):
         new_dir.mkdir(parents=True, exist_ok=True)
         return new_dir
 
@@ -3090,7 +3164,7 @@ def test_deliberate_downgrade_survives_install(tmp_path):
 
     svc._config_fn = cfg
 
-    def fake_acquire(cache_root, config, hardware, on_progress=None, gpu=None, cancel_check=None, force=False):
+    def fake_acquire(cache_root, config, hardware, on_progress=None, gpu=None, cancel_check=None, force=False, probe_argvs=None):
         d = variant_dir(cache_root, config.llamacpp.pinned_build, "cuda12")
         d.mkdir(parents=True, exist_ok=True)
         (d / "llama-server.exe").write_bytes(b"MZ")
@@ -3892,3 +3966,163 @@ def test_resident_reconciles_the_sleeping_set_it_already_fetched(tmp_path):
     assert out["committed_mb"] == 0
     assert out["remaining_mb"] == 8192
     assert out["router"] is True
+
+
+# ── The update check follows upstream's STABLE channel, and the asset resolver
+#    (2026-09-19, plan docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md
+#    §3.1–3.4). Upstream started flagging every bNNNN build a prerelease on 2026-08-21. ──
+
+def test_update_check_follows_the_stable_channel(tmp_path):
+    from llm_runner.runner.binary import acquired_server_exe
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe
+    _seed_engine_on_disk(svc, "b10437")
+    svc._latest_build_fn = lambda: ("b10964", "v0.4.1")
+
+    out = svc.update_check()
+
+    assert out["current"] == "b10437"
+    assert out["latest"] == "b10964"
+    assert out["latestStable"] == "v0.4.1"
+    assert out["updateAvailable"] is True and out["error"] == ""
+
+
+def test_update_check_never_offers_a_non_build_tag(tmp_path):
+    # THE BUG (silent since ~2026-08-21): `releases/latest` answers "v0.4.1", the old
+    # digit-strip read it as 41 < 10437, so the check said "current" with no error and the
+    # Update button never rendered. And its latent twin: "v1.10.500" → 110500 would have
+    # offered an update to a tag that has no binaries at all.
+    svc = _service_for(tmp_path)
+    for tag in ("v0.4.1", "v1.10.500", "", "latest"):
+        svc._latest_build_fn = lambda t=tag: t
+        out = svc.update_check()
+        assert out["updateAvailable"] is False, tag
+        assert out["error"] == "", tag          # not an error either — just "no build named"
+
+
+def _fake_get(pages):
+    """A requests.get double: exact-URL → object with .json()/.text/.raise_for_status()."""
+    def _get(url, headers=None, timeout=None):
+        if url not in pages:
+            raise AssertionError(f"unexpected fetch: {url}")
+        payload = pages[url]
+
+        class _R:
+            status_code = 200
+            text = payload if isinstance(payload, str) else ""
+
+            @staticmethod
+            def json():
+                return payload
+
+            @staticmethod
+            def raise_for_status():
+                return None
+
+        return _R()
+    return _get
+
+
+def test_fetch_latest_release_reads_nightly_tag(monkeypatch):
+    from llm_runner.runner import lifecycle as lc
+
+    monkeypatch.setattr(lc.requests, "get", _fake_get({
+        f"{lc._GH_RELEASES}/latest": {
+            "tag_name": "v0.4.1", "body": "",
+            "assets": [{"name": "nightly-tag.txt", "browser_download_url": "https://x/nt"}]},
+        "https://x/nt": "b10964\n",
+    }))
+    assert lc._fetch_latest_llamacpp_release() == ("b10964", "v0.4.1")
+    assert lc._fetch_latest_llamacpp_tag() == "b10964"     # the back-compat face
+
+
+def test_fetch_latest_release_falls_back_to_the_notes_link(monkeypatch):
+    from llm_runner.runner import lifecycle as lc
+
+    monkeypatch.setattr(lc.requests, "get", _fake_get({
+        f"{lc._GH_RELEASES}/latest": {
+            "tag_name": "v0.4.1", "assets": [],
+            "body": "**Nightly build:** [b10964](https://github.com/ggml-org/llama.cpp/releases/tag/b10964)"},
+    }))
+    assert lc._fetch_latest_llamacpp_release() == ("b10964", "v0.4.1")
+
+
+def test_fetch_latest_release_accepts_the_old_scheme(monkeypatch):
+    # Pre-2026-08-21 (and if upstream ever reverts): the tag IS the build, one request.
+    from llm_runner.runner import lifecycle as lc
+
+    monkeypatch.setattr(lc.requests, "get", _fake_get({
+        f"{lc._GH_RELEASES}/latest": {"tag_name": "b10549", "assets": [], "body": ""},
+    }))
+    assert lc._fetch_latest_llamacpp_release() == ("b10549", "")
+
+
+def test_fetch_latest_release_raises_when_no_build_is_named(monkeypatch):
+    from llm_runner.runner import lifecycle as lc
+
+    monkeypatch.setattr(lc.requests, "get", _fake_get({
+        f"{lc._GH_RELEASES}/latest": {"tag_name": "v9.9.9", "assets": [], "body": "nothing here"},
+    }))
+    with pytest.raises(ValueError, match="names no build"):
+        lc._fetch_latest_llamacpp_release()
+
+
+def _asset_names(build):
+    import json
+    from pathlib import Path as _P
+    raw = json.loads((_P(__file__).parent / "fixtures" / "llamacpp_release_assets.json")
+                     .read_text(encoding="utf-8"))
+    return [{"name": n, "url": ""} for n in raw[build]]
+
+
+def test_resolve_build_assets_marks_this_machines_row(tmp_path):
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._release_assets_fn = lambda b: _asset_names(b)
+
+    out = svc.resolve_build_assets("b10964")
+
+    assert out["error"] == "" and out["build"] == "b10964"
+    assert out["selected"] == {"platform": "windows", "gpu": "cuda12",
+                               "resolved": True, "reason": ""}
+    rocm = next(r for r in out["binaries"] if (r["platform"], r["gpu"]) == ("windows", "rocm"))
+    assert rocm["assetUrl"].endswith("llama-b10964-bin-win-rocm-10.0-x64.zip")
+
+
+def test_resolve_build_assets_reports_a_row_this_build_lacks(tmp_path):
+    # b10437 published NO Linux ROCm asset. A Linux+AMD box must learn that BEFORE the pin
+    # is written — that is what `selected.resolved is False` is for.
+    def _linux_amd():
+        from llm_runner.runner.schema import HardwareInfo
+        return HardwareInfo(os="linux", platform="linux", cpu_cores=8, ram_mb=32000,
+                            gpus=[], runtimes={"rocm": True})
+
+    svc = _service_for(tmp_path, hardware_fn=_linux_amd)
+    svc._release_assets_fn = lambda b: _asset_names(b)
+
+    out = svc.resolve_build_assets("b10437")
+
+    assert out["selected"]["gpu"] == "rocm" and out["selected"]["resolved"] is False
+    assert "b10437" in out["selected"]["reason"]
+
+
+def test_resolve_build_assets_reports_a_fetch_error(tmp_path):
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+
+    def boom(_b):
+        raise RuntimeError("offline")
+
+    svc._release_assets_fn = boom
+    out = svc.resolve_build_assets("b10964")
+    assert out["error"] == "offline" and out["binaries"] == [] and out["selected"] is None
+
+
+def test_resolve_build_assets_rejects_a_non_build_tag(tmp_path):
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+
+    def never(_b):
+        raise AssertionError("must not fetch for a non-build tag")
+
+    svc._release_assets_fn = never
+    out = svc.resolve_build_assets("v0.4.1")
+    assert "not a build tag" in out["error"] and out["binaries"] == []

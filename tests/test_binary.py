@@ -14,15 +14,17 @@ from llm_runner import default_config, select_binary
 from llm_runner.runner import binary as binmod
 from llm_runner.runner.schema import GpuInfo, HardwareInfo
 
-# The real launch-verify, captured BEFORE the autouse stub below replaces it: the acquire
+# The real verifiers, captured BEFORE the autouse stub below replaces them: the acquire
 # tests unpack a fake 'MZ fake' exe that cannot really run, so they bypass the real
-# `<exe> --version` check; the check's own behaviour is tested directly via this ref.
+# `<exe> --version` checks; each check's own behaviour is tested directly via these refs.
 _REAL_VERIFY = binmod._verify_exe_launches
+_REAL_ACCEPTS = binmod._verify_exe_accepts_flags
 
 
 @pytest.fixture(autouse=True)
 def _stub_launch_verify(monkeypatch):
     monkeypatch.setattr(binmod, "_verify_exe_launches", lambda *a, **k: None)
+    monkeypatch.setattr(binmod, "_verify_exe_accepts_flags", lambda *a, **k: None)
 
 
 def _hw(platform_name, runtimes, gpus=None):
@@ -178,6 +180,44 @@ def test_verify_exe_launches_flags_a_missing_runtime_dll():
         _REAL_VERIFY(exe, "windows", run=_boom)
 
 
+def test_verify_exe_accepts_flags_names_the_rejected_flag():
+    # 2026-09-19 (plan …-engine-update-safety-and-stable-channel.md §3.3): llama.cpp b10875
+    # DELETED --mlock/--no-mmap. Such a build PASSES the `--version` check, so this second
+    # check is what keeps it from replacing a working engine and breaking every load.
+    from types import SimpleNamespace
+    exe = binmod.Path("llama-server.exe")
+
+    def _rejects(_argv):
+        return SimpleNamespace(returncode=1, stdout=b"",
+                               stderr=b"error: invalid argument: --no-mmap\n")
+
+    with pytest.raises(RuntimeError, match=r"--no-mmap") as e:
+        _REAL_ACCEPTS(exe, [["--no-mmap", "--version"]], run=_rejects)
+    assert "left in place" in str(e.value)     # the message says the engine was NOT replaced
+
+
+def test_verify_exe_accepts_flags_passes_on_zero_and_on_no_probes():
+    from types import SimpleNamespace
+    exe = binmod.Path("llama-server.exe")
+    seen = []
+
+    def _ok(argv):
+        seen.append(argv)
+        return SimpleNamespace(returncode=0, stdout=b"version: 0.1.0-dev\n", stderr=b"")
+
+    _REAL_ACCEPTS(exe, [["--load-mode", "none", "--version"], ["--version"]], run=_ok)
+    assert len(seen) == 2                       # every probe is run, not just the first
+    _REAL_ACCEPTS(exe, None, run=_ok)           # nothing to check → no-op, no raise
+    _REAL_ACCEPTS(exe, [], run=_ok)
+    assert len(seen) == 2
+
+    def _hangs(_argv):
+        raise binmod.subprocess.TimeoutExpired(cmd="x", timeout=60)
+
+    with pytest.raises(RuntimeError, match="could not run the flag check"):
+        _REAL_ACCEPTS(exe, [["--version"]], run=_hangs)
+
+
 def _seed_working_engine(tmp_path, m, gpu="cuda12"):
     """A pre-existing, complete engine variant on disk — the 'working engine'."""
     d = binmod.variant_dir(tmp_path, m.llamacpp.pinned_build, gpu)
@@ -218,6 +258,26 @@ def test_acquire_atomic_a_build_that_fails_launch_is_discarded(monkeypatch, tmp_
 
     with pytest.raises(RuntimeError, match="runtime library is missing"):
         binmod.acquire_binary(tmp_path, m, _hw("windows", {"cuda": True}), force=True)
+    assert (good / "llama-server.exe").read_bytes() == b"GOOD-OLD-ENGINE"   # untouched
+    assert _no_staging_litter(tmp_path, m)
+
+
+def test_acquire_discards_a_build_that_rejects_our_flags(monkeypatch, tmp_path):
+    # The b10875 class, end to end: the download and the launch check both SUCCEED, and the
+    # build is still discarded because it refuses a flag this app puts on every model.
+    m = default_config()
+    good = _seed_working_engine(tmp_path, m)
+    monkeypatch.setattr(binmod, "stream_download", _make_stream([], "llama-server.exe"))
+
+    def _reject(*a, **k):
+        raise RuntimeError("this engine build does not accept a launch flag this app uses "
+                           "(error: invalid argument: --no-mmap) — the installed engine was "
+                           "left in place")
+    monkeypatch.setattr(binmod, "_verify_exe_accepts_flags", _reject)  # overrides the autouse stub
+
+    with pytest.raises(RuntimeError, match="does not accept a launch flag"):
+        binmod.acquire_binary(tmp_path, m, _hw("windows", {"cuda": True}), force=True,
+                              probe_argvs=[["--no-mmap", "--version"]])
     assert (good / "llama-server.exe").read_bytes() == b"GOOD-OLD-ENGINE"   # untouched
     assert _no_staging_litter(tmp_path, m)
 
@@ -384,3 +444,118 @@ def test_acquire_binary_targets_pin_not_disk_build(monkeypatch, tmp_path):
     monkeypatch.setattr(binmod, "stream_download", _make_stream([], "llama-server.exe"))
     exe = binmod.acquire_binary(tmp_path, m, hw)
     assert exe.is_relative_to(binmod.variant_dir(tmp_path, m.llamacpp.pinned_build, "cuda12"))
+
+
+# ── Download names come from the RELEASE's own asset list (2026-09-19, plan
+#    docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md §3.4). Upstream
+#    renames these files between builds; substituting the tag into a stored name 404s. ──
+
+def _assets_fixture():
+    import json
+    from pathlib import Path as _P
+    raw = json.loads((_P(__file__).parent / "fixtures" / "llamacpp_release_assets.json")
+                     .read_text(encoding="utf-8"))
+    return {k: [{"name": n, "url": ""} for n in v] for k, v in raw.items() if not k.startswith("_")}
+
+
+def _rows_for(build):
+    """DEFAULT_BINARIES re-pointed at `build` the OLD way (tag substitution) — exactly the
+    stored state an update would start from."""
+    from llm_runner.runner.config import DEFAULT_BINARIES, DEFAULT_PINNED_BUILD
+    rows = []
+    for b in DEFAULT_BINARIES:
+        d = dict(b)
+        for key in ("asset_url", "runtime_url"):
+            if d.get(key):
+                d[key] = d[key].replace(DEFAULT_PINNED_BUILD, build)
+        rows.append(binmod.BinaryAsset(**d))
+    return rows
+
+
+def _by_key(resolved):
+    return {f"{r['platform']}/{r['gpu']}": r for r in resolved}
+
+
+@pytest.mark.parametrize(("build", "want"), [
+    ("b9993",  {"windows/cuda12": "llama-b9993-bin-win-cuda-12.4-x64.zip",
+                "windows/cuda13": "llama-b9993-bin-win-cuda-13.3-x64.zip",
+                "windows/rocm":   "llama-b9993-bin-win-hip-radeon-x64.zip",
+                "linux/rocm":     "llama-b9993-bin-ubuntu-rocm-7.2-x64.tar.gz"}),
+    ("b10437", {"windows/cuda12": "llama-b10437-bin-win-cuda-12.4-x64.zip",
+                "windows/cuda13": "llama-b10437-bin-win-cuda-13.3-x64.zip",
+                "windows/rocm":   "llama-b10437-bin-win-rocm-7.14-x64.zip",
+                "linux/rocm":     None}),          # upstream published NONE for ~180 builds
+    ("b10964", {"windows/cuda12": "llama-b10964-bin-win-cuda-12.4-x64.zip",
+                "windows/cuda13": "llama-b10964-bin-win-cuda-13.3-x64.zip",
+                "windows/rocm":   "llama-b10964-bin-win-rocm-10.0-x64.zip",
+                "linux/rocm":     "llama-b10964-bin-ubuntu-rocm-10.0-x64.tar.gz"}),
+    ("b11056", {"windows/cuda12": "llama-b11056-bin-win-cuda-12.4-x64.zip",
+                "windows/cuda13": "llama-b11056-bin-win-cuda-13.4-x64.zip",   # 13.3 → 13.4
+                "windows/rocm":   "llama-b11056-bin-win-rocm-10.0-x64.zip",
+                "linux/rocm":     "llama-b11056-bin-ubuntu-rocm-10.0-x64.tar.gz"}),
+])
+def test_resolve_release_assets_against_four_real_builds(build, want):
+    got = _by_key(binmod.resolve_release_assets(build, _rows_for(build), _assets_fixture()[build]))
+    for key, name in want.items():
+        row = got[key]
+        if name is None:
+            assert row["resolved"] is False, (build, key, row)
+            assert build in row["reason"] and key in row["reason"]
+        else:
+            assert row["resolved"] is True, (build, key, row)
+            assert row["assetUrl"].endswith(name), (build, key, row["assetUrl"])
+    # the one-name rows resolve at EVERY build
+    for key, tail in (("windows/vulkan", f"llama-{build}-bin-win-vulkan-x64.zip"),
+                      ("macos/metal", f"llama-{build}-bin-macos-arm64.tar.gz"),
+                      ("linux/vulkan", f"llama-{build}-bin-ubuntu-vulkan-x64.tar.gz")):
+        assert got[key]["resolved"] is True and got[key]["assetUrl"].endswith(tail)
+    # docker is never ours to resolve
+    assert got["linux/cuda12"]["resolved"] is None
+    # a CUDA asset always keeps a MATCHING cudart companion
+    for key in ("windows/cuda12", "windows/cuda13"):
+        row = got[key]
+        if row["resolved"]:
+            version = row["assetUrl"].rsplit("-x64.zip", 1)[0].rsplit("-", 1)[-1]
+            assert f"cuda-{version}-x64.zip" in row["runtimeUrl"], (build, key, row)
+    # an arm64 file never satisfies an x64 row
+    assert "arm64" not in got["windows/cuda13"]["assetUrl"]
+
+
+def test_resolve_leaves_a_hand_edited_url_alone():
+    rows = _rows_for("b10964")
+    mirror = "https://mirror.example.com/llama/custom-build.zip"
+    for r in rows:
+        if r.platform == "windows" and r.gpu == "cuda12":
+            r.asset_url = mirror
+    got = _by_key(binmod.resolve_release_assets("b10964", rows, _assets_fixture()["b10964"]))
+    row = got["windows/cuda12"]
+    assert row["resolved"] is None and row["assetUrl"] == mirror
+    assert "custom URL" in row["reason"]
+
+
+def test_resolve_refuses_an_asset_without_its_runtime():
+    # A CUDA build whose cudart companion is missing would unpack, pass --version only if the
+    # DLLs happened to be there, and otherwise brick the install — refuse it up front.
+    assets = [a for a in _assets_fixture()["b10964"]
+              if a["name"] != "cudart-llama-bin-win-cuda-13.3-x64.zip"]
+    got = _by_key(binmod.resolve_release_assets("b10964", _rows_for("b10964"), assets))
+    assert got["windows/cuda13"]["resolved"] is False
+    assert "runtime companion" in got["windows/cuda13"]["reason"]
+    assert got["windows/cuda12"]["resolved"] is True          # its own companion is intact
+
+
+def test_resolve_picks_the_highest_version_when_several_match():
+    assets = [{"name": "llama-b10964-bin-ubuntu-rocm-7.2-x64.tar.gz", "url": ""},
+              {"name": "llama-b10964-bin-ubuntu-rocm-10.0-x64.tar.gz", "url": ""}]
+    got = _by_key(binmod.resolve_release_assets("b10964", _rows_for("b10964"), assets))
+    assert got["linux/rocm"]["assetUrl"].endswith("rocm-10.0-x64.tar.gz")   # 10.0 > 7.2
+
+
+def test_build_num_is_strict():
+    # 2026-09-19: `releases/latest` now answers a semver tag. The old digit-strip read
+    # "v0.4.1" as 41 (silently "you are current" on every box) and would read "v1.10.500"
+    # as 110500 — newer than every build, i.e. an update to a tag with no binaries.
+    assert binmod.build_num("b9929") == 9929
+    assert binmod.build_num(" b10437 ") == 10437
+    for bad in ("v0.4.1", "v1.10.500", "v0.2.0", "", "latest", "b12x", "10437", None):
+        assert binmod.build_num(bad) == -1, bad

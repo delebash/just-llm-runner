@@ -10,6 +10,11 @@ The holding pen for unscheduled ideas about the shared stack — same charter as
   (llama.cpp #25707) merges into a pinnable release, promote to a 2070S Lab A/B vs
   Gemma 26B-A4B (evidence-not-press-release — the catalog law). Watch details:
   `docs/llama-cpp-watch.md` §Watch list.
+  **TRIGGER MET [verified 2026-09-19]:** #25707 merged 2026-07-30; first build
+  `b10192`; the author's installed `b10437` has it, and
+  `Ternary-Bonsai-27B-Q2_g64.gguf` (the mainline g64 form) is already in the shared
+  cache. The Lab A/B can run today; it is still an idea until the user says go. It
+  cannot join the catalog while the pin (`b9993`) predates `b10192`.
 - **2026-08-04 · Unadopted llama.cpp adoption candidates** from the 2026-07-14
   review (`docs/llama-cpp-watch.md` review log): b9986 reasoning-leak fix · b9974
   CUDA no-free-VRAM query · b9905 quantized KV for DeepSeek-V4 · b9967 null

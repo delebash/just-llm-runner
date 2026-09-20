@@ -46,7 +46,28 @@ from .schema import BinaryAsset, LlamacppSpec, RunnerConfig
 # (`gh api releases/tags/b9993`) — all present (win cuda-12.4/13.3 + cudart, win hip-radeon,
 # win vulkan, macos-arm64, ubuntu rocm-7.2, ubuntu vulkan). Upstream latest was b10012 but
 # b9993 is the REVIEWED tag (docs/llama-cpp-watch.md, 2026-07-14) — bleeding-edge not chosen.
-DEFAULT_PINNED_BUILD = "b9993"
+#
+# b9993 → b10750 (2026-09-19, the llama.cpp review + box test + bisect; user: "go pin
+# b10750". Plan: docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md §9).
+# b10750 is NOT the newest and NOT a semver "stable" release — it is the LAST BUILD BEFORE
+# upstream broke MTP speculative decoding, and it was chosen by measurement, not recency:
+#   * the flagship + its MTP draft: 46.35 tok/s = 1.028 × b10437 (the author's disk),
+#     38.10 with no draft, and its output is BYTE-IDENTICAL to b10437's — same answers,
+#     faster. It carries #27621 (specdec MoE fusion, the gain), #27978, #24124
+#     `--kv-unified-per-slot`, #26622 `--n-cpu-ffn` and the #28183 gemma4-assistant fix.
+#   * b10751 (`cuda: fuse MoE weighted expert reduction`, #25952) is the FIRST BAD build —
+#     bisected, 8 probes. Fusing the MoE combine tail reorders float accumulation across
+#     experts, so the target's logits move, draft acceptance halves (0.823 → 0.481) and the
+#     drafted output stops equalling the same build's greedy output. Still broken at head:
+#     the current stable b10964 runs at 0.784 of b10437 and is NOT exact.
+#   * b10437 measured well too but has NO Linux-AMD asset (it sits in the b10398-b10581
+#     hole), so it could never be a default pin. b10750 is past that hole — all seven rows
+#     resolve, re-verified against `gh api releases/tags/b10750` on 2026-09-19.
+# CAVEAT the update flow inherits: `update_check` follows upstream's STABLE channel, and the
+# newest stable IS b10964 — so the Update button will offer a build we have measured as bad.
+# That tension is recorded in docs/dev/TASKS.md and needs its own decision; do NOT "fix" it
+# by silently pinning newer.
+DEFAULT_PINNED_BUILD = "b10750"
 
 # Reserve this much VRAM headroom when computing the GPU layer split.
 DEFAULT_SAFETY_MARGIN_MB = 1024
@@ -194,9 +215,17 @@ MAX_DOWNLOAD_CONCURRENT = 10
 #
 # Every filename below was verified against the release's own asset list
 # (GET api.github.com/repos/ggml-org/llama.cpp/releases/tags/<build>) — do NOT
-# hand-edit a name from memory; confirm it exists on the release first. The
-# cudart-* companion is unversioned (same CUDA runtime across builds).
-# (linux/cuda has no prebuilt archive — docker-only; see binary.acquire_binary.)
+# hand-edit a name from memory; confirm it exists on the release first.
+# UPSTREAM RENAMES THESE (2026-09-19 review): substituting the tag into a stored name is
+# NOT enough — Windows AMD went hip-radeon → rocm-7.14 → rocm-10.0, Linux AMD rocm-7.2 →
+# absent for ~180 builds → rocm-10.0, Windows CUDA 13 moves to 13.4 after b10964. The
+# UPDATE flow therefore resolves names from the target release's own asset list
+# (`binary.resolve_release_assets`); these literals only seed a FRESH database.
+# The Windows cudart-* companion is unversioned BY BUILD but tied to its asset's CUDA
+# version (a 12.4 asset needs the 12.4 cudart); on Linux, from b10969, it is build-tagged.
+# (linux/cuda has no prebuilt archive — docker-only; see binary.acquire_binary. True
+# through b10964; upstream ships ubuntu-cuda-* tarballs from b10969 — tracked in
+# docs/llama-cpp-watch.md.)
 _REL = f"https://github.com/ggml-org/llama.cpp/releases/download/{DEFAULT_PINNED_BUILD}"
 DEFAULT_BINARIES: list[dict] = [
     {"platform": "windows", "gpu": "cuda12", "source": "github",
@@ -207,8 +236,11 @@ DEFAULT_BINARIES: list[dict] = [
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-cuda-13.3-x64.zip",
      "runtime_url": f"{_REL}/cudart-llama-bin-win-cuda-13.3-x64.zip",
      "server_exe": "llama-server.exe"},
+    # Windows AMD has been renamed TWICE upstream: win-hip-radeon (≤ b10398) → win-rocm-7.14
+    # (this pin) → win-rocm-10.0 (b10767, #27803). An UPDATE resolves the target build's
+    # real name from its own asset list rather than trusting this literal.
     {"platform": "windows", "gpu": "rocm", "source": "github",
-     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-hip-radeon-x64.zip",
+     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-rocm-7.14-x64.zip",
      "server_exe": "llama-server.exe"},
     {"platform": "windows", "gpu": "vulkan", "source": "github",
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-vulkan-x64.zip",
@@ -221,8 +253,11 @@ DEFAULT_BINARIES: list[dict] = [
     {"platform": "macos", "gpu": "metal", "source": "github",
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-macos-arm64.tar.gz",
      "server_exe": "llama-server"},
+    # Linux AMD: rocm-7.2 (≤ b10397) → NO asset at all for b10398-b10581 (CI job disabled
+    # #26969, restored #27399) → rocm-7.14 (this pin) → rocm-10.0 (b10767). This pin is PAST
+    # the hole, which is one reason b10437 — fast but assetless here — could never be it.
     {"platform": "linux", "gpu": "rocm", "source": "github",
-     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-ubuntu-rocm-7.2-x64.tar.gz",
+     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-ubuntu-rocm-7.14-x64.tar.gz",
      "server_exe": "llama-server"},
     {"platform": "linux", "gpu": "vulkan", "source": "github",
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-ubuntu-vulkan-x64.tar.gz",

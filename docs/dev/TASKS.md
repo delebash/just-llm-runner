@@ -272,6 +272,39 @@ OPEN:   ONE change, all parts or none: (a) windowed cells = `pad256(min(ctx,
 GO:     needed — for the build. This rewrite: given 2026-09-19.
 
 
+## The fit prices HYBRID/RECURRENT-attention models as if every block had a KV cache [MEASURED 2026-09-19]
+
+STATE:  FINDING, from the Bonsai 1 A/B (IDEAS, same date). `qwen35` is a hybrid
+        architecture: most blocks use LINEAR attention, which the engine backs
+        with a RECURRENT STATE buffer, not a KV cache. Its log has no
+        `KV self size` line at all — instead
+        `llama_memory_recurrent: size = 598.50 MiB (4 cells, 64 layers, 4 seqs)`.
+        Our KV math assumes all 64 blocks hold full attention KV.
+MEASURED on Ternary-Bonsai-27B-Q2_g64 (64 blocks, kv-heads 4, k/v len 256),
+        ctx 32768, q8_0:
+          our `kv_exact_mb`            → **4,096 MiB**
+          the engine's real context    → **1,016 MiB** on CUDA0 (+669 host)
+          ≈ **4× over-estimate**, and `compute_fit` booked **8,836 MiB** on an
+          8,192 MiB card while the engine ran the model happily at 5,457 MiB
+          self (choosing 38/65 layers where our fit wanted 43).
+WHY:    the same CLASS of error iSWA had before the windowed-layer facts landed
+        — a whole attention family the byte model does not know about. It errs
+        FAT (we book more than the truth), so it is safe-but-wasteful today:
+        such a model gets fewer layers offered than it could take, and could be
+        refused outright on a smaller card.
+NOT:    urgent. No catalog row uses a hybrid arch today (Bonsai 1 was rejected
+        on speed, not on this). It becomes real the moment a qwen35/Qwen3.5-family
+        or Qwen3.8 row is added — and Bonsai 2, if its packings ever reach
+        mainline, is `qwen35` too.
+OPEN:   read the recurrent/linear-attention facts from the header the way
+        `sliding_window_pattern` is read for iSWA, and price non-KV blocks as
+        recurrent state instead of KV. Blast radius: `gguf.kv_mb_at_ctx`,
+        `fit.kv_exact_mb`/`kv_mb_from_facts`, `identity.py`'s stored facts, and
+        every consumer of the floors/est — i.e. the same surface as the parked
+        KV item above, so the two should probably land together.
+GO:     needed.
+
+
 ## Two real-router smoke tests fail only IN THE SUITE, not alone [MEASURED 2026-09-19]
 
 STATE:  FINDING, pre-existing — both failed BEFORE any of the 2026-09-19

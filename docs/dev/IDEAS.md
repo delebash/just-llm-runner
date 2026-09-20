@@ -13,7 +13,29 @@ The holding pen for unscheduled ideas about the shared stack — same charter as
   **TRIGGER MET [verified 2026-09-19]:** #25707 merged 2026-07-30; first build
   `b10192`; `Ternary-Bonsai-27B-Q2_g64.gguf` (the mainline g64 form) is already in
   the shared cache, and the pin is now `b10750` — past b10192 — so BONSAI 1 is
-  runnable AND catalogable today. The Lab A/B is still an idea until the user says go.
+  runnable today.
+  **A/B RUN 2026-09-19 (user: "run it") — VERDICT: NOT a contender on the 8 GB rung.
+  Do not add it to the catalog.** Measured on the 2070S at the app's own flags
+  (ctx 32768, q8_0 KV, fa on, engine placing tensors):
+
+  | | Bonsai 1 (ternary 27B) | Gemma 26B-A4B |
+  |---|---|---|
+  | file | 7.06 GB | 13.27 GB |
+  | engine placed | 38/65 layers · 4,120 MiB card + 3,103 MiB host | 31/31 · 4,968 MiB card |
+  | **tok/s** | **2.65** | **46.35** (draft) / 38.10 (none) |
+
+  WHY, and it is structural, not a tuning miss: Bonsai 1 is **DENSE** (`expert_count 0`
+  — our reader says `is_moe False`). Every token touches all 7 GB, and 3.1 GB of it
+  sits on the host, so 27 of 65 layers are read over PCIe per token. Gemma is MoE:
+  only ~4B params activate, so its 21 host-resident expert blocks are nearly free.
+  "27B-class quality at 6.7 GB" is true about the FILE and says nothing about speed
+  on a card that cannot hold it — exactly what the evidence-not-press-release law is
+  for. At 2.65 tok/s the catalog's own bands would label it *slow*, a third of the
+  8 tok/s reading-speed line.
+  Also observed, NOT explained: a `/v1/chat/completions` turn returned empty content.
+  The GGUF does carry a chat template and the server logs `thinking = 1`, so the
+  likely cause is the 120-token budget being spent entirely on reasoning — plausible,
+  unverified, and irrelevant to the speed verdict above.
 - **2026-09-19 · Bonsai 2 27B — BLOCKED, fork-only. Do not plan around it.**
   `prism-ml/Ternary-Bonsai-2-27B-gguf` (Apache-2.0, from Qwen3.8-27B, 851 tensors,
   arch `qwen35`, 5.95 GB PTQ1_0 / 7.21 GB PQ2_0, with an optional Q8_0 vision

@@ -65,18 +65,22 @@ one sitting:
   **The build on the author's disk is `b10437`** (installed through the in-app update on
   2026-08-15, the day upstream published it, while the check still worked) — every
   September 2026 measurement (speed truth, vram truth) is on that build. Both app DBs
-  still hold the OLD pin `b9993`: `DEFAULT_PINNED_BUILD` reaches fresh installs and "reset
-  to defaults", never an existing database.
+  held the old pin `b9993` until the user updated them both to `b10750` on 2026-09-20, so
+  pin and disk now agree in both apps. (`DEFAULT_PINNED_BUILD` only ever reaches fresh
+  installs and "reset to defaults", never an existing database - that is why they diverged.)
 - **Upstream changed its release scheme on 2026-08-21.** Every `bNNNN` build is now a
   **prerelease**; stable versions are semver tags (`v0.2.0` → `v0.4.1`), each carrying one
   asset, `nightly-tag.txt`, that names its build (`v0.4.1` → `b10964`). Upstream: `vX.Y.Z` =
   "stable … recommended for downstream distribution"; `b[NUM]` = "bleeding edge". The binaries
   still live on the `bNNNN` release.
-- **The in-app binary-bump check exists but has been DEAD since that date** (found
-  2026-09-19): `_fetch_latest_llamacpp_tag()` (`releases/latest`) now answers `"v0.4.1"`,
-  `binary.build_num` strips that to `41`, and `41 > 10437` is false — so `update_check` reports
-  "current" with no error and the Update button never renders. Reproduced with the app's own
-  functions. The fix, and why it must land LAST of three, is
+- **The in-app binary-bump check was DEAD from 2026-08-21 — FIXED 2026-09-19.**
+  `_fetch_latest_llamacpp_tag()` (`releases/latest`) answered `"v0.4.1"`, `binary.build_num`
+  stripped that to `41`, and `41 > 10437` is false — so `update_check` reported "current"
+  with no error and the Update button never rendered. Reproduced with the app's own
+  functions, then fixed: `_fetch_latest_llamacpp_release()` follows the stable channel
+  (tag → `nightly-tag.txt` → build) and `build_num` is STRICT, so a semver tag can never
+  read as a build. Verified live: `{"latest":"b10964","latestStable":"v0.4.1",
+  "updateAvailable":true}`. Plan + execution record:
   `docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md`. That check answers "is
   there a newer binary"; THIS ledger answers "is there anything worth adopting in our code".
 
@@ -250,8 +254,8 @@ passes on any build, and the old engine is then swept).
 **3. Upstream renamed download files** — resolve names from the target release's own asset
 list per `(platform, gpu)`; refuse up front when this machine's row has none; restore the pin
 when an install fails.
-**4. ~~Move the pin `b9993` → `b10964`~~ — ATTEMPTED 2026-09-19, REFUSED by the box test.**
-The pin stays `b9993`. See the MTP warning at the top of the watch list: b10964 costs ~22 %
+**4. Pin moved `b9993` → `b10750` (2026-09-19). The plan's target `b10964` was REFUSED by
+the box test.** See the MTP warning at the top of the watch list: b10964 costs ~22 %
 on the flagship's MTP path and its speculation is no longer exact. What the newer builds DO
 buy, measured here: **+2.5 %** on the flagship with no draft (b11056 38.11 vs b10437 37.19)
 — i.e. all the CUDA MoE work (#27621, #25952, #27978) nets to that on this card. The
@@ -291,8 +295,8 @@ byte-identical at `b10964` and `b11056`** (`LLM_FFN_EXPS_REGEX`, `i_gpu_start`, 
 
 ## Adoption candidates — from the 2026-07-14 review, b9899 → b9993
 
-*(Every build below is inside the `b9993` pin, so the backend fixes are already shipping; the
-code-side ideas — b9986, b9967 — remain opportunistic.)*
+*(Every build below is at or under `b9993`, so with the pin now at `b10750` all of these
+backend fixes ship; the code-side ideas - b9986, b9967 - remain opportunistic.)*
 
 None forces a code change; ranked by value to our surfaces. Only builds **>b9899**
 (everything ≤ our pin is already in our build). Grounded to our code where noted.

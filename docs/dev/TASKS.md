@@ -64,11 +64,17 @@ BUILT:  Slices 0-3, 2026-09-19, on the user's *"go do it all"* — full executio
         Also fixed en route, MEASURED on b10437: our emitted `--mlock --no-mmap` pair
         resolves to `load_mode = none` — the model lock has been silently lost on every
         model since b10105, because the legacy flags assign a mode and the last one wins.
-OPEN:   **Slice 4 (pin b9993 → b10964) was REFUSED by its own gate — see the next item.**
+BUILT:  Slice 4 - the pin DID move, to **b10750**, not the b10964 the plan named: that
+        target was refused by its own gate, a bisect found the last good build, and
+        b10750 beat the engine on disk. Asset names re-verified live (two AMD rows had
+        been renamed upstream). Both app DBs were updated to b10750 by the user on
+        2026-09-20, so pin and disk agree.
         JW's what's-new: ANSWERED 2026-09-19 ("pick a version number") — added as
         `## v1.4.0 — 2026-09`, matching that file's own convention (its versions are
         doc-side and already run ahead of the git tags, which stop at v1.0.0).
-GO:     Slices 0-3 done. Slice 4 needs a build that passes R11 — none exists today.
+GO:     ALL FIVE SLICES DONE. Nothing in this item is open. The successor question -
+        which build may be pinned next - lives in the MTP-regression item below, and is
+        gated on upstream issue #29168.
 
 
 ## llama.cpp broke MTP speculative decoding — it is slower AND no longer exact [MEASURED 2026-09-19]
@@ -189,7 +195,8 @@ OPEN:   the user's walks — Item 1 through a real Quick-setup Apply; Item 3
 GO:     given 2026-09-19 for all items.
 
 
-## The KV figure is ~400 MiB thin and the CUDA overhead seed is fatter than that — fix BOTH or NEITHER [verified 2026-09-19]
+## THE KV/CONTEXT SURFACE — three faults, fix them TOGETHER or not at all [verified 2026-09-19]
+##   (1) KV ~400 MiB thin · (2) the CUDA overhead seed fatter than that · (3) hybrid-attention priced as full KV
 
 STATE:  DECIDED 2026-09-19 — PARKED, not built. User: *"think on this again
         and give me your rec"* → the rec below → *"go"* (the go covers THIS
@@ -268,42 +275,42 @@ OPEN:   ONE change, all parts or none: (a) windowed cells = `pad256(min(ctx,
         all three apps · (g) `tests/test_fit_acceptance.py` must still
         reproduce ngl 99 / ncmoe 21 on the author's row; if it moves to 22
         that is a finding to show, never a re-pin.
-        WAKES ON: `__overhead__` rows from at least two more machines (or
-        one more machine + a non-SWA model here) — enough to set (c).
-GO:     needed — for the build. This rewrite: given 2026-09-19.
 
-
-## The fit prices HYBRID/RECURRENT-attention models as if every block had a KV cache [MEASURED 2026-09-19]
-
-STATE:  FINDING, from the Bonsai 1 A/B (IDEAS, same date). `qwen35` is a hybrid
-        architecture: most blocks use LINEAR attention, which the engine backs
-        with a RECURRENT STATE buffer, not a KV cache. Its log has no
-        `KV self size` line at all — instead
+FAULT 3 — HYBRID/RECURRENT ATTENTION IS PRICED AS FULL KV [MEASURED 2026-09-19,
+        folded in here on the user's word "add hybrid att to parked kv"].
+        `qwen35` is a hybrid architecture: most blocks use LINEAR attention,
+        which the engine backs with a RECURRENT STATE buffer, not a KV cache.
+        Its log carries no `KV self size` line at all — instead
         `llama_memory_recurrent: size = 598.50 MiB (4 cells, 64 layers, 4 seqs)`.
-        Our KV math assumes all 64 blocks hold full attention KV.
-MEASURED on Ternary-Bonsai-27B-Q2_g64 (64 blocks, kv-heads 4, k/v len 256),
-        ctx 32768, q8_0:
-          our `kv_exact_mb`            → **4,096 MiB**
-          the engine's real context    → **1,016 MiB** on CUDA0 (+669 host)
-          ≈ **4× over-estimate**, and `compute_fit` booked **8,836 MiB** on an
-          8,192 MiB card while the engine ran the model happily at 5,457 MiB
-          self (choosing 38/65 layers where our fit wanted 43).
-WHY:    the same CLASS of error iSWA had before the windowed-layer facts landed
-        — a whole attention family the byte model does not know about. It errs
-        FAT (we book more than the truth), so it is safe-but-wasteful today:
-        such a model gets fewer layers offered than it could take, and could be
-        refused outright on a smaller card.
-NOT:    urgent. No catalog row uses a hybrid arch today (Bonsai 1 was rejected
-        on speed, not on this). It becomes real the moment a qwen35/Qwen3.5-family
-        or Qwen3.8 row is added — and Bonsai 2, if its packings ever reach
-        mainline, is `qwen35` too.
-OPEN:   read the recurrent/linear-attention facts from the header the way
+        Our math assumes every block holds full attention KV.
+        Measured on Ternary-Bonsai-27B-Q2_g64 (64 blocks, kv-heads 4, k/v len
+        256), ctx 32768, q8_0:
+          our `kv_exact_mb`         → **4,096 MiB**
+          the engine's real context → **1,016 MiB** on CUDA0 (+669 host)
+          ≈ 4× over, and `compute_fit` booked **8,836 MiB** on an 8,192 MiB
+          card while the engine ran it at 5,457 MiB self (choosing 38/65
+          layers where our fit wanted 43).
+        Same CLASS as iSWA before the windowed-layer facts: an attention
+        family the byte model does not know. It errs FAT, so it is
+        safe-but-wasteful today — fewer layers offered than the card could
+        take, and an outright refusal on a smaller one.
+        WHY IT BELONGS HERE: it lands on the SAME functions as faults 1-2
+        (`gguf.kv_mb_at_ctx`, `fit.kv_exact_mb` / `kv_mb_from_facts`,
+        `identity.py`'s stored facts, every floors/est consumer) and needs the
+        same `PHYSICS_VERSION` bump and seed refresh. Three separate passes
+        over that surface would re-learn `__overhead__` three times and make
+        each one's numbers unreadable against the others.
+        (h) read the recurrent/linear-attention facts from the header the way
         `sliding_window_pattern` is read for iSWA, and price non-KV blocks as
-        recurrent state instead of KV. Blast radius: `gguf.kv_mb_at_ctx`,
-        `fit.kv_exact_mb`/`kv_mb_from_facts`, `identity.py`'s stored facts, and
-        every consumer of the floors/est — i.e. the same surface as the parked
-        KV item above, so the two should probably land together.
-GO:     needed.
+        recurrent state rather than KV.
+        NOT urgent on its own: no catalog row uses a hybrid arch today (Bonsai 1
+        was rejected on speed, not this — IDEAS). It becomes real the moment a
+        Qwen3.5/Qwen3.8-family row is added; Bonsai 2 is `qwen35` too.
+        WAKES ON: `__overhead__` rows from at least two more machines (or
+        one more machine + a non-SWA model here) — enough to set (c). Fault 3
+        needs no new evidence; it waits only so the surface is touched once.
+GO:     needed — for the build. This rewrite: given 2026-09-19; fault 3 folded
+        in 2026-09-20.
 
 
 ## Two real-router smoke tests fail only IN THE SUITE, not alone [MEASURED 2026-09-19]

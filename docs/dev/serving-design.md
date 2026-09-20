@@ -50,10 +50,15 @@ open edges.
   rocm-10.0; Linux AMD absent for ~180 builds). The runner still NEVER writes the pin; the
   UI does, and rolls it back when the install does not land on the target.
 - **A newer engine is not assumed to be better — it is measured.** The 2026-09-19 box test
-  refused the b9993 → b10964 pin move: without a draft the builds tie (0.995), but with the
-  flagship's MTP draft b10964 runs at 0.784 of b10437 AND its speculative output no longer
-  equals its own greedy output (b10437's does). Still broken at b11056. Any pin move runs
-  that test first; `scripts/check-structured-output.py` is the matching correctness probe.
+  REFUSED the plan's b9993 -> b10964 pin move: without a draft the builds tie (0.995), but
+  with the flagship's MTP draft b10964 runs at 0.784 of b10437 AND its speculative output no
+  longer equals its own greedy output (b10437's does). A bisect named the cause — b10751,
+  `cuda: fuse MoE weighted expert reduction` (#25952), one commit, CUDA-only, MoE-only,
+  reordering float accumulation across experts. Still broken at b11057 (head), and reported
+  upstream as ggml-org/llama.cpp#29168. **The pin went to `b10750`** — the last good build,
+  which also beat b10437 (1.028x, output byte-identical) and, unlike it, has an asset for
+  every platform. Any pin move runs that test first; `scripts/check-structured-output.py` is
+  the matching correctness probe.
 
 ## Cancel + progress (the load-cancel plan, shipped through T4)
 
@@ -68,10 +73,14 @@ open edges.
   compare-and-pop under the lock.
 - One control everywhere: `loadPhases.js` (`friendlyPhase`) + `useRunnerModels`'s
   `taskFor(modelId)` feed the ONE `DownloadBar`.
-- **T5 (real VRAM-load %) is NOT BUILT** — the 2026-07-17 probe showed `progress`
-  ABSENT from the router's `GET /models` loading status (`{value, args, preset}`
-  only); the honest indeterminate sweep stays. **Re-run the probe at every engine
-  pin bump** — upstream documents a `status.progress` shape. (Tracked.)
+- **T5 (real VRAM-load %) is NOT BUILT, but the DATA now exists** — the 2026-07-17 probe
+  showed `progress` ABSENT from the router's `GET /models` loading status (`{value, args,
+  preset}` only), so the honest indeterminate sweep stays. The 2026-09-19 pin-bump re-probe
+  found it on a DIFFERENT door: at b10437+ the router stores the child's
+  `cmd_child_to_router:state` payload as `meta.progress` = `{stages, current, value}` and
+  broadcasts it on **`GET /models/sse`** as a `status_change` event; `GET /models` still
+  omits it. Unblocked, not designed — consuming SSE inside the load thread, and its cancel
+  interplay, is the open part. (Tracked.)
 
 ## Fit — one physical authority (the 2026-08 redesign, §7.6's record)
 

@@ -99,8 +99,8 @@ pinnable build that we want to be told about the moment they land.
   (**1.028×**), no draft 38.10, EXACT, byte-identical output to b10437, and every platform
   row resolves (it is past the b10398-b10581 Linux-AMD hole, so unlike b10437 it is viable
   as a default pin). Evidence + the 8 probed builds: `docs/dev/TASKS.md`, plan §9.
-  **Watch for:** an upstream fix to #25952 (not yet reported as far as we can tell — worth
-  filing with this evidence). Every pin bump from here re-measures before the pin moves.
+  **REPORTED UPSTREAM 2026-09-19: ggml-org/llama.cpp#29168** (bisect, the exactness test,
+  the numbers, the one-commit attribution). **Watch for:** its resolution. Every pin bump from here re-measures before the pin moves.
 - **RESOLVED 2026-09-19 — the Ternary Bonsai / Q2_0 item below.** CUDA Q2_0 (#25707) merged
   2026-07-30; the first build carrying it is **`b10192`**, so the author's installed `b10437`
   has it. Group size settled on g64 — the author already has

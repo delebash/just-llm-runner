@@ -11,10 +11,22 @@ The holding pen for unscheduled ideas about the shared stack — same charter as
   Gemma 26B-A4B (evidence-not-press-release — the catalog law). Watch details:
   `docs/llama-cpp-watch.md` §Watch list.
   **TRIGGER MET [verified 2026-09-19]:** #25707 merged 2026-07-30; first build
-  `b10192`; the author's installed `b10437` has it, and
-  `Ternary-Bonsai-27B-Q2_g64.gguf` (the mainline g64 form) is already in the shared
-  cache. The Lab A/B can run today; it is still an idea until the user says go. It
-  cannot join the catalog while the pin (`b9993`) predates `b10192`.
+  `b10192`; `Ternary-Bonsai-27B-Q2_g64.gguf` (the mainline g64 form) is already in
+  the shared cache, and the pin is now `b10750` — past b10192 — so BONSAI 1 is
+  runnable AND catalogable today. The Lab A/B is still an idea until the user says go.
+- **2026-09-19 · Bonsai 2 27B — BLOCKED, fork-only. Do not plan around it.**
+  `prism-ml/Ternary-Bonsai-2-27B-gguf` (Apache-2.0, from Qwen3.8-27B, 851 tensors,
+  arch `qwen35`, 5.95 GB PTQ1_0 / 7.21 GB PQ2_0, with an optional Q8_0 vision
+  mmproj). Its own card: *"Low-bit kernels: llama.cpp fork (CUDA + Metal)"*. VERIFIED
+  FROM THE FILES, not the card — a 64 MB range read of each GGUF header shows 402 of
+  851 tensors carry ggml type id **143** (PTQ1_0) / **142** (PQ2_0), and
+  `general.file_type` 143 / 141. Stock llama.cpp's type enum ends at 39
+  (`GGML_TYPE_MXFP4`) at our pin, and a grep of its ENTIRE commit history finds no
+  mention of PQ2_0, PTQ1_0, prism or bonsai. So the engine we ship cannot even map
+  the weights, let alone run them — this is not a pin bump away. Unlike Bonsai 1,
+  whose Q2_0 did reach mainline (#25707), nothing here is upstream.
+  **Watch for:** these packings landing in mainline llama.cpp. Until then the only
+  path is their fork, which we do not ship (standing rule).
 - **2026-08-04 · Unadopted llama.cpp adoption candidates** from the 2026-07-14
   review (`docs/llama-cpp-watch.md` review log): b9986 reasoning-leak fix · b9974
   CUDA no-free-VRAM query · b9905 quantized KV for DeepSeek-V4 · b9967 null

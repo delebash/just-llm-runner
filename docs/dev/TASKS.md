@@ -134,8 +134,9 @@ OPEN:   (a) **the pin decision — needs the user's word.** The plan's Slice 4 n
         `nightly-tag.txt`; every `bNNNN` tag — b10750 included — is flagged prerelease,
         so no binary-carrying release is ever "stable" itself.) Options,
         none designed: accept + document · a measured-bad floor the check won't cross ·
-        leave the pin. (c) report #25952 upstream with this evidence — it is in their
-        current stable and at head, and looks unreported.
+        leave the pin. (c) DONE — reported as **ggml-org/llama.cpp#29168** (2026-09-19), with the
+        bisect, the one-commit attribution, the within-build exactness test and the
+        numbers. Watch that issue; a fix there is what unblocks pinning past b10750.
         MEANWHILE: the Update button works and WILL offer b10964. Do not take it.
 GO:     needed — for the pin move and for the upstream report.
 
@@ -271,86 +272,37 @@ OPEN:   ONE change, all parts or none: (a) windowed cells = `pad256(min(ctx,
 GO:     needed — for the build. This rewrite: given 2026-09-19.
 
 
-## `expert_byte_share()` reads every Mixtral-style MoE as dense [verified 2026-09-19]
+## Two real-router smoke tests fail only IN THE SUITE, not alone [MEASURED 2026-09-19]
 
-STATE:  FINDING — the speed-truth spike (plan
-        `docs/plans/2026-09-19-speed-truth-and-calibrated-pick.md` §11.4).
-        `runner/gguf.py:137` returns 0.0 unless `expert_feed_forward_length`
-        > 0. Mixtral-style arches (granitemoe verified: header
-        `feed_forward_length 512`, `expert_feed_forward_length` ABSENT) keep
-        the per-expert FFN in `feed_forward_length` and have no dense FFN, so
-        the byte model reads them as dense: `active_bytes_per_pass_mb` →
-        (whole file, 0). The formula also overstates the flagship's share
-        (header 0.9389 vs exact tensor-table 0.9026, err-slow ~4 %).
-WHY:    every fit/booking/speed number for such a catalog row is priced as
-        if nothing offloads to RAM.
-NOT:    folded into the speed-truth items (user ruling (b), 2026-09-19 —
-        its own blast radius).
-OPEN:   the fix — `expert_feed_forward_length` absent + `expert_count` > 0 →
-        per-expert FFN = `feed_forward_length`, dense FFN = 0; consider
-        reading exact `*_exps` tensor bytes from the tensor table instead of
-        the header estimate. Blast radius: every consumer of
-        `expert_byte_share` (fit booking, `identity.py:97` facts, the speed
-        split) for those arches.
-DECIDED 2026-09-19 — "your rec go" → Opus's read-only check; then "fable
-        think on what opus found wrong and the solution" → a review; then
-        "write this plan up for opus to execute, once plan is written in
-        detail i will have opus run it". THE PLAN (self-contained, every
-        claim receipted, Step 0 = measure before any code):
-        `docs/plans/2026-09-19-vram-truth-exact-bytes-units-offload.md`.
-        The approved recommendation, verbatim: "1. Measure first, no code …
-        The prediction to beat is 4,968 MiB … Run the 30-vs-31 layer A/B. Try
-        llama-fit-params.exe, the engine's own estimator, which ships in your
-        build. 2. Fix the launch so 'all layers' means n_layers + 1, but only
-        if the A/B shows a gain. 3. Store exact block sizes as new facts.
-        Read the sizes from the file's block offsets … Sort the blocks with
-        the engine's own pattern, and handle multi-part files. Convert to MiB
-        in the VRAM path. Keep the old share as the fallback. Existing
-        databases fill the new fields on their own, with no migration.
-        4. Pin the tests to the engine's own numbers from step 1, not to the
-        formula's output. Stamp the overhead rows with the build on disk plus
-        a physics version." (full text: plan §1)
-CORRECTED 2026-09-19 (the review) — Opus's check numbers, recorded here
-        earlier the same day, mixed units and are SUPERSEDED: the kit computes
-        weights/KV in DECIMAL MB (`/ 1e6`) but budgets and measurements are
-        MiB. In one unit: exact on-card weights for the real launch = 4,968
-        MiB; the kit's numeral 4,884 is ~84 MiB low AS USED (not 325); true
-        engine overhead ~1,134 MiB (not 860) — the learned `__overhead__`
-        rows (1,058-1,127) are about right; "every other model over-booked
-        ~325 MB" does not hold. What stands: the placement read (llama.cpp
-        `llama-model.cpp:1347-1372`, `gemma4.cpp:44-47` — identical in the
-        pinned b9993 and the on-disk b10437) and the Mixtral-style share = 0
-        bug. What the review ADDED (all in the plan §2): the 4.86 % unit
-        over-statement everywhere · explicit-placement launches are one layer
-        short of full offload (`process.py:516` clamps a tune's 99 to
-        block_count; `-ngl n` = output + last n-1 blocks; untuned launches
-        omit the flag — `lifecycle.py:2344-2351`) · UD quants break the
-        formula's uniform-bits assumption (exact share 0.9026 vs 0.9389) ·
-        the engine's exact regex `\.ffn_(up|down|gate|gate_up)_(ch|)exps` ·
-        split models pass only shard 1's size to `compute_fit`
-        (`lifecycle.py:2340`) · `__overhead__` is stamped with the PIN
-        (b9993) while b10437 runs · the engine ships its own estimator
-        (`llama-fit-params.exe -fitp on`) — the validation oracle.
-NOT:    (added) exact bytes WITHOUT the unit fix — it flips this box's 26B
-        from -84 MiB to +241 MiB over-booked · redefining `expert_byte_share`
-        in place (5 seeded rows in JW/JV + every existing DB keep the old
-        value; the plan ADDS three facts instead) · Opus's acceptance
-        ("prediction = 5,210", "overhead ~860") — arithmetic on one measured
-        number, and a unit error.
-BUILT:  2026-09-19 — ALL of Steps 0-3; record: plan §10.
-        Step 0: the engine's own estimator matched our placement on 11 configs
-        to < 1 MiB; the real load measured 4,968.43 MiB = the prediction.
-        Step 1 (R1: adopted on +5.94 % tok/s): "all blocks" renders -ngl n+1.
-        Step 2: exact tensor bytes + one unit (MiB); seeds refreshed from HF;
-        the 26B's exact-bytes split = ncmoe 22, inside the measured band (R3
-        held). Step 3: kit 942 · JW 579 + 128 · JV 67 + 741 · smoke clean ·
-        on-box: the app launches -ngl 31, load 6,789 MiB, overhead row
-        "physics-overhead b10437 p2" (R2).
-OPEN:   JW `docs/whats-new.md` has no open section (top = v1.3.0 — 2026-07) —
-        where the user-visible note goes is the user's call. Nothing committed.
-GO:     plan-doc go given 2026-09-19; EXECUTION go 2026-09-19 — "opus execute
-        plan r1-r3 your rec" (R1 clear gain only · R2 disk build · R3 never
-        widen a measured band — plan §1).
+STATE:  FINDING, pre-existing — both failed BEFORE any of the 2026-09-19
+        engine-update work (that plan's step 1.0 baseline), so nothing here
+        caused them. `test_stop_stays_stopped` and
+        `test_switch_change_reflected_on_reload`, in
+        `tests/test_realrouter_smoke.py`.
+MEASURED (b10750, and the same on b10437):
+        * full suite → BOTH fail (2 failed, 6 passed).
+        * `-k stop_stays_stopped` ALONE → **PASSES**.
+        So this is test ORDER/STATE leakage between cases, not a defect either
+        test catches on its own. Any fix must reproduce it in the suite.
+        * **Our code never asks for the reload.** `lifecycle.load()` logs every
+          ask as `load <id> (trigger=…)` (added 2026-07-17 for exactly this).
+          In the failing run the whole trace is: ONE `load … (trigger=api)`,
+          one router spawn, `stop qwen3-embedding-4b`, FAILED — no second ask,
+          from any trigger. So it is not `ensure-embedding`, not the arbiter,
+          not a warm-boot.
+RULED OUT: the tombstone works (`ensure_model_ready` still raises "just
+        stopped") · NOT the router's startup_models — the emitted
+        `models.ini` carries no `load_on_startup` (read from disk) · NOT the
+        engine bump (fails on b10437 and b10750 alike).
+OPEN:   what `_loaded()` is actually seeing. It counts status `sleeping` as
+        loaded, and the router runs `--sleep-idle-seconds 900`; the likely
+        shape is that after `stop()` the model is still present in the
+        router's `GET /models` (asleep, or an unload that did not take) and
+        `resident()` reconciles it back to "loaded". NEXT STEP: in the failing
+        SUITE run, dump `svc.resident()` and the raw router `GET /models` in
+        the 45 s window — one run answers it. Per-test fixture teardown is
+        `service.stop()` + `time.sleep(1.0)`, which may not outlive the child.
+GO:     needed.
 
 
 ## The Recommended badge and Quick setup share ONE runnable rule [verified 2026-09-19]

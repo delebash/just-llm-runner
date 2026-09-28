@@ -159,7 +159,9 @@ def app_default_preset_id() -> str:
 # the user's pick writes it.
 DEFAULT_PROVIDERS: list[dict] = [
     {"id": "local-llamacpp", "name": "Built-in provider — llama.cpp",
-     "provider_type": "local-llamacpp", "base_url": "http://127.0.0.1:8080/v1", "local": True},
+     "provider_type": "local-llamacpp", "base_url": "http://127.0.0.1:8080/v1", "local": True,
+     # Local thinking runs take minutes per call on consumer hardware; 60 s cut them off.
+     "timeout_seconds": 900},
     {"id": "openai-compat-local", "name": "Ollama (local)",
      "provider_type": "ollama", "base_url": "http://localhost:11434", "local": True},
     # LM Studio (user, 2026-07-19: "add lm studio as local provider"). It was already

@@ -66,6 +66,7 @@ _EXPORTS = {
     "FeaturePromptRow": "prompts", "PromptStore": "prompts", "render": "prompts",
     "MissingTemplateVariables": "prompts",
     "run_action": "prompts", "stream_action": "prompts", "UnknownActionError": "prompts", "RunRequest": "prompts",
+    "measure_action": "prompts", "ActionFit": "prompts",
     "make_prompt_router": "prompts", "make_feature_router": "prompts",
     # routing (the global default LLM/embedding, behind a host store)
     "RoutingStore": "routing_api", "RoutingConfig": "routing_api",

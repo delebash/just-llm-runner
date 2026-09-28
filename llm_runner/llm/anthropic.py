@@ -236,6 +236,7 @@ class AnthropicAdapter:
             system=system, think=think, extra=extra,
         )
         pt = ct = 0
+        finish = ""
         try:
             events = self._ensure_client().messages.create(**kwargs, stream=True)
             # Raw stream events (introspected on 0.117.0): message_start carries usage on
@@ -254,6 +255,9 @@ class AnthropicAdapter:
                         if chunk:
                             yield StreamDelta(text=chunk)
                 elif etype == "message_delta":
+                    reason = getattr(getattr(event, "delta", None), "stop_reason", None)
+                    if reason:
+                        finish = "length" if reason == "max_tokens" else reason
                     u = getattr(event, "usage", None)
                     if u is not None and getattr(u, "output_tokens", None) is not None:
                         ct = int(u.output_tokens or 0)
@@ -261,7 +265,7 @@ class AnthropicAdapter:
             raise adapter_http_error("anthropic", e.status_code, str(e), stream=True) from e
         except Exception as e:
             raise adapter_http_error("anthropic", None, str(e)) from e
-        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
+        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct, finish_reason=finish)
 
     def models(self) -> list[str]:
         # D8: the real /v1/models endpoint (exists since 2025); fall back to the curated

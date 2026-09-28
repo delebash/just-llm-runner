@@ -255,6 +255,7 @@ class OpenAICompatAdapter:
 
         url = f"{self._api_base}/chat/completions"
         pt = ct = 0
+        finish = ""
         with self._client.stream("POST", url, json=body, headers=self._headers()) as r:
             if r.status_code >= 400:
                 detail = r.read().decode("utf-8", errors="replace")
@@ -286,10 +287,11 @@ class OpenAICompatAdapter:
                         yield StreamDelta(progress=min(1.0, processed / total))
                 # The final usage frame carries an empty choices list.
                 for choice in evt.get("choices") or []:
+                    finish = choice.get("finish_reason") or finish
                     chunk = (choice.get("delta") or {}).get("content") or ""
                     if chunk:
                         yield StreamDelta(text=chunk)
-        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
+        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct, finish_reason=finish)
 
     def models(self) -> list[str]:
         """GET /models — most OpenAI-compat servers expose this."""

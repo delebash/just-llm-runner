@@ -840,3 +840,38 @@ def test_stream_chat_prompt_progress_guards_zero_total():
     ])
     deltas = list(a.stream_chat([LLMMessage(role="user", content="q")]))
     assert all(d.progress is None for d in deltas)
+
+
+# ── the streamed done event says why generation ended (2026-09-28) ──
+# llama.cpp sends NO error when the context fills mid-answer, only finish_reason
+# "length" on the last chunk — a caller must see it to know the reply was cut off.
+def test_openai_compat_stream_carries_finish_reason():
+    import httpx
+
+    from llm_runner.llm.openai_compat import OpenAICompatAdapter
+
+    sse = "\n".join([
+        'data: {"choices":[{"delta":{"content":"[{\\"id\\": \\"D0\\""}}]}',
+        'data: {"choices":[{"delta":{},"finish_reason":"length"}]}',
+        'data: {"choices":[],"usage":{"prompt_tokens":30000,"completion_tokens":2766}}',
+        "data: [DONE]", ""])
+    a = OpenAICompatAdapter("local-llamacpp", "local-llamacpp", api_key="",
+                            base_url="http://router.test/v1", default_model="m")
+    a._OpenAICompatAdapter__client = httpx.Client(
+        transport=httpx.MockTransport(lambda req: httpx.Response(200, text=sse)))
+    done = list(a.stream_chat([LLMMessage(role="user", content="x")]))[-1]
+    assert done.done and done.finish_reason == "length" and done.completion_tokens == 2766
+
+
+def test_anthropic_stream_maps_max_tokens_to_length():
+    from types import SimpleNamespace as NS
+    events = [NS(type="message_delta", delta=NS(stop_reason="max_tokens"), usage=NS(output_tokens=3))]
+    done = list(_anthropic(stream=events).stream_chat([LLMMessage(role="user", content="hi")]))[-1]
+    assert done.finish_reason == "length"
+
+
+def test_gemini_stream_reports_stop():
+    chunks = [gtypes.GenerateContentResponse.model_validate(c)
+              for c in load_fixture("gemini-sdk/chat-stream.json")]
+    done = list(_gemini(stream=chunks).stream_chat([LLMMessage(role="user", content="count")]))[-1]
+    assert done.finish_reason == "stop"

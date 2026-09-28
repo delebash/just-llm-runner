@@ -181,6 +181,7 @@ class OllamaAdapter:
 
         url = f"{self._base_url}/api/chat"
         pt = ct = 0
+        finish = ""
         with self._client.stream("POST", url, json=body, headers=self._headers()) as r:
             if r.status_code >= 400:
                 detail = r.read().decode("utf-8", errors="replace")
@@ -200,8 +201,9 @@ class OllamaAdapter:
                 if evt.get("done"):
                     pt = int(evt.get("prompt_eval_count") or 0)
                     ct = int(evt.get("eval_count") or 0)
+                    finish = "length" if evt.get("done_reason") == "length" else "stop"
                     break
-        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
+        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct, finish_reason=finish)
 
     def models(self) -> list[str]:
         """GET /api/tags lists installed models."""

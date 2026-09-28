@@ -363,6 +363,7 @@ class OpenAISDKAdapter:
             system=system, think=think, extra=extra,
         )
         pt = ct = 0
+        finish = ""
         try:
             stream = self._responses_create(kwargs, stream=True)
             for event in stream:
@@ -372,10 +373,15 @@ class OpenAISDKAdapter:
                     if piece:
                         yield StreamDelta(text=piece)
                 elif etype == "response.completed":
+                    finish = "stop"
                     u = getattr(getattr(event, "response", None), "usage", None)
                     if u is not None:
                         pt = int(getattr(u, "input_tokens", 0) or 0)
                         ct = int(getattr(u, "output_tokens", 0) or 0)
+                elif etype == "response.incomplete":
+                    reason = getattr(getattr(getattr(event, "response", None), "incomplete_details", None),
+                                     "reason", None)
+                    finish = "length" if reason == "max_output_tokens" else (reason or "")
                 elif etype in ("response.failed", "error"):
                     raise adapter_http_error(
                         self.provider_type, None, _stream_failure_detail(event), stream=True
@@ -387,7 +393,7 @@ class OpenAISDKAdapter:
             raise  # the D10 stream error we just raised — don't re-wrap
         except Exception as e:
             raise adapter_http_error(self.provider_type, None, str(e)) from e
-        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
+        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct, finish_reason=finish)
 
     def _stream_cc(self, messages, *, model, temperature, max_tokens, system, think, extra):
         kwargs = self._cc_kwargs(
@@ -395,6 +401,7 @@ class OpenAISDKAdapter:
             system=system, think=think, extra=extra, stream=True,
         )
         pt = ct = 0
+        finish = ""
         try:
             stream = self._ensure_client().chat.completions.create(**kwargs)
             for chunk in stream:
@@ -404,6 +411,7 @@ class OpenAISDKAdapter:
                     ct = int(getattr(cu, "completion_tokens", 0) or 0)
                 # the final usage frame carries an empty choices list — guard it.
                 for choice in (getattr(chunk, "choices", None) or []):
+                    finish = getattr(choice, "finish_reason", None) or finish
                     delta = getattr(choice, "delta", None)
                     piece = getattr(delta, "content", None) if delta else None
                     if piece:
@@ -412,7 +420,7 @@ class OpenAISDKAdapter:
             raise adapter_http_error(self.provider_type, e.status_code, str(e), stream=True) from e
         except Exception as e:
             raise adapter_http_error(self.provider_type, None, str(e)) from e
-        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
+        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct, finish_reason=finish)
 
     def embed(self, texts: list[str], *, model: str | None = None, task_type: str = "") -> list[list[float]]:
         # task_type accepted + ignored (C5): OpenAI-shape embeddings have no task concept.

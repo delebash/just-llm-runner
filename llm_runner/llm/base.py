@@ -55,6 +55,11 @@ class StreamDelta:
     completion_tokens: int = 0
     progress: float | None = None
     model: str = ""
+    # On the done event: why generation ended, in LLMResponse.finish_reason's words
+    # ("stop" | "length" | …); "" when the provider did not say. "length" means the
+    # reply was cut off — by max_tokens or by a full context (2026-09-28: llama.cpp
+    # sends no error when the context fills mid-answer, only this).
+    finish_reason: str = ""
 
 
 def pop_reasoning(

@@ -230,6 +230,7 @@ class GeminiAdapter:
         ))
         model_id = (model or self.default_model).removeprefix("models/")
         pt = ct = 0
+        finish = ""
         try:
             stream = self._ensure_client().models.generate_content_stream(
                 model=model_id, contents=self._contents(turns), config=config
@@ -244,13 +245,16 @@ class GeminiAdapter:
                 cand = chunk.candidates[0] if chunk.candidates else None
                 parts = (cand.content.parts if cand and cand.content else None) or []
                 piece = "".join(p.text or "" for p in parts)
+                if cand is not None and cand.finish_reason is not None:
+                    name = cand.finish_reason.name.lower()
+                    finish = _FINISH_MAP.get(name, name)
                 if piece:
                     yield StreamDelta(text=piece)
         except gerrors.APIError as e:
             raise adapter_http_error("gemini", e.code, str(e), stream=True) from e
         except Exception as e:
             raise adapter_http_error("gemini", None, str(e)) from e
-        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct)
+        yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct, finish_reason=finish)
 
     def models(self) -> list[str]:
         try:

@@ -37,6 +37,7 @@ from .dispatch import (
     LLMNotConfiguredError,
     chat,
     get_ensure_local_model,
+    get_local_runner_base_url,
     resolve_route,
     stream_chat,
 )
@@ -617,6 +618,67 @@ def stream_action(store: PromptStore, config: LLMConfig, body: RunRequest):
         model_override=r.model_override,
         extra=_plane2_extra(r.spec, body, r.preset),
     )
+
+
+@dataclass
+class ActionFit:
+    """How a run's prompt sits in its model's context — measured, not estimated."""
+
+    prompt_tokens: int   # the rendered prompt, chat markup included, by the model's own tokenizer
+    context: int         # the model's context size (llama.cpp --ctx-size / n_ctx)
+    model: str
+
+
+def measure_action(store: PromptStore, config: LLMConfig, body: RunRequest) -> ActionFit | None:
+    """The exact size of the prompt `run_action(body)` would send, and the context it
+    must fit — for the bundled LOCAL runner only (2026-09-28, chapter splitting: a
+    caller sizes pieces of a long input before running them). Same resolution as
+    run_action, and the same ensure: the model is made resident first, because
+    llama.cpp counts with the model's own tokenizer.
+
+    None when the route is not the local runner (a cloud provider publishes no count
+    and has a far larger context) or the router cannot say — the caller then runs
+    unmeasured and relies on the provider's own overflow error. Raises what
+    run_action raises before dispatch (UnknownActionError, MissingTemplateVariables,
+    LLMNotConfiguredError, a load failure)."""
+    import httpx
+
+    r = _resolve_action(store, body)
+    adapter, model = resolve_route(
+        config, r.feature_key, action=body.action,
+        provider_override=r.provider_override, model_override=r.model_override,
+    )
+    if not model or adapter.provider_id != config.local_runner_provider_id:
+        return None
+    _ensure_local_ready_sync(config, r.feature_key, body.action, r.provider_override, r.model_override)
+    url_fn = get_local_runner_base_url()
+    base = (url_fn() if url_fn else "") or getattr(adapter, "_api_base", "") or ""
+    base = base.rstrip("/").removesuffix("/v1")
+    if not base:
+        return None
+    messages = [{"role": "system", "content": r.system_text}] if r.system_text else []
+    messages += [{"role": m.role, "content": m.content} for m in r.messages]
+    try:
+        with httpx.Client(timeout=60) as client:
+            listed = client.get(f"{base}/v1/models").json().get("data") or []
+            entry = next((m for m in listed if m.get("id") == model), None)
+            if entry is None:
+                return None
+            args = (entry.get("status") or {}).get("args") or []
+            ctx = int((entry.get("meta") or {}).get("n_ctx") or 0)
+            if not ctx and "--ctx-size" in args:
+                ctx = int(args[args.index("--ctx-size") + 1])
+            if not ctx:
+                return None
+            prompt = client.post(f"{base}/apply-template",
+                                 json={"model": model, "messages": messages}).json()["prompt"]
+            tokens = client.post(f"{base}/tokenize", json={
+                "model": model, "content": prompt, "add_special": True, "parse_special": True,
+            }).json()["tokens"]
+    except (httpx.HTTPError, KeyError, ValueError, TypeError) as e:
+        log.warning("measure_action %s: the router could not measure (%s)", body.action, e)
+        return None
+    return ActionFit(prompt_tokens=len(tokens), context=ctx, model=model)
 
 
 def make_feature_router(

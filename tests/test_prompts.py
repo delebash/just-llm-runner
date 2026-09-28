@@ -4,6 +4,8 @@ feature-execution router (all over an in-memory PromptStore)."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
@@ -651,3 +653,68 @@ def test_stream_ensure_failure_surfaces_as_error_frame():
         body = "".join(chunk for chunk in r.iter_text())
     assert '"error": "model load timed out"' in body     # ensure error → SSE error frame
     assert body.strip().endswith("data: [DONE]")
+
+
+# ── measure_action (2026-09-28, chapter splitting): the exact prompt size + context ──
+def _fake_router(monkeypatch, *, models, calls):
+    import httpx
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/v1/models":
+            return httpx.Response(200, json={"data": models})
+        if request.url.path == "/apply-template":
+            body = json.loads(request.content)
+            return httpx.Response(200, json={"prompt": "|".join(m["content"] for m in body["messages"])})
+        if request.url.path == "/tokenize":
+            return httpx.Response(200, json={"tokens": list(range(len(json.loads(request.content)["content"])))})
+        return httpx.Response(404)
+
+    real = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda *a, **k: real(transport=httpx.MockTransport(handler)))
+    from llm_runner.llm.dispatch import set_local_runner_base_url
+    set_local_runner_base_url(lambda: "http://router.test")
+
+
+def test_measure_action_counts_the_rendered_prompt_against_the_launch_context(monkeypatch):
+    from llm_runner.llm import measure_action, RunRequest
+    from llm_runner.llm.dispatch import set_local_runner_base_url
+
+    ensured, calls = [], []
+    set_ensure_local_model(lambda mid: ensured.append(mid))
+    _c, adapter = _local_route_client("local-llamacpp")
+    # Unloaded: no meta, the context comes from the launch args.
+    _fake_router(monkeypatch, calls=calls, models=[
+        {"id": adapter.default_model, "status": {"value": "unloaded", "args": ["--ctx-size", "16384"]}}])
+    try:
+        fit = measure_action(MemPromptStore(), LLMConfig(), RunRequest(
+            action="farewell", variables={"name": "Sam", "role": "bot"}))
+    finally:
+        set_local_runner_base_url(None)
+    assert ensured == [adapter.default_model], "the model is made resident before counting"
+    assert fit.context == 16384 and fit.model == adapter.default_model
+    assert fit.prompt_tokens == len("You are bot.|Bye Sam"), "system + user, as the run sends them"
+    assert calls == ["/v1/models", "/apply-template", "/tokenize"]
+
+
+def test_measure_action_is_none_off_the_local_runner(monkeypatch):
+    from llm_runner.llm import measure_action, RunRequest
+
+    set_ensure_local_model(lambda mid: None)
+    _local_route_client("cloud")
+    assert measure_action(MemPromptStore(), LLMConfig(), RunRequest(
+        action="farewell", variables={"name": "Sam", "role": "bot"})) is None
+
+
+def test_measure_action_is_none_when_the_router_cannot_say(monkeypatch):
+    from llm_runner.llm import measure_action, RunRequest
+    from llm_runner.llm.dispatch import set_local_runner_base_url
+
+    set_ensure_local_model(lambda mid: None)
+    _local_route_client("local-llamacpp")
+    _fake_router(monkeypatch, calls=[], models=[])   # the model is not in the router's list
+    try:
+        assert measure_action(MemPromptStore(), LLMConfig(), RunRequest(
+            action="farewell", variables={"name": "Sam", "role": "bot"})) is None
+    finally:
+        set_local_runner_base_url(None)

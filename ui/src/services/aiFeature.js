@@ -106,6 +106,23 @@ function shouldFallBack(err, framesSeen, signal) {
 // reasoningEffort/samplers) — the SAME set the stream sibling forwards.
 // Returns { content, model, promptTokens, completionTokens, cost } — `content`
 // is the raw model output (callers parse JSON themselves, exactly as before).
+// A reply that stopped because the model ran out of room (finish_reason "length":
+// the preset's Max tok cap, or a full context — llama.cpp sends NO error for the
+// latter, measured 2026-09-28). Treated as a failure, never as an answer: a caller
+// parsing JSON would otherwise read a cut-off reply as "nothing found". The partial
+// text rides on `.content` for a caller that wants it.
+export const CUT_OFF_MESSAGE =
+  "The answer was cut off: the model ran out of room before it finished. If this "
+  + "feature's preset has a Max tok cap, raise or clear it; otherwise the text sent "
+  + "was too long for the model's context.";
+
+function cutOffError(content) {
+  const e = new Error(CUT_OFF_MESSAGE);
+  e.cutOff = true;
+  e.content = content;
+  return e;
+}
+
 export async function runAiFeature({
   action, feature, variables = {}, provider, providerId, model,
   temperature, topP, maxTokens, jsonMode, reasoningEffort, think,
@@ -146,8 +163,10 @@ export async function runAiFeature({
         completionTokens: json.completionTokens || 0,
         model: json.model || "",
         cost: json.cost || 0,
+        finishReason: json.finishReason || "",
       };
     }
+    if (usage?.finishReason === "length") throw cutOffError(content);
     if (handle) handle.finish({ usage, model: usage?.model || model });
     // Usage/cost pass through for callers that display them (the Lab's tok/s +
     // cost readout); pre-existing callers keep destructuring { content, model }.
@@ -159,7 +178,8 @@ export async function runAiFeature({
       cost: usage?.cost || 0,
     };
   } catch (err) {
-    const wrapped = friendlyAiError(err, provider || null);
+    // A cut-off already says what happened; "Couldn't reach the LLM" would not.
+    const wrapped = err?.cutOff ? err : friendlyAiError(err, provider || null);
     if (handle) handle.fail(wrapped);
     throw wrapped;
   }
@@ -199,10 +219,12 @@ export async function runAiFeatureStream({
       signal: effectiveSignal,
       onProgress: (p) => { if (handle) handle.setPrefill(p); },
     });
+    if (usage?.finishReason === "length") throw cutOffError(content);
     if (handle) handle.finish({ usage, model: usage?.model || model });
     return { content, model: usage?.model || model || "", usage };
   } catch (err) {
-    const wrapped = friendlyAiError(err, provider || null);
+    // A cut-off already says what happened; "Couldn't reach the LLM" would not.
+    const wrapped = err?.cutOff ? err : friendlyAiError(err, provider || null);
     if (handle) handle.fail(wrapped);
     throw wrapped;
   }

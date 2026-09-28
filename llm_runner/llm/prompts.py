@@ -303,6 +303,10 @@ class RunResponse(BaseModel):
     # 23). Server-priced from the RESOLVED model via pricing.cost_for; local models
     # have no price entry → 0.
     cost: float = 0.0
+    # Why generation ended ("stop" | "length" | …; "" = the provider did not say).
+    # "length" = the answer was CUT OFF — by maxTokens or a full context; llama.cpp
+    # sends no error for the latter (2026-09-28). The kit client fails the task on it.
+    finishReason: str = ""
 
 
 class ResolvedRouteResponse(BaseModel):
@@ -713,6 +717,7 @@ def make_feature_router(
             content=resp.text, model=resp.model,
             promptTokens=resp.prompt_tokens, completionTokens=resp.completion_tokens,
             cost=cost_for(resp.model, resp.prompt_tokens, resp.completion_tokens),
+            finishReason=resp.finish_reason or "",
         )
 
     @router.post("/stream")
@@ -777,6 +782,8 @@ def make_feature_router(
                             "cost": cost_for(
                                 delta.model, delta.prompt_tokens, delta.completion_tokens
                             ),
+                            # "length" = cut off (see RunResponse.finishReason).
+                            "finishReason": delta.finish_reason,
                         }
                     elif delta.progress is not None:
                         frame = {"progress": delta.progress}

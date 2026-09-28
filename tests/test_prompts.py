@@ -210,7 +210,8 @@ def test_run_renders_prompt_and_returns_content():
     r = c.post("/v1/ai/run", json={"action": "farewell", "variables": {"name": "Sam", "role": "bot"}})
     assert r.status_code == 200
     # content + model + token usage (so a Lab can rank columns by decode tok/s)
-    assert r.json() == {"content": "answer", "model": "m", "promptTokens": 3, "completionTokens": 7, "cost": 0.0}
+    assert r.json() == {"content": "answer", "model": "m", "promptTokens": 3, "completionTokens": 7, "cost": 0.0,
+                        "finishReason": "stop"}
     # the DB template was rendered with the caller's variables before dispatch
     assert adapter.last["user"] == "Bye Sam"
     assert adapter.last["system"] == "You are bot."
@@ -718,3 +719,21 @@ def test_measure_action_is_none_when_the_router_cannot_say(monkeypatch):
             action="farewell", variables={"name": "Sam", "role": "bot"})) is None
     finally:
         set_local_runner_base_url(None)
+
+
+# ── the routes tell the client why generation ended (2026-09-28) ──
+def test_run_and_stream_carry_finish_reason(monkeypatch):
+    c, adapter = _feature_client(MemPromptStore())
+    monkeypatch.setattr(adapter, "chat", lambda *a, **k: LLMResponse(
+        text="[", model="m", finish_reason="length", prompt_tokens=1, completion_tokens=1))
+    r = c.post("/v1/ai/run", json={"action": "greet", "variables": {"name": "x", "role": "y"}})
+    assert r.status_code == 200 and r.json()["finishReason"] == "length"
+
+    def cut(*a, **k):
+        yield StreamDelta(text="[")
+        yield StreamDelta(done=True, prompt_tokens=1, completion_tokens=1, finish_reason="length")
+    monkeypatch.setattr(adapter, "stream_chat", cut)
+    body = c.post("/v1/ai/stream", json={"action": "greet", "variables": {"name": "x", "role": "y"}}).text
+    done = next(json.loads(line[6:]) for line in body.splitlines()
+                if line.startswith("data: {") and '"done"' in line)
+    assert done["finishReason"] == "length"

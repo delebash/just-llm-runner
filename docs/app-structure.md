@@ -616,7 +616,11 @@ with the model name**, one Continue, auto-dismiss on resident), driven by the ki
 donor; pass `skip` for boots that must never warm, e.g. JW's bench). The app's overlay
 `v-if`s on the kit's `warmModelId`. `index.html`'s static pre-JS layer shows the SAME
 plate image with the same fit — no spinner, ever — so boot is one continuous image:
-static plate → Vue splash → shell. Hand-copying the load group per app is how one
+static plate → Vue splash → shell. A load that ends in error renders the control's
+`#failed` slot under the bar (props `{ task, modelId }`; `task.retry()` is the bar's own
+Retry) — the app's own help for that failure. JustVoice fills it with an offer to stop
+speech engines left over from an earlier session, which had been holding the GPU memory
+the model needed (2026-09-29). Hand-copying the load group per app is how one
 consumer got a model-ID title divergence, a spinner-then-plate double splash, and a
 shell flash between them; the control exists so none of that can be rebuilt.
 

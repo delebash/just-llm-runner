@@ -382,11 +382,27 @@ and the terminal message (`llm_runner/runner/lifecycle.py:3282`) asserted
 VRAM-tune / corrupt-download / co-load causes while its 400-char tail cut off
 the real error line. Intermittent on that box since 08-16 (36/46 router logs).
 
-**OPEN:** the solo-path terminal message must extract and NAME the engine's own
-`error loading model:` line from the tail, and drop the co-load framing when
-the attempt had no co-resident. Consider whether `invalid vector subscript`
-belongs in an unfixable-signature set for the solo case. Fix gates: kit pytest
-(`test_lifecycle`), then both consumer apps build. GO: needed.
+**2026-09-29 — the cause, and the message half BUILT.** The same failure came
+back on the JV box, and this time it was measured: five JustVoice speech-engine
+processes orphaned by hard-killed servers held 1.6 GB of the 8 GB card (two
+Whisper at 1,295 + 286 MB), the model's fixed GPU split left no room for the
+draft, and stopping them fixed it at once. So "invalid vector subscript" on a
+solo draft can be a memory shortage after all — not the co-load race, and not
+the tune. Under the JV go on "Engine processes never outlive their server" (JV
+TASKS, part 4: "The error you saw sent you the wrong way … That wording comes
+from the shared kit … fixing it there helps JustWrite too"), the terminal
+message now leads with what is MEASURED: `_gpu_holders_note()` names other
+processes holding ≥ 200 MB (`hardware.other_gpu_holders`, one whole-machine
+query; the label carries the script a Python process runs), then quotes
+llama.cpp's own `error loading model:` line (`_engine_error_line`), then lists
+the causes unranked — "Most often … raise n_cpu_moe" is gone. The final
+`failed to load` error adds the same holders sentence when the log looks like
+OOM. Tests: `tests/test_load_failure_message.py`, `test_gpu_processes.py`.
+
+**Still OPEN:** `_looks_like_draft_failure` still reads the solo signature as the
+co-load race, so both escalation stages run first (stage 2 restarts the engine).
+Whether a solo `invalid vector subscript` should skip them — or first check for
+other GPU holders — is undecided. GO: needed.
 
 ## The HF cache stores every model TWICE on Windows [verified 2026-08-22]
 

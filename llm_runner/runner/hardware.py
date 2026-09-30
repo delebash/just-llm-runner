@@ -964,6 +964,44 @@ def gpu_processes(*, fresh: bool = False) -> dict | None:
     return out
 
 
+def _process_label(pid: int, name: str) -> str:
+    """The executable, plus the script an interpreter runs (`python.exe ·
+    whisper/engine.py`), so two Python processes can be told apart. psutil
+    only — without it, or when the process is gone, the bare name."""
+    try:
+        import psutil  # type: ignore
+
+        cmd = psutil.Process(pid).cmdline()
+    except Exception:  # noqa: BLE001 — a label is a nicety
+        return name or f"pid {pid}"
+    script = next((a for a in cmd[1:] if a.lower().endswith(".py")), None)
+    if not script:
+        return name or f"pid {pid}"
+    return f"{name or 'python'} · " + "/".join(re.split(r"[\\/]", script)[-2:])
+
+
+def other_gpu_holders(*, min_mb: int = 200) -> list[dict] | None:
+    """Processes OUTSIDE this server's own tree holding at least `min_mb` of
+    GPU memory, biggest first — what a failed model load names as taking the
+    room (2026-09-29). Rows are `gpu_processes` rows plus `label`.
+
+    The floor keeps the desktop out of the answer: the compositor alone holds
+    ~160 MB on an idle Windows box (measured 2026-09-29, `dwm.exe` 162 MB),
+    and naming it would send a reader after the wrong thing. The case this
+    exists for measured 1,295 and 286 MB per process — speech engines a
+    hard-killed JustVoice server had left running, 1.6 GB of an 8 GB card.
+
+    None = unmeasurable (see `gpu_processes`); [] = measured, nobody else."""
+    snap = gpu_processes(fresh=True)
+    if snap is None:
+        return None
+    return [
+        {**r, "label": _process_label(r["pid"], r["name"])}
+        for r in snap["processes"]
+        if not r["own"] and r["memMb"] >= min_mb
+    ]
+
+
 def _nvidia_query(fields: str) -> str | None:
     """Run one `nvidia-smi --query-gpu` call; None on any failure (never raises)."""
     try:

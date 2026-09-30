@@ -457,6 +457,47 @@ def _rmtree_with_retry(path: Path, *, attempts: int = 5, delay: float = 0.2) -> 
     return not path.exists()
 
 
+def _other_gpu_holders() -> list[dict] | None:
+    """Seam for `hardware.other_gpu_holders` (tests replace it: the real probe
+    reads the machine's GPU)."""
+    from .hardware import other_gpu_holders
+
+    return other_gpu_holders()
+
+
+def _fmt_mb(mb: int) -> str:
+    return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb} MB"
+
+
+def _gpu_holders_note() -> str:
+    """One sentence naming the OTHER processes holding GPU memory, or "" when
+    there are none (or it can't be measured). For a failed load: a model that
+    fit yesterday and not today usually lost its room to something else, and
+    the error should say what (2026-09-29 — 1.6 GB held by speech engines left
+    over from earlier sessions; the old message sent the user to the tune)."""
+    try:
+        rows = _other_gpu_holders()
+    except Exception:  # noqa: BLE001 — the message must never fail to build
+        return ""
+    if not rows:
+        return ""
+    shown = ", ".join(f"{r['label']} (pid {r['pid']}, {_fmt_mb(r['memMb'])})" for r in rows[:4])
+    more = f" and {len(rows) - 4} more" if len(rows) > 4 else ""
+    total = _fmt_mb(sum(r["memMb"] for r in rows))
+    return (f"Other programs are holding {total} of GPU memory: {shown}{more}. "
+            f"Close them, then load the model again. ")
+
+
+def _engine_error_line(tail: str) -> str:
+    """llama.cpp's own `error loading model:` line from a load's log, without
+    the log-level/function prefix — "" when there is none."""
+    for ln in reversed((tail or "").splitlines()):
+        i = ln.lower().find("error loading model")
+        if i >= 0:
+            return ln[i:].strip()
+    return ""
+
+
 class RunnerService:
     """Owns the long-lived llama-server ROUTER + the resident-model set.
 
@@ -3454,17 +3495,23 @@ class RunnerService:
                     self._bounce_router(server_exe, config)
                     continue
                 # Solo AND a clean restart both still crashed on the draft → NOT the co-load
-                # race: the draft itself is the problem (corrupt/mismatched draft GGUF, or it
-                # genuinely doesn't fit). Surface the real error — never silently degrade to
-                # no-MTP. Ordered by likelihood (2026-07-24, user report): the common cause is
-                # a tune that lowered n_cpu_moe (more experts on the GPU → no room left for the
-                # draft), so raising it back is the FIRST fix; re-download / MTP-off follow.
+                # race. Surface the real error — never silently degrade to no-MTP. What the
+                # message leads with is MEASURED (2026-09-29): other processes holding GPU
+                # memory, then llama.cpp's own error line. The causes follow unranked. The
+                # old text opened "Most often the tune left too little VRAM — raise
+                # n_cpu_moe", and on 2026-09-29 the real cause was 1.6 GB held by speech
+                # engines left over from earlier sessions: the tune was fine, the advice was
+                # wrong, and the 400-char tail had cut the engine's own error line off (kit
+                # TASKS "The MTP solo-crash message blames causes the log contradicts").
+                said = _engine_error_line(tail)
                 raise RuntimeError(
                     f"model {entry.model_id!r} could not load its speculative-decoding (MTP) draft "
-                    f"even on its own (status={outcome}). Most often the tune left too little VRAM "
-                    f"for the draft — raise n_cpu_moe (fewer experts on the GPU) in the model's "
-                    f"tune. Otherwise the draft may be corrupt (re-download it) or you can turn MTP "
-                    f"off. Details: {tail[-400:]}"
+                    f"even on its own (status={outcome}). "
+                    + _gpu_holders_note()
+                    + (f'llama.cpp said: "{said}". ' if said else "")
+                    + "If nothing else is holding GPU memory: the model's tune may leave too little "
+                    "room for the draft (raise n_cpu_moe), the draft file may be damaged "
+                    f"(re-download it), or you can turn MTP off. Details: {tail[-400:]}"
                 )
             can_raise_ncmoe = fit.is_moe and (ncmoe or 0) < fit.block_count
             if (ngl > 0 or can_raise_ncmoe) and _looks_like_oom(tail):
@@ -3487,7 +3534,9 @@ class RunnerService:
                 self._bounce_router(server_exe, config)
                 continue
             raise RuntimeError(
-                f"model {entry.model_id!r} failed to load (status={outcome}, ngl={ngl}): {tail[-600:]}"
+                f"model {entry.model_id!r} failed to load (status={outcome}, ngl={ngl}). "
+                + (_gpu_holders_note() if _looks_like_oom(tail) else "")
+                + tail[-600:]
             )
 
     def _run_download(self, model_id: str) -> None:

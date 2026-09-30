@@ -198,3 +198,56 @@ def test_result_is_ttl_cached(monkeypatch, _no_cache):
 
     hw.gpu_processes(fresh=True)
     assert calls["n"] == 2, "fresh=True must bypass the cache"
+
+
+# ── other_gpu_holders: what a failed model load names (2026-09-29) ─────────
+
+
+def test_other_gpu_holders_names_only_others_above_the_floor(monkeypatch, _no_cache):
+    """Never this server's own tree (the model that failed to load is in it),
+    never the desktop's small change (`dwm.exe` held 162 MB idle, measured).
+    The two python rows are the 2026-09-29 case: speech engines a hard-killed
+    server had left behind, 1,295 + 286 MB."""
+    monkeypatch.setattr(hw, "_nvidia_gpu_process_rows",
+                        lambda: {10: 1295, 11: 286, 12: 162, 13: 900})
+    monkeypatch.setattr(hw, "_pid_name_map", lambda: {
+        10: "python.exe", 11: "python.exe", 12: "dwm.exe", 13: "llama-server.exe"})
+    monkeypatch.setattr(hw, "process_tree_pids", lambda pid: [pid, 13])
+    monkeypatch.setattr(hw, "_process_label", lambda pid, name: f"{name}#{pid}")
+
+    rows = hw.other_gpu_holders()
+    assert [(r["pid"], r["memMb"], r["label"]) for r in rows] == [
+        (10, 1295, "python.exe#10"), (11, 286, "python.exe#11")]
+
+
+def test_other_gpu_holders_unmeasurable_is_none(monkeypatch, _no_cache):
+    monkeypatch.setattr(hw, "_nvidia_gpu_process_rows", lambda: None)
+    monkeypatch.setattr(hw, "_windows_gpu_process_rows", lambda: None)
+    assert hw.other_gpu_holders() is None
+
+
+def test_process_label_names_the_script(monkeypatch):
+    """Two python.exe rows are indistinguishable by name; the script says
+    which is which."""
+    psutil = pytest.importorskip("psutil")
+
+    class _P:
+        def __init__(self, pid):
+            self.pid = pid
+
+        def cmdline(self):
+            return [r"C:\py\python.exe", r"E:\app\engines\whisper\engine.py", "serve"]
+
+    monkeypatch.setattr(psutil, "Process", _P)
+    assert hw._process_label(5, "python.exe") == "python.exe · whisper/engine.py"
+
+
+def test_process_label_falls_back_to_the_name(monkeypatch):
+    psutil = pytest.importorskip("psutil")
+
+    def _gone(pid):
+        raise psutil.NoSuchProcess(pid)
+
+    monkeypatch.setattr(psutil, "Process", _gone)
+    assert hw._process_label(5, "game.exe") == "game.exe"
+    assert hw._process_label(5, "") == "pid 5"

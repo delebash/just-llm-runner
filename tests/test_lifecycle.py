@@ -3651,9 +3651,13 @@ def test_draft_crash_escalates_to_restart_keeping_mtp(tmp_path):
     assert entry.overrides.spec_type == "draft-mtp"     # MTP still intact after recovery
 
 
-def test_draft_crash_solo_still_fails_raises_never_drops_mtp(tmp_path):
+def test_draft_crash_solo_still_fails_raises_never_drops_mtp(tmp_path, monkeypatch):
     # Solo + restart both still crash on the draft → a GENUINE draft problem (corrupt /
     # too big), not the co-load race. Surface the real error; never silently drop MTP.
+    from llm_runner.runner import lifecycle as _lc
+
+    monkeypatch.setattr(_lc, "_other_gpu_holders", lambda: [])  # the message probes the GPU
+
     def models(_url):
         return {"object": "list", "data": [{"id": _GEMMA_MTP.id, "status": {"value": "failed"}}]}
 

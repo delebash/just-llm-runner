@@ -11,6 +11,10 @@
 // The host owns the splash PAGE — plate, layout, z-index — and v-ifs it on
 // `warmModelId` (exported beside startWarmOnBoot); this control owns everything
 // inside the load group and renders nothing until a task actually exists.
+// `#failed` slot (2026-09-29, additive): under a load that ended in error, the host
+// adds its own help — JustVoice offers to stop speech engines left over from an
+// earlier session, which were holding the GPU memory the model needed. Slot props:
+// { task, modelId }; `task.retry()` is the bar's own Retry.
 import { computed, watch } from "vue";
 import DownloadBar from "../common/components/DownloadBar.vue";
 import { useRunnerModels } from "../composables/useRunnerModels.js";
@@ -25,6 +29,7 @@ const rm = useRunnerModels();
 const warmTask = computed(() => (warmModelId.value ? rm.taskFor(warmModelId.value) : null));
 const engineTask = computed(() =>
   rm.engineGateTask?.value && rm.engineGateTask.value.state === "running" ? rm.engineGateTask.value : null);
+const shownTask = computed(() => engineTask.value || warmTask.value);
 const warmRowStatus = computed(() =>
   warmModelId.value ? (rm.models.value.find((m) => m.id === warmModelId.value)?.status || "") : "");
 watch(warmRowStatus, (s) => {
@@ -39,6 +44,7 @@ function dismiss() {
   <div v-if="engineTask || (warmTask && warmTask.state)" class="lu-bootload">
     <DownloadBar v-if="engineTask" class="lu-bootload__bar" :task="engineTask" :title="engineTitle" />
     <DownloadBar v-else class="lu-bootload__bar" :task="warmTask" :title="warmModelId" />
+    <slot v-if="shownTask?.state === 'error'" name="failed" :task="shownTask" :model-id="warmModelId" />
     <button type="button" class="lu-bootload__skip" @click="dismiss">{{ continueLabel }}</button>
   </div>
 </template>

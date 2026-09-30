@@ -3614,10 +3614,15 @@ def test_draft_crash_unloads_coresident_and_keeps_mtp(tmp_path):
     assert entry.overrides.spec_type == "draft-mtp"
 
 
-def test_draft_crash_escalates_to_restart_keeping_mtp(tmp_path):
+def test_draft_crash_escalates_to_restart_keeping_mtp(tmp_path, monkeypatch):
     # Stage 2 (last resort): unloading the co-resident didn't clear it (router wedged) →
     # a full engine restart to load the draft ALONE, still with MTP. The restart spawns
     # empty and the model loads solo.
+    from llm_runner.runner import lifecycle as _lc
+
+    # Before a restart the kit looks for other programs on the GPU (2026-09-30) — the
+    # real probe would read this machine's card; nobody else holds memory here.
+    monkeypatch.setattr(_lc, "_other_gpu_holders", lambda: [])
     events = []
     state = {"restarted": False}
 

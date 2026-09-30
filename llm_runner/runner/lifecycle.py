@@ -470,16 +470,22 @@ def _fmt_mb(mb: int) -> str:
     return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb} MB"
 
 
-def _gpu_holders_note() -> str:
+_MEASURE = object()
+
+
+def _gpu_holders_note(rows=_MEASURE) -> str:
     """One sentence naming the OTHER processes holding GPU memory, or "" when
     there are none (or it can't be measured). For a failed load: a model that
     fit yesterday and not today usually lost its room to something else, and
     the error should say what (2026-09-29 — 1.6 GB held by speech engines left
-    over from earlier sessions; the old message sent the user to the tune)."""
-    try:
-        rows = _other_gpu_holders()
-    except Exception:  # noqa: BLE001 — the message must never fail to build
-        return ""
+    over from earlier sessions; the old message sent the user to the tune).
+    `rows` is a measurement the caller already made (one whole-machine query
+    is ~1 s on Windows); left out, it measures."""
+    if rows is _MEASURE:
+        try:
+            rows = _other_gpu_holders()
+        except Exception:  # noqa: BLE001 — the message must never fail to build
+            return ""
     if not rows:
         return ""
     shown = ", ".join(f"{r['label']} (pid {r['pid']}, {_fmt_mb(r['memMb'])})" for r in rows[:4])
@@ -487,6 +493,27 @@ def _gpu_holders_note() -> str:
     total = _fmt_mb(sum(r["memMb"] for r in rows))
     return (f"Other programs are holding {total} of GPU memory: {shown}{more}. "
             f"Close them, then load the model again. ")
+
+
+def _draft_failed_alone(model_id: str, outcome, tail: str, rows=_MEASURE) -> RuntimeError:
+    """The error for an MTP draft that would not load with nothing else
+    beside it. What it leads with is MEASURED (2026-09-29): other processes
+    holding GPU memory, then llama.cpp's own error line; the causes follow
+    unranked. The old text opened "Most often the tune left too little VRAM —
+    raise n_cpu_moe", and on 2026-09-29 the real cause was 1.6 GB held by
+    speech engines left over from earlier sessions: the tune was fine, the
+    advice was wrong, and the 400-char tail had cut the engine's own error line
+    off (the record: JustVoice `docs/plans/2026-09-30-lifetime-leftovers.md`)."""
+    said = _engine_error_line(tail)
+    return RuntimeError(
+        f"model {model_id!r} could not load its speculative-decoding (MTP) draft "
+        f"even on its own (status={outcome}). "
+        + _gpu_holders_note(rows)
+        + (f'llama.cpp said: "{said}". ' if said else "")
+        + "If nothing else is holding GPU memory: the model's tune may leave too little "
+        "room for the draft (raise n_cpu_moe), the draft file may be damaged "
+        f"(re-download it), or you can turn MTP off. Details: {tail[-400:]}"
+    )
 
 
 def _engine_error_line(tail: str) -> str:
@@ -3502,6 +3529,22 @@ class RunnerService:
                 # restart comes up empty (this still-`starting` model isn't in the bounce's
                 # reload set), then the loop below re-POSTs it solo.
                 if not draft_restart_tried:
+                    # A restart can't free memory another PROGRAM holds — the 2026-09-29 cause
+                    # (speech engines left from earlier sessions): the retry failed the same
+                    # way and the restart only added time. So look first; when the one
+                    # whole-machine query sees any (≥ 200 MB each, not this engine's own
+                    # processes), fail now and name them. Otherwise restart as before — the
+                    # one retry stays for causes we can't see from outside (2026-09-30, kit
+                    # user "b go"; JustVoice docs/plans/2026-09-30-lifetime-leftovers.md §2).
+                    try:
+                        holders = _other_gpu_holders()
+                    except Exception:  # noqa: BLE001 — can't tell → restart, as before
+                        holders = None
+                    if holders:
+                        log.warning("router child %s crashed on its MTP draft with nothing beside "
+                                    "it, and other programs hold GPU memory — not restarting the "
+                                    "engine, which can't free it", entry.model_id)
+                        raise _draft_failed_alone(entry.model_id, outcome, tail, holders)
                     draft_restart_tried = True
                     log.warning("router child %s still crashed on its MTP draft — restarting the "
                                 "engine to load it alone (MTP kept)", entry.model_id)
@@ -3514,24 +3557,8 @@ class RunnerService:
                     self._bounce_router(server_exe, config)
                     continue
                 # Solo AND a clean restart both still crashed on the draft → NOT the co-load
-                # race. Surface the real error — never silently degrade to no-MTP. What the
-                # message leads with is MEASURED (2026-09-29): other processes holding GPU
-                # memory, then llama.cpp's own error line. The causes follow unranked. The
-                # old text opened "Most often the tune left too little VRAM — raise
-                # n_cpu_moe", and on 2026-09-29 the real cause was 1.6 GB held by speech
-                # engines left over from earlier sessions: the tune was fine, the advice was
-                # wrong, and the 400-char tail had cut the engine's own error line off (kit
-                # TASKS "The MTP solo-crash message blames causes the log contradicts").
-                said = _engine_error_line(tail)
-                raise RuntimeError(
-                    f"model {entry.model_id!r} could not load its speculative-decoding (MTP) draft "
-                    f"even on its own (status={outcome}). "
-                    + _gpu_holders_note()
-                    + (f'llama.cpp said: "{said}". ' if said else "")
-                    + "If nothing else is holding GPU memory: the model's tune may leave too little "
-                    "room for the draft (raise n_cpu_moe), the draft file may be damaged "
-                    f"(re-download it), or you can turn MTP off. Details: {tail[-400:]}"
-                )
+                # race. Surface the real error — never silently degrade to no-MTP.
+                raise _draft_failed_alone(entry.model_id, outcome, tail)
             can_raise_ncmoe = fit.is_moe and (ncmoe or 0) < fit.block_count
             if (ngl > 0 or can_raise_ncmoe) and _looks_like_oom(tail):
                 if can_raise_ncmoe:

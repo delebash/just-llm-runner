@@ -393,41 +393,6 @@ BUILT:  2026-09-19 — `modelPick.js` `pickBestModel` takes `runnable` (default
 GO:     given 2026-09-19.
 
 
-## The MTP solo-crash message blames causes the log contradicts [verified 2026-08-22]
-
-Measured on the user's box (JV session 2026-08-22; full record in
-`../JustVioce/docs/plans/2026-08-22-voice-modes-truth-and-parity.md` §7.1):
-`gemma-4-26b-a4b-qat`'s draft failed with llama.cpp's
-`error loading model: invalid vector subscript` on a SOLO child — flags
-identical to six prior successes, no OOM line, no co-resident. But
-`_looks_like_draft_failure` (`llm_runner/runner/process.py:645`) treats that
-string as the transient co-load race, so both escalation stages ran pointlessly
-and the terminal message (`llm_runner/runner/lifecycle.py:3282`) asserted
-VRAM-tune / corrupt-download / co-load causes while its 400-char tail cut off
-the real error line. Intermittent on that box since 08-16 (36/46 router logs).
-
-**2026-09-29 — the cause, and the message half BUILT.** The same failure came
-back on the JV box, and this time it was measured: five JustVoice speech-engine
-processes orphaned by hard-killed servers held 1.6 GB of the 8 GB card (two
-Whisper at 1,295 + 286 MB), the model's fixed GPU split left no room for the
-draft, and stopping them fixed it at once. So "invalid vector subscript" on a
-solo draft can be a memory shortage after all — not the co-load race, and not
-the tune. Under the JV go on "Engine processes never outlive their server" (JV
-TASKS, part 4: "The error you saw sent you the wrong way … That wording comes
-from the shared kit … fixing it there helps JustWrite too"), the terminal
-message now leads with what is MEASURED: `_gpu_holders_note()` names other
-processes holding ≥ 200 MB (`hardware.other_gpu_holders`, one whole-machine
-query; the label carries the script a Python process runs), then quotes
-llama.cpp's own `error loading model:` line (`_engine_error_line`), then lists
-the causes unranked — "Most often … raise n_cpu_moe" is gone. The final
-`failed to load` error adds the same holders sentence when the log looks like
-OOM. Tests: `tests/test_load_failure_message.py`, `test_gpu_processes.py`.
-
-**Still OPEN:** `_looks_like_draft_failure` still reads the solo signature as the
-co-load race, so both escalation stages run first (stage 2 restarts the engine).
-Whether a solo `invalid vector subscript` should skip them — or first check for
-other GPU holders — is undecided. GO: needed.
-
 ## The HF cache stores every model TWICE on Windows [verified 2026-08-22]
 
 **Measured, not inferred** — full record in

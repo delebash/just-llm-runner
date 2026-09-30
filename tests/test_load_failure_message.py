@@ -32,14 +32,20 @@ _WHISPER_PAIR = [
 ]
 
 
-def _solo_crash_message(tmp_path) -> str:
-    """Drive a draft that crashes solo AND after a clean restart; return the error."""
+def _solo_crash_message(tmp_path, restarts=None) -> str:
+    """Drive a draft that crashes solo (and after a restart, if one happens);
+    return the error. `restarts` collects one entry per engine restart."""
     def models(_url):
         return {"object": "list", "data": [{"id": _GEMMA_MTP.id, "status": {"value": "failed"}}]}
 
+    def start_router(*_a, **_k):
+        if restarts is not None:
+            restarts.append(1)
+        return _fake_router()
+
     holder = {}
     svc = _service_for(tmp_path, catalog=[_GEMMA_MTP], router_models=models,
-                       start_router=lambda *a, **k: _fake_router(),
+                       start_router=start_router,
                        router_load=_draft_crash_loader(holder),
                        hardware_fn=lambda: _fake_hw(8192), sleep=lambda s: None)
     holder["svc"] = svc
@@ -108,3 +114,43 @@ def test_engine_error_line_drops_the_log_prefix():
             "E srv load_model: failed to load draft model, '/x/d.gguf'\n")
     assert lifecycle._engine_error_line(tail) == "error loading model: invalid vector subscript"
     assert lifecycle._engine_error_line("nothing useful here") == ""
+
+
+# ── Before the restart, look (2026-09-30, kit TASKS: user "b go") ────────────
+#
+# With nothing else loaded, the only retry left was a full engine restart. When
+# another program holds the memory — the 2026-09-29 cause — that can't help: the
+# retry failed the same way and the restart only added time.
+
+
+def test_other_programs_on_the_gpu_skip_the_restart(tmp_path, monkeypatch):
+    monkeypatch.setattr(lifecycle, "_other_gpu_holders", lambda: _WHISPER_PAIR)
+    restarts = []
+    msg = _solo_crash_message(tmp_path, restarts)
+    assert restarts == []
+    assert "Other programs are holding 1.5 GB of GPU memory" in msg
+
+
+def test_nobody_else_on_the_gpu_still_gets_the_one_restart(tmp_path, monkeypatch):
+    monkeypatch.setattr(lifecycle, "_other_gpu_holders", lambda: [])
+    restarts = []
+    msg = _solo_crash_message(tmp_path, restarts)
+    assert restarts == [1]
+    assert "If nothing else is holding GPU memory" in msg
+
+
+def test_when_the_gpu_cant_be_read_it_restarts_as_before(tmp_path, monkeypatch):
+    def _boom():
+        raise OSError("typeperf missing")
+
+    monkeypatch.setattr(lifecycle, "_other_gpu_holders", _boom)
+    restarts = []
+    _solo_crash_message(tmp_path, restarts)
+    assert restarts == [1]
+
+
+def test_unmeasurable_is_not_a_holder(tmp_path, monkeypatch):
+    monkeypatch.setattr(lifecycle, "_other_gpu_holders", lambda: None)
+    restarts = []
+    _solo_crash_message(tmp_path, restarts)
+    assert restarts == [1]

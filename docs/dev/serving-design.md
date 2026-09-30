@@ -59,6 +59,18 @@ open edges.
   which also beat b10437 (1.028x, output byte-identical) and, unlike it, has an asset for
   every platform. Any pin move runs that test first; `scripts/check-structured-output.py` is
   the matching correctness probe.
+  **Corrected 2026-09-28 — measure through the path the apps send.** That box test used ONE
+  raw `/completion` prompt with no chat template. Re-run through `/v1/chat/completions` on
+  three real prompts:
+  - b10750, b10751 and head `b11239` are level (acceptance ±0.02, the draft 1.10–1.32× on
+    each).
+  - None of them is exact; drafted ≠ greedy on b10750 too.
+  - The raw prompt still reproduces the drop, so it is real but confined to untemplated
+    input, which the family never sends.
+
+  The pin moved to `b11239` (plan `2026-09-19-engine-update-safety-and-stable-channel.md`
+  §10). The rule stands, sharpened: a pin test uses chat-template prompts like the app's
+  own, and exactness is not a gate (upstream does not promise it).
 
 ## Cancel + progress (the load-cancel plan, shipped through T4)
 

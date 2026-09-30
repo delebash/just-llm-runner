@@ -73,79 +73,103 @@ BUILT:  Slice 4 - the pin DID move, to **b10750**, not the b10964 the plan named
         `## v1.4.0 — 2026-09`, matching that file's own convention (its versions are
         doc-side and already run ahead of the git tags, which stop at v1.0.0).
 GO:     ALL FIVE SLICES DONE. Nothing in this item is open. The successor question -
-        which build may be pinned next - lives in the MTP-regression item below, and is
-        gated on upstream issue #29168.
+        which build may be pinned next - was answered 2026-09-28: `b11239`, after a
+        re-measure showed the MTP finding was a raw-prompt artifact (the item below, and
+        plan §10).
 
 
-## llama.cpp broke MTP speculative decoding — it is slower AND no longer exact [MEASURED 2026-09-19]
+## MTP speculative decoding: the 2026-09-19 "regression" is a raw-prompt artifact — pin moved to b11239 [MEASURED 2026-09-28]
 
-STATE:  FINDING, from the box test that gated the pin move (plan
-        `docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md` §9, Slice 4).
-        The candidate was installed ALONGSIDE the working engine, so nothing was at
-        risk; both test builds were deleted afterwards and the machine restored.
-        Flagship `gemma-4-26b-a4b-qat` + its MTP draft, the app's exact argv, 1 warm-up
-        + 3 runs, order reversed, with a no-draft control:
+STATE:  DECIDED + BUILT 2026-09-28. Re-measured, user: *"re-measure with a real chat prompt
+        on b10750 vs b10751"*, then *"go measure head with the raw prompt control"*.
+        Through the chat template there is no regression (plan §10). User then: *"go draft
+        the comment and close it do 1 and 3 as well"* (1 = move the pin off b10750 to head;
+        3 = record both runs in the plan and here), then *"go finish the tests and
+        records"*. The comment-and-close half was refused (NOT below). The user will post
+        the correction: *"i will post i will copy paste and close"*.
+WHY:    The family only sends `/v1/chat/completions`: a grep of the kit, JV and JW found no
+        raw `/completion` caller.
+        - Through that path, b10750, b10751 and b11239 are level: acceptance ±0.02, the
+          draft 1.10–1.32× faster on each.
+        - Drafted ≠ greedy on EVERY build, b10750 included.
+        - The 0.823 → 0.481 drop reproduces byte for byte, but only on #29168's one raw
+          prompt (b10750 79/96 with sha `58c64329a49a`; b11239 62/129).
+        - The bisect found where the raw-prompt drop starts, not a regression users hit.
+        Tables: plan `docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md`
+        §10.
+NOT:    - **An agent-written comment on #29168, or an agent closing it** — refused.
+          llama.cpp CONTRIBUTING.md bans AI-written posts: *"Undisclosed AI usage may
+          result in your account being permanently banned"*. AGENTS.md: an agent must
+          *"NEVER"* write a comment on the user's behalf, *"non-overridable"*. #29168 was
+          itself agent-written (2026-09-20). **No agent writes on ggml-org/llama.cpp.**
+        - **The old item's option (b), "a measured-bad floor the check won't cross"** —
+          moot. `update_check` compares the stable build with the build ON DISK, and stable
+          `v0.5.0` names `b11146`, older than the pin.
+        - **Exactness as a pin gate** — upstream does not promise it (jeffbolznv on
+          #29381).
+        - **Keeping b10750** — its measured reason did not survive.
+BUILT:  - `llm_runner/runner/config.py`: `DEFAULT_PINNED_BUILD = "b11239"`, plus three seed
+          names renamed upstream (win `cuda-13.4`, win/ubuntu `rocm-10.0`). All seven rows
+          resolve against the live release.
+        - `docs/llama-cpp-watch.md` (current state, the warning withdrawn, a log row),
+          `docs/dev/serving-design.md` and `docs/dev/IDEAS.md` corrected. Plan §10 written,
+          with correction pointers at §9.
+        - Gates: kit 996 pass + ruff · JW server 128 · JV server 792 + ruff · check-
+          consumers · check-family.
+        - UNCOMMITTED.
+OPEN:   (a) The USER posts the #29168 correction in their own words and closes it.
+        (b) The live JV + JW DBs still pin `b10750` (seeding is insert-if-missing). Once
+            the apps restart on this kit, their Update button offers `b11239` (the item
+            below). The two apps share one engine folder, and the install sweep deletes
+            b10750. The OTHER app's stored pin then still says b10750. No kit code moves
+            a stored pin up to the disk build (grep 2026-09-28), so that app needs the
+            same pin set in its Engine-binaries panel.
+        (c) Commit + push of the kit and doc changes.
+GO:     given 2026-09-28 for the re-measure, the pin move and the records. (b) and (c)
+        need their own.
 
-          |                          | b10437 (on disk) | b10964 (stable) | b11056 (head) |
-          | no draft                 |            37.19 |           37.02 |         38.11 |
-          | + MTP draft              |        **45.11** |       **35.36** |     **36.73** |
-          | draft acceptance         |   0.823 (len 2.65) |  0.481 (1.95) |             — |
-          | drafted output == greedy |          **YES** |          **NO** |        **NO** |
 
-WHY:    with draft 0.784 of b10437 · no draft 0.995 → the engine is fine, MTP
-        speculation is the regression. On the new builds the draft is a NET LOSS
-        (35.36 < 37.02; 36.73 < 38.11). And it is not merely slow: speculative decoding
-        must reproduce greedy output, b10437 does byte-for-byte, b10964/b11056 do not —
-        a CORRECTNESS bug. b10964 and b11056 gave IDENTICAL shas to each other
-        (`4683af3bc3b2` drafted / `f2109c9e5e6f` greedy), so it is stable and unfixed at
-        head. The catalog's flagship uses an MTP draft, so this hits the primary model.
-NOT:    a claim about output QUALITY — the probe used the raw `/completion` endpoint with
-        no chat template, so the text is poor on every build; only the within-build
-        exactness comparison is valid. Cross-build greedy output also differs (kernel/
-        fusion changes can explain that) — not investigated. NOT bisected.
-BISECTED 2026-09-19 (user: *"go bisect"*) — **first bad build = `b10751` =
-        `cuda: fuse MoE weighted expert reduction` (#25952, merged 2026-09-01)**.
-        8 builds probed over 318 releases, on draft acceptance (bimodal, never
-        ambiguous); each installed alone and deleted immediately; machine left with
-        only b10437.
-          b10723 0.8229 GOOD (47.64 tok/s) · b10736 0.8229 GOOD · b10740 0.8229 GOOD ·
-          b10749 0.8229 GOOD · **b10750 0.8229 GOOD** | **b10751 0.4806 BAD** ·
-          b10775 0.4806 BAD · b10837 0.4806 BAD
-        Head re-checked after the bisect: **b11057** (published 2026-09-19 23:58, one
-        commit past the review — `chat : fix gemma4 required tool grammar` #29115)
-        acceptance **0.48062**, 36.00 tok/s = 0.798 × b10437, NOT exact, drafted sha
-        `4683af3bc3b2` identical to b10964 and b11056. Unfixed at head, measured.
-        b10741-b10748 do not run at all (`0xC0000409`, the gemma4-assistant window
-        broken by #28159 and fixed by #28183 in b10749) — the bisect stepped past them.
-        WHY IT BREAKS: #25952 fuses the MoE combine tail into ONE CUDA kernel, doing
-        "weighting and ordered expert reduction" together. That changes the ORDER of
-        floating-point accumulation over experts, so the target's logits shift
-        slightly, the draft's argmax stops matching, acceptance halves and the output
-        drifts from greedy. CUDA-only, MoE-only — which is exactly the flagship.
-        **b10750 VALIDATED as a pin candidate** (installed, measured, deleted):
-        +draft **46.35 tok/s = 1.028 × b10437** · no draft 38.10 (1.024) · **EXACT
-        (drafted == greedy)** · and its output sha `58c64329a49a` is IDENTICAL to
-        b10437's, so it is the same answers, faster. **Every platform row resolves**
-        (win cuda12/cuda13/rocm-7.14/vulkan · macos · linux rocm-7.14/vulkan) — it is
-        past the b10398-b10581 hole, so unlike b10437 it is viable as a DEFAULT pin.
-        It also carries #27621 (specdec MoE fusion — the +2.8 %), #27978, #24124
-        `--kv-unified-per-slot`, #26622 `--n-cpu-ffn`, and the #28183 crash fix.
-        It does NOT carry the post-b10750 correctness fixes (#28475 mmid/mmf races,
-        #27870 f16 FA barrier, #28389 CUB argsort) or #27483's lower RAM peak.
-OPEN:   (a) **the pin decision — needs the user's word.** The plan's Slice 4 named
-        b10964, which its own gate refused; b10750 PASSES that gate (1.028 ≥ 0.97) but
-        is a different build than the plan approved, so it is not covered. (b) A
-        tension if the pin moves: the update check follows the STABLE channel and the
-        build the newest stable NAMES is b10964, so the button would offer a known-bad
-        build. (Precision: `v0.4.1` is the non-prerelease release and ships ONLY
-        `nightly-tag.txt`; every `bNNNN` tag — b10750 included — is flagged prerelease,
-        so no binary-carrying release is ever "stable" itself.) Options,
-        none designed: accept + document · a measured-bad floor the check won't cross ·
-        leave the pin. (c) DONE — reported as **ggml-org/llama.cpp#29168** (2026-09-19), with the
-        bisect, the one-commit attribution, the within-build exactness test and the
-        numbers. Watch that issue; a fix there is what unblocks pinning past b10750.
-        MEANWHILE: the Update button works and WILL offer b10964. Do not take it.
-GO:     needed — for the pin move and for the upstream report.
+## The Update button also offers the tested pin [DECIDED 2026-09-28]
+
+STATE:  DECIDED 2026-09-28. The user asked: *"also i want to allow for updating to pre
+        release currently we only show update for releaese, what is the latest official
+        releaase? can we upate to the latest pin?"* The options, as shown:
+          "- **A. Offer the kit's pin as well.** When the installed build is older than the
+             kit's pin, the button offers the pin ("Update to b11239"). The pin is the
+             build we've actually tested.
+           - **B. An "Include pre-release builds" setting, off by default.** When it's on,
+             Update offers the newest daily build. Those builds are untested. The
+             install-time flag check still refuses one that rejects our launch flags, but
+             it can't catch something like a speed regression.
+           - **My pick:** A as the default, with B as the opt-in setting.
+           This is a change to the kit's update check, the engine panel and the user docs.
+           It needs your go on which option."
+        User: *"a"*, then *"a go"*.
+WHY:    The Update button follows only the official release channel (`update_check` in
+        `llm_runner/runner/lifecycle.py`). The official release lags the build the kit
+        tests: `v0.5.0` names `b11146`, while the pin is `b11239`. So an install on an older
+        build can never reach the tested pin through Update.
+NOT:    B — the opt-in "Include pre-release builds" setting that offers the newest daily
+        build. The user answered *"a"* to "A as the default, with B as the opt-in".
+BUILT:  2026-09-28 — `lifecycle.update_check` offers the newer of `_tested_build` (the kit's
+        `DEFAULT_PINNED_BUILD`) and the stable build, and a new `latestKind` field says
+        which. `LuEngineUpdateButton.vue` names the kind in its tooltip. Three tests were
+        added in `tests/test_lifecycle.py`. User docs updated in JW, JV and docgen (models /
+        ai-features / ai-providers + each what's-new). Blast-radius table and gates: plan
+        §10, "The Update button also offers the tested pin". UNCOMMITTED.
+OPEN:   1. **The gap, ANSWERED 2026-09-28:** when BOTH the pin and the official release are
+           newer than the installed build, which does the button offer? The options put to
+           the user:
+           (1) one button, whichever is newer, with the tooltip naming its kind;
+           (2) one button, always the pin when it is newer than installed;
+           (3) two buttons.
+           Lean: (1), with the tooltip wording "b11239, the build this app is tested with"
+           / "b11146, llama.cpp's official release v0.5.0". User: *"your rec go"* — (1)
+           with that wording.
+        2. DONE — the blast-radius table is in plan §10. JW's `engineUpdatePlan` was not a
+           consumer: it has no hit for these fields.
+        3. Commit + push — needs its own go.
+GO:     given 2026-09-28 (*"a go"*, then *"your rec go"* for OPEN 1).
 
 
 ## Speed truth and the calibrated pick — plan written, Opus executes [verified 2026-09-19]

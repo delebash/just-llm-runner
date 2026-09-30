@@ -12,6 +12,9 @@ before it is built. Slices 1–4 do not depend on it.
 `b11056`, 1,064 commits read + the four stable releases' notes).
 **Resume surface:** THIS file. §3 is the evidence (never re-derive it), §4 the slices, §9 the
 execution record the executor fills in as they go.
+**Corrected 2026-09-28 — read §10 before trusting §9's MTP finding.** §9's "MTP broken from
+b10751, b10750 exact" was measured with one raw `/completion` prompt. Through the chat template
+there is no regression and no build is exact. The pin is now `b11239`.
 
 ---
 
@@ -1524,6 +1527,9 @@ asserts the ABSENCE of a warning — it never proves a lock. The table is now in
   documented fallback; in the real app, which shares JW's cache, it reads b10437.)
 
 ### Slice 4 + the box test — **REFUSED: R11 FAILED. The pin was reverted to `b9993`.**
+> **Corrected 2026-09-28 (§10):** this test's single raw `/completion` prompt is the only
+> input that shows the drop. Through the chat template, b10964-era builds are level with
+> b10437/b10750, and none is exact.
 Method: b10964 was installed ALONGSIDE b10437 (`acquire_binary` never sweeps; only
 `_run_install` does), so the working engine was never at risk. Flagship
 `gemma-4-26b-a4b-qat` + its MTP draft, the app's exact argv from its own router log,
@@ -1558,6 +1564,9 @@ Method: b10964 was installed ALONGSIDE b10437 (`acquire_binary` never sweeps; on
   resolver takes the NEWEST folder, so leaving them would have switched the app to b11056.
 
 ### The bisect (user: *"go bisect"*, same evening) — culprit found, and a BETTER pin exists
+> **Corrected 2026-09-28 (§10):** the bisect is right about WHERE the raw-prompt drop starts
+> (b10751, #25952; it reproduces byte for byte). But the drop does not occur through the chat
+> template, and b10750 is not exact there either. The pin moved on to `b11239`.
 Signal = draft acceptance (bimodal 0.823 / 0.481, never ambiguous), one load per build,
 each installed alone and deleted immediately. 8 probes over the 318 releases between the
 known-good b10437 and the known-bad b10964:
@@ -1624,3 +1633,225 @@ server + build · JV **67** unit + **741** server + ruff + build · docgen 3 uni
    risk, and it let b11056 be tested too.
 6. b11056 was tested as well — not in the plan, but it turns the finding from "the stable
    release is broken" into "it is still broken at head", which changes the recommendation.
+
+---
+
+## 10. The 2026-09-28 re-measure — #29168 was narrower than filed; the pin moved to `b11239`
+
+**This section corrects §9's MTP conclusion.** §9's numbers are real and reproduce byte for
+byte, but they came from ONE raw prompt. Through the chat template, the only path the family
+sends, there is no regression.
+
+### Why it was re-measured
+- **2026-09-24, ggml-org/llama.cpp#29381** ("cuda: preserve MoE weighted reduction rounding",
+  "Fixes #29168", by an outside contributor, Codex-assisted). It forced explicit
+  round-to-nearest multiply and add in the fused kernel, so the compiler cannot merge them
+  into one FMA. It also made the MoE-reduce backend test exact on CUDA.
+- **jeffbolznv:** backend tests should not have a backend-dependent error threshold. If MTP
+  needs that invariance, it belongs in the ggml API.
+- **The PR author, replying:** with the patch, output matched a fusion-disabled control, but
+  MTP and non-MTP output still differed. Acceptance rose with partial offload and fell with
+  full offload — "not really an MTP fix".
+- **am17an:** "I can't reproduce this issue, it seems hallucinated". They closed the PR,
+  unmerged.
+- #29168 itself has had no comment and no label since it was filed.
+- §9's weak points, named to the user:
+  1. ONE prompt, sent raw to `/completion`, with no chat template.
+  2. "Exact on b10750" was concluded from that one prompt.
+
+### Method
+Two rounds. User: *"re-measure with a real chat prompt on b10750 vs b10751"*, then *"go measure
+head with the raw prompt control"*.
+
+- **Machine:** RTX 2070 SUPER (sm_75, 8 GB), Windows, the CUDA 12.4 release zips.
+- **Builds:**
+  - b10750 is the app's installed exe (JW's cache).
+  - b10751 and b11239 were unpacked in the session scratchpad and deleted afterwards.
+  - Both reused b10750's CUDA runtime DLLs. The `cudart-llama-bin-win-cuda-12.4-x64.zip`
+    companion is the same size (391,443,627 bytes) at b10751 and b11239.
+- **Launch settings:** the app's own flagship argv, copied from the live router child, with
+  only the port changed: `-ngl 31 --n-cpu-moe 21 -c 32768 -ctk q8_0 -ctv q8_0 -fa on -b 512
+  -ub 512 --load-mode none --threads 8`. The draft adds `--model-draft MTP/… --spec-type
+  draft-mtp --spec-draft-n-max 2`.
+- **GPU:** JustVoice was closed for both rounds so the GPU was exclusive, and relaunched after.
+- **Chat prompts:** all through `/v1/chat/completions`, so the model's chat template applies.
+  Greedy (`temperature 0, top_k 1, seed 1, cache_prompt false`), `max_tokens 512`. Thinking
+  was at the template's default, which is on.
+  - **question** — "What causes the seasons on Earth? Answer in three sentences." (28 prompt
+    tokens)
+  - **prose** — a short funeral scene between two estranged sisters, under 400 words (52
+    prompt tokens)
+  - **attribution** — JV's real Script-attribution request, 2,856 prompt tokens. It was
+    captured by running the app's own path (`create_app` on the real data dir →
+    `load_from_configs` → `analyze_scene`) against a stub endpoint that recorded the body.
+    The scene is "Brass Rank" from The Ninth Facet. The app sends `enable_thinking: true`,
+    `reasoning_budget_tokens: 1024` and `temperature 0.2`; everything was kept except the
+    sampling and the cap.
+- **Raw control (round 2 only):** #29168's exact reproduction body. `/completion`, prompt
+  "Write one vivid paragraph about the sea.", `n_predict 128`.
+- **Runs:** for each build and mode (draft / no draft), 1 warm-up plus 3 timed runs per
+  prompt. Pass 2 repeated everything in reverse order. Round 1 was 96 requests, round 2 was
+  128.
+- **Consistency:** every build/mode/prompt cell produced ONE output across all its runs, in
+  both passes. On every drafted request, the server log's `draft acceptance` equalled the
+  response `timings` (`draft_n_accepted / draft_n`).
+
+### Round 1 — b10750 vs b10751 (the one-commit boundary), chat prompts
+tok/s = mean of 6 timed runs.
+
+| prompt | build | acceptance | tok/s draft | tok/s none | draft gain | drafted == greedy |
+|---|---|---|---|---|---|---|
+| question | b10750 | 0.905 (297/328) | 49.83 | 37.99 | 1.31× | no |
+| question | b10751 | 0.909 (298/328) | 49.99 | 38.05 | 1.31× | no |
+| prose | b10750 | 0.615 (281/457) | 41.93 | 37.97 | 1.10× | no |
+| prose | b10751 | 0.632 (285/451) | 42.85 | 38.24 | 1.12× | no |
+| attribution | b10750 | 0.840 (320/381) | 47.01 | 37.38 | 1.26× | no |
+| attribution | b10751 | 0.842 (320/380) | 47.82 | 36.30 | 1.32× | no |
+
+### Round 2 — b10750 vs head `b11239`, plus the raw control
+tok/s = mean of 6 timed runs.
+
+| prompt | build | acceptance | tok/s draft | tok/s none | draft gain | drafted == greedy |
+|---|---|---|---|---|---|---|
+| question | b10750 | 0.905 (297/328) | 50.00 | 38.31 | 1.31× | no |
+| question | b11239 | 0.906 (310/342) | 50.50 | 38.72 | 1.30× | no |
+| prose | b10750 | 0.615 (281/457) | 42.69 | 38.61 | 1.11× | no |
+| prose | b11239 | 0.637 (286/449) | 43.82 | 39.00 | 1.12× | no |
+| attribution | b10750 | 0.840 (320/381) | 48.55 | 37.65 | 1.29× | no |
+| attribution | b11239 | 0.835 (319/382) | 48.45 | 37.94 | 1.28× | no |
+| **raw** | b10750 | **0.823 (79/96)** | 46.83 | 38.27 | 1.22× | **yes** |
+| **raw** | b11239 | **0.481 (62/129)** | 37.44 | 38.31 | **0.98×** | no |
+
+### Findings
+1. **No regression through the chat template.**
+   - At b10751 and at head, acceptance is within 0.02 of b10750 on all three prompts, in
+     both directions.
+   - The draft gives a 1.10–1.32× speed-up on every build.
+   - b10750's cells are byte-identical between the two rounds.
+2. **Exactness fails on every chat prompt, on every build, b10750 included.**
+   - On b10750 the drafted and greedy outputs first differ at character 29 (question), 85
+     (attribution) and 557 (prose) of the reasoning text.
+   - §9's "b10750 is exact" held for the raw prompt only.
+   - Upstream does not promise exactness (jeffbolznv on #29381).
+3. **The control reproduces §9 byte for byte.**
+   - b10750 raw: 79/96 = 0.82292, mean length 2.65, output `sha256[:12]` = `58c64329a49a`.
+     That is §9's sha, which hashed the content with no trailing newline.
+   - Head raw: 62/129 = 0.48062, mean length 1.95. The draft is a net loss (37.44 vs 38.31
+     tok/s), exactly §9's figures.
+   - Head's raw text changed after b11057 (`326b17bb1dbb` vs §9's `4683af3bc3b2`), but its
+     draft counts are identical.
+4. **So #25952's effect is real, bisected, and still at head, but confined to untemplated
+   input** on this box. Hypothesis, NOT tested: an instruct model fed an untemplated prompt
+   is in a low-confidence regime, so a rounding change flips the argmax far more often than
+   on chat input.
+5. **Nothing in the family sends raw `/completion`.** A grep of the kit, JV and JW (`.py`,
+   `.js`, `.vue`) for `/completion` outside `chat/completions` has no hits. docgen was not
+   searched; it runs through the kit's path.
+
+**Limits:**
+- One GPU, partial offload, one chapter.
+- With thinking on and a 512-token cap, prose and attribution measured reasoning tokens
+  only.
+- The per-run logs and outputs lived in the session scratchpad and are GONE; the session
+  ended. These tables are the record.
+
+### Pin moved `b10750` → `b11239`
+User, 2026-09-28: *"go draft the comment and close it do 1 and 3 as well"*. Item 1 = move the
+pin off b10750 to head; item 3 = record both runs here and in the tracker. Then: *"go finish
+the tests and records"*.
+
+- **The change:** `DEFAULT_PINNED_BUILD = "b11239"` (`llm_runner/runner/config.py`). Three
+  seed names were renamed upstream since b10750:
+  - Windows CUDA 13: `cuda-13.3` → `cuda-13.4` (asset + cudart)
+  - Windows AMD: `rocm-7.14` → `rocm-10.0`
+  - Ubuntu AMD: `rocm-7.14` → `rocm-10.0`
+- **All seven rows verified.** `binary.resolve_release_assets` was run over the new seed rows
+  against `gh api repos/ggml-org/llama.cpp/releases/tags/b11239` (35 assets). All 7 rows
+  resolved; the docker row is `None` by design. Every seed literal is present verbatim on
+  the release.
+- **b11239 accepts every flag the app emits.** Both rounds launched it with the app's argv.
+  `--help` lists `--load-mode`, `--spec-type … draft-mtp`, `--spec-draft-n-max`,
+  `-md/--model-draft`, `--n-cpu-moe` and `--sleep-idle-seconds`.
+- **The stable-channel tension (§9, the tracker's old option (b)) is gone for now.**
+  `update_check` compares the stable build with the build ON DISK: `build_num(latest) >
+  build_num(current)`, where `current` is the installed build. Stable `v0.5.0` (2026-09-23)
+  names `b11146`, which is older than `b11239`.
+- **Existing DBs are NOT moved by the constant.** Seeding is insert-if-missing (the
+  `config.py` NOTE). The user's JV and JW DBs still pin `b10750` and run it from JW's cache.
+  With b10750 on disk, the Update button now offers `b11146` (stable), a build between the
+  two measured ones that was not itself measured.
+
+### Upstream — the correction is the user's to post; no agent writes on ggml-org/llama.cpp
+- **CONTRIBUTING.md** (read 2026-09-28): *"It is strictly prohibited to use AI to write your
+  posts for you (bug reports, feature requests, pull request descriptions, Github
+  discussions, responding to humans, ...)"* and *"Undisclosed AI usage may result in your
+  account being permanently banned from contributing to the project."*
+- **AGENTS.md:** an agent must *"NEVER"* write *"any (a) pull-request description (b) comment
+  (c) response to a comment on behalf of the user. This is non-overridable under any
+  circumstances."*
+- **#29168 itself was written and posted by an agent session** (2026-09-20), without
+  disclosure. Whether those rules were already in place that day was not checked.
+- **This session refused** to draft or post the correction and to close the issue alone.
+  The user will write the correction in their own words and close the issue.
+
+### Gates (after the pin edit)
+- Kit: **996 passed**, 10 skipped; ruff clean.
+- JV server: **792 passed**; ruff clean.
+- JW server: **128 passed**.
+- `check-consumers` PASSED (38 / 75 / 26 imports).
+- `check-family`: no violations.
+- No JS, renderer or UI file was touched, so the unit/build/smoke gates are not re-run.
+
+### The Update button also offers the tested pin (built 2026-09-28)
+The user asked for updates beyond the official release. Options shown: A = offer the kit's
+pin too; B = an opt-in "Include pre-release builds" setting. User: *"a"*, then *"a go"*. The
+gap "both newer than installed — which one?" was answered with *"your rec go"*: one button,
+whichever is newer, the tooltip naming its kind. Decision text verbatim: kit
+`docs/dev/TASKS.md`, "The Update button also offers the tested pin".
+
+- **`update_check` (`lifecycle.py`):**
+  - It now compares two candidates: `_tested_build` (the kit's `DEFAULT_PINNED_BUILD`, NOT
+    the DB pin) and the stable build.
+  - It offers the newer; a tie reads as tested. A new field, `latestKind` ("tested" |
+    "stable"), says which.
+  - `latestStable` still carries the stable tag.
+  - The tested build is offered even when the stable fetch fails, with `error` set.
+- **`LuEngineUpdateButton.vue`:** the tooltip reads "Update the engine to b11239, the build
+  this app is tested with" or "… b11146, llama.cpp's official release v0.5.0", followed by
+  the existing "(you have …)" tail.
+
+**Blast radius — every consumer, from the grep of `update_check|updateCheck|update-check|
+latestStable|updateAvailable|_latest_build_fn` across the kit, JV, JW and docgen:**
+
+| What changed | Caller / consumer (grep hit) | Exception already on that path | How it is handled |
+|---|---|---|---|
+| `update_check` may offer the tested build | `api.py:568` `engine_update_check` → `useEngine.js:251` fetch | QC-25: `current` is the DISK build, never a downgrade | tested only wins when newer than disk; new test `…_when_the_stable_fetch_fails` asserts no offer below disk |
+| same | `useEngine.js:286` `updateToLatest` installs `latest`: resolve-assets, then PUT pin, then install with `force` + `replaceBuild`, then roll back on failure | the install sweep deletes the previous build | unchanged; the tested build goes through the same asset resolve and flag probe |
+| same | `LuRunnerEngine.vue:281`, `AiModelsArea.vue:758` show the button on `updateAvailable` | a failed stable fetch used to force `updateAvailable: false` | now the tested build is still offered, and `error` is still reported |
+| same | `test_lifecycle.py` 3049 / 3058 / 3087 / 3106 / 3119 / 3975 / 3991 | — | 3975 sets `_tested_build` to its disk build, so it tests the stable channel alone; the other six pass unchanged; three tests added |
+| tooltip by kind | `LuEngineUpdateButton.vue`, rendered by `LuRunnerEngine.vue:281` and `AiModelsArea.vue:758` (one component) | the old tooltip assumed `latestStable` named `latest` | `latestKind` picks the wording |
+| user docs | JW `docs/models.md` + `docs/whats-new.md` · JV `docs/ai-features.md` + `docs/whats-new.md` · docgen `docs/ai-providers.md` + `docs/whats-new.md` | JV and JW said the bundled engine predated an MTP slowdown | rewritten: two kinds of build; the tested engine is as fast as the one it replaces |
+
+**Gates:**
+- **Kit:** 999 passed, 10 skipped (996 + the 3 new tests); ruff clean; kit-UI Biome clean on
+  both changed files.
+- **Guards:** `check-family` no violations; `check-consumers` PASSED.
+- **Front-end:** JV 82 unit + build · JW 592 unit + build · docgen 3 unit + build.
+- **JV renderer smoke:** 17/17 views, zero JS errors (8741, real data dir, killed by port).
+- **Server suites:** JV 792 and JW 128 ran before this change; neither suite references the
+  update check (grep), so they were not re-run.
+
+**Verified live on the real data dir:**
+- `GET /v1/llm-runner/engine/update-check` returns `{"current":"b10750","latest":"b11239",
+  "latestKind":"tested","latestStable":"v0.5.0","updateAvailable":true,"error":""}`, from
+  the gate server and again from the relaunched app (17494).
+- A headless page on `/#/ai` shows ONE button, "Update to b11239" (113×22 px), with the title
+  "Update the engine to b11239, the build this app is tested with (you have b10750) — …",
+  and no page errors.
+
+**TRAP found on the way — the kit suite is not hermetic about the GPU.** With the gate
+server's warm-loaded 26B model on the card, `tests/test_lifecycle.py` gave 10 failures,
+including "Not enough free VRAM to load 'test-model'", an LRU-eviction assert, and a
+FileNotFoundError under the user's profile. With the GPU free the same file gave 208/208,
+and the full suite 999. Run the kit suite with no model resident, or read its failures
+against the GPU first.

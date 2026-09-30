@@ -51,10 +51,22 @@ one sitting:
 
 ## Current state
 
-- **Pinned build:** `b10750` — `DEFAULT_PINNED_BUILD` in `llm_runner/runner/config.py`
+- **Pinned build:** `b11239` — `DEFAULT_PINNED_BUILD` in `llm_runner/runner/config.py`
   (line anchors in this doc went stale once — cite the SYMBOL, grep for the line).
-  Bumped from `b9993` on **2026-09-19** (user: *"go pin b10750"*) after this review, a box
-  test and a bisect. **Chosen by measurement, not recency**: b10750 is the LAST BUILD
+  Moved from `b10750` on **2026-09-28**. User: *"go draft the comment and close it do 1 and 3
+  as well"*; item 1 = move the pin to head.
+  - **Why:** a re-measure through the chat template found no MTP regression at b10751 or at
+    head. The b10750 reason below came from ONE raw `/completion` prompt; see the corrected
+    warning in the watch list and plan §10.
+  - **Verified:** all seven filenames against `gh api releases/tags/b11239` on 2026-09-28.
+    Three were renamed since b10750: win `cuda-13.3` → `13.4`, win and ubuntu `rocm-7.14` →
+    `rocm-10.0`.
+  - **The live DBs still pin `b10750`,** because seeding is insert-if-missing. Moving the
+    running apps is a separate step.
+
+  Previous pin, kept as the record: **`b10750`**, bumped from `b9993` on **2026-09-19**
+  (user: *"go pin b10750"*) after this review, a box test and a bisect. The reasoning then:
+  b10750 is the LAST BUILD
   BEFORE `b10751` broke MTP speculative decoding (the warning at the top of the watch
   list). On the flagship it runs at **1.028 ×** the author's b10437 with the MTP draft, is
   output-EXACT, and produces byte-identical text to b10437 — and unlike b10437 it has an
@@ -89,7 +101,25 @@ one sitting:
 Distinct from the retrospective "Adoption candidates" below: things NOT yet in a
 pinnable build that we want to be told about the moment they land.
 
-- **⚠ MTP SPECULATIVE DECODING IS BROKEN from `b10751` onward — BISECTED 2026-09-19.**
+- **CORRECTED 2026-09-28 — the MTP "regression" is confined to untemplated input.**
+  The finding below (plan §9) was measured with ONE raw `/completion` prompt. Re-measured through
+  `/v1/chat/completions`, the only path the family sends, on three prompts (a question, a
+  prose ask, and JV's real attribution prompt on a chapter):
+  - **No regression.** b10750, b10751 and head `b11239` are level: acceptance within 0.02,
+    and the draft is 1.10–1.32× faster on every build.
+  - **Not exact on any build.** Drafted output ≠ greedy on every chat prompt, b10750
+    included, so "b10750 is exact" held for the raw prompt only.
+  - **The raw control still reproduces byte for byte:** b10750 79/96 with sha
+    `58c64329a49a`; head 62/129, where the draft is a net loss.
+  - **Upstream:** PR #29381 ("Fixes #29168") was closed unmerged on 2026-09-24. A
+    maintainer wrote: *"I can't reproduce this issue, it seems hallucinated."*
+  - **#29168 was agent-written.** llama.cpp bans AI-written posts and bars agents from
+    commenting, so the USER posts the correction and closes it. No agent writes on
+    ggml-org/llama.cpp.
+  - **The pin moved to `b11239`.** Full tables: plan §10.
+
+  The original entry follows as the record — **its "Do NOT pin ≥ b10751" is withdrawn.**
+- **⚠ (SUPERSEDED 2026-09-28, see above) MTP SPECULATIVE DECODING IS BROKEN from `b10751` onward — BISECTED 2026-09-19.**
   **First bad build `b10751` = `cuda: fuse MoE weighted expert reduction` (#25952).** It
   fuses the MoE combine tail into one CUDA kernel, changing the ORDER of floating-point
   accumulation over experts; the target's logits shift, the draft's argmax stops matching,
@@ -120,6 +150,9 @@ pinnable build that we want to be told about the moment they land.
   draft** (#28549, `b11007`, upstream "+4–5 %") · **graceful allocation-failure handling**
   (`b11036`, `b11040` — a cleaner signal for our OOM back-off) · the Windows CUDA 13 asset
   moving `13.3` → `13.4` (`b10977`). **Watch for:** the next `vX.Y.Z` on the releases page.
+  **Status 2026-09-28:** `v0.5.0` landed on 2026-09-23 and names `b11146`. The pin `b11239`
+  carries all four items. Adopting the Linux CUDA tarballs in place of the docker seam row
+  is still its own change and has not been done.
 - **An opt-out for the machine-wide config file (added 2026-09-19).** Since `b10398` (#26118)
   every llama.cpp program reads `%PROGRAMDATA%\llama.cpp\config.ini` and
   `%APPDATA%\llama.cpp\config.ini` (`/etc/llama.cpp/config.ini`, `~/.config/llama.cpp/config.ini`)
@@ -353,6 +386,7 @@ b9911 (NVFP4), b9937 · AMD Vulkan b9932 (GCN FA), b9929 (small GPUs) · Intel S
 | 2026-09-19 | b9993 | b11056 (stable: `v0.4.1` = b10964) | b9994–b11056 — **all 1,064 commit titles read** (treeless clone) + the four stable releases' curated notes; ~40 PRs opened; source read at b9993 / b10105 / b10145 / b10437 / b10964 / b11056 | **Yes — three are defects in OUR code** | No code changed. Found: the in-app update check dead since upstream's 2026-08-21 release-scheme change (reproduced with the app's own functions) · `--mlock`/`--no-mmap` deleted at b10875 and already re-meant on b10437 · renamed release assets break updates for AMD rows · the adapter sends `json_schema` in a form the engine silently ignores (**observed** on b10437) · real load progress now on `/models/sse` (unblocks T5) · the Q2_0 watch item resolved (b10192). Two safe probes run on the author's real b10437 exe: flag acceptance before `--version` (unknown flag → exit 1) and the flat-vs-nested schema test (CPU only). Build plan written: `docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md` (Opus executes, per-slice go). Pin still b9993. |
 | 2026-09-19 (same day) | — | — | — | — | **Plan EXECUTED (user: "go do it all").** Items 1, 2, 3 and 8 BUILT and gated; all three apps green; verified live against real GitHub and the real engine. **Item 4 (pin → b10964) REFUSED BY ITS OWN BOX TEST** — on the flagship's MTP path b10964 runs at 0.784 of b10437 and its speculative output is no longer exact; b11056 the same. |
 | 2026-09-19 (same evening) | b10437 (good) | b10964 (bad) | 8 builds probed of the 318 between them, on draft acceptance | **Yes — culprit named** | **BISECT (user: "go bisect").** **First bad build `b10751` = `cuda: fuse MoE weighted expert reduction` (#25952)** — it fuses the MoE combine tail into one CUDA kernel, reordering float accumulation across experts, so acceptance halves (0.823 → 0.481) and drafted output stops equalling greedy. CUDA-only, MoE-only. Last good = **b10750**, which BEATS b10437 (1.028 ×, exact, byte-identical output) and has every platform asset. **Pin moved b9993 → b10750** (user: "go pin b10750"). Every test build deleted; the author's disk left as found. Open: report #25952 upstream; and the Update button still offers the stable b10964, which is bad. |
+| 2026-09-28 | b10750 | b11239 (stable: `v0.5.0` = b11146) | b10750 / b10751 / b11239 re-measured; no commit read | **Yes — the 2026-09-19 MTP finding was too broad** | **RE-MEASURE (user: "re-measure with a real chat prompt on b10750 vs b10751", then "go measure head with the raw prompt control").** Prompted by #29381, closed unmerged: *"can't reproduce … hallucinated"*. Through the chat template the three builds are level (acceptance ±0.02, the draft 1.10–1.32× on each) and NONE is exact. The raw control reproduces byte for byte, so the drop is real but confined to untemplated input. **Pin moved b10750 → b11239** (user: "do 1"). Three asset renames verified against the live release. Plan §10 has the tables. Open: the USER posts the #29168 correction and closes it (agents are barred by llama.cpp's AGENTS.md); the live DBs still pin b10750. |
 
 **Last reviewed:** `b11056` · 2026-09-19 (commit-log review); **b11057 landed after it and
 was MEASURED, not reviewed** — its one commit is `chat : fix gemma4 required tool grammar`

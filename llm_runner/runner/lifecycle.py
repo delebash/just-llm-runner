@@ -39,6 +39,7 @@ from .binary import (
 )
 from .config import (
     DEFAULT_DOWNLOAD_MAX_CONCURRENT,
+    DEFAULT_PINNED_BUILD,
     MAX_DOWNLOAD_CONCURRENT,
     default_config as _default_config,
 )
@@ -575,6 +576,9 @@ class RunnerService:
         self._acquired_exes = acquired_exes
         self._acquire_model = acquire_model
         self._latest_build_fn = latest_build_fn or _fetch_latest_llamacpp_release
+        # The build this kit is tested with — `update_check` offers it too (2026-09-28).
+        # The kit constant, NOT the DB pin: an existing DB keeps whatever pin it was seeded with.
+        self._tested_build = DEFAULT_PINNED_BUILD
         self._release_assets_fn = release_assets_fn or _fetch_llamacpp_release_assets
         self._read_meta = read_meta
         self._start_router = start_router
@@ -1233,22 +1237,37 @@ class RunnerService:
         pre-2026-08-21 scheme, where the tag WAS the build). A `latest` that is not a
         build tag can never read as an update — `build_num` returns -1 for it, and that
         is the bug this closes: from 2026-08-21 the check answered "v0.4.1" → 41 and
-        silently reported "current" on every box (plan §3.2)."""
+        silently reported "current" on every box (plan §3.2).
+
+        It also offers the build this kit is TESTED with (`_tested_build`, the kit's
+        DEFAULT_PINNED_BUILD — 2026-09-28, user "a go" / "your rec go", kit TASKS). The
+        stable channel can lag it (v0.5.0 names b11146 while the pin is b11239), and an
+        install on an older build could otherwise never reach it. One offer: whichever of
+        the two is newer; a tie reads as tested. `latestKind` says which ("tested" |
+        "stable"), so the button can name it. The tested build needs no network, so it is
+        still offered when the stable fetch fails — with that failure in `error`."""
         config = self._config_fn()
         current = self._installed_build(config) or config.llamacpp.pinned_build
+        tested = self._tested_build
         try:
             res = self._latest_build_fn()
         except Exception as exc:  # noqa: BLE001 — any fetch failure = the same honest answer
-            return {"current": current, "latest": "", "latestStable": "",
-                    "updateAvailable": False, "error": str(exc)}
-        # Injected doubles (and the back-compat face) return the tag alone.
-        latest, stable = res if isinstance(res, tuple) else (res, "")
+            stable_build, stable, error = "", "", str(exc)
+        else:
+            # Injected doubles (and the back-compat face) return the tag alone.
+            stable_build, stable = res if isinstance(res, tuple) else (res, "")
+            error = ""
+        if build_num(tested) > 0 and build_num(tested) >= build_num(stable_build):
+            latest, kind = tested, "tested"
+        else:
+            latest, kind = stable_build, ("stable" if build_num(stable_build) > 0 else "")
         return {
             "current": current,
             "latest": latest,
+            "latestKind": kind,
             "latestStable": stable,
             "updateAvailable": build_num(latest) > 0 and build_num(latest) > build_num(current),
-            "error": "",
+            "error": error,
         }
 
     def resolve_build_assets(self, build: str) -> dict:

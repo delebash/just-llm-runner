@@ -581,7 +581,7 @@ def compute_fit(
     # probe-and-back-off nets, per this function's docstring. A CPU-only box
     # (budget 0) has no GPU to charge, so the term is a no-op there.
     # We emit no `-ngld`, whose default is `auto` — read from the INSTALLED b10068
-    # `--help` (the pin was b9993 then, b10750 since 2026-09-19; not re-read at either,
+    # `--help` (the pin was b9993 then, b10750 from 2026-09-19, b11239 from 2026-09-28; not re-read at any,
     # and upstream's server README agrees) — so the engine sizes the draft's offload
     # itself. Charge
     # ALL its bytes anyway: over-reserving costs a main expert layer at worst,

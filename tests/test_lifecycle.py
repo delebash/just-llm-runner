@@ -3982,14 +3982,75 @@ def test_update_check_follows_the_stable_channel(tmp_path):
     svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
     svc._acquired_exe = acquired_server_exe
     _seed_engine_on_disk(svc, "b10437")
+    svc._tested_build = "b10437"            # the stable channel alone decides here
     svc._latest_build_fn = lambda: ("b10964", "v0.4.1")
 
     out = svc.update_check()
 
     assert out["current"] == "b10437"
     assert out["latest"] == "b10964"
+    assert out["latestKind"] == "stable"
     assert out["latestStable"] == "v0.4.1"
     assert out["updateAvailable"] is True and out["error"] == ""
+
+
+# ── The update check also offers the build the kit is TESTED with (2026-09-28, kit
+#    TASKS "The Update button also offers the tested pin"): one offer, whichever is newer. ──
+
+def test_update_check_offers_the_tested_build_when_stable_lags_it(tmp_path):
+    # The user's box on 2026-09-28: b10750 installed, stable v0.5.0 = b11146, pin b11239.
+    from llm_runner.runner.binary import acquired_server_exe
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe
+    _seed_engine_on_disk(svc, "b10750")
+    svc._tested_build = "b11239"
+    svc._latest_build_fn = lambda: ("b11146", "v0.5.0")
+
+    out = svc.update_check()
+
+    assert out["current"] == "b10750"
+    assert out["latest"] == "b11239" and out["latestKind"] == "tested"
+    assert out["latestStable"] == "v0.5.0"          # still reported, for the record
+    assert out["updateAvailable"] is True and out["error"] == ""
+
+
+def test_update_check_offers_stable_when_it_is_newer_than_the_tested_build(tmp_path):
+    from llm_runner.runner.binary import acquired_server_exe
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe
+    _seed_engine_on_disk(svc, "b10750")
+    svc._tested_build = "b11239"
+    svc._latest_build_fn = lambda: ("b11400", "v0.6.0")
+
+    out = svc.update_check()
+
+    assert out["latest"] == "b11400" and out["latestKind"] == "stable"
+    assert out["updateAvailable"] is True
+
+
+def test_update_check_offers_the_tested_build_when_the_stable_fetch_fails(tmp_path):
+    # The tested build is known locally, so a failed fetch does not hide it; the failure
+    # is still reported. And it never offers a DOWNGRADE (QC-25): once installed, nothing.
+    from llm_runner.runner.binary import acquired_server_exe
+
+    svc = _service_for(tmp_path, hardware_fn=_win_cuda_hw)
+    svc._acquired_exe = acquired_server_exe
+    _seed_engine_on_disk(svc, "b10750")
+    svc._tested_build = "b11239"
+
+    def boom():
+        raise RuntimeError("offline")
+
+    svc._latest_build_fn = boom
+    out = svc.update_check()
+    assert out["latest"] == "b11239" and out["latestKind"] == "tested"
+    assert out["updateAvailable"] is True and "offline" in out["error"]
+
+    svc._tested_build = "b10700"                   # older than the installed build
+    out = svc.update_check()
+    assert out["updateAvailable"] is False
 
 
 def test_update_check_never_offers_a_non_build_tag(tmp_path):

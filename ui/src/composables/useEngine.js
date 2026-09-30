@@ -207,7 +207,7 @@ async function setBackend(family) {
 // ── A5: update detection (user "do", 2026-07-06) — notify-only, never auto-applied.
 // The pin is a VERIFIED pin (flag semantics move between llama.cpp builds), so the
 // surface is a line + a deliberate click; policy Off silences the check entirely.
-const updateInfo = ref(null); // {current, latest, latestStable, updateAvailable, error} | null
+const updateInfo = ref(null); // {current, latest, latestKind, latestStable, updateAvailable, error} | null
 const updatePolicy = ref("notify");
 // An update in flight that ALREADY wrote the new pin + URLs. If the install then fails (a
 // renamed asset, a build that refuses our launch flags), the DB would be left pointing at an

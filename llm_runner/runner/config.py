@@ -63,11 +63,22 @@ from .schema import BinaryAsset, LlamacppSpec, RunnerConfig
 #   * b10437 measured well too but has NO Linux-AMD asset (it sits in the b10398-b10581
 #     hole), so it could never be a default pin. b10750 is past that hole — all seven rows
 #     resolve, re-verified against `gh api releases/tags/b10750` on 2026-09-19.
-# CAVEAT the update flow inherits: `update_check` follows upstream's STABLE channel, and the
-# newest stable IS b10964 — so the Update button will offer a build we have measured as bad.
-# That tension is recorded in docs/dev/TASKS.md and needs its own decision; do NOT "fix" it
-# by silently pinning newer.
-DEFAULT_PINNED_BUILD = "b10750"
+#
+# b10750 → b11239 (2026-09-28, the #29168 re-measure; user: "do 1" = move the pin to head).
+# The b10750 reason above did NOT survive a real-prompt test. Its 0.823 → 0.481 was measured
+# with ONE raw `/completion` prompt and no chat template. Through `/v1/chat/completions` —
+# the only path the family sends — b10750, b10751 and b11239 are level: acceptance within
+# 0.02 on three prompts (a question, a prose ask, JV's real attribution prompt on a chapter),
+# the draft 1.10–1.31× faster on every build. Drafted output ≠ greedy on EVERY build there,
+# b10750 included, so "b10750 is exact" held for that one raw prompt only. The raw prompt
+# itself still reproduces (b10750 79/96 byte-identical to 2026-09-19; b11239 62/129), so the
+# effect is real but confined to untemplated input. b11239 carries every post-b10750 fix.
+# Record: docs/plans/2026-09-19-engine-update-safety-and-stable-channel.md §10. All seven rows
+# resolve, re-verified against `gh api releases/tags/b11239` on 2026-09-28 (three renamed:
+# win cuda-13.3 → 13.4, win + ubuntu rocm-7.14 → rocm-10.0).
+# The Update button compares the stable channel's build with the build ON DISK
+# (`update_check`); stable (v0.5.0) names b11146, older than this pin, so it offers nothing.
+DEFAULT_PINNED_BUILD = "b11239"
 
 # Reserve this much VRAM headroom when computing the GPU layer split.
 DEFAULT_SAFETY_MARGIN_MB = 1024
@@ -233,14 +244,14 @@ DEFAULT_BINARIES: list[dict] = [
      "runtime_url": f"{_REL}/cudart-llama-bin-win-cuda-12.4-x64.zip",
      "server_exe": "llama-server.exe"},
     {"platform": "windows", "gpu": "cuda13", "source": "github",
-     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-cuda-13.3-x64.zip",
-     "runtime_url": f"{_REL}/cudart-llama-bin-win-cuda-13.3-x64.zip",
+     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-cuda-13.4-x64.zip",
+     "runtime_url": f"{_REL}/cudart-llama-bin-win-cuda-13.4-x64.zip",
      "server_exe": "llama-server.exe"},
     # Windows AMD has been renamed TWICE upstream: win-hip-radeon (≤ b10398) → win-rocm-7.14
-    # (this pin) → win-rocm-10.0 (b10767, #27803). An UPDATE resolves the target build's
+    # → win-rocm-10.0 (b10767, #27803; this pin). An UPDATE resolves the target build's
     # real name from its own asset list rather than trusting this literal.
     {"platform": "windows", "gpu": "rocm", "source": "github",
-     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-rocm-7.14-x64.zip",
+     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-rocm-10.0-x64.zip",
      "server_exe": "llama-server.exe"},
     {"platform": "windows", "gpu": "vulkan", "source": "github",
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-win-vulkan-x64.zip",
@@ -254,10 +265,10 @@ DEFAULT_BINARIES: list[dict] = [
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-macos-arm64.tar.gz",
      "server_exe": "llama-server"},
     # Linux AMD: rocm-7.2 (≤ b10397) → NO asset at all for b10398-b10581 (CI job disabled
-    # #26969, restored #27399) → rocm-7.14 (this pin) → rocm-10.0 (b10767). This pin is PAST
+    # #26969, restored #27399) → rocm-7.14 → rocm-10.0 (b10767; this pin). This pin is PAST
     # the hole, which is one reason b10437 — fast but assetless here — could never be it.
     {"platform": "linux", "gpu": "rocm", "source": "github",
-     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-ubuntu-rocm-7.14-x64.tar.gz",
+     "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-ubuntu-rocm-10.0-x64.tar.gz",
      "server_exe": "llama-server"},
     {"platform": "linux", "gpu": "vulkan", "source": "github",
      "asset_url": f"{_REL}/llama-{DEFAULT_PINNED_BUILD}-bin-ubuntu-vulkan-x64.tar.gz",

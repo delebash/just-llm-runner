@@ -11,16 +11,28 @@
 
   The CALLER gates visibility on `updateInfo?.updateAvailable` (v-if), so the
   panel's `v-else` "Reinstall" branch still pairs; this component is just the button.
+
+  The offered build is one of two kinds (`latestKind`, 2026-09-28): the build this app
+  is tested with (the kit's pin) or llama.cpp's official release — whichever is newer.
+  The tooltip names which; the wording is the user's ("your rec go", kit TASKS).
 -->
 <script setup>
+import { computed } from "vue";
 import UiButton from "../common/components/UiButton.vue";
 import { useEngine } from "../composables/useEngine.js";
 
 const { updateInfo, updateToLatest, busy } = useEngine();
+
+const tooltip = computed(() => {
+  const u = updateInfo.value;
+  const kind = u?.latestKind === "tested"
+    ? "the build this app is tested with"
+    : `llama.cpp's official release${u?.latestStable ? ` ${u.latestStable}` : ""}`;
+  return `Update the engine to ${u?.latest}, ${kind} (you have ${u?.current}) — the new build is checked before it replaces yours, and the old build folder is removed only once it installs`;
+});
 </script>
 
 <template>
-  <UiButton intent="info" size="small" :loading="busy"
-    :title="`Update the engine to ${updateInfo?.latest}${updateInfo?.latestStable ? ` — llama.cpp ${updateInfo.latestStable.replace(/^v/, '')}, a stable release` : ''} (you have ${updateInfo?.current}) — the new build is checked before it replaces yours, and the old build folder is removed only once it installs`"
+  <UiButton intent="info" size="small" :loading="busy" :title="tooltip"
     @click="updateToLatest">Update to {{ updateInfo?.latest }}</UiButton>
 </template>

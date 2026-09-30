@@ -12,8 +12,8 @@ The holding pen for unscheduled ideas about the shared stack — same charter as
   `docs/llama-cpp-watch.md` §Watch list.
   **TRIGGER MET [verified 2026-09-19]:** #25707 merged 2026-07-30; first build
   `b10192`; `Ternary-Bonsai-27B-Q2_g64.gguf` (the mainline g64 form) is already in
-  the shared cache, and the pin is now `b10750` — past b10192 — so BONSAI 1 is
-  runnable today.
+  the shared cache, and the pin is now `b10750` (`b11239` since 2026-09-28) — past
+  b10192 — so BONSAI 1 is runnable today.
   **A/B RUN 2026-09-19 (user: "run it") — VERDICT: NOT a contender on the 8 GB rung.
   Do not add it to the catalog.** Measured on the 2070S at the app's own flags
   (ctx 32768, q8_0 KV, fa on, engine placing tensors):

@@ -19,6 +19,13 @@ can't lock the user out.
 The lockout escape (family shape, 2026-08-05): from the machine itself,
 `/v1/health` and the `/v1/server-auth` door always answer — physical access
 could edit the DB anyway. Remote stays gated.
+
+An app may name more paths that answer from the machine itself on the same
+reasoning (`loopback_open_paths`, 2026-09-30). JustVoice names its
+`/v1/shutdown`: its desktop shell closes the server through it and carries no
+token, so with "Require a token even on localhost" on, every close fell back
+to a hard kill — while any program on the machine can end the server process
+anyway. Empty by default; an app that passes nothing is unchanged.
 """
 
 from __future__ import annotations
@@ -40,10 +47,11 @@ def _is_loopback(host: str) -> bool:
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, read_auth, type_base: str):
+    def __init__(self, app, read_auth, type_base: str, loopback_open_paths=()):
         super().__init__(app)
         self._read_auth = read_auth
         self._type_base = type_base
+        self._loopback_open = frozenset(loopback_open_paths)
 
     def _problem(self, status: int, slug: str, title: str, detail: str, path: str) -> JSONResponse:
         return JSONResponse(
@@ -71,7 +79,8 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
 
         client_host = request.client.host if request.client else ""
         is_loop = _is_loopback(client_host)
-        if is_loop and (path == "/v1/health" or path.startswith("/v1/server-auth")):
+        if is_loop and (path == "/v1/health" or path.startswith("/v1/server-auth")
+                        or path in self._loopback_open):
             return await call_next(request)
         if is_loop and not require_for_loopback:
             return await call_next(request)

@@ -81,7 +81,10 @@ scope so the user can order the sweep any time.
 
 NOT aliases (real per-app seams, permanent): each app's `auth.py` holds only
 its `read_auth()` settings-read; each app's `paths.py` holds its domain paths.
-CSRF has no seam at all — pure kit, parameterized in app.py.
+CSRF has no seam at all — pure kit, parameterized in app.py. Auth takes one
+more parameter there: `loopback_open_paths`, the app's own paths that answer
+from the machine itself like `/v1/health` (2026-09-30 — JustVoice passes
+`/v1/shutdown` for its shell's close; JustWrite and docgen pass none).
 
 ## 4 · Execution pieces (approved one at a time)
 

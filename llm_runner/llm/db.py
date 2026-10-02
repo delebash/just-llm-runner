@@ -500,6 +500,10 @@ class ModelMeasurement(LlmBase):
     # §8.16 (decided): the owner kind — llm | tts | stt. Added now, defaulted
     # 'llm'; doesn't foreclose engine measurement (Q5's cut stands).
     kind = Column(String, nullable=False, default="llm")
+    # Speech speed (JustVoice CPU placement, 2026-10-02): seconds of audio per second of
+    # work — a speech model's real-time factor. Its own column, never tokens_per_sec
+    # reinterpreted (names-must-match). 0 = not a speed row.
+    realtime_x = Column(Float, nullable=False, default=0.0)
 
 
 class MeasurementSwitch(LlmBase):
@@ -749,6 +753,8 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # Fit-redesign Phase 5 (§6.3/§8.16/§13.3) — additive:
     ("model_measurements", "vram_model_mb", "INTEGER NOT NULL DEFAULT 0"),
     ("model_measurements", "kind", "VARCHAR NOT NULL DEFAULT 'llm'"),
+    # Speech real-time factor (JustVoice CPU placement, 2026-10-02) — additive:
+    ("model_measurements", "realtime_x", "REAL NOT NULL DEFAULT 0"),
     ("knob_catalog", "fit_relevant", "BOOLEAN NOT NULL DEFAULT 0"),
     ("feature_prompts", "position", "INTEGER NOT NULL DEFAULT 0"),
 )

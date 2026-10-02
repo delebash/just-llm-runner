@@ -1367,7 +1367,10 @@ class ModelMeasurementStore:
     def record(self, model_id: str, *, machine_key: str, source: str, label: str,
                tokens_per_sec: float, vram_total_mb: int, at: int,
                rows: list[MeasurementFlag], vram_model_mb: int = 0,
-               kind: str = "llm") -> int:
+               kind: str = "llm", realtime_x: float = 0.0,
+               backend: str | None = None) -> int:
+        """`backend` overrides the active LLM engine family for rows another engine
+        measured (a speech model on the CPU says "cpu"); None = the LLM's."""
         s = db.session()
         try:
             from .switch_resolve import active_backend
@@ -1376,9 +1379,11 @@ class ModelMeasurementStore:
                 source=source or "tune", label=label or "",
                 tokens_per_sec=float(tokens_per_sec or 0),
                 vram_total_mb=int(vram_total_mb or 0), at=int(at or 0),
-                backend=active_backend(),  # Pass 2: which engine family measured it
+                # Pass 2: which engine family measured it (a caller may name its own).
+                backend=active_backend() if backend is None else backend,
                 vram_model_mb=int(vram_model_mb or 0),  # Phase 5: the true-up footprint
                 kind=(kind or "llm"),
+                realtime_x=float(realtime_x or 0),
             )
             s.add(m)
             s.flush()  # assigns the autoincrement id the children key on
@@ -1418,6 +1423,7 @@ class ModelMeasurementStore:
                     vramTotalMb=m.vram_total_mb, at=m.at, backend=m.backend or "",
                     vramModelMb=getattr(m, "vram_model_mb", 0) or 0,
                     kind=getattr(m, "kind", "llm") or "llm",
+                    realtimeX=float(getattr(m, "realtime_x", 0) or 0),
                     switches=flags.get(m.id, []),
                 )
                 for m in ms

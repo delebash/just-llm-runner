@@ -505,6 +505,28 @@ def acquire_binary(
             "pin bump."
         )
 
+    return _stage_and_swap(
+        asset, dest, hardware.platform, download_kwargs(config),
+        on_progress=on_progress, cancel_check=cancel_check, probe_argvs=probe_argvs,
+        label="llama.cpp",
+    )
+
+
+def _stage_and_swap(
+    asset: BinaryAsset,
+    dest: Path,
+    platform: str,
+    dl_kwargs: dict,
+    *,
+    on_progress: Callable[[int, int | None], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+    probe_argvs: Sequence[Sequence[str]] | None = None,
+    label: str = "runtime",
+) -> Path:
+    """Download `asset` (+ its `runtime_url` companion) into a staging dir beside `dest`,
+    launch-verify the exe, then atomically swap it into `dest` — the install core every
+    native runtime shares (llama.cpp, audio.cpp). A failed or partial download, a missing
+    runtime DLL or a rejected launch flag leaves `dest` exactly as it was."""
     # STAGE: download + unpack into a sibling temp dir, never the live variant — the working
     # engine stays intact until a verified build is ready to swap in. Clear a crashed run's
     # leftover staging first.
@@ -525,12 +547,12 @@ def acquire_binary(
             )
         suffix = ".tar.gz" if url.lower().endswith((".tar.gz", ".tgz")) else ".zip"
         archive = staging / f"_download{suffix}"
-        log.info("downloading llama.cpp %s/%s from %s", asset.platform, asset.gpu, url)
+        log.info("downloading %s %s/%s from %s", label, asset.platform, asset.gpu, url)
         # ONE downloader, ONE config — the same chunk-queue download the models use (no per-host
         # special cases; the work-stealing design in download.py is what makes N connections safe
         # on every CDN, because a slow connection can only delay one chunk, never the file).
         stream_download(url, archive, on_progress=on_progress, cancel_check=cancel_check,
-                        **download_kwargs(config))
+                        **dl_kwargs)
         _unpack(archive, staging)
         archive.unlink(missing_ok=True)
 
@@ -546,9 +568,9 @@ def acquire_binary(
         exe = _find_server_exe(staging, asset.server_exe)
         if exe is None:
             raise RuntimeError(f"{asset.server_exe} not found in unpacked archive at {staging}")
-        if hardware.platform != "windows":
+        if platform != "windows":
             exe.chmod(exe.stat().st_mode | 0o111)
-        _verify_exe_launches(exe, hardware.platform)   # catches a missing runtime DLL/.so
+        _verify_exe_launches(exe, platform)            # catches a missing runtime DLL/.so
         _verify_exe_accepts_flags(exe, probe_argvs)    # catches a flag upstream removed
         _swap_into_place(staging, dest)                # atomic — `dest` untouched until here
     finally:
@@ -557,3 +579,74 @@ def acquire_binary(
         shutil.rmtree(staging, ignore_errors=True)
 
     return _find_server_exe(dest, asset.server_exe)
+
+
+# ─── Any other pinned native runtime (audio.cpp, …) ──────────────────────
+#
+# llama.cpp's rows live in the runner config and carry its history (legacy build-root
+# installs, the docker seam, the router). Another runtime an app ships — JustVoice's
+# audio.cpp speech server — needs only the shared core: pick the asset for this box,
+# stage, verify, swap. Its rows and pin are the APP's data, passed in; the folder keeps
+# each runtime's builds apart under the same cache root.
+
+
+def select_runtime_asset(
+    binaries: Sequence[BinaryAsset], hardware: HardwareInfo, preferred_gpu: str = "",
+) -> BinaryAsset | None:
+    """The best of `binaries` for this box, by the same GPU preference llama.cpp uses."""
+    by_gpu = {b.gpu: b for b in binaries if b.platform == hardware.platform and b.source != "docker"}
+    for gpu in _gpu_preference(hardware, preferred_gpu):
+        if gpu in by_gpu:
+            return by_gpu[gpu]
+    return None
+
+
+def runtime_variant_dir(cache_root: Path, folder: str, build: str, gpu: str) -> Path:
+    """`<cache_root>/<folder>/<build>/<gpu>/` — one dir per installed variant."""
+    return cache_root / folder / build / gpu
+
+
+def installed_runtime_exe(
+    cache_root: Path, folder: str, build: str, asset: BinaryAsset,
+) -> Path | None:
+    """The installed exe for `asset` at `build`, or None — never downloads."""
+    return _find_server_exe(runtime_variant_dir(cache_root, folder, build, asset.gpu), asset.server_exe)
+
+
+def acquire_runtime(
+    cache_root: Path,
+    folder: str,
+    build: str,
+    binaries: Sequence[BinaryAsset],
+    hardware: HardwareInfo,
+    *,
+    preferred_gpu: str = "",
+    gpu: str | None = None,
+    force: bool = False,
+    dl_kwargs: dict | None = None,
+    on_progress: Callable[[int, int | None], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
+    probe_argvs: Sequence[Sequence[str]] | None = None,
+) -> Path:
+    """Ensure a pinned native runtime is installed for this box; return its exe.
+
+    The same atomic, verified install as `acquire_binary` (stage → launch-verify → swap),
+    for a runtime whose rows the caller owns. `gpu` installs a specific variant;
+    otherwise the box's preference picks. Idempotent unless `force`."""
+    if gpu is None:
+        asset = select_runtime_asset(binaries, hardware, preferred_gpu)
+    else:
+        asset = next((b for b in binaries if b.platform == hardware.platform and b.gpu == gpu), None)
+    if asset is None or not asset.asset_url:
+        raise RuntimeError(
+            f"no {folder} build for platform={hardware.platform}" + (f" gpu={gpu}" if gpu else ""))
+    if not force:
+        existing = installed_runtime_exe(cache_root, folder, build, asset)
+        if existing is not None:
+            return existing
+    dest = runtime_variant_dir(cache_root, folder, build, asset.gpu)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    return _stage_and_swap(
+        asset, dest, hardware.platform, dl_kwargs or {},
+        on_progress=on_progress, cancel_check=cancel_check, probe_argvs=probe_argvs, label=folder,
+    )

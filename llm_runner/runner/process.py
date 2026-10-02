@@ -981,6 +981,13 @@ def _spawn_child(popen, argv, logf, _sleep=time.sleep):
     ) from last
 
 
+# The same seam for the family's OTHER native runtimes (JustVoice's audio.cpp speech
+# server, 2026-10-01): one spawn path, one kill-on-parent-death enclosure, one
+# virus-scanner retry — never a second copy in an app.
+spawn_child = _spawn_child
+close_job = _close_job
+
+
 @dataclass
 class _ServerHandle:
     """A live llama-server process (OpenAI-compatible at `url`) — the ONE

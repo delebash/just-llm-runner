@@ -59,10 +59,16 @@ export function onRequestWrite(fn) {
 // The status prefix stays (a caller keys on "501"); non-string details (the 409
 // needsSetup dict) and non-JSON bodies pass through raw. The console log keeps
 // the full raw text — this only changes what users read.
+//
+// The Error also carries `status` and, for a JSON body, `problem` (the parsed RFC 7807
+// object — its `type` and any extension members), so a caller can act on WHICH refusal
+// it got without parsing the message (JustVoice's terms prompt, 2026-10-02).
 function httpError(status, raw) {
   let human = raw;
+  let problem = null;
   try {
     const j = JSON.parse(raw);
+    if (j && typeof j === "object") problem = j;
     if (j && typeof j.detail === "string") human = j.detail;
     // FastAPI 422s ship detail as an ARRAY of {loc, msg} — join the messages
     // (2026-08-05: those still rendered as raw JSON).
@@ -70,7 +76,10 @@ function httpError(status, raw) {
       human = j.detail.map((d) => d?.msg || JSON.stringify(d)).join("; ");
     }
   } catch { /* not JSON — the raw text IS the message */ }
-  return new Error(`HTTP ${status}${human ? ` — ${human}` : ""}`);
+  const err = new Error(`HTTP ${status}${human ? ` — ${human}` : ""}`);
+  err.status = status;
+  err.problem = problem;
+  return err;
 }
 
 export async function request(path, { method = "GET", body, headers, signal } = {}) {

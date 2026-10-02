@@ -35,12 +35,17 @@ def _log_error(request: Request, status: int, detail: object) -> None:
 
 
 class ApiError(HTTPException):
-    """HTTPException variant that carries the slug + title for the RFC 7807 type uri."""
+    """HTTPException variant that carries the slug + title for the RFC 7807 type uri.
 
-    def __init__(self, status_code: int, slug: str, title: str, detail: str):
+    `extra` adds RFC 7807 extension members to the problem body (e.g. which engine a
+    refusal is about) — never overriding the standard members."""
+
+    def __init__(self, status_code: int, slug: str, title: str, detail: str,
+                 extra: dict | None = None):
         super().__init__(status_code=status_code, detail=detail)
         self.slug = slug
         self.title = title
+        self.extra = dict(extra or {})
 
 
 def bad_request(detail: str) -> ApiError:
@@ -107,15 +112,18 @@ def install_error_handlers(app, *, type_base: str) -> None:
 
     async def api_exception_handler(request: Request, exc: ApiError):
         _log_error(request, exc.status_code, exc.detail)
+        body = {
+            "type": f"{type_base}{exc.slug}",
+            "title": exc.title,
+            "status": exc.status_code,
+            "detail": exc.detail,
+            "instance": request.url.path,
+        }
+        for k, v in (getattr(exc, "extra", None) or {}).items():
+            body.setdefault(k, v)
         return JSONResponse(
             status_code=exc.status_code,
-            content={
-                "type": f"{type_base}{exc.slug}",
-                "title": exc.title,
-                "status": exc.status_code,
-                "detail": exc.detail,
-                "instance": request.url.path,
-            },
+            content=body,
             media_type="application/problem+json",
         )
 

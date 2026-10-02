@@ -51,6 +51,9 @@ class MeasurementRow(BaseModel):
     # rows) and the owner kind (§8.16). Declared so the wire never strips them.
     vramModelMb: int = 0
     kind: str = "llm"
+    # A speech model's real-time factor (seconds of audio per second of work); 0 on
+    # every other row. Declared so the wire never strips it.
+    realtimeX: float = 0.0
     switches: list[MeasurementFlag] = []
 
 
@@ -74,7 +77,8 @@ class ModelMeasurementStore(Protocol):
     def record(self, model_id: str, *, machine_key: str, source: str, label: str,
                tokens_per_sec: float, vram_total_mb: int, at: int,
                rows: list[MeasurementFlag], vram_model_mb: int = 0,
-               kind: str = "llm") -> int: ...
+               kind: str = "llm", realtime_x: float = 0.0,
+               backend: str | None = None) -> int: ...
     def list(self, model_id: str | None = None) -> list[MeasurementRow]: ...
     def clear(self, model_id: str | None = None) -> int: ...
 

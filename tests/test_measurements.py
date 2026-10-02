@@ -151,6 +151,24 @@ def test_record_carries_footprint_and_kind_and_wire_declares_them(client):
     assert wire["vramModelMb"] == 6500 and wire["kind"] == "llm"
 
 
+
+def test_a_speech_speed_row_keeps_its_own_column_and_backend(client):
+    """A speech model's real-time factor has its own column (never tokens_per_sec
+    reinterpreted) and names the backend that measured it, not the LLM's."""
+    st = stores.get_model_measurement_store()
+    st.record("tts:kokoro:kokoro-82m-q8", machine_key="box", source="speed",
+              label="CPU real-time factor", tokens_per_sec=0.0, vram_total_mb=0, at=1000,
+              rows=[], kind="tts", realtime_x=3.15, backend="cpu")
+    row = st.list("tts:kokoro:kokoro-82m-q8")[0]
+    assert row.realtimeX == pytest.approx(3.15) and row.backend == "cpu"
+    assert row.tokensPerSec == 0.0 and row.kind == "tts"
+    wire = client.get("/v1/ai/model-measurements?modelId=tts:kokoro:kokoro-82m-q8").json()
+    assert wire["measurements"][0]["realtimeX"] == pytest.approx(3.15)
+    # Every other row reads 0 there.
+    st.record("m9", machine_key="box", source="tune", label="", tokens_per_sec=20.0,
+              vram_total_mb=8192, at=1, rows=[])
+    assert st.list("m9")[0].realtimeX == 0.0
+
 def test_prune_keeps_latest_k_per_fingerprint(client):
     st = stores.get_model_measurement_store()
     fset = {"ctx_len", "n_gpu_layers"}

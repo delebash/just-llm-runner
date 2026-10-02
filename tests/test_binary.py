@@ -551,6 +551,68 @@ def test_resolve_picks_the_highest_version_when_several_match():
     assert got["linux/rocm"]["assetUrl"].endswith("rocm-10.0-x64.tar.gz")   # 10.0 > 7.2
 
 
+# ─── acquire_runtime: any other pinned native runtime (JustVoice's audio.cpp) ───
+
+
+def _audiocpp_rows():
+    from llm_runner.runner.schema import BinaryAsset
+
+    base = "https://github.com/0xShug0/audio.cpp/releases/download/v0.9.0"
+    return [
+        BinaryAsset(platform="windows", gpu="cuda12", server_exe="audiocpp_server.exe",
+                    asset_url=f"{base}/audio-v0.9.0-bin-windows-x64-cuda12.4.zip",
+                    runtime_url=f"{base}/audio-v0.9.0-cudart-windows-x64-cuda12.4.zip"),
+        BinaryAsset(platform="windows", gpu="vulkan", server_exe="audiocpp_server.exe",
+                    asset_url=f"{base}/audio-v0.9.0-bin-windows-x64-vulkan.zip"),
+        BinaryAsset(platform="windows", gpu="cpu", server_exe="audiocpp_server.exe",
+                    asset_url=f"{base}/audio-v0.9.0-bin-windows-x64-cpu.zip"),
+    ]
+
+
+def test_acquire_runtime_installs_into_its_own_folder_with_the_companion(monkeypatch, tmp_path):
+    hw = _hw("windows", {"cuda": True}, [GpuInfo(vendor="NVIDIA", name="RTX 2070 SUPER", vram_mb=8192)])
+    calls: list[str] = []
+    monkeypatch.setattr(binmod, "stream_download", _make_stream(calls, "audiocpp_server.exe"))
+    exe = binmod.acquire_runtime(tmp_path, "audiocpp", "v0.9.0", _audiocpp_rows(), hw)
+    assert exe == tmp_path / "audiocpp" / "v0.9.0" / "cuda12" / "audiocpp_server.exe"
+    assert len(calls) == 2 and any("cudart" in u for u in calls)
+    # llama.cpp's folder is untouched — the runtimes never share a dir
+    assert not (tmp_path / "llamacpp").exists()
+
+    def boom(*a, **k):
+        raise AssertionError("should not re-download")
+    monkeypatch.setattr(binmod, "stream_download", boom)
+    assert binmod.acquire_runtime(tmp_path, "audiocpp", "v0.9.0", _audiocpp_rows(), hw) == exe
+
+
+def test_acquire_runtime_picks_by_gpu_preference_and_honours_an_override(monkeypatch, tmp_path):
+    monkeypatch.setattr(binmod, "stream_download", _make_stream([], "audiocpp_server.exe"))
+    rows = _audiocpp_rows()
+    assert binmod.select_runtime_asset(rows, _hw("windows", {"vulkan": True})).gpu == "vulkan"
+    assert binmod.select_runtime_asset(rows, _hw("windows", {"cuda": True})).gpu == "cuda12"
+    exe = binmod.acquire_runtime(tmp_path, "audiocpp", "v0.9.0", rows, _hw("windows", {"cuda": True}), gpu="cpu")
+    assert exe.parent.name == "cpu"
+
+
+def test_acquire_runtime_refuses_a_platform_it_has_no_build_for(tmp_path):
+    with pytest.raises(RuntimeError, match="no audiocpp build for platform=macos"):
+        binmod.acquire_runtime(tmp_path, "audiocpp", "v0.9.0", _audiocpp_rows(), _hw("macos", {"metal": True}))
+
+
+def test_acquire_runtime_a_failed_download_leaves_the_installed_runtime(monkeypatch, tmp_path):
+    hw = _hw("windows", {"cuda": True})
+    monkeypatch.setattr(binmod, "stream_download", _make_stream([], "audiocpp_server.exe"))
+    exe = binmod.acquire_runtime(tmp_path, "audiocpp", "v0.9.0", _audiocpp_rows(), hw)
+
+    def boom(*a, **k):
+        raise RuntimeError("network down")
+    monkeypatch.setattr(binmod, "stream_download", boom)
+    with pytest.raises(RuntimeError, match="network down"):
+        binmod.acquire_runtime(tmp_path, "audiocpp", "v0.9.0", _audiocpp_rows(), hw, force=True)
+    assert exe.is_file()                                   # the working runtime survived
+    assert not (exe.parent.parent / ".staging-cuda12").exists()
+
+
 def test_build_num_is_strict():
     # 2026-09-19: `releases/latest` now answers a semver tag. The old digit-strip read
     # "v0.4.1" as 41 (silently "you are current" on every box) and would read "v1.10.500"

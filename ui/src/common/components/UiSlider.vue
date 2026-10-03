@@ -25,7 +25,7 @@
 // can't hit 0.35 reliably). `readout` makes it display-only. `:format` styles
 // what that box shows without changing the model value.
 
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import UiInput from "./UiInput.vue";
 
@@ -106,6 +106,74 @@ const markPos = (m) => {
   if (!span) return 0;
   return ((clamp(Number(m.value)) - nMin.value) / span) * 100;
 };
+
+// Marks are laid out from their MEASURED widths (2026-10-02). Anchoring by
+// value alone let labels collide whenever two values sat closer than their
+// words were wide — JustVoice's Speed (0.5–2) put "as written" at 1×, a third
+// of the way along, straight into "slower" ("sloweras written"). Each label
+// starts where its value puts it (the first left-aligned, the last
+// right-aligned, the rest centred), then is nudged just clear of its
+// neighbours; a middle label with no room left at all is hidden rather than
+// overprinted. Until measured, the CSS fallback below places them as before.
+const MARK_GAP = 8;
+const marksEl = ref(null);
+const markEls = []; // by mark index — a v-for ref array does not keep source order
+const placed = ref(null); // [{ left, hidden }] by mark index, or null before measuring
+
+function layoutMarks() {
+  const box = marksEl.value;
+  const W = box?.clientWidth || 0;
+  const els = markEls.slice(0, props.marks.length);
+  if (!W || els.length !== props.marks.length || els.some((el) => !el)) { placed.value = null; return; }
+  const items = props.marks
+    .map((m, i) => ({ i, p: markPos(m) / 100, w: els[i].offsetWidth }))
+    .sort((a, b) => a.p - b.p);
+  const last = items.length - 1;
+  for (const [k, it] of items.entries()) {
+    const anchor = k === 0 ? 0 : k === last ? it.w : it.w / 2;
+    it.left = Math.min(Math.max(it.p * W - anchor, 0), Math.max(W - it.w, 0));
+  }
+  for (let k = 1; k < items.length; k++) {
+    const prev = items[k - 1];
+    items[k].left = Math.max(items[k].left, prev.left + prev.w + MARK_GAP);
+  }
+  for (let k = last - 1; k >= 0; k--) {
+    const next = items[k + 1];
+    items[k].left = Math.max(Math.min(items[k].left, next.left - MARK_GAP - items[k].w), 0);
+  }
+  // Still overlapping = no room: hide middle labels that clash with the last
+  // shown one or with the final label. The two ends always show.
+  const out = [];
+  const end = items[last];
+  let shownEnd = Number.NEGATIVE_INFINITY;
+  for (const [k, it] of items.entries()) {
+    const middle = k !== 0 && k !== last;
+    const clash = it.left < shownEnd + MARK_GAP || (middle && it.left + it.w + MARK_GAP > end.left);
+    const hidden = middle && clash;
+    if (!hidden) shownEnd = it.left + it.w;
+    out[it.i] = { left: it.left, hidden };
+  }
+  placed.value = out;
+}
+
+function markStyle(m, i) {
+  const p = placed.value?.[i];
+  if (!p) return { left: `${markPos(m)}%` };
+  return { left: `${p.left}px`, transform: "none", visibility: p.hidden ? "hidden" : undefined };
+}
+
+let resizeObs = null;
+const relayout = () => nextTick(layoutMarks);
+onMounted(() => {
+  relayout();
+  if (typeof ResizeObserver !== "undefined" && marksEl.value) {
+    resizeObs = new ResizeObserver(relayout);
+    resizeObs.observe(marksEl.value);
+  }
+  document.fonts?.ready?.then(relayout).catch(() => {});
+});
+onBeforeUnmount(() => resizeObs?.disconnect());
+watch(() => [props.marks, props.min, props.max, props.width], relayout, { deep: true });
 </script>
 
 <template>
@@ -139,12 +207,13 @@ const markPos = (m) => {
         @keydown.enter="onCommit"
       />
     </div>
-    <div v-if="marks.length" class="ui-slider-marks">
+    <div v-if="marks.length" ref="marksEl" class="ui-slider-marks">
       <span
-        v-for="m in marks"
+        v-for="(m, i) in marks"
         :key="`${m.value}`"
+        :ref="(el) => { markEls[i] = el; }"
         class="ui-slider-mark"
-        :style="{ left: `${markPos(m)}%` }"
+        :style="markStyle(m, i)"
       >{{ m.label }}</span>
     </div>
   </div>
@@ -190,7 +259,9 @@ const markPos = (m) => {
 .ui-slider-number { flex: 0 0 auto; }
 
 /* Marks sit under the track, anchored at their VALUE. The first and last are
-   pulled inside so an end label never overhangs the control. */
+   pulled inside so an end label never overhangs the control. This is the
+   fallback until `layoutMarks` has measured them; after that each mark gets a
+   px `left` with `transform: none`, nudged clear of its neighbours. */
 .ui-slider-marks {
   position: relative;
   height: 1.1em;

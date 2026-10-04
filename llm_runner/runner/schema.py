@@ -69,7 +69,10 @@ class BinaryAsset(CamelModel):
     asset_url: str | None = None
     runtime_url: str | None = None   # companion (e.g. cudart DLLs) unpacked alongside
     image: str | None = None
+    # The archives' published sha256 (hex). When set, a download that doesn't match is refused
+    # and deleted before anything is unpacked; None = launch-verify only.
     sha256: str | None = None
+    runtime_sha256: str | None = None   # the `runtime_url` companion's
     server_exe: str = "llama-server"
 
 

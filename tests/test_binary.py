@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import tarfile
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -621,3 +622,63 @@ def test_build_num_is_strict():
     assert binmod.build_num(" b10437 ") == 10437
     for bad in ("v0.4.1", "v1.10.500", "v0.2.0", "", "latest", "b12x", "10437", None):
         assert binmod.build_num(bad) == -1, bad
+
+
+# ── checksums and resumable runtime downloads (JustVoice audit 2026-10-04 §5 E6) ───────
+
+def _runtime_row(sha=None, runtime_sha=None):
+    from llm_runner.runner.schema import BinaryAsset
+
+    return BinaryAsset(platform="windows", gpu="cuda12", server_exe="audiocpp_server.exe",
+                       asset_url="https://example.invalid/rt/audio-bin.zip",
+                       runtime_url="https://example.invalid/rt/audio-cudart.zip",
+                       sha256=sha, runtime_sha256=runtime_sha)
+
+
+def _zip_bytes(exe_name):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(exe_name, b"MZ fake")
+    return buf.getvalue()
+
+
+def test_runtime_archives_matching_their_checksums_install_and_leave_nothing(monkeypatch, tmp_path):
+    import hashlib
+
+    blob = _zip_bytes("audiocpp_server.exe")
+    sha = hashlib.sha256(blob).hexdigest()
+
+    def stream(url, dest, **_kw):
+        dest.write_bytes(blob)
+
+    monkeypatch.setattr(binmod, "stream_download", stream)
+    exe = binmod.acquire_runtime(tmp_path, "audiocpp", "v1", [_runtime_row(sha, sha)],
+                                 _hw("windows", {"cuda": True}))
+    assert exe.is_file()
+    assert not (tmp_path / "audiocpp" / "v1" / ".downloads").exists()
+
+
+def test_a_runtime_archive_that_fails_its_checksum_is_refused_and_deleted(monkeypatch, tmp_path):
+    def stream(url, dest, **_kw):
+        dest.write_bytes(_zip_bytes("audiocpp_server.exe"))
+
+    monkeypatch.setattr(binmod, "stream_download", stream)
+    with pytest.raises(RuntimeError, match="published checksum"):
+        binmod.acquire_runtime(tmp_path, "audiocpp", "v1", [_runtime_row("0" * 64)],
+                               _hw("windows", {"cuda": True}))
+    downloads = tmp_path / "audiocpp" / "v1" / ".downloads"
+    assert not (downloads / "audio-bin.zip").exists()
+    assert not (tmp_path / "audiocpp" / "v1" / "cuda12").exists()
+
+
+def test_a_stopped_runtime_download_keeps_its_partial_file_for_the_next_attempt(monkeypatch, tmp_path):
+    def stream(url, dest, **_kw):
+        Path(str(dest) + ".part").write_bytes(b"half")
+        raise ConnectionError("dropped")
+
+    monkeypatch.setattr(binmod, "stream_download", stream)
+    with pytest.raises(ConnectionError):
+        binmod.acquire_runtime(tmp_path, "audiocpp", "v1", [_runtime_row()],
+                               _hw("windows", {"cuda": True}))
+    # Outside the staging folder, which every attempt wipes — the downloader resumes from it.
+    assert (tmp_path / "audiocpp" / "v1" / ".downloads" / "audio-bin.zip.part").read_bytes() == b"half"

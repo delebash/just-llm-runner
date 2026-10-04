@@ -10,6 +10,7 @@ alongside the exe — those are fetched too.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import shutil
@@ -392,6 +393,14 @@ def _verify_exe_launches(exe: Path, platform: str, *, run: Callable[[], object] 
             + ") — a required runtime library is missing")
 
 
+def _file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 def _swap_into_place(staging: Path, dest: Path) -> None:
     """Atomically replace `dest` with the verified `staging` dir: retire the old dir to a
     sibling backup, move the new one in, then delete the backup — so the working engine only
@@ -533,8 +542,15 @@ def _stage_and_swap(
     staging = dest.parent / f".staging-{asset.gpu}"
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True, exist_ok=True)
+    # The archives download OUTSIDE staging, under a name of their own, so a cancelled or
+    # broken download resumes on the next attempt (the downloader keeps its `.part` and chunk
+    # map beside it). Staging used to hold them and was wiped at the start of every attempt, so
+    # a 2 GB CUDA download began again from zero (JustVoice audit 2026-10-04 §5 E6).
+    downloads = dest.parent / ".downloads"
+    downloads.mkdir(parents=True, exist_ok=True)
+    fetched: list[Path] = []
 
-    def _fetch(url: str) -> None:
+    def _fetch(url: str, sha256: str | None) -> None:
         # GUARD: a stored URL still carrying a `{…}` placeholder never composes to a real
         # asset — it 404s N times then fails (seen in the wild: a legacy `{build}` row 404'd an
         # install). The URL is meant to be the CONCRETE download (the pin drives it, the UI
@@ -545,25 +561,34 @@ def _stage_and_swap(
                 f"engine asset URL has an unresolved placeholder: {url} — re-save the engine "
                 "binary rows so the URL is concrete (the pinned build drives it)"
             )
-        suffix = ".tar.gz" if url.lower().endswith((".tar.gz", ".tgz")) else ".zip"
-        archive = staging / f"_download{suffix}"
+        archive = downloads / url.rstrip("/").rsplit("/", 1)[-1]
         log.info("downloading %s %s/%s from %s", label, asset.platform, asset.gpu, url)
         # ONE downloader, ONE config — the same chunk-queue download the models use (no per-host
         # special cases; the work-stealing design in download.py is what makes N connections safe
         # on every CDN, because a slow connection can only delay one chunk, never the file).
         stream_download(url, archive, on_progress=on_progress, cancel_check=cancel_check,
                         **dl_kwargs)
-        _unpack(archive, staging)
-        archive.unlink(missing_ok=True)
+        if sha256:
+            got = _file_sha256(archive)
+            if got.lower() != sha256.lower():
+                archive.unlink(missing_ok=True)
+                raise RuntimeError(f"{archive.name} does not match its published checksum "
+                                   f"({got[:12]}… ≠ {sha256[:12]}…) — refusing it")
+        try:
+            _unpack(archive, staging)
+        except Exception:
+            archive.unlink(missing_ok=True)    # a broken archive is never resumed into
+            raise
+        fetched.append(archive)
 
     try:
         # The stored URL is the CONCRETE download for the pinned build (the UI re-points every
         # stored URL when the pin changes); the folder is named for that same pin. The server
         # does NOT compose a URL — it fetches what is stored.
-        _fetch(asset.asset_url)
+        _fetch(asset.asset_url, asset.sha256)
         # CUDA builds ship the cudart runtime DLLs separately — unpack alongside the exe.
         if asset.runtime_url:
-            _fetch(asset.runtime_url)
+            _fetch(asset.runtime_url, asset.runtime_sha256)
 
         exe = _find_server_exe(staging, asset.server_exe)
         if exe is None:
@@ -573,6 +598,12 @@ def _stage_and_swap(
         _verify_exe_launches(exe, platform)            # catches a missing runtime DLL/.so
         _verify_exe_accepts_flags(exe, probe_argvs)    # catches a flag upstream removed
         _swap_into_place(staging, dest)                # atomic — `dest` untouched until here
+        for archive in fetched:                        # installed: the archives have done their job
+            archive.unlink(missing_ok=True)
+        try:
+            downloads.rmdir()                          # only when empty — another's resume stays
+        except OSError:
+            pass
     finally:
         # Success renamed staging → dest (this is a no-op); any failure leaves it, so clean it
         # up and let the exception propagate with the live engine (`dest`) intact.

@@ -7,10 +7,17 @@
 // useRovingTabindex composable.
 //
 //   v-model="value"
-//   :options="[{ value, label, sublabel? }, ...]"
+//   :options="[{ value, label, sublabel?, disabled?, title? }, ...]"
 //   :option-label / :option-value / :option-sublabel  (defaults label/value/sublabel)
 //   :aria-label  :size  :variant ("default" | "connected")  :disabled
 //   <template #option="{ option, selected }">…</template>
+//   @blocked="(option) => …"   — a click on an option marked `disabled`
+//
+// An option marked `disabled: true` stays in the row, dimmed, with its `title`
+// as the tooltip, and can't be picked; clicking it emits `blocked` so the host
+// can say why (born 2026-10-03 for JustVoice's persona editor: a voice kind
+// that needs a model not yet available is shown off with its reason, never
+// hidden — the user can't tell "off" from "absent" otherwise).
 import { computed, nextTick } from "vue";
 import { useRovingTabindex } from "../composables/useRovingTabindex.js";
 
@@ -25,12 +32,17 @@ const props = defineProps({
   variant: { type: String, default: "default" }, // default | connected
   disabled: { type: Boolean, default: false },
 });
-const emit = defineEmits(["update:modelValue"]);
+const emit = defineEmits(["update:modelValue", "blocked"]);
 
 function getValue(opt) { return opt?.[props.optionValue]; }
 function labelOf(opt) { return opt?.[props.optionLabel]; }
 function sublabelOf(opt) { return opt?.[props.optionSublabel]; }
-function pick(opt) { if (!props.disabled) emit("update:modelValue", getValue(opt)); }
+function isOff(opt) { return !!opt?.disabled; }
+function pick(opt) {
+  if (props.disabled) return;
+  if (isOff(opt)) { emit("blocked", opt); return; }
+  emit("update:modelValue", getValue(opt));
+}
 
 const length = computed(() => props.options.length);
 const { onKeydown: rovingKeydown, registerItem, focusAt } = useRovingTabindex({
@@ -75,9 +87,11 @@ function onKeydown(e, idx) {
       type="button"
       role="radio"
       :disabled="disabled"
+      :aria-disabled="isOff(opt) || undefined"
+      :title="opt?.title || undefined"
       :aria-checked="modelValue === getValue(opt)"
       :tabindex="modelValue === getValue(opt) ? 0 : -1"
-      :class="{ active: modelValue === getValue(opt) }"
+      :class="{ active: modelValue === getValue(opt), 'is-off': isOff(opt) }"
       @click="pick(opt)"
       @keydown="onKeydown($event, i)">
       <slot name="option" :option="opt" :selected="modelValue === getValue(opt)">
@@ -98,6 +112,8 @@ function onKeydown(e, idx) {
   transition: background .12s ease, color .12s ease; white-space: nowrap;
 }
 .ui-seg button:hover { background: var(--surface-3, var(--surface)); color: var(--ink); }
+.ui-seg button.is-off { opacity: .5; cursor: not-allowed; }
+.ui-seg button.is-off:hover { background: transparent; }
 .ui-seg button.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
 .ui-seg button:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
 .ui-seg button b { font-weight: 600; }

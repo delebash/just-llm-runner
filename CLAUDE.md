@@ -66,6 +66,8 @@ alias, not a build — there is no publish step to run.
 
 ## Where to look
 
+**Before researching anything — reading code to answer a question, measuring, briefing an agent — read the subject's section of `docs/dev/RESEARCH.md`** (what is already known about the shared stack, with the proof; the family rule, 2026-10-04, app-structure §13). Research isn't done until its facts land there.
+
 | For | Read |
 |---|---|
 | **THE family app structure — every Tauri+Vue+Python app, current and future** | `docs/app-structure.md` (ruled 2026-08-02; the layout, the naming, the server shape, the JS-vs-Python trap answered once) |

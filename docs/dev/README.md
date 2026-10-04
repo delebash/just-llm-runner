@@ -11,6 +11,8 @@ The library every family app embeds: the Python LLM/runner core + the
    "Consume it" (`install_llm` — one call, the whole stack).
 3. **`TASKS.md`** / **`IDEAS.md`** — the live tracker + backlog for kit and shared
    server (the placement rule: an item lives where the code that closes it lives).
+   **`RESEARCH.md`** — what is already known about the shared stack, by subject, with
+   the proof; read its section before researching anything (the family rule, 2026-10-04).
 4. **`../app-structure.md`** — THE family app standard (layout, scripts, ports,
    shell, chrome, §13 docs convention). This repo hosts it; the apps implement it.
 5. **Design records**: `../feature-model-system.md` (how a feature gets its

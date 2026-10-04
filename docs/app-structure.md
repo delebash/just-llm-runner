@@ -676,7 +676,7 @@ assert the marker (a 200 from an empty ring proves nothing).
       the trigger button disabled (not spinning) while it runs
 - [ ] A batch shows real n/m; a polled job's percent reaches the strip
 - [ ] CLAUDE.md present, first Where-to-look row → this document
-- [ ] `docs/dev/TASKS.md` + `docs/dev/IDEAS.md` present per §13
+- [ ] `docs/dev/TASKS.md` + `docs/dev/IDEAS.md` + `docs/dev/RESEARCH.md` present per §13
 - [ ] Any deviation: flagged to the user AND recorded here
 
 ## 13 · The docs convention — every repo, including this one
@@ -693,6 +693,13 @@ docs campaign the same day):
   this repo's tracker, app work in the app's. One item, one home; cross-repo
   interest is a pointer, not a copy.
 - **`docs/dev/IDEAS.md`** holds unscheduled ideas — adding one is never starting it.
+- **`docs/dev/RESEARCH.md` is the research register** (ruled 2026-10-04) — what is
+  already known, by subject, one verified fact per bullet with how and when it was
+  checked and where the proof is. **Read the subject's section before researching
+  anything** (and put it in any agent's brief); research is not done until its facts
+  land there. The kit's register holds the shared stack's facts, each app's its
+  domain. `scripts/check-family.mjs` check 15 fails a missing register, a plan dated
+  2026-10-04 or later that the register doesn't link, and a register link to nothing.
 - **`docs/plans/*.md` keep history**: a completed plan gets a loud ✅ CLOSED /
   SUPERSEDED banner at the top (or moves to `docs/plans/archive/`); before a plan
   closes, any still-open item or durable ruling inside it is extracted to its real

@@ -765,6 +765,35 @@ function checkTrackerFormat() {
   }
 }
 
+// ── check 15 · research lands in the register (decided 2026-10-04) ─────────────
+// The day this was born, four review agents re-read JustVoice's code to learn
+// that installing a model restarts its speech runtime — written three days
+// earlier as one bullet in a 376-line plan doc that nothing pointed at. The rule
+// (app-structure §13): every repo keeps docs/dev/RESEARCH.md, organised by
+// subject; research is not done until its facts are there. This check can see
+// the LINK, not that the facts came with it — that half stays the rule. Plans
+// dated before the rule are indexed by hand, not policed.
+const RESEARCH_SINCE = "2026-10-04";
+
+function checkResearchRegister(name, repoDir) {
+  const reg = join(repoDir, "docs/dev/RESEARCH.md");
+  if (!existsSync(reg)) { fail(name, "docs/dev/RESEARCH.md missing — the research register (app-structure §13)"); return; }
+  const text = readFileSync(reg, "utf8");
+  const plans = join(repoDir, "docs/plans");
+  for (const f of existsSync(plans) ? readdirSync(plans) : []) {
+    const m = /^(\d{4}-\d{2}-\d{2})-.+\.md$/.exec(f);
+    if (!m || m[1] < RESEARCH_SINCE) continue;
+    if (!text.includes(f)) fail(name, `docs/plans/${f} is not linked from docs/dev/RESEARCH.md — research lands in the register`);
+  }
+  for (const [, target] of text.matchAll(/\]\(([^)\s]+)\)/g)) {
+    const path = target.split("#")[0];
+    if (!path || /^(https?|mailto):/.test(path)) continue;
+    if (!existsSync(resolve(dirname(reg), decodeURIComponent(path)))) {
+      fail(name, `docs/dev/RESEARCH.md links ${target}, which does not exist`);
+    }
+  }
+}
+
 // ── check 11 · app code never owns a task lifecycle (AI-call convention, §8) ──
 // The day this was born (2026-08-08): 17 hand-managed task sites in JustVoice,
 // every finish() bare, no LLM task ever showed a token — while the server
@@ -816,6 +845,7 @@ for (const app of APPS) {
   checkOneSaveDoor(app, files);
   checkOneShellDoor(app, files);
   checkNoWindowGlobal(app, files);
+  checkResearchRegister(app.name, app.dir);
 }
 checkShellParity();
 checkCrossAppTwins(perApp, kitFiles);
@@ -824,6 +854,7 @@ checkTrackerFormat();
 checkSkeletonCrossApp();
 checkRetired("kit", KIT, KIT_RETIRED);
 checkSkeletonKit();
+checkResearchRegister("kit", KIT);
 
 const showInfo = process.argv.includes("--info");
 console.log(`\nfamily check — ${APPS.length} apps against the kit (${exports_.size} kit exports)\n`);

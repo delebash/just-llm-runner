@@ -5,8 +5,14 @@
 // positioning). Supersedes JwSelect/JvSelect. Visuals are global .ui-select-*
 // in common/styles.css, tuned via host tokens.
 //
-//   v-model="value"  :options="[{label,value}…] | ['a','b']"
+//   v-model="value"  :options="[{label,value,hint?}…] | ['a','b']"
 //   :option-label :option-value :placeholder :disabled :show-clear :id :width
+//   :title :aria-label (on the trigger)
+//
+// An option's `hint` is a second, quieter line under its label in the OPEN
+// list only — the closed trigger shows the label alone, so a choice can carry
+// its example ("Tags" · "pick from the model's list: [fear] [sigh]") without
+// widening the control (JustVoice's persona filters, 2026-10-03).
 //
 // options may be plain strings/numbers OR objects. Reka deals in strings, so we
 // round-trip non-string values, and swap an empty-string value for an internal
@@ -29,6 +35,11 @@ const props = defineProps({
   id:         { type: String, default: undefined },
   inputId:    { type: String, default: undefined },
   width:      { type: String, default: "" }, // content cap: token/id/name/url/path/prose/edit/full
+  // Reka's SelectRoot renders no element of its own, so a plain `title` or
+  // `aria-label` attribute on <UiSelect> reached nothing; these two land on
+  // the trigger (2026-10-03).
+  title:      { type: String, default: undefined },
+  ariaLabel:  { type: String, default: undefined },
 });
 const emit = defineEmits(["update:modelValue"]);
 
@@ -37,7 +48,7 @@ const normalized = computed(() =>
   props.options.map((o) => {
     if (o == null) return { label: "", value: null };
     if (typeof o === "string" || typeof o === "number") return { label: String(o), value: o };
-    return { label: o[props.optionLabel], value: o[props.optionValue] };
+    return { label: o[props.optionLabel], value: o[props.optionValue], hint: o.hint || "" };
   })
 );
 
@@ -70,6 +81,8 @@ function clear(e) { e.stopPropagation(); emit("update:modelValue", null); }
   <SelectRoot v-model="stringValue" :disabled="disabled">
     <SelectTrigger
       :id="id || inputId"
+      :title="title"
+      :aria-label="ariaLabel"
       class="ui-select-trigger"
       :class="[width && `ui-w-${width}`, { 'is-empty': !selectedLabel }]"
     >
@@ -103,7 +116,11 @@ function clear(e) { e.stopPropagation(); emit("update:modelValue", null); }
             :value="itemValue(opt)"
             class="ui-select-item"
           >
-            <SelectItemText>{{ opt.label }}</SelectItemText>
+            <span v-if="opt.hint" class="ui-select-item-main">
+              <SelectItemText>{{ opt.label }}</SelectItemText>
+              <span class="ui-select-hint">{{ opt.hint }}</span>
+            </span>
+            <SelectItemText v-else>{{ opt.label }}</SelectItemText>
             <SelectItemIndicator class="ui-select-indicator">
               <svg viewBox="0 0 16 16" width="12" height="12" fill="none"><path d="M3 8.5l3 3 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </SelectItemIndicator>

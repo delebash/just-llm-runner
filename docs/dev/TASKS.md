@@ -11,6 +11,35 @@
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
 
+## FINDING — the data-dir ladder's four copies disagree, and Tauri writes outside the chosen root [2026-10-05]
+
+STATE:  FINDING — found by a study agent 2026-10-05 (JustVoice's
+        `docs/plans/2026-10-05-electron-node-study.md` §4.1); the kit's function lines
+        code-verified, the Rust lines [attributed]. Tracked at the user's word: "track all side
+        finidngs". Against the 2026-08-14 ruling: nothing lands where the user didn't choose.
+BUILT:  the copies — `llm_runner/platform/data_paths.py:41-128` (`_is_writable` 41,
+        `install_dir` 90, `resolve_data_dir` 99); JustVoice `src-tauri/src/lib.rs:70-207`,
+        JustWrite `lib.rs:254-344`, docgen `lib.rs:36-124`. They differ: the OS fallback folder
+        (Tauri's `app_data_dir` = `%APPDATA%\<identifier>` vs platformdirs'
+        `%LOCALAPPDATA%\<App>\<App>`); `dataroot.txt` is read only by the Rust; the dev install
+        dir is `target/debug` for Rust and the checkout for Python. Tauri itself writes
+        `%APPDATA%\<id>\.window-state.json` (all three apps) and `%LOCALAPPDATA%\<id>\EBWebView`
+        (JustVoice, JustWrite).
+OPEN:   closed by the Electron move — one JS ladder module used by Electron's main process and
+        the headless server, `app.setPath('sessionData', …)` under the chosen root, window state
+        stored there (study §4.2; JustVoice TASKS "The family moves to Electron…"). Until then,
+        nothing.
+GO:     needed.
+
+## FINDING — JustWrite and docgen hard-kill their servers on stop; only JustVoice stops gracefully [2026-10-05]
+
+STATE:  FINDING — code-verified 2026-10-05 (study §4.2). Tracked at the user's word.
+BUILT:  JustWrite `src-tauri/src/lib.rs:360` and docgen `lib.rs:140` — `kill_child` →
+        `child.kill()`; JustVoice posts `/v1/shutdown`, waits, then kills
+        (`src-tauri/src/lib.rs:235-257`, since 2026-09-29).
+OPEN:   the shared Electron main module's stop — graceful for all three (study §4.2).
+GO:     needed.
+
 ## Engine update safety + the stable channel — plan written, Opus executes [verified 2026-09-19]
 
 STATE:  DECIDED 2026-09-19. The llama.cpp review (`docs/llama-cpp-watch.md`, row

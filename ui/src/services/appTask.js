@@ -41,7 +41,7 @@ export function toTaskUsage(u) {
  *
  *   const r = await withAiTask(
  *     { feature: "speaker_attribution", label: `Speaker extraction · ${title}`,
- *       stats: [`${words} words in`], onRetry: () => runAnalyze() },
+ *       stats: [`${words} words`], onRetry: () => runAnalyze() },
  *     async (task) => {
  *       const r = await api.request(path, { signal: task.signal, ... });
  *       task.setStats([...]);                  // domain numbers, any time

@@ -45,6 +45,7 @@ One fact per bullet, then *how it was checked and when*, then where the proof is
   one fact — don't redo the research.
 
 Subjects: [1 · Memory: the arbiter and the probes](#1--memory-the-arbiter-and-the-probes) ·
+[2 · The family stack: Electron, Node, phones](#2--the-family-stack-electron-node-phones) ·
 [Records not yet distilled](#records-not-yet-distilled)
 
 ---
@@ -70,6 +71,76 @@ What a speech model costs, measured, is in JustVoice's register §2.
 - `used_pool_mb()` is the family's one cached reading of used pool memory; `fresh=True` skips
   the cache (the load door must). None = unmeasurable, and callers fall back to the ledger
   rather than guess. — *code, 2026-10-04* · `llm_runner/runner/hardware.py:468-480`.
+
+---
+
+## 2 · The family stack: Electron, Node, phones
+
+**Records:** JustVoice's
+[`2026-10-05-electron-node-study.md`](../../../JustVioce/docs/plans/2026-10-05-electron-node-study.md)
+(the study — direction decided 2026-10-05: Electron + a Node server, Tauri and Python go, the
+whole family; tracked in JustVoice's TASKS). JustVoice's own facts are in its register §6.
+Agent findings were checked against code or upstream pages on 2026-10-05 by the agents; the
+ones this session re-checked are marked ✓ in the study.
+
+**Electron and Node** (*web + measured, 2026-10-05*):
+
+- Electron 44.5.1 (2026-09-29) ships Chromium 152.0.7977.130 and Node 24.21.0; the latest
+  three majors are supported, 45 goes stable 2026-10-20 — about six months of life per major.
+  WebView2 on the dev machine is already 154.0.4258.53.
+- `ELECTRON_RUN_AS_NODE=1` runs the app's own exe as plain Node (no display), if the `runAsNode`
+  fuse is left on — one binary can serve headless.
+- `globalShortcut` fires on press only: no key-up, no left/right modifiers, no modifier-only
+  chords. `uiohook-napi` compiles in libuiohook, LGPL-3.0-or-later — fails the licence rule.
+- System-audio loopback is built in on Windows (`setDisplayMediaRequestHandler`, `audio:
+  'loopback'`); macOS has open bug electron#52738 on the custom-handler path; Linux has no
+  backend.
+- electron-builder (MIT) covers NSIS, AppImage, deb/rpm, dmg; `electron-updater` updates all
+  three OSes. Electron Forge has no NSIS or AppImage.
+- An Electron NSIS installer of a small Vue app is 111.7 MB, 370 MB installed (*measured*).
+
+**SQLite in Node** (*web + measured*):
+
+- `node:sqlite` is "Release candidate (1.2)" in Node 24 and 26, not Stable. It works with no
+  flag in Electron 44.5.1's main process, a `utilityProcess` and under `ELECTRON_RUN_AS_NODE`,
+  including `VACUUM INTO` and `ATTACH` (*measured*).
+- better-sqlite3 13 is Node-API with prebuilt binaries in the package: 13.0.3 loads unchanged in
+  Electron 44.5.1 and Node 26.5.0 — no per-Electron rebuild (*measured*).
+
+**The kit in JavaScript** (*code + measured*, study §3):
+
+- `llm_runner`: 70 files / 25,941 lines, 61 test files / 19,215 lines, 1,019 test functions,
+  119 routes, 26 tables; ~100 ORM query sites; the kit's wire format is camelCase
+  (`llm/schema.py:11-17`, `runner/schema.py:20-26`).
+- **Process trees on Windows**: Node's `child_process` puts children in libuv's kill-on-close
+  job, but that job sets SILENT_BREAKAWAY_OK — a **grandchild survived** a hard kill of the
+  server; with our own Job Object through `koffi` (MIT) it died too (*measured*). llama-server's
+  router mode starts per-model children (`runner/arbiter.py:4`, `process.py:382`), so the kit's
+  spawn needs that job (today: ctypes, `runner/process.py:831-907`).
+- undici's header and body timeouts default to 300 s; `fetch` ignores `HTTP(S)_PROXY` unless
+  `NODE_USE_ENV_PROXY=1`.
+- JavaScript's `\w`/`\b` are ASCII-only and it has no `casefold` — a naive regex port gives
+  wrong results on non-English text silently.
+- The official `openai`, `@anthropic-ai/sdk` and `@google/genai` JS SDKs carry every call the
+  kit's adapters use; the MCP SDK mounts in Fastify as an ordinary route.
+
+**The data-dir ladder** (*agent*, study §4.1): the Rust shells and `platform/data_paths.py`
+disagree today — the OS fallback folder (Tauri's `%APPDATA%\<id>` vs platformdirs'
+`%LOCALAPPDATA%\<App>\<App>`), the `dataroot.txt` pointer (only Rust reads it) and the dev root
+(`target/debug` vs the checkout). Tauri also writes `.window-state.json` and `EBWebView` outside
+the chosen root.
+
+**Phones** (*web*, study §5):
+
+- Tauri 2's sidecar works on desktop only. iOS apps may not spawn child processes, so the
+  kit's runner (download a llama.cpp binary, spawn it) cannot exist on iOS.
+- Capacitor (Ionic, MIT, 8.5.2) runs a plain Vue build — Ionic Framework (a UI toolkit) isn't
+  needed. Capawesome sells its SQLite and some other plugins (Insiders: $99/month); its
+  Capacitor-Electron platform is MIT, v0.1.1, three months old. `@capacitor-community/electron`
+  is unmaintained. `@capacitor-community/sqlite` 8.1.1 is MIT.
+- CapacitorHttp buffers whole responses and has no SSE; the kit's client streams with
+  `res.body.getReader()` (`ui/src/client.js:157-169`). No maintained MIT llama.cpp plugin for
+  Capacitor exists.
 
 ---
 

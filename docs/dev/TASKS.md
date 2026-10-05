@@ -11,6 +11,27 @@
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
 
+## The boot splash can hang with no way out when the warm model is already loaded [2026-10-05]
+
+STATE:  DECIDED 2026-10-05 — JustVoice's user, "your rec on all go", on the finding as shown:
+        "With warm-on-boot on, the splash showed just 'JustVoice' for over 4 minutes, with no
+        Continue button. It clears only when the model's status changes to loaded, and the button
+        appears only once a load task exists. When the model was already loaded and nothing
+        changed, there was no way out. That code is in the kit (BootModelLoad.vue)… Should I look
+        into it?" — the rec given with the go: check whether the model is already loaded when the
+        splash appears, instead of waiting for a change that may never come.
+WHY:    `BootModelLoad.vue` dismissed on a `watch(warmRowStatus)` with no `immediate`: when the
+        models list already said "loaded" as the splash mounted, nothing changed, nothing fired;
+        `retryLoad` of a resident model starts no task, so the Continue button (shown only with
+        a task) never appeared. Hit 2026-10-05 in JustVoice's headless checks against the running
+        app, three times in a row after AI work.
+BUILT:  2026-10-05 — `ui/src/components/BootModelLoad.vue`: the watch is `immediate`. JustWrite
+        and JustVoice `npm run build:vite` both build. Live in JustVoice (warm-on-boot on, the
+        running app): the headless check that hung three runs in a row opened straight through.
+        A race, so one clean run is evidence, not proof.
+OPEN:   none — close (delete) once pushed.
+GO:     given 2026-10-05.
+
 ## FINDING — the data-dir ladder's four copies disagree, and Tauri writes outside the chosen root [2026-10-05]
 
 STATE:  FINDING — found by a study agent 2026-10-05 (JustVoice's

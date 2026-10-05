@@ -32,9 +32,13 @@ const engineTask = computed(() =>
 const shownTask = computed(() => engineTask.value || warmTask.value);
 const warmRowStatus = computed(() =>
   warmModelId.value ? (rm.models.value.find((m) => m.id === warmModelId.value)?.status || "") : "");
+// `immediate` (2026-10-05): when the list ALREADY says loaded as the splash
+// mounts, nothing changes, so a plain watch never fired — and retryLoad of a
+// resident model starts no task, so there was no Continue either. JustVoice's
+// headless checks hung on "JustVoice" for minutes, three times running.
 watch(warmRowStatus, (s) => {
   if (warmModelId.value && (s === "loaded" || s === "sleeping")) setTimeout(dismiss, 700);
-});
+}, { immediate: true });
 function dismiss() {
   warmModelId.value = ""; // the ONE signal the host splash renders on
 }

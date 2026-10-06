@@ -60,6 +60,10 @@ class StreamDelta:
     # reply was cut off — by max_tokens or by a full context (2026-09-28: llama.cpp
     # sends no error when the context fills mid-answer, only this).
     finish_reason: str = ""
+    # A piece of the model's THINKING, streamed before its answer (2026-10-06, the
+    # thinking-in-the-strip plan): llama.cpp sends it as `delta.reasoning_content`.
+    # "" on every other event. Never part of the answer's text.
+    reasoning: str = ""
 
 
 def pop_reasoning(

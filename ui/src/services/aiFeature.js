@@ -151,6 +151,12 @@ export async function runAiFeature({
           framesSeen += 1;
           if (handle) handle.setPrefill(p);
         },
+        // A thinking model's reasoning (2026-10-06): the strip says "thinking…"
+        // and counts it; never part of `content`.
+        onThinking: (text) => {
+          framesSeen += 1;
+          if (handle) handle.onThinking(text);
+        },
       });
     } catch (err) {
       if (!shouldFallBack(err, framesSeen, effectiveSignal)) throw err;

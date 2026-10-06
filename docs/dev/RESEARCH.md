@@ -146,7 +146,8 @@ the chosen root.
 
 ## 3 · AI tasks and the stream frames
 
-- An app endpoint's SSE stream speaks five frames: `{delta}` (tokens), `{progress}` (prompt
+- An app endpoint's SSE stream speaks six frames: `{delta}` (answer tokens), `{thinking}` (a
+  thinking model's reasoning, before its answer — added 2026-10-06), `{progress}` (prompt
   reading, before the first token only), `{step: {name, done, total}}` (a later pass over part
   of the work, counted — added 2026-10-06), `{done, promptTokens, completionTokens, model, …}`
   and `[DONE]`; errors as `{error}`. — *code, 2026-10-06* · `ui/src/client.js` requestStream.
@@ -157,17 +158,19 @@ the chosen root.
 - A strip says *stuck* only on a streaming task whose last token is ≥ 25 s old (or 8× its own
   mean gap); only token deltas refresh it — a step or a count does not. — *code, 2026-10-06* ·
   `ui/src/common/services/streamFreshness.js`, `stores/aiTasks.js` `_recordDelta`.
-- A task's tok/s is tokens ÷ (now − first delta), shown only once that span reaches 1 s
+- A task's tok/s is tokens ÷ (now − first token), shown only once that span reaches 1 s
   (`common/services/runStats.js` `taskTps`, since 2026-10-06 — before, the span was floored at
-  1 ms and 3 tokens read 3000 tok/s); the strip and the status panel both read it. Tokens are the
-  streamed content's characters ÷ 4 while running and `usage.completionTokens` at done
-  (`stores/aiTasks.js:327-330`). — *code + live, 2026-10-06*.
-- A model's thinking never reaches an app stream: llama.cpp sends it as
-  `delta.reasoning_content`, and `llm/openai_compat.py:291` reads only `delta.content`. So
-  thinking counts as wait before the first token and, at done, as tokens over the content-only
-  span. — *code + live, 2026-10-06* · JustVoice's Analyze (think on, budget 1024): first token
-  26.7 s, ~28 tok/s live, 1720 tokens → 122.2 tok/s at done; the second look (no thinking)
-  48.6 tok/s.
+  1 ms and 3 tokens read 3000 tok/s); the strip and the status panel both read it. Tokens are
+  (answer + thinking characters) ÷ 4 while running (`taskTokensSoFar`) and
+  `usage.completionTokens` at done. — *code + live, 2026-10-06*.
+- A model's thinking reaches the strip (since 2026-10-06): llama.cpp streams it as
+  `delta.reasoning_content` (one delta per token, before the answer — live probe: 199 thinking
+  deltas, first at 1.07 s); `openai_compat.stream_chat` yields `StreamDelta(reasoning=…)`, the
+  kit's `/v1/ai/stream` and JustVoice's Analyze / Second look streams send `{thinking}`, and the
+  task store's `_recordThinking` makes its first piece the first token and counts it
+  (`thinkingChars`, `thinking` until the answer starts). The OpenAI-compatible adapter only —
+  cloud providers' thinking is not carried. — *code + live, 2026-10-06* · The Keystone's Analyze:
+  *thinking…* from 7.1 s (was "first token in 26.7 s") to 29 s at ~35 tok/s live (was ~28).
 
 ## 4 · The AI cache (shared between apps)
 

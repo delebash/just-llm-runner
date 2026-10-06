@@ -20,7 +20,7 @@ import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 // Shared run-stat format (#304). Tokens + tok/s single-sourced with AiTaskStrip; the local
 // fmtSeconds below stays (it adds a minutes form for long history durations the shared one doesn't).
-import { fmtTokens, fmtTps, taskTps } from "../common/services/runStats.js";
+import { fmtTokens, fmtTps, taskTokensSoFar, taskTps } from "../common/services/runStats.js";
 import { freshnessOf } from "../common/services/streamFreshness.js";
 
 const tasks = useAiTasksStore();
@@ -165,7 +165,7 @@ const phaseLabel = {
           <div class="aip-task-stats">
             <span class="aip-stat" :data-phase="t.status">
               <span class="aip-stat-dot" />
-              {{ phaseLabel[t.status] || t.status }}
+              {{ t.thinking && t.status === "streaming" ? "Thinking" : (phaseLabel[t.status] || t.status) }}
             </span>
             <span v-if="t.progress" class="aip-stat"
               v-tooltip.bottom="t.progress.hint || 'Batch progress — Cancel stops the whole run'">
@@ -184,9 +184,9 @@ const phaseLabel = {
             <span v-if="firstTokenMs(t) != null" class="aip-stat" v-tooltip.bottom="'Latency from request to first streamed token'">
               first {{ (firstTokenMs(t) / 1000).toFixed(1) }}s
             </span>
-            <span v-if="t.tokensOut || t.chars" class="aip-stat" v-tooltip.bottom="t.tokensOut ? 'Exact output tokens (from the model)' : 'Approximate from streamed characters (~4 chars/token)'">
+            <span v-if="t.tokensOut || taskTokensSoFar(t)" class="aip-stat" v-tooltip.bottom="t.tokensOut ? 'Exact output tokens (from the model)' : 'Approximate from streamed characters (~4 chars/token), thinking included'">
               <template v-if="t.tokensOut">{{ fmtTokens({ outputTokens: t.tokensOut }) }}</template>
-              <template v-else>~{{ fmtTokens({ outputTokens: Math.round(t.chars / 4) }) }}</template>
+              <template v-else>~{{ fmtTokens({ outputTokens: taskTokensSoFar(t) }) }}</template>
             </span>
             <span v-if="tokensPerSecond(t)" class="aip-stat">
               {{ fmtTps(tokensPerSecond(t)) }}

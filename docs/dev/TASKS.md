@@ -118,7 +118,7 @@ BUILT:  2026-10-05 — `ui/src/components/BootModelLoad.vue`: the watch is `imme
 OPEN:   none — close (delete) once pushed.
 GO:     given 2026-10-05.
 
-## The model's thinking reaches the AI task strip [DECIDED 2026-10-06 — plan written, build waits]
+## The model's thinking reaches the AI task strip [DECIDED 2026-10-06]
 
 STATE:  DECIDED 2026-10-06 — "your rec go", on the lean as shown: "1. Should the kit pass the thinking
         through so the strip can show it? Lean: yes. Send it as its own kind of stream message, so the
@@ -136,7 +136,19 @@ BUILT:  the plan — `docs/plans/2026-10-06-thinking-in-the-strip.md` (what it i
         answer together … Lean: yes. 3. Local models only for now (llama.cpp and OpenAI-compatible servers),
         with cloud models' thinking as a follow-up? Lean: yes … 4. Should the AI tasks panel say Thinking with
         the same numbers, and never show the thinking text itself? Lean: yes."
-OPEN:   the build (K1 kit server · K2 kit client · J1 JustVoice).
+        BUILT 2026-10-06 — as the plan: K1 `StreamDelta.reasoning`, `openai_compat.stream_chat` yields it,
+        `/v1/ai/stream` sends `{thinking}`; K2 `requestStream` `onThinking`, `runAiFeatureStream` /
+        `runAiEndpointStream` → `handle.onThinking` → store `_recordThinking` (`thinkingChars`,
+        `thinking`), `runStats.taskTokensSoFar` for the strip, panel and tok/s, the strip's *thinking…*,
+        the panel's *Thinking*; J1 JustVoice `pipeline.py` / `second_look.py` `on_thinking`,
+        `extraction_api.py` Analyze + Second look send `{thinking}`. Checked live on JustVoice (The
+        Keystone → Re-analyze, then Cancel): reading prompt to 81 %, *thinking…* with "first token in
+        7.1 s" (was 26.7 s), ~35 tok/s steady through the think, the answer from 29 s; cancelled — the
+        chapter's lines and analyzed time unchanged; no page errors. Ruff clean; JustVoice + JustWrite
+        builds clean. Not seen: the done figure (the run was cancelled so nothing saved) — the live
+        count is characters ÷ 4, the done count the model's own, so they can still differ. Docs: kit
+        RESEARCH §3; JV `ai-features.md`, `whats-new.md`; JW `ai-providers.md` (the panel).
+OPEN:   none. Cloud providers' thinking (Anthropic, Gemini, OpenAI, Ollama) — not carried, by decision.
 GO:     given 2026-10-06 (plan and build).
 
 ## The LLM engine setup says "both download at once" only when both do [DECIDED 2026-10-06]

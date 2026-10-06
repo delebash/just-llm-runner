@@ -27,16 +27,25 @@ export function fmtTps(tps) {
 }
 
 /**
+ * A running task's output tokens so far, estimated: its streamed characters ÷ 4 —
+ * the answer's and a thinking model's reasoning together (2026-10-06), which is what
+ * the model's own count includes once it lands.
+ */
+export function taskTokensSoFar(task) {
+  return Math.max(0, Math.round(((task?.chars || 0) + (task?.thinkingChars || 0)) / 4));
+}
+
+/**
  * A task's output tokens per second since its first token, up to `endMs` — or null
  * until a second of output has arrived (2026-10-06: 3 tokens a millisecond after the
  * first read "3000.0 tok/s"). Tokens are the real count once usage lands, else
- * characters ÷ 4. The AI task strip and the status panel both read it.
+ * `taskTokensSoFar`. The AI task strip and the status panel both read it.
  */
 export function taskTps(task, endMs) {
   if (!task?.firstDeltaAt) return null;
   const span = endMs - task.firstDeltaAt;
   if (span < 1000) return null;
-  const tokens = task.tokensOut || Math.max(0, Math.round((task.chars || 0) / 4));
+  const tokens = task.tokensOut || taskTokensSoFar(task);
   if (!tokens) return null;
   return (tokens / (span / 1000)).toFixed(1);
 }

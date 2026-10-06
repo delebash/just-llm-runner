@@ -157,6 +157,11 @@ export const useAiTasksStore = defineStore("aiTasks", {
         tokensIn: 0,
         tokensOut: 0,
         chars: 0,
+        // A thinking model's reasoning (2026-10-06): its streamed characters, and
+        // whether it is still thinking (true from its first thought to the first
+        // answer token). Counted with `chars` in the tokens and tok/s; never shown.
+        thinkingChars: 0,
+        thinking: false,
         preview: "",
         // Prompt-eval progress 0..1 (§7.4 B6-2, builtin engine only) — set by
         // {progress} stream frames while the model reads the prompt, cleared
@@ -177,6 +182,7 @@ export const useAiTasksStore = defineStore("aiTasks", {
         id,
         signal: controller.signal,
         onDelta: (delta, content) => this._recordDelta(id, delta, content),
+        onThinking: (text) => this._recordThinking(id, text),
         markStreaming: () => this._markStreaming(id),
         finish: (result) => this._finish(id, result),
         fail: (err) => this._fail(id, err),
@@ -307,6 +313,7 @@ export const useAiTasksStore = defineStore("aiTasks", {
 
       // Generation started — the prefill phase is over (§7.4 B6-2).
       t.prefill = null;
+      t.thinking = false; // the answer has begun
       if (t.status === "connecting") t.status = "streaming";
       if (typeof content === "string") {
         t.preview = content;
@@ -315,6 +322,22 @@ export const useAiTasksStore = defineStore("aiTasks", {
         t.preview = (t.preview || "") + delta;
         t.chars = t.preview.length;
       }
+    },
+
+    // A piece of a thinking model's reasoning (2026-10-06). It IS the model's output:
+    // its first piece is the first token, each piece keeps freshness alive through a
+    // long think, and it counts in the tokens — never in the answer's preview.
+    _recordThinking(id, text) {
+      const t = this.tasks[id];
+      if (!t) return;
+      const now = Date.now();
+      if (!t.firstDeltaAt) t.firstDeltaAt = now;
+      t.lastDeltaAt = now;
+      t.deltaCount = (t.deltaCount || 0) + 1;
+      t.prefill = null;
+      if (t.status === "connecting") t.status = "streaming";
+      if (!t.chars) t.thinking = true;
+      t.thinkingChars = (t.thinkingChars || 0) + (typeof text === "string" ? text.length : 0);
     },
 
     _finish(id, result) {

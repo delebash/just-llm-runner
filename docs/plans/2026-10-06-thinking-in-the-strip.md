@@ -4,8 +4,9 @@
 The user, 2026-10-06: "your rec go", on the lean as shown — "Lean: yes. Send it as its own kind
 of stream message, so the strip says "thinking…" with a token count during that wait, and the
 done speed counts all the tokens. It touches every AI stream in all three apps, so I'd first
-bring you the plan with the table of every caller it affects." This page is that plan. **The
-build waits for its own go** — and §5 has four questions to answer first.
+bring you the plan with the table of every caller it affects." This page is that plan.
+**Status: BUILT 2026-10-06** — the build's go ("go on rest your rec") answered §5 as leaned, all
+four yes; what was checked live is in TASKS "The model's thinking reaches the AI task strip".
 
 ## 1 · What it is
 

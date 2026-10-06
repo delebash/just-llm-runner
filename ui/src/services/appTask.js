@@ -129,7 +129,8 @@ export async function runAiEndpoint({ request, path, body, method = "POST", task
  * domain payload (rows, route, floor) right on it. A `{step: {name, done,
  * total}}` frame — a later pass over part of the work — goes on the strip's
  * count: `stepText(step)` words it, `stepHint(step)` is its tooltip, and
- * `onStep(step)` tells the app (2026-10-06).
+ * `onStep(step)` tells the app (2026-10-06). A `{thinking}` frame — a thinking
+ * model's reasoning — shows as "thinking…" and counts in the tokens (2026-10-06).
  *
  * `url` may be app-resolved and absolute (`api.serverUrl + path`) — the kit
  * client passes absolute URLs through — or a bare path against the kit base.
@@ -149,6 +150,7 @@ export async function runAiEndpointStream({ url, body, task, onDelta, onStep, st
     }, {
       signal: t.signal,
       onProgress: (p) => t.setPrefill(p),
+      onThinking: (text) => t.onThinking(text),
       onStep: (s) => {
         t.setProgress(s.done, s.total, stepText?.(s), stepHint?.(s));
         onStep?.(s);

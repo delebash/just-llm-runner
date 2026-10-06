@@ -24,7 +24,7 @@ import { computed } from "vue";
 import { useAiTasksStore } from "../stores/aiTasks.js";
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
-import { fmtTokens, fmtTps, taskTps } from "../common/services/runStats.js";
+import { fmtTokens, fmtTps, taskTokensSoFar, taskTps } from "../common/services/runStats.js";
 import { freshnessOf } from "../common/services/streamFreshness.js";
 
 const props = defineProps({
@@ -79,7 +79,7 @@ const firstTokenSeconds = computed(() => {
 const tokensLabel = computed(() => {
   if (!props.task) return null;
   if (props.task.tokensOut) return fmtTokens({ outputTokens: props.task.tokensOut });
-  if (props.task.chars)     return `~${fmtTokens({ outputTokens: Math.round(props.task.chars / 4) })}`;
+  if (taskTokensSoFar(props.task)) return `~${fmtTokens({ outputTokens: taskTokensSoFar(props.task) })}`;
   return null;
 });
 const tokensPerSecond = computed(() => taskTps(props.task, endedAt.value));
@@ -121,6 +121,11 @@ function openPanel() { tasks.openPanel(); }
     <span v-if="task.prefill != null" class="sts-stat"
       v-tooltip.bottom="'The model is reading your prompt'">
       reading prompt {{ Math.round(task.prefill * 100) }}%
+    </span>
+    <!-- A thinking model before its answer (2026-10-06): its tokens count below. -->
+    <span v-if="task.thinking && !isDone" class="sts-stat"
+      v-tooltip.bottom="'The model is thinking before it answers — its thinking counts in the tokens'">
+      thinking…
     </span>
     <span class="sts-stat">{{ elapsedSeconds }}s</span>
     <span v-if="firstTokenSeconds" class="sts-stat">first token in {{ firstTokenSeconds }}s</span>

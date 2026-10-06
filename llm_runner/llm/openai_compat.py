@@ -288,7 +288,13 @@ class OpenAICompatAdapter:
                 # The final usage frame carries an empty choices list.
                 for choice in evt.get("choices") or []:
                     finish = choice.get("finish_reason") or finish
-                    chunk = (choice.get("delta") or {}).get("content") or ""
+                    d = choice.get("delta") or {}
+                    # The model's thinking, before its answer (llama.cpp's default
+                    # reasoning_format splits it out) — its own event, never answer text.
+                    thought = d.get("reasoning_content") or ""
+                    if thought:
+                        yield StreamDelta(reasoning=thought)
+                    chunk = d.get("content") or ""
                     if chunk:
                         yield StreamDelta(text=chunk)
         yield StreamDelta(done=True, prompt_tokens=pt, completion_tokens=ct, finish_reason=finish)

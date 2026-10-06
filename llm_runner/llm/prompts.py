@@ -725,7 +725,8 @@ def make_feature_router(
         """Streaming counterpart to /run for the interactive features (writerAI /
         chat / rag). Emits SSE: `data: {"delta": "..."}` per chunk, optional
         `data: {"progress": 0..1}` prompt-eval frames before the first token
-        (builtin engine only — §7.4 B6-2), a final `data: {"done": true,
+        (builtin engine only — §7.4 B6-2), `data: {"thinking": "..."}` per piece
+        of a thinking model's reasoning before its answer (2026-10-06), a final `data: {"done": true,
         "promptTokens", "completionTokens", "model", "cost"}` carrying everything
         /run's response carries, then `data: [DONE]`. Errors arrive as
         `data: {"error": "..."}` (the stream has started, so we can't send an
@@ -787,6 +788,8 @@ def make_feature_router(
                         }
                     elif delta.progress is not None:
                         frame = {"progress": delta.progress}
+                    elif delta.reasoning:
+                        frame = {"thinking": delta.reasoning}
                     else:
                         frame = {"delta": delta.text}
                     yield f"data: {json.dumps(frame)}\n\n"

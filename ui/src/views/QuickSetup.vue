@@ -91,8 +91,14 @@ const cacheNote = ref("");
 // engine, was offered here as "JustWrite Server already has the engine", pre-selected,
 // and one proceed click repointed a full install's cache at a Temp dir — the wizard's
 // question exists to skip model downloads, and a cache with none to offer can't.
+// Never this app's OWN cache (2026-10-06): when the cache in use is a sibling's, the
+// server lists "this app" among the options as the way back — and a leftover folder
+// there made it look like a cache with models, so the "share" pick chose the app's own
+// empty folder and the model downloaded again. Sharing means ANOTHER app's files.
 const cacheOffer = computed(() =>
-  (cacheState.value?.options || []).find((o) => o.exists && o.models?.length) || null,
+  (cacheState.value?.options || []).find(
+    (o) => o.exists && o.models?.length && o.root !== cacheState.value?.ownRoot,
+  ) || null,
 );
 function fmtCacheBytes(n) {
   if (!n) return "0 B";
@@ -623,6 +629,14 @@ watch(() => chatTask.state, (s) => {
   if (s === "done" && step.value === "apply") finishApply();
 });
 
+// Every download of the apply step cancelled (or cancelled and dismissed), none running
+// or finished (2026-10-06): the step had no bar left and no button — only the corner ×.
+// It now says so and offers Back and Close.
+// `applying` covers the moment between Apply and the downloads starting, when every
+// task is still empty.
+const applyStopped = computed(() => step.value === "apply" && !applying.value
+  && [engineTask, chatTask, embedTask].every((t) => !t.state || t.state === "cancelled"));
+
 // The completion tail — EXTRACTED so a Retry (via the chat watch) reaches it too. It records
 // whether this box already has measured/class tunes for the chosen model (drives the done-step
 // Optimize vs Re-optimize label + the "tuned for your hardware ✓" note), then advances to the
@@ -897,7 +911,7 @@ defineExpose({ openWizard });
 
     <AppModal
       v-if="open"
-      :title="step === 'detect' ? 'Probing your hardware…' : step === 'configured' ? L.alreadyTitle : step === 'calibrate' ? L.checkTitle : step === 'apply' ? 'Setting up…' : step === 'done' ? 'All set' : QC.confirmTitle"
+      :title="step === 'detect' ? 'Probing your hardware…' : step === 'configured' ? L.alreadyTitle : step === 'calibrate' ? L.checkTitle : step === 'apply' ? (applyStopped ? 'Setup stopped' : 'Setting up…') : step === 'done' ? 'All set' : QC.confirmTitle"
       :max-width="'640px'"
       :closable="!optRunning && !calRunning && engineTask.state !== 'running' && chatTask.state !== 'running' && embedTask.state !== 'running'"
       @close="onModalClose"
@@ -1045,7 +1059,14 @@ defineExpose({ openWizard });
 
       <!-- APPLY -->
       <template v-else-if="step === 'apply'">
-        <p class="lu-qs-applying">
+        <template v-if="applyStopped">
+          <p class="lu-qs-applying"><b>Setup stopped — nothing downloaded.</b></p>
+          <p class="lu-muted lu-qs-applynote">
+            Back returns to your choices — Apply there starts the downloads again. Close leaves
+            the setup; Re-run LLM engine setup opens it again any time.
+          </p>
+        </template>
+        <p v-else class="lu-qs-applying">
           {{ engineTask.state
             ? "Setting up your models — installing the engine first, then your model."
             : "Setting up your models — both download at once." }}
@@ -1058,7 +1079,7 @@ defineExpose({ openWizard });
         <DownloadBar v-if="chatTask.state" :title="modelById[pick.default]?.name || pick.default" :role="QC.chatRole" :task="chatTask" />
         <DownloadBar v-if="embedTask.state" :title="embedName" :role="QC.embedRole" :task="embedTask" />
 
-        <p class="lu-muted lu-qs-applynote">
+        <p v-if="!applyStopped" class="lu-muted lu-qs-applynote">
           A model is several gigabytes, so a first run can take a few minutes — each only
           downloads once. Cancel stops a download; Retry starts it again.
         </p>
@@ -1182,6 +1203,11 @@ defineExpose({ openWizard });
           <UiButton v-else intent="primary" :disabled="applyDisabled" :loading="applying" @click="apply">
             {{ L.applyButton }}
           </UiButton>
+        </template>
+        <template v-else-if="step === 'apply' && applyStopped">
+          <UiButton intent="ghost" @click="step = 'confirm'">Back</UiButton>
+          <span class="lu-qs-spacer" />
+          <UiButton intent="primary" @click="attemptClose">{{ L.closeButton }}</UiButton>
         </template>
         <template v-else-if="step === 'done'">
           <span class="lu-qs-spacer" />

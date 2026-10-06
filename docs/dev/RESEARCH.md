@@ -158,6 +158,25 @@ the chosen root.
   mean gap); only token deltas refresh it — a step or a count does not. — *code, 2026-10-06* ·
   `ui/src/common/services/streamFreshness.js`, `stores/aiTasks.js` `_recordDelta`.
 
+## 4 · The AI cache (shared between apps)
+
+- The cache choice is a stored setting (`runner_config` cache root, "" = the app's own
+  `<data>/ai-cache`); startup takes an explicit host root, else the stored choice, else the own
+  folder (`llm/install.py` `resolve_cache_roots`). A factory reset clears the choice, but the
+  running engine keeps its cache until the next start. — *code, 2026-10-06*.
+- `GET /v1/ai/engine-cache` never lists the cache in use among `options`, and lists the app's own
+  folder (as "this app") whenever the cache in use is not it (`llm/cache_api.py`). The setup
+  recommends the first option with models — since 2026-10-06 never `ownRoot` (`QuickSetup.vue`
+  `cacheOffer`). — *code, 2026-10-06*.
+- A repo counts as a model in a cache only when a finished file sits in its `snapshots/`, and a
+  cache's bytes leave out `.part` / `.incomplete` / `.tmp` files (`runner/cache_registry.py`
+  `summarize`, 2026-10-06). Before, a `models--…` folder holding only a `.part` counted.
+  — *code + measured on a scratch tree, 2026-10-06*.
+- What re-downloaded gemma on JustVoice (2026-10-06): a factory reset without a restart left it on
+  JustWrite's cache; its own folder held a `models--unsloth--gemma-4-26B-A4B-it-qat-GGUF` folder
+  from an unfinished 2026-10-05 download, so "this app" looked like a cache with models and the
+  setup's share pick chose it — 14,249,047,104 bytes fetched again. — *log + disk, 2026-10-06*.
+
 ---
 
 ## Records not yet distilled

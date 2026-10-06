@@ -169,9 +169,22 @@ def register(product: str, cache_root, data_dir=None) -> None:
         log.warning("could not record this app's cache root in %s", path, exc_info=True)
 
 
+# A download still in progress (or abandoned) — never a model the cache HAS.
+_UNFINISHED = (".part", ".incomplete", ".tmp")
+
+
+def _finished(path: Path) -> bool:
+    return not path.name.endswith(_UNFINISHED)
+
+
 def summarize(root) -> dict:
     """What is actually in a cache root: engine builds, cached model repos, bytes.
-    The wizard shows this so "share" is a decision about real contents, not a path."""
+    The wizard shows this so "share" is a decision about real contents, not a path.
+
+    A repo counts as a model only when a FINISHED file sits in its `snapshots/`, and
+    `bytes` leaves out unfinished downloads (2026-10-06): a `models--…` folder holding
+    nothing but a `.part` had made JustVoice's own empty cache look like one with
+    models, and the setup's "share" pick chose it — 14 GB fetched again."""
     root = Path(root)
     builds: list[str] = []
     models: list[str] = []
@@ -182,11 +195,17 @@ def summarize(root) -> dict:
     hf = root / "hf"
     if hf.is_dir():
         # The HF layout is `models--<owner>--<repo>`; render it back as `owner/repo`.
-        models = sorted(d.name.replace("models--", "", 1).replace("--", "/")
-                        for d in hf.iterdir() if d.is_dir() and d.name.startswith("models--"))
+        models = sorted(
+            d.name.replace("models--", "", 1).replace("--", "/")
+            for d in hf.iterdir()
+            if d.is_dir() and d.name.startswith("models--")
+            and any(f.is_file() and _finished(f) for f in (d / "snapshots").rglob("*"))
+        )
     if root.is_dir():
         for dirpath, _dirnames, filenames in os.walk(root):
             for name in filenames:
+                if not _finished(Path(name)):
+                    continue
                 try:
                     total += (Path(dirpath) / name).stat().st_size
                 except OSError:

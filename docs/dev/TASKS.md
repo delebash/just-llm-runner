@@ -10,6 +10,40 @@
 > Items extracted from plan docs are marked **[verified]** (code-checked at
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
+## Quick Setup never recommends the app's own cache, counts only finished models, and a cancelled apply says so [DECIDED 2026-10-06]
+STATE:  DECIDED 2026-10-06 — "remove leftover folders fix all go" (the user: "i reset the databse as ran
+        the quicksetup it is downloading the model again why?" · "i cancled download then canceld setup
+        and it shows this" · "but the reset should have defualted to the shared location it has always
+        done this is the past … what was the change?"), on the finding and leans as shown: "Nothing in
+        the code changed … 1. The reset ran while the app kept running … the engine was still using
+        JustWrite's shared cache … the server listed the alternatives: JustVoice's own folder first. 2.
+        JustVoice's own folder looked like it already had the model … a leftover
+        models--unsloth--gemma-4-26B-A4B-it-qat-GGUF folder … The server counts a model as present if
+        its folder exists, not if the file is complete … The setup pre-selects the first option that
+        'has models' … so it picked JustVoice's own folder … Two bugs in the kit setup: The
+        recommendation can pick the app's own folder. It should only ever recommend another app's
+        cache, never 'this app'. · A model counts as downloaded when only its folder exists. It should
+        count only finished files, not a .part. Fixes: 1. Point JustVoice back at JustWrite's shared
+        cache now. 2. Fix both bugs in the kit, plus the setup's empty last step after a cancel … When
+        every download is cancelled, it should say 'Setup stopped — nothing downloaded' and offer Back
+        and Close instead of an empty box. 3. The leftover 14 GB .part … Delete it?"
+WHY:    a factory reset without a restart left JustVoice on JustWrite's shared cache; its own folder held
+        a never-finished gemma folder, counted as a model, so the "share" pick chose the app's own empty
+        cache and 14 GB downloaded again. After cancelling, the apply step had no bar and no button.
+NOT:    moving or copying any cache; changing the startup rule (stored choice → own folder).
+BUILT:  2026-10-06 — `ui/src/views/QuickSetup.vue`: `cacheOffer` skips `ownRoot`; `applyStopped`
+        (every download empty or cancelled, not while `applying`) titles the step *Setup stopped*,
+        says "Setup stopped — nothing downloaded." and gives the footer Back (to the choices) and
+        Close; the bars and their Retry stay. `llm_runner/runner/cache_registry.py` `summarize`:
+        models only with a finished file in `snapshots/`, bytes without unfinished files. Docs:
+        JustWrite `models.md`, JustVoice `ai-features.md`; RESEARCH §4. Checked: `summarize` on a
+        scratch tree (a .part-only repo no longer counts, its bytes left out) and on JustWrite's cache
+        (11 models, gemma among them); after a restart JustVoice's setup sees only "this app" with 0
+        models; JustVoice and JustWrite builds clean, Biome and ruff clean. Not seen on screen: the
+        stopped state — making it means cancelling a real load or download in the running app.
+OPEN:   none.
+GO:     given 2026-10-06
+
 
 ## The boot splash can hang with no way out when the warm model is already loaded [2026-10-05]
 

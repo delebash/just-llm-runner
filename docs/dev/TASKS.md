@@ -10,6 +10,23 @@
 > Items extracted from plan docs are marked **[verified]** (code-checked at
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
+## Quick Setup saves the cache in use when nothing is recorded [DECIDED 2026-10-06]
+STATE:  DECIDED 2026-10-06 — "fix kit", on the finding and lean as shown: "When the setup keeps the cache
+        already in use, it doesn't save that choice (QuickSetup.vue applyCacheChoice). So after a reset,
+        the next app restart goes back to JustVoice's own empty folder and downloads gemma again. …
+        Lean: fix it in the kit, so the setup saves the shared choice whenever the saved one differs."
+WHY:    a factory reset clears the recorded cache while the engine keeps running on the shared one; the
+        setup saw "already there" and saved nothing, so the next start fell back to the own folder.
+NOT:    changing the startup rule; moving any files.
+BUILT:  2026-10-06 — `ui/src/views/QuickSetup.vue` `applyCacheChoice`: returns early only when the root
+        is in use AND recorded (`stored`, "" = `ownRoot`); otherwise it PUTs, and a restart note shows
+        only when the cache actually moves. JustVoice and JustWrite builds clean, Biome clean. Not run
+        live: recreating "in use, not recorded" means clearing the record, which re-points a running
+        engine at the empty own folder; checked by reading the path (prime → JustWrite's root; Apply →
+        recorded "" = own ≠ root → PUT → stored).
+OPEN:   none.
+GO:     given 2026-10-06
+
 ## Quick Setup never recommends the app's own cache, counts only finished models, and a cancelled apply says so [DECIDED 2026-10-06]
 STATE:  DECIDED 2026-10-06 — "remove leftover folders fix all go" (the user: "i reset the databse as ran
         the quicksetup it is downloading the model again why?" · "i cancled download then canceld setup

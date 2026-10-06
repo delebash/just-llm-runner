@@ -127,11 +127,18 @@ async function onCacheChoice(root) {
   await applyCacheChoice(root);
 }
 async function applyCacheChoice(root) {
-  if (!root || root === cacheState.value?.root) return; // already there — nothing to do
+  const st = cacheState.value;
+  // Nothing to do only when the cache is already in use AND recorded. In use but not
+  // recorded still saves (2026-10-06): a factory reset clears the record while the
+  // engine keeps running on the shared cache, so keeping it without saving sent the
+  // next start back to this app's own folder — and the model downloaded again.
+  const recorded = st?.stored || st?.ownRoot || "";
+  if (!root || (root === st?.root && root === recorded)) return;
+  const inUse = root === st?.root;
   cacheNote.value = "";
   try {
     const res = await request("/v1/ai/engine-cache", { method: "PUT", body: { root } });
-    if (res?.restartRequired) {
+    if (res?.restartRequired && !inUse) {
       cacheNote.value = res.detail || "This applies the next time the app starts.";
     }
     await Promise.all([loadAll(), refreshCatalogMeta()]);

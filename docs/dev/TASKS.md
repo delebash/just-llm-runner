@@ -118,6 +118,32 @@ BUILT:  2026-10-05 — `ui/src/components/BootModelLoad.vue`: the watch is `imme
 OPEN:   none — close (delete) once pushed.
 GO:     given 2026-10-05.
 
+## FINDING — the LLM engine setup says "both download at once" when nothing downloads [2026-10-06]
+
+STATE:  FINDING — seen live and code-verified 2026-10-06 (JustVoice's end-to-end run after a reset,
+        JV `docs/plans/2026-10-05-second-look-test.md` "2026-10-06 — end to end after a factory reset").
+BUILT:  `ui/src/views/QuickSetup.vue:1082-1084` — while applying, the line reads "installing the
+        engine first, then your model" when there is an engine task, else "Setting up your models —
+        both download at once", whatever the number of bars; `:1093-1096` always adds "A model is
+        several gigabytes, so a first run can take a few minutes — each only downloads once." Seen
+        with one bar (the chat model, already on disk in the shared cache) and nothing downloading.
+OPEN:   the words for one model, and for nothing to download — your call.
+GO:     needed.
+
+## FINDING — the AI task strip's tok/s: absurd at the first token, wrong at done when the model thinks [2026-10-06]
+
+STATE:  FINDING — seen live and code-verified 2026-10-06 (the same run).
+BUILT:  `ui/src/components/AiTaskStrip.vue:85-91` — rate = tokens ÷ (now − firstDeltaAt), the span
+        floored at 1 ms: 3 tokens just after the first read "3000.0 tok/s". Tokens are characters ÷ 4
+        of the streamed content while running, `usage.completionTokens` at done
+        (`stores/aiTasks.js:327-330`). With thinking on — JustVoice's Analyze runs
+        `p_extract_reasoned`, think true, reasoning budget 1024 — the thinking streams no content:
+        "first token in 26.7 s" on a 2,752-token prompt, ~28 tok/s live, then completionTokens 1720
+        (thinking included) over the 14 s content span → "122.2 tok/s". Without thinking (the second
+        look) it read right: 63 tokens, 48.6 tok/s.
+OPEN:   what the strip shows while a model thinks, and how the rate is counted — your call.
+GO:     needed.
+
 ## FINDING — the data-dir ladder's four copies disagree, and Tauri writes outside the chosen root [2026-10-05]
 
 STATE:  FINDING — found by a study agent 2026-10-05 (JustVoice's

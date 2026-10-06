@@ -157,6 +157,13 @@ the chosen root.
 - A strip says *stuck* only on a streaming task whose last token is ≥ 25 s old (or 8× its own
   mean gap); only token deltas refresh it — a step or a count does not. — *code, 2026-10-06* ·
   `ui/src/common/services/streamFreshness.js`, `stores/aiTasks.js` `_recordDelta`.
+- A strip's tok/s is tokens ÷ (now − first delta), the span floored at 1 ms; tokens are the
+  streamed content's characters ÷ 4 while running and `usage.completionTokens` at done. A model
+  that thinks streams no content while it does, so its thinking counts as wait before the first
+  token and, at done, as tokens over the content-only span. — *code + live, 2026-10-06* ·
+  `AiTaskStrip.vue:85-91`, `stores/aiTasks.js:327-330`; JustVoice's Analyze (think on, budget
+  1024): first token 26.7 s, ~28 tok/s live, 1720 tokens → 122.2 tok/s at done; the second look
+  (no thinking) 48.6 tok/s.
 
 ## 4 · The AI cache (shared between apps)
 

@@ -20,7 +20,7 @@ import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
 // Shared run-stat format (#304). Tokens + tok/s single-sourced with AiTaskStrip; the local
 // fmtSeconds below stays (it adds a minutes form for long history durations the shared one doesn't).
-import { fmtTokens, fmtTps } from "../common/services/runStats.js";
+import { fmtTokens, fmtTps, taskTps } from "../common/services/runStats.js";
 import { freshnessOf } from "../common/services/streamFreshness.js";
 
 const tasks = useAiTasksStore();
@@ -96,15 +96,9 @@ function firstTokenMs(task) {
   if (!task.firstDeltaAt) return null;
   return task.firstDeltaAt - task.startedAt;
 }
-// Tokens-per-second since first delta. Uses chars/4 as a proxy when
-// the real token count hasn't landed yet (usage arrives on the final chunk).
+// Tokens-per-second since first delta — the strip's own count (runStats `taskTps`).
 function tokensPerSecond(task) {
-  const first = task.firstDeltaAt;
-  if (!first) return null;
-  const liveSpanMs = Math.max(1, tasks.now - first);
-  const tokens = task.tokensOut || Math.max(0, Math.round(task.chars / 4));
-  if (!tokens) return null;
-  return (tokens / (liveSpanMs / 1000)).toFixed(1);
+  return taskTps(task, tasks.now);
 }
 // Freshness class for the last-token indicator (#5, 2026-07-17): the SHARED
 // rate-relative classifier — calibrates to the stream's own pace instead of the

@@ -649,6 +649,18 @@ watch(() => chatTask.state, (s) => {
 const applyStopped = computed(() => step.value === "apply" && !applying.value
   && [engineTask, chatTask, embedTask].every((t) => !t.state || t.state === "cancelled"));
 
+// What Apply downloads, read when it starts (2026-10-06): the step said "both
+// download at once" and "A model is several gigabytes…" with one model already on
+// disk. "both" only when the chat model and the search model both download, and the
+// note only when a model downloads at all.
+const applyDownloads = ref({ chat: false, embed: false });
+const applyLine = computed(() => {
+  const what = chatTask.state && embedTask.state ? "your models" : "your model";
+  if (engineTask.state) return `Setting up ${what} — installing the engine first, then your model.`;
+  if (applyDownloads.value.chat && applyDownloads.value.embed) return `Setting up ${what} — both download at once.`;
+  return `Setting up ${what}.`;
+});
+
 // The completion tail — EXTRACTED so a Retry (via the chat watch) reaches it too. It records
 // whether this box already has measured/class tunes for the chosen model (drives the done-step
 // Optimize vs Re-optimize label + the "tuned for your hardware ✓" note), then advances to the
@@ -751,6 +763,7 @@ async function apply() {
     // user to install the engine from a bar that (once the reinstall finished) reads
     // "Installed". One fresh fetch removes the whole class.
     await loadEngineStatus();
+    applyDownloads.value = { chat: !!target && !modelById.value[target]?.downloaded, embed: needEmbed };
 
     // The chat model needs the engine. Missing → install it FIRST (its own bar) and hold the
     // chat as "Waiting for the engine…"; the engine watch fires the load the moment it
@@ -1078,11 +1091,7 @@ defineExpose({ openWizard });
             the setup; Re-run LLM engine setup opens it again any time.
           </p>
         </template>
-        <p v-else class="lu-qs-applying">
-          {{ engineTask.state
-            ? "Setting up your models — installing the engine first, then your model."
-            : "Setting up your models — both download at once." }}
-        </p>
+        <p v-else class="lu-qs-applying">{{ applyLine }}</p>
 
         <!-- ONE bar per download (the SHARED DownloadBar over the SHARED createDownloadTask):
              the engine (only when it isn't installed yet), the chat model, and the search
@@ -1091,7 +1100,7 @@ defineExpose({ openWizard });
         <DownloadBar v-if="chatTask.state" :title="modelById[pick.default]?.name || pick.default" :role="QC.chatRole" :task="chatTask" />
         <DownloadBar v-if="embedTask.state" :title="embedName" :role="QC.embedRole" :task="embedTask" />
 
-        <p v-if="!applyStopped" class="lu-muted lu-qs-applynote">
+        <p v-if="!applyStopped && (applyDownloads.chat || applyDownloads.embed)" class="lu-muted lu-qs-applynote">
           A model is several gigabytes, so a first run can take a few minutes — each only
           downloads once. Cancel stops a download; Retry starts it again.
         </p>

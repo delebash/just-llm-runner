@@ -26,6 +26,21 @@ export function fmtTps(tps) {
   return `${(Number(tps) || 0).toFixed(1)} tok/s`;
 }
 
+/**
+ * A task's output tokens per second since its first token, up to `endMs` — or null
+ * until a second of output has arrived (2026-10-06: 3 tokens a millisecond after the
+ * first read "3000.0 tok/s"). Tokens are the real count once usage lands, else
+ * characters ÷ 4. The AI task strip and the status panel both read it.
+ */
+export function taskTps(task, endMs) {
+  if (!task?.firstDeltaAt) return null;
+  const span = endMs - task.firstDeltaAt;
+  if (span < 1000) return null;
+  const tokens = task.tokensOut || Math.max(0, Math.round((task.chars || 0) / 4));
+  if (!tokens) return null;
+  return (tokens / (span / 1000)).toFixed(1);
+}
+
 /** Output word count. */
 export function fmtWords(n) {
   return `${Number(n) || 0} words`;

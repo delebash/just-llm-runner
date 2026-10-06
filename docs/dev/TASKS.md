@@ -118,21 +118,31 @@ BUILT:  2026-10-05 — `ui/src/components/BootModelLoad.vue`: the watch is `imme
 OPEN:   none — close (delete) once pushed.
 GO:     given 2026-10-05.
 
-## FINDING — the LLM engine setup says "both download at once" when nothing downloads [2026-10-06]
+## The LLM engine setup says "both download at once" only when both do [DECIDED 2026-10-06]
 
-STATE:  FINDING — seen live and code-verified 2026-10-06 (JustVoice's end-to-end run after a reset,
-        JV `docs/plans/2026-10-05-second-look-test.md` "2026-10-06 — end to end after a factory reset").
+STATE:  DECIDED 2026-10-06 — "fix go", on the lean as shown: "Lean: say "your model" for one, and drop
+        the gigabytes note when the model is already on disk." Found in JustVoice's end-to-end run
+        after a reset (JV `docs/plans/2026-10-05-second-look-test.md` "2026-10-06 — end to end after
+        a factory reset").
 BUILT:  `ui/src/views/QuickSetup.vue:1082-1084` — while applying, the line reads "installing the
         engine first, then your model" when there is an engine task, else "Setting up your models —
         both download at once", whatever the number of bars; `:1093-1096` always adds "A model is
         several gigabytes, so a first run can take a few minutes — each only downloads once." Seen
         with one bar (the chat model, already on disk in the shared cache) and nothing downloading.
-OPEN:   the words for one model, and for nothing to download — your call.
-GO:     needed.
+        BUILT 2026-10-06 — `QuickSetup.vue` `applyDownloads` (read when Apply starts: the chat model
+        not on disk, the search model downloading) + `applyLine`: "your model" unless both bars
+        show, "— both download at once." only when both download, the engine line as before;
+        the gigabytes note only when a model downloads. Checked live on JustVoice (Change model →
+        Apply, gemma on disk): "Setting up your model." and no note, then the done step, no page
+        errors. JustVoice + JustWrite builds clean. Docs: JV `whats-new.md`.
+OPEN:   none.
+GO:     given 2026-10-06
 
-## FINDING — the AI task strip's tok/s: absurd at the first token, wrong at done when the model thinks [2026-10-06]
+## The AI task strip shows no tok/s until a second of output [DECIDED 2026-10-06]
 
-STATE:  FINDING — seen live and code-verified 2026-10-06 (the same run).
+STATE:  DECIDED 2026-10-06 — "fix go", on the lean as shown: "Lean: show no speed until about a second
+        of output has arrived. Then I'd check whether the stream carries the thinking; if it does, the
+        strip can show "thinking…" and count it." Found in the same run.
 BUILT:  `ui/src/components/AiTaskStrip.vue:85-91` — rate = tokens ÷ (now − firstDeltaAt), the span
         floored at 1 ms: 3 tokens just after the first read "3000.0 tok/s". Tokens are characters ÷ 4
         of the streamed content while running, `usage.completionTokens` at done
@@ -141,8 +151,15 @@ BUILT:  `ui/src/components/AiTaskStrip.vue:85-91` — rate = tokens ÷ (now − 
         "first token in 26.7 s" on a 2,752-token prompt, ~28 tok/s live, then completionTokens 1720
         (thinking included) over the 14 s content span → "122.2 tok/s". Without thinking (the second
         look) it read right: 63 tokens, 48.6 tok/s.
-OPEN:   what the strip shows while a model thinks, and how the rate is counted — your call.
-GO:     needed.
+        BUILT 2026-10-06 — `ui/src/common/services/runStats.js` `taskTps(task, endMs)`: null until
+        a second of output has arrived, then the same count; the strip (`AiTaskStrip.vue`) and the
+        status panel (`AiStatusPanel.vue`, the same formula copied) both read it. JustVoice +
+        JustWrite builds clean. Docs: JV `ai-features.md` (AI tasks), `whats-new.md`.
+        The check the lean named: the thinking does NOT reach the strip — llama.cpp streams it as
+        `delta.reasoning_content`, and `llm/openai_compat.py:291` reads only `delta.content`, so no
+        app stream carries it. The "if it does" half was not built; the done-figure jump stands.
+OPEN:   the thinking — your call (it isn't carried; carrying it is a kit stream change).
+GO:     given 2026-10-06
 
 ## FINDING — the data-dir ladder's four copies disagree, and Tauri writes outside the chosen root [2026-10-05]
 

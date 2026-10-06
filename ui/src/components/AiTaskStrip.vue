@@ -24,7 +24,7 @@ import { computed } from "vue";
 import { useAiTasksStore } from "../stores/aiTasks.js";
 import Icon from "../common/components/Icon.vue";
 import UiButton from "../common/components/UiButton.vue";
-import { fmtTokens, fmtTps } from "../common/services/runStats.js";
+import { fmtTokens, fmtTps, taskTps } from "../common/services/runStats.js";
 import { freshnessOf } from "../common/services/streamFreshness.js";
 
 const props = defineProps({
@@ -82,13 +82,7 @@ const tokensLabel = computed(() => {
   if (props.task.chars)     return `~${fmtTokens({ outputTokens: Math.round(props.task.chars / 4) })}`;
   return null;
 });
-const tokensPerSecond = computed(() => {
-  if (!props.task?.firstDeltaAt) return null;
-  const tokens = props.task.tokensOut || Math.max(0, Math.round(props.task.chars / 4));
-  if (!tokens) return null;
-  const span = Math.max(1, endedAt.value - props.task.firstDeltaAt);
-  return (tokens / (span / 1000)).toFixed(1);
-});
+const tokensPerSecond = computed(() => taskTps(props.task, endedAt.value));
 // #5 (2026-07-17): rate-relative — the shared classifier, not the old absolute 3s/10s
 // that mislabelled a slow local model as "stalling" through healthy work.
 const freshness = computed(() => freshnessOf(props.task, tasks.now));

@@ -881,6 +881,16 @@ class RunnerConfigStore:
         finally:
             s.close()
 
+    def cache_root_chosen(self) -> bool:
+        """Whether a cache choice was ever saved. `get_cache_root` answers "" both for
+        "my own cache" chosen and for nothing chosen yet (a fresh or reset database);
+        only the second lets startup adopt a sibling's cache (2026-10-06)."""
+        s = db.session()
+        try:
+            return s.get(db.RunnerSetting, "cache_root") is not None
+        finally:
+            s.close()
+
     def set_cache_root(self, root: str) -> None:
         """Point this app at a cache root (""` = back to its own). Records the CHOICE
         only — no files move, so the previous cache stays exactly where it is."""

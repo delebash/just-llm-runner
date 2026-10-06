@@ -95,11 +95,16 @@ const cacheNote = ref("");
 // server lists "this app" among the options as the way back — and a leftover folder
 // there made it look like a cache with models, so the "share" pick chose the app's own
 // empty folder and the model downloaded again. Sharing means ANOTHER app's files.
-const cacheOffer = computed(() =>
-  (cacheState.value?.options || []).find(
-    (o) => o.exists && o.models?.length && o.root !== cacheState.value?.ownRoot,
-  ) || null,
-);
+// Already on another app's cache — startup takes one by itself when nothing is chosen
+// (2026-10-06) — that cache is the offer, picked, so "Keep a separate copy" stays one
+// choice away instead of the question vanishing.
+const cacheOffer = computed(() => {
+  const st = cacheState.value;
+  if (st?.shared && st.current?.models?.length) return { ...st.current, root: st.root };
+  return (st?.options || []).find(
+    (o) => o.exists && o.models?.length && o.root !== st?.ownRoot,
+  ) || null;
+});
 function fmtCacheBytes(n) {
   if (!n) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];

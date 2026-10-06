@@ -10,6 +10,41 @@
 > Items extracted from plan docs are marked **[verified]** (code-checked at
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
+## An app with no cache chosen uses a sibling's cache by itself [DECIDED 2026-10-06]
+STATE:  DECIDED 2026-10-06 — "fix it all go" (the user: "why when i reset the db everything just works it
+        automatically looks at the shared cache in jw by default, whyt do you have to manuyally restore
+        this it should be default on reset if jw exisits, it should check, correct"), on the lean as
+        shown: "At startup, if no choice is saved and another family app's cache already holds models,
+        use that cache and save the choice. No setup step and no manual restore needed. The setup still
+        offers 'Keep a separate copy' for anyone who wants one. It's a kit change, so JustWrite and docgen
+        behave the same. It reverses the 2026-08-04 'ask first' rule for the case where nothing is saved
+        … To test it, I'd clear the saved choice, restart, and confirm the app picks JustWrite's cache by
+        itself, with no download."
+WHY:    a factory reset clears the saved choice, and the next start went to the app's own empty folder
+        and downloaded 14 GB again.
+NOT:    asking first when nothing is saved (the 2026-08-04 rule, reversed for that case).
+BUILT:  2026-10-06 — `llm/stores.py` `cache_root_chosen()` (a `cache_root` row exists: "" = own
+        chosen, no row = never chosen). `llm/install.py` `_sibling_cache_with_models` + the boot path
+        in `_wire_runner_catalog`: no explicit root, no row, and the own cache holds no finished
+        model → the registry's sibling cache with the most models (then bytes) is used and saved.
+        The setup's half of the promise needed two more edits: `runner/cache_registry.py`
+        `product_of` + `llm/cache_api.py` name the shared cache in use (`current.product`), and
+        `ui/src/views/QuickSetup.vue` `cacheOffer` offers that cache, picked, so "Keep a separate
+        copy" stays in the select once startup adopted one.
+        What it touches (grep, 2026-10-06): `get_cache_root` · `set_cache_root` callers —
+        `cache_api.py:65,110`, `install.py:534,548`; hosts passing `cache_root=` — none (JV
+        `app.py:253`, JW `app.py:197`); the reset — JV `data_admin.run_factory_reset` deletes the DB
+        file and reseeds, and the seed writes no `cache_root` row (`seed.py` writes only
+        `default_preset_id`), so a reset counts as never chosen.
+        Checked live on JustVoice: factory reset → no row → restart logged "none chosen and this
+        app's own holds no models — sharing …justwrite-app…\ai-cache", the row holds that path,
+        gemma-4-26b-a4b-qat + gemma-4-12b-qat list as downloaded, a second restart kept it; the
+        setup shows "JustWrite Server on this PC already has 11 AI models…" with Share picked, no
+        page errors. JustVoice + JustWrite builds clean, ruff clean. Docs: JV `ai-features.md`,
+        `whats-new.md`; RESEARCH §4.
+OPEN:   none. JustWrite and docgen not run live (the same kit code).
+GO:     given 2026-10-06
+
 ## Quick Setup saves the cache in use when nothing is recorded [DECIDED 2026-10-06]
 STATE:  DECIDED 2026-10-06 — "fix kit", on the finding and lean as shown: "When the setup keeps the cache
         already in use, it doesn't save that choice (QuickSetup.vue applyCacheChoice). So after a reset,

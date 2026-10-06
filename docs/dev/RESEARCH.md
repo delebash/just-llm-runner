@@ -160,10 +160,22 @@ the chosen root.
 
 ## 4 · The AI cache (shared between apps)
 
-- The cache choice is a stored setting (`runner_config` cache root, "" = the app's own
+- The cache choice is a stored setting (`runner_setting` row `cache_root`, "" = the app's own
   `<data>/ai-cache`); startup takes an explicit host root, else the stored choice, else the own
-  folder (`llm/install.py` `resolve_cache_roots`). A factory reset clears the choice, but the
-  running engine keeps its cache until the next start. — *code, 2026-10-06*.
+  folder (`llm/install.py` `resolve_cache_roots`). No host passes an explicit root (JV
+  `app.py:253`, JW `app.py:197`). — *code, 2026-10-06*.
+- No row at all means never chosen (`stores.cache_root_chosen`), and since 2026-10-06 startup then
+  adopts a sibling: when the own cache has no finished model, the registry's cache with the most
+  models (then bytes) is used and saved (`install._sibling_cache_with_models`). A row holding ""
+  ("keep my own") is a choice and is kept. A factory reset deletes the DB file and the seed writes
+  no `cache_root` row, so a reset counts as never chosen; the running engine keeps its cache until
+  the next start. — *code + live on JustVoice, 2026-10-06* (reset → restart → JustWrite's cache,
+  saved, gemma 26B + 12B listed as downloaded).
+- An app sharing a sibling's cache records that root in the registry too, so the in-use cache is
+  named by the first OTHER install recorded against it (`cache_registry.product_of`, excluding this
+  data dir) → `GET /v1/ai/engine-cache` `current.product` when shared. The setup offers the in-use
+  shared cache first (`QuickSetup.vue` `cacheOffer`), so *Keep a separate copy* stays reachable
+  after startup adopted one. — *code + live, 2026-10-06*.
 - `GET /v1/ai/engine-cache` never lists the cache in use among `options`, and lists the app's own
   folder (as "this app") whenever the cache in use is not it (`llm/cache_api.py`). The setup
   recommends the first option with models — since 2026-10-06 never `ownRoot` (`QuickSetup.vue`

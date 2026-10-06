@@ -73,10 +73,14 @@ def make_cache_router(data_dir=None, product: str = "") -> APIRouter:
             # Always offer the way back. It is listed even when empty: "my own cache"
             # is a real choice, not a directory that has to already exist.
             options.insert(0, CacheOption(**cache_registry.summarize(own), product="this app"))
+        shared = bool(own and Path(root) != own)
+        # A shared cache in use is named after its app, so the setup can offer it
+        # (startup takes a sibling's by itself when nothing is chosen, 2026-10-06).
         return CacheState(
             root=str(root), ownRoot=str(own or ""), runtimeRoot=str(svc.runtime_root),
-            shared=bool(own and Path(root) != own), stored=stored,
-            current=CacheOption(**cache_registry.summarize(root)),
+            shared=shared, stored=stored,
+            current=CacheOption(**cache_registry.summarize(root),
+                                product=cache_registry.product_of(root, data_dir) if shared else ""),
             options=options,
         )
 

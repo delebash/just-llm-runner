@@ -214,6 +214,18 @@ def summarize(root) -> dict:
             "models": models, "bytes": total}
 
 
+def product_of(root, data_dir=None) -> str:
+    """The app whose cache `root` is: the first install recorded against it other than
+    the one at `data_dir` (an app sharing a sibling's cache records that root too);
+    "" when none is."""
+    want = str(Path(root))
+    mine = str(Path(data_dir)) if data_dir else ""
+    for e in _read():
+        if str(Path(e["cacheRoot"])) == want and (e.get("dataDir") or "") != mine:
+            return e.get("product", "")
+    return ""
+
+
 def discover(exclude=None) -> list[dict]:
     """Every cache root this box knows about except the excluded ones, summarized.
 

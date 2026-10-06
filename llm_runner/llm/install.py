@@ -428,6 +428,25 @@ def resolve_cache_roots(data_dir=None, cache_root=None, stored: str = "") -> tup
     return root, runtime, shared
 
 
+def _sibling_cache_with_models(data_dir) -> str:
+    """Another family app's cache that holds finished models, when this app's own holds
+    none — the most models, then the most bytes; "" when there is none."""
+    from ..runner import cache_registry
+
+    own = Path(data_dir) / "ai-cache"
+    try:
+        if cache_registry.summarize(own)["models"]:
+            return ""
+        found = [o for o in cache_registry.discover(exclude=(own,)) if o.get("exists") and o.get("models")]
+    except Exception:  # noqa: BLE001 — a registry that can't answer must not stop a boot
+        logging.getLogger(__name__).warning("engine cache: could not read the family registry", exc_info=True)
+        return ""
+    if not found:
+        return ""
+    best = max(found, key=lambda o: (len(o["models"]), o.get("bytes") or 0))
+    return str(best["root"])
+
+
 def _wire_runner_catalog(data_dir=None, cache_root=None, product: str = "") -> None:
     """The bundled llama.cpp runner reads its downloadable-model catalog, per-model
     switches, AND its load config (llama.cpp binaries + VRAM margin) from the
@@ -513,8 +532,24 @@ def _wire_runner_catalog(data_dir=None, cache_root=None, product: str = "") -> N
     # Best-effort: a DB that cannot answer must not stop a boot — fall back to own.
     try:
         stored = stores.get_runner_config_store().get_cache_root()
+        chosen = stores.get_runner_config_store().cache_root_chosen()
     except Exception:  # noqa: BLE001 — pre-seed / mid-migration DB
-        stored = ""
+        stored, chosen = "", True
+    # Nothing ever chosen (a fresh or reset database) and this app's own cache holds
+    # no models: share a sibling app's that does, and save the choice (decided
+    # 2026-10-06 — a reset sent the next start to the own empty folder and 14 GB
+    # downloaded again). A choice once made — "keep my own" included — is kept, and an
+    # app whose own cache already has models (the one the family shares) never moves.
+    if not cache_root and not chosen and data_dir:
+        sibling = _sibling_cache_with_models(data_dir)
+        if sibling:
+            stored = sibling
+            try:
+                stores.get_runner_config_store().set_cache_root(sibling)
+            except Exception:  # noqa: BLE001 — used this run even when it can't be saved
+                log.warning("engine cache: could not save the shared choice", exc_info=True)
+            log.info("engine cache: none chosen and this app's own holds no models — "
+                     "sharing %s, which does", sibling)
     resolved_cache, runtime_root, shared = resolve_cache_roots(data_dir, cache_root, stored)
     if shared:
         log.info("engine cache SHARED at %s (this app's generated state stays in %s)",

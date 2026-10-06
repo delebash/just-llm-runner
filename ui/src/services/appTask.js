@@ -121,12 +121,15 @@ export async function runAiEndpoint({ request, path, body, method = "POST", task
 
 /**
  * The STREAMING sibling (lane 2A): drive an app endpoint that speaks the
- * family SSE frames — `{delta}` / `{progress}` / `{done, promptTokens,
+ * family SSE frames — `{delta}` / `{progress}` / `{step}` / `{done, promptTokens,
  * completionTokens, model, ...domain fields}` / `[DONE]`, errors as
  * `{error}`. Deltas feed the task's live tok/s + freshness; prompt-eval
  * `progress` frames feed the prefill bar; the done frame's usage finishes the
  * task, and the WHOLE done frame is the resolved result — a pipeline puts its
- * domain payload (rows, route, floor) right on it.
+ * domain payload (rows, route, floor) right on it. A `{step: {name, done,
+ * total}}` frame — a later pass over part of the work — goes on the strip's
+ * count: `stepText(step)` words it, `stepHint(step)` is its tooltip, and
+ * `onStep(step)` tells the app (2026-10-06).
  *
  * `url` may be app-resolved and absolute (`api.serverUrl + path`) — the kit
  * client passes absolute URLs through — or a bare path against the kit base.
@@ -138,7 +141,7 @@ export async function runAiEndpoint({ request, path, body, method = "POST", task
  *   });
  *   // done.rows, done.route_used, ... + tokens already on the strip
  */
-export async function runAiEndpointStream({ url, body, task, onDelta }) {
+export async function runAiEndpointStream({ url, body, task, onDelta, onStep, stepText, stepHint }) {
   return withAiTask(task, async (t) => {
     const done = await requestStream(url, body, (delta) => {
       t.onDelta(delta);
@@ -146,6 +149,10 @@ export async function runAiEndpointStream({ url, body, task, onDelta }) {
     }, {
       signal: t.signal,
       onProgress: (p) => t.setPrefill(p),
+      onStep: (s) => {
+        t.setProgress(s.done, s.total, stepText?.(s), stepHint?.(s));
+        onStep?.(s);
+      },
     });
     if (!done) throw new Error("The stream ended without a result.");
     return { result: done, usage: done, model: done.model };

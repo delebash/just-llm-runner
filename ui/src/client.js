@@ -139,10 +139,13 @@ export async function postForm(path, formData) {
  * POST and consume a Server-Sent-Events stream (the /v1/ai/stream shape:
  * `data: {"delta": "..."}` per chunk, optional `data: {"progress": 0..1}`
  * prompt-eval frames before the first token (builtin engine only — §7.4 B6-2),
- * a final `data: {"done": true, ...}`, then `data: [DONE]`; errors as
- * `data: {"error": "..."}`).
+ * optional `data: {"step": {"name", "done", "total"}}` frames — an endpoint's
+ * later pass over part of the work, counted (JustVoice's Analyze reports its
+ * second look this way, 2026-10-06) — a final `data: {"done": true, ...}`, then
+ * `data: [DONE]`; errors as `data: {"error": "..."}`).
  *
- * Calls onDelta(text) per chunk, onProgress(p) per progress frame, and
+ * Calls onDelta(text) per chunk, onProgress(p) per progress frame, onStep(step)
+ * per step frame, and
  * resolves with the FULL done frame — { done, promptTokens, completionTokens,
  * model, cost, ...anything else the endpoint put there } — or null when the
  * stream ended without one (callers surface usage to the UI and must be able
@@ -154,7 +157,7 @@ export async function postForm(path, formData) {
  * frame. Pass { signal } to make the stream abortable (the AI task queue's
  * cancel).
  */
-export async function requestStream(path, body, onDelta, { signal, onProgress } = {}) {
+export async function requestStream(path, body, onDelta, { signal, onProgress, onStep } = {}) {
   const opts = {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -211,6 +214,8 @@ export async function requestStream(path, body, onDelta, { signal, onProgress } 
         onDelta?.(frame.delta);
       } else if (typeof frame.progress === "number") {
         onProgress?.(frame.progress);
+      } else if (frame.step && typeof frame.step === "object") {
+        onStep?.(frame.step);
       }
     }
   }

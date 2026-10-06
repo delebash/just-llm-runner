@@ -174,7 +174,7 @@ const phaseLabel = {
               {{ phaseLabel[t.status] || t.status }}
             </span>
             <span v-if="t.progress" class="aip-stat"
-              v-tooltip.bottom="'Batch progress — Cancel stops the whole run'">
+              v-tooltip.bottom="t.progress.hint || 'Batch progress — Cancel stops the whole run'">
               {{ t.progress.text || `${t.progress.done}/${t.progress.total}` }}
             </span>
             <!-- §7.4 B6-2: real prompt-eval progress (builtin engine) —

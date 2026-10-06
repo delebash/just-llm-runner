@@ -144,6 +144,22 @@ the chosen root.
 
 ---
 
+## 3 · AI tasks and the stream frames
+
+- An app endpoint's SSE stream speaks five frames: `{delta}` (tokens), `{progress}` (prompt
+  reading, before the first token only), `{step: {name, done, total}}` (a later pass over part
+  of the work, counted — added 2026-10-06), `{done, promptTokens, completionTokens, model, …}`
+  and `[DONE]`; errors as `{error}`. — *code, 2026-10-06* · `ui/src/client.js` requestStream.
+- `runAiEndpointStream` puts a step on the task's count: `stepText(step)` words it,
+  `stepHint(step)` is the count's tooltip (the task store's `progress.hint`), `onStep(step)`
+  tells the app. Without `stepText` the count reads `done/total`. — *code, 2026-10-06* ·
+  `ui/src/services/appTask.js`, `stores/aiTasks.js` `_setProgress`.
+- A strip says *stuck* only on a streaming task whose last token is ≥ 25 s old (or 8× its own
+  mean gap); only token deltas refresh it — a step or a count does not. — *code, 2026-10-06* ·
+  `ui/src/common/services/streamFreshness.js`, `stores/aiTasks.js` `_recordDelta`.
+
+---
+
 ## Records not yet distilled
 
 Indexed by subject so they can be found; their facts move into a section above when work next

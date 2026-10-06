@@ -131,9 +131,13 @@ WHY:    llama.cpp streams a model's thinking as `delta.reasoning_content`, the k
 NOT:    building before the plan's go; showing the thinking text.
 BUILT:  the plan — `docs/plans/2026-10-06-thinking-in-the-strip.md` (what it is, receipts incl. a live
         probe, three slices K1/K2/J1, the blast-radius table, four questions).
-OPEN:   the plan's §5 questions (1 first token = first thinking token · 2 one count · 3 local only ·
-        4 panel phase, no thinking text), then the build's go.
-GO:     given for the plan 2026-10-06; the build needs its own.
+        The build: DECIDED 2026-10-06 — "go on rest your rec": the plan's §5 leans, all four yes — "1. First
+        token … to the first thinking token. Lean: yes. 2. One token count and one speed for thinking and
+        answer together … Lean: yes. 3. Local models only for now (llama.cpp and OpenAI-compatible servers),
+        with cloud models' thinking as a follow-up? Lean: yes … 4. Should the AI tasks panel say Thinking with
+        the same numbers, and never show the thinking text itself? Lean: yes."
+OPEN:   the build (K1 kit server · K2 kit client · J1 JustVoice).
+GO:     given 2026-10-06 (plan and build).
 
 ## The LLM engine setup says "both download at once" only when both do [DECIDED 2026-10-06]
 

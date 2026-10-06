@@ -6,10 +6,15 @@
   this as the root. App-agnostic: the host passes its brand + server URL + copy
   as props — createApp(ConnectionError, { appName, serverUrl, need, devHint }).
   Supersedes the per-app ConnectionError.vue forks.
+  While it shows, it asks the server again every 2 s and loads the app the
+  moment it answers (2026-10-06): the boot check gives up after ~7.5 s, and a
+  desktop app's own server can take longer than that to start, which left the
+  window on this screen until Retry (seen in JustVoice under `npm run dev`).
 -->
 <script setup>
-import { computed } from "vue";
+import { computed, onBeforeUnmount, onMounted } from "vue";
 import { familyLabels } from "../services/familyLabels.js";
+import { checkServer } from "../services/serverApi.js";
 
 const props = defineProps({
   appName: { type: String, default: "the app" },
@@ -23,6 +28,18 @@ const isDev = import.meta.env.DEV;
 const L = familyLabels.connectionError; // reactive canon — group capture is safe, the door assigns in place
 const title = computed(() => L.title.replace("{appName}", props.appName));
 function retry() { location.reload(); }
+
+// Keep asking (one probe each time) and boot when the server answers.
+const PROBE_EVERY_MS = 2000;
+let timer = null;
+let stopped = false;
+async function probe() {
+  timer = null;
+  if (await checkServer({ tries: 1 })) retry();
+  else if (!stopped) timer = setTimeout(probe, PROBE_EVERY_MS);
+}
+onMounted(() => { timer = setTimeout(probe, PROBE_EVERY_MS); });
+onBeforeUnmount(() => { stopped = true; clearTimeout(timer); });
 </script>
 
 <template>

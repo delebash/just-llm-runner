@@ -118,6 +118,23 @@ BUILT:  2026-10-05 — `ui/src/components/BootModelLoad.vue`: the watch is `imme
 OPEN:   none — close (delete) once pushed.
 GO:     given 2026-10-05.
 
+## The model's thinking reaches the AI task strip [DECIDED 2026-10-06 — plan written, build waits]
+
+STATE:  DECIDED 2026-10-06 — "your rec go", on the lean as shown: "1. Should the kit pass the thinking
+        through so the strip can show it? Lean: yes. Send it as its own kind of stream message, so the
+        strip says "thinking…" with a token count during that wait, and the done speed counts all the
+        tokens. It touches every AI stream in all three apps, so I'd first bring you the plan with the
+        table of every caller it affects."
+WHY:    llama.cpp streams a model's thinking as `delta.reasoning_content`, the kit drops it
+        (`openai_compat.py:291`), so a thinking model's strip reads "first token in 27 s", ~28 tok/s
+        live, then 122 tok/s at done (JustVoice's Analyze, 2026-10-06).
+NOT:    building before the plan's go; showing the thinking text.
+BUILT:  the plan — `docs/plans/2026-10-06-thinking-in-the-strip.md` (what it is, receipts incl. a live
+        probe, three slices K1/K2/J1, the blast-radius table, four questions).
+OPEN:   the plan's §5 questions (1 first token = first thinking token · 2 one count · 3 local only ·
+        4 panel phase, no thinking text), then the build's go.
+GO:     given for the plan 2026-10-06; the build needs its own.
+
 ## The LLM engine setup says "both download at once" only when both do [DECIDED 2026-10-06]
 
 STATE:  DECIDED 2026-10-06 — "fix go", on the lean as shown: "Lean: say "your model" for one, and drop
@@ -158,7 +175,7 @@ BUILT:  `ui/src/components/AiTaskStrip.vue:85-91` — rate = tokens ÷ (now − 
         The check the lean named: the thinking does NOT reach the strip — llama.cpp streams it as
         `delta.reasoning_content`, and `llm/openai_compat.py:291` reads only `delta.content`, so no
         app stream carries it. The "if it does" half was not built; the done-figure jump stands.
-OPEN:   the thinking — your call (it isn't carried; carrying it is a kit stream change).
+OPEN:   none — the thinking is its own entry, "The model's thinking reaches the AI task strip".
 GO:     given 2026-10-06
 
 ## FINDING — the data-dir ladder's four copies disagree, and Tauri writes outside the chosen root [2026-10-05]

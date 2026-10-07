@@ -139,6 +139,31 @@ the same on both; JustVoice's
 - Electron 46 (stable 2027-01-05 per its schedule): `utilityProcess` `child.kill()` no longer
   force-kills two seconds later (electron `docs/breaking-changes.md`).
 
+**The query layer** (*measured 2026-10-07*, the plan's §1.5; *code* where a file is cited):
+
+- **Drizzle 0.45.3 on better-sqlite3 is synchronous.** Its transaction is better-sqlite3's own,
+  and nested ones use savepoints (`better-sqlite3/session.js:37-54`).
+- **Drizzle against plain SQL** (better-sqlite3 plus a small helper), on JustVoice's real
+  database:
+  - both read 17,374 cells exactly as SQLAlchemy returns them, and wrote 714 cells
+    byte-identical to SQLAlchemy's;
+  - both ran the real `LexiconStore`'s ten steps with identical answers and identical tables;
+  - in both, a query through the database handle inside a transaction finishes and sees the
+    transaction's row;
+  - both refuse an `async` transaction function ("Transaction function cannot return a
+    promise"), and roll back a write made before its first `await`;
+  - speed: reads ~6% slower on Drizzle; 5,000 inserts took 90 ms plain against 193 ms Drizzle.
+- **Knex 3.3.0** gives SQLite a one-connection pool (`dialects/sqlite3/index.js:228-229`) and
+  waits 60 s for a connection by default (`client.js:253`).
+- **Prisma 7's** default generator (`prisma-client`) writes TypeScript; the JavaScript one
+  (`prisma-client-js`) is deprecated (prisma.io generators docs). On 2026-10-07 npm's
+  `prisma` "latest" was 8.0.0-rc.21, and `@prisma/client` 7.10.0.
+- **Foreign keys:** better-sqlite3 13 and `node:sqlite` turn them on by default; Python's
+  `sqlite3` doesn't.
+- **JSON text and floats.** Python's `json.dumps` writes a whole-number float as `1.0`, which
+  JavaScript can't tell from `1`. That's the only difference a faithful `json.dumps` port showed
+  across 355 stored JSON cells, so float-ness has to come from field types.
+
 **The kit in JavaScript** (*code + measured*, study §3):
 
 - `llm_runner`: 70 files / 25,941 lines, 61 test files / 19,215 lines, 1,019 test functions,

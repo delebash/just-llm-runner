@@ -34,6 +34,7 @@ from .config import DEFAULT_CTX_CAP_TOKENS, DEFAULT_SAFETY_MARGIN_MB
 from .gguf import GgufMeta
 from .hardware import active_backend, budget_total_mb, max_vram_mb, mem_arch
 from .schema import HardwareInfo
+from llm_runner.platform import procs
 
 log = logging.getLogger(__name__)
 
@@ -1075,7 +1076,7 @@ def start_runner(
     tests that inject `_popen`). `_popen`/`_health`/`_sleep`/`_now` are injection
     points for tests.
     """
-    popen = _popen or subprocess.Popen
+    popen = _popen or procs.popen
     health = _health or _default_health
     url = f"http://{host}:{port}"
     n_gpu = fit.n_gpu_layers
@@ -1159,7 +1160,7 @@ def start_router(
     at a lower `ngl` + reload), not by shedding layers on the router. Raises
     `RunnerStartError` if the router never becomes healthy. `_popen`/`_health`/`_sleep`/
     `_now` are test injection points (the router spawn is not runnable in CI)."""
-    popen = _popen or subprocess.Popen
+    popen = _popen or procs.popen
     health = _health or _default_health
     url = f"http://{host}:{port}"
     argv = compose_router_argv(

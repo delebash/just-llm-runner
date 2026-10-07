@@ -46,6 +46,9 @@ One fact per bullet, then *how it was checked and when*, then where the proof is
 
 Subjects: [1 · Memory: the arbiter and the probes](#1--memory-the-arbiter-and-the-probes) ·
 [2 · The family stack: Electron, Node, phones](#2--the-family-stack-electron-node-phones) ·
+[3 · AI tasks and the stream frames](#3--ai-tasks-and-the-stream-frames) ·
+[4 · The AI cache](#4--the-ai-cache-shared-between-apps) ·
+[5 · Starting other programs](#5--starting-other-programs) ·
 [Records not yet distilled](#records-not-yet-distilled)
 
 ---
@@ -202,6 +205,23 @@ the chosen root.
   JustWrite's cache; its own folder held a `models--unsloth--gemma-4-26B-A4B-it-qat-GGUF` folder
   from an unfinished 2026-10-05 download, so "this app" looked like a cache with models and the
   setup's share pick chose it — 14,249,047,104 bytes fetched again. — *log + disk, 2026-10-06*.
+
+## 5 · Starting other programs
+
+- **Every program the kit starts goes through `llm_runner/platform/procs.py`, with no console to
+  inherit (`CREATE_NO_WINDOW` on Windows, 0 elsewhere).** A child started without it inherits
+  the server's console; when the shell that started the app is gone, that console has no host
+  and Windows can't start the child at all — exit `0xC0000142`. Reproduced 2026-10-07 with a
+  test process whose console host was killed: `hardware.detect()` → no GPU (nvidia-smi could not
+  start), with a live console → the RTX 2070 SUPER; `llama-server --version` → `0xc0000142`
+  plainly, exit 0 through `procs.run`. In the app, the lost GPU meant no llama.cpp build matched
+  — the engine read "no llama.cpp binary configured for platform=windows", not installed — while
+  the running llama-server (started before the console went) kept working. Since 2026-10-07:
+  `hardware.py` (15 calls), `bandwidth.py`, `binary.py` (the launch checks), `process.py` and
+  `calibrate.py` (the spawns) use it; JustVoice's mastering, export, system info and speech
+  runtime import it. A test that patches `subprocess.run` / `Popen` still reaches its fake — the
+  wrappers look `subprocess` up at call time. — *measured + code, 2026-10-07* · JustVoice
+  `docs/dev/RESEARCH.md` §3 (the mastering failure that found it).
 
 ---
 

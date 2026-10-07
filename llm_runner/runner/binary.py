@@ -23,6 +23,7 @@ from typing import Callable, Sequence
 
 from .download import download_kwargs, stream_download
 from .schema import BinaryAsset, HardwareInfo, RunnerConfig
+from llm_runner.platform import procs
 
 log = logging.getLogger(__name__)
 
@@ -375,7 +376,7 @@ def _verify_exe_launches(exe: Path, platform: str, *, run: Callable[[], object] 
     and every launch then died with exit 3221225781 (0xC0000135 STATUS_DLL_NOT_FOUND) —
     permanent until a manual reinstall. `run` injects the subprocess in tests."""
     try:
-        proc = run() if run else subprocess.run(  # noqa: S603 — a trusted, just-unpacked release exe
+        proc = run() if run else procs.run(  # noqa: S603 — a trusted, just-unpacked release exe
             [str(exe), "--version"], capture_output=True, timeout=60)
         rc = int(getattr(proc, "returncode", 0) or 0)
     except OSError as e:                       # the OS could not even start the image
@@ -435,7 +436,7 @@ def _verify_exe_accepts_flags(exe: Path, argvs, *, run: Callable | None = None) 
     no model is loaded and no GPU is touched. `run` injects the subprocess in tests."""
     for argv in argvs or ():
         try:
-            proc = run(argv) if run else subprocess.run(  # noqa: S603 — a trusted, just-unpacked release exe
+            proc = run(argv) if run else procs.run(  # noqa: S603 — a trusted, just-unpacked release exe
                 [str(exe), *argv], capture_output=True, timeout=60)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise RuntimeError(f"engine binary {exe} could not run the flag check: {e}") from e

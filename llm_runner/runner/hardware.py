@@ -31,13 +31,14 @@ import os
 import platform
 import re
 import shutil
-import subprocess
+import subprocess  # noqa: F401 — tests patch hw.subprocess.run; procs calls it
 import threading
 import time
 from functools import cache
 from pathlib import Path
 
 from .schema import GpuInfo, HardwareInfo
+from llm_runner.platform import procs
 
 log = logging.getLogger(__name__)
 
@@ -293,7 +294,7 @@ def _rocm_used_vram_mb() -> int | None:
     if not (shutil.which("rocm-smi")):
         return None
     try:
-        out = subprocess.run(
+        out = procs.run(
             ["rocm-smi", "--showmeminfo", "vram", "--csv"],
             capture_output=True, text=True, timeout=8,
         ).stdout
@@ -348,7 +349,7 @@ def _windows_gpu_dedicated_used_mb() -> int | None:
     if platform_key() != "windows" or not shutil.which("typeperf"):
         return None
     try:
-        out = subprocess.run(
+        out = procs.run(
             ["typeperf", r"\GPU Adapter Memory(*)\Dedicated Usage", "-sc", "1"],
             capture_output=True, text=True, timeout=10,
         ).stdout
@@ -420,7 +421,7 @@ def _used_pool_mb() -> int | None:
     # by compressor" counts; their sum × page size is the used-memory figure
     # whose LOAD DELTA is stable (free-page accounting alone is not).
     try:
-        out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
+        out = procs.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
         m = re.search(r"page size of (\d+) bytes", out)
         page = int(m.group(1)) if m else 4096
         used_pages = 0
@@ -512,7 +513,7 @@ def _nvidia_procs_mem_mb(pids: set[int]) -> int | None:
     if not shutil.which("nvidia-smi"):
         return None
     try:
-        out = subprocess.run(
+        out = procs.run(
             ["nvidia-smi", "--query-compute-apps=pid,used_gpu_memory",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=8,
@@ -550,7 +551,7 @@ def _windows_gpu_process_dedicated_mb(pid: int) -> int | None:
     if platform_key() != "windows" or not shutil.which("typeperf"):
         return None
     try:
-        out = subprocess.run(
+        out = procs.run(
             ["typeperf", rf"\GPU Process Memory(pid_{pid}*)\Dedicated Usage",
              "-sc", "1"],
             capture_output=True, text=True, timeout=10,
@@ -601,7 +602,7 @@ def process_rss_mb(pid: int) -> int | None:
     plat = platform_key()
     if plat == "windows":
         try:
-            out = subprocess.run(
+            out = procs.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
                 capture_output=True, text=True, timeout=8,
             ).stdout
@@ -625,7 +626,7 @@ def process_rss_mb(pid: int) -> int | None:
             pass
         return None
     try:
-        out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)],
+        out = procs.run(["ps", "-o", "rss=", "-p", str(pid)],
                              capture_output=True, text=True, timeout=5).stdout
         tok = out.strip()
         return int(tok) // 1024 if tok.isdigit() else None  # kB
@@ -649,7 +650,7 @@ def _pid_ppid_pairs() -> list[tuple[int, int]] | None:
 
     def _run(cmd: list[str], timeout: int) -> str:
         try:
-            return subprocess.run(cmd, capture_output=True, text=True,
+            return procs.run(cmd, capture_output=True, text=True,
                                   timeout=timeout).stdout
         except Exception as e:  # noqa: BLE001 — probes never raise
             log.debug("pid-table probe %s failed: %s", cmd[0], e)
@@ -789,7 +790,7 @@ def _pid_name_map() -> dict[int, str]:
 
     def _run(cmd: list[str], timeout: int) -> str:
         try:
-            return subprocess.run(cmd, capture_output=True, text=True,
+            return procs.run(cmd, capture_output=True, text=True,
                                   timeout=timeout).stdout
         except Exception as e:  # noqa: BLE001 — probes never raise
             log.debug("pid-name probe %s failed: %s", cmd[0], e)
@@ -821,7 +822,7 @@ def _nvidia_gpu_process_rows() -> dict[int, int] | None:
     if not shutil.which("nvidia-smi"):
         return None
     try:
-        out = subprocess.run(
+        out = procs.run(
             ["nvidia-smi", "--query-compute-apps=pid,used_gpu_memory",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=8,
@@ -870,7 +871,7 @@ def _windows_gpu_process_rows() -> dict[int, int] | None:
     if platform_key() != "windows" or not shutil.which("typeperf"):
         return None
     try:
-        out = subprocess.run(
+        out = procs.run(
             ["typeperf", _GPU_PROC_COUNTER, "-sc", "1"],
             capture_output=True, text=True, timeout=20,
         ).stdout
@@ -1005,7 +1006,7 @@ def other_gpu_holders(*, min_mb: int = 200) -> list[dict] | None:
 def _nvidia_query(fields: str) -> str | None:
     """Run one `nvidia-smi --query-gpu` call; None on any failure (never raises)."""
     try:
-        return subprocess.run(
+        return procs.run(
             ["nvidia-smi", f"--query-gpu={fields}", "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=5, check=True,
         ).stdout
@@ -1063,7 +1064,7 @@ def _lspci_names() -> dict[str, str]:
     if not shutil.which("lspci"):
         return {}
     try:
-        out = subprocess.run(
+        out = procs.run(
             ["lspci", "-mm"], capture_output=True, text=True, timeout=5,
         ).stdout
     except Exception as e:  # noqa: BLE001 — detection must never raise
@@ -1200,7 +1201,7 @@ def _amd_gpu_present() -> bool:
     plat = platform_key()
     try:
         if plat == "linux" and shutil.which("lspci"):
-            out = subprocess.run(
+            out = procs.run(
                 ["lspci"], capture_output=True, text=True, timeout=5,
             ).stdout.lower()
             return any(k in out for k in ("amd/ati", "advanced micro devices", "radeon"))
@@ -1208,7 +1209,7 @@ def _amd_gpu_present() -> bool:
             if os.environ.get("HIP_PATH"):  # AMD HIP SDK installed
                 return True
             if shutil.which("wmic"):
-                out = subprocess.run(
+                out = procs.run(
                     ["wmic", "path", "win32_VideoController", "get", "name"],
                     capture_output=True, text=True, timeout=8,
                 ).stdout.lower()

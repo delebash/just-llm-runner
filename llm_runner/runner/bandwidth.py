@@ -32,12 +32,12 @@ from __future__ import annotations
 import logging
 import os
 import platform
-import subprocess
 import threading
 import time
 
 from . import fit
 from .hardware import _nvidia_query
+from llm_runner.platform import procs
 
 log = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ def apple_pool_bw_gbps() -> float | None:
     if not platform.system().lower().startswith("darwin"):
         return None
     try:
-        brand = subprocess.run(
+        brand = procs.run(
             ["sysctl", "-n", "machdep.cpu.brand_string"],
             capture_output=True, text=True, timeout=5,
         ).stdout.strip()

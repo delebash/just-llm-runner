@@ -35,7 +35,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import statistics
-import subprocess
 import threading
 import time
 from pathlib import Path
@@ -48,6 +47,7 @@ from .download import DownloadCancelled, download_kwargs, stream_download
 from .hardware import detect, machine_key, mem_arch
 from .lifecycle import get_service
 from .process import DEFAULT_HOST, _close_job, _default_health, _spawn_child, find_free_port
+from llm_runner.platform import procs
 
 log = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ class Calibrator:
     `hardware_fn` / `popen` / `http_post` / `sleep` are injection points so the
     job tests offline."""
 
-    def __init__(self, service_fn=get_service, *, hardware_fn=detect, popen=subprocess.Popen,
+    def __init__(self, service_fn=get_service, *, hardware_fn=detect, popen=procs.popen,
                  http_post=None, health=_default_health, sleep=time.sleep, now=time.monotonic):
         self._service_fn = service_fn
         self._hardware_fn = hardware_fn

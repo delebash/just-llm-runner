@@ -110,6 +110,35 @@ ones this session re-checked are marked ✓ in the study.
 - better-sqlite3 13 is Node-API with prebuilt binaries in the package: 13.0.3 loads unchanged in
   Electron 44.5.1 and Node 26.5.0 — no per-Electron rebuild (*measured*).
 
+**The step-0 spikes** (*measured 2026-10-07*, Windows 11, Electron 44.7.0 and 45.0.0-alpha.16 —
+the same on both; JustVoice's
+[`2026-10-07-electron-node-plan.md`](../../../JustVioce/docs/plans/2026-10-07-electron-node-plan.md)
+§1):
+
+- On 2026-10-07 npm had only alphas of Electron 45 (45.0.0-alpha.16, no beta), against its
+  schedule of beta 2026-10-01 and stable 2026-10-20. 45 ships Chromium 156 and Node 24.21.0.
+- A `utilityProcess` ends when main is hard-killed. The programs the server started survive
+  through their own children unless the server put them in a kill-on-close job (koffi). With
+  the job, the whole tree dies on a hard kill of main, a hard kill of the server, `app.quit()`
+  and a hard kill of the headless server. A job held by main adds nothing.
+- A Node process shows libuv's job (flags `0x3c00`) only after its first `spawn`. Electron's
+  main isn't in a job when launched outside one.
+- `app://`, registered `standard`, `secure`, `supportFetchAPI`, `corsEnabled` and `stream`:
+  - reaches `http://127.0.0.1` with `fetch` and SSE, with `Origin: app://<host>`, cross-site;
+  - a JSON `POST` sends a CORS preflight;
+  - no Local Network Access block.
+- The boot race: the server listened ~170 ms after main started and the page began loading at
+  ~60 ms. The page's first request can come before the server listens — it did on 45.
+- better-sqlite3 13.0.3 and `node:sqlite` read all 17,374 cells of JustVoice's real database
+  exactly as Python's `sqlite3` does.
+  - better-sqlite3 is about twice as fast as `node:sqlite`.
+  - Kysely 0.29.6 runs over both (`node:sqlite` through a 15-line adapter) and its core is
+    browser-safe. But it deadlocks when a query goes through the database handle while a
+    transaction is open — one connection behind a lock.
+  - `kysely-capacitor-sqlite` was unpublished from npm on 2023-10-31.
+- Electron 46 (stable 2027-01-05 per its schedule): `utilityProcess` `child.kill()` no longer
+  force-kills two seconds later (electron `docs/breaking-changes.md`).
+
 **The kit in JavaScript** (*code + measured*, study §3):
 
 - `llm_runner`: 70 files / 25,941 lines, 61 test files / 19,215 lines, 1,019 test functions,
@@ -132,6 +161,16 @@ disagree today — the OS fallback folder (Tauri's `%APPDATA%\<id>` vs platformd
 `%LOCALAPPDATA%\<App>\<App>`), the `dataroot.txt` pointer (only Rust reads it) and the dev root
 (`target/debug` vs the checkout). Tauri also writes `.window-state.json` and `EBWebView` outside
 the chosen root.
+
+**The shared model cache lives in JustWrite's dev root** (*measured 2026-10-07*, the three dev
+databases read-only, plus the registry):
+- `…\justwrite-app\src-tauri\target\debug\data\ai-cache` is JustVoice's and docgen's saved
+  cache folder — `runner_setting` row `cache_root`, written at `llm/stores.py:897`;
+- saved model measurements hold model paths inside it: JustVoice 3, JustWrite 2 —
+  `measurement_switches.flag_value`, written at `llm/stores.py:1406`;
+- `%LOCALAPPDATA%\just-ai\caches.json` lists JustWrite and JustVoice with it as `cacheRoot`.
+
+Renaming JustWrite's dev root breaks all of these unless they are rewritten (the plan's §10 Q9).
 
 **Phones** (*web*, study §5):
 

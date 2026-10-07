@@ -10,6 +10,18 @@
 > Items extracted from plan docs are marked **[verified]** (code-checked at
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
+## The family moves to Electron and a Node server — the plan is written, waiting for approval [2026-10-07]
+STATE:  DECIDED 2026-10-05 and 2026-10-07 — every ruling, as shown and approved, is in
+        JustVoice's TASKS, "The family moves to Electron and a Node server; Tauri and Python go"
+        (the decision lives with the plan). This item is a pointer only.
+WHY:    the kit moves second, after the audio math goes into audio.cpp and before any app —
+        every app mounts it.
+BUILT:  the study `../JustVioce/docs/plans/2026-10-05-electron-node-study.md` and the plan, with the step-0 spikes, `../JustVioce/docs/plans/2026-10-07-electron-node-plan.md` — §4 is the kit's
+        step, §9 B2–B5 its blast radius. Facts in this repo's RESEARCH §2.
+OPEN:   the plan's approval (plan §10). The two FINDING items below — the data-dir ladder's
+        copies and the hard-kill stop — close with step 2's shared Electron main module.
+GO:     needed: the plan's approval.
+
 ## An app with no cache chosen uses a sibling's cache by itself [DECIDED 2026-10-06]
 STATE:  DECIDED 2026-10-06 — "fix it all go" (the user: "why when i reset the db everything just works it
         automatically looks at the shared cache in jw by default, whyt do you have to manuyally restore

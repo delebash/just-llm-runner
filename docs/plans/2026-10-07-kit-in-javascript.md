@@ -200,7 +200,7 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
 | 2 | llm routers B — **done** | model_catalog_api, class_tunes_api, model_tunes_api, model_measurements_api, knob_catalog_api, embed_templates_api, model_list_rules_api, runner_config_api, reasoning_map_api, test_samples_api, cache_api, identity (≈2,200) | class_tunes 6, class_tune_refs 5, model_tunes 12, measurements 11, knob_catalog 7, hardware_class 18, identity 21, test_samples 3, models 28 | |
 | 2 | runner C | arbiter, process (the spawn door + koffi job) (1,680) | arbiter 36, router_port 10, load_failure_message 10 | **done** — 137 pass + 13 todo for lifecycle; the real job check (`KIT_REAL_SPAWN=1`): a hard kill of the owner took child + grandchild, the control without the job left the grandchild alive |
 | 3 | runner D (started 2026-10-07) | lifecycle (3,742) | lifecycle 208, runner 69, runner_reclaim 5, uncurated_path 1, fit_acceptance 6 | |
-| 3 | runner E (started 2026-10-07, against a lifecycle skeleton) | autotune, calibrate, runner api (1,535) | autotune 29, calibrate 8, runner_models 26 | |
+| 3 | runner E — **done** (7 tests wait for lifecycle) | autotune, calibrate, runner api (1,535) | autotune 29, calibrate 8, runner_models 26 | |
 | 4 | install | install, index (the public surface), headless boot | install_llm 8, shared_cache 22, config 4, realrouter_smoke 8 (gated) | integrator |
 | 4 | checks | the route diff (`scripts/route-diff.mjs`), consumers' import list (plan §9 B2) | — | integrator |
 | 5 | the shell | the shared Electron main module (plan §4 "The shared Electron main module") | its own | **built** 2026-10-07 (`src/shell/`), tested with a throwaway app; the data ladder's OS fallback waits for an answer |
@@ -222,6 +222,11 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
   5 into a TEXT column stored '5.0' where Python stores '5'. `sql.js` now binds whole numbers
   as BigInt (INTEGER) and booleans as 1/0 — what Python's sqlite3 binds. (storage, 2026-10-07)
 - pydantic dumps fields in declaration order; `model()` now rebuilds objects in schema order.
+- pydantic accepts a CamelModel field under its snake_case name too (`populate_by_name`):
+  `{"model_id": "x"}` loads; both spellings at once → 422 `extra_forbidden`. `runner/api.js`
+  reproduces it (`populateByName`). A float `inf` serialises as `null` in both servers.
+- ajv reports a nullable field's null branch too ("must be null") when the inner value fails;
+  `errors.js` drops it — pydantic reports only the inner error.
 - ajv's strict mode refuses a `default` inside a union (`list[Row] | None` whose Row fields have
   defaults) — legal pydantic. createServer runs ajv with `strict: false`, and the preHandler fills
   union defaults (`models.shapeRequest`), as pydantic does.
@@ -281,6 +286,11 @@ says a fix lands in both languages):**
   2026-10-06 counting change (a model counts only from a finished file in `snapshots/`),
   `test_the_wizard_is_offered_the_way_back` FAILS in Python today. Fix: write it at
   `hf/models--org--big/snapshots/<sha>/m.gguf`. (routers B)
+
+- `runner/autotune.py:365` — `svc = self._service_fn()` sits outside the `try`: if the service
+  factory throws, the tuner's state stays "running" forever and every later start answers
+  "already running" until a restart. The JavaScript copies it (commented). Fix in both: move it
+  inside the `try`. (runner E)
 
 **Where the JavaScript can't match Python exactly (recorded by the ports):** requests'
 (connect, read) timeouts became an idle watchdog; a cancelled chunked download aborts requests in

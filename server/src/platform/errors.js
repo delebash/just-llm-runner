@@ -198,6 +198,13 @@ function validationErrors(err, request) {
   for (const e of err.validation || []) {
     // A union reports each branch's failure; pydantic reports the first.
     if (e.keyword === "anyOf" || e.keyword === "oneOf") continue;
+    // A nullable field (`X | None`) whose value isn't null and fails X: ajv also reports the
+    // null branch's "must be null"; pydantic reports only X's error.
+    if (e.keyword === "type" && e.params?.type === "null") {
+      let value = data;
+      for (const p of (e.instancePath || "").split("/").slice(1)) value = value == null ? undefined : value[p];
+      if (value !== null) continue;
+    }
     const p = ajvToPydantic(e, root, data);
     const key = JSON.stringify(p.loc);
     if (seen.has(key)) continue;

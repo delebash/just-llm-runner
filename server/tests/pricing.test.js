@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: MIT
 // Port of tests/test_pricing.py — cloud pricing lives in the DB: priceFor reads the live
 // model_pricing table (seeded from DEFAULT_PRICING), and operator edits take effect.
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import * as pricing from "../src/llm/pricing.js";
 import { makePricingRouter } from "../src/llm/pricing_api.js";
 import * as seed from "../src/llm/seed.js";
 import * as stores from "../src/llm/stores.js";
 import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
+
+// stores.js imports two wave-2 modules; stand-ins until they land (fixtures/wave-stubs.js).
+vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
+vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 function freshSeeded() {
   const h = freshDb();

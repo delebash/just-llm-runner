@@ -75,7 +75,21 @@ function wrap(db) {
     }
     return s;
   };
-  const params = (p) => (p === undefined ? [] : p);
+  // better-sqlite3 binds EVERY JavaScript number as REAL (measured: `typeof(?)` of 5 is
+  // 'real'), so 5 into a TEXT column stores '5.0' where Python's sqlite3 stores '5'. A whole
+  // number therefore binds as an INTEGER (a BigInt), and true/false as 1/0 — what Python
+  // binds for an int and a bool. A REAL column still stores 5.0 (column affinity), as for
+  // Python.
+  const bind = (v) =>
+    typeof v === "number" && Number.isSafeInteger(v) ? BigInt(v) : typeof v === "boolean" ? (v ? 1n : 0n) : v;
+  const params = (p) => {
+    if (p === undefined) return [];
+    if (Array.isArray(p)) return p.map(bind);
+    if (p && Object.getPrototypeOf(p) === Object.prototype) {
+      return Object.fromEntries(Object.entries(p).map(([k, v]) => [k, bind(v)]));
+    }
+    return bind(p);
+  };
 
   const fromRow = (table, row) => {
     if (!row || !table) return row ?? null;
@@ -141,7 +155,7 @@ function wrap(db) {
       const names = Object.keys(full).filter((c) => full[c] !== undefined);
       return prep(
         `insert into ${q(table)} (${names.map(q).join(", ")}) values (${names.map(() => "?").join(", ")})`,
-      ).run(names.map((c) => toDb(table, c, full[c])));
+      ).run(params(names.map((c) => toDb(table, c, full[c]))));
     },
     /** Update columns of the rows matching `where` ({col: value} or SQL text + params). */
     update(table, obj, where, whereParams) {
@@ -153,14 +167,13 @@ function wrap(db) {
       const names = Object.keys(set).filter((c) => set[c] !== undefined);
       if (!names.length) return { changes: 0 };
       const [wsql, wp] = whereClause(table, where, whereParams);
-      return prep(`update ${q(table)} set ${names.map((c) => `${q(c)} = ?`).join(", ")} where ${wsql}`).run([
-        ...names.map((c) => toDb(table, c, set[c])),
-        ...wp,
-      ]);
+      return prep(`update ${q(table)} set ${names.map((c) => `${q(c)} = ?`).join(", ")} where ${wsql}`).run(
+        params([...names.map((c) => toDb(table, c, set[c])), ...wp]),
+      );
     },
     delete(table, where, whereParams) {
       const [wsql, wp] = whereClause(table, where, whereParams);
-      return prep(`delete from ${q(table)} where ${wsql}`).run(wp);
+      return prep(`delete from ${q(table)} where ${wsql}`).run(params(wp));
     },
     count(table, where, whereParams) {
       if (where === undefined) return h.value(`select count(*) from ${q(table)}`);

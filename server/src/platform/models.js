@@ -92,11 +92,16 @@ function laxConvert(schema, v) {
 function fillDefaults(schema, v) {
   if (!schema || v === null || typeof v !== "object") return v;
   if (schema.type === "object" && schema.properties && !Array.isArray(v)) {
+    // pydantic dumps a model's fields in DECLARATION order, whatever order they came in, so
+    // the result is rebuilt in the schema's order (extras, kept only by a free dict, last).
+    const out = {};
     for (const [k, s] of Object.entries(schema.properties)) {
-      if (v[k] === undefined && "default" in s) v[k] = structuredClone(s.default);
-      if (v[k] !== undefined) v[k] = fillDefaults(s, v[k]);
+      if (v[k] === undefined && "default" in s) out[k] = structuredClone(s.default);
+      else if (v[k] !== undefined) out[k] = v[k];
+      if (out[k] !== undefined) out[k] = fillDefaults(s, out[k]);
     }
-    return v;
+    for (const k of Object.keys(v)) if (!(k in out) && v[k] !== undefined) out[k] = v[k];
+    return out;
   }
   if (schema.type === "array" && Array.isArray(v)) return v.map((x) => fillDefaults(schema.items, x));
   if (schema.patternProperties && !Array.isArray(v)) {

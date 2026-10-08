@@ -50,3 +50,18 @@ test("errors come in field-declaration order, as pydantic reports them", async (
     ["body.alt", "string_type"],
   ]);
 });
+
+test("model keeps a PyFloat and names its error", async () => {
+  const { PyFloat } = await import("../src/platform/pyjson.js");
+  const { model, ModelValidationError, T } = await import("../src/platform/models.js");
+  const S = T.Object({ chain: T.Any(), n: T.Integer() });
+  const v = model(S, { chain: { gain: new PyFloat(1) }, n: 2 });
+  expect(v.chain.gain).toBeInstanceOf(PyFloat);
+  try {
+    model(S, { n: "x" });
+    throw new Error("no error");
+  } catch (e) {
+    expect(e).toBeInstanceOf(ModelValidationError);
+    expect(e.name).toBe("ModelValidationError");
+  }
+});

@@ -21,6 +21,7 @@
 import Type from "typebox";
 import Value from "typebox/value";
 import { ajvToPydantic } from "./errors.js";
+import { pyClone } from "./pyjson.js";
 
 export const T = Type;
 
@@ -43,6 +44,7 @@ export const literal = (...values) => Type.Union(values.map((v) => Type.Literal(
 export class ModelValidationError extends Error {
   constructor(errors, title = "model") {
     super(`${errors.length} validation error${errors.length === 1 ? "" : "s"} for ${title}`);
+    this.name = "ModelValidationError";
     this.errors = errors;
   }
 }
@@ -104,7 +106,7 @@ function fillDefaults(schema, v) {
     // the result is rebuilt in the schema's order (extras, kept only by a free dict, last).
     const out = {};
     for (const [k, s] of Object.entries(schema.properties)) {
-      if (v[k] === undefined && "default" in s) out[k] = structuredClone(s.default);
+      if (v[k] === undefined && "default" in s) out[k] = pyClone(s.default);
       else if (v[k] !== undefined) out[k] = v[k];
       if (out[k] !== undefined) out[k] = fillDefaults(s, out[k]);
     }
@@ -164,7 +166,7 @@ export const strictObject = (props, options = {}) => Type.Object(props, { additi
 
 /** `Schema(**value)`: defaults, lax conversion, unknown fields dropped, then checked. */
 export function model(schema, value, title) {
-  const v = fillDefaults(schema, clean(schema, laxConvert(schema, structuredClone(value ?? {}))));
+  const v = fillDefaults(schema, clean(schema, laxConvert(schema, pyClone(value ?? {}))));
   if (!Value.Check(schema, v)) {
     const errors = [...Value.Errors(schema, v)]
       .filter((e) => e.keyword !== "anyOf")

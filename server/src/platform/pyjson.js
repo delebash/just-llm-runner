@@ -31,6 +31,16 @@ export class PyFloat {
 }
 export const pyFloatValue = (v) => new PyFloat(Number(v));
 
+/** A deep copy that keeps PyFloat (structuredClone turns one into a plain `{v}` object). */
+export function pyClone(v) {
+  if (v === null || typeof v !== "object" || v instanceof PyFloat) return v;
+  if (Array.isArray(v)) return v.map(pyClone);
+  if (v instanceof Date) return new Date(v.getTime());
+  const out = {};
+  for (const [k, x] of Object.entries(v)) out[k] = pyClone(x);
+  return out;
+}
+
 /** Python's repr() of a float — the text json.dumps writes for it. */
 export function pyFloat(x) {
   if (Number.isNaN(x)) return "NaN";

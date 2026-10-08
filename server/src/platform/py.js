@@ -37,6 +37,9 @@ export const SYS_PLATFORM = process.platform;
 /** round(x, nd) — half to even on the double's exact value, as Python rounds. */
 export function pyRound(x, nd = 0) {
   if (!Number.isFinite(x)) return x;
+  // Every double this large is already a whole number (and toFixed would switch to
+  // exponent notation past 1e21).
+  if (Math.abs(x) >= 2 ** 53) return x;
   if (nd === 0) {
     const f = Math.floor(x);
     const d = x - f;

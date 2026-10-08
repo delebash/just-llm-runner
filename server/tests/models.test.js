@@ -3,9 +3,8 @@
 // the HF cache write. The network (HF Hub API + file stream) is mocked — `http.fetch` for
 // the API and `download.streamDownload` for the file stream — so it runs anywhere.
 //
-// 25 of 28 Python tests run here. The three `*_survives_the_wire_model` tests need
-// `llm/model_catalog_api.js`'s ListFilesResponse — a later slice (llm routers B); they are
-// written below as `test.skip` and are to be un-skipped when that module lands.
+// All 28 Python tests run here (the three `*_survives_the_wire_model` tests go through
+// `llm/model_catalog_api.js`'s ListFilesResponse).
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -357,8 +356,7 @@ test("classify_marks_the_draft_pick_floor", () => {
   });
 });
 
-// Waits for llm routers B (llm/model_catalog_api.js ListFilesResponse) — un-skip then.
-test.skip("draft_floor_flag_survives_the_wire_model", async () => {
+test("draft_floor_flag_survives_the_wire_model", async () => {
   // THE guard for the 2026-07-19 miss: `/model-catalog/list-files` declares
   // ListFilesResponse, and the model's extra="ignore" SILENTLY DROPS any key the row model
   // doesn't name. Assert the flag survives the real classify → response-model hop.
@@ -374,8 +372,7 @@ test.skip("draft_floor_flag_survives_the_wire_model", async () => {
   });
 });
 
-// Waits for llm routers B (llm/model_catalog_api.js ListFilesResponse) — un-skip then.
-test.skip("quant_floor_flag_survives_the_wire_model", async () => {
+test("quant_floor_flag_survives_the_wire_model", async () => {
   // The QUANT-row hop of the same guard (2026-08-13: RepoQuantRow didn't declare q4OrBetter,
   // the form's ≥4-bit fallback saw undefined and handed an 8 GB box the 1-bit IQ1_M).
   const { ListFilesResponse } = await import("../src/llm/model_catalog_api.js");
@@ -387,8 +384,7 @@ test.skip("quant_floor_flag_survives_the_wire_model", async () => {
   expect(Object.fromEntries(rows.map((r) => [r.quant, r.q4OrBetter]))).toEqual({ "UD-IQ1_M": false, "UD-Q4_K_XL": true });
 });
 
-// Waits for llm routers B (llm/model_catalog_api.js ListFilesResponse) — un-skip then.
-test.skip("loadable_flag_survives_the_wire_model", async () => {
+test("loadable_flag_survives_the_wire_model", async () => {
   // SAME wire-strip guard for the loadability fields (2026-07-21).
   const { ListFilesResponse } = await import("../src/llm/model_catalog_api.js");
   const data = models.classifyGgufEntries([

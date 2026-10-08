@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 // The per-provider reasoning-level map's models and seeds — from llm/reasoning_map_api.py.
-// The router (`makeReasoningMapRouter`) is ported in wave 2.
 //
 // The level→value table the ONE resolver (`llm/reasoning.js`) reads to turn a task's
 // Low/Medium/High/XHigh/Max "ask" into what each provider actually speaks.
@@ -8,8 +7,11 @@
 // `reasoning_effort`, Ollama native level, new-Anthropic `output_config.effort`) AND
 // `tokens` (budget-number paths: the local llama.cpp per-request budget, old-Anthropic
 // `budget_tokens`, Gemini thinkingBudget) — the resolver picks whichever column the
-// resolved backend/model speaks. Seeded per provider TYPE (fill-if-missing per instance).
+// resolved backend/model speaks. Seeded per provider TYPE (fill-if-missing per instance),
+// editable via GET/PUT /v1/ai/reasoning-map/{provider}. The model_pricing CRUD is the
+// precedent (#75).
 
+import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
 
 // The reasoning "ask" vocabulary — the levels a task can request, in ascending order.
@@ -95,4 +97,52 @@ export function seedRowsForType(providerType) {
   const key = Object.hasOwn(TYPE_ALIAS, providerType) ? TYPE_ALIAS[providerType] : providerType;
   const table = (Object.hasOwn(REASONING_MAP_TYPE_SEEDS, key) && REASONING_MAP_TYPE_SEEDS[key]) || REASONING_MAP_TYPE_SEEDS.openai;
   return Object.entries(table).map(([level, [word, tokens]]) => model(ReasoningLevelRow, { level, word, tokens }));
+}
+
+export const ReasoningMapResponse = T.Object({
+  provider: T.String(),
+  rows: T.Array(ReasoningLevelRow),
+});
+
+/** Python's repr of the levels tuple, for the 400 detail. */
+const LEVELS_REPR = `(${REASONING_LEVELS.map((l) => `'${l}'`).join(", ")})`;
+
+/**
+ * Per-provider reasoning level→value CRUD. `getStore()` → {forProvider(id), upsert(id,
+ * row)}. The resolver reads these rows; a row absent for a (provider, level) falls back to
+ * the seeded type default (one constant in `llm/reasoning.js`). Values are editable DATA —
+ * no adapter keeps a level table.
+ */
+export function makeReasoningMapRouter(getStore) {
+  return async function reasoningMapRouter(app) {
+    const resp = (provider) => model(ReasoningMapResponse, { provider, rows: getStore().forProvider(provider) });
+    // Starlette's {provider} is one NON-EMPTY segment, matched after the path is decoded: an
+    // empty one, or an encoded slash (`a%2Fb` — two segments there), matches nothing.
+    // find-my-way matches both and decodes after. Answer as FastAPI does.
+    const providerOf = (req, reply) => {
+      const provider = req.params.provider;
+      if (provider === "" || provider.includes("/")) {
+        reply.code(404).send({ detail: "Not Found" });
+        return null;
+      }
+      if (!provider.trim()) throw new HttpError(400, "provider is required");
+      return provider;
+    };
+    const params = T.Object({ provider: T.String() });
+
+    app.get("/v1/ai/reasoning-map/:provider", { schema: { params } }, async (req, reply) => {
+      const provider = providerOf(req, reply);
+      if (provider === null) return reply;
+      return resp(provider);
+    });
+
+    app.put("/v1/ai/reasoning-map/:provider", { schema: { params, body: ReasoningLevelRow } }, async (req, reply) => {
+      const provider = providerOf(req, reply);
+      if (provider === null) return reply;
+      const body = model(ReasoningLevelRow, req.body);
+      if (!REASONING_LEVELS.includes(body.level)) throw new HttpError(400, `level must be one of ${LEVELS_REPR}`);
+      getStore().upsert(provider, body);
+      return resp(provider);
+    });
+  };
 }

@@ -1,11 +1,20 @@
 // SPDX-License-Identifier: MIT
-// The measurement history's wire models — from llm/model_measurements_api.py. The router
-// (`makeModelMeasurementsRouter`) and the module's other models are ported in wave 2.
+// The persistent MEASUREMENT HISTORY router — the port of llm/model_measurements_api.py
+// (#142 rows 5+6, 2026-07-07: 'save all data, nothing temporary' + 'add a clear button to
+// clear history'). One append-only ledger of every real decode-speed measurement: the Tune
+// modal's "Load & measure" POSTs its result (source 'tune' — the modal is the one actor
+// that knows which switches it loaded), and the auto-tune sweep records every successful
+// trial server-side via the injected seam in installLlm (source 'autotune').
 //
-// One append-only ledger of every real decode-speed measurement: the Tune modal's "Load &
-// measure" (source "tune") and every successful auto-tune trial (source "autotune").
+// Sibling precedent: class_tunes_api (store + router factory + server-derived machine
+// identity). GET returns newest-first, optionally filtered to one model (the Tune modal's
+// per-model drawer); POST stamps `machineKey` and `at` SERVER-side (the client never
+// supplies identity or clocks); DELETE is the Clear-history button — per-model with
+// `modelId`, the whole ledger without.
 
-import { opt, T } from "../platform/models.js";
+import { HttpError } from "../platform/errors.js";
+import { model, opt, T } from "../platform/models.js";
+import { pyFloatParse, pyInt } from "../platform/py.js";
 
 export const MeasurementFlag = T.Object({
   flagName: T.String(),
@@ -28,11 +37,65 @@ export const MeasurementRow = T.Object({
   // (cross-backend numbers are not comparable).
   backend: opt(T.String(), ""),
   // Phase 5 (§6.3): the true-up FOOTPRINT of a source='load' row (0 on speed rows) and
-  // the owner kind (§8.16).
+  // the owner kind (§8.16). Declared so the wire never strips them.
   vramModelMb: opt(T.Integer(), 0),
   kind: opt(T.String(), "llm"),
   // A speech model's real-time factor (seconds of audio per second of work); 0 on every
-  // other row.
+  // other row. Declared so the wire never strips it.
   realtimeX: opt(T.Number(), 0.0),
   switches: opt(T.Array(MeasurementFlag), []),
 });
+
+export const MeasurementsResponse = T.Object({
+  machineKey: T.String(), // the CURRENT box (server-derived)
+  measurements: T.Array(MeasurementRow), // newest first
+});
+
+export const MeasurementPost = T.Object({
+  modelId: T.String(),
+  source: opt(T.String(), "tune"),
+  label: opt(T.String(), ""),
+  tokensPerSec: opt(T.Number(), 0.0),
+  vramTotalMb: opt(T.Integer(), 0),
+  switches: opt(T.Array(MeasurementFlag), []),
+});
+
+const strip = (s) => String(s ?? "").trim();
+
+/**
+ * GET (history, newest first, ?modelId filter) / POST (record one) / DELETE (clear —
+ * ?modelId for one model, none for everything). `getStore()` → {record, list, clear};
+ * `machineKeyFn()` → this machine's key.
+ */
+export function makeModelMeasurementsRouter(getStore, machineKeyFn) {
+  return async function modelMeasurementsRouter(app) {
+    const response = (modelId) =>
+      model(MeasurementsResponse, { machineKey: machineKeyFn(), measurements: getStore().list(modelId) });
+
+    const optionalModelId = { schema: { querystring: T.Object({ modelId: opt(T.String(), "") }) } };
+
+    app.get("/v1/ai/model-measurements", optionalModelId, async (req) => response(strip(req.query.modelId) || null));
+
+    app.post("/v1/ai/model-measurements", { schema: { body: MeasurementPost } }, async (req) => {
+      const body = model(MeasurementPost, req.body);
+      const modelId = strip(body.modelId);
+      if (!modelId) throw new HttpError(400, "modelId is required");
+      getStore().record(modelId, {
+        machineKey: machineKeyFn(),
+        source: strip(body.source || "tune") || "tune",
+        label: body.label || "",
+        tokensPerSec: pyFloatParse(body.tokensPerSec || 0),
+        vramTotalMb: pyInt(body.vramTotalMb || 0),
+        at: Math.trunc(Date.now()), // int(time.time() * 1000)
+        rows: body.switches,
+      });
+      return response(modelId);
+    });
+
+    app.delete("/v1/ai/model-measurements", optionalModelId, async (req) => {
+      const modelId = strip(req.query.modelId) || null;
+      getStore().clear(modelId);
+      return response(modelId);
+    });
+  };
+}

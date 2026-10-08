@@ -183,6 +183,20 @@ sheet `docs/plans/2026-10-07-kit-in-javascript.md`):
   POST 39, PUT 17, DELETE 15, PATCH 2) — `server/scripts/route-table.json`.
 - The kit's Python tables have no Python-side callable column defaults (the schema capture
   lists none).
+- How FastAPI reads a request, which the JavaScript server copies (*measured 2026-10-07* by the
+  ports, against the Python routers through TestClient):
+  - a pydantic query bool accepts `1/0/t/f/y/n/yes/no/on/off/true/false` in any case, untrimmed;
+    `""` and `" true"` answer 422 `bool_parsing`; an int accepts `"5"`, `"5.0"`, `" 7 "`,
+    `"1_000"`, not `"5.5"`;
+  - a repeated query key gives a scalar parameter its LAST value;
+  - a `{p}` path parameter is one non-empty segment matched after decoding: `a%2Fb` and an
+    empty segment both answer 404;
+  - a route nobody serves answers `{"detail": "Not Found"}`, not problem+json (Starlette's own
+    404 never reaches the kit's handler).
+- better-sqlite3 binds every JavaScript number as REAL; Python's sqlite3 binds an int as
+  INTEGER, so the same 5 lands in a TEXT column as '5.0' vs '5'. The kit's SQL helper binds
+  whole numbers as BigInt. ajv's type coercion turns null into "" / 0 inside a nullable union;
+  the kit's server does pydantic's lax conversion itself instead. (*measured*, the build sheet §6.)
 
 **The kit in JavaScript** (*code + measured*, study §3):
 

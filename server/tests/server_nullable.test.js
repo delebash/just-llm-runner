@@ -36,3 +36,17 @@ test("query text converts as pydantic: ints, bools, lists, null default", async 
   expect((await a.inject({ url: "/q?ids=a&ids=b&n=1&n=2" })).json()).toEqual({ n: 2, f: false, ids: ["a", "b"] });
   expect((await a.inject({ url: "/q?n=x" })).statusCode).toBe(422);
 });
+
+test("errors come in field-declaration order, as pydantic reports them", async () => {
+  // ajv reports `required` misses first; pydantic walks the fields in order (JustWrite's
+  // `POST /v1/images {"name": 5}`, measured on Python 2026-10-08: name, then data).
+  const a = createServer({ typeBase: "t/" });
+  a.post("/img", { schema: { body: T.Object({ name: T.String(), data: T.String(), alt: opt(T.String(), "") }) } }, async (r) => r.body);
+  const r = await a.inject({ method: "POST", url: "/img", payload: { name: 5, alt: 3 } });
+  expect(r.statusCode).toBe(422);
+  expect(r.json().errors.map((e) => [e.loc.join("."), e.type])).toEqual([
+    ["body.name", "string_type"],
+    ["body.data", "missing"],
+    ["body.alt", "string_type"],
+  ]);
+});

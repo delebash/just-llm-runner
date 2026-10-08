@@ -3,6 +3,7 @@
 // stack-level server pieces every family app wires the same way.
 
 export { BearerAuthMiddleware } from "./auth.js";
+export { CorsMiddleware, corsHook } from "./cors.js";
 export { CsrfOriginMiddleware } from "./csrf.js";
 export { makeDataRouter } from "./data_api.js";
 export { fromDataRelative, installDir, resolveDataDir, toDataRelative } from "./data_paths.js";

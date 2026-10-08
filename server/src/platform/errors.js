@@ -211,7 +211,45 @@ function validationErrors(err, request) {
     seen.add(key);
     out.push(p);
   }
-  return out;
+  return byDeclarationOrder(out, request, root);
+}
+
+// pydantic validates a model's fields in declaration order and reports each failure as it goes;
+// ajv reports every `required` miss before the per-field errors. So `{"name": 5}` against
+// (name: str, data: str) came out [data missing, name type] where Python says [name, data]
+// (found by JustWrite's port, 2026-10-08). Each error is sorted by its field's position in the
+// route's schema — `model()` keeps properties in declaration order — and the sort is stable.
+const SCHEMA_KEY = { body: ["body"], query: ["querystring", "query"], path: ["params"], header: ["headers"] };
+
+function byDeclarationOrder(errors, request, root) {
+  const schemas = request.routeOptions?.schema || {};
+  const schema = (SCHEMA_KEY[root] || [root]).map((k) => schemas[k]).find(Boolean);
+  if (!schema || errors.length < 2) return errors;
+  const rank = (loc) => {
+    const key = [];
+    let s = schema;
+    for (const part of loc.slice(1)) {
+      if (typeof part === "number") {
+        key.push(part);
+        s = s?.items;
+      } else if (s?.properties) {
+        const names = Object.keys(s.properties);
+        const i = names.indexOf(part);
+        key.push(i < 0 ? names.length : i);
+        s = s.properties[part];
+      } else {
+        key.push(Number.MAX_SAFE_INTEGER);
+        s = null;
+      }
+    }
+    return key;
+  };
+  const ranked = errors.map((e, i) => ({ e, i, key: rank(e.loc) }));
+  ranked.sort((x, y) => {
+    for (let k = 0; k < Math.min(x.key.length, y.key.length); k++) if (x.key[k] !== y.key[k]) return x.key[k] - y.key[k];
+    return x.key.length - y.key.length || x.i - y.i;
+  });
+  return ranked.map((r) => r.e);
 }
 
 function problem(reply, status, body) {

@@ -47,13 +47,22 @@ export class ModelValidationError extends Error {
   }
 }
 
-/** pydantic's lax conversions that TypeBox's Convert doesn't do the same way. */
-function laxConvert(schema, v) {
+/**
+ * pydantic's lax conversions — the ONLY coercion a request gets (ajv runs with coerceTypes
+ * off: its coercion turned null into "" / 0 inside a nullable union, where pydantic keeps
+ * None). A union keeps a value any branch already accepts before converting anything, so
+ * null stays null. `query: true` (query strings and path params) also wraps a single value
+ * for a list field, as FastAPI collects repeated keys. Unknown fields are kept here; `clean`
+ * drops them after validation, so a model that forbids them still sees them.
+ */
+export function laxConvert(schema, v, { query = false } = {}) {
   if (v === undefined || v === null || !schema) return v;
   const t = schema.type;
+  const opts = { query };
   if (t === "number" && typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
   if (t === "integer") {
-    if (typeof v === "string" && /^\s*[-+]?\d+\s*$/.test(v)) return Number(v);
+    // pydantic reads "5" and "5.0" as 5 (a fraction of zero); "5.5" stays a string and fails.
+    if (typeof v === "string" && /^\s*[-+]?\d+(?:_\d+)*(?:\.0*)?\s*$/.test(v)) return Math.trunc(Number(v.replace(/_/g, "")));
     if (typeof v === "number" && Number.isInteger(v)) return v;
     if (typeof v === "boolean") return v ? 1 : 0;
   }
@@ -68,21 +77,20 @@ function laxConvert(schema, v) {
   }
   if (t === "object" && schema.properties && typeof v === "object" && !Array.isArray(v)) {
     const out = {};
-    for (const [k, s] of Object.entries(schema.properties)) {
-      if (k in v) out[k] = laxConvert(s, v[k]);
-    }
-    return out; // unknown fields dropped (extra="ignore")
+    for (const [k, x] of Object.entries(v)) out[k] = schema.properties[k] ? laxConvert(schema.properties[k], x, opts) : x;
+    return out;
   }
   if (t === "object" && schema.patternProperties && typeof v === "object" && !Array.isArray(v)) {
     const s = Object.values(schema.patternProperties)[0];
-    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, laxConvert(s, x)]));
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, laxConvert(s, x, opts)]));
   }
-  if (t === "array" && Array.isArray(v)) return v.map((x) => laxConvert(schema.items, x));
+  if (t === "array" && Array.isArray(v)) return v.map((x) => laxConvert(schema.items, x, opts));
+  if (t === "array" && query) return [laxConvert(schema.items, v, opts)];
   if (schema.anyOf) {
     for (const s of schema.anyOf) if (Value.Check(s, v)) return v;
     for (const s of schema.anyOf) {
       if (s.type === "null") continue;
-      const c = laxConvert(s, v);
+      const c = laxConvert(s, v, opts);
       if (Value.Check(s, c)) return c;
     }
   }
@@ -156,7 +164,7 @@ export const strictObject = (props, options = {}) => Type.Object(props, { additi
 
 /** `Schema(**value)`: defaults, lax conversion, unknown fields dropped, then checked. */
 export function model(schema, value, title) {
-  const v = fillDefaults(schema, laxConvert(schema, structuredClone(value ?? {})));
+  const v = fillDefaults(schema, clean(schema, laxConvert(schema, structuredClone(value ?? {}))));
   if (!Value.Check(schema, v)) {
     const errors = [...Value.Errors(schema, v)]
       .filter((e) => e.keyword !== "anyOf")

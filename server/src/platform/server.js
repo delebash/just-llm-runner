@@ -13,7 +13,7 @@
 
 import Fastify from "fastify";
 import { installErrorHandlers } from "./errors.js";
-import { clean, shapeRequest } from "./models.js";
+import { clean, laxConvert, shapeRequest } from "./models.js";
 
 const BODY_LIMIT = 1024 * 1024 * 1024; // 1 GiB — "none" in practice, as FastAPI
 
@@ -41,7 +41,9 @@ export function createServer({ typeBase, logger = false, bodyLimit = BODY_LIMIT,
     ajv: {
       customOptions: {
         allErrors: true,
-        coerceTypes: "array",
+        // No coercion here: ajv's turned null into "" / 0 inside a nullable union. The
+        // preValidation hook converts the way pydantic does instead (models.laxConvert).
+        coerceTypes: false,
         useDefaults: true,
         // Unknown fields are dropped after validation (the preHandler below), not by
         // ajv: a model that forbids them must still see them and answer 422.
@@ -72,6 +74,14 @@ export function createServer({ typeBase, logger = false, bodyLimit = BODY_LIMIT,
     for (const [k, v] of Object.entries(req.query)) {
       if (Array.isArray(v) && props[k] && props[k].type !== "array") req.query[k] = v[v.length - 1];
     }
+  });
+  // pydantic's lax conversion — query strings and path params are text, bodies are JSON.
+  app.addHook("preValidation", async (req) => {
+    const schema = req.routeOptions?.schema;
+    if (!schema) return;
+    if (schema.querystring && req.query) req.query = laxConvert(schema.querystring, req.query, { query: true });
+    if (schema.params && req.params) req.params = laxConvert(schema.params, req.params, { query: true });
+    if (schema.body && req.body !== undefined) req.body = laxConvert(schema.body, req.body);
   });
   // pydantic's extra="ignore": a handler sees only the fields its model declares.
   app.addHook("preHandler", async (req) => {

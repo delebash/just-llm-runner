@@ -243,7 +243,7 @@ export const DEFAULT_BINARIES = [
 ];
 
 /** A DEFAULT_BINARIES row (snake data keys) as a BinaryAsset value (camelCase fields). */
-function binaryAsset(b) {
+export function binaryAsset(b) {
   const out = { platform: b.platform, gpu: b.gpu };
   if ("source" in b) out.source = b.source;
   if ("asset_url" in b) out.assetUrl = b.asset_url;

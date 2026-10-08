@@ -178,7 +178,11 @@ Python wrote (`tests/fixtures/python-formats.json`).
     moves it. Never edit another slice's file; never commit (the integrator commits).
 23. Importing a module another slice ports: use the Python name camelCased from the
     same-named file (`runner/download.py` `stream_download` → `streamDownload` from
-    `runner/download.js`). If it isn't there yet, import it anyway and mock it in your tests.
+    `runner/download.js`). A vitest mock can't stand in for a FILE that doesn't exist yet
+    (measured by runner B) — port against the name, and run those tests once the file lands.
+24. Call another module's function through its namespace (`import * as hardware`,
+    `hardware.usedPoolMb()`), never a destructured import, wherever a test spies it — a
+    spy replaces the namespace property, not a binding already copied out.
 
 ## 4 · The slices and their order
 
@@ -188,8 +192,8 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
 |---|---|---|---|---|
 | 0 | foundations | §2 above | pricing 3, + formats | **done** 2026-10-07 |
 | 1 | platform | data_paths, auth, csrf, prefs_api, logs_api, data_api, disk_api (1,170) | platform_errors 3, auth_middleware 5, data_api 3, data_paths 14, disk_api 7, logs_api 7, prefs_api 4 | **done** — 43/43 ported (+7), 49 pass, 1 skip (symlinks, as Python here) |
-| 1 | runner A | config, gguf, fit, cache_registry, download, models, gguf_remote (2,750) | gguf 17, gguf_tensor_table 11, fit 33, download 17, (models 28 — its llm parts wait for wave 2) | |
-| 1 | runner B | hardware, bandwidth, binary (2,370) | hardware 32, class_label_ladders 1, gpu_processes 15, bandwidth 12, binary 37 | |
+| 1 | runner A | config, gguf, fit, cache_registry, download, models, gguf_remote (2,750) | gguf 17, gguf_tensor_table 11, fit 33, download 17, (models 28 — its llm parts wait for wave 2) | **done** — 106/106 ported, 103 pass, 3 skip until `ListFilesResponse` (wave 2); fit ~150k values and 17 real GGUFs identical to Python |
+| 1 | runner B | hardware, bandwidth, binary (2,370) | hardware 32, class_label_ladders 1, gpu_processes 15, bandwidth 12, binary 37 | **done** — 95/97 ported (+4), 101 pass, 1 skip (Linux-only); bandwidth's 2 lifecycle tests move to runner D; `detect()` identical to Python on this box. Boot must `await hardware.ensureDetected()` — the key functions read its memo |
 | 1 | providers | base, registry, openai_compat, openai_sdk, anthropic, gemini, ollama, usage, model_list_rules, dispatch, reasoning (2,860) | adapter_extra 45, base_helpers 4, llm_dispatch 17, model_list_rules 25 (its router parts wait) | |
 | 1 | storage | stores, seed, every `*_api.py` model the stores use, usage_sink (3,400) | shared_storage 9, seed_providers 2, runner_config_store 11, reasoning 17 | integrator |
 | 2 | llm routers A | prompts, presets_api, preset_resolve, switch_resolve, switch_presets_api, routing_api, provider_api, config_builder, api (≈2,300) | prompts 39, plane2_params 17, presets 7, switch_resolve 14, switch_presets 4, routing_api 3, provider_api 6, llm_api 6, probe_models 2, prompt_seed_backfill 2, embed_templates 7 | |
@@ -233,6 +237,15 @@ says a fix lands in both languages):**
 - `runner/models.py:475-481` — `find_inherited_mtp_drafter` loops over a `set` of roots, so
   which drafter is suggested can change between runs (hash order). The JavaScript tries the
   base repo first, then its `-it` root. (runner A)
+
+- `runner/bandwidth.py:131-133`, `:146-149` — the RAM probe's "threaded" copies don't run in
+  parallel: `bytes(buf)` holds the GIL on CPython 3.12.9 (measured: a second thread stalls for
+  the whole copy), so the topology-aware probe has only ever measured ONE stream, and the
+  0.40 host factor was calibrated on that. The JavaScript copies the one-stream behaviour so
+  the numbers match (JS 18.3–18.7 GB/s vs Python 18.6–19.0 here); truly parallel copies read
+  20–22 GB/s. Fixing it means re-calibrating the factor — the user's call. (runner B)
+- `runner/hardware.py:318`, `:1039` — `int(float(x))` on `"inf"` raises an uncaught
+  OverflowError, though probes "never raise". (runner B)
 
 **Where the JavaScript can't match Python exactly (recorded by the ports):** requests'
 (connect, read) timeouts became an idle watchdog; a cancelled chunked download aborts requests in

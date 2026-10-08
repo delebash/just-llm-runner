@@ -130,7 +130,8 @@ export function coarseFit({
 /** KV-cache element bit-width the formula expects: q4_0→4, q8_0→8, else 16. */
 export function cacheTypeBits(cacheTypeK) {
   const k = (cacheTypeK || "").trim().toLowerCase();
-  return { q4_0: 4, q8_0: 8 }[k] ?? 16;
+  const bits = { q4_0: 4, q8_0: 8 };
+  return Object.hasOwn(bits, k) ? bits[k] : 16;
 }
 
 // Fitted constants from oobabooga's GGUF VRAM regression (see the header).

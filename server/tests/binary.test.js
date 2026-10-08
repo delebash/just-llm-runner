@@ -697,6 +697,33 @@ test("acquire_runtime_installs_into_its_own_folder_with_the_companion", async ()
   expect(await binmod.acquireRuntime(root, "audiocpp", "v0.9.0", audiocppRows(), h)).toBe(exe);
 });
 
+test("acquire_runtime_leaves_out_the_files_the_app_drops", async () => {
+  // JustVoice drops upstream's Python reference scripts (2026-10-08): the archive's .py files
+  // never reach the installed folder, and a folder they alone filled goes too.
+  const root = tmp();
+  vi.spyOn(download, "streamDownload").mockImplementation(async (_url, dest) => {
+    writeFileSync(
+      dest,
+      zipBytes([
+        ["audiocpp_server.exe", "MZ fake"],
+        ["tools/community_models/ref.py", "print(1)"],
+        ["tools/readme.txt", "keep"],
+        ["only_py/a.py", "x"],
+      ]),
+    );
+    return "deadbeef";
+  });
+  const exe = await binmod.acquireRuntime(root, "audiocpp", "v0.9.0", audiocppRows(), hw("windows", {}), {
+    gpu: "cpu",
+    dropFiles: (rel) => rel.endsWith(".py"),
+  });
+  const dir = join(root, "audiocpp", "v0.9.0", "cpu");
+  expect(exe).toBe(join(dir, "audiocpp_server.exe"));
+  expect(existsSync(join(dir, "tools", "readme.txt"))).toBe(true);
+  expect(existsSync(join(dir, "tools", "community_models"))).toBe(false);
+  expect(existsSync(join(dir, "only_py"))).toBe(false);
+});
+
 test("acquire_runtime_picks_by_gpu_preference_and_honours_an_override", async () => {
   const root = tmp();
   makeStream([], "audiocpp_server.exe");

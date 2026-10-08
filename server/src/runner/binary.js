@@ -858,7 +858,7 @@ export async function _stageAndSwap(
   dest,
   platform,
   dlKwargs,
-  { onProgress = null, cancelCheck = null, probeArgvs = null, label = "runtime" } = {},
+  { onProgress = null, cancelCheck = null, probeArgvs = null, label = "runtime", dropFiles = null } = {},
 ) {
   // STAGE: download + unpack into a sibling temp dir, never the live variant — the working
   // engine stays intact until a verified build is ready to swap in. Clear a crashed run's
@@ -914,6 +914,9 @@ export async function _stageAndSwap(
     // CUDA builds ship the cudart runtime DLLs separately — unpack alongside the exe.
     if (asset.runtimeUrl) await fetchOne(asset.runtimeUrl, asset.runtimeSha256);
 
+    // Files the app never runs, left out before the swap (JustVoice: upstream's Python
+    // reference scripts — the family keeps no Python, 2026-10-08).
+    if (dropFiles) dropUnpacked(staging, dropFiles);
     const exe = _findServerExe(staging, asset.serverExe);
     if (exe === null) throw new RuntimeError(`${asset.serverExe} not found in unpacked archive at ${staging}`);
     if (platform !== "windows") chmodSync(exe, statSync(exe).mode | 0o111);
@@ -931,6 +934,26 @@ export async function _stageAndSwap(
   }
 
   return _findServerExe(dest, asset.serverExe);
+}
+
+/** Delete every file under `root` whose path relative to it (forward slashes) `drop`
+ * accepts, then the folders that leaves empty. Returns how many files went. */
+export function dropUnpacked(root, drop) {
+  let n = 0;
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        walk(full);
+        if (!readdirSync(full).length) rmSync(full, { recursive: true });
+      } else if (drop(path.relative(root, full).split(path.sep).join("/"))) {
+        unlinkSync(full);
+        n += 1;
+      }
+    }
+  };
+  walk(root);
+  return n;
 }
 
 // ─── Any other pinned native runtime (audio.cpp, …) ──────────────────────
@@ -965,7 +988,8 @@ export function installedRuntimeExe(cacheRoot, folder, build, asset) {
  *
  * The same atomic, verified install as `acquireBinary` (stage → launch-verify → swap), for a
  * runtime whose rows the caller owns. `gpu` installs a specific variant; otherwise the box's
- * preference picks. Idempotent unless `force`.
+ * preference picks. Idempotent unless `force`. `dropFiles(relPath)` → true leaves that file of
+ * the archive out (see `dropUnpacked`).
  */
 export async function acquireRuntime(
   cacheRoot,
@@ -981,6 +1005,7 @@ export async function acquireRuntime(
     onProgress = null,
     cancelCheck = null,
     probeArgvs = null,
+    dropFiles = null,
   } = {},
 ) {
   let asset;
@@ -1000,5 +1025,6 @@ export async function acquireRuntime(
     cancelCheck,
     probeArgvs,
     label: folder,
+    dropFiles,
   });
 }

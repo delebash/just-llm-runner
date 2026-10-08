@@ -10,6 +10,59 @@
 > Items extracted from plan docs are marked **[verified]** (code-checked at
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
+## Every family app moves to Quasar, built by one set of framework rules [2026-10-08]
+STATE:  DECIDED 2026-10-08 — the user: "all apps will be converted to quasar, we will use the same
+        stack, we will keep the code the same as in the servers should look and work the same, i
+        think we already have the servers but i want a framework rules so when we do apps they
+        resuse and end up very similiar". Then, on the five questions as shown, "we already decided
+        on quasar you messed up all apps get quasar, no we need to decide on sync method for jw and
+        make it so we coudl add it to other apps easily if we decide we want to say sync acrross
+        desktops or just run the server in the cloud. 1-5 your rec and quasar has mcp so you can
+        easily read docs and write your own controls in quasar style or update exisitng ones, we
+        probably should fork quasar if we need to. https://quasar.dev/
+        https://quasar.dev/start/ai-agents go", then "the framework rules will need to be updated
+        for our new framework", "continue go". The five, as shown, with the recommendation applied:
+        "1. What does 'the same stack' mean for the desktop shell? (a) Quasar's own tooling for
+        everything. Its Electron mode is the desktop app, calling the kit's shared function for the
+        data folder, the server and the tray. Its Capacitor mode is the phone app. (b) Keep today's
+        electron/main.js and plain Vite, and use Quasar only as a component library. Lean: (a). It's
+        the standard, and Quasar's docs call the (b) route 'community plugins' for cross-platform
+        builds. It also settles JustWrite's open question 3 and your global CLAUDE.md Stack line."
+        · "2. What happens to the kit's UI (@delebash/llm-ui)? Lean: Quasar's components replace
+        the kit's generic controls (inputs, table, buttons, dialogs). The kit keeps only what Quasar
+        doesn't ship (the AI settings, the task strip, the model catalog, the theme from the test),
+        rebuilt on Quasar. The rule becomes 'nothing hand-rolled that Quasar or the kit ships'."
+        · "3. What comes first? Lean: a fresh default Quasar app (your IDEAS words), turned into the
+        family template with the test's theme. The rules get written from it. Then JustWrite (the
+        phone app), then JustVoice, then docgen. The servers stay untouched." · "4. Can I check
+        Quasar's docs before writing the rules? I'd check the project layout, Electron mode,
+        Capacitor mode, and its documented way to share code across apps (App Extensions,
+        unverified). Lean: yes. The facts go into the kit's RESEARCH §2." · "5. The clean-room
+        rewrite running in the other session also rewrites three Vue components that the Quasar
+        move will redo. Lean: let it finish. It removes the voicebox-derived code now, and the
+        Quasar move redoes those screens later anyway."
+WHY:    one framework the apps can't drift from — the user's IDEAS words (JustVoice IDEAS
+        2026-10-08): "this enforcese a framework conformity you cant break easily". Our own controls
+        are written in Quasar's style (its docs and API through its MCP); Quasar is forked if it
+        has to change.
+NOT:    Quasar only as a component library on today's `electron/main.js` + plain Vite (rec 1 (b)) ·
+        electron-vite's template (the restructure was stopped: "that wasnts supposed to happen") ·
+        Element Plus (fewer override lines in the test, but no phone layout component).
+BUILT:  nothing in code. Quasar's MCP server (`@quasar/mcp`) is added to Claude Code at user scope.
+OPEN:   1. The sync design for JustWrite, made so any app can add it — across desktops, or the
+           server in the cloud: JustWrite's TASKS item "The phone app's UI library…" OPEN 2,
+           `../justwrite-app/docs/plans/2026-10-08-sync-design.md`. Research underway.
+        2. The framework rules: `docs/app-structure.md` rewritten for Quasar, and
+           `scripts/check-family.js` checking it; Quasar's facts into RESEARCH §2 first (rec 4).
+        3. A fresh default Quasar app, made the family template with the test's theme (rec 3).
+        4. JustWrite, then JustVoice, then docgen move onto it; the servers stay as they are.
+        5. The kit's UI: Quasar's components replace its generic controls; the family pieces are
+           rebuilt on Quasar (rec 2).
+        6. The global CLAUDE.md Stack line still names electron-vite's template (rec 1 settles it;
+           the new text is shown to the user first). The stopped restructure's leftovers — the
+           `biome.json` lines in JustVoice and JustWrite, this repo's `stash@{0}` — remain.
+GO:     given 2026-10-08 — "1-5 your rec … go" and "continue go" (the framework rules).
+
 ## The family moves to Electron and a Node server — the plan is approved, step 1 underway [2026-10-07]
 STATE:  DECIDED 2026-10-05 and 2026-10-07 — every ruling, as shown and approved, is in
         JustVoice's TASKS, "The family moves to Electron and a Node server; Tauri and Python go"

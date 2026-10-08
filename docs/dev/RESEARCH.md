@@ -380,6 +380,138 @@ has its app-side facts):
 - CapacitorHttp buffers whole responses and has no SSE; the kit's client streams with
   `res.body.getReader()` (`ui/src/client.js:157-169`). No maintained MIT llama.cpp plugin for
   Capacitor exists.
+- **Node on a phone stops at 18.20.4** (end of life): nodejs-mobile's newest release, which
+  Capawesome's Capacitor Node.js plugin calls "the latest version available". Native add-ons
+  only as Android prebuilds; iOS runs it without JIT. The kit needs Node ≥ 24
+  (`server/package.json` `engines`). — *web + code, 2026-10-08* ·
+  github.com/nodejs-mobile/nodejs-mobile/releases, capawesome.io/docs/sdks/capacitor/nodejs/.
+- **A live SQLite file in a sync folder is a corruption risk:** SQLite's own page lists broken
+  locking on network filesystems, background copies taken mid-transaction, and copying a
+  database without its `-wal`/`-journal`. Joplin syncs desktop and phones through Dropbox,
+  OneDrive, Nextcloud, WebDAV, S3 or a folder by moving items, not the database; a note changed on
+  two devices keeps the local copy in a Conflicts notebook. — *web, 2026-10-08* ·
+  sqlite.org/howtocorrupt.html, joplinapp.org/help/apps/sync/, …/apps/conflict/.
+- **sqlite-sync (sqliteai) is Elastic License 2.0, not MIT** — "contact SQLite Cloud, Inc for a
+  commercial license" for production or managed-service use. A SQLite extension
+  (`cloudsync_init()` per table) with CRDTs (Causal-Length Set, Delete-Wins, Add-Wins, Grow-Only
+  Set) and opt-in line-level merge for text columns; syncs through SQLite Cloud, or self-hosted
+  PostgreSQL or Supabase (a custom network layer can replace its libcurl); builds for Linux,
+  macOS, Windows, iOS, Android, WASM, with packages for Swift, Android, Flutter, Expo, React
+  Native, WASM — Capacitor and Node not named. Every device needs the same tables (the server
+  checks a schema hash). — *web, 2026-10-08* · github.com/sqliteai/sqlite-sync (README). Turso's
+  sync and the rest of the field were checked the same day: "Sync", below.
+
+**Vue UI libraries** (*web + npm registry*, 2026-10-08):
+
+- Quasar 2.35.0 (MIT, 2026-10-07), `@quasar/app-vite` 3.10.2, `@quasar/vite-plugin` 2.0.2 (needs
+  Vite 8+, `@vitejs/plugin-vue` 6+, Quasar 2.24+; without its CLI, cross-platform builds are
+  "community plugins"). Its Electron mode keeps its own `src-electron/electron-main.js` and
+  `electron-preload.js`. **No iOS theme** — the 2.35.0 package has only `QSpinnerIos`; the iOS
+  theme was in the 0.x docs. Its look is Material, restyled through Sass variables (most are
+  build-time), props and CSS. `QDrawer` has a `breakpoint` phone mode.
+- Element Plus 2.14.7 (MIT): "css variables to reconstruct the style system of almost all
+  components" — the look changes at runtime. No breakpoint-driven layout component.
+- **PrimeVue 5 is not MIT:** 5.0.2 ships a PrimeUI licence with a license key, free only for
+  organisations under $1M revenue / 5 developers, renewed yearly; 4.5.5 was the last MIT.
+- Reka UI 2.11.0 (MIT) is the Vue port of Radix UI Primitives — the kit already builds
+  `AppModal`, `HelpDrawer`, `UiSelect`, `UiMultiSelect` on it.
+- Vue Lynx (`vue-lynx` 0.5.1, Apache-2.0) renders native elements, not the DOM — libraries that
+  need `document`/`window` must be adapted (TipTap among them); its site still says pre-alpha.
+- Also current: Vuetify 4.2.4 (MIT, Material), `@ionic/vue` 9.0.7, Konsta 5.5.0, electron-vite
+  5.0.0, `@capacitor/core` 8.5.3, `@tauri-apps/cli` 2.12.1.
+- Measured on JustWrite's Locations screen — both Quasar and Element Plus carry the family look
+  and follow the appearance engine live: JustWrite's register, "The phone app".
+
+**Quasar as the family framework** (*web*, 2026-10-08 — quasar.dev `.md` pages, npm registry,
+published tarballs read not run, GitHub API; full record with every source:
+[`docs/plans/2026-10-08-quasar-framework-research.md`](../plans/2026-10-08-quasar-framework-research.md)):
+
+- Versions: `quasar` 2.35.0 and `@quasar/app-vite` 3.10.2 (both 2026-10-07), `create-quasar`
+  5.0.32, `@quasar/cli` 5.0.9, `@quasar/mcp` 1.1.0, the Vitest extension
+  `@quasar/quasar-app-extension-testing-unit-vitest` 3.0.0 — all MIT. app-vite needs Vite ^8.3,
+  `@vitejs/plugin-vue` ^6, `vue-router` ≥ 5, Node ^22.22 / 24 / 26+.
+- A new app: `npm init quasar@latest` (the docs show `pnpm create quasar@latest`). app-vite is the
+  only engine. Features: TypeScript · Sass · linting (ticked by default; can be unticked) ·
+  filename routing · Pinia · i18n. The generated `package.json` is `"type": "module"`;
+  `quasar.config` is `.js` or `.ts` only. There is no `main.js` and no `vite.config.js`: start-up
+  code goes in boot files (`src/boot/*.js`, `defineBoot` from `#q-app`), Vite through
+  `build.extendViteConf`. The generated `index.html` CSP has no `connect-src` for another origin.
+- Electron mode (`quasar mode add electron`): `src-electron/electron-main.js` +
+  `electron-preload.js` (ESM `.js`; the preload is BUILT to `.cjs` because sandboxed preloads
+  can't be ESM) + its own `package.json` (`"type": "module"`, `electron` installed `latest` then
+  written `^<version>` — not pinned). The window sets only `contextIsolation: true` and leans on
+  Electron's sandbox and nodeIntegration defaults; the packaged window loads `file://`
+  (`loadFile`). A custom protocol is one checklist line ("Prefer a custom protocol over
+  `file://`"), no how-to. Starting a server, a `utilityProcess` or a tray is not documented.
+  `@electron/packager` is the default; electron-builder is `bundler: 'builder'`. Main-process
+  dependencies go in `src-electron/package.json`; a `file:` range is copied unchanged into
+  `dist/electron/UnPackaged`. Router mode is always `hash` for Electron and Capacitor.
+- Capacitor mode (`quasar mode add capacitor`): `src-capacitor/`, Capacitor v5+ supported (the
+  template installs ^8.0.0); **`capacitor.config.js` is CommonJS on purpose** ("Capacitor's `.js`
+  config loader doesn't yet handle ESM exports correctly") and `src-capacitor/package.json` has no
+  `"type": "module"` — the only documented alternative is `capacitor.config.ts`.
+- **App Extensions are Quasar's documented way to share across apps**: "App Extensions replace the
+  need to create custom starter kits"; one can add boot files, CSS, components, `quasar.config`
+  and Vite hooks, Electron main/preload hooks, CLI commands, templates and prompts. Quasar CLI only
+  (not the Vite plugin). Building one is pnpm-only (the scaffold is a pnpm workspace); the local
+  route is install-it-yourself then `quasar ext invoke <id>` (a `file:` install is untested). Any
+  shared package importing `quasar` needs `optimizeDeps.exclude` or a second Quasar copy loads.
+- Own controls in Quasar style: QField's `control` slot, `useFormChild`, `useSplitAttrs` (public);
+  `useField` and `useDark` are private (`private.use-*`). Theming: Sass variables in
+  `src/css/quasar.variables.scss` (build time), `--q-*` brand colours with `setCssVar` at runtime,
+  the Dark plugin (`body--dark`), `globalNodes` for portalled popups, `iconSet` / `iconMapFn`.
+- Lint: the docs offer oxlint + oxfmt (the scaffold default) or ESLint + Prettier; **Biome isn't
+  mentioned**. Vitest through `quasar ext add @quasar/testing-unit-vitest`.
+- `@quasar/mcp` serves the installed versions' docs and component API offline — tools
+  `list_pages`, `search_docs`, `get_page`, `list_api`, `get_api`, `check_updates`; on Windows
+  `claude mcp add quasar -- cmd /c npx -y --fetch-retries=0 @quasar/mcp@latest` (added at user
+  scope 2026-10-08). `https://quasar.dev/llms.txt` exists; every docs page has a `.md` sibling.
+- Forking: one MIT pnpm monorepo `quasarframework/quasar` (branch `dev`; `ui`, `app-vite`, `cli`,
+  `extras`, `create-quasar`, `mcp`, `vite-plugin`, …); build with Node 22.22+ and pnpm 12+, `pnpm
+  i && pnpm build`; `dist` is never committed. How a project consumes a fork: not stated.
+- Not verified (the template build tests these first): `app://` with Quasar's build; a `file:` kit
+  dependency in the packaged Electron app; an App Extension installed via `file:` with npm; Biome
+  with Quasar; the CSP vs the renderer's calls to the local server.
+
+**Sync** (*web* and *measured*, 2026-10-08 — for the family's sync decision; the design
+discussion is JustWrite's `docs/plans/2026-10-08-sync-design.md`; full records with every source:
+[`docs/plans/2026-10-08-sync-research-platforms.md`](../plans/2026-10-08-sync-research-platforms.md)
+and [`docs/plans/2026-10-08-sync-research-building-blocks.md`](../plans/2026-10-08-sync-research-building-blocks.md)):
+
+- **SQLite's session extension** records row changes by primary key (tables with a declared,
+  non-NULL key only; no virtual tables; DDL not stated) into a binary changeset; applying one
+  calls a conflict handler with DATA / NOTFOUND / CONFLICT / CONSTRAINT / FOREIGN_KEY and takes
+  OMIT / REPLACE / ABORT. It never merges inside a text cell and has no transport or clock. —
+  sqlite.org/sessionintro.html and the session C API pages.
+- **better-sqlite3 13.0.3 has no sessions** (no build flags, no API; issue #468 "no plans" since
+  2020) — *measured* in Node 26.5 and Electron 44.7. **`node:sqlite` has them**
+  (`createSession`, `applyChangeset` with `onConflict`, since Node 22.12 / 23.3; "Release
+  candidate (1.2)" in Node 24.21 and 26.11; no rebase or changeset iteration) — *measured* in
+  Electron 44.7.0's Node 24.21.0, a conflict resolved with REPLACE. **The official SQLite WASM**
+  (`@sqlite.org/sqlite-wasm` 3.53.4-build2, Apache-2.0) has the full session API — *measured*;
+  its `opfs-sahpool` storage needs no COOP/COEP; OPFS inside Android WebView / WKWebView is
+  unverified (needs a device). `@capacitor-community/sqlite` 8.1.1 (MIT) has no sessions — its
+  "sync" is a JSON export of rows changed since a date, with no conflict handling.
+- **Yjs 13.6.33 (MIT)** merges offline edits from any number of devices "without merge
+  conflicts" (updates commute and are idempotent), storable as BLOBs in our own SQLite;
+  **`@tiptap/extension-collaboration` 3.31.4 is MIT** and TipTap Cloud is not required (the paid
+  plans are hosted collaboration). Hocuspocus 4.7.0 (MIT, self-hosted) is the optional live
+  server; its SQLite extension pins better-sqlite3 ^12.6.2.
+- **No ready-made platform fits "our own SQLite schema, self-hosted, MIT, Node and Capacitor":**
+  Turso Sync (MIT, 0.8.2, pre-1.0; "last push wins"; its own engine replaces better-sqlite3; the
+  self-hosted sync server is documented for dev/test; Turso "joining Supabase", 2026-10-02) ·
+  PowerSync (needs a Postgres/MongoDB/MySQL/SQL Server backend; self-hosted Service FSL-1.1-ALv2;
+  Capacitor SDK beta) · ElectricSQL (Postgres, read path only) · Zero (Postgres, "does not support
+  offline writes") · Replicache (maintenance mode) · RxDB (its own JSON documents; SQLite storage
+  paid) · Evolu (its own schema; TypeScript 7) · Jazz (2.0 alpha) · Triplit (AGPL-3.0, site down)
+  · InstantDB (sunsetting 2027-08-31) · PouchDB (last release 2024-06) · sqlite-sync (Elastic
+  License 2.0; 1.2.0, 2026-09-28) · cr-sqlite (last release 2024-01; the author is on Zero "for at
+  least 1-2 years").
+- **Litestream** (Apache-2.0, v0.5.17, active) is one-way WAL backup of one writer to S3 and the
+  like — it fits backing up a cloud-hosted server, not device sync. LiteFS needs FUSE and is
+  unsupported beta. libSQL `sqld` self-hosts one write primary plus replicas; pointing embedded
+  replicas at a self-hosted one is not documented.
+- No maintained hybrid-logical-clock package exists on npm (the top one has 44 downloads a week).
 
 ---
 

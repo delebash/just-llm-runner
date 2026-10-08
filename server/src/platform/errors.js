@@ -154,12 +154,12 @@ export function ajvToPydantic(err, root, data) {
       return { loc, msg, type };
     }
     case "enum": {
-      const opts = (err.params.allowedValues || []).map((v) => (typeof v === "string" ? `'${v}'` : String(v)));
+      const opts = (err.params.allowedValues || []).map(literalRepr);
       const said = opts.length > 1 ? `${opts.slice(0, -1).join(", ")} or ${opts[opts.length - 1]}` : opts[0];
       return { loc, msg: `Input should be ${said}`, type: "literal_error" };
     }
     case "const":
-      return { loc, msg: `Input should be ${JSON.stringify(err.params.allowedValue)}`, type: "literal_error" };
+      return { loc, msg: `Input should be ${literalRepr(err.params.allowedValue)}`, type: "literal_error" };
     case "minimum":
     case "exclusiveMinimum": {
       const word = err.keyword === "minimum" ? "greater than or equal to" : "greater than";
@@ -185,6 +185,14 @@ export function ajvToPydantic(err, root, data) {
   }
 }
 
+/** A Literal value as pydantic's literal_error writes it (Python's repr). */
+function literalRepr(v) {
+  if (typeof v === "string") return v.includes("'") && !v.includes('"') ? `"${v}"` : `'${v}'`;
+  if (v === true || v === false) return v ? "True" : "False";
+  if (v === null) return "None";
+  return String(v);
+}
+
 function validationErrors(err, request) {
   const root = LOC_ROOT[err.validationContext] || err.validationContext || "body";
   const data =
@@ -193,11 +201,22 @@ function validationErrors(err, request) {
   if (root === "body" && (request.body === undefined || request.body === null)) {
     return [{ loc: ["body"], msg: "Field required", type: "missing" }];
   }
+  // `literal(a, b, c)` is an anyOf of consts: ajv reports each branch's const, pydantic ONE
+  // literal_error naming them all ("Input should be 'auto', 'gpu' or 'cpu'").
+  const literals = new Map();
+  for (const e of err.validation || []) {
+    if (e.keyword === "anyOf" && Array.isArray(e.schema) && e.schema.every((b) => b && Object.hasOwn(b, "const"))) {
+      literals.set(e.instancePath, e.schema.map((b) => b.const));
+    }
+  }
   const out = [];
   const seen = new Set();
-  for (const e of err.validation || []) {
+  for (let e of err.validation || []) {
     // A union reports each branch's failure; pydantic reports the first.
     if (e.keyword === "anyOf" || e.keyword === "oneOf") continue;
+    if (e.keyword === "const" && literals.has(e.instancePath)) {
+      e = { ...e, keyword: "enum", params: { allowedValues: literals.get(e.instancePath) } };
+    }
     // A nullable field (`X | None`) whose value isn't null and fails X: ajv also reports the
     // null branch's "must be null"; pydantic reports only X's error.
     if (e.keyword === "type" && e.params?.type === "null") {

@@ -30,6 +30,10 @@ export class PyFloat {
   toJSON() {
     return this.v;
   }
+  /** str(x): "2.0", as Python writes a float — not "[object Object]". */
+  toString() {
+    return pyFloat(this.v);
+  }
 }
 export const pyFloatValue = (v) => new PyFloat(Number(v));
 

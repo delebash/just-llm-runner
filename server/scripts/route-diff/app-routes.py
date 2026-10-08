@@ -29,15 +29,45 @@ def justwrite():
     return create_app(Path(tempfile.mkdtemp(prefix="app-routes-")))
 
 
-APPS = {"docgen": docgen, "justwrite": justwrite}
+def justvoice():
+    from pathlib import Path
+
+    from justvoice.app import create_app
+
+    return create_app(Path(tempfile.mkdtemp(prefix="app-routes-")))
+
+
+def justvoice_modules():
+    """(METHOD, path) → the justvoice.api module that serves it — the route diff tells a route a
+    later port hasn't reached ("not ported yet") from a real difference by it."""
+    import importlib
+    import pkgutil
+
+    import justvoice.api as api
+
+    out = {}
+    for info in pkgutil.iter_modules(api.__path__):
+        mod = importlib.import_module(f"justvoice.api.{info.name}")
+        router = getattr(mod, "router", None)
+        for r in getattr(router, "routes", []) or []:
+            for m in getattr(r, "methods", None) or []:
+                out[(m, r.path)] = info.name
+    return out
+
+
+APPS = {"docgen": docgen, "justwrite": justwrite, "justvoice": justvoice}
 
 if __name__ == "__main__":
     app = APPS[sys.argv[1]]()
+    modules = justvoice_modules() if sys.argv[1] == "justvoice" else {}
     rows = []
     for path, ops in app.openapi()["paths"].items():
         for m, op in ops.items():
             params = [{"name": p["name"], "in": p["in"], "required": bool(p.get("required"))} for p in op.get("parameters", [])]
-            rows.append({"method": m.upper(), "path": path, "operationId": op.get("operationId", ""), "params": params})
+            row = {"method": m.upper(), "path": path, "operationId": op.get("operationId", ""), "params": params}
+            if modules:
+                row["module"] = modules.get((m.upper(), path), "")
+            rows.append(row)
     rows.sort(key=lambda r: (r["path"], r["method"]))
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(rows, indent=1))

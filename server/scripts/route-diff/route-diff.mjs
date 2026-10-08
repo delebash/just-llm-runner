@@ -11,10 +11,15 @@
 // nobody else uses.
 //
 //   node scripts/node24.mjs scripts/route-diff/route-diff.mjs [--clean]
+//   node scripts/node24.mjs scripts/route-diff/route-diff.mjs --app --target justvoice [--clean]
 //
 // Writes the full report to <scratch>/report.json (kept; --clean deletes the scratch folder)
 // and prints a summary. Exit 0 = no
 // differences outside the known-volatile list below.
+//
+// JustVoice (jv-target.mjs) adds: content folders and read-only junctions in its copies, its
+// own GET fills, "not ported yet" for the routers its port hasn't reached, and its writes
+// replayed on two FRESH copies (the servers restarted on them) before the database compare.
 
 import { spawn } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -50,9 +55,22 @@ const APPS = {
     pyArgs: (port, dir) => ["-m", "justwrite_server.serve", "serve", "--port", String(port), "--data-dir", dir],
     nodeEntry: "E:/Dev/Web/justwrite-app/server/src/serve.js",
   },
+  // JustVoice's step 5 (the API wave). The dev data root is still the Tauri one until the
+  // data-root move.
+  justvoice: {
+    name: "justvoice",
+    dataRoot: "E:/Dev/Web/JustVioce/src-tauri/target/debug/data",
+    db: "justvoice.db",
+    python: "E:/Dev/Web/JustVioce/server/.venv/Scripts/python.exe",
+    pyArgs: (port, dir) => ["-m", "justvoice.serve", "serve", "--host", "127.0.0.1", "--port", String(port), "--data-dir", dir],
+    nodeEntry: "E:/Dev/Web/JustVioce/server/src/serve.js",
+    nodeArgs: (port, dir) => ["E:/Dev/Web/JustVioce/server/src/serve.js", "serve", "--host", "127.0.0.1", "--port", String(port), "--data-dir", dir],
+    hooks: await import("./jv-target.mjs"),
+  },
 };
 const APP = APPS[opts.target];
 if (!APP) throw new Error(`--target: one of ${Object.keys(APPS).join(", ")}`);
+const JV = APP.hooks ?? null;
 const PY_PORT = 8790;
 const JS_PORT = 8791;
 
@@ -84,6 +102,13 @@ copyFileSync(path.join(APP.dataRoot, APP.db), path.join(dirs.js, APP.db));
 const realReg = path.join(process.env.LOCALAPPDATA || "", "just-ai", "caches.json");
 if (existsSync(realReg)) copyFileSync(realReg, path.join(dirs.home, "caches.json"));
 const env = { ...process.env, JUST_AI_HOME: dirs.home, PYTHONIOENCODING: "utf-8" };
+// The suite's pinned release, never `npm run dev`'s build, on both sides.
+delete env.JUSTVOICE_AUDIOCPP_BUILD;
+const realBefore = JV ? Object.fromEntries(JV.REAL_FOLDERS.map((f) => [f, JV.fingerprint(f)])) : null;
+if (JV) {
+  JV.prepare(dirs.py, { side: "py", reads: true, serverDir: SERVER });
+  JV.prepare(dirs.js, { side: "js", reads: true, serverDir: SERVER });
+}
 
 // The Node host's arguments, from the app's own Python data (kit-only mode; --app runs the
 // app's own server, which has them built in).
@@ -109,11 +134,17 @@ function start(label, cmd, args, extraEnv = {}) {
   procs.push({ label, c, log });
   return c;
 }
-start("python", APP.python, APP.pyArgs(PY_PORT, dirs.py));
-const nodeArgs = opts.app
-  ? [APP.nodeEntry, "serve", "--port", String(JS_PORT), "--data-dir", dirs.js]
-  : [path.join(HERE, "kit-host.mjs"), "--data-dir", dirs.js, "--port", String(JS_PORT), "--args", argsFile];
-start("node", process.execPath, nodeArgs, { ELECTRON_RUN_AS_NODE: "1" });
+/** Both servers on the data folders `py` and `js`. */
+function startBoth(py, js) {
+  start("python", APP.python, APP.pyArgs(PY_PORT, py));
+  const nodeArgs = opts.app
+    ? APP.nodeArgs
+      ? APP.nodeArgs(JS_PORT, js)
+      : [APP.nodeEntry, "serve", "--port", String(JS_PORT), "--data-dir", js]
+    : [path.join(HERE, "kit-host.mjs"), "--data-dir", js, "--port", String(JS_PORT), "--args", argsFile];
+  start("node", process.execPath, nodeArgs, { ELECTRON_RUN_AS_NODE: "1" });
+}
+startBoth(dirs.py, dirs.js);
 
 function stopAll() {
   for (const p of procs) {
@@ -150,9 +181,10 @@ async function get(port, url) {
 
 // Each side runs on its own copy of the data root: its folder name is the one expected
 // difference, so both read as <DATA>.
+const maskDirs = [dirs.py, dirs.js];
 function mask(text) {
   let t = text;
-  for (const d of [dirs.py, dirs.js]) {
+  for (const d of maskDirs) {
     for (const form of [d, JSON.stringify(d).slice(1, -1), d.replaceAll("\\", "/")]) t = t.split(form).join("<DATA>");
   }
   return t;
@@ -197,9 +229,32 @@ function firstDiff(a, b, at = "$") {
   return null;
 }
 
+/** A multipart/form-data body (httpx's files= / data=): parts {name, data, filename?, contentType?}. */
+function multipartBody(parts) {
+  const boundary = "rdboundary7d1f2c";
+  const chunks = [];
+  for (const x of parts) {
+    let head = `--${boundary}\r\nContent-Disposition: form-data; name="${x.name}"`;
+    if (x.filename != null) head += `; filename="${x.filename}"`;
+    head += "\r\n";
+    if (x.contentType) head += `Content-Type: ${x.contentType}\r\n`;
+    chunks.push(Buffer.from(`${head}\r\n`), Buffer.from(x.data), Buffer.from("\r\n"));
+  }
+  chunks.push(Buffer.from(`--${boundary}--\r\n`));
+  return { body: Buffer.concat(chunks), type: `multipart/form-data; boundary=${boundary}` };
+}
+
 async function send(port, method, url, body) {
   const init = { method, headers: {} };
-  if (body !== undefined) {
+  if (body?.__multipart) {
+    const mp = multipartBody(body.__multipart);
+    init.headers["content-type"] = mp.type;
+    init.body = mp.body;
+  } else if (body?.__raw !== undefined) {
+    // The JSON text as written (`1.0` stays a float literal — JSON.stringify would write `1`).
+    init.headers["content-type"] = "application/json";
+    init.body = body.__raw;
+  } else if (body !== undefined) {
     init.headers["content-type"] = "application/json";
     init.body = JSON.stringify(body);
   }
@@ -214,11 +269,10 @@ async function send(port, method, url, body) {
  * server makes up (a new engine preset's uuid) are mapped Python → JS from the answers and
  * substituted in later requests, and in the database comparison.
  */
-async function replayWrites(catalog, features) {
+function kitSteps(catalog, features) {
   const mid = catalog[0]?.id || "rd-model";
   const feature = features[0] || "translate";
-  const idMap = new Map(); // python id → js id
-  const steps = [
+  return [
     ["PUT", "/v1/ai/pricing", { modelId: "RD-Cloud-1", inputPerM: 1.5, outputPerM: 2 }],
     ["DELETE", "/v1/ai/pricing?modelId=gpt-5"],
     ["PUT", "/v1/ai/routing", { default: { llmId: "openai", model: "gpt-4o-mini", embeddingId: "", embeddingModel: "" } }],
@@ -257,8 +311,15 @@ async function replayWrites(catalog, features) {
     ["PUT", "/v1/ai/pricing", { modelId: "", inputPerM: 1 }],
     ["PUT", "/v1/ai/model-tunes", { switches: [] }],
   ];
+}
+
+async function replayWrites(steps) {
+  const idMap = new Map(); // python id → js id ("name:py" / "name:js" hold the placeholders)
+  let lastSettings = null; // the Python side's last GET /v1/settings answer ("{settings}")
+  // {name} → the id that side made up for it.
   const sub = (v, side) => {
-    const s = JSON.stringify(v ?? null).replace(/\{preset\}/g, side === "py" ? idMap.get("preset:py") || "x" : idMap.get("preset:js") || "x");
+    if (v === "{settings}") return lastSettings ?? {};
+    const s = JSON.stringify(v ?? null).replace(/\{([a-z][a-z0-9]*)\}/g, (m, name) => idMap.get(`${name}:${side}`) ?? m);
     return JSON.parse(s);
   };
   const results = [];
@@ -267,13 +328,15 @@ async function replayWrites(catalog, features) {
     const urlJs = sub(url0, "js");
     const a = await send(PY_PORT, method, urlPy, body0 === undefined ? undefined : sub(body0, "py"));
     const b = await send(JS_PORT, method, urlJs, body0 === undefined ? undefined : sub(body0, "js"));
-    if (capture === "preset") {
-      // The POST answers with the whole list; the new preset is the one with this name.
-      const pick = (j) => (j?.presets || []).find((x) => x.name === body0.name)?.id;
+    if (method === "GET" && url0 === "/v1/settings" && a.json) lastSettings = a.json;
+    if (capture) {
+      // The POST answers with the whole list (a preset: the one with this name), or the new row.
+      const pick =
+        capture === "preset" ? (j) => (j?.presets || []).find((x) => x.name === body0.name)?.id : (j) => JV?.captureId(capture, j);
       const [pa, pb] = [pick(a.json), pick(b.json)];
       if (pa && pb) {
-        idMap.set("preset:py", pa);
-        idMap.set("preset:js", pb);
+        idMap.set(`${capture}:py`, pa);
+        idMap.set(`${capture}:js`, pb);
         idMap.set(pb, pa);
       }
     }
@@ -295,25 +358,30 @@ async function replayWrites(catalog, features) {
   return { results, idMap: Object.fromEntries([...idMap].filter(([k]) => !k.includes(":"))) };
 }
 
-/** A measurement's `at` is the server's clock (epoch ms): compared for presence only. */
+/** A measurement's `at` is the server's clock (epoch ms): compared for presence only — and
+ * JustVoice's own clock stamps (a row's created_at, the accepted-terms time). */
 function unstamp(v) {
   if (Array.isArray(v)) return v.map(unstamp);
   if (v && typeof v === "object") {
     const o = {};
-    for (const [k, x] of Object.entries(v)) o[k] = k === "at" && typeof x === "number" ? "<stamp>" : unstamp(x);
+    for (const [k, x] of Object.entries(v)) {
+      const stamped = (k === "at" && typeof x === "number") || (JV?.STAMP_KEYS.has(k) && typeof x === "string" && x);
+      o[k] = stamped ? "<stamp>" : unstamp(x);
+    }
     return o;
   }
   return v;
 }
 
 /** Both databases, every kit table, every cell (SQLite quote(): type and bytes), rowid order. */
-function compareDatabases(idMap) {
+function compareDatabases(idMap, pyDir = dirs.py, jsDir = dirs.js) {
   const require = createRequire(path.join(SERVER, "package.json"));
   const Database = require("better-sqlite3");
-  const a = new Database(path.join(dirs.py, APP.db), { readonly: true });
-  const b = new Database(path.join(dirs.js, APP.db), { readonly: true });
+  const a = new Database(path.join(pyDir, APP.db), { readonly: true });
+  const b = new Database(path.join(jsDir, APP.db), { readonly: true });
   // Columns a server stamps itself (epoch ms of a measurement) — compared for presence only.
-  const STAMPED = { model_measurements: ["at"] };
+  const STAMPED = { model_measurements: ["at"], ...(JV?.STAMPED ?? {}) };
+  const cell = (t, c, v) => (JV ? JV.maskCell(t, c, v) : v);
   const tables = a
     .prepare("select name from sqlite_master where type='table' and name not like 'sqlite_%' order by name")
     .all()
@@ -346,7 +414,7 @@ function compareDatabases(idMap) {
         if ((STAMPED[t] || []).includes(c)) continue;
         // The machine RAM-bandwidth probe row holds a LIVE measurement each server made.
         if (t === "model_measurements" && ra[i].source === "'probe'" && c === "tokens_per_sec") continue;
-        if (ra[i][c] !== fix(rb[i][c])) out.diffs.push({ table: t, row: i, column: c, py: ra[i][c], js: rb[i][c] });
+        if (cell(t, c, ra[i][c]) !== cell(t, c, fix(rb[i][c]))) out.diffs.push({ table: t, row: i, column: c, py: ra[i][c], js: rb[i][c] });
       }
     }
   }
@@ -399,20 +467,30 @@ try {
     fill.session_id = sessions.slice(0, 3);
     fill.key = [...fill.key, ...((await get(PY_PORT, "/v1/projects/autosaves")).json || []).slice(0, 2).map((a) => a.key)];
   }
+  // JustVoice: its own routes' values (engines, personas, a generation); a later port's routes
+  // get the generic "x".
+  const jvExtra = JV ? { ...(await JV.fill(get, PY_PORT)), ...JV.dbIds(path.join(dirs.py, APP.db), SERVER) } : null;
+  const fillFor = (r, name) => (JV ? (JV.valuesFor(r, name, jvExtra) ?? (JV.LATER.has(r.module) ? [] : fill[name])) : fill[name]) || [];
 
   const urls = [];
+  const moduleOf = new Map(); // url → the router serving it (JustVoice's not-ported list)
   for (const r of table) {
     if (r.method !== "GET") continue;
     if (!opts.app && NOT_MOUNTED.some((re) => re.test(r.path))) continue;
+    if (JV?.SKIP.some((re) => re.test(r.path))) continue;
     const pathParams = r.params.filter((p) => p.in === "path");
     const reqQuery = r.params.filter((p) => p.in === "query" && p.required);
     const combos = [{}];
     for (const p of [...pathParams, ...reqQuery]) {
-      const vals = fill[p.name] || [];
+      const vals = fillFor(r, p.name);
       const next = [];
       for (const c of combos) for (const v of vals.length ? vals : ["x"]) next.push({ ...c, [p.name]: v });
       combos.splice(0, combos.length, ...next);
     }
+    const add = (u) => {
+      urls.push(u);
+      if (r.module) moduleOf.set(u, r.module);
+    };
     for (const c of combos) {
       let u = r.path;
       const q = [];
@@ -420,19 +498,26 @@ try {
         if (u.includes(`{${k}}`)) u = u.replace(`{${k}}`, encodeURIComponent(v));
         else q.push(`${k}=${encodeURIComponent(v)}`);
       }
-      urls.push(q.length ? `${u}?${q.join("&")}` : u);
+      add(q.length ? `${u}?${q.join("&")}` : u);
     }
     // the shape of a missing required query parameter
-    if (reqQuery.length && !pathParams.length) urls.push(r.path);
+    if (reqQuery.length && !pathParams.length) add(r.path);
   }
   // A few error answers on purpose.
   urls.push("/v1/nothing-here", "/v1/ai/prompts/no-such-prompt", "/v1/ai/model-tunes?modelId=", "/v1/llm-runner/models?vram_mb=abc");
+  if (JV) urls.push("/v1/engines/nope/models", "/v1/cache/recent?limit=abc", "/v1/engines/vram?events_since=x", "/v1/captures?limit=0&offset=-5", "/ui", "/legacy", "/");
 
-  const report = { scratch, same: [], volatile: [], differ: [] };
+  const report = { scratch, same: [], volatile: [], notPorted: [], differ: [] };
+  const volatileRe = [...VOLATILE, ...(JV?.VOLATILE ?? [])];
   for (const u of urls) {
     const [a, b] = [await get(PY_PORT, u), await get(JS_PORT, u)];
-    const volatile = VOLATILE.some((re) => re.test(u));
+    const volatile = volatileRe.some((re) => re.test(u));
     const row = { url: u, py: a.status, js: b.status };
+    // A route whose router a later part of the port brings: the Node side has no route yet.
+    if (JV?.LATER.has(moduleOf.get(u)) && b.status === 404 && b.text === '{"detail":"Not Found"}') {
+      report.notPorted.push({ ...row, module: moduleOf.get(u) });
+      continue;
+    }
     if (a.status !== b.status || a.type !== b.type) {
       report.differ.push({ ...row, pyType: a.type, jsType: b.type, pyBody: a.text.slice(0, 600), jsBody: b.text.slice(0, 600) });
       continue;
@@ -450,12 +535,32 @@ try {
       report.differ.push({ ...row, keyOrderOnly: loose, diff: d });
     }
   }
-  console.log(`reads — ${urls.length} requests: ${report.same.length} identical, ${report.volatile.length} volatile (status equal), ${report.differ.length} different`);
+  console.log(
+    `reads — ${urls.length} requests: ${report.same.length} identical, ${report.volatile.length} volatile (status equal), ` +
+      `${report.notPorted.length} not ported yet, ${report.differ.length} different`,
+  );
   for (const v of report.volatile) console.log(`  volatile ${v.url}: ${v.same ? "identical this time" : JSON.stringify(v.diff).slice(0, 200)}`);
   for (const d of report.differ) console.log(`  DIFF ${d.url}  py ${d.py} / js ${d.js}  ${JSON.stringify(d.diff || d.pyBody).slice(0, 300)}`);
 
   // ── writes: one recorded sequence, replayed on both, every answer compared ───────────
-  const writes = await replayWrites(catalog, features);
+  let wdirs = { py: dirs.py, js: dirs.js };
+  if (JV) {
+    // JustVoice: the writes run on two FRESH copies (no cache junctions), servers restarted.
+    stopAll();
+    procs.splice(0);
+    await new Promise((r) => setTimeout(r, 2000));
+    wdirs = { py: path.join(scratch, "py-w"), js: path.join(scratch, "js-w") };
+    for (const [side, d] of Object.entries(wdirs)) {
+      mkdirSync(d, { recursive: true });
+      copyFileSync(path.join(APP.dataRoot, APP.db), path.join(d, APP.db));
+      JV.prepare(d, { side, reads: false, serverDir: SERVER });
+      maskDirs.push(d);
+    }
+    startBoth(wdirs.py, wdirs.js);
+    await Promise.all([waitUp(PY_PORT, "python"), waitUp(JS_PORT, "node")]);
+  }
+  const steps = [...kitSteps(catalog, features), ...(JV ? JV.steps(jvExtra) : [])];
+  const writes = await replayWrites(steps);
   report.writes = writes;
   console.log(`writes — ${writes.results.length} requests: ${writes.results.filter((r) => r.same).length} identical, ${writes.results.filter((r) => !r.same).length} different`);
   for (const w of writes.results.filter((r) => !r.same)) {
@@ -463,11 +568,35 @@ try {
   }
 
   // ── then both databases, cell by cell (the servers stopped first) ─────────────────────
+  if (JV) {
+    // The last write was POST /v1/shutdown: both servers end themselves (engines stopped).
+    const exited = await Promise.all(
+      procs.map(
+        (p) =>
+          new Promise((r) => {
+            if (p.c.exitCode !== null) return r(p.c.exitCode);
+            const t = setTimeout(() => r("still running after 15 s"), 15000);
+            p.c.once("exit", (code) => {
+              clearTimeout(t);
+              r(code);
+            });
+          }),
+      ),
+    );
+    report.shutdown = Object.fromEntries(procs.map((p, i) => [p.label, exited[i]]));
+    console.log(`shutdown — ${JSON.stringify(report.shutdown)}`);
+  }
   stopAll();
   await new Promise((r) => setTimeout(r, 1500));
-  report.db = compareDatabases(writes.idMap);
+  report.db = compareDatabases(writes.idMap, wdirs.py, wdirs.js);
   console.log(`database — ${report.db.tables} tables, ${report.db.cells} cells: ${report.db.diffs.length} different`);
   for (const d of report.db.diffs.slice(0, 20)) console.log(`  DB ${JSON.stringify(d).slice(0, 300)}`);
+  if (JV) {
+    const after = Object.fromEntries(JV.REAL_FOLDERS.map((f) => [f, JV.fingerprint(f)]));
+    report.realFoldersUnchanged = JSON.stringify(after) === JSON.stringify(realBefore);
+    report.realFolders = { before: realBefore, after };
+    console.log(`real folders unchanged: ${report.realFoldersUnchanged}`);
+  }
   writeFileSync(path.join(scratch, "report.json"), JSON.stringify(report, null, 2));
   console.log(`report: ${path.join(scratch, "report.json")}`);
   process.exitCode = report.differ.length || writes.results.some((r) => !r.same) || report.db.diffs.length ? 1 : 0;
@@ -477,7 +606,14 @@ try {
 } finally {
   stopAll();
   await new Promise((r) => setTimeout(r, 800));
-  if (opts.clean) {
+  if (JV) {
+    // The junctions go first, whatever --clean says: a folder holding one is never removed.
+    if (opts.clean) JV.cleanup(scratch);
+    else {
+      // Keep the report and the copies, but never leave a link into the real data root.
+      JV.unlinkJunctions();
+    }
+  } else if (opts.clean) {
     try {
       rmSync(scratch, { recursive: true, force: true });
     } catch {

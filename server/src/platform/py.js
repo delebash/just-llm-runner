@@ -85,9 +85,11 @@ export function pyStr(v) {
   return String(v);
 }
 
-/** bool(v) — Python truthiness (empty containers are false). */
+/** bool(v) — Python truthiness (empty containers are false; a PyFloat is its number —
+ * pyjson's class, recognised by its constructor's name, since pyjson imports this module). */
 export function truthy(v) {
   if (Array.isArray(v)) return v.length > 0;
+  if (v?.constructor?.name === "PyFloat") return v.v !== 0; // bool(nan) is True too
   if (v instanceof Map || v instanceof Set) return v.size > 0;
   if (v && typeof v === "object") return Object.keys(v).length > 0;
   return !!v;

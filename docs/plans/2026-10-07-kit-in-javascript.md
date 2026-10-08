@@ -194,7 +194,7 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
 | 1 | platform | data_paths, auth, csrf, prefs_api, logs_api, data_api, disk_api (1,170) | platform_errors 3, auth_middleware 5, data_api 3, data_paths 14, disk_api 7, logs_api 7, prefs_api 4 | **done** — 43/43 ported (+7), 49 pass, 1 skip (symlinks, as Python here) |
 | 1 | runner A | config, gguf, fit, cache_registry, download, models, gguf_remote (2,750) | gguf 17, gguf_tensor_table 11, fit 33, download 17, (models 28 — its llm parts wait for wave 2) | **done** — 106/106 ported, 103 pass, 3 skip until `ListFilesResponse` (wave 2); fit ~150k values and 17 real GGUFs identical to Python |
 | 1 | runner B | hardware, bandwidth, binary (2,370) | hardware 32, class_label_ladders 1, gpu_processes 15, bandwidth 12, binary 37 | **done** — 95/97 ported (+4), 101 pass, 1 skip (Linux-only); bandwidth's 2 lifecycle tests move to runner D; `detect()` identical to Python on this box. Boot must `await hardware.ensureDetected()` — the key functions read its memo |
-| 1 | providers | base, registry, openai_compat, openai_sdk, anthropic, gemini, ollama, usage, model_list_rules, dispatch, reasoning (2,860) | adapter_extra 45, base_helpers 4, llm_dispatch 17, model_list_rules 25 (its router parts wait) | |
+| 1 | providers | base, registry, openai_compat, openai_sdk, anthropic, gemini, ollama, usage, model_list_rules, dispatch, reasoning (2,860) | adapter_extra 45, base_helpers 4, llm_dispatch 17, model_list_rules 25 (its router parts wait) | **done** — 102/108 ported (+6), 99 pass, 9 skip until `switch_resolve.js`; 6 router tests wait for wave 2; request bodies equal Python's for every provider |
 | 1 | storage | stores, seed, every `*_api.py` model the stores use, usage_sink (3,400) | shared_storage 9, seed_providers 2, runner_config_store 11, reasoning 17 | integrator |
 | 2 | llm routers A | prompts, presets_api, preset_resolve, switch_resolve, switch_presets_api, routing_api, provider_api, config_builder, api (≈2,300) | prompts 39, plane2_params 17, presets 7, switch_resolve 14, switch_presets 4, routing_api 3, provider_api 6, llm_api 6, probe_models 2, prompt_seed_backfill 2, embed_templates 7 | |
 | 2 | llm routers B | model_catalog_api, class_tunes_api, model_tunes_api, model_measurements_api, knob_catalog_api, embed_templates_api, model_list_rules_api, runner_config_api, reasoning_map_api, test_samples_api, cache_api, identity (≈2,200) | class_tunes 6, class_tune_refs 5, model_tunes 12, measurements 11, knob_catalog 7, hardware_class 18, identity 21, test_samples 3, models 28 | |
@@ -247,9 +247,22 @@ says a fix lands in both languages):**
 - `runner/hardware.py:318`, `:1039` — `int(float(x))` on `"inf"` raises an uncaught
   OverflowError, though probes "never raise". (runner B)
 
+- `llm/openai_compat.py:265`, `llm/ollama.py:190` — `r.iter_lines()` splits like
+  `str.splitlines()`, which also breaks on U+2028, U+2029 and U+0085, so a streamed token
+  holding one of them is silently LOST (captured: a chunk `"a b"` disappears). The
+  JavaScript copies it on purpose (commented in `base.js`) so the route diff matches. Fix in
+  both: split SSE and NDJSON on `
+`, `
+`, `` only. (providers)
+- `tests/test_llm_dispatch.py::test_think_is_sent_even_to_a_known_nonthinker` depends on test
+  order — alone it fails "LLM storage not configured"; it passes only after an earlier file set
+  up storage. Fix: give it an in-memory database fixture. (providers)
+
 **Where the JavaScript can't match Python exactly (recorded by the ports):** requests'
 (connect, read) timeouts became an idle watchdog; a cancelled chunked download aborts requests in
 flight; JS can't tell `20.0` from `20` in a parsed JSON number (stored text is unaffected where a
 formatter re-writes it); the kit's `\d` regexes are ASCII; `data_api`'s zips aren't
 byte-identical to Python's (both sides read each other's); `request.ip` ignores
-`X-Forwarded-For`.
+`X-Forwarded-For`; an SDK's error detail is the JS SDK's own words after the shared
+`"{type} {status}:"` prefix (the part JustWrite's regex reads); a cloud SDK's `timeout` covers
+only the wait for headers; SDK traffic goes through `http.fetch` (the env proxy) on purpose.

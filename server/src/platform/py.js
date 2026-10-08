@@ -3,26 +3,26 @@
 // Each helper names the Python it stands for.
 
 export class ValueError extends Error {
-  constructor(m) {
-    super(m);
+  constructor(m, options) {
+    super(m, options);
     this.name = "ValueError";
   }
 }
 export class KeyError extends Error {
-  constructor(m) {
-    super(m);
+  constructor(m, options) {
+    super(m, options);
     this.name = "KeyError";
   }
 }
 export class RuntimeError extends Error {
-  constructor(m) {
-    super(m);
+  constructor(m, options) {
+    super(m, options);
     this.name = "RuntimeError";
   }
 }
 export class FileNotFoundError extends Error {
-  constructor(m) {
-    super(m);
+  constructor(m, options) {
+    super(m, options);
     this.name = "FileNotFoundError";
     this.code = "ENOENT";
   }

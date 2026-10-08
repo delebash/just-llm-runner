@@ -16,14 +16,14 @@
 // JS shape: `findFreePort` / `_portIsFree` are async (a bind is an event in Node). Node can
 // only bind a TCP socket by listening, so `a_really_held_port_reads_as_taken` holds the port
 // with a LISTENING server where Python held a bound-but-not-listening socket.
-//
-// Waiting for runner/lifecycle.js (wave 3) — `RunnerService` (`test.todo` keeps the names):
-//   - spawn_uses_the_allocated_port_not_the_constant
-//   - router_url_is_empty_while_nothing_is_running
+import { mkdtempSync } from "node:fs";
 import net from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import * as dispatch from "../src/llm/dispatch.js";
 import { OpenAICompatAdapter } from "../src/llm/openai_compat.js";
+import { RunnerService } from "../src/runner/lifecycle.js";
 import { _portIsFree, DEFAULT_HOST, DEFAULT_PORT, findFreePort, NoFreePortError } from "../src/runner/process.js";
 
 // ── allocation ───────────────────────────────────────────────────────────────
@@ -59,9 +59,29 @@ test("a_really_held_port_reads_as_taken", async () => {
   }
 });
 
-test.todo("spawn_uses_the_allocated_port_not_the_constant"); // waits for runner/lifecycle.js
+test("spawn_uses_the_allocated_port_not_the_constant", async () => {
+  // The bite: with the port hardcoded at the spawn site this fails with 8080.
+  const seen = {};
+  const capture = (_exe, opts) => {
+    Object.assign(seen, opts);
+    return { url: `http://${opts.host}:${opts.port}`, isAlive: () => true, stop: () => {} };
+  };
+  const t = mkdtempSync(join(tmpdir(), "router-port-"));
+  const svc = new RunnerService(t, { startRouter: capture, findPort: () => 8137 });
+  await svc._spawnRouter(join(t, "llama-server.exe"), svc._configFn());
 
-test.todo("router_url_is_empty_while_nothing_is_running"); // waits for runner/lifecycle.js
+  expect(seen.port).toBe(8137);
+  expect(svc.routerUrl()).toBe("http://127.0.0.1:8137");
+});
+
+test("router_url_is_empty_while_nothing_is_running", () => {
+  // "" is what makes the adapter refuse to guess — it must never be a stale URL.
+  const svc = new RunnerService(mkdtempSync(join(tmpdir(), "router-port-")));
+  expect(svc.routerUrl()).toBe("");
+
+  svc._router = { url: "http://127.0.0.1:8137", isAlive: () => false, stop: () => {} };
+  expect(svc.routerUrl()).toBe("");
+});
 
 // ── the adapter follows it ───────────────────────────────────────────────────
 

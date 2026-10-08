@@ -6,18 +6,17 @@
 // Python patched `bandwidth._nvidia_query` (its own import of hardware's function); here
 // bandwidth calls it through the hardware module, so the spy sits on `hardware._nvidiaQuery`.
 //
-// NOT ported (they belong to lifecycle, runner D, wave 3):
-//   - probe_persists_its_measurement
-//   - persisted_probe_row_is_reused_without_re_probing
-// Both drive `lifecycle.RunnerService.host_probe_bw_gbps` on a service built with
-// `__new__` and hand-set private fields (`_probe_lock`, `_record_probe_fn`,
-// `measurement_rows`); the JS RunnerService doesn't exist yet. Whoever ports lifecycle
-// carries them (spying `bandwidth.probeRamCopyGbps`, which lifecycle must call through the
-// bandwidth namespace).
+// The last two (probe_persists_its_measurement, persisted_probe_row_is_reused_without_re_probing)
+// drive `RunnerService.hostProbeBwGbps` on a service built without its constructor
+// (Python's `__new__`): `Object.create(RunnerService.prototype)` + the fields it reads.
+// Python's monkeypatch of `bw.probe_ram_copy_gbps` → `vi.spyOn(bandwidth, "probeRamCopyGbps")`
+// (lifecycle calls it through the bandwidth namespace).
 import { expect, test, vi } from "vitest";
+import { sleep } from "../src/platform/asyncutil.js";
 import * as bandwidth from "../src/runner/bandwidth.js";
 import { DEFAULT_BW_EFF_HOST_PROBE } from "../src/runner/config.js";
 import * as hardware from "../src/runner/hardware.js";
+import { RunnerService } from "../src/runner/lifecycle.js";
 
 test("nvidia_bw_arithmetic", async () => {
   // 2070 SUPER registers: 256-bit bus × 7001 MHz × 2 (DDR) ÷ 8 = 448.06 GB/s — matching the
@@ -254,4 +253,41 @@ test("probe_is_topology_aware", async () => {
   const best = await bandwidth.probeRamCopyGbps(16, 2);
   expect(best).not.toBeNull();
   expect(best).toBeGreaterThanOrEqual(Math.min(single, multi) * 0.5); // loose: noise-tolerant
+});
+
+// ── The RAM probe must actually LAND (2026-08-14) ────────────────────
+
+/** A RunnerService with no persisted probe row and a recorder we can watch. */
+function probeService(recorder) {
+  const svc = Object.create(RunnerService.prototype);
+  svc._probeStarted = false;
+  svc._probeValue = null;
+  svc._recordProbeFn = recorder;
+  svc.measurementRows = () => []; // nothing persisted yet
+  return svc;
+}
+
+test("probe_persists_its_measurement", async () => {
+  // The self-heal has to complete: measure AND record. A probe that measures but never lands
+  // leaves every speed band on the class-facts rung forever, and that used to fail at debug
+  // level where nobody would see it.
+  const recorded = [];
+  vi.spyOn(bandwidth, "probeRamCopyGbps").mockResolvedValue(19.0);
+  const svc = probeService((g, mk, mid) => recorded.push([g, mk, mid]));
+
+  expect(RunnerService.prototype.hostProbeBwGbps.call(svc, "machine-1")).toBeNull(); // kicked, not landed
+  for (let i = 0; i < 200 && !recorded.length; i++) await sleep(10); // the probe runs as its own task
+  expect(recorded.length, "the probe measured but never recorded — the silent-failure case").toBeGreaterThan(0);
+  expect(recorded[0][0]).toBe(19.0);
+  expect(recorded[0][2]).toBe(bandwidth.RAM_PROBE_MODEL_ID);
+});
+
+test("persisted_probe_row_is_reused_without_re_probing", () => {
+  // Once landed, it's read back — the probe is a one-time cost per box.
+  vi.spyOn(bandwidth, "probeRamCopyGbps").mockImplementation(() => {
+    throw new Error("re-probed despite a persisted row");
+  });
+  const svc = probeService(null);
+  svc.measurementRows = () => [{ modelId: bandwidth.RAM_PROBE_MODEL_ID, machineKey: "machine-1", tokensPerSec: 21.5 }];
+  expect(RunnerService.prototype.hostProbeBwGbps.call(svc, "machine-1")).toBe(21.5);
 });

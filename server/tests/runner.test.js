@@ -13,13 +13,9 @@
 // "platform")` → `processMod.cfg.platform`; patched module functions → `vi.spyOn(processMod, …)`.
 // A pytest parametrized test is one `test.each` with the same name (`name[param]`).
 //
-// NOT ported here (69 Python tests → 67 below + these 2):
-//   - switches_to_overrides_routes_unknown_to_extra_flags — tests lifecycle's
-//     `_switches_to_overrides`: waits for runner/lifecycle.js (wave 3); a `test.todo` keeps
-//     its name.
-//   - kv_term_single_source_no_drift — tests fit.py's private `_slope_offset`; fit.js (runner
-//     A) keeps `slopeOffset` unexported, so there is nothing to call. Ports as soon as fit.js
-//     exports it as `_slopeOffset`.
+// All 69 Python tests are ported (the last two — `switches_to_overrides_routes_unknown_to_extra_flags`,
+// lifecycle's `_switchesToOverrides`, and `kv_term_single_source_no_drift`, fit's
+// `_slopeOffset` — landed with runner/lifecycle.js).
 // JS-only tests at the end (marked) cover what Python had no unit test for: a real child's
 // output wiring and a real missing binary, and startRouter.
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -30,6 +26,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { model } from "../src/platform/models.js";
 import * as fit from "../src/runner/fit.js";
 import { GgufMeta } from "../src/runner/gguf.js";
+import * as lifecycle from "../src/runner/lifecycle.js";
 import * as processMod from "../src/runner/process.js";
 import {
   _tailFile,
@@ -304,8 +301,19 @@ test("compose_flags_spec_ngram", () => {
   expect(flags[flags.indexOf("--spec-ngram-mod-n-max") + 1]).toBe("64");
 });
 
-// Waits for runner/lifecycle.js (wave 3) — it tests lifecycle's `_switches_to_overrides`.
-test.todo("switches_to_overrides_routes_unknown_to_extra_flags");
+test("switches_to_overrides_routes_unknown_to_extra_flags", () => {
+  // Known keys → typed Overrides fields; any other key → a raw passthrough flag in extraFlags
+  // (the "new llama.cpp flag, no code" escape the KnobGrid uses).
+  const ov = lifecycle._switchesToOverrides({
+    n_cpu_moe: "8", // known → typed int field
+    flash_attn: "on", // known → typed value field
+    "--top-n-sigma": "0.05", // unknown → raw flag + value
+    "--some-bool-flag": "", // unknown valueless → just the flag token
+  });
+  expect(ov.nCpuMoe).toBe(8);
+  expect(ov.flashAttn).toBe("on");
+  expect(ov.extraFlags).toEqual(["--top-n-sigma", "0.05", "--some-bool-flag"]);
+});
 
 test("compose_flags_extra_flags_passthrough", () => {
   // extraFlags reach the spawned argv verbatim (after the typed overrides).
@@ -979,7 +987,15 @@ test("kv_affordable_bounds_and_monotonic", () => {
   }
 });
 
-// kv_term_single_source_no_drift: not ported — see the header (fit.js keeps slopeOffset private).
+test("kv_term_single_source_no_drift", () => {
+  // 1b-F3: `_slopeOffset`'s KV term must BE `_C1 × kvBytesPerToken × ctx` — the slope delta
+  // across two ctx values equals the helper-derived delta exactly, pinning both consumers to
+  // the ONE extracted factor.
+  const a1 = fit._slopeOffset(1000, 10, 8, 2048, 4096, 8)[0];
+  const a2 = fit._slopeOffset(1000, 10, 8, 2048, 8192, 8)[0];
+  const expected = fit._C1 * fit.kvBytesPerToken(8, 8) * (8192 - 4096);
+  expect(Math.abs(a2 - a1 - expected)).toBeLessThan(1e-9);
+});
 
 // ── Phase 4: the ONE spawn seam + the Windows kill-on-close Job Object (A3) ──
 

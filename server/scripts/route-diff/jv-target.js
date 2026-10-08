@@ -111,21 +111,16 @@ export function fingerprint(root) {
 
 export const REAL_FOLDERS = [...READ_LINKS.map((r) => path.join(DEV_DATA, r)), path.join(PY_RUNTIME, "audiocpp"), path.join(DEV_DATA, "justvoice.db")];
 
-/** The API wave's routers agent 3 ports (their GETs answer 404 until then). Agent 2's
+/** The routers a later part of the port brings (their GETs answer 404 until then). Agent 2's
  * (generate, voice preview, render chapter / jobs / lines, takes, voices, personas, voice
- * bundle, master, effect presets, lexicons, pronunciation) joined 2026-10-08. */
-export const LATER = new Set([
-  "projects_api",
-  "extraction_api",
-  "speakers_api",
-  "smart_assign_api",
-  "project_export_api",
-  "export_jobs_api",
-  "bulk_delete_api",
-]);
+ * bundle, master, effect presets, lexicons, pronunciation) joined 2026-10-08, agent 3's
+ * (projects, extraction, speakers, smart-assign, project export, export jobs, bulk delete) the
+ * same day — the whole server is ported. */
+export const LATER = new Set([]);
 
-/** GETs never sent: a voice preview SYNTHESIZES (it may load a model), whatever its id. */
-export const SKIP = [/^\/v1\/voices\/\{voice_id\}\/preview\/stream$/];
+/** GETs never sent: a voice preview SYNTHESIZES (it may load a model), whatever its id; the ACX
+ * check renders every chapter of the book (it warms and masters real lines). */
+export const SKIP = [/^\/v1\/voices\/\{voice_id\}\/preview\/stream$/, /^\/v1\/projects\/\{project_id\}\/qc$/];
 
 /** Answers that move by themselves (live hardware, processes, sizes) — compared for status. */
 export const VOLATILE = [
@@ -165,6 +160,11 @@ const MODULE_FILLS = {
   render_lines_api: { project_id: "projects", scene_id: "scenes" },
   render_jobs_api: { job_id: "jobs" },
   takes_api: { block_id: "blocks", take_id: "takes", generation_id: "generations" },
+  // Agent 3's.
+  projects_api: { project_id: "projects", scene_id: "scenes" },
+  extraction_api: { project_id: "projects", scene_id: "scenes" },
+  speakers_api: { project_id: "projects" },
+  project_export_api: { project_id: "projects" },
 };
 
 /** The fill for one route's parameter (null = the generic "x"). */
@@ -197,6 +197,7 @@ export function dbIds(dbFile, serverDir) {
     takes: ids("select id from takes order by rowid limit 2"),
     jobs: ids("select id from render_jobs order by rowid limit 3"),
     lexicons: ids("select id from lexicons order by rowid limit 2"),
+    speakers: ids("select id from speakers order by rowid"),
   };
   db.close();
   return out;
@@ -452,6 +453,275 @@ function agent2Steps(x) {
   ];
 }
 
+/** A multipart import body: form `fields` and, when given, the `file` part [name, text, type]. */
+function importForm(fields, file = null) {
+  const parts = Object.entries(fields).map(([name, data]) => ({ name, data }));
+  if (file) parts.push({ name: "file", data: file[1], filename: file[0], contentType: file[2] });
+  return { __multipart: parts };
+}
+
+/** A small JustWrite book.json (the shape JustWrite's export writes). */
+function justwriteBook() {
+  return {
+    project: { title: "RD Book", author: "RD", premise: "" },
+    parts: [{ id: "p1", title: "Part", chapters: [{ id: "c1", num: 1, title: "One" }] }],
+    scenes: { c1: [{ id: "s1", title: "", body: "<p>The hall was dark.</p><p>“Wait,” said Mara.</p>" }] },
+    characters: [{ id: "mara", name: "Mara", pronouns: "she/her", aliases: ["M"], oneLiner: "A pilot." }],
+  };
+}
+
+/**
+ * Agent 3's write steps: projects (create / patch / delete and their refusals), chapters
+ * (create / rename / move / delete), lines (create, PATCH with the line's own numbers, split,
+ * merge, the chapter text edited), speakers (add / rename / cast / narrator / uncast / remove,
+ * the rewrite's refusals), the corrections memory, Discover's ignore list and promote, Script's
+ * pages, Analyze over a chapter with no speech (no model call — narration only: cut, re-run in
+ * place, streamed, the second look with nothing to ask, re-read after an edit), the Lab's
+ * analyze-text, Discover's / smart-assign's / show notes' refusals, the imports (a CSV dry run,
+ * its import, a re-import updating it in place, every refusal, a JustWrite dry run as a raw
+ * body), the exports that render nothing (an empty book's M4B, its two export jobs, the ACX
+ * check), the real book's lines, a split and a merge of its lines, and the bulk delete (dry runs
+ * and one real delete). `{x}` names an id one side made up (see `captureId`). Never a model
+ * load, a synthesis, a render or an LLM call.
+ */
+function agent3Steps(x) {
+  const real = x.projects[0] || "no-project";
+  const realScene = x.scenes[0] || "no-scene";
+  const [rb0, rb1] = [x.blocks[0] || "no-block", x.blocks[1] || "no-block"];
+  const realSpeaker = x.speakers[1] || "no-speaker";
+  const persona = x.personas[0] || "no-persona";
+  const raw = (o) => ({ __raw: o });
+  const csv1 = 'id,scene,character,text,delivery,pause_after_ms\r\nL1,Gate,Mara,We leave at dawn.,"{""emotion"": ""calm""}",300\r\nL2,Gate,Iven,Not without the map.,,\r\nL3,Hall,Mara,"Then we find it, ""soon"".",,\r\n';
+  const csv2 = "id,scene,character,text\r\nL1,Gate,Mara,We leave at dawn.\r\nL2,Gate,Iven,Not without the map — or the key.\r\nL4,Hall,Iven,A new line.\r\nL5,Cellar,Mara,A new scene.\r\n";
+  const csvFile = (text) => ["lines.csv", text, "text/csv"];
+  const narration = "The hall was quiet.\n\nNobody moved, and the lamps burned low.";
+  return [
+    // ── projects
+    ["GET", "/v1/projects"],
+    ["GET", "/v1/projects?project_type=audiobook"],
+    ["GET", "/v1/projects?project_type=bogus"],
+    ["POST", "/v1/projects", raw('{"name": "RD book", "project_type": "audiobook", "language": " en-GB ", "metadata": {"author": "Me", "ratio": 1.0}}'), "bookoid"],
+    ["POST", "/v1/projects", { name: "", project_type: "audiobook" }],
+    ["POST", "/v1/projects", { name: "x", project_type: "bogus" }],
+    ["POST", "/v1/projects", { name: "RD empty", project_type: "podcast", mastering_preset: "acx" }, "emptyoid"],
+    ["POST", "/v1/projects", { name: "RD analyze", project_type: "custom", language: "   " }, "anzoid"],
+    ["PATCH", "/v1/projects/{bookoid}", { name: "RD book 2", language: null }],
+    ["PATCH", "/v1/projects/{bookoid}", { language: " fr " }],
+    ["PATCH", "/v1/projects/{bookoid}", { default_lexicon_id: "nope" }],
+    ["PATCH", "/v1/projects/{bookoid}", { default_lexicon_id: null, mastering_preset: "podcast" }],
+    ["PATCH", "/v1/projects/{bookoid}", raw('{"metadata": {"author": "You", "x": 2.0}, "description": "by Someone"}')],
+    ["PATCH", "/v1/projects/{bookoid}", {}],
+    ["PATCH", "/v1/projects/nope", { name: "x" }],
+    ["GET", "/v1/projects/{bookoid}"],
+    // ── chapters
+    ["POST", "/v1/projects/{bookoid}/scenes", raw('{"title": "Chapter A", "metadata": {"k": 1.0}}'), "scaoid"],
+    ["POST", "/v1/projects/{bookoid}/scenes", { title: "Chapter B", position: 1 }, "scboid"],
+    ["POST", "/v1/projects/{bookoid}/scenes", { title: "Chapter C", position: 2 }, "sccoid"],
+    ["POST", "/v1/projects/nope/scenes", { title: "x" }],
+    ["PATCH", "/v1/scenes/{scaoid}", { title: "A renamed", position: 2 }],
+    ["PATCH", "/v1/scenes/{scboid}", { position: 1 }],
+    ["PATCH", "/v1/scenes/nope", { title: "x" }],
+    ["GET", "/v1/projects/{bookoid}/scenes"],
+    // ── lines
+    ["POST", "/v1/scenes/{scaoid}/blocks", raw('{"text": "First line.", "metadata": {"source_ref": "R1", "w": 1.0}}'), "blkaoid"],
+    ["POST", "/v1/scenes/{scaoid}/blocks", { text: "“Speech here,” she said softly.", position: 1, source: null, extraction_confidence: 0.5 }, "blkboid"],
+    ["POST", "/v1/scenes/{scaoid}/blocks", { text: "Third.", position: 2 }, "blkcoid"],
+    ["POST", "/v1/scenes/{scaoid}/blocks", { text: "" }],
+    ["POST", "/v1/scenes/nope/blocks", { text: "x" }],
+    ["GET", "/v1/scenes/{scaoid}/blocks"],
+    ["PATCH", "/v1/blocks/{blkaoid}", raw('{"line_override": {"speed": 1.0, "pause_after_ms": 300, "models": {"kokoro": {"knobs": {"x": 2}, "emotion": " calm "}}}}')],
+    ["PATCH", "/v1/blocks/{blkaoid}", { line_override: { speed: 9 } }],
+    ["PATCH", "/v1/blocks/{blkaoid}", { line_override: { bogus: 1 } }],
+    ["PATCH", "/v1/blocks/{blkaoid}", { text: "First line, edited.", direction: "softly" }],
+    ["PATCH", "/v1/blocks/{blkaoid}", { source: "corrected", extraction_confidence: null }],
+    ["PATCH", "/v1/blocks/{blkaoid}", raw('{"metadata": {"prev_speaker_id": null, "z": 1.5}}')],
+    ["PATCH", "/v1/blocks/{blkaoid}", { source: "corrected" }],
+    ["PATCH", "/v1/blocks/{blkaoid}", { position: "x" }],
+    ["PATCH", "/v1/blocks/nope", { text: "x" }],
+    ["POST", "/v1/blocks/{blkboid}/split", { at: 15 }, "splitblk1"],
+    ["POST", "/v1/blocks/{blkboid}/split", { at: 0 }],
+    ["POST", "/v1/blocks/{blkboid}/split", { at: -5, text: "One two three four" }, "splittwoblk1"],
+    ["POST", "/v1/blocks/nope/split", { at: 1 }],
+    ["POST", "/v1/blocks/{blkboid}/split", {}],
+    ["POST", "/v1/scenes/{scaoid}/blocks/merge", { ids: ["{blkaoid}", "{splitblk1}"] }],
+    ["POST", "/v1/scenes/{scaoid}/blocks/merge", { ids: ["{blkaoid}", "{blkaoid}"] }],
+    ["POST", "/v1/scenes/{scaoid}/blocks/merge", { ids: ["{blkaoid}"] }],
+    ["POST", "/v1/scenes/{scaoid}/blocks/merge", { ids: ["{blkaoid}", "nope"] }],
+    ["POST", "/v1/scenes/{scaoid}/blocks/merge", { ids: ["{blkboid}", "{splittwoblk1}"] }],
+    ["POST", "/v1/scenes/nope/blocks/merge", { ids: ["a", "b"] }],
+    ["GET", "/v1/scenes/{scaoid}/text"],
+    ["PUT", "/v1/scenes/{scaoid}/text", { text: "First line, edited.\n\nOne two three four\n\nA brand new paragraph.\n\n\n  Third.  ", dry_run: true }],
+    ["PUT", "/v1/scenes/{scaoid}/text", { text: "First line, edited.\n\nOne two three four\n\nA brand new paragraph.\n\n\n  Third.  " }],
+    ["PUT", "/v1/scenes/{scaoid}/text", { text: "  \n\n " }],
+    ["PUT", "/v1/scenes/nope/text", { text: "x" }],
+    ["GET", "/v1/scenes/{scaoid}/blocks", undefined, "scaall"],
+    ["GET", "/v1/scenes/{scaoid}/text"],
+    ["PUT", `/v1/scenes/${realScene}/text`, { text: "Short.", dry_run: true }],
+    ["DELETE", "/v1/blocks/{blkcoid}"],
+    ["DELETE", "/v1/blocks/nope"],
+    ["DELETE", "/v1/scenes/{scboid}"],
+    ["DELETE", "/v1/scenes/nope"],
+    ["GET", "/v1/projects/{bookoid}/scenes"],
+    // ── speakers
+    ["POST", "/v1/projects/{bookoid}/speakers", { name: "  Mara   Vance ", aliases: ["Mara", "mara", " Vance ", "Mara Vance"], description: "  A pilot.  ", pronouns: "she/her" }, "spaoid"],
+    ["POST", "/v1/projects/{bookoid}/speakers", { name: "mara vance" }],
+    ["POST", "/v1/projects/{bookoid}/speakers", { name: "Iven", persona_id: "nope" }],
+    ["POST", "/v1/projects/{bookoid}/speakers", { name: "Iven Sarraz", persona_id: persona }, "spboid"],
+    ["POST", "/v1/projects/{bookoid}/speakers", { name: "Odeline Marran" }, "spcoid"],
+    ["POST", "/v1/projects/{bookoid}/speakers", { name: "x", pronouns: "xe/xem" }],
+    ["POST", "/v1/projects/nope/speakers", { name: "x" }],
+    ["GET", "/v1/projects/{bookoid}/speakers"],
+    ["PATCH", "/v1/speakers/{spaoid}", { name: "Mara  Vance-Holt" }],
+    ["PATCH", "/v1/speakers/{spaoid}", { aliases: ["Holt", "holt", "Mara Vance-Holt"] }],
+    ["PATCH", "/v1/speakers/{spaoid}", { description: null, pronouns: null, persona_id: persona }],
+    ["PATCH", "/v1/speakers/{spaoid}", { persona_id: null }],
+    ["PATCH", "/v1/speakers/{spaoid}", { persona_id: "nope" }],
+    ["PATCH", "/v1/speakers/{spaoid}", { name: "iven sarraz" }],
+    ["PATCH", "/v1/speakers/nope", { name: "x" }],
+    ["PATCH", "/v1/blocks/{blkboid}", { speaker_id: "{spaoid}" }],
+    ["PATCH", "/v1/blocks/{blkboid}", { speaker_id: "{spboid}" }, "fixafix"],
+    ["PATCH", "/v1/blocks/{blkboid}", { speaker_id: "{spaoid}", no_fix: true }],
+    ["GET", "/v1/projects/{bookoid}/corrections/count"],
+    ["DELETE", "/v1/projects/{bookoid}/corrections/{fixafix}"],
+    ["DELETE", "/v1/projects/{bookoid}/corrections/{fixafix}"],
+    ["POST", "/v1/projects/{bookoid}/corrections", { text_snippet: "x".repeat(450), speaker_id: "{spaoid}" }],
+    ["POST", "/v1/projects/{bookoid}/corrections", { text_snippet: "y", speaker_id: "nope" }],
+    ["POST", "/v1/projects/{bookoid}/corrections", { text_snippet: "y" }],
+    ["GET", "/v1/projects/{bookoid}/corrections/count"],
+    ["DELETE", "/v1/projects/{bookoid}/corrections"],
+    ["POST", "/v1/projects/{bookoid}/narrator", undefined, "booknarr"],
+    ["POST", "/v1/projects/{bookoid}/narrator"],
+    ["PUT", "/v1/projects/{bookoid}/narrator", { speaker_id: "{spcoid}" }],
+    ["PUT", "/v1/projects/{bookoid}/narrator", { speaker_id: "{spcoid}" }],
+    ["PUT", "/v1/projects/{bookoid}/narrator", { speaker_id: "nope" }],
+    ["POST", "/v1/projects/nope/narrator"],
+    ["POST", "/v1/projects/{bookoid}/speakers/uncast"],
+    ["POST", "/v1/speakers/{spaoid}/rewrite", { text: "Hi" }],
+    ["POST", "/v1/speakers/nope/rewrite", { text: "Hi" }],
+    ["DELETE", "/v1/speakers/{spboid}"],
+    ["DELETE", "/v1/speakers/nope"],
+    // ── Discover's bookkeeping
+    ["POST", "/v1/projects/{bookoid}/discover/ignore", { names: ["Old Sedge", " old  sedge ", "Nettle", "  "] }],
+    ["POST", "/v1/projects/{bookoid}/discover/unignore", { names: ["nettle"] }],
+    ["POST", "/v1/projects/nope/discover/ignore", { names: [] }],
+    ["POST", "/v1/projects/{bookoid}/speakers/promote", { candidates: [{ name: "Nettle", description: "A cat.", aliases: ["Net", "nettle"] }] }, "promcrt0"],
+    ["POST", "/v1/projects/{bookoid}/speakers/promote", { candidates: [{ name: "Sedge" }, { name: "nettle" }] }],
+    ["POST", "/v1/projects/nope/speakers/promote", { candidates: [] }],
+    ["GET", "/v1/projects/{bookoid}"],
+    ["GET", "/v1/projects/{bookoid}/script"],
+    ["GET", "/v1/scenes/{scaoid}/script"],
+    // ── Analyze with no speech in the chapter: no model call
+    ["POST", "/v1/projects/{anzoid}/scenes", { title: "Narrated" }, "anzsoid"],
+    ["POST", "/v1/scenes/{anzsoid}/analyze", { text: "" }],
+    ["POST", "/v1/scenes/{anzsoid}/analyze", { text: "x", route: "bogus" }],
+    ["POST", "/v1/scenes/nope/analyze", { text: "x" }],
+    ["POST", "/v1/scenes/{anzsoid}/analyze", { text: narration }],
+    ["GET", "/v1/scenes/{anzsoid}/blocks", undefined, "anzall"],
+    ["GET", "/v1/scenes/{anzsoid}/blocks", undefined, "anzlst0"],
+    ["POST", "/v1/scenes/{anzsoid}/analyze", { text: narration, route: "direct", propagate: false }],
+    ["POST", "/v1/scenes/{anzsoid}/analyze/stream", { text: narration }],
+    ["POST", "/v1/scenes/nope/analyze/stream", { text: "x" }],
+    ["POST", "/v1/scenes/{anzsoid}/second-look/stream"],
+    ["POST", "/v1/scenes/nope/second-look/stream"],
+    ["GET", "/v1/scenes/{anzsoid}/script"],
+    ["GET", "/v1/projects/{anzoid}/script"],
+    ["PATCH", "/v1/blocks/{anzlst0}", { text: "The hall was very quiet." }],
+    ["POST", "/v1/scenes/{anzsoid}/analyze", { text: "ignored — the lines are read as they stand" }],
+    ["POST", "/v1/projects/{anzoid}/narrator", undefined, "anznarr"],
+    ["GET", "/v1/projects/{anzoid}/script"],
+    ["GET", "/v1/scenes/{anzsoid}/script"],
+    ["POST", "/v1/extraction/analyze-text", { text: "Narration only here.\n\nMore of it." }],
+    ["POST", "/v1/extraction/analyze-text", { text: "x", route: "bogus" }],
+    ["GET", "/v1/extraction/config"],
+    ["POST", "/v1/scenes/nope/discover-speakers", { text: "x" }],
+    ["POST", "/v1/scenes/{anzsoid}/discover-speakers", {}],
+    ["POST", "/v1/extraction/discover-speakers", {}],
+    ["POST", "/v1/llm/smart-assign", { characters: [], voices: [] }],
+    ["POST", "/v1/llm/smart-assign", {}],
+    ["POST", "/v1/llm/smart-assign", { characters: [{ id: "a", name: "A" }], voices: [] }],
+    ["POST", "/v1/projects/{emptyoid}/show-notes"],
+    ["POST", "/v1/projects/nope/show-notes"],
+    // ── imports
+    ["GET", "/v1/projects/import/adapters"],
+    ["POST", "/v1/projects/import", importForm({ source: "csv_lines", dry_run: "true" }, csvFile(csv1))],
+    ["POST", "/v1/projects/import", importForm({ source: "csv_lines" }, csvFile(csv1)), "imppid"],
+    ["GET", "/v1/projects/{imppid}", undefined, "implex"],
+    ["GET", "/v1/projects/{imppid}/speakers", undefined, "impspkall"],
+    ["GET", "/v1/projects/{imppid}/scenes", undefined, "impscall"],
+    ["GET", "/v1/projects/{imppid}/scenes", undefined, "impsclst0"],
+    ["GET", "/v1/projects/{imppid}/scenes", undefined, "impsclst1"],
+    ["GET", "/v1/scenes/{impsclst0}/blocks", undefined, "impaall"],
+    ["GET", "/v1/scenes/{impsclst1}/blocks", undefined, "impball"],
+    ["POST", "/v1/projects/import", importForm({ source: "csv_lines", project_id: "{imppid}" }, csvFile(csv2))],
+    ["GET", "/v1/projects/{imppid}/scenes", undefined, "impsctwoall"],
+    ["GET", "/v1/projects/{imppid}/scenes", undefined, "impsclst2"],
+    ["GET", "/v1/scenes/{impsclst0}/blocks", undefined, "impatwoall"],
+    ["GET", "/v1/scenes/{impsclst1}/blocks", undefined, "impbtwoall"],
+    ["GET", "/v1/scenes/{impsclst2}/blocks", undefined, "impcall"],
+    ["GET", "/v1/projects/{imppid}/lines"],
+    ["POST", "/v1/projects/import", importForm({ source: "csv_lines", project_id: "{imppid}" }, csvFile("text\r\nNo ids here.\r\n"))],
+    ["POST", "/v1/projects/import", importForm({ source: "csv_lines", project_id: "nope" }, csvFile(csv1))],
+    ["POST", "/v1/projects/import", importForm({ source: "csv_lines", include_scenes: "a,b" }, csvFile(csv1))],
+    ["POST", "/v1/projects/import", importForm({ source: "csv_lines", include_scenes: "9" }, csvFile(csv1))],
+    ["POST", "/v1/projects/import", importForm({ source: "csv_lines", include_scenes: "9", dry_run: "1" }, csvFile(csv1))],
+    ["POST", "/v1/projects/import", importForm({ source: "csv_lines", dry_run: "maybe" }, csvFile(csv1))],
+    ["POST", "/v1/projects/import?dry_run=nah", importForm({ source: "csv_lines" }, csvFile(csv1))],
+    ["POST", "/v1/projects/import", importForm({ dry_run: "true" }, csvFile(csv1))],
+    ["POST", "/v1/projects/import", importForm({ source: "nope", dry_run: "true" }, csvFile(csv1))],
+    ["POST", "/v1/projects/import", importForm({ source: "csv_lines" })],
+    ["POST", "/v1/projects/import?source=justwrite&dry_run=true", justwriteBook()],
+    ["POST", "/v1/projects/import?source=justwrite&dry_run=1", raw("not json")],
+    ["POST", "/v1/projects/import?source=csv_lines&dry_run=true", raw("id,text\r\nA,Hello\r\n")],
+    ["POST", "/v1/projects/import?source=csv_lines"],
+    ["POST", "/v1/projects/demo", { kind: "nope" }],
+    ["POST", "/v1/projects/demo", {}],
+    // ── exports that render nothing: an empty book's
+    ["GET", "/v1/projects/{emptyoid}/export?include_audio=maybe"],
+    ["GET", "/v1/projects/nope/export"],
+    ["POST", "/v1/projects/{emptyoid}/export_m4b"],
+    ["POST", "/v1/projects/nope/export_m4b"],
+    ["POST", "/v1/projects/{emptyoid}/export_m4b/start", undefined, "ejoboid"],
+    ["GET", "/v1/projects/{emptyoid}/qc"],
+    ["GET", "/v1/projects/nope/qc"],
+    ["GET", "/v1/export_jobs/{ejoboid}"],
+    ["POST", "/v1/export_jobs/{ejoboid}/cancel"],
+    ["GET", "/v1/export_jobs/{ejoboid}/file"],
+    ["POST", "/v1/projects/{emptyoid}/export_chapters/start", undefined, "ejobtwooid"],
+    ["GET", "/v1/projects/{emptyoid}/lines"],
+    ["GET", "/v1/export_jobs/{ejobtwooid}"],
+    ["GET", "/v1/export_jobs/nope"],
+    ["POST", "/v1/export_jobs/nope/cancel"],
+    ["GET", "/v1/export_jobs/nope/file"],
+    ["POST", "/v1/projects/nope/export_m4b/start"],
+    ["POST", "/v1/projects/nope/export_chapters/start"],
+    ["GET", "/v1/projects/nope/lines"],
+    // ── the real book: its lines, a speaker change, a split and a merge (no render)
+    ["GET", `/v1/projects/${real}/lines`],
+    ["PATCH", `/v1/blocks/${rb0}`, { speaker_id: realSpeaker }, "realfix"],
+    ["POST", `/v1/blocks/${rb0}/split`, { at: 12 }, "realsplitblk1"],
+    ["POST", `/v1/scenes/${realScene}/blocks/merge`, { ids: ["{realsplitblk1}", rb1] }],
+    ["GET", `/v1/scenes/${realScene}/script`],
+    ["GET", `/v1/projects/${real}/script`],
+    // ── the bulk delete
+    ["DELETE", "/v1/generations"],
+    ["DELETE", "/v1/generations?status=bogus"],
+    ["DELETE", "/v1/generations?older_than=abc"],
+    ["DELETE", "/v1/generations?older_than=2026-13-01"],
+    ["DELETE", "/v1/generations?older_than=2026-10-07T08:00:00"],
+    ["DELETE", "/v1/generations?older_than=2026-10-07T08:00:00%2B02:00&engine=kokoro"],
+    ["DELETE", "/v1/generations?voice_id=bm_george"],
+    ["DELETE", `/v1/generations?chapter_id=${realScene}&project_id=${real}`],
+    ["DELETE", "/v1/generations?scope=anything&status=ok"],
+    ["DELETE", "/v1/generations?voice_id=af_kore&confirm=true"],
+    ["DELETE", "/v1/generations?voice_id=af_kore&confirm=true"],
+    ["GET", `/v1/projects/${real}/lines`],
+    // ── a book goes
+    ["DELETE", "/v1/projects/{emptyoid}"],
+    ["DELETE", "/v1/projects/{emptyoid}"],
+    ["GET", "/v1/projects"],
+  ];
+}
+
 /**
  * JustVoice's write sequence over the API wave's first routers: settings, prefs, the auth
  * door, channels, MCP bindings, webhooks, external engines, download sources, placement,
@@ -565,6 +835,7 @@ export function steps(extra) {
     ["GET", "/v1/active_tasks"],
     ["GET", "/v1/cache/recent?limit=3"],
     ...agent2Steps(extra),
+    ...agent3Steps(extra),
     ["POST", "/v1/shutdown"],
   ];
 }
@@ -575,11 +846,40 @@ export function captureId(name, json) {
   if (name === "webhook" || name === "webhook2") return json?.subscription?.id;
   // Agent 2's: a new voice, persona, lexicon, effect preset or render job is the row answered.
   if (/^(voice\d?|persona\d?|lexicon\d?|effpreset|job)$/.test(name)) return json?.id;
+  // Agent 3's, by the name's ending: `…all` every id of a list answered (a list, its speakers
+  // or its blocks — mapped item for item), `…oid` the row answered, `…lst<N>` the N-th of a list
+  // answered, `…spk<N>` / `…blk<N>` / `…crt<N>` the N-th speaker / block / created id, `…pid`
+  // the import's project, `…lex` the project's lexicon, `…fix` the saved fix, `…narr` the
+  // narrator in a speaker list.
+  let m;
+  if (/all$/.test(name)) {
+    const list = Array.isArray(json) ? json : (json?.speakers ?? json?.blocks);
+    return Array.isArray(list) ? list.map((x) => x?.id) : undefined;
+  }
+  if (/oid$/.test(name)) return json?.id;
+  if ((m = /lst(\d+)$/.exec(name))) return Array.isArray(json) ? json[Number(m[1])]?.id : undefined;
+  if ((m = /spk(\d+)$/.exec(name))) return json?.speakers?.[Number(m[1])]?.id;
+  if ((m = /blk(\d+)$/.exec(name))) return json?.blocks?.[Number(m[1])]?.id;
+  if ((m = /crt(\d+)$/.exec(name))) return json?.created?.[Number(m[1])];
+  if (/pid$/.test(name)) return json?.project_id;
+  if (/lex$/.test(name)) return json?.default_lexicon_id;
+  if (/fix$/.test(name)) return json?.fix_id;
+  if (/narr$/.test(name)) return json?.speakers?.find((s) => s.role_label === "narrator")?.id;
   return undefined;
 }
 
 /** Answer keys a server stamps from its own clock — compared for presence only. */
-export const STAMP_KEYS = new Set(["created_at", "updated_at", "last_seen_at", "last_delivery_at", "at", "terms_accepted_at"]);
+export const STAMP_KEYS = new Set([
+  "created_at",
+  "updated_at",
+  "last_seen_at",
+  "last_delivery_at",
+  "at",
+  "terms_accepted_at",
+  // Agent 3's: when Analyze ran / Discover scanned.
+  "analyzed_at",
+  "scanned_at",
+]);
 
 /** Database columns a server stamps from its own clock — compared for presence only. */
 export const STAMPED = {
@@ -592,14 +892,22 @@ export const STAMPED = {
   lexicon_entries: ["id", "created_at"],
   effect_presets: ["created_at"],
   render_jobs: ["created_at", "started_at", "finished_at"],
-  speakers: ["updated_at"],
-  projects: ["updated_at"],
+  speakers: ["created_at", "updated_at"],
+  projects: ["created_at", "updated_at"],
+  // Agent 3's: new rows' clocks, and a saved fix's own random id (never answered).
+  scenes: ["created_at"],
+  blocks: ["created_at"],
+  speaker_corrections: ["id", "created_at"],
 };
 
 /** A database cell as compared: the settings row's accepted-terms time is the server's clock. */
 export function maskCell(table, column, value) {
   if (table === "settings" && column === "data" && typeof value === "string") {
     return value.replace(/(\\?"terms_accepted_at\\?": \\?")[0-9T:+\-]+/g, "$1<stamp>");
+  }
+  // Agent 3's: a chapter's metadata records when Analyze ran and when Discover scanned.
+  if (table === "scenes" && column === "metadata_json" && typeof value === "string") {
+    return value.replace(/("(?:analyzed_at|scanned_at)": ")[0-9T:.+\-]+/g, "$1<stamp>");
   }
   return value;
 }

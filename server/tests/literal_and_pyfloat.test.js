@@ -46,3 +46,14 @@ test("a_pyfloat_prints_as_python_writes_it", () => {
   expect(String(pyFloatValue(0.1))).toBe("0.1");
   expect(String(pyFloatValue(1e16))).toBe("1e+16");
 });
+
+test("a_list_too_short_or_long_says_how_many_it_got", async () => {
+  // pydantic 2.13: "List should have at least 2 items after validation, not 1" (JustVoice's
+  // merge with one id, 2026-10-08).
+  const a = createServer({ typeBase: "t/" });
+  a.post("/m", { schema: { body: T.Object({ ids: T.Array(T.String(), { minItems: 2, maxItems: 3 }) }) } }, async (r) => r.body);
+  const short = (await a.inject({ method: "POST", url: "/m", payload: { ids: ["a"] } })).json().errors;
+  expect(short).toEqual([{ loc: ["body", "ids"], msg: "List should have at least 2 items after validation, not 1", type: "too_short" }]);
+  const long = (await a.inject({ method: "POST", url: "/m", payload: { ids: ["a", "b", "c", "d"] } })).json().errors;
+  expect(long).toEqual([{ loc: ["body", "ids"], msg: "List should have at most 3 items after validation, not 4", type: "too_long" }]);
+});

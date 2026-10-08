@@ -2,7 +2,8 @@
 // ZIP archives, written and read the way CPython 3.12's `zipfile` writes and reads them — the
 // family's one copy (Node has no zipfile).
 //
-//   ZipWriter   `zipfile.ZipFile(buf, "w", ZIP_DEFLATED)`: `writestr(arcname, data)` (sync, in
+//   ZipWriter   `zipfile.ZipFile(buf, "w", ZIP_DEFLATED)` — or ZIP_STORED with
+//               `new ZipWriter({compression: "stored"})`: `writestr(arcname, data)` (sync, in
 //               memory: the local time now, mode 0o600) and `await addFile(file, arcname)`
 //               (`write`, streamed from disk: the file's mtime and mode); `finish()` → the
 //               archive as chunks, `toBuffer()` → one Buffer.
@@ -86,7 +87,10 @@ function zip64Extra(values) {
 
 /** A ZIP built in memory as a list of chunks — `zipfile.ZipFile(buf, "w", ZIP_DEFLATED)`. */
 export class ZipWriter {
-  constructor() {
+  /** `compression`: "deflated" (zipfile's ZIP_DEFLATED, the default) or "stored" (ZIP_STORED). */
+  constructor({ compression = "deflated" } = {}) {
+    if (compression !== "deflated" && compression !== "stored") throw new ValueError(`unknown compression: ${compression}`);
+    this.method = compression === "stored" ? 0 : 8;
     this.chunks = [];
     this.offset = 0;
     this.entries = [];
@@ -101,16 +105,27 @@ export class ZipWriter {
   writestr(arcname, data) {
     const raw = typeof data === "string" ? Buffer.from(data, "utf8") : data;
     const crc = zlib.crc32(raw) >>> 0;
-    this.#add(arcname, new Date(), 0o600, raw.length, { crc, size: raw.length, comp: [zlib.deflateRawSync(raw)] });
+    const comp = this.method === 0 ? [raw] : [zlib.deflateRawSync(raw)];
+    this.#add(arcname, new Date(), 0o600, raw.length, { crc, size: raw.length, comp });
   }
 
-  /** `zf.write(file, arcname)`: the file's bytes, deflated as they stream, with its mtime and mode. */
+  /** `zf.write(file, arcname)`: the file's bytes, deflated as they stream (or stored), with its
+   * mtime and mode. */
   async addFile(file, arcname) {
     const st = await stat(file);
     const name = arcname.replace(/\\/g, "/").replace(/^\/+/, "");
     const comp = [];
     let crc = 0;
     let size = 0;
+    if (this.method === 0) {
+      for await (const chunk of createReadStream(file)) {
+        crc = zlib.crc32(chunk, crc);
+        size += chunk.length;
+        comp.push(chunk);
+      }
+      this.#add(name, new Date(st.mtimeMs), st.mode, st.size, { crc: crc >>> 0, size, comp });
+      return;
+    }
     const z = zlib.createDeflateRaw();
     z.on("data", (c) => comp.push(c));
     const ended = once(z, "end");
@@ -139,7 +154,7 @@ export class ZipWriter {
     h.writeUInt32LE(SIG_LOCAL, 0);
     h.writeUInt16LE(version, 4);
     h.writeUInt16LE(flags, 6);
-    h.writeUInt16LE(8, 8);
+    h.writeUInt16LE(this.method, 8);
     h.writeUInt16LE(time, 10);
     h.writeUInt16LE(date, 12);
     h.writeUInt32LE(crc, 14);
@@ -152,7 +167,7 @@ export class ZipWriter {
     this.push(nameBuf);
     if (extra.length) this.push(extra);
     for (const c of comp) this.push(c);
-    this.entries.push({ nameBuf, flags, time, date, crc, size, csize, headerOffset, mode, version });
+    this.entries.push({ nameBuf, flags, time, date, crc, size, csize, headerOffset, mode, version, method: this.method });
   }
 
   /** `close()`: the central directory and end record; the chunks are the whole archive. */
@@ -180,7 +195,7 @@ export class ZipWriter {
       c.writeUInt8(CREATE_SYSTEM, 5);
       c.writeUInt16LE(version, 6);
       c.writeUInt16LE(e.flags, 8);
-      c.writeUInt16LE(8, 10);
+      c.writeUInt16LE(e.method, 10);
       c.writeUInt16LE(e.time, 12);
       c.writeUInt16LE(e.date, 14);
       c.writeUInt32LE(e.crc, 16);

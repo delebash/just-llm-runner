@@ -16,4 +16,5 @@ export { getLlmRegistry, loadFromConfigs } from "./registry.js";
 export { FeatureCatalogEntry } from "./routing_api.js";
 export { LLMProviderConfig } from "./schema.js";
 export { seedLlm } from "./seed.js";
+export { getLedger } from "./usage.js";
 export * as stores from "./stores.js";

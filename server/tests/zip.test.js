@@ -86,6 +86,29 @@ test("writestr builds in memory and fromBuffer reads it back", () => {
   }
 });
 
+test("a stored writer keeps the bytes as they are (zipfile's ZIP_STORED)", async () => {
+  // JustVoice's chapter-WAVs zip was ZIP_STORED in Python (2026-10-08).
+  const data = Buffer.from("RIFF fake wav ".repeat(50));
+  const dir = mkdtempSync(join(tmpdir(), "kit-zip-stored-"));
+  const file = join(dir, "b.wav");
+  writeFileSync(file, data);
+  const zw = new ZipWriter({ compression: "stored" });
+  zw.writestr("a.wav", data);
+  await zw.addFile(file, "b.wav");
+  const buf = zw.toBuffer();
+  // the member bytes sit in the archive verbatim, and each header says method 0
+  expect(buf.indexOf(data)).toBeGreaterThan(0);
+  expect(buf.readUInt16LE(8)).toBe(0); // the first local header's method
+  const central = buf.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+  expect(buf.readUInt16LE(central + 10)).toBe(0);
+  const zr = ZipReader.fromBuffer(buf);
+  expect(zr.names()).toEqual(["a.wav", "b.wav"]);
+  expect(Buffer.compare(zr.read("a.wav"), data)).toBe(0);
+  expect(Buffer.compare(zr.read("b.wav"), data)).toBe(0);
+  rmSync(dir, { recursive: true, force: true });
+  expect(() => new ZipWriter({ compression: "bzip2" })).toThrow(ValueError);
+});
+
 test("a non-ASCII name is UTF-8 with the flag; an ASCII one is neither", () => {
   const z = new ZipWriter();
   z.writestr("Глава 1/日本語.txt", "текст");

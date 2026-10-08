@@ -334,14 +334,24 @@ async function replayWrites(steps) {
       const pick =
         capture === "preset" ? (j) => (j?.presets || []).find((x) => x.name === body0.name)?.id : (j) => JV?.captureId(capture, j);
       const [pa, pb] = [pick(a.json), pick(b.json)];
-      if (pa && pb) {
+      if (Array.isArray(pa) && Array.isArray(pb)) {
+        // Every id of a list answer, item for item (the list's order is the servers' own).
+        pa.forEach((p, i) => {
+          if (p && pb[i]) idMap.set(pb[i], p);
+        });
+      } else if (pa && pb) {
         idMap.set(`${capture}:py`, pa);
         idMap.set(`${capture}:js`, pb);
         idMap.set(pb, pa);
       }
     }
-    // The JS side's made-up ids read as Python's before comparing.
+    // The JS side's made-up ids read as Python's before comparing — in a JSON answer and in a
+    // text one (an SSE stream's frames carry them too).
     let bj = b.json;
+    let bt = b.text;
+    if (idMap.size) {
+      for (const [k, v] of idMap) if (!k.includes(":")) bt = bt.split(k).join(v);
+    }
     if (bj !== undefined && idMap.size) {
       let t = JSON.stringify(bj);
       for (const [k, v] of idMap) if (!k.includes(":")) t = t.split(k).join(v);
@@ -352,7 +362,7 @@ async function replayWrites(steps) {
       results.push({ ...row, same: false, pyBody: a.text.slice(0, 400), jsBody: b.text.slice(0, 400) });
       continue;
     }
-    const d = a.json !== undefined ? firstDiff(unstamp(a.json), unstamp(bj)) : a.text === b.text ? null : { at: "text" };
+    const d = a.json !== undefined ? firstDiff(unstamp(a.json), unstamp(bj)) : a.text === bt ? null : { at: "text", py: a.text.slice(0, 300), js: bt.slice(0, 300) };
     results.push({ ...row, same: !d, diff: d });
   }
   return { results, idMap: Object.fromEntries([...idMap].filter(([k]) => !k.includes(":"))) };

@@ -175,9 +175,9 @@ export function ajvToPydantic(err, root, data) {
     case "maxLength":
       return { loc, msg: `String should have at most ${err.params.limit} character${err.params.limit === 1 ? "" : "s"}`, type: "string_too_long" };
     case "minItems":
-      return { loc, msg: `List should have at least ${err.params.limit} item${err.params.limit === 1 ? "" : "s"} after validation`, type: "too_short" };
+      return { loc, msg: `List should have at least ${err.params.limit} item${err.params.limit === 1 ? "" : "s"} after validation${Array.isArray(value) ? `, not ${value.length}` : ""}`, type: "too_short" };
     case "maxItems":
-      return { loc, msg: `List should have at most ${err.params.limit} item${err.params.limit === 1 ? "" : "s"} after validation`, type: "too_long" };
+      return { loc, msg: `List should have at most ${err.params.limit} item${err.params.limit === 1 ? "" : "s"} after validation${Array.isArray(value) ? `, not ${value.length}` : ""}`, type: "too_long" };
     case "pattern":
       return { loc, msg: `String should match pattern '${err.params.pattern}'`, type: "string_pattern_mismatch" };
     default:

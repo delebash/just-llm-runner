@@ -49,8 +49,10 @@ def main() -> int:
     rows = []
     for path, ops in app.openapi()["paths"].items():
         for m, op in ops.items():
+            params = [{"name": p["name"], "in": p["in"], "required": bool(p.get("required"))}
+                      for p in op.get("parameters", [])]
             rows.append({"method": m.upper(), "path": path, "operationId": op.get("operationId", ""),
-                         "tags": op.get("tags", [])})
+                         "tags": op.get("tags", []), "params": params})
     rows.sort(key=lambda x: (x["path"], x["method"]))
     sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(rows, indent=1))

@@ -12,7 +12,7 @@
 //   - problem+json errors and FastAPI's `{"detail": "Not Found"}` (errors.js).
 
 import Fastify from "fastify";
-import { installErrorHandlers } from "./errors.js";
+import { installErrorHandlers, installFastapiErrorHandlers } from "./errors.js";
 import { clean, laxConvert, shapeRequest } from "./models.js";
 
 const BODY_LIMIT = 1024 * 1024 * 1024; // 1 GiB — "none" in practice, as FastAPI
@@ -32,9 +32,10 @@ function parseJsonText(body, done) {
 
 /**
  * A Fastify instance with the family's parsing, validation and error answers.
- * `typeBase` is the app's problem-type URL prefix; `logger` is passed to Fastify.
+ * `errors`: "problem" (the kit's problem+json; `typeBase` is the app's problem-type URL
+ * prefix) or "fastapi" (FastAPI's default answers). `logger` is passed to Fastify.
  */
-export function createServer({ typeBase, logger = false, bodyLimit = BODY_LIMIT, ...rest } = {}) {
+export function createServer({ typeBase, errors = "problem", logger = false, bodyLimit = BODY_LIMIT, ...rest } = {}) {
   const app = Fastify({
     logger,
     bodyLimit,
@@ -90,6 +91,10 @@ export function createServer({ typeBase, logger = false, bodyLimit = BODY_LIMIT,
     if (schema?.body && req.body && typeof req.body === "object") req.body = shapeRequest(schema.body, req.body);
     if (schema?.querystring && req.query) req.query = clean(schema.querystring, req.query);
   });
-  installErrorHandlers(app, { typeBase: typeBase ?? "" });
+  // The app's error answers: the kit's problem+json (JustVoice and JustWrite call
+  // install_error_handlers) or FastAPI's defaults (docgen never did — measured by the
+  // route diff).
+  if (errors === "fastapi") installFastapiErrorHandlers(app);
+  else installErrorHandlers(app, { typeBase: typeBase ?? "" });
   return app;
 }

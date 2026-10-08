@@ -5,7 +5,8 @@
   "operationId": "clear_ai_usage_v1_ai_usage_delete",
   "tags": [
    "llm"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -13,7 +14,8 @@
   "operationId": "ai_usage_v1_ai_usage_get",
   "tags": [
    "llm"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -21,6 +23,18 @@
   "operationId": "delete_class_tune_v1_ai_class_tunes_delete",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "modelId",
+    "in": "query",
+    "required": true
+   },
+   {
+    "name": "classKey",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -29,7 +43,8 @@
   "operationId": "list_class_tunes_v1_ai_class_tunes_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -37,7 +52,8 @@
   "operationId": "put_class_tune_v1_ai_class_tunes_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -45,6 +61,13 @@
   "operationId": "delete_embed_template_v1_ai_embed_templates_delete",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "modelId",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -53,7 +76,8 @@
   "operationId": "list_embed_templates_v1_ai_embed_templates_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -61,7 +85,8 @@
   "operationId": "upsert_embed_template_v1_ai_embed_templates_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -69,7 +94,8 @@
   "operationId": "ai_embeddings_v1_ai_embeddings_post",
   "tags": [
    "llm"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -77,7 +103,8 @@
   "operationId": "get_engine_cache_v1_ai_engine_cache_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -85,7 +112,8 @@
   "operationId": "set_engine_cache_v1_ai_engine_cache_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -93,7 +121,8 @@
   "operationId": "get_engine_config_v1_ai_engine_config_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -101,7 +130,8 @@
   "operationId": "update_engine_config_v1_ai_engine_config_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -109,7 +139,8 @@
   "operationId": "reset_engine_config_v1_ai_engine_config_reset_post",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -117,7 +148,8 @@
   "operationId": "list_presets_v1_ai_engine_presets_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -125,7 +157,8 @@
   "operationId": "create_preset_v1_ai_engine_presets_post",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -133,7 +166,8 @@
   "operationId": "reset_presets_v1_ai_engine_presets_reset_post",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -141,6 +175,13 @@
   "operationId": "delete_preset_v1_ai_engine_presets__preset_id__delete",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "preset_id",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -149,6 +190,13 @@
   "operationId": "update_preset_v1_ai_engine_presets__preset_id__put",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "preset_id",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -157,6 +205,13 @@
   "operationId": "reset_one_preset_v1_ai_engine_presets__preset_id__reset_post",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "preset_id",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -165,6 +220,13 @@
   "operationId": "delete_hardware_class_v1_ai_hardware_class_delete",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "classKey",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -173,7 +235,8 @@
   "operationId": "put_hardware_class_v1_ai_hardware_class_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -181,7 +244,8 @@
   "operationId": "knob_catalog_v1_ai_knob_catalog_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -189,6 +253,13 @@
   "operationId": "delete_catalog_v1_ai_model_catalog_delete",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "modelId",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -197,7 +268,8 @@
   "operationId": "list_catalog_v1_ai_model_catalog_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -205,7 +277,8 @@
   "operationId": "upsert_catalog_v1_ai_model_catalog_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -213,6 +286,23 @@
   "operationId": "inspect_catalog_v1_ai_model_catalog_inspect_post",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "repo",
+    "in": "query",
+    "required": true
+   },
+   {
+    "name": "quant",
+    "in": "query",
+    "required": false
+   },
+   {
+    "name": "revision",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -221,6 +311,18 @@
   "operationId": "list_files_v1_ai_model_catalog_list_files_post",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "repo",
+    "in": "query",
+    "required": true
+   },
+   {
+    "name": "revision",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -229,7 +331,8 @@
   "operationId": "reset_catalog_v1_ai_model_catalog_reset_post",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -237,6 +340,18 @@
   "operationId": "resolved_defaults_v1_ai_model_catalog_resolved_defaults_get",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "modelId",
+    "in": "query",
+    "required": true
+   },
+   {
+    "name": "excludeTune",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -245,7 +360,8 @@
   "operationId": "get_model_list_rules_v1_ai_model_list_rules_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -253,7 +369,8 @@
   "operationId": "put_model_list_rules_v1_ai_model_list_rules_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -261,7 +378,8 @@
   "operationId": "reset_model_list_rules_v1_ai_model_list_rules_reset_post",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -269,6 +387,13 @@
   "operationId": "clear_measurements_v1_ai_model_measurements_delete",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "modelId",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -277,6 +402,13 @@
   "operationId": "list_measurements_v1_ai_model_measurements_get",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "modelId",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -285,7 +417,8 @@
   "operationId": "record_measurement_v1_ai_model_measurements_post",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -293,6 +426,13 @@
   "operationId": "delete_tune_v1_ai_model_tunes_delete",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "modelId",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -301,6 +441,13 @@
   "operationId": "get_tune_v1_ai_model_tunes_get",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "modelId",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -309,7 +456,8 @@
   "operationId": "put_tune_v1_ai_model_tunes_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -317,7 +465,8 @@
   "operationId": "tunes_state_v1_ai_model_tunes_state_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -325,7 +474,8 @@
   "operationId": "list_assignments_v1_ai_preset_assignments_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -333,7 +483,8 @@
   "operationId": "clear_features_v1_ai_preset_assignments_clear_features_post",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -341,7 +492,8 @@
   "operationId": "put_default_v1_ai_preset_assignments_default_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -349,7 +501,8 @@
   "operationId": "put_feature_v1_ai_preset_assignments_feature_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -357,6 +510,13 @@
   "operationId": "reset_feature_ref_v1_ai_preset_assignments_feature__key__reset_post",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "key",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -365,6 +525,13 @@
   "operationId": "delete_pricing_v1_ai_pricing_delete",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "modelId",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -373,7 +540,8 @@
   "operationId": "list_pricing_v1_ai_pricing_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -381,7 +549,8 @@
   "operationId": "upsert_pricing_v1_ai_pricing_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -389,7 +558,8 @@
   "operationId": "list_prompts_v1_ai_prompts_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -397,6 +567,13 @@
   "operationId": "get_prompt_v1_ai_prompts__key__get",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "key",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -405,6 +582,13 @@
   "operationId": "upsert_prompt_v1_ai_prompts__key__put",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "key",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -413,6 +597,13 @@
   "operationId": "reset_prompt_v1_ai_prompts__key__reset_post",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "key",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -421,6 +612,13 @@
   "operationId": "get_reasoning_map_v1_ai_reasoning_map__provider__get",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "provider",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -429,6 +627,13 @@
   "operationId": "put_reasoning_map_v1_ai_reasoning_map__provider__put",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "provider",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -437,6 +642,28 @@
   "operationId": "resolved_route_v1_ai_resolved_route_get",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "feature",
+    "in": "query",
+    "required": true
+   },
+   {
+    "name": "action",
+    "in": "query",
+    "required": false
+   },
+   {
+    "name": "providerId",
+    "in": "query",
+    "required": false
+   },
+   {
+    "name": "model",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -445,7 +672,8 @@
   "operationId": "get_routing_v1_ai_routing_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -453,7 +681,8 @@
   "operationId": "put_routing_v1_ai_routing_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -461,7 +690,8 @@
   "operationId": "run_feature_v1_ai_run_post",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -469,7 +699,8 @@
   "operationId": "stream_feature_v1_ai_stream_post",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -477,6 +708,13 @@
   "operationId": "delete_preset_v1_ai_switch_presets_delete",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "presetId",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -485,7 +723,8 @@
   "operationId": "list_presets_v1_ai_switch_presets_get",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PUT",
@@ -493,7 +732,8 @@
   "operationId": "upsert_preset_v1_ai_switch_presets_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -501,7 +741,8 @@
   "operationId": "reset_presets_v1_ai_switch_presets_reset_post",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -509,6 +750,13 @@
   "operationId": "delete_test_sample_v1_ai_test_samples_delete",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "id",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -517,6 +765,13 @@
   "operationId": "list_test_samples_v1_ai_test_samples_get",
   "tags": [
    "ai"
+  ],
+  "params": [
+   {
+    "name": "action",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -525,7 +780,8 @@
   "operationId": "put_test_sample_v1_ai_test_samples_put",
   "tags": [
    "ai"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -533,6 +789,13 @@
   "operationId": "backup_v1_data_backup_get",
   "tags": [
    "data"
+  ],
+  "params": [
+   {
+    "name": "exclude",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -541,7 +804,8 @@
   "operationId": "reset_v1_data_reset_post",
   "tags": [
    "data"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -549,7 +813,8 @@
   "operationId": "restore_v1_data_restore_post",
   "tags": [
    "data"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -557,7 +822,8 @@
   "operationId": "disk_usage_v1_disk_usage_get",
   "tags": [
    "disk"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -565,7 +831,8 @@
   "operationId": "list_llm_providers_v1_llm_providers_get",
   "tags": [
    "llm"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -573,7 +840,8 @@
   "operationId": "create_llm_provider_v1_llm_providers_post",
   "tags": [
    "llm"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -581,7 +849,8 @@
   "operationId": "detect_local_llm_providers_v1_llm_providers_detect_local_get",
   "tags": [
    "llm"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -589,7 +858,8 @@
   "operationId": "probe_provider_models_v1_llm_providers_probe_models_post",
   "tags": [
    "llm"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -597,6 +867,13 @@
   "operationId": "delete_llm_provider_v1_llm_providers__provider_id__delete",
   "tags": [
    "llm"
+  ],
+  "params": [
+   {
+    "name": "provider_id",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -605,6 +882,13 @@
   "operationId": "update_llm_provider_v1_llm_providers__provider_id__patch",
   "tags": [
    "llm"
+  ],
+  "params": [
+   {
+    "name": "provider_id",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -613,6 +897,18 @@
   "operationId": "list_provider_models_v1_llm_providers__provider_id__models_get",
   "tags": [
    "llm"
+  ],
+  "params": [
+   {
+    "name": "provider_id",
+    "in": "path",
+    "required": true
+   },
+   {
+    "name": "all",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -621,6 +917,13 @@
   "operationId": "ping_llm_provider_v1_llm_providers__provider_id__ping_post",
   "tags": [
    "llm"
+  ],
+  "params": [
+   {
+    "name": "provider_id",
+    "in": "path",
+    "required": true
+   }
   ]
  },
  {
@@ -629,7 +932,8 @@
   "operationId": "status_v1_llm_runner_auto_tune_get",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -637,7 +941,8 @@
   "operationId": "start_v1_llm_runner_auto_tune_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -645,7 +950,8 @@
   "operationId": "cancel_v1_llm_runner_auto_tune_cancel_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -653,7 +959,8 @@
   "operationId": "status_v1_llm_runner_calibrate_get",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -661,7 +968,8 @@
   "operationId": "start_v1_llm_runner_calibrate_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -669,7 +977,8 @@
   "operationId": "cancel_v1_llm_runner_calibrate_cancel_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -677,7 +986,8 @@
   "operationId": "get_config_v1_llm_runner_config_get",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -685,7 +995,8 @@
   "operationId": "download_model_v1_llm_runner_download_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -693,7 +1004,8 @@
   "operationId": "download_cancel_v1_llm_runner_download_cancel_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -701,7 +1013,8 @@
   "operationId": "download_status_v1_llm_runner_download_status_get",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -709,7 +1022,8 @@
   "operationId": "engine_install_v1_llm_runner_engine_install_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -717,7 +1031,8 @@
   "operationId": "engine_install_cancel_v1_llm_runner_engine_install_cancel_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -725,6 +1040,13 @@
   "operationId": "engine_log_v1_llm_runner_engine_log_get",
   "tags": [
    "llm-runner"
+  ],
+  "params": [
+   {
+    "name": "tail",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -733,6 +1055,13 @@
   "operationId": "engine_resolve_assets_v1_llm_runner_engine_resolve_assets_get",
   "tags": [
    "llm-runner"
+  ],
+  "params": [
+   {
+    "name": "build",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -741,7 +1070,8 @@
   "operationId": "engine_status_v1_llm_runner_engine_status_get",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -749,7 +1079,8 @@
   "operationId": "engine_uninstall_v1_llm_runner_engine_uninstall_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -757,7 +1088,8 @@
   "operationId": "engine_update_check_v1_llm_runner_engine_update_check_get",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -765,7 +1097,8 @@
   "operationId": "ensure_embedding_v1_llm_runner_ensure_embedding_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -773,6 +1106,13 @@
   "operationId": "get_gpu_processes_v1_llm_runner_gpu_processes_get",
   "tags": [
    "llm-runner"
+  ],
+  "params": [
+   {
+    "name": "fresh",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -781,7 +1121,8 @@
   "operationId": "get_hardware_v1_llm_runner_hardware_get",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -789,7 +1130,8 @@
   "operationId": "load_model_v1_llm_runner_load_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -797,6 +1139,23 @@
   "operationId": "measure_model_v1_llm_runner_measure_post",
   "tags": [
    "llm-runner"
+  ],
+  "params": [
+   {
+    "name": "prompt",
+    "in": "query",
+    "required": false
+   },
+   {
+    "name": "max_tokens",
+    "in": "query",
+    "required": false
+   },
+   {
+    "name": "model_id",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -805,6 +1164,13 @@
   "operationId": "get_models_v1_llm_runner_models_get",
   "tags": [
    "llm-runner"
+  ],
+  "params": [
+   {
+    "name": "vram_mb",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -813,7 +1179,8 @@
   "operationId": "models_cache_clear_v1_llm_runner_models_cache_clear_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -821,7 +1188,8 @@
   "operationId": "models_cache_delete_v1_llm_runner_models_cache_delete_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -829,7 +1197,8 @@
   "operationId": "runner_resident_v1_llm_runner_resident_get",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -837,7 +1206,8 @@
   "operationId": "spawn_logs_clear_v1_llm_runner_spawn_logs_clear_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -845,7 +1215,8 @@
   "operationId": "runner_status_v1_llm_runner_status_get",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -853,7 +1224,8 @@
   "operationId": "stop_model_v1_llm_runner_stop_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -861,7 +1233,8 @@
   "operationId": "tokenize_text_v1_llm_runner_tokenize_post",
   "tags": [
    "llm-runner"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -869,7 +1242,8 @@
   "operationId": "logs_delete_all_v1_logs_all_delete",
   "tags": [
    "logs"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "POST",
@@ -877,7 +1251,8 @@
   "operationId": "logs_clear_v1_logs_clear_post",
   "tags": [
    "logs"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "DELETE",
@@ -885,6 +1260,13 @@
   "operationId": "logs_delete_day_v1_logs_day_delete",
   "tags": [
    "logs"
+  ],
+  "params": [
+   {
+    "name": "date",
+    "in": "query",
+    "required": true
+   }
   ]
  },
  {
@@ -893,6 +1275,18 @@
   "operationId": "logs_day_v1_logs_day_get",
   "tags": [
    "logs"
+  ],
+  "params": [
+   {
+    "name": "date",
+    "in": "query",
+    "required": true
+   },
+   {
+    "name": "lines",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -901,7 +1295,8 @@
   "operationId": "logs_days_v1_logs_days_get",
   "tags": [
    "logs"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -909,7 +1304,8 @@
   "operationId": "logs_download_v1_logs_download_get",
   "tags": [
    "logs"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -917,6 +1313,13 @@
   "operationId": "logs_tail_v1_logs_tail_get",
   "tags": [
    "logs"
+  ],
+  "params": [
+   {
+    "name": "lines",
+    "in": "query",
+    "required": false
+   }
   ]
  },
  {
@@ -925,7 +1328,8 @@
   "operationId": "clear_prefs_v1_prefs_delete",
   "tags": [
    "prefs"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "GET",
@@ -933,7 +1337,8 @@
   "operationId": "get_prefs_v1_prefs_get",
   "tags": [
    "prefs"
-  ]
+  ],
+  "params": []
  },
  {
   "method": "PATCH",
@@ -941,6 +1346,7 @@
   "operationId": "patch_prefs_v1_prefs_patch",
   "tags": [
    "prefs"
-  ]
+  ],
+  "params": []
  }
 ]

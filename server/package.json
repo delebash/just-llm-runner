@@ -10,6 +10,8 @@
   },
   "exports": {
     ".": "./src/index.js",
+    "./llm": "./src/llm/index.js",
+    "./platform": "./src/platform/index.js",
     "./llm/*": "./src/llm/*.js",
     "./runner/*": "./src/runner/*.js",
     "./platform/*": "./src/platform/*.js",

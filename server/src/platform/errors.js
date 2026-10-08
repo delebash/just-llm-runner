@@ -279,3 +279,114 @@ export function installErrorHandlers(app, { typeBase }) {
 
   app.setNotFoundHandler((request, reply) => reply.code(404).send({ detail: "Not Found" }));
 }
+
+// ── FastAPI's DEFAULT error answers (an app that never called install_error_handlers) ──
+// docgen's server answers these (measured by the route diff, 2026-10-07): an HTTPException
+// (the kit's ApiError included — it subclasses it) as {"detail": …}, a validation failure as
+// 422 {"detail": [{type, loc, msg, input, ctx?}]} — pydantic's own error dicts — and nothing
+// logged.
+
+/** pydantic's `ctx` for an ajv constraint error. */
+function pydanticCtx(err) {
+  const lim = err.params?.limit;
+  switch (err.keyword) {
+    case "minimum":
+      return { ge: lim };
+    case "exclusiveMinimum":
+      return { gt: lim };
+    case "maximum":
+      return { le: lim };
+    case "exclusiveMaximum":
+      return { lt: lim };
+    case "minLength":
+      return { min_length: lim };
+    case "maxLength":
+      return { max_length: lim };
+    case "pattern":
+      return { pattern: err.params.pattern };
+    default:
+      return null;
+  }
+}
+
+/** pydantic's error dict: {type, loc, msg, input, ctx?}. */
+function fastapiError(err, root, data) {
+  const p = ajvToPydantic(err, root, data);
+  const path = (err.instancePath || "")
+    .split("/")
+    .slice(1)
+    .map((s) => s.replace(/~1/g, "/").replace(/~0/g, "~"));
+  let value = data;
+  for (const s of path) value = value == null ? undefined : value[s];
+  // A missing body field's input is the object it was missing from; a missing query or
+  // path parameter's is None.
+  const input = err.keyword === "required" ? (root === "body" ? (value ?? null) : null) : (value ?? null);
+  const out = { type: p.type, loc: p.loc, msg: p.msg, input };
+  const ctx = pydanticCtx(err);
+  if (ctx) out.ctx = ctx;
+  return out;
+}
+
+/** Python's json module's words for a decode error, from V8's. */
+function pyJsonErrorText(message) {
+  const m = String(message || "");
+  if (/Expected property name/.test(m)) return "Expecting property name enclosed in double quotes";
+  if (/Expected ',' or '}'/.test(m)) return "Expecting ',' delimiter";
+  if (/Expected ',' or ']'/.test(m)) return "Expecting ',' delimiter";
+  if (/Expected ':'/.test(m)) return "Expecting ':' delimiter";
+  if (/Unterminated string/.test(m)) return "Unterminated string starting at";
+  if (/non-whitespace character after JSON/.test(m)) return "Extra data";
+  return "Expecting value";
+}
+
+/** Register FastAPI's default handlers (no problem+json) on `app`. */
+export function installFastapiErrorHandlers(app) {
+  app.setErrorHandler((err, request, reply) => {
+    if (err instanceof HttpError) {
+      if (err.headers) reply.headers(err.headers);
+      return reply.code(err.statusCode).send({ detail: err.detail });
+    }
+    let errors = null;
+    if (err instanceof RequestValidationError) {
+      errors = err.errors.map((e) => ({ type: e.type, loc: e.loc, msg: e.msg, input: e.input ?? null, ...(e.ctx ? { ctx: e.ctx } : {}) }));
+    } else if (err.validation) {
+      const root = LOC_ROOT[err.validationContext] || err.validationContext || "body";
+      const data =
+        root === "body" ? request.body : root === "query" ? request.query : root === "path" ? request.params : request.headers;
+      if (root === "body" && (request.body === undefined || request.body === null)) {
+        errors = [{ type: "missing", loc: ["body"], msg: "Field required", input: null }];
+      } else {
+        const seen = new Set();
+        errors = [];
+        for (const e of err.validation) {
+          if (e.keyword === "anyOf" || e.keyword === "oneOf") continue;
+          if (e.keyword === "type" && e.params?.type === "null") {
+            let v = data;
+            for (const p of (e.instancePath || "").split("/").slice(1)) v = v == null ? undefined : v[p];
+            if (v !== null) continue;
+          }
+          const fe = fastapiError(e, root, data);
+          const key = JSON.stringify(fe.loc);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          errors.push(fe);
+        }
+      }
+    } else if (err.code === "FST_ERR_CTP_INVALID_JSON_BODY" || err.code === "FST_ERR_CTP_EMPTY_JSON_BODY") {
+      errors = [
+        {
+          type: "json_invalid",
+          loc: ["body", err.jsonPos ?? 0],
+          msg: "JSON decode error",
+          input: {},
+          ctx: { error: pyJsonErrorText(err.message) },
+        },
+      ];
+    }
+    if (errors) return reply.code(422).send({ detail: errors });
+    if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ detail: err.message });
+    log.error(`${request.method} ${requestPath(request)} -> 500: unhandled`, err);
+    return reply.code(500).type("text/plain; charset=utf-8").send("Internal Server Error");
+  });
+  app.setNotFoundHandler((request, reply) => reply.code(404).send({ detail: "Not Found" }));
+}

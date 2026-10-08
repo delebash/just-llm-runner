@@ -198,9 +198,9 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
 | 1 | storage | stores, seed, every `*_api.py` model the stores use, usage_sink (3,400) | shared_storage 9, seed_providers 2, runner_config_store 11, reasoning 17 | **done** — 24 ported, 19 pass, 5 skip until wave 2; `scripts/compare-seed.mjs`: 0 differences vs Python in 3,809 + 3,788 + 4,089 cells and 39 reads |
 | 2 | llm routers A (started 2026-10-07) | prompts, presets_api, preset_resolve, switch_resolve, switch_presets_api, routing_api, provider_api, config_builder, api (≈2,300) | prompts 39, plane2_params 17, presets 7, switch_resolve 14, switch_presets 4, routing_api 3, provider_api 6, llm_api 6, probe_models 2, prompt_seed_backfill 2, embed_templates 7 | |
 | 2 | llm routers B (started 2026-10-07) | model_catalog_api, class_tunes_api, model_tunes_api, model_measurements_api, knob_catalog_api, embed_templates_api, model_list_rules_api, runner_config_api, reasoning_map_api, test_samples_api, cache_api, identity (≈2,200) | class_tunes 6, class_tune_refs 5, model_tunes 12, measurements 11, knob_catalog 7, hardware_class 18, identity 21, test_samples 3, models 28 | |
-| 2 | runner C | arbiter, process (the spawn door + koffi job) (1,680) | arbiter 36, router_port 10, load_failure_message 10 | started early (mocks hardware) |
-| 3 | runner D | lifecycle (3,742) | lifecycle 208, runner 69, runner_reclaim 5, uncurated_path 1, fit_acceptance 6 | |
-| 3 | runner E | autotune, calibrate, runner api (1,535) | autotune 29, calibrate 8, runner_models 26 | |
+| 2 | runner C | arbiter, process (the spawn door + koffi job) (1,680) | arbiter 36, router_port 10, load_failure_message 10 | **done** — 137 pass + 13 todo for lifecycle; the real job check (`KIT_REAL_SPAWN=1`): a hard kill of the owner took child + grandchild, the control without the job left the grandchild alive |
+| 3 | runner D (started 2026-10-07) | lifecycle (3,742) | lifecycle 208, runner 69, runner_reclaim 5, uncurated_path 1, fit_acceptance 6 | |
+| 3 | runner E (started 2026-10-07, against a lifecycle skeleton) | autotune, calibrate, runner api (1,535) | autotune 29, calibrate 8, runner_models 26 | |
 | 4 | install | install, index (the public surface), headless boot | install_llm 8, shared_cache 22, config 4, realrouter_smoke 8 (gated) | integrator |
 | 4 | checks | the route diff (`scripts/route-diff.mjs`), consumers' import list (plan §9 B2) | — | integrator |
 | 5 | the shell | the shared Electron main module (plan §4 "The shared Electron main module") | its own | **built** 2026-10-07 (`src/shell/`), tested with a throwaway app; the data ladder's OS fallback waits for an answer |
@@ -222,6 +222,11 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
   5 into a TEXT column stored '5.0' where Python stores '5'. `sql.js` now binds whole numbers
   as BigInt (INTEGER) and booleans as 1/0 — what Python's sqlite3 binds. (storage, 2026-10-07)
 - pydantic dumps fields in declaration order; `model()` now rebuilds objects in schema order.
+- ajv's strict mode refuses a `default` inside a union (`list[Row] | None` whose Row fields have
+  defaults) — legal pydantic. createServer runs ajv with `strict: false`, and the preHandler fills
+  union defaults (`models.shapeRequest`), as pydantic does.
+- On Windows, Node exposes no process handle, so the spawn door attaches the job by pid
+  (`OpenProcess`); a grandchild started before the assignment would escape it — as in Python.
 - SQLAlchemy runs a table's INSERTs before its DELETEs within one flush; the seed port matches
   it where rowids depended on it (`seedDefaultRunnerBinaries`, `seedDefaultKnobs`,
   `HardwareClassStore.save`).
@@ -266,6 +271,11 @@ says a fix lands in both languages):**
 - `tests/test_llm_dispatch.py::test_think_is_sent_even_to_a_known_nonthinker` depends on test
   order — alone it fails "LLM storage not configured"; it passes only after an earlier file set
   up storage. Fix: give it an in-memory database fixture. (providers)
+
+- `runner/process.py:1011-1017` with `:911-923` — `_ServerHandle.stop()` closes the job but
+  never clears `job_handle`; a second `stop()` (or `_close_job` after it) calls CloseHandle on
+  a value Windows may have reused — possibly another child's job, which would kill that child.
+  Fix: `self.job_handle = None` after closing. The JavaScript refuses a second close. (runner C)
 
 **Where the JavaScript can't match Python exactly (recorded by the ports):** requests'
 (connect, read) timeouts became an idle watchdog; a cancelled chunked download aborts requests in

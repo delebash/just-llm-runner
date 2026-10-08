@@ -91,16 +91,20 @@ export function pyInt(v) {
     return Math.trunc(v);
   }
   if (typeof v === "boolean") return v ? 1 : 0;
-  const s = String(v).trim().replace(/_/g, "");
-  if (!/^[-+]?\d+$/.test(s)) throw new ValueError(`invalid literal for int() with base 10: '${v}'`);
-  return Number(s);
+  // An underscore only between digits, as Python's int() reads it ("1_0" yes, "_1" no).
+  const t = String(v).trim();
+  if (!/^[-+]?\d+(?:_\d+)*$/.test(t)) throw new ValueError(`invalid literal for int() with base 10: '${v}'`);
+  return Number(t.replace(/_/g, ""));
 }
 
 /** float(v): a number, or a number string (incl. inf / nan), else ValueError. */
 export function pyFloatParse(v) {
   if (typeof v === "number") return v;
   if (typeof v === "boolean") return v ? 1 : 0;
-  const s = String(v).trim().toLowerCase().replace(/_/g, "");
+  const raw = String(v).trim().toLowerCase();
+  // An underscore only between digits, as Python's float() reads it.
+  if (/(^|[^0-9])_|_($|[^0-9])/.test(raw)) throw new ValueError(`could not convert string to float: '${v}'`);
+  const s = raw.replace(/_/g, "");
   if (["inf", "+inf", "infinity", "+infinity"].includes(s)) return Number.POSITIVE_INFINITY;
   if (["-inf", "-infinity"].includes(s)) return Number.NEGATIVE_INFINITY;
   if (["nan", "+nan", "-nan"].includes(s)) return Number.NaN;

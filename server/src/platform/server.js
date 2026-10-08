@@ -24,6 +24,8 @@ function parseJsonText(body, done) {
   } catch (e) {
     e.statusCode = 400;
     e.code = "FST_ERR_CTP_INVALID_JSON_BODY";
+    const m = /at position (\d+)/.exec(e.message);
+    if (m) e.jsonPos = Number(m[1]);
     done(e, undefined);
   }
 }
@@ -58,6 +60,15 @@ export function createServer({ typeBase, logger = false, bodyLimit = BODY_LIMIT,
   app.addContentTypeParser("*", { parseAs: "string" }, (req, body, done) => {
     if (!req.headers["content-type"]) return parseJsonText(body, done);
     done(null, body === "" ? undefined : body);
+  });
+  // A repeated query key: FastAPI takes the LAST value for a scalar parameter (a list
+  // parameter collects them all); Fastify's parser hands an array to every key.
+  app.addHook("preValidation", async (req) => {
+    const props = req.routeOptions?.schema?.querystring?.properties;
+    if (!props || !req.query) return;
+    for (const [k, v] of Object.entries(req.query)) {
+      if (Array.isArray(v) && props[k] && props[k].type !== "array") req.query[k] = v[v.length - 1];
+    }
   });
   // pydantic's extra="ignore": a handler sees only the fields its model declares.
   app.addHook("preHandler", async (req) => {

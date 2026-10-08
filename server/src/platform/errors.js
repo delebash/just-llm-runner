@@ -14,6 +14,8 @@
 // reached Python's handlers either), and an unhandled exception answers 500
 // `Internal Server Error` as plain text, as Starlette does.
 
+import { getLogger } from "./log.js";
+
 /** FastAPI's HTTPException: a status and a detail (any JSON value). */
 export class HttpError extends Error {
   constructor(statusCode, detail = null, headers = null) {
@@ -69,9 +71,22 @@ function pyStr(detail) {
   return JSON.stringify(detail);
 }
 
+// The kit's own log (the ring and the day file are its sinks), as Python's
+// `logging.getLogger(__name__)` — Fastify's request logger is off by default.
+const log = getLogger("llm_runner.platform.errors");
+
+/** The request's path as Starlette's `request.url.path` gives it: decoded, no query. */
+function requestPath(request) {
+  const raw = request.url.split("?")[0];
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function logError(request, status, detail) {
-  const log = request.log;
-  const line = `${request.method} ${request.url.split("?")[0]} -> ${status}: ${pyStr(detail).slice(0, 500)}`;
+  const line = `${request.method} ${requestPath(request)} -> ${status}: ${pyStr(detail).slice(0, 500)}`;
   if (status >= 500) log.error(line);
   else log.warn(line);
 }
@@ -197,7 +212,7 @@ function problem(reply, status, body) {
  */
 export function installErrorHandlers(app, { typeBase }) {
   app.setErrorHandler((err, request, reply) => {
-    const instance = request.url.split("?")[0];
+    const instance = requestPath(request);
     if (err instanceof ApiError) {
       logError(request, err.statusCode, err.detail);
       const body = {
@@ -226,7 +241,8 @@ export function installErrorHandlers(app, { typeBase }) {
     if (err instanceof RequestValidationError) errors = err.errors;
     else if (err.validation) errors = validationErrors(err, request);
     else if (err.code === "FST_ERR_CTP_INVALID_JSON_BODY" || err.code === "FST_ERR_CTP_EMPTY_JSON_BODY") {
-      errors = [{ loc: ["body", 0], msg: "JSON decode error", type: "json_invalid" }];
+      // FastAPI's location is the decoder's character position; V8 names it when it can.
+      errors = [{ loc: ["body", err.jsonPos ?? 0], msg: "JSON decode error", type: "json_invalid" }];
     }
     if (errors) {
       logError(request, 422, JSON.stringify(errors));
@@ -245,7 +261,7 @@ export function installErrorHandlers(app, { typeBase }) {
       logError(request, err.statusCode, err.message);
       return reply.code(err.statusCode).send({ detail: err.message });
     }
-    request.log.error({ err }, `${request.method} ${instance} -> 500: unhandled`);
+    log.error(`${request.method} ${instance} -> 500: unhandled`, err);
     return reply.code(500).type("text/plain; charset=utf-8").send("Internal Server Error");
   });
 

@@ -18,7 +18,9 @@
 // second list) · any non-mutating method. Rejected: everything else, 403 problem+json.
 //
 // Wiring: `app.register(CsrfOriginMiddleware, {appOrigins, extraOrigins, originRegex,
-// typeBase})` on the root instance, BEFORE the auth hook (it was the outermost middleware).
+// typeBase, prefixes})` on the root instance, BEFORE the auth hook (it was the outermost middleware).
+// `prefixes`: the paths guarded, `["/v1"]` by default — an app that guards more names them all
+// (2026-10-08 — JustVoice: `["/v1", "/mcp"]`), as for the auth hook.
 
 import { requestPath, sendProblem } from "./auth.js";
 
@@ -52,7 +54,8 @@ function sameOrigin(request) {
 }
 
 /** The onRequest hook itself (for a host that adds hooks by hand). */
-export function csrfOriginHook({ appOrigins = [], extraOrigins = [], originRegex = "", typeBase = "" } = {}) {
+export function csrfOriginHook({ appOrigins = [], extraOrigins = [], originRegex = "", typeBase = "", prefixes = ["/v1"] } = {}) {
+  const guarded = (p) => (prefixes || []).some((pre) => p.startsWith(pre));
   const allow = new Set([
     ...TAURI_ORIGINS,
     ...(appOrigins || []).filter(Boolean),
@@ -63,7 +66,7 @@ export function csrfOriginHook({ appOrigins = [], extraOrigins = [], originRegex
 
   return async function csrfOrigin(request, reply) {
     const p = requestPath(request);
-    if (!MUTATING.has(request.method) || !p.startsWith("/v1")) return;
+    if (!MUTATING.has(request.method) || !guarded(p)) return;
     const origin = request.headers.origin;
     if (origin && !allowed(request, origin)) {
       return sendProblem(reply, 403, {

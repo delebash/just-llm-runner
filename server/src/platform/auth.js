@@ -23,6 +23,10 @@
 // "Require a token even on localhost" on, every close fell back to a hard kill, while any
 // program on the machine can end the server process anyway. Empty by default.
 //
+// Which paths are guarded: `prefixes`, `["/v1"]` (the API) by default. An app that guards more
+// names them all (2026-10-08 — JustVoice: `["/v1", "/mcp"]`, its MCP endpoint guarded like its
+// API). A prefix matches the start of the path, as `/v1` always did.
+//
 // Wiring: `app.register(BearerAuthMiddleware, {readAuth, typeBase, loopbackOpenPaths})`
 // on the root instance. Starlette ran the LAST-added middleware first; Fastify runs
 // onRequest hooks in registration order — so register the outermost first (the apps:
@@ -62,16 +66,17 @@ export function sendProblem(reply, status, body) {
 }
 
 /** The onRequest hook itself (for a host that adds hooks by hand). */
-export function bearerAuthHook({ readAuth, typeBase, loopbackOpenPaths = [] }) {
+export function bearerAuthHook({ readAuth, typeBase, loopbackOpenPaths = [], prefixes = ["/v1"] }) {
   const loopbackOpen = new Set(loopbackOpenPaths || []);
+  const guarded = (p) => (prefixes || []).some((pre) => p.startsWith(pre));
   const problem = (reply, status, slug, title, detail, p) =>
     sendProblem(reply, status, { type: `${typeBase}${slug}`, title, status, detail, instance: p });
 
   return async function bearerAuth(request, reply) {
     const p = requestPath(request);
-    // Only gate the API. UI assets, docs, openapi, and the static mount always pass (so
-    // the headless browser can load the app + log in).
-    if (!p.startsWith("/v1")) return;
+    // Only gate the API (and an app's own `prefixes`). UI assets, docs, openapi, and the static
+    // mount always pass (so the headless browser can load the app + log in).
+    if (!guarded(p)) return;
 
     const [tokens, requireForLoopback] = await readAuth();
     if (!tokens?.length) return;

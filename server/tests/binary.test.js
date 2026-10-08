@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { crc32, deflateRawSync, gunzipSync, gzipSync } from "node:zlib";
 import { beforeEach, expect, test, vi } from "vitest";
 import { model } from "../src/platform/models.js";
+import { NotImplementedError } from "../src/platform/py.js";
 import * as procs from "../src/platform/procs.js";
 import * as binmod from "../src/runner/binary.js";
 import { DEFAULT_BINARIES, DEFAULT_PINNED_BUILD, defaultConfig } from "../src/runner/config.js";
@@ -408,7 +409,7 @@ test("acquire_docker_raises", async () => {
   // Auto-selection never lands on docker anymore (A4) — FORCING the variant via gpu= still
   // explains itself with the truthful pin story.
   await expect(binmod.acquireBinary(tmp(), defaultConfig(), hw("linux", { cuda: true }), { gpu: "cuda12" })).rejects.toThrow(
-    binmod.NotImplementedError,
+    NotImplementedError,
   );
   await expect(binmod.acquireBinary(tmp(), defaultConfig(), hw("linux", { cuda: true }), { gpu: "cuda12" })).rejects.toThrow(
     /pin-faithful/,

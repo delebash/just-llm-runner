@@ -279,6 +279,22 @@ has its app-side facts):
   with `http.multipart(parts)` instead (`http_multipart.test.js`).
 - Extra arguments after `node -e "<code>"` must follow `--`, or Node reads them as its own
   options.
+- **One ZIP module, `platform/zip.js`** (2026-10-08), replacing four copies (the backup routes',
+  the runner's `extractZip`, JustWrite's book transfer, JustVoice's voice bundles) under the
+  family-sameness law. It writes and reads what CPython 3.12's zipfile does: `ZipWriter`
+  (`writestr` in memory, `addFile` streamed; ZIP64 at CPython's thresholds), `ZipReader`
+  (`open(file)` / `fromBuffer(buf)`, `read`, `extract`, `extractAll`), `extractZip`. Where the
+  copies disagreed CPython won: one timestamp per `writestr` call, strict UTF-8 for a flagged
+  name and cp437 otherwise, CPython's end-record search (the copies looked one byte too far or
+  scanned their own way), the central directory walked by size, prepended data handled, the
+  member checks in CPython's order, `ntpath.splitdrive`'s drive rules. With the clock pinned the
+  old and new writers give identical bytes for the backup, JustWrite's book export and
+  JustVoice's bundle and voice-line export, and Python's `testzip()` reads all of them clean.
+  (*measured 2026-10-08*, an agent's byte check; `server/tests/zip.test.js` reads an archive
+  CPython 3.12.9 made, `tests/fixtures/python-zipfile.zip`.) Not covered, as before: bzip2/lzma
+  members, the 0x7075 Unicode-path field, 3.12's overlapped-entries check.
+- `NotImplementedError` lives in `platform/py.js` with the other Python error classes (the
+  runner, the ZIP reader and JustVoice's blending each had their own).
 
 **Phones** (*web*, study §5):
 

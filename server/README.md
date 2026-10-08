@@ -3,7 +3,7 @@
 
 The family's shared server kit — the LLM stack (providers, routing, presets, prompts, usage),
 the bundled llama.cpp runner, the platform pieces (errors, the spawn door, the data folder,
-backup, logs) and the desktop shell — in plain JavaScript on Node 24 (Electron's). It is the
+backup, logs, ZIP archives) and the desktop shell — in plain JavaScript on Node 24 (Electron's). It is the
 JavaScript port of `../llm_runner/`, made for the family's move to Electron and a Node server
 (JustVoice's `docs/plans/2026-10-07-electron-node-plan.md` §4). Both exist until every app has
 moved, and a kit server change lands in both (plan §10 Q6).

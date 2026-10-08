@@ -20,6 +20,12 @@ export class RuntimeError extends Error {
     this.name = "RuntimeError";
   }
 }
+export class NotImplementedError extends Error {
+  constructor(m, options) {
+    super(m, options);
+    this.name = "NotImplementedError";
+  }
+}
 export class FileNotFoundError extends Error {
   constructor(m, options) {
     super(m, options);

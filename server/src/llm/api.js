@@ -267,7 +267,7 @@ export async function router(app) {
     try {
       vectors = await adapter.embed(texts, { model: body.model || null, taskType: body.taskType });
     } catch (e) {
-      // Python's NotImplementedError (runner/binary.js carries the JS class of that name).
+      // Python's NotImplementedError (platform/py.js carries the JS class of that name).
       if (e?.name === "NotImplementedError") {
         throw new HttpError(400, `provider ${body.providerId} does not support embeddings`);
       }

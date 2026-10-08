@@ -17,9 +17,9 @@
 // probeArgvs})`, `acquireRuntime(cacheRoot, folder, build, binaries, hardware,
 // {preferredGpu, gpu, force, dlKwargs, onProgress, cancelCheck, probeArgvs})`.
 //
-// Unpacking: Python used zipfile / tarfile (`filter="data"`); Node has neither, so a small
-// zip reader and tar reader over node:zlib live below (`extractZip`, `extractTarGz` —
-// candidates for platform/), each following the Python extractor's path rules.
+// Unpacking: Python used zipfile / tarfile (`filter="data"`); Node has neither. A zip is
+// platform/zip.js's `extractZip`; a small tar reader over node:zlib lives below
+// (`extractTarGz` — a candidate for platform/), following tarfile's "data" filter.
 
 import { createHash } from "node:crypto";
 import {
@@ -27,14 +27,12 @@ import {
   closeSync,
   copyFileSync,
   createReadStream,
-  createWriteStream,
   existsSync,
   linkSync,
   lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
-  readSync,
   realpathSync,
   renameSync,
   rmdirSync,
@@ -42,30 +40,20 @@ import {
   statSync,
   symlinkSync,
   unlinkSync,
-  writeFileSync,
   writeSync,
-  fstatSync,
 } from "node:fs";
 import path from "node:path";
-import { Transform } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { crc32, createGunzip, createInflateRaw } from "node:zlib";
+import { createGunzip } from "node:zlib";
 import { getLogger } from "../platform/log.js";
 import * as procs from "../platform/procs.js";
-import { FileNotFoundError, pyFloatParse, pyMax, pySorted, RuntimeError } from "../platform/py.js";
+import { FileNotFoundError, NotImplementedError, pyFloatParse, pyMax, pySorted, RuntimeError } from "../platform/py.js";
+import { extractZip } from "../platform/zip.js";
 import * as download from "./download.js";
 import { splitlines } from "./hardware.js";
 import * as self from "./binary.js";
 
 const log = getLogger("llm_runner.runner.binary");
 
-/** Python's NotImplementedError. Candidate for platform/py.js. */
-export class NotImplementedError extends Error {
-  constructor(m) {
-    super(m);
-    this.name = "NotImplementedError";
-  }
-}
 
 /**
  * Choose the CUDA build by the GPU chip (compute capability).
@@ -446,179 +434,12 @@ export function acquiredServerExes(cacheRoot, config, hardware) {
   return out;
 }
 
-// ─── Archives (zipfile / tarfile, as small readers over node:zlib) ────────────
+// ─── Archives (tarfile, as a small reader over node:zlib) ───────────────────────
 
 class BadArchive extends Error {
   constructor(m) {
     super(m);
     this.name = "BadArchive";
-  }
-}
-
-// cp437's upper half — a zip entry name without the UTF-8 flag is cp437, as zipfile reads it.
-const CP437_HIGH =
-  "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ";
-
-function decodeZipName(buf, utf8) {
-  if (utf8) return buf.toString("utf8");
-  let s = "";
-  for (const b of buf) s += b < 0x80 ? String.fromCharCode(b) : CP437_HIGH[b - 0x80];
-  return s;
-}
-
-function readAt(fd, pos, len) {
-  const b = Buffer.alloc(len);
-  let got = 0;
-  while (got < len) {
-    const n = readSync(fd, b, got, len - got, pos + got);
-    if (n === 0) break;
-    got += n;
-  }
-  return b.subarray(0, got);
-}
-
-/** The central directory of a zip: [{name, method, crc, compSize, size, localOffset}]. */
-function zipEntries(fd) {
-  const size = fstatSync(fd).size;
-  const tailLen = Math.min(size, 22 + 65535);
-  const tail = readAt(fd, size - tailLen, tailLen);
-  let eocd = -1;
-  for (let i = tail.length - 22; i >= 0; i--) {
-    if (tail.readUInt32LE(i) === 0x06054b50) {
-      eocd = i;
-      break;
-    }
-  }
-  if (eocd < 0) throw new BadArchive("File is not a zip file");
-  let count = tail.readUInt16LE(eocd + 10);
-  let cdSize = tail.readUInt32LE(eocd + 12);
-  let cdOffset = tail.readUInt32LE(eocd + 16);
-  if (count === 0xffff || cdOffset === 0xffffffff || cdSize === 0xffffffff) {
-    // zip64: the locator sits just before the EOCD
-    const locPos = size - tailLen + eocd - 20;
-    const loc = readAt(fd, locPos, 20);
-    if (loc.readUInt32LE(0) === 0x07064b50) {
-      const recPos = Number(loc.readBigUInt64LE(8));
-      const rec = readAt(fd, recPos, 56);
-      if (rec.readUInt32LE(0) !== 0x06064b50) throw new BadArchive("Corrupt zip64 end of central directory");
-      count = Number(rec.readBigUInt64LE(32));
-      cdSize = Number(rec.readBigUInt64LE(40));
-      cdOffset = Number(rec.readBigUInt64LE(48));
-    }
-  }
-  const cd = readAt(fd, cdOffset, cdSize);
-  const out = [];
-  let p = 0;
-  for (let k = 0; k < count; k++) {
-    if (p + 46 > cd.length || cd.readUInt32LE(p) !== 0x02014b50) throw new BadArchive("Bad magic number for central directory");
-    const flags = cd.readUInt16LE(p + 8);
-    const method = cd.readUInt16LE(p + 10);
-    const crc = cd.readUInt32LE(p + 16);
-    let compSize = cd.readUInt32LE(p + 20);
-    let usize = cd.readUInt32LE(p + 24);
-    const nameLen = cd.readUInt16LE(p + 28);
-    const extraLen = cd.readUInt16LE(p + 30);
-    const commentLen = cd.readUInt16LE(p + 32);
-    let localOffset = cd.readUInt32LE(p + 42);
-    let name = decodeZipName(cd.subarray(p + 46, p + 46 + nameLen), (flags & 0x800) !== 0);
-    // zip64 extra field (0x0001): the 0xFFFFFFFF fields, in order
-    const extra = cd.subarray(p + 46 + nameLen, p + 46 + nameLen + extraLen);
-    for (let e = 0; e + 4 <= extra.length; ) {
-      const id = extra.readUInt16LE(e);
-      const len = extra.readUInt16LE(e + 2);
-      if (id === 0x0001) {
-        let q = e + 4;
-        if (usize === 0xffffffff) {
-          usize = Number(extra.readBigUInt64LE(q));
-          q += 8;
-        }
-        if (compSize === 0xffffffff) {
-          compSize = Number(extra.readBigUInt64LE(q));
-          q += 8;
-        }
-        if (localOffset === 0xffffffff) localOffset = Number(extra.readBigUInt64LE(q));
-      }
-      e += 4 + len;
-    }
-    const nul = name.indexOf("\0");
-    if (nul >= 0) name = name.slice(0, nul);
-    if (path.sep === "\\") name = name.replaceAll("\\", "/");
-    out.push({ name, flags, method, crc, compSize, size: usize, localOffset });
-    p += 46 + nameLen + extraLen + commentLen;
-  }
-  return out;
-}
-
-/** zipfile's member-name sanitizing for extractall (drive, '', '.', '..' dropped; Windows chars). */
-function zipTargetName(name) {
-  let arc = name.replaceAll("/", path.sep);
-  if (path.sep === "\\") arc = arc.replace(/^[a-zA-Z]:/, "").replace(/^\\\\[^\\]+\\[^\\]+/, ""); // os.path.splitdrive
-  arc = arc
-    .split(path.sep)
-    .filter((x) => x !== "" && x !== "." && x !== "..")
-    .join(path.sep);
-  if (path.sep === "\\") {
-    arc = arc
-      .replace(/[:<>|"?*]/g, "_")
-      .split("\\")
-      .map((x) => x.replace(/\.+$/, ""))
-      .filter((x) => x)
-      .join("\\");
-  }
-  return arc;
-}
-
-/** A pass-through that CRC-32s what flows by. */
-function crcTap() {
-  const t = new Transform({
-    transform(chunk, _enc, cb) {
-      t.crc = crc32(chunk, t.crc);
-      cb(null, chunk);
-    },
-  });
-  t.crc = 0;
-  return t;
-}
-
-/** zipfile.ZipFile(archive).extractall(dest). Candidate for platform/. */
-export async function extractZip(archive, dest) {
-  const fd = openSync(archive, "r");
-  let entries;
-  try {
-    entries = zipEntries(fd);
-  } catch (e) {
-    closeSync(fd);
-    throw e;
-  }
-  try {
-    for (const ent of entries) {
-      const isDirEntry = ent.name.endsWith("/");
-      const arc = zipTargetName(ent.name);
-      if (!arc && !isDirEntry) throw new Error("Empty filename.");
-      const target = path.normalize(path.join(dest, arc));
-      const upper = path.dirname(target);
-      if (upper && !existsSync(upper)) mkdirSync(upper, { recursive: true });
-      if (isDirEntry) {
-        if (!isDir(target)) mkdirSync(target);
-        continue;
-      }
-      if (ent.flags & 0x1) throw new RuntimeError(`File '${ent.name}' is encrypted, password required for extraction`);
-      if (ent.method !== 0 && ent.method !== 8) throw new NotImplementedError("That compression method is not supported");
-      const lh = readAt(fd, ent.localOffset, 30);
-      if (lh.length < 30 || lh.readUInt32LE(0) !== 0x04034b50) throw new BadArchive("Bad magic number for file header");
-      const start = ent.localOffset + 30 + lh.readUInt16LE(26) + lh.readUInt16LE(28);
-      const tap = crcTap();
-      if (ent.compSize === 0) {
-        writeFileSync(target, Buffer.alloc(0));
-      } else {
-        const src = createReadStream(archive, { start, end: start + ent.compSize - 1 });
-        const stages = ent.method === 8 ? [src, createInflateRaw(), tap] : [src, tap];
-        await pipeline(...stages, createWriteStream(target));
-      }
-      if (tap.crc >>> 0 !== ent.crc >>> 0) throw new BadArchive(`Bad CRC-32 for file '${ent.name}'`);
-    }
-  } finally {
-    closeSync(fd);
   }
 }
 

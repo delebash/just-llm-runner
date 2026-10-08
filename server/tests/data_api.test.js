@@ -8,9 +8,10 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { makeDataRouter, sortedTables, ZipReader } from "../src/platform/data_api.js";
+import { makeDataRouter, sortedTables } from "../src/platform/data_api.js";
 import { createServer } from "../src/platform/server.js";
 import { openDatabase } from "../src/platform/sql.js";
+import { ZipReader, ZipWriter } from "../src/platform/zip.js";
 
 const NOTES = {
   name: "notes",
@@ -132,7 +133,6 @@ test("the_answers_match_the_python_router", async () => {
   // a zip without the database
   const other = join(tmp, "other.txt");
   writeFileSync(other, "x");
-  const { ZipWriter } = await import("../src/platform/data_api.js");
   const z = new ZipWriter();
   await z.addFile(other, "other.txt");
   r = await upload(app, Buffer.concat(z.finish()));

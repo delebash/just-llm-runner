@@ -144,6 +144,13 @@ export function clean(schema, v) {
   return v;
 }
 
+/**
+ * A request body as pydantic hands it to the handler: unknown fields dropped and every
+ * default filled — including defaults inside a union (`list[Row] | None`), which ajv's
+ * `useDefaults` skips.
+ */
+export const shapeRequest = (schema, v) => fillDefaults(schema, clean(schema, v));
+
 /** A model that forbids unknown fields (pydantic extra="forbid" — the runner's CamelModel). */
 export const strictObject = (props, options = {}) => Type.Object(props, { additionalProperties: false, ...options });
 

@@ -13,7 +13,7 @@
 
 import Fastify from "fastify";
 import { installErrorHandlers } from "./errors.js";
-import { clean } from "./models.js";
+import { clean, shapeRequest } from "./models.js";
 
 const BODY_LIMIT = 1024 * 1024 * 1024; // 1 GiB — "none" in practice, as FastAPI
 
@@ -46,6 +46,9 @@ export function createServer({ typeBase, logger = false, bodyLimit = BODY_LIMIT,
         // Unknown fields are dropped after validation (the preHandler below), not by
         // ajv: a model that forbids them must still see them and answer 422.
         removeAdditional: false,
+        // A default inside a union (`list[Row] | None` with defaulted Row fields) is legal
+        // pydantic; ajv's strict mode refuses to compile it. The preHandler fills those.
+        strict: false,
       },
     },
     // FastAPI matches `/x` and `/x/` as different routes and redirects; Fastify's
@@ -73,7 +76,7 @@ export function createServer({ typeBase, logger = false, bodyLimit = BODY_LIMIT,
   // pydantic's extra="ignore": a handler sees only the fields its model declares.
   app.addHook("preHandler", async (req) => {
     const schema = req.routeOptions?.schema;
-    if (schema?.body && req.body && typeof req.body === "object") req.body = clean(schema.body, req.body);
+    if (schema?.body && req.body && typeof req.body === "object") req.body = shapeRequest(schema.body, req.body);
     if (schema?.querystring && req.query) req.query = clean(schema.querystring, req.query);
   });
   installErrorHandlers(app, { typeBase: typeBase ?? "" });

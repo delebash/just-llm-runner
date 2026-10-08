@@ -472,3 +472,6 @@ export function maxGpuLayers({ sizeMb, nLayers, nKvHeads, embeddingDim, ctxSize,
   if (a <= 0) return c <= vramBudgetMb ? nLayers : 0; // degenerate tiny per-layer cost: all layers fit if base overhead does
   return Math.max(0, Math.min(nLayers, Math.floor((vramBudgetMb - c) / a - b)));
 }
+
+// Exported under its Python name for test_runner.py`s kv_term_single_source_no_drift.
+export { slopeOffset as _slopeOffset };

@@ -180,14 +180,24 @@ export function pyMin(xs, key = (x) => x) {
   return best;
 }
 
-/** str.split() with no argument: runs of whitespace, no empty strings. */
+/** Python's whitespace — `str.isspace()`, what `split()` / `strip()` use: the ASCII controls
+ * \t \n \v \f \r and \x1c-\x1f, space, \x85, and Unicode's space separators and line /
+ * paragraph separators. Unlike JavaScript's, NOT U+FEFF (measured). */
+export const PY_WS = "\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000";
+/** Python `re`'s `\s` on str, for a pattern built with the `u` flag. */
+export const S = `[${PY_WS}]`;
+/** Python `re`'s `\d` on str (every decimal digit, Nd), for a pattern with the `u` flag. */
+export const D = "\\p{Nd}";
+const WS_RUN = new RegExp(`${S}+`, "u");
+
+/** str.split() with no argument: runs of Python whitespace, no empty strings. */
 export function splitWs(s) {
-  const t = String(s).trim();
-  return t ? t.split(/\s+/u) : [];
+  const t = strip(String(s));
+  return t ? t.split(WS_RUN) : [];
 }
 
 function stripSet(s, chars, left, right) {
-  if (chars == null) return left && right ? s.trim() : left ? s.trimStart() : s.trimEnd();
+  if (chars == null) chars = PY_WS;
   let a = 0;
   let b = s.length;
   if (left) while (a < b && chars.includes(s[a])) a++;

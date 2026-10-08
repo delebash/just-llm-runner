@@ -15,6 +15,8 @@
 //                 the only difference a faithful port showed across 355 stored JSON cells.
 //   indent      — json.dumps(indent=n)
 
+import { cmp } from "./py.js";
+
 /** A number Python holds as a float, whatever its key — `pyJson` writes it with a ".0". */
 export class PyFloat {
   constructor(v) {
@@ -96,10 +98,14 @@ export function pyJson(value, opts = {}) {
       return `[${inner}${parts.join(itemSep + inner)}\n${pad.repeat(depth)}]`;
     }
     if (typeof v === "object") {
-      const keys = Object.keys(v).filter((k) => v[k] !== undefined);
-      if (sortKeys) keys.sort();
-      if (!keys.length) return "{}";
-      const parts = keys.map((k) => `${pyStrLit(k, ensureAscii)}${keySep}${enc(v[k], k, depth + 1)}`);
+      // A Map keeps its key order exactly (integer-like keys included, which a plain object
+      // would move first) — what a dict read from a file holds in Python.
+      const entries = v instanceof Map ? [...v.entries()].map(([k, x]) => [String(k), x]) : Object.entries(v);
+      const items = entries.filter(([, x]) => x !== undefined);
+      // sort_keys sorts by code point, as Python does (not UTF-16 units).
+      if (sortKeys) items.sort((a, b) => cmp(a[0], b[0]));
+      if (!items.length) return "{}";
+      const parts = items.map(([k, x]) => `${pyStrLit(k, ensureAscii)}${keySep}${enc(x, k, depth + 1)}`);
       if (pad == null) return `{${parts.join(itemSep)}}`;
       const inner = `\n${pad.repeat(depth + 1)}`;
       return `{${inner}${parts.join(itemSep + inner)}\n${pad.repeat(depth)}}`;

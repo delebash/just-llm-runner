@@ -222,7 +222,7 @@ function problem(reply, status, body) {
  * Register the problem+json handlers on `app` (the port of `install_error_handlers`).
  * `typeBase` is the app's problem-type URL prefix — the ONLY per-app datum.
  */
-export function installErrorHandlers(app, { typeBase }) {
+export function installErrorHandlers(app, { typeBase, onUnhandled = null }) {
   app.setErrorHandler((err, request, reply) => {
     const instance = requestPath(request);
     if (err instanceof ApiError) {
@@ -274,6 +274,7 @@ export function installErrorHandlers(app, { typeBase }) {
       return reply.code(err.statusCode).send({ detail: err.message });
     }
     log.error(`${request.method} ${instance} -> 500: unhandled`, err);
+    if (onUnhandled) return onUnhandled(err, request, reply);
     return reply.code(500).type("text/plain; charset=utf-8").send("Internal Server Error");
   });
 
@@ -340,7 +341,7 @@ function pyJsonErrorText(message) {
 }
 
 /** Register FastAPI's default handlers (no problem+json) on `app`. */
-export function installFastapiErrorHandlers(app) {
+export function installFastapiErrorHandlers(app, { onUnhandled = null } = {}) {
   app.setErrorHandler((err, request, reply) => {
     if (err instanceof HttpError) {
       if (err.headers) reply.headers(err.headers);
@@ -386,6 +387,7 @@ export function installFastapiErrorHandlers(app) {
     if (errors) return reply.code(422).send({ detail: errors });
     if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ detail: err.message });
     log.error(`${request.method} ${requestPath(request)} -> 500: unhandled`, err);
+    if (onUnhandled) return onUnhandled(err, request, reply);
     return reply.code(500).type("text/plain; charset=utf-8").send("Internal Server Error");
   });
   app.setNotFoundHandler((request, reply) => reply.code(404).send({ detail: "Not Found" }));

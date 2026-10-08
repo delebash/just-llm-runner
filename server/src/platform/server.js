@@ -35,7 +35,7 @@ function parseJsonText(body, done) {
  * `errors`: "problem" (the kit's problem+json; `typeBase` is the app's problem-type URL
  * prefix) or "fastapi" (FastAPI's default answers). `logger` is passed to Fastify.
  */
-export function createServer({ typeBase, errors = "problem", logger = false, bodyLimit = BODY_LIMIT, ...rest } = {}) {
+export function createServer({ typeBase, errors = "problem", onUnhandled = null, logger = false, bodyLimit = BODY_LIMIT, ...rest } = {}) {
   const app = Fastify({
     logger,
     bodyLimit,
@@ -94,7 +94,9 @@ export function createServer({ typeBase, errors = "problem", logger = false, bod
   // The app's error answers: the kit's problem+json (JustVoice and JustWrite call
   // install_error_handlers) or FastAPI's defaults (docgen never did — measured by the
   // route diff).
-  if (errors === "fastapi") installFastapiErrorHandlers(app);
-  else installErrorHandlers(app, { typeBase: typeBase ?? "" });
+  // `onUnhandled(err, request, reply)`: the app's own answer to an unhandled exception (an
+  // app's catch-all envelope); default Starlette's plain-text 500.
+  if (errors === "fastapi") installFastapiErrorHandlers(app, { onUnhandled });
+  else installErrorHandlers(app, { typeBase: typeBase ?? "", onUnhandled });
   return app;
 }

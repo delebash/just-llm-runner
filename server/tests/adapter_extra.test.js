@@ -31,14 +31,6 @@ import { OpenAISDKAdapter } from "../src/llm/openai_sdk.js";
 import * as http from "../src/platform/http.js";
 import { camelize, jsonResponse, KwargsCapture, loadFixture, textResponse } from "./_sdk_fakes.js";
 
-// Stand-ins for modules other slices are still porting (stores.js and reasoning.js import
-// them; nothing here calls into them). Written as the importers' own RAW specifier: vitest
-// keys a module it cannot resolve by that specifier, so the stand-in applies only while the
-// file is missing — once it lands it resolves to its real path and the real module loads
-// (measured, vitest 4.1.11).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
-
 beforeEach(() => {
   vi.spyOn(http, "fetch").mockImplementation(async (url) => {
     throw new Error(`a test reached the network: ${url}`);

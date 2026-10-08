@@ -9,16 +9,13 @@
 // `autotune_skips_failed_trials_and_survives_a_broken_recorder`, drive `runner/autotune.js`'s
 // AutoTuner through test_autotune.py's FakeService harness (`BASE`, `FakeService`,
 // `_run_to_end`) — port them beside autotune.test.js once that file and its harness exist.
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import * as db from "../src/llm/db.js";
 import { makeModelMeasurementsRouter } from "../src/llm/model_measurements_api.js";
 import * as seed from "../src/llm/seed.js";
 import * as stores from "../src/llm/stores.js";
 import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
-
-// stores.js imports switch_resolve.js (wave 2); a stand-in until it lands (fixtures/wave-stubs.js).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
 
 let app;
 beforeEach(() => {

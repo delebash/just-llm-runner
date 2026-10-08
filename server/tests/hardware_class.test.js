@@ -8,7 +8,7 @@
 //
 // The hardware objects are the runner's camelCase HardwareInfo shape (`vramMb`, `ramMb`)
 // where Python's test classes used snake attributes.
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { makeClassTunesRouter } from "../src/llm/class_tunes_api.js";
 import * as db from "../src/llm/db.js";
 import * as stores from "../src/llm/stores.js";
@@ -16,10 +16,6 @@ import { ValueError } from "../src/platform/py.js";
 import { createServer } from "../src/platform/server.js";
 import { bandedClassKey, classKey, formatClassKey, memArch, parseClassKey, snapRamGb } from "../src/runner/hardware.js";
 import { freshDb } from "./helpers.js";
-
-// stores.js imports two wave-2 modules; stand-ins until they land (fixtures/wave-stubs.js).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 // ── the class_key convention: ONE source, type-first, round-trips ─────────────
 test("format_and_parse_round_trip", () => {

@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Port of tests/test_switch_presets.py — the switch_presets store: seeded + editable +
 // reset-to-factory (design §6.5). Plus (not in the Python file) the router's answers.
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import * as seed from "../src/llm/seed.js";
 import * as stores from "../src/llm/stores.js";
 import { makeSwitchPresetsRouter } from "../src/llm/switch_presets_api.js";
 import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
-
-// stores.js imports identity.js (wave 2, another slice): its stand-in until the file lands.
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 beforeEach(() => {
   const h = freshDb({ foreignKeys: false });

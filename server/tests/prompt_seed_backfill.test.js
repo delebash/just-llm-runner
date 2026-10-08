@@ -4,15 +4,10 @@
 // predates them (the approved copy landing on live DBs). The backfill fills ONLY rows
 // whose stored label+description are both empty — a row anyone named keeps its name, and
 // non-built-in rows are never touched.
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import * as db from "../src/llm/db.js";
 import * as seed from "../src/llm/seed.js";
 import { freshDb } from "./helpers.js";
-
-// Interim: wave-2 modules, stood in only while their file is missing
-// (fixtures/wave-stubs.js explains the raw-specifier keys).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 function seedWith(prompts) {
   seed.configureAppSeed({ featurePrompts: prompts });

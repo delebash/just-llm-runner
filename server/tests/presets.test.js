@@ -3,17 +3,13 @@
 // default/per-action-ref assignment layers, the ref → default resolve (2026-07-15 one-source;
 // the task tier is gone), the dangling fall-through, and the factory resets, over an
 // in-memory DB.
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { resolveFeaturePreset, resolveFeaturePresetWithSource } from "../src/llm/preset_resolve.js";
 import { makePresetsRouter } from "../src/llm/presets_api.js";
 import * as seed from "../src/llm/seed.js";
 import * as stores from "../src/llm/stores.js";
 import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
-
-// stores.js imports identity.js (wave 2, another slice): its stand-in until the file lands.
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 let h;
 let client;

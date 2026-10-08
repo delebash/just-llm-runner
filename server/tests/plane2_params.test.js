@@ -14,10 +14,6 @@ import * as http from "../src/platform/http.js";
 import { model } from "../src/platform/models.js";
 import { freshDb } from "./helpers.js";
 
-// stores.js imports identity.js (wave 2, another slice): its stand-in until the file lands.
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
-
 const spec = (kw = {}) => FeaturePromptRow({ key: "k", feature: "f", system: "", user_template: "", built_in: false, ...kw });
 const preset = (kw = {}) => model(EnginePresetRow, { name: "p", ...kw });
 const req = (kw = {}) => model(RunRequest, { action: "k", ...kw });

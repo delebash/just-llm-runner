@@ -11,7 +11,7 @@
 // test file left storage configured (run alone it fails: "LLM storage not configured");
 // here it gets that state explicitly — a fresh, empty database (the map falls back to the
 // type's seed rows).
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { LLMMessage, LLMResponse, StreamDelta } from "../src/llm/base.js";
 import { chat, LLMNotConfiguredError, resolveFeature, streamChat } from "../src/llm/dispatch.js";
 import { OpenAICompatAdapter } from "../src/llm/openai_compat.js";
@@ -22,13 +22,6 @@ import { getLedger } from "../src/llm/usage.js";
 import { model } from "../src/platform/models.js";
 import { RuntimeError, ValueError } from "../src/platform/py.js";
 import { freshDb } from "./helpers.js";
-
-// Stand-ins for modules other slices are still porting (stores.js and reasoning.js import
-// them; nothing here calls into them). The importers' RAW specifier: vitest keys a module
-// it cannot resolve by that specifier, so the stand-in applies only while the file is
-// missing — once it lands the real module loads.
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 /** Satisfies the adapter contract without touching the network. */
 class FakeAdapter {

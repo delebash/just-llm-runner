@@ -3,7 +3,7 @@
 // /v1/ai/model-tunes CRUD (server-derived hw_key; PUT replaces the whole set —
 // verbatim-snapshot D5), the §7.6 drift/provenance/state additions, and the whole-machine
 // `machineKey` (gpu|vram|cores|ramGB — D2).
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { makeModelTunesRouter } from "../src/llm/model_tunes_api.js";
 import * as stores from "../src/llm/stores.js";
 import { model } from "../src/platform/models.js";
@@ -11,10 +11,6 @@ import { createServer } from "../src/platform/server.js";
 import { machineKey } from "../src/runner/hardware.js";
 import { GpuInfo, HardwareInfo } from "../src/runner/schema.js";
 import { freshDb } from "./helpers.js";
-
-// stores.js imports two wave-2 modules; stand-ins until they land (fixtures/wave-stubs.js).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 function makeClient(options) {
   freshDb();

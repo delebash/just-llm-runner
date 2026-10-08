@@ -21,7 +21,7 @@ BUILT:  the study `../JustVioce/docs/plans/2026-10-05-electron-node-study.md` an
 OPEN:   step 1 is built (2026-10-07). Step 2 — this repo — is underway since 2026-10-07: the
         JavaScript package `server/` and its build sheet `docs/plans/2026-10-07-kit-in-javascript.md`
         (the conventions, the slices, the checks; the Python bugs the port found are the FINDING
-        below). The two FINDING items below — the data-dir ladder's copies and the hard-kill stop
+        below; the JavaScript mirrors items 11 and 15 as expected failures). The two FINDING items below — the data-dir ladder's copies and the hard-kill stop
         — close with the shared Electron main module (`server/src/shell/`, built; the ladder's
         OS fallback waits for the user's answer).
 GO:     step 2: "your rec go do it all the full conversion" (2026-10-07, JustVoice's TASKS).
@@ -210,9 +210,9 @@ BUILT:  `ui/src/components/AiTaskStrip.vue:85-91` — rate = tokens ÷ (now − 
 OPEN:   none — the thinking is its own entry, "The model's thinking reaches the AI task strip".
 GO:     given 2026-10-06
 
-## FINDING — Python bugs the JavaScript port found (not fixed) [2026-10-07]
+## FINDING — Python bugs the JavaScript port found (not fixed) [2026-10-07/08]
 
-STATE:  FINDING — found by the step-2 port agents, 2026-10-07, each with file:line and a measured or
+STATE:  FINDING — found by the step-2 port agents, 2026-10-07/08, each with file:line and a measured or
         read cause (the build sheet `docs/plans/2026-10-07-kit-in-javascript.md` §6 has the detail).
         Tracked at the user's word: "track all side finidngs". Plan §10 Q7: a fix lands in both
         languages; where the JavaScript copied a bug on purpose (so the route diff matches), it
@@ -249,6 +249,12 @@ BUILT:  1. `runner/cache_registry.py:120-121` — an `apps` value that isn't a l
            after an earlier file set up storage (order-dependent).
         13. `tests/test_lifecycle.py` isn't hermetic: `_admit` reads the real GPU, `_service_for`
            binds :8080, and `test_load_records_footprint_and_overhead_rows` passes only on a GPU box.
+        14. `tests/test_install_llm.py:55-65` — the `hermetic` fixture doesn't set `JUST_AI_HOME`:
+           since the 2026-10-06 sibling adoption, `bare_minimal_call_yields_a_working_stack` and
+           `headless_boot_app_none_wires_everything_but_mounts_nothing` read the user's REAL family
+           registry, adopt a real sibling cache and FAIL on any box that has one (this one).
+        15. `tests/test_shared_cache.py:113` — `discovery_reports_a_sibling_with_what_is_in_it` has
+           the same stale fixture as item 11 (an empty `models--…` folder) and FAILS today.
 OPEN:   each needs its own go (4 needs a decision: fix + re-calibrate, or keep).
 GO:     needed.
 

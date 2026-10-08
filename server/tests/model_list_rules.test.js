@@ -5,7 +5,7 @@
 // JSON doc in the runner-settings store) with seed / user-edit / reset / seed-refresh, and
 // its CRUD router (model_list_rules_api): router_get_put_reset_round_trip; part 2, the
 // endpoints (llm/api.js's router + setModelListRulesResolver).
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import { router, setModelListRulesResolver } from "../src/llm/api.js";
 import { applyRules, pyRegex, SEED_VERSION, seedDoc } from "../src/llm/model_list_rules.js";
 import { getLlmRegistry } from "../src/llm/registry.js";
@@ -15,12 +15,6 @@ import * as stores from "../src/llm/stores.js";
 import { pyJson } from "../src/platform/pyjson.js";
 import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
-
-// Stand-ins while switch_resolve.js / identity.js are still being ported (stores.js imports
-// them; nothing here calls into them) — the importers' RAW specifier, so each steps aside
-// the moment its real file lands (tests/fixtures/wave-stubs.js).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 // ── realistic fixtures (representative ids, NOT a current-flagship allowlist) ──
 // Every id exercises a PATTERN class, so the fixture proves the shipped seeds behave —

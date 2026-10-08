@@ -6,15 +6,10 @@
 // loses `/v1` — the native adapter appends `/api/chat`). Also proves ProviderStore.remove
 // CASCADES the provider's reasoning-map rows — else a delete+re-add leaves the old alias's
 // rows behind and poisons the retyped provider.
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import { DEFAULT_PROVIDERS } from "../src/llm/seed.js";
 import * as stores from "../src/llm/stores.js";
 import { freshDb } from "./helpers.js";
-
-// Interim: wave-2 modules, stood in only while their file is missing
-// (fixtures/wave-stubs.js explains the raw-specifier keys).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 // The native-type end state — id -> [provider_type, base_url]. One source: any seed drift
 // breaks this pin.

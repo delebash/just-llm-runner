@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Port of tests/test_knob_catalog.py — knob_catalog, the friendly KnobGrid metadata (C1):
 // seed, the options join, and the /v1/ai/knob-catalog endpoint.
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { makeKnobCatalogRouter } from "../src/llm/knob_catalog_api.js";
 import * as seed from "../src/llm/seed.js";
 import * as stores from "../src/llm/stores.js";
 import { pySorted } from "../src/platform/py.js";
 import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
-
-// stores.js imports two wave-2 modules; stand-ins until they land (fixtures/wave-stubs.js).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 let h;
 beforeEach(() => {

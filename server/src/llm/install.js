@@ -17,6 +17,8 @@
 
 import nodePath from "node:path";
 import * as runnerArbiter from "../runner/arbiter.js";
+import { makeAutotuneRouter } from "../runner/autotune.js";
+import { makeCalibrateRouter } from "../runner/calibrate.js";
 import * as cacheRegistry from "../runner/cache_registry.js";
 import * as hardware from "../runner/hardware.js";
 import * as lifecycle from "../runner/lifecycle.js";
@@ -173,7 +175,16 @@ export function mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, d
       rows,
     });
   };
-  return { saveTune, recordMeasurement, registerRunnerRouters: true };
+  app.register(
+    makeAutotuneRouter(
+      (mid) => switchResolve.resolveModelSwitches(mid, currentHwKey(), currentClassKey()),
+      saveTune,
+      { recordMeasurement },
+    ),
+  );
+  // The one-minute speed check: Quick setup offers it on hardware with no curated class
+  // preset; its result lands via the service's machine-probe recorder.
+  app.register(makeCalibrateRouter());
 }
 
 /**
@@ -248,19 +259,7 @@ export async function installLlm(
   const plf = new Set(preferLocalFeatures || []);
   const config = () => buildLlmConfig(plf);
   // 5. mount every LLM router (skipped for the headless boot).
-  if (app) {
-    const hooks = mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, dataDir, product });
-    const { makeAutotuneRouter } = await import("../runner/autotune.js");
-    app.register(
-      makeAutotuneRouter(
-        (mid) => switchResolve.resolveModelSwitches(mid, currentHwKey(), currentClassKey()),
-        hooks.saveTune,
-        { recordMeasurement: hooks.recordMeasurement },
-      ),
-    );
-    const { makeCalibrateRouter } = await import("../runner/calibrate.js");
-    app.register(makeCalibrateRouter());
-  }
+  if (app) mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, dataDir, product });
   // 6. point the bundled runner's catalog/switches at the shared DB.
   if (runnerCatalog) {
     wireRunnerCatalog(dataDir, { cacheRoot, product });

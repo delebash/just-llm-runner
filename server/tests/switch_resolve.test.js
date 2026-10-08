@@ -4,17 +4,12 @@
 // tune → per-(model, machine) tune (`model_tunes`, always wins). The auto-mtp layer is the
 // 2026-07-05 USER decision reversing Phase 3's "never auto-enabled": auto-on for an ENABLED
 // model, user-off persisted in the tune layer. Pure data/logic; no GPU needed.
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import * as seed from "../src/llm/seed.js";
 import { getModelTuneStore } from "../src/llm/stores.js";
 import * as switchResolve from "../src/llm/switch_resolve.js";
 import { classKey } from "../src/runner/hardware.js";
 import { freshDb } from "./helpers.js";
-
-// stores.js imports identity.js (wave 2, another slice): its stand-in until the file lands
-// (fixtures/wave-stubs.js). switch_resolve.js is real now — that stand-in steps aside.
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 let h;
 beforeEach(() => {

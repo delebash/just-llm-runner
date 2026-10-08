@@ -4,17 +4,12 @@
 //
 // NOT the drop-in test: this file wires the storage layer by hand and never calls
 // `installLlm` (that is install_llm.test.js).
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import * as db from "../src/llm/db.js";
 import { FeatureCatalogEntry } from "../src/llm/routing_api.js";
 import * as seed from "../src/llm/seed.js";
 import * as stores from "../src/llm/stores.js";
 import { freshDb } from "./helpers.js";
-
-// Interim: wave-2 modules, stood in only while their file is missing
-// (fixtures/wave-stubs.js explains the raw-specifier keys).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 let h;
 beforeEach(() => {

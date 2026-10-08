@@ -14,19 +14,12 @@
 // hid the providers just added); plain SQL has no such state, so the JS test keeps the
 // observable — both seeders in ONE transaction, as the host runs them, and the map gets
 // its rows.
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { resolveReasoning } from "../src/llm/reasoning.js";
 import { seedRowsForType } from "../src/llm/reasoning_map_api.js";
 import * as seed from "../src/llm/seed.js";
 import { ReasoningMapStore } from "../src/llm/stores.js";
 import { freshDb } from "./helpers.js";
-
-// Stand-ins while switch_resolve.js / identity.js are still being ported (the importers'
-// RAW specifier — vitest keys an unresolvable module by it, so the stand-in steps aside the
-// moment the real file lands).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
-
 
 const CK = "vram8|ram32"; // the fixture's hardware class
 const HK = "test-machine"; // the fixture's per-machine hw_key

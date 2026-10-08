@@ -21,9 +21,6 @@ import { GgufMeta } from "../src/runner/gguf.js";
 import * as ggufRemote from "../src/runner/gguf_remote.js";
 import { freshDb } from "./helpers.js";
 
-// stores.js imports switch_resolve.js (wave 2); a stand-in until it lands (fixtures/wave-stubs.js).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-
 // The compact test catalog — shapes lifted from the moved JW rows.
 const TEST_CATALOG = [
   // a plain dense chat row (the old llama-3.3-70b exhibit's shape)

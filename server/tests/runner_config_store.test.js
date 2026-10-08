@@ -11,18 +11,13 @@
 // `engine_config_put_round_trips_class_key_override` — need `makeRunnerConfigRouter`
 // (llm/runner_config_api.js holds only the models so far). `get_config_exposes_router_knobs`
 // reads the store only and runs now.
-import { expect, test, vi } from "vitest";
+import { expect, test } from "vitest";
 import * as rcApi from "../src/llm/runner_config_api.js";
 import * as seed from "../src/llm/seed.js";
 import * as stores from "../src/llm/stores.js";
 import { createServer } from "../src/platform/server.js";
 import * as rconfig from "../src/runner/config.js";
 import { freshDb } from "./helpers.js";
-
-// Interim: wave-2 modules, stood in only while their file is missing
-// (fixtures/wave-stubs.js explains the raw-specifier keys).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 const NO_ROUTER = typeof rcApi.makeRunnerConfigRouter !== "function";
 

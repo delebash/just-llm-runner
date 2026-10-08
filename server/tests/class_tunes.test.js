@@ -3,17 +3,13 @@
 // /v1/ai/class-tunes CRUD (server-derived current class via the injected classKeyFn; PUT
 // replaces the (model, class) set wholesale and marks it user-owned) and the seeder's
 // merge-by-(model, class) guarantee — a user-edited config is never clobbered.
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { makeClassTunesRouter } from "../src/llm/class_tunes_api.js";
 import * as db from "../src/llm/db.js";
 import * as seed from "../src/llm/seed.js";
 import * as stores from "../src/llm/stores.js";
 import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
-
-// stores.js imports two wave-2 modules; stand-ins until they land (fixtures/wave-stubs.js).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
 
 let client;
 beforeEach(() => {

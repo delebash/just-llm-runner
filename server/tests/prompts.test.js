@@ -27,10 +27,6 @@ import { model } from "../src/platform/models.js";
 import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
 
-// stores.js imports identity.js (wave 2, another slice): its stand-in until the file lands.
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
-
 beforeEach(() => {
   // The /run path resolves the preset via the shared database (resolveFeaturePreset):
   // a per-test in-memory DB.

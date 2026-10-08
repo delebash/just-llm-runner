@@ -17,10 +17,6 @@ import { createServer } from "../src/platform/server.js";
 import * as lifecycle from "../src/runner/lifecycle.js";
 import * as runnerModels from "../src/runner/models.js";
 
-// stores.js imports identity.js (wave 2, another slice): its stand-in until the file lands.
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
-vi.mock("./identity.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/identity.js"));
-
 class FakeAdapter {
   provider_id = "fake";
   provider_type = "openai-compat";

@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Port of tests/test_test_samples.py — the §7.3 Lab test samples: /v1/ai/test-samples CRUD
 // (keyed per ACTION, 2026-07-15) + the fill-if-empty seed with author-once fan-out.
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import * as db from "../src/llm/db.js";
 import * as stores from "../src/llm/stores.js";
 import { makeTestSamplesRouter } from "../src/llm/test_samples_api.js";
 import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
-
-// stores.js imports switch_resolve.js (wave 2); a stand-in until it lands (fixtures/wave-stubs.js).
-vi.mock("./switch_resolve.js", async () => (await import("./fixtures/wave-stubs.js")).stub("llm/switch_resolve.js"));
 
 let app;
 beforeEach(() => {

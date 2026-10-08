@@ -12,6 +12,7 @@ import { _effectiveThink, _plane2Extra, FeaturePromptRow, RunRequest } from "../
 import * as stores from "../src/llm/stores.js";
 import * as http from "../src/platform/http.js";
 import { model } from "../src/platform/models.js";
+import { pyFloatValue } from "../src/platform/pyjson.js";
 import { freshDb } from "./helpers.js";
 
 const spec = (kw = {}) => FeaturePromptRow({ key: "k", feature: "f", system: "", user_template: "", built_in: false, ...kw });
@@ -25,19 +26,20 @@ test("extra_none_when_unset", () => {
 
 test("json_mode_from_spec_top_p_from_preset", () => {
   // json_mode = the action's contract (spec); top_p = the preset.
+  // A float Python holds as a float is a PyFloat, so the request body writes its ".0".
   const e = _plane2Extra(spec({ json_mode: true }), req(), preset({ topP: 0.9 }));
-  expect(e).toEqual({ response_format: { type: "json_object" }, top_p: 0.9 });
+  expect(e).toEqual({ response_format: { type: "json_object" }, top_p: pyFloatValue(0.9) });
 });
 
 test("request_overrides_spec_and_preset", () => {
   // request jsonMode=false overrides the spec's contract; topP override beats the preset.
   const e = _plane2Extra(spec({ json_mode: true }), req({ jsonMode: false, topP: 0.5 }), preset({ topP: 0.9 }));
-  expect(e).toEqual({ top_p: 0.5 });
+  expect(e).toEqual({ top_p: pyFloatValue(0.5) });
 });
 
 test("preset_samplers_reach_extra", () => {
   const e = _plane2Extra(spec(), req(), preset({ samplers: [{ flagName: "min_p", flagValue: "0.05" }] }));
-  expect(e).toEqual({ min_p: 0.05 });
+  expect(e).toEqual({ min_p: pyFloatValue(0.05) });
 });
 
 test("body_samplers_override_preset", () => {
@@ -46,7 +48,7 @@ test("body_samplers_override_preset", () => {
     req({ samplers: [{ flagName: "min_p", flagValue: "0.2" }] }),
     preset({ samplers: [{ flagName: "min_p", flagValue: "0.05" }] }),
   );
-  expect(e).toEqual({ min_p: 0.2 });
+  expect(e).toEqual({ min_p: pyFloatValue(0.2) });
 });
 
 test("reasoning_effort_from_preset_when_thinking", () => {

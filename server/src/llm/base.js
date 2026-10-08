@@ -27,6 +27,7 @@
 import { EnvHttpProxyAgent } from "undici";
 import * as http from "../platform/http.js";
 import { pyStr, RuntimeError, truthy } from "../platform/py.js";
+import { pyJson } from "../platform/pyjson.js";
 
 /** One conversation turn. `role` follows OpenAI's words (system / user / assistant / tool),
  * which every modern provider accepts; adapters map to their own shapes internally. */
@@ -238,18 +239,29 @@ export function agentFor(seconds) {
 }
 
 /**
+ * The body httpx writes for `json=`: json.dumps(ensure_ascii=False, separators=(",", ":"),
+ * allow_nan=False). A float the caller holds as a float must be a PyFloat (or it goes out
+ * as an integer); a NaN or infinity throws ValueError before anything is sent, as httpx
+ * does — not a TransportError.
+ */
+export function httpxBody(json) {
+  return json === undefined ? undefined : pyJson(json, { separators: [",", ":"], ensureAscii: false, allowNan: false });
+}
+
+/**
  * httpx `client.request(...)` on a non-streamed response: the request AND the whole body
  * read, so a transport failure anywhere is a TransportError. → `{status, text, json()}`
  * (`json()` throws SyntaxError — json.JSONDecodeError — on a bad body).
  */
 export async function httpxRequest(method, url, { json, headers, timeout }) {
+  const body = httpxBody(json);
   let r;
   let text;
   try {
     r = await http.fetch(url, {
       method,
       headers,
-      body: json === undefined ? undefined : JSON.stringify(json),
+      body,
       dispatcher: agentFor(timeout),
     });
     text = await r.text();
@@ -262,11 +274,12 @@ export async function httpxRequest(method, url, { json, headers, timeout }) {
 /** httpx `client.stream(...)`: the response with its body unread (`.status`, `.body`).
  * A transport failure is a TransportError. */
 export async function httpxStream(method, url, { json, headers, timeout }) {
+  const body = httpxBody(json);
   try {
     return await http.fetch(url, {
       method,
       headers,
-      body: json === undefined ? undefined : JSON.stringify(json),
+      body,
       dispatcher: agentFor(timeout),
     });
   } catch (e) {

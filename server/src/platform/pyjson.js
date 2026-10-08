@@ -14,8 +14,10 @@
 //                 must be named here (or its value wrapped with `pyFloatValue`). Measured:
 //                 the only difference a faithful port showed across 355 stored JSON cells.
 //   indent      — json.dumps(indent=n)
+//   allowNan    — default true; false is allow_nan=False: a NaN or infinity throws
+//                 Python's ValueError instead of writing NaN / Infinity
 
-import { cmp } from "./py.js";
+import { cmp, ValueError } from "./py.js";
 
 /** A number Python holds as a float, whatever its key — `pyJson` writes it with a ".0". */
 export class PyFloat {
@@ -91,13 +93,21 @@ export function pyJson(value, opts = {}) {
   const floats = opts.floats instanceof Set ? opts.floats : new Set(opts.floats || []);
   const [itemSep, keySep] = separators;
   const pad = typeof indent === "number" ? " ".repeat(indent) : indent;
+  const allowNan = opts.allowNan ?? true;
+  const float = (x) => {
+    if (!allowNan && !Number.isFinite(x)) {
+      const word = Number.isNaN(x) ? "nan" : x > 0 ? "inf" : "-inf";
+      throw new ValueError(`Out of range float values are not JSON compliant: ${word}`);
+    }
+    return pyFloat(x);
+  };
 
   const enc = (v, key, depth) => {
     if (v === null || v === undefined) return "null";
     if (v === true) return "true";
     if (v === false) return "false";
-    if (v instanceof PyFloat) return pyFloat(v.v);
-    if (typeof v === "number") return Number.isInteger(v) && !floats.has(key) ? String(v) : pyFloat(v);
+    if (v instanceof PyFloat) return float(v.v);
+    if (typeof v === "number") return Number.isInteger(v) && !floats.has(key) ? String(v) : float(v);
     if (typeof v === "bigint") return v.toString();
     if (typeof v === "string") return pyStrLit(v, ensureAscii);
     if (Array.isArray(v)) {

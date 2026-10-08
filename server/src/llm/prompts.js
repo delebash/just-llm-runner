@@ -16,7 +16,7 @@
 import { getLogger } from "../platform/log.js";
 import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
-import { pyFloat, pyJson } from "../platform/pyjson.js";
+import { PyFloat, pyFloat, pyFloatValue, pyJson } from "../platform/pyjson.js";
 import { KeyError, pyFloatParse, pyInt, pySorted, pyStr, strip, truthy, ValueError } from "../platform/py.js";
 import { errText, head, httpxRequest, isDict, LLMMessage, pyReprStr, TransportError } from "./base.js";
 import * as dispatch from "./dispatch.js";
@@ -421,23 +421,19 @@ export function _responseFormat(spec, action) {
  * selectively. (#18 / #22 / §8). null when nothing applies.
  */
 export function _plane2Extra(spec, body, preset = null) {
+  // A value Python holds as a float is a PyFloat here, so the request body writes it as one.
   const extra = {};
-  const floatKeys = new Set(); // keys whose value Python held as a float (for str() below)
   const jsonMode = body.jsonMode == null ? (spec ? spec.json_mode : false) : body.jsonMode;
   if (jsonMode) extra.response_format = _responseFormat(spec, body.action);
   const topP = body.topP == null ? (preset ? preset.topP : null) : body.topP;
-  if (topP != null) extra.top_p = topP;
+  if (topP != null) extra.top_p = pyFloatValue(topP);
   // Ad-hoc per-call samplers (a Lab column) win over the preset's — added first so the
   // preset loop's `not in extra` guard skips an overridden key.
   for (const row of body.samplers || []) {
     const name = strStrip(pyOrGet(row, "flagName"));
     if (!name) continue;
     const [val, isFloat] = parseSamplerValueTyped(pyOrGet(row, "flagValue"));
-    if (val !== null) {
-      extra[name] = val;
-      if (isFloat) floatKeys.add(name);
-      else floatKeys.delete(name);
-    }
+    if (val !== null) extra[name] = isFloat ? new PyFloat(val) : val;
   }
   // Resolved preset's long-tail samplers (the lab+preset source of truth) — applied only
   // where a per-call value hasn't already set it.
@@ -445,10 +441,7 @@ export function _plane2Extra(spec, body, preset = null) {
     const name = strStrip(row.flagName || "");
     if (name && !Object.hasOwn(extra, name)) {
       const [val, isFloat] = parseSamplerValueTyped(row.flagValue || "");
-      if (val !== null) {
-        extra[name] = val;
-        if (isFloat) floatKeys.add(name);
-      }
+      if (val !== null) extra[name] = isFloat ? new PyFloat(val) : val;
     }
   }
   // Reasoning-effort LEVEL (a1/E2) — from the PRESET, carried under the reserved
@@ -475,7 +468,7 @@ export function _plane2Extra(spec, body, preset = null) {
   if (Object.hasOwn(extra, "stop")) {
     const raw = extra.stop;
     const parts = typeof raw === "string" ? raw.split("\n") : [raw];
-    const str = (s) => (floatKeys.has("stop") && typeof s === "number" ? pyFloat(s) : pyStrAny(s));
+    const str = (s) => (s instanceof PyFloat ? pyFloat(s.v) : pyStrAny(s));
     const stops = parts.map((s) => strip(str(s))).filter((s) => s);
     if (stops.length) extra.stop = stops;
     else delete extra.stop;

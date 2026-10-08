@@ -295,6 +295,17 @@ has its app-side facts):
   members, the 0x7075 Unicode-path field, 3.12's overlapped-entries check.
 - `NotImplementedError` lives in `platform/py.js` with the other Python error classes (the
   runner, the ZIP reader and JustVoice's blending each had their own).
+- **An LLM request body is the text httpx writes** (2026-10-08). httpx 0.28.1 encodes `json=` as
+  `json.dumps(ensure_ascii=False, separators=(",", ":"), allow_nan=False)`; `llm/base.js`
+  `httpxRequest` / `httpxStream` sent `JSON.stringify`, so a preset's `temperature` 0.0 went out
+  as `0` (104 of 243 requests in JustVoice's extraction check) and a NaN as `null` where Python
+  raises. They now write `httpxBody(json)` — `pyJson` with those options and the new
+  `allowNan: false` (Python's ValueError, thrown before anything is sent, not a transport
+  error). The values Python holds as floats are `PyFloat`s: `temperature` in the
+  openai-compat and Ollama adapters, `top_p` and float-parsed samplers in `_plane2Extra`.
+  After the fix all 243 requests are byte-identical (`httpx_body.test.js`; JustVoice's
+  `compare-extraction.mjs`). The Anthropic, Gemini and OpenAI SDK adapters serialize through
+  their SDKs and still write a whole-number float as an integer — JSON-equal.
 
 **Phones** (*web*, study §5):
 

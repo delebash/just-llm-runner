@@ -6,6 +6,7 @@
 // qwen3-thinking) actually surfaces their thinking.
 
 import { pyInt, RuntimeError, rstrip, truthy } from "../platform/py.js";
+import { pyFloatValue } from "../platform/pyjson.js";
 import {
   buildChatMessages,
   head,
@@ -81,7 +82,7 @@ export class OllamaAdapter {
       model: model || this.default_model,
       messages: buildChatMessages(messages, system),
       stream,
-      options: temperature == null ? {} : { temperature },
+      options: temperature == null ? {} : { temperature: pyFloatValue(temperature) },
     };
     if (maxTokens != null) body.options.num_predict = maxTokens;
     const [rest, effort] = popReasoning(extra);

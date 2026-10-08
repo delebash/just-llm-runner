@@ -7,6 +7,7 @@
 // samplers order array, llama-server's `prompt_progress` frames) the SDK path doesn't touch.
 
 import { pyInt, pyStr, RuntimeError, rstrip, truthy, ValueError } from "../platform/py.js";
+import { pyFloatValue } from "../platform/pyjson.js";
 import {
   buildChatMessages,
   head,
@@ -121,7 +122,7 @@ export class OpenAICompatAdapter {
       model: model || this.default_model,
       messages: buildChatMessages(messages, system),
     };
-    if (temperature != null) body.temperature = temperature;
+    if (temperature != null) body.temperature = pyFloatValue(temperature);
     if (maxTokens != null) body.max_tokens = maxTokens;
     const [rest, effort, budget] = popReasoning(extra);
     if (truthy(rest)) Object.assign(body, rest);
@@ -171,7 +172,7 @@ export class OpenAICompatAdapter {
       // we just report 0 tokens then).
       stream_options: { include_usage: true },
     };
-    if (temperature != null) body.temperature = temperature;
+    if (temperature != null) body.temperature = pyFloatValue(temperature);
     if (this.provider_type === "local-llamacpp") {
       // The builtin engine reports prompt-eval progress in the stream (llama-server
       // `return_progress`, PR 15827 — works on the OAI chat endpoint; chunks carry a

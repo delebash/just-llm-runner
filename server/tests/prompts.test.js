@@ -24,6 +24,7 @@ import { LLMConfig } from "../src/llm/schema.js";
 import * as stores from "../src/llm/stores.js";
 import * as http from "../src/platform/http.js";
 import { model } from "../src/platform/models.js";
+import { pyFloatValue } from "../src/platform/pyjson.js";
 import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
 
@@ -256,7 +257,7 @@ test("run_applies_adhoc_samplers", async () => {
   });
   expect(r.statusCode).toBe(200);
   expect(adapter.last.extra.top_k).toBe(40); // int-coerced
-  expect(adapter.last.extra.min_p).toBe(0.05); // float-coerced
+  expect(adapter.last.extra.min_p).toEqual(pyFloatValue(0.05)); // float-coerced (a PyFloat: the body writes it as a float)
 });
 
 test("run_threads_reasoning_effort_into_extra", async () => {
@@ -423,7 +424,7 @@ test("run_uses_resolved_preset", async () => {
   expect(r.statusCode).toBe(200);
   expect(r.json().model).toBe("preset-model"); // the preset's model overrode the route
   expect(adapter.last.temperature).toBe(0.2); // the preset's temperature
-  expect(adapter.last.extra.top_p).toBe(0.9); // the preset's top_p flowed through
+  expect(adapter.last.extra.top_p).toEqual(pyFloatValue(0.9)); // the preset's top_p flowed through
   expect(adapter.last.extra.reasoning_effort).toBe("high");
   expect(adapter.last.think).toBe(true); // reasoning on (no json) from the preset
 });
@@ -531,7 +532,7 @@ test("run_applies_preset_samplers_and_order", async () => {
   const r = await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS });
   expect(r.statusCode).toBe(200);
   const extra = adapter.last.extra;
-  expect(extra.top_k === 40 && extra.min_p === 0.05).toBe(true); // preset samplers dispatched
+  expect([extra.top_k, extra.min_p]).toEqual([40, pyFloatValue(0.05)]); // preset samplers dispatched
   expect(extra.samplers).toEqual(["dry", "top_k", "min_p", "temperature"]); // ORDER split to a list
 });
 

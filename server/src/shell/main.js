@@ -18,6 +18,12 @@
 //     loads the Vite dev server instead.
 //   - The renderer reaches main through ONE preload object, `window.appShell`, read only
 //     by the app's `src/services/native.js`.
+//   - Electron's security checklist (electronjs.org/docs/latest/tutorial/security), checked
+//     2026-10-08: context isolation, the sandbox and no Node in the renderer; a written CSP on
+//     app://; navigation, new windows and <webview> refused; permissions granted only to the
+//     app's own page and only from an allow-list; every IPC call checked against the sender's
+//     origin; one copy of the app at a time. The fuses are set per app at packaging
+//     (package.json `build.electronFuses`).
 
 import fs from "node:fs";
 import net0 from "node:net";
@@ -33,6 +39,7 @@ import {
   net,
   protocol,
   screen,
+  session,
   shell,
   Tray,
   utilityProcess,
@@ -87,6 +94,8 @@ const STOP_WAIT_MS = 8000; // the server's own 3 s grace plus engine shutdown
  *   csp           the Content-Security-Policy for app:// pages (a default is used)
  *   cspAdd        sources added to the default's directives, e.g. {"img-src": ["https:"]}
  *   trayExtras    extra tray items [{id, label, event}] sent to the renderer as `tray:<event>`
+ *   permissions   web permissions the app's page may have beyond the clipboard (e.g. "media"
+ *                 for the microphone); every other request is denied
  */
 export function runDesktopApp(config) {
   const state = {
@@ -119,6 +128,26 @@ export function runDesktopApp(config) {
   fs.mkdirSync(chromeDir, { recursive: true });
   for (const k of ["userData", "sessionData", "crashDumps", "logs"]) app.setPath(k, path.join(chromeDir, k === "userData" ? "" : k));
   if (process.platform === "win32") app.setAppUserModelId(`com.${config.id}.app`);
+
+  // One copy per data folder (the lock lives in userData, set just above): a second launch
+  // would evict the first copy's server from the port. It hands over and quits; the first
+  // shows its window (the "second-instance" handler at boot).
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    return null;
+  }
+
+  // The page the window loads, and so the one origin trusted with permissions and IPC.
+  const devUrl = !app.isPackaged && process.env.DEV_URL ? process.env.DEV_URL : null;
+  const home = devUrl || `app://${config.id}/index.html`;
+  const homeOrigin = new URL(home).origin;
+  const fromHome = (url) => {
+    try {
+      return new URL(url).origin === homeOrigin;
+    } catch {
+      return false;
+    }
+  };
 
   // ── the server ─────────────────────────────────────────────────────────────
   const serverUrl = () => `http://127.0.0.1:${state.port}`;
@@ -280,7 +309,7 @@ export function runDesktopApp(config) {
       show: false,
       autoHideMenuBar: true,
       webPreferences: {
-        preload: path.join(import.meta.dirname, "preload.cjs"),
+        preload: path.join(import.meta.dirname, "preload.js"),
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,
@@ -288,9 +317,6 @@ export function runDesktopApp(config) {
     });
     if (saved?.maximized) win.maximize();
     win.once("ready-to-show", () => win.show());
-    const devUrl = !app.isPackaged && process.env.DEV_URL ? process.env.DEV_URL : null;
-    const home = devUrl || `app://${config.id}/index.html`;
-    const homeOrigin = new URL(home).origin;
     win.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https?:/i.test(url)) shell.openExternal(url);
       return { action: "deny" };
@@ -489,10 +515,30 @@ export function runDesktopApp(config) {
     },
   };
   for (const name of COMMANDS) {
-    ipcMain.handle(`shell:${name}`, (_e, args) => handlers[name](args || {}));
+    // Only the app's own page may call (the checklist's "validate the sender").
+    ipcMain.handle(`shell:${name}`, (e, args) => {
+      if (!fromHome(e.senderFrame?.url)) throw new Error(`shell:${name} refused: not the app's page`);
+      return handlers[name](args || {});
+    });
+  }
+
+  // Web permissions: the clipboard for every app, plus what the app names (JustVoice's
+  // microphone), and only for the app's own page. Everything else is denied.
+  const allowed = new Set(["clipboard-sanitized-write", "clipboard-read", ...(config.permissions || [])]);
+  function guardPermissions() {
+    const ses = session.defaultSession;
+    ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+      callback(allowed.has(permission) && fromHome(details?.requestingUrl || wc?.getURL()));
+    });
+    ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => allowed.has(permission) && fromHome(requestingOrigin));
   }
 
   // ── boot ───────────────────────────────────────────────────────────────────
+  app.on("second-instance", () => showWindow());
+  // No page in these apps embeds a <webview>; refuse one outright.
+  app.on("web-contents-created", (_e, contents) => {
+    contents.on("will-attach-webview", (ev) => ev.preventDefault());
+  });
   app.on("window-all-closed", () => {
     // Keep-running hides the window instead of closing it; anything else quits.
     if (!state.keepRunning) quitApp();
@@ -505,6 +551,7 @@ export function runDesktopApp(config) {
   });
   app.whenReady().then(async () => {
     protocol.handle("app", serveApp);
+    guardPermissions();
     createWindow();
     createTray();
     await startServer();

@@ -3,9 +3,9 @@
 // said "real kill-on-parent-death behavior is a box check"). Windows only, and only with
 // KIT_REAL_SPAWN=1 — it starts real processes:
 //
-//   KIT_REAL_SPAWN=1 node scripts/node24.mjs node_modules/vitest/vitest.mjs run tests/process_job.test.js
+//   KIT_REAL_SPAWN=1 node scripts/node24.js node_modules/vitest/vitest.mjs run tests/process_job.test.js
 //
-// A spawner (this runtime as plain Node, tests/fixtures/job_spawner.mjs) starts cmd.exe →
+// A spawner (this runtime as plain Node, tests/fixtures/job_spawner.js) starts cmd.exe →
 // PING.EXE through `spawnChild`; the spawner — the process that owns the job — is hard-killed
 // with `taskkill /F /PID`, and `tasklist` must then show the child AND the grandchild gone.
 // The control runs the same tree with the job off: the grandchild must SURVIVE (libuv's own
@@ -20,7 +20,7 @@ import { sleep } from "../src/platform/asyncutil.js";
 import * as procs from "../src/platform/procs.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SPAWNER = join(HERE, "fixtures", "job_spawner.mjs");
+const SPAWNER = join(HERE, "fixtures", "job_spawner.js");
 const real = process.platform === "win32" && process.env.KIT_REAL_SPAWN === "1";
 
 /** tasklist's image name for `pid`, or null when no such process runs. */

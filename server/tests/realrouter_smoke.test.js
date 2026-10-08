@@ -15,7 +15,7 @@
 // router's port — NEVER run while the app is up). Without them every test is skipped and
 // nothing is probed: the port check runs only once the env gates pass.
 //
-// Run: JW_REALROUTER=1 JUSTWRITE_DATA_DIR=... node scripts/node24.mjs
+// Run: JW_REALROUTER=1 JUSTWRITE_DATA_DIR=... node scripts/node24.js
 //      node_modules/vitest/vitest.mjs run tests/realrouter_smoke.test.js
 // (one file, one router — vitest runs a file's tests in order.)
 //

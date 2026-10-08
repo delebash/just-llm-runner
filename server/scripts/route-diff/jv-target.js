@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// The route diff's JustVoice target (route-diff.mjs --app --target justvoice): what JustVoice's
+// The route diff's JustVoice target (route-diff.js --app --target justvoice): what JustVoice's
 // copies need beyond a database copy, which of its GETs to fill and how, which answers move by
 // themselves, and its write sequence. JustVoice's server port is landing in three parts (the API
 // wave, 2026-10-08); a GET whose router is not ported yet answers 404 from the Node side and is

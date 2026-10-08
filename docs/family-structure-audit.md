@@ -12,7 +12,7 @@ except domain specific stuff… this comes first before anything else."*
 > kit under §11's growth rule"; the opener split at §C (`plugin-shell` vs
 > `plugin-opener`) — one plugin, one wiring line, everywhere; plus three more the
 > audit did not reach: `window.justwrite`, seven copies of the file-save job, and
-> ad-hoc `invoke` imports. All six are now enforced by `scripts/check-family.mjs`
+> ad-hoc `invoke` imports. All six are now enforced by `scripts/check-family.js`
 > rather than re-audited — see `docs/plans/2026-08-14-three-app-job-matrix.md` for
 > the evidence and the four traps that produced false results along the way.
 >

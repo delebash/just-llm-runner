@@ -20,7 +20,7 @@ all go". JustVoice's register tells the story that prompted it.
   carries that section and the line *"don't re-derive these; re-check one only if the code it
   cites changed after its date"*.
 - **After research:** its facts land in the register in the same change. A research doc with
-  no entry is not done. `scripts/check-family.mjs` check 15 fails any `docs/plans/YYYY-MM-DD-*.md`
+  no entry is not done. `scripts/check-family.js` check 15 fails any `docs/plans/YYYY-MM-DD-*.md`
   dated 2026-10-04 or later that its repo's register does not link, and any register link that
   points nowhere. (It can check the link, not that the facts came with it — that part is the
   rule.)
@@ -253,7 +253,7 @@ plan §5 and its TASKS entry):
 - docgen's Python server answered errors in FastAPI's default shape (`{"detail": …}`, 422 items
   with `input`/`ctx`), not problem+json — found by the route diff, not by reading. The kit's
   `createServer({ errors: "fastapi" })` reproduces it.
-- The route diff's app mode (`server/scripts/route-diff/route-diff.mjs --app docgen`) compared
+- The route diff's app mode (`server/scripts/route-diff/route-diff.js --app docgen`) compared
   docgen's whole server, Python vs Node, on copies of its real database: 83 reads (70 identical,
   13 volatile — times, ids, the backup file), 37/37 writes, 1,910 database cells, 0 different.
 
@@ -304,8 +304,28 @@ has its app-side facts):
   error). The values Python holds as floats are `PyFloat`s: `temperature` in the
   openai-compat and Ollama adapters, `top_p` and float-parsed samplers in `_plane2Extra`.
   After the fix all 243 requests are byte-identical (`httpx_body.test.js`; JustVoice's
-  `compare-extraction.mjs`). The Anthropic, Gemini and OpenAI SDK adapters serialize through
+  `compare-extraction.js`). The Anthropic, Gemini and OpenAI SDK adapters serialize through
   their SDKs and still write a whole-number float as an integer — JSON-equal.
+- **The shell against Electron's security checklist** (2026-10-08,
+  electronjs.org/docs/latest/tutorial/security, 20 items, *read against `src/shell/main.js`*).
+  Already met: context isolation, the sandbox, no Node in the renderer, web security, a
+  written CSP on app://, the custom protocol (`protocol.handle`, no file://), navigation
+  (`will-navigate`) and new windows (`setWindowOpenHandler`) refused, `shell.openExternal` only
+  for http(s)/mailto, one preload object (no raw ipcRenderer), the server in a
+  `utilityProcess`. Missing, added the same day: a permission request + check handler (the
+  app's own origin only; clipboard write/read, plus the app's `permissions` — JustVoice's
+  "media" for the microphone); the IPC sender check (`senderFrame` origin = the window's home
+  origin); `will-attach-webview` refused; `requestSingleInstanceLock` (a second launch on the
+  same data folder evicted the first copy's server from the port; it now focuses the first);
+  fuses per app (`build.electronFuses`: cookie encryption on, NODE_OPTIONS and --inspect off,
+  embedded asar integrity + only-load-from-asar on, file:// extra privileges off — `runAsNode`
+  stays ON because each app's headless launcher runs its exe with ELECTRON_RUN_AS_NODE=1).
+  electron-builder 26.15.3 takes `electronFuses` (`app-builder-lib/out/configuration.d.ts`).
+- **A sandboxed preload is a plain `.js`** (electronjs.org/docs/latest/tutorial/esm):
+  sandboxed preloads "are run as plain JavaScript without an ESM context" and "ignore
+  "type": "module" fields", so `preload.js` with `require("electron")` works in a module-type
+  package; only an ESM preload (`import` syntax, sandbox off) needs `.mjs`. The kit's
+  `preload.cjs` became `preload.js` (2026-10-08, the user's no-.mjs/.cjs ruling).
 - **A download's name: `platform/server.js` `attachment(filename)`** (2026-10-08). A header
   carries latin-1 only (Starlette encoded it so and raised UnicodeEncodeError; Node rejects
   anything past 0xFF), so JustWrite's export of a book titled in Japanese was a 500 in both

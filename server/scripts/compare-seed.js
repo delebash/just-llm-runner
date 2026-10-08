@@ -8,7 +8,7 @@
 //   2. edits that trigger every fill-empty / heal / sync / prune path, then a reseed;
 //   3. a replay of store writes (every store's write methods, the resets).
 //
-//   node scripts/node24.mjs scripts/compare-seed.mjs        (KIT_PYTHON overrides the Python)
+//   node scripts/node24.js scripts/compare-seed.js        (KIT_PYTHON overrides the Python)
 //
 // The Python side is scripts/compare-seed.py (needs ../justwrite-app/.venv, or KIT_PYTHON).
 // Until wave 2 lands llm/identity.js and llm/switch_resolve.js, a resolve hook stands in

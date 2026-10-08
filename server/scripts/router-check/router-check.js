@@ -5,7 +5,7 @@
 // back to its baseline. Run with the family apps CLOSED (two llama-servers on one card is the
 // trap JustVoice's CLAUDE.md warns about):
 //
-//   node scripts/node24.mjs scripts/router-check/router-check.mjs \
+//   node scripts/node24.js scripts/router-check/router-check.js \
 //     --db <an app's database to COPY> --cache-root <a model cache> --model <catalog id>
 //
 // The database is copied into a scratch folder; the cache is only read (models.ini and the
@@ -56,7 +56,7 @@ async function settle(target, label, ms = 20000) {
 
 function startChild() {
   const env = { ...process.env, ELECTRON_RUN_AS_NODE: "1", JUST_AI_HOME: path.join(scratch, "family") };
-  const c = spawn(process.execPath, [path.join(import.meta.dirname, "runner-child.mjs"), "--data-dir", dataDir, "--cache-root", o["cache-root"]], {
+  const c = spawn(process.execPath, [path.join(import.meta.dirname, "runner-child.js"), "--data-dir", dataDir, "--cache-root", o["cache-root"]], {
     env,
     windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],

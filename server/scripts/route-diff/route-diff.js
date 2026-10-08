@@ -3,21 +3,21 @@
 // run against the same database and each route's answers are compared").
 //
 // Read routes: the app's REAL Python server (docgen's, mounting llm_runner) and the Node host
-// mounting the JavaScript kit (kit-host.mjs), each on its OWN COPY of the app's dev database,
+// mounting the JavaScript kit (kit-host.js), each on its OWN COPY of the app's dev database,
 // both pointed at a scratch copy of the family cache registry (JUST_AI_HOME) so neither writes
 // the real one. Every kit GET (scripts/route-table.json) is sent to both, parameters filled
 // from the Python side's own answers; status, content type and JSON are compared — key order
 // included. Nothing starts a model: GETs never load one, and both run on loopback ports
 // nobody else uses.
 //
-//   node scripts/node24.mjs scripts/route-diff/route-diff.mjs [--clean]
-//   node scripts/node24.mjs scripts/route-diff/route-diff.mjs --app --target justvoice [--clean]
+//   node scripts/node24.js scripts/route-diff/route-diff.js [--clean]
+//   node scripts/node24.js scripts/route-diff/route-diff.js --app --target justvoice [--clean]
 //
 // Writes the full report to <scratch>/report.json (kept; --clean deletes the scratch folder)
 // and prints a summary. Exit 0 = no
 // differences outside the known-volatile list below.
 //
-// JustVoice (jv-target.mjs) adds: content folders and read-only junctions in its copies, its
+// JustVoice (jv-target.js) adds: content folders and read-only junctions in its copies, its
 // own GET fills, "not ported yet" for the routers its port hasn't reached, and its writes
 // replayed on two FRESH copies (the servers restarted on them) before the database compare.
 
@@ -65,7 +65,7 @@ const APPS = {
     pyArgs: (port, dir) => ["-m", "justvoice.serve", "serve", "--host", "127.0.0.1", "--port", String(port), "--data-dir", dir],
     nodeEntry: "E:/Dev/Web/JustVioce/server/src/serve.js",
     nodeArgs: (port, dir) => ["E:/Dev/Web/JustVioce/server/src/serve.js", "serve", "--host", "127.0.0.1", "--port", String(port), "--data-dir", dir],
-    hooks: await import("./jv-target.mjs"),
+    hooks: await import("./jv-target.js"),
   },
 };
 const APP = APPS[opts.target];
@@ -141,7 +141,7 @@ function startBoth(py, js) {
     ? APP.nodeArgs
       ? APP.nodeArgs(JS_PORT, js)
       : [APP.nodeEntry, "serve", "--port", String(JS_PORT), "--data-dir", js]
-    : [path.join(HERE, "kit-host.mjs"), "--data-dir", js, "--port", String(JS_PORT), "--args", argsFile];
+    : [path.join(HERE, "kit-host.js"), "--data-dir", js, "--port", String(JS_PORT), "--args", argsFile];
   start("node", process.execPath, nodeArgs, { ELECTRON_RUN_AS_NODE: "1" });
 }
 startBoth(dirs.py, dirs.js);

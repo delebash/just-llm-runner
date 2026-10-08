@@ -2,7 +2,7 @@
 // The router check's child: the JavaScript runner service on a scratch copy of an app's
 // database, its model cache pointed at a real one (read only — the generated state goes under
 // the scratch data dir). Driven over stdin, one command per line: `load <id>`, `stop`, `quit`;
-// it answers one JSON line per event on stdout. router-check.mjs runs it.
+// it answers one JSON line per event on stdout. router-check.js runs it.
 
 import path from "node:path";
 import readline from "node:readline";

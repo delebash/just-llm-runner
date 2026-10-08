@@ -4,7 +4,7 @@
 // router starting per-model children — through the kit's spawn door, writes who is who to
 // <stateFile>, and waits to be hard-killed.
 //
-//   node scripts/node24.mjs tests/fixtures/job_spawner.mjs <stateFile> [1|0]
+//   node scripts/node24.js tests/fixtures/job_spawner.js <stateFile> [1|0]
 //
 // "0" switches the job off (the control: libuv's own job lets the grandchild break away).
 import { writeFileSync } from "node:fs";

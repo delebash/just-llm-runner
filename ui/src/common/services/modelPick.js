@@ -2,7 +2,7 @@
 // The §10 speed-floor auto-pick — "the most capable model that still streams faster than
 // you read" (design 2026-07-03 §10, LOCKED; refined 2026-07-04 §15). PURE logic, NO Vue
 // imports, so the kit's has-no-JS-test-runner gap is covered by a Node truth-table
-// (scripts/verify-model-pick.mjs). This module is the ONE source of the runnable-set + the
+// (scripts/verify-model-pick.js). This module is the ONE source of the runnable-set + the
 // fit-rank + the pick; QuickSetup imports them (never redefines) so "runnable" can't drift.
 // The only auto-picker is QuickSetup; the per-task LuModelPicker is a manual override and
 // does not use this.
@@ -180,7 +180,7 @@ export function pickLowestQuality(models, { qualityOf }) {
  * (runnable fit · not the embedding model · not use-limited — "never an
  * auto-default", the seeded license law); ranked by the ONE shared comparator
  * (`pickLowestQuality`). No config for this class → "" (the caller falls back to
- * the §10 speed-floor rule). Pure + truth-table-testable (verify-model-pick.mjs).
+ * the §10 speed-floor rule). Pure + truth-table-testable (verify-model-pick.js).
  * §7.4-as-ranking (fit-redesign, Phase 7): the coarse ESTIMATE never vetoes
  * THIS-box EVIDENCE. A candidate the server flags `ranHere` (any persisted
  * measurement/tune/load-footprint row for this machine_key) stays in the
@@ -251,7 +251,7 @@ export function pickBestEmbedId(models, { leftoverMb, qualityOf, isEmbed, minVra
  *   "empty"    → the catalog has NO chat (non-embedding) rows at all
  *   "none-fit" → chat rows exist but none clears the wizard's fit set
  *   "ok"       → at least one chat row fits
- * Pure — truth-table-tested in scripts/verify-model-pick.mjs.
+ * Pure — truth-table-tested in scripts/verify-model-pick.js.
  * @param {Array}  models  fit-annotated rows ([{id, fit, …}])
  * @param {Object} accessors  { isEmbed(m) → boolean, fitSet? (default FIT_GPU) }
  */

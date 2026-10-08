@@ -1,0 +1,6 @@
+{
+  "name": "just-llm-runner-scripts",
+  "private": true,
+  "description": "The kit's repo-level scripts (scripts/): plain ES modules. The packages are server/ and ui/.",
+  "type": "module"
+}

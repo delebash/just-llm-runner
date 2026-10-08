@@ -7,8 +7,8 @@
 // server entry module that isn't `serve.py`. Instead they accumulated for months and were
 // found by hand. This is that script. Nothing clever — it reads files and compares them.
 //
-//   Run:  node scripts/check-family.mjs            (exit 0 = clean, 1 = violations)
-//         node scripts/check-family.mjs --info     (also print the advisory findings)
+//   Run:  node scripts/check-family.js            (exit 0 = clean, 1 = violations)
+//         node scripts/check-family.js --info     (also print the advisory findings)
 //
 // LIMITATIONS, stated plainly so a clean run is not mistaken for a clean family:
 //
@@ -190,17 +190,17 @@ function checkScripts(app) {
     return undefined;
   }
   // Electron (§0.2): the server and its tests run on Electron's own Node 24, through the
-  // app's scripts/node24.mjs — never whatever `node` is first on PATH.
-  if (server && !/^node scripts\/node24\.mjs server\/src\/serve\.js serve\b/.test(server)) {
-    fail(app.name, `"server" runs \`${server}\` — §0.2 says \`node scripts/node24.mjs server/src/serve.js serve\``);
+  // app's scripts/node24.js — never whatever `node` is first on PATH.
+  if (server && !/^node scripts\/node24\.js server\/src\/serve\.js serve\b/.test(server)) {
+    fail(app.name, `"server" runs \`${server}\` — §0.2 says \`node scripts/node24.js server/src/serve.js serve\``);
   }
   const testServer = scripts["test:server"] || "";
-  const viaNode24Vitest = /^node scripts\/node24\.mjs\b/.test(testServer) && /\bvitest\b/.test(testServer);
+  const viaNode24Vitest = /^node scripts\/node24\.js\b/.test(testServer) && /\bvitest\b/.test(testServer);
   if (testServer && !(viaNode24Vitest && /--config server\/vitest\.config\.js\b/.test(testServer))) {
-    fail(app.name, `"test:server" runs \`${testServer}\` — §0.2 says vitest through scripts/node24.mjs with \`--config server/vitest.config.js\``);
+    fail(app.name, `"test:server" runs \`${testServer}\` — §0.2 says vitest through scripts/node24.js with \`--config server/vitest.config.js\``);
   }
-  if (scripts.dev && !/\bscripts\/dev\.mjs\b/.test(scripts.dev)) {
-    fail(app.name, `"dev" runs \`${scripts.dev}\` — §0.2 says \`node scripts/dev.mjs\` (Vite + the desktop app pointed at it)`);
+  if (scripts.dev && !/\bscripts\/dev\.js\b/.test(scripts.dev)) {
+    fail(app.name, `"dev" runs \`${scripts.dev}\` — §0.2 says \`node scripts/dev.js\` (Vite + the desktop app pointed at it)`);
   }
   if (scripts.build && !/\belectron-builder\b/.test(scripts.build)) {
     fail(app.name, `"build" runs \`${scripts.build}\` — §0.2 says \`vite build && electron-builder\``);
@@ -557,7 +557,7 @@ const RETIRED_ALLOW = new Map([
 
 // report/ = committed GENERATED artifacts (jscpd) — point-in-time captures,
 // same standing as docs/plans history.
-const RETIRED_SKIP = /docs[\\/]plans[\\/]|report[\\/]|family-structure-audit\.md|target-tree\.md|check-family\.mjs/;
+const RETIRED_SKIP = /docs[\\/]plans[\\/]|report[\\/]|family-structure-audit\.md|target-tree\.md|check-family\.js/;
 const RETIRED_TEXT = new Set([".js", ".mjs", ".cjs", ".vue", ".py", ".md", ".rs", ".json",
   ".toml", ".html", ".css", ".txt", ".yml", ".yaml", ".ps1", ".sh"]);
 // "models" = downloaded engine/bench model artifacts (HF caches carry BPE
@@ -617,7 +617,7 @@ const SKELETON_FILES = [
 // (§0.1). server/vitest.config.js is here; what it includes is check 4's.
 const KIND_SKELETON_FILES = {
   tauri: ["scripts/py.js"],
-  electron: ["electron/main.js", "scripts/node24.mjs", "scripts/dev.mjs", "server/vitest.config.js"],
+  electron: ["electron/main.js", "scripts/node24.js", "scripts/dev.js", "server/vitest.config.js"],
 };
 const DEV_PORTS = { JustWrite: 1420, JustVoice: 1430, docgen: 1450 };
 const APP_HAS = {
@@ -636,10 +636,10 @@ const DOOR_PINS = [
   ["src/stores/ui.js", /useUiStore/, "the family store name"],
   // JW's py.js rides the kit via its ONE intra-repo door (tests/lib/smoke-common.js);
   // JV/docgen import the kit file directly — both forms are the ratified P7 shape.
-  ["scripts/py.js", /exec-resolve\.mjs|smoke-common\.js/, "the kit exec resolver (directly or via the app's door)", "tauri"],
+  ["scripts/py.js", /exec-resolve\.js|smoke-common\.js/, "the kit exec resolver (directly or via the app's door)", "tauri"],
   // The Electron app's scripts run on Electron's own Node 24 — the runtime the server
   // ships on — by running the electron binary as Node.
-  ["scripts/node24.mjs", /ELECTRON_RUN_AS_NODE/, "Electron's own Node (ELECTRON_RUN_AS_NODE)", "electron"],
+  ["scripts/node24.js", /ELECTRON_RUN_AS_NODE/, "Electron's own Node (ELECTRON_RUN_AS_NODE)", "electron"],
 ];
 
 function serverPkgOf(app) {

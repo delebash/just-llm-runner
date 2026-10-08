@@ -6,7 +6,7 @@
 // docgen's own routes (workspace, setup, health…) and the two kit routers that need its app
 // hooks (/v1/data's table list, /v1/prefs) are NOT here — step 3 ports docgen itself.
 //
-//   node scripts/node24.mjs scripts/route-diff/kit-host.mjs --data-dir <dir> --port <p> --args <docgen-args.json>
+//   node scripts/node24.js scripts/route-diff/kit-host.js --data-dir <dir> --port <p> --args <docgen-args.json>
 
 import { readFileSync } from "node:fs";
 import path from "node:path";

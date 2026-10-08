@@ -4,7 +4,7 @@
 Node app of **§0** — every app ends there. The Tauri + Vue + Python standard of §1–§14 still
 governs each app **until it moves**: docgen is moving now (step 3), JustWrite moves in step 4,
 JustVoice in step 5 (JustVoice's `docs/plans/2026-10-07-electron-node-plan.md`). The guard
-(`scripts/check-family.mjs`) tells the kinds apart — "electron" when `electron/main.js`
+(`scripts/check-family.js`) tells the kinds apart — "electron" when `electron/main.js`
 exists — and checks each against its own half.
 
 Ruled by the user, 2026-08-02, after parity gaps kept surfacing one at a time: **one
@@ -78,8 +78,8 @@ until a second app has moved. Where §0 and §1–§14 disagree for a moved app,
 │   ├── tests/*.test.js     # vitest
 │   └── vitest.config.js    # include: tests/**/*.test.js
 ├── scripts/
-│   ├── node24.mjs          # runs a script on Electron's own Node 24, not PATH's `node`
-│   └── dev.mjs             # `npm run dev` (§0.2)
+│   ├── node24.js          # runs a script on Electron's own Node 24, not PATH's `node`
+│   └── dev.js             # `npm run dev` (§0.2)
 ├── build/                  # icons (icon.ico · icon.icns · icon.png · tray.png)
 │   └── launcher/*.cmd      # the headless launchers (§0.4)
 ├── data/                   # the dev data folder — gitignored (§0.5)
@@ -105,7 +105,7 @@ The NAMES are the contract, as in §2; `npm run dev` still opens the DESKTOP APP
 
 ```jsonc
 {
-  "dev": "node scripts/dev.mjs",           // THE APP — Vite on the app's own port (§3) + the
+  "dev": "node scripts/dev.js",           // THE APP — Vite on the app's own port (§3) + the
                                            //   desktop app pointed at it (DEV_URL); the shell
                                            //   starts the server on <repo>/data; closing the
                                            //   window ends both
@@ -113,22 +113,22 @@ The NAMES are the contract, as in §2; `npm run dev` still opens the DESKTOP APP
   "build": "vite build && electron-builder", // the installer (§0.6)
   "build:vite": "vite build",
   "preview:vite": "vite preview",
-  "server": "node scripts/node24.mjs server/src/serve.js serve",
-  "test:server": "node scripts/node24.mjs node_modules/vitest/vitest.mjs run --config server/vitest.config.js",
+  "server": "node scripts/node24.js server/src/serve.js serve",
+  "test:server": "node scripts/node24.js node_modules/vitest/vitest.mjs run --config server/vitest.config.js",
   "lint": "biome check .",
   "test": "npm test --prefix e2e",         // §0.7
   "screenshots": "node e2e/capture-direct.js",
   "test:unit": "vitest run",               // the renderer's tests (root vitest.config.js)
-  "cli": "node scripts/node24.mjs server/src/cli.js"   // where the app has a domain CLI
+  "cli": "node scripts/node24.js server/src/cli.js"   // where the app has a domain CLI
 }
 ```
 
 - **Everything server-side runs on Electron's own Node 24** — the runtime the server ships
-  on — through `scripts/node24.mjs` (it runs the `electron` binary with
+  on — through `scripts/node24.js` (it runs the `electron` binary with
   `ELECTRON_RUN_AS_NODE=1`). Never whatever `node` is first on PATH: that is the
   bare-`python` trap of §2 again.
 - The guard (check 3) asserts the names, `server`, `test:server`, `dev` →
-  `scripts/dev.mjs`, `build` → `electron-builder`, and no `tauri` script.
+  `scripts/dev.js`, `build` → `electron-builder`, and no `tauri` script.
 
 ### 0.3 · The shell and its one bridge
 
@@ -304,7 +304,7 @@ DESKTOP APP in every repo; getting this wrong is the #1 confusion):
 ```
 
 - **`scripts/py.js`** — the venv-python launcher: a thin adapter over the kit's
-  `scripts/lib/exec-resolve.mjs` (target-tree P7) binding the app's env override and
+  `scripts/lib/exec-resolve.js` (target-tree P7) binding the app's env override and
   venv location (file-relative import — node scripts don't see the vite alias, so the
   kit sibling checkout is required here too). Bare `python` resolves to whatever is
   first on PATH and the failure reads as broken test config instead of a missing
@@ -440,7 +440,7 @@ the constants-only port). A new app copies it changing **exactly three constants
   keep-server-running switch is ON, in which case the window hides to the tray
   and the server stays (the family tray rides every app since 2026-08-04).
 - **Plugins — the baseline is FIXED and identical in all three apps** (2026-08-15,
-  enforced by `scripts/check-family.mjs`): `tauri-plugin-opener`,
+  enforced by `scripts/check-family.js`): `tauri-plugin-opener`,
   `tauri-plugin-dialog`, `tauri-plugin-window-state`. Nothing else, unless a
   feature genuinely needs it AND every app declares it too — the guard fails on
   differing plugin sets, and fails again on a plugin declared in `Cargo.toml` that
@@ -919,7 +919,7 @@ assert the marker (a 200 from an empty ring proves nothing).
 ## 12 · Definition of done — a new app ships when every box checks
 
 > **The Tauri + Python rows — until the app moves** (JustWrite step 4, JustVoice step 5). For
-> an Electron app read them through §0: `test:server` is vitest through `scripts/node24.mjs`
+> an Electron app read them through §0: `test:server` is vitest through `scripts/node24.js`
 > (no venv, no ruff); "tauri.conf" becomes `electron/main.js`'s required fields (§0.3);
 > "closing the window kills the Python process" becomes "closing the window stops the
 > server — no orphan on :PORT"; the e2e row drives the Electron app (§0.7); and `npm run
@@ -970,7 +970,7 @@ docs campaign the same day):
   checked and where the proof is. **Read the subject's section before researching
   anything** (and put it in any agent's brief); research is not done until its facts
   land there. The kit's register holds the shared stack's facts, each app's its
-  domain. `scripts/check-family.mjs` check 15 fails a missing register, a plan dated
+  domain. `scripts/check-family.js` check 15 fails a missing register, a plan dated
   2026-10-04 or later that the register doesn't link, and a register link to nothing.
 - **`docs/plans/*.md` keep history**: a completed plan gets a loud ✅ CLOSED /
   SUPERSEDED banner at the top (or moves to `docs/plans/archive/`); before a plan
@@ -987,13 +987,13 @@ docs campaign the same day):
 The 2026-08-08 convergence program (docs/target-tree.md, pieces P2–P11) made the
 three apps structurally identical outside their domain code. That page is the
 program RECORD (each piece's status row carries its gates, scope calls and sweep
-receipts); THIS section is the normative end state, and `scripts/check-family.mjs`
+receipts); THIS section is the normative end state, and `scripts/check-family.js`
 **check 8** asserts it structurally — apps against this list, plus the retired
 names of every rename the program performed (check 7).
 
 > **The Python server package, `scripts/py.js` and the ruff pin — until the app moves**
 > (JustWrite step 4, JustVoice step 5). For an Electron app check 8 asserts §0.1 instead:
-> `electron/main.js`, `scripts/node24.mjs` (riding `ELECTRON_RUN_AS_NODE`), `scripts/dev.mjs`,
+> `electron/main.js`, `scripts/node24.js` (riding `ELECTRON_RUN_AS_NODE`), `scripts/dev.js`,
 > `server/vitest.config.js`, `"main": "electron/main.js"`, no `@tauri-apps/*` package, `data/`
 > in `.gitignore`, a `<name>-server` launcher not named like the app exe. The renderer and
 > config layer below hold for both kinds.
@@ -1019,7 +1019,7 @@ where the feature exists (JW + JV) · `stores/ui.js` exporting `useUiStore`,
 prefs SERVER-backed via the kit client · tests BESIDE their files (no
 `__tests__/` dirs) with `boot.smoke.test.js` riding the kit's
 `registerBootSmoke` · `services/helpDocs.js` riding `makeDocsHelpAdapter` ·
-`scripts/py.js` riding the kit's `scripts/lib/exec-resolve.mjs` (directly, or
+`scripts/py.js` riding the kit's `scripts/lib/exec-resolve.js` (directly, or
 through JW's `tests/lib/smoke-common.js` door).
 
 **Config layer**: dev ports JW 1420 · JV 1430/1431 · docgen 1450/1451 (tauri

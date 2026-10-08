@@ -113,5 +113,5 @@ recorded in `ui/src/installLlmUi.js`'s header).
 
 Every §12 box in `docs/app-structure.md` checks — including the three AI-call
 boxes: no task-store starts outside the runners, tokens visible on a real LLM
-run, one indicator per run. `node scripts/check-family.mjs` from this repo is
+run, one indicator per run. `node scripts/check-family.js` from this repo is
 the machine's version of this page; a clean run plus §12 is "installed".

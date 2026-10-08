@@ -11,7 +11,7 @@
 // merge-by-key and never clobber user edits.
 //
 // The literals below are byte-identical to seed.py's (generated from it, then commented);
-// scripts/compare-seed.mjs seeds a database with each and compares every cell.
+// scripts/compare-seed.js seeds a database with each and compares every cell.
 //
 // Floats in HOST seed data: Python writes `str(1.0)` as "1.0" where JavaScript can't tell
 // 1.0 from 1. A host value that Python held as a float AND that is stored through `str()`

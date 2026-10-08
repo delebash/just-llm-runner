@@ -16,12 +16,12 @@
     "./runner/*": "./src/runner/*.js",
     "./platform/*": "./src/platform/*.js",
     "./shell": "./src/shell/main.js",
-    "./shell/preload": "./src/shell/preload.cjs",
+    "./shell/preload": "./src/shell/preload.js",
     "./shell/*": "./src/shell/*.js"
   },
   "scripts": {
-    "test": "node scripts/node24.mjs node_modules/vitest/vitest.mjs run",
-    "test:watch": "node scripts/node24.mjs node_modules/vitest/vitest.mjs",
+    "test": "node scripts/node24.js node_modules/vitest/vitest.mjs run",
+    "test:watch": "node scripts/node24.js node_modules/vitest/vitest.mjs",
     "lint": "biome check src tests scripts",
     "schema": "node scripts/capture-schema.mjs"
   },

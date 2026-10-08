@@ -2,7 +2,9 @@
 // The renderer's one door into the desktop shell: `window.appShell`, read only by the
 // app's `src/services/native.js` (the family rule that replaced "no window.<app> global").
 //
-// Sandboxed preload, so CommonJS and only `electron`'s renderer modules. Exposes:
+// A sandboxed preload: Electron runs it as a plain script (no ESM; it ignores the package's
+// "type": "module" — electronjs.org/docs/latest/tutorial/esm), so `require("electron")` and
+// only its renderer modules. Exposes:
 //   appShell.invoke(command, args) → Promise — the commands main.js handles (COMMANDS
 //     there; this list must match it);
 //   appShell.on(event, fn) → unsubscribe — the shell's pushes, `tray:*` only;

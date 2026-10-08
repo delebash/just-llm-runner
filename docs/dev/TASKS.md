@@ -897,7 +897,7 @@ WHY:    Phase 0 is BUILT: `docs/plans/2026-08-14-three-app-job-matrix.md` — on
         row per job, one column per app, `file:line` in every cell. The method
         changed because the old one could not work: you cannot grep for the same
         job done differently (three folder-openers shared no text), and an
-        omission has no text at all. THE HEADLINE: `check-family.mjs` reports
+        omission has no text at all. THE HEADLINE: `check-family.js` reports
         ✓ no violations today, while the three apps ship three plugin sets, three
         capability sets and two ways of reaching `invoke`. The guard is blind to
         this whole layer.
@@ -998,7 +998,7 @@ BUILT:  the matrix (above). 12 findings, worst first; 5 legitimate differences
         · ROW 17 — the committed screenshot PNGs are gone (FIVE, not the 8 I
           claimed). The verify/shots/e2e scripts stay: they belong to the parked
           harness decision.
-        · PHASE 3 — FOUR new guard checks in `scripts/check-family.mjs`, each of
+        · PHASE 3 — FOUR new guard checks in `scripts/check-family.js`, each of
           which FAILED on 2026-08-14 and passes now: ONE save door (no
           `a.download =` outside the kit) · ONE shell door (no `@tauri-apps/api/core`
           outside services/native.js) · no `window.<app>` global · shell parity
@@ -1944,7 +1944,7 @@ user's data reset) — the stage record:
   ran it. Quality still ranks; embed/use-limited guards still hold
   (evidence never rescues those). Seeded class configs alone remain
   NON-evidence (8 of 13 are extrapolations). Five truth-table cases in
-  verify-model-pick.mjs (48/48) + the ranHere wire test.
+  verify-model-pick.js (48/48) + the ranHere wire test.
   (c) §7.5 PIN AUDIT — no new work needed, verified by inspection: the
   gold-check (test_physics_gold_check_flagship_config) · the RAM-gate
   raw-to-raw cases (test_coarse_fit_ram_gate_raw_to_raw) · the a≤0

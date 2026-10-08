@@ -4,7 +4,7 @@
 // (a dense+tight EXCLUDED while a moe+tight is KEPT) — CARD_OPTIONS is capped at 24 GB until
 // Phase 3, so a card-override probe can't construct the two side-by-side deterministically.
 // This does, purely and re-runnably.
-//   Run:  node scripts/verify-model-pick.mjs      (exit 0 = all pass, 1 = any fail)
+//   Run:  node scripts/verify-model-pick.js      (exit 0 = all pass, 1 = any fail)
 import { FIT_GPU, catalogState, pickBestEmbedId, pickBestModel, pickByClassConfig, pickLowestQuality, recommendedModelId } from "../ui/src/common/services/modelPick.js";
 
 // A tiny test model. fit ∈ ok|tight|cpu|no|unknown; type ∈ dense|moe.

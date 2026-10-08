@@ -44,8 +44,8 @@ folder ladder).
 
 ```bash
 npm test                                                 # vitest on Electron's Node 24
-node scripts/node24.mjs scripts/route-diff/route-diff.mjs   # the route diff against a REAL Python server
-node scripts/node24.mjs scripts/compare-seed.mjs            # seed parity, cell by cell
+node scripts/node24.js scripts/route-diff/route-diff.js   # the route diff against a REAL Python server
+node scripts/node24.js scripts/compare-seed.js            # seed parity, cell by cell
 npm run lint
 ```
 

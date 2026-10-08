@@ -1,26 +1,26 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
-  "files": {
-    "includes": ["src/**/*.{js,cjs,mjs}", "tests/**/*.js", "scripts/**/*.mjs"]
-  },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "recommended": false,
-      "correctness": {
-        "noUndeclaredVariables": "error",
-        "noUnusedImports": "error"
-      }
-    }
-  },
-  "assist": {
-    "actions": {
-      "source": {
-        "organizeImports": "off"
-      }
-    }
-  },
-  "formatter": {
-    "enabled": false
-  }
+	"$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+	"files": {
+		"includes": ["src/**/*.js", "tests/**/*.js", "scripts/**/*.js"]
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "none",
+			"correctness": {
+				"noUndeclaredVariables": "error",
+				"noUnusedImports": "error"
+			}
+		}
+	},
+	"assist": {
+		"actions": {
+			"source": {
+				"organizeImports": "off"
+			}
+		}
+	},
+	"formatter": {
+		"enabled": false
+	}
 }

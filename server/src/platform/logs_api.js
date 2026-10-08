@@ -272,7 +272,7 @@ function truncateLive() {
 /** Python's str.splitlines() of a file read in text mode (universal newlines). */
 function splitlines(text) {
   if (text === "") return [];
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: str.splitlines()'s own boundaries
+  // str.splitlines()'s own boundaries
   const parts = text.split(/\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/);
   if (parts[parts.length - 1] === "") parts.pop();
   return parts;

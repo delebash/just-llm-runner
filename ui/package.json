@@ -7,7 +7,7 @@
   "type": "module",
   "main": "./src/index.js",
   "scripts": {
-    "check:pickers": "node scripts/check-shared-pickers.mjs",
+    "check:pickers": "node scripts/check-shared-pickers.js",
     "dup": "npx --yes jscpd@5",
     "lint": "biome check src"
   },

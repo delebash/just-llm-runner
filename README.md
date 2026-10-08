@@ -7,11 +7,22 @@ prebuilt **llama.cpp** (CUDA runtime bundled — *no toolkit install*) →
 spawns **`llama-server`** (OpenAI-compatible). One implementation, used by
 both apps, so detection/recommendation/flags never drift.
 
-**Internal library — NOT published to PyPI/npm.** Consumed as a **git
-dependency** (pinned tag) or via editable/path install during dev. The end
-user never installs it: it's frozen into each app's bundle (PyInstaller →
-Tauri sidecar). See `docs/plans/archive/2026-06-16-builtin-llm-runner.md` in the
+**Internal library — NOT published to PyPI/npm.** A Tauri + Python app consumes
+`llm_runner` as a **git dependency** (pinned tag) or via editable/path install
+during dev, frozen into its bundle (PyInstaller → Tauri sidecar). An Electron app
+consumes the JavaScript twin, `server/`, as `"@delebash/llm-runner":
+"file:../just-llm-runner/server"`, packed by electron-builder. The end user never
+installs it. See `docs/plans/archive/2026-06-16-builtin-llm-runner.md` in the
 JustVoice repo for the full architecture + decision history.
+
+**Two languages until JustVoice moves.** The family is moving to Electron and a
+Node server (JustVoice's `docs/plans/2026-10-07-electron-node-plan.md`), so the
+kit exists twice: `llm_runner/` (Python, below) and `server/` — the same stack,
+runner and platform pieces in plain JavaScript on Electron's Node 24, plus the
+desktop shell every moved app runs (`@delebash/llm-runner/shell`). Same routes,
+same camelCase JSON, same tables; a kit server change lands in both. How to
+consume and check it: [`server/README.md`](server/README.md); how it was built:
+[`docs/plans/2026-10-07-kit-in-javascript.md`](docs/plans/2026-10-07-kit-in-javascript.md).
 
 ## How a model's launch config derives (the 4-tier doctrine, 2026-07-06)
 
@@ -133,7 +144,9 @@ You get: provider CRUD + registry, dispatch with per-feature routing, engine pre
 (temperature/topP/samplers/think), the model catalog, tunes + autotune, the knob catalog,
 the usage ledger, and the bundled runner wired to the DB catalog. Requirements: your app is
 FastAPI + SQLAlchemy (`engine`/`session_factory` are SQLAlchemy objects, and the shipped
-stores are the only storage implementation) — which is every app in this family.
+stores are the only storage implementation) — which is every Python app in this family. A
+Fastify app calls the JavaScript twin, `installLlm(app, { db, dataDir, … })`
+(`server/README.md`).
 
 **Always pass `data_dir`.** Without it the engine and every downloaded GGUF land in
 `~/.cache/just-llm-runner` — outside your app's data root, so uninstalling the app strands

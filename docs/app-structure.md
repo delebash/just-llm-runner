@@ -1,4 +1,11 @@
-# THE FAMILY APP STANDARD — every Tauri + Vue + Python app, identical by construction
+# THE FAMILY APP STANDARD — every family app, identical by construction
+
+**Two kinds of app while the family moves (2026-10-08).** The TARGET is the Electron + Vue +
+Node app of **§0** — every app ends there. The Tauri + Vue + Python standard of §1–§14 still
+governs each app **until it moves**: docgen is moving now (step 3), JustWrite moves in step 4,
+JustVoice in step 5 (JustVoice's `docs/plans/2026-10-07-electron-node-plan.md`). The guard
+(`scripts/check-family.mjs`) tells the kinds apart — "electron" when `electron/main.js`
+exists — and checks each against its own half.
 
 Ruled by the user, 2026-08-02, after parity gaps kept surfacing one at a time: **one
 document that covers EVERYTHING, so a new app is the same as the last one — layout,
@@ -10,10 +17,10 @@ canonical implementations are **justwrite-app** (the richest shell) and
 A deviation is allowed only when flagged to the user AND recorded here in the same
 change. Unflagged deviations are how this document came to exist.
 
-Scope note (2026-08-04): this standard governs the family's Tauri APPS. The repo
-hosting it (`just-llm-runner`) is the shared LIBRARY — it follows §13 (docs) and its
-own CLAUDE.md/README contract, and is exempt from the app-shaped sections
-(§1/§2/§5/§10/§12).
+Scope note (2026-08-04; "Tauri" dropped 2026-10-08): this standard governs the family's
+APPS. The repo hosting it (`just-llm-runner`) is the shared LIBRARY — it follows §13
+(docs) and its own CLAUDE.md/README contract, and is exempt from the app-shaped sections
+(§0/§1/§2/§5/§10/§12).
 
 **Recorded deviations (2026-08-04, found by the docs campaign):** JustWrite predates
 §4's boot rules and still hand-wires `configureLlmUi`/`configureServerApi`/
@@ -24,9 +31,232 @@ individually instead of `<LlmUiHosts />`, and hand-builds its AI-tasks nav row
 2026-08-06/08: its `lint` script landed with slice 11, and target-tree P3 moved
 its console script to `justwrite_server.serve:main` — nothing is grandfathered.)
 
+**Recorded change (2026-10-08) — the Electron target.** The family moves to Electron and a
+Node server; Tauri, Rust and Python go (the direction ruled 2026-10-05; the plan approved
+2026-10-07; docgen's layout decided 2026-10-08 — JustVoice's `docs/dev/TASKS.md`, "The
+family moves to Electron and a Node server", answer 8). In this change:
+- **§0 added** — the Electron app, the family's target: layout, scripts, the shell and its
+  one bridge, the server and the headless launcher, the dev data folder, the installer, the
+  e2e harness.
+- **§1, §2, §5, §6, §7, §10, §12 and §14 marked** "until the app moves" where they describe
+  the Tauri + Python shape; §8 and §11 name their Electron twins. Nothing deleted: JustWrite
+  and JustVoice still run on them.
+- **§5's rule "no `window.<app>` global" became "one bridge object (`window.appShell`), read
+  only by `services/native.js`"** — in an Electron app the kit's preload installs it; the
+  renderer still installs nothing on `window`.
+- **The guard runs per kind** (check 3 scripts, 4 server layout, 8 skeleton, 12–14 the
+  shell); checks 1, 2, 5, 6, 7, 9, 10, 11 and 15 run for both kinds.
+
+**Recorded deviation (2026-10-08) — docgen mid-move.** Until its step's last slice deletes
+them, docgen still carries `src-tauri/`, `server/just_ai_i18n_docgen/`,
+`server/pyproject.toml`, `server/tests/test_*.py` and `scripts/py.js`. The guard reports
+them as ADVISORY ("leftover of the Tauri/Python era") — neither required nor forbidden — so
+the deletion itself neither adds nor clears a violation.
+
+---
+
+## 0 · The Electron app — the family's TARGET (2026-10-08)
+
+Every app ends here (plan §0). docgen is the first (step 3); its files are the reference
+until a second app has moved. Where §0 and §1–§14 disagree for a moved app, §0 wins; what
+§0.8 lists carries over unchanged.
+
+### 0.1 · The layout
+
+```
+<repo>/
+├── package.json            # ONE npm project — the UI, the server and Electron
+│                           #   "main": "electron/main.js"
+├── electron/main.js        # ~40 lines: the kit's runDesktopApp({...}) — config, no logic
+├── index.html · src/ · public/   # the renderer, as before (Vite → dist/)
+│   └── src/services/native.js    # the ONLY reader of window.appShell (§0.3)
+├── server/
+│   ├── src/                # the server, plain JavaScript (ES modules), one file per old
+│   │   │                   #   Python module with the same name (app.js, paths.js, api/…)
+│   │   ├── serve.js        # the entry — `serve` (§0.4)
+│   │   └── cli.js          # the domain CLI, where the app has one
+│   ├── tests/*.test.js     # vitest
+│   └── vitest.config.js    # include: tests/**/*.test.js
+├── scripts/
+│   ├── node24.mjs          # runs a script on Electron's own Node 24, not PATH's `node`
+│   └── dev.mjs             # `npm run dev` (§0.2)
+├── build/                  # icons (icon.ico · icon.icns · icon.png · tray.png)
+│   └── launcher/*.cmd      # the headless launchers (§0.4)
+├── data/                   # the dev data folder — gitignored (§0.5)
+└── e2e/                    # Playwright's Electron driver (§0.7)
+```
+
+- **package.json** — `dependencies` carry `"@delebash/llm-runner":
+  "file:../just-llm-runner/server"` (the kit's server, its shell and its data ladder);
+  `devDependencies` carry `electron` and `electron-builder` at exact versions (the version
+  policy is the plan's §8); `allowScripts` names the packages whose install scripts run
+  (`electron`, `koffi`, `better-sqlite3`); a `build` block configures the installer (§0.6).
+  **No `@tauri-apps/*` package and no `tauri` script.**
+- **The kit's UI** stays a Vite source alias (§3) — no change.
+- **The names**: the shell's `id` is the kebab name (`just-ai-i18n-docgen`) — the `app://`
+  host and `com.<id>.app`; the identifier, the port registry and the data-dir variable
+  `<SNAKE_UPPER>_DATA_DIR` are §1's, unchanged.
+- **No `scripts/py.js`, no `pyproject.toml`, no ruff, no pytest, no `src-tauri/`** — they go
+  with the move (plan §0 "What goes").
+
+### 0.2 · Root files — the scripts contract
+
+The NAMES are the contract, as in §2; `npm run dev` still opens the DESKTOP APP.
+
+```jsonc
+{
+  "dev": "node scripts/dev.mjs",           // THE APP — Vite on the app's own port (§3) + the
+                                           //   desktop app pointed at it (DEV_URL); the shell
+                                           //   starts the server on <repo>/data; closing the
+                                           //   window ends both
+  "dev:vite": "vite",                      // the browser-only loop
+  "build": "vite build && electron-builder", // the installer (§0.6)
+  "build:vite": "vite build",
+  "preview:vite": "vite preview",
+  "server": "node scripts/node24.mjs server/src/serve.js serve",
+  "test:server": "node scripts/node24.mjs node_modules/vitest/vitest.mjs run --config server/vitest.config.js",
+  "lint": "biome check .",
+  "test": "npm test --prefix e2e",         // §0.7
+  "screenshots": "node e2e/capture-direct.js",
+  "test:unit": "vitest run",               // the renderer's tests (root vitest.config.js)
+  "cli": "node scripts/node24.mjs server/src/cli.js"   // where the app has a domain CLI
+}
+```
+
+- **Everything server-side runs on Electron's own Node 24** — the runtime the server ships
+  on — through `scripts/node24.mjs` (it runs the `electron` binary with
+  `ELECTRON_RUN_AS_NODE=1`). Never whatever `node` is first on PATH: that is the
+  bare-`python` trap of §2 again.
+- The guard (check 3) asserts the names, `server`, `test:server`, `dev` →
+  `scripts/dev.mjs`, `build` → `electron-builder`, and no `tauri` script.
+
+### 0.3 · The shell and its one bridge
+
+**The shell is the kit's.** `electron/main.js` calls `runDesktopApp` from
+`@delebash/llm-runner/shell` with the app's settings and does nothing else — it imports only
+`node:*` modules and the shell. The rule that kept business logic out of Rust carries over:
+a need the shell can't meet is built in the KIT's `server/src/shell/`, for every app.
+
+| Field | Required | What |
+|---|---|---|
+| `id` | yes | the kebab name — the `app://` host, the tray id, `com.<id>.app` |
+| `appName` | yes | the data folder's name under the OS fallback (§0.5) |
+| `productName` | yes | shown in the tray and dialogs |
+| `port` | yes | the app's registered server port (§1) |
+| `serverEntry` | yes | `server/src/serve.js`, absolute |
+| `dataDirEnv` | yes | `<SNAKE_UPPER>_DATA_DIR` |
+| `repoRoot` | yes | the checkout root — the dev data folder is `<repoRoot>/data` |
+| `distDir` | yes | the built UI (`dist/`) |
+| `window` · `icon` · `trayIcon` · `logFile` | per app | window size/title/background, icons, the server's live log (tray "Open log file") |
+| `closeHoldMs` · `csp` · `trayExtras` | optional | JustWrite's 400 ms pagehide hold · the `app://` CSP (the kit writes a default) · extra tray items sent as `tray:<event>` |
+
+What the kit's shell does, so no app does it: resolves the data root before Chromium writes
+anything and keeps Chromium's own files under `<root>/electron`; runs `serverEntry` in a
+`utilityProcess` (`serve --port <port>`, the root in `dataDirEnv`) after evicting a stale
+listener, and stops it gracefully on quit (asks, waits, then kills); loads the window from
+`app://<id>/` (`DEV_URL` in development) — it opens even with the server down and shows the
+kit's connection-error screen; the §11 tray and keep-running switch; the native dialogs; the
+opener. The server's own escape hatch is `<ID_UPPER>_DEV_NO_SERVER=1` (it replaces §5's
+`<ABBR>_DEV_NO_SIDECAR`).
+
+**One bridge object — `window.appShell` — read only by `src/services/native.js`.** The kit's
+preload exposes it: `invoke(command, args)` for the shell's commands (`pickDirectory`,
+`pickFile`, `saveFile`, `storageGetRoot`, `storageRelocate`, `setKeepRunning`,
+`setTrayLabels`, `openExternal`, `openPath`), `on(event, fn)` for its `tray:*` pushes, and
+`platform`. `native.js` is the one file that reads it and the one that asks the kit's
+`isDesktopShell()`; it exports one function per command plus `openUrl` / `openPath` /
+`onShellEvent`, and outside the desktop app (Vite in a browser, the headless UI) each answers
+the browser's way — null or a no-op. **No `@tauri-apps` import anywhere.** A new command is
+added in the kit (main's `COMMANDS` and the preload's list), never per app.
+
+§5's three doors carry over: the opener is `native.js`'s `openUrl`/`openPath` handed to
+`installLlmUi(app, { external })`; a command goes through `native.js`; a file goes to disk
+through the kit's `saveBlob`/`downloadBlob`. The guard (checks 12–14) fails a
+`window.appShell` or `isDesktopShell` read outside `native.js`, any `@tauri-apps` import, a
+main that doesn't import `runDesktopApp` from the kit, imports anything else, misses a
+required field, or passes a port off the registry.
+
+### 0.4 · The server, its entry, and headless
+
+- **`server/src/serve.js`** is the entry: `serve [--host] [--port] [--data-dir]
+  [--log-level]` through the kit's `runServer({ envPrefix, build })`, a Fastify app from the
+  kit's `createServer`, the kit mounted with `installLlm(app, {…})` — the JavaScript twin of
+  `install_llm` (`../server/README.md`). Same routes, same JSON, same SQLite file with the
+  same schema as the Python server it replaced (ruling 5). Plain JavaScript on Electron's
+  Node 24, no TypeScript.
+- **The §6 server rules carry over in meaning** — bearer auth for the headless path, the
+  error envelope before CORS, the Origin-header test — from the kit's JavaScript `platform`
+  (`BearerAuthMiddleware`, `CsrfOriginMiddleware`, `installErrorHandlers`,
+  `makePrefsRouter`, `makeLogsRouter`, `makeDiskRouter`, `makeDataRouter`). The window's
+  origin is `app://<id>` — cross-site, so a JSON POST sends a preflight (plan §1.2) — and
+  the server's CORS and CSRF allowlists carry it.
+- **Tests**: `server/tests/*.test.js`, vitest on Electron's Node (`npm run test:server`);
+  routes through `fastify.inject`.
+- **Headless is the app's own exe run as Node** (ruling 4): `build/launcher/<name>-server.cmd`
+  sets `ELECTRON_RUN_AS_NODE=1` and runs the exe on `resources/app.asar/server/src/serve.js`;
+  the installer puts `build/launcher/` beside the exe. Same server, same UI at `/ui/`, no
+  window. A domain CLI gets a launcher the same way (docgen's `just-ai-i18n-docgen.cmd` →
+  `server/src/cli.js`). In a checkout: `npm run server`.
+- **A launcher never shares the app executable's name** — Windows resolves a bare name to
+  the GUI exe first and spawns windows forever (JustVoice's CreateProcessW trap, §5's "never
+  spawn the unqualified app name"; it moves from the console script to the launcher). The
+  guard fails it.
+
+### 0.5 · The data folder — one ladder
+
+ONE module, the kit's `server/src/platform/data_paths.js`, used by the shell before the
+window opens and by the headless server — the §6 policy, unchanged in meaning: the app's
+data-dir variable (`--data-dir` sets it) → the Change-folder pointer `dataroot.txt` (a
+pointer naming the computed default is residue and is deleted) → **`data/` in the install
+directory** (packaged: beside the exe; a checkout: `<repo>/data`, ruling 6) → the OS
+fallback `%LOCALAPPDATA%\<App>\<App>` only when the install directory isn't writable, its
+pointer beside it at `%LOCALAPPDATA%\<App>\dataroot.txt` (decided 2026-10-08).
+
+- **The dev data folder is `<repo>/data`**, gitignored (the guard checks `.gitignore`).
+  `npm run dev`, `npm run server` and the e2e harness all open it — one ladder, so §6's
+  two-dev-roots `--data-dir` trap is gone.
+- Chromium's own files and the window position live under the root (`<root>/electron`), so
+  nothing lands where the user didn't choose — the 2026-08-14 ruling Tauri broke.
+
+### 0.6 · The installer
+
+`npm run build` = `vite build && electron-builder` (MIT; docgen's block: NSIS on Windows,
+AppImage + deb on Linux). The `build` block in package.json: `appId`
+`com.<kebab-name>.app`, `productName`, `directories` (`buildResources: build`, `output:
+release`), `files` =
+`electron/**`, `server/src/**`, `dist/**`, `package.json`; `asarUnpack` for the native
+modules (`**/*.node`); `extraResources` copying `build/launcher` beside the exe; per-platform
+icons from `build/`; on Windows an `executableName` and a per-user NSIS install with a
+choosable folder (`oneClick: false`, `perMachine: false`). Auto-update is not part of the
+move (plan §0).
+
+### 0.7 · The e2e harness
+
+`e2e/` drives the REAL desktop app through Playwright's Electron driver (`playwright-core`'s
+`_electron`): it launches `electron .` from the checkout on the BUILT UI from `app://` (run
+`npm run build:vite` first) — no browser download, no driver binary. Scripts run in the page
+over the debugger protocol, so the app's real Content-Security-Policy stays on. The test
+files and root script names are §10's (`test`, `screenshots`); the tests' switch keeps the
+shell from starting its own server (`<ID_UPPER>_DEV_NO_SERVER`). It replaces §10's
+tauri-driver + msedgedriver.
+
+### 0.8 · What carries over unchanged
+
+§3 (vite config and the kit UI alias) · §4 (frontend standards; the opener is `native.js`'s,
+not `@tauri-apps/plugin-opener`) · §8's AI-call convention and the stack's behaviour (the
+server half through `installLlm`) · §11 (the standard chrome — tray, keep-running and the
+log opener now live in the kit's shell) · §13 (docs) · §14's renderer and config layer. The
+server's module names carry over one-for-one (`serve`, `app`, `app_state`, `paths`,
+`version`, `api/<area>_api`, …) as `.js` files; the guard asserts `serve.js` today, not yet
+the rest of §14's server skeleton.
+
 ---
 
 ## 1 · Creating the app
+
+> **Tauri + Python — until the app moves** (JustWrite step 4, JustVoice step 5): the
+> scaffolder and the Python names. The port registry, identifier and data-dir variable hold
+> for both kinds; an Electron app's layout is §0.1.
 
 ```bash
 npm create tauri-app@latest   # Vue, JavaScript — take the scaffolder's layout UNTOUCHED
@@ -50,6 +280,11 @@ npm create tauri-app@latest   # Vue, JavaScript — take the scaffolder's layout
   python override for scripts `<ABBR>_PYTHON` (e.g. `JW_PYTHON`, `JAID_PYTHON`).
 
 ## 2 · Root files — the exact contract
+
+> **Tauri + Python — until the app moves** (JustWrite step 4, JustVoice step 5). An Electron
+> app's scripts contract is §0.2; biome.json and CLAUDE.md below hold for both. In an
+> Electron app index.html still carries no meta CSP — the policy is a response header from
+> the shell's `app://` handler (§0.3) — and `.gitignore` also holds `data/` (§0.5).
 
 **package.json scripts — these NAMES are the contract** (`npm run dev` opens the
 DESKTOP APP in every repo; getting this wrong is the #1 confusion):
@@ -168,6 +403,10 @@ kit is consumed as source from the sibling clone — no publish step exists).
 
 ## 5 · The Tauri shell
 
+> **Tauri — until the app moves** (JustWrite step 4, JustVoice step 5). An Electron app's
+> shell is the kit's `runDesktopApp` (§0.3). The three doors and the bridge rule at the end
+> of this section hold for both kinds.
+
 **tauri.conf.json**: `productName`, `version`, `identifier` (§1),
 `build.beforeDevCommand: "npm run dev:vite"`, `beforeBuildCommand: "npm run build:vite"`,
 `frontendDist: "../dist"`, one window (title = productName, 1440×900 min 1000×640,
@@ -237,11 +476,20 @@ Each is ONE implementation, and the guard fails anything that goes around them.
 surface, and a dialog cannot end up at two different layers across three apps.
 `pick_directory` is the shared example; copy it verbatim.
 
-**No renderer installs a global on `window`.** Apps import modules. A
-`window.<appname>` bridge is the shape of JustWrite's Electron-era shim, deleted
-2026-08-14 — the guard fails it.
+**One bridge object (`window.appShell`), read only by `services/native.js`** (this rule
+replaced "no `window.<app>` global", 2026-10-08). In an Electron app the kit's preload
+installs that one object (§0.3); `native.js` is the only file that reads it, and the rest
+of the renderer imports `native.js`. A Tauri app has no bridge object — its door is
+`@tauri-apps/api/core`, imported in `native.js` alone. Either way **the renderer installs
+nothing on `window`**: apps import modules. A `window.<appname>` bridge was the shape of
+JustWrite's Electron-era shim, deleted 2026-08-14 — the guard fails it (check 13), and fails
+a `window.appShell` read outside `native.js` (check 12).
 
 ## 6 · The Python server
+
+> **Python — until the app moves** (JustWrite step 4, JustVoice step 5). An Electron app's
+> server is §0.4 and its data ladder §0.5; the data-location policy, bearer auth and the
+> error-envelope-before-CORS rules below hold for both kinds in meaning.
 
 ```
 server/
@@ -305,6 +553,9 @@ server/
 
 ## 7 · Why `server/<name>/` repeats the app name (the JS-vs-Python trap)
 
+> **Python — until the app moves.** An Electron app's server is `server/src/` — the
+> JavaScript case this section's first sentence already calls correct.
+
 In JS, `server/src/` with no name is correct — Node imports by FILE PATH and the name
 lives in package.json. **Python imports by NAME**: the package folder's name is the
 import statement, the console-script target, and what pip installs. Name it `src` and
@@ -320,7 +571,10 @@ Django/NumPy flat).
 ## 8 · Adopting the shared LLM stack (llm-runner)
 
 The standard is `install_llm` — three lines plus seeds, identical in every app
-(README "Consume it" has the full tiers; this is the app recipe):
+(README "Consume it" has the full tiers; this is the app recipe). **The Python recipe holds
+until the app moves**; an Electron app's server calls the JavaScript twin,
+`installLlm(app, { db, dataDir, product, featureCatalog, … })` (`../server/README.md`,
+"Consume it") — same routes, same JSON, same tables. The rules below hold for both.
 
 ```python
 app.include_router(llm_runner.router)                 # the host's line
@@ -456,6 +710,11 @@ suite — convergence without one just resets the rot clock. JustVoice commits
 
 ## 10 · The e2e harness — the real webview is the acceptance surface
 
+> **The tauri-driver harness — until the app moves** (JustWrite step 4, JustVoice step 5).
+> An Electron app's harness is Playwright's Electron driver (§0.7). The principle — the real
+> app is the acceptance surface, a Chrome tab is a proxy — and the root script names hold
+> for both kinds.
+
 A Chrome tab on the vite port is a PROXY: the app ships in WebView2, and "it looks
 right" claims are made against the window, never the proxy (user-ruled 2026-08-02,
 after exactly that mistake). JustWrite's `e2e/` is the canonical harness — copy its
@@ -564,6 +823,12 @@ app.include_router(make_logs_router(PRODUCT))
 app.include_router(make_disk_router(data_dir))
 ```
 
+**In an Electron app (§0.3) the chrome is the same; where it lives moves.** The tray (its
+labels through `setTrayLabels`), keep-running (`setKeepRunning`), "Open log file" (the
+shell's `logFile`) and the Storage verbs (`storageGetRoot` / `storageRelocate`, which
+replace §5's Rust commands) are the kit shell's; the server lines above are the kit's
+JavaScript twins (`installLogRing`, `installFileLog`, `makeLogsRouter`, `makeDiskRouter`).
+
 **PORTING A DONOR MEANS PORTING ITS STATES, NOT ITS SHAPE.** Naming the donor in a
 comment is not checking it. Before writing a surface that copies one, read the donor's
 answers to these and copy them or record a deviation:
@@ -653,6 +918,13 @@ assert the marker (a 200 from an empty ring proves nothing).
 
 ## 12 · Definition of done — a new app ships when every box checks
 
+> **The Tauri + Python rows — until the app moves** (JustWrite step 4, JustVoice step 5). For
+> an Electron app read them through §0: `test:server` is vitest through `scripts/node24.mjs`
+> (no venv, no ruff); "tauri.conf" becomes `electron/main.js`'s required fields (§0.3);
+> "closing the window kills the Python process" becomes "closing the window stops the
+> server — no orphan on :PORT"; the e2e row drives the Electron app (§0.7); and `npm run
+> build` produces the installer, which installs and starts (§0.6).
+
 - [ ] `npm run dev` opens the DESKTOP APP with the server spawned by the shell
 - [ ] `npm run dev:vite` + `npm run server` = the browser loop on the app's OWN dev port (JW 1420 · JV 1430 · docgen 1450 — P10; the kit's origin-aware resolver hits the server directly, no proxy)
 - [ ] `npm run test:server` green from a fresh clone (`scripts/py.js` resolves the venv)
@@ -718,6 +990,13 @@ program RECORD (each piece's status row carries its gates, scope calls and sweep
 receipts); THIS section is the normative end state, and `scripts/check-family.mjs`
 **check 8** asserts it structurally — apps against this list, plus the retired
 names of every rename the program performed (check 7).
+
+> **The Python server package, `scripts/py.js` and the ruff pin — until the app moves**
+> (JustWrite step 4, JustVoice step 5). For an Electron app check 8 asserts §0.1 instead:
+> `electron/main.js`, `scripts/node24.mjs` (riding `ELECTRON_RUN_AS_NODE`), `scripts/dev.mjs`,
+> `server/vitest.config.js`, `"main": "electron/main.js"`, no `@tauri-apps/*` package, `data/`
+> in `.gitignore`, a `<name>-server` launcher not named like the app exe. The renderer and
+> config layer below hold for both kinds.
 
 **Server package** (`server/<snake_name>/`): `serve.py` (the entry; console
 script `<name>-server = <snake>.serve:main`) · `app.py` · `app_state.py`

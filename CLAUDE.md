@@ -5,15 +5,26 @@ manages and recommends GGUF models, downloads the right prebuilt llama.cpp (CUDA
 no toolkit install) and spawns `llama-server`. The shared **Vue UI kit** lives here too, in `ui/`
 (`@delebash/llm-ui`).
 
-**Internal library — never published to PyPI or npm.** Both apps consume it as a git dependency
-(pinned tag) or an editable install; it is frozen into each app's bundle (PyInstaller → Tauri
-sidecar).
+**Two languages until JustVoice moves** (the family's move to Electron and a Node server,
+JustVoice's `docs/plans/2026-10-07-electron-node-plan.md`): `llm_runner/` (Python) and its
+JavaScript twin `server/` (`@delebash/llm-runner` — the stack, the runner, the platform pieces
+and the desktop shell `runDesktopApp`). A kit server change lands in both. Read
+`server/README.md` and the build sheet `docs/plans/2026-10-07-kit-in-javascript.md` before
+touching `server/`.
+
+**Internal library — never published to PyPI or npm.** A Tauri + Python app consumes
+`llm_runner` as a git dependency (pinned tag) or an editable install, frozen into its bundle
+(PyInstaller → Tauri sidecar); an Electron app consumes `server/` as
+`"@delebash/llm-runner": "file:../just-llm-runner/server"`, packed by electron-builder.
 
 > **A change here lands in BOTH apps.** There is no per-app copy of any of this — that is the
 > entire point of the repo. Before changing a Python contract or a `Ui*` primitive, consider what
 > it does to JustWrite *and* JustVoice.
 
 ## Commands
+
+The JavaScript half: `cd server && npm test` (vitest on Electron's Node 24) and `npm run lint`
+— the route diff and seed parity are in `server/README.md` "Check it".
 
 This repo has **no venv of its own** — `llm_runner` is editable-installed into JustWrite's venv,
 so its suite runs on that interpreter:
@@ -70,7 +81,8 @@ alias, not a build — there is no publish step to run.
 
 | For | Read |
 |---|---|
-| **THE family app structure — every Tauri+Vue+Python app, current and future** | `docs/app-structure.md` (ruled 2026-08-02; the layout, the naming, the server shape, the JS-vs-Python trap answered once) |
+| **THE family app structure — every app** | `docs/app-structure.md` (ruled 2026-08-02; §0 is the Electron target, 2026-10-08; §1–§14 the Tauri+Vue+Python shape each app keeps until it moves) |
+| The kit in JavaScript (`server/`) | `server/README.md` · the build sheet `docs/plans/2026-10-07-kit-in-javascript.md` |
 | What this is, how flags derive, what each module does | `README.md` (dense and current) |
 | Open work — THE live tracker for this repo (kit + shared server) | `docs/dev/TASKS.md`; unscheduled ideas in `docs/dev/IDEAS.md` |
 | Model verdicts, licensing laws, measured serving numbers (distilled) | `docs/dev/model-research.md` · `docs/dev/serving-design.md` |

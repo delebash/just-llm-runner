@@ -2,7 +2,9 @@
 
 **Status: EXECUTED — ratified 2026-08-08; pieces P2–P11 all DONE the same
 day.** The NORMATIVE end state now lives in **app-structure.md §14** (the P11
-fold); this page is the program RECORD — each piece's status row carries its
+fold) — for a Tauri + Python app until it moves; a moved app's server, shell and
+scripts are app-structure **§0**, the Electron target (2026-10-08), and check 8
+asserts per kind. This page is the program RECORD — each piece's status row carries its
 gates, scope calls and sweep receipts, and the definition-of-done below stays
 the law for any future structural piece. `scripts/check-family.mjs` holds the
 line: check 7 (every retired name) + check 8 (the skeleton as assertions).

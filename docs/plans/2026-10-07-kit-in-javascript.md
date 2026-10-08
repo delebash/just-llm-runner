@@ -221,3 +221,22 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
   descriptors.
 - `vi.spyOn(namespace, "fn")` reaches calls through the namespace (other modules, and
   `self.fn()` inside the module) but not a direct internal call — measured under vitest 4.1.11.
+
+**Python bugs the ports found (not fixed — to file as FINDINGs in the kit's TASKS; plan §10 Q7
+says a fix lands in both languages):**
+
+- `runner/cache_registry.py:120-121` — an `apps` value that isn't a list (e.g. a number)
+  raises a TypeError past `except (OSError, ValueError)` into boot; the module promises nothing
+  raises into boot. (runner A, 2026-10-07)
+- `runner/download.py:231-235` — a resume file holding a non-object (e.g. `[]`) raises an
+  uncaught AttributeError and the download crashes. (runner A)
+- `runner/models.py:475-481` — `find_inherited_mtp_drafter` loops over a `set` of roots, so
+  which drafter is suggested can change between runs (hash order). The JavaScript tries the
+  base repo first, then its `-it` root. (runner A)
+
+**Where the JavaScript can't match Python exactly (recorded by the ports):** requests'
+(connect, read) timeouts became an idle watchdog; a cancelled chunked download aborts requests in
+flight; JS can't tell `20.0` from `20` in a parsed JSON number (stored text is unaffected where a
+formatter re-writes it); the kit's `\d` regexes are ASCII; `data_api`'s zips aren't
+byte-identical to Python's (both sides read each other's); `request.ip` ignores
+`X-Forwarded-For`.

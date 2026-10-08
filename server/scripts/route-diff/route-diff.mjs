@@ -27,17 +27,32 @@ const HERE = import.meta.dirname;
 const SERVER = path.resolve(HERE, "../..");
 // --app: compare the app's WHOLE server (its own routes + the kit's) — the Node side is the
 // app's own server/src/serve.js instead of the kit-only host.
-const { values: opts } = parseArgs({ options: { clean: { type: "boolean" }, app: { type: "boolean" } } });
+// --target: which app's Python server is the reference (default: the one being moved now).
+const { values: opts } = parseArgs({
+  options: { clean: { type: "boolean" }, app: { type: "boolean" }, target: { type: "string", default: "justwrite" } },
+});
 
-// docgen's run (2026-10-08) was the last against it: its Python server was deleted after it.
-const APP = {
-  name: "docgen",
-  dataRoot: "E:/Dev/Web/just_ai_i18n_docgen/data",
-  db: "app.db",
-  python: "E:/Dev/Web/just_ai_i18n_docgen/server/.venv/Scripts/python.exe",
-  pyArgs: (port, dir) => ["-m", "just_ai_i18n_docgen.serve", "serve", "--port", String(port), "--data-dir", dir],
-  nodeEntry: "E:/Dev/Web/just_ai_i18n_docgen/server/src/serve.js",
+const APPS = {
+  // docgen's run (2026-10-08) was the last against it: its Python server was deleted after it.
+  docgen: {
+    name: "docgen",
+    dataRoot: "E:/Dev/Web/just_ai_i18n_docgen/data",
+    db: "app.db",
+    python: "E:/Dev/Web/just_ai_i18n_docgen/server/.venv/Scripts/python.exe",
+    pyArgs: (port, dir) => ["-m", "just_ai_i18n_docgen.serve", "serve", "--port", String(port), "--data-dir", dir],
+    nodeEntry: "E:/Dev/Web/just_ai_i18n_docgen/server/src/serve.js",
+  },
+  justwrite: {
+    name: "justwrite",
+    dataRoot: "E:/Dev/Web/justwrite-app/data",
+    db: "justwrite.db",
+    python: "E:/Dev/Web/justwrite-app/.venv/Scripts/python.exe",
+    pyArgs: (port, dir) => ["-m", "justwrite_server.serve", "serve", "--port", String(port), "--data-dir", dir],
+    nodeEntry: "E:/Dev/Web/justwrite-app/server/src/serve.js",
+  },
 };
+const APP = APPS[opts.target];
+if (!APP) throw new Error(`--target: one of ${Object.keys(APPS).join(", ")}`);
 const PY_PORT = 8790;
 const JS_PORT = 8791;
 
@@ -54,6 +69,9 @@ const VOLATILE = [
   // A backup zip: its bytes differ by the entries' timestamps; each server restores the
   // other's (the kit's data_api tests prove it both ways).
   /^\/v1\/data\/backup/,
+  // A book's export zip: the same files, different zip framing (JustWrite's port writes its
+  // own zip; each server imports the other's — its book_transfer tests).
+  /^\/v1\/projects\/[^/]+\/export/,
 ];
 // Kit routers docgen mounts with its own hooks; the Node host doesn't (step 3 ports docgen).
 const NOT_MOUNTED = [/^\/v1\/data\//, /^\/v1\/prefs/];
@@ -67,9 +85,10 @@ const realReg = path.join(process.env.LOCALAPPDATA || "", "just-ai", "caches.jso
 if (existsSync(realReg)) copyFileSync(realReg, path.join(dirs.home, "caches.json"));
 const env = { ...process.env, JUST_AI_HOME: dirs.home, PYTHONIOENCODING: "utf-8" };
 
-// The Node host's arguments, from the app's own Python data.
+// The Node host's arguments, from the app's own Python data (kit-only mode; --app runs the
+// app's own server, which has them built in).
 const argsFile = path.join(scratch, "host-args.json");
-await new Promise((resolve, reject) => {
+if (!opts.app) await new Promise((resolve, reject) => {
   const c = spawn(APP.python, [path.join(HERE, "host-args.py"), APP.name], { env, windowsHide: true });
   const out = [];
   c.stdout.on("data", (d) => out.push(d));
@@ -367,6 +386,19 @@ try {
     date: [new Date().toISOString().slice(0, 10)],
     build: ["b11239"],
   };
+  if (opts.app && APP.name === "justwrite") {
+    // JustWrite's own routes, from the Python side's answers.
+    const projects = (await get(PY_PORT, "/v1/projects")).json || [];
+    fill.project_id = projects.slice(0, 3).map((p) => p.id);
+    fill.projectId = fill.project_id;
+    const sessions = [];
+    for (const id of fill.project_id) {
+      const s = (await get(PY_PORT, `/v1/chat/sessions?projectId=${encodeURIComponent(id)}`)).json;
+      for (const x of Array.isArray(s) ? s : s?.sessions || []) sessions.push(x.id);
+    }
+    fill.session_id = sessions.slice(0, 3);
+    fill.key = [...fill.key, ...((await get(PY_PORT, "/v1/projects/autosaves")).json || []).slice(0, 2).map((a) => a.key)];
+  }
 
   const urls = [];
   for (const r of table) {

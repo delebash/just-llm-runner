@@ -85,6 +85,7 @@ const STOP_WAIT_MS = 8000; // the server's own 3 s grace plus engine shutdown
  *   logFile       the server's live log, relative to the data root (tray "Open log file")
  *   closeHoldMs   wait before closing so a `pagehide` save lands (JustWrite: 400)
  *   csp           the Content-Security-Policy for app:// pages (a default is used)
+ *   cspAdd        sources added to the default's directives, e.g. {"img-src": ["https:"]}
  *   trayExtras    extra tray items [{id, label, event}] sent to the renderer as `tray:<event>`
  */
 export function runDesktopApp(config) {
@@ -203,20 +204,21 @@ export function runDesktopApp(config) {
   }
 
   // ── app:// — the built UI, with a written CSP ──────────────────────────────
+  const cspDefault = [
+    ["default-src", "'self'"],
+    ["script-src", "'self'"],
+    ["style-src", "'self' 'unsafe-inline'"],
+    ["img-src", "'self' data: blob: http://127.0.0.1:* http://localhost:*"],
+    ["media-src", "'self' data: blob: http://127.0.0.1:* http://localhost:*"],
+    ["font-src", "'self' data:"],
+    ["connect-src", "'self' http://127.0.0.1:* http://localhost:*"],
+    ["worker-src", "'self' blob:"],
+    ["object-src", "'none'"],
+    ["base-uri", "'self'"],
+  ];
   const csp =
     config.csp ||
-    [
-      "default-src 'self'",
-      "script-src 'self'",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: http://127.0.0.1:* http://localhost:*",
-      "media-src 'self' data: blob: http://127.0.0.1:* http://localhost:*",
-      "font-src 'self' data:",
-      "connect-src 'self' http://127.0.0.1:* http://localhost:*",
-      "worker-src 'self' blob:",
-      "object-src 'none'",
-      "base-uri 'self'",
-    ].join("; ");
+    cspDefault.map(([d, src]) => [d, src, ...((config.cspAdd || {})[d] || [])].join(" ")).join("; ");
 
   function serveApp(request) {
     const url = new URL(request.url);

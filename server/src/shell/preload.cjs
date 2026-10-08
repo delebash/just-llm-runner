@@ -6,7 +6,8 @@
 //   appShell.invoke(command, args) → Promise — the commands main.js handles (COMMANDS
 //     there; this list must match it);
 //   appShell.on(event, fn) → unsubscribe — the shell's pushes, `tray:*` only;
-//   appShell.platform — "win32" | "darwin" | "linux".
+//   appShell.platform — "win32" | "darwin" | "linux";
+//   appShell.versions — { electron, chrome } (an app's About page names its runtime).
 
 const { contextBridge, ipcRenderer } = require("electron");
 
@@ -34,4 +35,5 @@ contextBridge.exposeInMainWorld("appShell", {
     return () => ipcRenderer.removeListener(event, listener);
   },
   platform: process.platform,
+  versions: { electron: process.versions.electron, chrome: process.versions.chrome },
 });

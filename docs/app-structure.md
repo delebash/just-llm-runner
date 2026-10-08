@@ -148,7 +148,7 @@ a need the shell can't meet is built in the KIT's `server/src/shell/`, for every
 | `repoRoot` | yes | the checkout root — the dev data folder is `<repoRoot>/data` |
 | `distDir` | yes | the built UI (`dist/`) |
 | `window` · `icon` · `trayIcon` · `logFile` | per app | window size/title/background, icons, the server's live log (tray "Open log file") |
-| `closeHoldMs` · `csp` · `trayExtras` | optional | JustWrite's 400 ms pagehide hold · the `app://` CSP (the kit writes a default) · extra tray items sent as `tray:<event>` |
+| `closeHoldMs` · `csp` · `cspAdd` · `trayExtras` | optional | JustWrite's 400 ms pagehide hold · the `app://` CSP (the kit writes a default) · sources added to the default's directives (JustWrite: `{"img-src": ["https:"]}`, for images pasted from the web) · extra tray items sent as `tray:<event>` |
 
 What the kit's shell does, so no app does it: resolves the data root before Chromium writes
 anything and keeps Chromium's own files under `<root>/electron`; runs `serverEntry` in a
@@ -162,8 +162,8 @@ opener. The server's own escape hatch is `<ID_UPPER>_DEV_NO_SERVER=1` (it replac
 **One bridge object — `window.appShell` — read only by `src/services/native.js`.** The kit's
 preload exposes it: `invoke(command, args)` for the shell's commands (`pickDirectory`,
 `pickFile`, `saveFile`, `storageGetRoot`, `storageRelocate`, `setKeepRunning`,
-`setTrayLabels`, `openExternal`, `openPath`), `on(event, fn)` for its `tray:*` pushes, and
-`platform`. `native.js` is the one file that reads it and the one that asks the kit's
+`setTrayLabels`, `openExternal`, `openPath`), `on(event, fn)` for its `tray:*` pushes,
+`platform`, and `versions` (`{ electron, chrome }`, for an About page). `native.js` is the one file that reads it and the one that asks the kit's
 `isDesktopShell()`; it exports one function per command plus `openUrl` / `openPath` /
 `onShellEvent`, and outside the desktop app (Vite in a browser, the headless UI) each answers
 the browser's way — null or a no-op. **No `@tauri-apps` import anywhere.** A new command is

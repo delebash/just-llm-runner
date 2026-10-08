@@ -21,7 +21,15 @@ def docgen():
     return create_app(tempfile.mkdtemp(prefix="app-routes-"))
 
 
-APPS = {"docgen": docgen}
+def justwrite():
+    from pathlib import Path
+
+    from justwrite_server.app import create_app
+
+    return create_app(Path(tempfile.mkdtemp(prefix="app-routes-")))
+
+
+APPS = {"docgen": docgen, "justwrite": justwrite}
 
 if __name__ == "__main__":
     app = APPS[sys.argv[1]]()

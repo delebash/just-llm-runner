@@ -257,6 +257,18 @@ plan §5 and its TASKS entry):
   docgen's whole server, Python vs Node, on copies of its real database: 83 reads (70 identical,
   13 volatile — times, ids, the backup file), 37/37 writes, 1,910 database cells, 0 different.
 
+**JustWrite on Electron** (*measured 2026-10-08*, this machine, step 4; JustWrite's register
+has its app-side facts):
+- electron-builder packages every `dependencies` entry into the app; a renderer library listed
+  there ships twice (Vite already bundled it). Moving the renderer's libraries to
+  devDependencies took JustWrite's installer from 170 MB to 134 MB; docgen's got the same split.
+  `dependencies` now holds only what the server and shell load: the kit and `@fastify/static`.
+- better-sqlite3 13 and koffi ship per-platform N-API prebuilds, so neither needs a rebuild for
+  Electron's ABI — locally or on CI.
+- The shell evicts a stale listener on the app's port before starting the server, so a second
+  copy of an app (or a headless server on the same port) is stopped, as the Tauri shells did.
+- The kit's CSP default forbids eval; an app adds sources per directive with `cspAdd`.
+
 **Phones** (*web*, study §5):
 
 - Tauri 2's sidecar works on desktop only. iOS apps may not spawn child processes, so the

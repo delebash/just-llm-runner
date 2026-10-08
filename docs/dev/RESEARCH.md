@@ -236,6 +236,27 @@ databases read-only, plus the registry):
 
 Renaming JustWrite's dev root breaks all of these unless they are rewritten (the plan's §10 Q9).
 
+**docgen on Electron** (*measured 2026-10-08*, this machine, docgen's step 3; the JustVoice
+plan §5 and its TASKS entry):
+- electron-builder 26.15.3's NSIS uninstaller ends with `RMDir /r $INSTDIR`, and an update runs
+  the old uninstaller first — with the family's data folder beside the exe, a silent uninstall
+  left only `resources\`. The kit's `server/src/shell/installer.nsh` (`customRemoveFiles`, each
+  app's `nsis.include`) keeps `data\` and `dataroot.txt`; a marker file in `data\` then survived
+  an update and an uninstall.
+- better-sqlite3 ships its build leftovers (sources, object files, PDBs) inside the package; in a
+  long install path they hit MAX_PATH and the uninstall left empty folders. Leaving them out of
+  `build.files` fixed it; the unpacked app still opened its database. docgen's installer: 124 MB.
+- Headless runs the installed exe as Node: `ELECTRON_RUN_AS_NODE=1` and the server's entry inside
+  `resources\app.asar` (`build/launcher/*.cmd`); it served on a second port beside the window.
+- Playwright's Electron driver (`playwright-core` 1.63.0, `_electron.launch`) drives the dev app
+  and the installed exe; docgen's e2e ran 20/20 in about 10 s.
+- docgen's Python server answered errors in FastAPI's default shape (`{"detail": …}`, 422 items
+  with `input`/`ctx`), not problem+json — found by the route diff, not by reading. The kit's
+  `createServer({ errors: "fastapi" })` reproduces it.
+- The route diff's app mode (`server/scripts/route-diff/route-diff.mjs --app docgen`) compared
+  docgen's whole server, Python vs Node, on copies of its real database: 83 reads (70 identical,
+  13 volatile — times, ids, the backup file), 37/37 writes, 1,910 database cells, 0 different.
+
 **Phones** (*web*, study §5):
 
 - Tauri 2's sidecar works on desktop only. iOS apps may not spawn child processes, so the

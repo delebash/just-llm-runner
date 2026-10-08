@@ -25,14 +25,18 @@ import { parseArgs } from "node:util";
 
 const HERE = import.meta.dirname;
 const SERVER = path.resolve(HERE, "../..");
-const { values: opts } = parseArgs({ options: { clean: { type: "boolean" } } });
+// --app: compare the app's WHOLE server (its own routes + the kit's) — the Node side is the
+// app's own server/src/serve.js instead of the kit-only host.
+const { values: opts } = parseArgs({ options: { clean: { type: "boolean" }, app: { type: "boolean" } } });
 
+// docgen's run (2026-10-08) was the last against it: its Python server was deleted after it.
 const APP = {
   name: "docgen",
-  dataRoot: "E:/Dev/Web/just_ai_i18n_docgen/src-tauri/target/debug/data",
+  dataRoot: "E:/Dev/Web/just_ai_i18n_docgen/data",
   db: "app.db",
   python: "E:/Dev/Web/just_ai_i18n_docgen/server/.venv/Scripts/python.exe",
   pyArgs: (port, dir) => ["-m", "just_ai_i18n_docgen.serve", "serve", "--port", String(port), "--data-dir", dir],
+  nodeEntry: "E:/Dev/Web/just_ai_i18n_docgen/server/src/serve.js",
 };
 const PY_PORT = 8790;
 const JS_PORT = 8791;
@@ -47,6 +51,9 @@ const VOLATILE = [
   /^\/v1\/llm-runner\/engine\/resolve-assets/,
   /^\/v1\/logs\//,
   /^\/v1\/disk\/usage/,
+  // A backup zip: its bytes differ by the entries' timestamps; each server restores the
+  // other's (the kit's data_api tests prove it both ways).
+  /^\/v1\/data\/backup/,
 ];
 // Kit routers docgen mounts with its own hooks; the Node host doesn't (step 3 ports docgen).
 const NOT_MOUNTED = [/^\/v1\/data\//, /^\/v1\/prefs/];
@@ -84,9 +91,10 @@ function start(label, cmd, args, extraEnv = {}) {
   return c;
 }
 start("python", APP.python, APP.pyArgs(PY_PORT, dirs.py));
-start("node", process.execPath, [path.join(HERE, "kit-host.mjs"), "--data-dir", dirs.js, "--port", String(JS_PORT), "--args", argsFile], {
-  ELECTRON_RUN_AS_NODE: "1",
-});
+const nodeArgs = opts.app
+  ? [APP.nodeEntry, "serve", "--port", String(JS_PORT), "--data-dir", dirs.js]
+  : [path.join(HERE, "kit-host.mjs"), "--data-dir", dirs.js, "--port", String(JS_PORT), "--args", argsFile];
+start("node", process.execPath, nodeArgs, { ELECTRON_RUN_AS_NODE: "1" });
 
 function stopAll() {
   for (const p of procs) {
@@ -330,7 +338,17 @@ function compareDatabases(idMap) {
 
 try {
   await Promise.all([waitUp(PY_PORT, "python"), waitUp(JS_PORT, "node")]);
-  const table = JSON.parse(readFileSync(path.join(SERVER, "scripts", "route-table.json"), "utf8"));
+  let table = JSON.parse(readFileSync(path.join(SERVER, "scripts", "route-table.json"), "utf8"));
+  if (opts.app) {
+    // The app's whole route table, from its Python app's OpenAPI.
+    const out = await new Promise((resolve, reject) => {
+      const c = spawn(APP.python, [path.join(HERE, "app-routes.py"), APP.name], { env, windowsHide: true });
+      const b = [];
+      c.stdout.on("data", (d) => b.push(d));
+      c.on("close", (code) => (code ? reject(new Error(`app-routes.py exited ${code}`)) : resolve(Buffer.concat(b).toString())));
+    });
+    table = JSON.parse(out);
+  }
 
   // Parameter values, from the Python side's own data.
   const catalog = (await get(PY_PORT, "/v1/ai/model-catalog")).json?.rows || [];
@@ -353,7 +371,7 @@ try {
   const urls = [];
   for (const r of table) {
     if (r.method !== "GET") continue;
-    if (NOT_MOUNTED.some((re) => re.test(r.path))) continue;
+    if (!opts.app && NOT_MOUNTED.some((re) => re.test(r.path))) continue;
     const pathParams = r.params.filter((p) => p.in === "path");
     const reqQuery = r.params.filter((p) => p.in === "query" && p.required);
     const combos = [{}];

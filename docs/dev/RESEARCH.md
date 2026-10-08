@@ -269,6 +269,17 @@ has its app-side facts):
   copy of an app (or a headless server on the same port) is stopped, as the Tauri shells did.
 - The kit's CSP default forbids eval; an app adds sources per directive with `cspAdd`.
 
+**JustVoice's server port** (*measured 2026-10-08*; JustVoice's register has its app-side facts):
+- `runner/binary.js` `extractTarGz` left the archive open for the life of the process when it
+  stopped at the end marker (the gunzip stream was destroyed, the file stream under it never):
+  one open handle per extraction, counted. It now closes the file before returning
+  (`binary.test.js` `extract_tar_gz_closes_the_archive` fails on the old code).
+- `platform/http.js` runs its own undici copy, so a `FormData` made by another copy (an app's,
+  or Node's global) is sent as the text "[object FormData]". Multipart bodies are written out
+  with `http.multipart(parts)` instead (`http_multipart.test.js`).
+- Extra arguments after `node -e "<code>"` must follow `--`, or Node reads them as its own
+  options.
+
 **Phones** (*web*, study §5):
 
 - Tauri 2's sidecar works on desktop only. iOS apps may not spawn child processes, so the

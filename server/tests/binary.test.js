@@ -8,12 +8,12 @@
 // extractors run for real. Python's OSError is an error carrying a system `code`.
 // The parametrized `resolve_release_assets_against_four_real_builds` is one `test.each`
 // (one Python def, four cases).
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, fstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path, { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { crc32, deflateRawSync, gzipSync } from "node:zlib";
+import { crc32, deflateRawSync, gunzipSync, gzipSync } from "node:zlib";
 import { beforeEach, expect, test, vi } from "vitest";
 import { model } from "../src/platform/models.js";
 import * as procs from "../src/platform/procs.js";
@@ -378,6 +378,30 @@ test("acquire_tar_gz_macos", async () => {
   expect(calls.length).toBe(1); // metal has no runtime companion
   const dest = binmod.binaryDir(root, m.llamacpp.pinnedBuild);
   expect(readdirSync(dest).filter((n) => n.startsWith("_download"))).toEqual([]); // temp archive cleaned up
+});
+
+test("extract_tar_gz_closes_the_archive", async () => {
+  // Stopping at the end marker must still close the archive (it stayed open for the life of
+  // the process — found by JustVoice's dictionary install, 2026-10-08). Random bytes after
+  // the marker keep the read stream mid-file when the extractor stops.
+  const openFds = () => {
+    const open = [];
+    for (let fd = 3; fd < 256; fd++) {
+      try {
+        fstatSync(fd);
+        open.push(fd);
+      } catch {}
+    }
+    return open;
+  };
+  const dir = tmp();
+  const archive = join(dir, "a.tar.gz");
+  const tar = gunzipSync(tarGzBytes([["f.txt", "hi"]]));
+  writeFileSync(archive, gzipSync(Buffer.concat([tar, randomBytes(1 << 20)])));
+  const before = openFds();
+  await binmod.extractTarGz(archive, join(dir, "out"));
+  expect(readFileSync(join(dir, "out", "f.txt"), "utf8")).toBe("hi");
+  expect(openFds()).toEqual(before);
 });
 
 test("acquire_docker_raises", async () => {

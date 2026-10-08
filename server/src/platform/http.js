@@ -7,6 +7,7 @@
 // `fetch` is called through this module's namespace everywhere, so a test replaces it
 // with `vi.spyOn(http, "fetch")` — the Python tests' monkeypatch of requests.get.
 
+import { randomBytes } from "node:crypto";
 import { EnvHttpProxyAgent, fetch as undiciFetch } from "undici";
 import * as self from "./http.js";
 
@@ -38,6 +39,30 @@ export class HttpStatusError extends Error {
     this.url = url;
     this.body = body;
   }
+}
+
+/**
+ * A multipart/form-data body, written out (httpx's `files=` / `data=` layout): each part
+ * `{name, data, filename?, contentType?}` — a part with a filename is a file. Returns
+ * `{body (Buffer), contentType}` for `fetch(url, {method: "POST", body, headers:
+ * {"content-type": contentType}})`. Built here rather than with FormData: this module's
+ * undici is its own copy, and a FormData made by another copy (an app's, or Node's global
+ * one) is sent as the text "[object FormData]".
+ */
+export function multipart(parts) {
+  const boundary = randomBytes(16).toString("hex");
+  const quote = (s) => String(s).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+  const chunks = [];
+  for (const p of parts) {
+    let head = `--${boundary}\r\nContent-Disposition: form-data; name="${quote(p.name)}"`;
+    if (p.filename != null) head += `; filename="${quote(p.filename)}"`;
+    head += "\r\n";
+    if (p.contentType) head += `Content-Type: ${p.contentType}\r\n`;
+    head += "\r\n";
+    chunks.push(Buffer.from(head, "utf8"), Buffer.isBuffer(p.data) ? p.data : Buffer.from(p.data), Buffer.from("\r\n"));
+  }
+  chunks.push(Buffer.from(`--${boundary}--\r\n`));
+  return { body: Buffer.concat(chunks), contentType: `multipart/form-data; boundary=${boundary}` };
 }
 
 /** GET a JSON document; a non-2xx status throws HttpStatusError. */

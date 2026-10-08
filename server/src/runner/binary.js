@@ -759,7 +759,10 @@ export async function extractTarGz(archive, dest) {
     cur = null;
   };
 
-  const src = createReadStream(archive).pipe(createGunzip());
+  // `raw` is closed in `finally`: stopping at the end marker otherwise leaves the archive
+  // open for the life of the process.
+  const raw = createReadStream(archive);
+  const src = raw.pipe(createGunzip());
   try {
     for await (const chunk of src) {
       buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
@@ -803,6 +806,8 @@ export async function extractTarGz(archive, dest) {
     }
   } finally {
     if (cur?.fd != null) closeSync(cur.fd);
+    src.destroy();
+    if (!raw.closed) await new Promise((done) => raw.once("close", done).destroy());
   }
   if (cur || (!ended && buf.length)) throw new BadArchive("unexpected end of data");
   for (const [kind, target, linkname] of links) {

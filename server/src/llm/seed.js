@@ -21,16 +21,16 @@
 // Patched by tests (Python monkeypatched these module variables): `cfg.DEFAULT_CATALOG`,
 // `cfg.STALE_SEED_VALUES` and `cfg._APP` — assign and restore them on `cfg` (rule 18).
 
-import { pyFloat, pyJson } from "../platform/pyjson.js";
+import { pyFloat, pyIntOf, pyJson, pyStrScalar, unwrap } from "../platform/pyjson.js";
 import { getLogger } from "../platform/log.js";
-import { pySorted, strip, ValueError } from "../platform/py.js";
+import { pyFloatParse, pyOr, pySorted, strip, truthy, ValueError } from "../platform/py.js";
 import * as rconfig from "../runner/config.js";
 import * as db from "./db.js";
 import * as modelListRules from "./model_list_rules.js";
 import { DEFAULT_PRICING } from "./pricing.js";
 import { seedRowsForType } from "./reasoning_map_api.js";
 import * as stores from "./stores.js";
-import { pyEq, pyFloatOf, pyIntOf, pyOr, pyStrOf, pyTruthy, unwrap } from "./stores.js";
+import { pyEq } from "./stores.js";
 
 const log = getLogger("llm_runner.llm.seed");
 
@@ -55,13 +55,13 @@ export function pyReprStr(s) {
 // `p.get(k)` on a seed dict: absent → null (Python's None).
 const get = (o, k) => (o != null && Object.hasOwn(o, k) ? o[k] : null);
 /** `str(o.get(k) or d)` */
-const strOr = (o, k, d) => pyStrOf(pyOr(get(o, k), d));
+const strOr = (o, k, d) => pyStrScalar(pyOr(get(o, k), d));
 /** `int(o.get(k) or d)` */
 const intOr = (o, k, d) => pyIntOf(pyOr(get(o, k), d));
 /** `float(o.get(k) or d)` */
-const floatOr = (o, k, d) => pyFloatOf(pyOr(get(o, k), d));
+const floatOr = (o, k, d) => pyFloatParse(pyOr(get(o, k), d));
 /** `bool(o.get(k) or False)` */
-const boolOf = (o, k) => pyTruthy(get(o, k));
+const boolOf = (o, k) => truthy(get(o, k));
 /** A value headed for a numeric column, as given (`o.get(k)`): PyFloat unwrapped. */
 const numOrNull = (o, k) => unwrap(get(o, k));
 
@@ -365,7 +365,7 @@ export function seedDefaultClassTunes(h) {
     const ckey = row.class_key;
     if (h.one("select 1 from class_tunes where model_id = ? and class_key = ? limit 1", [mid, ckey])) continue;
     for (const [fname, fval] of Object.entries(row.switches)) {
-      h.insert("class_tunes", { model_id: mid, class_key: ckey, flag_name: fname, flag_value: pyStrOf(fval), built_in: true });
+      h.insert("class_tunes", { model_id: mid, class_key: ckey, flag_name: fname, flag_value: pyStrScalar(fval), built_in: true });
     }
     added += 1;
   }
@@ -595,13 +595,13 @@ export function seedDefaultProviders(h) {
       kind: "llm",
       built_in: true,
       position: pos,
-      provider_type: pyStrOf(p.provider_type),
+      provider_type: pyStrScalar(p.provider_type),
       base_url: strOr(p, "base_url", ""),
       api_key: null,
       default_model: strOr(p, "default_model", ""),
       embedding_model: strOr(p, "embedding_model", ""),
       timeout_seconds: intOr(p, "timeout_seconds", 60),
-      local: pyTruthy(p.local),
+      local: truthy(p.local),
     });
     pos += 1;
     added += 1;
@@ -653,8 +653,8 @@ function catalogRow(cr, builtIn) {
     mmproj: get(cr, "mmproj"),
     total_params: strOr(cr, "total_params", ""),
     active_params: strOr(cr, "active_params", ""),
-    mtp: pyTruthy(pyOr(get(cr, "mtp"), false)),
-    mtp_builtin: pyTruthy(pyOr(get(cr, "mtp_builtin"), false)),
+    mtp: truthy(pyOr(get(cr, "mtp"), false)),
+    mtp_builtin: truthy(pyOr(get(cr, "mtp_builtin"), false)),
     type: strOr(cr, "type", "dense"),
     mtp_draft_repo: strOr(cr, "mtp_draft_repo", ""),
     mtp_draft_file: strOr(cr, "mtp_draft_file", ""),
@@ -665,7 +665,7 @@ function catalogRow(cr, builtIn) {
     tier: strOr(cr, "tier", "mid"),
     license: strOr(cr, "license", ""),
     use_limited: useLimited(strOr(cr, "license", "")),
-    embedding: pyTruthy(pyOr(get(cr, "embedding"), false)),
+    embedding: truthy(pyOr(get(cr, "embedding"), false)),
     pooling: strOr(cr, "pooling", ""),
     quality_rank: intOr(cr, "quality_rank", 100),
     description: strOr(cr, "description", ""),
@@ -723,11 +723,11 @@ const assign = (row, set, k, v) => {
  * gate returns early on every existing row, which would strand them.
  */
 function fillPhysicsFacts(row, set, cr) {
-  if (!row.layers_nonexp_bytes && pyTruthy(get(cr, "layers_nonexp_bytes"))) {
+  if (!row.layers_nonexp_bytes && truthy(get(cr, "layers_nonexp_bytes"))) {
     for (const k of SEED_BYTES_KEYS) if (get(cr, k) != null) assign(row, set, k, unwrap(cr[k]));
   }
   if (row.block_count) return;
-  if (!pyTruthy(get(cr, "block_count"))) return;
+  if (!truthy(get(cr, "block_count"))) return;
   for (const k of SEED_FACT_KEYS) if (get(cr, k) != null) assign(row, set, k, unwrap(cr[k]));
 }
 
@@ -740,7 +740,7 @@ function fillPhysicsFacts(row, set, cr) {
 function seedSamplers(h, modelId, samplers) {
   for (const [name, val] of Object.entries(samplers || {})) {
     const nm = strip(name || "");
-    if (nm) h.insert("model_samplers", { model_id: modelId, param_name: nm, value: pyStrOf(val), built_in: false });
+    if (nm) h.insert("model_samplers", { model_id: modelId, param_name: nm, value: pyStrScalar(val), built_in: false });
   }
 }
 
@@ -752,11 +752,11 @@ function seedSamplers(h, modelId, samplers) {
  * mtp on to begin with — a newly-available capability, not an override.
  */
 function fillInheritedDraft(row, set, cr) {
-  if (row.mtp_draft_file || !pyTruthy(get(cr, "mtp_draft_file"))) return;
+  if (row.mtp_draft_file || !truthy(get(cr, "mtp_draft_file"))) return;
   assign(row, set, "mtp_draft_repo", strOr(cr, "mtp_draft_repo", ""));
-  assign(row, set, "mtp_draft_file", pyStrOf(cr.mtp_draft_file));
+  assign(row, set, "mtp_draft_file", pyStrScalar(cr.mtp_draft_file));
   assign(row, set, "mtp_draft_quant", strOr(cr, "mtp_draft_quant", ""));
-  assign(row, set, "mtp", pyTruthy(pyOr(get(cr, "mtp"), false)));
+  assign(row, set, "mtp", truthy(pyOr(get(cr, "mtp"), false)));
 }
 
 /** The fill-empty-only touch-ups shared by both catalog seeders: an existing DB gets the
@@ -768,7 +768,7 @@ function fillSizeFacts(row, set, cr, sizeFirst) {
   if (sizeFirst) size();
   if (row.est_vram_mb == null && get(cr, "est_vram_mb") != null) assign(row, set, "est_vram_mb", pyIntOf(cr.est_vram_mb));
   if (!sizeFirst) size();
-  if (!row.size_label && pyTruthy(get(cr, "size_label"))) assign(row, set, "size_label", pyStrOf(cr.size_label));
+  if (!row.size_label && truthy(get(cr, "size_label"))) assign(row, set, "size_label", pyStrScalar(cr.size_label));
 }
 
 const writeSet = (h, id, set) => {
@@ -792,7 +792,7 @@ export function seedDefaultCatalog(h) {
       // Known-stale heal (QC-43a): swap an exact historically-seeded wrong value for the
       // current seed fact; anything else is a user/inspect value and stays.
       for (const [[rid, field], stale] of cfg.STALE_SEED_VALUES) {
-        if (rid === cr.id && stale.some((x) => pyEq(x, row[field] ?? null)) && pyTruthy(get(cr, field))) {
+        if (rid === cr.id && stale.some((x) => pyEq(x, row[field] ?? null)) && truthy(get(cr, field))) {
           assign(row, set, field, unwrap(cr[field]));
         }
       }
@@ -850,7 +850,7 @@ export function seedModelTunesIfMissing(h, hwKey, entries) {
     const mid = get(e, "model_id") || "";
     for (const [fname, fval] of Object.entries(get(e, "flags") || {})) {
       if (!mid || existing.has(`${mid}\u0000${fname}`)) continue;
-      h.insert("model_tunes", { model_id: mid, hw_key: hwKey, flag_name: fname, flag_value: pyStrOf(fval) });
+      h.insert("model_tunes", { model_id: mid, hw_key: hwKey, flag_name: fname, flag_value: pyStrScalar(fval) });
       added += 1;
     }
   }
@@ -880,8 +880,8 @@ export function seedDefaultEmbedTemplates(h) {
     if (existing.has(t.id)) continue;
     h.insert("model_embed_templates", {
       model_id: t.id,
-      document_template: pyStrOf(pyOr(get(t, "document"), "")),
-      query_template: pyStrOf(pyOr(get(t, "query"), "")),
+      document_template: pyStrScalar(pyOr(get(t, "document"), "")),
+      query_template: pyStrScalar(pyOr(get(t, "query"), "")),
       built_in: true,
     });
     added += 1;
@@ -904,7 +904,7 @@ export function seedDefaultSwitchPresets(h) {
       built_in: true,
     });
     for (const [fname, fval] of Object.entries(get(p, "switches") || {})) {
-      h.insert("preset_switches", { preset_id: p.id, flag_name: fname, flag_value: pyStrOf(fval), built_in: true });
+      h.insert("preset_switches", { preset_id: p.id, flag_name: fname, flag_value: pyStrScalar(fval), built_in: true });
     }
     added += 1;
   }
@@ -937,12 +937,12 @@ export function seedDefaultEnginePresets(h) {
       top_p: numOrNull(p, "top_p"),
       max_tokens: intOr(p, "max_tokens", 0),
       reasoning_effort: strOr(p, "reasoning_effort", ""),
-      think: pyTruthy(pyOr(get(p, "think"), false)),
+      think: truthy(pyOr(get(p, "think"), false)),
       position: intOr(p, "position", 0),
       built_in: true,
     });
     for (const [pname, pval] of Object.entries(get(p, "samplers") || {})) {
-      h.insert("engine_preset_samplers", { preset_id: p.id, param_name: pname, value: pyStrOf(pval) });
+      h.insert("engine_preset_samplers", { preset_id: p.id, param_name: pname, value: pyStrScalar(pval) });
     }
     added += 1;
   }
@@ -1025,13 +1025,13 @@ export function resetPresetToFactory(presetId) {
         top_p: numOrNull(p, "top_p"),
         max_tokens: intOr(p, "max_tokens", 0),
         reasoning_effort: strOr(p, "reasoning_effort", ""),
-        think: pyTruthy(pyOr(get(p, "think"), false)),
+        think: truthy(pyOr(get(p, "think"), false)),
       },
       { id: presetId },
     );
     h.delete("engine_preset_samplers", { preset_id: presetId });
     for (const [pname, pval] of Object.entries(get(p, "samplers") || {})) {
-      h.insert("engine_preset_samplers", { preset_id: presetId, param_name: pname, value: pyStrOf(pval) });
+      h.insert("engine_preset_samplers", { preset_id: presetId, param_name: pname, value: pyStrScalar(pval) });
     }
   });
 }
@@ -1147,9 +1147,9 @@ export function seedDefaultKnobs(h) {
       plane: intOr(k, "plane", 1),
       applies_to: strOr(k, "applies_to", "all"),
       tier: strOr(k, "tier", "common"),
-      per_request: pyTruthy(pyOr(get(k, "per_request"), false)),
+      per_request: truthy(pyOr(get(k, "per_request"), false)),
       backends: strOr(k, "backends", ""), // Pass 2: backend applicability
-      fit_relevant: pyTruthy(pyOr(get(k, "fit_relevant"), false)), // Phase 5 fingerprint set
+      fit_relevant: truthy(pyOr(get(k, "fit_relevant"), false)), // Phase 5 fingerprint set
       position: i,
     };
     const options = get(k, "options") || [];
@@ -1159,18 +1159,18 @@ export function seedDefaultKnobs(h) {
         // Option SYNC — BOTH halves: stale built-in options are deleted AND newly-seeded
         // ones are INSERTED. A user's own option rows (built_in=false) are never deleted
         // and block no insert dedupe.
-        const seededOpts = new Set(options.map((o) => pyStrOf(o.value)));
+        const seededOpts = new Set(options.map((o) => pyStrScalar(o.value)));
         const have = new Set();
         for (const opt of h.all("select * from knob_option where flag_name = ?", [k.flag_name], "knob_option")) {
           if (opt.built_in && !seededOpts.has(opt.value)) pending.push(["knob_option", { flag_name: k.flag_name, value: opt.value }]);
           else have.add(opt.value);
         }
         options.forEach((o, j) => {
-          if (have.has(pyStrOf(o.value))) return;
+          if (have.has(pyStrScalar(o.value))) return;
           h.insert("knob_option", {
             flag_name: k.flag_name,
-            value: pyStrOf(o.value),
-            label: pyStrOf(pyOr(get(o, "label"), o.value)),
+            value: pyStrScalar(o.value),
+            label: pyStrScalar(pyOr(get(o, "label"), o.value)),
             position: j,
             built_in: true,
           });
@@ -1183,8 +1183,8 @@ export function seedDefaultKnobs(h) {
     options.forEach((o, j) => {
       h.insert("knob_option", {
         flag_name: k.flag_name,
-        value: pyStrOf(o.value),
-        label: pyStrOf(pyOr(get(o, "label"), o.value)),
+        value: pyStrScalar(o.value),
+        label: pyStrScalar(pyOr(get(o, "label"), o.value)),
         position: j,
         built_in: true,
       });
@@ -1227,7 +1227,7 @@ export function seedDefaultFeaturePrompts(h) {
   const heals = cfg._APP.feature_prompt_heals || {};
   for (const [key, oldTexts] of Object.entries(heals)) {
     const spec = Object.hasOwn(prompts, key) ? prompts[key] : null;
-    if (!pyTruthy(spec) || !existing.has(key)) continue;
+    if (!truthy(spec) || !existing.has(key)) continue;
     const row = h.get("feature_prompts", key);
     if (!row || !oldTexts.includes(row.system)) continue;
     // Refresh ONLY the fields a seed revision carries (system + its schema mirror) — a
@@ -1238,7 +1238,7 @@ export function seedDefaultFeaturePrompts(h) {
   // description to a row that predates them. Fill ONLY when the stored pair is entirely
   // empty — a row anyone named keeps its name.
   for (const [key, spec] of Object.entries(prompts)) {
-    if (!existing.has(key) || !(pyTruthy(get(spec, "label")) || pyTruthy(get(spec, "description")))) continue;
+    if (!existing.has(key) || !(truthy(get(spec, "label")) || truthy(get(spec, "description")))) continue;
     const row = h.get("feature_prompts", key);
     if (row && row.built_in && !row.label && !row.description) {
       h.update("feature_prompts", { label: strOr(spec, "label", ""), description: strOr(spec, "description", "") }, { key });
@@ -1253,7 +1253,7 @@ export function seedDefaultFeaturePrompts(h) {
       system: strOr(spec, "system", ""),
       user_template: strOr(spec, "user_template", ""),
       built_in: true,
-      json_mode: pyTruthy(Object.hasOwn(spec, "json_mode") ? spec.json_mode : false),
+      json_mode: truthy(Object.hasOwn(spec, "json_mode") ? spec.json_mode : false),
       json_schema: strOr(spec, "json_schema", ""),
       label: strOr(spec, "label", ""),
       description: strOr(spec, "description", ""),
@@ -1289,10 +1289,10 @@ export function seedLlm(h = null) {
     seedDefaultFeaturePrompts(h);
     // The registered per-app extras (see configureAppSeed) — insert-if-missing, so user
     // edits / Quick-tune saves are never clobbered by a reseed.
-    if (pyTruthy(app.model_catalog_extra)) seedExtraCatalog(h, app.model_catalog_extra);
-    if (pyTruthy(app.model_tunes_seed) && app.hw_key_fn) seedModelTunesIfMissing(h, app.hw_key_fn(), app.model_tunes_seed);
+    if (truthy(app.model_catalog_extra)) seedExtraCatalog(h, app.model_catalog_extra);
+    if (truthy(app.model_tunes_seed) && app.hw_key_fn) seedModelTunesIfMissing(h, app.hw_key_fn(), app.model_tunes_seed);
     // The store owns the one fill-if-empty implementation.
-    if (pyTruthy(app.test_samples)) stores.getTestSampleStore().seedFill(h, app.test_samples);
+    if (truthy(app.test_samples)) stores.getTestSampleStore().seedFill(h, app.test_samples);
     // LAST, because it needs the whole catalog — defaults AND the host's extras: bind
     // measured class tunes to the id THIS app gave the same GGUF, and say so when a tune
     // can bind to nothing…

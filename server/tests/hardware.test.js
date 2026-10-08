@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 import { model } from "../src/platform/models.js";
 import * as procs from "../src/platform/procs.js";
+import { splitlines } from "../src/platform/py.js";
 import * as hw from "../src/runner/hardware.js";
 import { GpuInfo, HardwareInfo } from "../src/runner/schema.js";
 
@@ -521,5 +522,5 @@ test("the memo: keys read it synchronously; ensureDetected fills it once", async
 
 test("parseCsv reads like csv.reader (quotes, embedded commas, blank lines)", () => {
   expect(hw.parseCsv('"a","b,c",d\n\n"x""y",z\r\nlast')).toEqual([["a", "b,c", "d"], [], ['x"y', "z"], ["last"]]);
-  expect(hw.splitlines("a\r\nb\rc\n")).toEqual(["a", "b", "c"]);
+  expect(splitlines("a\r\nb\rc\n")).toEqual(["a", "b", "c"]);
 });

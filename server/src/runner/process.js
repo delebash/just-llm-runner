@@ -50,12 +50,11 @@ import { sleep, withTimeout } from "../platform/asyncutil.js";
 import * as http from "../platform/http.js";
 import { getLogger } from "../platform/log.js";
 import * as procs from "../platform/procs.js";
-import { FileNotFoundError, floorDiv, lstrip, pyStr, RuntimeError } from "../platform/py.js";
+import { FileNotFoundError, floorDiv, lstrip, pyStr, RuntimeError, splitlines } from "../platform/py.js";
 import { buildNum } from "./binary.js";
 import { DEFAULT_CTX_CAP_TOKENS, DEFAULT_SAFETY_MARGIN_MB } from "./config.js";
 import * as fit from "./fit.js";
 import * as hardware from "./hardware.js";
-import { splitlines } from "./hardware.js";
 import * as self from "./process.js";
 
 const log = getLogger("llm_runner.runner.process");

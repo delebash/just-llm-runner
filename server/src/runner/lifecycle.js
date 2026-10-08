@@ -81,8 +81,11 @@ import * as http from "../platform/http.js";
 import { HttpStatusError } from "../platform/http.js";
 import { getLogger } from "../platform/log.js";
 import {
+  cpSlice,
+  errText,
   FileNotFoundError,
   IS_WIN,
+  isJsonObject,
   KeyError,
   pyFloatParse,
   pyInt,
@@ -91,10 +94,12 @@ import {
   pyStr,
   RuntimeError,
   rstrip,
+  splitlines,
   strip,
   truthy,
   ValueError,
 } from "../platform/py.js";
+import { pyFixed } from "../platform/pyjson.js";
 import { EVICT_MIN_MB as ARBITER_EVICT_MIN_MB, getArbiter } from "./arbiter.js";
 import * as bandwidth from "./bandwidth.js";
 import * as binary from "./binary.js";
@@ -287,30 +292,9 @@ function keySet(xs) {
   return new Set(Object.keys(xs));
 }
 
-/** `str(exc)` — the message Python would print for an exception. */
-function excStr(e) {
-  if (e instanceof Error) return e.message;
-  return String(e);
-}
-
 /** `repr(x)` for the values the messages quote: None or a str. */
 function reprAny(x) {
   return x == null ? "None" : pyRepr(String(x));
-}
-
-/** s[-n:] / s[:n] on code points, as Python slices a str. */
-function tailChars(s, n) {
-  const cps = [...(s || "")];
-  return cps.length > n ? cps.slice(-n).join("") : s || "";
-}
-function headChars(s, n) {
-  const cps = [...(s || "")];
-  return cps.length > n ? cps.slice(0, n).join("") : s || "";
-}
-
-/** `f"{x:.1f}"` — Python rounds the double half-to-even; `toFixed` would round a tie up. */
-function fmt1(x) {
-  return pyRound(x, 1).toFixed(1);
 }
 
 /** The first key of a Map (Python's `next(iter(d), "")`). */
@@ -534,7 +518,7 @@ export async function _defaultRouterLoad(url, modelId) {
   const resp = await postJson(`${rstrip(url, "/")}/models/load`, { model: modelId }, 600_000);
   const text = await resp.text();
   if (resp.status >= 400) {
-    throw new RuntimeError(`/models/load ${pyRepr(modelId)} failed [${resp.status}]: ${headChars(text, 800)}`);
+    throw new RuntimeError(`/models/load ${pyRepr(modelId)} failed [${resp.status}]: ${cpSlice(text || "", 0, 800)}`);
   }
 }
 
@@ -549,7 +533,7 @@ export async function _defaultRouterUnload(url, modelId) {
   const resp = await postJson(`${rstrip(url, "/")}/models/unload`, { model: modelId }, 120_000);
   const text = await resp.text();
   if (resp.status >= 400) {
-    const body = headChars(text || "", 800);
+    const body = cpSlice(text || "", 0, 800);
     const low = body.toLowerCase();
     if (resp.status === 404 || low.includes("not found") || low.includes("not running") || low.includes("not loaded")) {
       log.info(`router unload ${modelId}: already gone [${resp.status}] — adopting`);
@@ -588,8 +572,7 @@ export function _parseRouterModels(payload) {
     const mid = entry.id;
     if (!mid) continue;
     const s = entry.status;
-    const isDict = s != null && typeof s === "object" && !Array.isArray(s);
-    const value = isDict ? s.value : typeof s === "string" ? s : "";
+    const value = isJsonObject(s) ? s.value : typeof s === "string" ? s : "";
     const row = { value: value || "" };
     const meta = entry.meta;
     if (meta != null && typeof meta === "object" && !Array.isArray(meta) && Object.keys(meta).length) row.meta = meta;
@@ -832,7 +815,7 @@ export async function _otherGpuHolders() {
 }
 
 export function _fmtMb(mb) {
-  return mb >= 1024 ? `${fmt1(mb / 1024)} GB` : `${mb} MB`;
+  return mb >= 1024 ? `${pyFixed(mb / 1024, 1)} GB` : `${mb} MB`;
 }
 
 const MEASURE = Symbol("measure");
@@ -880,14 +863,14 @@ export async function _draftFailedAlone(modelId, outcome, tail, rows = MEASURE) 
       (said ? `llama.cpp said: "${said}". ` : "") +
       "If nothing else is holding GPU memory: the model's tune may leave too little " +
       "room for the draft (raise n_cpu_moe), the draft file may be damaged " +
-      `(re-download it), or you can turn MTP off. Details: ${tailChars(tail, 400)}`,
+      `(re-download it), or you can turn MTP off. Details: ${cpSlice(tail || "", -400)}`,
   );
 }
 
 /** llama.cpp's own `error loading model:` line from a load's log, without the
  * log-level/function prefix — "" when there is none. */
 export function _engineErrorLine(tail) {
-  const lines = hardware.splitlines(tail || "");
+  const lines = splitlines(tail || "");
   for (let k = lines.length - 1; k >= 0; k--) {
     const ln = lines[k];
     const i = ln.toLowerCase().indexOf("error loading model");
@@ -1155,7 +1138,7 @@ export class RunnerService {
     try {
       return [...(this._measurementsFn() || [])];
     } catch (e) {
-      log.debug(`measurements read failed: ${excStr(e)}`);
+      log.debug(`measurements read failed: ${errText(e)}`);
       return [];
     }
   }
@@ -1171,7 +1154,7 @@ export class RunnerService {
       if (pair.length !== 2) throw new ValueError(`expected 2 values to unpack, got ${pair.length}`);
       return [pyFloatParse(pair[0] || 0.0), pyFloatParse(pair[1] || 0.0)];
     } catch (e) {
-      log.debug(`class bandwidth read failed: ${excStr(e)}`);
+      log.debug(`class bandwidth read failed: ${errText(e)}`);
       return [0.0, 0.0];
     }
   }
@@ -1203,7 +1186,7 @@ export class RunnerService {
       this._probeValue = gbps;
       if (this._recordProbeFn == null) {
         log.warning(
-          `RAM bandwidth probe measured ${fmt1(gbps)} GB/s but no recorder is wired — it will re-probe every start and never persist`,
+          `RAM bandwidth probe measured ${pyFixed(gbps, 1)} GB/s but no recorder is wired — it will re-probe every start and never persist`,
         );
         return;
       }
@@ -1213,7 +1196,7 @@ export class RunnerService {
         // WARNING, not debug (2026-08-14): this failing silently is indistinguishable from
         // "the box was never probed" — the probe re-runs each start, never lands, and every
         // speed band quietly stays on the class-facts rung.
-        log.warning(`RAM probe measured ${fmt1(gbps)} GB/s but recording it FAILED — speed bands stay on hardware-class figures`, e);
+        log.warning(`RAM probe measured ${pyFixed(gbps, 1)} GB/s but recording it FAILED — speed bands stay on hardware-class figures`, e);
       }
     };
     background("llm-runner-ram-probe", run, log);
@@ -1641,7 +1624,7 @@ export class RunnerService {
       if (exc instanceof ValueError || isFileNotFound(exc)) {
         // Parse-PROVEN corruption (bad magic / truncated header — gguf.js throws ValueError for
         // both) or a file the OS says is GONE (AV quarantine): purge + actionable error.
-        log.warning(`integrity check failed for ${model.id} at ${ggufPath}: ${excStr(exc)}`);
+        log.warning(`integrity check failed for ${model.id} at ${ggufPath}: ${errText(exc)}`);
         try {
           await this._purgeModelWeights(model);
         } catch (e) {
@@ -1660,7 +1643,7 @@ export class RunnerService {
         // Transient IO — a sharing violation / an AV scan holding the file open is NOT
         // corruption (2026-07-11 hardening): purging here would delete multi-GB GOOD weights
         // on a race. No purge; surface a retryable error instead.
-        log.warning(`integrity check could not read ${model.id} at ${ggufPath}: ${excStr(exc)}`);
+        log.warning(`integrity check could not read ${model.id} at ${ggufPath}: ${errText(exc)}`);
         throw new RuntimeError(
           `Could not read the model file for "${model.name || model.id}" — it may be ` +
             "locked by an antivirus scan or another program. Nothing was deleted; " +
@@ -1708,7 +1691,7 @@ export class RunnerService {
       error = "";
     } catch (exc) {
       // any fetch failure = the same honest answer
-      [stableBuild, stable, error] = ["", "", excStr(exc)];
+      [stableBuild, stable, error] = ["", "", errText(exc)];
     }
     let latest;
     let kind;
@@ -1750,7 +1733,7 @@ export class RunnerService {
       assets = await this._releaseAssetsFn(build);
     } catch (exc) {
       // any fetch failure = the same honest answer
-      out.error = excStr(exc);
+      out.error = errText(exc);
       return out;
     }
     const rows = [...(config.llamacpp.binaries || [])];
@@ -2132,7 +2115,7 @@ export class RunnerService {
         draftBytes,
       });
     } catch (exc) {
-      return { ok: false, error: excStr(exc), claim }; // a preview must never throw into the sweep
+      return { ok: false, error: errText(exc), claim }; // a preview must never throw into the sweep
     }
     return {
       ok: true,
@@ -2256,7 +2239,7 @@ export class RunnerService {
         return { vramMb: pyRound(vram), ramMb, source: "computed", matches: 0 };
       } catch (e) {
         // a claim read must never throw into a caller
-        log.debug(`claim resolve fell to declared for ${model.id}: ${excStr(e)}`);
+        log.debug(`claim resolve fell to declared for ${model.id}: ${errText(e)}`);
       }
     }
     // Arm 4 — declared: the catalog's price. For chat rows the WANT (estVramMb) over the bare
@@ -2313,7 +2296,7 @@ export class RunnerService {
     try {
       [ct, ms, draft] = await probe(router.url, prompt, maxTokens, { modelId: mid });
     } catch (exc) {
-      return { ok: false, error: excStr(exc) }; // surface the probe error, don't crash
+      return { ok: false, error: errText(exc) }; // surface the probe error, don't crash
     }
     const tps = ms > 0 && ct ? pyRound(ct / (ms / 1000), 1) : 0.0;
     this._arbiter.touch(mid); // a measure is a use — keep it warm in the LRU
@@ -2354,7 +2337,7 @@ export class RunnerService {
     try {
       count = await probe(router.url, text, { modelId: mid });
     } catch (exc) {
-      return { ok: false, error: excStr(exc) }; // surface the probe error, don't crash
+      return { ok: false, error: errText(exc) }; // surface the probe error, don't crash
     }
     this._arbiter.touch(mid); // a tokenize is a use — keep it warm in the LRU
     return { ok: true, count: pyInt(count) };
@@ -2511,7 +2494,7 @@ export class RunnerService {
     try {
       live = _parseRouterModels(await this._routerModels(router.url));
     } catch (e) {
-      log.debug(`sleeping-set probe failed; ledger left as-is: ${excStr(e)}`); // a probe must never fail the caller
+      log.debug(`sleeping-set probe failed; ledger left as-is: ${errText(e)}`); // a probe must never fail the caller
       return;
     }
     this._lastSleepProbe = now;
@@ -2878,7 +2861,7 @@ export class RunnerService {
         this._engineState = _engineIdle();
       } else {
         log.exception("engine install failed", exc); // any failure becomes error state
-        this._engineState = { status: "error", detail: "", error: excStr(exc), downloaded: 0, total: 0 };
+        this._engineState = { status: "error", detail: "", error: errText(exc), downloaded: 0, total: 0 };
       }
     }
   }
@@ -3209,7 +3192,7 @@ export class RunnerService {
       } else {
         log.exception("runner load failed", exc);
         // A concurrent stop() may have cancelled + removed the model — don't resurrect it.
-        this._touch(modelId, { status: "error", detail: "", error: excStr(exc), downloaded: 0, total: 0 });
+        this._touch(modelId, { status: "error", detail: "", error: errText(exc), downloaded: 0, total: 0 });
         this._arbiter.release(modelId); // never leak a reservation on a failed/cancelled load
       }
     } finally {
@@ -3330,7 +3313,7 @@ export class RunnerService {
         });
       }
     } catch (e) {
-      log.debug(`load-footprint persist failed for ${modelId}: ${excStr(e)}`); // best-effort, never load-fatal
+      log.debug(`load-footprint persist failed for ${modelId}: ${errText(e)}`); // best-effort, never load-fatal
     }
   }
 
@@ -3480,7 +3463,7 @@ export class RunnerService {
         }
       }
     } catch (e) {
-      log.debug(`used-memory probe failed; admitting on the ledger alone: ${excStr(e)}`); // a probe must never block a load
+      log.debug(`used-memory probe failed; admitting on the ledger alone: ${errText(e)}`); // a probe must never block a load
     }
     if (foreign > 0) {
       log.info(
@@ -3847,7 +3830,7 @@ export class RunnerService {
         await this._spawnRouter(exe, config);
       } catch (e) {
         if (!(e instanceof RunnerStartError)) throw e;
-        errors.push(`[${gpu}] ${excStr(e)}`);
+        errors.push(`[${gpu}] ${errText(e)}`);
         log.warning(`router spawn failed on ${gpu} build (${exe}) — trying next installed backend`);
         continue;
       }
@@ -4015,7 +3998,7 @@ export class RunnerService {
         // the child outlived). Fall through to _confirmLoad, which verifies the resident child
         // like any other load. Caught HERE (not in _defaultRouterLoad) so injected routerLoad
         // fakes get the same tolerance and the behavior is unit-testable.
-        if (!(exc instanceof RuntimeError) || !excStr(exc).toLowerCase().includes("already running")) throw exc;
+        if (!(exc instanceof RuntimeError) || !errText(exc).toLowerCase().includes("already running")) throw exc;
         log.info(`router says ${entry.modelId} is already running — adopting`);
       }
       const outcome = await this._confirmLoad(entry.modelId, logOffset);
@@ -4048,7 +4031,7 @@ export class RunnerService {
           throw new RuntimeError(
             `model ${pyRepr(entry.modelId)} failed to load (status=${outcome}) with an ` +
               "unfixable error — not retrying, since a retry would restart the engine and " +
-              `disrupt other loaded models.${hint} Details: ${tailChars(tailNow, 600)}`,
+              `disrupt other loaded models.${hint} Details: ${cpSlice(tailNow || "", -600)}`,
           );
         }
         log.warning(
@@ -4164,7 +4147,7 @@ export class RunnerService {
       throw new RuntimeError(
         `model ${pyRepr(entry.modelId)} failed to load (status=${outcome}, ngl=${ngl}). ` +
           (_looksLikeOom(tail) ? await self._gpuHoldersNote() : "") +
-          tailChars(tail, 600),
+          cpSlice(tail || "", -600),
       );
     }
   }
@@ -4231,7 +4214,7 @@ export class RunnerService {
           status: "error",
           modelId,
           detail: "",
-          error: excStr(exc),
+          error: errText(exc),
           downloaded: 0,
           total: 0,
         });

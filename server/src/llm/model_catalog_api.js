@@ -18,7 +18,7 @@
 import { HttpError, RequestValidationError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
 import { FileNotFoundError, pyStr, truthy } from "../platform/py.js";
-import { pyFloat } from "../platform/pyjson.js";
+import { pyStrScalar } from "../platform/pyjson.js";
 
 // ── Catalog ──────────────────────────────────────────────────────────────────
 
@@ -231,14 +231,6 @@ export function queryBool(value, name, dflt = false) {
   ]);
 }
 
-/** `str(v)` of a resolved value: strings as they are, None/True/False as Python spells them,
- * a non-integral number as Python's float repr. (stores.js has the same as pyStrOf; not
- * imported from there — stores.js imports this module.) Candidate for platform/. */
-export function pyStrValue(v) {
-  if (typeof v === "number" && Number.isFinite(v) && !Number.isInteger(v)) return pyFloat(v);
-  return typeof v === "string" ? v : pyStr(v);
-}
-
 /** `str(e)` of a caught exception, for a detail string. Candidate for platform/. */
 export const excStr = (e) => (e instanceof Error ? e.message : pyStr(e));
 
@@ -364,7 +356,7 @@ export function makeCatalogRouter(
               if (truthy(pv.isMoe)) fitVals.push(["n_cpu_moe", pv.nCpuMoe]);
               computed = fitVals
                 .filter(([k, v]) => v != null && !Object.hasOwn(merged, k))
-                .map(([k, v]) => ({ flagName: k, flagValue: pyStrValue(v) }));
+                .map(([k, v]) => ({ flagName: k, flagValue: pyStrScalar(v) }));
             }
           }
           return model(ResolvedModelDefaultsResponse, {
@@ -374,8 +366,8 @@ export function makeCatalogRouter(
             // `mtp` ENABLE flag — availability is a fact, enablement is the user's switch).
             // The Tune modal's spec-decode hint rides this.
             mtpCapable: !!(row && (row.mtpBuiltin || row.mtpDraftFile)),
-            switches: Object.entries(merged).map(([k, v]) => ({ flagName: k, flagValue: pyStrValue(v) })),
-            samplers: Object.entries(samplers).map(([k, v]) => ({ flagName: k, flagValue: pyStrValue(v) })),
+            switches: Object.entries(merged).map(([k, v]) => ({ flagName: k, flagValue: pyStrScalar(v) })),
+            samplers: Object.entries(samplers).map(([k, v]) => ({ flagName: k, flagValue: pyStrScalar(v) })),
             computed,
             origins,
           });

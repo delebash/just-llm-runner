@@ -15,8 +15,8 @@
 // stream is an async iterable of the same raw events (snake_case wire names).
 
 import * as http from "../platform/http.js";
-import { pyInt, rstrip } from "../platform/py.js";
-import { adapterHttpError, errText, LLMResponse, popReasoning, selectAllowed, splitSystem, StreamDelta } from "./base.js";
+import { errText, pyInt, rstrip } from "../platform/py.js";
+import { adapterHttpError, LLMResponse, popReasoning, StreamDelta, selectAllowed, splitSystem } from "./base.js";
 
 let sdk = null;
 /** The Anthropic SDK, imported on first use (Python measured `import anthropic` at ~584 ms

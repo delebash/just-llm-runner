@@ -18,6 +18,7 @@
 
 import { statSync } from "node:fs";
 import { floorDiv, pyFloatParse, pyInt, pyRound, pyStr, truthy } from "../platform/py.js";
+import { pyFormatG } from "../platform/pyjson.js";
 import {
   estimateVramMb,
   kvMbFromFacts as fitKvMbFromFacts,
@@ -44,61 +45,6 @@ const SAMPLER_FILE_TO_CATALOG = {
   penalty_repeat: "repeat_penalty",
   penalty_last_n: "repeat_last_n",
 };
-
-/**
- * `format(x, "g")` — Python's general float format at precision 6, correctly rounded
- * (half-even on the double's exact decimal value, which JS's toPrecision does not do:
- * 123456.5 → "123456", not "123457"). Candidate for platform/py.js.
- */
-export function pyFormatG(x, precision = 6) {
-  if (Number.isNaN(x)) return "nan";
-  if (!Number.isFinite(x)) return x > 0 ? "inf" : "-inf";
-  const neg = x < 0 || Object.is(x, -0);
-  if (x === 0) return neg ? "-0" : "0";
-  const ax = Math.abs(x);
-  // The exact decimal expansion (toFixed(100) is exact for every value this kit formats;
-  // ≥ 1e21 is an integer, exact through BigInt).
-  const exact = ax >= 1e21 ? BigInt(ax).toString() : ax.toFixed(100);
-  const [ip, fp = ""] = exact.split(".");
-  let exp10;
-  let digits;
-  if (ip !== "0") {
-    exp10 = ip.length - 1;
-    digits = ip + fp;
-  } else {
-    const lead = fp.length - fp.replace(/^0+/, "").length;
-    exp10 = -(lead + 1);
-    digits = fp.slice(lead);
-  }
-  const p = Math.max(1, precision);
-  const keep = digits.slice(0, p).padEnd(p, "0");
-  const rest = digits.slice(p);
-  let n = BigInt(keep);
-  const above = rest[0] > "5" || (rest[0] === "5" && /[1-9]/.test(rest.slice(1)));
-  const tie = rest[0] === "5" && !/[1-9]/.test(rest.slice(1));
-  if (above || (tie && n % 2n === 1n)) n += 1n;
-  let sig = n.toString();
-  if (sig.length > p) {
-    exp10 += 1;
-    sig = sig.slice(0, p);
-  }
-  let out;
-  if (exp10 >= -4 && exp10 < p) {
-    if (exp10 >= 0) {
-      const intPart = sig.slice(0, exp10 + 1).padEnd(exp10 + 1, "0");
-      const frac = sig.slice(exp10 + 1).replace(/0+$/, "");
-      out = frac ? `${intPart}.${frac}` : intPart;
-    } else {
-      const frac = `${"0".repeat(-exp10 - 1)}${sig}`.replace(/0+$/, "");
-      out = `0.${frac}`;
-    }
-  } else {
-    const tail = sig.slice(1).replace(/0+$/, "");
-    const mant = tail ? `${sig[0]}.${tail}` : sig[0];
-    out = `${mant}e${exp10 < 0 ? "-" : "+"}${String(Math.abs(exp10)).padStart(2, "0")}`;
-  }
-  return (neg ? "-" : "") + out;
-}
 
 /**
  * A file-derived sampler value as a CLEAN string: GGUF floats arrive as float32 artifacts

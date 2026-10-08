@@ -5,21 +5,9 @@
 // `/v1/chat/completions`) so the `think` flag for reasoning models (deepseek-r1,
 // qwen3-thinking) actually surfaces their thinking.
 
-import { pyInt, RuntimeError, rstrip, truthy } from "../platform/py.js";
+import { cpSlice, isJsonObject, pyInt, RuntimeError, rstrip, setdefault, truthy } from "../platform/py.js";
 import { pyFloatValue } from "../platform/pyjson.js";
-import {
-  buildChatMessages,
-  head,
-  httpxRequest,
-  httpxStream,
-  isDict,
-  iterLines,
-  LLMResponse,
-  popReasoning,
-  setdefault,
-  StreamDelta,
-  TransportError,
-} from "./base.js";
+import { buildChatMessages, httpxRequest, httpxStream, iterLines, LLMResponse, popReasoning, StreamDelta, TransportError } from "./base.js";
 
 export const DEFAULT_BASE_URL = "http://localhost:11434";
 export const DEFAULT_MODEL = "llama3.2";
@@ -51,11 +39,11 @@ export class OllamaAdapter {
     const opts = setdefault(body, "options", {});
     for (const [k, v] of Object.entries(extra)) {
       if (k === "response_format") {
-        const fmt = isDict(v) ? v.type : v;
+        const fmt = isJsonObject(v) ? v.type : v;
         // Ollama's structured outputs take a JSON Schema OBJECT in `format`; plain JSON
         // mode stays the "json" string.
-        const schema = isDict(v) ? (v.json_schema || {}).schema : null;
-        if (fmt === "json_schema" && isDict(schema)) body.format = schema;
+        const schema = isJsonObject(v) ? (v.json_schema || {}).schema : null;
+        if (fmt === "json_schema" && isJsonObject(schema)) body.format = schema;
         else if (fmt === "json_object" || fmt === "json" || fmt === "json_schema") body.format = "json";
       } else {
         opts[k] = v;
@@ -105,7 +93,7 @@ export class OllamaAdapter {
       }
       throw e;
     }
-    if (r.status >= 400) throw new RuntimeError(`ollama ${r.status}: ${head(r.text, 400)}`);
+    if (r.status >= 400) throw new RuntimeError(`ollama ${r.status}: ${cpSlice(r.text, 0, 400)}`);
 
     const payload = r.json();
     const message = payload.message || {};
@@ -133,7 +121,7 @@ export class OllamaAdapter {
     const r = await httpxStream("POST", url, { json: body, headers: this._headers(), timeout: this._timeoutSeconds });
     if (r.status >= 400) {
       const detail = await r.text();
-      throw new RuntimeError(`ollama stream ${r.status}: ${head(detail, 400)}`);
+      throw new RuntimeError(`ollama stream ${r.status}: ${cpSlice(detail, 0, 400)}`);
     }
     // Ollama emits one JSON object per line (not SSE).
     for await (const line of iterLines(r.body)) {
@@ -208,7 +196,7 @@ export class OllamaAdapter {
         headers: this._headers(),
         timeout: this._timeoutSeconds,
       });
-      if (rr.status >= 400) throw new RuntimeError(`ollama embeddings ${rr.status}: ${head(rr.text, 400)}`);
+      if (rr.status >= 400) throw new RuntimeError(`ollama embeddings ${rr.status}: ${cpSlice(rr.text, 0, 400)}`);
       out.push([...(rr.json().embedding || [])]);
     }
     return out;

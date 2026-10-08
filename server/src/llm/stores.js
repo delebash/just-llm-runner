@@ -15,13 +15,13 @@
 //   - Every SELECT keeps SQLAlchemy's ORDER BY — and has none where Python had none
 //     (SQLite then answers in rowid order, as it did for Python).
 //   - After a write the Python store read the row back (expire_on_commit); so do these.
-//   - TEXT columns are always written as strings (`pyStrOf`): better-sqlite3 binds every
+//   - TEXT columns are always written as strings (`pyStrScalar`): better-sqlite3 binds every
 //     JS number as REAL, so an integer 5 would land as '5.0' where Python stores '5'.
 
 import { randomUUID } from "node:crypto";
 import { model } from "../platform/models.js";
-import { PyFloat, pyFloat, pyJson } from "../platform/pyjson.js";
-import { pyFloatParse, pyInt, pySorted, pyStr, strip, truthy, ValueError } from "../platform/py.js";
+import { pyFloat, pyIntOf, pyJson, pyStrScalar, unwrap } from "../platform/pyjson.js";
+import { pyFloatParse, pyInt, pyOr, pySorted, pyStr, strip, truthy, ValueError } from "../platform/py.js";
 import * as rconfig from "../runner/config.js";
 import { RunnerConfig } from "../runner/schema.js";
 import * as db from "./db.js";
@@ -38,35 +38,10 @@ import * as switchResolve from "./switch_resolve.js";
 
 const ACTIVE_ID = "active";
 
-// ── Python value helpers (candidates for platform/) ──────────────────────────
-/** A PyFloat-wrapped number (host seed data marks Python floats so) → its number. */
-export function unwrap(v) {
-  return v instanceof PyFloat ? v.v : v;
-}
-
-/** Python's truthiness of a seed value (PyFloat(0.0) is falsy, as 0.0 is). */
-export const pyTruthy = (v) => truthy(unwrap(v));
-
-/** `v or d` with Python truthiness. */
-export const pyOr = (v, d) => (pyTruthy(v) ? v : d);
-
-/**
- * `str(v)` for a value headed for a TEXT column: strings as they are, None/True/False as
- * Python spells them, a PyFloat (or a non-integral number) as Python's float repr, an
- * integral number as Python's int.
- */
-export function pyStrOf(v) {
-  if (typeof v === "string") return v;
-  if (v instanceof PyFloat) return pyFloat(v.v);
-  if (typeof v === "number" && Number.isFinite(v) && !Number.isInteger(v)) return pyFloat(v);
-  return pyStr(v);
-}
-
-/** `int(v)` that also takes a PyFloat. */
-export const pyIntOf = (v) => pyInt(unwrap(v));
-
-/** `float(v)` that also takes a PyFloat / number string. */
-export const pyFloatOf = (v) => pyFloatParse(unwrap(v));
+// ── Python value helpers ─────────────────────────────────────────────────────
+// (Host seed data marks Python floats as PyFloat. `v or d` is platform/py.js's pyOr, Python
+// truthiness its truthy, `float(v)` its pyFloatParse (a PyFloat reads as its number there);
+// `int(v)` is platform/pyjson.js's pyIntOf and `str(v)` for a TEXT column its pyStrScalar.)
 
 /** Python's `==` on plain data (dicts, lists, numbers, strings, None). */
 export function pyEq(a, b) {
@@ -505,7 +480,7 @@ export class ModelCatalogStore {
       h.delete("model_samplers", { model_id: modelId });
       for (const [name, val] of Object.entries(samplers || {})) {
         const nm = strip(name || "");
-        if (nm) h.insert("model_samplers", { model_id: modelId, param_name: nm, value: pyStrOf(val), built_in: false });
+        if (nm) h.insert("model_samplers", { model_id: modelId, param_name: nm, value: pyStrScalar(val), built_in: false });
       }
       return changed;
     });
@@ -802,8 +777,8 @@ export class EmbedTemplateStore {
     const h = db.session();
     const mid = strip(row.modelId || "");
     const vals = {
-      document_template: pyStrOf(row.documentTemplate || ""),
-      query_template: pyStrOf(row.queryTemplate || ""),
+      document_template: pyStrScalar(row.documentTemplate || ""),
+      query_template: pyStrScalar(row.queryTemplate || ""),
     };
     return h.tx(() => {
       if (h.get("model_embed_templates", mid)) h.update("model_embed_templates", vals, { model_id: mid });
@@ -932,7 +907,7 @@ export class RunnerConfigStore {
 
   setSetting(key, value) {
     const h = db.session();
-    const v = pyStrOf(value);
+    const v = pyStrScalar(value);
     h.tx(() => {
       if (h.get("runner_setting", key)) h.update("runner_setting", { value: v }, { key });
       else h.insert("runner_setting", { key, value: v });
@@ -1033,7 +1008,7 @@ export class ModelTuneStore {
             model_id: modelId,
             hw_key: hwKey,
             flag_name: strip(name),
-            flag_value: pyStrOf(pyOr(value, "")),
+            flag_value: pyStrScalar(pyOr(value, "")),
           });
         }
       }
@@ -1164,8 +1139,8 @@ export class HardwareClassStore {
         name: strip(name || ""),
         built_in: false,
       };
-      if (vramBwGbps != null) vals.vram_bw_gbps = Math.max(0.0, pyFloatOf(vramBwGbps));
-      if (ramBwGbps != null) vals.ram_bw_gbps = Math.max(0.0, pyFloatOf(ramBwGbps));
+      if (vramBwGbps != null) vals.vram_bw_gbps = Math.max(0.0, pyFloatParse(vramBwGbps));
+      if (ramBwGbps != null) vals.ram_bw_gbps = Math.max(0.0, pyFloatParse(ramBwGbps));
       if (h.get("hardware_classes", classKey)) h.update("hardware_classes", vals, { class_key: classKey });
       else h.insert("hardware_classes", { class_key: classKey, ...vals });
       // SQLAlchemy's flush ran the new row's INSERT before the old row's DELETE; kept in
@@ -1258,7 +1233,7 @@ export class TestSampleStore {
       }
       for (const [name, value] of Object.entries(variables || {})) {
         const n = strip(name || "");
-        if (n) h.insert("test_sample_vars", { sample_id: id, name: n, value: pyStrOf(pyOr(value, "")) });
+        if (n) h.insert("test_sample_vars", { sample_id: id, name: n, value: pyStrScalar(pyOr(value, "")) });
       }
       return id;
     });
@@ -1297,7 +1272,7 @@ export class TestSampleStore {
         pos += 1;
         for (const [name, value] of Object.entries(variables)) {
           const n = strip(name || "");
-          if (n) h.insert("test_sample_vars", { sample_id: id, name: n, value: pyStrOf(pyOr(value, "")) });
+          if (n) h.insert("test_sample_vars", { sample_id: id, name: n, value: pyStrScalar(pyOr(value, "")) });
         }
         added += 1;
       }
@@ -1340,14 +1315,14 @@ export class ModelMeasurementStore {
           machine_key: machineKey || "",
           source: source || "tune",
           label: label || "",
-          tokens_per_sec: pyFloatOf(pyOr(tokensPerSec, 0)),
+          tokens_per_sec: pyFloatParse(pyOr(tokensPerSec, 0)),
           vram_total_mb: pyIntOf(pyOr(vramTotalMb, 0)),
           at: pyIntOf(pyOr(at, 0)),
           // Which engine family measured it (a caller may name its own).
           backend: backend == null ? switchResolve.activeBackend() : backend,
           vram_model_mb: pyIntOf(pyOr(vramModelMb, 0)), // Phase 5: the true-up footprint
           kind: kind || "llm",
-          realtime_x: pyFloatOf(pyOr(realtimeX, 0)),
+          realtime_x: pyFloatParse(pyOr(realtimeX, 0)),
         }).lastInsertRowid,
       );
       const seen = new Set();

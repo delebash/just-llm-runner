@@ -3,7 +3,8 @@
 // wherever a client could tell the difference:
 //   - JSON bodies: an empty body is no body (a DELETE with a JSON content type and
 //     nothing in it is fine, as in FastAPI); a body with no content type is read as
-//     JSON, as FastAPI does;
+//     JSON, as FastAPI does; on request (`pyFloats`), a route that opts in keeps Python's
+//     whole-number floats (`1.0`) and every body as sent rides on `req.sentBody`;
 //   - no practical body limit (FastAPI has none; JustWrite's book import posts a base64
 //     zip as JSON — study §3.3);
 //   - validation: ajv with every error reported and defaults filled; unknown fields are
@@ -13,7 +14,8 @@
 
 import Fastify from "fastify";
 import { installErrorHandlers, installFastapiErrorHandlers } from "./errors.js";
-import { clean, laxConvert, shapeRequest } from "./models.js";
+import { clean, laxConvert, shapeRequest, unwrapTyped } from "./models.js";
+import { pyClone, pyJsonParse } from "./pyjson.js";
 
 const BODY_LIMIT = 1024 * 1024 * 1024; // 1 GiB — "none" in practice, as FastAPI
 
@@ -31,11 +33,66 @@ function parseJsonText(body, done) {
 }
 
 /**
+ * The request-body float opt-in, on `app` (`createServer({pyFloats})` calls it; a test that
+ * serves routers on a bare app calls it to read bodies as the real app does).
+ *
+ * JSON.parse turns a whole-number float a client sends (`1.0`, `1e3`) into the integer 1, so a
+ * free (`Any`) field stored with Python's json.dumps would write `1` where Python wrote `1.0`.
+ * A route that OPTS IN — `config: {pyFloats: true}`, or its "METHOD /url" in `routes`, for a
+ * router the kit builds (JustVoice: "PATCH /v1/prefs") — reads its body with `pyJsonParse` (a
+ * whole-number float literal → a PyFloat) and gets its typed fields' plain numbers back
+ * (`unwrapTyped`) before validation; every other route reads plain JSON — a PyFloat reaching
+ * code that never expected one (a template's `${x}`) would print "[object Object]". Every
+ * route's body as SENT (before defaults fill it) rides on `req.sentBody` — what pydantic's
+ * `exclude_unset` reads. JSON errors and empty bodies answer as the default parser's do.
+ */
+export function installPyFloatBodies(app, { routes = [] } = {}) {
+  const named = new Set(routes);
+  const optsIn = (req) => req.routeOptions?.config?.pyFloats === true || named.has(`${req.method} ${req.routeOptions?.url ?? ""}`);
+  const parseJsonBody = (req, body, done) => {
+    if (body === "" || body == null) return done(null, undefined);
+    const floats = optsIn(req);
+    let v;
+    try {
+      v = floats ? pyJsonParse(body) : JSON.parse(body);
+    } catch (e) {
+      e.statusCode = 400;
+      e.code = "FST_ERR_CTP_INVALID_JSON_BODY";
+      const m = /at position (\d+)/.exec(e.message);
+      if (m) e.jsonPos = Number(m[1]);
+      return done(e, undefined);
+    }
+    const schema = req.routeOptions?.schema?.body;
+    const typed = floats && schema ? unwrapTyped(schema, v) : v;
+    req.sentBody = pyClone(typed);
+    done(null, typed);
+  };
+  app.removeContentTypeParser(/^application\/(.+\+)?json/);
+  app.addContentTypeParser(/^application\/(.+\+)?json/, { parseAs: "string" }, parseJsonBody);
+  // No content type (or one nobody else claims): FastAPI tries JSON when there is a body.
+  app.removeContentTypeParser("*");
+  app.addContentTypeParser("*", { parseAs: "string" }, (req, body, done) => {
+    if (!req.headers["content-type"]) return parseJsonBody(req, body, done);
+    done(null, body === "" ? undefined : body);
+  });
+}
+
+/**
  * A Fastify instance with the family's parsing, validation and error answers.
  * `errors`: "problem" (the kit's problem+json; `typeBase` is the app's problem-type URL
  * prefix) or "fastapi" (FastAPI's default answers). `logger` is passed to Fastify.
+ * `pyFloats`: off by default (plain JSON.parse bodies); `{routes}` turns on the request-body
+ * float opt-in (`installPyFloatBodies` above), `routes` naming kit-built routes that opt in.
  */
-export function createServer({ typeBase, errors = "problem", onUnhandled = null, logger = false, bodyLimit = BODY_LIMIT, ...rest } = {}) {
+export function createServer({
+  typeBase,
+  errors = "problem",
+  onUnhandled = null,
+  logger = false,
+  bodyLimit = BODY_LIMIT,
+  pyFloats = null,
+  ...rest
+} = {}) {
   const app = Fastify({
     logger,
     bodyLimit,
@@ -68,6 +125,7 @@ export function createServer({ typeBase, errors = "problem", onUnhandled = null,
     if (!req.headers["content-type"]) return parseJsonText(body, done);
     done(null, body === "" ? undefined : body);
   });
+  if (pyFloats) installPyFloatBodies(app, pyFloats === true ? {} : pyFloats);
   // A repeated query key: FastAPI takes the LAST value for a scalar parameter (a list
   // parameter collects them all); Fastify's parser hands an array to every key.
   app.addHook("preValidation", async (req) => {

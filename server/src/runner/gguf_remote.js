@@ -14,7 +14,7 @@
 
 import * as http from "../platform/http.js";
 import { getLogger } from "../platform/log.js";
-import { pySorted, ValueError } from "../platform/py.js";
+import { isJsonObject, pySorted, ValueError } from "../platform/py.js";
 import { iterBody, raiseForStatus, readTimeout } from "./download.js";
 import { _classify, _parseHeader, _tensorSizes, ByteStream, readGgufMetadataFromStream } from "./gguf.js";
 import * as models from "./models.js";
@@ -154,9 +154,8 @@ export async function fetchGenerationConfigSamplers(baseRepoUrl, revision = "mai
     return {}; // advisory fallback; never throw into the caller
   }
   const out = {};
-  const isDict = cfg !== null && typeof cfg === "object" && !Array.isArray(cfg);
   for (const k of GEN_CFG_KEYS) {
-    const v = isDict ? cfg[k] : undefined;
+    const v = isJsonObject(cfg) ? cfg[k] : undefined;
     if (typeof v === "number") out[GEN_CFG_TO_LLAMA[k] ?? k] = v;
   }
   return out;

@@ -11,8 +11,7 @@ import path from "node:path";
 import { HttpError } from "../platform/errors.js";
 import { getLogger } from "../platform/log.js";
 import { model, nullable, opt, T } from "../platform/models.js";
-import { truthy, ValueError } from "../platform/py.js";
-import { errText, head, isDict } from "./base.js";
+import { cpSlice, errText, isJsonObject, truthy, ValueError } from "../platform/py.js";
 import { applyRules } from "./model_list_rules.js";
 import { construct, getLlmRegistry } from "./registry.js";
 import { LLMProviderConfig } from "./schema.js";
@@ -38,7 +37,7 @@ function rulesFor(providerType) {
   try {
     const raw = modelListRulesResolver();
     const rules = truthy(raw) ? raw : {};
-    if (!isDict(rules)) throw new TypeError("the model-list rules are not a dict");
+    if (!isJsonObject(rules)) throw new TypeError("the model-list rules are not a dict");
     return Object.hasOwn(rules, providerType) ? rules[providerType] : null;
   } catch (e) {
     log.warning("model-list-rules resolver failed", e); // surface as "no rules", not a 500
@@ -271,7 +270,7 @@ export async function router(app) {
       if (e?.name === "NotImplementedError") {
         throw new HttpError(400, `provider ${body.providerId} does not support embeddings`);
       }
-      throw new HttpError(502, head(errText(e), 400)); // surface upstream/transport errors
+      throw new HttpError(502, cpSlice(errText(e), 0, 400)); // surface upstream/transport errors
     }
     return { embeddings: vectors, model: body.model || adapter.default_model };
   });

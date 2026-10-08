@@ -17,8 +17,28 @@ import { getLogger } from "../platform/log.js";
 import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
 import { PyFloat, pyFloat, pyFloatValue, pyJson } from "../platform/pyjson.js";
-import { KeyError, pyFloatParse, pyInt, pySorted, pyStr, strip, truthy, ValueError } from "../platform/py.js";
-import { errText, head, httpxRequest, isDict, LLMMessage, pyReprStr, TransportError } from "./base.js";
+import {
+  AttributeError,
+  cpSlice,
+  errText,
+  IndexError,
+  isJsonObject,
+  KeyError,
+  pyFloatParse,
+  pyGet,
+  pyInt,
+  pyIter,
+  pySorted,
+  pyStr,
+  pyTypeName,
+  S,
+  strip,
+  strRepr,
+  truthy,
+  ValueError,
+  W,
+} from "../platform/py.js";
+import { httpxRequest, LLMMessage, TransportError } from "./base.js";
 import * as dispatch from "./dispatch.js";
 import * as presetResolve from "./preset_resolve.js";
 import * as pricing from "./pricing.js";
@@ -70,25 +90,17 @@ export function pyStrAny(v) {
 }
 
 function pyReprAny(v) {
-  if (typeof v === "string") return pyReprStr(v);
+  if (typeof v === "string") return strRepr(v);
   if (v === null || v === undefined || typeof v === "boolean") return pyStr(v);
   if (typeof v === "number") return Number.isInteger(v) ? (Number.isSafeInteger(v) ? String(v) : BigInt(v).toString()) : pyFloat(v);
   if (Array.isArray(v)) return `[${v.map(pyReprAny).join(", ")}]`;
-  if (typeof v === "object") return `{${Object.entries(v).map(([k, x]) => `${pyReprStr(k)}: ${pyReprAny(x)}`).join(", ")}}`;
+  if (typeof v === "object") return `{${Object.entries(v).map(([k, x]) => `${strRepr(k)}: ${pyReprAny(x)}`).join(", ")}}`;
   return String(v);
 }
 
-// Python `re`'s `\s` on str (str.isspace: JS's \s minus U+FEFF, plus \x1c-\x1f and \x85).
-// Candidate for platform/py.js.
-const PY_S = "[\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]";
-// Python `re`'s `\w` on str: alphanumeric (every letter and number category) or "_". (py.js's
-// W also matches \p{Mn} and every \p{Pc}; Python does not — measured: re.match(r"\w", ...) of
-// U+0301 COMBINING ACUTE and of U+203F UNDERTIE is None. Reported; candidate for
-// platform/py.js.)
-const PY_W = "[\\p{L}\\p{N}_]";
-
 // ── template renderer ────────────────────────────────────────────────────────
-const VAR = () => new RegExp(`\\{\\{${PY_S}*(${PY_W}+)${PY_S}*\\}\\}`, "gu");
+// Python `re`'s `\s` and `\w` on str (platform/py.js's S and W).
+const VAR = () => new RegExp(`\\{\\{${S}*(${W}+)${S}*\\}\\}`, "gu");
 
 /** A template referenced {{names}} the variables object does not carry. */
 export class MissingTemplateVariables extends ValueError {
@@ -208,7 +220,7 @@ export function makePromptRouter(getStore, defaults) {
 
     app.get("/v1/ai/prompts/:key", { schema: { params: KEY_PARAMS } }, async (req) => {
       const row = getStore().get(req.params.key);
-      if (row == null) throw new HttpError(404, `unknown prompt ${pyReprStr(req.params.key)}`);
+      if (row == null) throw new HttpError(404, `unknown prompt ${strRepr(req.params.key)}`);
       return out(row);
     });
 
@@ -253,7 +265,7 @@ export function makePromptRouter(getStore, defaults) {
     app.post("/v1/ai/prompts/:key/reset", { schema: { params: KEY_PARAMS } }, async (req) => {
       const key = req.params.key;
       const dflt = defaultOf(key);
-      if (dflt === null) throw new HttpError(400, `no seeded default for ${pyReprStr(key)} to reset to`);
+      if (dflt === null) throw new HttpError(400, `no seeded default for ${strRepr(key)} to reset to`);
       getStore().upsert(
         FeaturePromptRow({
           key,
@@ -399,7 +411,7 @@ export function _responseFormat(spec, action) {
     } catch {
       obj = null;
     }
-    if (isDict(obj) && Object.keys(obj).length) {
+    if (isJsonObject(obj) && Object.keys(obj).length) {
       // OpenAI constrains the name to ^[A-Za-z0-9_-]+$ — slugify the action id (dots etc.
       // → _) so a cloud pass-through never 400s on the name.
       const name = (action || "").replace(/[^A-Za-z0-9_-]/gu, "_") || "response";
@@ -610,41 +622,14 @@ export function ActionFit({ prompt_tokens, context, model: mdl }) {
   return { prompt_tokens, context, model: mdl };
 }
 
-// Python's exception classes on the measure path: what `except (httpx.HTTPError, KeyError,
-// ValueError, TypeError)` caught, and what it let through.
-class AttributeError extends Error {
-  constructor(m) {
-    super(m);
-    this.name = "AttributeError";
-  }
-}
-class IndexError extends Error {
-  constructor(m) {
-    super(m);
-    this.name = "IndexError";
-  }
-}
-const pyTypeName = (v) =>
-  v === null || v === undefined
-    ? "NoneType"
-    : Array.isArray(v)
-      ? "list"
-      : typeof v === "string"
-        ? "str"
-        : typeof v === "boolean"
-          ? "bool"
-          : typeof v === "number"
-            ? Number.isInteger(v) ? "int" : "float"
-            : "dict";
-/** `d.get(k)` — a non-dict has no .get (AttributeError, not caught by measure). */
-function pyGet(d, k) {
-  if (!isDict(d)) throw new AttributeError(`'${pyTypeName(d)}' object has no attribute 'get'`);
-  return Object.hasOwn(d, k) ? d[k] : null;
-}
+// The measure path reads llama-server's JSON with Python's dict.get / iter / type names
+// (platform/py.js's pyGet, pyIter, pyTypeName). What `except (httpx.HTTPError, KeyError,
+// ValueError, TypeError)` caught, and what it let through: py.js's AttributeError and
+// IndexError are not caught.
 /** `d[k]` on parsed JSON — KeyError / TypeError, as Python raised. */
 function pyItem(d, k) {
-  if (isDict(d)) {
-    if (!Object.hasOwn(d, k)) throw new KeyError(pyReprStr(k));
+  if (isJsonObject(d)) {
+    if (!Object.hasOwn(d, k)) throw new KeyError(strRepr(k));
     return d[k];
   }
   throw new TypeError(`'${pyTypeName(d)}' object is not subscriptable by a str`);
@@ -654,18 +639,11 @@ function pyIntJson(v) {
   if (v === null || typeof v === "object") throw new TypeError(`int() argument must be a string, a bytes-like object or a real number, not '${pyTypeName(v)}'`);
   return pyInt(v);
 }
-/** `for x in v` over parsed JSON: a list's items, a dict's keys, a str's characters. */
-function pyIter(v) {
-  if (Array.isArray(v)) return v;
-  if (typeof v === "string") return [...v];
-  if (isDict(v)) return Object.keys(v);
-  throw new TypeError(`'${pyTypeName(v)}' object is not iterable`);
-}
 /** `len(v)` */
 function pyLen(v) {
   if (typeof v === "string") return [...v].length;
   if (Array.isArray(v)) return v.length;
-  if (isDict(v)) return Object.keys(v).length;
+  if (isJsonObject(v)) return Object.keys(v).length;
   throw new TypeError(`object of type '${pyTypeName(v)}' has no len()`);
 }
 /** `x in seq` + `seq.index(x)` for a list or a str (the two shapes `args` can be). */
@@ -677,7 +655,7 @@ function ctxFromArgs(args) {
     return pyIntJson(args[i + 1]);
   }
   if (!Array.isArray(args)) {
-    if (isDict(args)) {
+    if (isJsonObject(args)) {
       if (!Object.hasOwn(args, "--ctx-size")) return 0;
       throw new AttributeError("'dict' object has no attribute 'index'");
     }
@@ -767,7 +745,7 @@ const sseFrame = (frame) => `data: ${pyJson(frame, { floats: ["cost", "progress"
 
 /** Map the run path's own errors to HTTP (the rest are 500s, as in Python). */
 function runErrorToHttp(e, body) {
-  if (e instanceof UnknownActionError) return new HttpError(404, `unknown AI action ${pyReprStr(body.action)}`);
+  if (e instanceof UnknownActionError) return new HttpError(404, `unknown AI action ${strRepr(body.action)}`);
   // 400, not 500: the caller's variables don't cover the template — a wiring/sample bug the
   // author must see named, never a blank prompt.
   if (e instanceof MissingTemplateVariables) return new HttpError(400, `${body.action}: ${e.message}`);
@@ -834,7 +812,7 @@ export function makeFeatureRouter(getStore, getConfig) {
       try {
         await ensureLocalReady(getConfig(), r.featureKey, body.action, r.providerOverride, r.modelOverride);
       } catch (e) {
-        ensureError = head(errText(e), 200);
+        ensureError = cpSlice(errText(e), 0, 200);
       }
 
       // Starlette's StreamingResponse: status 200, `text/event-stream; charset=utf-8`, no
@@ -882,7 +860,7 @@ export function makeFeatureRouter(getStore, getConfig) {
           }
         } catch (e) {
           if (e instanceof dispatch.LLMNotConfiguredError) send(sseFrame({ error: errText(e) }));
-          else send(sseFrame({ error: head(errText(e), 200) })); // an error frame, not a 500
+          else send(sseFrame({ error: cpSlice(errText(e), 0, 200) })); // an error frame, not a 500
         }
         send("data: [DONE]\n\n");
       } finally {

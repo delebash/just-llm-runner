@@ -51,7 +51,7 @@ import { Mutex } from "../platform/asyncutil.js";
 import { getLogger } from "../platform/log.js";
 import { model } from "../platform/models.js";
 import * as procs from "../platform/procs.js";
-import { pyFloatParse, pyInt, pyMax, pyMin, pyRound, pySorted, splitWs, strip } from "../platform/py.js";
+import { pyFloatParse, pyInt, pyMax, pyMin, pyRound, pySorted, splitlines, splitWs, strip } from "../platform/py.js";
 import * as self from "./hardware.js";
 import { GpuInfo, HardwareInfo } from "./schema.js";
 
@@ -60,13 +60,6 @@ const log = getLogger("llm_runner.runner.hardware");
 const MIB = 1024 * 1024;
 
 // ─── Small Python-semantics helpers (candidates for platform/) ───────────────────
-
-/** str.splitlines(): every Python line boundary, no trailing empty line. Candidate for platform/. */
-export function splitlines(s) {
-  const parts = String(s ?? "").split(/\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/);
-  if (parts.length && parts[parts.length - 1] === "") parts.pop();
-  return parts;
-}
 
 /** What `subprocess.run(…, text=True)` hands back: universal newlines (\r\n, \r → \n). */
 function textOut(r) {

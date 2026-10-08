@@ -15,6 +15,7 @@
 // `Internal Server Error` as plain text, as Starlette does.
 
 import { getLogger } from "./log.js";
+import { pyRepr } from "./pyjson.js";
 
 /** FastAPI's HTTPException: a status and a detail (any JSON value). */
 export class HttpError extends Error {
@@ -154,12 +155,12 @@ export function ajvToPydantic(err, root, data) {
       return { loc, msg, type };
     }
     case "enum": {
-      const opts = (err.params.allowedValues || []).map(literalRepr);
+      const opts = (err.params.allowedValues || []).map(pyRepr);
       const said = opts.length > 1 ? `${opts.slice(0, -1).join(", ")} or ${opts[opts.length - 1]}` : opts[0];
       return { loc, msg: `Input should be ${said}`, type: "literal_error" };
     }
     case "const":
-      return { loc, msg: `Input should be ${literalRepr(err.params.allowedValue)}`, type: "literal_error" };
+      return { loc, msg: `Input should be ${pyRepr(err.params.allowedValue)}`, type: "literal_error" };
     case "minimum":
     case "exclusiveMinimum": {
       const word = err.keyword === "minimum" ? "greater than or equal to" : "greater than";
@@ -183,14 +184,6 @@ export function ajvToPydantic(err, root, data) {
     default:
       return { loc, msg: err.message || "Invalid input", type: err.keyword || "value_error" };
   }
-}
-
-/** A Literal value as pydantic's literal_error writes it (Python's repr). */
-function literalRepr(v) {
-  if (typeof v === "string") return v.includes("'") && !v.includes('"') ? `"${v}"` : `'${v}'`;
-  if (v === true || v === false) return v ? "True" : "False";
-  if (v === null) return "None";
-  return String(v);
 }
 
 function validationErrors(err, request) {

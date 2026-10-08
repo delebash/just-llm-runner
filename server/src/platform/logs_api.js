@@ -45,7 +45,7 @@ import { purePath } from "./data_paths.js";
 import { HttpError } from "./errors.js";
 import { addSink, getLevel, getLogger, LEVELS, setLevel } from "./log.js";
 import { opt, T } from "./models.js";
-import { IS_WIN, pySorted } from "./py.js";
+import { IS_WIN, pySorted, splitlines } from "./py.js";
 
 const log = getLogger("llm_runner.platform.logs_api");
 
@@ -267,15 +267,6 @@ function truncateLive() {
   h.close();
   writeFileSync(h.baseFilename, "", "utf8");
   h.fd = h.open();
-}
-
-/** Python's str.splitlines() of a file read in text mode (universal newlines). */
-function splitlines(text) {
-  if (text === "") return [];
-  // str.splitlines()'s own boundaries
-  const parts = text.split(/\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]/);
-  if (parts[parts.length - 1] === "") parts.pop();
-  return parts;
 }
 
 export const LogTailResponse = T.Object({ text: T.String(), lines: T.Integer() });

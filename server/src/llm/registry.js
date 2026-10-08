@@ -10,9 +10,8 @@
 // (each adapter's `_ensureClient`), which is what Python's _lazy.py bought.
 
 import { getLogger } from "../platform/log.js";
-import { ValueError } from "../platform/py.js";
+import { strRepr, ValueError } from "../platform/py.js";
 import { AnthropicAdapter } from "./anthropic.js";
-import { pyReprStr } from "./base.js";
 import { GeminiAdapter } from "./gemini.js";
 import { OllamaAdapter } from "./ollama.js";
 import { OpenAICompatAdapter } from "./openai_compat.js";
@@ -76,7 +75,7 @@ export function construct(cfg) {
   if (["openai", "deepseek", "openrouter", "xai", "mistral"].includes(pt)) return new OpenAISDKAdapter(cfg.id, pt, opts);
   if (pt === "ollama") return new OllamaAdapter(cfg.id, opts);
   if (pt === "gemini") return new GeminiAdapter(cfg.id, opts);
-  throw new ValueError(`unknown LLM providerType: ${pyReprStr(pt)}`);
+  throw new ValueError(`unknown LLM providerType: ${strRepr(pt)}`);
 }
 
 /**

@@ -19,8 +19,8 @@
 import { randomUUID } from "node:crypto";
 import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
-import { strip, truthy, ValueError } from "../platform/py.js";
-import { pyReprStr } from "./base.js";
+import { pyOr, strip, strRepr, truthy, ValueError } from "../platform/py.js";
+import { pyStrScalar } from "../platform/pyjson.js";
 import * as seed from "./seed.js";
 import * as stores from "./stores.js";
 
@@ -98,7 +98,7 @@ export function makePresetsRouter(getPresets, getDefault, setDefault, getRefs, r
       // library, joined by preset id) so the wizard can detect "differs from factory"
       // without a second endpoint.
       const factory = new Map(
-        seed.appEnginePresets().map((p) => [stores.pyStrOf(stores.pyOr(p.id, "")), stores.pyStrOf(stores.pyOr(p.model, ""))]),
+        seed.appEnginePresets().map((p) => [pyStrScalar(pyOr(p.id, "")), pyStrScalar(pyOr(p.model, ""))]),
       );
       for (const r of rows) r.factoryModel = factory.get(r.id) ?? "";
       return model(PresetsResponse, { presets: rows });
@@ -120,7 +120,7 @@ export function makePresetsRouter(getPresets, getDefault, setDefault, getRefs, r
     app.put("/v1/ai/engine-presets/:preset_id", { schema: { params: PARAMS, body: EnginePresetRow } }, async (req) => {
       const presetId = req.params.preset_id;
       if (!getPresets().list().some((p) => p.id === presetId)) {
-        throw new HttpError(404, `preset ${pyReprStr(presetId)} not found`);
+        throw new HttpError(404, `preset ${strRepr(presetId)} not found`);
       }
       const body = req.body;
       body.id = presetId;

@@ -41,7 +41,8 @@
 import { background, sleep as sleepMs } from "../platform/asyncutil.js";
 import { HttpError, RequestValidationError } from "../platform/errors.js";
 import { getLogger } from "../platform/log.js";
-import { pyFloatParse, pyInt, pyMax, pyRound, pySorted, pyStr, strip, truthy } from "../platform/py.js";
+import { pyFloatParse, pyInt, pyMax, pySorted, pyStr, strip, truthy } from "../platform/py.js";
+import { pyFixed } from "../platform/pyjson.js";
 import * as lifecycle from "./lifecycle.js";
 import * as models from "./models.js";
 
@@ -63,15 +64,6 @@ const monotonic = () => performance.now() / 1000;
 export function errStr(e) {
   if (e instanceof Error) return e.message;
   return pyStr(e);
-}
-
-/**
- * Python's `f"{x:.{nd}f}"`: correctly rounded, ties to even on the double's exact value
- * (JS's toFixed rounds a true tie up — 0.25 → "0.3" where Python says "0.2"). Candidate for
- * platform/.
- */
-export function pyFixed(x, nd) {
-  return pyRound(x, nd).toFixed(nd);
 }
 
 /** `x or ""` then `str()` — the sweep's way of reading a switch value as text. */

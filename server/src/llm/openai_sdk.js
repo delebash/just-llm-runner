@@ -29,18 +29,8 @@
 
 import * as http from "../platform/http.js";
 import { getLogger } from "../platform/log.js";
-import { pyInt, RuntimeError, rstrip, ValueError } from "../platform/py.js";
-import {
-  adapterHttpError,
-  buildChatMessages,
-  errText,
-  isDict,
-  LLMResponse,
-  popReasoning,
-  selectAllowed,
-  splitSystem,
-  StreamDelta,
-} from "./base.js";
+import { errText, isJsonObject, pyInt, RuntimeError, rstrip, ValueError } from "../platform/py.js";
+import { adapterHttpError, buildChatMessages, LLMResponse, popReasoning, StreamDelta, selectAllowed, splitSystem } from "./base.js";
 
 const log = getLogger("llm_runner.llm.openai_sdk");
 
@@ -161,7 +151,7 @@ export class OpenAISDKAdapter {
     // json_object. xai/mistral document real json_schema; openrouter forwards per model —
     // both pass through untouched.
     const rf = kept.response_format;
-    if (pt === "deepseek" && isDict(rf) && rf.type === "json_schema") kept.response_format = { type: "json_object" };
+    if (pt === "deepseek" && isJsonObject(rf) && rf.type === "json_schema") kept.response_format = { type: "json_object" };
     const renames = TYPE_EXTRA_BODY_RENAMES[pt] ?? {};
     const typed = {};
     const extraBody = {};
@@ -188,12 +178,12 @@ export class OpenAISDKAdapter {
    * format. A json_schema without a usable schema falls back to json_object. */
   static _responsesText(extra) {
     const rf = (extra || {}).response_format;
-    if (!isDict(rf)) return null;
+    if (!isJsonObject(rf)) return null;
     const t = rf.type;
     if (t === "json_schema") {
       const js = rf.json_schema || {};
       const schema = js.schema;
-      if (isDict(schema)) {
+      if (isJsonObject(schema)) {
         return { format: { type: "json_schema", name: js.name || "response", strict: false, schema } };
       }
     }

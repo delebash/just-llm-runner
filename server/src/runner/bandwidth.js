@@ -32,7 +32,7 @@
 import os from "node:os";
 import { getLogger } from "../platform/log.js";
 import * as procs from "../platform/procs.js";
-import { pyFloatParse, pyInt, pyRound, pySorted, truthy } from "../platform/py.js";
+import { pyFloatParse, pyInt, pyRound, pySorted, splitlines, truthy } from "../platform/py.js";
 import * as self from "./bandwidth.js";
 import * as fit from "./fit.js";
 import * as hardware from "./hardware.js";
@@ -91,7 +91,7 @@ export async function nvidiaMemBwGbps() {
   const out = await hardware._nvidiaQuery("memory.bus.width,clocks.max.memory");
   if (out == null) return null;
   let best = null;
-  for (const line of hardware.splitlines(out)) {
+  for (const line of splitlines(out)) {
     const parts = line.split(",").map((p) => p.trim());
     if (parts.length !== 2) continue;
     let busBits;

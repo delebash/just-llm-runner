@@ -405,6 +405,58 @@ test("extract_tar_gz_closes_the_archive", async () => {
   expect(openFds()).toEqual(before);
 });
 
+test("extract_tar_gz_members_keeps_and_places_only_what_it_picks", async () => {
+  // tarfile's walk with extractfile (JustVoice's Japanese dictionary keeps a few files of an
+  // sdist): only regular files with no ".." part are offered; links, directories, special
+  // and absolute members are passed over, not refused; the archive closes either way.
+  const openFds = () => {
+    const open = [];
+    for (let fd = 3; fd < 256; fd++) {
+      try {
+        fstatSync(fd);
+        open.push(fd);
+      } catch {}
+    }
+    return open;
+  };
+  const dir = tmp();
+  const archive = join(dir, "pkg.tar.gz");
+  writeFileSync(
+    archive,
+    tarGzBytes([
+      ["pkg-1/dic/dicrc", "rc"],
+      ["pkg-1/dic/sub/a.bin", "A"],
+      ["pkg-1/dic/empty", ""],
+      ["pkg-1/dic/link", "", { type: "2", linkname: "dicrc" }],
+      ["pkg-1/dic/dir", "", { type: "5" }],
+      ["pkg-1/dic/fifo", "", { type: "6" }],
+      ["pkg-1/dic/../evil", "x"],
+      ["/abs/dic", "x"],
+      ["pkg-1/LICENSE", "mit"],
+      ["pkg-1/setup.py", "print()"],
+    ]),
+  );
+  const offered = [];
+  const pick = (name) => {
+    offered.push(name);
+    if (name.startsWith("pkg-1/dic/")) return name.slice("pkg-1/dic".length); // "/dicrc": a leading "/" is ignored
+    if (name === "pkg-1/LICENSE") return "LICENSE";
+    return null;
+  };
+  const before = openFds();
+  await binmod.extractTarGz(archive, join(dir, "out"), { members: pick });
+  expect(openFds()).toEqual(before);
+  expect(offered).toEqual(["pkg-1/dic/dicrc", "pkg-1/dic/sub/a.bin", "pkg-1/dic/empty", "/abs/dic", "pkg-1/LICENSE", "pkg-1/setup.py"]);
+  const files = readdirSync(join(dir, "out"), { recursive: true }).map((p) => p.replaceAll("\\", "/")).sort();
+  expect(files).toEqual(["LICENSE", "dicrc", "empty", "sub", "sub/a.bin"]);
+  expect(readFileSync(join(dir, "out", "dicrc"), "utf8")).toBe("rc");
+  expect(readFileSync(join(dir, "out", "sub", "a.bin"), "utf8")).toBe("A");
+  // A placed path outside the destination is refused, and the archive still closes.
+  await expect(binmod.extractTarGz(archive, join(dir, "out2"), { members: () => "../escaped" })).rejects.toThrow(/outside the destination/);
+  expect(openFds()).toEqual(before);
+  expect(existsSync(join(dir, "escaped"))).toBe(false);
+});
+
 test("acquire_docker_raises", async () => {
   // Auto-selection never lands on docker anymore (A4) — FORCING the variant via gpu= still
   // explains itself with the truthful pin story.

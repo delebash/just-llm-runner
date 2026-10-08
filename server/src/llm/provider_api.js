@@ -12,8 +12,7 @@ import * as http from "../platform/http.js";
 import { HttpError } from "../platform/errors.js";
 import { getLogger } from "../platform/log.js";
 import { model, nullable, opt, T } from "../platform/models.js";
-import { strip, truthy } from "../platform/py.js";
-import { errText, isDict, pyReprStr } from "./base.js";
+import { errText, isJsonObject, strip, strRepr, truthy } from "../platform/py.js";
 import { construct, getLlmRegistry } from "./registry.js";
 import { LLMProviderConfig } from "./schema.js";
 
@@ -123,7 +122,7 @@ function uniqueId(store, base) {
 
 function checkType(providerType) {
   if (!PROVIDER_TYPES.includes(providerType)) {
-    throw new HttpError(400, `unknown providerType ${pyReprStr(providerType)}. Allowed: ${PROVIDER_TYPES.join(", ")}`);
+    throw new HttpError(400, `unknown providerType ${strRepr(providerType)}. Allowed: ${PROVIDER_TYPES.join(", ")}`);
   }
 }
 
@@ -141,7 +140,7 @@ function syncRegister(cfg) {
 
 /** Python's `d.get(k, dflt)` on parsed JSON: a non-dict raises (AttributeError), as it did. */
 function dictGet(d, k, dflt) {
-  if (!isDict(d)) throw new TypeError(`'${Array.isArray(d) ? "list" : typeof d}' object has no attribute 'get'`);
+  if (!isJsonObject(d)) throw new TypeError(`'${Array.isArray(d) ? "list" : typeof d}' object has no attribute 'get'`);
   return Object.hasOwn(d, k) ? d[k] : dflt;
 }
 
@@ -176,7 +175,7 @@ export function makeProviderRouter(getStore, allowKeyReveal = false) {
       // Derive the id from the name when the client doesn't supply one.
       const providerId = strip(body.id) || uniqueId(store, slugify(body.name));
       if (store.get(providerId) != null) {
-        throw new HttpError(400, `LLM provider id ${pyReprStr(providerId)} already exists`);
+        throw new HttpError(400, `LLM provider id ${strRepr(providerId)} already exists`);
       }
       const cfg = model(LLMProviderConfig, {
         id: providerId,

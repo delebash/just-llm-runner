@@ -46,10 +46,18 @@ import path from "node:path";
 import { createGunzip } from "node:zlib";
 import { getLogger } from "../platform/log.js";
 import * as procs from "../platform/procs.js";
-import { FileNotFoundError, NotImplementedError, pyFloatParse, pyMax, pySorted, RuntimeError } from "../platform/py.js";
+import {
+  FileNotFoundError,
+  NotImplementedError,
+  pyFloatParse,
+  pyMax,
+  pySorted,
+  RuntimeError,
+  reEscape,
+  splitlines,
+} from "../platform/py.js";
 import { extractZip } from "../platform/zip.js";
 import * as download from "./download.js";
-import { splitlines } from "./hardware.js";
 import * as self from "./binary.js";
 
 const log = getLogger("llm_runner.runner.binary");
@@ -198,9 +206,6 @@ export const ASSET_PATTERNS = {
   "linux/rocm": ["^llama-{b}-bin-ubuntu-rocm-([\\d.]+)-x64\\.tar\\.gz$", null],
   "linux/vulkan": ["^llama-{b}-bin-ubuntu-vulkan-x64\\.tar\\.gz$", null],
 };
-
-/** re.escape for a value spliced into a pattern. */
-const reEscape = (s) => String(s).replace(/[.*+?^${}()|[\]\\\-/]/g, "\\$&");
 
 /** Placeholders are substituted, never formatted — the patterns contain regex braces. */
 export function _fill(pattern, build, version = "") {
@@ -495,8 +500,16 @@ function paxRecords(buf) {
  * drop setuid/setgid/sticky and group/other write; directory and symlink modes ignored.
  * A symlink that can't be made (Windows without the privilege) gets its target's copy, as
  * tarfile falls back. Candidate for platform/.
+ *
+ * `members(name)` picks and places members instead — tarfile's walk with `extractfile`, as
+ * JustVoice's Japanese dictionary install keeps a few files of an sdist: only regular files
+ * whose name has no ".." part are offered; it answers the path to write under `dest` ("/"
+ * separated; a leading "/" is ignored) or a falsy value to skip the member. The member's bytes
+ * are all that is written: no directories, links or modes, and the data filter's refusals
+ * don't apply to members it skips. A placed path that resolves outside `dest` is refused.
+ * Either way the archive is closed before this returns.
  */
-export async function extractTarGz(archive, dest) {
+export async function extractTarGz(archive, dest, { members = null } = {}) {
   mkdirSync(dest, { recursive: true });
   const root = realpathSync(dest);
   const links = []; // [kind, target, linkname] — made after every file is on disk
@@ -534,6 +547,20 @@ export async function extractTarGz(archive, dest) {
       return;
     }
     pending = {};
+    if (members) {
+      const isReg = m.type === "0" || m.type === "7" || m.type === "\0";
+      const rel = isReg && !m.name.split("/").includes("..") ? members(m.name) : null;
+      if (rel) {
+        const target = path.join(root, ...String(rel).split("/"));
+        if (!within(root, target)) throw new BadArchive(`'${m.name}' would be extracted to '${target}', which is outside the destination`);
+        mkdirSync(path.dirname(target), { recursive: true });
+        cur = { fd: openSync(target, "w"), remaining: m.size, pad };
+      } else {
+        cur = m.size + pad ? { remaining: m.size, pad } : null; // skipped: its data is read past
+      }
+      if (cur && cur.remaining === 0 && cur.pad === 0) finishData();
+      return;
+    }
     // the "data" filter
     let name = m.name.replace(/^[/\\]+/, "");
     if (path.isAbsolute(name) || /^[a-zA-Z]:/.test(name)) throw new BadArchive(`member '${m.name}' has an absolute path`);

@@ -27,7 +27,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameS
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve as resolvePathJs } from "node:path";
 import { getLogger } from "../platform/log.js";
-import { IS_WIN, pySorted, SYS_PLATFORM } from "../platform/py.js";
+import { IS_WIN, isJsonObject, pySorted, SYS_PLATFORM } from "../platform/py.js";
 import { pyJson } from "../platform/pyjson.js";
 import * as self from "./cache_registry.js";
 
@@ -188,7 +188,6 @@ function registryPath() {
   return join(self.familyHome(), FILENAME);
 }
 
-const isDict = (e) => e !== null && typeof e === "object" && !Array.isArray(e);
 /** dict.get(k, d): a present-but-null value stays null. */
 const get = (e, k, d) => (Object.hasOwn(e, k) ? e[k] : d);
 
@@ -203,8 +202,8 @@ function read(prune = true) {
   try {
     if (!existsSync(path)) return [];
     const raw = JSON.parse(readFileSync(path, "utf8"));
-    const entries = isDict(raw) ? raw.apps : null;
-    rows = (Array.isArray(entries) ? entries : []).filter((e) => isDict(e) && e.cacheRoot);
+    const entries = isJsonObject(raw) ? raw.apps : null;
+    rows = (Array.isArray(entries) ? entries : []).filter((e) => isJsonObject(e) && e.cacheRoot);
   } catch (e) {
     if (e?.code === "ENOENT") return [];
     log.warning("cache registry unreadable — treating this box as having no siblings", e);

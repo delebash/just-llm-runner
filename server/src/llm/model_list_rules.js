@@ -31,8 +31,7 @@
 // with Python's meaning.
 
 import { getLogger } from "../platform/log.js";
-import { B, NOT_W, pyMax, W } from "../platform/py.js";
-import { pyReprStr } from "./base.js";
+import { B, NOT_W, pyMax, strRepr, W } from "../platform/py.js";
 
 const log = getLogger("llm_runner.llm.model_list_rules");
 
@@ -260,7 +259,7 @@ function compile(patterns) {
     } catch (e) {
       if (!warnedPatterns.has(p)) {
         warnedPatterns.add(p);
-        log.warning(`model-list-rules: skipping invalid regex ${pyReprStr(p)} (${e.message})`);
+        log.warning(`model-list-rules: skipping invalid regex ${strRepr(p)} (${e.message})`);
       }
     }
   }

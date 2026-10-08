@@ -25,18 +25,8 @@
 // (Python's APIError `.code`).
 
 import * as http from "../platform/http.js";
-import { rstrip, ValueError } from "../platform/py.js";
-import {
-  adapterHttpError,
-  errText,
-  isDict,
-  LLMResponse,
-  popReasoning,
-  removePrefix,
-  selectAllowed,
-  splitSystem,
-  StreamDelta,
-} from "./base.js";
+import { errText, isJsonObject, rstrip, ValueError } from "../platform/py.js";
+import { adapterHttpError, LLMResponse, popReasoning, removePrefix, StreamDelta, selectAllowed, splitSystem } from "./base.js";
 
 let sdk = null;
 /** The google-genai SDK, imported on first use (Python measured the import at ~918 ms of
@@ -134,10 +124,10 @@ export class GeminiAdapter {
     if (maxTokens != null) cfg.maxOutputTokens = maxTokens;
     Object.assign(cfg, selectAllowed(extra, SAMPLERS, SAMPLER_FIELDS));
     const rf = (extra || {}).response_format;
-    if (isDict(rf) && ["json_object", "json", "json_schema"].includes(rf.type)) {
+    if (isJsonObject(rf) && ["json_object", "json", "json_schema"].includes(rf.type)) {
       cfg.responseMimeType = "application/json";
       const schema = (rf.json_schema || {}).schema;
-      if (rf.type === "json_schema" && isDict(schema)) cfg.responseJsonSchema = schema; // raw JSON Schema
+      if (rf.type === "json_schema" && isJsonObject(schema)) cfg.responseJsonSchema = schema; // raw JSON Schema
     }
     // Thinking (D6-A): off → OMIT thinkingConfig (model default); on + number →
     // thinkingBudget (incl. -1 dynamic); on + word → thinkingLevel.

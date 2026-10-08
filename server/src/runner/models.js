@@ -38,7 +38,7 @@ import { dirname, join, relative, sep } from "node:path";
 import * as http from "../platform/http.js";
 import { HttpStatusError } from "../platform/http.js";
 import { getLogger } from "../platform/log.js";
-import { FileNotFoundError, IS_WIN, KeyError, pyInt, pyMin, pySorted } from "../platform/py.js";
+import { FileNotFoundError, IS_WIN, KeyError, pyInt, pyMin, pySorted, reEscape } from "../platform/py.js";
 import { pyPath } from "./cache_registry.js";
 import * as download from "./download.js";
 import { DownloadCancelled, raiseForStatus } from "./download.js";
@@ -85,9 +85,6 @@ export function pySplit(s, sepStr, maxsplit = -1) {
   if (maxsplit < 0 || parts.length <= maxsplit + 1) return parts;
   return [...parts.slice(0, maxsplit), parts.slice(maxsplit).join(sepStr)];
 }
-
-/** re.escape for a pattern built into a RegExp. */
-const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&");
 
 /** GET a huggingface.co JSON document (requests.get + raise_for_status + .json()).
  * Python's `timeout=30` was 30 s to connect + 30 s per read; a small JSON answer is one read,

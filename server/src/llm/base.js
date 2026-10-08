@@ -26,7 +26,7 @@
 
 import { EnvHttpProxyAgent } from "undici";
 import * as http from "../platform/http.js";
-import { pyStr, RuntimeError, truthy } from "../platform/py.js";
+import { cpSlice, errText, pyStr, RuntimeError, splitlines, truthy } from "../platform/py.js";
 import { pyJson } from "../platform/pyjson.js";
 
 /** One conversation turn. `role` follows OpenAI's words (system / user / assistant / tool),
@@ -149,55 +149,13 @@ export function selectAllowed(extra, allowed, renames = null) {
 export function adapterHttpError(providerType, status, detail, { stream = false } = {}) {
   if (status == null) return new RuntimeError(`${providerType} request failed: ${detail}`);
   const kind = stream ? "stream " : "";
-  return new RuntimeError(`${providerType} ${kind}${status}: ${head(pyStr(detail), 400)}`);
+  return new RuntimeError(`${providerType} ${kind}${status}: ${cpSlice(pyStr(detail), 0, 400)}`);
 }
 
 // ── shared helpers (candidates for platform/) ────────────────────────────────
 
-/** `s[:n]` — Python slices by code point, not UTF-16 unit. Candidate for platform/py.js. */
-export function head(s, n) {
-  const str = String(s);
-  if (str.length <= n) return str;
-  return Array.from(str).slice(0, n).join("");
-}
-
-/** `str(e)` of an exception — the message alone (JS's String(e) prefixes the class name).
- * Candidate for platform/py.js. */
-export function errText(e) {
-  if (e instanceof Error) return e.message;
-  return String(e);
-}
-
 /** `s.removeprefix(p)`. Candidate for platform/py.js. */
 export const removePrefix = (s, p) => (p && s.startsWith(p) ? s.slice(p.length) : s);
-
-/** `dict.setdefault(k, d)` — returns the existing value even when it is null. Candidate
- * for platform/py.js. */
-export function setdefault(obj, key, dflt) {
-  if (!Object.hasOwn(obj, key)) obj[key] = dflt;
-  return obj[key];
-}
-
-/** `isinstance(v, dict)` for parsed JSON. Candidate for platform/py.js. */
-export const isDict = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-
-/** `repr(s)` of a str (the `{x!r}` / `%r` in messages). Candidate for platform/py.js. */
-export function pyReprStr(s) {
-  const str = String(s);
-  const q = str.includes("'") && !str.includes('"') ? '"' : "'";
-  let out = "";
-  for (const ch of str) {
-    const c = ch.codePointAt(0);
-    if (ch === "\\") out += "\\\\";
-    else if (ch === q) out += `\\${q}`;
-    else if (ch === "\n") out += "\\n";
-    else if (ch === "\r") out += "\\r";
-    else if (ch === "\t") out += "\\t";
-    else if (c < 0x20 || (c >= 0x7f && c < 0xa0)) out += `\\x${c.toString(16).padStart(2, "0")}`;
-    else out += ch;
-  }
-  return q + out + q;
-}
 
 // ── the local adapters' HTTP (httpx.Client, on platform/http.js) ─────────────
 // Candidates for platform/http.js: a per-request read timeout and httpx's error class.
@@ -294,22 +252,6 @@ export async function httpxStream(method, url, { json, headers, timeout }) {
 // drops that chunk. Copied as-is (same answers); reported as a Python bug: an SSE reader
 // should break on \n / \r / \r\n only.
 const NEWLINE_CHARS = "\n\r\x0b\x0c\x1c\x1d\x1e\x85  ";
-
-/** str.splitlines() */
-function splitlines(text) {
-  const out = [];
-  let cur = "";
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (NEWLINE_CHARS.includes(c)) {
-      out.push(cur);
-      cur = "";
-      if (c === "\r" && text[i + 1] === "\n") i++;
-    } else cur += c;
-  }
-  if (cur) out.push(cur);
-  return out;
-}
 
 /** httpx._decoders.LineDecoder, line for line. */
 class LineDecoder {

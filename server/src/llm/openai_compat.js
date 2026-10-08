@@ -6,21 +6,9 @@
 // official SDK adapter (openai_sdk.js); this file keeps byte-for-byte pass-through (the
 // samplers order array, llama-server's `prompt_progress` frames) the SDK path doesn't touch.
 
-import { pyInt, pyStr, RuntimeError, rstrip, truthy, ValueError } from "../platform/py.js";
+import { cpSlice, isJsonObject, pyInt, pyStr, RuntimeError, rstrip, setdefault, truthy, ValueError } from "../platform/py.js";
 import { pyFloatValue } from "../platform/pyjson.js";
-import {
-  buildChatMessages,
-  head,
-  httpxRequest,
-  httpxStream,
-  isDict,
-  iterLines,
-  LLMResponse,
-  popReasoning,
-  setdefault,
-  StreamDelta,
-  TransportError,
-} from "./base.js";
+import { buildChatMessages, httpxRequest, httpxStream, iterLines, LLMResponse, popReasoning, StreamDelta, TransportError } from "./base.js";
 import * as dispatch from "./dispatch.js";
 
 // Per-provider default base URLs, used when the config's baseUrl is empty.
@@ -144,7 +132,7 @@ export class OpenAICompatAdapter {
       }
       throw e;
     }
-    if (r.status >= 400) throw new RuntimeError(`${this.provider_type} ${r.status}: ${head(r.text, 400)}`);
+    if (r.status >= 400) throw new RuntimeError(`${this.provider_type} ${r.status}: ${cpSlice(r.text, 0, 400)}`);
 
     const payload = r.json();
     const choice = (truthy(payload.choices) ? payload.choices : [{}])[0];
@@ -194,7 +182,7 @@ export class OpenAICompatAdapter {
     const r = await httpxStream("POST", url, { json: body, headers: this._headers(), timeout: this._timeoutSeconds });
     if (r.status >= 400) {
       const detail = await r.text();
-      throw new RuntimeError(`${this.provider_type} stream ${r.status}: ${head(detail, 400)}`);
+      throw new RuntimeError(`${this.provider_type} stream ${r.status}: ${cpSlice(detail, 0, 400)}`);
     }
     for await (const line of iterLines(r.body)) {
       if (!line || !line.startsWith("data:")) continue;
@@ -214,7 +202,7 @@ export class OpenAICompatAdapter {
       // Prompt-eval progress chunks (builtin engine only — see return_progress above).
       // Overall progress = processed/total per the upstream contract; guard total=0.
       const prog = evt.prompt_progress;
-      if (isDict(prog)) {
+      if (isJsonObject(prog)) {
         const total = pyInt(prog.total || 0);
         const processed = pyInt(prog.processed || 0);
         if (total > 0) yield StreamDelta({ progress: Math.min(1.0, processed / total) });
@@ -267,7 +255,7 @@ export class OpenAICompatAdapter {
       }
       throw e;
     }
-    if (r.status >= 400) throw new RuntimeError(`${this.provider_type} embeddings ${r.status}: ${head(r.text, 400)}`);
+    if (r.status >= 400) throw new RuntimeError(`${this.provider_type} embeddings ${r.status}: ${cpSlice(r.text, 0, 400)}`);
     const data = r.json().data || [];
     return data.map((d) => [...(d.embedding || [])]);
   }

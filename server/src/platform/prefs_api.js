@@ -18,8 +18,7 @@
 // async.
 
 import { RequestValidationError } from "./errors.js";
-
-const isDict = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+import { isJsonObject } from "./py.js";
 
 /**
  * Build the shared renderer-prefs router over host storage hooks.
@@ -38,7 +37,7 @@ export function makePrefsRouter({ readAll, writeMany, clear, prefix = "/v1/prefs
       if (patch === undefined || patch === null) {
         throw new RequestValidationError([{ loc: ["body"], msg: "Field required", type: "missing" }]);
       }
-      if (!isDict(patch)) {
+      if (!isJsonObject(patch)) {
         throw new RequestValidationError([{ loc: ["body"], msg: "Input should be a valid dictionary", type: "dict_type" }]);
       }
       await writeMany(patch);

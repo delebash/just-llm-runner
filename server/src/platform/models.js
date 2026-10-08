@@ -21,7 +21,7 @@
 import Type from "typebox";
 import Value from "typebox/value";
 import { ajvToPydantic } from "./errors.js";
-import { pyClone } from "./pyjson.js";
+import { PyFloat, pyClone } from "./pyjson.js";
 
 export const T = Type;
 
@@ -206,3 +206,39 @@ export const dump = (schema, value) => model(schema, value);
 
 /** Is `value` valid for `schema` as it stands (no conversion)? */
 export const check = (schema, value) => Value.Check(schema, value);
+
+/** The branch of a union (`anyOf`) that a value takes: a PyFloat goes to the number branch
+ * (else the integer one), anything else to the branch of its JSON type, else to a free
+ * (`Any`) branch. Undefined when none fits. */
+export function branchOf(schema, v) {
+  const want = v instanceof PyFloat ? "number" : Array.isArray(v) ? "array" : v === null ? "null" : typeof v;
+  const bs = schema.anyOf || [];
+  if (want === "number") return bs.find((b) => b.type === "number") || bs.find((b) => b.type === "integer");
+  return bs.find((b) => b.type === want) || bs.find((b) => !b.type && !b.anyOf);
+}
+
+const typedNumber = (s) =>
+  s && (s.type === "number" || s.type === "integer" || (s.anyOf || []).some((b) => b.type === "number" || b.type === "integer"));
+
+/** A PyFloat where the model types a number becomes the plain number the model holds (its
+ * float-ness comes back from the schema on write); in a free (`Any`) position it stays. */
+export function unwrapTyped(schema, v) {
+  if (v == null || !schema) return v;
+  if (v instanceof PyFloat) return typedNumber(schema) ? v.v : v;
+  if (schema.anyOf) {
+    const b = branchOf(schema, v);
+    return b ? unwrapTyped(b, v) : v;
+  }
+  if (schema.type === "array" && Array.isArray(v)) return v.map((x) => unwrapTyped(schema.items, x));
+  if (typeof v !== "object" || Array.isArray(v)) return v;
+  if (schema.type === "object" && schema.properties) {
+    const out = { ...v };
+    for (const [k, s] of Object.entries(schema.properties)) if (k in out) out[k] = unwrapTyped(s, out[k]);
+    return out;
+  }
+  if (schema.patternProperties) {
+    const s = Object.values(schema.patternProperties)[0];
+    return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, unwrapTyped(s, x)]));
+  }
+  return v;
+}

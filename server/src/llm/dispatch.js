@@ -13,8 +13,7 @@
 // the runner reaches dispatch through the injected seams below, set at boot.
 
 import { getLogger } from "../platform/log.js";
-import { RuntimeError, strip, truthy } from "../platform/py.js";
-import { errText, head, pyReprStr } from "./base.js";
+import { cpSlice, errText, RuntimeError, strip, strRepr, truthy } from "../platform/py.js";
 import * as reasoning from "./reasoning.js";
 import { getLlmRegistry } from "./registry.js";
 import { getLedger, UsageEntry } from "./usage.js";
@@ -160,7 +159,7 @@ export function resolveFeature(config, feature, registry = null, { action = null
     const adapter = r.get(cfg.providerId);
     if (adapter !== null) return [adapter, cfg.model || adapter.default_model];
     log.warning(
-      `production config ${pyReprStr(cfg.name)} for ${feature} names unregistered provider ${cfg.providerId} — falling through`,
+      `production config ${strRepr(cfg.name)} for ${feature} names unregistered provider ${cfg.providerId} — falling through`,
     );
   }
 
@@ -198,7 +197,7 @@ export function resolveRoute(config, feature, { registry = null, action = null, 
   let [adapter, model] = resolveFeature(config, feature, r, { action });
   if (providerOverride) {
     const other = r.get(providerOverride);
-    if (other === null) throw new LLMNotConfiguredError(`Provider ${pyReprStr(providerOverride)} isn't registered.`);
+    if (other === null) throw new LLMNotConfiguredError(`Provider ${strRepr(providerOverride)} isn't registered.`);
     adapter = other;
     if (!modelOverride) model = other.default_model;
   }
@@ -307,7 +306,7 @@ export async function chat({
         completion_tokens: 0,
         duration_ms: Math.trunc((now() - started) * 1000),
         ok: false,
-        error: head(errText(e), 200),
+        error: cpSlice(errText(e), 0, 200),
         provider_id: adapter.provider_id,
       }),
     );
@@ -392,7 +391,7 @@ export async function* streamChat({
         completion_tokens: 0,
         duration_ms: Math.trunc((now() - started) * 1000),
         ok: false,
-        error: head(errText(e), 200),
+        error: cpSlice(errText(e), 0, 200),
         provider_id: adapter.provider_id,
       }),
     );

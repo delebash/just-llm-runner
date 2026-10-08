@@ -295,6 +295,41 @@ has its app-side facts):
   members, the 0x7075 Unicode-path field, 3.12's overlapped-entries check.
 - `NotImplementedError` lives in `platform/py.js` with the other Python error classes (the
   runner, the ZIP reader and JustVoice's blending each had their own).
+- **One copy of the Python helpers** (2026-10-08, the family-sameness sweep — JustVoice's TASKS
+  step-5 rec 3). `platform/py.js` gained isDict (a Map or a plain object) and isJsonObject (any
+  non-array object, what JSON.parse makes — the copies that tested only that keep it), pyGet,
+  pyIter, pyTypeName, setdefault, pyOr, errText, strRepr, cpLen/cpSlice/cpIndex, splitlines,
+  pyTitle/pyIsUpper/pyCapitalize, END, reEscape, pyEscapedLen, digitValue/digitsToInt/
+  asciiDigits, pyIntOfStr, decodeUtf8 + UnicodeDecodeError, b64decode + Base64Error and the
+  Attribute/Index/Overflow/AssertionError classes; `platform/pyjson.js` gained pyRepr, pyStrOf,
+  pyStrScalar, isNumber, pyFloatOf, pyIntOfNumber, pyIntOf, unwrap, pyFixed, pyFormatG (now exact
+  below 2^-20 too), pyJsonParse, jsonLoads / jsonLoadsExact / jsonRawDecode + JSONDecodeError (one
+  scanner, two shapes: plain objects and numbers, or Maps and BigInts); `platform/models.js`
+  branchOf and unwrapTyped; `createServer({pyFloats: {routes}})` is JustVoice's request-body
+  float opt-in; `extractTarGz(archive, dest, {members})` is tarfile's extractfile walk (JustVoice's
+  Japanese dictionary). JustVoice's `py_compat.js` is gone. Proof, before the copies went: each
+  new function against every copy it replaced on 20,000–200,000 generated inputs, 0 different
+  where merged; CPython 3.12.9's own answers in `tests/fixtures/python-text.json`
+  (`py_text.test.js`); the real UniDic sdist through the old walker and `{members}`: 21 files,
+  260,469,742 bytes, identical. (*measured 2026-10-08*.)
+- **Copies left apart, because merging changes what they answer** (each is an approximation of
+  the same CPython function; the user decides whether to converge): repr of a str — strRepr
+  escapes the control characters (C0, DEL, C1); `seed.js` pyReprStr, `runner/models.js` pyRepr
+  and JustVoice's `persona_render` pyReprStr leave U+0080–U+009F raw; docgen's jsonio `reprStr`
+  (and its `pyStr` / `pyRepr`) is CPython-exact (U+00A0, U+00AD, U+200B, U+2028, U+3000, U+FEFF
+  escaped too); JustVoice's slot `pyRepr`, html_parser `pyReprStr`, book_prose `reprStr`,
+  voice_bundle `reprOf` and JustWrite's book_io `pyRepr` / `pyStrOf` escape less still. str() —
+  py.js `pyStr` (String() for floats: `1e-7`), prompts.js `pyStrAny` (a PyFloat as `{'v': 1.0}`,
+  NaN as `NaN`). format(x, "g") — JustVoice's pipeline `formatG` and persona_render `fmtG` round
+  an exact tie up (123456.5 → "123457"; CPython "123456"). float() — py.js `pyFloatParse` (ASCII
+  digits, JavaScript's trim) beside pyjson's CPython `pyFloatOf`. dict.get — JustWrite's
+  `pyGet` / `pyItems` (TypeError), JustVoice's projects/extraction `dget` and justwrite adapter
+  `pyGet` (their own type words). JustWrite's `setdefault` (a `__proto__` key stays data).
+  model_catalog's `excStr` (str() of a thrown non-Error). (*code*, the sweep's fuzz.)
+- Two gaps from CPython the fixture found, kept as they were: `pyFloatOf` / `pyIntOfStr` strip
+  U+001C–U+001F (str.isspace() counts them; CPython's float() and int() refuse them); JustVoice's
+  `pronunciation.js` escapes `-` into a `u`-flag pattern, so a lexicon entry holding a space and
+  a hyphen ("Jean-Luc Picard") throws "Invalid escape" where Python matched. (*measured*.)
 - **An LLM request body is the text httpx writes** (2026-10-08). httpx 0.28.1 encodes `json=` as
   `json.dumps(ensure_ascii=False, separators=(",", ":"), allow_nan=False)`; `llm/base.js`
   `httpxRequest` / `httpxStream` sent `JSON.stringify`, so a preset's `temperature` 0.0 went out

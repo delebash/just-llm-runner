@@ -226,7 +226,10 @@ BUILT:  1. `runner/cache_registry.py:120-121` — an `apps` value that isn't a l
         4. `runner/bandwidth.py:131-133`, `:146-149` — the RAM probe's "parallel" copies never ran
            in parallel (`bytes(buf)` holds the GIL; measured on CPython 3.12.9), so the probe has
            only ever measured ONE stream and the 0.40 host factor was calibrated on that. Parallel
-           copies read 20–22 GB/s here vs 18.6–19.0. A fix means re-calibrating — the user's call.
+           copies read 20–22 GB/s here vs 18.6–19.0. DECIDED 2026-10-08 (the user: "keep going
+           complete the switch to electron do it all go your rec", on: "Keep it during the move,
+           so today's 0.40 calibration stays valid. Fixing it and recalibrating becomes its own
+           item after the move.") — kept; the fix + re-calibration is its own item after the move.
         5. `runner/hardware.py:318`, `:1039` — `int(float("inf"))` raises an uncaught OverflowError
            in a probe that "never raises".
         6. `runner/process.py:1011-1017` with `:911-923` — `stop()` closes the Job Object but never
@@ -255,7 +258,7 @@ BUILT:  1. `runner/cache_registry.py:120-121` — an `apps` value that isn't a l
            registry, adopt a real sibling cache and FAIL on any box that has one (this one).
         15. `tests/test_shared_cache.py:113` — `discovery_reports_a_sibling_with_what_is_in_it` has
            the same stale fixture as item 11 (an empty `models--…` folder) and FAILS today.
-OPEN:   each needs its own go (4 needs a decision: fix + re-calibrate, or keep).
+OPEN:   each needs its own go (4 is decided: kept until the move is done).
 GO:     needed.
 
 ## FINDING — the data-dir ladder's four copies disagree, and Tauri writes outside the chosen root [2026-10-05]
@@ -272,10 +275,12 @@ BUILT:  the copies — `llm_runner/platform/data_paths.py:41-128` (`_is_writable
         dir is `target/debug` for Rust and the checkout for Python. Tauri itself writes
         `%APPDATA%\<id>\.window-state.json` (all three apps) and `%LOCALAPPDATA%\<id>\EBWebView`
         (JustVoice, JustWrite).
-OPEN:   closed by the Electron move — one JS ladder module used by Electron's main process and
-        the headless server, `app.setPath('sessionData', …)` under the chosen root, window state
-        stored there (study §4.2; JustVoice TASKS "The family moves to Electron…"). Until then,
-        nothing.
+OPEN:   the ONE ladder is built (2026-10-08): `server/src/platform/data_paths.js` — the env
+        variable, the Change-folder pointer (now read by the headless server too), `data/` in the
+        install dir (`<repo>/data` in development), then the OS fallback decided 2026-10-08:
+        `%LOCALAPPDATA%\<App>\<App>`, its pointer `%LOCALAPPDATA%\<App>\dataroot.txt` (JustVoice
+        TASKS, the eight answers). The shell (`server/src/shell/`) puts Chromium's files and the
+        window state under `<root>/electron`. Closes app by app as each moves off Tauri.
 GO:     needed.
 
 ## FINDING — JustWrite and docgen hard-kill their servers on stop; only JustVoice stops gracefully [2026-10-05]

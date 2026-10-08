@@ -71,6 +71,7 @@ const STOP_WAIT_MS = 8000; // the server's own 3 s grace plus engine shutdown
 /**
  * Run the desktop app. `config`:
  *   id            short id — the app:// host, tray id, window-state key (e.g. "justvoice")
+ *   appName       the data folder's name under the OS fallback (`%LOCALAPPDATA%\<App>\<App>`)
  *   productName   shown in the tray and dialogs
  *   port          the app's registered server port (the family port registry)
  *   serverEntry   absolute path of the app's server module (runs `serve`)
@@ -106,10 +107,10 @@ export function runDesktopApp(config) {
 
   // ── the data root, before Chromium writes anything ─────────────────────────
   state.root = resolveDataRoot({
+    appName: config.appName,
     dataDirEnv: config.dataDirEnv,
     repoRoot: config.repoRoot,
     packaged: app.isPackaged,
-    exeDir: path.dirname(app.getPath("exe")),
   });
   sweepOldChromeDir(state.root);
   const chromeDir = path.join(state.root, CHROME_DIR);
@@ -436,7 +437,7 @@ export function runDesktopApp(config) {
       return { ok: true, path: r.filePath };
     },
     storageGetRoot() {
-      return storageInfo({ root: state.root, exeDir: path.dirname(app.getPath("exe")), repoRoot: config.repoRoot, packaged: app.isPackaged });
+      return storageInfo({ root: state.root, appName: config.appName, repoRoot: config.repoRoot, packaged: app.isPackaged });
     },
     async storageRelocate({ newRoot }) {
       // Stop the server so nothing holds the database open, move, then ALWAYS bring a
@@ -448,8 +449,8 @@ export function runDesktopApp(config) {
         moved = relocate({
           oldRoot: state.root,
           newRoot,
+          appName: config.appName,
           packaged: app.isPackaged,
-          exeDir: path.dirname(app.getPath("exe")),
           repoRoot: config.repoRoot,
         });
       } catch (e) {

@@ -251,6 +251,10 @@ export async function runnerRouter(app) {
 
   app.get("/v1/llm-runner/hardware", async () => {
     const hw = await hardware.detect();
+    // Reading the hardware panel refreshes the detection the service and the tune keys use,
+    // so a GPU or driver change shows without a restart (decided 2026-10-08 — Python
+    // re-detected on every call; the service reads the stored result).
+    hardware.setDetected(hw);
     return model(HardwareWithKeys, { ...hw, machineKey: hardware.machineKey(hw), classKey: hardware.classKey(hw) });
   });
 

@@ -28,7 +28,7 @@
 // Paths are strings here (Python handed out `Path`s): each one comes out in the form
 // `str(Path(…))` gives — native separators, no "." parts, no trailing separator.
 
-import { mkdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import * as self from "./data_paths.js";
@@ -228,14 +228,60 @@ export function resolveDataDir({ appName, envVar, sourceRoot = null, env = null 
   const chosen = String(environ[envVar] || "").trim();
   if (chosen) return purePath(chosen);
 
+  // The Change-folder pointer — read by the desktop shell AND the headless server since the
+  // Electron move (only the Rust shells read it before: the kit FINDING "the data-dir
+  // ladder's four copies disagree"). A pointer naming exactly the computed default is
+  // residue of the removed first-run lock, not a choice, and is deleted (family ruling
+  // 2026-08-14).
+  const def = self.defaultDataDir({ appName, sourceRoot });
+  const pointer = self.pointerFile({ appName, sourceRoot });
+  try {
+    const p = readFileSync(pointer, "utf8").trim();
+    if (p) {
+      if (samePath(p, def)) rmSync(pointer, { force: true });
+      else return purePath(p);
+    }
+  } catch {
+    /* no pointer */
+  }
+  return def;
+}
+
+/**
+ * The default data root: `data/` in the install directory when it is writable, else the OS
+ * fallback (decided 2026-10-08: `%LOCALAPPDATA%\<App>\<App>` — platformdirs' folder, local,
+ * not roaming).
+ */
+export function defaultDataDir({ appName, sourceRoot = null } = {}) {
   const base = installDir(sourceRoot);
   if (base != null) {
     const candidate = path.join(base, "data");
     if (self._isWritable(candidate)) return candidate;
   }
-
   // Last resort only — a non-writable install (see the header).
   return userDataDir(appName);
+}
+
+/**
+ * Where the Change-folder pointer `dataroot.txt` lives: the install directory when it is
+ * writable; else BESIDE the OS fallback root, never inside it, so moving the data can't
+ * delete it (decided 2026-10-08: `%LOCALAPPDATA%\<App>\dataroot.txt`). On macOS and Linux
+ * the fallback root has no app folder of its own above it, so the pointer beside it is
+ * `<App>.dataroot.txt`.
+ */
+export function pointerFile({ appName, sourceRoot = null } = {}) {
+  const base = installDir(sourceRoot);
+  if (base != null && self._isWritable(base)) return path.join(base, "dataroot.txt");
+  const fallback = userDataDir(appName);
+  return IS_WIN ? path.join(path.dirname(fallback), "dataroot.txt") : path.join(path.dirname(fallback), `${appName}.dataroot.txt`);
+}
+
+/** Is `root` the install directory's own `data/` (the Storage panel's "portable")? */
+export function isPortable(root, { sourceRoot = null } = {}) {
+  const base = installDir(sourceRoot);
+  if (base == null) return false;
+  const rel = path.relative(path.resolve(base), path.resolve(root));
+  return !rel.startsWith("..") && !path.isAbsolute(rel);
 }
 
 /** `Path(a) == Path(b)` — the same normalized path (case-insensitive on Windows).

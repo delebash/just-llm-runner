@@ -203,7 +203,7 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
 | 3 | runner E — **done** (7 tests wait for lifecycle) | autotune, calibrate, runner api (1,535) | autotune 29, calibrate 8, runner_models 26 | |
 | 4 | install | install, index (the public surface), headless boot | install_llm 8, shared_cache 22, config 4, realrouter_smoke 8 (gated) | install.js + the entry points **built**; their tests being ported |
 | 4 | checks | the route diff (`scripts/route-diff/`), consumers' import list (plan §9 B2) | — | **clean** 2026-10-08 — see §5 |
-| 5 | the shell | the shared Electron main module (plan §4 "The shared Electron main module") | its own | **built** 2026-10-07 (`src/shell/`), tested with a throwaway app; the data ladder's OS fallback waits for an answer |
+| 5 | the shell | the shared Electron main module (plan §4 "The shared Electron main module") | its own | **built** 2026-10-07 (`src/shell/`), tested with a throwaway app; the ONE data ladder is `platform/data_paths.js` (pointer read by the headless server too; OS fallback `%LOCALAPPDATA%\<App>\<App>`, decided 2026-10-08) |
 
 ## 5 · How the step is checked (plan §2)
 
@@ -309,7 +309,7 @@ says a fix lands in both languages):**
   "already running" until a restart. The JavaScript copies it (commented). Fix in both: move it
   inside the `try`. (runner E)
 
-**A behaviour the port changed (asked 2026-10-08):** Python's runner re-ran hardware detection
+**A behaviour the port changed (decided 2026-10-08: reading the hardware panel re-detects and refreshes the stored result — `runner/api.js` GET /hardware):** Python's runner re-ran hardware detection
 on every call (status, every load); the JavaScript service reads the result `ensureDetected()`
 stored at boot (its `hardwareFn` must be synchronous), so a GPU or driver change shows only after
 a restart.

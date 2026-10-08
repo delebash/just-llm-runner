@@ -83,3 +83,21 @@ test("build_runner_config_from_db", () => {
   const gpus = new Set(cfg.llamacpp.binaries.map((b) => `${b.platform}|${b.gpu}`));
   expect(gpus.has("windows|cuda12") && gpus.has("macos|metal")).toBe(true);
 });
+
+// Not in the Python file (decided 2026-10-08): reading the hardware panel refreshes the
+// detection the runner service and the tune keys read — Python re-detected on every call.
+test("hardware_endpoint_refreshes_the_stored_detection", async () => {
+  const hardware = await import("../src/runner/hardware.js");
+  const before = hardware.detected();
+  const box = { os: "Windows", platform: "windows", cpuCores: 4, ramMb: 16384, gpus: [], runtimes: {} };
+  vi.spyOn(hardware, "detect").mockResolvedValue(box);
+  try {
+    const app = createServer({ typeBase: "t/" });
+    app.register(runnerRouter);
+    const r = await app.inject({ url: "/v1/llm-runner/hardware" });
+    expect(r.statusCode).toBe(200);
+    expect(hardware.detected()).toEqual(box);
+  } finally {
+    hardware.setDetected(before);
+  }
+});

@@ -29,13 +29,21 @@
 
 const config = { open: null, openPath: null };
 
-/** Inside a Tauri webview? `__TAURI_INTERNALS__` is the IPC bootstrap every
- *  Tauri 2 window gets. NOT `window.__TAURI__`, which exists only when an app
- *  sets `withGlobalTauri` — JustVoice does not, and its folder-openers were
- *  silently dead for exactly that reason until 2026-08-14. */
-export function isTauriShell() {
-  return typeof window !== "undefined" && !!window.__TAURI_INTERNALS__;
+/** Inside the family's desktop shell? Two answers while the family moves to Electron
+ *  (JustVoice's plan docs/plans/2026-10-07-electron-node-plan.md §4):
+ *    - the Electron shell's ONE preload bridge, `window.appShell` (read only by the
+ *      app's `services/native.js` — and by this test);
+ *    - a Tauri 2 webview's IPC bootstrap, `__TAURI_INTERNALS__` (NOT `window.__TAURI__`,
+ *      which exists only with `withGlobalTauri` — JustVoice's folder-openers were
+ *      silently dead for exactly that reason until 2026-08-14).
+ *  The Tauri half goes when the last app has moved. */
+export function isDesktopShell() {
+  if (typeof window === "undefined") return false;
+  return !!window.appShell || !!window.__TAURI_INTERNALS__;
 }
+
+/** The old name, kept while JustWrite and JustVoice still call it — the same test. */
+export const isTauriShell = isDesktopShell;
 
 /** Merge semantics (configureServerApi's shape): a host that wires only `open`
  *  keeps whatever folder opener was configured before, and vice versa. */
@@ -46,7 +54,7 @@ export function configureExternal({ open, openPath: openPathFn } = {}) {
 
 export function openExternal(url) {
   if (!url) return;
-  if (config.open && isTauriShell()) {
+  if (config.open && isDesktopShell()) {
     config.open(url);
     return;
   }
@@ -55,7 +63,7 @@ export function openExternal(url) {
 
 /** Can this host reveal a local folder? False in any browser. */
 export function canOpenPath() {
-  return !!config.openPath && isTauriShell();
+  return !!config.openPath && isDesktopShell();
 }
 
 /** Show `path` in the OS file manager. Returns false when this host can't —

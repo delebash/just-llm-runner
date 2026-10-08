@@ -24,7 +24,7 @@
 // `save` resolves { ok: true, path } on success, null when the user cancelled,
 // and throws on a real failure.
 
-import { isTauriShell } from "./external.js";
+import { isDesktopShell } from "./external.js";
 
 const config = { save: null };
 
@@ -36,7 +36,7 @@ export function configureFileSave({ save } = {}) {
 /** Will `saveBlob` open a real dialog, or drop the file into Downloads? Lets a
  *  caller word its button honestly ("Save as…" vs "Download"). */
 export function canSaveNatively() {
-  return !!config.save && isTauriShell();
+  return !!config.save && isDesktopShell();
 }
 
 /**

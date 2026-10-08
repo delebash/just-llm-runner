@@ -20,7 +20,7 @@
 // unreachable: ONE base URL feeds both transports, the hosts arrive as a single
 // component, and the nav row's required attribute comes from the composable.
 
-import { configureExternal, isTauriShell } from "./common/services/external.js";
+import { configureExternal, isDesktopShell } from "./common/services/external.js";
 import { configureServerApi, makeOriginAwareResolver } from "./common/services/serverApi.js";
 import { configureLlmUi } from "./client.js";
 import { configureQuickSetupCopy } from "./common/services/quickSetupCopy.js";
@@ -51,7 +51,7 @@ export function llmUiCapabilities() {
  *  The second copy of the "are we in Tauri?" test lived here until 2026-08-14 and
  *  tested something else (protocol/hostname); external.js owns the one test now. */
 function warnNoOpener() {
-  if (isTauriShell()) {
+  if (isDesktopShell()) {
     console.warn(
       "[llm-ui] external links and Open folder will do nothing in this webview: pass " +
       'installLlmUi(app, { external: { open: openUrl, openPath } }) from "@tauri-apps/plugin-opener".',

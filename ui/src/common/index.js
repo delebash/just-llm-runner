@@ -65,7 +65,7 @@ export { pushToast, clearToasts } from "./services/toastBridge.js";
 // shared external-link opener — kit anchors route clicks through openExternal;
 // the host wires its shell bridge via configureExternal (Tauri swallows _blank).
 // openPath/canOpenPath are the same seam for LOCAL folders ("Open folder").
-export { configureExternal, openExternal, openPath, canOpenPath, isTauriShell } from "./services/external.js";
+export { configureExternal, openExternal, openPath, canOpenPath, isDesktopShell, isTauriShell } from "./services/external.js";
 
 // THE one door for putting a file on the user's disk — native dialog when the
 // host wired one, browser download otherwise. Every export in every app.

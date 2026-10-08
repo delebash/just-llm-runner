@@ -513,6 +513,76 @@ and [`docs/plans/2026-10-08-sync-research-building-blocks.md`](../plans/2026-10-
   replicas at a self-hosted one is not documented.
 - No maintained hybrid-logical-clock package exists on npm (the top one has 44 downloads a week).
 
+**Sync, round 2** (*web*, *measured* and *tested*, 2026-10-08 — under the user's "your rec on all go
+do the testing"; the decisions so far and the tests' detail are JustWrite's
+`docs/plans/2026-10-08-sync-design.md` "Round 2"; full records with every source:
+[`…-round2-sqlite-tools.md`](../plans/2026-10-08-sync-research-round2-sqlite-tools.md),
+[`…-round2-non-sqlite.md`](../plans/2026-10-08-sync-research-round2-non-sqlite.md),
+[`…-round2-reachability.md`](../plans/2026-10-08-sync-research-round2-reachability.md)):
+
+- **cr-sqlite, tested** (*measured*): vlcn-io v0.16.3 and the Fly.io fork's
+  v0.18.0-v2-migration-alpha23 (win-x86_64) both load into better-sqlite3 13.0.3 (Node 26.5) and
+  both refuse JustWrite's schema as it is — "checked foreign key constraints" on every book table,
+  "a NOT NULL column without a DEFAULT VALUE" on `projects`/`image_blobs`; the fork first demands
+  `crsql_set_ts()`. With FKs off and defaults added, merges are right (per field; same field →
+  one wins; delete beats edit; inserts kept; converged); 2,000 saves of a 7.5 KB row: 336 ms vs
+  132 ms plain (WAL). The Fly.io fork is active (pre-releases 2026-09-22 → 10-07), is Corrosion's
+  engine, ships no WASM build, and leaves gap tracking to the app (its README).
+- **Our own trigger change log, tested** (*measured*, a throwaway script): works on JustWrite's
+  schema unchanged — FKs with `ON DELETE CASCADE` on, NOT NULL kept; SQLite's cascade fires the
+  child tables' delete triggers; same four results as cr-sqlite; a relay through a third device
+  converges.
+- **The phone can keep SQLite in the app — Android, tested** (*measured*, a Capacitor 8.5.3 test
+  app on an Android 16 emulator, WebView 133.0.6943.137): origin `https://localhost`, secure
+  context; OPFS and `createSyncAccessHandle` in a module worker; `@sqlite.org/sqlite-wasm`
+  3.53.4-build2 on `opfs-sahpool` through its synchronous API, session API present; the database
+  survives a force-stop and an app update (reinstall); `navigator.storage.persist()` returns false;
+  2,000 single 7.5 KB saves 14–27 s (7–13 ms a save, emulator), 15 MB in one transaction
+  0.23–0.9 s. **iOS not tested** (needs a Mac).
+- **…but webview storage is best-effort** (*web*,
+  [`…-round2-phone-storage-onedrive.md`](../plans/2026-10-08-sync-research-round2-phone-storage-onedrive.md)
+  §A.3): Android WebView's code always denies `persist()` (`aw_permission_manager.cc`; a WebView
+  engineer, 2025-09-04: "nothing has changed here"); Capacitor's docs say the OS reclaims webview
+  storage when the device runs low; a Capacitor Android app reported total data loss at ~3 % free
+  space (eviction suspected, not confirmed). iOS: no Apple statement on WKWebView persistence or the
+  7-day cap. Native SQLite plugins are Promise-only ("all asynchronous", Capacitor docs); wa-sqlite's
+  calls return Promises too. No public report of `@sqlite.org/sqlite-wasm` on OPFS inside Capacitor
+  was found (Trilium's in-repo app, above, is unreleased).
+- **OneDrive from the phone** (*web*, same record §B): picking a cloud *folder* through the system
+  picker isn't reliable — no source shows OneDrive/Google Drive/Dropbox supporting Android's folder
+  picking; on iOS, Dropbox added folder access by 2024, OneDrive is moving to Apple's newer
+  file-provider API (rollout to early November 2026); the only free Capacitor plugin that keeps a
+  folder grant is `@daniele-rolli/capacitor-scoped-storage` (MIT, 0.1.0). The cloud APIs work:
+  OneDrive's app folder (`/me/drive/special/approot`, `Files.ReadWrite.AppFolder`; sign-in in the
+  system browser with PKCE), Dropbox's App Folder (PKCE + refresh tokens), Google's hidden app-data
+  folder (native authorization on Android). On Windows, reading an online-only OneDrive file
+  downloads it while the client runs; `.tmp` files are not synced.
+- **Field (*web*):** no open-source tool syncs our own SQLite tables over a file, a folder and a
+  server on Node plus a webview. Closest: Syncular (Apache-2.0, pre-1.0, single maintainer; its own
+  server on `node:sqlite`; schema declared in its manifest; Yjs columns; no file/folder) ·
+  backless-core (MIT in its tarball, repo 404; one changeset folder per device on Google
+  Drive/OneDrive — our folder design, on 2023 cr-sqlite WASM) · TinyBase (MIT; replaces the data
+  layer, saved to SQLite as one JSON blob). The old SQLite-client `electric-sql` package is
+  deprecated (last 0.12.1, 2024-06-19: "We've rebuilt the sync engine").
+- **How open-source apps sync (*web*):** none syncs the SQLite file; last write wins by timestamp
+  is the default. **Actual Budget** (MIT) — per-cell messages stamped with an HLC applied to its
+  own SQLite tables (better-sqlite3 on desktop), a merkle trie to find divergence, a thin
+  store-and-forward server (`@actual-app/sync-server`); `@actual-app/crdt` 3.1.3 is MIT but "at your
+  own risk" outside Actual. **Trilium** (AGPL — design only) runs its whole server in a web worker
+  on the official SQLite WASM over `opfs-sahpool` in an in-repo, unreleased Capacitor app — our
+  planned phone shape.
+- **Non-SQLite databases (*web*):** none beats SQLite + our own change log for an existing
+  relational schema; each serious one (TinyBase, RxDB free, CouchDB/PouchDB, PGlite, LiveStore,
+  Automerge-repo) means rewriting the schema, every query and the data layer, and most make it
+  async. RxDB's free tier caps open collections at 13; Realm's Device Sync ended 2025-09-30;
+  SurrealDB's engine is BUSL; Couchbase's source is BSL.
+- **Phone → laptop over the internet (*web*):** every zero-setup path needs a public machine
+  someone runs (a rendezvous and a relay). Built-in, open source: mDNS + a QR code on the same
+  Wi-Fi; WebRTC data channels with our own signalling and coturn (werift in Node, MIT); iroh (native
+  plugins). Separate programs: Syncthing (MPL-2.0) as a folder transport; Headscale (BSD-3).
+  Excluded as closed services: ngrok, Cloudflare Tunnel, Tailscale's own coordination, ZeroTier's
+  controller.
+
 ---
 
 ## 3 · AI tasks and the stream frames

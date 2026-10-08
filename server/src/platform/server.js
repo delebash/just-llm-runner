@@ -100,3 +100,20 @@ export function createServer({ typeBase, errors = "problem", onUnhandled = null,
   else installErrorHandlers(app, { typeBase: typeBase ?? "", onUnhandled });
   return app;
 }
+
+/**
+ * The `Content-Disposition` value for a download named `filename`. A header carries latin-1
+ * only, and a name outside printable ASCII travels as RFC 5987's `filename*=UTF-8''…` beside an
+ * ASCII fallback (RFC 6266 §4.3) — a book titled in Japanese failed JustWrite's export with a
+ * 500 until 2026-10-08. A plain ASCII name gives `attachment; filename="<name>"`, byte for byte
+ * what the routes wrote before.
+ */
+export function attachment(filename) {
+  const name = String(filename);
+  const plain = (c) => c >= " " && c <= "~" && c !== '"' && c !== "\\";
+  if ([...name].every(plain)) return `attachment; filename="${name}"`;
+  const fallback = [...name].map((c) => (plain(c) ? c : "_")).join("");
+  // encodeURIComponent leaves ' ( ) * as they are; RFC 5987's attr-char doesn't allow them.
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}

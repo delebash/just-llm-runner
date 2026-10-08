@@ -306,6 +306,13 @@ has its app-side facts):
   After the fix all 243 requests are byte-identical (`httpx_body.test.js`; JustVoice's
   `compare-extraction.mjs`). The Anthropic, Gemini and OpenAI SDK adapters serialize through
   their SDKs and still write a whole-number float as an integer — JSON-equal.
+- **A download's name: `platform/server.js` `attachment(filename)`** (2026-10-08). A header
+  carries latin-1 only (Starlette encoded it so and raised UnicodeEncodeError; Node rejects
+  anything past 0xFF), so JustWrite's export of a book titled in Japanese was a 500 in both
+  servers. A name outside printable ASCII now travels as RFC 5987's `filename*=UTF-8''…` beside
+  an ASCII fallback (RFC 6266 §4.3; `'()*` percent-encoded too, encodeURIComponent leaves
+  them); a plain ASCII name gives the exact `attachment; filename="<name>"` the routes wrote
+  before. (`attachment_header.test.js`; JustWrite's `book_transfer.test.js`.)
 
 **Phones** (*web*, study §5):
 

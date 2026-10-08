@@ -12,6 +12,6 @@ export { ApiError, HttpError, installErrorHandlers } from "./errors.js";
 export { installFileLog, installLogRing, makeLogsRouter } from "./logs_api.js";
 export { makePrefsRouter } from "./prefs_api.js";
 export * as procs from "./procs.js";
-export { createServer } from "./server.js";
+export { attachment, createServer } from "./server.js";
 export { runServer } from "./serve.js";
 export { openDatabase } from "./sql.js";

@@ -1,29 +1,23 @@
 // SPDX-License-Identifier: MIT
 // The family's ONE implementation of "find a platform-specific executable" for
-// node-side dev tooling — browser (Playwright Chromium) and project Python —
-// plus the tiny wait/poll helpers the smoke gates share.
+// node-side dev tooling — the browser (Playwright Chromium) — plus the tiny wait/poll
+// helpers the smoke gates share.
 //
-// Consumed by FILE-RELATIVE import from each app's adapter (the vite alias only
-// exists inside the renderer build; `node scripts/py.js` runs plain node):
-//   JustWrite  tests/lib/smoke-common.js  + scripts/py.js
-//   JustVoice  scripts/lib/smoke-common.js + scripts/py.js
-//   docgen     scripts/py.js
-// The sibling-checkout layout (E:\Dev\Web\<repo>) is already load-bearing for
-// the renderer (the @delebash/llm-ui alias) and the kit's own pytest recipe.
+// Consumed by FILE-RELATIVE import from each app's adapter (the vite alias only exists
+// inside the renderer build):
+//   JustWrite  tests/lib/smoke-common.js
+//   JustVoice  scripts/lib/smoke-common.js
+// The sibling-checkout layout (E:\Dev\Web\<repo>) is already load-bearing for the renderer
+// (the @delebash/llm-ui alias).
 //
 // WHY one home: both JW and JV independently learned that per-script copies of
-// findChrome() rot — JW counted 20 intra-repo copies before extracting its
-// shared version (2026-07-19), JV's seven verify scripts hardcoded a Linux path
-// pinned to a browser version so the gate could not run on Windows at all
-// (fixed 2026-07-29). Then the two "one homes" forked ACROSS repos — the exact
-// disease they each cured intra-repo. This file ends that: apps keep thin
-// adapters that bind their env-var names and venv layout, nothing more.
-//
-// Per-app facts stay in the adapters, passed explicitly: the env override names
-// (JW_CHROME/JW_PYTHON, JV_CHROME/JV_PYTHON, JAID_PYTHON) and the venv location
-// (JW: .venv at the repo root; JV + docgen: server/.venv).
+// findChrome() rot — JW counted 20 intra-repo copies before extracting its shared version
+// (2026-07-19), JV's seven verify scripts hardcoded a Linux path pinned to a browser
+// version so the gate could not run on Windows at all (fixed 2026-07-29). Then the two
+// "one homes" forked ACROSS repos — the exact disease they each cured intra-repo. This file
+// ends that: apps keep thin adapters that bind their env-var names (JW_CHROME, JV_CHROME),
+// nothing more. (Its Python interpreter lookup went with the family's Python, 2026-10-08.)
 
-import { spawn } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -93,58 +87,6 @@ export function findChrome({ env } = {}) {
 export function chromeLaunchOptions({ env } = {}) {
   const exe = findChrome({ env });
   return exe ? { executablePath: exe } : {};
-}
-
-// Venv interpreter locations under a venv dir. Windows puts it in Scripts/,
-// POSIX in bin/.
-const VENV_PYTHON = ["Scripts/python.exe", "bin/python"];
-
-/**
- * Path to THE PROJECT'S Python interpreter — its venv if present, else whatever
- * PATH offers. The app's env var (`env`, e.g. "JW_PYTHON") overrides everything.
- *
- * `root` is the app's repo root; `venvs` lists its venv dirs RELATIVE to root in
- * probe order (JW passes [".venv"], JV/docgen ["server/.venv"]).
- *
- * WHY this is not just the string "python": bare `python` resolves to whatever
- * is first on PATH — on the user's Windows box a stock F:\Python312 with none
- * of the project's dependencies — and every symptom reads as broken test
- * config rather than a missing install ("unrecognized arguments: -n" from
- * missing pytest-xdist; "No module named 'llm_runner'" from the bench
- * autostart). The venv is PREFERRED, not required: the Linux dev container has
- * no venv and runs the interpreter straight off PATH.
- */
-export function findPython({ env, root, venvs = [] } = {}) {
-  const override = env ? process.env[env] : "";
-  if (override && existsSync(override)) return override;
-  for (const venv of venvs) {
-    for (const rel of VENV_PYTHON) {
-      const exe = join(root, ...venv.split("/"), ...rel.split("/"));
-      if (existsSync(exe)) return exe;
-    }
-  }
-  return process.platform === "win32" ? "python" : "python3";
-}
-
-/**
- * The scripts/py.js body: resolve the project interpreter (findPython opts) and
- * exec it with `args`, inheriting stdio and preserving the exit code so npm
- * still fails the script when pytest fails. Kills the process on a signal exit.
- */
-export function runPython(args, opts) {
-  if (!args.length) {
-    console.error("scripts/py.js: no arguments — expected e.g. `-m pytest -q`");
-    process.exit(2);
-  }
-  const python = findPython(opts);
-  const child = spawn(python, args, { stdio: "inherit", shell: false });
-  child.on("error", (err) => {
-    console.error(`scripts/py.js: could not run ${python}\n  ${err.message}`);
-    const where = (opts?.venvs || []).join(" or ") || "the project venv";
-    console.error(`  Expected ${where} — create it, or put a suitable python on PATH.`);
-    process.exit(1);
-  });
-  child.on("exit", (code, signal) => process.exit(signal ? 1 : (code ?? 1)));
 }
 
 /** One probe: is something answering at `url` right now? (404 counts — the

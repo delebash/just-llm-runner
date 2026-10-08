@@ -333,6 +333,9 @@ Renaming JustWrite's dev root breaks all of these unless they are rewritten (the
 Indexed by subject so they can be found; their facts move into a section above when work next
 touches the subject. History in [`../plans/archive/`](../plans/archive/) is not listed.
 
+**AI tasks — the model's thinking in the strip** (its facts are distilled into §3) —
+[`2026-10-06-thinking-in-the-strip.md`](../plans/2026-10-06-thinking-in-the-strip.md)
+
 **llama.cpp — updates, the pin, the stable channel** —
 [`2026-09-19-engine-update-safety-and-stable-channel.md`](../plans/2026-09-19-engine-update-safety-and-stable-channel.md) ·
 [`../llama-cpp-watch.md`](../llama-cpp-watch.md) (the upstream review ledger).

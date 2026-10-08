@@ -80,7 +80,8 @@ const STOP_WAIT_MS = 8000; // the server's own 3 s grace plus engine shutdown
  *   distDir       the built UI (vite build output)
  *   devUrl        the Vite dev server URL used when not packaged and DEV_URL is set
  *   window        {width, height, minWidth, minHeight, backgroundColor, title}
- *   icon          the window/tray icon path
+ *   icon          the window icon path
+ *   trayIcon      the tray icon path (default: icon)
  *   logFile       the server's live log, relative to the data root (tray "Open log file")
  *   closeHoldMs   wait before closing so a `pagehide` save lands (JustWrite: 400)
  *   csp           the Content-Security-Policy for app:// pages (a default is used)
@@ -388,7 +389,7 @@ export function runDesktopApp(config) {
     return Menu.buildFromTemplate(items);
   }
   function createTray() {
-    const tray = new Tray(nativeImage.createFromPath(config.icon));
+    const tray = new Tray(nativeImage.createFromPath(config.trayIcon || config.icon));
     tray.setToolTip(config.productName);
     tray.setContextMenu(buildTrayMenu());
     tray.on("click", () => {

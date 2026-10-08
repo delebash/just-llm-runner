@@ -199,10 +199,10 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
 | 2 | llm routers A — **done** | prompts, presets_api, preset_resolve, switch_resolve, switch_presets_api, routing_api, provider_api, config_builder, api (≈2,300) | prompts 39, plane2_params 17, presets 7, switch_resolve 14, switch_presets 4, routing_api 3, provider_api 6, llm_api 6, probe_models 2, prompt_seed_backfill 2, embed_templates 7 | |
 | 2 | llm routers B — **done** | model_catalog_api, class_tunes_api, model_tunes_api, model_measurements_api, knob_catalog_api, embed_templates_api, model_list_rules_api, runner_config_api, reasoning_map_api, test_samples_api, cache_api, identity (≈2,200) | class_tunes 6, class_tune_refs 5, model_tunes 12, measurements 11, knob_catalog 7, hardware_class 18, identity 21, test_samples 3, models 28 | |
 | 2 | runner C | arbiter, process (the spawn door + koffi job) (1,680) | arbiter 36, router_port 10, load_failure_message 10 | **done** — 137 pass + 13 todo for lifecycle; the real job check (`KIT_REAL_SPAWN=1`): a hard kill of the owner took child + grandchild, the control without the job left the grandchild alive |
-| 3 | runner D (started 2026-10-07) | lifecycle (3,742) | lifecycle 208, runner 69, runner_reclaim 5, uncurated_path 1, fit_acceptance 6 | |
+| 3 | runner D — **done** | lifecycle (3,742) | lifecycle 208, runner 69, runner_reclaim 5, uncurated_path 1, fit_acceptance 6 | |
 | 3 | runner E — **done** (7 tests wait for lifecycle) | autotune, calibrate, runner api (1,535) | autotune 29, calibrate 8, runner_models 26 | |
-| 4 | install | install, index (the public surface), headless boot | install_llm 8, shared_cache 22, config 4, realrouter_smoke 8 (gated) | integrator |
-| 4 | checks | the route diff (`scripts/route-diff.mjs`), consumers' import list (plan §9 B2) | — | integrator |
+| 4 | install | install, index (the public surface), headless boot | install_llm 8, shared_cache 22, config 4, realrouter_smoke 8 (gated) | install.js + the entry points **built**; their tests being ported |
+| 4 | checks | the route diff (`scripts/route-diff/`), consumers' import list (plan §9 B2) | — | **clean** 2026-10-08 — see §5 |
 | 5 | the shell | the shared Electron main module (plan §4 "The shared Electron main module") | its own | **built** 2026-10-07 (`src/shell/`), tested with a throwaway app; the data ladder's OS fallback waits for an answer |
 
 ## 5 · How the step is checked (plan §2)
@@ -215,6 +215,23 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
    cell by cell.
 3. By hand, in the end: a llama-server router starts, loads, stops and is hard-killed, and VRAM
    returns to baseline each time.
+
+**The route diff's result, 2026-10-08** (`node scripts/node24.mjs scripts/route-diff/route-diff.mjs`):
+docgen's real Python server and the Node host (`kit-host.mjs`, docgen's own `install_llm`
+arguments dumped by `host-args.py`), each on its own copy of docgen's dev database and a scratch
+family registry:
+- reads — 62 GETs (every kit GET, parameters filled from Python's own answers, plus deliberate
+  errors): 50 identical, key order included; 12 volatile (live hardware, logs, disk, network):
+  equal status, and identical content too except the log text; 0 different;
+- writes — 37 requests over every store route (providers, reasoning map, presets and their
+  assignments, switch presets, the catalog, model and class tunes, hardware classes,
+  measurements, embed templates, test samples, engine config, pricing, routing, usage; never a
+  model load, download or the cache's files): all 37 answers identical (a new preset's random id
+  mapped Python → JS; a measurement's server-stamped `at` compared for presence);
+- then both databases: 27 tables, 1,827 cells, 0 different (the machine RAM-probe row's live
+  GB/s excepted — each server measured this box itself).
+The first run found docgen answering FastAPI's DEFAULT errors (it never called
+install_error_handlers — JustVoice and JustWrite do); `createServer({errors: "fastapi"})`.
 
 ## 6 · Found on the way
 
@@ -291,6 +308,11 @@ says a fix lands in both languages):**
   factory throws, the tuner's state stays "running" forever and every later start answers
   "already running" until a restart. The JavaScript copies it (commented). Fix in both: move it
   inside the `try`. (runner E)
+
+**A behaviour the port changed (asked 2026-10-08):** Python's runner re-ran hardware detection
+on every call (status, every load); the JavaScript service reads the result `ensureDetected()`
+stored at boot (its `hardwareFn` must be synchronous), so a GPU or driver change shows only after
+a restart.
 
 **Where the JavaScript can't match Python exactly (recorded by the ports):** requests'
 (connect, read) timeouts became an idle watchdog; a cancelled chunked download aborts requests in

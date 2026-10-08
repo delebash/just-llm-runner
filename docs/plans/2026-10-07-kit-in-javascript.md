@@ -195,9 +195,9 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
 | 1 | runner A | config, gguf, fit, cache_registry, download, models, gguf_remote (2,750) | gguf 17, gguf_tensor_table 11, fit 33, download 17, (models 28 — its llm parts wait for wave 2) | **done** — 106/106 ported, 103 pass, 3 skip until `ListFilesResponse` (wave 2); fit ~150k values and 17 real GGUFs identical to Python |
 | 1 | runner B | hardware, bandwidth, binary (2,370) | hardware 32, class_label_ladders 1, gpu_processes 15, bandwidth 12, binary 37 | **done** — 95/97 ported (+4), 101 pass, 1 skip (Linux-only); bandwidth's 2 lifecycle tests move to runner D; `detect()` identical to Python on this box. Boot must `await hardware.ensureDetected()` — the key functions read its memo |
 | 1 | providers | base, registry, openai_compat, openai_sdk, anthropic, gemini, ollama, usage, model_list_rules, dispatch, reasoning (2,860) | adapter_extra 45, base_helpers 4, llm_dispatch 17, model_list_rules 25 (its router parts wait) | **done** — 102/108 ported (+6), 99 pass, 9 skip until `switch_resolve.js`; 6 router tests wait for wave 2; request bodies equal Python's for every provider |
-| 1 | storage | stores, seed, every `*_api.py` model the stores use, usage_sink (3,400) | shared_storage 9, seed_providers 2, runner_config_store 11, reasoning 17 | integrator |
-| 2 | llm routers A | prompts, presets_api, preset_resolve, switch_resolve, switch_presets_api, routing_api, provider_api, config_builder, api (≈2,300) | prompts 39, plane2_params 17, presets 7, switch_resolve 14, switch_presets 4, routing_api 3, provider_api 6, llm_api 6, probe_models 2, prompt_seed_backfill 2, embed_templates 7 | |
-| 2 | llm routers B | model_catalog_api, class_tunes_api, model_tunes_api, model_measurements_api, knob_catalog_api, embed_templates_api, model_list_rules_api, runner_config_api, reasoning_map_api, test_samples_api, cache_api, identity (≈2,200) | class_tunes 6, class_tune_refs 5, model_tunes 12, measurements 11, knob_catalog 7, hardware_class 18, identity 21, test_samples 3, models 28 | |
+| 1 | storage | stores, seed, every `*_api.py` model the stores use, usage_sink (3,400) | shared_storage 9, seed_providers 2, runner_config_store 11, reasoning 17 | **done** — 24 ported, 19 pass, 5 skip until wave 2; `scripts/compare-seed.mjs`: 0 differences vs Python in 3,809 + 3,788 + 4,089 cells and 39 reads |
+| 2 | llm routers A (started 2026-10-07) | prompts, presets_api, preset_resolve, switch_resolve, switch_presets_api, routing_api, provider_api, config_builder, api (≈2,300) | prompts 39, plane2_params 17, presets 7, switch_resolve 14, switch_presets 4, routing_api 3, provider_api 6, llm_api 6, probe_models 2, prompt_seed_backfill 2, embed_templates 7 | |
+| 2 | llm routers B (started 2026-10-07) | model_catalog_api, class_tunes_api, model_tunes_api, model_measurements_api, knob_catalog_api, embed_templates_api, model_list_rules_api, runner_config_api, reasoning_map_api, test_samples_api, cache_api, identity (≈2,200) | class_tunes 6, class_tune_refs 5, model_tunes 12, measurements 11, knob_catalog 7, hardware_class 18, identity 21, test_samples 3, models 28 | |
 | 2 | runner C | arbiter, process (the spawn door + koffi job) (1,680) | arbiter 36, router_port 10, load_failure_message 10 | started early (mocks hardware) |
 | 3 | runner D | lifecycle (3,742) | lifecycle 208, runner 69, runner_reclaim 5, uncurated_path 1, fit_acceptance 6 | |
 | 3 | runner E | autotune, calibrate, runner api (1,535) | autotune 29, calibrate 8, runner_models 26 | |
@@ -217,6 +217,14 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
    returns to baseline each time.
 
 ## 6 · Found on the way
+
+- better-sqlite3 binds EVERY JavaScript number as REAL (`select typeof(?)` of 5 → 'real'), so
+  5 into a TEXT column stored '5.0' where Python stores '5'. `sql.js` now binds whole numbers
+  as BigInt (INTEGER) and booleans as 1/0 — what Python's sqlite3 binds. (storage, 2026-10-07)
+- pydantic dumps fields in declaration order; `model()` now rebuilds objects in schema order.
+- SQLAlchemy runs a table's INSERTs before its DELETEs within one flush; the seed port matches
+  it where rowids depended on it (`seedDefaultRunnerBinaries`, `seedDefaultKnobs`,
+  `HardwareClassStore.save`).
 
 - The kit's tables have no Python-side callable defaults (the capture listed none); apps' may
   (`registerDefaultFn`).
@@ -253,7 +261,8 @@ says a fix lands in both languages):**
   JavaScript copies it on purpose (commented in `base.js`) so the route diff matches. Fix in
   both: split SSE and NDJSON on `
 `, `
-`, `` only. (providers)
+`, `
+` only. (providers)
 - `tests/test_llm_dispatch.py::test_think_is_sent_even_to_a_known_nonthinker` depends on test
   order — alone it fails "LLM storage not configured"; it passes only after an earlier file set
   up storage. Fix: give it an in-memory database fixture. (providers)

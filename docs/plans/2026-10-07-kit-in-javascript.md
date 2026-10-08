@@ -216,6 +216,14 @@ The test counts are the Python suite's `def test_` functions (1,169 including cl
 3. By hand, in the end: a llama-server router starts, loads, stops and is hard-killed, and VRAM
    returns to baseline each time.
 
+**The hands-on router check, 2026-10-08** (`scripts/router-check/router-check.mjs`; the family
+apps closed; a copy of JustWrite's database; JustWrite's model cache read only; llama.cpp
+b11239; `gemma-4-26b-a4b-qat`, the family's daily model): baseline 437 MB VRAM, no llama-server
+→ loaded through the JavaScript runner: 7,284 MB, router + model child → `stop()`: 437 MB; the
+model child finished exiting ~1 s after the router, then no llama-server → loaded again →
+the Node process that owned the router HARD-KILLED (`taskkill /F`): 422 MB, no llama-server
+left. Both runs the same (the first, 471 → 7,308 → 461 → 7,303 → 447 MB).
+
 **The route diff's result, 2026-10-08** (`node scripts/node24.mjs scripts/route-diff/route-diff.mjs`):
 docgen's real Python server and the Node host (`kit-host.mjs`, docgen's own `install_llm`
 arguments dumped by `host-args.py`), each on its own copy of docgen's dev database and a scratch

@@ -173,6 +173,11 @@ sheet `docs/plans/2026-10-07-kit-in-javascript.md`):
   `ready` over `parentPort`; quitting asked it to stop — its close hook ran, Electron exited 0,
   the port was freed. Chromium's `userData` / `sessionData` landed under `<root>/electron`;
   nothing was written to `%APPDATA%` or `%LOCALAPPDATA%`.
+- The JavaScript runner on the real card (*measured 2026-10-08*, RTX 2070 SUPER 8 GB, llama.cpp
+  b11239, `gemma-4-26b-a4b-qat`): load → 7.3 GB; `stop()` → back to the 437 MB baseline, the
+  model child exiting ~1 s after the router; a hard kill of the Node process owning the router
+  (`taskkill /F`) → baseline, no llama-server left — the koffi job takes the tree
+  (`server/scripts/router-check/`).
 - `vi.spyOn(namespace, "fn")` (vitest 4.1.11) reaches calls made through a module namespace —
   from other modules, and from inside the module through `import * as self` — but not a direct
   call inside the module. That is the port's monkeypatch rule.

@@ -41,9 +41,12 @@ export const nullable = (schema) => Type.Union([schema, Type.Null()]);
 /** `Literal["a", "b"]`. */
 export const literal = (...values) => Type.Union(values.map((v) => Type.Literal(v)));
 
+/** `Schema(**value)` refused: pydantic's ValidationError text — the count and the model, then
+ * each error's field path and reason (without pydantic's own type tags and docs links). */
 export class ModelValidationError extends Error {
   constructor(errors, title = "model") {
-    super(`${errors.length} validation error${errors.length === 1 ? "" : "s"} for ${title}`);
+    const lines = errors.map((e) => `${e.loc.length ? e.loc.join(".") : title}\n  ${e.msg}`);
+    super([`${errors.length} validation error${errors.length === 1 ? "" : "s"} for ${title}`, ...lines].join("\n"));
     this.name = "ModelValidationError";
     this.errors = errors;
   }
@@ -168,8 +171,23 @@ export const strictObject = (props, options = {}) => Type.Object(props, { additi
 export function model(schema, value, title) {
   const v = fillDefaults(schema, clean(schema, laxConvert(schema, pyClone(value ?? {}))));
   if (!Value.Check(schema, v)) {
+    const valueAt = (instancePath) => {
+      let at = v;
+      for (const k of (instancePath || "").split("/").slice(1)) at = at == null ? undefined : at[k];
+      return at;
+    };
+    const seen = new Set();
     const errors = [...Value.Errors(schema, v)]
       .filter((e) => e.keyword !== "anyOf")
+      // A nullable field whose value isn't null and fails X: the null branch's "must be null"
+      // is not an error pydantic reports (errors.js validationErrors drops it the same way).
+      .filter((e) => !(e.keyword === "type" && e.params?.type === "null" && valueAt(e.instancePath) !== null))
+      .filter((e) => {
+        const key = e.instancePath || "";
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
       .map((e) => {
         const p = ajvToPydantic(
           { ...e, params: e.params?.requiredProperties ? { missingProperty: e.params.requiredProperties[0] } : e.params },

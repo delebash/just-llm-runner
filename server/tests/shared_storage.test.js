@@ -4,10 +4,6 @@
 //
 // NOT the drop-in test: this file wires the storage layer by hand and never calls
 // `installLlm` (that is install_llm.test.js).
-//
-// Waits for wave 2: `build_llm_config_has_providers_no_pins` needs llm/config_builder.js —
-// skipped while that file is missing, runs by itself once it lands.
-import { existsSync } from "node:fs";
 import { beforeEach, expect, test, vi } from "vitest";
 import * as db from "../src/llm/db.js";
 import { FeatureCatalogEntry } from "../src/llm/routing_api.js";
@@ -80,9 +76,7 @@ test("routing_roundtrip_default_only", () => {
   expect(got.default.model).toBe("gpt-4o");
 });
 
-const NO_CONFIG_BUILDER = !existsSync(new URL("../src/llm/config_builder.js", import.meta.url));
-
-test.skipIf(NO_CONFIG_BUILDER)("build_llm_config_has_providers_no_pins", async () => {
+test("build_llm_config_has_providers_no_pins", async () => {
   const { buildLlmConfig } = await import("../src/llm/config_builder.js");
   stores.getRoutingStore().setRouting({ default: { llmId: "openai-compat-local" } });
   const cfg = buildLlmConfig();

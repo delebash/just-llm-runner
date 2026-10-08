@@ -41,6 +41,7 @@ export function createServer({ typeBase, logger = false, bodyLimit = BODY_LIMIT,
     ajv: {
       customOptions: {
         allErrors: true,
+        verbose: true, // errors carry their schema (errors.js tells a dict from a model)
         // No coercion here: ajv's turned null into "" / 0 inside a nullable union. The
         // preValidation hook converts the way pydantic does instead (models.laxConvert).
         coerceTypes: false,

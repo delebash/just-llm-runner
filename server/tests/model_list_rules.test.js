@@ -2,18 +2,18 @@
 // Port of tests/test_model_list_rules.py — part 1, the pure rule ENGINE (classify /
 // anchored-regex drops / dated-collapse / invalid-regex resilience / show-all /
 // hidden count) on realistic OpenAI- and Gemini-style fixtures; part 3, the STORE (one
-// JSON doc in the runner-settings store) with seed / user-edit / reset / seed-refresh.
-//
-// NOT ported here — they wait for the llm routers (wave 2):
-//   part 2, the endpoints (llm.api's router + set_model_list_rules_resolver):
-//     saved_endpoint_applies_openai_rules, saved_endpoint_all_query_bypasses,
-//     saved_endpoint_gemini_rules, unknown_type_passes_through, probe_endpoint_applies_rules
-//   part 3's CRUD router (model_list_rules_api): router_get_put_reset_round_trip
+// JSON doc in the runner-settings store) with seed / user-edit / reset / seed-refresh, and
+// its CRUD router (model_list_rules_api): router_get_put_reset_round_trip; part 2, the
+// endpoints (llm/api.js's router + setModelListRulesResolver).
 import { describe, expect, test, vi } from "vitest";
+import { router, setModelListRulesResolver } from "../src/llm/api.js";
 import { applyRules, pyRegex, SEED_VERSION, seedDoc } from "../src/llm/model_list_rules.js";
+import { getLlmRegistry } from "../src/llm/registry.js";
+import { makeModelListRulesRouter } from "../src/llm/model_list_rules_api.js";
 import * as seed from "../src/llm/seed.js";
 import * as stores from "../src/llm/stores.js";
 import { pyJson } from "../src/platform/pyjson.js";
+import { createServer } from "../src/platform/server.js";
 import { freshDb } from "./helpers.js";
 
 // Stand-ins while switch_resolve.js / identity.js are still being ported (stores.js imports
@@ -191,6 +191,108 @@ test("hidden_count_accounts_for_every_removed_id", () => {
   expect(res.hidden_count).toBeGreaterThan(0);
 });
 
+// ══ 2. the endpoints (shipped seeds applied to the fixtures) ═══════════════════
+
+class StubAdapter {
+  constructor(providerId, providerType, models) {
+    this.provider_id = providerId;
+    this.provider_type = providerType;
+    this.default_model = "";
+    this._models = models;
+  }
+  async models() {
+    return [...this._models];
+  }
+  async ping() {
+    return true;
+  }
+}
+
+function client() {
+  const app = createServer({ typeBase: "https://example.test/errors/" });
+  app.register(router);
+  return app;
+}
+
+function withSeedsAndAdapter(adapter) {
+  const reg = getLlmRegistry();
+  reg._adapters = new Map();
+  reg.register(adapter);
+  setModelListRulesResolver(() => seedDoc().rules);
+}
+
+function teardown() {
+  setModelListRulesResolver(null);
+  getLlmRegistry()._adapters = new Map();
+}
+
+test("saved_endpoint_applies_openai_rules", async () => {
+  withSeedsAndAdapter(new StubAdapter("oai", "openai", OPENAI_RAW));
+  try {
+    const body = (await client().inject({ method: "GET", url: "/v1/llm-providers/oai/models" })).json();
+    expect(asSet(body.models)).toEqual(OPENAI_CHAT);
+    expect(asSet(body.embeddings)).toEqual(OPENAI_EMBED);
+    expect(body.hiddenCount).toBe(OPENAI_RAW.length - OPENAI_CHAT.size - OPENAI_EMBED.size);
+  } finally {
+    teardown();
+  }
+});
+
+test("saved_endpoint_all_query_bypasses", async () => {
+  withSeedsAndAdapter(new StubAdapter("oai", "openai", OPENAI_RAW));
+  try {
+    const body = (await client().inject({ method: "GET", url: "/v1/llm-providers/oai/models?all=1" })).json();
+    expect(body.models).toEqual(OPENAI_RAW);
+    expect(body.embeddings).toEqual([]);
+    expect(body.hiddenCount).toBe(0);
+  } finally {
+    teardown();
+  }
+});
+
+test("saved_endpoint_gemini_rules", async () => {
+  withSeedsAndAdapter(new StubAdapter("gem", "gemini", GEMINI_RAW));
+  try {
+    const body = (await client().inject({ method: "GET", url: "/v1/llm-providers/gem/models" })).json();
+    expect(asSet(body.models)).toEqual(GEMINI_CHAT);
+    expect(asSet(body.embeddings)).toEqual(GEMINI_EMBED);
+  } finally {
+    teardown();
+  }
+});
+
+test("unknown_type_passes_through", async () => {
+  // A provider TYPE with no rules row is under-filter-safe: the raw list is returned.
+  withSeedsAndAdapter(new StubAdapter("who", "some-new-vendor", ["a", "b", "c"]));
+  try {
+    const body = (await client().inject({ method: "GET", url: "/v1/llm-providers/who/models" })).json();
+    expect(body.models).toEqual(["a", "b", "c"]);
+    expect(body.hiddenCount).toBe(0);
+  } finally {
+    teardown();
+  }
+});
+
+test("probe_endpoint_applies_rules", async () => {
+  // The draft probe builds a temporary adapter; a dead base URL yields [] from the
+  // openai-compat adapter, so assert the SHAPE + the rule application.
+  setModelListRulesResolver(() => seedDoc().rules);
+  try {
+    const r = await client().inject({
+      method: "POST",
+      url: "/v1/llm-providers/probe-models",
+      payload: { providerType: "openai-compat", baseUrl: "http://127.0.0.1:9/v1" },
+    });
+    expect(r.statusCode).toBe(200);
+    const body = r.json();
+    expect(body.models).toEqual([]);
+    expect(body.embeddings).toEqual([]);
+    expect(body.hiddenCount).toBe(0);
+  } finally {
+    setModelListRulesResolver(null);
+  }
+});
+
 // ══ 3. the store: one JSON doc in the runner-settings store ═══════════════════
 
 /** A fresh in-memory database as the shared storage (Python's StaticPool engine). */
@@ -255,6 +357,28 @@ test("reset_snaps_back_to_seed_and_rearms_refresh", () => {
   stores.resetModelListRules();
   expect(stores.getModelListRules()).toEqual(seedDoc());
   expect(h.get("runner_setting", "model_list_rules").built_in).toBe(true);
+});
+
+test("router_get_put_reset_round_trip", async () => {
+  const h = freshStore();
+  h.tx(() => seed.seedModelListRules(h));
+  const app = createServer({ typeBase: "https://example.test/errors/" });
+  app.register(makeModelListRulesRouter(stores.getModelListRules, stores.setModelListRules, stores.resetModelListRules));
+
+  const got = (await app.inject({ method: "GET", url: "/v1/ai/model-list-rules" })).json();
+  expect(got.seedVersion).toBe(SEED_VERSION);
+  expect("openai" in got.rules).toBe(true);
+
+  const edited = {
+    seedVersion: SEED_VERSION,
+    rules: { openai: { embedPatterns: ["^custom-embed"], dropPatterns: ["^drop"], collapseDated: true } },
+  };
+  const put = (await app.inject({ method: "PUT", url: "/v1/ai/model-list-rules", payload: edited })).json();
+  expect(put.rules.openai.embedPatterns).toEqual(["^custom-embed"]);
+  expect(stores.getModelListRules().rules.openai.dropPatterns).toEqual(["^drop"]);
+
+  const reset = (await app.inject({ method: "POST", url: "/v1/ai/model-list-rules/reset" })).json();
+  expect(reset).toEqual(JSON.parse(JSON.stringify(seedDoc()))); // back to the shipped seed
 });
 
 // Not in the Python file: the stored patterns are PYTHON regexes — pyRegex reads them

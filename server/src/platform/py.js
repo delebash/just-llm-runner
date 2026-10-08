@@ -212,10 +212,11 @@ export function casefold(s) {
     .replace(/[ﬅﬆ]/g, "st");
 }
 
-/** Python `re`'s `\w` on str, for a pattern built with the `u` flag. */
-export const W = "[\\p{L}\\p{N}\\p{Mn}\\p{Pc}]";
+/** Python `re`'s `\w` on str — letters, every number category, `_` (measured: not combining
+ * marks, not other connector punctuation) — for a pattern built with the `u` flag. */
+export const W = "[\\p{L}\\p{N}_]";
 /** Python `re`'s `\W`. */
-export const NOT_W = "[^\\p{L}\\p{N}\\p{Mn}\\p{Pc}]";
+export const NOT_W = "[^\\p{L}\\p{N}_]";
 /** Python `re`'s `\b`, for a pattern built with the `u` flag. */
 export const B = `(?:(?<=${W})(?!${W})|(?<!${W})(?=${W}))`;
 

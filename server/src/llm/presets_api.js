@@ -1,13 +1,28 @@
 // SPDX-License-Identifier: MIT
-// The engine-preset wire models the stores use — from llm/presets_api.py. The router
-// (`makePresetsRouter`) and the assignment models are ported in wave 2.
+// The shared engine-preset router — the port of llm/presets_api.py (the 2026-06-29 lab +
+// preset model, narrowed by the §7.1 switches⇄params lock, 2026-07-08).
 //
 // An ENGINE PRESET = a reusable ask-config (model + per-request params + long-tail
-// samplers) built and saved in the Lab. It holds NO launch switches (§7.1): launch config
-// belongs to the MODEL × machine tune stack (`switch_resolve`). An ACTION resolves its
-// preset via its own ref (FeaturePresetRef) → the global default preset.
+// samplers) built and saved in the Lab. It is the source of truth for everything a task can
+// own. It holds NO launch switches: launch config belongs to the MODEL × machine tune stack
+// (`switch_resolve` — global bundles → class_tunes → model_tunes), edited in Tune & measure,
+// because a loaded model is one process with one set of launch flags shared by every task
+// that points at it.
+//
+// An ACTION resolves its preset via a two-tier lookup (2026-07-15, one source — the task tier
+// is gone): its own ref (FeaturePresetRef) → the global default preset (the
+// `default_preset_id` RunnerSetting).
+//
+// The PROMPT is NOT here — it lives on the feature (FeaturePrompt). Long-tail samplers are a
+// variable-cardinality child.
 
-import { nullable, opt, T } from "../platform/models.js";
+import { randomUUID } from "node:crypto";
+import { HttpError } from "../platform/errors.js";
+import { model, nullable, opt, T } from "../platform/models.js";
+import { strip, truthy, ValueError } from "../platform/py.js";
+import { pyReprStr } from "./base.js";
+import * as seed from "./seed.js";
+import * as stores from "./stores.js";
 
 /** One long-tail sampler key-value in a preset. `flagName` rides the per-call `extra`. */
 export const PresetFlagRow = T.Object({
@@ -15,7 +30,8 @@ export const PresetFlagRow = T.Object({
   flagValue: opt(T.String(), ""),
 });
 
-/** A reusable ask-config shared by the actions that point at it. */
+/** A reusable ask-config shared by the actions that point at it: model + request params +
+ * sampler tail. The Lab builds these; features point at them. No launch switches (§7.1). */
 export const EnginePresetRow = T.Object({
   id: opt(T.String(), ""),
   name: opt(T.String(), ""),
@@ -30,8 +46,177 @@ export const EnginePresetRow = T.Object({
   samplers: opt(T.Array(PresetFlagRow), []), // long-tail Plane-2 samplers
   builtIn: opt(T.Boolean(), false),
   position: opt(T.Integer(), 0),
-  // READ-ONLY, filled at list time: the model this preset's FACTORY seed points at (""
-  // for user-created presets). Clients use it to tell "differs from factory" — writes
-  // ignore it.
+  // READ-ONLY, filled at list time (D4-1 leg 3): the model this preset's FACTORY seed points
+  // at (the app's registered library, by id; "" for user-created presets). Clients use it to
+  // tell "differs from factory" honestly — writes ignore it.
   factoryModel: opt(T.String(), ""),
 });
+
+export const FeatureAssignment = T.Object({
+  featureKey: T.String(), // the ACTION id
+  presetId: opt(T.String(), ""), // "" → clear the ref (the feature falls to the default preset)
+});
+
+/** Bulk-clear the per-feature overrides for a set of features so each falls back to the
+ * default preset (used by the per-feature Reset). */
+export const FeatureClearRequest = T.Object({
+  featureKeys: opt(T.Array(T.String()), []),
+});
+
+export const DefaultAssignment = T.Object({
+  presetId: opt(T.String(), ""),
+});
+
+export const PresetsResponse = T.Object({
+  presets: T.Array(EnginePresetRow),
+});
+
+export const AssignmentsResponse = T.Object({
+  defaultPresetId: opt(T.String(), ""),
+  features: opt(T.Record(T.String(), T.String()), {}), // action → preset_id (the one-source per-action assignment)
+});
+
+// The two host boundaries (Python's Protocols), as the methods the router calls:
+//   EnginePresetStore: list() → EnginePresetRow[], save(row) → row (upsert by id; assigns an
+//     id when empty), delete(presetId)
+//   FeaturePresetRefStore: list() → {action: presetId}, set(featureKey, presetId) ("" clears)
+
+const PARAMS = T.Object({ preset_id: T.String() });
+const KEY_PARAMS = T.Object({ key: T.String() });
+
+/**
+ * CRUD for engine presets + the two assignment layers (default · per-action ref) + the
+ * factory resets. Mutating calls return the full list/assignments so the UI re-renders from
+ * one response. `resetAllFn` restores all built-in presets + seeded refs + the default;
+ * `resetOneFn(presetId)` resets ONE built-in preset (throws ValueError for a custom one).
+ */
+export function makePresetsRouter(getPresets, getDefault, setDefault, getRefs, resetAllFn = null, resetOneFn = null) {
+  return async function presetsRouter(app) {
+    const presets = () => {
+      const rows = getPresets().list();
+      // D4-1 leg 3: annotate each row with its factory model (the app's registered seed
+      // library, joined by preset id) so the wizard can detect "differs from factory"
+      // without a second endpoint.
+      const factory = new Map(
+        seed.appEnginePresets().map((p) => [stores.pyStrOf(stores.pyOr(p.id, "")), stores.pyStrOf(stores.pyOr(p.model, ""))]),
+      );
+      for (const r of rows) r.factoryModel = factory.get(r.id) ?? "";
+      return model(PresetsResponse, { presets: rows });
+    };
+
+    const assignments = () => model(AssignmentsResponse, { defaultPresetId: getDefault(), features: getRefs().list() });
+
+    // ── presets CRUD ──────────────────────────────────────────────────────────
+    app.get("/v1/ai/engine-presets", async () => presets());
+
+    app.post("/v1/ai/engine-presets", { schema: { body: EnginePresetRow } }, async (req) => {
+      const body = req.body;
+      if (!strip(body.name)) throw new HttpError(400, "name is required");
+      body.id = randomUUID().replaceAll("-", "").slice(0, 12);
+      getPresets().save(body);
+      return presets();
+    });
+
+    app.put("/v1/ai/engine-presets/:preset_id", { schema: { params: PARAMS, body: EnginePresetRow } }, async (req) => {
+      const presetId = req.params.preset_id;
+      if (!getPresets().list().some((p) => p.id === presetId)) {
+        throw new HttpError(404, `preset ${pyReprStr(presetId)} not found`);
+      }
+      const body = req.body;
+      body.id = presetId;
+      getPresets().save(body);
+      return presets();
+    });
+
+    app.delete("/v1/ai/engine-presets/:preset_id", { schema: { params: PARAMS } }, async (req) => {
+      getPresets().delete(req.params.preset_id);
+      return presets();
+    });
+
+    // ── factory resets (Presets page: Reset all · per-preset Reset) ────────────
+    // Restore all built-in presets + the seeded per-action refs + the default preset to
+    // factory (custom presets kept).
+    app.post("/v1/ai/engine-presets/reset", async () => {
+      if (resetAllFn !== null) await resetAllFn();
+      return presets();
+    });
+
+    // Reset ONE built-in preset to factory (params + samplers). 400 on a custom preset
+    // (nothing to reset to).
+    app.post("/v1/ai/engine-presets/:preset_id/reset", { schema: { params: PARAMS } }, async (req) => {
+      if (resetOneFn !== null) {
+        try {
+          await resetOneFn(req.params.preset_id);
+        } catch (e) {
+          if (e instanceof ValueError) throw new HttpError(400, e.message);
+          throw e;
+        }
+      }
+      return presets();
+    });
+
+    // ── assignments (default · per-action ref) ─────────────────────────────────
+    app.get("/v1/ai/preset-assignments", async () => assignments());
+
+    app.put("/v1/ai/preset-assignments/default", { schema: { body: DefaultAssignment } }, async (req) => {
+      setDefault(req.body.presetId);
+      return assignments();
+    });
+
+    // Set (or clear, presetId="") a feature's per-feature preset OVERRIDE — the top tier of
+    // the cascade. Keyed by ACTION id.
+    app.put("/v1/ai/preset-assignments/feature", { schema: { body: FeatureAssignment } }, async (req) => {
+      if (!strip(req.body.featureKey)) throw new HttpError(400, "featureKey is required");
+      getRefs().set(req.body.featureKey, req.body.presetId);
+      return assignments();
+    });
+
+    // Clear the per-feature override for each given feature so it re-inherits the default
+    // preset (the per-feature Reset path).
+    app.post("/v1/ai/preset-assignments/clear-features", { schema: { body: FeatureClearRequest } }, async (req) => {
+      const refs = getRefs();
+      for (const key of req.body.featureKeys) {
+        if (strip(key)) refs.set(key, "");
+      }
+      return assignments();
+    });
+
+    // Restore ONE feature to its DEFAULTS — the per-feature 'Reset to default':
+    // (1) its SEEDED per-action ref (the factory action→preset map — the feature's OWN
+    // default preset, e.g. grounded-chat, NOT a clear to the global default), AND
+    // (2) that built-in preset's PARAMS refreshed to the shipped seed, with provider+model
+    // set to the GLOBAL routing default (the user's 2026-07-16 decision: a real reset is
+    // FULL, not "keep"; a fresh box with no default set keeps the seed's empty model → needs
+    // Quick Setup). A feature with no seeded ref falls to the global default (empty ref).
+    app.post("/v1/ai/preset-assignments/feature/:key/reset", { schema: { params: KEY_PARAMS } }, async (req) => {
+      const key = req.params.key;
+      if (!strip(key)) throw new HttpError(400, "feature key is required");
+      const fp = seed.appFeaturePresets();
+      const seeded = Object.hasOwn(fp, key) ? fp[key] : "";
+      getRefs().set(key, seeded);
+      if (truthy(seeded) && resetOneFn !== null) {
+        let reset = true;
+        try {
+          await resetOneFn(seeded); // factory params + samplers (blanks model to the seed "")
+        } catch (e) {
+          if (!(e instanceof ValueError)) throw e;
+          reset = false; // a custom ref id has no factory — leave the ref only
+        }
+        if (reset) {
+          const d = stores.getRoutingStore().getRouting().default;
+          if (d.model) {
+            const row = getPresets()
+              .list()
+              .find((p) => p.id === seeded);
+            if (row !== undefined) {
+              row.providerId = d.llmId || row.providerId;
+              row.model = d.model;
+              getPresets().save(row);
+            }
+          }
+        }
+      }
+      return assignments();
+    });
+  };
+}

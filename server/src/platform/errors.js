@@ -145,6 +145,11 @@ export function ajvToPydantic(err, root, data) {
     case "additionalProperties":
       return { loc: [...loc, err.params.additionalProperty], msg: "Extra inputs are not permitted", type: "extra_forbidden" };
     case "type": {
+      // A free-form dict (a record) isn't a model: pydantic words that one "dictionary".
+      const ps = err.parentSchema;
+      if (err.params.type === "object" && ps?.patternProperties && !ps.properties) {
+        return { loc, msg: "Input should be a valid dictionary", type: "dict_type" };
+      }
       const [msg, type] = typeMessage(err.params.type, value);
       return { loc, msg, type };
     }

@@ -12,7 +12,10 @@
     ".": "./src/index.js",
     "./llm/*": "./src/llm/*.js",
     "./runner/*": "./src/runner/*.js",
-    "./platform/*": "./src/platform/*.js"
+    "./platform/*": "./src/platform/*.js",
+    "./shell": "./src/shell/main.js",
+    "./shell/preload": "./src/shell/preload.cjs",
+    "./shell/*": "./src/shell/*.js"
   },
   "scripts": {
     "test": "node scripts/node24.mjs node_modules/vitest/vitest.mjs run",

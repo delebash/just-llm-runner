@@ -164,6 +164,26 @@ the same on both; JustVoice's
   JavaScript can't tell from `1`. That's the only difference a faithful `json.dumps` port showed
   across 355 stored JSON cells, so float-ness has to come from field types.
 
+**Step 2's first pieces** (*measured 2026-10-07*, Electron 44.7.0 / Node 24.21.0; the build
+sheet `docs/plans/2026-10-07-kit-in-javascript.md`):
+
+- The shared shell (`server/src/shell/main.js`, `runDesktopApp`) on a test app: the page on
+  `app://<id>` reached the server with a GET and a preflighted JSON POST (the server answering
+  CORS for `app://<id>`); the server got its data root through the env variable and posted
+  `ready` over `parentPort`; quitting asked it to stop — its close hook ran, Electron exited 0,
+  the port was freed. Chromium's `userData` / `sessionData` landed under `<root>/electron`;
+  nothing was written to `%APPDATA%` or `%LOCALAPPDATA%`.
+- `vi.spyOn(namespace, "fn")` (vitest 4.1.11) reaches calls made through a module namespace —
+  from other modules, and from inside the module through `import * as self` — but not a direct
+  call inside the module. That is the port's monkeypatch rule.
+- TypeBox 1.3 keeps its markers as non-enumerable properties; spreading a schema
+  (`{...schema}`) turns `~optional` into a real key, which ajv's strict mode rejects.
+- FastAPI 0.139 keeps included routers behind a lazy `_IncludedRouter`, so `app.routes` does
+  not list their routes; the OpenAPI document does. The kit mounts **118 routes** (GET 45,
+  POST 39, PUT 17, DELETE 15, PATCH 2) — `server/scripts/route-table.json`.
+- The kit's Python tables have no Python-side callable column defaults (the schema capture
+  lists none).
+
 **The kit in JavaScript** (*code + measured*, study §3):
 
 - `llm_runner`: 70 files / 25,941 lines, 61 test files / 19,215 lines, 1,019 test functions,

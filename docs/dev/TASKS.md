@@ -18,10 +18,13 @@ WHY:    the kit moves second, after the audio math goes into audio.cpp and befor
         every app mounts it.
 BUILT:  the study `../JustVioce/docs/plans/2026-10-05-electron-node-study.md` and the plan, with the step-0 spikes, `../JustVioce/docs/plans/2026-10-07-electron-node-plan.md` — §4 is the kit's
         step, §9 B2–B5 its blast radius. Facts in this repo's RESEARCH §2.
-OPEN:   the plan was approved 2026-10-07 ("your rec on all go"). Step 1 — the audio math into
-        audio.cpp — is underway; this repo's step needs its own go (plan §10 Q1). The two FINDING items below — the data-dir ladder's
-        copies and the hard-kill stop — close with step 2's shared Electron main module.
-GO:     this repo's step: needed.
+OPEN:   step 1 is built (2026-10-07). Step 2 — this repo — is underway since 2026-10-07: the
+        JavaScript package `server/` and its build sheet `docs/plans/2026-10-07-kit-in-javascript.md`
+        (the conventions, the slices, the checks; the Python bugs the port found are the FINDING
+        below). The two FINDING items below — the data-dir ladder's copies and the hard-kill stop
+        — close with the shared Electron main module (`server/src/shell/`, built; the ladder's
+        OS fallback waits for the user's answer).
+GO:     step 2: "your rec go do it all the full conversion" (2026-10-07, JustVoice's TASKS).
 
 ## An app with no cache chosen uses a sibling's cache by itself [DECIDED 2026-10-06]
 STATE:  DECIDED 2026-10-06 — "fix it all go" (the user: "why when i reset the db everything just works it
@@ -206,6 +209,48 @@ BUILT:  `ui/src/components/AiTaskStrip.vue:85-91` — rate = tokens ÷ (now − 
         app stream carries it. The "if it does" half was not built; the done-figure jump stands.
 OPEN:   none — the thinking is its own entry, "The model's thinking reaches the AI task strip".
 GO:     given 2026-10-06
+
+## FINDING — Python bugs the JavaScript port found (not fixed) [2026-10-07]
+
+STATE:  FINDING — found by the step-2 port agents, 2026-10-07, each with file:line and a measured or
+        read cause (the build sheet `docs/plans/2026-10-07-kit-in-javascript.md` §6 has the detail).
+        Tracked at the user's word: "track all side finidngs". Plan §10 Q7: a fix lands in both
+        languages; where the JavaScript copied a bug on purpose (so the route diff matches), it
+        says so in a comment.
+BUILT:  1. `runner/cache_registry.py:120-121` — an `apps` value that isn't a list raises a TypeError
+           into boot, past `except (OSError, ValueError)`.
+        2. `runner/download.py:231-235` — a resume file holding a non-object (`[]`) crashes the
+           download (AttributeError, uncaught).
+        3. `runner/models.py:475-481` — the inherited-drafter search loops over a `set`: which
+           drafter is suggested can change between runs.
+        4. `runner/bandwidth.py:131-133`, `:146-149` — the RAM probe's "parallel" copies never ran
+           in parallel (`bytes(buf)` holds the GIL; measured on CPython 3.12.9), so the probe has
+           only ever measured ONE stream and the 0.40 host factor was calibrated on that. Parallel
+           copies read 20–22 GB/s here vs 18.6–19.0. A fix means re-calibrating — the user's call.
+        5. `runner/hardware.py:318`, `:1039` — `int(float("inf"))` raises an uncaught OverflowError
+           in a probe that "never raises".
+        6. `runner/process.py:1011-1017` with `:911-923` — `stop()` closes the Job Object but never
+           clears `job_handle`; a second close can hit a handle Windows reused — possibly another
+           child's job, killing it.
+        7. `llm/openai_compat.py:265`, `llm/ollama.py:190` — `iter_lines()` splits on U+2028,
+           U+2029 and U+0085 too, so a streamed token holding one is silently LOST (captured).
+        8. `runner/autotune.py:365` — `svc = self._service_fn()` sits outside the `try`: a service
+           that fails to start leaves the tuner "running" until a restart.
+        9. `runner/lifecycle.py:3214` — models.ini is written in the locale encoding (cp1252 here): a
+           non-ASCII model or cache path is mis-encoded for llama-server, and a character outside
+           cp1252 fails every load.
+        10. `runner/lifecycle.py:3637-3650` — `_run_download`'s error branch and `finally` take the
+           lock separately: a new download landing in between has its cancel token and thread
+           popped by the old worker — it can't be cancelled or joined.
+        11. `tests/test_shared_cache.py:241-242` — the model file sits outside `snapshots/`, so
+           `test_the_wizard_is_offered_the_way_back` FAILS today (since the 2026-10-06 counting
+           change).
+        12. `tests/test_llm_dispatch.py::test_think_is_sent_even_to_a_known_nonthinker` passes only
+           after an earlier file set up storage (order-dependent).
+        13. `tests/test_lifecycle.py` isn't hermetic: `_admit` reads the real GPU, `_service_for`
+           binds :8080, and `test_load_records_footprint_and_overhead_rows` passes only on a GPU box.
+OPEN:   each needs its own go (4 needs a decision: fix + re-calibrate, or keep).
+GO:     needed.
 
 ## FINDING — the data-dir ladder's four copies disagree, and Tauri writes outside the chosen root [2026-10-05]
 

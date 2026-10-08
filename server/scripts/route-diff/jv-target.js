@@ -22,7 +22,7 @@ import path from "node:path";
 import { ZipWriter } from "../../src/platform/zip.js";
 
 export const REPO = "E:/Dev/Web/JustVioce";
-export const DEV_DATA = `${REPO}/src-tauri/target/debug/data`;
+export const DEV_DATA = `${REPO}/data`;
 export const PY_RUNTIME = `${REPO}/server/justvoice/engines`;
 
 const COPIED = ["voices", "personas", "lexicons", "engines-runtime-config", "justvoice"];

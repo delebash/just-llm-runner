@@ -59,7 +59,7 @@ const APPS = {
   // data-root move.
   justvoice: {
     name: "justvoice",
-    dataRoot: "E:/Dev/Web/JustVioce/src-tauri/target/debug/data",
+    dataRoot: "E:/Dev/Web/JustVioce/data",
     db: "justvoice.db",
     python: "E:/Dev/Web/JustVioce/server/.venv/Scripts/python.exe",
     pyArgs: (port, dir) => ["-m", "justvoice.serve", "serve", "--host", "127.0.0.1", "--port", String(port), "--data-dir", dir],

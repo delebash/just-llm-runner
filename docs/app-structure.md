@@ -36,6 +36,9 @@ from Quasar's default and why. Where §Q and §1–§14 disagree, §Q wins.
 
 ### Q.1 · The layout
 
+**The layout is the one Quasar's CLI creates for a new project** (the user, 2026-10-09) — the
+template's, made with `npm init quasar`. The apps don't follow it yet (Open deviations).
+
 ```
 <repo>/
 ├── package.json              # the Quasar app — the renderer's dependencies; "type": "module";
@@ -874,8 +877,10 @@ CRLF, `.sh` LF).
 
 ## Open deviations
 
-- **The renderer lanes differ from the template.** The apps keep `views/` and `styles/`; the
-  template has Quasar's `pages/` and `layouts/` (§Q.1). Not decided.
+- **The apps' renderer folders aren't Quasar's layout yet.** The rule (the user, 2026-10-09):
+  "whatever the layout that the quassar cli crete for new project is what we use" — the
+  template's `pages/`, `layouts/` and `css/` (§Q.1). The apps still keep `views/` and `styles/`;
+  the move needs its own plan and go (the kit's TASKS).
 - **JustWrite's `/v1/settings`** still mixes operator rows with the renderer document behind the
   mapped `/v1/prefs` door (recorded 2026-08-08, not re-checked).
 - **docgen's problem+json handler adoption and the alias sweep** (`plans/archive/target-tree.md`

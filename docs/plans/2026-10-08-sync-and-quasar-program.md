@@ -88,7 +88,15 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   file-based autosave; the book itself, its images and versions, sync and remote AI providers can.
   Fastify needs Node, so the worker gets a small router over the same route handlers and a SQLite
   WASM implementation of the kit's database wrapper.
-- Q5: IN PROGRESS — JustVoice on Quasar, in a worktree like JustWrite.
+- Q5: the move BUILT — JustVoice on Quasar, branch `quasar` in the worktree `../justvoice-quasar`
+  (7e4d71a; its own checkout runs the app, so the user merges). The same shape as JustWrite's, plus:
+  the audio.cpp dev build in Quasar's `beforeDev` hook; the dictation pill as a third root; the
+  app's stylesheets in Quasar's `css` list (a boot file's CSS is preloaded with its chunk, and
+  styles.css @imports Google Fonts, which a CSP blocks — failing the start-up); the height chain on
+  `#q-app`; the initial navigation made in the boot file (Quasar installs the router after it).
+  Verified: unit 183/183, server 1055/1055, lint, the guard, the smoke on a snapshot of the real
+  data, dev mode with the audio.cpp dev build, the installer, the packaged app and the headless
+  launcher; ten screens match today's build except disabled buttons. JustVoice's sync is next in Q5.
 - Q3: after Q4–Q5 (see the order change above); its theme part is done.
 - Q6: not started (docgen's tree is held).
 

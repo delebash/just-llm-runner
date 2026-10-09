@@ -558,10 +558,11 @@ const KIT_RETIRED = [
 // Provenance prose — a line that DESCRIBES a retirement is not a stale
 // reference. File-scoped with the reason, same contract as ALLOW above.
 const RETIRED_ALLOW = new Map([
-  ["JustVoice/server/justvoice/cli.py", "docstring records the --no-docs flag's death (P3)"],
   ["JustWrite/tests/smoke/headless-smoke.js", "comment records the stale-selector incident the fix closed"],
   ["JustVoice/src/router/index.js", "the /overview redirect's comment records the P8 rename it serves"],
-  ["docgen/server/pyproject.toml", "the ruff-pin comment records the wide-defaults fixture ignore it retired (P10)"],
+  // the same comment, in Quasar's layout (router/routes.js holds the routes — JustVoice's
+  // branch `quasar`); the index.js entry goes when that branch merges
+  ["JustVoice/src/router/routes.js", "the /overview redirect's comment records the P8 rename it serves"],
 ]);
 
 // report/ = committed GENERATED artifacts (jscpd) — point-in-time captures,

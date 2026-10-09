@@ -194,13 +194,14 @@ button:not(.ui-btn) { color: inherit; }
   color: var(--ink-2, var(--ink)); font: inherit; cursor: pointer;
 }
 .ui-table-pager-size-label { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-/* At phone width (Quasar's xs) the pager's parts never break inside ("1–4 of / 4"), the spacing
-   tightens, and when the count and the controls don't fit one row the controls take the next. */
+/* At phone width (Quasar's xs) the pager is one line: the count, Previous / Next and the page
+   size — First / Last and "Page n / m" stay on wider screens (the count and the arrows already
+   say where you are; the user's word, 2026-10-09). Its parts never break inside, and a count too
+   long for the row still wraps whole. */
 @media (max-width: 599.98px) {
   .ui-table-pager { flex-wrap: wrap; gap: 6px 8px; }
-  .ui-table-pager-count, .ui-table-pager-page { white-space: nowrap; }
-  .ui-table-pager-controls { gap: 3px; }
-  .ui-table-pager-page { padding: 0 3px; }
+  .ui-table-pager-count { white-space: nowrap; }
+  .ui-table-pager-edge, .ui-table-pager-page { display: none; }
 }
 
 /* ── Tooltip (v-tooltip directive → body-appended .ui-tooltip) ─ */

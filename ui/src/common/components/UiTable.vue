@@ -308,7 +308,7 @@ onUpdated(adoptTable);
     <div v-if="paginationCfg" class="ui-table-pager">
       <span class="ui-table-pager-count">{{ pageStart }}–{{ pageEnd }} of {{ totalRows }}</span>
       <span class="ui-table-pager-controls">
-        <button class="ui-table-pager-btn" :disabled="!canPrev" @click="goTo(0)" v-tooltip.bottom="'First page'">
+        <button class="ui-table-pager-btn ui-table-pager-edge" :disabled="!canPrev" @click="goTo(0)" v-tooltip.bottom="'First page'">
           <Icon name="ChevLeft" :size="12" /><Icon name="ChevLeft" :size="12" />
         </button>
         <button class="ui-table-pager-btn" :disabled="!canPrev" @click="goTo(pageIndex - 1)" v-tooltip.bottom="'Previous page'">
@@ -318,7 +318,7 @@ onUpdated(adoptTable);
         <button class="ui-table-pager-btn" :disabled="!canNext" @click="goTo(pageIndex + 1)" v-tooltip.bottom="'Next page'">
           <Icon name="ChevRight" :size="12" />
         </button>
-        <button class="ui-table-pager-btn" :disabled="!canNext" @click="goTo(pageCount - 1)" v-tooltip.bottom="'Last page'">
+        <button class="ui-table-pager-btn ui-table-pager-edge" :disabled="!canNext" @click="goTo(pageCount - 1)" v-tooltip.bottom="'Last page'">
           <Icon name="ChevRight" :size="12" /><Icon name="ChevRight" :size="12" />
         </button>
         <label class="ui-table-pager-size-label" for="ui-table-pager-size">Rows per page</label>

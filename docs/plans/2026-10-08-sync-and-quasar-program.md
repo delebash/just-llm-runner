@@ -136,8 +136,10 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   creates, on the latest dependencies. Plan and record:
   `2026-10-09-apps-on-the-quasar-cli-layout.md`; the kit's TASKS item. JustWrite, JustVoice and
   docgen on `layouts/MainLayout.vue` + `pages/` + `css/`, `App.vue` a bare `<router-view />`, each
-  checked side by side against its pre-port build; the guard checks the layout. Next: the phone's
-  slice 5 on the layout's drawer.
+  checked side by side against its pre-port build; the guard checks the layout (kit 7ad83b5).
+- The phone's slice 5 (its screens): in progress 2026-10-09 — on main, not pushed (the kit's and
+  JustWrite's "The phone's screens (slice 5), in progress" commits). What is built and what is
+  next, in order: `2026-10-08-the-phone.md`, slice 5, "Where it stands". Slice 6 (iOS) follows.
 
 ## Stops (things only the user can do)
 

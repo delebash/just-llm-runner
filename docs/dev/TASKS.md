@@ -41,7 +41,8 @@ BUILT:  2026-10-09 — the plan (`docs/plans/2026-10-09-apps-on-the-quasar-cli-l
         against its pre-port build (ten screens, shell and overlay states, UI zoom 0.9/1/1.15,
         1024/1920/560 windows, dark mode, the connection-error page). The standard's open deviation
         closed; the guard checks the layout.
-OPEN:   the phone screens (the phone plan's slice 5) on the layout's drawer.
+OPEN:   the phone screens (the phone plan's slice 5): in progress — what is built and what is
+        next: the phone plan, slice 5, "Where it stands".
 GO:     given 2026-10-09 — "… go".
 
 ## The family standard: one short rules file every repo imports; app-structure.md holds current rules only [2026-10-09]

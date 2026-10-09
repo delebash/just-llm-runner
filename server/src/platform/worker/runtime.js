@@ -82,7 +82,7 @@ export async function serveInWorker({ sqlite3InitModule, sqliteOptions = {}, sto
       }
       if (!stopped) self.postMessage({ type: "end", id: m.id });
     } catch (e) {
-      if (!stopped) self.postMessage({ type: "error", id: m.id, message: String(e?.message ?? e) });
+      if (!stopped) self.postMessage({ type: "error", id: m.id, message: String(e?.stack ?? e?.message ?? e) });
     } finally {
       inflight.delete(m.id);
     }

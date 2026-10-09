@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 // better-sqlite3's API, the part the kit's database wrapper (platform/sql.js) uses, over the
 // official SQLite WASM build — so the wrapper, and every route on it, runs unchanged in a web
-// worker. The worker opens SQLite first (async) and hands it here: `useSqliteWasm({ sqlite3, pool })`.
+// worker (the bundle maps `better-sqlite3` here: ./esbuild.js). The worker opens SQLite first
+// (async) and hands it here: `useSqliteWasm({ sqlite3, pool })` (runtime.js does). A database's
+// own SQLite WASM handle is `.wasmDb` (for code with a WASM adapter of its own, such as the sync
+// engine's `sqliteWasmAdapter`).
 
 let wasm = null;
 export function useSqliteWasm(w) {
@@ -139,7 +142,7 @@ export default class Database {
   function(name, opts, fn) {
     const f = typeof opts === "function" ? opts : fn;
     const o = typeof opts === "object" ? opts : {};
-    this.wasmDb.createFunction(name, (_ctx, ...a) => f(...a), { deterministic: !!o.deterministic, arity: f.length });
+    this.wasmDb.createFunction(name, (_ctx, ...a) => f(...a), { deterministic: !!o.deterministic, arity: o.varargs ? -1 : f.length });
     return this;
   }
   close() {

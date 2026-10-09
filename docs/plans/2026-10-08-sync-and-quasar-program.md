@@ -110,7 +110,15 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   server, images by id, sync and AI on the phone, slices, four questions, the blast radius); waits
   for the user's go on it.
 - Q3: after Q4–Q5 (see the order change above); its theme part is done.
-- Q6: not started (docgen's tree is held).
+- Q6: DONE 2026-10-09 — docgen on Quasar, branch `quasar` in the worktree `../docgen-quasar`
+  (dce418d), fast-forwarded into docgen's main under the go ("keep going using yo9ur recs … dont
+  stop", then "go"); the held tree went into a named stash first (the rec, kit TASKS question 5).
+  The same shape as JustWrite's and JustVoice's, without Capacitor. Verified: unit 3/3, server
+  161/161, lint, the guard (kind quasar), e2e 20/20 twice on the real project and data folder (the
+  suite's Setup create-flow test raced the form's prefill; it now waits), dev mode, the installer,
+  the packaged app and the headless launcher; ten screens match the Electron + Vite build except
+  live values and the appearance slider (2 px — Quasar's reset of a range input's margin).
+  docgen's TASKS, "docgen on Quasar".
 
 ## Stops (things only the user can do)
 

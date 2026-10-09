@@ -82,13 +82,17 @@ OPEN:   1. The kit's UI: Quasar's components replace its generic controls; the f
            (fast-forward) into their main branches by the user's go, 2026-10-08 (JustWrite
            20c7f29 + 366fc62, JustVoice 7e4d71a; each app's TASKS, "… on Quasar"); the main
            checkouts' held biome.json leftover is kept in a named stash ("electron-vite
-           restructure leftover (biome.json) — kept aside for the Quasar merge"). docgen waits
-           for its held tree. The skeleton checks for a moved app (the renderer lanes) are re-cut later;
+           restructure leftover (biome.json) — kept aside for the Quasar merge"). docgen DONE —
+           built on `quasar` in the worktree `../docgen-quasar` and fast-forwarded into main
+           2026-10-09 under the go above (docgen dce418d; its TASKS, "docgen on Quasar"); its held
+           tree is in a named stash ("electron-vite restructure (the held tree) — kept aside for
+           the Quasar merge"). The skeleton checks for a moved app (the renderer lanes) are re-cut later;
            today the guard checks a Quasar app's layout (§Q.10).
         3. DONE 2026-10-08 — the global CLAUDE.md Stack line takes the approved text (the decision
            above). The stopped restructure's leftovers — the
            `biome.json` lines in JustVoice and JustWrite, this repo's `stash@{0}`, docgen's
-           uncommitted tree (the guard reports its kind as unknown) — remain.
+           held tree (now its `stash@{0}`, plus the restructure's build output `out/`, untracked)
+           — remain. (JustVoice's `biome.json` now matches JustWrite's, 2a59eea.)
         4. Docs that still name Python: `docs/dev/install-runbook.md`, `server/README.md` "Check
            it" (the route diff against a Python server) — JustVoice's TASKS lists them with the
            rest of the conversion's waiting work.

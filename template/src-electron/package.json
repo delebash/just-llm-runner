@@ -1,0 +1,18 @@
+{
+  "name": "quasar-electron-app",
+  "version": "1.0.0",
+  "description": "Quasar Electron Folder",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "^26.15.3"
+  },
+  "allowScripts": {
+    "electron": true
+  },
+  "dependencies": {
+    "@delebash/llm-runner": "file:../../server",
+    "family-template-server": "file:../server"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "family-template-server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "The template app's Node server — every family app's server has this shape: Fastify on the kit's platform, run by the desktop app in a utilityProcess, headless as `<app>-server serve`, or `npm run server` in development.",
+  "exports": {
+    "./serve": "./src/serve.js",
+    "./app": "./src/app.js"
+  },
+  "scripts": {
+    "start": "node src/serve.js serve"
+  },
+  "dependencies": {
+    "@delebash/llm-runner": "file:../../server",
+    "@fastify/static": "^10.1.5"
+  }
+}

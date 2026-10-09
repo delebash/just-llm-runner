@@ -1,0 +1,48 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+	"files": {
+		"includes": [
+			"src/**/*.{js,vue}",
+			"src-electron/**/*.js",
+			"server/src/**/*.js",
+			"quasar.config.js",
+			"!src-electron/node_modules",
+			"!server/node_modules"
+		]
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "none",
+			"correctness": {
+				"noUndeclaredVariables": "error",
+				"noUnusedImports": "error"
+			}
+		}
+	},
+	"assist": {
+		"actions": {
+			"source": {
+				"organizeImports": "off"
+			}
+		}
+	},
+	"formatter": {
+		"enabled": false
+	},
+	"overrides": [
+		{
+			"includes": [
+				"**/*.vue"
+			],
+			"linter": {
+				"rules": {
+					"correctness": {
+						"noUnusedImports": "off",
+						"noUndeclaredVariables": "off"
+					}
+				}
+			}
+		}
+	]
+}

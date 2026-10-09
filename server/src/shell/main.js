@@ -84,8 +84,11 @@ const STOP_WAIT_MS = 8000; // the server's own 3 s grace plus engine shutdown
  *   serverEntry   absolute path of the app's server module (runs `serve`)
  *   dataDirEnv    the app's data-dir variable (e.g. "JUSTVOICE_DATA_DIR")
  *   repoRoot      the checkout root (development: the data root is <repoRoot>/data)
- *   distDir       the built UI (vite build output)
- *   devUrl        the Vite dev server URL used when not packaged and DEV_URL is set
+ *   distDir       the built UI (vite build output; Quasar: the folder beside electron-main.js)
+ *   preload       the preload script's path — default this kit's preload.js; a Quasar app passes
+ *                 its bundled electron-preload.cjs, which imports this kit's preload
+ *   devUrl        the renderer's dev server URL when not packaged — Quasar passes
+ *                 import.meta.env.QUASAR_APP_URL; DEV_URL in the environment also works
  *   window        {width, height, minWidth, minHeight, backgroundColor, title}
  *   icon          the window icon path
  *   trayIcon      the tray icon path (default: icon)
@@ -138,7 +141,7 @@ export function runDesktopApp(config) {
   }
 
   // The page the window loads, and so the one origin trusted with permissions and IPC.
-  const devUrl = !app.isPackaged && process.env.DEV_URL ? process.env.DEV_URL : null;
+  const devUrl = !app.isPackaged ? config.devUrl || process.env.DEV_URL || null : null;
   const home = devUrl || `app://${config.id}/index.html`;
   const homeOrigin = new URL(home).origin;
   const fromHome = (url) => {
@@ -309,7 +312,7 @@ export function runDesktopApp(config) {
       show: false,
       autoHideMenuBar: true,
       webPreferences: {
-        preload: path.join(import.meta.dirname, "preload.js"),
+        preload: config.preload || path.join(import.meta.dirname, "preload.js"),
         contextIsolation: true,
         sandbox: true,
         nodeIntegration: false,

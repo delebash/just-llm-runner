@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <head>
+    <title><%= productName %></title>
+
+    <meta charset="utf-8">
+    <meta name="description" content="<%= productDescription %>">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1<% if (ctx.mode.cordova || ctx.mode.capacitor) { %>, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover<% } %>">
+    <!-- The family's CSP. The page talks to its own server — beside it on the desktop
+         (http://127.0.0.1:<port>), a paired device or a server over the network for sync and
+         the thin client — so connect/img/media allow http(s); scripts stay 'self' only. In
+         development Quasar's HMR also needs ws://localhost. (The desktop shell sends its own,
+         stricter CSP header for app://; both apply there.) -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'<% if (ctx.mode.capacitor) { %> 'wasm-unsafe-eval'<% } %>; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; media-src 'self' data: blob: http: https:; font-src 'self' data:; connect-src 'self' http: https:<% if (ctx.dev) { %> ws://localhost:*<% } %>; worker-src 'self' blob:;"
+    />
+
+    <link rel="icon" type="image/png" sizes="128x128" href="icons/favicon-128x128.png">
+    <link rel="icon" type="image/png" sizes="96x96" href="icons/favicon-96x96.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16x16.png">
+    <link rel="icon" type="image/ico" href="favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-icon-180x180.png">
+  </head>
+  <body>
+    <!-- quasar:entry-point -->
+  </body>
+</html>

@@ -1,0 +1,48 @@
+{
+  "name": "family-template",
+  "version": "0.0.1",
+  "description": "A Quasar Project",
+  "productName": "Family Template",
+  "author": "delebash",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "quasar dev",
+    "build": "quasar build",
+    "postinstall": "quasar prepare --silent",
+    "lint": "biome check .",
+    "server": "node server/src/serve.js serve"
+  },
+  "dependencies": {
+    "pinia": "^4.0.2",
+    "@quasar/extras": "^2.1.0",
+    "quasar": "^2.35.0",
+    "vue": "^3.5.22",
+    "vue-router": "^5.0.6"
+  },
+  "devDependencies": {
+    "@quasar/app-vite": "^3.10.2",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
+    "@biomejs/biome": "2.5.6"
+  },
+  "keywords": [
+    "quasar",
+    "quasar-app",
+    "quasar-cli",
+    "quasar-app-vite",
+    "vite",
+    "vue",
+    "vuejs"
+  ],
+  "engines": {
+    "node": ">= 26 || ^24 || ^22.12"
+  },
+  "allowScripts": {
+    "electron": true,
+    "better-sqlite3": true,
+    "koffi": true,
+    "esbuild": true,
+    "@parcel/watcher": true
+  }
+}

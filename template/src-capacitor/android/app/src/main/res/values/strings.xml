@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Family Template</string>
+    <string name="title_activity_main">Family Template</string>
+    <string name="package_name">com.familytemplate.app</string>
+    <string name="custom_url_scheme">com.familytemplate.app</string>
+</resources>

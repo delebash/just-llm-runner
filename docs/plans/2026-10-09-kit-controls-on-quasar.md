@@ -376,3 +376,34 @@ Checked: lint; the apps' unit tests (594, 183, 3); the 30 screens (live values; 
 keeps slice 3's 1/255); the states of slices 1, 3 and 4 (fields at rest, hover, keyboard focus,
 typed, dark, another accent, the sidebar filters' focus ring, textareas) — 0 pixels differ but the
 test servers' ports.
+
+**Slice 5 — `UiSelect` and `UiMultiSelect` on `QSelect`** (Reka UI no longer under either).
+
+- **The control is the box.** QSelect mounts its list's menu inside its `.q-field__control`, and the
+  menu lines up with, and is at least as wide as, that element — with the control box-less
+  (`display: contents`, as the text fields' wrappers) it measured 0 × 0 and the list opened off
+  screen. So the root holds the width and the text, the control is the trigger's box, and the
+  menu sits where Reka's did. (A caller's class on a select used to land nowhere — Reka's root
+  renders no element — so no app styles the box by class.)
+- **The items are the kit's markup** in QSelect's option slot, with state classes where Reka set
+  data attributes; values keep their type (QSelect compares deeply), so the string round-trip and
+  the empty-string sentinel are gone. QSelect's focus target is a hidden read-only `<input>` with the
+  combobox role and the select's id, so a `<label for>` still reaches it; `title` is put on the box.
+- **The multi-select keeps its filter at the top of the list** (QSelect's own filter types into
+  the trigger): a sticky bar in the menu's `before-options`, arrows and Enter driving QSelect from
+  it. QSelect drops `before-options` when the list is empty, so "No matches" is a disabled row —
+  the filter stays and keeps its focus. QSelect opens a multiple select scrolled to the first
+  chosen option, and its virtual scroll re-anchors once after the first scroll; the list is held
+  at the top for its first 400ms, as the old one opened. QSelect's root is a `<label>`: a chip's ✕
+  (a span) cancels the label's default, or it would also open the list.
+- **Left as it is:** Quasar's menu is placed at fractional pixels where Floating UI rounded (0.2–
+  0.3px, anti-aliasing only); typing on a closed select opens the list at the match (QSelect)
+  where a native-style select chose it outright.
+
+Checked: lint; the apps' unit tests (594, 183, 3); the 30 screens (live values); 17 states —
+selects closed, hovered, keyboard-focused, open, an item hovered, dark, another accent; the
+multi-select closed, open, filtered, with no match, dark — the same but for the sub-pixel menu
+placement; 16 behaviour checks the same on both builds (click, keyboard open/move/choose,
+Escape, outside click, focus after a pick, filter focus and typing, Enter and click ticks, chip
+removal, clear all, close by the trigger); JustVoice's smoke, JustWrite's e2e 7/7, docgen's e2e
+20/20 on the real project (its Setup create-flow drives the multi-select).

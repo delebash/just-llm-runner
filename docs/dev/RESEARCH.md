@@ -697,6 +697,13 @@ step Q3):
   an `<input>`'s text 1px differently when its height comes from a flex layout than from a
   `height` value. Vue's `useAttrs()` object isn't reactive — a `computed` over it keeps the
   first value.
+- **QSelect** (*code* + *measured*, 2026-10-09): it mounts its menu inside `.q-field__control`, and
+  QMenu anchors to its parent element (`display: contents` there opens the menu off screen); the
+  menu is placed at fractional pixels. Without `use-input` its focus target is a hidden read-only
+  `<input>` (role combobox, the field's id). It drops `before-options` when there are no options;
+  a multiple select opens scrolled to its first chosen option, and the virtual scroll re-anchors
+  once (~65ms) after the first scroll; `toggleOption` moves focus to the trigger. Its root is a
+  `<label>`, so a click on a non-interactive element inside it also activates the focus input.
 
 ---
 

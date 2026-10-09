@@ -58,7 +58,11 @@ BUILT:  Quasar's MCP server (`@quasar/mcp`) is added to Claude Code at user scop
 OPEN:   1. The kit's UI: Quasar's components replace its generic controls; the family pieces are
            rebuilt on Quasar (rec 2), with the theming test's theme (program step Q3).
         2. JustWrite, then JustVoice, then docgen move onto it; the servers stay as they are
-           (steps Q4–Q6). The skeleton checks for a moved app are re-cut with JustWrite's move.
+           (steps Q4–Q6). BUILT on branches, waiting for the user's merge (each app's checkout
+           runs the app): JustWrite `quasar` (20c7f29 the move, 366fc62 Settings → Sync),
+           JustVoice `quasar` (7e4d71a) — each app's TASKS, "… on Quasar". docgen waits for its
+           held tree. The skeleton checks for a moved app (the renderer lanes) are re-cut later;
+           today the guard checks a Quasar app's layout (§Q.10).
         3. The global CLAUDE.md Stack line still names electron-vite's template (rec 1 settles it;
            the new text is shown to the user first). The stopped restructure's leftovers — the
            `biome.json` lines in JustVoice and JustWrite, this repo's `stash@{0}`, docgen's

@@ -12,7 +12,9 @@
 // the stored default so the UI renders one row per feature; the PUT persists the whole
 // routing config.
 
+import { Hono } from "hono";
 import { model, opt, T } from "../platform/models.js";
+import { input } from "../platform/server.js";
 
 // ── wire shapes (camelCase) ──────────────────────────────────────────────────
 export const RoutingDefaults = T.Object({
@@ -57,18 +59,18 @@ export function FeatureCatalogEntry({ key, label, hint = "", group = "" }) {
 /** Build the /v1/ai/routing GET+PUT router over a host RoutingStore and the host's feature
  * catalog (`getCatalog()` → FeatureCatalogEntry[]). */
 export function makeRoutingRouter(getStore, getCatalog) {
-  return async function routingRouter(app) {
-    const response = () => {
-      const cfg = getStore().getRouting();
-      const rows = getCatalog().map((e) => ({ key: e.key, label: e.label, hint: e.hint, group: e.group }));
-      return model(RoutingResponse, { default: cfg.default, features: rows });
-    };
-
-    app.get("/v1/ai/routing", async () => response());
-
-    app.put("/v1/ai/routing", { schema: { body: RoutingConfig } }, async (req) => {
-      getStore().setRouting(req.body);
-      return response();
-    });
+  const app = new Hono();
+  const response = () => {
+    const cfg = getStore().getRouting();
+    const rows = getCatalog().map((e) => ({ key: e.key, label: e.label, hint: e.hint, group: e.group }));
+    return model(RoutingResponse, { default: cfg.default, features: rows });
   };
+
+  app.get("/v1/ai/routing", async (c) => c.json(response()));
+
+  app.put("/v1/ai/routing", input({ body: RoutingConfig }), async (c) => {
+    getStore().setRouting(c.req.valid("json"));
+    return c.json(response());
+  });
+  return app;
 }

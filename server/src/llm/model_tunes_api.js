@@ -22,9 +22,11 @@
 //   model with its source, plus the models that have a PC class config for THIS box's
 //   class. The client turns that into the five-state badge family (2026-07-26).
 
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
 import { pySorted, truthy } from "../platform/py.js";
+import { input } from "../platform/server.js";
 
 export const ModelTuneFlag = T.Object({
   flagName: T.String(),
@@ -91,98 +93,98 @@ export function makeModelTunesRouter(
   hwKeyFn,
   { resolveBaseline = null, measurementsFn = null, classKeyFn = null, classConfigsFn = null } = {},
 ) {
-  return async function modelTunesRouter(app) {
-    const sourceOf = (modelId, rows) => {
-      if (!truthy(rows) || measurementsFn == null) return "";
-      try {
-        return deriveTuneSource(rows, measurementsFn(modelId) || []);
-      } catch {
-        return ""; // provenance is an enrichment, never a failure
-      }
-    };
+  const app = new Hono();
+  const sourceOf = (modelId, rows) => {
+    if (!truthy(rows) || measurementsFn == null) return "";
+    try {
+      return deriveTuneSource(rows, measurementsFn(modelId) || []);
+    } catch {
+      return ""; // provenance is an enrichment, never a failure
+    }
+  };
 
-    const driftOf = (modelId, hw, rows) => {
-      if (!truthy(rows) || resolveBaseline == null) return null;
-      const store = getStore();
-      if (typeof store.getBaseline !== "function") return null;
-      try {
-        const stored = store.getBaseline(modelId, hw);
-        if (stored == null) return null; // tune predates baseline tracking — no honest claim
-        const current = resolveBaseline(modelId) || {};
-        const keys = new Set([...Object.keys(stored), ...Object.keys(current)]);
-        let n = 0;
-        for (const k of keys) if (getOr(stored, k) !== getOr(current, k)) n += 1;
-        return n;
-      } catch {
-        return null; // drift is an enrichment, never a failure
-      }
-    };
+  const driftOf = (modelId, hw, rows) => {
+    if (!truthy(rows) || resolveBaseline == null) return null;
+    const store = getStore();
+    if (typeof store.getBaseline !== "function") return null;
+    try {
+      const stored = store.getBaseline(modelId, hw);
+      if (stored == null) return null; // tune predates baseline tracking — no honest claim
+      const current = resolveBaseline(modelId) || {};
+      const keys = new Set([...Object.keys(stored), ...Object.keys(current)]);
+      let n = 0;
+      for (const k of keys) if (getOr(stored, k) !== getOr(current, k)) n += 1;
+      return n;
+    } catch {
+      return null; // drift is an enrichment, never a failure
+    }
+  };
 
-    const response = (modelId) => {
-      const hw = hwKeyFn();
-      const rows = getStore().get(modelId, hw);
-      return model(ModelTuneResponse, {
-        modelId,
-        hwKey: hw,
-        rows,
-        source: sourceOf(modelId, rows),
-        driftCount: driftOf(modelId, hw, rows),
-      });
-    };
-
-    const modelIdQuery = { schema: { querystring: T.Object({ modelId: T.String() }) } };
-
-    app.get("/v1/ai/model-tunes", modelIdQuery, async (req) => {
-      const { modelId } = req.query;
-      if (!strip(modelId)) throw new HttpError(400, "modelId is required");
-      return response(modelId);
-    });
-
-    app.put("/v1/ai/model-tunes", { schema: { body: ModelTunePut } }, async (req) => {
-      const body = model(ModelTunePut, req.body);
-      if (!strip(body.modelId)) throw new HttpError(400, "modelId is required");
-      let baseline = null;
-      if (resolveBaseline != null) {
-        try {
-          baseline = resolveBaseline(body.modelId) || {};
-        } catch {
-          baseline = null; // a baseline failure must not block the apply
-        }
-      }
-      getStore().replace(body.modelId, hwKeyFn(), body.switches, baseline);
-      return response(body.modelId);
-    });
-
-    app.delete("/v1/ai/model-tunes", modelIdQuery, async (req) => {
-      const { modelId } = req.query;
-      if (!strip(modelId)) throw new HttpError(400, "modelId is required");
-      getStore().delete(modelId, hwKeyFn());
-      return response(modelId);
-    });
-
-    app.get("/v1/ai/model-tunes/state", async () => {
-      const hw = hwKeyFn();
-      const cls = classKeyFn ? classKeyFn() : "";
-      const tuned = {};
-      const store = getStore();
-      if (typeof store.listForMachine === "function") {
-        for (const [mid, rows] of Object.entries(store.listForMachine(hw) || {})) {
-          tuned[mid] = sourceOf(mid, rows) || "hand";
-        }
-      }
-      let classConfigured = [];
-      if (cls && classConfigsFn != null) {
-        try {
-          const ids = new Set();
-          for (const c of classConfigsFn() || []) {
-            if ((c.classKey ?? "") === cls && truthy(c.rows ?? null)) ids.add(c.modelId);
-          }
-          classConfigured = pySorted(ids);
-        } catch {
-          classConfigured = []; // the summary is an enrichment
-        }
-      }
-      return model(ModelTunesState, { hwKey: hw, classKey: cls, tuned, classConfigured });
+  const response = (modelId) => {
+    const hw = hwKeyFn();
+    const rows = getStore().get(modelId, hw);
+    return model(ModelTuneResponse, {
+      modelId,
+      hwKey: hw,
+      rows,
+      source: sourceOf(modelId, rows),
+      driftCount: driftOf(modelId, hw, rows),
     });
   };
+
+  const modelIdQuery = input({ querystring: T.Object({ modelId: T.String() }) });
+
+  app.get("/v1/ai/model-tunes", modelIdQuery, async (c) => {
+    const { modelId } = c.req.valid("query");
+    if (!strip(modelId)) throw new HttpError(400, "modelId is required");
+    return c.json(response(modelId));
+  });
+
+  app.put("/v1/ai/model-tunes", input({ body: ModelTunePut }), async (c) => {
+    const body = model(ModelTunePut, c.req.valid("json"));
+    if (!strip(body.modelId)) throw new HttpError(400, "modelId is required");
+    let baseline = null;
+    if (resolveBaseline != null) {
+      try {
+        baseline = resolveBaseline(body.modelId) || {};
+      } catch {
+        baseline = null; // a baseline failure must not block the apply
+      }
+    }
+    getStore().replace(body.modelId, hwKeyFn(), body.switches, baseline);
+    return c.json(response(body.modelId));
+  });
+
+  app.delete("/v1/ai/model-tunes", modelIdQuery, async (c) => {
+    const { modelId } = c.req.valid("query");
+    if (!strip(modelId)) throw new HttpError(400, "modelId is required");
+    getStore().delete(modelId, hwKeyFn());
+    return c.json(response(modelId));
+  });
+
+  app.get("/v1/ai/model-tunes/state", async (c) => {
+    const hw = hwKeyFn();
+    const cls = classKeyFn ? classKeyFn() : "";
+    const tuned = {};
+    const store = getStore();
+    if (typeof store.listForMachine === "function") {
+      for (const [mid, rows] of Object.entries(store.listForMachine(hw) || {})) {
+        tuned[mid] = sourceOf(mid, rows) || "hand";
+      }
+    }
+    let classConfigured = [];
+    if (cls && classConfigsFn != null) {
+      try {
+        const ids = new Set();
+        for (const cfg of classConfigsFn() || []) {
+          if ((cfg.classKey ?? "") === cls && truthy(cfg.rows ?? null)) ids.add(cfg.modelId);
+        }
+        classConfigured = pySorted(ids);
+      } catch {
+        classConfigured = []; // the summary is an enrichment
+      }
+    }
+    return c.json(model(ModelTunesState, { hwKey: hw, classKey: cls, tuned, classConfigured }));
+  });
+  return app;
 }

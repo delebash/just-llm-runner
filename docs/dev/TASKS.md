@@ -45,13 +45,24 @@ NOT:    Tauri (no Quasar mode; Node still needed — two runtimes) · Actual's h
         Yjs as the family's data layer (a documents standard; the sync engine already uses it for
         text) · PowerSync / ElectricSQL / Zero (Postgres; discarded 2026-10-08).
 BUILT:  2026-10-09 — the plan `docs/plans/2026-10-09-hono-standard.md` (the design, each piece
-        standard or NOT STANDARD, the feasibility pass over every Fastify feature in use, the blast
-        radius, the order of work); RESEARCH §2 "Hono and the offline-first shape". No code yet.
-OPEN:   the user's word, by name, on the plan's three NOT STANDARD pieces (§3: the request door,
-        the SQLite-WASM wrapper, the validation glue) and on validation (§5: a — Hono's validator +
-        ajv with Fastify's options, the lean; b — @hono/typebox-validator, which neither coerces nor
-        fills defaults). Then slices 1–7 (plan §7).
-GO:     given 2026-10-09 — "your rec lets do it keeep working until the conversion is done".
+        standard or NOT STANDARD, the feasibility pass, the blast radius, the order of work, §10 the
+        conversion rules); RESEARCH §2 "Hono and the offline-first shape" + "The conversion,
+        measured". Slices 1–5 built: the kit (1,136 tests), just-sqlite-sync (47/47), the template,
+        JustWrite with its phone (148/148; the bundle checked in Chrome), docgen (161/161); the guard
+        checks one Hono (`checkOneHono`). The plan §9 has the detail.
+        The three NOT STANDARD pieces, DECIDED 2026-10-09 — asked by name: "1. The request door (NOT
+        STANDARD, ~240 lines in the kit) … Lean: yes, keep it. 2. The SQLite-in-WASM wrapper (NOT
+        STANDARD, 152 lines) … Lean: yes, keep it. 3. Validation: a — Hono's own validator() with
+        ajv, set up exactly as Fastify sets it up … about 20–30 lines of joining code, which is NOT
+        STANDARD; b — @hono/typebox-validator … Lean: a." On 2 the user asked "is this how actual or
+        hono use or is this your custom code?", "why not libsql?", "so what about turso?" (answered:
+        ours; Actual wrote its own pair of SQLite files; libsql-js is Node-only and
+        @libsql/client-wasm async; Turso pre-1.0, its browser package async-only — re-check at its
+        1.0). The user: "your rec on all go" — so 1 yes, 2 yes, 3 a.
+OPEN:   slice 6 (JustVoice) and the rest of slice 7 (JustVoice's docs); the Android emulator run of
+        JustWrite's phone on Hono.
+GO:     given 2026-10-09 — "your rec lets do it keeep working until the conversion is done"; the
+        three pieces: "your rec on all go".
 
 ## The apps move to the layout Quasar's CLI creates, on the latest dependencies [2026-10-09]
 STATE:  DECIDED 2026-10-09 — the user, on finding the apps still in their pre-Quasar folders: "i told

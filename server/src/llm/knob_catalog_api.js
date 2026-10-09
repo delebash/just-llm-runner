@@ -11,6 +11,7 @@
 // The store's rows also carry `backends`; KnobMeta does not declare it, so the wire drops it
 // — exactly as the Python response model does.
 
+import { Hono } from "hono";
 import { model, opt, T } from "../platform/models.js";
 
 export const KnobOption = T.Object({
@@ -37,9 +38,9 @@ export const KnobCatalogResponse = T.Object({
 /** GET /v1/ai/knob-catalog. `getKnobs()` returns the joined catalog rows
  * (stores.listKnobCatalog). */
 export function makeKnobCatalogRouter(getKnobs) {
-  return async function knobCatalogRouter(app) {
-    app.get("/v1/ai/knob-catalog", async () =>
-      model(KnobCatalogResponse, { knobs: getKnobs().map((k) => model(KnobMeta, k)) }),
-    );
-  };
+  const app = new Hono();
+  app.get("/v1/ai/knob-catalog", async (c) =>
+    c.json(model(KnobCatalogResponse, { knobs: getKnobs().map((k) => model(KnobMeta, k)) })),
+  );
+  return app;
 }

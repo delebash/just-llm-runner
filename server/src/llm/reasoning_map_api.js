@@ -11,8 +11,10 @@
 // editable via GET/PUT /v1/ai/reasoning-map/{provider}. The model_pricing CRUD is the
 // precedent (#75).
 
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
+import { input } from "../platform/server.js";
 
 // The reasoning "ask" vocabulary — the levels a task can request, in ascending order.
 // ONE source; the resolver, the seeds and the UI all speak these. ("" / "off" is the
@@ -114,35 +116,34 @@ const LEVELS_REPR = `(${REASONING_LEVELS.map((l) => `'${l}'`).join(", ")})`;
  * no adapter keeps a level table.
  */
 export function makeReasoningMapRouter(getStore) {
-  return async function reasoningMapRouter(app) {
-    const resp = (provider) => model(ReasoningMapResponse, { provider, rows: getStore().forProvider(provider) });
-    // Starlette's {provider} is one NON-EMPTY segment, matched after the path is decoded: an
-    // empty one, or an encoded slash (`a%2Fb` — two segments there), matches nothing.
-    // find-my-way matches both and decodes after. Answer as FastAPI does.
-    const providerOf = (req, reply) => {
-      const provider = req.params.provider;
-      if (provider === "" || provider.includes("/")) {
-        reply.code(404).send({ detail: "Not Found" });
-        return null;
-      }
-      if (!provider.trim()) throw new HttpError(400, "provider is required");
-      return provider;
-    };
-    const params = T.Object({ provider: T.String() });
-
-    app.get("/v1/ai/reasoning-map/:provider", { schema: { params } }, async (req, reply) => {
-      const provider = providerOf(req, reply);
-      if (provider === null) return reply;
-      return resp(provider);
-    });
-
-    app.put("/v1/ai/reasoning-map/:provider", { schema: { params, body: ReasoningLevelRow } }, async (req, reply) => {
-      const provider = providerOf(req, reply);
-      if (provider === null) return reply;
-      const body = model(ReasoningLevelRow, req.body);
-      if (!REASONING_LEVELS.includes(body.level)) throw new HttpError(400, `level must be one of ${LEVELS_REPR}`);
-      getStore().upsert(provider, body);
-      return resp(provider);
-    });
+  const app = new Hono();
+  const resp = (provider) => model(ReasoningMapResponse, { provider, rows: getStore().forProvider(provider) });
+  // Starlette's {provider} is one NON-EMPTY segment, matched after the path is decoded: an
+  // empty one, or an encoded slash (`a%2Fb` — two segments there), matches nothing.
+  // Hono matches an encoded slash as one segment and decodes the param after. Answer as
+  // FastAPI does (null → the caller answers FastAPI's 404).
+  const providerOf = (c) => {
+    const provider = c.req.valid("param").provider;
+    if (provider === "" || provider.includes("/")) return null;
+    if (!provider.trim()) throw new HttpError(400, "provider is required");
+    return provider;
   };
+  const notFound = (c) => c.json({ detail: "Not Found" }, 404);
+  const params = T.Object({ provider: T.String() });
+
+  app.get("/v1/ai/reasoning-map/:provider", input({ params }), async (c) => {
+    const provider = providerOf(c);
+    if (provider === null) return notFound(c);
+    return c.json(resp(provider));
+  });
+
+  app.put("/v1/ai/reasoning-map/:provider", input({ params, body: ReasoningLevelRow }), async (c) => {
+    const provider = providerOf(c);
+    if (provider === null) return notFound(c);
+    const body = model(ReasoningLevelRow, c.req.valid("json"));
+    if (!REASONING_LEVELS.includes(body.level)) throw new HttpError(400, `level must be one of ${LEVELS_REPR}`);
+    getStore().upsert(provider, body);
+    return c.json(resp(provider));
+  });
+  return app;
 }

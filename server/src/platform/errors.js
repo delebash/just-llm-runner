@@ -45,6 +45,31 @@ export class RequestValidationError extends Error {
   }
 }
 
+/** A request part that failed its route's schema (server.js `input`): ajv's errors, the part
+ * ("params" | "body" | "querystring" | "headers"), its value as validated, and the route's
+ * schemas (for pydantic's declaration order). */
+export class SchemaValidationError extends Error {
+  constructor({ validation, validationContext, data, schemas }) {
+    super(`${validationContext} failed validation`);
+    this.statusCode = 400;
+    this.validation = validation;
+    this.validationContext = validationContext;
+    this.data = data;
+    this.schemas = schemas || {};
+  }
+}
+
+/** A JSON body that doesn't parse — FastAPI's json_invalid at the decoder's position (V8 names
+ * it when it can). */
+export class InvalidJsonBody extends Error {
+  constructor(cause) {
+    super(cause?.message ?? "Invalid JSON");
+    this.statusCode = 400;
+    const m = /at position (\d+)/.exec(this.message);
+    this.jsonPos = m ? Number(m[1]) : null;
+  }
+}
+
 export const badRequest = (detail) => new ApiError(400, "bad-request", "Bad Request", detail);
 export const unauthorized = (detail = "Authentication required") =>
   new ApiError(401, "unauthorized", "Unauthorized", detail);
@@ -77,8 +102,8 @@ function pyStr(detail) {
 const log = getLogger("llm_runner.platform.errors");
 
 /** The request's path as Starlette's `request.url.path` gives it: decoded, no query. */
-function requestPath(request) {
-  const raw = request.url.split("?")[0];
+function requestPath(c) {
+  const raw = new URL(c.req.url).pathname;
   try {
     return decodeURIComponent(raw);
   } catch {
@@ -86,8 +111,8 @@ function requestPath(request) {
   }
 }
 
-function logError(request, status, detail) {
-  const line = `${request.method} ${requestPath(request)} -> ${status}: ${pyStr(detail).slice(0, 500)}`;
+function logError(c, status, detail) {
+  const line = `${c.req.method} ${requestPath(c)} -> ${status}: ${pyStr(detail).slice(0, 500)}`;
   if (status >= 500) log.error(line);
   else log.warn(line);
 }
@@ -186,12 +211,11 @@ export function ajvToPydantic(err, root, data) {
   }
 }
 
-function validationErrors(err, request) {
+function validationErrors(err) {
   const root = LOC_ROOT[err.validationContext] || err.validationContext || "body";
-  const data =
-    root === "body" ? request.body : root === "query" ? request.query : root === "path" ? request.params : request.headers;
+  const data = err.data;
   // A missing body FastAPI reports as one error at ["body"].
-  if (root === "body" && (request.body === undefined || request.body === null)) {
+  if (root === "body" && (data === undefined || data === null)) {
     return [{ loc: ["body"], msg: "Field required", type: "missing" }];
   }
   // `literal(a, b, c)` is an anyOf of consts: ajv reports each branch's const, pydantic ONE
@@ -223,7 +247,7 @@ function validationErrors(err, request) {
     seen.add(key);
     out.push(p);
   }
-  return byDeclarationOrder(out, request, root);
+  return byDeclarationOrder(out, err.schemas, root);
 }
 
 // pydantic validates a model's fields in declaration order and reports each failure as it goes;
@@ -233,9 +257,8 @@ function validationErrors(err, request) {
 // route's schema — `model()` keeps properties in declaration order — and the sort is stable.
 const SCHEMA_KEY = { body: ["body"], query: ["querystring", "query"], path: ["params"], header: ["headers"] };
 
-function byDeclarationOrder(errors, request, root) {
-  const schemas = request.routeOptions?.schema || {};
-  const schema = (SCHEMA_KEY[root] || [root]).map((k) => schemas[k]).find(Boolean);
+function byDeclarationOrder(errors, schemas, root) {
+  const schema = (SCHEMA_KEY[root] || [root]).map((k) => schemas?.[k]).find(Boolean);
   if (!schema || errors.length < 2) return errors;
   const rank = (loc) => {
     const key = [];
@@ -264,19 +287,24 @@ function byDeclarationOrder(errors, request, root) {
   return ranked.map((r) => r.e);
 }
 
-function problem(reply, status, body) {
-  return reply.code(status).type("application/problem+json").send(body);
+/** A problem+json answer (headers a middleware already set on `c` are kept). */
+export function problem(c, status, body, headers = null) {
+  return c.body(JSON.stringify(body), status, { ...(headers || {}), "Content-Type": "application/problem+json" });
 }
+
+/** The status of a refusal that isn't one of ours: a server error's own (`statusCode` — the
+ * 413 of a body too large) or Hono's HTTPException (`status`). */
+const refusalStatus = (err) => err.statusCode ?? (typeof err.getResponse === "function" ? err.status : undefined);
 
 /**
  * Register the problem+json handlers on `app` (the port of `install_error_handlers`).
  * `typeBase` is the app's problem-type URL prefix — the ONLY per-app datum.
  */
 export function installErrorHandlers(app, { typeBase, onUnhandled = null }) {
-  app.setErrorHandler((err, request, reply) => {
-    const instance = requestPath(request);
+  app.onError((err, c) => {
+    const instance = requestPath(c);
     if (err instanceof ApiError) {
-      logError(request, err.statusCode, err.detail);
+      logError(c, err.statusCode, err.detail);
       const body = {
         type: `${typeBase}${err.slug}`,
         title: err.title,
@@ -285,30 +313,34 @@ export function installErrorHandlers(app, { typeBase, onUnhandled = null }) {
         instance,
       };
       for (const [k, v] of Object.entries(err.extra || {})) if (!(k in body)) body[k] = v;
-      return problem(reply, err.statusCode, body);
+      return problem(c, err.statusCode, body);
     }
     if (err instanceof HttpError) {
       const [slug, title] = HTTP_SLUGS[err.statusCode] || ["error", "Error"];
-      logError(request, err.statusCode, err.detail);
-      if (err.headers) reply.headers(err.headers);
-      return problem(reply, err.statusCode, {
-        type: `${typeBase}${slug}`,
-        title,
-        status: err.statusCode,
-        detail: pyStr(err.detail),
-        instance,
-      });
+      logError(c, err.statusCode, err.detail);
+      return problem(
+        c,
+        err.statusCode,
+        {
+          type: `${typeBase}${slug}`,
+          title,
+          status: err.statusCode,
+          detail: pyStr(err.detail),
+          instance,
+        },
+        err.headers,
+      );
     }
     let errors = null;
     if (err instanceof RequestValidationError) errors = err.errors;
-    else if (err.validation) errors = validationErrors(err, request);
-    else if (err.code === "FST_ERR_CTP_INVALID_JSON_BODY" || err.code === "FST_ERR_CTP_EMPTY_JSON_BODY") {
+    else if (err instanceof SchemaValidationError) errors = validationErrors(err);
+    else if (err instanceof InvalidJsonBody) {
       // FastAPI's location is the decoder's character position; V8 names it when it can.
       errors = [{ loc: ["body", err.jsonPos ?? 0], msg: "JSON decode error", type: "json_invalid" }];
     }
     if (errors) {
-      logError(request, 422, JSON.stringify(errors));
-      return problem(reply, 422, {
+      logError(c, 422, JSON.stringify(errors));
+      return problem(c, 422, {
         type: `${typeBase}validation-error`,
         title: "Validation Error",
         status: 422,
@@ -317,18 +349,19 @@ export function installErrorHandlers(app, { typeBase, onUnhandled = null }) {
         instance,
       });
     }
-    if (err.statusCode && err.statusCode < 500) {
-      // Fastify's own refusals (413 body too large, 415 media type, …): FastAPI would
-      // answer these as {"detail": …} too.
-      logError(request, err.statusCode, err.message);
-      return reply.code(err.statusCode).send({ detail: err.message });
+    const status = refusalStatus(err);
+    if (status && status < 500) {
+      // The server's own refusals (413 body too large, …): FastAPI would answer these as
+      // {"detail": …} too.
+      logError(c, status, err.message);
+      return c.json({ detail: err.message }, status);
     }
-    log.error(`${request.method} ${instance} -> 500: unhandled`, err);
-    if (onUnhandled) return onUnhandled(err, request, reply);
-    return reply.code(500).type("text/plain; charset=utf-8").send("Internal Server Error");
+    log.error(`${c.req.method} ${instance} -> 500: unhandled`, err);
+    if (onUnhandled) return onUnhandled(err, c);
+    return c.text("Internal Server Error", 500);
   });
 
-  app.setNotFoundHandler((request, reply) => reply.code(404).send({ detail: "Not Found" }));
+  app.notFound((c) => c.json({ detail: "Not Found" }, 404));
 }
 
 // ── FastAPI's DEFAULT error answers (an app that never called install_error_handlers) ──
@@ -392,19 +425,17 @@ function pyJsonErrorText(message) {
 
 /** Register FastAPI's default handlers (no problem+json) on `app`. */
 export function installFastapiErrorHandlers(app, { onUnhandled = null } = {}) {
-  app.setErrorHandler((err, request, reply) => {
+  app.onError((err, c) => {
     if (err instanceof HttpError) {
-      if (err.headers) reply.headers(err.headers);
-      return reply.code(err.statusCode).send({ detail: err.detail });
+      return c.json({ detail: err.detail }, err.statusCode, err.headers || undefined);
     }
     let errors = null;
     if (err instanceof RequestValidationError) {
       errors = err.errors.map((e) => ({ type: e.type, loc: e.loc, msg: e.msg, input: e.input ?? null, ...(e.ctx ? { ctx: e.ctx } : {}) }));
-    } else if (err.validation) {
+    } else if (err instanceof SchemaValidationError) {
       const root = LOC_ROOT[err.validationContext] || err.validationContext || "body";
-      const data =
-        root === "body" ? request.body : root === "query" ? request.query : root === "path" ? request.params : request.headers;
-      if (root === "body" && (request.body === undefined || request.body === null)) {
+      const data = err.data;
+      if (root === "body" && (data === undefined || data === null)) {
         errors = [{ type: "missing", loc: ["body"], msg: "Field required", input: null }];
       } else {
         const seen = new Set();
@@ -423,7 +454,7 @@ export function installFastapiErrorHandlers(app, { onUnhandled = null } = {}) {
           errors.push(fe);
         }
       }
-    } else if (err.code === "FST_ERR_CTP_INVALID_JSON_BODY" || err.code === "FST_ERR_CTP_EMPTY_JSON_BODY") {
+    } else if (err instanceof InvalidJsonBody) {
       errors = [
         {
           type: "json_invalid",
@@ -434,11 +465,12 @@ export function installFastapiErrorHandlers(app, { onUnhandled = null } = {}) {
         },
       ];
     }
-    if (errors) return reply.code(422).send({ detail: errors });
-    if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ detail: err.message });
-    log.error(`${request.method} ${requestPath(request)} -> 500: unhandled`, err);
-    if (onUnhandled) return onUnhandled(err, request, reply);
-    return reply.code(500).type("text/plain; charset=utf-8").send("Internal Server Error");
+    if (errors) return c.json({ detail: errors }, 422);
+    const status = refusalStatus(err);
+    if (status && status < 500) return c.json({ detail: err.message }, status);
+    log.error(`${c.req.method} ${requestPath(c)} -> 500: unhandled`, err);
+    if (onUnhandled) return onUnhandled(err, c);
+    return c.text("Internal Server Error", 500);
   });
-  app.setNotFoundHandler((request, reply) => reply.code(404).send({ detail: "Not Found" }));
+  app.notFound((c) => c.json({ detail: "Not Found" }, 404));
 }

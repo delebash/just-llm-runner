@@ -17,8 +17,32 @@
 
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { serve } from "@hono/node-server";
+import { closeApp } from "./server.js";
+
+// The built UI on a computer's server (Node only — the phone's in-app server serves none): an app
+// takes it from here, so it uses the kit's @hono/node-server like everything else it serves.
+export { serveStatic } from "@hono/node-server/serve-static";
 
 const GRACE_MS = 3000;
+// Node's own server settings as Fastify set them: no limit on receiving a request (Node's
+// default 300 s would cut off a large backup upload) and Fastify's 72 s keep-alive.
+const SERVER_OPTIONS = { requestTimeout: 0, keepAliveTimeout: 72_000 };
+
+/** Listen with `app` on host:port; resolves the Node server once it listens. */
+function listen(app, host, port) {
+  return new Promise((resolve, reject) => {
+    const server = serve(
+      // The platform's own Request/Response stay global (the kit's HTTP client relies on them).
+      { fetch: app.fetch, hostname: host, port, serverOptions: SERVER_OPTIONS, overrideGlobalObjects: false },
+      () => {
+        server.off("error", reject);
+        resolve(server);
+      },
+    );
+    server.once("error", reject);
+  });
+}
 
 /**
  * Parse `serve [--host H] [--port P] [--data-dir D] [--log-level L]`, with env fallbacks
@@ -51,20 +75,21 @@ export function parseServeArgs(argv, { envPrefix, env = process.env } = {}) {
 }
 
 /**
- * Run a Fastify app as the family server. `build(args)` returns `{app, host, port,
+ * Run a Hono app as the family server. `build(args)` returns `{app, host, port,
  * banner?}` — host/port already resolved (CLI/env over the app's settings store);
- * `app` is a Fastify instance not yet listening. Returns `{app, stop}`.
+ * `app` is the app's Hono instance. Returns `{app, server, stop, port}`.
  */
 export async function runServer({ argv = process.argv.slice(2), envPrefix, build, log = console }) {
   const args = parseServeArgs(argv, { envPrefix });
   const { app, host, port, banner } = await build(args);
+  let server;
   try {
-    await app.listen({ host, port });
+    server = await listen(app, host, port);
   } catch (e) {
     log.error?.(`could not listen on ${host}:${port}: ${e.message}`);
     process.exit(3);
   }
-  const addr = app.server.address();
+  const addr = server.address();
   const boundPort = typeof addr === "object" && addr ? addr.port : port;
   if (banner) process.stdout.write(`${banner}\n`);
 
@@ -73,12 +98,16 @@ export async function runServer({ argv = process.argv.slice(2), envPrefix, build
     if (stopping) return stopping;
     stopping = (async () => {
       log.info?.(`server stopping (${why})`);
+      // Stop taking connections; idle keep-alive sockets go now, open streams get the grace.
+      const closed = new Promise((resolve) => server.close(() => resolve()));
+      server.closeIdleConnections?.();
       const t = setTimeout(() => {
         // Open streams past the grace: close their sockets so close() can finish.
-        app.server.closeAllConnections?.();
+        server.closeAllConnections?.();
       }, GRACE_MS);
       try {
-        await app.close();
+        await closeApp(app);
+        await closed;
       } catch (e) {
         log.error?.(`close failed: ${e?.stack || e}`);
       } finally {
@@ -98,5 +127,5 @@ export async function runServer({ argv = process.argv.slice(2), envPrefix, build
   }
   process.on("SIGINT", () => stop("SIGINT"));
   process.on("SIGTERM", () => stop("SIGTERM"));
-  return { app, stop, port: boundPort };
+  return { app, server, stop, port: boundPort };
 }

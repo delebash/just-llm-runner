@@ -15,10 +15,12 @@
 // response_model did: only the declared fields, in declaration order. Several comments
 // below say a field MUST be declared or the wire strips it — keep every one.
 
+import { Hono } from "hono";
 import { HttpError, RequestValidationError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
 import { FileNotFoundError, pyStr, truthy } from "../platform/py.js";
 import { pyStrScalar } from "../platform/pyjson.js";
+import { input } from "../platform/server.js";
 
 // ── Catalog ──────────────────────────────────────────────────────────────────
 
@@ -269,97 +271,99 @@ export function makeCatalogRouter(
     onReset = null,
   } = {},
 ) {
-  return async function catalogRouter(app) {
-    const list = () => {
-      const refs = (classTuneRefsFn ? classTuneRefsFn() : []).map((r) => model(ClassTuneRef, r));
-      return model(CatalogResponse, {
-        rows: getStore().list(),
-        classTuneRefs: refs,
-        myClassKey: classKeyFn ? classKeyFn() : "",
-      });
-    };
-
-    app.get("/v1/ai/model-catalog", async () => list());
-
-    app.put("/v1/ai/model-catalog", { schema: { body: CatalogRow } }, async (req) => {
-      const body = model(CatalogRow, req.body);
-      if (!strip(body.id)) throw new HttpError(400, "id is required");
-      body.builtIn = false; // user edit, even if id matches a built-in
-      getStore().upsert(body);
-      return list();
+  const app = new Hono();
+  const list = () => {
+    const refs = (classTuneRefsFn ? classTuneRefsFn() : []).map((r) => model(ClassTuneRef, r));
+    return model(CatalogResponse, {
+      rows: getStore().list(),
+      classTuneRefs: refs,
+      myClassKey: classKeyFn ? classKeyFn() : "",
     });
+  };
 
-    app.delete(
-      "/v1/ai/model-catalog",
-      { schema: { querystring: T.Object({ modelId: T.String() }) } },
-      async (req) => {
-        const { modelId } = req.query;
+  app.get("/v1/ai/model-catalog", async (c) => c.json(list()));
+
+  app.put("/v1/ai/model-catalog", input({ body: CatalogRow }), async (c) => {
+    const body = model(CatalogRow, c.req.valid("json"));
+    if (!strip(body.id)) throw new HttpError(400, "id is required");
+    body.builtIn = false; // user edit, even if id matches a built-in
+    getStore().upsert(body);
+    return c.json(list());
+  });
+
+  app.delete(
+    "/v1/ai/model-catalog",
+    input({ querystring: T.Object({ modelId: T.String() }) }),
+    async (c) => {
+      const { modelId } = c.req.valid("query");
+      if (!strip(modelId)) throw new HttpError(400, "modelId is required");
+      getStore().delete(modelId);
+      return c.json(list());
+    },
+  );
+
+  app.post("/v1/ai/model-catalog/reset", async (c) => {
+    getStore().resetToFactory();
+    if (onReset != null) await onReset();
+    return c.json(list());
+  });
+
+  if (resolveSwitches != null) {
+    app.get(
+      "/v1/ai/model-catalog/resolved-defaults",
+      input({ querystring: T.Object({ modelId: T.String(), excludeTune: opt(T.String()) }) }),
+      async (c) => {
+        const query = c.req.valid("query");
+        const { modelId } = query;
+        const excludeTune = queryBool(query.excludeTune, "excludeTune");
         if (!strip(modelId)) throw new HttpError(400, "modelId is required");
-        getStore().delete(modelId);
-        return list();
-      },
-    );
-
-    app.post("/v1/ai/model-catalog/reset", async () => {
-      getStore().resetToFactory();
-      if (onReset != null) await onReset();
-      return list();
-    });
-
-    if (resolveSwitches != null) {
-      app.get(
-        "/v1/ai/model-catalog/resolved-defaults",
-        { schema: { querystring: T.Object({ modelId: T.String(), excludeTune: opt(T.String()) }) } },
-        async (req) => {
-          const { modelId } = req.query;
-          const excludeTune = queryBool(req.query.excludeTune, "excludeTune");
-          if (!strip(modelId)) throw new HttpError(400, "modelId is required");
-          // Provenance-aware resolve when wired (one call yields values + origins); the
-          // plain resolver stays the fallback so hosts without origins keep working.
-          // excludeTune=1 (§7.6) answers with the LAYER baseline — the machine tune skipped
-          // — for the Tune modal's "Refresh from defaults"; when no baseline resolver is
-          // wired it falls through to the normal resolve (honest fallback).
-          let merged;
-          let origins;
-          if (excludeTune && resolveBaselineOrigins != null) {
-            [merged, origins] = await resolveBaselineOrigins(modelId);
-          } else if (resolveOrigins != null) {
-            [merged, origins] = await resolveOrigins(modelId);
-          } else {
-            merged = await resolveSwitches(modelId);
-            origins = {};
+        // Provenance-aware resolve when wired (one call yields values + origins); the
+        // plain resolver stays the fallback so hosts without origins keep working.
+        // excludeTune=1 (§7.6) answers with the LAYER baseline — the machine tune skipped
+        // — for the Tune modal's "Refresh from defaults"; when no baseline resolver is
+        // wired it falls through to the normal resolve (honest fallback).
+        let merged;
+        let origins;
+        if (excludeTune && resolveBaselineOrigins != null) {
+          [merged, origins] = await resolveBaselineOrigins(modelId);
+        } else if (resolveOrigins != null) {
+          [merged, origins] = await resolveOrigins(modelId);
+        } else {
+          merged = await resolveSwitches(modelId);
+          origins = {};
+        }
+        merged = truthy(merged) ? merged : {};
+        origins = truthy(origins) ? origins : {};
+        // ONE store read serves BOTH the mtp flag and the model's recommended samplers.
+        const row = getStore()
+          .list()
+          .find((r) => r.id === modelId) ?? null;
+        const samplers = (row ? row.samplers : null) || {};
+        // Fix 2: the fit-COMPUTED launch values for keys no layer pins — read from the
+        // runner's pure fit preview (needs the GGUF on disk; errors soft → empty, the grid
+        // simply shows what it always showed). n_cpu_moe only means anything on a MoE
+        // model.
+        let computed = [];
+        if (previewFitFn != null) {
+          let pv;
+          try {
+            pv = (await previewFitFn(modelId)) || {};
+          } catch {
+            pv = {}; // an enrichment must never break the grid seed
           }
-          merged = truthy(merged) ? merged : {};
-          origins = truthy(origins) ? origins : {};
-          // ONE store read serves BOTH the mtp flag and the model's recommended samplers.
-          const row = getStore()
-            .list()
-            .find((r) => r.id === modelId) ?? null;
-          const samplers = (row ? row.samplers : null) || {};
-          // Fix 2: the fit-COMPUTED launch values for keys no layer pins — read from the
-          // runner's pure fit preview (needs the GGUF on disk; errors soft → empty, the grid
-          // simply shows what it always showed). n_cpu_moe only means anything on a MoE
-          // model.
-          let computed = [];
-          if (previewFitFn != null) {
-            let pv;
-            try {
-              pv = (await previewFitFn(modelId)) || {};
-            } catch {
-              pv = {}; // an enrichment must never break the grid seed
-            }
-            if (truthy(pv.ok)) {
-              const fitVals = [
-                ["n_gpu_layers", pv.nGpuLayers],
-                ["ctx_len", pv.ctxLen],
-              ];
-              if (truthy(pv.isMoe)) fitVals.push(["n_cpu_moe", pv.nCpuMoe]);
-              computed = fitVals
-                .filter(([k, v]) => v != null && !Object.hasOwn(merged, k))
-                .map(([k, v]) => ({ flagName: k, flagValue: pyStrScalar(v) }));
-            }
+          if (truthy(pv.ok)) {
+            const fitVals = [
+              ["n_gpu_layers", pv.nGpuLayers],
+              ["ctx_len", pv.ctxLen],
+            ];
+            if (truthy(pv.isMoe)) fitVals.push(["n_cpu_moe", pv.nCpuMoe]);
+            computed = fitVals
+              .filter(([k, v]) => v != null && !Object.hasOwn(merged, k))
+              .map(([k, v]) => ({ flagName: k, flagValue: pyStrScalar(v) }));
           }
-          return model(ResolvedModelDefaultsResponse, {
+        }
+        return c.json(
+          model(ResolvedModelDefaultsResponse, {
             modelId,
             // mtpCapable = MTP is AVAILABLE to enable — built-in header MTP OR a configured
             // external draft (2026-07-13: reads `mtpBuiltin`, the header truth, NOT the
@@ -370,61 +374,60 @@ export function makeCatalogRouter(
             samplers: Object.entries(samplers).map(([k, v]) => ({ flagName: k, flagValue: pyStrScalar(v) })),
             computed,
             origins,
-          });
-        },
-      );
-    }
+          }),
+        );
+      },
+    );
+  }
 
-    if (listFilesFn != null) {
-      // ONE HF tree call → the repo's quant dropdown rows (shards summed, Q/IQ/QAT labels)
-      // + detected MTP draft files (Plan B D9). Powers the Add/Edit form's quant + draft
-      // pickers.
-      app.post(
-        "/v1/ai/model-catalog/list-files",
-        { schema: { querystring: T.Object({ repo: T.String(), revision: opt(T.String(), "main") }) } },
-        async (req) => {
-          const { repo, revision } = req.query;
-          if (!strip(repo)) throw new HttpError(400, "repo is required");
-          let data;
-          try {
-            data = await listFilesFn(strip(repo), strip(revision || "main"));
-          } catch (e) {
-            // network/bad-repo → a clean 502
-            throw new HttpError(502, `couldn't list ${repo}: ${excStr(e)}`);
-          }
-          return model(ListFilesResponse, data);
-        },
-      );
-    }
+  if (listFilesFn != null) {
+    // ONE HF tree call → the repo's quant dropdown rows (shards summed, Q/IQ/QAT labels)
+    // + detected MTP draft files (Plan B D9). Powers the Add/Edit form's quant + draft
+    // pickers.
+    app.post(
+      "/v1/ai/model-catalog/list-files",
+      input({ querystring: T.Object({ repo: T.String(), revision: opt(T.String(), "main") }) }),
+      async (c) => {
+        const { repo, revision } = c.req.valid("query");
+        if (!strip(repo)) throw new HttpError(400, "repo is required");
+        let data;
+        try {
+          data = await listFilesFn(strip(repo), strip(revision || "main"));
+        } catch (e) {
+          // network/bad-repo → a clean 502
+          throw new HttpError(502, `couldn't list ${repo}: ${excStr(e)}`);
+        }
+        return c.json(model(ListFilesResponse, data));
+      },
+    );
+  }
 
-    if (inspectFn != null) {
-      // Pre-download: read the GGUF header from the HF link (no weights) so the Add-a-model
-      // form fills the file-derived fields (type/mtp/trainedCtx/samplers) + the real size +
-      // a VRAM estimate before committing to a multi-GB download.
-      app.post(
-        "/v1/ai/model-catalog/inspect",
-        {
-          schema: {
-            querystring: T.Object({ repo: T.String(), quant: opt(T.String(), ""), revision: opt(T.String(), "main") }),
-          },
-        },
-        async (req) => {
-          const { repo, quant, revision } = req.query;
-          if (!strip(repo)) throw new HttpError(400, "repo is required");
-          let data;
-          try {
-            data = await inspectFn(strip(repo), strip(quant), strip(revision || "main"));
-          } catch (e) {
-            if (e instanceof FileNotFoundError || e?.code === "ENOENT") {
-              throw new HttpError(404, excStr(e) || "no GGUF for that repo/quant");
-            }
-            if (e instanceof HttpError) throw e;
-            // network/parse failure → 502 with the reason
-            throw new HttpError(502, `inspect failed: ${excStr(e)}`);
+  if (inspectFn != null) {
+    // Pre-download: read the GGUF header from the HF link (no weights) so the Add-a-model
+    // form fills the file-derived fields (type/mtp/trainedCtx/samplers) + the real size +
+    // a VRAM estimate before committing to a multi-GB download.
+    app.post(
+      "/v1/ai/model-catalog/inspect",
+      input({
+        querystring: T.Object({ repo: T.String(), quant: opt(T.String(), ""), revision: opt(T.String(), "main") }),
+      }),
+      async (c) => {
+        const { repo, quant, revision } = c.req.valid("query");
+        if (!strip(repo)) throw new HttpError(400, "repo is required");
+        let data;
+        try {
+          data = await inspectFn(strip(repo), strip(quant), strip(revision || "main"));
+        } catch (e) {
+          if (e instanceof FileNotFoundError || e?.code === "ENOENT") {
+            throw new HttpError(404, excStr(e) || "no GGUF for that repo/quant");
           }
-          return model(InspectResponse, data);
-        },
-      );
-    }
-  };
+          if (e instanceof HttpError) throw e;
+          // network/parse failure → 502 with the reason
+          throw new HttpError(502, `inspect failed: ${excStr(e)}`);
+        }
+        return c.json(model(InspectResponse, data));
+      },
+    );
+  }
+  return app;
 }

@@ -38,12 +38,14 @@
 // guarded state that never spans an await, so it is dropped (nothing else runs in between).
 // `sleep(seconds)` and `now()` (seconds) are the injection points, as in Python.
 
+import { Hono } from "hono";
 import { background, sleep as sleepMs } from "../platform/asyncutil.js";
 import { HttpError, RequestValidationError } from "../platform/errors.js";
 import { getLogger } from "../platform/log.js";
 import { pyFloatParse, pyInt, pyMax, pySorted, pyStr, strip, truthy } from "../platform/py.js";
 import { pyFixed } from "../platform/pyjson.js";
-import * as lifecycle from "./lifecycle.js";
+import { readJson } from "../platform/server.js";
+import * as lifecycle from "#runner/lifecycle";
 import * as models from "./models.js";
 
 const log = getLogger("llm_runner.runner.autotune");
@@ -612,21 +614,23 @@ function floatOrZero(raw) {
  * sync or async.
  */
 export function makeAutotuneRouter(resolveSwitches, saveTune, { recordMeasurement = null, tunerFn = getTuner } = {}) {
-  return async function autotuneRouter(app) {
-    app.post("/v1/llm-runner/auto-tune", async (req) => {
-      const body = dictBody(req.body, { required: true });
-      const modelId = strOr((body || {}).modelId);
-      if (!modelId) throw new HttpError(400, "modelId required");
-      const save = truthy((body || {}).save || false);
-      // Optional time box (seconds) — the QuickSetup quick tune passes ~120; the full sweep
-      // omits it. Bad input → uncapped (never a 400 for an enrichment).
-      const budgetSeconds = floatOrZero((body || {}).budgetSeconds);
-      const base = (await resolveSwitches(modelId)) || {};
-      return tunerFn().start(modelId, base, { saveFn: saveTune, save, budgetSeconds, recordFn: recordMeasurement });
-    });
+  const app = new Hono();
+  app.post("/v1/llm-runner/auto-tune", async (c) => {
+    const body = dictBody(await readJson(c), { required: true });
+    const modelId = strOr((body || {}).modelId);
+    if (!modelId) throw new HttpError(400, "modelId required");
+    const save = truthy((body || {}).save || false);
+    // Optional time box (seconds) — the QuickSetup quick tune passes ~120; the full sweep
+    // omits it. Bad input → uncapped (never a 400 for an enrichment).
+    const budgetSeconds = floatOrZero((body || {}).budgetSeconds);
+    const base = (await resolveSwitches(modelId)) || {};
+    return c.json(
+      await tunerFn().start(modelId, base, { saveFn: saveTune, save, budgetSeconds, recordFn: recordMeasurement }),
+    );
+  });
 
-    app.get("/v1/llm-runner/auto-tune", async () => tunerFn().status());
+  app.get("/v1/llm-runner/auto-tune", async (c) => c.json(await tunerFn().status()));
 
-    app.post("/v1/llm-runner/auto-tune/cancel", async () => tunerFn().cancel());
-  };
+  app.post("/v1/llm-runner/auto-tune/cancel", async (c) => c.json(await tunerFn().cancel()));
+  return app;
 }

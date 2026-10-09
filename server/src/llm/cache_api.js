@@ -21,9 +21,11 @@
 
 import { mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { model, opt, T } from "../platform/models.js";
 import { IS_WIN, RuntimeError } from "../platform/py.js";
+import { input } from "../platform/server.js";
 import * as cacheRegistry from "../runner/cache_registry.js";
 import * as stores from "./stores.js";
 
@@ -54,7 +56,7 @@ export const CacheChoice = T.Object({
 /** The lazily-reached collaborators (Python's in-handler imports). */
 export const deps = {
   /** The runner service: `.cacheRoot`, `.runtimeRoot`, `repointCache(cache, runtime)`. */
-  getService: async () => (await import("../runner/lifecycle.js")).getService(),
+  getService: async () => (await import("#runner/lifecycle")).getService(),
   /** `resolveCacheRoots(dataDir, cacheRoot, stored)` → [cacheRoot, runtimeRoot, shared] (Python's
    * positional-or-keyword parameters stay positional). */
   resolveCacheRoots: async (dataDir, cacheRoot, stored) =>
@@ -86,90 +88,90 @@ export function pyIsAbsolute(p) {
 export function makeCacheRouter(dataDir = null, product = "") {
   const own = dataDir ? cacheRegistry.pyPath(join(String(dataDir), "ai-cache")) : null;
 
-  return async function cacheRouter(app) {
-    const state = async () => {
-      const svc = await deps.getService();
-      const root = cacheRegistry.pyPath(svc.cacheRoot);
-      let stored;
-      try {
-        stored = stores.getRunnerConfigStore().getCacheRoot();
-      } catch {
-        stored = ""; // a pre-seed DB is not an error here
-      }
-      // Exclude the app's OWN root as well as the one in use: this function offers "keep my
-      // own" explicitly below, and the registry still carries this app's own row from boot
-      // — passing only `root` listed it twice once we shared.
-      const options = cacheRegistry.discover([root, own]).map((o) => model(CacheOption, o));
-      const shared = !!(own && !samePath(root, own));
-      if (shared) {
-        // Always offer the way back. It is listed even when empty: "my own cache" is a real
-        // choice, not a directory that has to already exist.
-        options.unshift(model(CacheOption, { ...cacheRegistry.summarize(own), product: "this app" }));
-      }
-      // A shared cache in use is named after its app, so the setup can offer it (startup
-      // takes a sibling's by itself when nothing is chosen, 2026-10-06).
-      return model(CacheState, {
-        root,
-        ownRoot: own || "",
-        runtimeRoot: cacheRegistry.pyPath(svc.runtimeRoot),
-        shared,
-        stored,
-        current: model(CacheOption, {
-          ...cacheRegistry.summarize(root),
-          product: shared ? cacheRegistry.productOf(root, dataDir) : "",
-        }),
-        options,
-      });
-    };
-
-    app.get("/v1/ai/engine-cache", async () => state());
-
-    /**
-     * Record the choice and, when the engine is idle, apply it immediately.
-     *
-     * NOTHING is moved — the previous cache keeps its files, which is what makes this
-     * reversible and what stops a mis-click costing 14 GB. Applying live matters because
-     * Quick Setup asks this BEFORE the first download: a choice that waited for a restart
-     * would be contradicted by the download the same wizard starts.
-     */
-    app.put("/v1/ai/engine-cache", { schema: { body: CacheChoice } }, async (req) => {
-      const body = model(CacheChoice, req.body);
-      let chosen = String(body.root || "").trim();
-      if (chosen) {
-        const path = cacheRegistry.pyPath(chosen);
-        if (!pyIsAbsolute(path)) throw new HttpError(400, "cache root must be an absolute path");
-        try {
-          mkdirSync(path, { recursive: true });
-        } catch (e) {
-          throw new HttpError(400, `cannot use ${path}: ${e.message}`);
-        }
-        if (own && samePath(path, own)) chosen = ""; // "my own cache" is stored as the absence of a choice
-      }
-      stores.getRunnerConfigStore().setCacheRoot(chosen);
-
-      const [cache, runtime] = await deps.resolveCacheRoots(dataDir, null, chosen);
-      let applied = false;
-      let detail = "";
-      if (cache) {
-        try {
-          const svc = await deps.getService();
-          await svc.repointCache(cache, runtime);
-          applied = true;
-          // Keep the family registry truthful: it said where this app cached at BOOT, and
-          // that is no longer where it caches.
-          cacheRegistry.register(product || (dataDir ? basename(cacheRegistry.pyPath(dataDir)) : ""), cache, dataDir);
-        } catch (e) {
-          if (!(e instanceof RuntimeError || e?.name === "RuntimeError")) throw e;
-          detail = e.message; // busy: the choice stands, it just waits for a restart
-        }
-      }
-      return {
-        ok: true,
-        root: cache ? cacheRegistry.pyPath(cache) : own || "",
-        applied,
-        restartRequired: !applied,
-        detail,
-      };
+  const app = new Hono();
+  const state = async () => {
+    const svc = await deps.getService();
+    const root = cacheRegistry.pyPath(svc.cacheRoot);
+    let stored;
+    try {
+      stored = stores.getRunnerConfigStore().getCacheRoot();
+    } catch {
+      stored = ""; // a pre-seed DB is not an error here
+    }
+    // Exclude the app's OWN root as well as the one in use: this function offers "keep my
+    // own" explicitly below, and the registry still carries this app's own row from boot
+    // — passing only `root` listed it twice once we shared.
+    const options = cacheRegistry.discover([root, own]).map((o) => model(CacheOption, o));
+    const shared = !!(own && !samePath(root, own));
+    if (shared) {
+      // Always offer the way back. It is listed even when empty: "my own cache" is a real
+      // choice, not a directory that has to already exist.
+      options.unshift(model(CacheOption, { ...cacheRegistry.summarize(own), product: "this app" }));
+    }
+    // A shared cache in use is named after its app, so the setup can offer it (startup
+    // takes a sibling's by itself when nothing is chosen, 2026-10-06).
+    return model(CacheState, {
+      root,
+      ownRoot: own || "",
+      runtimeRoot: cacheRegistry.pyPath(svc.runtimeRoot),
+      shared,
+      stored,
+      current: model(CacheOption, {
+        ...cacheRegistry.summarize(root),
+        product: shared ? cacheRegistry.productOf(root, dataDir) : "",
+      }),
+      options,
     });
   };
+
+  app.get("/v1/ai/engine-cache", async (c) => c.json(await state()));
+
+  /**
+   * Record the choice and, when the engine is idle, apply it immediately.
+   *
+   * NOTHING is moved — the previous cache keeps its files, which is what makes this
+   * reversible and what stops a mis-click costing 14 GB. Applying live matters because
+   * Quick Setup asks this BEFORE the first download: a choice that waited for a restart
+   * would be contradicted by the download the same wizard starts.
+   */
+  app.put("/v1/ai/engine-cache", input({ body: CacheChoice }), async (c) => {
+    const body = model(CacheChoice, c.req.valid("json"));
+    let chosen = String(body.root || "").trim();
+    if (chosen) {
+      const path = cacheRegistry.pyPath(chosen);
+      if (!pyIsAbsolute(path)) throw new HttpError(400, "cache root must be an absolute path");
+      try {
+        mkdirSync(path, { recursive: true });
+      } catch (e) {
+        throw new HttpError(400, `cannot use ${path}: ${e.message}`);
+      }
+      if (own && samePath(path, own)) chosen = ""; // "my own cache" is stored as the absence of a choice
+    }
+    stores.getRunnerConfigStore().setCacheRoot(chosen);
+
+    const [cache, runtime] = await deps.resolveCacheRoots(dataDir, null, chosen);
+    let applied = false;
+    let detail = "";
+    if (cache) {
+      try {
+        const svc = await deps.getService();
+        await svc.repointCache(cache, runtime);
+        applied = true;
+        // Keep the family registry truthful: it said where this app cached at BOOT, and
+        // that is no longer where it caches.
+        cacheRegistry.register(product || (dataDir ? basename(cacheRegistry.pyPath(dataDir)) : ""), cache, dataDir);
+      } catch (e) {
+        if (!(e instanceof RuntimeError || e?.name === "RuntimeError")) throw e;
+        detail = e.message; // busy: the choice stands, it just waits for a restart
+      }
+    }
+    return c.json({
+      ok: true,
+      root: cache ? cacheRegistry.pyPath(cache) : own || "",
+      applied,
+      restartRequired: !applied,
+      detail,
+    });
+  });
+  return app;
 }

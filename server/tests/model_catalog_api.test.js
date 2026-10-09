@@ -47,7 +47,8 @@ beforeEach(() => {
   }
   resets = 0;
   app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(
+  app.route(
+    "/",
     makeCatalogRouter(stores.getModelCatalogStore, {
       resolveSwitches: (mid) => (mid === "dense-a" ? { ctx_len: "8192", n_gpu_layers: "99" } : {}),
       resolveOrigins: (mid) =>
@@ -79,8 +80,13 @@ beforeEach(() => {
 });
 
 const call = async (method, url, payload) => {
-  const r = await app.inject(payload === undefined ? { method, url } : { method, url, payload });
-  return [r.statusCode, r.json()];
+  const r = await app.request(
+    url,
+    payload === undefined
+      ? { method }
+      : { method, body: JSON.stringify(payload), headers: { "content-type": "application/json" } },
+  );
+  return [r.status, await r.json()];
 };
 const problem = (status, title, slug, detail, instance) => ({
   type: `https://example.test/errors/${slug}`,

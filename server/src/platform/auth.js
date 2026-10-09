@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Bearer-token authentication — THE family implementation (the port of
-// llm_runner/platform/auth.py; Starlette's middleware becomes a Fastify `onRequest` hook
-// on the root instance, so it runs before routing as the middleware did — an unknown
-// `/v1` path answers 401 before it can answer 404).
+// llm_runner/platform/auth.py; Starlette's middleware becomes a Hono middleware on the app,
+// added before the routes, so it runs before routing as the middleware did — an unknown `/v1`
+// path answers 401 before it can answer 404).
 //
 // One policy for every same-stack app (P2 of the target tree, 2026-08-08; the three
 // per-app copies died — the 2026-08-05 lockout fix had to be hand-applied three times).
@@ -27,12 +27,12 @@
 // names them all (2026-10-08 — JustVoice: `["/v1", "/mcp"]`, its MCP endpoint guarded like its
 // API). A prefix matches the start of the path, as `/v1` always did.
 //
-// Wiring: `app.register(BearerAuthMiddleware, {readAuth, typeBase, loopbackOpenPaths})`
-// on the root instance. Starlette ran the LAST-added middleware first; Fastify runs
-// onRequest hooks in registration order — so register the outermost first (the apps:
-// CSRF, then CORS, then auth).
+// Wiring: `app.use("*", bearerAuth({readAuth, typeBase, loopbackOpenPaths}))` on the app,
+// before its routes. Starlette ran the LAST-added middleware first; Hono runs middleware in the
+// order added — so add the outermost first (the apps: CSRF, then CORS, then auth).
 
 import { BlockList, isIP } from "node:net";
+import { getConnInfo } from "@hono/node-server/conninfo";
 
 const LOOPBACK = new BlockList();
 LOOPBACK.addSubnet("127.0.0.0", 8, "ipv4");
@@ -53,50 +53,54 @@ export function isLoopback(host) {
 
 /** Starlette's `request.url.path`: the path, percent-decoded (uvicorn's `unquote`).
  * Candidate for platform/ (csrf.js uses it too). */
-export function requestPath(request) {
-  const raw = String(request.raw?.url ?? request.url ?? "").split("?")[0];
+export function requestPath(c) {
+  const raw = new URL(c.req.url).pathname;
   if (!raw.includes("%")) return raw;
   return raw.replace(/(?:%[0-9A-Fa-f]{2})+/g, (m) => Buffer.from(m.replace(/%/g, ""), "hex").toString("utf8"));
 }
 
-/** A problem+json answer sent from a hook (the middleware's own JSONResponse). */
-export function sendProblem(reply, status, body) {
-  reply.code(status).type("application/problem+json").send(body);
-  return reply;
+/** A problem+json answer sent from a middleware (the middleware's own JSONResponse). */
+export function sendProblem(c, status, body) {
+  return c.body(JSON.stringify(body), status, { "Content-Type": "application/problem+json" });
 }
 
-/** The onRequest hook itself (for a host that adds hooks by hand). */
-export function bearerAuthHook({ readAuth, typeBase, loopbackOpenPaths = [], prefixes = ["/v1"] }) {
+/** The client's address, as Starlette's `request.client.host` — empty where there is no socket
+ * (a request answered inside the app, as on the phone). */
+export function clientHost(c) {
+  try {
+    return getConnInfo(c).remote.address ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** `app.add_middleware(BearerAuthMiddleware, …)` → `app.use("*", bearerAuth({…}))`, added before
+ * the routes so it covers every route and the 404 answer. */
+export function bearerAuth({ readAuth, typeBase, loopbackOpenPaths = [], prefixes = ["/v1"] }) {
   const loopbackOpen = new Set(loopbackOpenPaths || []);
   const guarded = (p) => (prefixes || []).some((pre) => p.startsWith(pre));
-  const problem = (reply, status, slug, title, detail, p) =>
-    sendProblem(reply, status, { type: `${typeBase}${slug}`, title, status, detail, instance: p });
+  const problem = (c, status, slug, title, detail, p) =>
+    sendProblem(c, status, { type: `${typeBase}${slug}`, title, status, detail, instance: p });
 
-  return async function bearerAuth(request, reply) {
-    const p = requestPath(request);
+  return async function bearerAuthMiddleware(c, next) {
+    const p = requestPath(c);
     // Only gate the API (and an app's own `prefixes`). UI assets, docs, openapi, and the static
     // mount always pass (so the headless browser can load the app + log in).
-    if (!guarded(p)) return;
+    if (!guarded(p)) return next();
 
     const [tokens, requireForLoopback] = await readAuth();
-    if (!tokens?.length) return;
+    if (!tokens?.length) return next();
 
-    const isLoop = isLoopback(request.ip || request.socket?.remoteAddress || "");
-    if (isLoop && (p === "/v1/health" || p.startsWith("/v1/server-auth") || loopbackOpen.has(p))) return;
-    if (isLoop && !requireForLoopback) return;
+    const isLoop = isLoopback(clientHost(c));
+    if (isLoop && (p === "/v1/health" || p.startsWith("/v1/server-auth") || loopbackOpen.has(p))) return next();
+    if (isLoop && !requireForLoopback) return next();
 
-    const header = request.headers.authorization || "";
+    const header = c.req.header("authorization") || "";
     if (!header.startsWith("Bearer ")) {
-      return problem(reply, 401, "unauthorized", "Unauthorized", "Authorization header missing or malformed", p);
+      return problem(c, 401, "unauthorized", "Unauthorized", "Authorization header missing or malformed", p);
     }
     const token = header.slice("Bearer ".length).trim();
-    if (!tokens.includes(token)) return problem(reply, 403, "forbidden", "Forbidden", "Bearer token not accepted", p);
+    if (!tokens.includes(token)) return problem(c, 403, "forbidden", "Forbidden", "Bearer token not accepted", p);
+    return next();
   };
 }
-
-/** `app.add_middleware(BearerAuthMiddleware, …)` → `app.register(BearerAuthMiddleware, {…})`.
- * Not encapsulated (skip-override), so the hook covers every route and the 404 handler. */
-export async function BearerAuthMiddleware(app, opts) {
-  app.addHook("onRequest", bearerAuthHook(opts));
-}
-BearerAuthMiddleware[Symbol.for("skip-override")] = true;

@@ -37,11 +37,18 @@ class FakeAdapter {
 
 function client() {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(router);
+  app.route("/", router());
   return {
-    get: (url) => app.inject({ method: "GET", url }),
-    post: (url, payload) => app.inject({ method: "POST", url, payload }),
-    delete: (url) => app.inject({ method: "DELETE", url }),
+    get: (url) => app.request(url, { method: "GET" }),
+    // an object payload goes as JSON, with its content type
+    post: (url, payload) =>
+      app.request(
+        url,
+        payload === undefined
+          ? { method: "POST" }
+          : { method: "POST", body: JSON.stringify(payload), headers: { "content-type": "application/json" } },
+      ),
+    delete: (url) => app.request(url, { method: "DELETE" }),
   };
 }
 
@@ -50,11 +57,11 @@ test("ping_and_models_use_registry", async () => {
   reg._adapters = new Map();
   reg.register(new FakeAdapter());
   const c = client();
-  expect((await c.post("/v1/llm-providers/fake/ping")).json()).toEqual({ ok: true });
+  expect(await (await c.post("/v1/llm-providers/fake/ping")).json()).toEqual({ ok: true });
   // The models endpoint returns the back-compatible {models, embeddings, hiddenCount} shape
   // (#8). No rules resolver is wired in this bare-router test → passthrough.
-  expect((await c.get("/v1/llm-providers/fake/models")).json()).toEqual({ models: ["m1", "m2"], embeddings: [], hiddenCount: 0 });
-  expect((await c.post("/v1/llm-providers/nope/ping")).statusCode).toBe(404);
+  expect(await (await c.get("/v1/llm-providers/fake/models")).json()).toEqual({ models: ["m1", "m2"], embeddings: [], hiddenCount: 0 });
+  expect((await c.post("/v1/llm-providers/nope/ping")).status).toBe(404);
   reg._adapters = new Map();
 });
 
@@ -82,7 +89,7 @@ test("builtin_models_lists_only_downloaded", async () => {
   // DISK, never every catalog row (user ruling 2026-07-16). The catalog is the place you
   // download FROM.
   builtinFixture({ cachedRepos: new Set(["org/a"]) });
-  const body = (await client().get("/v1/llm-providers/local-llamacpp/models")).json();
+  const body = await (await client().get("/v1/llm-providers/local-llamacpp/models")).json();
   expect(body.models).toEqual(["on-disk"]); // the un-downloaded row is NOT offered
   expect("error" in body).toBe(false);
 });
@@ -91,7 +98,7 @@ test("builtin_health_counts_downloaded_and_total", async () => {
   // The health line names BOTH numbers: a short/empty picker reads as "download one", not as
   // a broken provider. And a catalog with nothing on disk is NOT ok.
   builtinFixture({ cachedRepos: new Set() });
-  const body = (await client().get("/v1/llm-providers/local-llamacpp/models")).json();
+  const body = await (await client().get("/v1/llm-providers/local-llamacpp/models")).json();
   expect(body.models).toEqual([]);
   expect(body.error).toContain("0 of 2 models downloaded");
 });
@@ -113,14 +120,14 @@ test("embeddings_via_registry", async () => {
   reg.register(new FakeAdapter()); // has no embed()
   const c = client();
   const r = await c.post("/v1/ai/embeddings", { providerId: "emb", model: "e", input: ["a", "b"] });
-  expect(r.statusCode).toBe(200);
-  const body = r.json();
+  expect(r.status).toBe(200);
+  const body = await r.json();
   expect(body.embeddings.length === 2 && JSON.stringify(body.embeddings[0]) === "[0.1,0.2,0.3]").toBe(true);
   expect(body.model).toBe("e");
   // A registered provider with no embeddings support → clear 400.
-  expect((await c.post("/v1/ai/embeddings", { providerId: "fake", input: ["x"] })).statusCode).toBe(400);
+  expect((await c.post("/v1/ai/embeddings", { providerId: "fake", input: ["x"] })).status).toBe(400);
   // Unregistered → 404.
-  expect((await c.post("/v1/ai/embeddings", { providerId: "nope", input: ["x"] })).statusCode).toBe(404);
+  expect((await c.post("/v1/ai/embeddings", { providerId: "nope", input: ["x"] })).status).toBe(404);
   reg._adapters = new Map();
 });
 
@@ -132,7 +139,7 @@ test("embeddings_passes_task_type_through", async () => {
   const fake = new FakeEmbedAdapter();
   reg.register(fake);
   const r = await client().post("/v1/ai/embeddings", { providerId: "emb", model: "e", input: ["a"], taskType: "query" });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   expect(fake.seenTaskType).toBe("query"); // the route handed body.taskType to the adapter
   reg._adapters = new Map();
 });
@@ -144,9 +151,9 @@ test("ai_usage_reflects_ledger", async () => {
   reg.register(new FakeAdapter());
   await chat({ config: LLMConfig(), feature: "demo", messages: [] });
   const c = client();
-  const snap = (await c.get("/v1/ai-usage")).json();
+  const snap = await (await c.get("/v1/ai-usage")).json();
   expect(snap.total_calls === 1 && snap.by_feature.demo.calls === 1).toBe(true);
-  expect((await c.delete("/v1/ai-usage")).json()).toEqual({ cleared: true });
-  expect((await c.get("/v1/ai-usage")).json().total_calls).toBe(0);
+  expect(await (await c.delete("/v1/ai-usage")).json()).toEqual({ cleared: true });
+  expect((await (await c.get("/v1/ai-usage")).json()).total_calls).toBe(0);
   reg._adapters = new Map();
 });

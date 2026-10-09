@@ -26,14 +26,14 @@
 // The ZIP is platform/zip.js — what Python's zipfile writes and reads, so Python-made
 // backups restore. Uploads are streamed to a temp file rather than held in memory.
 
-import { once } from "node:events";
 import { createWriteStream, existsSync, mkdtempSync, statSync } from "node:fs";
 import { cp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import multipart from "@fastify/multipart";
+import Busboy from "@fastify/busboy";
+import { Hono } from "hono";
 import { HttpError, RequestValidationError } from "./errors.js";
 import { openDatabase } from "./sql.js";
 import { BadZipFile, ZipReader, ZipWriter } from "./zip.js";
@@ -117,26 +117,31 @@ const FILE_NOT_UPLOAD = () =>
     { loc: ["body", "file"], msg: "Value error, Expected UploadFile, received: <class 'str'>", type: "value_error" },
   ]);
 
-/** FastAPI's `file: UploadFile`: the form's last `file` part, streamed to `dest`; a
- * missing one, or a plain field in its place, is pydantic's 422 (measured answers). */
-async function receiveUpload(req, dest) {
+/** FastAPI's `file: UploadFile`: the form's last `file` part, streamed to `dest` (busboy over the
+ * request's own body stream — never held in memory); a missing one, or a plain field in its
+ * place, is pydantic's 422 (measured answers). */
+async function receiveUpload(c, dest) {
   let kind = null; // "file" | "field"
-  if (req.isMultipart()) {
-    for await (const part of req.parts()) {
-      if (part.type === "file") {
-        if (part.fieldname === "file") {
-          await pipeline(part.file, createWriteStream(dest));
-          kind = "file";
-        } else {
-          part.file.resume();
-          await once(part.file, "end");
-        }
-      } else if (part.fieldname === "file") {
-        kind = "field";
+  const type = c.req.header("content-type") || "";
+  if (/^multipart\//i.test(type) && c.req.raw.body) {
+    const bb = new Busboy({ headers: { "content-type": type } });
+    // Parts arrive in order; each `file` part is written after the one before, so the last wins.
+    let writes = Promise.resolve();
+    bb.on("file", (fieldname, file) => {
+      if (fieldname === "file") {
+        kind = "file";
+        writes = writes.then(() => pipeline(file, createWriteStream(dest)));
+      } else {
+        file.resume();
       }
-    }
-  } else if (typeof req.body === "string" && /^application\/x-www-form-urlencoded/i.test(req.headers["content-type"] || "")) {
-    if (new URLSearchParams(req.body).has("file")) kind = "field";
+    });
+    bb.on("field", (fieldname) => {
+      if (fieldname === "file") kind = "field";
+    });
+    await pipeline(Readable.fromWeb(c.req.raw.body), bb);
+    await writes;
+  } else if (/^application\/x-www-form-urlencoded/i.test(type)) {
+    if (new URLSearchParams(await c.req.text()).has("file")) kind = "field";
   }
   if (kind === null) throw MISSING_FILE();
   if (kind === "field") throw FILE_NOT_UPLOAD();
@@ -163,115 +168,113 @@ export function makeDataRouter({ getDbPath, metadata, runReset, assetDirs = null
   /** Every table across all metadatas, FK-ordered within each (parents first). */
   const orderedTables = () => tablesOf(metadata).flatMap(sortedTables);
 
-  return async function dataRouter(app) {
-    if (!app.hasRequestDecorator("isMultipart")) {
-      // FastAPI has no upload limit; a backup with audio is easily over the 1 GiB default.
-      await app.register(multipart, { limits: { fileSize: Number.POSITIVE_INFINITY } });
+  // FastAPI has no upload limit; a backup with audio is easily over 1 GiB — the restore streams
+  // its upload to disk (receiveUpload), with no limit.
+  const app = new Hono();
+
+  app.get(`${prefix}/backup`, async (c) => {
+    // `exclude` = comma-separated asset-dir ARCNAMES to leave out of this backup (the
+    // kit DataManagement's per-app options seam — decision ①, family parity batch
+    // 2026-08-05: JV skips its generated audio). Unknown names are ignored; the DB is
+    // never excludable. A restore of a backup missing a declared dir leaves the live
+    // copy of that dir untouched (the `isDirectory` guard in restore).
+    const excludes = c.req.queries("exclude") ?? [];
+    const exclude = excludes.length ? excludes[excludes.length - 1] : ""; // the last, as Starlette
+    const skip = new Set(
+      String(exclude)
+        .split(",")
+        .map((k) => k.trim())
+        .filter(Boolean),
+    );
+    const dbPath = String(await getDbPath());
+    if (!existsSync(dbPath)) throw new HttpError(404, "no database to back up");
+    const tmp = mkdtempSync(path.join(tmpdir(), "llm-runner-backup-"));
+    let chunks;
+    try {
+      const clean = path.join(tmp, DB_ARCNAME);
+      const h = openDatabase(dbPath, { foreignKeys: false, timeoutMs: 5000 });
+      try {
+        // WAL-safe consistent copy without locking the live DB out.
+        h.run("VACUUM INTO ?", [clean]);
+      } finally {
+        h.close();
+      }
+      const zip = new ZipWriter();
+      await zip.addFile(clean, DB_ARCNAME);
+      for (const [arcname, d] of await assets()) {
+        if (skip.has(arcname)) continue;
+        await addDir(zip, arcname, String(d));
+      }
+      chunks = zip.finish();
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
     }
-
-    app.get(`${prefix}/backup`, async (req, reply) => {
-      // `exclude` = comma-separated asset-dir ARCNAMES to leave out of this backup (the
-      // kit DataManagement's per-app options seam — decision ①, family parity batch
-      // 2026-08-05: JV skips its generated audio). Unknown names are ignored; the DB is
-      // never excludable. A restore of a backup missing a declared dir leaves the live
-      // copy of that dir untouched (the `isDirectory` guard in restore).
-      let exclude = req.query?.exclude ?? "";
-      if (Array.isArray(exclude)) exclude = exclude[exclude.length - 1]; // the last, as Starlette
-      const skip = new Set(
-        String(exclude)
-          .split(",")
-          .map((k) => k.trim())
-          .filter(Boolean),
-      );
-      const dbPath = String(await getDbPath());
-      if (!existsSync(dbPath)) throw new HttpError(404, "no database to back up");
-      const tmp = mkdtempSync(path.join(tmpdir(), "llm-runner-backup-"));
-      let chunks;
-      try {
-        const clean = path.join(tmp, DB_ARCNAME);
-        const h = openDatabase(dbPath, { foreignKeys: false, timeoutMs: 5000 });
-        try {
-          // WAL-safe consistent copy without locking the live DB out.
-          h.run("VACUUM INTO ?", [clean]);
-        } finally {
-          h.close();
-        }
-        const zip = new ZipWriter();
-        await zip.addFile(clean, DB_ARCNAME);
-        for (const [arcname, d] of await assets()) {
-          if (skip.has(arcname)) continue;
-          await addDir(zip, arcname, String(d));
-        }
-        chunks = zip.finish();
-      } finally {
-        await rm(tmp, { recursive: true, force: true });
-      }
-      return reply
-        .type("application/zip")
-        .header("content-disposition", 'attachment; filename="backup.zip"')
-        .send(Readable.from(chunks));
+    return c.body(Readable.toWeb(Readable.from(chunks)), 200, {
+      "Content-Type": "application/zip",
+      "Content-Disposition": 'attachment; filename="backup.zip"',
     });
+  });
 
-    app.post(`${prefix}/restore`, async (req) => {
-      const upDir = mkdtempSync(path.join(tmpdir(), "llm-runner-upload-"));
-      const tmp = mkdtempSync(path.join(tmpdir(), "llm-runner-restore-"));
+  app.post(`${prefix}/restore`, async (c) => {
+    const upDir = mkdtempSync(path.join(tmpdir(), "llm-runner-upload-"));
+    const tmp = mkdtempSync(path.join(tmpdir(), "llm-runner-restore-"));
+    try {
+      const upload = path.join(upDir, "backup.zip");
+      await receiveUpload(c, upload);
+      let zf;
       try {
-        const upload = path.join(upDir, "backup.zip");
-        await receiveUpload(req, upload);
-        let zf;
-        try {
-          zf = await ZipReader.open(upload);
-        } catch (e) {
-          if (e instanceof BadZipFile || e.code === "ERR_OUT_OF_RANGE") throw new HttpError(400, "not a valid backup zip");
-          throw e;
-        }
-        if (!zf.names().includes(DB_ARCNAME)) throw new HttpError(400, `backup is missing ${DB_ARCNAME}`);
-        await zf.extractAll(tmp);
-        const srcDb = path.join(tmp, DB_ARCNAME);
-        const h = openDatabase(String(await getDbPath()), { foreignKeys: false, timeoutMs: 5000 });
-        try {
-          h.run("ATTACH ? AS src", [srcDb]);
-          const tables = orderedTables();
-          const srcTables = new Set(h.all("SELECT name FROM src.sqlite_master WHERE type='table'").map((r) => r.name));
-          h.tx(() => {
-            // Clear children → parents, refill parents → children.
-            for (const t of [...tables].reverse()) h.exec(`DELETE FROM main."${t}"`);
-            for (const t of tables) {
-              if (!srcTables.has(t)) continue;
-              const mainCols = h.all(`PRAGMA table_info("${t}")`).map((r) => r.name);
-              const srcCols = new Set(h.all(`PRAGMA src.table_info("${t}")`).map((r) => r.name));
-              const cols = mainCols.filter((c) => srcCols.has(c));
-              if (!cols.length) continue;
-              const colSql = cols.map((c) => `"${c}"`).join(", ");
-              h.exec(`INSERT INTO main."${t}" (${colSql}) SELECT ${colSql} FROM src."${t}"`);
-            }
-          });
-          h.exec("DETACH src");
-        } catch (e) {
-          // surface restore failures as data (the transaction rolled back)
-          throw new HttpError(400, `restore failed: ${String(e?.message ?? e).slice(0, 300)}`);
-        } finally {
-          h.close();
-        }
-        // Replace each declared asset dir with the backup's copy.
-        for (const [arcname, d] of await assets()) {
-          const bdir = path.join(tmp, arcname);
-          if (existsSync(bdir) && statSync(bdir).isDirectory()) {
-            if (existsSync(String(d))) await rm(String(d), { recursive: true });
-            await cp(bdir, String(d), { recursive: true, preserveTimestamps: true });
+        zf = await ZipReader.open(upload);
+      } catch (e) {
+        if (e instanceof BadZipFile || e.code === "ERR_OUT_OF_RANGE") throw new HttpError(400, "not a valid backup zip");
+        throw e;
+      }
+      if (!zf.names().includes(DB_ARCNAME)) throw new HttpError(400, `backup is missing ${DB_ARCNAME}`);
+      await zf.extractAll(tmp);
+      const srcDb = path.join(tmp, DB_ARCNAME);
+      const h = openDatabase(String(await getDbPath()), { foreignKeys: false, timeoutMs: 5000 });
+      try {
+        h.run("ATTACH ? AS src", [srcDb]);
+        const tables = orderedTables();
+        const srcTables = new Set(h.all("SELECT name FROM src.sqlite_master WHERE type='table'").map((r) => r.name));
+        h.tx(() => {
+          // Clear children → parents, refill parents → children.
+          for (const t of [...tables].reverse()) h.exec(`DELETE FROM main."${t}"`);
+          for (const t of tables) {
+            if (!srcTables.has(t)) continue;
+            const mainCols = h.all(`PRAGMA table_info("${t}")`).map((r) => r.name);
+            const srcCols = new Set(h.all(`PRAGMA src.table_info("${t}")`).map((r) => r.name));
+            const cols = mainCols.filter((col) => srcCols.has(col));
+            if (!cols.length) continue;
+            const colSql = cols.map((col) => `"${col}"`).join(", ");
+            h.exec(`INSERT INTO main."${t}" (${colSql}) SELECT ${colSql} FROM src."${t}"`);
           }
-        }
+        });
+        h.exec("DETACH src");
+      } catch (e) {
+        // surface restore failures as data (the transaction rolled back)
+        throw new HttpError(400, `restore failed: ${String(e?.message ?? e).slice(0, 300)}`);
       } finally {
-        await rm(upDir, { recursive: true, force: true });
-        await rm(tmp, { recursive: true, force: true });
+        h.close();
       }
-      if (onReplaced) await onReplaced();
-      return { ok: true };
-    });
+      // Replace each declared asset dir with the backup's copy.
+      for (const [arcname, d] of await assets()) {
+        const bdir = path.join(tmp, arcname);
+        if (existsSync(bdir) && statSync(bdir).isDirectory()) {
+          if (existsSync(String(d))) await rm(String(d), { recursive: true });
+          await cp(bdir, String(d), { recursive: true, preserveTimestamps: true });
+        }
+      }
+    } finally {
+      await rm(upDir, { recursive: true, force: true });
+      await rm(tmp, { recursive: true, force: true });
+    }
+    if (onReplaced) await onReplaced();
+    return c.json({ ok: true });
+  });
 
-    app.post(`${prefix}/reset`, async () => {
-      await runReset();
-      return { ok: true };
-    });
-  };
+  app.post(`${prefix}/reset`, async (c) => {
+    await runReset();
+    return c.json({ ok: true });
+  });
+  return app;
 }

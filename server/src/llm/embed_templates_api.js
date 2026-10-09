@@ -8,8 +8,10 @@
 // FACTS, so they live in the DB (`model_embed_templates`, seeded + user-editable here) and
 // are applied server-side by /v1/ai/embeddings via the resolver seam installLlm wires.
 
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { model, opt, T } from "../platform/models.js";
+import { input } from "../platform/server.js";
 
 export const EmbedTemplateRow = T.Object({
   modelId: T.String(),
@@ -31,27 +33,27 @@ const strip = (s) => String(s ?? "").trim();
  * never need one).
  */
 export function makeEmbedTemplatesRouter(getStore) {
-  return async function embedTemplatesRouter(app) {
-    const list = () => model(EmbedTemplatesResponse, { rows: getStore().list() });
+  const app = new Hono();
+  const list = () => model(EmbedTemplatesResponse, { rows: getStore().list() });
 
-    app.get("/v1/ai/embed-templates", async () => list());
+  app.get("/v1/ai/embed-templates", async (c) => c.json(list()));
 
-    app.put("/v1/ai/embed-templates", { schema: { body: EmbedTemplateRow } }, async (req) => {
-      const body = model(EmbedTemplateRow, req.body);
-      if (!strip(body.modelId)) throw new HttpError(400, "modelId is required");
-      getStore().upsert(body);
-      return list();
-    });
+  app.put("/v1/ai/embed-templates", input({ body: EmbedTemplateRow }), async (c) => {
+    const body = model(EmbedTemplateRow, c.req.valid("json"));
+    if (!strip(body.modelId)) throw new HttpError(400, "modelId is required");
+    getStore().upsert(body);
+    return c.json(list());
+  });
 
-    app.delete(
-      "/v1/ai/embed-templates",
-      { schema: { querystring: T.Object({ modelId: T.String() }) } },
-      async (req) => {
-        const { modelId } = req.query;
-        if (!strip(modelId)) throw new HttpError(400, "modelId is required");
-        getStore().delete(modelId);
-        return list();
-      },
-    );
-  };
+  app.delete(
+    "/v1/ai/embed-templates",
+    input({ querystring: T.Object({ modelId: T.String() }) }),
+    async (c) => {
+      const { modelId } = c.req.valid("query");
+      if (!strip(modelId)) throw new HttpError(400, "modelId is required");
+      getStore().delete(modelId);
+      return c.json(list());
+    },
+  );
+  return app;
 }

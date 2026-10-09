@@ -13,9 +13,12 @@
 // in the Lab; the server reads it at request time. A missing key is a 404 — no hardcoded
 // prompt text, no runtime code fallback.
 
+import { Hono } from "hono";
+import { stream } from "hono/streaming";
 import { getLogger } from "../platform/log.js";
 import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
+import { input } from "../platform/server.js";
 import { PyFloat, pyFloat, pyFloatValue, pyJson } from "../platform/pyjson.js";
 import {
   AttributeError,
@@ -215,74 +218,75 @@ const KEY_PARAMS = T.Object({ key: T.String() });
  */
 export function makePromptRouter(getStore, defaults) {
   const defaultOf = (key) => (has(defaults, key) ? defaults[key] : null);
-  return async function promptRouter(app) {
-    app.get("/v1/ai/prompts", async () => model(PromptList, { prompts: getStore().list().map(out) }));
+  const app = new Hono();
+  app.get("/v1/ai/prompts", (c) => c.json(model(PromptList, { prompts: getStore().list().map(out) })));
 
-    app.get("/v1/ai/prompts/:key", { schema: { params: KEY_PARAMS } }, async (req) => {
-      const row = getStore().get(req.params.key);
-      if (row == null) throw new HttpError(404, `unknown prompt ${strRepr(req.params.key)}`);
-      return out(row);
-    });
+  app.get("/v1/ai/prompts/:key", input({ params: KEY_PARAMS }), (c) => {
+    const { key } = c.req.valid("param");
+    const row = getStore().get(key);
+    if (row == null) throw new HttpError(404, `unknown prompt ${strRepr(key)}`);
+    return c.json(out(row));
+  });
 
-    // Lab edit (or create). A key present in the seed catalog stays builtIn (so it can be
-    // reset); anything else is a user-created prompt. Text + the JSON CONTRACT + nav only —
-    // every tunable lives on the engine preset now.
-    app.put("/v1/ai/prompts/:key", { schema: { params: KEY_PARAMS, body: PromptUpdate } }, async (req) => {
-      const key = req.params.key;
-      const body = req.body;
-      const dflt = defaultOf(key);
-      const builtIn = dflt !== null;
-      const on = truthy(dflt);
-      // Python: `body.feature or (str(default.get("feature")) if default else key) or key` —
-      // a default with no "feature" key reads str(None) = "None", copied as-is.
-      const feature = body.feature || (on ? pyStrAny(has(dflt, "feature") ? dflt.feature : null) : key) || key;
-      // Nav metadata — the editor omits these, so keep the seeded values rather than wiping
-      // them on a prompt-content edit.
-      const label = body.label || (on ? specStr(dflt, "label") : "");
-      const description = body.description || (on ? specStr(dflt, "description") : "");
-      const group = body.group || (on ? specStr(dflt, "group") : "");
-      // Preserve-on-omit for the JSON contract (null = the editor didn't send it): keep the
-      // STORED value so a prompt-text edit never wipes the contract.
-      const prev = getStore().get(key);
-      getStore().upsert(
-        FeaturePromptRow({
-          key,
-          feature,
-          system: body.system,
-          user_template: body.userTemplate,
-          built_in: builtIn,
-          json_mode: body.jsonMode !== null ? body.jsonMode : prev ? prev.json_mode : false,
-          json_schema: body.jsonSchema !== null ? body.jsonSchema : prev ? prev.json_schema : "",
-          label,
-          description,
-          group,
-        }),
-      );
-      return out(getStore().get(key));
-    });
+  // Lab edit (or create). A key present in the seed catalog stays builtIn (so it can be
+  // reset); anything else is a user-created prompt. Text + the JSON CONTRACT + nav only —
+  // every tunable lives on the engine preset now.
+  app.put("/v1/ai/prompts/:key", input({ params: KEY_PARAMS, body: PromptUpdate }), (c) => {
+    const { key } = c.req.valid("param");
+    const body = c.req.valid("json");
+    const dflt = defaultOf(key);
+    const builtIn = dflt !== null;
+    const on = truthy(dflt);
+    // Python: `body.feature or (str(default.get("feature")) if default else key) or key` —
+    // a default with no "feature" key reads str(None) = "None", copied as-is.
+    const feature = body.feature || (on ? pyStrAny(has(dflt, "feature") ? dflt.feature : null) : key) || key;
+    // Nav metadata — the editor omits these, so keep the seeded values rather than wiping
+    // them on a prompt-content edit.
+    const label = body.label || (on ? specStr(dflt, "label") : "");
+    const description = body.description || (on ? specStr(dflt, "description") : "");
+    const group = body.group || (on ? specStr(dflt, "group") : "");
+    // Preserve-on-omit for the JSON contract (null = the editor didn't send it): keep the
+    // STORED value so a prompt-text edit never wipes the contract.
+    const prev = getStore().get(key);
+    getStore().upsert(
+      FeaturePromptRow({
+        key,
+        feature,
+        system: body.system,
+        user_template: body.userTemplate,
+        built_in: builtIn,
+        json_mode: body.jsonMode !== null ? body.jsonMode : prev ? prev.json_mode : false,
+        json_schema: body.jsonSchema !== null ? body.jsonSchema : prev ? prev.json_schema : "",
+        label,
+        description,
+        group,
+      }),
+    );
+    return c.json(out(getStore().get(key)));
+  });
 
-    // Restore a built-in prompt to its seeded default (overwrites the row).
-    app.post("/v1/ai/prompts/:key/reset", { schema: { params: KEY_PARAMS } }, async (req) => {
-      const key = req.params.key;
-      const dflt = defaultOf(key);
-      if (dflt === null) throw new HttpError(400, `no seeded default for ${strRepr(key)} to reset to`);
-      getStore().upsert(
-        FeaturePromptRow({
-          key,
-          feature: specStr(dflt, "feature", key),
-          system: specStr(dflt, "system"),
-          user_template: specStr(dflt, "user_template"),
-          built_in: true,
-          json_mode: truthy(has(dflt, "json_mode") ? dflt.json_mode : false),
-          json_schema: specStr(dflt, "json_schema"),
-          label: specStr(dflt, "label"),
-          description: specStr(dflt, "description"),
-          group: specStr(dflt, "group"),
-        }),
-      );
-      return out(getStore().get(key));
-    });
-  };
+  // Restore a built-in prompt to its seeded default (overwrites the row).
+  app.post("/v1/ai/prompts/:key/reset", input({ params: KEY_PARAMS }), (c) => {
+    const { key } = c.req.valid("param");
+    const dflt = defaultOf(key);
+    if (dflt === null) throw new HttpError(400, `no seeded default for ${strRepr(key)} to reset to`);
+    getStore().upsert(
+      FeaturePromptRow({
+        key,
+        feature: specStr(dflt, "feature", key),
+        system: specStr(dflt, "system"),
+        user_template: specStr(dflt, "user_template"),
+        built_in: true,
+        json_mode: truthy(has(dflt, "json_mode") ? dflt.json_mode : false),
+        json_schema: specStr(dflt, "json_schema"),
+        label: specStr(dflt, "label"),
+        description: specStr(dflt, "description"),
+        group: specStr(dflt, "group"),
+      }),
+    );
+    return c.json(out(getStore().get(key)));
+  });
+  return app;
 }
 
 // ── execution router: /v1/ai/run + /v1/ai/stream ─────────────────────────────
@@ -760,169 +764,168 @@ function runErrorToHttp(e, body) {
  * shared dispatch with the preset's model + params.
  */
 export function makeFeatureRouter(getStore, getConfig) {
-  return async function featureRouter(app) {
-    app.post("/v1/ai/run", { schema: { body: RunRequest } }, async (req) => {
-      const body = req.body;
-      // The whole resolve→render→overlay→ensure→dispatch path IS runAction (the helper
-      // in-server feature callers share — one source, no drift).
-      let resp;
-      try {
-        resp = await runAction(getStore(), getConfig(), body);
-      } catch (e) {
-        const mapped = runErrorToHttp(e, body);
-        if (mapped) throw mapped;
-        // 501 → the UI shows the actionable "wire an LLM provider" message.
-        if (e instanceof dispatch.LLMNotConfiguredError) throw new HttpError(501, errText(e));
-        throw e;
-      }
-      return model(RunResponse, {
+  const app = new Hono();
+  app.post("/v1/ai/run", input({ body: RunRequest }), async (c) => {
+    const body = c.req.valid("json");
+    // The whole resolve→render→overlay→ensure→dispatch path IS runAction (the helper
+    // in-server feature callers share — one source, no drift).
+    let resp;
+    try {
+      resp = await runAction(getStore(), getConfig(), body);
+    } catch (e) {
+      const mapped = runErrorToHttp(e, body);
+      if (mapped) throw mapped;
+      // 501 → the UI shows the actionable "wire an LLM provider" message.
+      if (e instanceof dispatch.LLMNotConfiguredError) throw new HttpError(501, errText(e));
+      throw e;
+    }
+    return c.json(
+      model(RunResponse, {
         content: resp.text,
         model: resp.model,
         promptTokens: resp.prompt_tokens,
         completionTokens: resp.completion_tokens,
         cost: pricing.costFor(resp.model, resp.prompt_tokens, resp.completion_tokens),
         finishReason: resp.finish_reason || "",
-      });
-    });
+      }),
+    );
+  });
 
-    // Streaming counterpart to /run for the interactive features (writerAI / chat / rag).
-    // Emits SSE: `data: {"delta": "..."}` per chunk, optional `data: {"progress": 0..1}`
-    // prompt-eval frames before the first token (builtin engine only — §7.4 B6-2),
-    // `data: {"thinking": "..."}` per piece of a thinking model's reasoning before its answer
-    // (2026-10-06), a final `data: {"done": true, "promptTokens", "completionTokens",
-    // "model", "cost", "finishReason"}` carrying everything /run's response carries, then
-    // `data: [DONE]`. Errors arrive as `data: {"error": "..."}` (the stream has started, so
-    // there is no HTTP status to send).
-    app.post("/v1/ai/stream", { schema: { body: RunRequest } }, async (req, reply) => {
-      const body = req.body;
-      // Resolution is the SAME front half runAction/streamAction use, rendered BEFORE the
-      // stream starts, so a variables gap is a clean HTTP 400 naming the keys — not an
-      // in-stream error frame.
-      let r;
-      try {
-        r = resolveAction(getStore(), body);
-      } catch (e) {
-        throw runErrorToHttp(e, body) ?? e;
-      }
+  // Streaming counterpart to /run for the interactive features (writerAI / chat / rag).
+  // Emits SSE: `data: {"delta": "..."}` per chunk, optional `data: {"progress": 0..1}`
+  // prompt-eval frames before the first token (builtin engine only — §7.4 B6-2),
+  // `data: {"thinking": "..."}` per piece of a thinking model's reasoning before its answer
+  // (2026-10-06), a final `data: {"done": true, "promptTokens", "completionTokens",
+  // "model", "cost", "finishReason"}` carrying everything /run's response carries, then
+  // `data: [DONE]`. Errors arrive as `data: {"error": "..."}` (the stream has started, so
+  // there is no HTTP status to send).
+  app.post("/v1/ai/stream", input({ body: RunRequest }), async (c) => {
+    const body = c.req.valid("json");
+    // Resolution is the SAME front half runAction/streamAction use, rendered BEFORE the
+    // stream starts, so a variables gap is a clean HTTP 400 naming the keys — not an
+    // in-stream error frame.
+    let r;
+    try {
+      r = resolveAction(getStore(), body);
+    } catch (e) {
+      throw runErrorToHttp(e, body) ?? e;
+    }
 
-      // QC-43b: ensure a bundled-runner model is resident BEFORE streaming. Any failure is
-      // captured and re-emitted as the stream's OWN SSE error frame below (never a
-      // pre-stream 500, matching how streamChat errors surface).
-      let ensureError = null;
-      try {
-        await ensureLocalReady(getConfig(), r.featureKey, body.action, r.providerOverride, r.modelOverride);
-      } catch (e) {
-        ensureError = cpSlice(errText(e), 0, 200);
-      }
+    // QC-43b: ensure a bundled-runner model is resident BEFORE streaming. Any failure is
+    // captured and re-emitted as the stream's OWN SSE error frame below (never a
+    // pre-stream 500, matching how streamChat errors surface).
+    let ensureError = null;
+    try {
+      await ensureLocalReady(getConfig(), r.featureKey, body.action, r.providerOverride, r.modelOverride);
+    } catch (e) {
+      ensureError = cpSlice(errText(e), 0, 200);
+    }
 
-      // Starlette's StreamingResponse: status 200, `text/event-stream; charset=utf-8`, no
-      // other header of its own. Headers a hook already set on the reply ride along.
-      reply.hijack();
-      const res = reply.raw;
-      res.writeHead(200, { ...reply.getHeaders(), "content-type": "text/event-stream; charset=utf-8" });
+    // Starlette's StreamingResponse: status 200, `text/event-stream; charset=utf-8`, no
+    // other header of its own (Hono's `streamSSE` would add Cache-Control and Connection, so
+    // the plain `stream`). Headers a middleware already set on `c` ride along.
+    c.header("Content-Type", "text/event-stream; charset=utf-8");
+    return stream(c, async (s) => {
       let closed = false;
-      res.on("close", () => {
+      s.onAbort(() => {
         closed = true;
       });
-      const send = (text) => {
-        if (!closed) res.write(text);
+      const send = async (text) => {
+        if (!closed) await s.write(text);
       };
-      try {
-        if (ensureError !== null) {
-          send(sseFrame({ error: ensureError }));
-          send("data: [DONE]\n\n");
-          return;
-        }
-        try {
-          for await (const delta of dispatch.streamChat(dispatchArgs(getConfig(), r, body))) {
-            let frame;
-            if (delta.done) {
-              frame = {
-                done: true,
-                promptTokens: delta.prompt_tokens,
-                completionTokens: delta.completion_tokens,
-                model: delta.model,
-                cost: pricing.costFor(delta.model, delta.prompt_tokens, delta.completion_tokens),
-                // "length" = cut off (see RunResponse.finishReason).
-                finishReason: delta.finish_reason,
-              };
-            } else if (delta.progress != null) {
-              frame = { progress: delta.progress };
-            } else if (delta.reasoning) {
-              frame = { thinking: delta.reasoning };
-            } else {
-              frame = { delta: delta.text };
-            }
-            send(sseFrame(frame));
-            // The client went away: stop pulling — leaving the loop closes the stream (the
-            // dispatch's busy guard is released), as Starlette closing the generator did.
-            if (closed) break;
-          }
-        } catch (e) {
-          if (e instanceof dispatch.LLMNotConfiguredError) send(sseFrame({ error: errText(e) }));
-          else send(sseFrame({ error: cpSlice(errText(e), 0, 200) })); // an error frame, not a 500
-        }
-        send("data: [DONE]\n\n");
-      } finally {
-        res.end();
+      if (ensureError !== null) {
+        await send(sseFrame({ error: ensureError }));
+        await send("data: [DONE]\n\n");
+        return;
       }
-    });
-
-    // The provider+model a run of this feature/action would use right now (B5-1, §7.2): its
-    // preset (ref → default) as the override, then the dispatch resolution — mirrored via the
-    // run path's own functions, never re-derived. Optional `providerId`/`model` override
-    // params (mirror RunRequest) let a Lab column ask for ITS pinned route's reasoning cap.
-    app.get(
-      "/v1/ai/resolved-route",
-      {
-        schema: {
-          querystring: T.Object({
-            feature: T.String(),
-            action: opt(T.String(), ""),
-            providerId: opt(T.String(), ""),
-            model: opt(T.String(), ""),
-          }),
-        },
-      },
-      async (req) => {
-        const { feature, action, providerId } = req.query;
-        const key = action || feature;
-        // The same ref → feature-ref → default resolution the run path uses, plus which tier
-        // won.
-        const [preset, presetSource] = presetResolve.resolveFeaturePresetWithSource(key, feature);
-        const base = {
-          feature,
-          action,
-          presetId: preset ? preset.id : "",
-          presetName: preset ? preset.name : "",
-          presetSource,
-        };
-        // A Lab column's route override wins over the preset's (cap-hint pick).
-        const providerOverride = providerId || (preset ? preset.providerId : "") || null;
-        const modelOverride = req.query.model || (preset ? preset.model : "") || null;
-        let adapter;
-        let mdl;
-        try {
-          [adapter, mdl] = dispatch.resolveRoute(getConfig(), feature, { action: key, providerOverride, modelOverride });
-        } catch (e) {
-          if (e instanceof dispatch.LLMNotConfiguredError) {
-            return model(ResolvedRouteResponse, { ...base, configured: false, detail: errText(e) });
+      try {
+        for await (const delta of dispatch.streamChat(dispatchArgs(getConfig(), r, body))) {
+          let frame;
+          if (delta.done) {
+            frame = {
+              done: true,
+              promptTokens: delta.prompt_tokens,
+              completionTokens: delta.completion_tokens,
+              model: delta.model,
+              cost: pricing.costFor(delta.model, delta.prompt_tokens, delta.completion_tokens),
+              // "length" = cut off (see RunResponse.finishReason).
+              finishReason: delta.finish_reason,
+            };
+          } else if (delta.progress != null) {
+            frame = { progress: delta.progress };
+          } else if (delta.reasoning) {
+            frame = { thinking: delta.reasoning };
+          } else {
+            frame = { delta: delta.text };
           }
-          throw e;
+          await send(sseFrame(frame));
+          // The client went away: stop pulling — leaving the loop closes the stream (the
+          // dispatch's busy guard is released), as Starlette closing the generator did.
+          if (closed) break;
         }
-        // U2-T6: the SAME resolver the run path uses (the dispatch mirror), so the chip shows
-        // exactly what a run emits — think/level/word + the layered budget value + its origin
-        // layer, no client math. No capability veto here (the gate REMOVAL, ruled
-        // 2026-08-06): thinking resolves exactly as the preset asks.
-        const want = preset ? preset.think : false;
-        const rp = reasoning.resolveReasoning({
-          think: truthy(want),
-          level: preset ? preset.reasoningEffort : "",
-          providerId: adapter.provider_id,
-          providerType: adapter.provider_type,
-          modelId: mdl,
-        });
-        return model(ResolvedRouteResponse, {
+      } catch (e) {
+        if (e instanceof dispatch.LLMNotConfiguredError) await send(sseFrame({ error: errText(e) }));
+        else await send(sseFrame({ error: cpSlice(errText(e), 0, 200) })); // an error frame, not a 500
+      }
+      await send("data: [DONE]\n\n");
+    });
+  });
+
+  // The provider+model a run of this feature/action would use right now (B5-1, §7.2): its
+  // preset (ref → default) as the override, then the dispatch resolution — mirrored via the
+  // run path's own functions, never re-derived. Optional `providerId`/`model` override
+  // params (mirror RunRequest) let a Lab column ask for ITS pinned route's reasoning cap.
+  app.get(
+    "/v1/ai/resolved-route",
+    input({
+      querystring: T.Object({
+        feature: T.String(),
+        action: opt(T.String(), ""),
+        providerId: opt(T.String(), ""),
+        model: opt(T.String(), ""),
+      }),
+    }),
+    (c) => {
+      const query = c.req.valid("query");
+      const { feature, action, providerId } = query;
+      const key = action || feature;
+      // The same ref → feature-ref → default resolution the run path uses, plus which tier
+      // won.
+      const [preset, presetSource] = presetResolve.resolveFeaturePresetWithSource(key, feature);
+      const base = {
+        feature,
+        action,
+        presetId: preset ? preset.id : "",
+        presetName: preset ? preset.name : "",
+        presetSource,
+      };
+      // A Lab column's route override wins over the preset's (cap-hint pick).
+      const providerOverride = providerId || (preset ? preset.providerId : "") || null;
+      const modelOverride = query.model || (preset ? preset.model : "") || null;
+      let adapter;
+      let mdl;
+      try {
+        [adapter, mdl] = dispatch.resolveRoute(getConfig(), feature, { action: key, providerOverride, modelOverride });
+      } catch (e) {
+        if (e instanceof dispatch.LLMNotConfiguredError) {
+          return c.json(model(ResolvedRouteResponse, { ...base, configured: false, detail: errText(e) }));
+        }
+        throw e;
+      }
+      // U2-T6: the SAME resolver the run path uses (the dispatch mirror), so the chip shows
+      // exactly what a run emits — think/level/word + the layered budget value + its origin
+      // layer, no client math. No capability veto here (the gate REMOVAL, ruled
+      // 2026-08-06): thinking resolves exactly as the preset asks.
+      const want = preset ? preset.think : false;
+      const rp = reasoning.resolveReasoning({
+        think: truthy(want),
+        level: preset ? preset.reasoningEffort : "",
+        providerId: adapter.provider_id,
+        providerType: adapter.provider_type,
+        modelId: mdl,
+      });
+      return c.json(
+        model(ResolvedRouteResponse, {
           ...base,
           providerId: adapter.provider_id,
           model: mdl,
@@ -931,8 +934,9 @@ export function makeFeatureRouter(getStore, getConfig) {
           reasoningWord: rp.word,
           value: rp.value,
           valueSource: rp.source,
-        });
-      },
-    );
-  };
+        }),
+      );
+    },
+  );
+  return app;
 }

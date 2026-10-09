@@ -6,7 +6,9 @@
 // doc, PUT to replace it, POST /reset to snap back to the shipped seed. See
 // `model_list_rules.js` for the aging contract.
 
+import { Hono } from "hono";
 import { model, opt, T } from "../platform/models.js";
+import { input } from "../platform/server.js";
 
 export const RuleRow = T.Object({
   // Anchored regexes only (the seed carries the deliberate boundaries); an invalid pattern
@@ -24,19 +26,19 @@ export const ModelListRulesDoc = T.Object({
 /** `getDoc()` → the stored doc, `setDoc(doc)` persists a user edit, `resetDoc()` snaps back
  * to the seed (stores.getModelListRules / setModelListRules / resetModelListRules). */
 export function makeModelListRulesRouter(getDoc, setDoc, resetDoc) {
-  return async function modelListRulesRouter(app) {
-    app.get("/v1/ai/model-list-rules", async () => model(ModelListRulesDoc, getDoc()));
+  const app = new Hono();
+  app.get("/v1/ai/model-list-rules", async (c) => c.json(model(ModelListRulesDoc, getDoc())));
 
-    app.put("/v1/ai/model-list-rules", { schema: { body: ModelListRulesDoc } }, async (req) => {
-      // Round-trip through the validated model so a stored doc is always well-formed
-      // (unknown keys dropped, defaults filled) — the store just persists the JSON.
-      setDoc(model(ModelListRulesDoc, req.body));
-      return model(ModelListRulesDoc, getDoc());
-    });
+  app.put("/v1/ai/model-list-rules", input({ body: ModelListRulesDoc }), async (c) => {
+    // Round-trip through the validated model so a stored doc is always well-formed
+    // (unknown keys dropped, defaults filled) — the store just persists the JSON.
+    setDoc(model(ModelListRulesDoc, c.req.valid("json")));
+    return c.json(model(ModelListRulesDoc, getDoc()));
+  });
 
-    app.post("/v1/ai/model-list-rules/reset", async () => {
-      resetDoc();
-      return model(ModelListRulesDoc, getDoc());
-    });
-  };
+  app.post("/v1/ai/model-list-rules/reset", async (c) => {
+    resetDoc();
+    return c.json(model(ModelListRulesDoc, getDoc()));
+  });
+  return app;
 }

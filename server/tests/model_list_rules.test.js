@@ -204,7 +204,7 @@ class StubAdapter {
 
 function client() {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(router);
+  app.route("/", router());
   return app;
 }
 
@@ -223,7 +223,7 @@ function teardown() {
 test("saved_endpoint_applies_openai_rules", async () => {
   withSeedsAndAdapter(new StubAdapter("oai", "openai", OPENAI_RAW));
   try {
-    const body = (await client().inject({ method: "GET", url: "/v1/llm-providers/oai/models" })).json();
+    const body = await (await client().request("/v1/llm-providers/oai/models")).json();
     expect(asSet(body.models)).toEqual(OPENAI_CHAT);
     expect(asSet(body.embeddings)).toEqual(OPENAI_EMBED);
     expect(body.hiddenCount).toBe(OPENAI_RAW.length - OPENAI_CHAT.size - OPENAI_EMBED.size);
@@ -235,7 +235,7 @@ test("saved_endpoint_applies_openai_rules", async () => {
 test("saved_endpoint_all_query_bypasses", async () => {
   withSeedsAndAdapter(new StubAdapter("oai", "openai", OPENAI_RAW));
   try {
-    const body = (await client().inject({ method: "GET", url: "/v1/llm-providers/oai/models?all=1" })).json();
+    const body = await (await client().request("/v1/llm-providers/oai/models?all=1")).json();
     expect(body.models).toEqual(OPENAI_RAW);
     expect(body.embeddings).toEqual([]);
     expect(body.hiddenCount).toBe(0);
@@ -247,7 +247,7 @@ test("saved_endpoint_all_query_bypasses", async () => {
 test("saved_endpoint_gemini_rules", async () => {
   withSeedsAndAdapter(new StubAdapter("gem", "gemini", GEMINI_RAW));
   try {
-    const body = (await client().inject({ method: "GET", url: "/v1/llm-providers/gem/models" })).json();
+    const body = await (await client().request("/v1/llm-providers/gem/models")).json();
     expect(asSet(body.models)).toEqual(GEMINI_CHAT);
     expect(asSet(body.embeddings)).toEqual(GEMINI_EMBED);
   } finally {
@@ -259,7 +259,7 @@ test("unknown_type_passes_through", async () => {
   // A provider TYPE with no rules row is under-filter-safe: the raw list is returned.
   withSeedsAndAdapter(new StubAdapter("who", "some-new-vendor", ["a", "b", "c"]));
   try {
-    const body = (await client().inject({ method: "GET", url: "/v1/llm-providers/who/models" })).json();
+    const body = await (await client().request("/v1/llm-providers/who/models")).json();
     expect(body.models).toEqual(["a", "b", "c"]);
     expect(body.hiddenCount).toBe(0);
   } finally {
@@ -272,13 +272,13 @@ test("probe_endpoint_applies_rules", async () => {
   // openai-compat adapter, so assert the SHAPE + the rule application.
   setModelListRulesResolver(() => seedDoc().rules);
   try {
-    const r = await client().inject({
+    const r = await client().request("/v1/llm-providers/probe-models", {
       method: "POST",
-      url: "/v1/llm-providers/probe-models",
-      payload: { providerType: "openai-compat", baseUrl: "http://127.0.0.1:9/v1" },
+      body: JSON.stringify({ providerType: "openai-compat", baseUrl: "http://127.0.0.1:9/v1" }),
+      headers: { "content-type": "application/json" },
     });
-    expect(r.statusCode).toBe(200);
-    const body = r.json();
+    expect(r.status).toBe(200);
+    const body = await r.json();
     expect(body.models).toEqual([]);
     expect(body.embeddings).toEqual([]);
     expect(body.hiddenCount).toBe(0);
@@ -357,9 +357,9 @@ test("router_get_put_reset_round_trip", async () => {
   const h = freshStore();
   h.tx(() => seed.seedModelListRules(h));
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeModelListRulesRouter(stores.getModelListRules, stores.setModelListRules, stores.resetModelListRules));
+  app.route("/", makeModelListRulesRouter(stores.getModelListRules, stores.setModelListRules, stores.resetModelListRules));
 
-  const got = (await app.inject({ method: "GET", url: "/v1/ai/model-list-rules" })).json();
+  const got = await (await app.request("/v1/ai/model-list-rules")).json();
   expect(got.seedVersion).toBe(SEED_VERSION);
   expect("openai" in got.rules).toBe(true);
 
@@ -367,11 +367,13 @@ test("router_get_put_reset_round_trip", async () => {
     seedVersion: SEED_VERSION,
     rules: { openai: { embedPatterns: ["^custom-embed"], dropPatterns: ["^drop"], collapseDated: true } },
   };
-  const put = (await app.inject({ method: "PUT", url: "/v1/ai/model-list-rules", payload: edited })).json();
+  const put = await (
+    await app.request("/v1/ai/model-list-rules", { method: "PUT", body: JSON.stringify(edited), headers: { "content-type": "application/json" } })
+  ).json();
   expect(put.rules.openai.embedPatterns).toEqual(["^custom-embed"]);
   expect(stores.getModelListRules().rules.openai.dropPatterns).toEqual(["^drop"]);
 
-  const reset = (await app.inject({ method: "POST", url: "/v1/ai/model-list-rules/reset" })).json();
+  const reset = await (await app.request("/v1/ai/model-list-rules/reset", { method: "POST" })).json();
   expect(reset).toEqual(JSON.parse(JSON.stringify(seedDoc()))); // back to the shipped seed
 });
 

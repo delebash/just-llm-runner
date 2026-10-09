@@ -31,7 +31,7 @@ function makeApp() {
   const assets = join(tmp, "images");
   mkdirSync(assets);
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeDataRouter({ getDbPath: () => db, metadata: [NOTES], runReset, assetDirs: () => ({ images: assets }) }));
+  app.route("/", makeDataRouter({ getDbPath: () => db, metadata: [NOTES], runReset, assetDirs: () => ({ images: assets }) }));
   return { app, engine, assets, tmp };
 }
 
@@ -46,8 +46,11 @@ async function zipNames(buf, tmp) {
 function upload(app, blob, field = "file") {
   const form = new FormData();
   form.append(field, new Blob([blob], { type: "application/zip" }), "backup.zip");
-  return app.inject({ method: "POST", url: "/v1/data/restore", payload: form });
+  return app.request("/v1/data/restore", { method: "POST", body: form });
 }
+
+/** The answer's body as bytes. */
+const bytes = async (r) => Buffer.from(await r.arrayBuffer());
 
 test("backup_restore_reset_roundtrip", async () => {
   const { app, engine, assets, tmp } = makeApp();
@@ -56,9 +59,9 @@ test("backup_restore_reset_roundtrip", async () => {
   writeFileSync(join(assets, "a.txt"), "hello");
 
   // Backup: a zip with the DB + the asset dir.
-  const r = await app.inject({ method: "GET", url: "/v1/data/backup" });
-  expect(r.statusCode).toBe(200);
-  const blob = r.rawPayload;
+  const r = await app.request("/v1/data/backup", { method: "GET" });
+  expect(r.status).toBe(200);
+  const blob = await bytes(r);
   const names = await zipNames(blob, tmp);
   expect(names).toContain("db.sqlite");
   expect(names).toContain("images/a.txt");
@@ -70,19 +73,19 @@ test("backup_restore_reset_roundtrip", async () => {
 
   // Restore brings rows AND assets back.
   const rr = await upload(app, blob);
-  expect(rr.statusCode).toBe(200);
+  expect(rr.status).toBe(200);
   expect(rows(engine)).toEqual({ 1: "original", 2: "second" });
   expect(readFileSync(join(assets, "a.txt"), "utf8")).toBe("hello");
 
   // Reset wipes to the host seed.
-  expect((await app.inject({ method: "POST", url: "/v1/data/reset" })).statusCode).toBe(200);
+  expect((await app.request("/v1/data/reset", { method: "POST" })).status).toBe(200);
   expect(rows(engine)).toEqual({ 1: "seed" });
 });
 
 test("restore_rejects_bad_zip", async () => {
   const { app } = makeApp();
   const r = await upload(app, Buffer.from("not a zip"));
-  expect(r.statusCode).toBe(400);
+  expect(r.status).toBe(400);
 });
 
 test("backup_exclude_skips_named_asset_dirs_and_restore_leaves_live_copy", async () => {
@@ -94,9 +97,10 @@ test("backup_exclude_skips_named_asset_dirs_and_restore_leaves_live_copy", async
   engine.run("INSERT INTO notes (id, body) VALUES (1, 'original')");
   writeFileSync(join(assets, "a.txt"), "keep me");
 
-  const r = await app.inject({ method: "GET", url: "/v1/data/backup?exclude=images,unknown-name" });
-  expect(r.statusCode).toBe(200);
-  const names = await zipNames(r.rawPayload, tmp);
+  const r = await app.request("/v1/data/backup?exclude=images,unknown-name", { method: "GET" });
+  expect(r.status).toBe(200);
+  const blob = await bytes(r);
+  const names = await zipNames(blob, tmp);
   expect(names).toContain("db.sqlite");
   expect(names.some((n) => n.startsWith("images/"))).toBe(false);
 
@@ -104,8 +108,8 @@ test("backup_exclude_skips_named_asset_dirs_and_restore_leaves_live_copy", async
   // content stays exactly as it is (never deleted for being absent).
   engine.run("DELETE FROM notes");
   writeFileSync(join(assets, "a.txt"), "still here after restore");
-  const rr = await upload(app, r.rawPayload);
-  expect(rr.statusCode).toBe(200);
+  const rr = await upload(app, blob);
+  expect(rr.status).toBe(200);
   expect(rows(engine)).toEqual({ 1: "original" });
   expect(readFileSync(join(assets, "a.txt"), "utf8")).toBe("still here after restore");
 });
@@ -115,20 +119,21 @@ test("backup_exclude_skips_named_asset_dirs_and_restore_leaves_live_copy", async
 test("the_answers_match_the_python_router", async () => {
   const { app, tmp } = makeApp();
   const errorsOf = async (r) => {
-    expect(r.statusCode).toBe(422);
-    return r.json().errors;
+    expect(r.status).toBe(422);
+    return (await r.json()).errors;
   };
   const missing = [{ loc: ["body", "file"], msg: "Field required", type: "missing" }];
   expect(await errorsOf(await upload(app, Buffer.from("x"), "other"))).toEqual(missing);
-  expect(await errorsOf(await app.inject({ method: "POST", url: "/v1/data/restore", payload: { a: 1 } }))).toEqual(missing);
-  expect(await errorsOf(await app.inject({ method: "POST", url: "/v1/data/restore" }))).toEqual(missing);
+  const json = { "content-type": "application/json" };
+  expect(await errorsOf(await app.request("/v1/data/restore", { method: "POST", headers: json, body: JSON.stringify({ a: 1 }) }))).toEqual(missing);
+  expect(await errorsOf(await app.request("/v1/data/restore", { method: "POST" }))).toEqual(missing);
   const form = new FormData();
   form.append("file", "abc");
-  expect(await errorsOf(await app.inject({ method: "POST", url: "/v1/data/restore", payload: form }))).toEqual([
+  expect(await errorsOf(await app.request("/v1/data/restore", { method: "POST", body: form }))).toEqual([
     { loc: ["body", "file"], msg: "Value error, Expected UploadFile, received: <class 'str'>", type: "value_error" },
   ]);
   let r = await upload(app, Buffer.from("nope"));
-  expect(r.json()).toMatchObject({ status: 400, detail: "not a valid backup zip", instance: "/v1/data/restore" });
+  expect(await r.json()).toMatchObject({ status: 400, detail: "not a valid backup zip", instance: "/v1/data/restore" });
 
   // a zip without the database
   const other = join(tmp, "other.txt");
@@ -136,18 +141,18 @@ test("the_answers_match_the_python_router", async () => {
   const z = new ZipWriter();
   await z.addFile(other, "other.txt");
   r = await upload(app, Buffer.concat(z.finish()));
-  expect(r.statusCode).toBe(400);
-  expect(r.json().detail).toBe("backup is missing db.sqlite");
+  expect(r.status).toBe(400);
+  expect((await r.json()).detail).toBe("backup is missing db.sqlite");
 
-  r = await app.inject({ method: "GET", url: "/v1/data/backup" });
-  expect(r.headers["content-type"]).toBe("application/zip");
-  expect(r.headers["content-disposition"]).toBe('attachment; filename="backup.zip"');
+  r = await app.request("/v1/data/backup", { method: "GET" });
+  expect(r.headers.get("content-type")).toBe("application/zip");
+  expect(r.headers.get("content-disposition")).toBe('attachment; filename="backup.zip"');
 
   const gone = createServer({ typeBase: "https://example.test/errors/" });
-  gone.register(makeDataRouter({ getDbPath: () => join(tmp, "nope.db"), metadata: [], runReset: () => {} }));
-  r = await gone.inject({ method: "GET", url: "/v1/data/backup" });
-  expect(r.statusCode).toBe(404);
-  expect(r.json().detail).toBe("no database to back up");
+  gone.route("/", makeDataRouter({ getDbPath: () => join(tmp, "nope.db"), metadata: [], runReset: () => {} }));
+  r = await gone.request("/v1/data/backup", { method: "GET" });
+  expect(r.status).toBe(404);
+  expect((await r.json()).detail).toBe("no database to back up");
 
   // by name, then parents before children
   expect(

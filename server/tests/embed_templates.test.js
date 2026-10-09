@@ -34,10 +34,13 @@ class RecordingEmbedAdapter {
 
 const tplRow = (document = "", query = "") => ({ documentTemplate: document, queryTemplate: query });
 
+/** A request with a JSON body. */
+const withJson = (method, payload) => ({ method, body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
+
 function client() {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(router);
-  return { post: (url, payload) => app.inject({ method: "POST", url, payload }) };
+  app.route("/", router());
+  return { post: (url, payload) => app.request(url, withJson("POST", payload)) };
 }
 
 function withFakeRegistry() {
@@ -57,7 +60,7 @@ test("embeddings_apply_document_and_query_templates", async () => {
   setEmbedTemplateResolver((mid) => (mid === "nomic" ? tplRow("search_document: {text}", "search_query: {text}") : null));
   const c = client();
   const r = await c.post("/v1/ai/embeddings", { providerId: "emb", model: "nomic", input: ["a", "b"], taskType: "document" });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   expect(RecordingEmbedAdapter.lastTexts).toEqual(["search_document: a", "search_document: b"]);
 
   await c.post("/v1/ai/embeddings", { providerId: "emb", model: "nomic", input: ["who is X"], taskType: "query" });
@@ -125,18 +128,17 @@ test("seed_never_clobbers_user_edit", () => {
 test("router_crud_round_trip", async () => {
   freshDb();
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeEmbedTemplatesRouter(stores.getEmbedTemplateStore));
-  let r = await app.inject({
-    method: "PUT",
-    url: "/v1/ai/embed-templates",
-    payload: { modelId: "my-embed", documentTemplate: "d: {text}", queryTemplate: "q: {text}" },
-  });
-  expect(r.statusCode).toBe(200);
-  const rows = Object.fromEntries(r.json().rows.map((x) => [x.modelId, x]));
+  app.route("/", makeEmbedTemplatesRouter(stores.getEmbedTemplateStore));
+  let r = await app.request(
+    "/v1/ai/embed-templates",
+    withJson("PUT", { modelId: "my-embed", documentTemplate: "d: {text}", queryTemplate: "q: {text}" }),
+  );
+  expect(r.status).toBe(200);
+  const rows = Object.fromEntries((await r.json()).rows.map((x) => [x.modelId, x]));
   expect(rows["my-embed"].documentTemplate).toBe("d: {text}");
-  r = await app.inject({ method: "DELETE", url: "/v1/ai/embed-templates?modelId=my-embed" });
-  expect(r.json().rows.every((x) => x.modelId !== "my-embed")).toBe(true);
-  expect((await app.inject({ method: "PUT", url: "/v1/ai/embed-templates", payload: { modelId: " " } })).statusCode).toBe(400);
+  r = await app.request("/v1/ai/embed-templates?modelId=my-embed", { method: "DELETE" });
+  expect((await r.json()).rows.every((x) => x.modelId !== "my-embed")).toBe(true);
+  expect((await app.request("/v1/ai/embed-templates", withJson("PUT", { modelId: " " }))).status).toBe(400);
 });
 
 // ── the generic feature-prompt stale-heal (host-provided map) ────────────────

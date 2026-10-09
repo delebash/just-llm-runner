@@ -18,11 +18,16 @@ beforeEach(() => {
     seed.seedDefaultReasoningMap(h);
   });
   app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeReasoningMapRouter(stores.getReasoningMapStore));
+  app.route("/", makeReasoningMapRouter(stores.getReasoningMapStore));
 });
 const call = async (method, url, payload) => {
-  const r = await app.inject(payload === undefined ? { method, url } : { method, url, payload });
-  return [r.statusCode, r.json()];
+  const r = await app.request(
+    url,
+    payload === undefined
+      ? { method }
+      : { method, body: JSON.stringify(payload), headers: { "content-type": "application/json" } },
+  );
+  return [r.status, await r.json()];
 };
 
 test("get and put by provider, levels in ascending order", async () => {

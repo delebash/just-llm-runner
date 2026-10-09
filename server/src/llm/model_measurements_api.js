@@ -12,9 +12,11 @@
 // supplies identity or clocks); DELETE is the Clear-history button — per-model with
 // `modelId`, the whole ledger without.
 
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { model, opt, T } from "../platform/models.js";
 import { pyFloatParse, pyInt } from "../platform/py.js";
+import { input } from "../platform/server.js";
 
 export const MeasurementFlag = T.Object({
   flagName: T.String(),
@@ -68,34 +70,36 @@ const strip = (s) => String(s ?? "").trim();
  * `machineKeyFn()` → this machine's key.
  */
 export function makeModelMeasurementsRouter(getStore, machineKeyFn) {
-  return async function modelMeasurementsRouter(app) {
-    const response = (modelId) =>
-      model(MeasurementsResponse, { machineKey: machineKeyFn(), measurements: getStore().list(modelId) });
+  const app = new Hono();
+  const response = (modelId) =>
+    model(MeasurementsResponse, { machineKey: machineKeyFn(), measurements: getStore().list(modelId) });
 
-    const optionalModelId = { schema: { querystring: T.Object({ modelId: opt(T.String(), "") }) } };
+  const optionalModelId = input({ querystring: T.Object({ modelId: opt(T.String(), "") }) });
 
-    app.get("/v1/ai/model-measurements", optionalModelId, async (req) => response(strip(req.query.modelId) || null));
+  app.get("/v1/ai/model-measurements", optionalModelId, async (c) =>
+    c.json(response(strip(c.req.valid("query").modelId) || null)),
+  );
 
-    app.post("/v1/ai/model-measurements", { schema: { body: MeasurementPost } }, async (req) => {
-      const body = model(MeasurementPost, req.body);
-      const modelId = strip(body.modelId);
-      if (!modelId) throw new HttpError(400, "modelId is required");
-      getStore().record(modelId, {
-        machineKey: machineKeyFn(),
-        source: strip(body.source || "tune") || "tune",
-        label: body.label || "",
-        tokensPerSec: pyFloatParse(body.tokensPerSec || 0),
-        vramTotalMb: pyInt(body.vramTotalMb || 0),
-        at: Math.trunc(Date.now()), // int(time.time() * 1000)
-        rows: body.switches,
-      });
-      return response(modelId);
+  app.post("/v1/ai/model-measurements", input({ body: MeasurementPost }), async (c) => {
+    const body = model(MeasurementPost, c.req.valid("json"));
+    const modelId = strip(body.modelId);
+    if (!modelId) throw new HttpError(400, "modelId is required");
+    getStore().record(modelId, {
+      machineKey: machineKeyFn(),
+      source: strip(body.source || "tune") || "tune",
+      label: body.label || "",
+      tokensPerSec: pyFloatParse(body.tokensPerSec || 0),
+      vramTotalMb: pyInt(body.vramTotalMb || 0),
+      at: Math.trunc(Date.now()), // int(time.time() * 1000)
+      rows: body.switches,
     });
+    return c.json(response(modelId));
+  });
 
-    app.delete("/v1/ai/model-measurements", optionalModelId, async (req) => {
-      const modelId = strip(req.query.modelId) || null;
-      getStore().clear(modelId);
-      return response(modelId);
-    });
-  };
+  app.delete("/v1/ai/model-measurements", optionalModelId, async (c) => {
+    const modelId = strip(c.req.valid("query").modelId) || null;
+    getStore().clear(modelId);
+    return c.json(response(modelId));
+  });
+  return app;
 }

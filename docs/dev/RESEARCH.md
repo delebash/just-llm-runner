@@ -912,6 +912,47 @@ GitHub API and raw files, unpkg; the plan:
 - **The newest sync engines:** Zero (`@rocicorp/zero` 1.10.0, 2026-10-09, Apache-2.0, 192k/week),
   `@electric-sql/client` 1.5.28 (1.52M/week), LiveStore 0.4.0 (2026-06-02, Apache-2.0, 17k/week),
   `@powersync/capacitor` 0.9.3, `@powersync/node` 1.1.1.
+- **The conversion, measured** (*code* — hono 4.13.13, @hono/node-server 2.1.4, fastify 5.12.5,
+  avvio, @fastify/ajv-compiler 4.0.6 read in node_modules; *measured* — the suites and the phone
+  checks, 2026-10-09):
+  - **One Hono or none:** `app.route(path, sub)` keeps a sub-app's routes bare only when
+    `sub.errorHandler === errorHandler` — the module's own default (`hono-base.js` `route()`); a
+    sub-app built from another copy of Hono gets wrapped with ITS default handler, which answers
+    the family's errors as plain 500s. The kit is linked into each app (`file:`), so an app's own
+    `hono` would be that second copy — the kit re-exports `Hono`, `stream` and `serveStatic`.
+  - `validator("json")` parses only a JSON content type (anything else → `{}`) and answers bad
+    JSON with a 400 HTTPException; `c.req.json()` caches the TEXT and parses it, so `c.req.text()`
+    after it still gets the bytes as sent. `c.req.addValidatedData(target, data)` is public; the
+    family's `input()` uses it so routes read `c.req.valid(...)`.
+  - `c.json()` sends `application/json` (Fastify: `application/json; charset=utf-8`); the family's
+    clients test the type with `includes` — no difference to them.
+  - HEAD runs the GET route with no body (`hono-base.js`); a route's path is matched in the order
+    routes were added (Fastify preferred a fixed segment over a `:param` by itself).
+  - Headers set on `c` before `next()` are copied onto whatever response follows, error answers
+    included (`context.js` `set res`) — Fastify's reply headers from a hook behaved the same.
+  - `@hono/node-server`'s `serveStatic` takes an absolute root, answers `Range`, sends no
+    `ETag`, and serves a file for ANY method (OPTIONS like HEAD) — mount it with `app.get` or put
+    a 405 route before it. Its `serve()` replaces the global Request/Response unless
+    `overrideGlobalObjects: false`.
+  - Node's own server defaults `requestTimeout` to 300 s (Fastify set 0) — kept at 0 so a large
+    restore upload isn't cut off; Fastify's `keepAliveTimeout` 72 s kept.
+  - Fastify validated a route's parts in the order params, body, querystring, headers and
+    stopped at the first that failed (`lib/validation.js`); its onClose hooks ran last-added
+    first (avvio `_closeQ.unshift`). The kit's `input()` and `closeApp()` keep both.
+  - Tests through `app.request`: a string body gets `text/plain;charset=UTF-8` from `new Request`
+    by itself (inject sent none), so a test sends bytes; there is no socket, so the client address
+    is "" unless the test passes `{ incoming: { socket: { remoteAddress } } }` (inject defaulted to
+    127.0.0.1).
+  - esbuild resolves a package's `"imports"` with a `"browser"` condition for `platform:
+    "browser"` (`#app_state` → `app_state.phone.js`) — the phone versions no longer need the
+    kit's twin-swapping plugin.
+  - JustWrite's phone bundle: 9.5 MB → 8.0 MB, no Fastify inside; of the kit's stand-ins only
+    `crypto`, `undici` and the injected `globals` are still imported (http, https, url,
+    async_hooks, diagnostics_channel, perf_hooks and the npm `assert` served Fastify). In Chrome
+    (`dist/spa-in-app`): the tutorial book opens, an inserted image is stored by path
+    (`/v1/images/<id>`), and an AI answer streams frame by frame (+13, +175, +336 ms … `[DONE]`).
+  - Suites on Hono: the kit 1,136 passed (2 expected fail, 12 skipped), just-sqlite-sync 47/47,
+    JustWrite 148/148, docgen 161/161.
 - **Secrets:** Electron's `safeStorage` — Keychain on macOS, DPAPI on Windows; on Linux unprotected
   ("a hardcoded plaintext password") without a secret store; the async API is recommended
   (electronjs.org). `@aparajita/capacitor-secure-storage` 8.0.0 — Keychain on iOS, Keystore on

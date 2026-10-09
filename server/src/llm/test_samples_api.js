@@ -5,8 +5,10 @@
 // the Lab's Sample button; PUT/DELETE keep the rows editable (the seed is fill-if-empty, so
 // an edit sticks). Sibling precedent: class_tunes_api (the same store + router seam).
 
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
+import { input } from "../platform/server.js";
 
 export const TestSampleRow = T.Object({
   id: T.Integer(),
@@ -31,30 +33,30 @@ const strip = (s) => String(s ?? "").trim();
 /** GET (?action= filters) / PUT (upsert one) / DELETE (?id=). `getStore()` →
  * {listForAction(action), upsert(action, label, variables, id), delete(id)}. */
 export function makeTestSamplesRouter(getStore) {
-  return async function testSamplesRouter(app) {
-    const rows = (action = "") =>
-      model(TestSamplesResponse, { rows: getStore().listForAction(action).map((r) => model(TestSampleRow, r)) });
+  const app = new Hono();
+  const rows = (action = "") =>
+    model(TestSamplesResponse, { rows: getStore().listForAction(action).map((r) => model(TestSampleRow, r)) });
 
-    app.get(
-      "/v1/ai/test-samples",
-      { schema: { querystring: T.Object({ action: opt(T.String(), "") }) } },
-      async (req) => rows(strip(req.query.action)),
-    );
+  app.get(
+    "/v1/ai/test-samples",
+    input({ querystring: T.Object({ action: opt(T.String(), "") }) }),
+    async (c) => c.json(rows(strip(c.req.valid("query").action))),
+  );
 
-    app.put("/v1/ai/test-samples", { schema: { body: TestSamplePut } }, async (req) => {
-      const body = model(TestSamplePut, req.body);
-      if (!strip(body.action) || !strip(body.label)) throw new HttpError(400, "action and label are required");
-      getStore().upsert(strip(body.action), strip(body.label), body.variables || {}, body.id);
-      return rows(strip(body.action));
-    });
+  app.put("/v1/ai/test-samples", input({ body: TestSamplePut }), async (c) => {
+    const body = model(TestSamplePut, c.req.valid("json"));
+    if (!strip(body.action) || !strip(body.label)) throw new HttpError(400, "action and label are required");
+    getStore().upsert(strip(body.action), strip(body.label), body.variables || {}, body.id);
+    return c.json(rows(strip(body.action)));
+  });
 
-    app.delete(
-      "/v1/ai/test-samples",
-      { schema: { querystring: T.Object({ id: T.Integer() }) } },
-      async (req) => {
-        getStore().delete(req.query.id);
-        return rows();
-      },
-    );
-  };
+  app.delete(
+    "/v1/ai/test-samples",
+    input({ querystring: T.Object({ id: T.Integer() }) }),
+    async (c) => {
+      getStore().delete(c.req.valid("query").id);
+      return c.json(rows());
+    },
+  );
+  return app;
 }

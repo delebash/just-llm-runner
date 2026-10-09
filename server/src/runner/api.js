@@ -2,8 +2,8 @@
 // The shared LLM-runner REST surface (`/v1/llm-runner/*`) — the port of
 // llm_runner/runner/api.py (Python's `llm_runner.router`, which every app mounts).
 //
-// Every app registers this plugin so the GUI talks to an identical API:
-//     app.register(runnerRouter)
+// Every app mounts this router so the GUI talks to an identical API:
+//     app.route("/", runnerRouter())
 //
 // Manifest + detected hardware, the model catalog with Fit + speed band + live status, the
 // load / download / stop lifecycle, the engine (llama.cpp binary) install, and the disk
@@ -24,15 +24,17 @@
 // present the snake one stays an unknown field, as pydantic answers (422 extra_forbidden).
 
 import path from "node:path";
+import { Hono } from "hono";
 import { HttpError, RequestValidationError } from "../platform/errors.js";
 import { getLogger } from "../platform/log.js";
 import { model, opt, strictObject, T } from "../platform/models.js";
 import { pyFloatParse, pyInt, pyRound, pyStr, truthy } from "../platform/py.js";
+import { input, readJson } from "../platform/server.js";
 import { dictBody } from "./autotune.js";
 import * as bandwidth from "./bandwidth.js";
 import * as fit from "./fit.js";
 import * as hardware from "./hardware.js";
-import * as lifecycle from "./lifecycle.js";
+import * as lifecycle from "#runner/lifecycle";
 import * as models from "./models.js";
 import { Overrides } from "./process.js";
 import {
@@ -105,9 +107,22 @@ export function populateByName(schema, value) {
   return value;
 }
 
-/** A route's `preValidation` hook applying `populateByName` to the body. */
-const bodyByName = (schema) => async (req) => {
-  if (req.body && typeof req.body === "object") req.body = populateByName(schema, req.body);
+/** `populateByName` on `body` IN PLACE: `input` validates the one reading of the body the
+ * request keeps (`readJson` and `input` share it), so the renamed fields replace the read ones
+ * on that same object, in the renamed order. An array is left as it is (populateByName does). */
+function renameInPlace(schema, body) {
+  const renamed = populateByName(schema, body);
+  if (renamed === body) return;
+  for (const k of Object.keys(body)) delete body[k];
+  Object.assign(body, renamed);
+}
+
+/** A route middleware, added before its `input`, applying `populateByName` to the body before
+ * validation (Fastify's `preValidation` hook did). */
+const bodyByName = (schema) => async (c, next) => {
+  const body = await readJson(c);
+  if (body && typeof body === "object") renameInPlace(schema, body);
+  await next();
 };
 
 /** `d.get(k, dflt)` — a present-but-null value stays null. */
@@ -245,17 +260,22 @@ export function _speedFacts(m) {
 
 // ─── The router ──────────────────────────────────────────────────────────────────
 
-/** The runner router — a Fastify plugin (Python's module-level `router`). */
-export async function runnerRouter(app) {
-  app.get("/v1/llm-runner/config", async () => model(RunnerConfig, await (await lifecycle.getService()).config()));
+/** The runner router — a Hono sub-app (Python's module-level `router`). */
+export function runnerRouter() {
+  const app = new Hono();
+  app.get("/v1/llm-runner/config", async (c) =>
+    c.json(model(RunnerConfig, await (await lifecycle.getService()).config())),
+  );
 
-  app.get("/v1/llm-runner/hardware", async () => {
+  app.get("/v1/llm-runner/hardware", async (c) => {
     const hw = await hardware.detect();
     // Reading the hardware panel refreshes the detection the service and the tune keys use,
     // so a GPU or driver change shows without a restart (decided 2026-10-08 — Python
     // re-detected on every call; the service reads the stored result).
     hardware.setDetected(hw);
-    return model(HardwareWithKeys, { ...hw, machineKey: hardware.machineKey(hw), classKey: hardware.classKey(hw) });
+    return c.json(
+      model(HardwareWithKeys, { ...hw, machineKey: hardware.machineKey(hw), classKey: hardware.classKey(hw) }),
+    );
   });
 
   // Deliberately NOT wired into any poll. The probe is one shell-out for the whole machine
@@ -263,25 +283,29 @@ export async function runnerRouter(app) {
   // user opens the list and at no other time.
   app.get(
     "/v1/llm-runner/gpu-processes",
-    { schema: { querystring: T.Object({ fresh: opt(T.String()) }) } },
-    async (req) => {
-      const fresh = pyBool(req.query.fresh, ["query", "fresh"]) ?? false;
+    input({ querystring: T.Object({ fresh: opt(T.String()) }) }),
+    async (c) => {
+      const fresh = pyBool(c.req.valid("query").fresh, ["query", "fresh"]) ?? false;
       const snap = await hardware.gpuProcesses({ fresh });
       if (snap == null) {
-        return model(GpuProcessesResponse, {
-          available: false,
-          reason:
-            "This system has no per-process GPU memory counter. AMD tooling " +
-            "reports device-wide use only, and Windows exposes the counters " +
-            "under localized names on non-English installs.",
-        });
+        return c.json(
+          model(GpuProcessesResponse, {
+            available: false,
+            reason:
+              "This system has no per-process GPU memory counter. AMD tooling " +
+              "reports device-wide use only, and Windows exposes the counters " +
+              "under localized names on non-English installs.",
+          }),
+        );
       }
-      return model(GpuProcessesResponse, {
-        available: true,
-        source: snap.source,
-        additive: !!snap.additive,
-        processes: snap.processes.map((r) => populateByName(GpuProcessRow, r)),
-      });
+      return c.json(
+        model(GpuProcessesResponse, {
+          available: true,
+          source: snap.source,
+          additive: !!snap.additive,
+          processes: snap.processes.map((r) => populateByName(GpuProcessRow, r)),
+        }),
+      );
     },
   );
 
@@ -292,8 +316,8 @@ export async function runnerRouter(app) {
   // (0 = CPU-only).
   app.get(
     "/v1/llm-runner/models",
-    { schema: { querystring: T.Object({ vram_mb: opt(T.Integer()) }) } },
-    async (req) => modelsView(req.query.vram_mb ?? null),
+    input({ querystring: T.Object({ vram_mb: opt(T.Integer()) }) }),
+    async (c) => c.json(await modelsView(c.req.valid("query").vram_mb ?? null)),
   );
 
   // ── Lifecycle: choose → load on demand → use ──────────────────────────────────
@@ -303,9 +327,10 @@ export async function runnerRouter(app) {
   // Fit + the manifest's base preset. See docs/plans/2026-06-24-llamacpp-switches.md (Plane 1).
   app.post(
     "/v1/llm-runner/load",
-    { schema: { body: LoadRequest }, preValidation: bodyByName(LoadRequest) },
-    async (req) => {
-      const body = req.body;
+    bodyByName(LoadRequest),
+    input({ body: LoadRequest }),
+    async (c) => {
+      const body = c.req.valid("json");
       if (!body.modelId) throw new HttpError(400, "modelId required");
       const overrides = new Overrides({
         nGpuLayers: body.nGpuLayers,
@@ -332,12 +357,14 @@ export async function runnerRouter(app) {
         reasoningBudgetMessage: body.reasoningBudgetMessage,
         extraFlags: [...(body.extraFlags || [])],
       });
-      return (await lifecycle.getService()).load(body.modelId, {
-        overrides,
-        jobId: body.jobId,
-        switches: body.switches,
-        trigger: "api",
-      });
+      return c.json(
+        await (await lifecycle.getService()).load(body.modelId, {
+          overrides,
+          jobId: body.jobId,
+          switches: body.switches,
+          trigger: "api",
+        }),
+      );
     },
   );
 
@@ -346,17 +373,19 @@ export async function runnerRouter(app) {
   // then reports as on-disk via /models. Any overrides in the body are ignored.
   app.post(
     "/v1/llm-runner/download",
-    { schema: { body: LoadRequest }, preValidation: bodyByName(LoadRequest) },
-    async (req) => {
-      if (!req.body.modelId) throw new HttpError(400, "modelId required");
-      return (await lifecycle.getService()).download(req.body.modelId);
+    bodyByName(LoadRequest),
+    input({ body: LoadRequest }),
+    async (c) => {
+      const body = c.req.valid("json");
+      if (!body.modelId) throw new HttpError(400, "modelId required");
+      return c.json(await (await lifecycle.getService()).download(body.modelId));
     },
   );
 
   // Every in-flight/errored model download keyed by model id:
   // `{"downloads": {modelId: {status, modelId, detail, error, downloaded, total}}}`. Downloads
   // run concurrently, so a model absent from the map is idle on this channel.
-  app.get("/v1/llm-runner/download/status", async () => (await lifecycle.getService()).downloadStatus());
+  app.get("/v1/llm-runner/download/status", async (c) => c.json(await (await lifecycle.getService()).downloadStatus()));
 
   // Signal a download to stop at the next chunk boundary. With `modelId` → cancel just that
   // model's download; with no body / null → cancel ALL (the back-compat path). A queued
@@ -364,29 +393,30 @@ export async function runnerRouter(app) {
   // live download status — the cancelled row reads 'cancelling…' briefly, then leaves the map.
   app.post(
     "/v1/llm-runner/download/cancel",
-    {
-      schema: { body: DownloadCancelRequest },
-      // `DownloadCancelRequest | None = None`: no body (or JSON null) is None — validated as
-      // an empty request, which answers the same (cancel all).
-      preValidation: async (req) => {
-        if (req.body === undefined || req.body === null) req.body = {};
-        else if (typeof req.body === "object") req.body = populateByName(DownloadCancelRequest, req.body);
-      },
+    // `DownloadCancelRequest | None = None`: no body (or JSON null) is None — an empty
+    // request, which answers the same (cancel all); `{}` passes the model with nothing to
+    // check, so it is answered here without the validation it would pass.
+    async (c, next) => {
+      const body = await readJson(c);
+      if (body === undefined || body === null) return c.json(await (await lifecycle.getService()).cancelDownload(null));
+      if (typeof body === "object") renameInPlace(DownloadCancelRequest, body);
+      await next();
     },
-    async (req) => (await lifecycle.getService()).cancelDownload(req.body.modelId || null),
+    input({ body: DownloadCancelRequest }),
+    async (c) => c.json(await (await lifecycle.getService()).cancelDownload(c.req.valid("json").modelId || null)),
   );
 
   // Back-compat SINGLE-model view (most-recently-loaded model's progress/state) — the existing
   // UI (catalog poller, QuickSetup, Tune modal) reads this shape. The full co-resident set is
   // /resident.
-  app.get("/v1/llm-runner/status", async () => (await lifecycle.getService()).status());
+  app.get("/v1/llm-runner/status", async (c) => c.json(await (await lifecycle.getService()).status()));
 
   // The router's LIVE per-model status (loaded | sleeping | loading | failed) with each loaded
   // child's real footprint (`meta` sizes), plus `modelsMax` / `sleepIdleSeconds`. Router down →
   // `router: false`, empty set. The committed/remaining VRAM budget rides along (the arbiter).
-  app.get("/v1/llm-runner/resident", async () => {
+  app.get("/v1/llm-runner/resident", async (c) => {
     const res = await (await lifecycle.getService()).resident();
-    return model(RunnerResidentResponse, populateByName(RunnerResidentResponse, res));
+    return c.json(model(RunnerResidentResponse, populateByName(RunnerResidentResponse, res)));
   });
 
   // LAZY embed prep (P3): download-if-needed + load + PIN the embedding model the routing
@@ -394,24 +424,26 @@ export async function runnerRouter(app) {
   // when no local embed is configured — the caller then uses that provider unchanged. The
   // load is ASYNC: poll `GET /v1/llm-runner/resident` for the returned `modelId` until it
   // reads loaded|sleeping before embedding.
-  app.post("/v1/llm-runner/ensure-embedding", async () => (await lifecycle.getService()).ensureEmbedding());
+  app.post("/v1/llm-runner/ensure-embedding", async (c) =>
+    c.json(await (await lifecycle.getService()).ensureEmbedding()),
+  );
 
   // With a modelId this unloads ONE resident model and frees its VRAM (the router stays up
   // for the others) — the catalog row's Unload button (user, 2026-07-07: "no way to unload").
   // No body keeps the original full-teardown semantics.
-  app.post("/v1/llm-runner/stop", async (req) => {
-    const body = dictBody(req.body, { required: false });
+  app.post("/v1/llm-runner/stop", async (c) => {
+    const body = dictBody(await readJson(c), { required: false });
     const modelId = strOr((body || {}).modelId);
-    return (await lifecycle.getService()).stop(modelId || null);
+    return c.json(await (await lifecycle.getService()).stop(modelId || null));
   });
 
   // ── Engine (the llama.cpp binary): install as its OWN step, separate from downloading a
   //    model — a model load requires the engine already installed. ──
 
-  app.get("/v1/llm-runner/engine/status", async () => (await lifecycle.getService()).engineStatus());
+  app.get("/v1/llm-runner/engine/status", async (c) => c.json(await (await lifecycle.getService()).engineStatus()));
 
-  app.post("/v1/llm-runner/engine/install", async (req) => {
-    const body = dictBody(req.body, { required: false }) || {};
+  app.post("/v1/llm-runner/engine/install", async (c) => {
+    const body = dictBody(await readJson(c), { required: false }) || {};
     const force = truthy(body.force);
     // An UPDATE passes the build it supersedes (user, 2026-07-07: "the engine update should
     // delete the old folder") — the service removes that old build dir after the new one
@@ -420,24 +452,30 @@ export async function runnerRouter(app) {
     // A backend switch/add (2026-07-14) targets ONE variant family ("cuda"/"vulkan"): a
     // lightweight ADD into the pinned build — force/replaceBuild are ignored then.
     const gpu = strOr(body.gpu);
-    return (await lifecycle.getService()).installEngine({ force, replaceBuild, gpu });
+    return c.json(await (await lifecycle.getService()).installEngine({ force, replaceBuild, gpu }));
   });
 
   // Signal the engine install to stop at the next chunk boundary — the same shape as the
   // model /download/cancel. Idempotent: a no-op (returns the current status) when nothing is
   // installing. Returns the live engine status — 'cancelling…' immediately, then
   // not-installed (idle) once the installer unwinds.
-  app.post("/v1/llm-runner/engine/install/cancel", async () => (await lifecycle.getService()).cancelInstallEngine());
+  app.post("/v1/llm-runner/engine/install/cancel", async (c) =>
+    c.json(await (await lifecycle.getService()).cancelInstallEngine()),
+  );
 
   app.get(
     "/v1/llm-runner/engine/log",
-    { schema: { querystring: T.Object({ tail: opt(T.Integer(), 200) }) } },
-    async (req) => (await lifecycle.getService()).engineLog({ tail: req.query.tail }),
+    input({ querystring: T.Object({ tail: opt(T.Integer(), 200) }) }),
+    async (c) => c.json(await (await lifecycle.getService()).engineLog({ tail: c.req.valid("query").tail })),
   );
 
-  app.post("/v1/llm-runner/engine/uninstall", async () => (await lifecycle.getService()).uninstallEngine());
+  app.post("/v1/llm-runner/engine/uninstall", async (c) =>
+    c.json(await (await lifecycle.getService()).uninstallEngine()),
+  );
 
-  app.get("/v1/llm-runner/engine/update-check", async () => (await lifecycle.getService()).updateCheck());
+  app.get("/v1/llm-runner/engine/update-check", async (c) =>
+    c.json(await (await lifecycle.getService()).updateCheck()),
+  );
 
   // Upstream RENAMES its release files between builds, so substituting a build tag into a
   // stored URL can 404 mid-update. This reports each stored row's REAL download at `build`,
@@ -445,8 +483,8 @@ export async function runnerRouter(app) {
   // writes a pin. Read-only: it never writes the pin or a URL.
   app.get(
     "/v1/llm-runner/engine/resolve-assets",
-    { schema: { querystring: T.Object({ build: T.String() }) } },
-    async (req) => (await lifecycle.getService()).resolveBuildAssets(req.query.build),
+    input({ querystring: T.Object({ build: T.String() }) }),
+    async (c) => c.json(await (await lifecycle.getService()).resolveBuildAssets(c.req.valid("query").build)),
   );
 
   // ── Reclaim disk: the runner OWNS its cache, so it owns the deletes. The sizes are
@@ -455,14 +493,18 @@ export async function runnerRouter(app) {
   // Remove every `*.log` under the runner's `llamacpp/logs` dir — the per-spawn llama-server
   // logs, which are otherwise UNBOUNDED (nothing else sweeps them). The dir is kept so the
   // next spawn can write. Best-effort: a locked file is skipped. Returns `{removed, bytes}`.
-  app.post("/v1/llm-runner/spawn-logs/clear", async () => (await lifecycle.getService()).clearSpawnLogs());
+  app.post("/v1/llm-runner/spawn-logs/clear", async (c) =>
+    c.json(await (await lifecycle.getService()).clearSpawnLogs()),
+  );
 
   // Delete every downloaded model GGUF from the HF cache. SAFE BY DESIGN: the catalog rows
   // persist in the host DB, so each model simply RE-DOWNLOADS the next time it is loaded.
   // Refuses with `{ok: false, detail: "unload models first"}` (HTTP 200) while any model is
   // resident/loading, because its weights are open/mmap'd (and on Windows an open file can't
   // be unlinked); the caller unloads, then retries. On success returns `{ok: true, bytes}`.
-  app.post("/v1/llm-runner/models-cache/clear", async () => (await lifecycle.getService()).clearModelsCache());
+  app.post("/v1/llm-runner/models-cache/clear", async (c) =>
+    c.json(await (await lifecycle.getService()).clearModelsCache()),
+  );
 
   // Delete a single model's GGUF(s) from the HF cache — the disk half of the catalog
   // 'Delete'. SAFE BY DESIGN: the weights re-download on demand if the model is re-added.
@@ -470,10 +512,12 @@ export async function runnerRouter(app) {
   // repo shared with another catalog row is kept. Returns `{ok: true, bytes, detail?}`.
   app.post(
     "/v1/llm-runner/models-cache/delete",
-    { schema: { body: LoadRequest }, preValidation: bodyByName(LoadRequest) },
-    async (req) => {
-      if (!req.body.modelId) throw new HttpError(400, "modelId required");
-      return (await lifecycle.getService()).deleteModelCache(req.body.modelId);
+    bodyByName(LoadRequest),
+    input({ body: LoadRequest }),
+    async (c) => {
+      const body = c.req.valid("json");
+      if (!body.modelId) throw new HttpError(400, "modelId required");
+      return c.json(await (await lifecycle.getService()).deleteModelCache(body.modelId));
     },
   );
 
@@ -483,30 +527,33 @@ export async function runnerRouter(app) {
   // loaded). The parameters are QUERY parameters, snake_case, as FastAPI declared them.
   app.post(
     "/v1/llm-runner/measure",
-    {
-      schema: {
-        querystring: T.Object({
-          prompt: opt(T.String(), "Write one vivid paragraph about the sea."),
-          max_tokens: opt(T.Integer(), 128),
-          model_id: opt(T.String()),
-        }),
-      },
-    },
-    async (req) =>
-      (await lifecycle.getService()).measure({
-        prompt: req.query.prompt,
-        maxTokens: req.query.max_tokens,
-        modelId: req.query.model_id ?? null,
+    input({
+      querystring: T.Object({
+        prompt: opt(T.String(), "Write one vivid paragraph about the sea."),
+        max_tokens: opt(T.Integer(), 128),
+        model_id: opt(T.String()),
       }),
+    }),
+    async (c) => {
+      const query = c.req.valid("query");
+      return c.json(
+        await (await lifecycle.getService()).measure({
+          prompt: query.prompt,
+          maxTokens: query.max_tokens,
+          modelId: query.model_id ?? null,
+        }),
+      );
+    },
   );
 
   // b1 'prompt preview': exact token count via the loaded model's own tokenizer (/tokenize).
   // Requires a model running — the UI falls back to a heuristic when `ok` is false (no local
   // model).
-  app.post("/v1/llm-runner/tokenize", async (req) => {
-    const body = dictBody(req.body, { required: true });
-    return (await lifecycle.getService()).tokenize({ text: strOr((body || {}).text) });
+  app.post("/v1/llm-runner/tokenize", async (c) => {
+    const body = dictBody(await readJson(c), { required: true });
+    return c.json(await (await lifecycle.getService()).tokenize({ text: strOr((body || {}).text) }));
   });
+  return app;
 }
 
 /** `str(x or "")`. */

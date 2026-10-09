@@ -609,16 +609,15 @@ test("the auto-tune router answers as FastAPI did", async () => {
   };
   const saveTune = () => {};
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeAutotuneRouter(async () => ({ a: "1" }), saveTune, { tunerFn: () => fakeTuner }));
+  app.route("/", makeAutotuneRouter(async () => ({ a: "1" }), saveTune, { tunerFn: () => fakeTuner }));
   const U = "/v1/llm-runner/auto-tune";
   const send = async (method, url, json) => {
     calls.length = 0;
-    const r = await app.inject({
+    const r = await app.request(url, {
       method,
-      url,
-      ...(json !== undefined ? { payload: JSON.stringify(json), headers: { "content-type": "application/json" } } : {}),
+      ...(json !== undefined ? { body: JSON.stringify(json), headers: { "content-type": "application/json" } } : {}),
     });
-    return [r.statusCode, r.json()];
+    return [r.status, await r.json()];
   };
   const v422 = (errors) => ({
     type: "https://example.test/errors/validation-error",

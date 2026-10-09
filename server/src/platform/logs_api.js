@@ -41,11 +41,13 @@ import {
   writeSync,
 } from "node:fs";
 import path from "node:path";
+import { Hono } from "hono";
 import { purePath } from "./data_paths.js";
 import { HttpError } from "./errors.js";
 import { addSink, getLevel, getLogger, LEVELS, setLevel } from "./log.js";
 import { opt, T } from "./models.js";
 import { IS_WIN, pySorted, splitlines } from "./py.js";
+import { input } from "./server.js";
 
 const log = getLogger("llm_runner.platform.logs_api");
 
@@ -290,64 +292,58 @@ export function makeLogsRouter(appName = "app") {
   const daysResponse = () => ({ days: rows().map((r) => ({ day: r.day, sizeKb: r.sizeKb, live: r.live })) });
   const tail = (lines) => ({ text: lines.join("\n"), lines: lines.length });
 
-  return async function logsRouter(app) {
-    app.get(
-      "/v1/logs/tail",
-      { schema: { querystring: T.Object({ lines: opt(T.Integer(), 80) }) } },
-      async (req) => tail(_ring.lines.slice(-Math.max(1, Math.min(req.query.lines, _ring.capacity)))),
-    );
+  const app = new Hono();
+  app.get("/v1/logs/tail", input({ querystring: T.Object({ lines: opt(T.Integer(), 80) }) }), (c) =>
+    c.json(tail(_ring.lines.slice(-Math.max(1, Math.min(c.req.valid("query").lines, _ring.capacity))))),
+  );
 
-    app.get("/v1/logs/download", async (_req, reply) => {
-      const stamp = new Date().toISOString().slice(0, 10); // the UTC date, as Python's
-      return reply
-        .type("text/plain; charset=utf-8")
-        .header("content-disposition", `attachment; filename="${slug}-logs-${stamp}.txt"`)
-        .send(_ring.lines.join("\n"));
+  app.get("/v1/logs/download", (c) => {
+    const stamp = new Date().toISOString().slice(0, 10); // the UTC date, as Python's
+    return c.body(_ring.lines.join("\n"), 200, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${slug}-logs-${stamp}.txt"`,
     });
+  });
 
-    app.get("/v1/logs/days", async () => daysResponse());
+  app.get("/v1/logs/days", (c) => c.json(daysResponse()));
 
-    app.get(
-      "/v1/logs/day",
-      { schema: { querystring: T.Object({ date: T.String(), lines: opt(T.Integer(), 2000) }) } },
-      async (req) => {
-        const { date } = req.query;
-        if (!DAY_RE.test(date || "")) throw BadDate();
-        const row = rows().find((r) => r.day === date);
-        if (!row) throw new HttpError(404, `no log stored for ${date}`);
-        // Tail-capped read: a day file can be large; the reader wants the recent end.
-        const content = splitlines(readFileSync(row.path).toString("utf8"));
-        return tail(content.slice(-Math.max(1, Math.min(req.query.lines, 20_000))));
-      },
-    );
+  app.get("/v1/logs/day", input({ querystring: T.Object({ date: T.String(), lines: opt(T.Integer(), 2000) }) }), (c) => {
+    const { date, lines } = c.req.valid("query");
+    if (!DAY_RE.test(date || "")) throw BadDate();
+    const row = rows().find((r) => r.day === date);
+    if (!row) throw new HttpError(404, `no log stored for ${date}`);
+    // Tail-capped read: a day file can be large; the reader wants the recent end.
+    const content = splitlines(readFileSync(row.path).toString("utf8"));
+    return c.json(tail(content.slice(-Math.max(1, Math.min(lines, 20_000)))));
+  });
 
-    // Empty the on-screen tail (the RING). Stored day files are untouched — deleting
-    // those is the /day and /all DELETEs.
-    app.post("/v1/logs/clear", async () => {
-      _ring.lines.length = 0;
-      return { text: "", lines: 0 };
-    });
+  // Empty the on-screen tail (the RING). Stored day files are untouched — deleting
+  // those is the /day and /all DELETEs.
+  app.post("/v1/logs/clear", (c) => {
+    _ring.lines.length = 0;
+    return c.json({ text: "", lines: 0 });
+  });
 
-    app.delete("/v1/logs/day", { schema: { querystring: T.Object({ date: T.String() }) } }, async (req) => {
-      const { date } = req.query;
-      if (!DAY_RE.test(date || "")) throw BadDate();
-      const row = rows().find((r) => r.day === date);
-      if (row) {
-        if (row.live) truncateLive(); // today is held open — truncate, never unlink
-        else unlinkQuiet(row.path);
-      }
-      return daysResponse();
-    });
+  app.delete("/v1/logs/day", input({ querystring: T.Object({ date: T.String() }) }), (c) => {
+    const { date } = c.req.valid("query");
+    if (!DAY_RE.test(date || "")) throw BadDate();
+    const row = rows().find((r) => r.day === date);
+    if (row) {
+      if (row.live) truncateLive(); // today is held open — truncate, never unlink
+      else unlinkQuiet(row.path);
+    }
+    return c.json(daysResponse());
+  });
 
-    app.delete("/v1/logs/all", async () => {
-      for (const r of rows()) {
-        if (r.live) truncateLive();
-        else unlinkQuiet(r.path);
-      }
-      _ring.lines.length = 0;
-      return daysResponse();
-    });
-  };
+  app.delete("/v1/logs/all", (c) => {
+    for (const r of rows()) {
+      if (r.live) truncateLive();
+      else unlinkQuiet(r.path);
+    }
+    _ring.lines.length = 0;
+    return c.json(daysResponse());
+  });
+  return app;
 }
 
 /** `Path.unlink(missing_ok=True)`. */

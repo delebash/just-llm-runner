@@ -13,25 +13,26 @@
 //       nodeModulesPolyfillPlugin({ globals: { Buffer: true, process: true }, fallback: "empty" })] });
 //
 // What it does:
-//   - the built-ins the polyfills don't cover well → this folder's stand-ins (`shims/`): http and
-//     https (ServerResponse for Fastify's inject), url, crypto (Web Crypto — Node's polyfill is
-//     3.8 MB), async_hooks, diagnostics_channel, perf_hooks (the platform's own performance — the
-//     polyfill's copies `now` unbound); `assert` → the npm `assert` package (callable through
-//     require, as find-my-way calls it), resolved from the app;
+//   - `crypto` → this folder's stand-in (`shims/crypto.js`: ids from Web Crypto — Node's polyfill
+//     is 3.8 MB);
 //   - `better-sqlite3` → better-sqlite3.js, the same API over SQLite WASM; `undici` → the
 //     platform's fetch, falling back to the window's native HTTP for a call the webview refuses
 //     (shims/undici.js);
-//   - a module with a phone twin beside it (`<name>.phone.js` next to `<name>.js`) → the twin:
-//     the way an app swaps a module that needs the disk for one that doesn't;
 //   - `dedupe` (as Vite's): packages that must be ONE copy, resolved from the app — a linked
 //     package (the sync engine, the kit) brings its own node_modules, and Yjs refuses two copies
 //     ("Yjs was already imported").
-import { existsSync } from "node:fs";
+//
+// The server itself needs nothing else: Hono runs on the web-standard Request and Response
+// (docs/plans/2026-10-09-hono-standard.md — the stand-ins for Node's http, https, url,
+// async_hooks, diagnostics_channel and perf_hooks, and the npm `assert`, served Fastify and went
+// with it). A module that needs the disk has a phone version chosen by the app's package.json
+// `"imports"` with a `"browser"` condition (Node's subpath imports — esbuild resolves the
+// condition for `platform: "browser"`), not by this plugin.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const STANDS_IN = ["http", "https", "url", "crypto", "async_hooks", "diagnostics_channel", "perf_hooks"];
+const STANDS_IN = ["crypto"];
 // packages a worker can't run, with stand-ins here
 const PACKAGES = ["undici"];
 
@@ -44,7 +45,6 @@ export function workerShims({ appRoot, dedupe = [] }) {
     setup(build) {
       const builtins = new RegExp(`^(node:)?(${STANDS_IN.join("|")})$`);
       build.onResolve({ filter: builtins }, (args) => ({ path: path.join(HERE, "shims", `${args.path.replace(/^node:/, "")}.js`) }));
-      build.onResolve({ filter: /^(node:)?assert$/ }, () => build.resolve("assert/", { resolveDir: appRoot, kind: "require-call" }));
       build.onResolve({ filter: new RegExp(`^(${PACKAGES.join("|")})$`) }, (args) => ({ path: path.join(HERE, "shims", `${args.path}.js`) }));
       build.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: path.join(HERE, "better-sqlite3.js") }));
       const one = new Set(dedupe);
@@ -54,12 +54,6 @@ export function workerShims({ appRoot, dedupe = [] }) {
           return build.resolve(args.path, { resolveDir: appRoot, kind: args.kind, pluginData: { deduped: true } });
         });
       }
-      build.onResolve({ filter: /^\.\.?\// }, (args) => {
-        const file = path.resolve(args.resolveDir, args.path);
-        if (!file.endsWith(".js") || file.endsWith(".phone.js")) return undefined;
-        const twin = `${file.slice(0, -3)}.phone.js`;
-        return existsSync(twin) ? { path: twin } : undefined;
-      });
     },
   };
 }

@@ -132,10 +132,10 @@ test("seed_curates_existing_dbs", () => {
 
 test("knob_catalog_endpoint", async () => {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeKnobCatalogRouter(stores.listKnobCatalog));
-  const r = await app.inject({ method: "GET", url: "/v1/ai/knob-catalog" });
-  expect(r.statusCode).toBe(200);
-  const knobs = r.json().knobs;
+  app.route("/", makeKnobCatalogRouter(stores.listKnobCatalog));
+  const r = await app.request("/v1/ai/knob-catalog", { method: "GET" });
+  expect(r.status).toBe(200);
+  const knobs = (await r.json()).knobs;
   const ctk = knobs.find((k) => k.flagName === "cache_type_k");
   expect(ctk.options).toEqual([]);
   expect(ctk.help).toContain("Accepts");

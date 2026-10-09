@@ -17,10 +17,12 @@
 // variable-cardinality child.
 
 import { randomUUID } from "node:crypto";
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
 import { pyOr, strip, strRepr, truthy, ValueError } from "../platform/py.js";
 import { pyStrScalar } from "../platform/pyjson.js";
+import { input } from "../platform/server.js";
 import * as seed from "./seed.js";
 import * as stores from "./stores.js";
 
@@ -91,132 +93,133 @@ const KEY_PARAMS = T.Object({ key: T.String() });
  * `resetOneFn(presetId)` resets ONE built-in preset (throws ValueError for a custom one).
  */
 export function makePresetsRouter(getPresets, getDefault, setDefault, getRefs, resetAllFn = null, resetOneFn = null) {
-  return async function presetsRouter(app) {
-    const presets = () => {
-      const rows = getPresets().list();
-      // D4-1 leg 3: annotate each row with its factory model (the app's registered seed
-      // library, joined by preset id) so the wizard can detect "differs from factory"
-      // without a second endpoint.
-      const factory = new Map(
-        seed.appEnginePresets().map((p) => [pyStrScalar(pyOr(p.id, "")), pyStrScalar(pyOr(p.model, ""))]),
-      );
-      for (const r of rows) r.factoryModel = factory.get(r.id) ?? "";
-      return model(PresetsResponse, { presets: rows });
-    };
+  const app = new Hono();
+  const presets = () => {
+    const rows = getPresets().list();
+    // D4-1 leg 3: annotate each row with its factory model (the app's registered seed
+    // library, joined by preset id) so the wizard can detect "differs from factory"
+    // without a second endpoint.
+    const factory = new Map(
+      seed.appEnginePresets().map((p) => [pyStrScalar(pyOr(p.id, "")), pyStrScalar(pyOr(p.model, ""))]),
+    );
+    for (const r of rows) r.factoryModel = factory.get(r.id) ?? "";
+    return model(PresetsResponse, { presets: rows });
+  };
 
-    const assignments = () => model(AssignmentsResponse, { defaultPresetId: getDefault(), features: getRefs().list() });
+  const assignments = () => model(AssignmentsResponse, { defaultPresetId: getDefault(), features: getRefs().list() });
 
-    // ── presets CRUD ──────────────────────────────────────────────────────────
-    app.get("/v1/ai/engine-presets", async () => presets());
+  // ── presets CRUD ──────────────────────────────────────────────────────────
+  app.get("/v1/ai/engine-presets", async (c) => c.json(presets()));
 
-    app.post("/v1/ai/engine-presets", { schema: { body: EnginePresetRow } }, async (req) => {
-      const body = req.body;
-      if (!strip(body.name)) throw new HttpError(400, "name is required");
-      body.id = randomUUID().replaceAll("-", "").slice(0, 12);
-      getPresets().save(body);
-      return presets();
-    });
+  app.post("/v1/ai/engine-presets", input({ body: EnginePresetRow }), async (c) => {
+    const body = c.req.valid("json");
+    if (!strip(body.name)) throw new HttpError(400, "name is required");
+    body.id = randomUUID().replaceAll("-", "").slice(0, 12);
+    getPresets().save(body);
+    return c.json(presets());
+  });
 
-    app.put("/v1/ai/engine-presets/:preset_id", { schema: { params: PARAMS, body: EnginePresetRow } }, async (req) => {
-      const presetId = req.params.preset_id;
-      if (!getPresets().list().some((p) => p.id === presetId)) {
-        throw new HttpError(404, `preset ${strRepr(presetId)} not found`);
+  app.put("/v1/ai/engine-presets/:preset_id", input({ params: PARAMS, body: EnginePresetRow }), async (c) => {
+    const presetId = c.req.valid("param").preset_id;
+    if (!getPresets().list().some((p) => p.id === presetId)) {
+      throw new HttpError(404, `preset ${strRepr(presetId)} not found`);
+    }
+    const body = c.req.valid("json");
+    body.id = presetId;
+    getPresets().save(body);
+    return c.json(presets());
+  });
+
+  app.delete("/v1/ai/engine-presets/:preset_id", input({ params: PARAMS }), async (c) => {
+    getPresets().delete(c.req.valid("param").preset_id);
+    return c.json(presets());
+  });
+
+  // ── factory resets (Presets page: Reset all · per-preset Reset) ────────────
+  // Restore all built-in presets + the seeded per-action refs + the default preset to
+  // factory (custom presets kept).
+  app.post("/v1/ai/engine-presets/reset", async (c) => {
+    if (resetAllFn !== null) await resetAllFn();
+    return c.json(presets());
+  });
+
+  // Reset ONE built-in preset to factory (params + samplers). 400 on a custom preset
+  // (nothing to reset to).
+  app.post("/v1/ai/engine-presets/:preset_id/reset", input({ params: PARAMS }), async (c) => {
+    if (resetOneFn !== null) {
+      try {
+        await resetOneFn(c.req.valid("param").preset_id);
+      } catch (e) {
+        if (e instanceof ValueError) throw new HttpError(400, e.message);
+        throw e;
       }
-      const body = req.body;
-      body.id = presetId;
-      getPresets().save(body);
-      return presets();
-    });
+    }
+    return c.json(presets());
+  });
 
-    app.delete("/v1/ai/engine-presets/:preset_id", { schema: { params: PARAMS } }, async (req) => {
-      getPresets().delete(req.params.preset_id);
-      return presets();
-    });
+  // ── assignments (default · per-action ref) ─────────────────────────────────
+  app.get("/v1/ai/preset-assignments", async (c) => c.json(assignments()));
 
-    // ── factory resets (Presets page: Reset all · per-preset Reset) ────────────
-    // Restore all built-in presets + the seeded per-action refs + the default preset to
-    // factory (custom presets kept).
-    app.post("/v1/ai/engine-presets/reset", async () => {
-      if (resetAllFn !== null) await resetAllFn();
-      return presets();
-    });
+  app.put("/v1/ai/preset-assignments/default", input({ body: DefaultAssignment }), async (c) => {
+    setDefault(c.req.valid("json").presetId);
+    return c.json(assignments());
+  });
 
-    // Reset ONE built-in preset to factory (params + samplers). 400 on a custom preset
-    // (nothing to reset to).
-    app.post("/v1/ai/engine-presets/:preset_id/reset", { schema: { params: PARAMS } }, async (req) => {
-      if (resetOneFn !== null) {
-        try {
-          await resetOneFn(req.params.preset_id);
-        } catch (e) {
-          if (e instanceof ValueError) throw new HttpError(400, e.message);
-          throw e;
-        }
+  // Set (or clear, presetId="") a feature's per-feature preset OVERRIDE — the top tier of
+  // the cascade. Keyed by ACTION id.
+  app.put("/v1/ai/preset-assignments/feature", input({ body: FeatureAssignment }), async (c) => {
+    const body = c.req.valid("json");
+    if (!strip(body.featureKey)) throw new HttpError(400, "featureKey is required");
+    getRefs().set(body.featureKey, body.presetId);
+    return c.json(assignments());
+  });
+
+  // Clear the per-feature override for each given feature so it re-inherits the default
+  // preset (the per-feature Reset path).
+  app.post("/v1/ai/preset-assignments/clear-features", input({ body: FeatureClearRequest }), async (c) => {
+    const refs = getRefs();
+    for (const key of c.req.valid("json").featureKeys) {
+      if (strip(key)) refs.set(key, "");
+    }
+    return c.json(assignments());
+  });
+
+  // Restore ONE feature to its DEFAULTS — the per-feature 'Reset to default':
+  // (1) its SEEDED per-action ref (the factory action→preset map — the feature's OWN
+  // default preset, e.g. grounded-chat, NOT a clear to the global default), AND
+  // (2) that built-in preset's PARAMS refreshed to the shipped seed, with provider+model
+  // set to the GLOBAL routing default (the user's 2026-07-16 decision: a real reset is
+  // FULL, not "keep"; a fresh box with no default set keeps the seed's empty model → needs
+  // Quick Setup). A feature with no seeded ref falls to the global default (empty ref).
+  app.post("/v1/ai/preset-assignments/feature/:key/reset", input({ params: KEY_PARAMS }), async (c) => {
+    const key = c.req.valid("param").key;
+    if (!strip(key)) throw new HttpError(400, "feature key is required");
+    const fp = seed.appFeaturePresets();
+    const seeded = Object.hasOwn(fp, key) ? fp[key] : "";
+    getRefs().set(key, seeded);
+    if (truthy(seeded) && resetOneFn !== null) {
+      let reset = true;
+      try {
+        await resetOneFn(seeded); // factory params + samplers (blanks model to the seed "")
+      } catch (e) {
+        if (!(e instanceof ValueError)) throw e;
+        reset = false; // a custom ref id has no factory — leave the ref only
       }
-      return presets();
-    });
-
-    // ── assignments (default · per-action ref) ─────────────────────────────────
-    app.get("/v1/ai/preset-assignments", async () => assignments());
-
-    app.put("/v1/ai/preset-assignments/default", { schema: { body: DefaultAssignment } }, async (req) => {
-      setDefault(req.body.presetId);
-      return assignments();
-    });
-
-    // Set (or clear, presetId="") a feature's per-feature preset OVERRIDE — the top tier of
-    // the cascade. Keyed by ACTION id.
-    app.put("/v1/ai/preset-assignments/feature", { schema: { body: FeatureAssignment } }, async (req) => {
-      if (!strip(req.body.featureKey)) throw new HttpError(400, "featureKey is required");
-      getRefs().set(req.body.featureKey, req.body.presetId);
-      return assignments();
-    });
-
-    // Clear the per-feature override for each given feature so it re-inherits the default
-    // preset (the per-feature Reset path).
-    app.post("/v1/ai/preset-assignments/clear-features", { schema: { body: FeatureClearRequest } }, async (req) => {
-      const refs = getRefs();
-      for (const key of req.body.featureKeys) {
-        if (strip(key)) refs.set(key, "");
-      }
-      return assignments();
-    });
-
-    // Restore ONE feature to its DEFAULTS — the per-feature 'Reset to default':
-    // (1) its SEEDED per-action ref (the factory action→preset map — the feature's OWN
-    // default preset, e.g. grounded-chat, NOT a clear to the global default), AND
-    // (2) that built-in preset's PARAMS refreshed to the shipped seed, with provider+model
-    // set to the GLOBAL routing default (the user's 2026-07-16 decision: a real reset is
-    // FULL, not "keep"; a fresh box with no default set keeps the seed's empty model → needs
-    // Quick Setup). A feature with no seeded ref falls to the global default (empty ref).
-    app.post("/v1/ai/preset-assignments/feature/:key/reset", { schema: { params: KEY_PARAMS } }, async (req) => {
-      const key = req.params.key;
-      if (!strip(key)) throw new HttpError(400, "feature key is required");
-      const fp = seed.appFeaturePresets();
-      const seeded = Object.hasOwn(fp, key) ? fp[key] : "";
-      getRefs().set(key, seeded);
-      if (truthy(seeded) && resetOneFn !== null) {
-        let reset = true;
-        try {
-          await resetOneFn(seeded); // factory params + samplers (blanks model to the seed "")
-        } catch (e) {
-          if (!(e instanceof ValueError)) throw e;
-          reset = false; // a custom ref id has no factory — leave the ref only
-        }
-        if (reset) {
-          const d = stores.getRoutingStore().getRouting().default;
-          if (d.model) {
-            const row = getPresets()
-              .list()
-              .find((p) => p.id === seeded);
-            if (row !== undefined) {
-              row.providerId = d.llmId || row.providerId;
-              row.model = d.model;
-              getPresets().save(row);
-            }
+      if (reset) {
+        const d = stores.getRoutingStore().getRouting().default;
+        if (d.model) {
+          const row = getPresets()
+            .list()
+            .find((p) => p.id === seeded);
+          if (row !== undefined) {
+            row.providerId = d.llmId || row.providerId;
+            row.model = d.model;
+            getPresets().save(row);
           }
         }
       }
-      return assignments();
-    });
-  };
+    }
+    return c.json(assignments());
+  });
+  return app;
 }

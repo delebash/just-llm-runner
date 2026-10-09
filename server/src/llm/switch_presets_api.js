@@ -10,9 +10,11 @@
 // (the GATED auto-enable layer, re-added 2026-07-05 Plan B — applied only to a model with MTP
 // enabled; an opt-out saves `spec_type=none` into `model_tunes`, which wins).
 
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { model, opt, T } from "../platform/models.js";
 import { strip } from "../platform/py.js";
+import { input } from "../platform/server.js";
 
 export const PresetSwitchRow = T.Object({
   flagName: T.String(),
@@ -37,30 +39,32 @@ export const SwitchPresetsResponse = T.Object({
 
 /** CRUD + reset for the capability/type switch presets. */
 export function makeSwitchPresetsRouter(getStore) {
-  return async function switchPresetsRouter(app) {
-    const list = () => model(SwitchPresetsResponse, { rows: getStore().list() });
+  const app = new Hono();
+  const list = () => model(SwitchPresetsResponse, { rows: getStore().list() });
 
-    app.get("/v1/ai/switch-presets", async () => list());
+  app.get("/v1/ai/switch-presets", async (c) => c.json(list()));
 
-    app.put("/v1/ai/switch-presets", { schema: { body: SwitchPresetRow } }, async (req) => {
-      if (!strip(req.body.id)) throw new HttpError(400, "id is required");
-      getStore().upsert(req.body);
-      return list();
-    });
+  app.put("/v1/ai/switch-presets", input({ body: SwitchPresetRow }), async (c) => {
+    const body = c.req.valid("json");
+    if (!strip(body.id)) throw new HttpError(400, "id is required");
+    getStore().upsert(body);
+    return c.json(list());
+  });
 
-    app.delete(
-      "/v1/ai/switch-presets",
-      { schema: { querystring: T.Object({ presetId: T.String() }) } },
-      async (req) => {
-        if (!strip(req.query.presetId)) throw new HttpError(400, "presetId is required");
-        getStore().delete(req.query.presetId);
-        return list();
-      },
-    );
+  app.delete(
+    "/v1/ai/switch-presets",
+    input({ querystring: T.Object({ presetId: T.String() }) }),
+    async (c) => {
+      const { presetId } = c.req.valid("query");
+      if (!strip(presetId)) throw new HttpError(400, "presetId is required");
+      getStore().delete(presetId);
+      return c.json(list());
+    },
+  );
 
-    app.post("/v1/ai/switch-presets/reset", async () => {
-      getStore().resetToFactory();
-      return list();
-    });
-  };
+  app.post("/v1/ai/switch-presets/reset", async (c) => {
+    getStore().resetToFactory();
+    return c.json(list());
+  });
+  return app;
 }

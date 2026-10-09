@@ -56,13 +56,15 @@ test("reset_restores_factory", () => {
 // Not in the Python file: the router's answers (verified against the Python router).
 test("the switch-presets router answers as FastAPI did", async () => {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeSwitchPresetsRouter(stores.getSwitchPresetStore));
-  let r = await app.inject({ method: "GET", url: "/v1/ai/switch-presets" });
-  expect(r.statusCode).toBe(200);
-  expect(r.json().rows.map((x) => x.id)).toEqual(stores.getSwitchPresetStore().list().map((x) => x.id));
-  r = await app.inject({ method: "PUT", url: "/v1/ai/switch-presets", payload: { id: "turbo", junk: 1, switches: [{ flagName: "x" }] } });
-  expect(r.statusCode).toBe(200);
-  expect(r.json().rows.find((x) => x.id === "turbo")).toEqual({
+  app.route("/", makeSwitchPresetsRouter(stores.getSwitchPresetStore));
+  const put = (payload) =>
+    app.request("/v1/ai/switch-presets", { method: "PUT", body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
+  let r = await app.request("/v1/ai/switch-presets", { method: "GET" });
+  expect(r.status).toBe(200);
+  expect((await r.json()).rows.map((x) => x.id)).toEqual(stores.getSwitchPresetStore().list().map((x) => x.id));
+  r = await put({ id: "turbo", junk: 1, switches: [{ flagName: "x" }] });
+  expect(r.status).toBe(200);
+  expect((await r.json()).rows.find((x) => x.id === "turbo")).toEqual({
     id: "turbo",
     label: "",
     appliesTo: "all",
@@ -70,16 +72,16 @@ test("the switch-presets router answers as FastAPI did", async () => {
     builtIn: false,
     switches: [{ flagName: "x", flagValue: "" }],
   });
-  r = await app.inject({ method: "PUT", url: "/v1/ai/switch-presets", payload: { id: "  " } });
-  expect(r.statusCode).toBe(400);
-  expect(r.json().detail).toBe("id is required");
-  r = await app.inject({ method: "DELETE", url: "/v1/ai/switch-presets" });
-  expect(r.statusCode).toBe(422);
-  expect(r.json().errors).toEqual([{ loc: ["query", "presetId"], msg: "Field required", type: "missing" }]);
-  r = await app.inject({ method: "DELETE", url: "/v1/ai/switch-presets?presetId=%20" });
-  expect(r.statusCode).toBe(400);
-  r = await app.inject({ method: "DELETE", url: "/v1/ai/switch-presets?presetId=turbo" });
-  expect(r.json().rows.some((x) => x.id === "turbo")).toBe(false);
-  r = await app.inject({ method: "POST", url: "/v1/ai/switch-presets/reset" });
-  expect(r.statusCode).toBe(200);
+  r = await put({ id: "  " });
+  expect(r.status).toBe(400);
+  expect((await r.json()).detail).toBe("id is required");
+  r = await app.request("/v1/ai/switch-presets", { method: "DELETE" });
+  expect(r.status).toBe(422);
+  expect((await r.json()).errors).toEqual([{ loc: ["query", "presetId"], msg: "Field required", type: "missing" }]);
+  r = await app.request("/v1/ai/switch-presets?presetId=%20", { method: "DELETE" });
+  expect(r.status).toBe(400);
+  r = await app.request("/v1/ai/switch-presets?presetId=turbo", { method: "DELETE" });
+  expect((await r.json()).rows.some((x) => x.id === "turbo")).toBe(false);
+  r = await app.request("/v1/ai/switch-presets/reset", { method: "POST" });
+  expect(r.status).toBe(200);
 });

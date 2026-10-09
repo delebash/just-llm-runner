@@ -17,7 +17,8 @@ const savedApp = structuredClone(seed.cfg._APP);
 beforeEach(() => {
   h = freshDb({ foreignKeys: false }); // Python's sqlite connection never turns them on
   client = createServer({ typeBase: "https://example.test/errors/" });
-  client.register(
+  client.route(
+    "/",
     makePresetsRouter(
       stores.getEnginePresetStore,
       stores.getDefaultPresetId,
@@ -32,8 +33,15 @@ afterEach(() => {
   seed.cfg._APP = structuredClone(savedApp); // configureAppSeed is process state
 });
 
-const req = async (method, url, payload) => client.inject({ method, url, payload });
-const pid = (resp, name) => resp.json().presets.find((p) => p.name === name).id;
+// an object payload goes as JSON, with its content type
+const req = async (method, url, payload) =>
+  client.request(
+    url,
+    payload === undefined
+      ? { method }
+      : { method, body: JSON.stringify(payload), headers: { "content-type": "application/json" } },
+  );
+const pid = async (resp, name) => (await resp.json()).presets.find((p) => p.name === name).id;
 
 test("preset_crud_roundtrip", async () => {
   let r = await req("POST", "/v1/ai/engine-presets", {
@@ -44,8 +52,8 @@ test("preset_crud_roundtrip", async () => {
     maxTokens: 2048,
     samplers: [{ flagName: "top_k", flagValue: "40" }],
   });
-  expect(r.statusCode).toBe(200);
-  const presets = r.json().presets;
+  expect(r.status).toBe(200);
+  const presets = (await r.json()).presets;
   expect(presets.length).toBe(1);
   let p = presets[0];
   expect(p.id && p.model === "qwen3-14b-q4_k_m" && p.temperature === 0.9).toBe(true);
@@ -63,33 +71,33 @@ test("preset_crud_roundtrip", async () => {
     jsonMode: true, // a stale jsonMode is ignored
     samplers: [{ flagName: "min_p", flagValue: "0.05" }],
   });
-  p = r.json().presets[0];
+  p = (await r.json()).presets[0];
   expect(p.temperature === 0.8 && p.samplers[0].flagName === "min_p").toBe(true);
   expect("jsonMode" in p).toBe(false);
 
-  expect((await req("DELETE", `/v1/ai/engine-presets/${id}`)).json().presets).toEqual([]);
-  expect((await req("PUT", "/v1/ai/engine-presets/nope", { name: "x" })).statusCode).toBe(404);
+  expect((await (await req("DELETE", `/v1/ai/engine-presets/${id}`)).json()).presets).toEqual([]);
+  expect((await req("PUT", "/v1/ai/engine-presets/nope", { name: "x" })).status).toBe(404);
 });
 
 test("assignment_layers", async () => {
-  const a = pid(await req("POST", "/v1/ai/engine-presets", { name: "A", model: "m-a" }), "A");
-  const b = pid(await req("POST", "/v1/ai/engine-presets", { name: "B", model: "m-b" }), "B");
+  const a = await pid(await req("POST", "/v1/ai/engine-presets", { name: "A", model: "m-a" }), "A");
+  const b = await pid(await req("POST", "/v1/ai/engine-presets", { name: "B", model: "m-b" }), "B");
   await req("PUT", "/v1/ai/preset-assignments/default", { presetId: a });
-  let asg = (await req("GET", "/v1/ai/preset-assignments")).json();
+  let asg = await (await req("GET", "/v1/ai/preset-assignments")).json();
   expect(asg.defaultPresetId).toBe(a);
   expect(asg.features).toEqual({});
   expect("taskKinds" in asg).toBe(false); // the task tier is gone (2026-07-15)
   // a per-action ref PUT lands in `features`, keyed by action id
-  asg = (await req("PUT", "/v1/ai/preset-assignments/feature", { featureKey: "writerAI.continue", presetId: b })).json();
+  asg = await (await req("PUT", "/v1/ai/preset-assignments/feature", { featureKey: "writerAI.continue", presetId: b })).json();
   expect(asg.features["writerAI.continue"]).toBe(b);
   // clear-features drops the ref(s) → the action falls to the default
-  asg = (await req("POST", "/v1/ai/preset-assignments/clear-features", { featureKeys: ["writerAI.continue"] })).json();
+  asg = await (await req("POST", "/v1/ai/preset-assignments/clear-features", { featureKeys: ["writerAI.continue"] })).json();
   expect("writerAI.continue" in asg.features).toBe(false);
 });
 
 test("resolve_ref_then_default", async () => {
-  const a = pid(await req("POST", "/v1/ai/engine-presets", { name: "A", model: "m-a" }), "A");
-  const b = pid(await req("POST", "/v1/ai/engine-presets", { name: "B", model: "m-b" }), "B");
+  const a = await pid(await req("POST", "/v1/ai/engine-presets", { name: "A", model: "m-a" }), "A");
+  const b = await pid(await req("POST", "/v1/ai/engine-presets", { name: "B", model: "m-b" }), "B");
   await req("PUT", "/v1/ai/preset-assignments/default", { presetId: a });
   await req("PUT", "/v1/ai/preset-assignments/feature", { featureKey: "writerAI.continue", presetId: b });
 
@@ -133,7 +141,7 @@ test("reset_all_restores_built_ins", async () => {
   stores.getFeaturePresetRefStore().set("critique", custom.id);
   stores.setDefaultPresetId(custom.id);
 
-  expect((await req("POST", "/v1/ai/engine-presets/reset")).statusCode).toBe(200);
+  expect((await req("POST", "/v1/ai/engine-presets/reset")).status).toBe(200);
 
   const fac = eps.list().find((p) => p.id === "p_fac");
   expect(fac.name === "Factory" && fac.model === "m-fac").toBe(true); // built-in restored
@@ -159,14 +167,14 @@ test("reset_one_preset", async () => {
     samplers: [{ flagName: "top_k", flagValue: "1" }],
   });
 
-  expect((await req("POST", "/v1/ai/engine-presets/p_one/reset")).statusCode).toBe(200);
+  expect((await req("POST", "/v1/ai/engine-presets/p_one/reset")).status).toBe(200);
 
   const one = eps.list().find((p) => p.id === "p_one");
   expect(one.name === "One" && one.model === "m1" && one.temperature === 0.2).toBe(true);
   expect(new Set(one.samplers.map((x) => x.flagName))).toEqual(new Set(["seed"])); // factory samplers restored
   // a custom preset has no factory → 400
   const custom = eps.save({ name: "Custom", providerId: "local-llamacpp", model: "c" });
-  expect((await req("POST", `/v1/ai/engine-presets/${custom.id}/reset`)).statusCode).toBe(400);
+  expect((await req("POST", `/v1/ai/engine-presets/${custom.id}/reset`)).status).toBe(400);
 });
 
 test("engine_preset_name_refresh", () => {
@@ -209,19 +217,20 @@ test("engine_preset_delete_removes_children", () => {
 // Not in the Python file: the router's remaining answers (checked against the Python router).
 test("the presets router answers as FastAPI did", async () => {
   let r = await req("POST", "/v1/ai/engine-presets", { name: "  " });
-  expect(r.statusCode).toBe(400);
-  expect(r.json().detail).toBe("name is required");
+  expect(r.status).toBe(400);
+  expect((await r.json()).detail).toBe("name is required");
   r = await req("PUT", "/v1/ai/engine-presets/nope", { name: "x" });
-  expect(r.json().detail).toBe("preset 'nope' not found");
+  expect((await r.json()).detail).toBe("preset 'nope' not found");
   r = await req("PUT", "/v1/ai/preset-assignments/feature", { featureKey: " " });
-  expect(r.statusCode).toBe(400);
-  expect(r.json().detail).toBe("featureKey is required");
+  expect(r.status).toBe(400);
+  expect((await r.json()).detail).toBe("featureKey is required");
   r = await req("POST", "/v1/ai/preset-assignments/feature/%20/reset");
-  expect(r.statusCode).toBe(400);
-  expect(r.json().detail).toBe("feature key is required");
+  expect(r.status).toBe(400);
+  expect((await r.json()).detail).toBe("feature key is required");
   r = await req("POST", "/v1/ai/engine-presets", { name: "N", model: "m" });
-  expect(r.json().presets[0]).toEqual({
-    id: r.json().presets[0].id,
+  const body = await r.json();
+  expect(body.presets[0]).toEqual({
+    id: body.presets[0].id,
     name: "N",
     providerId: "",
     model: "m",
@@ -235,10 +244,10 @@ test("the presets router answers as FastAPI did", async () => {
     position: 0,
     factoryModel: "",
   });
-  expect(r.json().presets[0].id).toMatch(/^[0-9a-f]{12}$/);
+  expect(body.presets[0].id).toMatch(/^[0-9a-f]{12}$/);
   // pydantic's lax conversion of a JSON body: "0.5" → 0.5, "7" → 7, "yes" → true
   r = await req("POST", "/v1/ai/engine-presets", { name: "T", temperature: "0.5", maxTokens: "7", think: "yes" });
-  const t = r.json().presets.find((x) => x.name === "T");
+  const t = (await r.json()).presets.find((x) => x.name === "T");
   expect([t.temperature, t.maxTokens, t.think, t.position]).toEqual([0.5, 7, true, 1]);
 });
 
@@ -256,8 +265,8 @@ test("reset_feature_ref restores the seeded ref and points it at the routing def
   stores.getEnginePresetStore().save({ id: "p_s", name: "Seed", temperature: 0.9 });
   stores.getFeaturePresetRefStore().set("critique", "");
   const r = await req("POST", "/v1/ai/preset-assignments/feature/critique/reset");
-  expect(r.statusCode).toBe(200);
-  expect(r.json()).toEqual({ defaultPresetId: "", features: { critique: "p_s" } });
+  expect(r.status).toBe(200);
+  expect(await r.json()).toEqual({ defaultPresetId: "", features: { critique: "p_s" } });
   const p = stores
     .getEnginePresetStore()
     .list()
@@ -266,5 +275,5 @@ test("reset_feature_ref restores the seeded ref and points it at the routing def
   // a feature with no seeded ref → the ref clears (falls to the global default)
   stores.getFeaturePresetRefStore().set("other", "p_s");
   const r2 = await req("POST", "/v1/ai/preset-assignments/feature/other/reset");
-  expect(r2.json().features).toEqual({ critique: "p_s" });
+  expect((await r2.json()).features).toEqual({ critique: "p_s" });
 });

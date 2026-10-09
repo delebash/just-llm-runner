@@ -30,7 +30,7 @@ afterEach(() => {
 
 function client() {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(runnerRouter);
+  app.route("/", runnerRouter());
   return app;
 }
 
@@ -50,9 +50,9 @@ test("config_endpoint_camelcase", async () => {
   // temp folder rather than the user cache.
   vi.stubEnv("LLM_RUNNER_CACHE", mkdtempSync(join(tmpdir(), "kit-config-")));
   lifecycle.configureService({ configFn: defaultConfig });
-  const r = await client().inject({ method: "GET", url: "/v1/llm-runner/config" });
-  expect(r.statusCode).toBe(200);
-  const body = r.json();
+  const r = await client().request("/v1/llm-runner/config");
+  expect(r.status).toBe(200);
+  const body = await r.json();
   expect("safetyMarginMb" in body && body.safetyMarginMb > 0).toBe(true);
   expect(body.llamacpp.pinnedBuild).toBeTruthy();
   expect("pinned_build" in body.llamacpp).toBe(false); // snake_case must not leak
@@ -60,9 +60,9 @@ test("config_endpoint_camelcase", async () => {
 });
 
 test("hardware_endpoint", async () => {
-  const r = await client().inject({ method: "GET", url: "/v1/llm-runner/hardware" });
-  expect(r.statusCode).toBe(200);
-  const body = r.json();
+  const r = await client().request("/v1/llm-runner/hardware");
+  expect(r.status).toBe(200);
+  const body = await r.json();
   expect(["windows", "macos", "linux"]).toContain(body.platform);
   expect("cpuCores" in body && "runtimes" in body).toBe(true);
 });
@@ -93,9 +93,9 @@ test("hardware_endpoint_refreshes_the_stored_detection", async () => {
   vi.spyOn(hardware, "detect").mockResolvedValue(box);
   try {
     const app = createServer({ typeBase: "t/" });
-    app.register(runnerRouter);
-    const r = await app.inject({ url: "/v1/llm-runner/hardware" });
-    expect(r.statusCode).toBe(200);
+    app.route("/", runnerRouter());
+    const r = await app.request("/v1/llm-runner/hardware");
+    expect(r.status).toBe(200);
     expect(hardware.detected()).toEqual(box);
   } finally {
     hardware.setDetected(before);

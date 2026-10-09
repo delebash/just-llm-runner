@@ -20,9 +20,11 @@
 // edited config is the user's now; a fully DELETED built-in re-seeds next start — the UI
 // offers Edit, not Delete, on built-ins).
 
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
 import { pyInt, ValueError } from "../platform/py.js";
+import { input } from "../platform/server.js";
 
 export const ClassTuneFlag = T.Object({
   flagName: T.String(),
@@ -99,89 +101,89 @@ const strip = (s) => String(s ?? "").trim();
  * for a bare mount.
  */
 export function makeClassTunesRouter(getStore, classKeyFn, { hwClassStore = null, deriveKeyFn = null, parseKeyFn = null } = {}) {
-  return async function classTunesRouter(app) {
-    const classes = () => (hwClassStore ? hwClassStore().listAll().map((r) => model(HardwareClassRow, r)) : []);
-    const response = () =>
-      model(ClassTunesResponse, { classKey: classKeyFn(), classes: classes(), tunes: getStore().listAll() });
+  const app = new Hono();
+  const classes = () => (hwClassStore ? hwClassStore().listAll().map((r) => model(HardwareClassRow, r)) : []);
+  const response = () =>
+    model(ClassTunesResponse, { classKey: classKeyFn(), classes: classes(), tunes: getStore().listAll() });
 
-    app.get("/v1/ai/class-tunes", async () => response());
+  app.get("/v1/ai/class-tunes", async (c) => c.json(response()));
 
-    app.put("/v1/ai/class-tunes", { schema: { body: ClassTunePut } }, async (req) => {
-      const body = model(ClassTunePut, req.body);
-      if (!strip(body.modelId)) throw new HttpError(400, "modelId is required");
-      const classKey = strip(body.classKey) || classKeyFn();
-      if (!body.switches.some((f) => strip(f.flagName || ""))) {
-        throw new HttpError(400, "at least one switch is required");
+  app.put("/v1/ai/class-tunes", input({ body: ClassTunePut }), async (c) => {
+    const body = model(ClassTunePut, c.req.valid("json"));
+    if (!strip(body.modelId)) throw new HttpError(400, "modelId is required");
+    const classKey = strip(body.classKey) || classKeyFn();
+    if (!body.switches.some((f) => strip(f.flagName || ""))) {
+      throw new HttpError(400, "at least one switch is required");
+    }
+    // Ensure the class row exists (the 'Save for hardware class' path may save a config
+    // for the box's class before any class form created it).
+    if (hwClassStore && parseKeyFn) {
+      const [mt, v, r] = parseKeyFn(classKey);
+      hwClassStore().ensure(classKey, mt, v, r);
+    }
+    getStore().replace(strip(body.modelId), classKey, body.switches);
+    return c.json(response());
+  });
+
+  app.delete(
+    "/v1/ai/class-tunes",
+    input({ querystring: T.Object({ modelId: T.String(), classKey: T.String() }) }),
+    async (c) => {
+      const { modelId, classKey } = c.req.valid("query");
+      if (!strip(modelId) || !strip(classKey)) throw new HttpError(400, "modelId and classKey are required");
+      getStore().delete(strip(modelId), strip(classKey));
+      return c.json(response());
+    },
+  );
+
+  if (hwClassStore && deriveKeyFn) {
+    app.put("/v1/ai/hardware-class", input({ body: HardwareClassPut }), async (c) => {
+      const body = model(HardwareClassPut, c.req.valid("json"));
+      let memType = strip(body.memType || "discrete").toLowerCase();
+      if (!["discrete", "integrated", "unified"].includes(memType)) {
+        throw new HttpError(400, "memType must be discrete, integrated, or unified");
       }
-      // Ensure the class row exists (the 'Save for hardware class' path may save a config
-      // for the box's class before any class form created it).
-      if (hwClassStore && parseKeyFn) {
-        const [mt, v, r] = parseKeyFn(classKey);
-        hwClassStore().ensure(classKey, mt, v, r);
+      let vram = pyInt(body.vramGb || 0);
+      let ram = pyInt(body.ramGb || 0); // discrete: system RAM · integrated/unified: the pool
+      if (ram <= 0) throw new HttpError(400, "memory must be a positive whole number of GB");
+      if (memType === "discrete" && vram <= 0) throw new HttpError(400, "a discrete GPU class needs its VRAM in GB");
+      if (memType !== "discrete") vram = 0; // one-pool types carry no separate VRAM
+      const classKey = deriveKeyFn(memType, vram, ram);
+      if (parseKeyFn) {
+        // The stored numbers come FROM the derived key (2026-07-25): derive is the BANDED
+        // builder (a typed vram 10 keys as the 8 band), and a row whose own numbers
+        // disagreed with its key would lie to every parseClassKey consumer. With an
+        // un-banded derive this is identity.
+        [memType, vram, ram] = parseKeyFn(classKey);
       }
-      getStore().replace(strip(body.modelId), classKey, body.switches);
-      return response();
+      try {
+        hwClassStore().save(
+          classKey,
+          memType,
+          vram,
+          ram,
+          body.name || "",
+          body.origClassKey || "",
+          body.vramBwGbps,
+          body.ramBwGbps,
+        );
+      } catch (e) {
+        if (e instanceof ValueError) throw new HttpError(409, e.message);
+        throw e;
+      }
+      return c.json(response());
     });
 
     app.delete(
-      "/v1/ai/class-tunes",
-      { schema: { querystring: T.Object({ modelId: T.String(), classKey: T.String() }) } },
-      async (req) => {
-        const { modelId, classKey } = req.query;
-        if (!strip(modelId) || !strip(classKey)) throw new HttpError(400, "modelId and classKey are required");
-        getStore().delete(strip(modelId), strip(classKey));
-        return response();
+      "/v1/ai/hardware-class",
+      input({ querystring: T.Object({ classKey: T.String() }) }),
+      async (c) => {
+        const { classKey } = c.req.valid("query");
+        if (!strip(classKey)) throw new HttpError(400, "classKey is required");
+        hwClassStore().delete(strip(classKey));
+        return c.json(response());
       },
     );
-
-    if (hwClassStore && deriveKeyFn) {
-      app.put("/v1/ai/hardware-class", { schema: { body: HardwareClassPut } }, async (req) => {
-        const body = model(HardwareClassPut, req.body);
-        let memType = strip(body.memType || "discrete").toLowerCase();
-        if (!["discrete", "integrated", "unified"].includes(memType)) {
-          throw new HttpError(400, "memType must be discrete, integrated, or unified");
-        }
-        let vram = pyInt(body.vramGb || 0);
-        let ram = pyInt(body.ramGb || 0); // discrete: system RAM · integrated/unified: the pool
-        if (ram <= 0) throw new HttpError(400, "memory must be a positive whole number of GB");
-        if (memType === "discrete" && vram <= 0) throw new HttpError(400, "a discrete GPU class needs its VRAM in GB");
-        if (memType !== "discrete") vram = 0; // one-pool types carry no separate VRAM
-        const classKey = deriveKeyFn(memType, vram, ram);
-        if (parseKeyFn) {
-          // The stored numbers come FROM the derived key (2026-07-25): derive is the BANDED
-          // builder (a typed vram 10 keys as the 8 band), and a row whose own numbers
-          // disagreed with its key would lie to every parseClassKey consumer. With an
-          // un-banded derive this is identity.
-          [memType, vram, ram] = parseKeyFn(classKey);
-        }
-        try {
-          hwClassStore().save(
-            classKey,
-            memType,
-            vram,
-            ram,
-            body.name || "",
-            body.origClassKey || "",
-            body.vramBwGbps,
-            body.ramBwGbps,
-          );
-        } catch (e) {
-          if (e instanceof ValueError) throw new HttpError(409, e.message);
-          throw e;
-        }
-        return response();
-      });
-
-      app.delete(
-        "/v1/ai/hardware-class",
-        { schema: { querystring: T.Object({ classKey: T.String() }) } },
-        async (req) => {
-          const { classKey } = req.query;
-          if (!strip(classKey)) throw new HttpError(400, "classKey is required");
-          hwClassStore().delete(strip(classKey));
-          return response();
-        },
-      );
-    }
-  };
+  }
+  return app;
 }

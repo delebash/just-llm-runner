@@ -22,24 +22,24 @@ beforeEach(() => {
   freshDb();
   app = createServer({ typeBase: "https://example.test/errors/" });
   // machineKeyFn injected — the SERVER stamps which box measured (one source).
-  app.register(makeModelMeasurementsRouter(stores.getModelMeasurementStore, () => "gpu|8g|8c|32g"));
+  app.route("/", makeModelMeasurementsRouter(stores.getModelMeasurementStore, () => "gpu|8g|8c|32g"));
 });
 
+/** A POST with a JSON body. */
+const postRaw = (payload) =>
+  app.request("/v1/ai/model-measurements", { method: "POST", body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
+
 async function post(modelId, tps, switches = null, kw = {}) {
-  const r = await app.inject({
-    method: "POST",
-    url: "/v1/ai/model-measurements",
-    payload: {
-      modelId,
-      tokensPerSec: tps,
-      switches: Object.entries(switches || {}).map(([flagName, flagValue]) => ({ flagName, flagValue })),
-      ...kw,
-    },
+  const r = await postRaw({
+    modelId,
+    tokensPerSec: tps,
+    switches: Object.entries(switches || {}).map(([flagName, flagValue]) => ({ flagName, flagValue })),
+    ...kw,
   });
   return r.json();
 }
-const get = async (url) => (await app.inject({ method: "GET", url })).json();
-const del = async (url) => (await app.inject({ method: "DELETE", url })).json();
+const get = async (url) => (await app.request(url, { method: "GET" })).json();
+const del = async (url) => (await app.request(url, { method: "DELETE" })).json();
 
 test("post_records_with_server_stamped_identity_and_clock", async () => {
   const r = await post("m1", 31.5, { n_cpu_moe: "21", ctx_len: "32768" }, { label: "", vramTotalMb: 7200 });
@@ -79,8 +79,8 @@ test("clear_per_model_then_all", async () => {
 });
 
 test("post_requires_model_id", async () => {
-  const r = await app.inject({ method: "POST", url: "/v1/ai/model-measurements", payload: { modelId: " ", tokensPerSec: 1 } });
-  expect(r.statusCode).toBe(400);
+  const r = await postRaw({ modelId: " ", tokensPerSec: 1 });
+  expect(r.status).toBe(400);
 });
 
 test("store_record_dedupes_and_skips_blank_flag_names", () => {

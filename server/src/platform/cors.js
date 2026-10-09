@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Starlette's CORSMiddleware (starlette 1.3.1, `middleware/cors.py` — the version JustWrite and
-// JustVoice ran) as a Fastify `onRequest` hook. Ported in JustWrite's step of the Electron move
+// JustVoice ran) as a Hono middleware. Ported in JustWrite's step of the Electron move
 // (2026-10-08) and moved here the same day: every family app configures CORS through it —
 // JustWrite and JustVoice from their `cors` settings section, docgen allow-all.
 //
@@ -13,10 +13,10 @@
 //     allowed, else the request's own origin + `Vary: Origin` when it is allowed, and
 //     `Access-Control-Allow-Credentials: true` when credentials are on (on every answer, as
 //     Starlette does, even to an origin it doesn't allow).
-// Stamped in onRequest (the headers stay on the reply whatever answers it).
+// Stamped before the route runs (Hono keeps headers set on `c` on whatever answer follows).
 //
-// Wiring: `app.register(CorsMiddleware, {allowOrigins, allowOriginRegex, …})` on the root
-// instance, AFTER the CSRF hook and BEFORE the auth hook (Starlette ran the last-added
+// Wiring: `app.use("*", starletteCors({allowOrigins, allowOriginRegex, …}))` on the app, before
+// its routes, AFTER the CSRF middleware and BEFORE the auth middleware (Starlette ran the last-added
 // middleware first: CSRF outermost, then CORS, then auth) — so a CSRF 403 carries no CORS
 // headers, and CORS answers preflights before auth sees them.
 
@@ -35,8 +35,8 @@ function pyFullMatcher(pattern) {
   return (s) => re.test(s);
 }
 
-/** The hook for one configuration (Starlette's `CORSMiddleware.__init__` arguments). */
-export function corsHook({
+/** The middleware for one configuration (Starlette's `CORSMiddleware.__init__` arguments). */
+export function starletteCors({
   allowOrigins = [],
   allowMethods = ["GET"],
   allowHeaders = [],
@@ -75,11 +75,11 @@ export function corsHook({
     return allowOrigins.includes(origin);
   };
 
-  const preflight = (request, reply) => {
-    const requestedOrigin = request.headers.origin;
-    const requestedMethod = request.headers["access-control-request-method"];
-    const requestedHeaders = request.headers["access-control-request-headers"];
-    const requestedPrivateNetwork = request.headers["access-control-request-private-network"];
+  const preflight = (c) => {
+    const requestedOrigin = c.req.header("origin");
+    const requestedMethod = c.req.header("access-control-request-method");
+    const requestedHeaders = c.req.header("access-control-request-headers");
+    const requestedPrivateNetwork = c.req.header("access-control-request-private-network");
     const headers = { ...preflightHeaders };
     const failures = [];
 
@@ -107,34 +107,26 @@ export function corsHook({
     }
 
     const ok = !failures.length;
-    reply
-      .code(ok ? 200 : 400)
-      .headers(headers)
-      .type("text/plain; charset=utf-8")
-      .send(ok ? "OK" : `Disallowed CORS ${failures.join(", ")}`);
-    return reply;
+    return c.body(ok ? "OK" : `Disallowed CORS ${failures.join(", ")}`, ok ? 200 : 400, {
+      ...headers,
+      "Content-Type": "text/plain; charset=utf-8",
+    });
   };
 
-  return async function cors(request, reply) {
-    const origin = request.headers.origin;
-    if (origin === undefined) return;
-    if (request.method === "OPTIONS" && request.headers["access-control-request-method"] !== undefined) {
-      return preflight(request, reply);
+  return async function starletteCorsMiddleware(c, next) {
+    const origin = c.req.header("origin");
+    if (origin === undefined) return next();
+    if (c.req.method === "OPTIONS" && c.req.header("access-control-request-method") !== undefined) {
+      return preflight(c);
     }
-    reply.headers(simpleHeaders);
+    for (const [k, v] of Object.entries(simpleHeaders)) c.header(k, v);
     // With credentials allowed, the answer names the origin instead of '*'; with specific
     // origins, an allowed Origin is mirrored back.
     if ((allowAllOrigins && allowCredentials) || (!allowAllOrigins && isAllowedOrigin(origin))) {
-      reply.header("Access-Control-Allow-Origin", origin);
-      const vary = reply.getHeader("vary");
-      reply.header("Vary", vary ? `${vary}, Origin` : "Origin");
+      c.header("Access-Control-Allow-Origin", origin);
+      const vary = c.res.headers.get("vary");
+      c.header("Vary", vary ? `${vary}, Origin` : "Origin");
     }
+    return next();
   };
 }
-
-/** `app.add_middleware(CORSMiddleware, …)` → `app.register(CorsMiddleware, {…})`. Not
- * encapsulated (skip-override), so the hook covers every route and the 404 handler. */
-export async function CorsMiddleware(app, opts) {
-  app.addHook("onRequest", corsHook(opts));
-}
-CorsMiddleware[Symbol.for("skip-override")] = true;

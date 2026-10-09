@@ -161,10 +161,15 @@ server's files resolve from its own folder: in the packaged app the package sits
 checkout `npm run server` runs it from source on Electron's Node (`node scripts/node24.js
 server/src/serve.js serve` — the runtime it ships on, the one its native modules are built for);
 headless it is the app's exe run as Node on the installed copy (below). Its shape: `serve.js`
-(`serve [--host] [--port] [--data-dir] [--log-level]`) through the kit's `runServer`, a Fastify app
-from the kit's `createServer`, the family guards registered outermost first
-(`CsrfOriginMiddleware`, `CorsMiddleware`, `BearerAuthMiddleware`), the AI stack (where the app has
-one) mounted with `installLlm` (§8), the built UI (`dist/spa`) served at `/` for the headless path.
+(`serve [--host] [--port] [--data-dir] [--log-level]`) through the kit's `runServer`, a Hono app
+from the kit's `createServer`, the family guards added outermost first and before every route
+(`app.use("*", csrfOrigin(…))`, `starletteCors(…)`, `bearerAuth(…)` — Hono runs middleware in the
+order added, for the routes added after it), the routers mounted with `app.route()`, the AI stack
+(where the app has one) mounted with `installLlm` (§8), the built UI (`dist/spa`) served at `/` for
+the headless path (the kit's `serveStatic`, GET only). **One Hono:** an app takes `Hono`, `stream`
+and `serveStatic` from the kit (`@delebash/llm-runner/platform`), never from `hono` itself — a
+second copy's sub-apps answer errors with Hono's plain 500 (the kit's
+`docs/plans/2026-10-09-hono-standard.md` §10, which also has the route-by-route rules).
 The CSRF guard allows the window's `app://<id>` (the app's own origins), the phone's webview
 origins (the kit's `CAPACITOR_ORIGINS`) and Quasar's dev server.
 
@@ -173,12 +178,12 @@ origins (the kit's `CAPACITOR_ORIGINS`) and Quasar's dev server.
   registered before CORS so errors flow out through it, and a test that sends an `Origin:` header
   and asserts `access-control-allow-origin` comes back (no same-origin `inject` test can see a
   missing CORS — the 2026-08-02 i18n rewrite shipped 126 green tests and zero working browser
-  requests) — from the kit's `platform` (`BearerAuthMiddleware`, `CsrfOriginMiddleware`,
+  requests) — from the kit's `platform` (`bearerAuth`, `csrfOrigin`, `starletteCors`,
   `installErrorHandlers`, `makePrefsRouter`, `makeLogsRouter`, `makeDiskRouter`,
   `makeDataRouter`). The window's origin `app://<id>` is cross-site, so a JSON POST sends a
   preflight; the server's CORS and CSRF allowlists carry it.
 - **Tests**: `server/tests/*.test.js`, vitest on Electron's Node (`npm run test:server`); routes
-  through `fastify.inject`.
+  through Hono's `app.request`.
 - **Headless is the app's own exe run as Node**: `build/launcher/<app>-server.cmd` sets
   `ELECTRON_RUN_AS_NODE=1` and runs the exe on
   `resources/app.asar/node_modules/<app>-server/src/serve.js`; the builder config in
@@ -273,8 +278,11 @@ phone's network config (plain HTTP to private addresses), file sharing and permi
 Plugins install in `src-capacitor/`.
 
 **The in-app server** (the plan: `docs/plans/2026-10-08-the-phone.md`). The phone runs the app's
-own Fastify server in a web worker, on the official SQLite WASM over OPFS (tested on Android 16
-and iOS 18.7 — `just-sqlite-sync`'s RESEARCH), and the window's requests go there:
+own Hono server in a web worker (`app.fetch` — no stand-ins for Node's http), on the official
+SQLite WASM over OPFS (tested on Android 16 and iOS 18.7 — `just-sqlite-sync`'s RESEARCH), and the
+window's requests go there; a module that needs the disk has a `<name>.phone.js` version chosen
+by the package's `"imports"` with a `"browser"` condition (Node's subpath imports — the kit's
+`#runner/lifecycle`, JustWrite's `#app_state`, …):
 - the server: `server/src/phone.js` builds it on an open database handle (the routes the phone
   runs; no network door); `src/phone/server-worker.js` is the worker's entry, through the kit's
   `serveInWorker` (`server/src/platform/worker/runtime.js`);

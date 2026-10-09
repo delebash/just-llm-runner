@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
-// The in-app server: an app's own Fastify server answering inside a web worker, on SQLite WASM
+// The in-app server: an app's own Hono server answering inside a web worker, on SQLite WASM
 // over the origin-private file system — how the phone runs the app's server (docs/plans/
 // 2026-10-08-the-phone.md). The routes, validation and error answers are the app's and the
 // kit's, unchanged; requests arrive as messages from the window (the kit UI's `workerFetch`) and
-// are answered through Fastify's `inject`, the body streamed back chunk by chunk (an AI answer
-// arrives as it's written).
+// are answered by the app's own `app.fetch(request)` (Hono runs on the web-standard Request and
+// Response — docs/plans/2026-10-09-hono-standard.md), the body streamed back chunk by chunk (an
+// AI answer arrives as it's written).
 //
 //   // the app's worker entry (bundled with ./esbuild.js's plugin)
 //   import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
@@ -21,7 +22,6 @@
 // plugins: its file system for the storage guard): `callWindow(op, args)` posts
 // `{type: "call", id, op, args}`; the window answers `{type: "call-result", id, ok, value | error}`
 // (the kit UI's `answerWorkerCalls(worker, handlers)`).
-import { EventEmitter } from "node:events";
 import { useSqliteWasm } from "./better-sqlite3.js";
 
 let nextCall = 0;
@@ -49,23 +49,10 @@ export function callWindow(op, args) {
   });
 }
 
-/** Fastify's `serverFactory` in a worker: a server object that never listens (`inject` only). */
-export function workerServerFactory() {
-  return Object.assign(new EventEmitter(), {
-    listening: false,
-    address: () => null,
-    close(callback) {
-      callback?.();
-    },
-    setTimeout() {},
-  });
-}
-
 /**
  * Open SQLite (the official WASM build, with `sqliteOptions` — its `locateFile` finds the .wasm;
- * `storage` names the app's private pool), build the app's server (`build()` → a Fastify app
- * made with `serverFactory: workerServerFactory`), and answer the window's requests. Returns
- * the app.
+ * `storage` names the app's private pool), build the app's server (`build()` → a Hono app), and
+ * answer the window's requests. Returns the app.
  */
 export async function serveInWorker({ sqlite3InitModule, sqliteOptions = {}, storage, build }) {
   let app;
@@ -74,7 +61,6 @@ export async function serveInWorker({ sqlite3InitModule, sqliteOptions = {}, sto
     const pool = await sqlite3.installOpfsSAHPoolVfs({ name: storage });
     useSqliteWasm({ sqlite3, pool });
     app = await build({ sqlite3, pool });
-    await app.ready();
   } catch (e) {
     self.postMessage({ type: "failed", message: String(e?.stack ?? e?.message ?? e) });
     throw e;
@@ -87,32 +73,36 @@ export async function serveInWorker({ sqlite3InitModule, sqliteOptions = {}, sto
       return;
     }
     if (m?.type !== "request") return;
-    // An aborted request stops its answer's stream (inject's own `signal` needs
-    // stream.addAbortSignal, which the browser polyfill of node:stream doesn't have).
-    let stopped = false;
-    let stream = null;
+    // An aborted request stops its answer's stream: the reader is cancelled, which a streaming
+    // route sees as its client gone (`onAbort`).
+    const aborter = new AbortController();
+    let reader = null;
     inflight.set(m.id, () => {
-      stopped = true;
-      stream?.destroy();
+      aborter.abort();
+      reader?.cancel().catch(() => {});
     });
     try {
-      const res = await app.inject({
+      const request = new Request(new URL(m.url, self.location.origin), {
         method: m.method,
-        url: m.url,
         headers: m.headers,
-        payload: m.body ? Buffer.from(m.body) : undefined,
-        payloadAsStream: true,
+        body: m.body ? m.body : undefined,
+        signal: aborter.signal,
       });
-      if (stopped) return;
-      self.postMessage({ type: "head", id: m.id, status: res.statusCode, statusText: res.statusMessage ?? "", headers: res.headers });
-      stream = res.stream();
-      for await (const chunk of stream) {
-        const data = new Uint8Array(chunk); // a copy: the polyfill's Buffers can share one pool
-        self.postMessage({ type: "chunk", id: m.id, data }, [data.buffer]);
+      const res = await app.fetch(request);
+      if (aborter.signal.aborted) return;
+      self.postMessage({ type: "head", id: m.id, status: res.status, statusText: res.statusText ?? "", headers: Object.fromEntries(res.headers) });
+      if (res.body) {
+        reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done || aborter.signal.aborted) break;
+          const data = new Uint8Array(value); // a copy: transferring it can't take a buffer the stream still uses
+          self.postMessage({ type: "chunk", id: m.id, data }, [data.buffer]);
+        }
       }
-      if (!stopped) self.postMessage({ type: "end", id: m.id });
+      if (!aborter.signal.aborted) self.postMessage({ type: "end", id: m.id });
     } catch (e) {
-      if (!stopped) self.postMessage({ type: "error", id: m.id, message: String(e?.stack ?? e?.message ?? e) });
+      if (!aborter.signal.aborted) self.postMessage({ type: "error", id: m.id, message: String(e?.stack ?? e?.message ?? e) });
     } finally {
       inflight.delete(m.id);
     }

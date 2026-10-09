@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// installLlm — drop the ENTIRE shared LLM stack into any Fastify app with ONE call (the port
+// installLlm — drop the ENTIRE shared LLM stack into any Hono app with ONE call (the port
 // of llm_runner/llm/install.py). The app provides only its database handle and its feature
 // seed DATA; installLlm creates the LLM tables, wires storage, mounts every router, sets the
 // DB usage sink, builds the dispatch config, and wires the bundled runner's catalog. After
@@ -21,7 +21,7 @@ import { makeAutotuneRouter } from "../runner/autotune.js";
 import { makeCalibrateRouter } from "../runner/calibrate.js";
 import * as cacheRegistry from "../runner/cache_registry.js";
 import * as hardware from "../runner/hardware.js";
-import * as lifecycle from "../runner/lifecycle.js";
+import * as lifecycle from "#runner/lifecycle";
 import * as runnerModels from "../runner/models.js";
 import { background } from "../platform/asyncutil.js";
 import { getLogger } from "../platform/log.js";
@@ -69,14 +69,15 @@ export const _currentClassKey = currentClassKey;
 
 /** Every router the stack serves — the app-bound half of installLlm. */
 export function mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, dataDir = null, product = "" }) {
-  app.register(api.router);
+  app.route("/", api.router());
   // allowKeyReveal threads the host's opt-in to the key/reveal route: the host must guard
   // mutating /v1 with an origin check to enable it.
-  app.register(makeProviderRouter(stores.getProviderStore, allowKeyReveal));
-  app.register(makePromptRouter(stores.getPromptStore, featurePrompts));
-  app.register(makeFeatureRouter(stores.getPromptStore, config));
-  app.register(makeRoutingRouter(stores.getRoutingStore, seed.appFeatureCatalog));
-  app.register(
+  app.route("/", makeProviderRouter(stores.getProviderStore, allowKeyReveal));
+  app.route("/", makePromptRouter(stores.getPromptStore, featurePrompts));
+  app.route("/", makeFeatureRouter(stores.getPromptStore, config));
+  app.route("/", makeRoutingRouter(stores.getRoutingStore, seed.appFeatureCatalog));
+  app.route(
+    "/",
     makePresetsRouter(
       stores.getEnginePresetStore,
       stores.getDefaultPresetId,
@@ -86,10 +87,10 @@ export function mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, d
       seed.resetPresetToFactory,
     ),
   );
-  app.register(makeKnobCatalogRouter(stores.listKnobCatalog));
-  app.register(makeTestSamplesRouter(stores.getTestSampleStore));
+  app.route("/", makeKnobCatalogRouter(stores.listKnobCatalog));
+  app.route("/", makeTestSamplesRouter(stores.getTestSampleStore));
   // Where the engine + models are cached — offered as a CHOICE (cache_api's header).
-  app.register(makeCacheRouter(dataDir, product));
+  app.route("/", makeCacheRouter(dataDir, product));
 
   const stopRunnerBestEffort = async () => {
     // Full runner teardown on a reset: unload every child + clear the VRAM ledger. A
@@ -101,7 +102,8 @@ export function mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, d
     }
   };
 
-  app.register(
+  app.route(
+    "/",
     makeCatalogRouter(stores.getModelCatalogStore, {
       classTuneRefsFn: stores.listClassTuneRefs,
       classKeyFn: currentClassKey,
@@ -114,18 +116,19 @@ export function mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, d
       onReset: stopRunnerBestEffort,
     }),
   );
-  app.register(makePricingRouter(stores.getPricingStore));
-  app.register(makeReasoningMapRouter(stores.getReasoningMapStore));
-  app.register(makeEmbedTemplatesRouter(stores.getEmbedTemplateStore));
+  app.route("/", makePricingRouter(stores.getPricingStore));
+  app.route("/", makeReasoningMapRouter(stores.getReasoningMapStore));
+  app.route("/", makeEmbedTemplatesRouter(stores.getEmbedTemplateStore));
   api.setEmbedTemplateResolver((mid) => stores.getEmbedTemplateStore().get(mid));
-  app.register(makeModelListRulesRouter(stores.getModelListRules, stores.setModelListRules, stores.resetModelListRules));
+  app.route("/", makeModelListRulesRouter(stores.getModelListRules, stores.setModelListRules, stores.resetModelListRules));
   api.setModelListRulesResolver(() => {
     const d = stores.getModelListRules();
     return Object.hasOwn(d, "rules") ? d.rules : {};
   });
-  app.register(makeRunnerConfigRouter(stores.getRunnerConfigStore));
-  app.register(makeSwitchPresetsRouter(stores.getSwitchPresetStore));
-  app.register(
+  app.route("/", makeRunnerConfigRouter(stores.getRunnerConfigStore));
+  app.route("/", makeSwitchPresetsRouter(stores.getSwitchPresetStore));
+  app.route(
+    "/",
     makeModelTunesRouter(stores.getModelTuneStore, currentHwKey, {
       resolveBaseline: (mid) => switchResolve.resolveModelSwitches(mid, "", currentClassKey()),
       measurementsFn: (mid) => stores.getModelMeasurementStore().list(mid),
@@ -133,14 +136,15 @@ export function mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, d
       classConfigsFn: () => stores.getClassTuneStore().listAll(),
     }),
   );
-  app.register(
+  app.route(
+    "/",
     makeClassTunesRouter(stores.getClassTuneStore, currentClassKey, {
       hwClassStore: stores.getHardwareClassStore,
       deriveKeyFn: hardware.bandedClassKey,
       parseKeyFn: hardware.parseClassKey,
     }),
   );
-  app.register(makeModelMeasurementsRouter(stores.getModelMeasurementStore, currentHwKey));
+  app.route("/", makeModelMeasurementsRouter(stores.getModelMeasurementStore, currentHwKey));
 
   // Auto-tune: the runner drives the measured sweep; the llm layer supplies switch
   // resolution + tune persistence. `saveTune` writes the winner verbatim as this machine's
@@ -172,7 +176,8 @@ export function mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, d
       rows,
     });
   };
-  app.register(
+  app.route(
+    "/",
     makeAutotuneRouter(
       (mid) => switchResolve.resolveModelSwitches(mid, currentHwKey(), currentClassKey()),
       saveTune,
@@ -181,11 +186,11 @@ export function mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, d
   );
   // The one-minute speed check: Quick setup offers it on hardware with no curated class
   // preset; its result lands via the service's machine-probe recorder.
-  app.register(makeCalibrateRouter());
+  app.route("/", makeCalibrateRouter());
 }
 
 /**
- * Wire + mount the whole shared LLM stack onto `app` (Fastify, or null for the headless
+ * Wire + mount the whole shared LLM stack onto `app` (a Hono app, or null for the headless
  * boot). `db` is the host's database handle (platform/sql.js) — Python took an engine and a
  * session factory. Idempotent table create.
  */

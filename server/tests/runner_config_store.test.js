@@ -110,10 +110,11 @@ test("build_runner_config_reads_edited_router_knobs", () => {
 async function engineConfigClient() {
   // Mount the shared engine-config editor over the (already-seeded) in-memory DB.
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(rcApi.makeRunnerConfigRouter(stores.getRunnerConfigStore));
+  app.route("/", rcApi.makeRunnerConfigRouter(stores.getRunnerConfigStore));
   return {
-    get: async (url) => (await app.inject({ method: "GET", url })).json(),
-    put: (url, payload) => app.inject({ method: "PUT", url, payload }),
+    get: async (url) => (await app.request(url, { method: "GET" })).json(),
+    put: (url, payload) =>
+      app.request(url, { method: "PUT", body: JSON.stringify(payload), headers: { "content-type": "application/json" } }),
   };
 }
 
@@ -129,8 +130,8 @@ test("get_config_exposes_router_knobs", () => {
 test.skipIf(NO_ROUTER)("engine_config_put_persists_router_knobs", async () => {
   freshSeeded();
   const r = await (await engineConfigClient()).put("/v1/ai/engine-config", { modelsMax: 3, sleepIdleSeconds: 120 });
-  expect(r.statusCode).toBe(200);
-  const body = r.json();
+  expect(r.status).toBe(200);
+  const body = await r.json();
   expect(body.modelsMax).toBe(3);
   expect(body.sleepIdleSeconds).toBe(120);
   // …and it reaches the runner's live config (the service reads the same rows).
@@ -143,7 +144,7 @@ test.skipIf(NO_ROUTER)("engine_config_put_clamps_models_max_and_allows_zero_ttl"
   // models_max < 1 is nonsensical (at least one model must stay resident) → clamp to 1;
   // sleep_idle_seconds = 0 is VALID (disables the idle-unload TTL) → preserved, not coerced.
   freshSeeded();
-  const body = (await (await engineConfigClient()).put("/v1/ai/engine-config", { modelsMax: 0, sleepIdleSeconds: 0 })).json();
+  const body = await (await (await engineConfigClient()).put("/v1/ai/engine-config", { modelsMax: 0, sleepIdleSeconds: 0 })).json();
   expect(body.modelsMax).toBe(1); // clamped up
   expect(body.sleepIdleSeconds).toBe(0); // zero preserved
 });
@@ -168,7 +169,7 @@ test.skipIf(NO_ROUTER)("engine_config_put_round_trips_class_key_override", async
   freshSeeded();
   const client = await engineConfigClient();
   expect((await client.get("/v1/ai/engine-config")).classKeyOverride).toBe("");
-  const body = (await client.put("/v1/ai/engine-config", { classKeyOverride: "  vram20|ram100  " })).json();
+  const body = await (await client.put("/v1/ai/engine-config", { classKeyOverride: "  vram20|ram100  " })).json();
   expect(body.classKeyOverride).toBe("vram20|ram100");
   expect(stores.getClassKeyOverride()).toBe("vram20|ram100");
   stores.getRunnerConfigStore().resetToDefaults();

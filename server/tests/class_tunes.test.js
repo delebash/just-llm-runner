@@ -16,16 +16,16 @@ beforeEach(() => {
   freshDb();
   const app = createServer({ typeBase: "https://example.test/errors/" });
   // classKeyFn injected — the SERVER derives the box's class (one source).
-  app.register(makeClassTunesRouter(stores.getClassTuneStore, () => "dgpu-vram8|ram32"));
+  app.route("/", makeClassTunesRouter(stores.getClassTuneStore, () => "dgpu-vram8|ram32"));
   client = app;
 });
 
+/** A PUT with a JSON body. */
+const putRaw = (payload) =>
+  client.request("/v1/ai/class-tunes", { method: "PUT", body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
+
 async function put(modelId, switches, classKey = "") {
-  const r = await client.inject({
-    method: "PUT",
-    url: "/v1/ai/class-tunes",
-    payload: { modelId, classKey, switches: Object.entries(switches).map(([flagName, flagValue]) => ({ flagName, flagValue })) },
-  });
+  const r = await putRaw({ modelId, classKey, switches: Object.entries(switches).map(([flagName, flagValue]) => ({ flagName, flagValue })) });
   return r.json();
 }
 
@@ -54,16 +54,16 @@ test("put_explicit_class_and_wholesale_replace", async () => {
 test("delete_removes_one_config_only", async () => {
   await put("m1", { threads: "8" });
   await put("m1", { threads: "4" }, "cpu|ram16");
-  const r = (await client.inject({ method: "DELETE", url: "/v1/ai/class-tunes?modelId=m1&classKey=cpu%7Cram16" })).json();
+  const r = await (await client.request("/v1/ai/class-tunes?modelId=m1&classKey=cpu%7Cram16", { method: "DELETE" })).json();
   expect(r.tunes.map((t) => [t.modelId, t.classKey])).toEqual([["m1", "dgpu-vram8|ram32"]]);
 });
 
 test("validation_400s", async () => {
   const sw = [{ flagName: "threads", flagValue: "8" }];
-  expect((await client.inject({ method: "PUT", url: "/v1/ai/class-tunes", payload: { modelId: " ", switches: sw } })).statusCode).toBe(400);
+  expect((await putRaw({ modelId: " ", switches: sw })).status).toBe(400);
   // a config with no usable switch rows is a mistake, not an empty save
-  expect((await client.inject({ method: "PUT", url: "/v1/ai/class-tunes", payload: { modelId: "m1", switches: [] } })).statusCode).toBe(400);
-  expect((await client.inject({ method: "DELETE", url: "/v1/ai/class-tunes?modelId=m1&classKey=%20" })).statusCode).toBe(400);
+  expect((await putRaw({ modelId: "m1", switches: [] })).status).toBe(400);
+  expect((await client.request("/v1/ai/class-tunes?modelId=m1&classKey=%20", { method: "DELETE" })).status).toBe(400);
 });
 
 test("builtin_flag_reads_seeded_rows_and_edit_takes_ownership", async () => {
@@ -76,7 +76,7 @@ test("builtin_flag_reads_seeded_rows_and_edit_takes_ownership", async () => {
     flag_value: "21",
     built_in: true,
   });
-  let t = (await client.inject({ method: "GET", url: "/v1/ai/class-tunes" })).json().tunes[0];
+  let t = (await (await client.request("/v1/ai/class-tunes")).json()).tunes[0];
   expect(t.builtIn).toBe(true);
   t = (await put("m9", { n_cpu_moe: "19" })).tunes[0];
   expect(t.builtIn).toBe(false);

@@ -206,11 +206,11 @@ test("the speed-check router answers as FastAPI did", async () => {
   const cal = new calibrate.Calibrator(() => svc, { hardwareFn: dgpuBox });
   const mount = (hardwareFn) => {
     const app = createServer({ typeBase: "https://example.test/errors/" });
-    app.register(calibrate.makeCalibrateRouter({ calibratorFn: () => cal, serviceFn: () => svc, hardwareFn }));
+    app.route("/", calibrate.makeCalibrateRouter({ calibratorFn: () => cal, serviceFn: () => svc, hardwareFn }));
     return app;
   };
   const app = mount(dgpuBox);
-  const call = async (method, url, a = app) => (await a.inject({ method, url })).body;
+  const call = async (method, url, a = app) => (await a.request(url, { method })).text();
   expect(await call("GET", "/v1/llm-runner/calibrate")).toBe(
     '{"status":"idle","phase":"","detail":"","error":"","done":0,"total":0,"gbps":null,"passes":{},"mode":"two-pass","reason":"","configured":true,"sizeBytes":42,"measuredGbps":null}',
   );

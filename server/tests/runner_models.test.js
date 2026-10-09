@@ -31,10 +31,15 @@ const TEST_CONFIG = model(RunnerConfig, { llamacpp: { pinnedBuild: "bTEST" }, sa
 
 function client() {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(runnerRouter);
+  app.route("/", runnerRouter());
   return {
-    get: async (url) => app.inject({ method: "GET", url }),
-    post: async (url, payload) => app.inject({ method: "POST", url, ...(payload !== undefined ? { payload } : {}) }),
+    get: async (url) => app.request(url, { method: "GET" }),
+    // an object payload goes as JSON, with its content type
+    post: async (url, payload) =>
+      app.request(url, {
+        method: "POST",
+        ...(payload !== undefined ? { body: JSON.stringify(payload), headers: { "content-type": "application/json" } } : {}),
+      }),
   };
 }
 
@@ -155,7 +160,7 @@ test("fit_bands_on_a_12gb_gpu", async () => {
     mkModel("noparams", null, { totalParams: null }), // no override, no params -> unknown
   ];
   patchModels({ hw, models }); // no resident → all available
-  const body = (await client().get("/v1/llm-runner/models")).json();
+  const body = await (await client().get("/v1/llm-runner/models")).json();
   expect(body.vramMb).toBe(12288);
   expect(body.safetyMarginMb).toBe(1024);
   const fit = Object.fromEntries(body.models.map((m) => [m.id, m.fit]));
@@ -171,7 +176,7 @@ test("cpu_only_machine", async () => {
     mkModel("too-big-ram", 8000, { minRamMb: 64000 }), // CPU but RAM too small -> no
   ];
   patchModels({ hw, models }); // no resident → fit bands only
-  const body = (await client().get("/v1/llm-runner/models")).json();
+  const body = await (await client().get("/v1/llm-runner/models")).json();
   expect(Object.fromEntries(body.models.map((m) => [m.id, m.fit]))).toEqual({ "fits-ram": "cpu", "too-big-ram": "no" });
 });
 
@@ -184,19 +189,19 @@ test("fit_scores_total_card_even_with_models_resident", async () => {
   // A resident model is committed (would have shrunk the old budget to 4288 → 'no'):
   patch({ hw, svc: new FakeService(models, { resident: residentOf(["mid", "sleeping"]) }) });
   const c = client();
-  const body = (await c.get("/v1/llm-runner/models")).json();
+  const body = await (await c.get("/v1/llm-runner/models")).json();
   expect(body.models[0].fit).toBe("tight"); // the card's answer, resident or not
   expect(body.vramMb).toBe(12288); // the response reports the card, matching the labels
   // The card-chooser override (the vram_mb query param) stays: score the given VRAM as-is (a
   // hypothetical card; 0 = CPU-only).
-  expect((await c.get("/v1/llm-runner/models?vram_mb=12288")).json().models[0].fit).toBe("tight");
+  expect((await (await c.get("/v1/llm-runner/models?vram_mb=12288")).json()).models[0].fit).toBe("tight");
 });
 
 test("status_reflects_loaded_model", async () => {
   const hw = hwOf({ os: "Linux", platform: "linux", cpuCores: 8, ramMb: 32000, gpus: [GPU_4070] });
   const models = [mkModel("running-one", 6000), mkModel("other", 6000)];
   patchModels({ hw, models, resident: residentOf(["running-one", "loaded"]) });
-  const body = (await client().get("/v1/llm-runner/models")).json();
+  const body = await (await client().get("/v1/llm-runner/models")).json();
   expect(Object.fromEntries(body.models.map((m) => [m.id, m.status]))).toEqual({ "running-one": "loaded", other: "available" });
 });
 
@@ -207,7 +212,7 @@ test("status_reflects_co_resident_set", async () => {
   const hw = hwOf({ os: "Linux", platform: "linux", cpuCores: 8, ramMb: 32000, gpus: [GPU_4070] });
   const models = [mkModel("chat", 6000), mkModel("embed", 2000), mkModel("cold", 6000)];
   patchModels({ hw, models, resident: residentOf(["chat", "loaded"], ["embed", "sleeping"], ["cold", "unloaded"]) });
-  const body = (await client().get("/v1/llm-runner/models")).json();
+  const body = await (await client().get("/v1/llm-runner/models")).json();
   expect(Object.fromEntries(body.models.map((m) => [m.id, m.status]))).toEqual({
     chat: "loaded",
     embed: "loaded",
@@ -225,7 +230,7 @@ test("status_reflects_load_error", async () => {
     models: [mkModel("boom", 6000)],
     resident: { router: false, modelsMax: 2, sleepIdleSeconds: 900, models: [{ id: "boom", status: "error" }] },
   });
-  const body = (await client().get("/v1/llm-runner/models")).json();
+  const body = await (await client().get("/v1/llm-runner/models")).json();
   expect(Object.fromEntries(body.models.map((m) => [m.id, m.status]))).toEqual({ boom: "error" });
 });
 
@@ -239,7 +244,7 @@ test("status_reflects_download_channel", async () => {
     downloads: { "dl-one": { status: "downloading", modelId: "dl-one", detail: "", error: "", downloaded: 0, total: 0 } },
   });
   patch({ hw, svc });
-  const body = (await client().get("/v1/llm-runner/models")).json();
+  const body = await (await client().get("/v1/llm-runner/models")).json();
   expect(Object.fromEntries(body.models.map((m) => [m.id, m.status]))).toEqual({ "dl-one": "loading", other: "available" });
 });
 
@@ -249,8 +254,8 @@ test.skipIf(!LIFECYCLE_READY)("models_endpoint_real_camelcase", async () => {
   await hardware.ensureDetected();
   await lifecycle.configureService({ configFn: defaultConfig, cacheRoot: mkdtempSync(join(tmpdir(), "kit-rm-")) });
   const r = await client().get("/v1/llm-runner/models");
-  expect(r.statusCode).toBe(200);
-  const body = r.json();
+  expect(r.status).toBe(200);
+  const body = await r.json();
   expect("vramMb" in body && "safetyMarginMb" in body && "models" in body).toBe(true);
   for (const m of body.models) {
     expect(["ok", "tight", "no", "cpu", "unknown"]).toContain(m.fit);
@@ -276,7 +281,7 @@ test("resident_endpoint_camelcase", async () => {
     },
   });
   patch({ hw, svc });
-  const body = (await client().get("/v1/llm-runner/resident")).json();
+  const body = await (await client().get("/v1/llm-runner/resident")).json();
   expect(body.router).toBe(true);
   expect(body.modelsMax).toBe(3);
   expect(body.sleepIdleSeconds).toBe(600);
@@ -296,7 +301,7 @@ test("resident_endpoint_router_down", async () => {
   // Router not up (lazy-spawn, nothing loaded) → router:false, empty set, the knob defaults.
   const hw = hwOf({ os: "Linux", platform: "linux", cpuCores: 8, ramMb: 32000, gpus: [] });
   patch({ hw, svc: new FakeService([]) });
-  const body = (await client().get("/v1/llm-runner/resident")).json();
+  const body = await (await client().get("/v1/llm-runner/resident")).json();
   expect(body.router).toBe(false);
   expect(body.models).toEqual([]);
   expect(body.modelsMax).toBe(2);
@@ -322,7 +327,7 @@ test("load_carries_new_flags_into_overrides", async () => {
     reasoningBudget: 1024,
     reasoningBudgetMessage: "wrap up now",
   });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   const ov = captured.ov;
   expect(ov).toBeInstanceOf(Overrides);
   expect(ov.modelDraft).toBe("/d/MTP/g-Q4_0-MTP.gguf");
@@ -335,7 +340,7 @@ test("ensure_embedding_endpoint_configured", async () => {
   const svc = new FakeService([]);
   svc._ensure = { ok: true, modelId: "nomic-embed-text", status: "starting" };
   patch({ svc });
-  const body = (await client().post("/v1/llm-runner/ensure-embedding")).json();
+  const body = await (await client().post("/v1/llm-runner/ensure-embedding")).json();
   expect(body.ok).toBe(true);
   expect(body.modelId).toBe("nomic-embed-text");
 });
@@ -343,7 +348,7 @@ test("ensure_embedding_endpoint_configured", async () => {
 test("ensure_embedding_endpoint_not_configured", async () => {
   // No local embed configured (routing points at Ollama/cloud) → ok:false; the caller falls back.
   patch({ svc: new FakeService([]) });
-  const body = (await client().post("/v1/llm-runner/ensure-embedding")).json();
+  const body = await (await client().post("/v1/llm-runner/ensure-embedding")).json();
   expect(body.ok).toBe(false);
 });
 
@@ -354,7 +359,7 @@ test("ensure_embedding_endpoint_not_configured", async () => {
 test("models_reports_catalog_wired_when_a_host_supplied_one", async () => {
   const hw = hwOf({ os: "Linux", platform: "linux", cpuCores: 8, ramMb: 16000, gpus: [] });
   patchModels({ hw, models: [mkModel("a", 4000)], catalogWired: true });
-  expect((await client().get("/v1/llm-runner/models")).json().catalogWired).toBe(true);
+  expect((await (await client().get("/v1/llm-runner/models")).json()).catalogWired).toBe(true);
 });
 
 test("models_says_catalog_unwired_and_an_EMPTY_wired_catalog_does_not", async () => {
@@ -364,12 +369,12 @@ test("models_says_catalog_unwired_and_an_EMPTY_wired_catalog_does_not", async ()
   const hw = hwOf({ os: "Linux", platform: "linux", cpuCores: 8, ramMb: 16000, gpus: [] });
 
   patchModels({ hw, models: [], catalogWired: false });
-  const unwired = (await client().get("/v1/llm-runner/models")).json();
+  const unwired = await (await client().get("/v1/llm-runner/models")).json();
   expect(unwired.models).toEqual([]);
   expect(unwired.catalogWired).toBe(false);
 
   patchModels({ hw, models: [], catalogWired: true });
-  const wiredButEmpty = (await client().get("/v1/llm-runner/models")).json();
+  const wiredButEmpty = await (await client().get("/v1/llm-runner/models")).json();
   expect(wiredButEmpty.models).toEqual([]);
   expect(wiredButEmpty.catalogWired).toBe(true);
 });
@@ -445,7 +450,7 @@ test("band_rides_the_fit_and_factless_rows_stay_bandless", async () => {
   svc._cfg = NO_DEADZONE;
   svc._classBw = [448.0, 51.2]; // ladder source 3 (no measurements, no probe)
   patch({ hw, svc });
-  const body = (await client().get("/v1/llm-runner/models")).json();
+  const body = await (await client().get("/v1/llm-runner/models")).json();
   const rows = Object.fromEntries(body.models.map((m) => [m.id, m]));
   // The MoE at the seeded constants: device leg ~1.75 GB @ 268.8 effective + expert leg
   // 836 MB @ 7.68 effective → ~8.7 tok/s → "fine" (the ≥8 line).
@@ -469,12 +474,12 @@ test("measured_outranks_predicted_for_value_and_band", async () => {
   svc._measurements = [meas("flagship", 28.6, hardware.machineKey(hw), "cuda", [flag("n-cpu-moe", "21"), flag("ctx-size", "16384")])];
   patch({ hw, svc });
   const c = client();
-  let row = (await c.get("/v1/llm-runner/models")).json().models[0];
+  let row = (await (await c.get("/v1/llm-runner/models")).json()).models[0];
   expect(row.measuredTokS).toBe(28.6);
   expect(row.speedBand).toBe("fast");
   // A different box's measurement must NOT be claimed for this one.
   svc._measurements = [meas("flagship", 28.6, "other|1|2c|4g", "cuda")];
-  row = (await c.get("/v1/llm-runner/models")).json().models[0];
+  row = (await (await c.get("/v1/llm-runner/models")).json()).models[0];
   expect(row.measuredTokS).toBeNull();
   expect(row.speedBand).toBe("fine");
 });
@@ -487,7 +492,7 @@ test("prediction_in_the_dead_zone_ships_no_word", async () => {
   const svc = new FakeService([moeWithFacts()]);
   svc._classBw = [448.0, 51.2];
   patch({ hw, svc });
-  const row = (await client().get("/v1/llm-runner/models")).json().models[0];
+  const row = (await (await client().get("/v1/llm-runner/models")).json()).models[0];
   expect(row.speedBand).toBe("");
   expect(row.predTokS > 8.0 && row.predTokS <= 8.8, String(row.predTokS)).toBe(true);
   expect(row.measuredTokS).toBeNull();
@@ -500,7 +505,7 @@ test("payload_root_carries_the_pick_floor_inputs", async () => {
   const svc = new FakeService([moeWithFacts()]);
   svc._classBw = [448.0, 51.2];
   patch({ hw, svc });
-  const body = (await client().get("/v1/llm-runner/models")).json();
+  const body = await (await client().get("/v1/llm-runner/models")).json();
   expect(body.bandFineToks).toBe(8.0);
   expect(body.speedFloorGrace).toBe(0.2);
 });
@@ -513,7 +518,7 @@ test("the_speed_check_rung_moves_the_prediction", async () => {
   svc._classBw = [448.0, 51.2];
   svc._moeProbeGbps = 29.18; // the real run on the author's box, 2026-09-19
   patch({ hw, svc });
-  const row = (await client().get("/v1/llm-runner/models")).json().models[0];
+  const row = (await (await client().get("/v1/llm-runner/models")).json()).models[0];
   expect(row.predTokS >= 20, String(row.predTokS)).toBe(true);
   expect(row.speedBand).toBe("fast");
 });
@@ -526,7 +531,7 @@ test("a_measured_speed_near_a_line_keeps_its_word", async () => {
   svc._classBw = [448.0, 51.2];
   svc._measurements = [meas("flagship", 7.9, hardware.machineKey(hw), "cuda")];
   patch({ hw, svc });
-  const row = (await client().get("/v1/llm-runner/models")).json().models[0];
+  const row = (await (await client().get("/v1/llm-runner/models")).json()).models[0];
   expect(row.measuredTokS).toBe(7.9);
   expect(row.speedBand).toBe("slow");
 });
@@ -541,11 +546,11 @@ test("ran_here_flags_this_box_evidence", async () => {
   svc._measurements = [meas("flagship", 0, hardware.machineKey(hw), "cuda", [flag("n_gpu_layers", "30")])];
   patch({ hw, svc });
   const c = client();
-  let row = (await c.get("/v1/llm-runner/models")).json().models[0];
+  let row = (await (await c.get("/v1/llm-runner/models")).json()).models[0];
   expect(row.ranHere).toBe(true);
   expect(row.measuredTokS).toBeNull();
   svc._measurements = [meas("flagship", 0, "other|1|2c|4g", "cuda")];
-  row = (await c.get("/v1/llm-runner/models")).json().models[0];
+  row = (await (await c.get("/v1/llm-runner/models")).json()).models[0];
   expect(row.ranHere).toBe(false);
 });
 
@@ -564,7 +569,7 @@ test("no_bandwidth_source_means_no_band", async () => {
   const svc = new FakeService([moeWithFacts()]);
   vi.spyOn(bandwidth, "nvidiaMemBwGbps").mockResolvedValue(null); // hermetic — the dev box HAS nvidia-smi
   patch({ hw, svc });
-  const row = (await client().get("/v1/llm-runner/models")).json().models[0];
+  const row = (await (await client().get("/v1/llm-runner/models")).json()).models[0];
   expect(row.speedBand).toBe("");
   expect(row.predTokS).toBeNull();
   expect(row.fit).toBeTruthy(); // feasibility unaffected
@@ -585,7 +590,7 @@ test("row_carries_the_live_operation_so_a_bar_needs_no_browser_task", async () =
   };
   patch({ hw, svc });
 
-  const body = (await client().get("/v1/llm-runner/models")).json();
+  const body = await (await client().get("/v1/llm-runner/models")).json();
   const rows = Object.fromEntries(body.models.map((r) => [r.id, r]));
   expect(rows.m1.status).toBe("loading");
   expect(rows.m1.detail).toBe("model weights");
@@ -615,14 +620,15 @@ test("the runner router answers as FastAPI did", async () => {
   );
   vi.spyOn(lifecycle, "getService").mockReturnValue(svc);
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(runnerRouter);
+  app.route("/", runnerRouter());
   const send = async (method, url, { json, raw } = {}) => {
     calls.length = 0;
-    const opts = { method, url };
-    if (json !== undefined) Object.assign(opts, { payload: JSON.stringify(json), headers: { "content-type": "application/json" } });
-    if (raw !== undefined) Object.assign(opts, { payload: raw, headers: { "content-type": "application/json" } });
-    const r = await app.inject(opts);
-    return { status: r.statusCode, body: r.body ? r.json() : null, calls: calls.map(([n, a]) => [n, ...a]) };
+    const init = { method };
+    if (json !== undefined) Object.assign(init, { body: JSON.stringify(json), headers: { "content-type": "application/json" } });
+    if (raw !== undefined) Object.assign(init, { body: raw, headers: { "content-type": "application/json" } });
+    const r = await app.request(url, init);
+    const text = await r.text();
+    return { status: r.status, body: text ? JSON.parse(text) : null, calls: calls.map(([n, a]) => [n, ...a]) };
   };
   const v422 = (instance, errors) => ({
     status: 422,
@@ -723,6 +729,6 @@ test("idle_rows_carry_an_empty_operation", async () => {
   // No operation → empty fields, never stale text from a previous one.
   const hw = hwOf({ os: "Linux", platform: "linux", cpuCores: 8, ramMb: 32000, gpus: [GPU_4070] });
   patch({ hw, svc: new FakeService([mkModel("m1", 4096)]) });
-  const row = (await client().get("/v1/llm-runner/models")).json().models[0];
+  const row = (await (await client().get("/v1/llm-runner/models")).json()).models[0];
   expect([row.detail, row.error, row.opDone, row.opTotal]).toEqual(["", "", 0, 0]);
 });

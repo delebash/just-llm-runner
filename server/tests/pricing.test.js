@@ -45,14 +45,16 @@ test("pricing store lowercases and lists", () => {
 test("the pricing router answers as FastAPI did", async () => {
   freshSeeded();
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makePricingRouter(stores.getPricingStore));
-  let r = await app.inject({ method: "PUT", url: "/v1/ai/pricing", payload: { modelId: "x-1", inputPerM: "2.5", junk: 1 } });
-  expect(r.statusCode).toBe(200);
-  expect(r.json().rows.find((x) => x.modelId === "x-1")).toEqual({ modelId: "x-1", inputPerM: 2.5, outputPerM: 0 });
-  r = await app.inject({ method: "PUT", url: "/v1/ai/pricing", payload: { inputPerM: 1 } });
-  expect(r.statusCode).toBe(422);
-  expect(r.headers["content-type"]).toMatch(/application\/problem\+json/);
-  expect(r.json()).toEqual({
+  app.route("/", makePricingRouter(stores.getPricingStore));
+  const put = (payload) =>
+    app.request("/v1/ai/pricing", { method: "PUT", body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
+  let r = await put({ modelId: "x-1", inputPerM: "2.5", junk: 1 });
+  expect(r.status).toBe(200);
+  expect((await r.json()).rows.find((x) => x.modelId === "x-1")).toEqual({ modelId: "x-1", inputPerM: 2.5, outputPerM: 0 });
+  r = await put({ inputPerM: 1 });
+  expect(r.status).toBe(422);
+  expect(r.headers.get("content-type")).toMatch(/application\/problem\+json/);
+  expect(await r.json()).toEqual({
     type: "https://example.test/errors/validation-error",
     title: "Validation Error",
     status: 422,
@@ -60,16 +62,16 @@ test("the pricing router answers as FastAPI did", async () => {
     errors: [{ loc: ["body", "modelId"], msg: "Field required", type: "missing" }],
     instance: "/v1/ai/pricing",
   });
-  r = await app.inject({ method: "PUT", url: "/v1/ai/pricing", payload: { modelId: "  " } });
-  expect(r.statusCode).toBe(400);
-  expect(r.json()).toMatchObject({ type: "https://example.test/errors/bad-request", detail: "modelId is required" });
-  r = await app.inject({ method: "DELETE", url: "/v1/ai/pricing?modelId=X-1", headers: { "content-type": "application/json" } });
-  expect(r.statusCode).toBe(200);
-  expect(r.json().rows.some((x) => x.modelId === "x-1")).toBe(false);
-  r = await app.inject({ method: "DELETE", url: "/v1/ai/pricing" });
-  expect(r.statusCode).toBe(422);
-  expect(r.json().errors).toEqual([{ loc: ["query", "modelId"], msg: "Field required", type: "missing" }]);
-  r = await app.inject({ method: "GET", url: "/v1/nothing-here" });
-  expect(r.statusCode).toBe(404);
-  expect(r.json()).toEqual({ detail: "Not Found" });
+  r = await put({ modelId: "  " });
+  expect(r.status).toBe(400);
+  expect(await r.json()).toMatchObject({ type: "https://example.test/errors/bad-request", detail: "modelId is required" });
+  r = await app.request("/v1/ai/pricing?modelId=X-1", { method: "DELETE", headers: { "content-type": "application/json" } });
+  expect(r.status).toBe(200);
+  expect((await r.json()).rows.some((x) => x.modelId === "x-1")).toBe(false);
+  r = await app.request("/v1/ai/pricing", { method: "DELETE" });
+  expect(r.status).toBe(422);
+  expect((await r.json()).errors).toEqual([{ loc: ["query", "modelId"], msg: "Field required", type: "missing" }]);
+  r = await app.request("/v1/nothing-here", { method: "GET" });
+  expect(r.status).toBe(404);
+  expect(await r.json()).toEqual({ detail: "Not Found" });
 });

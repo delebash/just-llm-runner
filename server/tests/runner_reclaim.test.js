@@ -23,8 +23,8 @@ const LIFECYCLE_READY = !String(lifecycle.RunnerService).includes("not ported ye
 
 function client() {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(runnerRouter);
-  return { post: async (url) => app.inject({ method: "POST", url }) };
+  app.route("/", runnerRouter());
+  return { post: async (url) => app.request(url, { method: "POST" }) };
 }
 
 const tmpPath = () => mkdtempSync(join(tmpdir(), "kit-reclaim-"));
@@ -40,7 +40,7 @@ test.skipIf(!LIFECYCLE_READY)("spawn_logs_clear_removes_log_files", async () => 
   writeFileSync(join(logs, "keep.txt"), "not a log"); // a non-.log file is left alone
   vi.spyOn(lifecycle, "getService").mockReturnValue(svcAt(tmp));
 
-  const body = (await client().post("/v1/llm-runner/spawn-logs/clear")).json();
+  const body = await (await client().post("/v1/llm-runner/spawn-logs/clear")).json();
   expect(body.removed).toBe(2);
   expect(body.bytes).toBe(140);
   expect(existsSync(join(logs, "runner-a.log"))).toBe(false);
@@ -52,7 +52,7 @@ test.skipIf(!LIFECYCLE_READY)("spawn_logs_clear_removes_log_files", async () => 
 test.skipIf(!LIFECYCLE_READY)("spawn_logs_clear_no_dir_is_zero", async () => {
   const tmp = tmpPath();
   vi.spyOn(lifecycle, "getService").mockReturnValue(svcAt(tmp)); // no llamacpp/logs
-  const body = (await client().post("/v1/llm-runner/spawn-logs/clear")).json();
+  const body = await (await client().post("/v1/llm-runner/spawn-logs/clear")).json();
   expect(body).toEqual({ removed: 0, bytes: 0 });
 });
 
@@ -66,7 +66,7 @@ test.skipIf(!LIFECYCLE_READY)("models_cache_clear_refuses_when_resident", async 
   vi.spyOn(svc, "resident").mockReturnValue({ models: [{ id: "m", status: "loaded" }] });
   vi.spyOn(lifecycle, "getService").mockReturnValue(svc);
 
-  const body = (await client().post("/v1/llm-runner/models-cache/clear")).json();
+  const body = await (await client().post("/v1/llm-runner/models-cache/clear")).json();
   expect(body.ok).toBe(false);
   expect(body.detail).toBe("unload models first");
   expect(body.models).toEqual(["m"]);
@@ -84,7 +84,7 @@ test.skipIf(!LIFECYCLE_READY)("models_cache_clear_wipes_when_idle", async () => 
   vi.spyOn(svc, "resident").mockReturnValue({ models: [] });
   vi.spyOn(lifecycle, "getService").mockReturnValue(svc);
 
-  const body = (await client().post("/v1/llm-runner/models-cache/clear")).json();
+  const body = await (await client().post("/v1/llm-runner/models-cache/clear")).json();
   expect(body.ok).toBe(true);
   expect(body.bytes).toBe(4096);
   expect(existsSync(blob)).toBe(false); // weights gone
@@ -97,7 +97,7 @@ test.skipIf(!LIFECYCLE_READY)("models_cache_clear_refuses_when_loading", async (
   const svc = svcAt(tmpPath());
   vi.spyOn(svc, "resident").mockReturnValue({ models: [{ id: "x", status: "loading" }] });
   vi.spyOn(lifecycle, "getService").mockReturnValue(svc);
-  const body = (await client().post("/v1/llm-runner/models-cache/clear")).json();
+  const body = await (await client().post("/v1/llm-runner/models-cache/clear")).json();
   expect(body.ok).toBe(false);
   expect(body.detail).toBe("unload models first");
 });

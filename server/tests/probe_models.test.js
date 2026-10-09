@@ -8,13 +8,17 @@ import { createServer } from "../src/platform/server.js";
 
 function post(payload) {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(router);
-  return app.inject({ method: "POST", url: "/v1/llm-providers/probe-models", payload });
+  app.route("/", router());
+  return app.request("/v1/llm-providers/probe-models", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "content-type": "application/json" },
+  });
 }
 
 test("unknown_provider_type_400", async () => {
   const r = await post({ providerType: "nope" });
-  expect(r.statusCode).toBe(400);
+  expect(r.status).toBe(400);
 });
 
 test("known_type_unreachable_is_graceful", async () => {
@@ -22,6 +26,6 @@ test("known_type_unreachable_is_graceful", async () => {
   // 500). The openai-compat adapter swallows its own connection error and returns [], so the
   // form just shows "no models" rather than crashing.
   const r = await post({ providerType: "openai-compat", baseUrl: "http://127.0.0.1:9/v1" });
-  expect(r.statusCode).toBe(200);
-  expect(r.json().models).toEqual([]);
+  expect(r.status).toBe(200);
+  expect((await r.json()).models).toEqual([]);
 });

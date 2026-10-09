@@ -16,11 +16,12 @@ function makeClient(options) {
   freshDb();
   const app = createServer({ typeBase: "https://example.test/errors/" });
   // hwKeyFn injected — the SERVER derives the machine key (one source).
-  app.register(makeModelTunesRouter(stores.getModelTuneStore, () => "test-key", options));
+  app.route("/", makeModelTunesRouter(stores.getModelTuneStore, () => "test-key", options));
   return {
-    get: async (url) => (await app.inject({ method: "GET", url })).json(),
-    put: (payload) => app.inject({ method: "PUT", url: "/v1/ai/model-tunes", payload }),
-    del: async (url) => (await app.inject({ method: "DELETE", url })).json(),
+    get: async (url) => (await app.request(url, { method: "GET" })).json(),
+    put: (payload) =>
+      app.request("/v1/ai/model-tunes", { method: "PUT", body: JSON.stringify(payload), headers: { "content-type": "application/json" } }),
+    del: async (url) => (await app.request(url, { method: "DELETE" })).json(),
     raw: app,
   };
 }
@@ -38,7 +39,7 @@ test("put_get_delete_round_trip", async () => {
       { flagName: "", flagValue: "dropped" }, // empty name → dropped
     ],
   };
-  const r = (await c.put(body)).json();
+  const r = await (await c.put(body)).json();
   expect(r.modelId === "m1" && r.hwKey === "test-key").toBe(true);
   expect(pairs(r.rows)).toEqual(new Set(["n_cpu_moe=37", "spec_type=draft-mtp"]));
   // GET returns the same set
@@ -59,7 +60,7 @@ test("put_replaces_the_whole_set", async () => {
       { flagName: "batch_size", flagValue: "64" },
     ],
   });
-  const r = (await c.put({ modelId: "m1", switches: [{ flagName: "threads", flagValue: "6" }] })).json();
+  const r = await (await c.put({ modelId: "m1", switches: [{ flagName: "threads", flagValue: "6" }] })).json();
   // verbatim snapshot: the old batch_size row is GONE, not merged (D5)
   expect(r.rows.map((x) => [x.flagName, x.flagValue])).toEqual([["threads", "6"]]);
 });
@@ -72,8 +73,8 @@ test("tunes_are_isolated_per_model", async () => {
 
 test("missing_model_id_400", async () => {
   const c = client();
-  expect((await c.raw.inject({ method: "GET", url: "/v1/ai/model-tunes?modelId=%20" })).statusCode).toBe(400);
-  expect((await c.put({ modelId: "", switches: [] })).statusCode).toBe(400);
+  expect((await c.raw.request("/v1/ai/model-tunes?modelId=%20", { method: "GET" })).status).toBe(400);
+  expect((await c.put({ modelId: "", switches: [] })).status).toBe(400);
 });
 
 // ── §7.6 (2026-07-08): baseline drift + provenance source + the /state summary ─
@@ -92,7 +93,7 @@ function clientWithDeps(holder, measurements, classConfigs) {
 test("apply_stores_baseline_and_reports_drift", async () => {
   const holder = { now: { ctx_len: "8192", mlock: "true" } };
   const c = clientWithDeps(holder, [], []);
-  const r = (await c.put({ modelId: "m1", switches: [{ flagName: "ctx_len", flagValue: "32768" }] })).json();
+  const r = await (await c.put({ modelId: "m1", switches: [{ flagName: "ctx_len", flagValue: "32768" }] })).json();
   expect(r.driftCount).toBe(0); // today's defaults == the baseline stored at apply
   // The defaults MOVE after the apply (a global/class edit): drift is per-key — one changed
   // value + one new key = 2.
@@ -119,10 +120,10 @@ test("source_auto_when_rows_equal_an_autotune_trial_else_hand", async () => {
   const trial = { source: "autotune", switches: [{ flagName: "n_cpu_moe", flagValue: "21" }] };
   const c = clientWithDeps({ now: {} }, [trial], []);
   // Applied == the trial verbatim → auto.
-  const r = (await c.put({ modelId: "m1", switches: [{ flagName: "n_cpu_moe", flagValue: "21" }] })).json();
+  const r = await (await c.put({ modelId: "m1", switches: [{ flagName: "n_cpu_moe", flagValue: "21" }] })).json();
   expect(r.source).toBe("auto");
   // A hand tweak after the sweep → hand.
-  const r2 = (await c.put({ modelId: "m1", switches: [{ flagName: "n_cpu_moe", flagValue: "20" }] })).json();
+  const r2 = await (await c.put({ modelId: "m1", switches: [{ flagName: "n_cpu_moe", flagValue: "20" }] })).json();
   expect(r2.source).toBe("hand");
 });
 

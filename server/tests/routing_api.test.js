@@ -27,13 +27,17 @@ const CATALOG = [
 function client() {
   const store = new MemStore();
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeRoutingRouter(() => store, () => CATALOG));
+  app.route("/", makeRoutingRouter(() => store, () => CATALOG));
   return [app, store];
 }
 
+/** A PUT with a JSON body. */
+const put = (app, url, payload) =>
+  app.request(url, { method: "PUT", body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
+
 test("get_merges_catalog_with_default", async () => {
   const [c] = client();
-  const body = (await c.inject({ method: "GET", url: "/v1/ai/routing" })).json();
+  const body = await (await c.request("/v1/ai/routing")).json();
   expect(body.default).toEqual({ llmId: "", model: "", embeddingId: "", embeddingModel: "" });
   const feats = Object.fromEntries(body.features.map((f) => [f.key, f]));
   expect(new Set(Object.keys(feats))).toEqual(new Set(["critique", "brainstorm"]));
@@ -46,10 +50,10 @@ test("get_merges_catalog_with_default", async () => {
 
 test("put_persists_defaults", async () => {
   const [c, store] = client();
-  const r = await c.inject({ method: "PUT", url: "/v1/ai/routing", payload: { default: { llmId: "openai", embeddingId: "ollama-local" } } });
-  expect(r.statusCode).toBe(200);
+  const r = await put(c, "/v1/ai/routing", { default: { llmId: "openai", embeddingId: "ollama-local" } });
+  expect(r.status).toBe(200);
   expect(store.getRouting().default.llmId).toBe("openai");
-  const body = (await c.inject({ method: "GET", url: "/v1/ai/routing" })).json();
+  const body = await (await c.request("/v1/ai/routing")).json();
   expect(body.default.llmId).toBe("openai");
   expect(body.default.embeddingId).toBe("ollama-local");
   // the defaults pydantic fills inside the nested model reach the store too
@@ -58,7 +62,7 @@ test("put_persists_defaults", async () => {
 
 test("put_response_is_the_merged_view", async () => {
   const [c] = client();
-  const body = (await c.inject({ method: "PUT", url: "/v1/ai/routing", payload: { default: { llmId: "x", embeddingId: "" } } })).json();
+  const body = await (await put(c, "/v1/ai/routing", { default: { llmId: "x", embeddingId: "" } })).json();
   expect(body.default.llmId).toBe("x");
   expect(body.features.length).toBe(2); // catalog still rendered
 });

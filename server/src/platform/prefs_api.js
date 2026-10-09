@@ -17,8 +17,10 @@
 // rows in `app_settings`, riding app.db so /v1/data covers them). Hooks may be sync or
 // async.
 
+import { Hono } from "hono";
 import { RequestValidationError } from "./errors.js";
 import { isJsonObject } from "./py.js";
+import { readJson } from "./server.js";
 
 /**
  * Build the shared renderer-prefs router over host storage hooks.
@@ -27,26 +29,26 @@ import { isJsonObject } from "./py.js";
  *   - `clear()`          → drop the document (the host may exempt keys it must keep).
  */
 export function makePrefsRouter({ readAll, writeMany, clear, prefix = "/v1/prefs" }) {
-  return async function prefsRouter(app) {
-    app.get(prefix, async () => await readAll());
+  const app = new Hono();
+  app.get(prefix, async (c) => c.json(await readAll()));
 
-    // The body is FastAPI's `patch: dict[str, Any]`: checked here so the 422 reads as
-    // pydantic's dict error (measured: dict_type), not a model's.
-    app.patch(prefix, async (req) => {
-      const patch = req.body;
-      if (patch === undefined || patch === null) {
-        throw new RequestValidationError([{ loc: ["body"], msg: "Field required", type: "missing" }]);
-      }
-      if (!isJsonObject(patch)) {
-        throw new RequestValidationError([{ loc: ["body"], msg: "Input should be a valid dictionary", type: "dict_type" }]);
-      }
-      await writeMany(patch);
-      return await readAll();
-    });
+  // The body is FastAPI's `patch: dict[str, Any]`: checked here so the 422 reads as
+  // pydantic's dict error (measured: dict_type), not a model's.
+  app.patch(prefix, async (c) => {
+    const patch = await readJson(c);
+    if (patch === undefined || patch === null) {
+      throw new RequestValidationError([{ loc: ["body"], msg: "Field required", type: "missing" }]);
+    }
+    if (!isJsonObject(patch)) {
+      throw new RequestValidationError([{ loc: ["body"], msg: "Input should be a valid dictionary", type: "dict_type" }]);
+    }
+    await writeMany(patch);
+    return c.json(await readAll());
+  });
 
-    app.delete(prefix, async (_req, reply) => {
-      await clear();
-      return reply.code(204).send();
-    });
-  };
+  app.delete(prefix, async (c) => {
+    await clear();
+    return c.body(null, 204);
+  });
+  return app;
 }

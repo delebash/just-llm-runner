@@ -5,13 +5,15 @@
 // ledger (process singletons), so the SAME router is mounted by every app. The
 // storage-coupled provider CRUD lives behind a host-supplied store (provider_api.js).
 //
-// Mount with `app.register(api.router)`. The two seams below are set by installLlm.
+// Mount with `app.route("/", api.router())`. The two seams below are set by installLlm.
 
 import path from "node:path";
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { getLogger } from "../platform/log.js";
 import { model, nullable, opt, T } from "../platform/models.js";
 import { cpSlice, errText, isJsonObject, truthy, ValueError } from "../platform/py.js";
+import { input } from "../platform/server.js";
 import { applyRules } from "./model_list_rules.js";
 import { construct, getLlmRegistry } from "./registry.js";
 import { LLMProviderConfig } from "./schema.js";
@@ -62,7 +64,7 @@ function filteredModels(raw, providerType, { showAll }) {
  * storage-backed provider).
  */
 async function builtinProviderHealth() {
-  const lifecycle = await import("../runner/lifecycle.js");
+  const lifecycle = await import("#runner/lifecycle");
   const runnerModels = await import("../runner/models.js");
   const stores = await import("./stores.js");
 
@@ -144,33 +146,34 @@ function applyEmbedTemplate(modelId, taskType, texts) {
 const PARAMS = T.Object({ provider_id: T.String() });
 
 /** The storage-free router (Python's module-level `router`). */
-export async function router(app) {
-  app.post("/v1/llm-providers/:provider_id/ping", { schema: { params: PARAMS } }, async (req) => {
-    const providerId = req.params.provider_id;
+export function router() {
+  const app = new Hono();
+  app.post("/v1/llm-providers/:provider_id/ping", input({ params: PARAMS }), async (c) => {
+    const providerId = c.req.valid("param").provider_id;
     // The built-in engine's health is composed, never probed over its lazy router (#139) —
     // the id is the seeded constant.
     if (providerId === "local-llamacpp") {
       try {
         const h = await builtinProviderHealth();
-        return { ok: h.ok, detail: h.detail, builtin: true };
+        return c.json({ ok: h.ok, detail: h.detail, builtin: true });
       } catch (e) {
-        return { ok: false, error: errText(e) }; // surface as data, like every ping
+        return c.json({ ok: false, error: errText(e) }); // surface as data, like every ping
       }
     }
     const adapter = getLlmRegistry().get(providerId);
     if (adapter === null) throw new HttpError(404, `LLM provider ${providerId} (not registered)`);
     try {
-      return { ok: await adapter.ping() };
+      return c.json({ ok: await adapter.ping() });
     } catch (e) {
-      return { ok: false, error: errText(e) }; // surface provider errors as data
+      return c.json({ ok: false, error: errText(e) }); // surface provider errors as data
     }
   });
 
   app.get(
     "/v1/llm-providers/:provider_id/models",
-    { schema: { params: PARAMS, querystring: T.Object({ all: opt(T.Integer(), 0) }) } },
-    async (req) => {
-      const providerId = req.params.provider_id;
+    input({ params: PARAMS, querystring: T.Object({ all: opt(T.Integer(), 0) }) }),
+    async (c) => {
+      const providerId = c.req.valid("param").provider_id;
       // The BUILT-IN engine's models are the CATALOG (every downloaded model), NOT the lazy
       // router's resident set (#305 / same root as #139): the openai-compat adapter would
       // query the live llama-server /v1/models = only the loaded model, so a freshly
@@ -182,9 +185,9 @@ export async function router(app) {
           const h = await builtinProviderHealth();
           const out = { models: h.models, embeddings: [], hiddenCount: 0 };
           if (!h.ok) out.error = h.detail;
-          return out;
+          return c.json(out);
         } catch (e) {
-          return { models: [], embeddings: [], hiddenCount: 0, error: errText(e) };
+          return c.json({ models: [], embeddings: [], hiddenCount: 0, error: errText(e) });
         }
       }
       const adapter = getLlmRegistry().get(providerId);
@@ -194,19 +197,19 @@ export async function router(app) {
         raw = await adapter.models();
       } catch (e) {
         log.warning(`LLM provider ${providerId} models() failed: ${errText(e)}`);
-        return { models: [], embeddings: [], hiddenCount: 0, error: errText(e) };
+        return c.json({ models: [], embeddings: [], hiddenCount: 0, error: errText(e) });
       }
       // Apply the model-list rules for this provider's TYPE (#8). A type with no rules row
       // passes through unchanged (under-filter-safe); `?all=1` shows everything.
-      return filteredModels(raw, adapter.provider_type, { showAll: !!req.query.all });
+      return c.json(filteredModels(raw, adapter.provider_type, { showAll: !!c.req.valid("query").all }));
     },
   );
 
   // List a provider's models from an UNSAVED draft — the Add/Edit form's "Fetch models"
   // before the provider is persisted/registered. Builds a temporary adapter (never
   // registered) and calls .models().
-  app.post("/v1/llm-providers/probe-models", { schema: { body: ProbeModelsRequest } }, async (req) => {
-    const body = req.body;
+  app.post("/v1/llm-providers/probe-models", input({ body: ProbeModelsRequest }), async (c) => {
+    const body = c.req.valid("json");
     // The built-in engine never probes its lazy router (#139): its models are the CATALOG,
     // and its health line explains the load-on-first-use design.
     if (body.providerType === "local-llamacpp") {
@@ -214,9 +217,9 @@ export async function router(app) {
         const h = await builtinProviderHealth();
         const out = { models: h.models, detail: h.detail };
         if (!h.ok) out.error = h.detail;
-        return out;
+        return c.json(out);
       } catch (e) {
-        return { models: [], error: errText(e) }; // surface as data, like every probe
+        return c.json({ models: [], error: errText(e) }); // surface as data, like every probe
       }
     }
     let adapter;
@@ -241,11 +244,11 @@ export async function router(app) {
       raw = await adapter.models();
     } catch (e) {
       log.warning(`probe-models for ${body.providerType} failed: ${errText(e)}`);
-      return { models: [], embeddings: [], hiddenCount: 0, error: errText(e) };
+      return c.json({ models: [], embeddings: [], hiddenCount: 0, error: errText(e) });
     }
     // Same model-list rules as the saved-provider endpoint (#8), keyed by the draft's
     // declared TYPE; `all=true` bypasses them for the form's "show all".
-    return filteredModels(raw, body.providerType, { showAll: body.all });
+    return c.json(filteredModels(raw, body.providerType, { showAll: body.all }));
   });
 
   // Embed texts through a registered provider (server-held key) — the shared replacement for
@@ -254,8 +257,8 @@ export async function router(app) {
   // `taskType` applies the model's catalog embed template (a model with no row passes
   // through) AND is passed to the adapter's `embed(taskType)` — Gemini maps it to its
   // RETRIEVAL_* task_type; adapters with no task concept ignore it (#15 C5).
-  app.post("/v1/ai/embeddings", { schema: { body: EmbeddingsRequest } }, async (req) => {
-    const body = req.body;
+  app.post("/v1/ai/embeddings", input({ body: EmbeddingsRequest }), async (c) => {
+    const body = c.req.valid("json");
     const adapter = getLlmRegistry().get(body.providerId);
     if (adapter === null) throw new HttpError(404, `LLM provider ${body.providerId} (not registered)`);
     if (typeof adapter.embed !== "function") {
@@ -272,14 +275,15 @@ export async function router(app) {
       }
       throw new HttpError(502, cpSlice(errText(e), 0, 400)); // surface upstream/transport errors
     }
-    return { embeddings: vectors, model: body.model || adapter.default_model };
+    return c.json({ embeddings: vectors, model: body.model || adapter.default_model });
   });
 
   // Token + duration ledger per feature (Settings → AI usage).
-  app.get("/v1/ai-usage", async () => getLedger().snapshot());
+  app.get("/v1/ai-usage", async (c) => c.json(getLedger().snapshot()));
 
-  app.delete("/v1/ai-usage", async () => {
+  app.delete("/v1/ai-usage", async (c) => {
     getLedger().clear();
-    return { cleared: true };
+    return c.json({ cleared: true });
   });
+  return app;
 }

@@ -39,6 +39,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { Hono } from "hono";
 import { background, sleep as sleepMs } from "../platform/asyncutil.js";
 import * as http from "../platform/http.js";
 import { getLogger } from "../platform/log.js";
@@ -49,7 +50,7 @@ import { errStr } from "./autotune.js";
 import { MOE_PROBE_MODEL_ID, moeProbeLabel } from "./bandwidth.js";
 import * as download from "./download.js";
 import * as hardware from "./hardware.js";
-import * as lifecycle from "./lifecycle.js";
+import * as lifecycle from "#runner/lifecycle";
 import * as processMod from "./process.js";
 import * as self from "./calibrate.js";
 
@@ -403,26 +404,26 @@ export function makeCalibrateRouter({
   serviceFn = () => lifecycle.getService(),
   hardwareFn = () => hardware.detect(),
 } = {}) {
-  return async function calibrateRouter(app) {
-    app.post("/v1/llm-runner/calibrate", async () => calibratorFn().start());
+  const app = new Hono();
+  app.post("/v1/llm-runner/calibrate", async (c) => c.json(await calibratorFn().start()));
 
-    app.get("/v1/llm-runner/calibrate", async () => {
-      const st = calibratorFn().status();
-      const svc = await serviceFn();
-      const cfg = await svc.config();
-      const hw = await hardwareFn();
-      const [mode, reason] = checkMode(hw);
-      const measured = await svc.hostMoeBwGbps(hardware.machineKey(hw));
-      return {
-        ...st,
-        mode,
-        reason,
-        configured: !!((cfg.calibModelUrl || "").trim() && cfg.calibModelSha256),
-        sizeBytes: pyInt(cfg.calibModelSizeBytes || 0),
-        measuredGbps: measured ?? null,
-      };
+  app.get("/v1/llm-runner/calibrate", async (c) => {
+    const st = calibratorFn().status();
+    const svc = await serviceFn();
+    const cfg = await svc.config();
+    const hw = await hardwareFn();
+    const [mode, reason] = checkMode(hw);
+    const measured = await svc.hostMoeBwGbps(hardware.machineKey(hw));
+    return c.json({
+      ...st,
+      mode,
+      reason,
+      configured: !!((cfg.calibModelUrl || "").trim() && cfg.calibModelSha256),
+      sizeBytes: pyInt(cfg.calibModelSizeBytes || 0),
+      measuredGbps: measured ?? null,
     });
+  });
 
-    app.post("/v1/llm-runner/calibrate/cancel", async () => calibratorFn().cancel());
-  };
+  app.post("/v1/llm-runner/calibrate/cancel", async (c) => c.json(await calibratorFn().cancel()));
+  return app;
 }

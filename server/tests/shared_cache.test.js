@@ -295,9 +295,13 @@ function wiredFixture() {
 
 function cacheApp(dataDir) {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeCacheRouter(dataDir, "Mine"));
+  app.route("/", makeCacheRouter(dataDir, "Mine"));
   return app;
 }
+
+/** A PUT with a JSON body. */
+const put = (app, url, payload) =>
+  app.request(url, { method: "PUT", body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
 
 test.fails("the_wizard_is_offered_the_way_back", async () => {
   // FAILS in Python today too (build sheet §6): the fixture's `blob` sits outside
@@ -305,7 +309,7 @@ test.fails("the_wizard_is_offered_the_way_back", async () => {
   familyHome();
   const wired = wiredFixture();
   cacheRegistry.register("JustWrite", wired.shared, join(tmp, "jw"));
-  const body = (await cacheApp(wired.dataDir).inject({ method: "GET", url: "/v1/ai/engine-cache" })).json();
+  const body = await (await cacheApp(wired.dataDir).request("/v1/ai/engine-cache", { method: "GET" })).json();
 
   expect(body.shared).toBe(true);
   expect(samePath(body.root, wired.shared)).toBe(true);
@@ -325,7 +329,7 @@ test("your_own_cache_is_offered_once_even_after_you_start_sharing", async () => 
   mkdirSync(join(wired.dataDir, "ai-cache"), { recursive: true });
   cacheRegistry.register("Mine", join(wired.dataDir, "ai-cache"), wired.dataDir);
   cacheRegistry.register("JustWrite", wired.shared, join(tmp, "jw"));
-  const body = (await cacheApp(wired.dataDir).inject({ method: "GET", url: "/v1/ai/engine-cache" })).json();
+  const body = await (await cacheApp(wired.dataDir).request("/v1/ai/engine-cache", { method: "GET" })).json();
   expect(body.options.map((o) => pyPath(o.root))).toEqual([pyPath(join(wired.dataDir, "ai-cache"))]);
 });
 
@@ -335,12 +339,8 @@ test("switching_applies_live_while_the_engine_is_idle", async () => {
   familyHome();
   const wired = wiredFixture();
   vi.spyOn(stores, "getRunnerConfigStore").mockReturnValue({ setCacheRoot: () => {} });
-  const r = await cacheApp(wired.dataDir).inject({
-    method: "PUT",
-    url: "/v1/ai/engine-cache",
-    payload: { root: join(wired.dataDir, "ai-cache") },
-  });
-  const body = r.json();
+  const r = await put(cacheApp(wired.dataDir), "/v1/ai/engine-cache", { root: join(wired.dataDir, "ai-cache") });
+  const body = await r.json();
 
   expect(body.applied).toBe(true);
   expect(body.restartRequired).toBe(false);
@@ -355,12 +355,8 @@ test("switching_under_a_live_engine_waits_for_a_restart", async () => {
   const wired = wiredFixture();
   vi.spyOn(stores, "getRunnerConfigStore").mockReturnValue({ setCacheRoot: () => {} });
   wired.svc._router = fakeRouter("http://127.0.0.1:8080", true);
-  const r = await cacheApp(wired.dataDir).inject({
-    method: "PUT",
-    url: "/v1/ai/engine-cache",
-    payload: { root: join(wired.dataDir, "ai-cache") },
-  });
-  const body = r.json();
+  const r = await put(cacheApp(wired.dataDir), "/v1/ai/engine-cache", { root: join(wired.dataDir, "ai-cache") });
+  const body = await r.json();
 
   expect(body.applied).toBe(false);
   expect(body.restartRequired).toBe(true);
@@ -373,8 +369,8 @@ test("disk_usage_measures_the_cache_actually_in_use", async () => {
   // real box, for 14 GB.
   const wired = wiredFixture();
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeDiskRouter(String(wired.dataDir)));
-  const body = (await app.inject({ method: "GET", url: "/v1/disk/usage" })).json();
+  app.route("/", makeDiskRouter(String(wired.dataDir)));
+  const body = await (await app.request("/v1/disk/usage", { method: "GET" })).json();
   expect(body.modelsCache).toBe(9000);
   expect(body.cacheShared).toBe(true);
 });

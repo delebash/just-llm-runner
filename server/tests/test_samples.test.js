@@ -12,14 +12,15 @@ let app;
 beforeEach(() => {
   freshDb();
   app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeTestSamplesRouter(stores.getTestSampleStore));
+  app.route("/", makeTestSamplesRouter(stores.getTestSampleStore));
 });
-const put = async (payload) => app.inject({ method: "PUT", url: "/v1/ai/test-samples", payload });
+const put = async (payload) =>
+  app.request("/v1/ai/test-samples", { method: "PUT", body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
 const list = async (action) =>
-  (await app.inject({ method: "GET", url: `/v1/ai/test-samples?action=${encodeURIComponent(action)}` })).json().rows;
+  (await (await app.request(`/v1/ai/test-samples?action=${encodeURIComponent(action)}`)).json()).rows;
 
 test("put_get_delete_round_trip", async () => {
-  const r = (
+  const r = await (
     await put({
       action: "writerAI.continue",
       label: "Storm scene",
@@ -33,17 +34,17 @@ test("put_get_delete_round_trip", async () => {
   // action filter: another action sees nothing
   expect(await list("brainstorm")).toEqual([]);
   // upsert by id replaces the variable set wholesale
-  const r2 = (
+  const r2 = await (
     await put({ id: row.id, action: "writerAI.continue", label: "Storm scene", variables: { passage: "New text.", voiceCanon: "grim" } })
   ).json();
   expect(r2.rows[0].variables).toEqual({ passage: "New text.", voiceCanon: "grim" });
-  const d = (await app.inject({ method: "DELETE", url: `/v1/ai/test-samples?id=${row.id}` })).json();
+  const d = await (await app.request(`/v1/ai/test-samples?id=${row.id}`, { method: "DELETE" })).json();
   expect(d.rows).toEqual([]);
 });
 
 test("put_requires_action_and_label", async () => {
-  expect((await put({ action: " ", label: "x" })).statusCode).toBe(400);
-  expect((await put({ action: "k", label: "" })).statusCode).toBe(400);
+  expect((await put({ action: " ", label: "x" })).status).toBe(400);
+  expect((await put({ action: "k", label: "" })).status).toBe(400);
 });
 
 test("seed_fill_fans_actions_and_skips_present", async () => {

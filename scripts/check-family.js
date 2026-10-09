@@ -207,6 +207,16 @@ function checkServer(app) {
     const p = JSON.parse(readFileSync(pkgPath, "utf8"));
     if (p.type !== "module") fail(app.name, `server/package.json "type" is ${JSON.stringify(p.type)} — the family is "module"`);
     if (!/-server$/.test(p.name || "")) fail(app.name, `server/package.json is named ${JSON.stringify(p.name)} — §Q.3 says "<app>-server"`);
+    // The family's servers are Hono, and ONE Hono: the kit's (2026-10-09 — the kit's TASKS, "The
+    // family's servers move to Hono"; docs/plans/2026-10-09-hono-standard.md §10).
+    for (const d of Object.keys({ ...(p.dependencies || {}), ...(p.devDependencies || {}) })) {
+      if (/^(fastify|@fastify\/(static|multipart|cors|formbody))$/.test(d)) {
+        fail(app.name, `server/package.json depends on ${d} — the family's servers are Hono (${section})`);
+      }
+      if (/^(hono|@hono\/.+)$/.test(d)) {
+        fail(app.name, `server/package.json depends on ${d} — one Hono for the family: an app takes Hono, stream and serveStatic from the kit (${section})`);
+      }
+    }
   }
   if (app.template) return undefined; // the template's server has no tests of its own
   const testsDir = join(serverDir, "tests");
@@ -276,6 +286,25 @@ function checkOneSaveDoor(app, files) {
 // import anywhere in src/ (native.js included), and the ONE bridge object — the kit
 // preload's `window.appShell` — plus the kit's `isDesktopShell` test are read only by
 // native.js (§Q.2, §5; the rule that replaced "no window.<app> global", 2026-10-08).
+// check · one Hono. An app's server code takes Hono from the kit, never its own copy: the kit is
+// linked (`file:`), and Hono's `app.route()` recognises a sub-app's default error handler by
+// identity — a sub-app from a second copy answers errors with Hono's plain 500 (found 2026-10-09).
+// Fastify is gone from the family the same day.
+function checkOneHono(app, files) {
+  for (const file of files) {
+    if (extname(file) !== ".js") continue;
+    const rel = file.slice(app.dir.length + 1).replace(/\\/g, "/");
+    if (!rel.startsWith("server/")) continue;
+    const code = codeOf(file);
+    if (/\bfrom\s+["'](hono|hono\/[^"']+|@hono\/[^"']+)["']/.test(code)) {
+      fail(app.name, `${rel} imports Hono itself — one Hono for the family: take Hono, stream and serveStatic from "@delebash/llm-runner/platform" (§Q.3)`);
+    }
+    if (/\bfrom\s+["'](fastify|@fastify\/(static|multipart|cors|formbody))["']/.test(code)) {
+      fail(app.name, `${rel} imports Fastify — the family's servers are Hono (§Q.3)`);
+    }
+  }
+}
+
 function checkOneShellDoor(app, files) {
   for (const file of files) {
     if (![".js", ".vue"].includes(extname(file))) continue;
@@ -886,6 +915,7 @@ for (const app of APPS) {
   checkTaskLifecycle(app, files);
   checkOneSaveDoor(app, files);
   checkOneShellDoor(app, files);
+  checkOneHono(app, [...walk(join(app.dir, "server", "src")), ...walk(join(app.dir, "server", "tests"))]);
   checkNoWindowGlobal(app, files);
   checkResearchRegister(app.name, app.dir);
 }
@@ -901,6 +931,7 @@ if (TEMPLATE.kind !== "quasar") {
   checkQuasar(TEMPLATE);
   checkOneSaveDoor(TEMPLATE, files);
   checkOneShellDoor(TEMPLATE, files);
+  checkOneHono(TEMPLATE, walk(join(TEMPLATE.dir, "server", "src")));
   checkNoWindowGlobal(TEMPLATE, files);
 }
 checkCrossAppTwins(perApp, kitFiles);

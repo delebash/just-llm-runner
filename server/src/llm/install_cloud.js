@@ -32,12 +32,13 @@ export async function installCloudLlm(app, { db: handle, allowKeyReveal = false,
   if (!handle) throw new Error("installCloudLlm: pass db (the host's database handle)");
   const { featurePrompts = {} } = data;
   const config = prepareLlm(handle, { ...data, modelTunesSeed: [], hwKeyFn: () => "" });
-  app.register(api.router);
-  app.register(makeProviderRouter(stores.getProviderStore, allowKeyReveal));
-  app.register(makePromptRouter(stores.getPromptStore, featurePrompts));
-  app.register(makeFeatureRouter(stores.getPromptStore, config));
-  app.register(makeRoutingRouter(stores.getRoutingStore, seed.appFeatureCatalog));
-  app.register(
+  app.route("/", api.router());
+  app.route("/", makeProviderRouter(stores.getProviderStore, allowKeyReveal));
+  app.route("/", makePromptRouter(stores.getPromptStore, featurePrompts));
+  app.route("/", makeFeatureRouter(stores.getPromptStore, config));
+  app.route("/", makeRoutingRouter(stores.getRoutingStore, seed.appFeatureCatalog));
+  app.route(
+    "/",
     makePresetsRouter(
       stores.getEnginePresetStore,
       stores.getDefaultPresetId,
@@ -47,17 +48,17 @@ export async function installCloudLlm(app, { db: handle, allowKeyReveal = false,
       seed.resetPresetToFactory,
     ),
   );
-  app.register(makeKnobCatalogRouter(stores.listKnobCatalog));
-  app.register(makeTestSamplesRouter(stores.getTestSampleStore));
-  app.register(makePricingRouter(stores.getPricingStore));
-  app.register(makeReasoningMapRouter(stores.getReasoningMapStore));
-  app.register(makeEmbedTemplatesRouter(stores.getEmbedTemplateStore));
+  app.route("/", makeKnobCatalogRouter(stores.listKnobCatalog));
+  app.route("/", makeTestSamplesRouter(stores.getTestSampleStore));
+  app.route("/", makePricingRouter(stores.getPricingStore));
+  app.route("/", makeReasoningMapRouter(stores.getReasoningMapStore));
+  app.route("/", makeEmbedTemplatesRouter(stores.getEmbedTemplateStore));
   api.setEmbedTemplateResolver((mid) => stores.getEmbedTemplateStore().get(mid));
-  app.register(makeModelListRulesRouter(stores.getModelListRules, stores.setModelListRules, stores.resetModelListRules));
+  app.route("/", makeModelListRulesRouter(stores.getModelListRules, stores.setModelListRules, stores.resetModelListRules));
   api.setModelListRulesResolver(() => {
     const d = stores.getModelListRules();
     return Object.hasOwn(d, "rules") ? d.rules : {};
   });
-  app.register(makeRunnerConfigRouter(stores.getRunnerConfigStore));
-  app.register(makeSwitchPresetsRouter(stores.getSwitchPresetStore));
+  app.route("/", makeRunnerConfigRouter(stores.getRunnerConfigStore));
+  app.route("/", makeSwitchPresetsRouter(stores.getSwitchPresetStore));
 }

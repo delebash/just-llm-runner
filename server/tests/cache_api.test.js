@@ -66,10 +66,12 @@ beforeEach(() => {
 
 function client(product = "Mine") {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(cacheApi.makeCacheRouter(wired.dataDir, product));
+  app.route("/", cacheApi.makeCacheRouter(wired.dataDir, product));
   return app;
 }
-const getState = async (app) => (await app.inject({ method: "GET", url: "/v1/ai/engine-cache" })).json();
+const getState = async (app) => (await app.request("/v1/ai/engine-cache")).json();
+const put = (app, payload) =>
+  app.request("/v1/ai/engine-cache", { method: "PUT", body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
 
 test("router: the wizard is offered the way back", async () => {
   cacheRegistry.register("JustWrite", wired.shared, join(tmp, "jw"));
@@ -101,8 +103,8 @@ test("router: your own cache is offered once even after you start sharing", asyn
 test("router: switching applies live while the engine is idle", async () => {
   // A choice recorded but not applied would be contradicted by the very download the wizard
   // starts next — so idle means apply now.
-  const r = await client().inject({ method: "PUT", url: "/v1/ai/engine-cache", payload: { root: join(wired.dataDir, "ai-cache") } });
-  const body = r.json();
+  const r = await put(client(), { root: join(wired.dataDir, "ai-cache") });
+  const body = await r.json();
   expect(body).toEqual({
     ok: true,
     root: cacheRegistry.pyPath(join(wired.dataDir, "ai-cache")),
@@ -118,9 +120,7 @@ test("router: switching applies live while the engine is idle", async () => {
 
 test("router: switching under a live engine waits for a restart", async () => {
   wired.svc.busy = true;
-  const body = (
-    await client().inject({ method: "PUT", url: "/v1/ai/engine-cache", payload: { root: join(wired.dataDir, "ai-cache") } })
-  ).json();
+  const body = await (await put(client(), { root: join(wired.dataDir, "ai-cache") })).json();
   expect(body.applied).toBe(false);
   expect(body.restartRequired).toBe(true);
   expect(body.detail).toContain("unload");
@@ -129,12 +129,12 @@ test("router: switching under a live engine waits for a restart", async () => {
 
 test("router: a sibling choice is stored and a relative path is refused", async () => {
   const app = client();
-  let r = await app.inject({ method: "PUT", url: "/v1/ai/engine-cache", payload: { root: "relative/cache" } });
-  expect(r.statusCode).toBe(400);
-  expect(r.json().detail).toBe("cache root must be an absolute path");
+  let r = await put(app, { root: "relative/cache" });
+  expect(r.status).toBe(400);
+  expect((await r.json()).detail).toBe("cache root must be an absolute path");
   const elsewhere = join(tmp, "other", "ai-cache");
-  r = await app.inject({ method: "PUT", url: "/v1/ai/engine-cache", payload: { root: ` ${elsewhere} ` } });
-  expect(r.json().applied).toBe(true);
+  r = await put(app, { root: ` ${elsewhere} ` });
+  expect((await r.json()).applied).toBe(true);
   expect(stores.getRunnerConfigStore().getCacheRoot()).toBe(elsewhere); // stored as typed (trimmed)
   const state = await getState(app);
   expect(state.stored).toBe(elsewhere);

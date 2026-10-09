@@ -104,16 +104,24 @@ class CaptureAdapter {
 }
 
 function wrap(app) {
+  // an object payload goes as JSON, with its content type
+  const send = (method) => (url, payload) =>
+    app.request(
+      url,
+      payload === undefined
+        ? { method }
+        : { method, body: JSON.stringify(payload), headers: { "content-type": "application/json" } },
+    );
   return {
-    get: (url) => app.inject({ method: "GET", url }),
-    post: (url, payload) => app.inject({ method: "POST", url, payload }),
-    put: (url, payload) => app.inject({ method: "PUT", url, payload }),
+    get: (url) => app.request(url, { method: "GET" }),
+    post: send("POST"),
+    put: send("PUT"),
   };
 }
 
 function editorClient(store) {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makePromptRouter(() => store, DEFAULTS));
+  app.route("/", makePromptRouter(() => store, DEFAULTS));
   return wrap(app);
 }
 
@@ -125,7 +133,7 @@ function featureClient(store, { register = true, providerId = null } = {}) {
   if (providerId) adapter.provider_id = providerId;
   if (register) getLlmRegistry().register(adapter);
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeFeatureRouter(() => store, () => LLMConfig()));
+  app.route("/", makeFeatureRouter(() => store, () => LLMConfig()));
   return [wrap(app), adapter];
 }
 
@@ -167,11 +175,11 @@ test("render_substitutes_and_raises_on_missing", () => {
 // ── editor router ─────────────────────────────────────────────────────────────
 test("list_get_and_404", async () => {
   const c = editorClient(new MemPromptStore());
-  const lst = (await c.get("/v1/ai/prompts")).json().prompts;
+  const lst = (await (await c.get("/v1/ai/prompts")).json()).prompts;
   expect(new Set(lst.map((p) => p.key))).toEqual(new Set(["greet", "farewell"]));
-  const one = (await c.get("/v1/ai/prompts/greet")).json();
+  const one = await (await c.get("/v1/ai/prompts/greet")).json();
   expect(one.userTemplate === "Hi {{name}}" && one.builtIn === true).toBe(true);
-  expect((await c.get("/v1/ai/prompts/nope")).statusCode).toBe(404);
+  expect((await c.get("/v1/ai/prompts/nope")).status).toBe(404);
 });
 
 test("edit_then_reset_roundtrip", async () => {
@@ -179,18 +187,18 @@ test("edit_then_reset_roundtrip", async () => {
   const c = editorClient(store);
   // edit — a built-in key stays builtIn (so it can be reset)
   let r = await c.put("/v1/ai/prompts/greet", { system: "EDITED {{role}}", userTemplate: "Yo {{name}}" });
-  expect(r.statusCode === 200 && r.json().builtIn === true).toBe(true);
+  expect(r.status === 200 && (await r.json()).builtIn === true).toBe(true);
   expect(store.get("greet").system).toBe("EDITED {{role}}");
   // reset — back to the seeded default text
-  r = (await c.post("/v1/ai/prompts/greet/reset")).json();
+  r = await (await c.post("/v1/ai/prompts/greet/reset")).json();
   expect(r.system === "You are {{role}}." && r.userTemplate === "Hi {{name}}").toBe(true);
   // reset of a non-seeded key → 400
-  expect((await c.post("/v1/ai/prompts/custom/reset")).statusCode).toBe(400);
+  expect((await c.post("/v1/ai/prompts/custom/reset")).status).toBe(400);
 });
 
 test("create_user_prompt_not_builtin", async () => {
   const c = editorClient(new MemPromptStore());
-  const r = (await c.put("/v1/ai/prompts/custom", { feature: "custom", system: "s", userTemplate: "u" })).json();
+  const r = await (await c.put("/v1/ai/prompts/custom", { feature: "custom", system: "s", userTemplate: "u" })).json();
   expect(r.builtIn === false && r.feature === "custom").toBe(true);
 });
 
@@ -198,9 +206,9 @@ test("create_user_prompt_not_builtin", async () => {
 test("run_renders_prompt_and_returns_content", async () => {
   const [c, adapter] = featureClient(new MemPromptStore());
   const r = await c.post("/v1/ai/run", { action: "farewell", variables: { name: "Sam", role: "bot" } });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   // content + model + token usage (so a Lab can rank columns by decode tok/s)
-  expect(r.json()).toEqual({ content: "answer", model: "m", promptTokens: 3, completionTokens: 7, cost: 0.0, finishReason: "stop" });
+  expect(await r.json()).toEqual({ content: "answer", model: "m", promptTokens: 3, completionTokens: 7, cost: 0.0, finishReason: "stop" });
   // the DB template was rendered with the caller's variables before dispatch
   expect(adapter.last.user).toBe("Bye Sam");
   expect(adapter.last.system).toBe("You are bot.");
@@ -211,9 +219,10 @@ test("run_missing_template_variable_is_400_naming_action_and_keys", async () => 
   // see named — never a silently blank prompt reaching the model.
   const [c, adapter] = featureClient(new MemPromptStore());
   const r = await c.post("/v1/ai/run", { action: "greet", variables: { name: "Sam" } });
-  expect(r.statusCode).toBe(400);
-  expect(r.json().detail).toContain("greet");
-  expect(r.json().detail).toContain("role");
+  expect(r.status).toBe(400);
+  const { detail } = await r.json();
+  expect(detail).toContain("greet");
+  expect(detail).toContain("role");
   expect(adapter.last).toEqual({}); // nothing was dispatched
 });
 
@@ -221,9 +230,10 @@ test("stream_missing_template_variable_is_400_pre_stream", async () => {
   // Rendered before the stream starts → a clean HTTP 400, not an error frame.
   const [c, adapter] = featureClient(new MemPromptStore());
   const r = await c.post("/v1/ai/stream", { action: "greet", variables: {} });
-  expect(r.statusCode).toBe(400);
-  expect(r.json().detail).toContain("name");
-  expect(r.json().detail).toContain("role");
+  expect(r.status).toBe(400);
+  const { detail } = await r.json();
+  expect(detail).toContain("name");
+  expect(detail).toContain("role");
   expect(adapter.last).toEqual({});
 });
 
@@ -255,7 +265,7 @@ test("run_applies_adhoc_samplers", async () => {
       { flagName: "min_p", flagValue: "0.05" },
     ],
   });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   expect(adapter.last.extra.top_k).toBe(40); // int-coerced
   expect(adapter.last.extra.min_p).toEqual(pyFloatValue(0.05)); // float-coerced (a PyFloat: the body writes it as a float)
 });
@@ -273,7 +283,7 @@ test("run_threads_reasoning_effort_into_extra", async () => {
 
 test("run_unknown_action_404", async () => {
   const [c] = featureClient(new MemPromptStore());
-  expect((await c.post("/v1/ai/run", { action: "nope" })).statusCode).toBe(404);
+  expect((await c.post("/v1/ai/run", { action: "nope" })).status).toBe(404);
 });
 
 test("run_promptless_action_uses_body_templates", async () => {
@@ -287,7 +297,7 @@ test("run_promptless_action_uses_body_templates", async () => {
     userTemplate: "Translate: {{text}}",
     variables: { text: "hello" },
   });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   expect(adapter.last.user).toBe("Translate: hello");
   expect(adapter.last.system).toBe("You translate.");
 });
@@ -295,20 +305,20 @@ test("run_promptless_action_uses_body_templates", async () => {
 test("run_promptless_without_templates_stays_404", async () => {
   // No spec AND no body templates = a genuinely unknown action — still loud.
   const [c] = featureClient(new MemPromptStore());
-  expect((await c.post("/v1/ai/run", { action: "translate" })).statusCode).toBe(404);
+  expect((await c.post("/v1/ai/run", { action: "translate" })).status).toBe(404);
 });
 
 test("stream_promptless_parity_with_run", async () => {
   // The stream door takes the SAME body-template promptless shape as /run.
   const [c, adapter] = featureClient(new MemPromptStore());
-  const body = (
+  const body = await (
     await c.post("/v1/ai/stream", {
       action: "translate",
       system: "You translate.",
       userTemplate: "Translate: {{text}}",
       variables: { text: "hola" },
     })
-  ).body;
+  ).text();
   expect(body).toContain('"done": true');
   expect(adapter.last.user).toBe("Translate: hola");
   expect(adapter.last.system).toBe("You translate.");
@@ -317,7 +327,7 @@ test("stream_promptless_parity_with_run", async () => {
 test("stream_promptless_without_templates_stays_404", async () => {
   // No spec AND no body templates = unknown action — the stream door is as loud as /run.
   const [c] = featureClient(new MemPromptStore());
-  expect((await c.post("/v1/ai/stream", { action: "translate" })).statusCode).toBe(404);
+  expect((await c.post("/v1/ai/stream", { action: "translate" })).status).toBe(404);
 });
 
 test("effective_think_handles_a_promptless_spec_none", () => {
@@ -332,7 +342,7 @@ test("run_promptless_jsonmode_is_body_governed", async () => {
   // reaches the adapter and think gates off on the spec=null path too.
   const [c, adapter] = featureClient(new MemPromptStore());
   const r = await c.post("/v1/ai/run", { action: "translate", system: "s", userTemplate: "u", jsonMode: true, think: true });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   expect((adapter.last.extra || {}).response_format).toEqual({ type: "json_object" });
   expect(adapter.last.think).toBe(false); // json gates think off on the promptless path too
 });
@@ -352,7 +362,7 @@ test("run_promptless_carries_history_and_writes_no_store_row", async () => {
       { role: "assistant", content: "reply" },
     ],
   });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   expect(adapter.last.messages).toBe(3); // history precedes the rendered user turn
   expect(adapter.last.user).toBe("u 1");
   expect(store.list().every((p) => p.key !== "translate")).toBe(true); // a promptless run never creates a spec row
@@ -360,7 +370,7 @@ test("run_promptless_carries_history_and_writes_no_store_row", async () => {
 
 test("run_no_provider_501", async () => {
   const [c] = featureClient(new MemPromptStore(), { register: false });
-  expect((await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS })).statusCode).toBe(501);
+  expect((await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS })).status).toBe(501);
 });
 
 test("edit_changes_what_run_sends", async () => {
@@ -376,7 +386,7 @@ test("edit_changes_what_run_sends", async () => {
 test("stream_emits_sse_frames", async () => {
   const [c, adapter] = featureClient(new MemPromptStore());
   const r = await c.post("/v1/ai/stream", { action: "greet", variables: { name: "Sam", role: "bot" } });
-  const body = r.body;
+  const body = await r.text();
   expect(body).toContain('"delta": "ans"');
   expect(body).toContain('"delta": "wer"');
   expect(body).toContain('"done": true');
@@ -390,8 +400,8 @@ test("stream_emits_sse_frames", async () => {
   expect(body.trim().endsWith("data: [DONE]")).toBe(true);
   expect(adapter.last.user).toBe("Hi Sam");
   // The whole answer, byte for byte, as Starlette sent it (not in the Python file).
-  expect(r.statusCode).toBe(200);
-  expect(r.headers["content-type"]).toBe("text/event-stream; charset=utf-8");
+  expect(r.status).toBe(200);
+  expect(r.headers.get("content-type")).toBe("text/event-stream; charset=utf-8");
   expect(body).toBe(
     'data: {"progress": 0.5}\n\ndata: {"delta": "ans"}\n\ndata: {"delta": "wer"}\n\n' +
       'data: {"done": true, "promptTokens": 2, "completionTokens": 4, "model": "m", "cost": 0.0, "finishReason": ""}\n\n' +
@@ -421,8 +431,8 @@ test("run_uses_resolved_preset", async () => {
   const [c, adapter] = featureClient(new MemPromptStore());
 
   const r = await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS });
-  expect(r.statusCode).toBe(200);
-  expect(r.json().model).toBe("preset-model"); // the preset's model overrode the route
+  expect(r.status).toBe(200);
+  expect((await r.json()).model).toBe("preset-model"); // the preset's model overrode the route
   expect(adapter.last.temperature).toBe(0.2); // the preset's temperature
   expect(adapter.last.extra.top_p).toEqual(pyFloatValue(0.9)); // the preset's top_p flowed through
   expect(adapter.last.extra.reasoning_effort).toBe("high");
@@ -435,7 +445,7 @@ test("run_no_preset_omits_temperature_and_reasoning", async () => {
   // reasoning off, no tunables.
   const [c, adapter] = featureClient(new MemPromptStore()); // no preset ref, no default seeded
   const r = await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   expect(adapter.last.temperature).toBeNull(); // omitted (no preset → provider default)
   expect(adapter.last.think).toBe(false); // reasoning off
   expect(adapter.last.extra).toBeNull(); // no tunables sent
@@ -457,8 +467,8 @@ test("resolved_route_reports_the_preset", async () => {
   const [c] = featureClient(new MemPromptStore());
 
   const r = await c.get("/v1/ai/resolved-route?feature=greet&action=greet");
-  expect(r.statusCode).toBe(200);
-  const body = r.json();
+  expect(r.status).toBe(200);
+  const body = await r.json();
   expect(body.configured).toBe(true);
   expect(body.model).toBe("preset-model");
   expect(body.providerId).toBe("fake");
@@ -469,8 +479,8 @@ test("resolved_route_reports_the_preset", async () => {
 
   // Parity with the run path: /run dispatches the same model the chip shows.
   const run = await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS });
-  expect(run.statusCode).toBe(200);
-  expect(run.json().model).toBe(body.model);
+  expect(run.status).toBe(200);
+  expect((await run.json()).model).toBe(body.model);
 });
 
 test("resolved_route_without_preset_falls_to_dispatch", async () => {
@@ -478,14 +488,15 @@ test("resolved_route_without_preset_falls_to_dispatch", async () => {
   // empty so the chip can say the route comes from the default.
   const [c, adapter] = featureClient(new MemPromptStore());
   const r = await c.get("/v1/ai/resolved-route?feature=greet");
-  expect(r.statusCode).toBe(200);
-  const body = r.json();
+  expect(r.status).toBe(200);
+  const text = await r.text();
+  const body = JSON.parse(text);
   expect(body.configured).toBe(true);
   expect(body.providerId).toBe(adapter.provider_id);
   expect(body.model).toBe(adapter.default_model);
   expect(body.presetId).toBe("");
   // The whole answer, in the model's field order (checked against the Python router).
-  expect(r.body).toBe(
+  expect(text).toBe(
     '{"feature":"greet","action":"","providerId":"fake","model":"m","presetId":"","presetName":"","presetSource":"",' +
       '"think":false,"level":"","reasoningWord":"","value":null,"valueSource":"","configured":true,"detail":""}',
   );
@@ -496,8 +507,8 @@ test("resolved_route_override_params_win", async () => {
   // ITS pinned route, overriding the preset's.
   const [c, adapter] = featureClient(new MemPromptStore());
   const r = await c.get("/v1/ai/resolved-route?feature=greet&model=override-model");
-  expect(r.statusCode).toBe(200);
-  const body = r.json();
+  expect(r.status).toBe(200);
+  const body = await r.json();
   expect(body.model).toBe("override-model"); // the override model, not the default
   expect(body.providerId).toBe(adapter.provider_id);
   expect(body.value).toBeNull(); // no preset / think off → no budget resolved
@@ -507,8 +518,8 @@ test("resolved_route_unconfigured_is_honest", async () => {
   // Nothing registered → configured false + the actionable detail, never a 500.
   const [c] = featureClient(new MemPromptStore(), { register: false });
   const r = await c.get("/v1/ai/resolved-route?feature=greet");
-  expect(r.statusCode).toBe(200);
-  const body = r.json();
+  expect(r.status).toBe(200);
+  const body = await r.json();
   expect(body.configured).toBe(false);
   expect(body.detail).toBeTruthy();
   expect(body.providerId === "" && body.model === "").toBe(true);
@@ -530,7 +541,7 @@ test("run_applies_preset_samplers_and_order", async () => {
     { flagName: "samplers", flagValue: "dry,top_k,min_p,temperature" },
   ]);
   const r = await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   const extra = adapter.last.extra;
   expect([extra.top_k, extra.min_p]).toEqual([40, pyFloatValue(0.05)]); // preset samplers dispatched
   expect(extra.samplers).toEqual(["dry", "top_k", "min_p", "temperature"]); // ORDER split to a list
@@ -540,7 +551,7 @@ test("run_body_samplers_override_preset", async () => {
   // Per-call body.samplers win over the preset's samplers (precedence).
   const [c, adapter] = presetSamplerApp([{ flagName: "top_k", flagValue: "40" }]);
   const r = await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS, samplers: [{ flagName: "top_k", flagValue: "5" }] });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   expect(adapter.last.extra.top_k).toBe(5); // body overrode the preset's 40
 });
 
@@ -552,7 +563,7 @@ test("run_ensures_local_model_when_route_is_local", async () => {
   setEnsureLocalModel((mid) => ensured.push(mid));
   const [c, adapter] = localRouteClient("local-llamacpp"); // == LLMConfig().local_runner_provider_id
   const r = await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   expect(ensured).toEqual([adapter.default_model]); // ensured the model the route resolved to
 });
 
@@ -562,7 +573,7 @@ test("run_does_not_ensure_for_non_local_provider", async () => {
   setEnsureLocalModel((mid) => ensured.push(mid));
   const [c] = localRouteClient("cloud"); // != the local runner id
   const r = await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS });
-  expect(r.statusCode).toBe(200);
+  expect(r.status).toBe(200);
   expect(ensured).toEqual([]); // skipped for a non-local provider
 });
 
@@ -574,7 +585,7 @@ test("run_ensure_failure_surfaces_as_http_error", async () => {
   });
   const [c] = localRouteClient("local-llamacpp");
   const r = await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS });
-  expect(r.statusCode).toBe(500); // handled as an HTTP error, not a crash
+  expect(r.status).toBe(500); // handled as an HTTP error, not a crash
 });
 
 test("stream_ensure_failure_surfaces_as_error_frame", async () => {
@@ -585,9 +596,10 @@ test("stream_ensure_failure_surfaces_as_error_frame", async () => {
   });
   const [c] = localRouteClient("local-llamacpp");
   const r = await c.post("/v1/ai/stream", { action: "greet", variables: { name: "Sam", role: "bot" } });
-  expect(r.statusCode).toBe(200); // the stream response itself is 200
-  expect(r.body).toContain('"error": "model load timed out"'); // ensure error → SSE error frame
-  expect(r.body.trim().endsWith("data: [DONE]")).toBe(true);
+  expect(r.status).toBe(200); // the stream response itself is 200
+  const body = await r.text();
+  expect(body).toContain('"error": "model load timed out"'); // ensure error → SSE error frame
+  expect(body.trim().endsWith("data: [DONE]")).toBe(true);
 });
 
 // ── measureAction (2026-09-28, chapter splitting): the exact prompt size + context ──
@@ -640,13 +652,13 @@ test("run_and_stream_carry_finish_reason", async () => {
   const [c, adapter] = featureClient(new MemPromptStore());
   adapter.chat = async () => LLMResponse({ text: "[", model: "m", finish_reason: "length", prompt_tokens: 1, completion_tokens: 1 });
   const r = await c.post("/v1/ai/run", { action: "greet", variables: GREET_VARS });
-  expect(r.statusCode === 200 && r.json().finishReason === "length").toBe(true);
+  expect(r.status === 200 && (await r.json()).finishReason === "length").toBe(true);
 
   adapter.streamChat = async function* cut() {
     yield StreamDelta({ text: "[" });
     yield StreamDelta({ done: true, prompt_tokens: 1, completion_tokens: 1, finish_reason: "length" });
   };
-  const body = (await c.post("/v1/ai/stream", { action: "greet", variables: GREET_VARS })).body;
+  const body = await (await c.post("/v1/ai/stream", { action: "greet", variables: GREET_VARS })).text();
   const done = body
     .split("\n")
     .filter((line) => line.startsWith("data: {") && line.includes('"done"'))
@@ -659,36 +671,36 @@ test("the prompt and feature routers answer as FastAPI did", async () => {
   const store = new MemPromptStore();
   const editor = editorClient(store);
   let r = await editor.get("/v1/ai/prompts/greet");
-  expect(r.body).toBe(
+  expect(await r.text()).toBe(
     '{"key":"greet","feature":"greet","system":"You are {{role}}.","userTemplate":"Hi {{name}}","builtIn":true,' +
       '"jsonMode":false,"jsonSchema":"","label":"","description":"","group":""}',
   );
   r = await editor.get("/v1/ai/prompts/nope");
-  expect(r.json().detail).toBe("unknown prompt 'nope'");
+  expect((await r.json()).detail).toBe("unknown prompt 'nope'");
   r = await editor.post("/v1/ai/prompts/zz/reset");
-  expect(r.json().detail).toBe("no seeded default for 'zz' to reset to");
+  expect((await r.json()).detail).toBe("no seeded default for 'zz' to reset to");
   // a text-only edit keeps the stored JSON contract (preserve-on-omit) and the feature
   store.rows.get("farewell").json_mode = true;
   r = await editor.put("/v1/ai/prompts/farewell", { system: "x" });
-  expect(r.json()).toMatchObject({ feature: "greet", system: "x", userTemplate: "", jsonMode: true });
+  expect(await r.json()).toMatchObject({ feature: "greet", system: "x", userTemplate: "", jsonMode: true });
 
   const [c] = featureClient(store);
   r = await c.post("/v1/ai/run", { action: "nope" });
-  expect(r.json().detail).toBe("unknown AI action 'nope'");
+  expect((await r.json()).detail).toBe("unknown AI action 'nope'");
   r = await c.post("/v1/ai/run", { action: "greet", variables: { name: "x" } });
-  expect(r.json().detail).toBe("greet: missing template variable(s): role");
+  expect((await r.json()).detail).toBe("greet: missing template variable(s): role");
   r = await c.post("/v1/ai/run", {});
-  expect(r.json().errors).toEqual([{ loc: ["body", "action"], msg: "Field required", type: "missing" }]);
+  expect((await r.json()).errors).toEqual([{ loc: ["body", "action"], msg: "Field required", type: "missing" }]);
   r = await c.get("/v1/ai/resolved-route");
-  expect(r.json().errors).toEqual([{ loc: ["query", "feature"], msg: "Field required", type: "missing" }]);
+  expect((await r.json()).errors).toEqual([{ loc: ["query", "feature"], msg: "Field required", type: "missing" }]);
 
   const [c2] = featureClient(store, { register: false });
   r = await c2.post("/v1/ai/run", { action: "greet", variables: GREET_VARS });
-  expect(r.statusCode).toBe(501);
-  expect(r.json()).toMatchObject({ type: "https://example.test/errors/error", title: "Error", status: 501 });
+  expect(r.status).toBe(501);
+  expect(await r.json()).toMatchObject({ type: "https://example.test/errors/error", title: "Error", status: 501 });
   r = await c2.post("/v1/ai/stream", { action: "greet", variables: { name: "S", role: "b" } });
-  expect(r.statusCode).toBe(200);
-  expect(r.body).toBe(
+  expect(r.status).toBe(200);
+  expect(await r.text()).toBe(
     `data: {"error": "No LLM provider registered. Add one in the AI engines tab, then route 'greet' in Routing by feature."}\n\ndata: [DONE]\n\n`,
   );
 });
@@ -717,7 +729,7 @@ test("stream frames are json.dumps text: thinking, floats and escapes", async ()
   };
   const r = await c.post("/v1/ai/stream", { action: "greet", variables: GREET_VARS });
   // The bytes the Python route wrote for the same deltas (probe, 2026-10-07).
-  expect(r.body).toBe(
+  expect(await r.text()).toBe(
     'data: {"progress": 1.0}\n\ndata: {"thinking": "hmm \\u00e9"}\n\ndata: {"delta": "ans\\u2028wer \\"q\\""}\n\n' +
       'data: {"done": true, "promptTokens": 2, "completionTokens": 4, "model": "m", "cost": 0.0, "finishReason": ""}\n\n' +
       "data: [DONE]\n\n",

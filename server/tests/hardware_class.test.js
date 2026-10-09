@@ -166,7 +166,8 @@ test("delete_removes_class_and_its_configs", () => {
   const setup = () => {
     freshDb();
     const app = createServer({ typeBase: "https://example.test/errors/" });
-    app.register(
+    app.route(
+      "/",
       makeClassTunesRouter(stores.getClassTuneStore, () => "dgpu-vram8|ram32", {
         hwClassStore: stores.getHardwareClassStore,
         // the BANDED derive, mirroring installLlm (2026-07-25): typed numbers land in their
@@ -177,11 +178,14 @@ test("delete_removes_class_and_its_configs", () => {
     );
     client = app;
   };
-  const putClass = async (payload) => client.inject({ method: "PUT", url: "/v1/ai/hardware-class", payload });
+  /** A PUT with a JSON body. */
+  const put = (url, payload) =>
+    client.request(url, { method: "PUT", body: JSON.stringify(payload), headers: { "content-type": "application/json" } });
+  const putClass = async (payload) => put("/v1/ai/hardware-class", payload);
 
   test("put_discrete_class_derives_key", async () => {
     setup();
-    const r = (await putClass({ name: "My PC", memType: "discrete", vramGb: 16, ramGb: 16 })).json();
+    const r = await (await putClass({ name: "My PC", memType: "discrete", vramGb: 16, ramGb: 16 })).json();
     const cls = r.classes.find((c) => c.classKey === "dgpu-vram16|ram16");
     expect([cls.name, cls.memType, cls.vramGb, cls.ramGb]).toEqual(["My PC", "discrete", 16, 16]);
   });
@@ -192,37 +196,33 @@ test("delete_removes_class_and_its_configs", () => {
     // detection can never match. The stored row's numbers are re-read FROM the banded key,
     // so row and key can never disagree.
     setup();
-    const r = (await putClass({ name: "3080 rig", memType: "discrete", vramGb: 10, ramGb: 48 })).json();
+    const r = await (await putClass({ name: "3080 rig", memType: "discrete", vramGb: 10, ramGb: 48 })).json();
     const cls = r.classes.find((c) => c.classKey === "dgpu-vram8|ram32");
     expect([cls.vramGb, cls.ramGb]).toEqual([8, 32]); // key-derived, not the typed 10/48
   });
 
   test("put_unified_class_zeroes_vram_and_keys_on_memory", async () => {
     setup();
-    const r = (await putClass({ name: "Mac", memType: "unified", vramGb: 999, ramGb: 192 })).json();
+    const r = await (await putClass({ name: "Mac", memType: "unified", vramGb: 999, ramGb: 192 })).json();
     const cls = r.classes.find((c) => c.classKey === "unified-mem192");
     expect(cls.vramGb).toBe(0); // one-pool types carry no separate VRAM even if sent
   });
 
   test("put_discrete_without_vram_is_rejected", async () => {
     setup();
-    expect((await putClass({ name: "x", memType: "discrete", vramGb: 0, ramGb: 32 })).statusCode).toBe(400);
+    expect((await putClass({ name: "x", memType: "discrete", vramGb: 0, ramGb: 32 })).status).toBe(400);
   });
 
   test("put_rejects_zero_memory_and_bad_type", async () => {
     setup();
-    expect((await putClass({ name: "x", memType: "integrated", vramGb: 0, ramGb: 0 })).statusCode).toBe(400);
-    expect((await putClass({ name: "x", memType: "gpu", vramGb: 0, ramGb: 16 })).statusCode).toBe(400);
+    expect((await putClass({ name: "x", memType: "integrated", vramGb: 0, ramGb: 0 })).status).toBe(400);
+    expect((await putClass({ name: "x", memType: "gpu", vramGb: 0, ramGb: 16 })).status).toBe(400);
   });
 
   test("config_put_auto_ensures_its_class", async () => {
     setup();
-    const r = (
-      await client.inject({
-        method: "PUT",
-        url: "/v1/ai/class-tunes",
-        payload: { modelId: "m1", classKey: "dgpu-vram8|ram32", switches: [{ flagName: "n_cpu_moe", flagValue: "21" }] },
-      })
+    const r = await (
+      await put("/v1/ai/class-tunes", { modelId: "m1", classKey: "dgpu-vram8|ram32", switches: [{ flagName: "n_cpu_moe", flagValue: "21" }] })
     ).json();
     const cls = r.classes.find((c) => c.classKey === "dgpu-vram8|ram32");
     expect(cls.memType).toBe("discrete"); // parsed from the key by ensure
@@ -232,7 +232,7 @@ test("delete_removes_class_and_its_configs", () => {
   test("delete_hardware_class_via_router", async () => {
     setup();
     await putClass({ name: "z", memType: "integrated", vramGb: 0, ramGb: 16 });
-    const r = (await client.inject({ method: "DELETE", url: "/v1/ai/hardware-class?classKey=igpu-mem16" })).json();
+    const r = await (await client.request("/v1/ai/hardware-class?classKey=igpu-mem16", { method: "DELETE" })).json();
     expect(r.classes.every((c) => c.classKey !== "igpu-mem16")).toBe(true);
   });
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // CSRF hardening — reject cross-site browser requests to the mutating API (the port of
-// llm_runner/platform/csrf.py; the Starlette middleware becomes a Fastify `onRequest` hook
-// on the root instance).
+// llm_runner/platform/csrf.py; the Starlette middleware becomes a Hono middleware on the
+// app).
 //
 // THE family implementation (P2 of the target tree, 2026-08-08; JustWrite's original is
 // the donor, and its deciding factor was the user's "prefer not locking anyone out, do
@@ -17,10 +17,11 @@
 // `extraOrigins`/`originRegex` (an app's CORS allowlist, reused — ONE allowlist, never a
 // second list) · any non-mutating method. Rejected: everything else, 403 problem+json.
 //
-// Wiring: `app.register(CsrfOriginMiddleware, {appOrigins, extraOrigins, originRegex,
-// typeBase, prefixes})` on the root instance, BEFORE the auth hook (it was the outermost middleware).
+// Wiring: `app.use("*", csrfOrigin({appOrigins, extraOrigins, originRegex, typeBase,
+// prefixes}))` on the app, before its routes and BEFORE the auth middleware (it was the
+// outermost middleware).
 // `prefixes`: the paths guarded, `["/v1"]` by default — an app that guards more names them all
-// (2026-10-08 — JustVoice: `["/v1", "/mcp"]`), as for the auth hook.
+// (2026-10-08 — JustVoice: `["/v1", "/mcp"]`), as for the auth middleware.
 
 import { requestPath, sendProblem } from "./auth.js";
 
@@ -54,13 +55,14 @@ function pyMatcher(pattern) {
 
 /** The server's OWN origin for this request (scheme://host[:port]) — a page we served
  * ourselves. Read from the request so it follows whatever host/port the server runs on. */
-function sameOrigin(request) {
-  const host = request.headers.host || `${request.socket?.localAddress}:${request.socket?.localPort}`;
-  return `${request.protocol}://${host}`;
+function sameOrigin(c) {
+  const url = new URL(c.req.url);
+  return `${url.protocol.slice(0, -1)}://${c.req.header("host") || url.host}`;
 }
 
-/** The onRequest hook itself (for a host that adds hooks by hand). */
-export function csrfOriginHook({ appOrigins = [], extraOrigins = [], originRegex = "", typeBase = "", prefixes = ["/v1"] } = {}) {
+/** `app.add_middleware(CsrfOriginMiddleware, …)` → `app.use("*", csrfOrigin({…}))`, added before
+ * the routes so it covers every route. */
+export function csrfOrigin({ appOrigins = [], extraOrigins = [], originRegex = "", typeBase = "", prefixes = ["/v1"] } = {}) {
   const guarded = (p) => (prefixes || []).some((pre) => p.startsWith(pre));
   const allow = new Set([
     ...TAURI_ORIGINS,
@@ -69,14 +71,14 @@ export function csrfOriginHook({ appOrigins = [], extraOrigins = [], originRegex
     ...(extraOrigins || []).filter(Boolean),
   ]);
   const matches = originRegex ? pyMatcher(originRegex) : null;
-  const allowed = (request, origin) => allow.has(origin) || origin === sameOrigin(request) || Boolean(matches?.(origin));
+  const allowed = (c, origin) => allow.has(origin) || origin === sameOrigin(c) || Boolean(matches?.(origin));
 
-  return async function csrfOrigin(request, reply) {
-    const p = requestPath(request);
-    if (!MUTATING.has(request.method) || !guarded(p)) return;
-    const origin = request.headers.origin;
-    if (origin && !allowed(request, origin)) {
-      return sendProblem(reply, 403, {
+  return async function csrfOriginMiddleware(c, next) {
+    const p = requestPath(c);
+    if (!MUTATING.has(c.req.method) || !guarded(p)) return next();
+    const origin = c.req.header("origin");
+    if (origin && !allowed(c, origin)) {
+      return sendProblem(c, 403, {
         type: `${typeBase}cross-origin`,
         title: "Forbidden",
         status: 403,
@@ -84,12 +86,6 @@ export function csrfOriginHook({ appOrigins = [], extraOrigins = [], originRegex
         instance: p,
       });
     }
+    return next();
   };
 }
-
-/** `app.add_middleware(CsrfOriginMiddleware, …)` → `app.register(CsrfOriginMiddleware, {…})`.
- * Not encapsulated (skip-override), so the hook covers every route. */
-export async function CsrfOriginMiddleware(app, opts) {
-  app.addHook("onRequest", csrfOriginHook(opts));
-}
-CsrfOriginMiddleware[Symbol.for("skip-override")] = true;

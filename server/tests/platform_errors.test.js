@@ -12,13 +12,13 @@ async function boom(exc) {
   app.get("/boom", async () => {
     throw exc;
   });
-  return app.inject({ method: "GET", url: "/boom" });
+  return app.request("/boom", { method: "GET" });
 }
 
 test("extra_members_ride_in_the_problem_body", async () => {
   const r = await boom(new ApiError(403, "terms-required", "Terms not accepted", "accept them first", { engine: "pocket" }));
-  expect(r.statusCode).toBe(403);
-  const body = r.json();
+  expect(r.status).toBe(403);
+  const body = await r.json();
   expect(body.type).toBe("https://example.test/errors/terms-required");
   expect(body.detail).toBe("accept them first");
   expect(body.engine).toBe("pocket");
@@ -28,11 +28,12 @@ test("extra_never_overrides_a_standard_member", async () => {
   const r = await boom(
     new ApiError(403, "terms-required", "Terms not accepted", "real detail", { detail: "spoofed", status: 200 }),
   );
-  expect(r.json().detail).toBe("real detail");
-  expect(r.json().status).toBe(403);
+  const body = await r.json();
+  expect(body.detail).toBe("real detail");
+  expect(body.status).toBe(403);
 });
 
 test("a_plain_error_has_no_extras", async () => {
-  const body = (await boom(badRequest("nope"))).json();
+  const body = await (await boom(badRequest("nope"))).json();
   expect(new Set(Object.keys(body))).toEqual(new Set(["type", "title", "status", "detail", "instance"]));
 });

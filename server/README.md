@@ -14,7 +14,7 @@ Facts: the kit's `docs/dev/RESEARCH.md` §2.
 
 ## Consume it
 
-An app's Fastify server mounts the whole stack with one call, as its FastAPI server called
+An app's Hono server mounts the whole stack with one call, as its FastAPI server called
 `install_llm` — same routes, same camelCase JSON, same tables:
 
 ```js

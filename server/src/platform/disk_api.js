@@ -42,6 +42,7 @@
 
 import { opendir, readdir, stat, statfs } from "node:fs/promises";
 import path from "node:path";
+import { Hono } from "hono";
 import { samePath } from "./data_paths.js";
 import { getLogger } from "./log.js";
 import { opt, T } from "./models.js";
@@ -165,7 +166,7 @@ export const DiskUsageResponse = T.Object({
 // (`vi.spyOn(deps, "configuredService")`) — Python's tests set `lifecycle._service = None`.
 export const deps = {
   async configuredService() {
-    const lifecycle = await import("../runner/lifecycle.js");
+    const lifecycle = await import("#runner/lifecycle");
     return lifecycle.configuredService();
   },
 };
@@ -216,51 +217,51 @@ export function makeDiskRouter(dataDir, extraBuckets = null) {
     (Array.isArray(v) ? v : [v]).map(String),
   ]);
 
-  return async function diskRouter(app) {
-    app.get("/v1/disk/usage", async () => {
-      const [aiCache, runtime] = await engineRoots(root);
-      const llamacpp = path.join(aiCache, "llamacpp");
-      const spawnLogsDir = path.join(runtime, "logs");
+  const app = new Hono();
+  app.get("/v1/disk/usage", async (c) => {
+    const [aiCache, runtime] = await engineRoots(root);
+    const llamacpp = path.join(aiCache, "llamacpp");
+    const spawnLogsDir = path.join(runtime, "logs");
 
-      const database = await databaseBytes(root);
-      const appLogs = await dirSize(path.join(root, "logs"));
-      // dedupLinks: HF gives one blob two names — a symlink where it can, a hardlink or
-      // a full copy where it cannot. Only the copy is really two files; count the shared
-      // inode once so the panel reports the disk.
-      const modelsCache = await dirSize(path.join(aiCache, "hf"), null, true);
-      // Everything under llamacpp/ (build dirs + the generated models.ini) EXCEPT the
-      // per-spawn logs/, which is its own bucket below.
-      const engineBuilds = await dirSize(llamacpp, [spawnLogsDir]);
-      const spawnLogs = await dirSize(spawnLogsDir);
-      const extras = {};
-      for (const [name, paths] of extraRoots) {
-        let sum = 0;
-        for (const p of paths) sum += await dirSize(p);
-        extras[name] = sum;
-      }
-      const total =
-        database + appLogs + modelsCache + engineBuilds + spawnLogs + Object.values(extras).reduce((a, b) => a + b, 0);
+    const database = await databaseBytes(root);
+    const appLogs = await dirSize(path.join(root, "logs"));
+    // dedupLinks: HF gives one blob two names — a symlink where it can, a hardlink or
+    // a full copy where it cannot. Only the copy is really two files; count the shared
+    // inode once so the panel reports the disk.
+    const modelsCache = await dirSize(path.join(aiCache, "hf"), null, true);
+    // Everything under llamacpp/ (build dirs + the generated models.ini) EXCEPT the
+    // per-spawn logs/, which is its own bucket below.
+    const engineBuilds = await dirSize(llamacpp, [spawnLogsDir]);
+    const spawnLogs = await dirSize(spawnLogsDir);
+    const extras = {};
+    for (const [name, paths] of extraRoots) {
+      let sum = 0;
+      for (const p of paths) sum += await dirSize(p);
+      extras[name] = sum;
+    }
+    const total =
+      database + appLogs + modelsCache + engineBuilds + spawnLogs + Object.values(extras).reduce((a, b) => a + b, 0);
 
-      let diskFree = 0;
-      let diskTotal = 0;
-      try {
-        [diskFree, diskTotal] = await diskUsage(root);
-      } catch (e) {
-        log.warning(`disk_usage(${root}) failed — free/total reported 0`, e);
-      }
+    let diskFree = 0;
+    let diskTotal = 0;
+    try {
+      [diskFree, diskTotal] = await diskUsage(root);
+    } catch (e) {
+      log.warning(`disk_usage(${root}) failed — free/total reported 0`, e);
+    }
 
-      return {
-        database,
-        appLogs,
-        modelsCache,
-        engineBuilds,
-        spawnLogs,
-        total,
-        diskFree,
-        diskTotal,
-        cacheShared: !samePath(aiCache, path.join(root, "ai-cache")),
-        extras,
-      };
+    return c.json({
+      database,
+      appLogs,
+      modelsCache,
+      engineBuilds,
+      spawnLogs,
+      total,
+      diskFree,
+      diskTotal,
+      cacheShared: !samePath(aiCache, path.join(root, "ai-cache")),
+      extras,
     });
-  };
+  });
+  return app;
 }

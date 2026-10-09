@@ -146,7 +146,7 @@ You get: provider CRUD + registry, dispatch with per-feature routing, engine pre
 the usage ledger, and the bundled runner wired to the DB catalog. Requirements: your app is
 FastAPI + SQLAlchemy (`engine`/`session_factory` are SQLAlchemy objects, and the shipped
 stores are the only storage implementation) — which is every Python app in this family. A
-Fastify app calls the JavaScript twin, `installLlm(app, { db, dataDir, … })`
+Hono app calls the JavaScript twin, `installLlm(app, { db, dataDir, … })`
 (`server/README.md`).
 
 **Always pass `data_dir`.** Without it the engine and every downloaded GGUF land in

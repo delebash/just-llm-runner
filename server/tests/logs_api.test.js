@@ -18,21 +18,22 @@ const read = (p) => readFileSync(p, "utf8");
 function client() {
   installLogRing();
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(makeLogsRouter("JustWrite"));
-  const call = (method) => async (url, query) => app.inject({ method, url, query });
+  app.route("/", makeLogsRouter("JustWrite"));
+  // `query`: an object, sent as the URL's query string
+  const call = (method) => async (url, query) => app.request(query ? `${url}?${new URLSearchParams(query)}` : url, { method });
   return { get: call("GET"), post: call("POST"), delete: call("DELETE") };
 }
 
 test("tail_and_download_capture_log_lines", async () => {
   const c = client();
   logger.warning("hello-from-the-ring-42");
-  const tail = (await c.get("/v1/logs/tail?lines=50")).json();
+  const tail = await (await c.get("/v1/logs/tail?lines=50")).json();
   expect(tail.text).toContain("hello-from-the-ring-42");
   expect(tail.lines).toBeGreaterThanOrEqual(1);
   const dl = await c.get("/v1/logs/download");
-  expect(dl.statusCode).toBe(200);
-  expect(dl.body).toContain("hello-from-the-ring-42");
-  expect(dl.headers["content-disposition"] || "").toContain("justwrite-logs-");
+  expect(dl.status).toBe(200);
+  expect(await dl.text()).toContain("hello-from-the-ring-42");
+  expect(dl.headers.get("content-disposition") || "").toContain("justwrite-logs-");
 });
 
 const ISO_STAMP = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d{3}) \[WARNING\] /;
@@ -50,9 +51,8 @@ test("stamps_are_strict_iso_local_with_millis", async () => {
   logger.warning("iso-stamp-probe");
   const after = new Date();
 
-  const line = (await c.get("/v1/logs/tail?lines=50"))
-    .json()
-    .text.split("\n")
+  const line = (await (await c.get("/v1/logs/tail?lines=50")).json()).text
+    .split("\n")
     .find((ln) => ln.includes("iso-stamp-probe"));
   const m = ISO_STAMP.exec(line);
   expect(m, `not a strict-ISO stamp: ${line}`).toBeTruthy();
@@ -74,10 +74,10 @@ test("clear_empties_the_ring_only", async () => {
   const c = client();
   installFileLog(join(tmp, "logs", "app.log"));
   logger.warning("before-clear-77");
-  expect((await c.get("/v1/logs/tail")).json().text).toContain("before-clear-77");
-  const r = (await c.post("/v1/logs/clear")).json();
+  expect((await (await c.get("/v1/logs/tail")).json()).text).toContain("before-clear-77");
+  const r = await (await c.post("/v1/logs/clear")).json();
   expect(r.lines).toBe(0);
-  expect((await c.get("/v1/logs/tail")).json().text).toBe("");
+  expect((await (await c.get("/v1/logs/tail")).json()).text).toBe("");
   // the stored file is UNTOUCHED by clear (clear = the on-screen tail only)
   expect(read(join(tmp, "logs", "app.log"))).toContain("before-clear-77");
 });
@@ -95,15 +95,15 @@ test("per_day_storage_and_days_listing", async () => {
   // two PAST days, exactly as the rotation names them
   writeFileSync(join(tmp, "logs", "app.log.2026-07-03"), "old3\n", "utf8");
   writeFileSync(join(tmp, "logs", "app.log.2026-07-04"), "old4\n", "utf8");
-  const days = (await c.get("/v1/logs/days")).json().days;
+  const days = (await (await c.get("/v1/logs/days")).json()).days;
   expect(days.map((d) => d.day).slice(1)).toEqual(["2026-07-04", "2026-07-03"]); // newest first after live
   expect(days[0].live).toBe(true);
   expect(days[1].live).toBe(false);
   // a stored day's CONTENT comes from its file
-  const d4 = (await c.get("/v1/logs/day", { date: "2026-07-04" })).json();
+  const d4 = await (await c.get("/v1/logs/day", { date: "2026-07-04" })).json();
   expect(d4.text).toBe("old4");
   // the live day reads the base FILE (fuller than the 500-line ring)
-  const live = (await c.get("/v1/logs/day", { date: days[0].day })).json();
+  const live = await (await c.get("/v1/logs/day", { date: days[0].day })).json();
   expect(live.text).toContain("today-line-11");
 });
 
@@ -111,8 +111,8 @@ test("day_validation_and_missing_404", async () => {
   const tmp = newTmp();
   const c = client();
   installFileLog(join(tmp, "logs", "app.log"));
-  expect((await c.get("/v1/logs/day", { date: "../etc/passwd" })).statusCode).toBe(400);
-  expect((await c.get("/v1/logs/day", { date: "1999-01-01" })).statusCode).toBe(404);
+  expect((await c.get("/v1/logs/day", { date: "../etc/passwd" })).status).toBe(400);
+  expect((await c.get("/v1/logs/day", { date: "1999-01-01" })).status).toBe(404);
 });
 
 test("delete_past_day_unlinks_and_today_truncates", async () => {
@@ -123,7 +123,7 @@ test("delete_past_day_unlinks_and_today_truncates", async () => {
   const old = join(tmp, "logs", "app.log.2026-07-02");
   writeFileSync(old, "old2\n", "utf8");
   // past day → plain unlink
-  const days = (await c.delete("/v1/logs/day", { date: "2026-07-02" })).json().days;
+  const days = (await (await c.delete("/v1/logs/day", { date: "2026-07-02" })).json()).days;
   expect(existsSync(old)).toBe(false);
   expect(days.every((d) => d.day !== "2026-07-02")).toBe(true);
   // TODAY → truncate (the handler holds the file open — Windows-safe), and logging KEEPS
@@ -141,10 +141,10 @@ test("delete_all_removes_files_and_clears_ring", async () => {
   installFileLog(join(tmp, "logs", "app.log"));
   logger.warning("doomed-line");
   writeFileSync(join(tmp, "logs", "app.log.2026-07-01"), "old1\n", "utf8");
-  const days = (await c.delete("/v1/logs/all")).json().days;
+  const days = (await (await c.delete("/v1/logs/all")).json()).days;
   expect(existsSync(join(tmp, "logs", "app.log.2026-07-01"))).toBe(false);
   expect(read(join(tmp, "logs", "app.log"))).toBe("");
-  expect((await c.get("/v1/logs/tail")).json().text).toBe(""); // ring cleared too
+  expect((await (await c.get("/v1/logs/tail")).json()).text).toBe(""); // ring cleared too
   expect(days.every((d) => d.live) || days.length === 0).toBe(true); // only the (empty) live day may remain
 });
 
@@ -156,25 +156,25 @@ test("the_answers_match_the_python_router", async () => {
   const c = client();
   installFileLog(join(tmp, "logs", "app.log"));
   let r = await c.get("/v1/logs/tail?lines=abc");
-  expect(r.statusCode).toBe(422);
-  expect(r.json().errors).toEqual([
+  expect(r.status).toBe(422);
+  expect((await r.json()).errors).toEqual([
     { loc: ["query", "lines"], msg: "Input should be a valid integer, unable to parse string as an integer", type: "int_parsing" },
   ]);
   logger.warning("one");
   logger.warning("two");
-  expect((await c.get("/v1/logs/tail?lines=-5")).json().lines).toBe(1); // max(1, …)
-  expect((await c.get("/v1/logs/tail?lines=5.0")).statusCode).toBe(200);
+  expect((await (await c.get("/v1/logs/tail?lines=-5")).json()).lines).toBe(1); // max(1, …)
+  expect((await c.get("/v1/logs/tail?lines=5.0")).status).toBe(200);
   r = await c.get("/v1/logs/day");
-  expect(r.json().errors).toEqual([{ loc: ["query", "date"], msg: "Field required", type: "missing" }]);
+  expect((await r.json()).errors).toEqual([{ loc: ["query", "date"], msg: "Field required", type: "missing" }]);
   r = await c.get("/v1/logs/day", { date: "2026-07-04\n" });
-  expect(r.statusCode).toBe(404);
-  expect(r.json().detail).toBe("no log stored for 2026-07-04\n");
+  expect(r.status).toBe(404);
+  expect((await r.json()).detail).toBe("no log stored for 2026-07-04\n");
   r = await c.delete("/v1/logs/day", { date: "x" });
-  expect(r.statusCode).toBe(400);
-  expect(r.json()).toMatchObject({ title: "Bad Request", detail: "date must be YYYY-MM-DD", instance: "/v1/logs/day" });
+  expect(r.status).toBe(400);
+  expect(await r.json()).toMatchObject({ title: "Bad Request", detail: "date must be YYYY-MM-DD", instance: "/v1/logs/day" });
   r = await c.get("/v1/logs/download");
-  expect(r.headers["content-type"]).toBe("text/plain; charset=utf-8");
-  expect(r.headers["content-disposition"]).toBe(
+  expect(r.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+  expect(r.headers.get("content-disposition")).toBe(
     `attachment; filename="justwrite-logs-${new Date().toISOString().slice(0, 10)}.txt"`,
   );
 

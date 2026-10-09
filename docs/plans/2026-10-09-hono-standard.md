@@ -213,11 +213,130 @@ e2e where the app has one; one packaged installer + the headless launcher per ap
 phone on the emulator. A route's answer compared before/after on the same database for every
 route a test doesn't cover.
 
+## 10 · The conversion rules (a Fastify route → a Hono route)
+
+The kit's hub (`server/src/platform/server.js`) gives every app: `createServer(opts)` (a Hono app
+with the family's error answers), `input({params, body, querystring, headers, pyFloats})` (the
+family's request pipeline as one route middleware — Fastify's FastAPI-compatible reading,
+conversion and ajv validation; the result read with `c.req.valid(...)`), `readJson(c)` (a JSON body
+by the same rules, for a route with no body schema), `onClose(app, fn)` / `closeApp(app)`, and
+`attachment(name)`. Apps import them from `@delebash/llm-runner/platform` (or `/platform/server`).
+The middleware: `csrfOrigin`, `starletteCors`, `bearerAuth` (`clientHost(c)` in `platform/auth.js`).
+
+**One Hono for the family: an app imports `Hono` and `stream` from the kit**
+(`import { Hono, stream } from "@delebash/llm-runner/platform"`), never from `"hono"`. The kit is
+linked into each app (`file:`), so an app's own `hono` is a second copy, and Hono's `app.route()`
+recognises a sub-app's default error handler by identity (`hono-base.js` `route()`:
+`app.errorHandler === errorHandler`) — a sub-app built from another copy answers its errors with
+Hono's plain 500 instead of the family's envelopes. (Found 2026-10-09 while converting the kit.)
+A package that must not depend on the kit (`just-sqlite-sync`) adds its routes to the app it is
+given and creates no Hono of its own.
+
+**A router** is a factory that returns a Hono sub-app; the host mounts it with `app.route()`:
+```js
+// Fastify                                         // Hono
+export function makeXRouter(deps) {                export function makeXRouter(deps) {
+  return async function xRouter(app) {               const app = new Hono();
+    app.get("/v1/x/:id",                             app.get("/v1/x/:id",
+      { schema: { params: P, querystring: Q } },       input({ params: P, querystring: Q }),
+      async (req, reply) => { … });                    async (c) => { … });
+  };                                                 return app;
+}                                                  }
+app.register(makeXRouter(deps));                   app.route("/", makeXRouter(deps));
+app.register(r, { prefix: "/p" });                 app.route("/p", r);
+export async function router(app) { … }           export function router() { const app = new Hono(); …; return app; }
+```
+Hono runs middleware in the order added and copies a sub-app's routes when it is mounted: **an app
+adds its middleware (`app.use("*", …)`) before it mounts its routers**, and a router is complete
+before it is mounted.
+
+**Route options** `{ schema: { params, body, querystring, headers }, config: { pyFloats: true } }`
+→ `input({ params, body, querystring, headers, pyFloats: true })` (same property names). No schema →
+no `input`.
+
+**Inside a handler** `(req, reply)` → `(c)`:
+
+| Fastify | Hono |
+|---|---|
+| `req.params` with a params schema | `c.req.valid("param")` |
+| `req.params.x` without | `c.req.param("x")` |
+| `req.query` with a querystring schema | `c.req.valid("query")` |
+| `req.query.x` without | `c.req.query("x")` (a repeated key: `c.req.queries("x")`, all values) |
+| `req.body` with a body schema | `c.req.valid("json")` |
+| `req.body` without | `await readJson(c)` |
+| `req.sentBody` | `c.get("sentBody")` |
+| `req.headers.foo` / `req.headers` | `c.req.header("foo")` / `c.req.header()` |
+| `req.method` | `c.req.method` |
+| `req.url` (path + query) | `c.req.path` (+ `new URL(c.req.url).search`) — `c.req.url` is the whole URL |
+| `req.ip` / `req.socket.remoteAddress` | `clientHost(c)` (`platform/auth.js`) |
+| `req.raw` (Node's request) | `c.req.raw` (the web Request); Node's own only as `c.env.incoming` (Node only — never on the phone) |
+
+**Answers** — every return path returns a Response:
+
+| Fastify | Hono |
+|---|---|
+| `return obj` (object, array, number, boolean, null) | `return c.json(obj)` |
+| `return "text"` | `return c.text("text")` |
+| `reply.code(n); return obj` · `reply.code(n).send(obj)` · `reply.status(n).send(obj)` | `return c.json(obj, n)` |
+| `reply.code(204).send()` | `return c.body(null, 204)` |
+| `reply.type(t).send(x)` | `return c.body(x, 200, { "Content-Type": t })` |
+| `reply.header(k, v)` · `reply.headers({…})` | `c.header(k, v)` before the return (or the headers argument) |
+| `reply.redirect(url[, code])` | `return c.redirect(url[, code])` |
+| `reply.send(buffer)` | `return c.body(buffer, 200, { "Content-Type": "application/octet-stream" })` (or the type the route set) |
+| `reply.send(nodeReadable)` | `return c.body(Readable.toWeb(stream), …)` |
+| `reply.hijack()` + `reply.raw.writeHead/write/end` (SSE, streams) | `stream(c, async (s) => { await s.write(…) })` from `hono/streaming`, headers set with `c.header()` first; a client gone: `s.onAbort(…)` / `s.aborted` |
+| a thrown `ApiError` / `HttpError` / `RequestValidationError` | unchanged |
+
+**Hooks:** `addHook("onRequest" | "preHandler", fn)` app-wide → `app.use("*", async (c, next) => { …;
+await next(); })` added before the routes · `addHook("onResponse", fn)` → the same, `fn` after
+`await next()` · `addHook("onClose", fn)` → `onClose(app, fn)` (run when the server stops, the last
+added first, as Fastify) · `decorate` → a variable in scope, or `c.set`/`c.get` · a Fastify plugin
+that only added hooks → its middleware.
+
+**Tests:** `app.inject({ method, url, payload, headers, remoteAddress })` →
+`app.request(url, { method, body: JSON.stringify(payload), headers: { "content-type": "application/json", …headers } }, remoteAddress ? { incoming: { socket: { remoteAddress } } } : undefined)`
+(a string payload with no content type goes as BYTES — `new TextEncoder().encode(s)` — because
+`new Request` gives a string body `text/plain;charset=UTF-8` by itself, which the family rules read
+as text, where inject sent none and it was read as JSON) · the client address: inject defaulted to
+`127.0.0.1`, `app.request` has no socket (`clientHost(c)` is ""), so a test that relied on loopback
+passes `{ incoming: { socket: { remoteAddress: "127.0.0.1" } } }` · `r.statusCode` →
+`r.status` · `r.json()` → `await r.json()` · `r.body` / `r.payload` → `await r.text()` ·
+`r.headers["x"]` → `r.headers.get("x")` · `app.ready()` → nothing · `app.close()` → `closeApp(app)`
+where close hooks matter · a router: `app.route("/", makeXRouter(…))` after any middleware.
+
 ## 9 · Where it stands
 
-- 2026-10-09: decided; this plan written; the feasibility pass done (§4); nothing coded.
-- Next: the user's word on §3 (the request door, the SQLite-WASM wrapper, the validation glue) and
-  §5 (a or b), then slice 1.
+- 2026-10-09: decided; this plan written; the feasibility pass done (§4). The user's word on §3/§5:
+  "your rec on all go" (the door yes, the SQLite-WASM wrapper yes, validation a).
+- Slice 1 DONE — the kit: `platform/server.js` (createServer, `input`, `readJson`, `onClose` /
+  `closeApp`, the re-exported `Hono` / `stream`), `errors.js` (onError / notFound),
+  `serve.js` (`@hono/node-server`, `serveStatic` re-exported), `auth.js` / `cors.js` / `csrf.js`
+  (`bearerAuth`, `starletteCors`, `csrfOrigin`), every router a Hono sub-app (`llm/`, `runner/`,
+  `platform/`), the SSE stream on `stream`, the restore on busboy, the worker runtime on
+  `app.fetch`; `fastify` and `@fastify/multipart` out of its package; its tests on `app.request`
+  (1,136 passed, 2 expected fail, 12 skipped). The validation glue is a plain Hono middleware
+  (`input`), not Hono's `validator()`: `validator("json")` ignores a body with no JSON content
+  type and answers bad JSON with a 400 (RESEARCH §2), where the contract is FastAPI's (no type →
+  JSON; bad JSON → 422 with its position). It carries Fastify's FastAPI-compatible hooks
+  (~100 lines, moved from the old `createServer`), not 20–30 new ones.
+- Found while converting: **one Hono** (§10 — `app.route()` and a second copy of Hono), recorded
+  in §10, app-structure §Q.3 and the guard (`checkOneHono`); route order (a fixed segment must be
+  added before a `:param` one that also matches).
+- Slice 2 DONE — `just-sqlite-sync`: `src/transports/hono.js` (`registerSyncRoutes(app, …)` on the
+  app's own Hono), `appSync.routes(app)`, `createAppSync({ readJson })`; `./fastify` → `./hono`;
+  47/47.
+- Slice 3 DONE — the template on Hono (`app.use` guards, `serveStatic` from the kit).
+- Slice 4 DONE — JustWrite: 14 routers, `app.js`, `phone.js`, `sync.js`, the error envelope,
+  the test client on `app.request` (148/148); the phone versions chosen by `server/package.json`
+  `"imports"` (`#app_state`, `#api/autosave_api`, `#database/demo_seed`, `#editor/html`,
+  `#sync_platform`) and the kit's `#runner/lifecycle` — the kit's twin plugin and six Fastify-only
+  stand-ins deleted; the phone bundle 8.0 MB; checked in Chrome on `dist/spa-in-app` (the book,
+  an image, an AI stream). Not run: the Android emulator.
+- Slice 5 DONE — docgen (a helper agent): 4 routers, `app.js` (FastAPI errors + its envelope as
+  `onUnhandled`), the SSE jobs stream, the static UI behind a 405 route, the test client (161/161).
+- Slice 6 IN PROGRESS — JustVoice (a helper agent).
+- Slice 7 IN PROGRESS — app-structure §Q.3, the kit's READMEs, the guard's `checkOneHono`, the
+  apps' CLAUDE.md / README / ARCHITECTURE lines done; JustVoice's after slice 6.
 - Repos at the start: kit `main` clean, 47 commits ahead of origin; JustVoice `main` clean, pushed;
   JustWrite `master` clean, 32 ahead; docgen `main` 9 ahead (`out/` untracked, left alone);
   `just-sqlite-sync` 1 ahead with `biome.json` modified (not this session's — left alone).

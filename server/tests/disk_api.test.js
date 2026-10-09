@@ -24,9 +24,9 @@ beforeEach(() => {
 
 async function usage(dataDir, extraBuckets) {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(extraBuckets === undefined ? makeDiskRouter(String(dataDir)) : makeDiskRouter(String(dataDir), extraBuckets));
-  const r = await app.inject({ method: "GET", url: "/v1/disk/usage" });
-  expect(r.statusCode).toBe(200);
+  app.route("/", extraBuckets === undefined ? makeDiskRouter(String(dataDir)) : makeDiskRouter(String(dataDir), extraBuckets));
+  const r = await app.request("/v1/disk/usage", { method: "GET" });
+  expect(r.status).toBe(200);
   return r.json();
 }
 

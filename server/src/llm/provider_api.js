@@ -8,11 +8,13 @@
 // `/v1/llm-providers*` router that every app mounts identically. The CRUD logic, validation,
 // adapter-registry sync and local-server detection live here ONCE; only persistence differs.
 
+import { Hono } from "hono";
 import * as http from "../platform/http.js";
 import { HttpError } from "../platform/errors.js";
 import { getLogger } from "../platform/log.js";
 import { model, nullable, opt, T } from "../platform/models.js";
 import { errText, isJsonObject, strip, strRepr, truthy } from "../platform/py.js";
+import { input } from "../platform/server.js";
 import { construct, getLlmRegistry } from "./registry.js";
 import { LLMProviderConfig } from "./schema.js";
 
@@ -158,136 +160,138 @@ const PARAMS = T.Object({ provider_id: T.String() });
  * simply absent there. NEVER log the key.
  */
 export function makeProviderRouter(getStore, allowKeyReveal = false) {
-  return async function providerRouter(app) {
-    app.get("/v1/llm-providers", async () => {
-      const registeredIds = new Set(getLlmRegistry().ids());
-      return model(LLMProviderList, {
+  const app = new Hono();
+  app.get("/v1/llm-providers", async (c) => {
+    const registeredIds = new Set(getLlmRegistry().ids());
+    return c.json(
+      model(LLMProviderList, {
         providers: getStore()
           .list()
-          .map((c) => toResponse(c, registeredIds.has(c.id))),
-      });
-    });
+          .map((cfg) => toResponse(cfg, registeredIds.has(cfg.id))),
+      }),
+    );
+  });
 
-    app.post("/v1/llm-providers", { schema: { body: UpsertLLMProviderRequest } }, async (req, reply) => {
-      const body = req.body;
+  app.post("/v1/llm-providers", input({ body: UpsertLLMProviderRequest }), async (c) => {
+    const body = c.req.valid("json");
+    checkType(body.providerType);
+    const store = getStore();
+    // Derive the id from the name when the client doesn't supply one.
+    const providerId = strip(body.id) || uniqueId(store, slugify(body.name));
+    if (store.get(providerId) != null) {
+      throw new HttpError(400, `LLM provider id ${strRepr(providerId)} already exists`);
+    }
+    const cfg = model(LLMProviderConfig, {
+      id: providerId,
+      name: body.name,
+      providerType: body.providerType,
+      baseUrl: body.baseUrl,
+      apiKey: body.apiKey || null,
+      defaultModel: body.defaultModel,
+      embeddingModel: body.embeddingModel,
+      timeoutSeconds: body.timeoutSeconds,
+      local: body.local,
+    });
+    store.add(cfg);
+    const registered = syncRegister(cfg);
+    return c.json(toResponse(cfg, registered), 201);
+  });
+
+  app.patch(
+    "/v1/llm-providers/:provider_id",
+    input({ params: PARAMS, body: UpsertLLMProviderRequest }),
+    async (c) => {
+      const providerId = c.req.valid("param").provider_id;
+      const body = c.req.valid("json");
       checkType(body.providerType);
       const store = getStore();
-      // Derive the id from the name when the client doesn't supply one.
-      const providerId = strip(body.id) || uniqueId(store, slugify(body.name));
-      if (store.get(providerId) != null) {
-        throw new HttpError(400, `LLM provider id ${strRepr(providerId)} already exists`);
-      }
+      const existing = store.get(providerId);
+      if (existing == null) throw new HttpError(404, `LLM provider ${providerId}`);
+      // empty string preserves the prior key (write-only field); null clears it.
+      const apiKey = body.apiKey === "" ? existing.apiKey : body.apiKey;
       const cfg = model(LLMProviderConfig, {
-        id: providerId,
+        id: existing.id, // id is immutable; reassigning would orphan feature pins
         name: body.name,
         providerType: body.providerType,
         baseUrl: body.baseUrl,
-        apiKey: body.apiKey || null,
+        apiKey,
         defaultModel: body.defaultModel,
         embeddingModel: body.embeddingModel,
         timeoutSeconds: body.timeoutSeconds,
         local: body.local,
       });
-      store.add(cfg);
+      store.replace(providerId, cfg);
+      getLlmRegistry().deregister(cfg.id);
       const registered = syncRegister(cfg);
-      reply.code(201);
-      return toResponse(cfg, registered);
-    });
+      return c.json(toResponse(cfg, registered));
+    },
+  );
 
-    app.patch(
-      "/v1/llm-providers/:provider_id",
-      { schema: { params: PARAMS, body: UpsertLLMProviderRequest } },
-      async (req) => {
-        const providerId = req.params.provider_id;
-        const body = req.body;
-        checkType(body.providerType);
-        const store = getStore();
-        const existing = store.get(providerId);
-        if (existing == null) throw new HttpError(404, `LLM provider ${providerId}`);
-        // empty string preserves the prior key (write-only field); null clears it.
-        const apiKey = body.apiKey === "" ? existing.apiKey : body.apiKey;
-        const cfg = model(LLMProviderConfig, {
-          id: existing.id, // id is immutable; reassigning would orphan feature pins
-          name: body.name,
-          providerType: body.providerType,
-          baseUrl: body.baseUrl,
-          apiKey,
-          defaultModel: body.defaultModel,
-          embeddingModel: body.embeddingModel,
-          timeoutSeconds: body.timeoutSeconds,
-          local: body.local,
-        });
-        store.replace(providerId, cfg);
-        getLlmRegistry().deregister(cfg.id);
-        const registered = syncRegister(cfg);
-        return toResponse(cfg, registered);
-      },
+  app.delete("/v1/llm-providers/:provider_id", input({ params: PARAMS }), async (c) => {
+    const providerId = c.req.valid("param").provider_id;
+    const store = getStore();
+    if (store.get(providerId) == null) throw new HttpError(404, `LLM provider ${providerId}`);
+    store.remove(providerId);
+    getLlmRegistry().deregister(providerId);
+    return c.json({ deleted: true });
+  });
+
+  // Probe the well-known local LLM servers (Ollama :11434, LM Studio :1234) — powers the
+  // first-run "Ollama detected → Connect" row.
+  app.get("/v1/llm-providers/detect-local", async (c) => {
+    const registeredUrls = new Set(
+      getStore()
+        .list()
+        .map((p) => (p.baseUrl || "").replace(/\/+$/, "")),
     );
-
-    app.delete("/v1/llm-providers/:provider_id", { schema: { params: PARAMS } }, async (req) => {
-      const providerId = req.params.provider_id;
-      const store = getStore();
-      if (store.get(providerId) == null) throw new HttpError(404, `LLM provider ${providerId}`);
-      store.remove(providerId);
-      getLlmRegistry().deregister(providerId);
-      return { deleted: true };
-    });
-
-    // Probe the well-known local LLM servers (Ollama :11434, LM Studio :1234) — powers the
-    // first-run "Ollama detected → Connect" row.
-    app.get("/v1/llm-providers/detect-local", async () => {
-      const registeredUrls = new Set(
-        getStore()
-          .list()
-          .map((p) => (p.baseUrl || "").replace(/\/+$/, "")),
-      );
-      const out = [];
-      const probes = [
-        [
-          "ollama",
-          "Ollama (local)",
-          "http://127.0.0.1:11434",
-          "/api/tags",
-          (d) => dictGet(d, "models", []).map((m) => dictGet(m, "name", "")),
-        ],
-        [
-          "openai-compat",
-          "LM Studio (local)",
-          "http://127.0.0.1:1234",
-          "/v1/models",
-          (d) => dictGet(d, "data", []).map((m) => dictGet(m, "id", "")),
-        ],
-      ];
-      for (const [ptype, name, base, path, extract] of probes) {
-        try {
-          const r = await http.fetch(base + path, { timeoutMs: 1500 });
-          if (r.status !== 200) continue;
-          const models = extract(await r.json()).filter((m) => truthy(m));
-          out.push(
-            model(DetectedLocalProvider, {
-              providerType: ptype,
-              name,
-              baseUrl: base,
-              models,
-              alreadyRegistered: registeredUrls.has(base),
-            }),
-          );
-        } catch {
-          // a down probe is just "not detected"
-        }
+    const out = [];
+    const probes = [
+      [
+        "ollama",
+        "Ollama (local)",
+        "http://127.0.0.1:11434",
+        "/api/tags",
+        (d) => dictGet(d, "models", []).map((m) => dictGet(m, "name", "")),
+      ],
+      [
+        "openai-compat",
+        "LM Studio (local)",
+        "http://127.0.0.1:1234",
+        "/v1/models",
+        (d) => dictGet(d, "data", []).map((m) => dictGet(m, "id", "")),
+      ],
+    ];
+    for (const [ptype, name, base, path, extract] of probes) {
+      try {
+        const r = await http.fetch(base + path, { timeoutMs: 1500 });
+        if (r.status !== 200) continue;
+        const models = extract(await r.json()).filter((m) => truthy(m));
+        out.push(
+          model(DetectedLocalProvider, {
+            providerType: ptype,
+            name,
+            baseUrl: base,
+            models,
+            alreadyRegistered: registeredUrls.has(base),
+          }),
+        );
+      } catch {
+        // a down probe is just "not detected"
       }
-      return model(DetectLocalResponse, { detected: out });
-    });
-
-    if (allowKeyReveal) {
-      // Return a saved provider's plaintext key so the UI can pre-fill a masked, editable
-      // field (#12 C6). POST (not GET — a GET is world-readable). Guarded by the host's
-      // origin-check middleware; opt-in only. NEVER logged.
-      app.post("/v1/llm-providers/:provider_id/key/reveal", { schema: { params: PARAMS } }, async (req) => {
-        const cfg = getStore().get(req.params.provider_id);
-        if (cfg == null) throw new HttpError(404, `LLM provider ${req.params.provider_id}`);
-        return { apiKey: cfg.apiKey || "" };
-      });
     }
-  };
+    return c.json(model(DetectLocalResponse, { detected: out }));
+  });
+
+  if (allowKeyReveal) {
+    // Return a saved provider's plaintext key so the UI can pre-fill a masked, editable
+    // field (#12 C6). POST (not GET — a GET is world-readable). Guarded by the host's
+    // origin-check middleware; opt-in only. NEVER logged.
+    app.post("/v1/llm-providers/:provider_id/key/reveal", input({ params: PARAMS }), async (c) => {
+      const providerId = c.req.valid("param").provider_id;
+      const cfg = getStore().get(providerId);
+      if (cfg == null) throw new HttpError(404, `LLM provider ${providerId}`);
+      return c.json({ apiKey: cfg.apiKey || "" });
+    });
+  }
+  return app;
 }

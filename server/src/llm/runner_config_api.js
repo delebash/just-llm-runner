@@ -10,10 +10,12 @@
 // for the editor); the runner reads its live config from the same DB rows via
 // `buildRunnerConfig()`.
 
+import { Hono } from "hono";
 import { HttpError } from "../platform/errors.js";
 import { model, nullable, opt, T } from "../platform/models.js";
 import { pyInt } from "../platform/py.js";
 import { pyFloat } from "../platform/pyjson.js";
+import { input } from "../platform/server.js";
 import { MAX_DOWNLOAD_CONCURRENT, MAX_DOWNLOAD_SEGMENT_COUNT, MAX_DOWNLOAD_SEGMENT_RETRIES } from "../runner/config.js";
 
 export const RunnerBinaryRow = T.Object({
@@ -117,139 +119,139 @@ const floatText = (x) => pyFloat(Number(x));
 /** `getStore()` → {getConfig(), upsertBinary(row), setSetting(key, value),
  * resetToDefaults()} — the host's runner_binary + runner_setting persistence. */
 export function makeRunnerConfigRouter(getStore) {
-  return async function runnerConfigRouter(app) {
-    app.get("/v1/ai/engine-config", async () => model(EngineConfig, getStore().getConfig()));
+  const app = new Hono();
+  app.get("/v1/ai/engine-config", async (c) => c.json(model(EngineConfig, getStore().getConfig())));
 
-    app.put("/v1/ai/engine-config", { schema: { body: EngineConfigUpdate } }, async (req) => {
-      const body = model(EngineConfigUpdate, req.body);
-      const store = getStore();
-      if (body.pinnedBuild != null) {
-        const pb = strip(body.pinnedBuild);
-        if (!pb) throw new HttpError(400, "pinnedBuild cannot be blank");
-        store.setSetting("pinned_build", pb);
+  app.put("/v1/ai/engine-config", input({ body: EngineConfigUpdate }), async (c) => {
+    const body = model(EngineConfigUpdate, c.req.valid("json"));
+    const store = getStore();
+    if (body.pinnedBuild != null) {
+      const pb = strip(body.pinnedBuild);
+      if (!pb) throw new HttpError(400, "pinnedBuild cannot be blank");
+      store.setSetting("pinned_build", pb);
+    }
+    if (body.updatePolicy != null) {
+      const up = strip(body.updatePolicy).toLowerCase();
+      if (!["off", "notify"].includes(up)) throw new HttpError(400, "updatePolicy must be 'off' or 'notify'");
+      store.setSetting("update_policy", up);
+    }
+    if (body.ackHwFingerprint != null) store.setSetting("ack_hw_fingerprint", strip(body.ackHwFingerprint));
+    if (body.preferredGpu != null) {
+      const pg = strip(body.preferredGpu).toLowerCase();
+      if (!["", "cuda", "vulkan", "rocm", "metal"].includes(pg)) {
+        throw new HttpError(400, "preferredGpu must be blank (Auto) or one of: cuda, vulkan, rocm, metal");
       }
-      if (body.updatePolicy != null) {
-        const up = strip(body.updatePolicy).toLowerCase();
-        if (!["off", "notify"].includes(up)) throw new HttpError(400, "updatePolicy must be 'off' or 'notify'");
-        store.setSetting("update_policy", up);
+      store.setSetting("preferred_gpu", pg);
+    }
+    if (body.classKeyOverride != null) {
+      // Free text, trimmed — the class-tunes library accepts free-typed keys (class-tunes
+      // PUT), so the override does too; "" = auto-detect.
+      store.setSetting("class_key_override", strip(body.classKeyOverride));
+    }
+    if (body.safetyMarginMb != null) store.setSetting("safety_margin_mb", intText(body.safetyMarginMb));
+    if (body.ctxCapTokens != null) store.setSetting("ctx_cap_tokens", intText(pyMax2(0, pyInt(body.ctxCapTokens))));
+    // Phase 3 (§8.14/§13.17): band thresholds are tok/s minimums — floored at 0; ordering
+    // (fast ≥ fine ≥ slow) is NOT enforced here (the band mapper walks top-down, so a
+    // crossed pair just merges bands — harmless), the user's number is kept as typed.
+    if (body.bandFastToks != null) store.setSetting("band_fast_toks", floatText(pyMax2(0.0, Number(body.bandFastToks))));
+    if (body.bandFineToks != null) store.setSetting("band_fine_toks", floatText(pyMax2(0.0, Number(body.bandFineToks))));
+    if (body.bandSlowToks != null) store.setSetting("band_slow_toks", floatText(pyMax2(0.0, Number(body.bandSlowToks))));
+    // A fraction: clamped to [0, 0.5] — 0 turns the dead zone off; past 0.5 the zones
+    // around fine and slow would swallow the whole scale.
+    if (body.bandDeadzoneFrac != null) {
+      store.setSetting("band_deadzone_frac", floatText(pyMin2(0.5, pyMax2(0.0, Number(body.bandDeadzoneFrac)))));
+    }
+    // A fraction of the fine line: [0, 0.9] — 0 = a hard floor at band_fine_toks.
+    if (body.speedFloorGrace != null) {
+      store.setSetting("speed_floor_grace", floatText(pyMin2(0.9, pyMax2(0.0, Number(body.speedFloorGrace)))));
+    }
+    // The speed check's test model. The sha is checked after every download, so a
+    // malformed one would make the check fail forever — refuse it here instead.
+    if (body.calibModelUrl != null) {
+      const url = strip(body.calibModelUrl);
+      if (url && !(url.startsWith("https://") || url.startsWith("http://"))) {
+        throw new HttpError(400, "calibModelUrl must be an http(s) URL");
       }
-      if (body.ackHwFingerprint != null) store.setSetting("ack_hw_fingerprint", strip(body.ackHwFingerprint));
-      if (body.preferredGpu != null) {
-        const pg = strip(body.preferredGpu).toLowerCase();
-        if (!["", "cuda", "vulkan", "rocm", "metal"].includes(pg)) {
-          throw new HttpError(400, "preferredGpu must be blank (Auto) or one of: cuda, vulkan, rocm, metal");
+      store.setSetting("calib_model_url", url);
+    }
+    if (body.calibModelSha256 != null) {
+      const sha = strip(body.calibModelSha256).toLowerCase();
+      if (sha.length !== 64 || [...sha].some((c) => !"0123456789abcdef".includes(c))) {
+        throw new HttpError(400, "calibModelSha256 must be 64 hex characters");
+      }
+      store.setSetting("calib_model_sha256", sha);
+    }
+    if (body.calibModelSizeBytes != null) {
+      store.setSetting("calib_model_size_bytes", intText(pyMax2(0, pyInt(body.calibModelSizeBytes))));
+    }
+    if (body.calibActiveExpertMb != null) {
+      store.setSetting("calib_active_expert_mb", floatText(pyMax2(0.0, Number(body.calibActiveExpertMb))));
+    }
+    if (body.calibNonexpertMb != null) {
+      store.setSetting("calib_nonexpert_mb", floatText(pyMax2(0.0, Number(body.calibNonexpertMb))));
+    }
+    if (body.ramHeadroomMb != null) store.setSetting("ram_headroom_mb", intText(pyMax2(0, pyInt(body.ramHeadroomMb))));
+    if (body.modelsMax != null) store.setSetting("models_max", intText(pyMax2(1, pyInt(body.modelsMax))));
+    if (body.sleepIdleSeconds != null) {
+      store.setSetting("sleep_idle_seconds", intText(pyMax2(0, pyInt(body.sleepIdleSeconds))));
+    }
+    if (body.downloadSegmentsEnabled != null) {
+      store.setSetting("download_segments_enabled", body.downloadSegmentsEnabled ? "1" : "0");
+    }
+    if (body.downloadSegmentCount != null) {
+      // #10 (2026-07-17): clamp to [1, MAX] — a bare "20" spawned 20 parallel Range
+      // requests; >~8 only loads the CDN, no speed. saveKnobs re-reads the returned config,
+      // so the field snaps back to the clamped value the user sees.
+      store.setSetting(
+        "download_segment_count",
+        intText(pyMax2(1, pyMin2(MAX_DOWNLOAD_SEGMENT_COUNT, pyInt(body.downloadSegmentCount)))),
+      );
+    }
+    if (body.downloadSegmentMinBytes != null) {
+      // RETIRED/inert (the downloader falls back to single-stream itself) — still accepted
+      // + persisted so an existing UI/DB round-trips without a 422; nothing reads it.
+      store.setSetting("download_segment_min_bytes", intText(pyMax2(0, pyInt(body.downloadSegmentMinBytes))));
+    }
+    if (body.downloadSegmentRetries != null) {
+      store.setSetting(
+        "download_segment_retries",
+        intText(pyMax2(0, pyMin2(MAX_DOWNLOAD_SEGMENT_RETRIES, pyInt(body.downloadSegmentRetries)))),
+      );
+    }
+    if (body.downloadMaxConcurrent != null) {
+      // Clamp to [1, MAX] — the same ONE-source belt as the segment knobs; the lifecycle
+      // gate re-clamps on read too, so a raw DB poke can't spawn more than MAX parallel
+      // downloads.
+      store.setSetting(
+        "download_max_concurrent",
+        intText(pyMax2(1, pyMin2(MAX_DOWNLOAD_CONCURRENT, pyInt(body.downloadMaxConcurrent)))),
+      );
+    }
+    if (body.warmDefaultOnStartup != null) {
+      store.setSetting("warm_default_on_startup", body.warmDefaultOnStartup ? "1" : "0");
+    }
+    for (const row of body.binaries || []) {
+      if (!strip(row.platform) || !strip(row.gpu)) throw new HttpError(400, "each binary needs platform + gpu");
+      // The URL must be CONCRETE — a `{…}` placeholder never composes to a real asset and
+      // would 404 at install time (the pin drives the URL; the UI re-points it on a pin
+      // change). Reject it at the save boundary so a bad row can't reach the DB.
+      for (const [label, val] of [
+        ["assetUrl", row.assetUrl],
+        ["runtimeUrl", row.runtimeUrl],
+      ]) {
+        if (val && (val.includes("{") || val.includes("}"))) {
+          throw new HttpError(400, `${row.platform}/${row.gpu} ${label} still has a placeholder: ${val}`);
         }
-        store.setSetting("preferred_gpu", pg);
       }
-      if (body.classKeyOverride != null) {
-        // Free text, trimmed — the class-tunes library accepts free-typed keys (class-tunes
-        // PUT), so the override does too; "" = auto-detect.
-        store.setSetting("class_key_override", strip(body.classKeyOverride));
-      }
-      if (body.safetyMarginMb != null) store.setSetting("safety_margin_mb", intText(body.safetyMarginMb));
-      if (body.ctxCapTokens != null) store.setSetting("ctx_cap_tokens", intText(pyMax2(0, pyInt(body.ctxCapTokens))));
-      // Phase 3 (§8.14/§13.17): band thresholds are tok/s minimums — floored at 0; ordering
-      // (fast ≥ fine ≥ slow) is NOT enforced here (the band mapper walks top-down, so a
-      // crossed pair just merges bands — harmless), the user's number is kept as typed.
-      if (body.bandFastToks != null) store.setSetting("band_fast_toks", floatText(pyMax2(0.0, Number(body.bandFastToks))));
-      if (body.bandFineToks != null) store.setSetting("band_fine_toks", floatText(pyMax2(0.0, Number(body.bandFineToks))));
-      if (body.bandSlowToks != null) store.setSetting("band_slow_toks", floatText(pyMax2(0.0, Number(body.bandSlowToks))));
-      // A fraction: clamped to [0, 0.5] — 0 turns the dead zone off; past 0.5 the zones
-      // around fine and slow would swallow the whole scale.
-      if (body.bandDeadzoneFrac != null) {
-        store.setSetting("band_deadzone_frac", floatText(pyMin2(0.5, pyMax2(0.0, Number(body.bandDeadzoneFrac)))));
-      }
-      // A fraction of the fine line: [0, 0.9] — 0 = a hard floor at band_fine_toks.
-      if (body.speedFloorGrace != null) {
-        store.setSetting("speed_floor_grace", floatText(pyMin2(0.9, pyMax2(0.0, Number(body.speedFloorGrace)))));
-      }
-      // The speed check's test model. The sha is checked after every download, so a
-      // malformed one would make the check fail forever — refuse it here instead.
-      if (body.calibModelUrl != null) {
-        const url = strip(body.calibModelUrl);
-        if (url && !(url.startsWith("https://") || url.startsWith("http://"))) {
-          throw new HttpError(400, "calibModelUrl must be an http(s) URL");
-        }
-        store.setSetting("calib_model_url", url);
-      }
-      if (body.calibModelSha256 != null) {
-        const sha = strip(body.calibModelSha256).toLowerCase();
-        if (sha.length !== 64 || [...sha].some((c) => !"0123456789abcdef".includes(c))) {
-          throw new HttpError(400, "calibModelSha256 must be 64 hex characters");
-        }
-        store.setSetting("calib_model_sha256", sha);
-      }
-      if (body.calibModelSizeBytes != null) {
-        store.setSetting("calib_model_size_bytes", intText(pyMax2(0, pyInt(body.calibModelSizeBytes))));
-      }
-      if (body.calibActiveExpertMb != null) {
-        store.setSetting("calib_active_expert_mb", floatText(pyMax2(0.0, Number(body.calibActiveExpertMb))));
-      }
-      if (body.calibNonexpertMb != null) {
-        store.setSetting("calib_nonexpert_mb", floatText(pyMax2(0.0, Number(body.calibNonexpertMb))));
-      }
-      if (body.ramHeadroomMb != null) store.setSetting("ram_headroom_mb", intText(pyMax2(0, pyInt(body.ramHeadroomMb))));
-      if (body.modelsMax != null) store.setSetting("models_max", intText(pyMax2(1, pyInt(body.modelsMax))));
-      if (body.sleepIdleSeconds != null) {
-        store.setSetting("sleep_idle_seconds", intText(pyMax2(0, pyInt(body.sleepIdleSeconds))));
-      }
-      if (body.downloadSegmentsEnabled != null) {
-        store.setSetting("download_segments_enabled", body.downloadSegmentsEnabled ? "1" : "0");
-      }
-      if (body.downloadSegmentCount != null) {
-        // #10 (2026-07-17): clamp to [1, MAX] — a bare "20" spawned 20 parallel Range
-        // requests; >~8 only loads the CDN, no speed. saveKnobs re-reads the returned config,
-        // so the field snaps back to the clamped value the user sees.
-        store.setSetting(
-          "download_segment_count",
-          intText(pyMax2(1, pyMin2(MAX_DOWNLOAD_SEGMENT_COUNT, pyInt(body.downloadSegmentCount)))),
-        );
-      }
-      if (body.downloadSegmentMinBytes != null) {
-        // RETIRED/inert (the downloader falls back to single-stream itself) — still accepted
-        // + persisted so an existing UI/DB round-trips without a 422; nothing reads it.
-        store.setSetting("download_segment_min_bytes", intText(pyMax2(0, pyInt(body.downloadSegmentMinBytes))));
-      }
-      if (body.downloadSegmentRetries != null) {
-        store.setSetting(
-          "download_segment_retries",
-          intText(pyMax2(0, pyMin2(MAX_DOWNLOAD_SEGMENT_RETRIES, pyInt(body.downloadSegmentRetries)))),
-        );
-      }
-      if (body.downloadMaxConcurrent != null) {
-        // Clamp to [1, MAX] — the same ONE-source belt as the segment knobs; the lifecycle
-        // gate re-clamps on read too, so a raw DB poke can't spawn more than MAX parallel
-        // downloads.
-        store.setSetting(
-          "download_max_concurrent",
-          intText(pyMax2(1, pyMin2(MAX_DOWNLOAD_CONCURRENT, pyInt(body.downloadMaxConcurrent)))),
-        );
-      }
-      if (body.warmDefaultOnStartup != null) {
-        store.setSetting("warm_default_on_startup", body.warmDefaultOnStartup ? "1" : "0");
-      }
-      for (const row of body.binaries || []) {
-        if (!strip(row.platform) || !strip(row.gpu)) throw new HttpError(400, "each binary needs platform + gpu");
-        // The URL must be CONCRETE — a `{…}` placeholder never composes to a real asset and
-        // would 404 at install time (the pin drives the URL; the UI re-points it on a pin
-        // change). Reject it at the save boundary so a bad row can't reach the DB.
-        for (const [label, val] of [
-          ["assetUrl", row.assetUrl],
-          ["runtimeUrl", row.runtimeUrl],
-        ]) {
-          if (val && (val.includes("{") || val.includes("}"))) {
-            throw new HttpError(400, `${row.platform}/${row.gpu} ${label} still has a placeholder: ${val}`);
-          }
-        }
-        store.upsertBinary(row);
-      }
-      return model(EngineConfig, store.getConfig());
-    });
+      store.upsertBinary(row);
+    }
+    return c.json(model(EngineConfig, store.getConfig()));
+  });
 
-    app.post("/v1/ai/engine-config/reset", async () => {
-      const store = getStore();
-      store.resetToDefaults();
-      return model(EngineConfig, store.getConfig());
-    });
-  };
+  app.post("/v1/ai/engine-config/reset", async (c) => {
+    const store = getStore();
+    store.resetToDefaults();
+    return c.json(model(EngineConfig, store.getConfig()));
+  });
+  return app;
 }

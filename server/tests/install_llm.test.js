@@ -107,12 +107,12 @@ afterEach(() => {
  * mounts the rest. */
 async function mountedApp(opts = {}) {
   const app = createServer({ typeBase: "https://example.test/errors/" });
-  app.register(runnerRouter);
+  app.route("/", runnerRouter());
   await installLlm(app, { db: h, dataDir: tmp, ...opts });
   return app;
 }
 
-const get = (app, url) => app.inject({ method: "GET", url });
+const get = (app, url) => app.request(url, { method: "GET" });
 
 /** A host catalog row (every app seeds its own since decision ④). */
 const hostRow = (fields) => ({
@@ -137,20 +137,20 @@ test("bare_minimal_call_yields_a_working_stack", async () => {
 
   // Providers: seeded rows exist and the endpoint serves them.
   const providers = await get(app, "/v1/llm-providers");
-  expect(providers.statusCode).toBe(200);
-  expect(providers.json().providers.length).toBeGreaterThan(0); // seedLlm should have seeded providers
+  expect(providers.status).toBe(200);
+  expect((await providers.json()).providers.length).toBeGreaterThan(0); // seedLlm should have seeded providers
 
   // Routing: mounted and answering, with the (empty) feature catalog.
-  expect((await get(app, "/v1/ai/routing")).statusCode).toBe(200);
+  expect((await get(app, "/v1/ai/routing")).status).toBe(200);
 
   // Usage ledger: the DB sink is wired.
-  expect((await get(app, "/v1/ai-usage")).statusCode).toBe(200);
+  expect((await get(app, "/v1/ai-usage")).status).toBe(200);
 
   // The runner: catalog is WIRED (installLlm called configureService). Since decision ④ the
   // shared seed carries no models, so the bare call legally serves an EMPTY list.
   const models = await get(app, "/v1/llm-runner/models");
-  expect(models.statusCode).toBe(200);
-  const body = models.json();
+  expect(models.status).toBe(200);
+  const body = await models.json();
   expect(body.catalogWired).toBe(true);
   expect(body.models).toEqual([]);
 
@@ -171,24 +171,24 @@ test("with_features_and_double_seed_is_a_noop", async () => {
   });
   seedLlm();
 
-  const providersBefore = (await get(app, "/v1/llm-providers")).json().providers.length;
+  const providersBefore = (await (await get(app, "/v1/llm-providers")).json()).providers.length;
   const promptsBefore = stores.getPromptStore().list().length;
   const catalogBefore = stores.getModelCatalogStore().list().length;
   expect(providersBefore > 0 && promptsBefore > 0 && catalogBefore > 0).toBe(true);
 
   // The host's row flows through the wired runner catalog to /models.
-  expect((await get(app, "/v1/llm-runner/models")).json().models.some((m) => m.id === "host-model")).toBe(true);
+  expect((await (await get(app, "/v1/llm-runner/models")).json()).models.some((m) => m.id === "host-model")).toBe(true);
 
   seedLlm(); // the double seed — JW calls seedLlm after installLlm already part-seeded
 
-  expect((await get(app, "/v1/llm-providers")).json().providers.length).toBe(providersBefore);
+  expect((await (await get(app, "/v1/llm-providers")).json()).providers.length).toBe(providersBefore);
   expect(stores.getPromptStore().list().length).toBe(promptsBefore);
   expect(stores.getModelCatalogStore().list().length).toBe(catalogBefore);
 
   // The registered feature reached the routing surface.
   const routing = await get(app, "/v1/ai/routing");
-  expect(routing.statusCode).toBe(200);
-  expect((routing.json().features || []).some((f) => f.key === "translate")).toBe(true);
+  expect(routing.status).toBe(200);
+  expect(((await routing.json()).features || []).some((f) => f.key === "translate")).toBe(true);
 });
 
 test("bare_call_needs_no_feature_arguments", async () => {

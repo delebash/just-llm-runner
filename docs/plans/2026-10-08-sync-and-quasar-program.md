@@ -106,6 +106,9 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   disabled-rule PostCSS step, the template's theme and the Stack line followed the same go.
   Decided the same turn: the phone's scope (JustWrite's TASKS, Sync decision 8) and JustVoice's
   sync scope (projects, scripts, personas, lexicons — JustVoice's TASKS).
+- The phone (Q4's last part): planned 2026-10-08 — `2026-10-08-the-phone.md` (what it is, the worker
+  server, images by id, sync and AI on the phone, slices, four questions, the blast radius); waits
+  for the user's go on it.
 - Q3: after Q4–Q5 (see the order change above); its theme part is done.
 - Q6: not started (docgen's tree is held).
 

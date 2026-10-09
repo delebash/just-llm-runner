@@ -9,6 +9,8 @@
 // old per-app ProviderBackend adapter: one client, both apps, no forks — the
 // only thing injected is the base URL, not a data layer.
 
+import { serverFetch } from "./common/services/transport.js";
+
 let _base = "";
 let _catalogCopy = {};
 
@@ -89,7 +91,7 @@ export async function request(path, { method = "GET", body, headers, signal } = 
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  const res = await fetch(llmUiUrl(path), opts);
+  const res = await serverFetch(llmUiUrl(path), opts);
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     // Central client-side log: every failed request is recorded ONCE here, so a
@@ -116,7 +118,7 @@ export async function requestBlob(path, { method = "GET", body } = {}) {
     opts.headers["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  const res = await fetch(llmUiUrl(path), opts);
+  const res = await serverFetch(llmUiUrl(path), opts);
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw httpError(res.status, detail);
@@ -126,7 +128,7 @@ export async function requestBlob(path, { method = "GET", body } = {}) {
 
 /** POST multipart/form-data (e.g. a backup ZIP upload); returns parsed JSON. */
 export async function postForm(path, formData) {
-  const res = await fetch(llmUiUrl(path), { method: "POST", body: formData });
+  const res = await serverFetch(llmUiUrl(path), { method: "POST", body: formData });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw httpError(res.status, detail);
@@ -166,7 +168,7 @@ export async function requestStream(path, body, onDelta, { signal, onProgress, o
     body: JSON.stringify(body),
   };
   if (signal) opts.signal = signal;
-  const res = await fetch(llmUiUrl(path), opts);
+  const res = await serverFetch(llmUiUrl(path), opts);
   if (!res.ok || !res.body) {
     const detail = await res.text().catch(() => "");
     throw httpError(res.status, detail);

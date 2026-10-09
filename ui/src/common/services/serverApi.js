@@ -10,6 +10,7 @@
 // services/serverApi.js (JV's full transport; JW's resolver-only stub + its ~17
 // scattered hand-rolled fetch helpers) and services/connection.js.
 
+import { serverFetch } from "./transport.js";
 import { ref } from "vue";
 
 // Reactive so views binding `api.lastError` update. Shared instance: the app's
@@ -69,7 +70,7 @@ export const url = serverUrl; // JustVoice's name for the same fn
 async function _doRequest(path, opts) {
   const headers = authHeaders(opts.headers);
   try {
-    const res = await fetch(serverUrl(path), { ...opts, headers });
+    const res = await serverFetch(serverUrl(path), { ...opts, headers });
     if (!res.ok) {
       const text = await res.text();
       // A HUMAN message, not the raw envelope (audit 2026-08-05: every toast
@@ -166,7 +167,7 @@ export async function requestBlob(path, { method = "GET", body, headers } = {}) 
     h["Content-Type"] = "application/json";
     opts.body = JSON.stringify(body);
   }
-  const res = await fetch(serverUrl(path), opts);
+  const res = await serverFetch(serverUrl(path), opts);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`${res.status} ${res.statusText}: ${text}`.trim());
@@ -176,7 +177,7 @@ export async function requestBlob(path, { method = "GET", body, headers } = {}) 
 
 export async function postForm(path, formData, opts = {}) {
   const headers = authHeaders(opts.headers);
-  const res = await fetch(serverUrl(path), { ...opts, method: "POST", headers, body: formData });
+  const res = await serverFetch(serverUrl(path), { ...opts, method: "POST", headers, body: formData });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`${res.status} ${res.statusText}: ${text}`);
@@ -210,7 +211,7 @@ export async function checkServer({ tries = 8, delayMs = 500, probeTimeoutMs = 5
       // HEADLESS browser door over real networks, and a health round-trip on
       // a slow link must not read as "server down". A local sidecar answers
       // in milliseconds either way.
-      const res = await fetch(serverUrl("/v1/health"), {
+      const res = await serverFetch(serverUrl("/v1/health"), {
         headers: authHeaders(), cache: "no-store",
         signal: AbortSignal.timeout(probeTimeoutMs),
       });

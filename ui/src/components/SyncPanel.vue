@@ -30,6 +30,7 @@ import UiToggle from "../common/components/UiToggle.vue";
 import { confirmDialog } from "../common/services/dialog.js";
 import { saveBlob } from "../common/services/fileSave.js";
 import { pushToast } from "../common/services/toastBridge.js";
+import { serverFetch } from "../common/services/transport.js";
 
 const props = defineProps({
   appName: { type: String, default: "the app" },
@@ -189,7 +190,7 @@ async function chooseFolder() {
 
 async function exportFile() {
   await run("export", async () => {
-    const res = await fetch(llmUiUrl("/v1/sync/export"), {
+    const res = await serverFetch(llmUiUrl("/v1/sync/export"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ projectIds: pickedIds.value, encrypt: encrypt.value }),
@@ -208,7 +209,7 @@ async function exportFile() {
 }
 
 async function postImport(bytes, join) {
-  const res = await fetch(llmUiUrl(`/v1/sync/import${join ? "?join=1" : ""}`), {
+  const res = await serverFetch(llmUiUrl(`/v1/sync/import${join ? "?join=1" : ""}`), {
     method: "POST",
     headers: { "Content-Type": "application/octet-stream" },
     body: bytes,

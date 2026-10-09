@@ -93,6 +93,8 @@ export {
   configureServerApi, makeOriginAwareResolver, serverUrl, url, lastError,
   request, get, post, patch, put, del, requestBlob, postForm, safeRequest, checkServer,
 } from "./services/serverApi.js";
+// where those requests go — the network, or the phone's in-app server (a worker)
+export { inAppServer, serverFetch, setServerTransport, workerFetch } from "./services/transport.js";
 
 // shared appearance/theming engine + catalogs (host calls applyAppearance at boot)
 export * from "./services/appearance.js";

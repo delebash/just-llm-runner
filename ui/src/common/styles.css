@@ -129,32 +129,8 @@ button:not(.ui-btn) { color: inherit; }
 .ui-field__label, .ui-field--block > label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted, var(--ink-2)); font-weight: 600; margin-bottom: 6px; }
 .ui-field__hint { display: block; font-size: 11px; color: var(--muted, var(--ink-2)); margin-top: 4px; }
 
-/* ── Tag ───────────────────────────────────────────────────── */
-/* Borderless soft-tint by default (--tag-border-width: 0); a host that wants
-   outlined pills (JustVoice) sets --tag-border-width: 1px → border tracks the
-   variant's text colour. */
-.ui-tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font: 600 11px/1.4 var(--font-ui, inherit); border-radius: var(--tag-radius, 4px); white-space: nowrap; border: var(--tag-border-width, 0) solid currentColor; }
-
-/* ── Chip (selectable pill — interactive sibling of the tag) ── */
-.ui-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; font: 600 11px/18px var(--font-ui, inherit); border-radius: var(--chip-radius, 999px); border: 1px solid var(--border-strong, var(--border)); background: transparent; color: var(--ink-2, var(--ink)); cursor: pointer; white-space: nowrap; text-decoration: none; transition: background .12s, border-color .12s, color .12s; }
-.ui-chip:hover:not(.is-disabled):not(.is-selected) { border-color: var(--accent); color: var(--accent-ink, var(--accent)); }
-.ui-chip.is-selected { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
-.ui-chip.is-disabled { opacity: .55; cursor: not-allowed; }
-.ui-tag--primary { background: var(--accent-soft); color: var(--accent-ink, var(--accent)); }
-.ui-tag--secondary { background: var(--surface-3, var(--surface-2)); color: var(--ink-2, var(--ink)); }
-.ui-tag--success { background: var(--success-bg, var(--accent-soft)); color: var(--success-ink, var(--success, #3a7d63)); }
-.ui-tag--info { background: var(--info-bg, var(--surface-3)); color: var(--info-ink, var(--info, #3b6ea5)); }
-.ui-tag--accent2 { background: var(--warn-bg, var(--gold-soft, #f5edda)); color: var(--warn-ink, var(--gold, #b08a3e)); }
-.ui-tag--danger { background: color-mix(in oklab, var(--danger) 14%, transparent); color: var(--danger); }
-/* solid — filled accent chip (white text); ghost — transparent quiet chip.
-   Both used by JustVoice's status pills. */
-.ui-tag--solid { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
-.ui-tag--ghost { background: transparent; color: var(--ink-2, var(--ink)); }
-/* removable tag ✕ (UiTag `removable`) — inherits the intent's text colour */
-.ui-tag__x { border: none; background: transparent; color: inherit; font: inherit;
-  font-size: 0.85em; line-height: 1; padding: 0 0 0 2px; margin-right: -2px;
-  cursor: pointer; opacity: 0.65; }
-.ui-tag__x:hover { opacity: 1; }
+/* Tag and Chip: their look is the kit's Quasar theme (../quasar/theme.css) since they moved
+   onto QBadge / QChip (docs/plans/2026-10-09-kit-controls-on-quasar.md). */
 
 /* ── Select (Reka headless) ─────────────────────────────────── */
 .ui-select-trigger {

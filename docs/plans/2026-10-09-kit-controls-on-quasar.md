@@ -222,3 +222,37 @@ wrapper pattern are proven on small pieces first.
 
 Nothing is committed until its slice's checks pass; each slice is its own commit in the kit (and in
 an app only where an app's file had to change).
+
+## 6 · Built
+
+The tools (scratchpad `q3/`, copied here when Q3 closes): `parity.js` (the ten screens per app,
+both builds, fresh data snapshots), `states.js` + one scenario per slice (states driven the same
+way on both builds: hover, keyboard focus, dark mode, another accent, clicks), `crop.js`.
+
+**Slice 0 — the theme.** Kit ef45921; JustWrite b9710e7, JustVoice 17d5172, docgen 1c45f24. All
+30 screens identical to the build before it (live values only).
+
+**Slice 1 — `UiTag` on `QBadge`, `UiChip` on `QChip`.** What the side-by-side taught:
+
+- **No theme rule may win by order.** In a built app the kit's CSS chunk can load before Quasar's
+  (JustVoice: the kit's `api-*.css`, then `index-*.css` with Quasar and the app's own sheets), so
+  every theme rule outranks Quasar's by specificity — two classes (`.q-badge.ui-tag`), or `html`
+  in front of a rule for every Quasar component. That also outranks an app's one-class additions,
+  so a tag's intent sets variables (`--ui-tag-bg`, `--ui-tag-ink`, `--ui-tag-border`) and
+  JustVoice's own `.ui-tag--violet` now sets them too.
+- **Today's look is what's on screen, not what the old rule said.** The chip's rest colour was
+  `ink-2` in `common/styles.css`, but the chips were native buttons and the kit's
+  `button:not(.ui-btn) { color: inherit }` outranked it, so they showed their surroundings'
+  colour; the theme keeps that (and `ink-2` for the link/plain chips that never were buttons).
+  A button also had the browser's `letter-spacing`/`text-transform` resets; a tag (a span)
+  inherited its surroundings' letter-spacing.
+- **A positioned chip loses sub-pixel text on a page with an animation.** QChip is
+  `position: relative`; on JustVoice's Captures (animated recording bars) Chrome composited the
+  chips ("Overlap") and drew their text grey-smoothed. The chip is unpositioned in the theme, as
+  the button was.
+
+Checked: lint; the apps' unit tests (594, 183, 3); the 30 screens (JustVoice Captures 0.037 %:
+the chips' text, the same glyphs at the same box positions, rasterised differently inside a
+`<div>` than inside a `<button>` — invisible at 4×; everything else live values); 13 states
+(chips at rest, hover, keyboard focus, dark, another accent; tags in JustVoice's voice table and
+JustWrite's chapter list, light and dark, another accent) — 0 pixels differ in each.

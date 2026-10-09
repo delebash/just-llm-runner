@@ -660,6 +660,13 @@ step Q3):
 - Slice 0 (the theme wired, no control on Quasar yet) leaves all 30 screens of the three apps
   identical to the build before it — at most 0.025 % of pixels, all live values (a memory reading,
   the pulsing status dot) (*measured*, 1440 × 900, data snapshots).
+- **The kit's CSS can load before Quasar's** in a built app (*measured*, JustVoice's `dist/spa`:
+  the page links the kit's chunk `api-*.css`, then `index-*.css` with Quasar's stylesheet and the
+  app's own), so the kit's theme wins by specificity, never by order.
+- **Composited text loses sub-pixel smoothing in Chrome** (*measured*, JustVoice's Captures): a
+  `position: relative` element painted after an element with a running transform animation is
+  composited for overlap (CDP `LayerTree`: "Overlap"), and its text is drawn grey-smoothed; an
+  unpositioned one is not. `-webkit-font-smoothing` has no effect on Windows.
 
 ---
 

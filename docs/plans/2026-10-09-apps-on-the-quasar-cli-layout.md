@@ -218,11 +218,16 @@ parsed without `from` (Vite warned).
   came after JustWrite's and won ties (`button:not(.ui-btn)` over `.titlebar-right button`: the
   title bar's icons darkened). The `css` list names the kit's three stylesheets (`~@delebash/llm-ui/…`)
   before `app.scss`.
-- **The layout's root is fixed to the window and clips** (`.app-stage`, as the grid shell's was):
-  Chrome then paints the whole app, the fixed overlays included, in one opaque layer whose text
-  keeps sub-pixel smoothing; with the document as the scroller the chat panel, the help drawer and
-  the palette were layers of their own and their text turned grey-smoothed (DevTools LayerTree:
-  "OverflowScrolling", "Overlap").
+- **The layout's root is fixed to the window and clips** (as the grid shell's was; now the kit's
+  theme, for every app: `#q-app > .q-layout`): Chrome then paints the whole app, the fixed overlays
+  included, in one opaque layer whose text keeps sub-pixel smoothing; with the document as the
+  scroller the chat panel, the help drawer and the palette were layers of their own and their text
+  turned grey-smoothed (DevTools LayerTree: "OverflowScrolling", "Overlap").
+- **A page's height is a percentage, not pixels.** The appearance engine zooms `<html>` for the UI
+  size while Quasar measures the window in unzoomed pixels: a pixel `style-fn` height, and
+  QLayout's own inline min-height (the window's height), came out 135px past the window at zoom
+  1.15. `pageFill` is `height: 100%` of the page container, which the theme makes fill the layout;
+  the layout's min-height is overridden (`!important`, the one way past an inline style).
 - **`view="hhh lpr fff"`** (header and drawer not fixed): the window never scrolls; a fixed drawer
   was a compositing layer of its own whose icons antialiased differently (up to 49/255).
 - **The collapsed rail is QDrawer's mini mode** (`#mini` slot, Sidebar's `rail` prop) — the phone's
@@ -232,7 +237,7 @@ parsed without `from` (Vite warned).
   returns to `from`. vue-i18n is `boot/i18n.js`, as the CLI's i18n preset wires it.
 
 Checked: lint; unit 590 (the boot smoke runs both boot files); build:spa; the installer build;
-e2e 7/7; the ten screens against the pre-port build (≤ 0.007%, 1/255 only; the AI page's live
+e2e 7/7; zoom 0.9, 1 and 1.15 — the page ends at the window's bottom, 0 pixels apart; the ten screens against the pre-port build (≤ 0.007%, 1/255 only; the AI page's live
 memory); the shell's states (rest, collapse, expand, drag-resize to 338px, dark, the chat panel,
 the help drawer, the palette, 1024 and 1920 windows) — 0 pixels but 88 at 1/255; onboarding with
 no book (`/`, `/welcome`, `/ai`, `/help`, `/sync`, `/chapters` → welcome) — 0 pixels, same

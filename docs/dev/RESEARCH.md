@@ -839,6 +839,21 @@ release notes; *measured* — a project generated, the family's suites run; 2026
   and the Vitest migration guide.)
 - Measured on the new versions: the kit's server suite 1136 passed (2 expected failures, 12
   skipped), just-sqlite-sync 47/47, the template's lint and browser build.
+- **Quasar's layout in a family app** (*measured* on JustWrite, 2026-10-09, Chrome via Playwright):
+  QLayout (not a container) sets an inline `min-height` of the window's height in unzoomed pixels,
+  and QPage's default style a `min-height` the same way — with `zoom` on `<html>` (the appearance
+  engine's UI size) both are wrong above zoom 1 (a page 135px past the window at 1.15); a page
+  `height: 100%` of a page container that fills a window-fixed layout is right at every zoom. A
+  fixed, clipped layout root is the layer Chrome paints the app in (DevTools LayerTree: "Viewport");
+  with the document as the scroller, a fixed overlay (`position: fixed` panel) is its own layer
+  ("OverflowScrolling", "Overlap") and its text is grey-smoothed instead of sub-pixel. A fixed
+  QDrawer (`view` with `L`) carries `transform: translateX(0)` inline and its content Quasar's
+  `scroll` (`will-change: scroll-position`); fixed, its SVG icons antialiased up to 49/255 apart
+  from the same icons painted in the root layer; not fixed (`l`), identical. QDrawer animates only
+  a `mini` change (`q-drawer--mini-animate`, 0.15s timer), not a `width` change. app-vite imports
+  `quasar.config.js > css` in the client entry before the app's modules (a `~`-prefixed entry is
+  imported as written, so an alias resolves) — moving stylesheets there from a boot file changes the
+  cascade order against stylesheets the modules import.
 - **A PostCSS plugin's `parse()` without `from` makes Vite warn** ("A PostCSS plugin did not pass
   the `from` option to `postcss.parse`") — the kit's `dropQuasarDisabledRule()` added its one rule
   that way; passing the stylesheet's file as `from` ends it (measured, the template's build).

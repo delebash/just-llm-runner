@@ -602,6 +602,18 @@
 }
 :where(.ui-table-wrap .q-table tbody td)::before,
 :where(.ui-table-wrap .q-table tbody td)::after { content: none; }
+/* At phone width (Quasar's xs) a table wider than the window scrolls sideways in QTable's own
+   wrapper, with its first column kept in view — Quasar's "Sticky first column" (the cells need a
+   background of their own, or the columns scrolled under them show through). A sticky header
+   then pins to that wrapper, not the page, so on a phone it scrolls away with the rows. */
+@media (max-width: 599.98px) {
+  .ui-table-wrap .q-table__middle { overflow-x: auto; }
+  .ui-table-wrap .q-table thead th:first-child,
+  .ui-table-wrap .q-table .ui-table-row > td:first-child { position: sticky; left: 0; z-index: 1; }
+  .ui-table-wrap .q-table thead th:first-child { z-index: 2; }
+  .ui-table-wrap .q-table .ui-table-row > td:first-child { background: var(--surface); }
+  .ui-table-hover .q-table .ui-table-row:hover > td:first-child { background: var(--surface-2); }
+}
 
 /* ── Layout (every app's layouts/MainLayout.vue: q-layout, q-header, q-drawer) ── */
 /* The layout fills the window and never scrolls it — each page owns its scroller. Fixed and

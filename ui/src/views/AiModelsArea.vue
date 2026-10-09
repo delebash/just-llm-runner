@@ -1017,6 +1017,13 @@ onMounted(() => {
   padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); margin-top: 8px;
 }
 .lu-prow-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+/* At phone width (Quasar's xs) the row is two columns: the icon, then the name and details,
+   the status and the actions stacked under each other, the actions wrapping. */
+@media (max-width: 599.98px) {
+  .lu-prow { grid-template-columns: auto minmax(0, 1fr); row-gap: 8px; align-items: start; }
+  .lu-prow-status, .lu-prow-actions { grid-column: 2; }
+  .lu-prow-actions { flex-wrap: wrap; gap: 8px; }
+}
 /* B2-9 set-as-default confirm — body lines above the overwrite choice. */
 .lu-sd-line { margin: 0 0 10px; }
 /* The Quick-Setup band, lifted out of the (now deleted) promoted built-in card

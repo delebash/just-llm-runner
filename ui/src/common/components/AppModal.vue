@@ -239,6 +239,14 @@ const contentStyle = computed(() => {
   flex-shrink: 0;
 }
 .ui-modal__titleblock { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+/* At phone width (Quasar's xs) the header wraps: the title (the first thing in it, the caller's
+   own under #header) keeps the top row beside the close button, and everything else the header
+   holds — an AI chip, badges — takes the row below, rather than squeezing the title to nothing. */
+@media (max-width: 599.98px) {
+  .ui-modal__header { flex-wrap: wrap; row-gap: 8px; }
+  .ui-modal__header > :deep(:first-child:not(.ui-modal__close)) { flex: 1 1 0; min-width: 0; }
+  .ui-modal__header > :deep(:not(:first-child):not(.ui-modal__close)) { order: 3; flex-basis: 100%; }
+}
 .ui-modal__eyebrow {
   font-size: 10.5px;
   font-weight: 600;

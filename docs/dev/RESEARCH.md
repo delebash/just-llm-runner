@@ -49,6 +49,7 @@ Subjects: [1 · Memory: the arbiter and the probes](#1--memory-the-arbiter-and-t
 [3 · AI tasks and the stream frames](#3--ai-tasks-and-the-stream-frames) ·
 [4 · The AI cache](#4--the-ai-cache-shared-between-apps) ·
 [5 · Starting other programs](#5--starting-other-programs) ·
+[6 · Claude Code: instructions and memory](#6--claude-code-instructions-and-memory) ·
 [Records not yet distilled](#records-not-yet-distilled)
 
 ---
@@ -876,6 +877,39 @@ step Q3):
 
 ---
 
+## 6 · Claude Code: instructions and memory
+
+**Records:** this repo's TASKS, "The family standard: one short rules file every repo imports"
+— the decision these facts led to ([`../family-rules.md`](../family-rules.md), imported by every
+repo's CLAUDE.md).
+
+**How Claude Code loads instructions** (*web, 2026-10-09* — code.claude.com/docs/en/memory and
+code.claude.com/docs/en/best-practices):
+
+- CLAUDE.md files at and above the working directory load at launch; one in a subdirectory loads
+  when Claude reads or edits a file there. "Target under 200 lines per CLAUDE.md file. Longer
+  files consume more context and reduce adherence."
+- An `@path` import loads at launch with the file that names it, resolved relative to that file,
+  up to four hops deep. "Imports help you organize a long file but don't reduce its context
+  cost." Import parsing skips code spans and fenced code blocks; block-level HTML comments are
+  stripped before the content reaches Claude.
+- An import that resolves outside the working directory (a sibling repo) asks for approval once
+  per project; declined, it stays off and the dialog doesn't come back. Imports in
+  `~/.claude/CLAUDE.md` load without asking.
+- A sentence that tells Claude to read a file works "only if it decides to open the file" (the
+  docs' AGENTS.md section); an `@` import is what makes it load.
+- `.claude/rules/*.md` load at launch, or — with `paths:` frontmatter — when Claude touches a
+  matching file. Rules symlinked in from outside the repo load only after that same approval, and
+  then only those without `paths`.
+- CLAUDE.md is advisory: "Unlike CLAUDE.md instructions which are advisory, hooks are
+  deterministic." A multi-step procedure, or a rule for one part of the code, belongs in a skill
+  or a path-scoped rule. The test for every line: "Would removing this cause Claude to make
+  mistakes?"
+- `/doctor prompt-audit` (v2.1.283 or later) reports outdated or conflicting instructions and
+  references to files that don't exist, and changes nothing until asked.
+
+---
+
 ## Records not yet distilled
 
 Indexed by subject so they can be found; their facts move into a section above when work next
@@ -899,7 +933,7 @@ touches the subject. History in [`../plans/archive/`](../plans/archive/) is not 
 **Features and routing** — [`../feature-model-system.md`](../feature-model-system.md).
 
 **Family structure** — [`../app-structure.md`](../app-structure.md) (the standard) ·
-[`../family-structure-audit.md`](../family-structure-audit.md) ·
-[`../target-tree.md`](../target-tree.md).
+[`../family-rules.md`](../family-rules.md) (the rules every repo imports). The 2026-08 audit and
+target tree are in [`../plans/archive/`](../plans/archive/).
 
 **Installing the stack** — [`install-runbook.md`](install-runbook.md).

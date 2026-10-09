@@ -10,6 +10,66 @@
 > Items extracted from plan docs are marked **[verified]** (code-checked at
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
+## The family standard: one short rules file every repo imports; app-structure.md holds current rules only [2026-10-09]
+STATE:  DECIDED 2026-10-09 — the user (a JustVoice session, after looking at storytold's apps): "would
+        are code standard beneifit from a better structure doc so you know when building apps to follow
+        this structure and so everyapp we build in the stack follows that structure, i think we have one
+        but maybe it could be improbved?", then "think on this a few times to make it better, dont
+        overthink keep it per claude recommendations", then on question 1 "so for question 1 you tell me
+        what these rules or for and if we really need them, no on spdx i didnt add it you add a bunch of
+        uneeded stuff all the time", then "your rec all go". The plan, as shown:
+        "1. New just-llm-runner/docs/family-rules.md: short 'always do X' lines, each pointing to its
+        details. Well under 200 lines, and nothing the global CLAUDE.md already says. · 2. The CLAUDE.md
+        of every app and of the kit imports it: @../just-llm-runner/docs/family-rules.md. · 3. JustVoice's
+        CLAUDE.md drops what moved, which should bring it from 216 lines to under 200. Each CLAUDE.md keeps
+        only its own app's facts. · 4. Each app's 'must pass before a commit' line gets node
+        ../just-llm-runner/scripts/check-family.js added. · 5. Same file name, same §Q numbers. The global
+        CLAUDE.md's pointer stays valid, so it doesn't change. · 6. Taken out: the recorded changes and
+        deviations at the top (about 45 lines); §0, which no app runs any more; the Tauri and Python
+        leftovers; §3, if nothing in it still applies (no app has a vite.config.js). · 7. §14 rewritten for
+        Quasar. · 8. The kit's CLAUDE.md pointer fixed. · 9. Live files that cite a deleted section get
+        fixed. Dated plans and archives stay as written. · 10. The guard's Electron checks go along with
+        §0. An app that isn't Quasar then shows as 'unknown', which is already a violation. · 11.
+        target-tree.md and family-structure-audit.md move to docs/plans/archive/, where §13 puts finished
+        records. Their links get fixed in the kit's RESEARCH.md and in two guard comments. · 12.
+        template/CLAUDE.md: a starter with the import line and the headings an app fills in. When the
+        template is copied, the import path gets re-pointed, the same way the template's kit dependency
+        already is. · 13. The Claude Code facts above go into the kit's RESEARCH.md. · 14. Checks: the
+        guard at 0 violations after its own edit. Then please run /doctor prompt-audit in each repo."
+        Question 1, the ten rules as shown: no hardcoded tunable values — "Keep" · server-owned SQLite —
+        "Keep, one line" · SPDX headers — the user: "no on spdx" · mocks are production minus the
+        plumbing — "it stays in JustVoice rather than loading in every session" · never hand-roll what
+        the kit ships — "Keep" · precedent before pattern and reuse the app's own services — "Merge into
+        the rule above" · check parity file by file — "Drop" · no business logic in the shell — "Drop.
+        The guard mostly covers it" · one bridge (native.js) — "Drop. The guard already fails any other
+        file that tries". "That leaves four rules for the shared family rules file: no hardcoded values,
+        server-owned SQLite, use the kit first, and keep NOTICE" (SPDX out). Question 2: "I'd delete them.
+        Git keeps them … Any deviation that's still open moves to a short list at the end of the doc."
+        Question 3: "I'd keep them" (the section numbers, gaps and all).
+WHY:    Claude Code's docs (read 2026-10-09; RESEARCH §2): a CLAUDE.md under 200 lines; an @import loads
+        a file every session, a "read X" sentence only if Claude opens it; CLAUDE.md is advisory, a check
+        is not. The standard still described shapes no app runs (Tauri/Python, Electron + Vite), and the
+        family rules lived only in JustVoice's CLAUDE.md.
+NOT:    many short files replacing app-structure.md (67 live files cite it) · shared rules symlinked
+        into .claude/rules/ (no path scoping from outside the repo; Windows symlinks) · a new-app skill
+        or a guard hook · SPDX as a family rule.
+BUILT:  2026-10-09 — `docs/family-rules.md` (21 lines, four rules); imported by the CLAUDE.md of
+        JustVoice (199 lines), JustWrite, docgen, the kit and the new `template/CLAUDE.md`; each
+        app's commit line names the guard. `docs/app-structure.md` 1,088 → 882 lines: the history
+        preamble and §0 out (§0.3's shell and bridge into §Q.2, §0.4's server rules and headless
+        launcher into §Q.3, §0.5's data ladder into §Q.8, §0.7's harness into §10), §3 re-cut for
+        `quasar.config.js`, §14 rewritten, "Open deviations" added. `scripts/check-family.js`: the
+        Electron + Vite kind and its checks deleted (0 violations, 23 advisory — as before).
+        `target-tree.md` and `family-structure-audit.md` → `docs/plans/archive/`. RESEARCH §6.
+        Q3's wording (the other session's request) carried into §3, §4 and §Q.4.
+OPEN:   the user runs /doctor prompt-audit in each repo. Not decided: the SPDX headers already in
+        files (520 JustVoice · 108 JustWrite · 89 docgen · 373 kit) — the go covered the rule, not
+        the headers. Found, not in this go: the kit's CLAUDE.md still describes the Python half
+        (`llm_runner/`, pytest, PyInstaller), which no longer exists; and the guard no longer
+        asserts §14's renderer lanes, the door pins or the launcher name for any app (those
+        checks ran only for the Electron + Vite kind).
+GO:     given 2026-10-09 — "your rec all go".
+
 ## Every family app moves to Quasar, built by one set of framework rules [2026-10-08]
 STATE:  DECIDED 2026-10-08 — the user: "all apps will be converted to quasar, we will use the same
         stack, we will keep the code the same as in the servers should look and work the same, i

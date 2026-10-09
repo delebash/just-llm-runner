@@ -17,6 +17,8 @@ touching `server/`.
 (PyInstaller → Tauri sidecar); an Electron app consumes `server/` as
 `"@delebash/llm-runner": "file:../just-llm-runner/server"`, packed by electron-builder.
 
+The family rules every family repo follows, this one included: @docs/family-rules.md
+
 > **A change here lands in BOTH apps.** There is no per-app copy of any of this — that is the
 > entire point of the repo. Before changing a Python contract or a `Ui*` primitive, consider what
 > it does to JustWrite *and* JustVoice.
@@ -81,7 +83,7 @@ alias, not a build — there is no publish step to run.
 
 | For | Read |
 |---|---|
-| **THE family app structure — every app** | `docs/app-structure.md` (ruled 2026-08-02; §0 is the Electron target, 2026-10-08; §1–§14 the Tauri+Vue+Python shape each app keeps until it moves) |
+| **THE family app structure — every app** | `docs/app-structure.md` (ruled 2026-08-02; §Q is the layout, `template/` the reference app; `docs/family-rules.md` holds the rules every repo imports) |
 | The kit in JavaScript (`server/`) | `server/README.md` · the build sheet `docs/plans/2026-10-07-kit-in-javascript.md` |
 | What this is, how flags derive, what each module does | `README.md` (dense and current) |
 | Open work — THE live tracker for this repo (kit + shared server) | `docs/dev/TASKS.md`; unscheduled ideas in `docs/dev/IDEAS.md` |

@@ -396,6 +396,11 @@ has its app-side facts):
   Developer Mode and "trust" the profile on the phone; the tool signs in with the Apple ID (a
   throwaway ID works). · 9to5mac.com (Xcode 7 free sideloading), faq.altstore.io,
   xda-developers.com (AltStore guide), igeeksblog.com (TestFlight).
+- **Screenshots of an Android WebView come from the screen, not DevTools** (*measured*, 2026-10-09,
+  Android 16 emulator, WebView 133, the emulator's software GPU): `Page.captureScreenshot` over the
+  WebView's DevTools painted `position: sticky` layers squashed (JustWrite's AI page tab row, the
+  editor toolbar's last rows) while their boxes measured right and the emulator's own display
+  (`adb exec-out screencap -p`) showed them right. Pictures for review are taken with screencap.
 - **A live SQLite file in a sync folder is a corruption risk:** SQLite's own page lists broken
   locking on network filesystems, background copies taken mid-transaction, and copying a
   database without its `-wal`/`-journal`. Joplin syncs desktop and phones through Dropbox,

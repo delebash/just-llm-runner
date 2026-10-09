@@ -40,10 +40,12 @@ import { fileURLToPath } from "node:url";
 const KIT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const FAMILY = resolve(KIT, "..");
 
+// FAMILY_<NAME>_DIR checks another checkout of an app — a branch in its own worktree before it's
+// merged (FAMILY_DOCGEN_DIR=../docgen-quasar).
 const APPS = [
-  { name: "JustWrite", dir: join(FAMILY, "justwrite-app") },
-  { name: "JustVoice", dir: join(FAMILY, "JustVioce") },
-  { name: "docgen", dir: join(FAMILY, "just_ai_i18n_docgen") },
+  { name: "JustWrite", dir: process.env.FAMILY_JUSTWRITE_DIR || join(FAMILY, "justwrite-app") },
+  { name: "JustVoice", dir: process.env.FAMILY_JUSTVOICE_DIR || join(FAMILY, "JustVioce") },
+  { name: "docgen", dir: process.env.FAMILY_DOCGEN_DIR || join(FAMILY, "just_ai_i18n_docgen") },
 ];
 
 /** The §Q reference app (`template/`), checked against §Q's layout rules only. */

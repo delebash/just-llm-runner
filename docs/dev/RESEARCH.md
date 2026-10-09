@@ -774,6 +774,27 @@ step Q3):
   track #3b3b3b and a solid edge #858585 (hover #acacac, pressed #6e6e6e); hovering mixes the
   accent 22% with white, pressing 22% with black. Either way the thumb takes the hover colour
   only when it is hovered itself.
+- **QTable, and the order TanStack Table gave the rows** (*code* — Quasar 2.35.0's
+  `src/components/table/*`, TanStack table-core 8's `sortingFns`, `RowSorting`, `getSortedRowModel`,
+  `GlobalFiltering`; *measured* on the three apps, 2026-10-09):
+  - QTable's `table-class` goes on the scrolling wrapper `div.q-table__middle.scroll` (tabindex 0, a
+    Tab stop of its own), not on the `<table>`, whose only class is `q-table`. What a `body` slot
+    returns is flattened into `<tbody>`, so a slot can draw its own keyed `<tr>`s. Its stylesheet
+    gives rows 48px, cells `7px 16px` padding, every `td` `position: relative` with the hover and
+    selection overlays on `td::before`/`::after`, `border-collapse: separate`, the card a white
+    background, and `q-table--no-wrap` unless `wrap-cells`.
+  - QTable's own sort differs from TanStack's: null and undefined sort first ascending (TanStack:
+    undefined last either way); other values compare as numbers, dates, booleans, or else as
+    lower-cased strings — so "Zed 10" sorts before "Zed 9" (TanStack's automatic choice compares
+    digit runs as numbers when a column's strings hold digits); every column's first click is
+    ascending (`column-sort-order="ad"`; TanStack: descending for a column whose first value isn't a
+    string). Its default filter matches the term in every column's displayed value; TanStack's global
+    filter searches only the columns whose FIRST row's value is a string or a number.
+  - TanStack's automatic sort function is chosen from the filtered rows' values from the eleventh on
+    (its own `slice(10)`): a Date → datetime; a string holding digits → alphanumeric; any string →
+    text (lower-cased); else basic. Equal values keep the data order. The click cycle is the first
+    direction, the other, then no sort (unless removal is off). The page goes back to the first on a
+    change of data, filter or sort.
 
 ---
 

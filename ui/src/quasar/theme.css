@@ -583,3 +583,22 @@
 :where(.ui-toast .ui-toast__close)::before { display: none; }
 /* sonner's buttons centred their content in a row; QBtn stacks it in a column */
 :where(.ui-toast .ui-toast__action, .ui-toast .ui-toast__close) { flex-direction: row; align-items: center; justify-content: center; }
+
+/* ── Table (UiTable on QTable) ─────────────────────────────────────────── */
+/* QTable draws the <table> (UiTable gives it back its .ui-table class) inside a container and a
+   scroll wrapper of its own; the look stays common/styles.css's .ui-table*. What QTable sets that
+   the plain table didn't have is taken off, at zero specificity so every app rule still wins:
+   the card's white, its shadow and corners, the wrapper's scrolling (it would also become the
+   sticky header's scroller), and on rows and cells the 48px height, the padding, font, background
+   and positioning (a positioned cell moves its absolutely placed children, and is composited after
+   an animation) — back to what the browser gives a plain table — and the hover overlay on every row. */
+:where(.ui-table-wrap .q-table__container) { position: static; color: inherit; background: none; border-radius: 0; box-shadow: none; }
+:where(.ui-table-wrap .q-table__middle) { overflow: visible; max-width: none; }
+:where(.ui-table-wrap table.q-table) { max-width: none; border-spacing: revert; }
+/* what the browser gives a plain table's rows and cells */
+:where(.ui-table-wrap .q-table thead, .ui-table-wrap .q-table tr, .ui-table-wrap .q-table th, .ui-table-wrap .q-table td) {
+  height: revert; padding: revert; background-color: revert; font-weight: revert; font-size: revert; position: revert;
+  border-style: revert; border-width: revert; border-color: revert;
+}
+:where(.ui-table-wrap .q-table tbody td)::before,
+:where(.ui-table-wrap .q-table tbody td)::after { content: none; }

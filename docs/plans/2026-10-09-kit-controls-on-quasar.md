@@ -535,3 +535,36 @@ now on its first item, and the status list's box; 21 behaviour checks the same o
 menu keyboard, as above; slice 5's 16 select checks the same again with the selects modal. The
 model catalog's menu (inside the built-in provider's form) wasn't reached by the scripts — it is the
 same UiMenu the JustVoice menus checked.
+
+**Slice 8 — `UiTable` on `QTable`** (TanStack Table no longer under it).
+
+- **QTable draws, the kit decides the rows.** QTable's own sort and filter order rows differently
+  from TanStack's (RESEARCH: null values first, digits compared as text, every column ascending
+  first, every column searched), so the lists would re-order under their users. The filter, the
+  sort (TanStack's automatic comparison, first direction, click cycle, ties in data order) and the
+  page reset are ported into `common/components/tableRows.js` (MIT, its licence notice kept); QTable
+  gets the rows already filtered, sorted and paged, with its own paging off.
+- **The same markup inside.** QTable's `header`, `top-row` and `body` slots draw what TanStack's
+  table drew — `<table class="ui-table">`, `th.is-sortable`/`.is-sorted` with `.ui-table-th-inner`
+  and the sort icon, `tr.ui-table-row` and `tr.ui-table-fullrow`, the empty row — and the pager
+  below is the kit's, unchanged; so every rule in §4 that reaches into a table still reaches. QTable
+  puts `table-class` on its scrolling wrapper, so the kit adds `ui-table` to the `<table>` itself,
+  and takes the wrapper's tabindex off (a Tab stop the table never had).
+- **QTable's look is reset** (the theme's "Table"): the card's background, radius, shadow and
+  position; the wrapper's scrolling (a `ui-table-sticky` header still pins to the page's scroller);
+  the 48px rows, cell padding, positioned cells, hover overlays and separate borders — the kit's
+  `.ui-table*` rules draw the table, as before.
+
+Checked: lint; the apps' unit tests (590, 183, 3); the 30 screens (live values only); 20 states —
+JustVoice's Personas (header at rest, sorted each way, a header and a row hovered, a row's control
+keyboard-focused, dark, dark hovered), Voices (header, sorted), JustWrite's characters index (at
+rest, sorted, a row hovered, the pager at rest and a pager button hovered, dark), docgen's dashboard
+and runs — 0 pixels differ but the pager tooltip caught mid-fade (identical once shown); the empty
+row on three apps, light and dark — 0 pixels; 22 behaviour checks the same on both builds — every
+sortable column of Personas, Voices, Effects and JustWrite's characters through three clicks, and
+every table on JustVoice's AI page and Settings, docgen's runs (no runs on the snapshot: the header
+states only; Lexicons and Studio had no rows), a row click, a row's hover colour,
+the search, docgen's filter to its empty row, the pager over 45 rows (next, last, back, first, a
+sort going back to page 1), the sticky header on Voices, the Tab stops (the same count; the row
+checkboxes are slice 3's focusable `<div>`s); JustVoice's smoke, JustWrite's e2e 7/7, docgen's e2e
+20/20 on the real project.

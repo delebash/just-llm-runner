@@ -11,9 +11,17 @@
 //
 // Wears the shared .ui-input visual (one input style app-wide); .ui-number only
 // adds tabular figures on top.
+//
+// Quasar's QInput underneath, as UiInput (docs/plans/2026-10-09-kit-controls-on-quasar.md): its
+// root is the box, the parsing and stepping above work on its native input, whose own events
+// these are (../composables/useNativeEvents.js).
 
-import { computed, ref, watch } from "vue";
+import { QInput } from "quasar";
+import { computed, ref, useAttrs, watch } from "vue";
+import { useNativeEvents, withoutListeners } from "../composables/useNativeEvents.js";
 import { uiLocale } from "../services/locale.js";
+
+defineOptions({ inheritAttrs: false });
 
 const props = defineProps({
   modelValue: { type: [Number, String, null], default: null },
@@ -37,6 +45,7 @@ const props = defineProps({
   width:      { type: String, default: "" },
 });
 const emit = defineEmits(["update:modelValue", "blur", "focus", "keydown"]);
+const attrs = useAttrs();
 
 const fmt = computed(() => new Intl.NumberFormat(props.locale || uiLocale.value || undefined, {
   useGrouping: props.useGrouping,
@@ -69,7 +78,8 @@ function clamp(n) {
   return n;
 }
 
-const inputEl = ref(null);
+const field = ref(null);
+const inputEl = computed(() => field.value?.getNativeElement?.() ?? null);
 const display = ref(formatNumber(props.modelValue));
 
 watch(() => props.modelValue, (v) => {
@@ -86,9 +96,9 @@ function emitParsed(raw, { commit }) {
   return next;
 }
 
-function onInput(e) {
-  display.value = e.target.value;
-  emitParsed(e.target.value, { commit: false });
+function onInput(value) {
+  display.value = value;
+  emitParsed(value, { commit: false });
 }
 
 function onBlur(e) {
@@ -116,26 +126,28 @@ const classes = computed(() => [
   "ui-input", "ui-number",
   props.size === "small" && "ui-input--small",
   props.width && `ui-w-${props.width}`,
-  { "is-invalid": props.invalid },
+  { "is-invalid": props.invalid, "is-disabled": props.disabled },
 ]);
+useNativeEvents(inputEl, attrs, { blur: onBlur, focus: onFocus, keydown: onKeydown });
 </script>
 
 <template>
-  <input
-    ref="inputEl"
+  <QInput
+    ref="field"
+    v-bind="withoutListeners(attrs)"
     :class="classes"
     type="text"
     inputmode="decimal"
-    :value="display"
+    :model-value="display"
     :placeholder="placeholder"
-    :disabled="disabled"
+    :disable="disabled"
     :readonly="readonly"
     :name="name"
-    :id="id || inputId"
+    :for="id || inputId"
     :aria-invalid="invalid ? 'true' : undefined"
-    @input="onInput"
-    @blur="onBlur"
-    @focus="onFocus"
-    @keydown="onKeydown"
+    borderless
+    dense
+    hide-bottom-space
+    @update:model-value="onInput"
   />
 </template>

@@ -69,28 +69,8 @@ button:not(.ui-btn) { color: inherit; }
 @keyframes ui-btn-spin { to { transform: rotate(360deg); } }
 .ui-btn-spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: ui-btn-spin .7s linear infinite; display: inline-block; }
 
-/* ── Input / Textarea ──────────────────────────────────────── */
-.ui-input {
-  display: inline-block; width: 100%;
-  padding: var(--input-pad-y, 8px) var(--input-pad-x, 10px);
-  font: inherit; font-size: var(--input-font-size, 13.5px);
-  color: var(--ink);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm, 6px);
-  outline: none;
-  transition: border-color .12s, box-shadow .12s, background-color .12s;
-}
-.ui-input::placeholder { color: var(--muted); }
-.ui-input:hover:not(:disabled):not(:focus) { border-color: var(--border-strong, var(--border)); }
-.ui-input:focus { border-color: var(--accent); box-shadow: var(--focus-ring, 0 0 0 3px var(--accent-soft)); }
-.ui-input:disabled { opacity: .55; cursor: not-allowed; background: var(--surface-2); }
-.ui-input.is-invalid { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 18%, transparent); }
-.ui-input--small { padding: 5px 8px; font-size: 12.5px; }
-/* UiNumber wears .ui-input; this only adds tabular figures so digits don't jitter. */
-.ui-number { font-variant-numeric: tabular-nums; }
-.ui-textarea { display: block; line-height: 1.55; resize: vertical; min-height: 60px; }
-.ui-textarea.auto-resize { resize: none; overflow: hidden; }
+/* Input / Textarea / Number: their look is the kit's Quasar theme (../quasar/theme.css) since
+   they moved onto QInput (docs/plans/2026-10-09-kit-controls-on-quasar.md). */
 
 /* ── Content-typed width caps ──────────────────────────────── */
 /* Size a control to what it holds, not the container. Opt in via the `width`

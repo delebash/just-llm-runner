@@ -688,6 +688,15 @@ step Q3):
   start with an SVG path command (`M`/`m` + digit) is a font ligature, rendered as text; QCheckbox
   and QToggle flip on Enter as well as Space (a native checkbox doesn't on Enter); QChip shows a
   check icon whenever its `selected` is set; QBadge marks itself `role="status"`.
+- **QInput** (*code* + *measured*, 2026-10-09): its root is a `<label class="q-field">` around
+  three wrapper `<div>`s and the native element; `class`/`style` go to the root, other attributes
+  and listeners to the native element — but its own `input`, `paste`, `change`, `blur`, `focus` and
+  composition handlers replace a caller's (spread after them), and it emits `change` with the
+  value, not the event. It emits strings for every type, `number` included, and waits for an
+  IME composition to end. The control wrapper is coloured with the brand colour. Chrome centres
+  an `<input>`'s text 1px differently when its height comes from a flex layout than from a
+  `height` value. Vue's `useAttrs()` object isn't reactive — a `computed` over it keeps the
+  first value.
 
 ---
 

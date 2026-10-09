@@ -12,7 +12,7 @@
 // Space, and leaves the tab order when disabled. `as`: "button" (default) presses; "a" follows
 // the chip's `href` (QChip has no anchor form); "span" is a plain, unpressable pill.
 import { QChip } from "quasar";
-import { computed, useAttrs } from "vue";
+import { useAttrs } from "vue";
 
 defineOptions({ inheritAttrs: false });
 const props = defineProps({
@@ -24,14 +24,15 @@ const props = defineProps({
 const attrs = useAttrs();
 
 // The caller's attributes go to the chip, its click handler(s) merged into one (QChip declares
-// onClick as a single-function prop) together with the link's navigation.
-const chipAttrs = computed(() => {
+// onClick as a single-function prop) together with the link's navigation. Read at render: $attrs
+// isn't reactive, so a computed over it would keep the first title, href…
+const chipAttrs = () => {
   const { onClick, ...rest } = attrs;
   const extra = {};
   if (props.as === "a") extra.role = "link";
   if (props.as === "button") extra["aria-pressed"] = String(props.selected);
   return { ...rest, ...extra };
-});
+};
 function onClick(e) {
   for (const fn of [attrs.onClick].flat()) if (typeof fn === "function") fn(e);
   if (props.as === "a" && attrs.href && !props.disabled) window.location.assign(attrs.href);
@@ -40,7 +41,7 @@ function onClick(e) {
 
 <template>
   <QChip
-    v-bind="chipAttrs"
+    v-bind="chipAttrs()"
     class="ui-chip"
     :class="{ 'is-selected': selected, 'is-disabled': disabled }"
     :clickable="as !== 'span'"

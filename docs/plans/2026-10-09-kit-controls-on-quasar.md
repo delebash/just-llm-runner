@@ -345,3 +345,34 @@ hover, keyboard focus, dark, on three apps — 0 pixels differ (docgen's two sho
 the test server's port); behaviour on both builds (13 checks the same): click, Space, Enter
 (the checkbox ignores it, the switch flips), select-all, a disabled checkbox stays, role and
 aria-checked, a click on the label's text and on the control inside a label.
+
+**Slice 4 — `UiInput`, `UiTextarea`, `UiNumber` on `QInput`** (`UiSecretInput` is built on
+`UiInput` and follows; `UiField` draws no control and stays a plain layout, as §3 allows).
+
+- **QInput's root is the box.** It carries `.ui-input`, the width cap and the caller's classes,
+  scoped styles and inline style — what used to land on the native `<input>` when it was the
+  root — so a caller's box rule (border, background, padding, width, flex, margin) still applies.
+  Quasar's three wrappers inside are `display: contents`, and the native element takes the box's
+  font, colour, alignment and spacing. The box starts from what the browser gives a native input
+  (letter-spacing, word-spacing, text-transform, text-indent, text-shadow, text-align) — the page's
+  letter-spacing reached JustWrite's sidebar filters and narrowed their text.
+- **Height**: a single-line field passes the box's height down to the native input
+  (`height: inherit` through the wrappers): Chrome centres an input's text 1px higher when its
+  height comes from a flex layout than from a height value (JustWrite's 22px sidebar filters).
+  A textarea keeps the padding on the native element, so its resize grip sits in the box's corner,
+  and its auto-resize gives the native textarea the old height less the box's border.
+- **Events are the native element's own** (`common/composables/useNativeEvents.js`): QInput
+  replaces a caller's `input`, `change`, `paste`, `blur` and `focus` with its own (its `change`
+  carries a string), so the fields pass Quasar no listeners and listen on the native element;
+  a caller's `:value` with its own `@input` (JustWrite's entity search, Worldbuilding, JustVoice's
+  MCP URL) still sets the shown value.
+- **`$attrs` isn't reactive**: a `computed` over it keeps the first value — UiChip's and
+  UiToggle's attribute pass-through (slices 1, 3) are read at render now, as the fields' are.
+- **Rules that reached the native element** were re-pointed to the box: JustWrite's
+  `.nav-filter input`, JustVoice's `.effects-modal__saveas > input` and
+  `.voices-view__bench-field :deep(textarea)`, the kit's `.lu-fw-genprompt textarea`.
+
+Checked: lint; the apps' unit tests (594, 183, 3); the 30 screens (live values; JustWrite's Export
+keeps slice 3's 1/255); the states of slices 1, 3 and 4 (fields at rest, hover, keyboard focus,
+typed, dark, another accent, the sidebar filters' focus ring, textareas) — 0 pixels differ but the
+test servers' ports.

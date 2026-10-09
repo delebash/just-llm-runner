@@ -16,7 +16,7 @@
 // and its text (the kit's warm-on-startup and Sync rows, docgen's Server settings) clicks that
 // input, the click reaches QToggle and flips it — as a label clicked the native button before.
 import { QToggle } from "quasar";
-import { computed, useAttrs } from "vue";
+import { useAttrs } from "vue";
 
 defineOptions({ inheritAttrs: false });
 
@@ -28,11 +28,12 @@ const props = defineProps({
 });
 const emit = defineEmits(["update:modelValue", "change"]);
 const attrs = useAttrs();
-const passAttrs = computed(() => {
+// read at render: $attrs isn't reactive, so a computed over it would keep the first value
+const passAttrs = () => {
   const rest = { ...attrs };
   delete rest.label;
   return rest;
-});
+};
 
 function onUpdate(next) {
   if (props.disabled) return;
@@ -44,7 +45,7 @@ function onUpdate(next) {
 <template>
   <QToggle
     name="ui-toggle"
-    v-bind="passAttrs"
+    v-bind="passAttrs()"
     :model-value="modelValue"
     :disable="disabled"
     :id="id"

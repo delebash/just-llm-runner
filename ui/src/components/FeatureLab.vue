@@ -398,7 +398,7 @@ const columnConfig = computed(() => {
 .lu-fw-varcount { font-size: 11px; margin-left: 8px; }
 .lu-fw-genprompt .lu-fw-testin-h { flex-wrap: wrap; }
 .lu-fw-gen-spacer { flex: 1; }
-.lu-fw-genprompt textarea { font-family: var(--font-mono, monospace); font-size: 11.5px; }
+.lu-fw-genprompt .ui-textarea { font-family: var(--font-mono, monospace); font-size: 11.5px; }
 .lu-fw-datalinks { font-size: 11.5px; display: flex; gap: 10px; flex-wrap: wrap; }
 .lu-fw-datalinks a { color: var(--accent, var(--ink)); text-decoration: none; }
 .lu-fw-datalinks a:hover { text-decoration: underline; }

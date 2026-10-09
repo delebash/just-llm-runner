@@ -22,7 +22,9 @@ export default defineConfig((/* ctx */) => {
     ],
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#css
+    // the design tokens the family theme reads (src/css/tokens.css), then the app's own styles
     css: [
+      'tokens.css',
       'app.scss'
     ],
 
@@ -50,6 +52,12 @@ export default defineConfig((/* ctx */) => {
       // filenameBasedRouting: true,
 
       vueRouterMode: 'hash', // available values: 'hash', 'history'
+
+      // The kit's UI, from the kit's own source (this repo's ui/) — every family app aliases it the
+      // same way; the family theme (src/css/quasar.variables.scss) imports through it.
+      alias: {
+        '@delebash/llm-ui': path.resolve(import.meta.dirname, '../ui/src'),
+      },
       // vueRouterBase,
 
       // publicPath: '/',

@@ -93,6 +93,7 @@ Quasar's default and why. Where §Q and §0–§14 disagree for a moved app, §Q
 ├── quasar.config.js          # the ONE build config (no vite.config.js, no main.js)
 ├── index.html                # the family CSP <meta> (Q.5)
 ├── biome.json                # Biome, not oxlint/ESLint
+├── postcss.config.js         # the kit's dropQuasarDisabledRule() + autoprefixer (Q.4)
 ├── src/                      # the renderer
 │   ├── App.vue · layouts/ · pages/ · components/   # App.vue is the root Quasar mounts
 │   ├── boot/                 # app start-up code (Quasar boot files) — where main.js used to be
@@ -187,8 +188,13 @@ origins), the phone's webview origins (the kit's `CAPACITOR_ORIGINS`) and Quasar
   JustWrite (2026-10-08): with it, ten screens match the Electron + Vite build to within 0.02 % of
   their pixels, except for one global Quasar rule, `.disabled, [disabled] { opacity: .6 !important;
   cursor: not-allowed !important }`, which no variable reaches and which outranks the apps' own
-  disabled styles (open — the kit's TASKS, the Quasar item). The kit's override sheet (with Q3's
-  controls) covers what variables can't reach; Quasar's icons become the kit's line icons (an icon
+  disabled styles. **The kit's PostCSS step `dropQuasarDisabledRule()`
+  (`ui/src/quasar/postcss.js`) removes those rules from Quasar's stylesheet**, in every app's
+  `postcss.config.js` (decided 2026-10-08 — the kit's TASKS, the Quasar item); with it both apps'
+  screens match pixel for pixel. The design tokens the theme reads are the app's own
+  (`tokens.css`, from the kit's `tokens.contract.css`; the template's `src/css/tokens.css`). The
+  kit's override sheet (with Q3's controls) covers what variables can't reach, and gives Quasar's
+  own components their disabled look; Quasar's icons become the kit's line icons (an icon
   set). The phone UI-library test measured it: every Appearance knob drives Quasar's controls live
   (JustWrite's `docs/plans/2026-10-08-phone-ui-library-test.md`).
 - **Start-up code lives in boot files** (`src/boot/<name>.js`, `defineBoot` from `'#q-app'`, listed
@@ -277,7 +283,8 @@ against this section:
   `--install-links`, the `**/data/**` watch ignore and the `npm_config_allow_scripts` delete;
   `src-electron/package.json` pins `electron` exactly, depends on the server package and has
   `allowScripts` (so does `src-capacitor/package.json` where it exists); `index.html` has a CSP
-  `<meta>` whose `connect-src` allows `http:`; `biome.json`; `data/` in `.gitignore`; Quasar's
+  `<meta>` whose `connect-src` allows `http:`; `biome.json`; `postcss.config.js` running the
+  kit's `dropQuasarDisabledRule()`; `src/css/quasar.variables.scss` importing the kit's theme; `data/` in `.gitignore`; Quasar's
   router, store, `quasar.variables.scss` and `App.vue` files; no `@tauri-apps/*` package, no
   `vite.config.js`, no `src/main.js`, no `electron/main.js`, no `src-tauri/`.
 - Biome's version is one exact pin across the family, the template included; `biome.json` is

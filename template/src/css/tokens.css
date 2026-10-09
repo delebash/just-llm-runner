@@ -1,0 +1,26 @@
+/* SPDX-License-Identifier: MIT */
+/* The template's design tokens — the kit's token contract (ui/src/common/tokens.contract.css,
+   "copy + retune"), its reference defaults as they stand, plus the variables the family's Quasar
+   theme also reads (ui/src/quasar/variables.scss: --bg, --border-soft, the button sizes,
+   --shadow-2, --font-ui) at JustWrite's light values. A new app copies this file and retunes it;
+   the appearance engine overrides them live. --font-ui is JustWrite's stack without its bundled
+   "Spline Sans" (the template bundles no fonts). */
+:root {
+  --accent: #3a7d63; --accent-soft: #e8f0eb; --accent-ink: #2c6049;
+  --on-accent: #fff;
+  --ink: #1a1a1a; --ink-2: #4a4a4a; --muted: #888;
+  --surface: #fff; --surface-2: #fbfaf7; --surface-3: #f3f1ec;
+  --border: #e3e1dc; --border-strong: #cfccc4;
+  --danger: #a8442e; --danger-bg: #fbecea;
+  --success: #3a7d63; --info: #2f74b5; --gold: #c89a3a;
+  --r-sm: 6px; --btn-radius: 8px;
+  --w-token: 110px; --w-id: 180px; --w-name: 280px; --w-url: 360px;
+  --w-path: 480px; --w-prose: 640px; --w-edit: 880px;
+  --tag-border-width: 0;
+
+  --bg: oklch(0.985 0.004 85);
+  --border-soft: oklch(0.94 0.004 85);
+  --btn-pad-y: 8px; --btn-pad-x: 16px; --btn-font-size: 14px;
+  --shadow-2: 0 1px 0 rgba(20, 22, 24, 0.05), 0 8px 24px rgba(20, 22, 24, 0.06);
+  --font-ui: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+}

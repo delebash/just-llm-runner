@@ -442,6 +442,13 @@ function checkQuasar(app) {
   else if (!/connect-src[^;]*\bhttp:/.test(policy)) fail(name, "index.html's CSP has no connect-src allowing http: — the page can't reach its server (§Q.5)");
 
   if (!existsSync(join(app.dir, "biome.json"))) fail(name, "biome.json missing — Biome is the family's linter (§Q.1)");
+  if (!/dropQuasarDisabledRule\(\)/.test(read("postcss.config.js") || "")) {
+    fail(name, "postcss.config.js doesn't run the kit's dropQuasarDisabledRule() — Quasar's global disabled rule would override every control's own disabled look (§Q.4)");
+  }
+  const variables = read("src/css/quasar.variables.scss") || "";
+  if (!/@delebash\/llm-ui\/quasar\/variables\.scss/.test(variables)) {
+    fail(name, "src/css/quasar.variables.scss doesn't import the kit's @delebash/llm-ui/quasar/variables.scss — the family theme (§Q.4)");
+  }
   const gi = read(".gitignore") || "";
   if (!/^\/?data\/?\s*$/m.test(gi)) fail(name, ".gitignore does not ignore data/ — the dev data folder is never committed (§Q.8)");
   for (const rel of ["vite.config.js", "src/main.js", "electron/main.js", "src-tauri"]) {
@@ -559,9 +566,7 @@ const KIT_RETIRED = [
 // reference. File-scoped with the reason, same contract as ALLOW above.
 const RETIRED_ALLOW = new Map([
   ["JustWrite/tests/smoke/headless-smoke.js", "comment records the stale-selector incident the fix closed"],
-  ["JustVoice/src/router/index.js", "the /overview redirect's comment records the P8 rename it serves"],
-  // the same comment, in Quasar's layout (router/routes.js holds the routes — JustVoice's
-  // branch `quasar`); the index.js entry goes when that branch merges
+  // in Quasar's layout router/routes.js holds the routes (it was router/index.js before the move)
   ["JustVoice/src/router/routes.js", "the /overview redirect's comment records the P8 rename it serves"],
 ]);
 

@@ -41,6 +41,21 @@ STATE:  DECIDED 2026-10-08 — the user: "all apps will be converted to quasar, 
         rewrite running in the other session also rewrites three Vue components that the Quasar
         move will redo. Lean: let it finish. It removes the voicebox-derived code now, and the
         Quasar move redoes those screens later anyway."
+        DECIDED 2026-10-08 (after the moves were built) — the user: "your rec all go", on these as
+        shown: "1. Merge both quasar branches? Close each app first, then run npm install and once
+        cd src-electron && npm install. I can do the merge when you say so." · "2. Disabled
+        buttons: Quasar's stylesheet forces every disabled control to its own fade and a
+        not-allowed cursor, overriding ours (title-bar arrows, Delete buttons). Options: (a) Accept
+        Quasar's look. (b) A small build step of our own that removes that one rule. (c) Rewrite
+        every disabled style in the kit and apps. Lean: (b). It's our own code, so it needs your
+        word. Until then, (a) is what ships." · "6. Global CLAUDE.md Stack line. Proposed text:
+        'Desktop and phone apps: a Quasar app — its Electron mode is the desktop app, its
+        Capacitor mode the phone app — in the family shape of the kit's template/
+        (docs/app-structure.md §Q): the server as its own package, the window on app://<app-id>
+        through the kit's runDesktopApp, a narrow preload command list, Biome.'" So: the branches
+        are merged; Quasar's global disabled rule is removed from its stylesheet by a build step
+        of the kit's; the Stack line takes the proposed text. (Question 5, docgen's held tree, had
+        no lean shown — not decided.)
 WHY:    one framework the apps can't drift from — the user's IDEAS words (JustVoice IDEAS
         2026-10-08): "this enforcese a framework conformity you cant break easily". Our own controls
         are written in Quasar's style (its docs and API through its MCP); Quasar is forked if it
@@ -58,27 +73,27 @@ BUILT:  Quasar's MCP server (`@quasar/mcp`) is added to Claude Code at user scop
 OPEN:   1. The kit's UI: Quasar's components replace its generic controls; the family pieces are
            rebuilt on Quasar (rec 2), with the theming test's theme (program step Q3).
         2. JustWrite, then JustVoice, then docgen move onto it; the servers stay as they are
-           (steps Q4–Q6). BUILT on branches, waiting for the user's merge (each app's checkout
-           runs the app): JustWrite `quasar` (20c7f29 the move, 366fc62 Settings → Sync),
-           JustVoice `quasar` (7e4d71a) — each app's TASKS, "… on Quasar". docgen waits for its
-           held tree. The skeleton checks for a moved app (the renderer lanes) are re-cut later;
+           (steps Q4–Q6). JustWrite and JustVoice DONE — built on `quasar` branches and merged
+           (fast-forward) into their main branches by the user's go, 2026-10-08 (JustWrite
+           20c7f29 + 366fc62, JustVoice 7e4d71a; each app's TASKS, "… on Quasar"); the main
+           checkouts' held biome.json leftover is kept in a named stash ("electron-vite
+           restructure leftover (biome.json) — kept aside for the Quasar merge"). docgen waits
+           for its held tree. The skeleton checks for a moved app (the renderer lanes) are re-cut later;
            today the guard checks a Quasar app's layout (§Q.10).
-        3. The global CLAUDE.md Stack line still names electron-vite's template (rec 1 settles it;
-           the new text is shown to the user first). The stopped restructure's leftovers — the
+        3. DONE 2026-10-08 — the global CLAUDE.md Stack line takes the approved text (the decision
+           above). The stopped restructure's leftovers — the
            `biome.json` lines in JustVoice and JustWrite, this repo's `stash@{0}`, docgen's
            uncommitted tree (the guard reports its kind as unknown) — remain.
         4. Docs that still name Python: `docs/dev/install-runbook.md`, `server/README.md` "Check
            it" (the route diff against a Python server) — JustVoice's TASKS lists them with the
            rest of the conversion's waiting work.
-        5. A question for the user (found 2026-10-08, JustWrite's move): Quasar's stylesheet has
-           one global rule no variable reaches — `.disabled, [disabled] { opacity: .6 !important;
-           cursor: not-allowed !important }` — so every disabled control in a Quasar app shows
-           Quasar's fade and cursor instead of its own (JustWrite's title-bar buttons: .32, a plain
-           cursor). The options: (a) take Quasar's look family-wide; (b) a small PostCSS step of
-           our own that drops that one rule from Quasar's CSS, so each control keeps its own;
-           (c) re-express every disabled style in the kit and the apps as custom properties one
-           override rule reads. Rec: (b) — one rule removed, every look kept; it is our own code,
-           so it needs your word. Until then (a) is what ships.
+        5. DONE 2026-10-08 — Quasar's global disabled rule is removed from its stylesheet by the
+           kit's PostCSS step `dropQuasarDisabledRule()` (`ui/src/quasar/postcss.js`, in every
+           app's and the template's postcss.config.js; the guard checks it). Both apps' screens
+           now match their Electron + Vite builds pixel for pixel (JustVoice's "Built-in" pills
+           differ by a sub-pixel edge, 0.03 %). The template gained the family theme too: its own
+           `src/css/tokens.css` (the contract's defaults plus the variables the theme reads) and
+           the kit UI alias.
 GO:     given 2026-10-08 — "1-5 your rec … go" and "continue go" (the framework rules).
 
 ## The family moves to Electron and a Node server — the plan is approved, step 1 underway [2026-10-07]

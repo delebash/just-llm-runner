@@ -97,6 +97,11 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   Verified: unit 183/183, server 1055/1055, lint, the guard, the smoke on a snapshot of the real
   data, dev mode with the audio.cpp dev build, the installer, the packaged app and the headless
   launcher; ten screens match today's build except disabled buttons. JustVoice's sync is next in Q5.
+- Merged 2026-10-08 by the user's go ("your rec all go"): JustWrite and JustVoice's `quasar`
+  branches fast-forwarded into their main branches (JustVoice pushed; JustWrite local). The
+  disabled-rule PostCSS step, the template's theme and the Stack line followed the same go.
+  Decided the same turn: the phone's scope (JustWrite's TASKS, Sync decision 8) and JustVoice's
+  sync scope (projects, scripts, personas, lexicons — JustVoice's TASKS).
 - Q3: after Q4–Q5 (see the order change above); its theme part is done.
 - Q6: not started (docgen's tree is held).
 

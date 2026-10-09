@@ -140,6 +140,11 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
 - The phone's slice 5 (its screens): in progress 2026-10-09 — on main, not pushed (the kit's and
   JustWrite's "The phone's screens (slice 5), in progress" commits). What is built and what is
   next, in order: `2026-10-08-the-phone.md`, slice 5, "Where it stands". Slice 6 (iOS) follows.
+- The servers move to Hono: DECIDED 2026-10-09 (the kit's TASKS, "The family's servers move to
+  Hono"; plan `2026-10-09-hono-standard.md`) — the phone's in-app server runs Hono through
+  `app.fetch` instead of Fastify through `inject` on Node stand-ins. Comes before the phone's slice
+  6 (iOS), so iOS is built once, on the final shape. Waits for the user's word on the plan's §3/§5,
+  then slice 1.
 
 ## Stops (things only the user can do)
 

@@ -868,6 +868,55 @@ release notes; *measured* — a project generated, the family's suites run; 2026
   the `from` option to `postcss.parse`") — the kit's `dropQuasarDisabledRule()` added its one rule
   that way; passing the stylesheet's file as `from` ends it (measured, the template's build).
 
+**Hono and the offline-first shape** (*web* + *code*, 2026-10-09 — npm registry and download API,
+GitHub API and raw files, unpkg; the plan:
+[`docs/plans/2026-10-09-hono-standard.md`](../plans/2026-10-09-hono-standard.md)):
+- **Hono 4.13.13** (MIT, 0 dependencies, 73.1M downloads/week): "Web framework built on Web
+  Standards"; "It works on any JavaScript runtime … The same code runs on all platforms" (hono.dev);
+  a route takes a `Request` and returns a `Response`; hono.dev has a Service Worker page (Hono in the
+  browser). `@hono/node-server` 2.1.4 (MIT, 67.7M/week); its `serveStatic` handles `Range` (its
+  source has `RANGE_PATTERN`). `@hono/mcp` 0.3.2 (MIT, 417k/week) runs the official MCP SDK over
+  Streamable HTTP; the SDK 1.32.1 ships `dist/esm/server/webStandardStreamableHttp.js`.
+  `@hono/standard-validator` 0.4.0 (1.44M/week); `@hono/typebox-validator` 1.1.0 (18.6k/week, peer
+  `typebox ^1.0.30`) compiles the schema and reports `Errors`, with an optional `Clean` — no
+  `Convert`, no `Default`; `@hono/ajv-validator` 0.0.2 (3/week).
+- **Fastify 5.12.5** ("for Node.js", 15 dependencies, 15.2M/week) and **Express 5.3.0** (28
+  dependencies) sit on Node's `http`. Fastify's ajv defaults (`@fastify/ajv-compiler` 4.0.6):
+  `coerceTypes: 'array'`, `useDefaults: true`, `removeAdditional: true`, `allErrors: false`.
+- Also current: oRPC (`@orpc/server` 1.15.5, MIT, 1.49M/week), Comlink 4.4.2 (Apache-2.0,
+  2.7M/week), Drizzle 0.45.4 (Apache-2.0, 26.8M/week), `@fastify/busboy` 3.2.2 (MIT, 36.7M/week).
+- **Actual Budget** (MIT, 29.4k stars; `actualbudget/actual`, read 2026-10-09) ships one web app on
+  Electron (`desktop-electron`, its core started with `utilityProcess.fork(…/server.js)`), Capacitor 8
+  for iOS and Android (`mobile-client/package.json`), the browser, and Node. Its core `loot-core`
+  (`@actual-app/core`) picks a file per platform (`platform/server/sqlite/index.electron.ts` on
+  better-sqlite3, `index.ts` on sql.js WASM, `index.api.ts`; the same for `fs`), imported as
+  `#platform/server/…`; in the browser it runs in a web worker (`platform/client/backend-worker.ts`);
+  the UI and scripts call it with `send('name', args)` over a per-platform `connection`.
+  `@actual-app/api` 26.10.0 is that core in a Node process (`init()` from
+  `@actual-app/core/server/main`; each method a `send('api/…')`), with `@actual-app/cli` on top.
+  Its headless server `actual-server` (`@actual-app/sync-server`, Express + better-sqlite3) serves
+  `@actual-app/web`, stores budget files, passes sync messages (`@actual-app/crdt` 3.1.3) and does
+  sign-in and bank connections — **it does not run the core**: a browser runs its own copy and
+  syncs. No thin client.
+- **Others on Electron + Capacitor:** AFFiNE — Electron 39 desktop and Capacitor 8 iOS/Android
+  (`packages/frontend/apps/*/package.json`), Yjs for its data, storage implementations `idb`,
+  `sqlite`, `cloud`, `broadcast-channel` (`packages/common/nbstore/src/impls`), its own `nbstore`
+  Capacitor plugin on iOS. Logseq — Capacitor 8 (`package.json`). Obsidian — Capacitor on phones,
+  Electron on desktop (forum replies only).
+- **Yjs 13.6.33** (MIT, 9.88M downloads/week, 22.9k stars) — depended on by `@tiptap/y-tiptap`,
+  `@lexical/yjs`, `@blocknote/core`, `@jupyter/ydoc`. `y-indexeddb` 9.0.12, last release
+  2023-11-02. Hocuspocus 4.7.0 (MIT, 2026-09-09; its SQLite extension on better-sqlite3 since v4).
+  TipTap's offline guide pairs `y-indexeddb` with Hocuspocus; Hocuspocus issue #84 reports corrupted
+  data in clients' IndexedDB after a Hocuspocus change. Downloads/week: `@automerge/automerge` 64k,
+  `rxdb` 93k, `@powersync/web` 106k, `tinybase` 18k.
+- **The newest sync engines:** Zero (`@rocicorp/zero` 1.10.0, 2026-10-09, Apache-2.0, 192k/week),
+  `@electric-sql/client` 1.5.28 (1.52M/week), LiveStore 0.4.0 (2026-06-02, Apache-2.0, 17k/week),
+  `@powersync/capacitor` 0.9.3, `@powersync/node` 1.1.1.
+- **Secrets:** Electron's `safeStorage` — Keychain on macOS, DPAPI on Windows; on Linux unprotected
+  ("a hardcoded plaintext password") without a secret store; the async API is recommended
+  (electronjs.org). `@aparajita/capacitor-secure-storage` 8.0.0 — Keychain on iOS, Keystore on
+  Android (~166 stars); Capawesome's Secure Preferences is an Insiders (paid) plugin.
+
 ---
 
 ## 3 · AI tasks and the stream frames

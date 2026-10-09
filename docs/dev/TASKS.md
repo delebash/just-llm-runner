@@ -10,6 +10,49 @@
 > Items extracted from plan docs are marked **[verified]** (code-checked at
 > extraction) or **[attributed]** (the plan doc's claim, not re-verified).
 
+## The family's servers move to Hono — one server that runs in Node and in a worker [2026-10-09]
+STATE:  DECIDED 2026-10-09 — a JustVoice session that began with the user's "rethinking using tauri
+        are we sure we shouldnt user tauri for complete desktop mobile dev" and went through
+        offline-first, Yjs, sync and Actual Budget's architecture (the plan, §1). The user's rulings
+        on the way: "here is waht i want code once run everywhere with small modifications as
+        expected in some code, I want sync i want headless server as well so we could run just
+        server mode … do not worry about what we have done or how much we would have to rewrite.
+        I want it done in stnadard profressional way" · "this is not just about jw, this needs to be
+        a stnadard for all our apps even if we dont make mobile for our docs or jv, we need to be
+        able to have option to run on moble, that is why i thought offline first but with server" ·
+        "we have several syn options automatic via server nad manual we can do both they are not
+        exlcusive!!!!!!" · "the main point is if we make anoter app i dont want to have to write a
+        bunch of custome non stnadard code, we need this to be family wide stnadard and i want all
+        apps done this way, stop being lazy, rethink this again advaserially" · on Yjs: "i am
+        guessing it does not replace our sqlite sync?" (it doesn't; the engine already merges text
+        through Yjs). As shown: "1. A Quasar app for the screens — Electron, Capacitor, the web, a
+        PWA for the offline web page. 2. A Hono server package (routes + SQL) on SQLite. 3. Desktop:
+        Electron runs the server in its background process. Headless: the same server, no window.
+        Phone and offline web page: the same server in a worker. 4. Computer-only modules chosen
+        through #platform imports; on a phone those routes answer 'not on this device' and their
+        screens hide. 5. Sync through just-sqlite-sync — server, folder, file." The user: "your rec
+        lets do it keeep working until the conversion is done, only stop if you need a major
+        decision from me make hono the standard, you should have figure this out in the first
+        place, do you need to thinbk on it again tok make sure, i am tired of the mistakes!", then
+        "we probably shouls save all the docs and update with seesion info so we can compact and
+        start the coding fresh".
+WHY:    Express and Fastify are built on Node's `http`; Hono on the web-standard Request/Response
+        ("Web framework built on Web Standards", zero dependencies), so one server runs in Node and
+        in the phone's worker with nothing imitating Node. The phone ran Fastify through `inject`
+        on ~400 lines of Node stand-ins (`platform/worker/shims/`) that Fastify doesn't support.
+NOT:    Tauri (no Quasar mode; Node still needed — two runtimes) · Actual's handler layer built by
+        hand (each app writes its logic twice) · oRPC (a procedure layer for TypeScript types) ·
+        Yjs as the family's data layer (a documents standard; the sync engine already uses it for
+        text) · PowerSync / ElectricSQL / Zero (Postgres; discarded 2026-10-08).
+BUILT:  2026-10-09 — the plan `docs/plans/2026-10-09-hono-standard.md` (the design, each piece
+        standard or NOT STANDARD, the feasibility pass over every Fastify feature in use, the blast
+        radius, the order of work); RESEARCH §2 "Hono and the offline-first shape". No code yet.
+OPEN:   the user's word, by name, on the plan's three NOT STANDARD pieces (§3: the request door,
+        the SQLite-WASM wrapper, the validation glue) and on validation (§5: a — Hono's validator +
+        ajv with Fastify's options, the lean; b — @hono/typebox-validator, which neither coerces nor
+        fills defaults). Then slices 1–7 (plan §7).
+GO:     given 2026-10-09 — "your rec lets do it keeep working until the conversion is done".
+
 ## The apps move to the layout Quasar's CLI creates, on the latest dependencies [2026-10-09]
 STATE:  DECIDED 2026-10-09 — the user, on finding the apps still in their pre-Quasar folders: "i told
         you for the quasar conversion to use the quasar cli and port the apps using the quasar cli new

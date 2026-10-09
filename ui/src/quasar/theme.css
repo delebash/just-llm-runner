@@ -1,0 +1,19 @@
+/* SPDX-License-Identifier: MIT */
+/* The family's Quasar theme, part 2: the override sheet. What variables.scss can't reach, so the
+   Quasar components under the kit's controls take the family look (tokens.css + the appearance
+   engine's live variables) instead of Material's. Started from JustWrite's phone UI-library test
+   (docs/plans/2026-10-08-phone-ui-library-test.md in justwrite-app, its quasar/theme.css) and
+   re-keyed to the kit's .ui-* classes. One section per control, written with the control: a
+   control's whole look lives here, not in common/styles.css. The plan:
+   docs/plans/2026-10-09-kit-controls-on-quasar.md. Loaded by the kit's barrel after Quasar's own
+   CSS, so equal selectors win by order.
+
+   Dark mode: Quasar's Dark plugin stays off (./install.js), so every colour Quasar's light mode
+   sets on an element the kit uses is restated here from the tokens, which switch with
+   <html data-theme>. */
+
+/* ── Quasar's Material defaults the family doesn't use ─────────────────── */
+/* Quasar uppercases every button label (Material); the label-case knob decides instead. */
+.q-btn { text-transform: var(--btn-text-transform, none); letter-spacing: var(--btn-letter-spacing, normal); }
+/* The hover/focus overlay Quasar paints over buttons, chips and items. */
+.q-focus-helper { display: none; }

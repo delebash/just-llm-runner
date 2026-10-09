@@ -94,7 +94,8 @@ export default defineConfig((/* ctx */) => {
 
     // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file#framework
     framework: {
-      config: {},
+      // the family's Quasar settings (docs/app-structure.md §Q): no Material ripple
+      config: { ripple: false },
 
       // iconSet: 'material-icons', // Quasar icon set
       // lang: 'en-US', // Quasar language pack

@@ -109,7 +109,10 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
 - The phone (Q4's last part): planned 2026-10-08 — `2026-10-08-the-phone.md` (what it is, the worker
   server, images by id, sync and AI on the phone, slices, four questions, the blast radius); waits
   for the user's go on it.
-- Q3: after Q4–Q5 (see the order change above); its theme part is done.
+- Q3: IN PROGRESS 2026-10-09 — the plan: `2026-10-09-kit-controls-on-quasar.md` (what it is, the
+  map, the blast radius, ten slices, the checks). Slice 0 (the theme: the override sheet, the icon
+  set from the kit's own icon paths, ripple off, `quasar` deduped, the guard) DONE — all 30
+  screens identical to the build before it.
 - Q6: DONE 2026-10-09 — docgen on Quasar, branch `quasar` in the worktree `../docgen-quasar`
   (dce418d), fast-forwarded into docgen's main under the go ("keep going using yo9ur recs … dont
   stop", then "go"); the held tree went into a named stash first (the rec, kit TASKS question 5).

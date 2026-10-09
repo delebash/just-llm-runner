@@ -637,6 +637,30 @@ verified" line above:
 - The template's Android build (`quasar build -m capacitor -T android`) ran on the Android 16
   emulator. An App Extension installed through `file:` was not tested (the family doesn't use one).
 
+**The kit's controls on Quasar** (*code* — Quasar 2.35.0's `dist/api/*.json` and
+`dist/quasar.client.js`; *measured* where said; 2026-10-09 — the plan:
+[`docs/plans/2026-10-09-kit-controls-on-quasar.md`](../plans/2026-10-09-kit-controls-on-quasar.md),
+step Q3):
+- Every kit control has a Quasar counterpart whose slots and events cover it: `QBtn`, `QBadge`,
+  `QChip`, `QInput`/`QField`, `QSelect` (`emit-value` + `map-options` give the kit's value
+  semantics, `multiple` + `use-chips` + `use-input` the multi-select), `QCheckbox`, `QToggle`,
+  `QSlider`, `QBtnToggle`, `QTabs`, `QLinearProgress`, `QColor`, `QTable` (`table-row-class-fn`,
+  `filter` + `filter-method`, `binary-state-sort`, `body-cell-[name]`/`header-cell-[name]` slots),
+  `QDialog` (`no-esc-dismiss`, `no-backdrop-dismiss`, `persistent`), the `Notify` plugin.
+- `QBtn` has no `tag` prop: it renders a `<button>`, or an `<a>` (`href`, `to`, `type="a"`) —
+  never a `<label>`, the element the kit's file-picker buttons use today.
+- A custom icon set can't be named in `quasar.config.js` (`framework.iconSet` takes a built-in
+  set's name); `IconSet.set(object)` sets one at runtime. An SVG icon is `"path@@style|viewBox"`.
+- `quasar`'s `package.json` exports resolve `node` before `import`: `node` →
+  `dist/quasar.server.prod.js`, `import` → `dist/quasar.client.js`. The apps' Vitest runs (node
+  environment) pass with the kit importing `IconSet` (*measured*: JustWrite 594, JustVoice 183,
+  docgen 3).
+- The kit is consumed by alias from outside each app, so `quasar` joins the apps' `dedupe` list
+  (one copy, from the app's `node_modules`), as the kit's other peers do.
+- Slice 0 (the theme wired, no control on Quasar yet) leaves all 30 screens of the three apps
+  identical to the build before it — at most 0.025 % of pixels, all live values (a memory reading,
+  the pulsing status dot) (*measured*, 1440 × 900, data snapshots).
+
 ---
 
 ## 3 · AI tasks and the stream frames

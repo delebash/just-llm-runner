@@ -35,6 +35,11 @@ export { useAiTasksNav } from "./composables/useAiTasksNav.js";
 // the Help system, Toast, EmptyState, ConnectionError, the serverApi transport,
 // and the appearance engine. Re-exporting also loads common/styles.css.
 export * from "./common/index.js";
+// The family's Quasar theme (./quasar/): the override sheet loads after common/styles.css, the
+// icon set is set by installLlmUi(); QUASAR_TEST_OPTIONS is for unit tests that mount a control.
+// docs/plans/2026-10-09-kit-controls-on-quasar.md.
+import "./quasar/theme.css";
+export { QUASAR_TEST_OPTIONS, installQuasarTheme } from "./quasar/install.js";
 
 // llm-ui-specific primitives still local (model picker/combobox)
 export { default as LuCombobox } from "./components/LuCombobox.vue";

@@ -451,6 +451,19 @@ function checkQuasar(app) {
   if (!/@delebash\/llm-ui\/quasar\/variables\.scss/.test(variables)) {
     fail(name, "src/css/quasar.variables.scss doesn't import the kit's @delebash/llm-ui/quasar/variables.scss — the family theme (§Q.4)");
   }
+  const qconf = read("quasar.config.js") || "";
+  if (!/framework:\s*\{[\s\S]*?config:\s*\{[^}]*\bripple:\s*false/.test(qconf)) {
+    fail(name, "quasar.config.js's framework.config doesn't turn the ripple off (ripple: false) — the family draws no Material ripple (§Q.4)");
+  }
+  // The kit's controls import Quasar by bare name from the kit's own folder, which has no
+  // node_modules: one copy of Quasar comes from the app's, as for the kit's other peers.
+  for (const rel of ["quasar.config.js", "vitest.config.js"]) {
+    const text = read(rel) || "";
+    const list = text.match(/dedupe\s*(?:=|:)\s*\[([\s\S]*?)\]/);
+    if (list && !/["']quasar["']/.test(list[1])) {
+      fail(name, `${rel}'s resolve.dedupe has no "quasar" — the kit's controls would load a second Quasar (§Q.4)`);
+    }
+  }
   const gi = read(".gitignore") || "";
   if (!/^\/?data\/?\s*$/m.test(gi)) fail(name, ".gitignore does not ignore data/ — the dev data folder is never committed (§Q.8)");
   for (const rel of ["vite.config.js", "src/main.js", "electron/main.js", "src-tauri"]) {

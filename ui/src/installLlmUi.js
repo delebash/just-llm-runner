@@ -26,6 +26,7 @@ import { configureLlmUi } from "./client.js";
 import { configureQuickSetupCopy } from "./common/services/quickSetupCopy.js";
 import { registerFeaturePanels, registerLabAdapters, registerSectionedFeatures } from "./services/labAdapters.js";
 import LlmUiHosts from "./components/LlmUiHosts.vue";
+import { installQuasarTheme } from "./quasar/install.js";
 
 // What this app's LLM stack can do. Declared by the host, read by the kit — an app
 // that has no embedding features says so ONCE here, instead of switching off each
@@ -139,6 +140,10 @@ export function installLlmUi(app, {
     if (!open) warnNoOpener();
     configureExternal({ open, openPath });
   }
+
+  // The kit's controls are Quasar components (docs/plans/2026-10-09-kit-controls-on-quasar.md):
+  // Quasar draws its own icons with the kit's line icons.
+  installQuasarTheme();
 
   // Registered, not imported: an app that forgets `<LlmUiHosts />` in its shell has
   // one thing missing rather than three, and that one thing is named after the job.

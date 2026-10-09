@@ -54,8 +54,13 @@ STATE:  DECIDED 2026-10-08 — the user: "all apps will be converted to quasar, 
         (docs/app-structure.md §Q): the server as its own package, the window on app://<app-id>
         through the kit's runDesktopApp, a narrow preload command list, Biome.'" So: the branches
         are merged; Quasar's global disabled rule is removed from its stylesheet by a build step
-        of the kit's; the Stack line takes the proposed text. (Question 5, docgen's held tree, had
-        no lean shown — not decided.)
+        of the kit's; the Stack line takes the proposed text. Question 5, docgen's held tree:
+        DECIDED 2026-10-08 — the user: "keep going using yo9ur recs, think on your recs twice do it
+        unitl the whole conversions is complete including the move to quasar dont stop", then "go".
+        The rec, thought twice: docgen's held working tree (the stopped electron-vite restructure)
+        is not touched; docgen moves to Quasar on a branch in its own worktree from its last commit,
+        as JustWrite and JustVoice did; at the merge the held tree goes into a named stash (kept,
+        recoverable), as their biome.json leftover did. Then the kit's controls (Q3).
 WHY:    one framework the apps can't drift from — the user's IDEAS words (JustVoice IDEAS
         2026-10-08): "this enforcese a framework conformity you cant break easily". Our own controls
         are written in Quasar's style (its docs and API through its MCP); Quasar is forked if it

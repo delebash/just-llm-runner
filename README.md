@@ -94,9 +94,10 @@ Every local llama-server launch resolves its flags in four tiers, strongest last
   tree. Network — run it at any seed change and in sessions; not CI-gated.
 
 The shared Vue GUI lives here too: **`ui/` (`@delebash/llm-ui`)** — plain-JS Vue
-SFCs both apps consume via a Vite source alias (peer deps: vue, pinia, reka-ui,
-marked, vue-sonner; see `ui/package.json`). It ships the LLM views (providers /
-models / prompts / usage), the `Ui*` primitive + shell layer (`ui/src/common/`),
+SFCs the apps consume via a Vite source alias (peer deps: vue, quasar, pinia,
+marked, …; see `ui/package.json`). It ships the LLM views (providers /
+models / prompts / usage), the `Ui*` primitive + shell layer (`ui/src/common/`,
+built on Quasar's components — `docs/plans/2026-10-09-kit-controls-on-quasar.md`),
 and the shared AI task queue — the `useAiTasksStore` in-flight registry (Pinia),
 the `runAiFeature`/`runAiFeatureStream` wrappers over `/v1/ai/run`+`/v1/ai/stream`,
 `friendlyAiError`, and the `AiTaskStrip`/`AiStatusPanel`/`AiStatusButton` surfaces.

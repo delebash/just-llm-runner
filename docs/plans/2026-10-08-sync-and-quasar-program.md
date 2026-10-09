@@ -109,7 +109,7 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
 - The phone (Q4's last part): planned 2026-10-08 — `2026-10-08-the-phone.md` (what it is, the worker
   server, images by id, sync and AI on the phone, slices, four questions, the blast radius); waits
   for the user's go on it.
-- Q3: IN PROGRESS 2026-10-09 — the plan: `2026-10-09-kit-controls-on-quasar.md` (what it is, the
+- Q3: DONE 2026-10-09 — the plan: `2026-10-09-kit-controls-on-quasar.md` (what it is, the
   map, the blast radius, ten slices, the checks). Slice 0 (the theme: the override sheet, the icon
   set from the kit's own icon paths, ripple off, `quasar` deduped, the guard) DONE — all 30
   screens identical to the build before it. Slice 1 (tags, chips) and slice 2 (buttons; Quasar's
@@ -120,7 +120,8 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
   dialogs, the help drawer, the toasts on Notify, the feature chip's popover) DONE, the three apps'
   end-to-end suites green. Slice 7b (the remaining Reka menus: the kit's new UiMenu, JustWrite's
   StatusSelect) DONE. Slice 8 (the table on QTable; TanStack's row order kept) DONE, the three
-  apps' end-to-end suites green. Next: 9 (clean-up).
+  apps' end-to-end suites green. Slice 9 (clean-up: Reka UI, vue-sonner and TanStack Table out of
+  the family) DONE — Q3 DONE.
 - Q6: DONE 2026-10-09 — docgen on Quasar, branch `quasar` in the worktree `../docgen-quasar`
   (dce418d), fast-forwarded into docgen's main under the go ("keep going using yo9ur recs … dont
   stop", then "go"); the held tree went into a named stash first (the rec, kit TASKS question 5).

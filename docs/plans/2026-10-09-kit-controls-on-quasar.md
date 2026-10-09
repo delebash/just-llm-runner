@@ -209,7 +209,14 @@ colours (dark ink, per-kind intents in `styles.css`) never reached a toast — v
 its own palette on its list below JustWrite's `.ui-toaster` — so its toasts showed sonner's light
 look; slice 7 kept that look and dropped the colour block (the kit's `--ui-toast-*` properties
 would recolour them). JustVoice's `.app-modal-*` rules (styles.css, "Modal shell (Reka Dialog)") style
-classes no template has.
+classes no template has (deleted in slice 9). Found in slice 9: JustVoice's `LICENSES.md` and
+`NOTICE.md` still list the Python and Tauri stack the app no longer has (slice 9 changed only their
+vue-sonner rows); the kit's `ui/package.json` peer `vue-router ^4.4.0` while the apps run `^5.1`; the
+kit's `external.js` and `installLlmUi.js` comments still show the openers coming from
+`@tauri-apps/plugin-opener`; the kit's TASKS item "`UiSelect` has no option groups" says Reka
+supports `SelectGroup` — `QSelect` has no group option, so that item needs re-scoping; the kit's
+tooltip directive (`common/services/tooltip.js`) is still Floating UI, not `QTooltip` (it was never
+in the map).
 
 ## 5 · Slices and how each is checked
 
@@ -252,9 +259,12 @@ an app only where an app's file had to change).
 
 ## 6 · Built
 
-The tools (scratchpad `q3/`, copied here when Q3 closes): `parity.js` (the ten screens per app,
-both builds, fresh data snapshots), `states.js` + one scenario per slice (states driven the same
-way on both builds: hover, keyboard focus, dark mode, another accent, clicks), `crop.js`.
+The tools, copied into [`2026-10-09-kit-controls-on-quasar-tools/`](2026-10-09-kit-controls-on-quasar-tools/)
+when Q3 closed (their paths are the machine's they ran on): `parity.js` (the ten screens per app,
+both builds, fresh data snapshots — pass it an absolute output folder), `states.js` + one scenario per
+slice (states driven the same way on both builds: hover, keyboard focus, dark mode, another accent,
+clicks), `behave-s*.js` (each slice's behaviour checks), `serve.sh` (both builds' servers on a
+slice's data copies), `crop.js`, `sbs.js`, `bbox.js`.
 
 **Slice 0 — the theme.** Kit ef45921; JustWrite b9710e7, JustVoice 17d5172, docgen 1c45f24. All
 30 screens identical to the build before it (live values only).
@@ -568,3 +578,28 @@ the search, docgen's filter to its empty row, the pager over 45 rows (next, last
 sort going back to page 1), the sticky header on Voices, the Tab stops (the same count; the row
 checkboxes are slice 3's focusable `<div>`s); JustVoice's smoke, JustWrite's e2e 7/7, docgen's e2e
 20/20 on the real project.
+
+**Slice 9 — clean-up.** Q3 is done.
+
+- **Packages:** `reka-ui`, `vue-sonner` and `@tanstack/vue-table` are out of the three apps
+  (`package.json`, the lock files, the dedupe lists in `quasar.config.js` and `vitest.config.js`) and out
+  of the kit's peers — nothing imports them. `@floating-ui/dom` stays: the kit's tooltip directive and
+  JustWrite's `DateTimePicker` use it. The kit's peers gain `quasar` (22 kit files import it; it was
+  missing, the defect the kit's CLAUDE.md names).
+- **The rule** ("nothing hand-rolled that Quasar or the kit ships": the kit's `Ui*` controls sit on
+  Quasar's components, the apps keep the `Ui*` API, Quasar's own component comes before anything
+  hand-rolled) is carried by the family-standard rewrite running beside Q3 (the kit's TASKS,
+  2026-10-09: `docs/family-rules.md`, `app-structure.md` §4 and §Q.4, the CLAUDE.md files — JustVoice's
+  hand-rolled table leaves its CLAUDE.md there).
+- **Docs:** JustWrite's `docs/dev/ui-kit.md` (each row names its Quasar component; `UiMenu`; toasts on
+  Notify; modals on QDialog) and `AGENTS.md` §5; JustVoice's `design-law.md`; the kit's README; the
+  kit comments that still described Reka underneath (`usePanelDismiss` also loses its Reka selector).
+- **Licences:** `tableRows.js` and `toastBridge.js` carry the full MIT notices of what they copied
+  (TanStack Table, © 2016 Tanner Linsley; vue-sonner's icons, © 2022 Yunwei Xiao, Heroicons
+  underneath); JustVoice's `NOTICE.md` lists both and `quasar` in place of `vue-sonner`, and its
+  `LICENSES.md` row likewise.
+- **Dead code:** JustVoice's `.app-modal-*` rules (31 lines).
+
+Checked: lint (the kit's `ui/src` with Biome — `npx biome` in the kit runs nothing, the apps' binary
+does); the apps' unit tests (590, 183, 3) and `build:spa`; the 30 screens (live values; JustWrite's
+Export keeps slice 3's 1/255, JustVoice's logo corners slice 6's).

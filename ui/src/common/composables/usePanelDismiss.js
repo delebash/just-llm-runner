@@ -28,9 +28,8 @@ export const PANEL_TOGGLE_ATTR = "[data-panel-toggle]";
 //     root) teleport outside the panel; clicks inside them aren't "outside".
 //   - .q-menu — Quasar's popups (the select lists, the feature chip's popover, the
 //     colour picker), portaled outside the panel element.
-//   - [role="listbox"] / .ui-select-content / [data-reka-popper-content-wrapper] —
-//     select lists and the remaining Reka menus, portaled likewise.
-const PORTAL_EXEMPTIONS = '[role="dialog"], .q-menu, [role="listbox"], .ui-select-content, [data-reka-popper-content-wrapper]';
+//   - [role="listbox"] / .ui-select-content — select lists, portaled likewise.
+const PORTAL_EXEMPTIONS = '[role="dialog"], .q-menu, [role="listbox"], .ui-select-content';
 
 /**
  * @param {import("vue").Ref<boolean>|(() => boolean)} isOpen  panel open-state
@@ -51,11 +50,11 @@ export function usePanelDismiss(isOpen, panelEl, close, options = {}) {
     }
   }
 
-  // Click-outside dismissal. Listens on mousedown rather than click because
-  // Reka's Select removes the dropdown content from the DOM synchronously on
-  // selection — by the time a click bubbles to document, target.closest()
-  // returns null because the option's ancestors are detached. Mousedown fires
-  // before Reka's handler so closest() still walks an intact tree.
+  // Click-outside dismissal. Listens on mousedown rather than click: a popup can
+  // take its content out of the DOM on the press that picks from it (Reka's Select
+  // did, synchronously), and by the time a click bubbles to document,
+  // target.closest() walks a detached tree and finds no exemption. Mousedown fires
+  // while the pressed element is still in place.
   function onDocMousedown(e) {
     if (!open()) return;
     const target = e.target;

@@ -81,7 +81,7 @@ export { configureTestData, testDataSources, testDataAction, mergeVariables } fr
 // shared empty-state placeholder
 export { default as EmptyState } from "./components/EmptyState.vue";
 
-// shared modal shell (Reka Dialog; self-contained token-driven styles) + the
+// shared modal shell (Quasar's QDialog; self-contained token-driven styles) + the
 // imperative prompt/confirm host built on it (driven by services/dialog.js)
 export { default as AppModal } from "./components/AppModal.vue";
 export { default as AppDialog } from "./components/AppDialog.vue";

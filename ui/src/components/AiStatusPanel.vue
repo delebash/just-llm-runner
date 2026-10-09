@@ -116,7 +116,7 @@ const phaseLabel = {
 <template>
   <!-- Teleport to body so the panel escapes the host shell's stacking context
        (e.g. an app-stage created by `position: fixed`). Without this, an
-       AppModal — which Reka portals to body — paints above the entire shell
+       AppModal — which QDialog portals to body — paints above the entire shell
        subtree regardless of the panel's local z-index, leaving the panel
        blurred under the modal's backdrop-filter. With Teleport, both the
        panel and the modal-overlay live as siblings of body and stack by
@@ -313,11 +313,11 @@ const phaseLabel = {
      inside a modal (the Details button in any in-modal AiTaskStrip)
      floats it above the modal's backdrop blur, not behind it.
 
-     `pointer-events: auto` is required: when an AppModal is open,
-     Reka's DismissableLayer sets `body { pointer-events: none }` to
-     enforce modality and only re-enables it on the dialog content.
-     The Teleported panel is also in body and inherits `none` — without
-     this override, clicks pass through to whatever's behind. */
+     `pointer-events: auto` is required: while a select's list or a row
+     menu is open, the kit's useModalPopup sets `body { pointer-events:
+     none }` to make it modal and only the list takes the pointer back.
+     The Teleported panel is also in body and would inherit `none` —
+     without this override it would take no clicks. */
   position: fixed; top: 56px; right: 16px; bottom: 32px; z-index: 120;
   pointer-events: auto;
   width: min(420px, calc(100vw - 32px));

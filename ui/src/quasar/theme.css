@@ -77,3 +77,16 @@ html .q-focus-helper { display: none; }
 .q-chip.ui-chip:hover:not(.is-disabled):not(.is-selected) { border-color: var(--accent); color: var(--accent-ink, var(--accent)); }
 .q-chip.ui-chip.is-selected { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); }
 .q-chip.ui-chip.is-disabled { opacity: .55; cursor: not-allowed; }
+
+/* ── Button (UiButton on QBtn) ─────────────────────────────────────────── */
+/* The button's look stays common/styles.css's .ui-btn* (Quasar's stylesheet sits in its own
+   cascade layer, so those rules win wherever they set a property). Here only what QBtn's own
+   rules set that .ui-btn doesn't: its column direction and 2.5em minimum height, its middle
+   vertical-align, and its positioning — QBtn is position: relative with a shadow pseudo-element
+   and a z-index on its content, and a positioned or z-indexed button is composited after an
+   animation on the page, losing sub-pixel text (RESEARCH, "The kit's controls on Quasar"); the
+   native button it replaces was none of these. The icon/label gap moves to QBtn's content row,
+   where the icon and label now sit. */
+.q-btn.ui-btn { flex-direction: row; min-height: 0; vertical-align: baseline; position: static; }
+.q-btn.ui-btn::before { display: none; }
+.q-btn.ui-btn > .q-btn__content { gap: inherit; z-index: auto; transition: none; }

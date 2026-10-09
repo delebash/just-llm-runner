@@ -21,6 +21,36 @@
 const DISABLED_SELECTORS = new Set([".disabled", "[disabled]", ".disabled *", "[disabled] *"]);
 const QUASAR_STYLESHEET = /[\\/]node_modules[\\/]quasar[\\/]/;
 
+// The family's Quasar theme, part 4: Quasar's whole stylesheet goes into the cascade layer
+// `quasar`, so every rule of the kit and the apps — unlayered — outranks every Quasar rule, the
+// way a page's CSS outranks the browser's defaults, whatever its specificity and whatever order
+// the build loads the files in (in a built app the kit's CSS can load before Quasar's —
+// RESEARCH, "The kit's controls on Quasar"). Quasar's components keep their structure; the
+// family's rules that already style a control win over Quasar's look for the properties they
+// set, and the priorities among the kit's and the apps' own rules stay what they were. The
+// plan: docs/plans/2026-10-09-kit-controls-on-quasar.md. One exception keeps
+// dropQuasarDisabledRule() needed: an !important declaration in a layer outranks an unlayered
+// !important, so Quasar's few !important rules still win where they apply.
+//
+// In an app's postcss.config.js, after dropQuasarDisabledRule():
+//   plugins: [ dropQuasarDisabledRule(), quasarBaseLayer(), autoprefixer(…) ]
+export function quasarBaseLayer() {
+  return {
+    postcssPlugin: "family-quasar-base-layer",
+    Once(root, { AtRule }) {
+      if (!QUASAR_STYLESHEET.test(root.source?.input?.file || "")) return;
+      const layer = new AtRule({ name: "layer", params: "quasar" });
+      // @charset and @import must stay first in the file, outside any block
+      for (const node of [...root.nodes]) {
+        if (node.type === "atrule" && (node.name === "charset" || node.name === "import")) continue;
+        layer.append(node);
+      }
+      root.append(layer);
+    },
+  };
+}
+quasarBaseLayer.postcss = true;
+
 export function dropQuasarDisabledRule() {
   return {
     postcssPlugin: "family-drop-quasar-disabled-rule",

@@ -667,6 +667,19 @@ step Q3):
   `position: relative` element painted after an element with a running transform animation is
   composited for overlap (CDP `LayerTree`: "Overlap"), and its text is drawn grey-smoothed; an
   unpositioned one is not. `-webkit-font-smoothing` has no effect on Windows.
+- **A cascade layer puts a library's CSS under the page's** (*measured*): with Quasar's stylesheet
+  wrapped in `@layer quasar` (PostCSS, on the file from `node_modules/quasar`), the kit's and the
+  apps' unlayered rules win wherever they set a property, and the 30 screens of the three apps
+  stay identical. An `!important` in a layer outranks an unlayered `!important` (CSS Cascade 5),
+  so a library's `!important` rules keep winning — QBtn's `.q-btn.disabled { opacity: .7
+  !important }` among them.
+- **Vitest and Quasar** (*measured*, Vitest 4.1): installing Quasar under jsdom needs its browser
+  build — the SSR build a bare `quasar` resolves to in Node throws "The SSR server build was
+  installed without an ssrContext" — while the browser build throws `window is not defined`
+  when a Node-environment test imports it. Quasar's own fixes (an alias, or `@quasar/vite-plugin`,
+  whose alias applies while serving) are global; a `resolveId` hook that checks
+  `this.environment.config.consumer === "client"` gives jsdom tests the browser build and the
+  rest the SSR build.
 
 ---
 

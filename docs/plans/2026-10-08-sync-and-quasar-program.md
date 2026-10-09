@@ -112,7 +112,9 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
 - Q3: IN PROGRESS 2026-10-09 — the plan: `2026-10-09-kit-controls-on-quasar.md` (what it is, the
   map, the blast radius, ten slices, the checks). Slice 0 (the theme: the override sheet, the icon
   set from the kit's own icon paths, ripple off, `quasar` deduped, the guard) DONE — all 30
-  screens identical to the build before it.
+  screens identical to the build before it. Slice 1 (tags, chips) and slice 2 (buttons; Quasar's
+  stylesheet in a cascade layer; Quasar in the unit tests) DONE — screens and states identical,
+  every app's suites green.
 - Q6: DONE 2026-10-09 — docgen on Quasar, branch `quasar` in the worktree `../docgen-quasar`
   (dce418d), fast-forwarded into docgen's main under the go ("keep going using yo9ur recs … dont
   stop", then "go"); the held tree went into a named stash first (the rec, kit TASKS question 5).

@@ -46,6 +46,16 @@ One file per control, as today, in `ui/src/common/components/`. Each:
    rows), next to Quasar's own `q-*` classes, so the apps' CSS hooks and tests still find them;
 4. takes its look from the kit's theme (below), never from scoped one-offs.
 
+**Quasar's stylesheet is the lowest layer** (decided in slice 2, under "your recs"): the kit's
+PostCSS step `quasarBaseLayer()` puts Quasar's whole stylesheet in the cascade layer `quasar`, so
+every rule of the kit and the apps outranks every Quasar rule, the way a page's CSS outranks the
+browser's defaults — whatever its specificity, whatever order the build loads the files in. The
+family's existing rules (`.ui-btn*` …) keep their look and their priorities among themselves;
+the theme only resets what Quasar sets that they don't. One exception: an `!important` inside a
+layer outranks an unlayered one, so the kit keeps away from Quasar's `!important` rules (the
+global disabled rule is removed by `dropQuasarDisabledRule()`; `UiButton` sets the native
+`disabled` instead of QBtn's `disable`, whose class carries one).
+
 **The theme** moves out of JustWrite's theming test (branch `ui-library-test`, 359964a) into
 `ui/src/quasar/`:
 
@@ -256,3 +266,35 @@ the chips' text, the same glyphs at the same box positions, rasterised different
 `<div>` than inside a `<button>` — invisible at 4×; everything else live values); 13 states
 (chips at rest, hover, keyboard focus, dark, another accent; tags in JustVoice's voice table and
 JustWrite's chapter list, light and dark, another accent) — 0 pixels differ in each.
+
+**Slice 2 — `UiButton` on `QBtn`, Quasar's stylesheet in a layer, Quasar in the unit tests.**
+
+- **The layer** (§2): with slice 1's two-class rules, a kit rule tied an app's own two-class rules
+  and load order decided; `quasarBaseLayer()` ends that for every slice. The 30 screens stayed as
+  they were with it (live values only).
+- **The button** keeps `.ui-btn*` from `common/styles.css` as its look; the theme resets QBtn's
+  column direction, minimum height, middle alignment, position, shadow pseudo-element and
+  content z-index (positioned or z-indexed, a button is composited after an animation and
+  loses sub-pixel text — slice 1's finding). Kept from the native element: the native
+  `disabled` (QBtn's `disable` class has `opacity: .7 !important`), the label beside a loading
+  spinner, and the file pickers — `as="label"` was a `<label>`; QBtn renders only `<button>`
+  or `<a>`, so a press opens the hidden file input.
+- **Unit tests mount with Quasar**: `createTestApp()` (`@delebash/llm-ui/quasar/install.js`)
+  replaces Vue's `createApp` in the 17 tests that mount (JustWrite 12, JustVoice 4, docgen 1).
+  Under jsdom a test needs Quasar's browser build; a bare `quasar` resolves to its SSR build in
+  Node, which refuses to install outside an SSR app, while the browser build reads `window` as
+  it loads — so each app's `vitest.config.js` resolves `quasar` per Vite environment (the
+  browser build for the client environment, i.e. jsdom; the SSR build for the rest).
+- **Found along the way:** JustWrite's e2e docs (written in Q4) said `npm run build:unpacked`;
+  the unpacked app has no server package installed and its shell finds no server — the harness
+  needs `npm run build` (corrected in JustWrite's README, CLAUDE.md, `e2e/README.md`, the
+  driver and `capture-direct.js`). docgen's suite brings its own server, so `build:unpacked`
+  is right there.
+
+Checked: lint; the guard; the apps' unit tests (594, 183, 3); the 30 screens against the build
+before Q3 (live values only); 18 button states (primary, secondary, ghost, icon-size and disabled
+buttons at rest, hover, keyboard focus, dark, another accent; JustVoice and JustWrite) — 0 pixels
+differ in each; behaviour on both builds — Enter and Space press, the tab order, a disabled
+button stays disabled and unfocusable, the download links are `<a href download>`, the cover
+picker opens a file chooser; JustVoice's smoke (every view, zero JS errors), JustWrite's e2e 7/7
+and docgen's e2e 20/20 on the real project.

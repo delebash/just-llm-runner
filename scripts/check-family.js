@@ -447,6 +447,9 @@ function checkQuasar(app) {
   if (!/dropQuasarDisabledRule\(\)/.test(read("postcss.config.js") || "")) {
     fail(name, "postcss.config.js doesn't run the kit's dropQuasarDisabledRule() — Quasar's global disabled rule would override every control's own disabled look (§Q.4)");
   }
+  if (!/quasarBaseLayer\(\)/.test(read("postcss.config.js") || "")) {
+    fail(name, "postcss.config.js doesn't run the kit's quasarBaseLayer() — Quasar's stylesheet would compete with the kit's and the app's rules by specificity and load order (§Q.4)");
+  }
   const variables = read("src/css/quasar.variables.scss") || "";
   if (!/@delebash\/llm-ui\/quasar\/variables\.scss/.test(variables)) {
     fail(name, "src/css/quasar.variables.scss doesn't import the kit's @delebash/llm-ui/quasar/variables.scss — the family theme (§Q.4)");
@@ -458,7 +461,9 @@ function checkQuasar(app) {
   // The kit's controls import Quasar by bare name from the kit's own folder, which has no
   // node_modules: one copy of Quasar comes from the app's, as for the kit's other peers.
   for (const rel of ["quasar.config.js", "vitest.config.js"]) {
-    const text = read(rel) || "";
+    // the spread of Vite's own list (`...(viteConf.resolve.dedupe || [])`) is dropped first — its
+    // `[]` would end the match before the app's list
+    const text = (read(rel) || "").replace(/\.\.\.\([^)]*\)/g, "");
     const list = text.match(/dedupe\s*(?:=|:)\s*\[([\s\S]*?)\]/);
     if (list && !/["']quasar["']/.test(list[1])) {
       fail(name, `${rel}'s resolve.dedupe has no "quasar" — the kit's controls would load a second Quasar (§Q.4)`);

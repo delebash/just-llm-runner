@@ -117,7 +117,8 @@ const { x, y, position } = useDraggable(dragTarget, {
     // clamps with Math.max(0, x) in DOCUMENT coords — the wrong space for a
     // position:fixed element. With no container, move() is
     // `e.clientX - pressedDelta.x` — pure viewport coords, exactly right here.
-    // (Read from @vueuse/core 14.3.0 dist/index.js:2881-2896, 2906, 2910.)
+    // (Read from @vueuse/core 14.3.0 dist/index.js:2881-2896, 2906, 2910; unchanged in 15.0.0,
+    // dist/index.js:2861-2875 (start) and 2876-2888 (move).)
     const el = dragTarget.value;
     if (!el) return;
     const maxX = window.innerWidth - MIN_VISIBLE;

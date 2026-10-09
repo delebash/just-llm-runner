@@ -20,12 +20,15 @@ app moves to Quasar, built by one set of framework rules"; the facts behind it:
 ## Commands
 
 ```bash
-npm install                      # also: cd server && npm install; cd src-electron && npm install
+npm install                      # the renderer and the server/ workspace; once: cd src-electron && npm install
 npm run dev                      # the desktop app, live (quasar dev -m electron)
+npm run dev:spa                  # the renderer alone in a browser tab (quasar dev)
 npm run build                    # the installer → dist/electron/Packaged (quasar build -m electron)
 npm run build:spa                # the browser build → dist/spa
+npm run build:unpacked           # the desktop app unpackaged → dist/electron/UnPackaged (what an e2e drives)
 npm run build:android            # the Android app (quasar build -m capacitor -T android)
-npm run server                   # the server alone (headless; FAMILY_TEMPLATE_UI_DIR=dist/spa serves the UI)
+npm run server                   # the server alone, on Electron's Node (scripts/node24.js; headless;
+                                 #   FAMILY_TEMPLATE_UI_DIR=dist/spa serves the UI)
 npm run lint                     # Biome
 ```
 
@@ -37,6 +40,12 @@ npm run lint                     # Biome
 - **The main process's dependencies are local packages** (`file:` the app's `server/` and the
   kit): `quasar.config.js` makes their paths absolute for `dist/electron/UnPackaged` and installs
   them with `npm install --install-links` (real copies, production dependencies only).
+- **`server/` is an npm workspace** of the root, so one `npm install` installs its dependencies
+  beside the renderer's, one copy of each package the two share (JustWrite's renderer and server
+  both use TipTap).
+- **The server runs on Electron's own Node** (`scripts/node24.js`, which runs the electron binary
+  from `src-electron/` as Node) — the runtime it ships on, and the one its native modules
+  (better-sqlite3) are built for.
 - **electron-builder**, not Quasar's default @electron/packager: the family ships NSIS installers.
 - **The CSP `<meta>`** in `index.html` lets the page reach its server (`connect-src http: https:`)
   — Quasar's default has no `connect-src`, which blocks the renderer → server path.

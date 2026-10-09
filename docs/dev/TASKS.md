@@ -66,6 +66,15 @@ OPEN:   1. The kit's UI: Quasar's components replace its generic controls; the f
         4. Docs that still name Python: `docs/dev/install-runbook.md`, `server/README.md` "Check
            it" (the route diff against a Python server) — JustVoice's TASKS lists them with the
            rest of the conversion's waiting work.
+        5. A question for the user (found 2026-10-08, JustWrite's move): Quasar's stylesheet has
+           one global rule no variable reaches — `.disabled, [disabled] { opacity: .6 !important;
+           cursor: not-allowed !important }` — so every disabled control in a Quasar app shows
+           Quasar's fade and cursor instead of its own (JustWrite's title-bar buttons: .32, a plain
+           cursor). The options: (a) take Quasar's look family-wide; (b) a small PostCSS step of
+           our own that drops that one rule from Quasar's CSS, so each control keeps its own;
+           (c) re-express every disabled style in the kit and the apps as custom properties one
+           override rule reads. Rec: (b) — one rule removed, every look kept; it is our own code,
+           so it needs your word. Until then (a) is what ships.
 GO:     given 2026-10-08 — "1-5 your rec … go" and "continue go" (the framework rules).
 
 ## The family moves to Electron and a Node server — the plan is approved, step 1 underway [2026-10-07]

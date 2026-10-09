@@ -6,6 +6,7 @@
 			"src-electron/**/*.js",
 			"server/src/**/*.js",
 			"quasar.config.js",
+			"scripts/**/*.js",
 			"!src-electron/node_modules",
 			"!server/node_modules"
 		]

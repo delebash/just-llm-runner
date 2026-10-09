@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: MIT
+// The family's Quasar theme, part 1: Quasar's Sass variables (quasar/src/css/variables.sass)
+// pointed at the kit's live CSS variables — tokens.css plus the appearance engine — so the CSS
+// Quasar compiles follows Settings → Appearance at runtime. Quasar does no colour or length
+// maths on any of these (checked 2026-10-08), so a var() passes straight through to the
+// compiled CSS. Moved here from JustWrite's phone UI-library test
+// (docs/plans/2026-10-08-phone-ui-library-test.md in justwrite-app), where every Appearance knob
+// drove Quasar's controls live.
+//
+// An app imports it from its own src/css/quasar.variables.scss (the file Quasar reads):
+//   @import "@delebash/llm-ui/quasar/variables.scss";
+// app-structure §Q.4.
+
+$primary   : var(--accent);
+$secondary : var(--ink-2);
+$accent    : var(--gold);
+$dark      : var(--surface);
+$dark-page : var(--bg);
+$positive  : var(--success);
+$negative  : var(--danger);
+$info      : var(--info);
+$warning   : var(--gold);
+
+$separator-color      : var(--border);
+$separator-dark-color : var(--border);
+
+// Quasar styles the bare h1–h6 elements (h1: 6rem, line-height 6rem); the apps' headings carry
+// their own classes and never set a line-height on the element, so Quasar's element rules are
+// switched off — with them on, every page header grew (measured on JustWrite, 2026-10-08).
+$h-tags : ();
+
+$typography-font-family : var(--font-ui);
+$body-font-size         : 13.5px;
+$body-line-height       : 1.5;
+
+$generic-border-radius : var(--r-sm);
+$button-border-radius  : var(--btn-radius);
+$button-padding        : var(--btn-pad-y) var(--btn-pad-x);
+$button-font-size      : var(--btn-font-size);
+$button-font-weight    : 500;
+
+$input-font-size   : 13.5px;
+$input-text-color  : var(--ink);
+$input-label-color : var(--muted);
+
+$table-border-color : var(--border-soft);
+$menu-box-shadow    : var(--shadow-2);
+
+$tooltip-background : var(--ink);
+$tooltip-color      : var(--surface);
+$tooltip-fontsize   : 11.5px;

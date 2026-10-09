@@ -192,11 +192,12 @@ function checkScripts(app) {
   if (app.kind === "quasar") {
     // §Q.9: the desktop app is the default; the browser build is build:spa; the server is
     // its own package, run from source.
+    // The server runs on Electron's own Node, through scripts/node24.js — as §0.2's rule.
     const want = [
       ["dev", "quasar dev -m electron", /^quasar dev -m electron\b/],
       ["build", "quasar build -m electron", /^quasar build -m electron\b/],
       ["build:spa", "quasar build", /^quasar build\s*$/],
-      ["server", "node server/src/serve.js serve", /^node server\/src\/serve\.js serve\b/],
+      ["server", "node scripts/node24.js server/src/serve.js serve", /^node scripts\/node24\.js server\/src\/serve\.js serve\b/],
     ];
     for (const [name, text, re] of want) {
       if (scripts[name] && !re.test(scripts[name])) fail(app.name, `"${name}" runs \`${scripts[name]}\` — §Q.9 says \`${text}\``);
@@ -397,6 +398,12 @@ function checkQuasar(app) {
   const root = json("package.json") || {};
   if (root.type !== "module") fail(name, `package.json "type" is ${JSON.stringify(root.type)} — the family is "module"`);
   if (!root.allowScripts) fail(name, `package.json has no "allowScripts" — npm 11 refuses the installs Quasar spawns without it (§Q.6)`);
+  if (!(root.workspaces || []).includes("server")) fail(name, `package.json "workspaces" doesn't name "server" — one install for the renderer and the server, one copy of what they share (§Q.3)`);
+  const node24 = read("scripts/node24.js");
+  if (node24 === null) fail(name, "scripts/node24.js missing — the server and its tests run on Electron's own Node (§Q.9)");
+  else if (!/ELECTRON_RUN_AS_NODE/.test(node24) || !/src-electron/.test(node24)) {
+    fail(name, "scripts/node24.js doesn't run src-electron's Electron as Node (ELECTRON_RUN_AS_NODE) — §Q.9");
+  }
   for (const dep of Object.keys({ ...root.dependencies, ...root.devDependencies })) {
     if (dep.startsWith("@tauri-apps/")) fail(name, `package.json depends on ${dep} — the family has no Tauri`);
   }

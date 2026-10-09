@@ -6,14 +6,19 @@
   "author": "delebash",
   "type": "module",
   "private": true,
+  "workspaces": [
+    "server"
+  ],
   "scripts": {
     "dev": "quasar dev -m electron",
+    "dev:spa": "quasar dev",
     "build": "quasar build -m electron",
     "build:spa": "quasar build",
+    "build:unpacked": "quasar build -m electron --skip-pkg",
     "build:android": "quasar build -m capacitor -T android",
     "postinstall": "quasar prepare --silent",
     "lint": "biome check .",
-    "server": "node server/src/serve.js serve"
+    "server": "node scripts/node24.js server/src/serve.js serve"
   },
   "dependencies": {
     "pinia": "^4.0.2",

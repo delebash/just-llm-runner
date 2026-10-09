@@ -204,8 +204,10 @@ export default defineConfig((/* ctx */) => {
       // The main process's dependencies (src-electron/package.json) are local packages — the
       // app's server/ and the family kit — named by `file:` paths relative to src-electron/.
       // Quasar copies them unchanged into dist/electron/UnPackaged/package.json, two folders
-      // further down, so they're made absolute here.
+      // further down, so they're made absolute here. The root's `workspaces` field is copied
+      // too and means nothing there.
       extendElectronPackageJson (pkgJson) {
+        delete pkgJson.workspaces
         for (const [name, spec] of Object.entries(pkgJson.dependencies || {})) {
           if (typeof spec === 'string' && spec.startsWith('file:')) {
             pkgJson.dependencies[name] = `file:${path.resolve(import.meta.dirname, 'src-electron', spec.slice(5))}`
@@ -232,8 +234,8 @@ export default defineConfig((/* ctx */) => {
         productName: 'Family Template',
         win: { target: 'nsis' },
         nsis: { oneClick: false, allowToChangeInstallationDirectory: true },
-        // native modules and the server's own files can't run from inside the asar archive
-        asarUnpack: [ '**/*.node', 'node_modules/family-template-server/**' ]
+        // native modules can't load from inside the asar archive (the server itself runs from it)
+        asarUnpack: [ '**/*.node' ]
       }
     },
 

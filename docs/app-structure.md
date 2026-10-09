@@ -89,12 +89,12 @@ Quasar's default and why. Where §Q and §0–§14 disagree for a moved app, §Q
 ```
 <repo>/
 ├── package.json              # the Quasar app — the renderer's dependencies; "type": "module";
-│                             #   allowScripts (Q.6); scripts dev/build/lint/server
+│                             #   "workspaces": ["server"] (Q.3); allowScripts (Q.6); scripts (Q.9)
 ├── quasar.config.js          # the ONE build config (no vite.config.js, no main.js)
 ├── index.html                # the family CSP <meta> (Q.5)
 ├── biome.json                # Biome, not oxlint/ESLint
 ├── src/                      # the renderer
-│   ├── App.vue · layouts/ · pages/ · components/
+│   ├── App.vue · layouts/ · pages/ · components/   # App.vue is the root Quasar mounts
 │   ├── boot/                 # app start-up code (Quasar boot files) — where main.js used to be
 │   ├── router/index.js · routes.js   # defineRouter from '#q-app'; hash history (always, for
 │   │                                 #   Electron and Capacitor)
@@ -103,9 +103,10 @@ Quasar's default and why. Where §Q and §0–§14 disagree for a moved app, §Q
 │   ├── css/app.scss · quasar.variables.scss   # the family theme maps Quasar's variables onto
 │   │                                          #   the kit's live CSS variables (Q.4)
 │   └── services/native.js    # the ONLY reader of window.appShell (§0.3, unchanged)
-├── server/                   # the app's Node server — ITS OWN PACKAGE (Q.3)
+├── server/                   # the app's Node server — ITS OWN PACKAGE, an npm workspace (Q.3)
 │   ├── package.json          # "<app>-server", "type": "module", its runtime dependencies
 │   └── src/serve.js · app.js · …   tests/*.test.js
+├── scripts/node24.js         # runs a script on Electron's own Node (src-electron's electron)
 ├── src-electron/             # the desktop app (Q.2)
 │   ├── electron-main.js      # the kit's runDesktopApp({...}) — config, no logic
 │   ├── electron-preload.js   # import "@delebash/llm-runner/shell/preload" — that's all
@@ -137,7 +138,10 @@ The window still loads `app://<id>/index.html` (the kit registers the protocol; 
 template loads `file://`), with the hash router. **Packaging — `quasar.config.js > electron`:**
 - `bundler: 'builder'` — electron-builder (NSIS on Windows, `oneClick: false`), not Quasar's
   default @electron/packager; `builder: { appId: 'com.<id>.app', productName, win, nsis,
-  asarUnpack: ['**/*.node', 'node_modules/<app>-server/**'] }`.
+  asarUnpack: ['**/*.node'] }` — native modules can't load from inside the asar archive; the
+  server itself runs from inside it (the utilityProcess and the headless launcher read the
+  archive; JustWrite measured both, 2026-10-08). Unpack only what the server copies out with
+  `fs` (JustWrite: `node_modules/justwrite-server/samples/**`).
 - The main process's dependencies are local packages named by `file:` paths relative to
   `src-electron/`. Quasar copies them unchanged into `dist/electron/UnPackaged/package.json`, two
   folders down, so `extendElectronPackageJson` makes them absolute, and
@@ -152,8 +156,16 @@ template loads `file://`), with the hash router. **Packaging — `quasar.config.
 `server/` is a package of its own (`"name": "<app>-server"`, `"type": "module"`, its runtime
 dependencies, `@delebash/llm-runner` as `file:`), because Quasar's packaged app installs only what
 `src-electron/package.json` names: the server package goes there, and with it everything the
-server needs. In a checkout `npm run server` runs it from source (`node server/src/serve.js
-serve`); headless it is the app's exe run as Node on the installed copy (§0.4). Its shape is §0.4's
+server needs. It is also an **npm workspace** of the root (`"workspaces": ["server"]`), so one
+`npm install` installs both, with one copy of each package the renderer and the server share
+(npm ignores `allowScripts` in a workspace — the root's applies). Code both sides need lives in
+the server package and the renderer imports it by name (`<app>-server/<path>`, through the
+package's `exports`) — JustWrite's editor schema, which its sync parses scene HTML with. The
+server's files resolve from its own folder: in the packaged app the package sits at
+`<app>/node_modules/<app>-server` and the built UI at `<app>` (`resources/app.asar`). In a
+checkout `npm run server` runs it from source on Electron's Node (`node scripts/node24.js
+server/src/serve.js serve` — the runtime it ships on, the one its native modules are built for);
+headless it is the app's exe run as Node on the installed copy (§0.4). Its shape is §0.4's
 — `serve.js` through the kit's `runServer`, a Fastify app from the kit's `createServer`, the family
 guards registered outermost first (`CsrfOriginMiddleware`, `CorsMiddleware`,
 `BearerAuthMiddleware`), the AI stack (where the app has one) mounted with `installLlm` (§8), the
@@ -166,15 +178,27 @@ origins), the phone's webview origins (the kit's `CAPACITOR_ORIGINS`) and Quasar
   dialogs, menus, tooltips); **the kit keeps the family pieces** — the AI settings, the task strip,
   the model catalog, the appearance engine — rebuilt on Quasar (decided 2026-10-08, rec 2). The
   rule of §4 becomes **"nothing hand-rolled that Quasar or the kit ships"**.
-- **The theme:** `src/css/quasar.variables.scss` points Quasar's Sass variables at the kit's live
-  CSS variables (`$primary: var(--accent)`, …) so the CSS Quasar compiles follows Settings →
-  Appearance at runtime (Quasar does no colour maths on them — checked 2026-10-08); the kit's
-  override sheet covers what variables can't reach; Quasar's icons are the kit's line icons (an
-  icon set). The phone UI-library test measured it: every Appearance knob drives Quasar's controls
-  live (JustWrite's `docs/plans/2026-10-08-phone-ui-library-test.md`).
+- **The theme:** the kit's `ui/src/quasar/variables.scss` points Quasar's Sass variables at the
+  kit's live CSS variables (`$primary: var(--accent)`, …) so the CSS Quasar compiles follows
+  Settings → Appearance at runtime (Quasar does no colour maths on them — checked 2026-10-08), and
+  switches off Quasar's rules for the bare h1–h6 elements (`$h-tags: ()`: with them on, every
+  JustWrite page header grew — a 6rem line-height). The app's `src/css/quasar.variables.scss` (the
+  file Quasar reads) is one line: `@import "@delebash/llm-ui/quasar/variables.scss";`. Measured on
+  JustWrite (2026-10-08): with it, ten screens match the Electron + Vite build to within 0.02 % of
+  their pixels, except for one global Quasar rule, `.disabled, [disabled] { opacity: .6 !important;
+  cursor: not-allowed !important }`, which no variable reaches and which outranks the apps' own
+  disabled styles (open — the kit's TASKS, the Quasar item). The kit's override sheet (with Q3's
+  controls) covers what variables can't reach; Quasar's icons become the kit's line icons (an icon
+  set). The phone UI-library test measured it: every Appearance knob drives Quasar's controls live
+  (JustWrite's `docs/plans/2026-10-08-phone-ui-library-test.md`).
 - **Start-up code lives in boot files** (`src/boot/<name>.js`, `defineBoot` from `'#q-app'`, listed
   in `quasar.config.js > boot`), not `main.js`: the kit's UI install (`installLlmUi`), the
-  appearance engine, the native bridge's openers.
+  appearance engine, the native bridge's openers. Quasar awaits them, then installs the router and
+  mounts `App.vue` on `#q-app`. A boot can't swap the root component, so a start-up that may
+  end on another screen (JustWrite's connection-error screen when the server is down) sets a flag
+  the root reads (JustWrite: `App.vue` renders the shell `AppShell.vue` or the error screen).
+  The boot smoke test runs the same steps by hand, since Quasar's entry exists only inside its
+  build; vitest aliases `#q-app` to `@quasar/app-vite` (Quasar's own alias).
 - **Never** Quasar's private composables (`useField`, `useDark` are private in 2.35); a control of
   our own sits in `QField`'s `control` slot; dark state is `$q.dark`.
 - Pages are lazy routes (`() => import('@/pages/…')`); `build.vueRouterMode: 'hash'`.
@@ -192,7 +216,8 @@ still sends its own stricter header for `app://`; both apply there.
 ### Q.6 · npm and the Quasar CLI — the traps
 
 - **`allowScripts` in every `package.json` Quasar installs into** — the root (which
-  `dist/electron/UnPackaged` copies), `src-electron/`, `src-capacitor/`, `server/`. npm 11 refuses
+  `dist/electron/UnPackaged` copies), `src-electron/`, `src-capacitor/` (not the `server/`
+  workspace: npm ignores it there). npm 11 refuses
   an `allow-scripts` setting from `.npmrc` in a project install unless the project declares
   `allowScripts` (then it uses that).
 - **`quasar.config.js` deletes `process.env.npm_config_allow_scripts`** first thing: `npm run`
@@ -224,24 +249,30 @@ Chromium keeps its files there locked and the watcher fails on them (EBUSY).
 | Script | Runs |
 |---|---|
 | `dev` | `quasar dev -m electron` — the desktop app, live (the shell starts the server from source on `<repo>/data`) |
+| `dev:spa` | `quasar dev` — the renderer alone in a browser tab on the dev port (start the server yourself) |
 | `build` | `quasar build -m electron` — the installer (`dist/electron/Packaged`) |
 | `build:spa` | `quasar build` — the browser build (`dist/spa`), served by the server for headless use |
+| `build:unpacked` | `quasar build -m electron --skip-pkg` — the desktop app unpackaged (`dist/electron/UnPackaged`), what the e2e harness drives |
 | `build:android` | `quasar build -m capacitor -T android` — where the app has a phone app |
-| `server` | `node server/src/serve.js serve` |
+| `server` · `test:server` | `node scripts/node24.js server/src/serve.js serve` · vitest the same way — on Electron's own Node, as §0.2 |
 | `lint` | `biome check .` |
+
+`npm install` installs the root and the `server/` workspace; `src-electron/` (and
+`src-capacitor/`) install separately, once.
 
 ### Q.10 · What the guard checks for a Quasar app
 
 `scripts/check-family.js` treats an app with `quasar.config.js` as kind `quasar` and checks it
 against this section:
 - **scripts** (check 3): `dev`, `build`, `build:spa`, `server`, `lint` present, the first four
-  exactly as Q.9; no `tauri` script.
+  exactly as Q.9 (`server` through `scripts/node24.js`); no `tauri` script.
 - **server** (check 4): `server/src/serve.js`; `server/package.json` named `<app>-server` with
   `"type": "module"`; tests in `server/tests/*.test.js` (not for the template).
 - **desktop main** (check 14): `src-electron/electron-main.js` imports `runDesktopApp` from the
   kit's shell and nothing but `node:*` and `'#q-app/electron/main'`, passes the required fields
   and the registry port; `src-electron/electron-preload.js` imports the kit's preload.
-- **the layout** (Q.1–Q.8): `"type": "module"` and `allowScripts` in the root;
+- **the layout** (Q.1–Q.8): `"type": "module"`, `allowScripts` and `"workspaces": ["server"]` in the
+  root; `scripts/node24.js` running `src-electron`'s Electron as Node;
   `quasar.config.js` has hash routing, `bundler: 'builder'`, `extendElectronPackageJson`,
   `--install-links`, the `**/data/**` watch ignore and the `npm_config_allow_scripts` delete;
   `src-electron/package.json` pins `electron` exactly, depends on the server package and has

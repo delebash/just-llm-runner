@@ -639,6 +639,8 @@
    Quasar's docs, Capacitor "Status bar and safe areas". Measured 2026-10-09: the iOS 18.6
    simulator's title bar sat under the clock and the Dynamic Island. */
 :where(body.q-ios-padding, body.q-safe-area-padding) :where(.q-layout > .q-header) { padding-top: var(--q-safe-area-inset-top, 0px); }
+/* …and the pages end above the home indicator (the scene editor's word count sat under it). */
+:where(body.q-ios-padding, body.q-safe-area-padding) :where(.q-layout > .q-page-container) { padding-bottom: var(--q-safe-area-inset-bottom, 0px); }
 /* The drawer holds the app's own sidebar, which paints its own background; Quasar's drawer is a
    white panel (no Sass variable reaches it — the header's fill is a variable, ./variables.scss). */
 :where(.q-drawer) { background: none; }

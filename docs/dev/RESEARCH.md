@@ -386,6 +386,16 @@ has its app-side facts):
   only as Android prebuilds; iOS runs it without JIT. The kit needs Node ≥ 24
   (`server/package.json` `engines`). — *web + code, 2026-10-08* ·
   github.com/nodejs-mobile/nodejs-mobile/releases, capawesome.io/docs/sdks/capacitor/nodejs/.
+- **A test build on a real iPhone, with no Mac and no money** (*web*, 2026-10-09 — JustWrite's
+  TASKS, "The phone's cloud folder through the Files app", OPEN 1): Xcode with a free Apple ID
+  installs on a device but needs a Mac (the app runs 7 days, then re-install); TestFlight needs
+  the paid Apple Developer Program ($99/year). Free and Mac-less: an unsigned build from GitHub's
+  macOS runner (free minutes for a public repo), installed from Windows with a free Apple ID
+  through AltStore's AltServer (re-signs over the same Wi-Fi while it runs) or Sideloadly (by
+  hand, over USB; wants Apple's own iTunes); 7-day expiry, at most 3 sideloaded apps at once,
+  Developer Mode and "trust" the profile on the phone; the tool signs in with the Apple ID (a
+  throwaway ID works). · 9to5mac.com (Xcode 7 free sideloading), faq.altstore.io,
+  xda-developers.com (AltStore guide), igeeksblog.com (TestFlight).
 - **A live SQLite file in a sync folder is a corruption risk:** SQLite's own page lists broken
   locking on network filesystems, background copies taken mid-transaction, and copying a
   database without its `-wal`/`-journal`. Joplin syncs desktop and phones through Dropbox,

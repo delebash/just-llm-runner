@@ -134,6 +134,9 @@ export class OpenAISDKAdapter {
         timeout: this._timeoutSeconds * 1000,
         maxRetries: 2,
         fetch: sdkFetch,
+        // in a web worker (the phone's in-app server): a browser's call, which the SDK refuses
+        // unless told
+        ...(typeof WorkerGlobalScope === "undefined" ? {} : { dangerouslyAllowBrowser: true }),
       });
     }
     return this._client;

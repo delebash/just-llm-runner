@@ -18,7 +18,9 @@
 //     3.8 MB), async_hooks, diagnostics_channel, perf_hooks (the platform's own performance — the
 //     polyfill's copies `now` unbound); `assert` → the npm `assert` package (callable through
 //     require, as find-my-way calls it), resolved from the app;
-//   - `better-sqlite3` → better-sqlite3.js, the same API over SQLite WASM;
+//   - `better-sqlite3` → better-sqlite3.js, the same API over SQLite WASM; `undici` → the
+//     platform's fetch, falling back to the window's native HTTP for a call the webview refuses
+//     (shims/undici.js);
 //   - a module with a phone twin beside it (`<name>.phone.js` next to `<name>.js`) → the twin:
 //     the way an app swaps a module that needs the disk for one that doesn't;
 //   - `dedupe` (as Vite's): packages that must be ONE copy, resolved from the app — a linked
@@ -30,6 +32,8 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const STANDS_IN = ["http", "https", "url", "crypto", "async_hooks", "diagnostics_channel", "perf_hooks"];
+// packages a worker can't run, with stand-ins here
+const PACKAGES = ["undici"];
 
 /** The worker's Node timer globals (setImmediate) — esbuild's `inject`. */
 export const WORKER_GLOBALS = path.join(HERE, "shims", "globals.js");
@@ -41,6 +45,7 @@ export function workerShims({ appRoot, dedupe = [] }) {
       const builtins = new RegExp(`^(node:)?(${STANDS_IN.join("|")})$`);
       build.onResolve({ filter: builtins }, (args) => ({ path: path.join(HERE, "shims", `${args.path.replace(/^node:/, "")}.js`) }));
       build.onResolve({ filter: /^(node:)?assert$/ }, () => build.resolve("assert/", { resolveDir: appRoot, kind: "require-call" }));
+      build.onResolve({ filter: new RegExp(`^(${PACKAGES.join("|")})$`) }, (args) => ({ path: path.join(HERE, "shims", `${args.path}.js`) }));
       build.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: path.join(HERE, "better-sqlite3.js") }));
       const one = new Set(dedupe);
       if (one.size) {

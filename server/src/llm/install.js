@@ -29,8 +29,6 @@ import { pyStr } from "../platform/py.js";
 import * as api from "./api.js";
 import { makeCacheRouter } from "./cache_api.js";
 import { makeClassTunesRouter } from "./class_tunes_api.js";
-import { buildLlmConfig } from "./config_builder.js";
-import * as db from "./db.js";
 import * as dispatch from "./dispatch.js";
 import { makeEmbedTemplatesRouter } from "./embed_templates_api.js";
 import * as identity from "./identity.js";
@@ -41,6 +39,7 @@ import { makeModelMeasurementsRouter } from "./model_measurements_api.js";
 import { makeModelTunesRouter } from "./model_tunes_api.js";
 import { makePresetsRouter } from "./presets_api.js";
 import { makePricingRouter } from "./pricing_api.js";
+import { prepareLlm } from "./install_core.js";
 import { makeFeatureRouter, makePromptRouter } from "./prompts.js";
 import { makeProviderRouter } from "./provider_api.js";
 import { makeReasoningMapRouter } from "./reasoning_map_api.js";
@@ -51,8 +50,6 @@ import * as stores from "./stores.js";
 import * as switchResolve from "./switch_resolve.js";
 import { makeSwitchPresetsRouter } from "./switch_presets_api.js";
 import { makeTestSamplesRouter } from "./test_samples_api.js";
-import { setLedger } from "./usage.js";
-import { DbUsageSink } from "./usage_sink.js";
 
 const log = getLogger("llm_runner.llm.install");
 
@@ -226,38 +223,23 @@ export async function installLlm(
     );
   }
   await hardware.ensureDetected();
-  // 1. storage — the app's own database backs every shared table.
-  db.createAll(handle);
-  db.configureStorage(handle);
-  // 2. register the app's feature DATA (the only per-app inputs).
-  seed.configureAppSeed({
-    featureCatalog: [...(featureCatalog || [])],
-    featurePrompts: { ...(featurePrompts || {}) },
+  // 1–4. storage, the app's feature data, the usage ledger, the dispatch config (install_core.js)
+  const config = prepareLlm(handle, {
+    featureCatalog,
+    featurePrompts,
     enginePresets,
     featurePresets,
     defaultPresetId,
-    modelCatalogExtra: [...(modelCatalogExtra || [])],
-    modelTunesSeed: [...(modelTunesSeed || [])],
-    classTunesSeed: [...(classTunesSeed || [])],
-    classTuneIdentity: { ...(classTuneIdentity || {}) },
-    embedTemplates: [...(embedTemplates || [])],
-    hwKeyFn: currentHwKey,
+    modelCatalogExtra,
+    modelTunesSeed,
+    classTunesSeed,
+    classTuneIdentity,
+    embedTemplates,
     testSamples,
     featurePromptHeals,
+    preferLocalFeatures,
+    hwKeyFn: currentHwKey,
   });
-  // 2b. the boot-order guarantee: the app's extra catalog rows + this box's tune seed exist
-  // the moment the routers mount, before the host's own seedLlm call runs.
-  if (modelCatalogExtra?.length || modelTunesSeed?.length) {
-    handle.tx(() => {
-      if (modelCatalogExtra?.length) seed.seedExtraCatalog(handle, modelCatalogExtra);
-      if (modelTunesSeed?.length) seed.seedModelTunesIfMissing(handle, currentHwKey(), modelTunesSeed);
-    });
-  }
-  // 3. the DB-backed usage ledger.
-  setLedger(new DbUsageSink());
-  // 4. the dispatch-config builder for the feature-execution router.
-  const plf = new Set(preferLocalFeatures || []);
-  const config = () => buildLlmConfig(plf);
   // 5. mount every LLM router (skipped for the headless boot).
   if (app) mountLlmRouters(app, { featurePrompts, config, allowKeyReveal, dataDir, product });
   // 6. point the bundled runner's catalog/switches at the shared DB.

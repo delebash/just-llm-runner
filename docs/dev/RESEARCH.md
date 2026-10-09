@@ -592,6 +592,30 @@ convergence runs, the change file, both SQLite adapters, the Android 16 emulator
 simulator runs — live in that repo's `docs/dev/RESEARCH.md`; JustWrite's side in JustWrite's
 register, "Sync".
 
+**The phone's in-app server, measured** (*measured*, 2026-10-08/09 — the plan:
+[`docs/plans/2026-10-08-the-phone.md`](../plans/2026-10-08-the-phone.md)):
+- Real Fastify 5 runs in a browser worker, answering through `inject`, when bundled with esbuild,
+  `esbuild-plugins-node-modules-polyfill` and these stand-ins (`server/src/platform/worker/shims/`):
+  `http.ServerResponse` as an old-style constructor (light-my-request calls
+  `ServerResponse.call(this)`; unenv's is a class), `serverFactory` returning a never-listening
+  EventEmitter (Fastify builds an http server at construction), `diagnostics_channel.tracingChannel`,
+  `async_hooks.AsyncResource`, `setImmediate`, `assert` as the CommonJS `assert` package (find-my-way
+  calls it through require), `perf_hooks` as the platform's own `performance` (the polyfill copies
+  `now` unbound: "Illegal invocation" in reply timing), `crypto` from Web Crypto (the polyfill is
+  3.8 MB). `inject`'s `signal` needs `stream.addAbortSignal`, which the polyfill lacks — the runtime
+  ends the response stream instead.
+- JustWrite's phone bundle: 9.5 MB with sync and the online AI stack; boot to the first answer
+  ≈ 0.3 s in Chrome.
+- linkedom 0.18.13 answers `getAttribute("class")` with `""` for a missing attribute (the DOM says
+  null; TipTap reads null) and lists attributes in another order than happy-dom; with the first
+  fixed, TipTap's conversion gives the same documents on every tutorial scene.
+- A partial WebView's DevTools: Playwright's connectOverCDP fails ("Browser context management is not
+  supported"); plain CDP over the page's socket works, and a dedicated worker is reached through the
+  page's session (`Target.setAutoAttach`, flatten), not its own /json entry (that hangs).
+- Android: a worker's plain-HTTP call from `https://localhost` needs `allowMixedContent` and a network
+  config allowing cleartext (it can't name private ranges); `@capacitor/barcode-scanner` 3.1 needs
+  minSdk 26.
+
 **Quasar for the family, measured** (*measured*, 2026-10-08 — the template, `template/`, built and
 run on this machine; the rules it led to are `docs/app-structure.md` §Q). This answers the "Not
 verified" line above:

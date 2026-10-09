@@ -129,7 +129,7 @@ test("csrf_rejects_foreign_origins_on_mutations_only", async () => {
     detail: "cross-origin request rejected",
     instance: "/v1/things",
   });
-  for (const ok of [null, "", "http://localhost:1430", "http://localhost:9999", "tauri://localhost", "http://myhost:1234"]) {
+  for (const ok of [null, "", "http://localhost:1430", "http://localhost:9999", "tauri://localhost", "https://localhost", "capacitor://localhost", "http://myhost:1234"]) {
     expect([ok, (await post(ok)).statusCode]).toEqual([ok, 200]); // last one: the same origin
   }
   expect((await post("http://myhost:9999")).statusCode).toBe(403); // re.match anchors the start only…

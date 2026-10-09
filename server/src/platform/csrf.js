@@ -13,7 +13,7 @@
 //
 // Allowed: no `Origin` (non-browser clients) · SAME-ORIGIN, derived per request (the
 // server-hosted UI — browsers DO send Origin on same-origin mutations; JW hit that
-// 2026-07-15) · the shared Tauri origins + the app's own `appOrigins` (its dev server) ·
+// 2026-07-15) · the shared Tauri and Capacitor (phone) origins + the app's own `appOrigins` (its dev server) ·
 // `extraOrigins`/`originRegex` (an app's CORS allowlist, reused — ONE allowlist, never a
 // second list) · any non-mutating method. Rejected: everything else, 403 problem+json.
 //
@@ -28,6 +28,12 @@ import { requestPath, sendProblem } from "./auth.js";
 // that routes through the Tauri HTTP plugin sends no Origin at all; one that fetches
 // directly — docgen — sends these.)
 export const TAURI_ORIGINS = Object.freeze(["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"]);
+
+// The phone app's webview origins (Capacitor: Android serves the page from https://localhost, iOS
+// from capacitor://localhost) — identical for every app in the family. A phone syncing with a
+// laptop's server, or using it directly, sends these (2026-10-08, the sync product: the kit's
+// docs/plans/2026-10-08-sync-product-design.md). Its requests also carry the bearer token.
+export const CAPACITOR_ORIGINS = Object.freeze(["https://localhost", "capacitor://localhost"]);
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -58,6 +64,7 @@ export function csrfOriginHook({ appOrigins = [], extraOrigins = [], originRegex
   const guarded = (p) => (prefixes || []).some((pre) => p.startsWith(pre));
   const allow = new Set([
     ...TAURI_ORIGINS,
+    ...CAPACITOR_ORIGINS,
     ...(appOrigins || []).filter(Boolean),
     ...(extraOrigins || []).filter(Boolean),
   ]);

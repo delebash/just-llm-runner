@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 import { chromium } from "file:///E:/Dev/Web/justwrite-app/node_modules/playwright/index.mjs";
 const browser = await chromium.launch();
 for (const [ports, route, sel] of [[[8783, 8784], "/personas", "input[type=search], input[placeholder*='earch'], input[placeholder*='ilter']"], [[8785, 8786], "/", "input"], [[8781, 8782], "/characters", "input[placeholder*='earch'], input[placeholder*='ilter']"]]) {

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 3's behaviour, on both builds: checkbox and switch answer the same way.
 import { chromium } from "file:///E:/Dev/Web/justwrite-app/node_modules/playwright/index.mjs";
 

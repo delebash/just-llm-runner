@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 import all from "./scenario-s8.js";
 const sortBy = (n, times) => `(() => { for (let i = 0; i < ${times}; i++) document.querySelectorAll('table.ui-table')[0].querySelectorAll('thead th.is-sortable')[${n}].click(); })()`;
 export default [

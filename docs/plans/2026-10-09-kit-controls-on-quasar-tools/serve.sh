@@ -1,5 +1,4 @@
 #!/bin/bash
-# SPDX-License-Identifier: MIT
 # Start the four Q3 test servers on a slice's data copies: JW base 8781 / new 8782, JV base 8783 / new 8784.
 #   bash serve.sh <sliceDir>
 SP=/c/Users/danel/AppData/Local/Temp/claude/E--Dev-Web-JustVioce/010ca198-6cb0-4bfe-86b8-0e9ec1770500/scratchpad

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 2's behaviour, on both builds: the same answers from UiButton's users.
 import { chromium } from "file:///E:/Dev/Web/justwrite-app/node_modules/playwright/index.mjs";
 

@@ -602,3 +602,8 @@
 }
 :where(.ui-table-wrap .q-table tbody td)::before,
 :where(.ui-table-wrap .q-table tbody td)::after { content: none; }
+
+/* ── Layout (every app's layouts/MainLayout.vue: q-layout, q-header, q-drawer) ── */
+/* The drawer holds the app's own sidebar, which paints its own background; Quasar's drawer is a
+   white panel (no Sass variable reaches it — the header's fill is a variable, ./variables.scss). */
+:where(.q-drawer) { background: none; }

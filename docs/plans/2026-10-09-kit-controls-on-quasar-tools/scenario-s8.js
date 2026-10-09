@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 8's states: tables at rest, a column sorted each way, a row hovered, keyboard focus in a
 // cell control, the empty row, the pager, dark — JustVoice's Personas / Voices / Settings, JustWrite's
 // characters index, docgen's dashboard.

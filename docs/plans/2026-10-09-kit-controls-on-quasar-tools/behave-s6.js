@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 6's behaviour, on both builds: the segmented control (JustVoice's persona filters and kind),
 // the tab strip (JustVoice's Settings), the slider (JustVoice's Generation settings and a persona
 // knob), the colour picker (JustWrite's project colours) and the progress bar (docgen's

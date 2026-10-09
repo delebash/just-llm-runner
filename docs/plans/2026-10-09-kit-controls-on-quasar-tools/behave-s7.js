@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 7's behaviour, on both builds: the modal (JustWrite's Critique: Esc, ✕, the backdrop, the
 // focus trap, the drag, the close timing), the prompt and confirm dialogs (JustWrite's New part,
 // Clear…), the feature chip's popover inside the modal, the help drawer, and the toasts (timing,

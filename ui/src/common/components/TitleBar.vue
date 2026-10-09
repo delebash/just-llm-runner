@@ -7,8 +7,9 @@
 // to go — JW's mechanic, with docgen's post-nav setTimeout(0) settle) and the
 // centred title. Everything to the RIGHT is the app's own via the default slot
 // (JW: theme + mode menus, chat, AiStatusButton · docgen: mode cycle +
-// AiStatusButton). Renders class "titlebar" alongside "lu-titlebar" so both
-// apps' existing CSS and the e2e selectors keep working.
+// AiStatusButton). The `start` slot is the left end, before back/forward (the
+// phone's ☰ that opens the layout's drawer). Renders class "titlebar" alongside
+// "lu-titlebar" so both apps' existing CSS and the e2e selectors keep working.
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
@@ -34,6 +35,9 @@ onBeforeUnmount(() => stopAfterEach?.());
 
 <template>
   <header class="titlebar lu-titlebar">
+    <!-- The app's own left end, before back/forward: the phone's ☰ that opens the layout's
+         drawer (nothing on a computer). -->
+    <slot name="start" />
     <button class="iconbtn lu-titlebar-btn" :disabled="!canBack"
       v-tooltip.bottom="canBack ? 'Back' : 'Back (no history)'" @click="router.back()">
       <Icon name="ChevLeft" :size="16" />

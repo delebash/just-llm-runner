@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 8's behaviour, on both builds: the table sorts (each sortable column through its click
 // cycle), filters, pages, clicks through to a row, shows its empty row, and adds no Tab stop —
 // JustVoice's Personas / Lexicons / Voices / Effects, JustWrite's entity index, docgen's dashboard

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 5's behaviour, on both builds: the selects answer the same way.
 import { chromium } from "file:///E:/Dev/Web/justwrite-app/node_modules/playwright/index.mjs";
 

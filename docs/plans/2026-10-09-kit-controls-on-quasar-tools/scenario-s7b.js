@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 7b's states: the row menus (JustVoice's Personas and Voices, the kit's model catalog on
 // JustWrite's AI Settings) and JustWrite's StatusSelect — closed, open, an item hovered, opened
 // from the keyboard, dark.

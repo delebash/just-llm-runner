@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 2's states: UiButton — intents (primary, secondary, ghost), sizes (small, icon), disabled;
 // rest, hover, keyboard focus, dark mode, another accent; JustVoice and JustWrite.
 const JV = [8783, 8784];

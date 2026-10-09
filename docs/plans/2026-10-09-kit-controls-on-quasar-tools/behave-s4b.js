@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 import { chromium } from "file:///E:/Dev/Web/justwrite-app/node_modules/playwright/index.mjs";
 const browser = await chromium.launch();
 for (const port of [8785, 8786]) {

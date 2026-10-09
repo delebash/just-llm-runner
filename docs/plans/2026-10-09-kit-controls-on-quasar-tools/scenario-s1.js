@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 1's states: UiChip (JustVoice's filter chips) and UiTag (JustVoice's voice table, JustWrite's
 // chapter status tags) — rest, hover, keyboard focus, dark mode, another accent.
 const JV = [8783, 8784];

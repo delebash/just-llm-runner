@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 4's states: UiInput, UiTextarea, UiNumber — rest, hover, keyboard focus, typed text,
 // dark, another accent; JustWrite, JustVoice, docgen.
 const JV = [8783, 8784];

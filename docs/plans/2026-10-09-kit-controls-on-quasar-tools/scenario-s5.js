@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 5's states: UiSelect (JustVoice's voice filters) and UiMultiSelect (docgen's target
 // languages) — closed, keyboard focus, open, an item hovered, dark, another accent, filtered.
 const JV = [8783, 8784];

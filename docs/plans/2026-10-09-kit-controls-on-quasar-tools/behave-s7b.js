@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 7b's behaviour, on both builds: the row menu (JustVoice's Personas — pointer, keyboard,
 // typing, Esc, outside click, an action that opens a prompt, a disabled item) and JustWrite's
 // StatusSelect (open, pick, keyboard, Esc, New status…).

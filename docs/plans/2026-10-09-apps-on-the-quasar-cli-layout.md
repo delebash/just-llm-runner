@@ -71,7 +71,7 @@ docgen's translation runs and `i18n:report` read), JustWrite's `phone/`.
 | `views/settingsSections.js` (+ its test) | `services/settingsSections.js` |
 | `styles/tokens.css` · `styles/styles.css` · `fonts.css` | `css/tokens.css` · `css/app.scss` · `css/fonts.css`, in `quasar.config.js > css` (fonts first, as the boot imported them) |
 | `components/OnboardingShell.vue` | stays a component, used by the layout |
-| — | `pages/ErrorNotFound.vue` (the catch-all, today a redirect home — kept as a redirect, the app's behaviour) |
+| — | no catch-all: JustWrite has none today (the CLI's own comment: "you can also remove it") |
 
 ### JustVoice
 
@@ -204,4 +204,38 @@ elements.
 
 ## 8 · Built
 
-—
+**Dependencies** — kit 4b42ae5 (the template, the kit's server and UI peers, the plan), a2f99cc
+(biome.json schemas); just-sqlite-sync 2fd899f; JustWrite bed0fdc; JustVoice 616a209; docgen
+04484f3. Found on the way: happy-dom 20.14.6 serialises a style as browsers do and the phone's
+linkedom doesn't — JustWrite's phone scene HTML now matches (its RESEARCH); the kit's PostCSS step
+parsed without `from` (Vite warned).
+
+**JustWrite** — what the side-by-side taught:
+
+- **The cascade order is declared, not incidental.** The stylesheets moved from the boot file into
+  `quasar.config.js > css`, which the entry imports before any module — so the kit's stylesheet,
+  which had loaded first (the boot's modules imported the kit before the boot imported styles.css),
+  came after JustWrite's and won ties (`button:not(.ui-btn)` over `.titlebar-right button`: the
+  title bar's icons darkened). The `css` list names the kit's three stylesheets (`~@delebash/llm-ui/…`)
+  before `app.scss`.
+- **The layout's root is fixed to the window and clips** (`.app-stage`, as the grid shell's was):
+  Chrome then paints the whole app, the fixed overlays included, in one opaque layer whose text
+  keeps sub-pixel smoothing; with the document as the scroller the chat panel, the help drawer and
+  the palette were layers of their own and their text turned grey-smoothed (DevTools LayerTree:
+  "OverflowScrolling", "Overlap").
+- **`view="hhh lpr fff"`** (header and drawer not fixed): the window never scrolls; a fixed drawer
+  was a compositing layer of its own whose icons antialiased differently (up to 49/255).
+- **The collapsed rail is QDrawer's mini mode** (`#mini` slot, Sidebar's `rail` prop) — the phone's
+  mobile drawer has no mini mode, so it always shows the full sidebar. A width change applies at
+  once; the mini toggle animates (Quasar's 0.12s; the grid's column transition was 0.22s).
+- The connection-error screen is the route `/offline?from=…` (a guard in the boot file); Retry
+  returns to `from`. vue-i18n is `boot/i18n.js`, as the CLI's i18n preset wires it.
+
+Checked: lint; unit 590 (the boot smoke runs both boot files); build:spa; the installer build;
+e2e 7/7; the ten screens against the pre-port build (≤ 0.007%, 1/255 only; the AI page's live
+memory); the shell's states (rest, collapse, expand, drag-resize to 338px, dark, the chat panel,
+the help drawer, the palette, 1024 and 1920 windows) — 0 pixels but 88 at 1/255; onboarding with
+no book (`/`, `/welcome`, `/ai`, `/help`, `/sync`, `/chapters` → welcome) — 0 pixels, same
+redirects; the connection-error screen (the same but the port in its URL) and its way back to the
+page; the phone build at 390px — the page full width, the ☰ opening Quasar's drawer over a
+backdrop, closing on navigation.

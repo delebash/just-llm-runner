@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 3's states: UiCheckbox (JustVoice's persona table, JustWrite's Export) and UiToggle
 // (the AI settings' warm-on-startup switch, docgen's Server settings) — rest, checked/on, hover,
 // keyboard focus, disabled, dark, another accent.

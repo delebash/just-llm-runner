@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Crop the same box out of <tag>.base.png and <tag>.new.png, scale it, and stack them (base on
 // top) into <tag>.crop.png.   node crop.js <dir> <tag> x y w h [scale]
 import { readFileSync, writeFileSync } from "node:fs";

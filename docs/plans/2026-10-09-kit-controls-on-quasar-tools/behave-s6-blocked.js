@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // The off option of JustVoice's persona-kind segmented control: listed, dimmed, and a click says why.
 import { chromium } from "file:///E:/Dev/Web/justwrite-app/node_modules/playwright/index.mjs";
 const browser = await chromium.launch();

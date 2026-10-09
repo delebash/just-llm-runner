@@ -40,6 +40,9 @@ export * from "./common/index.js";
 // docs/plans/2026-10-09-kit-controls-on-quasar.md.
 import "./quasar/theme.css";
 export { QUASAR_TEST_OPTIONS, installQuasarTheme } from "./quasar/install.js";
+// Every app's pages: <q-page :style-fn="pageFill"> — a page exactly as tall as the window under
+// the layout's header (./quasar/page.js).
+export { pageFill } from "./quasar/page.js";
 
 // llm-ui-specific primitives still local (model picker/combobox)
 export { default as LuCombobox } from "./components/LuCombobox.vue";

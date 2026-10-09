@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 4's behaviour, on both builds: the text fields answer the same way.
 import { chromium } from "file:///E:/Dev/Web/justwrite-app/node_modules/playwright/index.mjs";
 

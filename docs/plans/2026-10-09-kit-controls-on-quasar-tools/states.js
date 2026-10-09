@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Q3 states: drive the build from before Q3 and the current build the same way (hover, keyboard
 // focus, dark mode, an accent change, a click…) and compare a clip of each state, so a control's
 // states are checked, not only its rest look. The two servers must be running (parity.js's ports

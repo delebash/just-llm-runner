@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 import { chromium } from "file:///E:/Dev/Web/justwrite-app/node_modules/playwright/index.mjs";
 import scen from "./scenario-s8.js";
 const grow = scen.find((s) => s.name === "characters-pager").prep;

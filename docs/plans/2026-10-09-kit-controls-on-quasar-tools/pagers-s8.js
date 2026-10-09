@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 import { chromium } from "file:///E:/Dev/Web/justwrite-app/node_modules/playwright/index.mjs";
 const browser = await chromium.launch();
 const routes = { 8782: ["/characters", "/locations", "/plot", "/chapters", "/ai", "/notes", "/items", "/factions"], 8784: ["/personas", "/lexicons", "/voices", "/effects", "/studio", "/projects", "/captures", "/settings", "/ai"], 8786: ["/", "/runs", "/review", "/docs", "/ai"] };

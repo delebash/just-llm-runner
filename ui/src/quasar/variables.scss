@@ -49,3 +49,16 @@ $menu-box-shadow    : var(--shadow-2);
 $tooltip-background : var(--ink);
 $tooltip-color      : var(--surface);
 $tooltip-fontsize   : 11.5px;
+
+// The layout (every app's layouts/MainLayout.vue: q-layout > q-header + q-drawer +
+// q-page-container). Its header and drawer hold the app's own chrome — the title bar, the
+// sidebar — which paints itself, so Quasar's brand fill and white text are off. They stack below
+// the family's overlays — the AI-tasks panel (z 120), the modal overlay (200), the toasts (250),
+// the menus — as the grid shells' rows and columns did (they had no z-index); the phone's drawer
+// (mobile behaviour, an overlay with a backdrop at one below it) sits above the page and the
+// panels and below a modal.
+$layout-marginal-background : transparent;
+$layout-marginal-color      : inherit;
+$z-side                     : 2;
+$z-marginals                : 3;
+$z-fixed-drawer             : 150;

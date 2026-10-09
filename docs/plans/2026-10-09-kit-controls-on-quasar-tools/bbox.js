@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // The boxes of differing pixels in a diff map (red = differs), merged into regions.
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";

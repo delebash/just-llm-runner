@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 7's states: the modal (JustWrite's Writing settings and Critique), the prompt and confirm
 // dialogs (JustWrite's Save preset and Clear models cache), the feature chip's popover (in the
 // Ask-the-book panel and inside a modal), the help drawer, and the toasts (JustWrite's dark ones

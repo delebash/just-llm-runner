@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Put <name>.base.png and <name>.new.png side by side (base left), scaled: node sbs.js <dir> <name> [scale]
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";

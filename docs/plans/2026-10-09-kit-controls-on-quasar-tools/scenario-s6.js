@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Slice 6's states: the tab strip (JustWrite's one row, JustVoice's two), the segmented control
 // (JustWrite's connected Appearance rows and icon toggle, the AI scope, JustVoice's small persona
 // filters), the slider (JustVoice's Generation settings and persona knobs), the progress bar

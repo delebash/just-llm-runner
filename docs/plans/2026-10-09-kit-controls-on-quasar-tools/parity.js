@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: MIT
 // Q3 side by side: for each app, the build taken before Q3 (scratchpad q3-base/<app>) and the
 // app checkout's current dist/spa, each served by the app's own server on its own copy of a fresh
 // snapshot of the app's real database (warm-on-boot off in the copies), screenshotted on the same

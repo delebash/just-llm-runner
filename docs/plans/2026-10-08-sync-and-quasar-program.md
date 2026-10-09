@@ -143,8 +143,9 @@ The phone needs both halves (the sync engine, and JustWrite as a Quasar/Capacito
 - The servers move to Hono: DECIDED 2026-10-09 (the kit's TASKS, "The family's servers move to
   Hono"; plan `2026-10-09-hono-standard.md`) — the phone's in-app server runs Hono through
   `app.fetch` instead of Fastify through `inject` on Node stand-ins. Comes before the phone's slice
-  6 (iOS), so iOS is built once, on the final shape. Waits for the user's word on the plan's §3/§5,
-  then slice 1.
+  6 (iOS), so iOS is built once, on the final shape. DONE 2026-10-09 — kit 932ffb1 1feab06,
+  just-sqlite-sync 22a7277, JustWrite c89dd89 dcdd753, docgen 9ab95ed, JustVoice e193d9d; the
+  phone checked on the Android 16 emulator. Next here: the phone's slice 5 (its screens), then 6.
 
 ## Stops (things only the user can do)
 
